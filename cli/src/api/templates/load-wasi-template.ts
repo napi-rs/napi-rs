@@ -287,48 +287,36 @@ async function __normalizeModuleForEmnapi(__module) {
   )
 }
 
-function __getBeforeExitListeners(__process) {
-  if (!__process) {
+function __captureEmnapiAutoDestroyListener(__process) {
+  if (
+    !__process ||
+    typeof __process.prependListener !== 'function' ||
+    typeof __process.removeListener !== 'function'
+  ) {
     return
   }
-  const __getListeners =
-    typeof __process.rawListeners === 'function'
-      ? __process.rawListeners
-      : typeof __process.listeners === 'function'
-        ? __process.listeners
-        : undefined
-  if (!__getListeners) {
-    return
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
   }
   try {
-    return __getListeners.call(__process, 'beforeExit')
-  } catch {}
-}
-
-function __removeAddedBeforeExitListeners(__process, __beforeListeners) {
-  if (!__process || !__beforeListeners) {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    __process.prependListener('newListener', __captureListener)
+  } catch {
     return
   }
-  const __afterListeners = __getBeforeExitListeners(__process)
-  if (!__afterListeners) {
-    return
-  }
-  const __remainingBeforeListeners = new Map()
-  for (const __listener of __beforeListeners) {
-    __remainingBeforeListeners.set(
-      __listener,
-      (__remainingBeforeListeners.get(__listener) || 0) + 1,
-    )
-  }
-  for (const __listener of __afterListeners) {
-    const __remaining = __remainingBeforeListeners.get(__listener) || 0
-    if (__remaining > 0) {
-      __remainingBeforeListeners.set(__listener, __remaining - 1)
-      continue
-    }
+  return () => {
     try {
-      __process.removeListener('beforeExit', __listener)
+      __process.removeListener('newListener', __captureListener)
     } catch {}
+    if (__autoDestroyListener !== undefined) {
+      try {
+        __process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
   }
 }
 
@@ -396,18 +384,19 @@ function __registerManagedEmnapiContext(__process, __destroy) {
 function __createManagedEmnapiContext() {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
-  const __beforeExitListeners = __getBeforeExitListeners(__process)
+  const __finishAutoDestroyCapture =
+    __captureEmnapiAutoDestroyListener(__process)
   let __emnapiContext
   try {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
-  } catch (error) {
-    __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
-    throw error
+    // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
+    // contract that keeps this context alive until our explicit cleanup runs.
+    __emnapiContext.suppressDestroy()
+  } finally {
+    // Remove only the exact legacy callback captured above. suppressDestroy()
+    // remains the safety net if listener removal is unavailable or fails.
+    __finishAutoDestroyCapture?.()
   }
-  // emnapi <= 1.11 ignores autoDestroy and installs an anonymous listener.
-  // Remove only listeners added synchronously by this context construction;
-  // newer runtimes add none when autoDestroy is false.
-  __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
   let __disposed = false
   let __unregisterExit
   const __destroy = () => {
@@ -757,56 +746,49 @@ const __wasi = new __nodeWASI({
   }
 })
 
-function __getBeforeExitListeners() {
-  const __getListeners =
-    typeof process.rawListeners === 'function'
-      ? process.rawListeners
-      : typeof process.listeners === 'function'
-        ? process.listeners
-        : undefined
-  if (!__getListeners) {
+function __captureEmnapiAutoDestroyListener() {
+  if (
+    typeof process.prependListener !== 'function' ||
+    typeof process.removeListener !== 'function'
+  ) {
     return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
   }
   try {
-    return __getListeners.call(process, 'beforeExit')
-  } catch {}
-}
-
-function __removeAddedBeforeExitListeners(__beforeListeners) {
-  if (!__beforeListeners) {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    process.prependListener('newListener', __captureListener)
+  } catch {
     return
   }
-  const __afterListeners = __getBeforeExitListeners()
-  if (!__afterListeners) {
-    return
-  }
-  const __remainingBeforeListeners = new Map()
-  for (const __listener of __beforeListeners) {
-    __remainingBeforeListeners.set(
-      __listener,
-      (__remainingBeforeListeners.get(__listener) || 0) + 1,
-    )
-  }
-  for (const __listener of __afterListeners) {
-    const __remaining = __remainingBeforeListeners.get(__listener) || 0
-    if (__remaining > 0) {
-      __remainingBeforeListeners.set(__listener, __remaining - 1)
-      continue
-    }
+  return () => {
     try {
-      process.removeListener('beforeExit', __listener)
+      process.removeListener('newListener', __captureListener)
     } catch {}
+    if (__autoDestroyListener !== undefined) {
+      try {
+        process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
   }
 }
 
-const __beforeExitListeners = __getBeforeExitListeners()
+const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
 let __emnapiContext
 try {
   __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
+  // contract that keeps this context alive until our explicit cleanup runs.
+  __emnapiContext.suppressDestroy()
 } finally {
-  // emnapi <= 1.11 ignores autoDestroy and installs an anonymous beforeExit
-  // listener. Remove only listeners added synchronously by this context.
-  __removeAddedBeforeExitListeners(__beforeExitListeners)
+  // Remove only the exact legacy callback captured above. suppressDestroy()
+  // remains the safety net if listener removal is unavailable or fails.
+  __finishAutoDestroyCapture?.()
 }
 let __emnapiContextDestroyed = false
 

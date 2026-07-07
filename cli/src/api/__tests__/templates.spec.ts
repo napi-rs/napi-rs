@@ -157,7 +157,10 @@ test('threaded WASI node workers sanitize inherited source execArgv', (t) => {
         }
       case '@emnapi/runtime':
         return {
-          createContext: () => ({ destroy() {} }),
+          createContext: () => ({
+            destroy() {},
+            suppressDestroy() {},
+          }),
         }
       default:
         throw new Error(`Unexpected require: ${specifier}`)
@@ -269,7 +272,10 @@ test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => 
         }
       case '@emnapi/runtime':
         return {
-          createContext: () => ({ destroy() {} }),
+          createContext: () => ({
+            destroy() {},
+            suppressDestroy() {},
+          }),
         }
       default:
         throw new Error(`Unexpected require: ${specifier}`)
@@ -359,7 +365,10 @@ function executeGeneratedWasiNodeBinding(
         case '@emnapi/runtime':
           return {
             createContext() {
-              return { destroy() {} }
+              return {
+                destroy() {},
+                suppressDestroy() {},
+              }
             },
           }
         default:
@@ -462,8 +471,12 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('export async function dispose'))
   t.true(src.includes('asyncWorkPoolSize: 0'))
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
+  t.true(src.includes('__emnapiContext.suppressDestroy()'))
+  t.true(src.includes('__captureEmnapiAutoDestroyListener'))
   t.true(src.includes('__managedEmnapiContextDestroyers'))
   t.true(src.includes("__process.once('exit', __destroyManagedEmnapiContexts)"))
+  t.false(src.includes("__process.rawListeners('beforeExit')"))
+  t.false(src.includes('__removeAddedBeforeExitListeners'))
   t.false(src.includes("import { Buffer } from 'buffer'"))
   t.false(src.includes('__emnapiContext.feature.Buffer = Buffer'))
   t.true(bufferedSrc.includes("import { Buffer } from 'buffer'"))
@@ -790,6 +803,7 @@ export async function instantiateNapiModule() {
   })
   return {
     feature,
+    suppressDestroy() {},
     destroy() {
       state.destroyAttempts.push(id)
       if (state.cleanupError) {
@@ -1011,6 +1025,7 @@ export async function instantiateNapiModule() {
     throw new Error('deferred loader must disable emnapi auto-destroy')
   }
   return {
+    suppressDestroy() {},
     destroy() {
       globalThis.__napiDeferredRaceState.destroyed++
     },
@@ -1085,7 +1100,7 @@ if (state.destroyed !== 1) {
 )
 
 test.serial(
-  'Node WASI bindings remain usable when beforeExit schedules more work',
+  'WASI loaders preserve newListener-owned beforeExit listeners and remain usable when work resumes',
   async (t) => {
     const tmpDir = await mkdtemp(
       join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-before-exit-'),
@@ -1135,6 +1150,10 @@ function createContext(options) {
   }
   const context = {
     destroyed: false,
+    suppressed: false,
+    suppressDestroy() {
+      this.suppressed = true
+    },
     destroy() {
       if (!this.destroyed) {
         this.destroyed = true
@@ -1144,7 +1163,11 @@ function createContext(options) {
   }
   globalThis.__beforeExitTestContexts.push(context)
   // Emulate emnapi 1.11.x ignoring autoDestroy.
-  process.once('beforeExit', () => context.destroy())
+  process.once('beforeExit', () => {
+    if (!context.suppressed) {
+      context.destroy()
+    }
+  })
   return context
 }
 `
@@ -1208,7 +1231,23 @@ export { createContext }
 
 globalThis.__beforeExitTestContexts = []
 globalThis.__beforeExitTestDestroyed = 0
+globalThis.__unrelatedBeforeExitRuns = 0
 const initialBeforeExitListeners = process.rawListeners('beforeExit').length
+const unrelatedBeforeExitListeners = []
+let addingUnrelatedBeforeExitListener = false
+const addUnrelatedBeforeExitListener = (event) => {
+  if (event !== 'beforeExit' || addingUnrelatedBeforeExitListener) {
+    return
+  }
+  addingUnrelatedBeforeExitListener = true
+  const listener = () => {
+    globalThis.__unrelatedBeforeExitRuns++
+  }
+  unrelatedBeforeExitListeners.push(listener)
+  process.once('beforeExit', listener)
+  addingUnrelatedBeforeExitListener = false
+}
+process.on('newListener', addUnrelatedBeforeExitListener)
 const require = createRequire(import.meta.url)
 const ordinary = require('./binding.cjs')
 const deferred = await import('./deferred.mjs')
@@ -1217,12 +1256,32 @@ const module = new WebAssembly.Module(
 )
 const singleton = await deferred.instantiate(module)
 const independent = await deferred.createInstance(module)
+process.removeListener('newListener', addUnrelatedBeforeExitListener)
 
-if (process.rawListeners('beforeExit').length !== initialBeforeExitListeners) {
+const retainedBeforeExitListeners = process.rawListeners('beforeExit')
+if (
+  retainedBeforeExitListeners.length !==
+  initialBeforeExitListeners + unrelatedBeforeExitListeners.length
+) {
   throw new Error('emnapi beforeExit listener leaked')
+}
+if (unrelatedBeforeExitListeners.length !== 3) {
+  throw new Error('newListener hook did not observe every emnapi registration')
+}
+for (const listener of unrelatedBeforeExitListeners) {
+  if (
+    !retainedBeforeExitListeners.some(
+      (retained) => retained === listener || retained.listener === listener,
+    )
+  ) {
+    throw new Error('generated loader removed an unrelated beforeExit listener')
+  }
 }
 if (globalThis.__beforeExitTestContexts.length !== 3) {
   throw new Error('unexpected context count')
+}
+if (globalThis.__beforeExitTestContexts.some((context) => !context.suppressed)) {
+  throw new Error('generated loader did not suppress emnapi auto-destroy')
 }
 
 process.once('beforeExit', () => {
@@ -1239,6 +1298,7 @@ process.once('beforeExit', () => {
 })
 process.once('exit', () => {
   if (
+    globalThis.__unrelatedBeforeExitRuns !== 3 ||
     globalThis.__beforeExitTestDestroyed !== 3 ||
     globalThis.__beforeExitTestContexts.some((context) => !context.destroyed)
   ) {
@@ -1334,6 +1394,7 @@ module.exports = __napiModule.exports
     const state = globalThis.__cjsRollbackState
     const id = ++state.contexts
     return {
+      suppressDestroy() {},
       destroy() {
         state.destroyAttempts.push(id)
         if (state.cleanupError) {
@@ -1581,6 +1642,7 @@ export async function instantiateNapiModule(module, options) {
   }
   const id = ++state.contexts
   return {
+    suppressDestroy() {},
     destroy() {
       state.destroyAttempts.push(id)
       if (state.cleanupError) {
@@ -2139,7 +2201,7 @@ module.exports = __napiModule.exports
         case '@emnapi/runtime':
           return {
             createContext() {
-              const context = {}
+              const context = { suppressDestroy() {} }
               contexts.push(context)
               return context
             },
