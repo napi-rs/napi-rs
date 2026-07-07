@@ -33,6 +33,8 @@ use napi::bindgen_prelude::{
   Result, Status, Unknown,
   AsyncRuntimeGuard, AsyncRuntimeTask, Buffer, Env, Error, JsObjectValue, Object, PromiseRaw,
   Result, Status,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Buffer, Env, Error, JsObjectValue, JsValue, Object,
+  PromiseRaw, Result, Status, Unknown,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};

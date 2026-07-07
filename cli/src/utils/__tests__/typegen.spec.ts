@@ -9,12 +9,10 @@ import legacyTypeScript from 'typescript-legacy'
 
 import { generateTypeDef } from '../../api/build.js'
 import {
-  correctStringIdent,
-  processTypeDef,
-  processTypeDefs,
   appendTypeImports,
   correctStringIdent,
   processTypeDef,
+  processTypeDefs,
   removeNodeStreamWebTypeImports,
   rewriteTypeImportReferences,
 } from '../typegen.js'

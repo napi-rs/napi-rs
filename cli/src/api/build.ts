@@ -1785,14 +1785,8 @@ export async function generateTypeDef(
 
   dts = processedTypeDefs.dts
   exports = processedTypeDefs.exports
-  dts = processedTypeDefs.map(({ dts }) => dts).join('')
-  const dtsWithTypeImportMarkers = processedTypeDefs
-    .map(({ dtsWithTypeImportMarkers }) => dtsWithTypeImportMarkers)
-    .join('')
-  exports = processedTypeDefs.flatMap(({ exports }) => exports)
-  const typeImports = processedTypeDefs.flatMap(
-    ({ typeImports }) => typeImports,
-  )
+  const dtsWithTypeImportMarkers = processedTypeDefs.dtsWithTypeImportMarkers
+  const typeImports = processedTypeDefs.typeImports
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `

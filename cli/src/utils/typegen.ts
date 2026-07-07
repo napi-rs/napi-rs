@@ -307,16 +307,16 @@ export async function processTypeDefs(
   reservedDeclarationText: string = '',
 ) {
   const exports: string[] = []
-  const groupedTypeDefs = await Promise.all(
-    intermediateTypeFiles.map(async (file) =>
-      preprocessTypeDef(await readIntermediateTypeFile(file)),
-  const defs = await readIntermediateTypeFile(intermediateTypeFile)
-  const typeImports = collectTypeImports(defs)
+  const typeDefs = await Promise.all(
+    intermediateTypeFiles.map((file) => readIntermediateTypeFile(file)),
+  )
+  const typeImports = collectTypeImports(typeDefs.flat())
   const dtsWithTypeImportMarkers = renderTypeDefs(
-    preprocessTypeDef(preserveTypeImportMarkers(defs)),
+    typeDefs.map((defs) => preprocessTypeDef(preserveTypeImportMarkers(defs))),
     constEnum,
     runtimeStringEnum,
     exports,
+    reservedDeclarationText,
   )
   const dts = rewriteTypeImportReferences(
     dtsWithTypeImportMarkers,
@@ -333,19 +333,12 @@ export async function processTypeDefs(
 }
 
 function renderTypeDefs(
-  groupedDefs: Map<string, TypeDefLine[]>,
+  groupedTypeDefs: Map<string, TypeDefLine[]>[],
   constEnum: boolean,
   runtimeStringEnum: boolean,
-  exports?: string[],
+  exports: string[],
+  reservedDeclarationText: string,
 ): string {
-  const hasIteratorClass = Array.from(groupedDefs.values()).some((defs) =>
-    defs.some(
-      (def) =>
-        def.kind === TypeDefKind.Struct &&
-        def.extends !== undefined &&
-        parseIteratorExtends(def.extends) !== undefined,
-    ),
-  )
   const topLevelExportNames = new Set<string>()
   for (const groupedDefs of groupedTypeDefs) {
     for (const [namespace, namespaceDefs] of groupedDefs) {
@@ -354,39 +347,6 @@ function renderTypeDefs(
           throw new Error(
             'The export name `globalThis` is reserved by NAPI-RS type generation',
           )
-
-  const renderedDefs = sortBy(Array.from(groupedDefs), [
-    ([namespace]) => namespace,
-  ])
-    .map(([namespace, defs]) => {
-      if (namespace === TOP_LEVEL_NAMESPACE) {
-        return defs
-          .map((def) => {
-            switch (def.kind) {
-              case TypeDefKind.Const:
-              case TypeDefKind.Enum:
-              case TypeDefKind.StringEnum:
-              case TypeDefKind.Fn:
-              case TypeDefKind.Struct: {
-                exports?.push(def.name)
-                if (def.original_name && def.original_name !== def.name) {
-                  exports?.push(def.original_name)
-                }
-                break
-              }
-              default:
-                break
-            }
-            return prettyPrint(def, constEnum, runtimeStringEnum, 0)
-          })
-          .join('\n\n')
-      } else {
-        exports?.push(namespace)
-        let declaration = ''
-        declaration += `export declare namespace ${namespace} {\n`
-        for (const def of defs) {
-          declaration +=
-            prettyPrint(def, constEnum, runtimeStringEnum, 2, true) + '\n'
         }
         topLevelExportNames.add(namespace)
       }
@@ -1035,7 +995,6 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
             classDef.def = classDef.def.replace(/\\n/g, '\n')
           }
         }
-        classDef.def += def.def
       }
     } else {
       group.push(def)
