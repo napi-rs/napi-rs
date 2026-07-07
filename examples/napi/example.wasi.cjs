@@ -1,3 +1,4 @@
+// napi-rs-artifact-metadata:{"version":1,"rootEntry":"index.cjs"}
 /* eslint-disable */
 /* prettier-ignore */
 
@@ -9,10 +10,10 @@ const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
 const {
-  createContext: __emnapiCreateContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
+const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 
 const __rootDir = __nodePath.parse(process.cwd()).root
 
@@ -24,29 +25,121 @@ const __wasi = new __nodeWASI({
   }
 })
 
-const __emnapiContext = __emnapiCreateContext()
-
-const __sharedMemory = new WebAssembly.Memory({
-  initial: 16384,
-  maximum: 65536,
-  shared: true,
-})
-
-let __wasmFilePath = __nodePath.join(__dirname, 'example.wasm32-wasi.wasm')
-const __wasmDebugFilePath = __nodePath.join(__dirname, 'example.wasm32-wasi.debug.wasm')
-
-if (__nodeFs.existsSync(__wasmDebugFilePath)) {
-  __wasmFilePath = __wasmDebugFilePath
-} else if (!__nodeFs.existsSync(__wasmFilePath)) {
+function __getBeforeExitListeners() {
+  const __getListeners =
+    typeof process.rawListeners === 'function'
+      ? process.rawListeners
+      : typeof process.listeners === 'function'
+        ? process.listeners
+        : undefined
+  if (!__getListeners) {
+    return
+  }
   try {
-    __wasmFilePath = require.resolve('@examples/napi-wasm32-wasi/example.wasm32-wasi.wasm')
-  } catch {
-    throw new Error('Cannot find example.wasm32-wasi.wasm file, and @examples/napi-wasm32-wasi package is not installed.')
+    return __getListeners.call(process, 'beforeExit')
+  } catch {}
+}
+
+function __removeAddedBeforeExitListeners(__beforeListeners) {
+  if (!__beforeListeners) {
+    return
+  }
+  const __afterListeners = __getBeforeExitListeners()
+  if (!__afterListeners) {
+    return
+  }
+  const __remainingBeforeListeners = new Map()
+  for (const __listener of __beforeListeners) {
+    __remainingBeforeListeners.set(
+      __listener,
+      (__remainingBeforeListeners.get(__listener) || 0) + 1,
+    )
+  }
+  for (const __listener of __afterListeners) {
+    const __remaining = __remainingBeforeListeners.get(__listener) || 0
+    if (__remaining > 0) {
+      __remainingBeforeListeners.set(__listener, __remaining - 1)
+      continue
+    }
+    try {
+      process.removeListener('beforeExit', __listener)
+    } catch {}
   }
 }
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
-  context: __emnapiContext,
+const __beforeExitListeners = __getBeforeExitListeners()
+let __emnapiContext
+try {
+  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+} finally {
+  // emnapi <= 1.11 ignores autoDestroy and installs an anonymous beforeExit
+  // listener. Remove only listeners added synchronously by this context.
+  __removeAddedBeforeExitListeners(__beforeExitListeners)
+}
+let __emnapiContextDestroyed = false
+
+function __destroyEmnapiContext() {
+  if (__emnapiContextDestroyed) {
+    return
+  }
+  const __result = __emnapiContext.destroy()
+  __emnapiContextDestroyed = true
+  return __result
+}
+
+function __attachCleanupError(__error, __cleanupError) {
+  try {
+    if (
+      __error &&
+      (typeof __error === 'object' || typeof __error === 'function') &&
+      __error.cause === undefined
+    ) {
+      __error.cause = __cleanupError
+    }
+  } catch {}
+}
+
+let __sharedMemory
+let __napiInstance
+let __wasiModule
+let __napiModule
+let __emnapiContextRegisteredForExit = false
+
+try {
+  process.once('exit', __destroyEmnapiContext)
+  __emnapiContextRegisteredForExit = true
+
+  __sharedMemory = new WebAssembly.Memory({
+    initial: 16384,
+    maximum: 65536,
+    shared: true,
+  })
+
+  let __wasmFilePath = __nodePath.join(__dirname, 'example.wasm32-wasi.wasm')
+  const __wasmDebugFilePath = __nodePath.join(__dirname, 'example.wasm32-wasi.debug.wasm')
+
+  if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+    __wasmFilePath = __wasmDebugFilePath
+  } else if (!__nodeFs.existsSync(__wasmFilePath)) {
+    const __wasiPackageEntry = require.resolve('@examples/napi-wasm32-wasi')
+    const __packagedWasmFilePath = __nodePath.join(
+    __nodePath.dirname(__wasiPackageEntry),
+    'example.wasm32-wasi.wasm',
+    )
+    if (!__nodeFs.existsSync(__packagedWasmFilePath)) {
+      throw new Error(
+        '@examples/napi-wasm32-wasi is installed but is missing example.wasm32-wasi.wasm.',
+      )
+    }
+    __wasmFilePath = __packagedWasmFilePath
+  }
+
+  ;({
+    instance: __napiInstance,
+    module: __wasiModule,
+    napiModule: __napiModule,
+  } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
+    context: __emnapiContext,
   asyncWorkPoolSize: (function() {
     const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
     // NaN > 0 is false
@@ -57,7 +150,7 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   })(),
   reuseWorker: true,
-  wasi: __wasi,
+    wasi: __wasi,
   onCreateWorker() {
     const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
       env: process.env,
@@ -90,23 +183,37 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
     return worker
   },
-  overwriteImports(importObject) {
-    importObject.env = {
-      ...importObject.env,
-      ...importObject.napi,
-      ...importObject.emnapi,
-      memory: __sharedMemory,
-    }
-    return importObject
-  },
-  beforeInit({ instance }) {
-    for (const name of Object.keys(instance.exports)) {
-      if (name.startsWith('__napi_register__')) {
-        instance.exports[name]()
+    overwriteImports(importObject) {
+      importObject.env = {
+        ...importObject.env,
+        ...importObject.napi,
+        ...importObject.emnapi,
+        memory: __sharedMemory,
       }
-    }
-  },
-})
+      return importObject
+    },
+    beforeInit({ instance }) {
+      for (const name of Object.keys(instance.exports)) {
+        if (name.startsWith('__napi_register__')) {
+          instance.exports[name]()
+        }
+      }
+    },
+  }))
+} catch (__error) {
+  try {
+    __destroyEmnapiContext()
+  } catch (__cleanupError) {
+    __attachCleanupError(__error, __cleanupError)
+    throw __error
+  }
+  if (__emnapiContextRegisteredForExit) {
+    try {
+      process.removeListener('exit', __destroyEmnapiContext)
+    } catch {}
+  }
+  throw __error
+}
 const unsupportedWasiFunctions = new Set([
   'abandonDeferredClones',
   'armTokioBlockingTlsRetirementProbe',

@@ -1,9 +1,9 @@
 import {
-  createContext as __emnapiCreateContext,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
+import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'
 
 
@@ -112,6 +112,16 @@ const __wasi = new __WASI({
 })
 
 const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url).href
+const __wasmResponse = await globalThis.fetch(__wasmUrl)
+if (!__wasmResponse.ok) {
+  throw new Error(
+    'Failed to fetch WASI module ' + __wasmUrl + ': ' +
+      __wasmResponse.status + ' ' +
+      (__wasmResponse.statusText || 'Unknown Status'),
+  )
+}
+const __wasmFile = await __wasmResponse.arrayBuffer()
+
 const __emnapiContext = __emnapiCreateContext()
 __emnapiContext.feature.Buffer = Buffer
 

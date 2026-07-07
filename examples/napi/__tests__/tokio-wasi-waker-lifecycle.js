@@ -11,10 +11,10 @@ const operationTimeout = 10_000
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 process.env.NAPI_RS_FORCE_WASI = 'true'
-const wasmRuntime = require('@napi-rs/wasm-runtime')
-const createContext = wasmRuntime.createContext
+const emnapiRuntime = require('@emnapi/runtime')
+const createContext = emnapiRuntime.createContext
 const wasiContexts = []
-wasmRuntime.createContext = function captureWasiContext(...args) {
+emnapiRuntime.createContext = function captureWasiContext(...args) {
   const context = createContext.apply(this, args)
   wasiContexts.push(context)
   return context
@@ -23,7 +23,7 @@ let lifecycle
 try {
   lifecycle = require('../index.cjs')
 } finally {
-  wasmRuntime.createContext = createContext
+  emnapiRuntime.createContext = createContext
 }
 assert.equal(wasiContexts.length, 1)
 const [wasiContext] = wasiContexts

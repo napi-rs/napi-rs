@@ -11,6 +11,8 @@ const operationTimeout = 10_000
 const wasmRuntime = require('@napi-rs/wasm-runtime')
 const createContext = wasmRuntime.createContext
 const instantiateNapiModuleSync = wasmRuntime.instantiateNapiModuleSync
+const emnapiRuntime = require('@emnapi/runtime')
+const createContext = emnapiRuntime.createContext
 
 async function waitForResult(path, description) {
   const deadline = Date.now() + operationTimeout
@@ -41,6 +43,7 @@ function loadFresh() {
   const contexts = []
   const instances = []
   wasmRuntime.createContext = function captureWasiContext(...args) {
+  emnapiRuntime.createContext = function captureWasiContext(...args) {
     const context = createContext.apply(this, args)
     contexts.push(context)
     return context
@@ -58,6 +61,7 @@ function loadFresh() {
   } finally {
     wasmRuntime.createContext = createContext
     wasmRuntime.instantiateNapiModuleSync = instantiateNapiModuleSync
+    emnapiRuntime.createContext = createContext
   }
   assert.equal(contexts.length, 1)
   assert.equal(instances.length, 1)

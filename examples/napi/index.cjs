@@ -547,9 +547,29 @@ function createLoadErrorChain(errors) {
 // Treating any non-empty string as truthy (the historical behavior) meant
 // NAPI_RS_FORCE_WASI=false, NAPI_RS_FORCE_WASI=0, etc. inadvertently triggered
 // the WASI path, causing ENOENT for packages shipped without a .wasi.cjs file.
+//
+// NAPI_RS_WASI_FLAVOR selects one exact generated flavor and implies strict
+// WASI loading. It never crosses into another flavor or falls back to native.
+const __napiWasiFlavors = ["wasm32-wasi"]
+const __napiWasiFlavor = process.env.NAPI_RS_WASI_FLAVOR
+const __napiWasiFlavorRequested =
+  typeof __napiWasiFlavor === 'string' && __napiWasiFlavor.length > 0
+if (
+  __napiWasiFlavorRequested &&
+  __napiWasiFlavors.indexOf(__napiWasiFlavor) === -1
+) {
+  throw new Error(
+    'Unsupported WASI flavor "' +
+      __napiWasiFlavor +
+      '". Available flavors: ' +
+      __napiWasiFlavors.join(', '),
+  )
+}
 const forceWasiError = process.env.NAPI_RS_FORCE_WASI === 'error'
 const forceWasi =
-  process.env.NAPI_RS_FORCE_WASI === 'true' || forceWasiError
+  process.env.NAPI_RS_FORCE_WASI === 'true' ||
+  forceWasiError ||
+  __napiWasiFlavorRequested
 
 if (!forceWasi) {
   nativeBinding = requireNative()
@@ -557,31 +577,93 @@ if (!forceWasi) {
 
 if (!nativeBinding || forceWasi) {
   let wasiBinding = null
+  let wasiBindingLoaded = false
   const wasiBindingErrors = []
-  try {
-    wasiBinding = require('./example.wasi.cjs')
-    nativeBinding = wasiBinding
-  } catch (err) {
-    if (forceWasi) {
-      wasiBindingErrors.push(err)
-    }
-  }
-  if (!nativeBinding) {
+  const __napiWasiResolveCandidate = (specifier, isPackage, localArtifacts) => {
     try {
-      wasiBinding = require('@examples/napi-wasm32-wasi')
+      require.resolve(specifier)
+    } catch (resolveError) {
+      if (!resolveError || resolveError.code !== 'MODULE_NOT_FOUND') {
+        throw resolveError
+      }
+      if (isPackage) {
+        try {
+          require.resolve(specifier + '/package.json')
+        } catch (packageError) {
+          if (packageError && packageError.code === 'MODULE_NOT_FOUND') {
+            return resolveError
+          }
+          // An exports restriction proves the package exists even when its
+          // package.json is not public. Preserve the root resolution failure.
+          throw resolveError
+        }
+        // The package exists but its main/export target is broken.
+        throw resolveError
+      }
+      return resolveError
+    }
+    if (localArtifacts) {
+      let artifactError = null
+      for (let i = 0; i < localArtifacts.length; i++) {
+        try {
+          require.resolve(localArtifacts[i])
+          return null
+        } catch (resolveError) {
+          if (!resolveError || resolveError.code !== 'MODULE_NOT_FOUND') {
+            throw resolveError
+          }
+          artifactError = resolveError
+        }
+      }
+      return artifactError
+    }
+    return null
+  }
+  if (!wasiBindingLoaded && (!__napiWasiFlavorRequested || __napiWasiFlavor === "wasm32-wasi")) {
+    const candidateError = __napiWasiResolveCandidate('./example.wasi.cjs', false, ["./example.wasm32-wasi.debug.wasm","./example.wasm32-wasi.wasm"])
+    if (!candidateError) {
+      wasiBinding = require('./example.wasi.cjs')
       nativeBinding = wasiBinding
-    } catch (err) {
+      wasiBindingLoaded = true
+    } else {
       if (forceWasi) {
-        wasiBindingErrors.push(err)
-        loadErrors.push(err)
+        wasiBindingErrors.push(candidateError)
       }
     }
   }
-  if (!nativeBinding && forceWasi && !forceWasiError) {
+  if (!wasiBindingLoaded && (!__napiWasiFlavorRequested || __napiWasiFlavor === "wasm32-wasi")) {
+    const candidateError = __napiWasiResolveCandidate('@examples/napi-wasm32-wasi', true, undefined)
+    if (!candidateError) {
+      if (process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+        const bindingPackageVersion = require('@examples/napi-wasm32-wasi/package.json').version
+        if (bindingPackageVersion !== '0.0.0') {
+          throw new Error(`WASI binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        }
+      }
+      wasiBinding = require('@examples/napi-wasm32-wasi')
+      nativeBinding = wasiBinding
+      wasiBindingLoaded = true
+    } else {
+      if (forceWasi) {
+        wasiBindingErrors.push(candidateError)
+        loadErrors.push(candidateError)
+      }
+    }
+  }
+  if (
+    !wasiBindingLoaded &&
+    forceWasi &&
+    !forceWasiError &&
+    !__napiWasiFlavorRequested
+  ) {
     nativeBinding = requireNative()
   }
-  if (forceWasiError && !wasiBinding) {
-    const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
+  if ((forceWasiError || __napiWasiFlavorRequested) && !wasiBindingLoaded) {
+    const error = new Error(
+      __napiWasiFlavorRequested
+        ? 'WASI binding for flavor "' + __napiWasiFlavor + '" not found'
+        : 'WASI binding not found and NAPI_RS_FORCE_WASI is set to error',
+    )
     error.cause = createLoadErrorChain(wasiBindingErrors)
     throw error
   }
