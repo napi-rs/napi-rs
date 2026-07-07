@@ -71,11 +71,11 @@ ${workerErrorHandler}
     : ''
 
   return `import {
-  createContext as __emnapiCreateContext,
 ${workerRuntimeImport}\
   ${emnapiInstantiateImport},
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
+import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 ${fsImport}
 ${bufferImport}
 ${wasiCreation}
@@ -655,9 +655,9 @@ ${workerImports}\
 
 const {
 ${workerRuntimeImport}\
-  createContext: __emnapiCreateContext,
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
+const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 
 const __rootDir = __nodePath.parse(process.cwd()).root
 

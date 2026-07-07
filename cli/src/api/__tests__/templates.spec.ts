@@ -151,15 +151,18 @@ function executeGeneratedWasiNodeBinding(
           return { WASI: class {} }
         case '@napi-rs/wasm-runtime':
           return {
-            createContext() {
-              return {}
-            },
             instantiateNapiModuleSync() {
               return {
                 instance: {},
                 module: {},
                 napiModule: { exports: {} },
               }
+            },
+          }
+        case '@emnapi/runtime':
+          return {
+            createContext() {
+              return { destroy() {} }
             },
           }
         default:
@@ -738,7 +741,14 @@ module.exports = __napiModule.exports
         '@napi-rs',
         'wasm-runtime',
       )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
       await mkdir(runtimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
       await writeFile(
         join(runtimeDir, 'package.json'),
         JSON.stringify({
@@ -748,6 +758,30 @@ module.exports = __napiModule.exports
       )
       await writeFile(
         join(runtimeDir, 'index.cjs'),
+        `module.exports = {
+  instantiateNapiModuleSync() {
+    const state = globalThis.__cjsRollbackState
+    if (state.initializationError) {
+      throw state.initializationError
+    }
+    return {
+      instance: {},
+      module: {},
+      napiModule: { exports: {} },
+    }
+  },
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          main: './index.cjs',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.cjs'),
         `module.exports = {
   createContext(options) {
     if (!options || options.autoDestroy !== false) {
@@ -763,17 +797,6 @@ module.exports = __napiModule.exports
         }
         state.destroyed.push(id)
       },
-    }
-  },
-  instantiateNapiModuleSync() {
-    const state = globalThis.__cjsRollbackState
-    if (state.initializationError) {
-      throw state.initializationError
-    }
-    return {
-      instance: {},
-      module: {},
-      napiModule: { exports: {} },
     }
   },
 }
@@ -1512,11 +1535,6 @@ module.exports = __napiModule.exports
           return { Worker: class {} }
         case '@napi-rs/wasm-runtime':
           return {
-            createContext() {
-              const context = {}
-              contexts.push(context)
-              return context
-            },
             createOnMessage() {},
             instantiateNapiModuleSync(
               _wasm: Uint8Array,
@@ -1532,6 +1550,14 @@ module.exports = __napiModule.exports
                   },
                 },
               }
+            },
+          }
+        case '@emnapi/runtime':
+          return {
+            createContext() {
+              const context = {}
+              contexts.push(context)
+              return context
             },
           }
         default:
@@ -1579,7 +1605,11 @@ module.exports = __napiModule.exports
   t.is(second.add(2, 3), 5)
 
   const browserCode = createWasiBrowserBinding('test')
-  t.true(browserCode.includes('createContext as __emnapiCreateContext'))
+  t.true(
+    browserCode.includes(
+      "import { createContext as __emnapiCreateContext } from '@emnapi/runtime'",
+    ),
+  )
   t.false(browserCode.includes('napi.rs.wasi.context'))
 })
 
