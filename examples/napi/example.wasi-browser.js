@@ -169,6 +169,7 @@ export const AsyncComplexTypeGenerator = __napiModule.exports.AsyncComplexTypeGe
 export const AsyncDataSource = __napiModule.exports.AsyncDataSource
 export const AsyncFib = __napiModule.exports.AsyncFib
 export const AsyncGeneratorSetupFailure = __napiModule.exports.AsyncGeneratorSetupFailure
+export const AsyncIteratorAdmissionProbe = __napiModule.exports.AsyncIteratorAdmissionProbe
 export const AsyncReentrantGenerator = __napiModule.exports.AsyncReentrantGenerator
 export const AsyncThrowClass = __napiModule.exports.AsyncThrowClass
 export const Bird = __napiModule.exports.Bird

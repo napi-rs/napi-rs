@@ -59,20 +59,12 @@ impl DeferredTrace {
       "Failed to get referenced value in DeferredTrace"
     )?;
 
-    let mut obj = Object::from_raw(raw_env, raw);
-    // Reuse the original JS error object when it is safe to read on this thread;
+    // Reuse the original JS rejection value when it is safe to read on this thread;
     // the shared `napi_ref` is released when `err` drops at the end of the call.
     let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
-      let err_obj = Object::from_raw(raw_env, err_raw_value);
-      if err_obj.has_named_property("message")? {
-        // The error was already created inside the JS engine, just return it
-        Ok(err_obj.raw())
-      } else {
-        obj.set_named_property("message", "")?;
-        obj.set_named_property("code", "")?;
-        Ok(raw)
-      }
+      Ok(err_raw_value)
     } else {
+      let mut obj = Object::from_raw(raw_env, raw);
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(
         "code",
@@ -1051,7 +1043,7 @@ fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Resul
     #[cfg(feature = "deferred_trace")]
     let error = trace.into_rejected(env, e);
     #[cfg(not(feature = "deferred_trace"))]
-    let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(e).into_value(env) });
+    let error = unsafe { ToNapiValue::to_napi_value(env, e) };
 
     match error {
       Ok(error) => {

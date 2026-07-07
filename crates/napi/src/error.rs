@@ -33,17 +33,18 @@ pub struct Error<S: AsRef<str> = Status> {
   pub status: S,
   pub reason: String,
   pub cause: Option<Box<Error>>,
-  // A JS-exception-derived `Error` (`From<Unknown>`, or a ThreadsafeFunction
-  // JS-throw) owns a `napi_ref` to the original JS error object, kept behind a
-  // reference-counted [`ErrorRef`]. With N-API 4 this is an `Arc`, so
-  // `try_clone` can share it across threads while custom GC routes the single
-  // release to the owning JavaScript thread. Earlier N-API versions use `Rc`
-  // and keep the owner thread-affine. `None` for errors that hold no JS
-  // reference (Rust-constructed, or a WASM error built from a JS value).
+  // A JS-derived `Error` can own a `napi_ref` to its original JS value, kept
+  // behind a reference-counted [`ErrorRef`]. Values that N-API cannot reference
+  // directly (including primitives) are retained through a private holder
+  // object. With N-API 4 this is an `Arc`, so `try_clone` can share it across
+  // threads while custom GC routes the single release to the owning JavaScript
+  // thread. Earlier N-API versions use `Rc` and keep the owner thread-affine.
+  // `None` is used for errors that retain no JS value, including
+  // Rust-constructed errors and ordinary WASM `From<Unknown>` conversions.
   pub(crate) maybe_ref: Option<ErrorRefHandle>,
 }
 
-/// Shared owner of a JS error object's thread-affine `napi_ref`.
+/// Shared owner of a JS value's thread-affine `napi_ref`.
 ///
 /// The `napi_ref` is created once at refcount 1. Under N-API 4, `try_clone` may
 /// share it through an `Arc` and foreign-thread release is routed through the
@@ -53,6 +54,7 @@ pub struct Error<S: AsRef<str> = Status> {
 /// leaves the reference for env teardown rather than calling N-API off-thread.
 pub(crate) struct ErrorRef {
   raw: sys::napi_ref,
+  indirect: bool,
   #[cfg_attr(feature = "noop", allow(dead_code))]
   env: sys::napi_env,
   owner_thread: std::thread::ThreadId,
@@ -74,26 +76,35 @@ unsafe impl Send for ErrorRef {}
 unsafe impl Sync for ErrorRef {}
 
 impl ErrorRef {
-  /// Wraps a freshly created (`refcount == 1`) JS error `napi_ref`, capturing
+  /// Wraps a freshly created (`refcount == 1`) JS value `napi_ref`, capturing
   /// the current thread's custom-GC handle. Must be called on the owning JS
-  /// thread with a non-null `raw` — both construction sites (`From<Unknown>` and
-  /// the ThreadsafeFunction JS-throw path) only build an `ErrorRef` after
-  /// `napi_create_reference` succeeds, so `ErrorRef::drop` can release without a
-  /// null check.
-  #[cfg(not(target_family = "wasm"))]
+  /// thread with a non-null `raw`. Every construction site builds an `ErrorRef`
+  /// only after `napi_create_reference` succeeds, so `ErrorRef::drop` can
+  /// release without a null check.
   pub(crate) fn new(raw: sys::napi_ref, env: sys::napi_env) -> Self {
     debug_assert!(!raw.is_null(), "ErrorRef must wrap a non-null napi_ref");
     Self {
       raw,
+      indirect: false,
       env,
       owner_thread: std::thread::current().id(),
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
       custom_gc: crate::bindgen_prelude::current_custom_gc_handle(env),
     }
   }
+
+  #[cfg_attr(
+    not(any(feature = "tokio_rt", feature = "async-runtime")),
+    allow(dead_code)
+  )]
+  fn new_indirect(raw: sys::napi_ref, env: sys::napi_env) -> Self {
+    let mut value = Self::new(raw, env);
+    value.indirect = true;
+    value
+  }
 }
 
-/// Releases a JS error's `napi_ref` on the owning JS thread: unref to 0, then
+/// Releases a JS value's `napi_ref` on the owning JS thread: unref to 0, then
 /// delete. Called exactly once, from `ErrorRef::drop`.
 #[cfg(not(feature = "noop"))]
 fn release_error_reference(env: sys::napi_env, reference: sys::napi_ref) {
@@ -140,6 +151,52 @@ impl<S: AsRef<str>> Error<S> {
   }
 }
 
+impl Error {
+  #[cfg_attr(
+    not(any(feature = "tokio_rt", feature = "async-runtime")),
+    allow(dead_code)
+  )]
+  pub(crate) fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
+    let env = value.0.env;
+    let mut holder = ptr::null_mut();
+    let status = unsafe { sys::napi_create_object(env, &mut holder) };
+    if status != sys::Status::napi_ok {
+      return Self::new(
+        Status::from(status),
+        "Create Error value holder failed".to_owned(),
+      );
+    }
+    let status = unsafe {
+      sys::napi_set_named_property(
+        env,
+        holder,
+        c"[[ErrorValue]]".as_ptr().cast(),
+        value.0.value,
+      )
+    };
+    if status != sys::Status::napi_ok {
+      return Self::new(
+        Status::from(status),
+        "Store Error value in holder failed".to_owned(),
+      );
+    }
+    let mut reference = ptr::null_mut();
+    let status = unsafe { sys::napi_create_reference(env, holder, 1, &mut reference) };
+    if status != sys::Status::napi_ok {
+      return Self::new(
+        Status::from(status),
+        "Create Error value holder reference failed".to_owned(),
+      );
+    }
+    Self {
+      status: Status::GenericFailure,
+      reason: String::new(),
+      cause: None,
+      maybe_ref: Some(ErrorRefHandle::new(ErrorRef::new_indirect(reference, env))),
+    }
+  }
+}
+
 impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(
@@ -154,8 +211,9 @@ impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
 impl<S: AsRef<str>> ToNapiValue for Error<S> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     if let Some(value) = unsafe { val.referenced_value(env) } {
-      // Reuse the original JS error object (keeps its subclass, stack, and own
-      // properties). The shared `napi_ref` is released when `val`'s handle drops.
+      // Reuse the original JS value. For errors this keeps the subclass, stack,
+      // and own properties; arbitrary rejection values preserve exact identity.
+      // The shared `napi_ref` is released when `val`'s handle drops.
       Ok(value)
     } else {
       // No JS reference, or converting off the owning thread: rebuild a fresh
@@ -326,9 +384,9 @@ impl<S: AsRef<str> + Clone> Error<S> {
   /// only owned Rust data and never touches a thread-affine reference.
   /// `try_clone` uses it whenever it cannot share the original's `napi_ref`: with
   /// no custom-GC handle to route an off-thread release, or when the error holds
-  /// no reference at all (a Rust-constructed error, or a WASM error built from a
-  /// JS value). Cloning it preserves the cause chain so a later reference-less
-  /// conversion (`into_value` with `maybe_ref == None`) can re-attach `.cause`.
+  /// no reference at all (for example, a Rust-constructed error). Cloning it
+  /// preserves the cause chain so a later reference-less conversion
+  /// (`into_value` with `maybe_ref == None`) can re-attach `.cause`.
   fn reference_less_clone(&self) -> Self {
     Self {
       status: self.status.clone(),
@@ -343,8 +401,8 @@ impl<S: AsRef<str> + Clone> Error<S> {
 
   /// Clones this `Error`.
   ///
-  /// An `Error` derived from a JS exception (e.g. a `Promise` rejection) owns a
-  /// `napi_ref` to the original JS value, kept behind a shared `ErrorRef`. The
+  /// An `Error` derived from a JS exception or rejection may own a `napi_ref`
+  /// to the original JS value, kept behind a shared `ErrorRef`. The
   /// clone shares that reference under N-API 4 by cloning the `Arc` — an atomic
   /// bump with no napi FFI — so both map back to the same JS object and the clone
   /// can be sent to another thread; the single `napi_ref` is released exactly
@@ -378,16 +436,15 @@ impl<S: AsRef<str> + Clone> Error<S> {
       }),
       // No custom-GC handle (pre-`napi4` build, or a reference created before
       // module registration, which has no safe off-thread release path), or no
-      // JS reference at all (a Rust-constructed error, or a WASM error built
-      // from a JS value): rebuild from the owned fields, preserving the cause
-      // chain instead of dropping it.
+      // JS reference at all: rebuild from the owned fields, preserving the
+      // cause chain instead of dropping it.
       _ => Ok(self.reference_less_clone()),
     }
   }
 }
 
 impl<S: AsRef<str>> Error<S> {
-  /// Reads the referenced JS error object, but only when it is safe to touch on
+  /// Reads the referenced JS value, but only when it is safe to touch on
   /// the current thread. The `napi_ref` is thread-affine, so with a napi4
   /// custom-GC handle we read it only with proof we are on the owning JS thread;
   /// off the owning thread (a shared clone being converted on a foreign env) it
@@ -417,6 +474,14 @@ impl<S: AsRef<str>> Error<S> {
     let status = unsafe { sys::napi_get_reference_value(env, error_ref.raw, &mut result) };
     if status != sys::Status::napi_ok {
       return None;
+    }
+    if error_ref.indirect {
+      let status = unsafe {
+        sys::napi_get_named_property(env, result, c"[[ErrorValue]]".as_ptr().cast(), &mut result)
+      };
+      if status != sys::Status::napi_ok {
+        return None;
+      }
     }
     Some(result)
   }

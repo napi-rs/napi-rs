@@ -149,6 +149,24 @@ assert.ok(
 )
 assert.ok(afterAsync.wakeCalls >= beforeAsync.wakeCalls + expectedAsyncTasks)
 
+const runtimeIterator = new binding.RuntimeAsyncIterator(3)[
+  Symbol.asyncIterator
+]()
+assert.deepEqual(
+  await Promise.all([
+    runtimeIterator.next(),
+    runtimeIterator.next(),
+    runtimeIterator.next(),
+    runtimeIterator.next(),
+  ]),
+  [
+    { done: false, value: 0 },
+    { done: false, value: 1 },
+    { done: false, value: 2 },
+    { done: true, value: undefined },
+  ],
+)
+
 binding.rejectNextSpawn()
 await assert.rejects(
   binding.asyncDouble(1),
@@ -157,8 +175,30 @@ await assert.rejects(
 
 const beforeLifecycle = binding.getRuntimeMetrics()
 const cancelled = binding.asyncNever()
+let cancelledIteratorCoercions = 0
+const cancelledIterator = new binding.RuntimeAsyncIterator()[
+  Symbol.asyncIterator
+]()
+const cancelledIteratorRequest = cancelledIterator.throw({
+  [Symbol.toPrimitive]() {
+    cancelledIteratorCoercions++
+    return 'cancelled iterator throw'
+  },
+})
+const cancelledIteratorRejection = assert.rejects(
+  cancelledIteratorRequest,
+  /cancel/i,
+)
 binding.shutdownRuntime()
 await assert.rejects(cancelled, /cancel/i)
+await cancelledIteratorRejection
+await new Promise((resolve) => setImmediate(resolve))
+await new Promise((resolve) => setImmediate(resolve))
+assert.equal(
+  cancelledIteratorCoercions,
+  0,
+  'runtime cancellation must prevent queued async iterator hook admission',
+)
 let stoppedGeneratedPromise
 assert.doesNotThrow(() => {
   stoppedGeneratedPromise = binding.asyncDouble(21)
@@ -420,6 +460,25 @@ if (mode === 'native') {
     await worker.terminate()
   }
   assert.equal(await binding.asyncDouble(11), 22)
+
+  const unpolledProbeDirectory = await mkdtemp(
+    join(tmpdir(), 'napi-custom-runtime-unpolled-drop-'),
+  )
+  try {
+    const resultPath = join(unpolledProbeDirectory, 'result')
+    binding.deferNextSpawnDrain()
+    const unpolled = binding.unpolledShutdownOnDrop(resultPath)
+    binding.shutdownRuntime()
+    await assert.rejects(unpolled, /cancel/i)
+    assert.match(
+      await readFile(resultPath, 'utf8'),
+      /GenericFailure[\s\S]*inside an AsyncRuntime operation/,
+    )
+    await startRuntimeAfterRetirement(binding)
+    assert.equal(await binding.asyncDouble(13), 26)
+  } finally {
+    await rm(unpolledProbeDirectory, { recursive: true, force: true })
+  }
 
   const pureBuild = spawnSync(
     process.execPath,

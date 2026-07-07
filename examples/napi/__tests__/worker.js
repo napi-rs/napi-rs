@@ -108,6 +108,27 @@ parentPort.on('message', ({ type, resultPath }) => {
       lifecycle.pendingAsyncBlockWithTerminalFinalizer(resultPath)
       parentPort.postMessage('pending')
       break
+    case 'async:iterator-teardown': {
+      const probe = new native.AsyncIteratorAdmissionProbe(['value', 'value'])
+      const iterator = probe[Symbol.asyncIterator]()
+      iterator.next()
+      iterator.next()
+      const deadline = Date.now() + 5_000
+      const publishWhenAdmitted = () => {
+        if (probe.events.length !== 0) {
+          parentPort.postMessage({
+            type: 'iterator-pending',
+            events: probe.events,
+          })
+        } else if (Date.now() < deadline) {
+          setImmediate(publishWhenAdmitted)
+        } else {
+          throw new Error('async iterator request was not admitted')
+        }
+      }
+      setImmediate(publishWhenAdmitted)
+      break
+    }
     case 'runtime-finalizer:teardown':
       runtimeLifecycleTeardownObjects.push(
         lifecycle.createRuntimeLifecycleFinalizer(resultPath),

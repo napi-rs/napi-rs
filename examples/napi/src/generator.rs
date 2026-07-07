@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+use std::sync::{Arc, Mutex};
 
 use napi::{bindgen_prelude::*, iterator::ScopedGenerator};
 
@@ -399,6 +400,127 @@ impl AsyncGeneratorSetupFailure {
   #[napi(constructor)]
   pub fn new(panic_in: String) -> Self {
     Self { panic_in }
+  }
+}
+
+struct AsyncIteratorAdmissionProbeState {
+  events: Mutex<Vec<String>>,
+  permits: Arc<tokio::sync::Semaphore>,
+}
+
+#[napi(async_iterator)]
+pub struct AsyncIteratorAdmissionProbe {
+  state: Arc<AsyncIteratorAdmissionProbeState>,
+  outcomes: VecDeque<String>,
+  next_value: u32,
+}
+
+#[napi]
+impl AsyncGenerator for AsyncIteratorAdmissionProbe {
+  type Yield = u32;
+  type Next = i32;
+  type Return = String;
+
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let value = self.next_value;
+    self.next_value += 1;
+    let outcome = self
+      .outcomes
+      .pop_front()
+      .unwrap_or_else(|| "value".to_owned());
+    self
+      .state
+      .events
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .push(format!("next:{value}:{outcome}"));
+    if outcome == "setup-panic" {
+      panic!("intentional queued async iterator setup panic");
+    }
+    let permits = Arc::clone(&self.state.permits);
+
+    async move {
+      let permit = permits.acquire_owned().await.map_err(|_| {
+        Error::new(
+          Status::Cancelled,
+          "async iterator admission probe was closed",
+        )
+      })?;
+      permit.forget();
+      match outcome.as_str() {
+        "error" => Err(Error::new(
+          Status::GenericFailure,
+          "intentional queued async iterator error",
+        )),
+        "panic" => panic!("intentional queued async iterator poll panic"),
+        "none" => Ok(None),
+        _ => Ok(Some(value)),
+      }
+    }
+  }
+
+  fn complete(
+    &mut self,
+    value: Option<Self::Return>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    self
+      .state
+      .events
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .push(format!(
+        "return:{}",
+        value.unwrap_or_else(|| "undefined".to_owned())
+      ));
+    async { Ok(None) }
+  }
+
+  fn catch(
+    &mut self,
+    _env: Env,
+    value: Unknown,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    self
+      .state
+      .events
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .push("throw".to_owned());
+    let error = value.into();
+    async move { Err(error) }
+  }
+}
+
+#[napi]
+impl AsyncIteratorAdmissionProbe {
+  #[napi(constructor)]
+  pub fn new(outcomes: Vec<String>) -> Self {
+    Self {
+      state: Arc::new(AsyncIteratorAdmissionProbeState {
+        events: Mutex::new(Vec::new()),
+        permits: Arc::new(tokio::sync::Semaphore::new(0)),
+      }),
+      outcomes: outcomes.into(),
+      next_value: 0,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn events(&self) -> Vec<String> {
+    self
+      .state
+      .events
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .clone()
+  }
+
+  #[napi]
+  pub fn release(&self, count: u32) {
+    self.state.permits.add_permits(count as usize);
   }
 }
 

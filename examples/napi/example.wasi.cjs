@@ -213,6 +213,7 @@ module.exports.AsyncComplexTypeGenerator = __napiModule.exports.AsyncComplexType
 module.exports.AsyncDataSource = __napiModule.exports.AsyncDataSource
 module.exports.AsyncFib = __napiModule.exports.AsyncFib
 module.exports.AsyncGeneratorSetupFailure = __napiModule.exports.AsyncGeneratorSetupFailure
+module.exports.AsyncIteratorAdmissionProbe = __napiModule.exports.AsyncIteratorAdmissionProbe
 module.exports.AsyncReentrantGenerator = __napiModule.exports.AsyncReentrantGenerator
 module.exports.AsyncThrowClass = __napiModule.exports.AsyncThrowClass
 module.exports.Bird = __napiModule.exports.Bird

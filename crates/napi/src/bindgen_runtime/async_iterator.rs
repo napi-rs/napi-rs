@@ -3,14 +3,19 @@ use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::ptr;
+#[cfg(not(feature = "noop"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot::{channel, Receiver};
+#[cfg(not(feature = "noop"))]
 use futures::FutureExt;
 
+#[cfg(not(feature = "noop"))]
+use crate::{bindgen_runtime::Object, JsDeferred, SendableResolver};
 use crate::{
   bindgen_runtime::{
-    acquire_native_borrow, FromNapiValue, Object, PromiseRaw, ToNapiValue, Unknown,
+    acquire_native_borrow, FromNapiValue, NapiValueOwner, PromiseRaw, ToNapiValue, Unknown,
   },
   check_status, sys, Env, JsError, Value,
 };
@@ -19,6 +24,7 @@ use crate::{
 /// This prevents premature garbage collection without creating an uncollectable strong `napi_ref`.
 /// See: https://github.com/napi-rs/napi-rs/issues/3119
 const INSTANCE_REF_KEY: &CStr = c"[[InstanceRef]]";
+const REQUEST_VALUE_KEY: &CStr = c"[[RequestValue]]";
 
 struct AsyncIteratorCallbackData {
   env: sys::napi_env,
@@ -65,10 +71,6 @@ impl AsyncIteratorRequestMode {
   fn closes_immediately(self) -> bool {
     self == Self::Return
   }
-
-  fn closes_on_none(self) -> bool {
-    self == Self::Next
-  }
 }
 
 #[derive(Default)]
@@ -83,6 +85,7 @@ struct AsyncIteratorState {
   inner: Mutex<AsyncIteratorStateInner>,
 }
 
+#[cfg_attr(feature = "noop", allow(dead_code))]
 struct AsyncIteratorRequest {
   sequence: u64,
   predecessor: Option<Receiver<()>>,
@@ -90,15 +93,6 @@ struct AsyncIteratorRequest {
 }
 
 impl AsyncIteratorState {
-  fn is_terminal(&self) -> bool {
-    self
-      .inner
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .terminal_sequence
-      .is_some()
-  }
-
   fn reserve(&self, mode: AsyncIteratorRequestMode) -> AsyncIteratorRequest {
     let (completion, tail) = channel();
     let mut inner = self
@@ -121,6 +115,7 @@ impl AsyncIteratorState {
     }
   }
 
+  #[cfg_attr(feature = "noop", allow(dead_code))]
   fn should_skip(&self, sequence: u64) -> bool {
     self
       .inner
@@ -130,6 +125,7 @@ impl AsyncIteratorState {
       .is_some_and(|terminal_sequence| sequence > terminal_sequence)
   }
 
+  #[cfg_attr(feature = "noop", allow(dead_code))]
   fn close_at(&self, sequence: u64) {
     let mut inner = self
       .inner
@@ -147,6 +143,106 @@ impl AsyncIteratorState {
 
 type AsyncIteratorFuture<T> =
   Pin<Box<dyn Future<Output = crate::Result<Option<T>>> + Send + 'static>>;
+
+type AsyncIteratorSetup<T> =
+  Box<dyn FnOnce(Env, bool) -> crate::Result<AsyncIteratorFuture<T>> + 'static>;
+
+#[cfg(not(feature = "noop"))]
+type AsyncIteratorDispatchResolver = Box<dyn FnOnce(Env) -> crate::Result<()> + Send + 'static>;
+
+#[cfg(not(feature = "noop"))]
+type AsyncIteratorDispatcher = JsDeferred<(), AsyncIteratorDispatchResolver>;
+
+#[cfg(not(feature = "noop"))]
+struct AsyncIteratorAdmissionCancellation(Arc<AtomicBool>);
+
+#[cfg(not(feature = "noop"))]
+impl Drop for AsyncIteratorAdmissionCancellation {
+  fn drop(&mut self) {
+    self.0.store(true, Ordering::Release);
+  }
+}
+
+struct AsyncIteratorValueReference {
+  reference: sys::napi_ref,
+  owner: NapiValueOwner,
+}
+
+impl AsyncIteratorValueReference {
+  fn new(env: sys::napi_env, value: sys::napi_value) -> crate::Result<Self> {
+    let mut holder = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_create_object(env, &mut holder) },
+      "Failed to create async iterator request value holder"
+    )?;
+    check_status!(
+      unsafe {
+        sys::napi_set_named_property(env, holder, REQUEST_VALUE_KEY.as_ptr().cast(), value)
+      },
+      "Failed to store async iterator request value"
+    )?;
+    let mut reference = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_create_reference(env, holder, 1, &mut reference) },
+      "Failed to retain async iterator request value"
+    )?;
+    Ok(Self {
+      reference,
+      owner: NapiValueOwner::new(env),
+    })
+  }
+
+  fn value(&self, env: sys::napi_env) -> crate::Result<sys::napi_value> {
+    self
+      .owner
+      .ensure_access(env, "async iterator request value")?;
+    let mut holder = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, self.reference, &mut holder) },
+      "Failed to get retained async iterator request value holder"
+    )?;
+    if holder.is_null() {
+      return Err(crate::Error::from_reason(
+        "Async iterator request value holder was already collected",
+      ));
+    }
+    let mut value = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(env, holder, REQUEST_VALUE_KEY.as_ptr().cast(), &mut value)
+      },
+      "Failed to read retained async iterator request value"
+    )?;
+    Ok(value)
+  }
+
+  fn generator<T>(&self, env: sys::napi_env) -> crate::Result<*mut T> {
+    let owner = self.value(env)?;
+    let mut generator_ptr = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_unwrap(env, owner, &mut generator_ptr) },
+      "Failed to unwrap retained async iterator owner"
+    )?;
+    if generator_ptr.is_null() {
+      return Err(crate::Error::from_reason(
+        "Retained async iterator owner contained no native generator",
+      ));
+    }
+    Ok(generator_ptr.cast())
+  }
+}
+
+impl Drop for AsyncIteratorValueReference {
+  fn drop(&mut self) {
+    let status = self.owner.release_reference(self.reference);
+    debug_assert!(
+      status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+      "Release async iterator request reference failed: {}",
+      crate::Status::from(status)
+    );
+    self.reference = ptr::null_mut();
+  }
+}
 
 impl Drop for AsyncIteratorCallbackData {
   fn drop(&mut self) {
@@ -282,7 +378,7 @@ pub trait AsyncGenerator {
     env: Env,
     value: Unknown,
   ) -> impl Future<Output = crate::Result<Option<Self::Yield>>> + Send + 'static {
-    let err = value.into();
+    let err = crate::Error::from_unknown_without_coercion(value);
     async move { Err(err) }
   }
 }
@@ -506,6 +602,33 @@ fn catch_generator_callback<T>(callback: impl FnOnce() -> crate::Result<T>) -> c
     .map_err(crate::bindgen_runtime::panic_to_error)?
 }
 
+#[cfg(not(feature = "noop"))]
+fn take_generator_pending_exception(env: sys::napi_env) -> crate::Result<Option<crate::Error>> {
+  let mut is_pending = false;
+  check_status!(
+    unsafe { sys::napi_is_exception_pending(env, &mut is_pending) },
+    "Failed to check for a pending async generator exception"
+  )?;
+  if !is_pending {
+    return Ok(None);
+  }
+
+  let mut exception = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) },
+    "Failed to get and clear a pending async generator exception"
+  )?;
+  Ok(Some(crate::Error::from_unknown_without_coercion(Unknown(
+    Value {
+      env,
+      value: exception,
+      value_type: crate::ValueType::Unknown,
+    },
+    std::marker::PhantomData,
+  ))))
+}
+
+#[cfg(test)]
 fn generator_argument<T: FromNapiValue>(
   env: sys::napi_env,
   argc: usize,
@@ -518,6 +641,7 @@ fn generator_argument<T: FromNapiValue>(
   }
 }
 
+#[cfg(test)]
 fn with_generator_argument<T: FromNapiValue, U>(
   env: sys::napi_env,
   argc: usize,
@@ -527,6 +651,7 @@ fn with_generator_argument<T: FromNapiValue, U>(
   Ok(callback(generator_argument::<T>(env, argc, value)?))
 }
 
+#[cfg(not(feature = "noop"))]
 fn async_iterator_result_to_napi<T: ToNapiValue>(
   env: sys::napi_env,
   value: Option<T>,
@@ -560,48 +685,104 @@ fn async_iterator_result_to_napi<T: ToNapiValue>(
   unsafe { ToNapiValue::to_napi_value(env, obj) }
 }
 
+#[cfg(not(feature = "noop"))]
 fn spawn_async_iterator_request<T: ToNapiValue + Send + 'static>(
   env: sys::napi_env,
   state: Arc<AsyncIteratorState>,
   mode: AsyncIteratorRequestMode,
-  item: AsyncIteratorFuture<T>,
-  skipped_error: Option<crate::Error>,
+  setup: AsyncIteratorSetup<T>,
 ) -> crate::Result<sys::napi_value> {
+  let (dispatcher, _dispatch_promise) = AsyncIteratorDispatcher::new(&Env::from_raw(env))?;
   let request = state.reserve(mode);
   let sequence = request.sequence;
+  let (admission_sender, admission_receiver) = channel::<crate::Result<AsyncIteratorFuture<T>>>();
+  let admission_gate = Arc::new(AtomicBool::new(false));
+  let dispatch_admission_gate = Arc::clone(&admission_gate);
+  let admission = SendableResolver::new_for_env(
+    env,
+    Box::new(move |env, should_skip| {
+      if dispatch_admission_gate.swap(true, Ordering::AcqRel) {
+        let _ = admission_sender.send(Err(crate::Error::new(
+          crate::Status::Cancelled,
+          "Async iterator request admission was cancelled because its runtime stopped",
+        )));
+        return Ok(ptr::null_mut());
+      }
+      let result = catch_generator_callback(|| setup(Env::from_raw(env), should_skip));
+      let result = match take_generator_pending_exception(env) {
+        Ok(Some(error)) => Err(error),
+        Ok(None) => result,
+        Err(error) => Err(error),
+      };
+      let _ = admission_sender.send(result);
+      Ok(ptr::null_mut())
+    }) as Box<dyn FnOnce(sys::napi_env, bool) -> crate::Result<sys::napi_value> + 'static>,
+  );
   let request_state = Arc::clone(&state);
   let future = async move {
+    let _admission_cancellation = AsyncIteratorAdmissionCancellation(admission_gate);
     if let Some(predecessor) = request.predecessor {
       let _ = predecessor.await;
     }
 
-    if request_state.should_skip(sequence) {
-      return match skipped_error {
-        Some(error) => Err(error),
-        None => Ok(None),
-      };
-    }
-    drop(skipped_error);
+    let should_skip = request_state.should_skip(sequence);
+    dispatcher.resolve(Box::new(move |env| {
+      let _ = admission.resolve(env.raw(), should_skip);
+      Ok(())
+    }));
+    let item = admission_receiver.await.map_err(|_| {
+      crate::Error::new(
+        crate::Status::Cancelled,
+        "Async iterator request admission was cancelled because its Node environment closed",
+      )
+    })??;
 
     let result = AssertUnwindSafe(item)
       .catch_unwind()
       .await
       .map_err(crate::bindgen_runtime::panic_to_error)
       .and_then(|result| result);
-    if result.is_err() || (mode.closes_on_none() && matches!(&result, Ok(None))) {
-      request_state.close_at(sequence);
-    }
     result
   };
 
+  let request_keeps_iterator_open = Arc::new(AtomicBool::new(false));
+  let resolver_keeps_iterator_open = Arc::clone(&request_keeps_iterator_open);
+  let finalize_state = Arc::clone(&state);
   crate::tokio_runtime::execute_tokio_future_with_finalize_callback(
     env,
     future,
-    move |env, value| async_iterator_result_to_napi(env, value, mode),
+    move |env, value| {
+      let keeps_iterator_open = match mode {
+        AsyncIteratorRequestMode::Next => value.is_some(),
+        AsyncIteratorRequestMode::Return => false,
+        AsyncIteratorRequestMode::Throw => true,
+      };
+      let result = async_iterator_result_to_napi(env, value, mode);
+      if result.is_ok() && keeps_iterator_open {
+        resolver_keeps_iterator_open.store(true, Ordering::Release);
+      }
+      result
+    },
     Some(Box::new(move |_| {
+      if !request_keeps_iterator_open.load(Ordering::Acquire) {
+        finalize_state.close_at(sequence);
+      }
       let _ = request.completion.send(());
     })),
   )
+}
+
+#[cfg(feature = "noop")]
+fn spawn_async_iterator_request<T: ToNapiValue + Send + 'static>(
+  _env: sys::napi_env,
+  state: Arc<AsyncIteratorState>,
+  mode: AsyncIteratorRequestMode,
+  setup: AsyncIteratorSetup<T>,
+) -> crate::Result<sys::napi_value> {
+  let request = state.reserve(mode);
+  drop(setup);
+  let _ = request.completion.send(());
+  Ok(ptr::null_mut())
 }
 
 fn generator_next_fn<T: AsyncGenerator>(
@@ -628,21 +809,30 @@ fn generator_next_fn<T: AsyncGenerator>(
   let callback_data = unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
     .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?;
   let state = Arc::clone(&callback_data.state);
-  let item: AsyncIteratorFuture<T::Yield> = if state.is_terminal() {
-    Box::pin(async { Ok(None) })
+  let (owner, _generator_ptr) = callback_data.owner_and_generator::<T>(env)?;
+  let owner = AsyncIteratorValueReference::new(env, owner)?;
+  let argument = if argc == 0 {
+    None
   } else {
-    let (_owner, generator_ptr) = callback_data.owner_and_generator::<T>(env)?;
+    Some(AsyncIteratorValueReference::new(env, argv[0])?)
+  };
+  let setup: AsyncIteratorSetup<T::Yield> = Box::new(move |env, should_skip| {
+    if should_skip {
+      return Ok(Box::pin(async { Ok(None) }));
+    }
+    let value = match argument {
+      Some(argument) => {
+        Some(unsafe { T::Next::from_napi_value(env.raw(), argument.value(env.raw())?) }?)
+      }
+      None => None,
+    };
+    let generator_ptr = owner.generator::<T>(env.raw())?;
     let _native_borrow = acquire_native_borrow(generator_ptr, true)?;
     let g = unsafe { &mut *generator_ptr };
-    Box::pin(with_generator_argument::<T::Next, _>(
-      env,
-      argc,
-      argv[0],
-      |value| g.next(value),
-    )?)
-  };
+    Ok(Box::pin(g.next(value)))
+  });
 
-  spawn_async_iterator_request(env, state, AsyncIteratorRequestMode::Next, item, None)
+  spawn_async_iterator_request(env, state, AsyncIteratorRequestMode::Next, setup)
 }
 
 extern "C" fn generator_return<T: AsyncGenerator>(
@@ -676,16 +866,30 @@ fn generator_return_fn<T: AsyncGenerator>(
   let callback_data = unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
     .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?;
   let state = Arc::clone(&callback_data.state);
-  let item: AsyncIteratorFuture<T::Yield> = if state.is_terminal() {
-    Box::pin(async { Ok(None) })
+  let (owner, _generator_ptr) = callback_data.owner_and_generator::<T>(env)?;
+  let owner = AsyncIteratorValueReference::new(env, owner)?;
+  let argument = if argc == 0 {
+    None
   } else {
-    let (_owner, generator_ptr) = callback_data.owner_and_generator::<T>(env)?;
+    Some(AsyncIteratorValueReference::new(env, argv[0])?)
+  };
+  let setup: AsyncIteratorSetup<T::Yield> = Box::new(move |env, should_skip| {
+    if should_skip {
+      return Ok(Box::pin(async { Ok(None) }));
+    }
+    let value = match argument {
+      Some(argument) => {
+        Some(unsafe { T::Return::from_napi_value(env.raw(), argument.value(env.raw())?) }?)
+      }
+      None => None,
+    };
+    let generator_ptr = owner.generator::<T>(env.raw())?;
     let _native_borrow = acquire_native_borrow(generator_ptr, true)?;
     let g = unsafe { &mut *generator_ptr };
-    Box::pin(g.complete(generator_argument::<T::Return>(env, argc, argv[0])?))
-  };
+    Ok(Box::pin(g.complete(value)))
+  });
 
-  spawn_async_iterator_request(env, state, AsyncIteratorRequestMode::Return, item, None)
+  spawn_async_iterator_request(env, state, AsyncIteratorRequestMode::Return, setup)
 }
 
 extern "C" fn generator_throw<T: AsyncGenerator>(
@@ -719,47 +923,49 @@ fn generator_throw_fn<T: AsyncGenerator>(
   let callback_data = unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
     .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?;
   let state = Arc::clone(&callback_data.state);
-  let value = if argc == 0 {
-    let mut undefined = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_get_undefined(env, &mut undefined) },
-      "Get undefined failed"
-    )?;
-    Unknown(
-      Value {
-        env,
-        value: undefined,
-        value_type: crate::ValueType::Undefined,
-      },
-      std::marker::PhantomData,
-    )
+  let (owner, _generator_ptr) = callback_data.owner_and_generator::<T>(env)?;
+  let owner = AsyncIteratorValueReference::new(env, owner)?;
+  let argument = if argc == 0 {
+    None
   } else {
-    Unknown(
-      Value {
-        env,
-        value: argv[0],
-        value_type: crate::ValueType::Unknown,
-      },
-      std::marker::PhantomData,
-    )
+    Some(AsyncIteratorValueReference::new(env, argv[0])?)
   };
-  let skipped_error = Some(value.into());
-  let item: AsyncIteratorFuture<T::Yield> = if state.is_terminal() {
-    Box::pin(async { Ok(None) })
-  } else {
-    let (_owner, generator_ptr) = callback_data.owner_and_generator::<T>(env)?;
+  let setup: AsyncIteratorSetup<T::Yield> = Box::new(move |env, should_skip| {
+    let value = if let Some(argument) = argument {
+      Unknown(
+        Value {
+          env: env.raw(),
+          value: argument.value(env.raw())?,
+          value_type: crate::ValueType::Unknown,
+        },
+        std::marker::PhantomData,
+      )
+    } else {
+      let mut undefined = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_get_undefined(env.raw(), &mut undefined) },
+        "Get undefined failed"
+      )?;
+      Unknown(
+        Value {
+          env: env.raw(),
+          value: undefined,
+          value_type: crate::ValueType::Undefined,
+        },
+        std::marker::PhantomData,
+      )
+    };
+    if should_skip {
+      let error = crate::Error::from_unknown_without_coercion(value);
+      return Ok(Box::pin(async move { Err(error) }));
+    }
+    let generator_ptr = owner.generator::<T>(env.raw())?;
     let _native_borrow = acquire_native_borrow(generator_ptr, true)?;
     let g = unsafe { &mut *generator_ptr };
-    Box::pin(g.catch(Env(env), value))
-  };
+    Ok(Box::pin(g.catch(env, value)))
+  });
 
-  spawn_async_iterator_request(
-    env,
-    state,
-    AsyncIteratorRequestMode::Throw,
-    item,
-    skipped_error,
-  )
+  spawn_async_iterator_request(env, state, AsyncIteratorRequestMode::Throw, setup)
 }
 
 #[cfg(test)]

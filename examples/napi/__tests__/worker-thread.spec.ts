@@ -126,6 +126,38 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
 )
 
 test.serial.skipIf(Boolean(process.env.WASI_TEST))(
+  'worker teardown cancels a pending async iterator and its queued successor',
+  async (t) => {
+    const worker = new Worker(join(__dirname, 'worker.js'), {
+      env: process.env,
+    })
+    try {
+      const ready = new Promise<unknown>((resolve, reject) => {
+        worker.once('message', resolve)
+        worker.once('error', reject)
+      })
+      worker.postMessage({ type: 'async:iterator-teardown' })
+      t.deepEqual(
+        await withTimeout(
+          ready,
+          10_000,
+          'worker async iterator setup timed out',
+        ),
+        { type: 'iterator-pending', events: ['next:0:value'] },
+      )
+      await withTimeout(
+        Promise.resolve(worker.terminate()),
+        10_000,
+        'worker async iterator teardown timed out',
+      )
+      t.is(await asyncMultiTwo(3), 6)
+    } finally {
+      await worker.terminate().catch(() => {})
+    }
+  },
+)
+
+test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   'worker teardown finalizers cannot stop another environment runtime',
   async (t) => {
     const directory = await mkdtemp(

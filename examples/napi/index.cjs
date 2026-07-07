@@ -708,6 +708,7 @@ module.exports.AsyncComplexTypeGenerator = nativeBinding.AsyncComplexTypeGenerat
 module.exports.AsyncDataSource = nativeBinding.AsyncDataSource
 module.exports.AsyncFib = nativeBinding.AsyncFib
 module.exports.AsyncGeneratorSetupFailure = nativeBinding.AsyncGeneratorSetupFailure
+module.exports.AsyncIteratorAdmissionProbe = nativeBinding.AsyncIteratorAdmissionProbe
 module.exports.AsyncReentrantGenerator = nativeBinding.AsyncReentrantGenerator
 module.exports.AsyncThrowClass = nativeBinding.AsyncThrowClass
 module.exports.Bird = nativeBinding.Bird

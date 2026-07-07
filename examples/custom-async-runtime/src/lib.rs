@@ -24,11 +24,13 @@ use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
   register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
   try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, Object, PromiseRaw, Result,
-  Status,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, JsValue, Object, PromiseRaw,
+  Result, Status, Unknown,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
+#[cfg(not(target_family = "wasm"))]
+use napi::bindgen_prelude::{AsyncBlock, AsyncBlockBuilder};
 use napi_derive::napi;
 
 #[cfg(not(target_family = "wasm"))]
@@ -70,6 +72,7 @@ struct RuntimeState {
   scheduler_idle: Condvar,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
+  defer_next_spawn_drain: AtomicBool,
   defer_next_task_wake: AtomicBool,
   fail_next_shutdown: AtomicBool,
   panic_next_shutdown: AtomicBool,
@@ -662,7 +665,13 @@ unsafe impl AsyncRuntime for TestRuntime {
     }
     let task = self.state.register_task(task)?;
     self.state.spawn_calls.fetch_add(1, Ordering::Relaxed);
-    self.state.drain();
+    if !self
+      .state
+      .defer_next_spawn_drain
+      .swap(false, Ordering::AcqRel)
+    {
+      self.state.drain();
+    }
     if lock(&task.future).is_none() {
       self
         .state
@@ -1041,8 +1050,11 @@ pub async fn async_never() {
 }
 
 #[napi(async_iterator)]
-#[derive(Default)]
-pub struct RuntimeAsyncIterator;
+pub struct RuntimeAsyncIterator {
+  current: u32,
+  max: u32,
+  pending_first: bool,
+}
 
 #[napi]
 impl AsyncGenerator for RuntimeAsyncIterator {
@@ -1055,16 +1067,71 @@ impl AsyncGenerator for RuntimeAsyncIterator {
     &mut self,
     _value: Option<Self::Next>,
   ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
-    async { Ok(Some(1)) }
+    let current = self.current;
+    self.current += 1;
+    let max = self.max;
+    let pending = self.pending_first && current == 0;
+    async move {
+      if pending {
+        std::future::pending::<()>().await;
+      } else {
+        yield_once().await;
+      }
+      Ok((current < max).then_some(current))
+    }
+  }
+
+  fn catch(
+    &mut self,
+    _env: Env,
+    value: Unknown,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let result = value.coerce_to_string().map(|_| None);
+    async move { result }
   }
 }
 
 #[napi]
 impl RuntimeAsyncIterator {
   #[napi(constructor)]
-  pub fn new() -> Self {
-    Self
+  pub fn new(max: Option<u32>, pending_first: Option<bool>) -> Self {
+    Self {
+      current: 0,
+      max: max.unwrap_or(3),
+      pending_first: pending_first.unwrap_or(false),
+    }
   }
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct ShutdownOnUnpolledDrop {
+  result_path: String,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Future for ShutdownOnUnpolledDrop {
+  type Output = Result<()>;
+
+  fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+    Poll::Pending
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for ShutdownOnUnpolledDrop {
+  fn drop(&mut self) {
+    let marker = match try_shutdown_async_runtime() {
+      Ok(()) => "Ok\nnested runtime shutdown unexpectedly succeeded".to_owned(),
+      Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+    };
+    let _ = std::fs::write(&self.result_path, marker);
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn unpolled_shutdown_on_drop(env: &Env, result_path: String) -> Result<AsyncBlock<()>> {
+  AsyncBlockBuilder::new(ShutdownOnUnpolledDrop { result_path }).build(env)
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1089,6 +1156,14 @@ pub async fn retain_task_waker() {
 #[napi]
 pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn defer_next_spawn_drain() {
+  state()
+    .defer_next_spawn_drain
+    .store(true, Ordering::Release);
 }
 
 #[cfg(not(target_family = "wasm"))]

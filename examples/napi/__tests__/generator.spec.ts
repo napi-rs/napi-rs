@@ -11,11 +11,34 @@ import {
   AsyncComplexTypeGenerator,
   AsyncReentrantGenerator,
   AsyncGeneratorSetupFailure,
+  AsyncIteratorAdmissionProbe,
   DelayedCounter,
   createDelayedCounterPair,
   AsyncDataSource,
   shutdownRuntime,
 } from '../index.cjs'
+
+async function waitFor(
+  predicate: () => boolean,
+  message: string,
+): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error(message)
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+}
+
+async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise
+  } catch (error) {
+    return error
+  }
+  throw new Error('Expected Promise to reject')
+}
 
 test.after(() => {
   shutdownRuntime()
@@ -250,6 +273,54 @@ test('async generator should support throw()', async (t) => {
   await t.throwsAsync(() => iter.throw!(new Error('test error')))
 })
 
+test('async generator default throw preserves arbitrary rejection values', async (t) => {
+  let messageReads = 0
+  const throwingMessage = Object.defineProperty({}, 'message', {
+    get() {
+      messageReads++
+      throw new Error('rejection message must not be read')
+    },
+  })
+  const values = [
+    { reason: 'object rejection' },
+    throwingMessage,
+    42,
+    'string rejection',
+    undefined,
+    null,
+    Symbol('symbol rejection'),
+  ]
+
+  for (const value of values) {
+    const iterator = new AsyncFib()[Symbol.asyncIterator]()
+    let rejection: unknown
+    try {
+      await iterator.throw!(value)
+      t.fail('throw() must reject')
+    } catch (error) {
+      rejection = error
+    }
+    t.is(rejection, value)
+  }
+  t.is(messageReads, 0)
+})
+
+test('async generator skipped throw preserves value without coercion', async (t) => {
+  let coercions = 0
+  const value = {
+    [Symbol.toPrimitive]() {
+      coercions++
+      return 'coerced skipped throw'
+    },
+  }
+  const iterator = new AsyncFib()[Symbol.asyncIterator]()
+  await iterator.return!()
+
+  const rejection = await rejectionOf(iterator.throw!(value))
+  t.is(rejection, value)
+  t.is(coercions, 0)
+})
+
 test('async generator queues throw behind pending next and closes on rejection', async (t) => {
   const iterator = new DelayedCounter(3, 25)[Symbol.asyncIterator]()
   const thrown = new Error('queued throw')
@@ -265,12 +336,7 @@ test('async generator queues throw behind pending next and closes on rejection',
 
   t.deepEqual(await next, { value: 0, done: false })
   const rejection = await t.throwsAsync(throwing)
-  if (process.env.WASI_TEST) {
-    t.is(rejection.message, thrown.message)
-    t.not(rejection, thrown)
-  } else {
-    t.is(rejection, thrown)
-  }
+  t.is(rejection, thrown)
   t.deepEqual(settlementOrder, ['next', 'throw'])
   t.deepEqual(await iterator.next(), { value: undefined, done: true })
 })
@@ -288,7 +354,7 @@ test('async generator supports compound associated types through public N-API', 
   })
 })
 
-test('async generator rejects a reentrant mutable borrow and remains usable', async (t) => {
+test('async generator queues a reentrant next request and remains usable', async (t) => {
   const iterator = new AsyncReentrantGenerator()[Symbol.asyncIterator]()
   let nestedPromise: Promise<IteratorResult<number>> | undefined
 
@@ -298,11 +364,167 @@ test('async generator rejects a reentrant mutable borrow and remains usable', as
     }),
     { done: false, value: 1 },
   )
-  await t.throwsAsync(nestedPromise!, {
-    message: /cannot be borrowed mutably/,
-  })
-  t.deepEqual(await iterator.next(), { done: false, value: 2 })
+  t.deepEqual(await nestedPromise!, { done: false, value: 2 })
+  t.deepEqual(await iterator.next(), { done: false, value: 3 })
 })
+
+test('async generator admits concurrent next hooks in FIFO order', async (t) => {
+  const probe = new AsyncIteratorAdmissionProbe(['value', 'value', 'value'])
+  const iterator = probe[Symbol.asyncIterator]()
+  const requests = [iterator.next(), iterator.next(), iterator.next()]
+
+  await waitFor(
+    () => probe.events.length === 1,
+    'first async iterator next hook was not admitted',
+  )
+  t.deepEqual(probe.events, ['next:0:value'])
+
+  for (let index = 0; index < requests.length; index++) {
+    probe.release(1)
+    t.deepEqual(await requests[index], { done: false, value: index })
+    if (index + 1 < requests.length) {
+      await waitFor(
+        () => probe.events.length === index + 2,
+        `async iterator next hook ${index + 1} was not admitted`,
+      )
+      t.deepEqual(
+        probe.events,
+        Array.from(
+          { length: index + 2 },
+          (_, eventIndex) => `next:${eventIndex}:value`,
+        ),
+      )
+    }
+  }
+})
+
+test('async generator admits return only after a pending next settles', async (t) => {
+  const probe = new AsyncIteratorAdmissionProbe(['value'])
+  const iterator = probe[Symbol.asyncIterator]()
+  const next = iterator.next()
+  const returned = iterator.return!('stop')
+
+  await waitFor(
+    () => probe.events.length === 1,
+    'pending next hook was not admitted before return',
+  )
+  t.deepEqual(probe.events, ['next:0:value'])
+
+  probe.release(1)
+  t.deepEqual(await next, { done: false, value: 0 })
+  await waitFor(
+    () => probe.events.length === 2,
+    'return hook was not admitted after next settled',
+  )
+  t.deepEqual(probe.events, ['next:0:value', 'return:stop'])
+  t.deepEqual(await returned, { done: true, value: undefined })
+})
+
+test('async generator admits throw only after a pending next settles', async (t) => {
+  const probe = new AsyncIteratorAdmissionProbe(['value'])
+  const iterator = probe[Symbol.asyncIterator]()
+  const thrown = new Error('admitted throw')
+  const next = iterator.next()
+  const throwing = iterator.throw!(thrown)
+
+  await waitFor(
+    () => probe.events.length === 1,
+    'pending next hook was not admitted before throw',
+  )
+  t.deepEqual(probe.events, ['next:0:value'])
+
+  probe.release(1)
+  t.deepEqual(await next, { done: false, value: 0 })
+  const rejection = await t.throwsAsync(throwing)
+  if (process.env.WASI_TEST) {
+    t.is(rejection.message, thrown.message)
+  } else {
+    t.is(rejection, thrown)
+  }
+  t.deepEqual(probe.events, ['next:0:value', 'throw'])
+})
+
+test('async generator hands off after a queued setup failure', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass('WASI panic behavior is covered by native async iterator tests')
+    return
+  }
+  const probe = new AsyncIteratorAdmissionProbe([
+    'value',
+    'setup-panic',
+    'value',
+  ])
+  const iterator = probe[Symbol.asyncIterator]()
+  const first = iterator.next()
+  const failing = iterator.next()
+  const follower = iterator.next()
+
+  await waitFor(
+    () => probe.events.length === 1,
+    'first hook was not admitted before queued setup failure',
+  )
+  probe.release(1)
+  t.deepEqual(await first, { done: false, value: 0 })
+  await t.throwsAsync(failing, {
+    message: /queued async iterator setup panic/,
+  })
+  t.deepEqual(await follower, { done: true, value: undefined })
+  t.deepEqual(probe.events, ['next:0:value', 'next:1:setup-panic'])
+})
+
+test('async generator hands off after a queued argument conversion failure', async (t) => {
+  const probe = new AsyncIteratorAdmissionProbe(['value', 'value', 'value'])
+  const iterator = probe[Symbol.asyncIterator]()
+  const first = iterator.next()
+  const failing = iterator.next(Symbol('invalid') as never)
+  const follower = iterator.next()
+
+  await waitFor(
+    () => probe.events.length === 1,
+    'first hook was not admitted before queued argument conversion failure',
+  )
+  probe.release(1)
+  t.deepEqual(await first, { done: false, value: 0 })
+  await t.throwsAsync(failing, {
+    message: /Failed to convert napi value Symbol/,
+  })
+  t.deepEqual(await follower, { done: true, value: undefined })
+  t.deepEqual(probe.events, ['next:0:value'])
+})
+
+for (const outcome of ['error', 'panic'] as const) {
+  test(`async generator hands off after a queued async ${outcome}`, async (t) => {
+    if (outcome === 'panic' && process.env.WASI_TEST) {
+      t.pass('WASI panic behavior is covered by native async iterator tests')
+      return
+    }
+    const probe = new AsyncIteratorAdmissionProbe(['value', outcome, 'value'])
+    const iterator = probe[Symbol.asyncIterator]()
+    const first = iterator.next()
+    const failing = iterator.next()
+    const follower = iterator.next()
+
+    await waitFor(
+      () => probe.events.length === 1,
+      `first hook was not admitted before queued async ${outcome}`,
+    )
+    probe.release(1)
+    t.deepEqual(await first, { done: false, value: 0 })
+    await waitFor(
+      () => probe.events.length === 2,
+      `queued async ${outcome} hook was not admitted`,
+    )
+    probe.release(1)
+    await t.throwsAsync(failing, {
+      message:
+        outcome === 'error'
+          ? /queued async iterator error/
+          : /queued async iterator poll panic/,
+    })
+    t.deepEqual(await follower, { done: true, value: undefined })
+    t.deepEqual(probe.events, ['next:0:value', `next:1:${outcome}`])
+  })
+}
 
 test('async generator setup failures return rejected Promises', async (t) => {
   const invalidNextIterator = new AsyncGeneratorSetupFailure('none')[
@@ -331,7 +553,7 @@ test('async generator setup failures return rejected Promises', async (t) => {
     message: /Failed to convert napi value Symbol/,
   })
 
-  const pendingException = new Error('pending async generator exception')
+  const pendingException = { reason: 'pending async generator exception' }
   const pendingExceptionIterator = new AsyncGeneratorSetupFailure(
     'throw-pending-exception',
   )[Symbol.asyncIterator]()
@@ -345,7 +567,7 @@ test('async generator setup failures return rejected Promises', async (t) => {
     pendingExceptionPromise = pendingExceptionIterator.throw!(throwingValue)
   })
   t.true(pendingExceptionPromise instanceof Promise)
-  t.is(await t.throwsAsync(pendingExceptionPromise!), pendingException)
+  t.is(await rejectionOf(pendingExceptionPromise!), pendingException)
 
   if (process.env.WASI_TEST) {
     return
