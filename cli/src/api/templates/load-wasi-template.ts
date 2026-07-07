@@ -31,20 +31,20 @@ const __wasi = new __WASI({
 })`
 
   const workerFsHandler = fs
-    ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
+    ? `      worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
   const workerErrorHandler = errorEvent
-    ? `    worker.addEventListener('message', (event) => {
-      if (event.data && typeof event.data === 'object' && event.data.type === 'error') {
-        window.dispatchEvent(new CustomEvent('napi-rs-worker-error', { detail: event.data }))
-      }
-    })
+    ? `      worker.addEventListener('message', (event) => {
+        if (event.data && typeof event.data === 'object' && event.data.type === 'error') {
+          window.dispatchEvent(new CustomEvent('napi-rs-worker-error', { detail: event.data }))
+        }
+      })
 `
     : ''
 
   const emnapiInjectBuffer = buffer
-    ? '__emnapiContext.feature.Buffer = Buffer'
+    ? '  __emnapiContext.feature.Buffer = Buffer\n\n'
     : ''
   const emnapiInstantiateImport = asyncInit
     ? `instantiateNapiModule as __emnapiInstantiateNapiModule`
@@ -56,17 +56,17 @@ const __wasi = new __WASI({
     ? `  createOnMessage as __wasmCreateOnMessageForFsProxy,\n`
     : ''
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
-  const asyncWorkPoolOption = `  asyncWorkPoolSize: ${threads ? 4 : 0},
+  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
 `
   const workerOption = threads
-    ? `  onCreateWorker() {
-    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
-      type: 'module',
-    })
+    ? `    onCreateWorker() {
+      const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
+        type: 'module',
+      })
 ${workerFsHandler}
 ${workerErrorHandler}
-    return worker
-  },
+      return worker
+    },
 `
     : ''
 
@@ -91,41 +91,73 @@ if (!__wasmResponse.ok) {
 }
 const __wasmFile = await __wasmResponse.arrayBuffer()
 
-const __emnapiContext = __emnapiCreateContext()
-${emnapiInjectBuffer}
-
 const ${memoryName} = new WebAssembly.Memory({
   initial: ${initialMemory},
   maximum: ${maximumMemory},
 ${threads ? '  shared: true,\n' : ''}\
 })
 
-const {
-  instance: __napiInstance,
-  module: __wasiModule,
-  napiModule: __napiModule,
-} = ${emnapiInstantiateCall}(__wasmFile, {
-  context: __emnapiContext,
+const __emnapiContext = __emnapiCreateContext()
+
+function __createInitializationCleanupError(__error, __cleanupError) {
+  let __message = 'WASI module initialization failed'
+  try {
+    if (__error && typeof __error.message === 'string') {
+      __message = __error.message
+    }
+  } catch {}
+  const __errors = [__error, __cleanupError]
+  const __AggregateError = globalThis.AggregateError
+  const __combinedError =
+    typeof __AggregateError === 'function'
+      ? new __AggregateError(__errors, __message)
+      : new Error(__message)
+  if (!('errors' in __combinedError)) {
+    __combinedError.errors = __errors
+  }
+  __combinedError.cause = __error
+  return __combinedError
+}
+
+let __napiInstance
+let __wasiModule
+let __napiModule
+
+try {
+${emnapiInjectBuffer}  ;({
+    instance: __napiInstance,
+    module: __wasiModule,
+    napiModule: __napiModule,
+  } = ${emnapiInstantiateCall}(__wasmFile, {
+    context: __emnapiContext,
 ${asyncWorkPoolOption}\
-  wasi: __wasi,
+    wasi: __wasi,
 ${workerOption}\
-  overwriteImports(importObject) {
-    importObject.env = {
-      ...importObject.env,
-      ...importObject.napi,
-      ...importObject.emnapi,
-      memory: ${memoryName},
-    }
-    return importObject
-  },
-  beforeInit({ instance }) {
-    for (const name of Object.keys(instance.exports)) {
-      if (name.startsWith('__napi_register__')) {
-        instance.exports[name]()
+    overwriteImports(importObject) {
+      importObject.env = {
+        ...importObject.env,
+        ...importObject.napi,
+        ...importObject.emnapi,
+        memory: ${memoryName},
       }
-    }
-  },
-})
+      return importObject
+    },
+    beforeInit({ instance }) {
+      for (const name of Object.keys(instance.exports)) {
+        if (name.startsWith('__napi_register__')) {
+          instance.exports[name]()
+        }
+      }
+    },
+  }))
+} catch (__error) {
+  try {
+    __emnapiContext.destroy()
+  } catch (__cleanupError) {
+    throw __createInitializationCleanupError(__error, __cleanupError)
+  }
+  throw __error
+}
 `
 }
 

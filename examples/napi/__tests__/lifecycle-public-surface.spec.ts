@@ -71,6 +71,7 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
     'index.d.cts',
     'example.wasi.cjs',
     'example.wasi-browser.js',
+    'example.wasi.d.cts',
   ]) {
     const source = await readFile(join(__dirname, '..', file), 'utf8')
     for (const name of generatedLifecycleExports) {
@@ -87,16 +88,29 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
       for (const name of threadedWasiBrowserTestExports) {
         t.false(source.includes(name), `${file}: ${name}`)
       }
+    if (file.endsWith('.d.cts')) {
+      t.true(
+        source.includes('export interface AsyncWorkLifecycleHandle {'),
+        `${file}: AsyncWorkLifecycleHandle`,
+      )
+      t.true(
+        source.includes('export interface RequestInit {'),
+        `${file}: RequestInit`,
+      )
     }
     const helper =
       file === 'index.cjs'
         ? 'getBindingExport'
-        : file.startsWith('example.wasi')
+        : file === 'example.wasi.cjs' || file === 'example.wasi-browser.js'
           ? 'getWasiBindingExport'
           : undefined
     if (helper) {
       for (const name of unsupportedWasiFunctions) {
-        t.true(source.includes(`${helper}('${name}')`), `${file}: ${name}`)
+        t.regex(
+          source,
+          new RegExp(`${helper}\\(\\s*'${name}'\\s*,?\\s*\\)`),
+          `${file}: ${name}`,
+        )
       }
       const allowlistMatch = source.match(
         /const unsupportedWasiFunctions = new Set\(\[([\s\S]*?)\]\)/,

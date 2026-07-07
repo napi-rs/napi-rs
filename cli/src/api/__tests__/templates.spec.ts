@@ -315,8 +315,187 @@ test('browser WASI binding validates fetch before allocating runtime state', (t)
   t.true(responseCheckOffset > fetchOffset)
   t.true(contextOffset > responseCheckOffset)
   t.true(memoryOffset > responseCheckOffset)
+  t.true(memoryOffset < contextOffset)
   t.true(src.includes('Failed to fetch WASI module'))
 })
+
+for (const { name, asyncInit } of [
+  { name: 'synchronous', asyncInit: false },
+  { name: 'asynchronous', asyncInit: true },
+]) {
+  test.serial(
+    `browser WASI binding rolls back contexts after ${name} initialization failures`,
+    async (t) => {
+      const tmpDir = await mkdtemp(
+        join(
+          fileURLToPath(new URL('.', import.meta.url)),
+          `.tmp-browser-rollback-${asyncInit ? 'async' : 'sync'}-`,
+        ),
+      )
+      const browserBinding = createWasiBrowserBinding(
+        'binding',
+        1,
+        2,
+        false,
+        asyncInit,
+        false,
+        false,
+        false,
+      )
+
+      try {
+        const runtimeDir = join(
+          tmpDir,
+          'node_modules',
+          '@napi-rs',
+          'wasm-runtime',
+        )
+        const emnapiRuntimeDir = join(
+          tmpDir,
+          'node_modules',
+          '@emnapi',
+          'runtime',
+        )
+        await mkdir(runtimeDir, { recursive: true })
+        await mkdir(emnapiRuntimeDir, { recursive: true })
+        await writeFile(
+          join(runtimeDir, 'package.json'),
+          JSON.stringify({
+            name: '@napi-rs/wasm-runtime',
+            type: 'module',
+            exports: './index.js',
+          }),
+        )
+        await writeFile(
+          join(runtimeDir, 'index.js'),
+          `export class WASI {}
+
+function failInitialization(options) {
+  const state = globalThis.__browserWasiRollbackState
+  state.contexts.push(options.context)
+  throw state.initializationError
+}
+
+export function instantiateNapiModuleSync(_wasm, options) {
+  return failInitialization(options)
+}
+
+export async function instantiateNapiModule(_wasm, options) {
+  await Promise.resolve()
+  return failInitialization(options)
+}
+`,
+        )
+        await writeFile(
+          join(emnapiRuntimeDir, 'package.json'),
+          JSON.stringify({
+            name: '@emnapi/runtime',
+            type: 'module',
+            exports: './index.js',
+          }),
+        )
+        await writeFile(
+          join(emnapiRuntimeDir, 'index.js'),
+          `export function createContext() {
+  const state = globalThis.__browserWasiRollbackState
+  state.created += 1
+  return {
+    destroy() {
+      state.destroyAttempts += 1
+      if (state.cleanupError) {
+        throw state.cleanupError
+      }
+      state.destroyed += 1
+    },
+  }
+}
+`,
+        )
+        await writeFile(join(tmpDir, 'binding.mjs'), browserBinding)
+        await writeFile(
+          join(tmpDir, 'test.mjs'),
+          `import assert from 'node:assert/strict'
+
+globalThis.fetch = async () => ({
+  ok: true,
+  arrayBuffer: async () => new ArrayBuffer(0),
+})
+
+const state = {
+  contexts: [],
+  created: 0,
+  destroyAttempts: 0,
+  destroyed: 0,
+  cleanupError: undefined,
+  initializationError: undefined,
+}
+globalThis.__browserWasiRollbackState = state
+
+async function load(query) {
+  try {
+    await import('./binding.mjs?' + query)
+  } catch (error) {
+    return error
+  }
+  assert.fail('browser WASI loader unexpectedly initialized')
+}
+
+const initializationError = Object.freeze(new Error('initialization failed'))
+state.initializationError = initializationError
+const observedInitializationError = await load('initialization')
+assert.strictEqual(observedInitializationError, initializationError)
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(initializationError, 'cause'),
+  false,
+)
+assert.strictEqual(state.destroyAttempts, 1)
+assert.strictEqual(state.destroyed, 1)
+
+const cleanupInitializationError = Object.freeze(
+  new Error('initialization failed before cleanup'),
+)
+const cleanupError = Object.freeze(new Error('cleanup failed'))
+state.initializationError = cleanupInitializationError
+state.cleanupError = cleanupError
+const observedCleanupError = await load('cleanup')
+assert.ok(observedCleanupError instanceof AggregateError)
+assert.strictEqual(
+  observedCleanupError.message,
+  cleanupInitializationError.message,
+)
+assert.strictEqual(observedCleanupError.cause, cleanupInitializationError)
+assert.deepStrictEqual(observedCleanupError.errors, [
+  cleanupInitializationError,
+  cleanupError,
+])
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(cleanupInitializationError, 'cause'),
+  false,
+)
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(cleanupError, 'cause'),
+  false,
+)
+assert.strictEqual(state.created, 2)
+assert.strictEqual(state.contexts.length, 2)
+assert.strictEqual(state.destroyAttempts, 2)
+assert.strictEqual(state.destroyed, 1)
+process.stdout.write('rollback-ok\\n')
+`,
+        )
+
+        const result = await execFileAsync(
+          process.execPath,
+          ['--unhandled-rejections=strict', join(tmpDir, 'test.mjs')],
+          { cwd: tmpDir, timeout: 10_000 },
+        )
+        t.is(result.stdout, 'rollback-ok\n')
+      } finally {
+        await rm(tmpDir, { recursive: true, force: true })
+      }
+    },
+  )
+}
 
 test('deferred single-thread WASI binding exposes typed lifecycle APIs', (t) => {
   const typeDef = createWasiDeferredBrowserBindingTypeDef(
@@ -1503,6 +1682,8 @@ test('createWasiBrowserBinding does not collide with an exported fetch binding',
 
   t.true(code.includes('await globalThis.fetch(__wasmUrl)'))
   t.false(code.includes('await fetch(__wasmUrl)'))
+  t.true(code.includes('const __AggregateError = globalThis.AggregateError'))
+  t.false(code.includes('typeof AggregateError'))
 })
 
 test('WASI main loaders create an isolated context', (t) => {

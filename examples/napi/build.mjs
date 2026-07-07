@@ -9,7 +9,10 @@ import { unsupportedWasiFunctions } from './unsupported-wasi-exports.mjs'
 
 const packageDirectory = dirname(fileURLToPath(import.meta.url))
 const napiCli = fileURLToPath(new URL('../../cli/cli.mjs', import.meta.url))
-const declarationPath = fileURLToPath(new URL('index.d.cts', import.meta.url))
+const declarationPaths = ['index.d.cts', 'example.wasi.d.cts'].map((file) =>
+  fileURLToPath(new URL(file, import.meta.url)),
+)
+const [rootDeclarationPath] = declarationPaths
 const unsupportedWasiFunctionSet = new Set(unsupportedWasiFunctions)
 const threadedWasiBrowserTestFunctions = [
   'abortBoundedTsfnFromOwnerAgent',
@@ -298,12 +301,14 @@ export function mergeLifecycleDeclarations(source, previousSource) {
   return source
 }
 
-async function preserveLifecycleDeclarations(previousSource) {
-  const source = await readFile(declarationPath, 'utf8')
-  const nextSource = mergeLifecycleDeclarations(source, previousSource)
+export async function preserveLifecycleDeclarations(paths, previousSource) {
+  for (const path of paths) {
+    const source = await readFile(path, 'utf8')
+    const nextSource = mergeLifecycleDeclarations(source, previousSource)
 
-  if (nextSource !== source) {
-    await writeFile(declarationPath, nextSource)
+    if (nextSource !== source) {
+      await writeFile(path, nextSource)
+    }
   }
 }
 
@@ -719,7 +724,7 @@ async function main(userArguments) {
     optionValue(userArguments, ['--target', '-t']) ??
     process.env.CARGO_BUILD_TARGET
   const previousDeclarationSource = target?.startsWith('wasm32-')
-    ? await readFile(declarationPath, 'utf8')
+    ? await readFile(rootDeclarationPath, 'utf8')
     : undefined
 
   await run([
@@ -734,7 +739,10 @@ async function main(userArguments) {
 
   await exposeLifecycleExportsAcrossTargets()
   if (previousDeclarationSource !== undefined) {
-    await preserveLifecycleDeclarations(previousDeclarationSource)
+    await preserveLifecycleDeclarations(
+      declarationPaths,
+      previousDeclarationSource,
+    )
   }
   await instrumentThreadedWasiBrowserTsfnWait()
 
