@@ -277,6 +277,7 @@ try {
   assert.deepEqual(body.results, [42, 200, 8])
   assert.equal(body.blockOn, 6)
   assert.deepEqual(body.buffer, [0, 1, 255])
+  assert.equal(body.isBuffer, true)
   assert.equal(body.rejected, true)
   // 4 async tasks were spawned: 2x asyncDouble, 1x spawnFuture, 1x asyncError.
   assert.ok(body.spawnCalls >= 4, `spawnCalls: ${body.spawnCalls}`)

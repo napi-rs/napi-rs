@@ -24,6 +24,7 @@ export default {
         api.asyncDouble(100),
         api.spawnFuture(7),
       ])
+      const buffer = api.testBuffer()
       let rejected = false
       try {
         await api.asyncError()
@@ -35,7 +36,8 @@ export default {
         isWasm: api.isWasm(),
         results: [a, b, c],
         blockOn: api.blockOnValue(5),
-        buffer: Array.from(api.testBuffer()),
+        buffer: Array.from(buffer),
+        isBuffer: buffer.constructor.isBuffer(buffer),
         rejected,
         spawnCalls: metrics.spawnCalls,
         hasGlobalBuffer: typeof globalThis.Buffer !== 'undefined',

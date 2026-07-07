@@ -131,8 +131,7 @@ async function setupThreadlessPackage(
         '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
-        ...(options.wasmBrowser?.buffer === true &&
-        options.wasmBrowser.fs !== true
+        ...(options.wasmBrowser?.buffer === true
           ? { buffer: directBufferDependency }
           : {}),
       },
@@ -185,7 +184,15 @@ export declare const marker: "workerd-export"
   }
 }
 
-async function setupThreadedPackage(tmpDir: string) {
+async function setupThreadedPackage(
+  tmpDir: string,
+  options: {
+    wasmBrowser?: {
+      fs?: boolean
+      buffer?: boolean
+    }
+  } = {},
+) {
   const binaryName = 'pre-publish-wasi'
   await writeFile(
     join(tmpDir, 'package.json'),
@@ -196,6 +203,9 @@ async function setupThreadedPackage(tmpDir: string) {
       napi: {
         binaryName,
         targets: ['wasm32-wasip1-threads'],
+        ...(options.wasmBrowser
+          ? { wasm: { browser: options.wasmBrowser } }
+          : {}),
       },
     }),
   )
@@ -225,6 +235,10 @@ async function setupThreadedPackage(tmpDir: string) {
         '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
+        ...(options.wasmBrowser?.buffer === true &&
+        options.wasmBrowser.fs !== true
+          ? { buffer: directBufferDependency }
+          : {}),
       },
     }),
   )
@@ -639,8 +653,27 @@ test('pre-publish requires buffer for a direct browser import', async (t) => {
   t.regex(error.message, /must declare dependency buffer/)
 })
 
-test('pre-publish does not require direct buffer when browser fs provides it', async (t) => {
+test('pre-publish requires buffer for a deferred loader when browser fs is enabled', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir, {
+    wasmBrowser: { fs: true, buffer: true },
+  })
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    delete manifest.dependencies.buffer
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must declare dependency buffer/)
+})
+
+test('pre-publish does not require buffer for a threaded fs-backed loader', async (t) => {
+  await setupThreadedPackage(t.context.tmpDir, {
     wasmBrowser: { fs: true, buffer: true },
   })
 

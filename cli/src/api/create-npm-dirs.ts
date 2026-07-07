@@ -239,7 +239,8 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
-        ...(wasm?.browser?.buffer === true && wasm.browser.fs !== true
+        ...(wasm?.browser?.buffer === true &&
+        (wasm.browser.fs !== true || !wasiTargetHasThreads(target))
           ? { buffer: directBufferDependency }
           : {}),
       }

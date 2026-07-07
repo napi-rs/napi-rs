@@ -593,59 +593,94 @@ test.serial(
   },
 )
 
-test.serial('should only add buffer for direct browser imports', async (t) => {
-  const { tmpDir, packageJsonPath } = t.context
-  const registryServer = await startRegistryServer()
-  process.env.npm_config_registry = `${registryServer.origin}/npm`
+test.serial(
+  'should add buffer only to WASI packages that import it',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
 
-  const packageJson = {
-    name: 'test-wasm-buffer',
-    version: '1.0.0',
-    napi: {
-      binaryName: 'test-wasm-buffer',
-      targets: ['wasm32-wasip1'],
-      wasm: {
-        browser: {
-          buffer: true,
-          fs: false,
+    const packageJson = {
+      name: 'test-wasm-buffer',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-buffer',
+        targets: [
+          'wasm32-wasip1-threads',
+          'wasm32-wasip1',
+          'x86_64-unknown-linux-gnu',
+        ],
+        wasm: {
+          browser: {
+            buffer: true,
+            fs: false,
+          },
         },
       },
-    },
-  }
+    }
 
-  try {
-    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
-    await createNpmDirs({
-      cwd: tmpDir,
-      packageJsonPath: 'package.json',
-    })
+    try {
+      await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
 
-    const packageManifestPath = join(
-      tmpDir,
-      'npm',
-      'wasm32-wasip1',
-      'package.json',
-    )
-    const directBufferManifest = JSON.parse(
-      await readFile(packageManifestPath, 'utf8'),
-    )
-    t.is(directBufferManifest.dependencies.buffer, '^6.0.3')
+      const packageManifestPath = join(
+        tmpDir,
+        'npm',
+        'wasm32-wasip1',
+        'package.json',
+      )
+      const threadedManifestPath = join(
+        tmpDir,
+        'npm',
+        'wasm32-wasi',
+        'package.json',
+      )
+      const nativeManifestPath = join(
+        tmpDir,
+        'npm',
+        'linux-x64-gnu',
+        'package.json',
+      )
+      const directThreadlessManifest = JSON.parse(
+        await readFile(packageManifestPath, 'utf8'),
+      )
+      const directThreadedManifest = JSON.parse(
+        await readFile(threadedManifestPath, 'utf8'),
+      )
+      const directNativeManifest = JSON.parse(
+        await readFile(nativeManifestPath, 'utf8'),
+      )
+      t.is(directThreadlessManifest.dependencies.buffer, '^6.0.3')
+      t.is(directThreadedManifest.dependencies.buffer, '^6.0.3')
+      t.is(directNativeManifest.dependencies?.buffer, undefined)
 
-    packageJson.napi.wasm.browser.fs = true
-    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
-    await createNpmDirs({
-      cwd: tmpDir,
-      packageJsonPath: 'package.json',
-    })
+      packageJson.napi.wasm.browser.fs = true
+      await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
 
-    const fsBufferManifest = JSON.parse(
-      await readFile(packageManifestPath, 'utf8'),
-    )
-    t.is(fsBufferManifest.dependencies.buffer, undefined)
-  } finally {
-    await registryServer.close()
-  }
-})
+      const fsBufferManifest = JSON.parse(
+        await readFile(packageManifestPath, 'utf8'),
+      )
+      const threadedFsBufferManifest = JSON.parse(
+        await readFile(threadedManifestPath, 'utf8'),
+      )
+      const nativeFsBufferManifest = JSON.parse(
+        await readFile(nativeManifestPath, 'utf8'),
+      )
+      t.is(fsBufferManifest.dependencies.buffer, '^6.0.3')
+      t.is(threadedFsBufferManifest.dependencies.buffer, undefined)
+      t.is(nativeFsBufferManifest.dependencies?.buffer, undefined)
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
 
 test.serial(
   'untyped threadless WASI package packs with strict workerd types and Wasm exports',

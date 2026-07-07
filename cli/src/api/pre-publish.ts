@@ -81,7 +81,8 @@ export async function prePublish(userOptions: PrePublishOptions) {
         binaryName,
         target,
         requireDirectBufferDependency:
-          wasm?.browser?.buffer === true && wasm.browser.fs !== true,
+          wasm?.browser?.buffer === true &&
+          (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
       }),
     )
   }

@@ -1089,8 +1089,13 @@ jobs:
             --no-default-features \
             --features async-runtime \
             --dts index.d.cts
+          yarn workspace @examples/napi build --target wasm32-wasip1 --profile wasi
       - name: Test
         run: node examples/custom-async-runtime/test.mjs wasi
+      - name: Test public Buffer API
+        run: yarn workspace @examples/napi test __tests__/wasi-buffer-public-api.spec.ts
+        env:
+          NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Browser test (single-thread, no cross-origin isolation)
         run: |
           yarn workspace @examples/custom-async-runtime playwright install chromium
