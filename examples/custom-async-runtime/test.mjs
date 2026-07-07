@@ -339,7 +339,7 @@ if (mode === 'native') {
     binding.asyncPanicString(7),
     /custom runtime async string panic: 7/,
   )
-} else {
+} else if (mode === 'wasi') {
   // Stable Rust ships wasm32-wasip1 with panic=abort. catch_unwind cannot
   // turn that trap into a Promise rejection, so isolate the public behavior.
   const panicResult = spawnSync(

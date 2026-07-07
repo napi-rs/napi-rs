@@ -598,22 +598,20 @@ function planThreadlessWasiRootFacade({
   const generatedFiles = Object.values(files)
   const managedFiles = new Set(managedGeneratedFiles)
   const wasmSourcePath = join(npmDir, target.platformArchABI, wasmFileName)
-  const conflictingFile = generatedFiles.find(
-    (file) => {
-      const rootPath = join(rootDir, file)
-      if (!existsSync(rootPath) || managedFiles.has(file)) {
-        return false
-      }
-      // `napi artifacts` already copies the flavor artifact into the root
-      // package. Treat that exact regular file as managed so the standard
-      // artifacts -> pre-publish flow can materialize the root facade.
-      return !(
-        file === files.wasmEntry &&
-        lstatSync(rootPath).isFile() &&
-        readFileSync(rootPath).equals(readFileSync(wasmSourcePath))
-      )
-    },
-  )
+  const conflictingFile = generatedFiles.find((file) => {
+    const rootPath = join(rootDir, file)
+    if (!existsSync(rootPath) || managedFiles.has(file)) {
+      return false
+    }
+    // `napi artifacts` already copies the flavor artifact into the root
+    // package. Treat that exact regular file as managed so the standard
+    // artifacts -> pre-publish flow can materialize the root facade.
+    return !(
+      file === files.wasmEntry &&
+      lstatSync(rootPath).isFile() &&
+      readFileSync(rootPath).equals(readFileSync(wasmSourcePath))
+    )
+  })
   if (conflictingFile) {
     throw new Error(
       `Cannot generate the threadless WASI root facade file ${conflictingFile}: the path already exists and is not owned by a managed facade. Remove or rename the existing file before running pre-publish.`,

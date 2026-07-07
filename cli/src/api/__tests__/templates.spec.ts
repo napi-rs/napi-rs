@@ -1126,6 +1126,7 @@ module.exports = __napiModule.exports
     })
     return module.exports as {
       add: (left: number, right: number) => number
+      add(left: number, right: number): number
     }
   }
 
@@ -1526,7 +1527,7 @@ test('js binding checks a WASI package version before initialization', (t) => {
   const error = t.throws(() =>
     executeGeneratedCjsBinding(
       code,
-      new Map([
+      new Map<string, () => unknown>([
         [
           `${threadedPackage}/package.json`,
           () => ({
