@@ -11,6 +11,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixtureDirectory = join(__dirname, '..', 'module-init-rollback')
 const addonPath = join(fixtureDirectory, 'module-init-rollback.node')
 const runnerPath = join(__dirname, 'module-init-rollback.js')
+const supportsCleanupHookInterposition =
+  process.platform === 'darwin' || process.platform === 'linux'
 
 async function runScenario(
   runner: string,
@@ -82,6 +84,31 @@ test.skipIf(isWasi)(
           runnerPath,
           [temporaryAddonPath],
           'module-init rollback scenario',
+        ),
+      )
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true })
+    }
+  },
+)
+
+test.skipIf(isWasi || !supportsCleanupHookInterposition)(
+  'cleanup-hook registration failure rolls the custom runtime back before Tokio',
+  async (t) => {
+    const temporaryDirectory = await mkdtemp(
+      join(tmpdir(), 'napi-module-init-cleanup-hook-failure-'),
+    )
+    const temporaryAddonPath = join(
+      temporaryDirectory,
+      'module-init-rollback.node',
+    )
+    try {
+      await copyFile(addonPath, temporaryAddonPath)
+      await t.notThrowsAsync(
+        runScenario(
+          runnerPath,
+          [temporaryAddonPath, 'cleanup-hook-registration-failure'],
+          'module-init cleanup-hook registration failure scenario',
         ),
       )
     } finally {

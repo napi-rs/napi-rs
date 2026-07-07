@@ -708,14 +708,16 @@ pub unsafe extern "C" fn napi_register_module_v1(
       unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
     if status != sys::Status::napi_ok {
       drop(unsafe { Box::from_raw(cleanup_data) });
-      decrement_runtime_module_count(env);
-      rollback_resolver_env(env, resolver_env_owned);
       let error = crate::Error::new(
         crate::Status::from(status),
         "Failed to add env cleanup hook",
       );
       #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+      // Custom shutdown may enter its paired Tokio runtime, so it must run before the
+      // module-count decrement can retire Tokio.
       let error = rollback_unowned_runtime_preserving_registration_error(error);
+      decrement_runtime_module_count(env);
+      rollback_resolver_env(env, resolver_env_owned);
       JsError::from(error).throw_into(env);
       FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
       return exports;
