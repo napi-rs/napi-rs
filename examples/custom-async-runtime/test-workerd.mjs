@@ -25,7 +25,7 @@ const napiCli = join(repoDir, 'cli/cli.mjs')
 const packageName = '@examples/custom-async-runtime'
 const flavorPackageName = `${packageName}-wasm32-wasip1`
 const publicWasmSpecifier = `${packageName}/wasm.wasm`
-const rootFiles = ['index.cjs', 'index.d.cts', 'index.js', 'browser.js']
+const rootFiles = ['index.cjs', 'index.d.cts', 'browser.js']
 const maxBuffer = 64 * 1024 * 1024
 const tempDir = await mkdtemp(join(tmpdir(), 'napi-rs-workerd-'))
 let mf
