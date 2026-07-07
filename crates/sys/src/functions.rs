@@ -848,7 +848,7 @@ pub use napi8::*;
 #[cfg(feature = "napi9")]
 pub use napi9::*;
 
-#[cfg(all(windows, not(target_env = "msvc"), feature = "dyn-symbols"))]
+#[cfg(all(windows, any(target_env = "msvc", feature = "dyn-symbols")))]
 fn test_library(
   lib_result: Result<libloading::os::windows::Library, libloading::Error>,
 ) -> Result<libloading::Library, libloading::Error> {
@@ -869,20 +869,26 @@ fn test_library(
   }
 }
 
-#[cfg(all(windows, not(target_env = "msvc"), feature = "dyn-symbols"))]
+#[cfg(all(windows, any(target_env = "msvc", feature = "dyn-symbols")))]
 fn find_node_library() -> Result<libloading::Library, libloading::Error> {
+  // Probe lazily via `or_else`: `Result::or` evaluates its argument eagerly,
+  // so the `Library::new` fallbacks would LoadLibrary a stray libnode.dll even
+  // when the process image already exports the symbols (a regular node.exe),
+  // pulling a second Node runtime into the process as a side effect.
   return unsafe {
     test_library(libloading::os::windows::Library::this())
-      .or(test_library(
-        libloading::os::windows::Library::open_already_loaded("libnode"),
-      ))
-      .or(test_library(
-        libloading::os::windows::Library::open_already_loaded("node"),
-      ))
-      .or(test_library(libloading::os::windows::Library::new("node")))
-      .or(test_library(libloading::os::windows::Library::new(
-        "libnode",
-      )))
+      .or_else(|_| {
+        test_library(libloading::os::windows::Library::open_already_loaded(
+          "libnode",
+        ))
+      })
+      .or_else(|_| {
+        test_library(libloading::os::windows::Library::open_already_loaded(
+          "node",
+        ))
+      })
+      .or_else(|_| test_library(libloading::os::windows::Library::new("node")))
+      .or_else(|_| test_library(libloading::os::windows::Library::new("libnode")))
   };
 }
 
@@ -891,10 +897,7 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
   all(not(target_family = "wasm"), feature = "dyn-symbols")
 ))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
-  #[cfg(all(windows, target_env = "msvc"))]
-  let host = libloading::os::windows::Library::this()?.into();
-
-  #[cfg(all(windows, not(target_env = "msvc")))]
+  #[cfg(windows)]
   let host = find_node_library()?.into();
 
   #[cfg(unix)]
