@@ -44,6 +44,8 @@ const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
 const directBufferDependency = '^6.0.3'
+const directBufferImportPattern =
+  /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]buffer['"]/
 const require = createRequire(import.meta.url)
 
 interface PackageInfo {
@@ -1458,13 +1460,16 @@ async function validateReleasePackageContents({
     )
   }
   const packageFiles = [...new Set(packageJson.files)]
+  const packagedLoaderImportsBuffer =
+    target.arch === 'wasm32' &&
+    (await releasePackageImportsDirectBuffer(pkgDir, packageFiles))
 
   validateExpectedReleasePackageManifest(
     packageJson,
     packageFiles,
     binaryName,
     target,
-    requireDirectBufferDependency,
+    requireDirectBufferDependency || packagedLoaderImportsBuffer,
   )
 
   for (const file of packageFiles) {
@@ -1516,6 +1521,25 @@ async function validateReleasePackageContents({
     declarationDependencies: declarationClosure.materializedFiles,
     updateManifest,
   }
+}
+
+async function releasePackageImportsDirectBuffer(
+  pkgDir: string,
+  packageFiles: string[],
+) {
+  for (const file of packageFiles) {
+    if (!/\.(?:cjs|mjs|js)$/.test(file)) {
+      continue
+    }
+    const path = join(pkgDir, file)
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      continue
+    }
+    if (directBufferImportPattern.test(await readFileAsync(path, 'utf8'))) {
+      return true
+    }
+  }
+  return false
 }
 
 function validateExpectedReleasePackageManifest(

@@ -672,6 +672,31 @@ test('pre-publish requires buffer for a deferred loader when browser fs is enabl
   t.regex(error.message, /must declare dependency buffer/)
 })
 
+test('pre-publish detects a packaged buffer import when root config is stale', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await writeFile(
+    join(
+      t.context.tmpDir,
+      'npm',
+      'wasm32-wasip1',
+      'pre-publish-wasi.wasip1-deferred.js',
+    ),
+    `import { Buffer } from 'buffer'
+export const marker = Buffer.from('workerd-export')
+`,
+  )
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must declare dependency buffer/)
+})
+
 test('pre-publish does not require buffer for a threaded fs-backed loader', async (t) => {
   await setupThreadedPackage(t.context.tmpDir, {
     wasmBrowser: { fs: true, buffer: true },
