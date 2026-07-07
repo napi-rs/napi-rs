@@ -8,11 +8,16 @@ import { Worker } from 'node:worker_threads'
 
 const require = createRequire(import.meta.url)
 
-async function waitForFile(path, label) {
+async function waitForFile(path, label, expected) {
   const deadline = Date.now() + 10_000
+  let lastContent
   while (Date.now() < deadline) {
     try {
-      return await readFile(path, 'utf8')
+      const content = await readFile(path, 'utf8')
+      if (content === expected) {
+        return content
+      }
+      lastContent = content
     } catch (error) {
       if (error.code !== 'ENOENT') {
         throw error
@@ -20,7 +25,9 @@ async function waitForFile(path, label) {
     }
     await delay(5)
   }
-  throw new Error(`timed out waiting for ${label}`)
+  throw new Error(
+    `timed out waiting for ${label}; last content was ${JSON.stringify(lastContent)}`,
+  )
 }
 
 function waitForWorkerReady(worker) {
@@ -51,14 +58,14 @@ try {
     )
     await waitForWorkerReady(raceWorker)
     assert.equal(
-      await waitForFile(readyPath, 'deferred race readiness'),
+      await waitForFile(readyPath, 'deferred race readiness', 'ready'),
       'ready',
     )
     const termination = raceWorker.terminate()
     await writeFile(releasePath, 'release')
     await termination
     assert.equal(
-      await waitForFile(donePath, 'deferred race completion'),
+      await waitForFile(donePath, 'deferred race completion', 'done'),
       'done',
     )
   }

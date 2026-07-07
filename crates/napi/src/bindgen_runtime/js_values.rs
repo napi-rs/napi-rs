@@ -169,8 +169,11 @@ impl NapiValueOwner {
       }
       let mut ref_count = 0;
       let status = unsafe { sys::napi_reference_unref(self.env, reference, &mut ref_count) };
-      if status != sys::Status::napi_ok || ref_count != 0 {
+      if status != sys::Status::napi_ok {
         return status;
+      }
+      if ref_count != 0 {
+        return sys::Status::napi_generic_failure;
       }
       unsafe { sys::napi_delete_reference(self.env, reference) }
     }

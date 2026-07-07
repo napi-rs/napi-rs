@@ -2355,8 +2355,11 @@ unsafe extern "C" fn custom_gc_handle_finalize(
 fn release_custom_gc_reference(env: sys::napi_env, reference: sys::napi_ref) -> sys::napi_status {
   let mut ref_count = 0;
   let status = unsafe { sys::napi_reference_unref(env, reference, &mut ref_count) };
-  if status != sys::Status::napi_ok || ref_count != 0 {
+  if status != sys::Status::napi_ok {
     return status;
+  }
+  if ref_count != 0 {
+    return sys::Status::napi_generic_failure;
   }
   unsafe { sys::napi_delete_reference(env, reference) }
 }
