@@ -1,7 +1,9 @@
 import { execSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { rm } from 'node:fs/promises'
+import { cp, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
@@ -41,6 +43,7 @@ const MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES = [
 ]
 const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
+const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
 const directBufferDependency = '^6.0.3'
 const require = createRequire(import.meta.url)
 
@@ -90,6 +93,8 @@ export async function prePublish(userOptions: PrePublishOptions) {
   const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
     packageJson,
     rootDir,
+    resolve(options.cwd, options.npmDir),
+    packageName,
   )
   let reconciledPackageJson = rootFacadeReconciliation.packageJson
   let rootFacade: ThreadlessWasiRootFacade | undefined
@@ -352,6 +357,7 @@ interface ThreadlessWasiRootFacade {
   generatedFiles: string[]
   files: ThreadlessWasiRootFacadeFiles
   wasmSourcePath: string
+  marker: string
   forwardingModule: string
   packageJsonUpdate: {
     files?: string[]
@@ -370,9 +376,17 @@ interface ThreadlessWasiRootFacadeReconciliation {
   staleGeneratedFiles: string[]
 }
 
+interface ThreadlessWasiRootFacadeMarker {
+  version: 1
+  flavorPackage: string
+  wasmSha256: string
+}
+
 function reconcileThreadlessWasiRootFacade(
   packageJson: CommonPackageJsonFields,
   rootDir: string,
+  npmDir: string,
+  packageName: string,
 ): ThreadlessWasiRootFacadeReconciliation {
   const reconciledPackageJson = { ...packageJson }
   const staleGeneratedFiles = new Set<string>()
@@ -380,6 +394,8 @@ function reconcileThreadlessWasiRootFacade(
     packageJson.exports,
     packageJson,
     rootDir,
+    npmDir,
+    packageName,
   )
   for (const file of rootExports.generatedFiles) {
     staleGeneratedFiles.add(file)
@@ -399,6 +415,8 @@ function reconcileThreadlessWasiRootFacade(
       publishConfig.exports as CommonPackageJsonFields['exports'],
       packageJson,
       rootDir,
+      npmDir,
+      packageName,
     )
     for (const file of publishConfigExports.generatedFiles) {
       staleGeneratedFiles.add(file)
@@ -428,9 +446,16 @@ function removeThreadlessWasiRootExports(
   currentExports: CommonPackageJsonFields['exports'],
   packageJson: CommonPackageJsonFields,
   rootDir: string,
+  npmDir: string,
+  packageName: string,
 ) {
   const exportsMap = asRecord(currentExports)
-  const generatedFiles = getManagedThreadlessWasiRootFacadeFiles(exportsMap)
+  const generatedFiles = getManagedThreadlessWasiRootFacadeFiles(
+    exportsMap,
+    rootDir,
+    npmDir,
+    packageName,
+  )
   if (!exportsMap || !generatedFiles) {
     return { exports: currentExports, generatedFiles: [] }
   }
@@ -467,6 +492,9 @@ function removeThreadlessWasiRootExports(
 
 function getManagedThreadlessWasiRootFacadeFiles(
   exportsMap: Record<string, unknown> | undefined,
+  rootDir: string,
+  npmDir: string,
+  packageName: string,
 ): ThreadlessWasiRootFacadeFiles | undefined {
   if (!exportsMap) {
     return undefined
@@ -503,7 +531,163 @@ function getManagedThreadlessWasiRootFacadeFiles(
   ) {
     return undefined
   }
-  return files
+  const flavorPackage = `${packageName}-wasm32-wasip1`
+  if (
+    hasManagedThreadlessWasiRootFacadeMarker(rootDir, files, flavorPackage) ||
+    hasLegacyThreadlessWasiRootFacade(rootDir, npmDir, files, flavorPackage)
+  ) {
+    return files
+  }
+  return undefined
+}
+
+function hasManagedThreadlessWasiRootFacadeMarker(
+  rootDir: string,
+  files: ThreadlessWasiRootFacadeFiles,
+  flavorPackage: string,
+) {
+  const workerdEntry = readRegularFile(join(rootDir, files.workerdEntry))
+  const workerdTypeDef = readRegularFile(join(rootDir, files.workerdTypeDef))
+  const wasmEntry = readRegularFile(join(rootDir, files.wasmEntry))
+  const wasmTypeDef = readRegularFile(join(rootDir, files.wasmTypeDef))
+  if (!workerdEntry || !workerdTypeDef || !wasmEntry || !wasmTypeDef) {
+    return false
+  }
+
+  const markedFiles = [workerdEntry, workerdTypeDef, wasmTypeDef].map((file) =>
+    parseThreadlessWasiRootFacadeMarker(file.toString('utf8')),
+  )
+  if (markedFiles.some((file) => file === undefined)) {
+    return false
+  }
+  const [markedWorkerdEntry, markedWorkerdTypeDef, markedWasmTypeDef] =
+    markedFiles as Array<{
+      marker: ThreadlessWasiRootFacadeMarker
+      markerLine: string
+      body: string
+    }>
+  if (
+    markedWorkerdEntry.markerLine !== markedWorkerdTypeDef.markerLine ||
+    markedWorkerdEntry.markerLine !== markedWasmTypeDef.markerLine
+  ) {
+    return false
+  }
+
+  const expectedMarker: ThreadlessWasiRootFacadeMarker = {
+    version: 1,
+    flavorPackage,
+    wasmSha256: createHash('sha256').update(wasmEntry).digest('hex'),
+  }
+  if (!isDeepStrictEqual(markedWorkerdEntry.marker, expectedMarker)) {
+    return false
+  }
+  const forwardingModule =
+    createThreadlessWasiRootForwardingModule(flavorPackage)
+  return (
+    markedWorkerdEntry.body === forwardingModule &&
+    markedWorkerdTypeDef.body === forwardingModule &&
+    markedWasmTypeDef.body === createWasmModuleTypeDef()
+  )
+}
+
+function hasLegacyThreadlessWasiRootFacade(
+  rootDir: string,
+  npmDir: string,
+  files: ThreadlessWasiRootFacadeFiles,
+  flavorPackage: string,
+) {
+  const workerdEntry = readRegularFile(join(rootDir, files.workerdEntry))
+  const workerdTypeDef = readRegularFile(join(rootDir, files.workerdTypeDef))
+  const wasmEntry = readRegularFile(join(rootDir, files.wasmEntry))
+  const wasmTypeDef = readRegularFile(join(rootDir, files.wasmTypeDef))
+  const flavorWasmEntry = readRegularFile(
+    join(npmDir, 'wasm32-wasip1', files.wasmEntry),
+  )
+  if (
+    !workerdEntry ||
+    !workerdTypeDef ||
+    !wasmEntry ||
+    !wasmTypeDef ||
+    !flavorWasmEntry
+  ) {
+    return false
+  }
+
+  const forwardingModule =
+    createThreadlessWasiRootForwardingModule(flavorPackage)
+  return (
+    workerdEntry.toString('utf8') === forwardingModule &&
+    workerdTypeDef.toString('utf8') === forwardingModule &&
+    wasmTypeDef.toString('utf8') === createWasmModuleTypeDef() &&
+    wasmEntry.equals(flavorWasmEntry)
+  )
+}
+
+function readRegularFile(path: string) {
+  try {
+    if (!lstatSync(path).isFile()) {
+      return undefined
+    }
+    return readFileSync(path)
+  } catch {
+    return undefined
+  }
+}
+
+function parseThreadlessWasiRootFacadeMarker(source: string) {
+  const markerEnd = source.indexOf('\n')
+  if (markerEnd === -1) {
+    return undefined
+  }
+  const markerLine = source.slice(0, markerEnd)
+  if (!markerLine.startsWith(WASI_ROOT_FACADE_MARKER_PREFIX)) {
+    return undefined
+  }
+
+  let marker: unknown
+  try {
+    marker = JSON.parse(markerLine.slice(WASI_ROOT_FACADE_MARKER_PREFIX.length))
+  } catch {
+    return undefined
+  }
+  const markerRecord = asRecord(marker)
+  if (
+    !markerRecord ||
+    !isDeepStrictEqual(Object.keys(markerRecord), [
+      'version',
+      'flavorPackage',
+      'wasmSha256',
+    ]) ||
+    markerRecord.version !== 1 ||
+    typeof markerRecord.flavorPackage !== 'string' ||
+    typeof markerRecord.wasmSha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(markerRecord.wasmSha256) ||
+    markerLine !==
+      `${WASI_ROOT_FACADE_MARKER_PREFIX}${JSON.stringify(markerRecord)}`
+  ) {
+    return undefined
+  }
+  return {
+    marker: markerRecord as unknown as ThreadlessWasiRootFacadeMarker,
+    markerLine,
+    body: source.slice(markerEnd + 1),
+  }
+}
+
+function createThreadlessWasiRootFacadeMarker(
+  flavorPackage: string,
+  wasm: Buffer,
+) {
+  const marker: ThreadlessWasiRootFacadeMarker = {
+    version: 1,
+    flavorPackage,
+    wasmSha256: createHash('sha256').update(wasm).digest('hex'),
+  }
+  return `${WASI_ROOT_FACADE_MARKER_PREFIX}${JSON.stringify(marker)}`
+}
+
+function createThreadlessWasiRootForwardingModule(flavorPackage: string) {
+  return `export * from ${JSON.stringify(`${flavorPackage}/workerd`)}\n`
 }
 
 function applyThreadlessWasiRootFacade(
@@ -593,11 +777,15 @@ function planThreadlessWasiRootFacade({
     rootDir,
   )
   const publishConfigExports = hasPublishConfigExports ? exports : undefined
-  const workerdSpecifier = `${flavorPackageName}/workerd`
-  const forwardingModule = `export * from ${JSON.stringify(workerdSpecifier)}\n`
+  const forwardingModule =
+    createThreadlessWasiRootForwardingModule(flavorPackageName)
   const generatedFiles = Object.values(files)
   const managedFiles = new Set(managedGeneratedFiles)
   const wasmSourcePath = join(npmDir, target.platformArchABI, wasmFileName)
+  const marker = createThreadlessWasiRootFacadeMarker(
+    flavorPackageName,
+    readFileSync(wasmSourcePath),
+  )
   const conflictingFile = generatedFiles.find((file) => {
     const rootPath = join(rootDir, file)
     if (!existsSync(rootPath) || managedFiles.has(file)) {
@@ -623,6 +811,7 @@ function planThreadlessWasiRootFacade({
     generatedFiles,
     files,
     wasmSourcePath,
+    marker,
     forwardingModule,
     packageJsonUpdate: {},
   }
@@ -645,17 +834,17 @@ async function materializeThreadlessWasiRootFacade(
   await Promise.all([
     writeFileAsync(
       join(rootDir, facade.files.workerdEntry),
-      facade.forwardingModule,
+      `${facade.marker}\n${facade.forwardingModule}`,
       'utf8',
     ),
     writeFileAsync(
       join(rootDir, facade.files.workerdTypeDef),
-      facade.forwardingModule,
+      `${facade.marker}\n${facade.forwardingModule}`,
       'utf8',
     ),
     writeFileAsync(
       join(rootDir, facade.files.wasmTypeDef),
-      createWasmModuleTypeDef(),
+      `${facade.marker}\n${createWasmModuleTypeDef()}`,
       'utf8',
     ),
   ])
@@ -1047,6 +1236,41 @@ interface ReleasePackageManifest {
 }
 
 async function validateReleasePackage({
+  pkgDir,
+  materializeDeclarationDependencies,
+  ...options
+}: ReleasePackageValidationOptions) {
+  const packageJsonPath = join(pkgDir, 'package.json')
+  if (!existsSync(packageJsonPath)) {
+    throw new Error(
+      `Release package manifest does not exist: ${packageJsonPath}`,
+    )
+  }
+  if (materializeDeclarationDependencies) {
+    return validateReleasePackageContents({
+      ...options,
+      pkgDir,
+      materializeDeclarationDependencies,
+    })
+  }
+
+  const stagingRoot = await mkdtemp(
+    join(tmpdir(), 'napi-rs-pre-publish-validation-'),
+  )
+  const stagedPkgDir = join(stagingRoot, 'package')
+  try {
+    await cp(pkgDir, stagedPkgDir, { recursive: true })
+    await validateReleasePackageContents({
+      ...options,
+      pkgDir: stagedPkgDir,
+      materializeDeclarationDependencies: true,
+    })
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true })
+  }
+}
+
+async function validateReleasePackageContents({
   pkgDir,
   rootDir,
   packageName,

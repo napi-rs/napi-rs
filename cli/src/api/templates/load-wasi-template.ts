@@ -287,12 +287,12 @@ function __removeAddedBeforeExitListeners(__process, __beforeListeners) {
 }
 
 const __managedEmnapiContextDestroyers = new Set()
-let __managedBeforeExitProcess
-let __managedBeforeExitListener
+let __managedExitProcess
+let __managedExitListener
 
 function __destroyManagedEmnapiContexts() {
-  __managedBeforeExitProcess = undefined
-  __managedBeforeExitListener = undefined
+  __managedExitProcess = undefined
+  __managedExitListener = undefined
   let __firstError
   for (const __destroy of [...__managedEmnapiContextDestroyers]) {
     try {
@@ -315,11 +315,11 @@ function __registerManagedEmnapiContext(__process, __destroy) {
     return
   }
   __managedEmnapiContextDestroyers.add(__destroy)
-  if (!__managedBeforeExitListener) {
+  if (!__managedExitListener) {
     try {
-      __process.once('beforeExit', __destroyManagedEmnapiContexts)
-      __managedBeforeExitProcess = __process
-      __managedBeforeExitListener = __destroyManagedEmnapiContexts
+      __process.once('exit', __destroyManagedEmnapiContexts)
+      __managedExitProcess = __process
+      __managedExitListener = __destroyManagedEmnapiContexts
     } catch (error) {
       __managedEmnapiContextDestroyers.delete(__destroy)
       throw error
@@ -334,17 +334,14 @@ function __registerManagedEmnapiContext(__process, __destroy) {
     __managedEmnapiContextDestroyers.delete(__destroy)
     if (
       __managedEmnapiContextDestroyers.size === 0 &&
-      __managedBeforeExitListener &&
-      __managedBeforeExitProcess
+      __managedExitListener &&
+      __managedExitProcess
     ) {
       try {
-        __managedBeforeExitProcess.removeListener(
-          'beforeExit',
-          __managedBeforeExitListener,
-        )
+        __managedExitProcess.removeListener('exit', __managedExitListener)
       } catch {}
-      __managedBeforeExitProcess = undefined
-      __managedBeforeExitListener = undefined
+      __managedExitProcess = undefined
+      __managedExitListener = undefined
     }
   }
 }
@@ -365,17 +362,17 @@ function __createManagedEmnapiContext() {
   // newer runtimes add none when autoDestroy is false.
   __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
   let __disposed = false
-  let __unregisterBeforeExit
+  let __unregisterExit
   const __destroy = () => {
     if (__disposed) {
       return
     }
     __disposed = true
-    __unregisterBeforeExit?.()
+    __unregisterExit?.()
     return __emnapiContext.destroy()
   }
   try {
-    __unregisterBeforeExit = __registerManagedEmnapiContext(
+    __unregisterExit = __registerManagedEmnapiContext(
       __process,
       __destroy,
     )
@@ -671,7 +668,58 @@ const __wasi = new __nodeWASI({
   }
 })
 
-const __emnapiContext = __emnapiCreateContext()
+function __getBeforeExitListeners() {
+  const __getListeners =
+    typeof process.rawListeners === 'function'
+      ? process.rawListeners
+      : typeof process.listeners === 'function'
+        ? process.listeners
+        : undefined
+  if (!__getListeners) {
+    return
+  }
+  try {
+    return __getListeners.call(process, 'beforeExit')
+  } catch {}
+}
+
+function __removeAddedBeforeExitListeners(__beforeListeners) {
+  if (!__beforeListeners) {
+    return
+  }
+  const __afterListeners = __getBeforeExitListeners()
+  if (!__afterListeners) {
+    return
+  }
+  const __remainingBeforeListeners = new Map()
+  for (const __listener of __beforeListeners) {
+    __remainingBeforeListeners.set(
+      __listener,
+      (__remainingBeforeListeners.get(__listener) || 0) + 1,
+    )
+  }
+  for (const __listener of __afterListeners) {
+    const __remaining = __remainingBeforeListeners.get(__listener) || 0
+    if (__remaining > 0) {
+      __remainingBeforeListeners.set(__listener, __remaining - 1)
+      continue
+    }
+    try {
+      process.removeListener('beforeExit', __listener)
+    } catch {}
+  }
+}
+
+const __beforeExitListeners = __getBeforeExitListeners()
+let __emnapiContext
+try {
+  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+} finally {
+  // emnapi <= 1.11 ignores autoDestroy and installs an anonymous beforeExit
+  // listener. Remove only listeners added synchronously by this context.
+  __removeAddedBeforeExitListeners(__beforeExitListeners)
+}
+process.once('exit', () => __emnapiContext.destroy())
 
 const ${memoryName} = new WebAssembly.Memory({
   initial: ${initialMemory},

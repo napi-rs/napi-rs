@@ -169,7 +169,19 @@ function executeGeneratedWasiNodeBinding(
     { resolve: resolvePackage },
   )
   const execute = new Function('require', 'process', '__dirname', code)
-  execute(mockRequire, { cwd: () => '/', env: {} }, '/root')
+  execute(
+    mockRequire,
+    {
+      cwd: () => '/',
+      env: {},
+      once() {},
+      rawListeners() {
+        return []
+      },
+      removeListener() {},
+    },
+    '/root',
+  )
   return { readPaths }
 }
 
@@ -245,6 +257,12 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('asyncWorkPoolSize: 0'))
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
   t.true(src.includes('__managedEmnapiContextDestroyers'))
+  t.true(src.includes("__process.once('exit', __destroyManagedEmnapiContexts)"))
+  t.false(
+    src.includes(
+      "__process.once('beforeExit', __destroyManagedEmnapiContexts)",
+    ),
+  )
   t.false(src.includes('__takeAddedBeforeExitListeners'))
   // instantiate() accepts ONLY a precompiled WebAssembly.Module (or a Promise
   // resolving to one): anything else would require dynamic Wasm compilation,
@@ -520,6 +538,183 @@ if (state.destroyed !== 1) {
 )
 
 test.serial(
+  'Node WASI bindings remain usable when beforeExit schedules more work',
+  async (t) => {
+    const tmpDir = await mkdtemp(
+      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-before-exit-'),
+    )
+    const nodeBinding = `${createWasiBinding(
+      'binding',
+      'before-exit-test',
+      1,
+      2,
+      false,
+      'wasm32-wasip1',
+    )}
+module.exports = __napiModule.exports
+`
+    const deferredBinding = createWasiDeferredBrowserBinding('binding', 1, 2)
+
+    try {
+      const wasmRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(wasmRuntimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(wasmRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: {
+            import: './index.mjs',
+            require: './index.cjs',
+          },
+        }),
+      )
+      const contextFactory = `
+function createContext(options) {
+  if (options?.autoDestroy !== false) {
+    throw new Error('generated loader must disable emnapi auto-destroy')
+  }
+  const context = {
+    destroyed: false,
+    destroy() {
+      if (!this.destroyed) {
+        this.destroyed = true
+        globalThis.__beforeExitTestDestroyed++
+      }
+    },
+  }
+  globalThis.__beforeExitTestContexts.push(context)
+  // Emulate emnapi 1.11.x ignoring autoDestroy.
+  process.once('beforeExit', () => context.destroy())
+  return context
+}
+`
+      await writeFile(
+        join(wasmRuntimeDir, 'index.cjs'),
+        `${contextFactory}
+module.exports = {
+  createContext,
+  instantiateNapiModuleSync(_module, options) {
+    return {
+      napiModule: {
+        exports: {
+          ping() {
+            if (options.context.destroyed) throw new Error('context destroyed')
+            return 'ordinary'
+          },
+        },
+      },
+    }
+  },
+}
+`,
+      )
+      await writeFile(
+        join(wasmRuntimeDir, 'index.mjs'),
+        `export class WASI {}
+export async function instantiateNapiModule(_module, options) {
+  return {
+    napiModule: {
+      exports: {
+        ping() {
+          if (options.context.destroyed) throw new Error('context destroyed')
+          return 'deferred'
+        },
+      },
+    },
+  }
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `${contextFactory}
+export { createContext }
+`,
+      )
+      await writeFile(join(tmpDir, 'binding.cjs'), nodeBinding)
+      await writeFile(join(tmpDir, 'binding.wasm'), '')
+      await writeFile(join(tmpDir, 'deferred.mjs'), deferredBinding)
+      await writeFile(
+        join(tmpDir, 'test.mjs'),
+        `import { createRequire } from 'node:module'
+
+globalThis.__beforeExitTestContexts = []
+globalThis.__beforeExitTestDestroyed = 0
+const initialBeforeExitListeners = process.rawListeners('beforeExit').length
+const require = createRequire(import.meta.url)
+const ordinary = require('./binding.cjs')
+const deferred = await import('./deferred.mjs')
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+const singleton = await deferred.instantiate(module)
+const independent = await deferred.createInstance(module)
+
+if (process.rawListeners('beforeExit').length !== initialBeforeExitListeners) {
+  throw new Error('emnapi beforeExit listener leaked')
+}
+if (globalThis.__beforeExitTestContexts.length !== 3) {
+  throw new Error('unexpected context count')
+}
+
+process.once('beforeExit', () => {
+  setImmediate(() => {
+    if (
+      ordinary.ping() !== 'ordinary' ||
+      singleton.ping() !== 'deferred' ||
+      independent.exports.ping() !== 'deferred'
+    ) {
+      throw new Error('binding returned an unexpected value')
+    }
+    process.stdout.write('resumed\\n')
+  })
+})
+process.once('exit', () => {
+  if (
+    globalThis.__beforeExitTestDestroyed !== 3 ||
+    globalThis.__beforeExitTestContexts.some((context) => !context.destroyed)
+  ) {
+    throw new Error('terminal cleanup did not destroy every context')
+  }
+  process.stdout.write('cleaned\\n')
+})
+`,
+      )
+
+      const result = await execFileAsync(
+        process.execPath,
+        ['--unhandled-rejections=strict', join(tmpDir, 'test.mjs')],
+        { cwd: tmpDir, timeout: 10_000 },
+      )
+      t.is(result.stdout, 'resumed\ncleaned\n')
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
   'deferred WASI binding shares, disposes, and isolates instances',
   async (t) => {
     const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
@@ -541,6 +736,7 @@ test.serial(
     const initialBeforeExitListeners = new Set(
       process.rawListeners('beforeExit'),
     )
+    const initialExitListeners = new Set(process.rawListeners('exit'))
 
     try {
       const runtimeDir = join(
@@ -634,11 +830,10 @@ export async function instantiateNapiModule(module, options) {
       const moduleB = new WebAssembly.Module(
         new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
       )
-      const countOwnedBeforeExitListeners = () =>
+      const countOwnedExitListeners = () =>
         process
-          .rawListeners('beforeExit')
-          .filter((listener) => !initialBeforeExitListeners.has(listener))
-          .length
+          .rawListeners('exit')
+          .filter((listener) => !initialExitListeners.has(listener)).length
 
       const memoryError = new Error('memory allocation failed')
       ;(WebAssembly as any).Memory = class {
@@ -654,7 +849,7 @@ export async function instantiateNapiModule(module, options) {
       const contextError = new Error('context creation failed')
       state.contextError = contextError
       t.is(await t.throwsAsync(() => createInstance(moduleA)), contextError)
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
       state.contextError = undefined
 
       const initializationError = new Error('initialization failed')
@@ -667,7 +862,7 @@ export async function instantiateNapiModule(module, options) {
       t.is(rejectedInitialization, initializationError)
       t.is(rejectedInitialization.cause, cleanupError)
       t.deepEqual(state.destroyed, [1])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
       state.initializationError = undefined
       state.cleanupError = undefined
 
@@ -684,7 +879,7 @@ export async function instantiateNapiModule(module, options) {
           (options: any) => options?.autoDestroy === false,
         ),
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
 
       await t.throwsAsync(() => instantiate(moduleB), {
         message: /already owns a different WebAssembly\.Module/,
@@ -692,7 +887,7 @@ export async function instantiateNapiModule(module, options) {
 
       await dispose()
       t.deepEqual(state.destroyed, [1, 2])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       const [independentA, independentB] = await Promise.all([
         createInstance(moduleA),
@@ -700,23 +895,23 @@ export async function instantiateNapiModule(module, options) {
       ])
       t.not(independentA.exports, independentB.exports)
       t.is(state.instances, 4)
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       state.cleanupError = cleanupError
       t.is(
         t.throws(() => independentA.dispose()),
         cleanupError,
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       state.cleanupError = undefined
       independentA.dispose()
       independentA.dispose()
       independentB.dispose()
       t.deepEqual(state.destroyed, [1, 2, 3, 4])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       const replacement = await instantiate(moduleB)
       t.is(replacement.id, 5)
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       state.cleanupError = cleanupError
       const failedDispose = dispose()
       const overlappingFailedDispose = instantiate(moduleA)
@@ -724,7 +919,7 @@ export async function instantiateNapiModule(module, options) {
       const overlappingDisposeError = t.throwsAsync(overlappingFailedDispose)
       t.is(await failedDisposeError, cleanupError)
       t.is(await overlappingDisposeError, cleanupError)
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
       state.cleanupError = undefined
 
       // Failed cleanup may leave the old context partially stopped. It is
@@ -733,21 +928,21 @@ export async function instantiateNapiModule(module, options) {
       const afterFailedDispose = await instantiate(moduleA)
       t.is(afterFailedDispose.id, 6)
       t.not(afterFailedDispose, replacement)
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       await dispose()
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       state.initializationError = initializationError
       t.is(await t.throwsAsync(() => instantiate(moduleB)), initializationError)
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
       state.initializationError = undefined
       const recovered = await instantiate(moduleB)
       t.is(recovered.id, 8)
       await dispose()
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       let releaseInitialization!: () => void
       state.initializationGate = new Promise<void>((resolve) => {
@@ -770,7 +965,7 @@ export async function instantiateNapiModule(module, options) {
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9])
       await dispose()
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       const hostileInitializationError = new Error(
         'initialization failed with hostile cause',
@@ -790,7 +985,7 @@ export async function instantiateNapiModule(module, options) {
       }
       t.is(observedInitializationError, hostileInitializationError)
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
       state.initializationError = undefined
       state.cleanupError = undefined
 
@@ -800,7 +995,7 @@ export async function instantiateNapiModule(module, options) {
       await disposeBeforeFirstAwait
       t.is(instanceBeforeFirstAwait.id, 12)
       t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       const moduleResolutionError = new Error('module resolution failed')
       const instancesBeforeRejectedModule = state.instances
@@ -866,27 +1061,27 @@ export async function instantiateNapiModule(module, options) {
       t.false(
         crossRealmModule instanceof (globalThis as any).WebAssembly.Module,
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       await dispose()
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
 
       const destroyedBeforeConcurrentInstances = state.destroyed.length
       const concurrentInstances = await Promise.all(
         Array.from({ length: 20 }, () => createInstance(moduleA)),
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       for (const instance of concurrentInstances) {
         instance.dispose()
       }
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
       t.is(state.destroyed.length, destroyedBeforeConcurrentInstances + 20)
 
       const destroyedBeforeRepeatedInstances = state.destroyed.length
       for (let i = 0; i < 20; i++) {
         const instance = await createInstance(moduleA)
-        t.is(countOwnedBeforeExitListeners(), 1)
+        t.is(countOwnedExitListeners(), 1)
         instance.dispose()
-        t.is(countOwnedBeforeExitListeners(), 0)
+        t.is(countOwnedExitListeners(), 0)
       }
       t.is(state.destroyed.length, destroyedBeforeRepeatedInstances + 20)
     } finally {
@@ -894,6 +1089,11 @@ export async function instantiateNapiModule(module, options) {
       for (const listener of process.rawListeners('beforeExit')) {
         if (!initialBeforeExitListeners.has(listener)) {
           process.removeListener('beforeExit', listener)
+        }
+      }
+      for (const listener of process.rawListeners('exit')) {
+        if (!initialExitListeners.has(listener)) {
+          process.removeListener('exit', listener)
         }
       }
       delete (globalThis as any).__napiDeferredTestState
@@ -912,6 +1112,7 @@ test.serial(
     const initialBeforeExitListeners = new Set(
       process.rawListeners('beforeExit'),
     )
+    const initialExitListeners = new Set(process.rawListeners('exit'))
 
     try {
       const runtimeDir = join(
@@ -967,24 +1168,28 @@ export async function instantiateNapiModule(module) {
       const module = new WebAssembly.Module(
         new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
       )
-      const countOwnedBeforeExitListeners = () =>
+      const countOwnedExitListeners = () =>
         process
-          .rawListeners('beforeExit')
-          .filter((listener) => !initialBeforeExitListeners.has(listener))
-          .length
+          .rawListeners('exit')
+          .filter((listener) => !initialExitListeners.has(listener)).length
 
       const instances = await Promise.all(
         Array.from({ length: 20 }, () => createInstance(module)),
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedExitListeners(), 1)
       for (const instance of instances) {
         instance.dispose()
       }
-      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 0)
     } finally {
       for (const listener of process.rawListeners('beforeExit')) {
         if (!initialBeforeExitListeners.has(listener)) {
           process.removeListener('beforeExit', listener)
+        }
+      }
+      for (const listener of process.rawListeners('exit')) {
+        if (!initialExitListeners.has(listener)) {
+          process.removeListener('exit', listener)
         }
       }
       await rm(tmpDir, { recursive: true, force: true })
@@ -1122,9 +1327,23 @@ module.exports = __napiModule.exports
       '__dirname',
       'WebAssembly',
       code,
-    )(require, module, { cwd: () => '/', env: {} }, '/fixture', {
-      Memory: class {},
-    })
+    )(
+      require,
+      module,
+      {
+        cwd: () => '/',
+        env: {},
+        once() {},
+        rawListeners() {
+          return []
+        },
+        removeListener() {},
+      },
+      '/fixture',
+      {
+        Memory: class {},
+      },
+    )
     return module.exports as {
       add: (left: number, right: number) => number
       add(left: number, right: number): number
@@ -1409,13 +1628,10 @@ test('root package selects an installed WASI flavor in a real dual-flavor layout
       ),
       writeFile(
         join(rootPackageDir, 'index.cjs'),
-        createCjsBinding(
-          'test',
-          '@scope/test',
-          ['runtime'],
-          undefined,
-          ['wasm32-wasi', 'wasm32-wasip1'],
-        ),
+        createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+          'wasm32-wasi',
+          'wasm32-wasip1',
+        ]),
       ),
       writeFile(
         join(threadedPackageDir, 'package.json'),

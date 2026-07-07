@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import {
   mkdir,
@@ -28,6 +29,7 @@ const emnapiVersion = require('emnapi/package.json').version
 const wasmRuntimeVersion =
   require('../../../../wasm-runtime/package.json').version
 const directBufferDependency = '^6.0.3'
+const wasiRootFacadeMarkerPrefix = '// napi-rs-wasi-root-facade:'
 
 async function createTestTempDir() {
   const tmpDir = join(
@@ -1053,13 +1055,26 @@ test('pre-publish adds root WASI facades without replacing existing exports', as
   t.true(
     packageJson.files.includes('pre-publish-wasi.wasm32-wasip1.wasm.d.mts'),
   )
-  t.is(
-    await readFile(
-      join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.workerd.mjs'),
-      'utf8',
-    ),
-    'export * from "pre-publish-wasi-wasm32-wasip1/workerd"\n',
+  const workerdFacade = await readFile(
+    join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.workerd.mjs'),
+    'utf8',
   )
+  const workerdTypeFacade = await readFile(
+    join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.workerd.d.mts'),
+    'utf8',
+  )
+  const markerLine = workerdFacade.slice(0, workerdFacade.indexOf('\n'))
+  const marker = JSON.parse(markerLine.slice(wasiRootFacadeMarkerPrefix.length))
+  t.deepEqual(marker, {
+    version: 1,
+    flavorPackage: 'pre-publish-wasi-wasm32-wasip1',
+    wasmSha256: createHash('sha256').update(MINIMAL_WASM).digest('hex'),
+  })
+  t.is(
+    workerdFacade,
+    `${markerLine}\nexport * from "pre-publish-wasi-wasm32-wasip1/workerd"\n`,
+  )
+  t.is(workerdTypeFacade, workerdFacade)
   t.deepEqual(
     await readFile(
       join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.wasm'),
@@ -1071,7 +1086,7 @@ test('pre-publish adds root WASI facades without replacing existing exports', as
       join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.wasm.d.mts'),
       'utf8',
     ),
-    createWasmModuleTypeDef(),
+    `${markerLine}\n${createWasmModuleTypeDef()}`,
   )
 })
 
@@ -1115,6 +1130,149 @@ test('pre-publish rejects a conflicting root WASI artifact', async (t) => {
 
   t.regex(error.message, /path already exists and is not owned/)
   t.is(await readFile(rootArtifact, 'utf8'), 'user-owned wasm')
+})
+
+test('pre-publish rejects exact-shaped user-owned root facades without mutation', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const customFacades = {
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs':
+      'export const userWorkerd = true\n',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts':
+      'export declare const userWorkerd: true\n',
+    'pre-publish-wasi.wasm32-wasip1.wasm': 'user-owned wasm',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts':
+      'declare const userWasm: unique symbol\nexport default userWasm\n',
+  }
+  await Promise.all(
+    Object.entries(customFacades).map(([file, contents]) =>
+      writeFile(join(t.context.tmpDir, file), contents),
+    ),
+  )
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJsonBefore = await readFile(packageJsonPath, 'utf8')
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+
+  t.regex(error.message, /path already exists and is not owned/)
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBefore)
+  for (const [file, contents] of Object.entries(customFacades)) {
+    t.is(await readFile(join(t.context.tmpDir, file), 'utf8'), contents)
+  }
+})
+
+test('pre-publish preserves exact-shaped user-owned root facades when the target is removed', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const customFacades = {
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs':
+      'export const userWorkerd = true\n',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts':
+      'export declare const userWorkerd: true\n',
+    'pre-publish-wasi.wasm32-wasip1.wasm': 'user-owned wasm',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts':
+      'declare const userWasm: unique symbol\nexport default userWasm\n',
+  }
+  await Promise.all(
+    Object.entries(customFacades).map(([file, contents]) =>
+      writeFile(join(t.context.tmpDir, file), contents),
+    ),
+  )
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  const facadeExports = {
+    workerd: packageJson.exports['./workerd'],
+    wasm: packageJson.exports['./wasm'],
+    wasmExtension: packageJson.exports['./wasm.wasm'],
+  }
+  packageJson.napi.targets = []
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const preservedPackageJson = JSON.parse(
+    await readFile(packageJsonPath, 'utf8'),
+  )
+  t.deepEqual(preservedPackageJson.exports['./workerd'], facadeExports.workerd)
+  t.deepEqual(preservedPackageJson.exports['./wasm'], facadeExports.wasm)
+  t.deepEqual(
+    preservedPackageJson.exports['./wasm.wasm'],
+    facadeExports.wasmExtension,
+  )
+  for (const [file, contents] of Object.entries(customFacades)) {
+    t.true(preservedPackageJson.files.includes(file))
+    t.is(await readFile(join(t.context.tmpDir, file), 'utf8'), contents)
+  }
+})
+
+test('pre-publish migrates legacy unmarked root facades', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const textFacades = [
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts',
+  ]
+  for (const file of textFacades) {
+    const contents = await readFile(join(t.context.tmpDir, file), 'utf8')
+    await writeFile(
+      join(t.context.tmpDir, file),
+      contents.slice(contents.indexOf('\n') + 1),
+    )
+  }
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const migratedFacades = await Promise.all(
+    textFacades.map((file) => readFile(join(t.context.tmpDir, file), 'utf8')),
+  )
+  const markerLines = migratedFacades.map((contents) =>
+    contents.slice(0, contents.indexOf('\n')),
+  )
+  t.true(
+    markerLines.every((line) => line.startsWith(wasiRootFacadeMarkerPrefix)),
+  )
+  t.true(markerLines.every((line) => line === markerLines[0]))
 })
 
 test('pre-publish removes managed root facades when the threadless target is removed', async (t) => {
@@ -1735,6 +1893,20 @@ test.serial(
       join(t.context.tmpDir, 'types', 'query.d.ts'),
       'export interface Query { readonly query: true }\n',
     )
+
+    const flavorManifestPath = join(packageDir, 'package.json')
+    const flavorManifestBeforeDryRun = await readFile(
+      flavorManifestPath,
+      'utf8',
+    )
+    await prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    })
+    t.is(await readFile(flavorManifestPath, 'utf8'), flavorManifestBeforeDryRun)
+    t.false(existsSync(join(packageDir, 'types')))
 
     await prePublish({
       cwd: t.context.tmpDir,
