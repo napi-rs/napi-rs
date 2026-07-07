@@ -1741,7 +1741,17 @@ function executeGeneratedCjsBinding(
   return { calls, resolveCalls, exports: module.exports }
 }
 
-test('js binding does not cross WASI flavors after an existing loader fails initialization', (t) => {
+function getCauseMessages(error: Error & { cause?: unknown }): string[] {
+  const messages: string[] = []
+  let current = error.cause
+  while (current instanceof Error) {
+    messages.push(current.message)
+    current = (current as Error & { cause?: unknown }).cause
+  }
+  return messages
+}
+
+test('js binding advances to the next WASI flavor after a local loader fails initialization', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], undefined, [
     'wasm32-wasi',
     'wasm32-wasip1',
@@ -1749,33 +1759,23 @@ test('js binding does not cross WASI flavors after an existing loader fails init
   const threadedLocal = './test.wasi.cjs'
   const threadedArtifact = './test.wasm32-wasi.wasm'
   const singleLocal = './test.wasip1.cjs'
-  const calls: string[] = []
-  const error = t.throws(() => {
-    const result = executeGeneratedCjsBinding(
-      code,
-      new Map([
-        [
-          threadedLocal,
-          () => {
-            calls.push(threadedLocal)
-            throw new Error('threaded initialization failed')
-          },
-        ],
-        [
-          singleLocal,
-          () => {
-            calls.push(singleLocal)
-            return { sum: () => 42 }
-          },
-        ],
-      ]),
-      new Set([threadedLocal, threadedArtifact, singleLocal]),
-    )
-    calls.push(...result.calls)
-  })
+  const singleArtifact = './test.wasm32-wasip1.wasm'
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([
+      [
+        threadedLocal,
+        () => {
+          throw new Error('threaded initialization failed')
+        },
+      ],
+      [singleLocal, () => ({ sum: () => 42 })],
+    ]),
+    new Set([threadedLocal, threadedArtifact, singleLocal, singleArtifact]),
+  )
 
-  t.is(error.message, 'threaded initialization failed')
-  t.false(calls.includes(singleLocal))
+  t.deepEqual(result.calls, ['fs', threadedLocal, singleLocal])
+  t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
 test('js binding advances to the next WASI flavor when earlier candidates are absent', (t) => {
@@ -1814,6 +1814,31 @@ test('js binding defaults to the threaded package when both WASI flavors are ins
   t.is((result.exports as { runtime: string }).runtime, 'threaded')
   t.true(result.calls.includes(threadedPackage))
   t.false(result.calls.includes(threadlessPackage))
+})
+
+test('js binding advances after an installed WASI package fails initialization', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  const threadedPackage = '@scope/test-wasm32-wasi'
+  const threadlessPackage = '@scope/test-wasm32-wasip1'
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([
+      [
+        threadedPackage,
+        () => {
+          throw new Error('threaded package initialization failed')
+        },
+      ],
+      [threadlessPackage, () => ({ runtime: 'threadless' })],
+    ]),
+    new Set([threadedPackage, threadlessPackage]),
+  )
+
+  t.deepEqual(result.calls, ['fs', threadedPackage, threadlessPackage])
+  t.is((result.exports as { runtime: string }).runtime, 'threadless')
 })
 
 test('js binding selects the threadless package through the dual-flavor root loader', (t) => {
@@ -1960,6 +1985,161 @@ test('js binding rejects an unavailable selected WASI flavor without loading nat
   t.false(nativeInitialized)
 })
 
+test('js binding explicit flavor aggregates selected candidate failures only', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  const threadedLocal = './test.wasi.cjs'
+  const threadlessLocal = './test.wasip1.cjs'
+  const threadlessArtifact = './test.wasm32-wasip1.wasm'
+  const threadedPackage = '@scope/test-wasm32-wasi'
+  const threadlessPackage = '@scope/test-wasm32-wasip1'
+  const localError = new Error('threadless local initialization failed')
+  const packageRootCause = new Error('threadless package root cause')
+  const packageError = Object.assign(
+    new Error('threadless package initialization failed'),
+    {
+      cause: packageRootCause,
+    },
+  )
+  const resolveCalls: string[] = []
+  let nativeInitialized = false
+  const error = t.throws(() =>
+    executeGeneratedCjsBinding(
+      code,
+      new Map([
+        [threadedLocal, () => ({ runtime: 'wrong local flavor' })],
+        [
+          threadlessLocal,
+          () => {
+            throw localError
+          },
+        ],
+        [threadedPackage, () => ({ runtime: 'wrong package flavor' })],
+        [
+          threadlessPackage,
+          () => {
+            throw packageError
+          },
+        ],
+        [
+          '/native.node',
+          () => {
+            nativeInitialized = true
+            return { runtime: 'native' }
+          },
+        ],
+      ]),
+      new Set([
+        threadedLocal,
+        threadlessLocal,
+        threadlessArtifact,
+        threadedPackage,
+        threadlessPackage,
+      ]),
+      new Map(),
+      {
+        NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+        NAPI_RS_WASI_FLAVOR: 'wasm32-wasip1',
+      },
+      resolveCalls,
+    ),
+  ) as Error & { cause?: unknown }
+
+  t.is(error.message, 'WASI binding for flavor "wasm32-wasip1" not found')
+  t.deepEqual(getCauseMessages(error), [
+    packageError.message,
+    localError.message,
+  ])
+  t.false(resolveCalls.includes(threadedLocal))
+  t.false(resolveCalls.includes(threadedPackage))
+  t.false(nativeInitialized)
+  t.is(packageError.cause, packageRootCause)
+  t.false(Object.prototype.hasOwnProperty.call(localError, 'cause'))
+})
+
+test('js binding strict WASI mode aggregates every candidate failure before throwing', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  const threadedLocal = './test.wasi.cjs'
+  const threadedArtifact = './test.wasm32-wasi.wasm'
+  const threadlessLocal = './test.wasip1.cjs'
+  const threadlessArtifact = './test.wasm32-wasip1.wasm'
+  const threadedPackage = '@scope/test-wasm32-wasi'
+  const threadlessPackage = '@scope/test-wasm32-wasip1'
+  const failures = [
+    new Error('threaded local failed'),
+    new Error('threadless local failed'),
+    new Error('threaded package failed'),
+    new Error('threadless package failed'),
+  ]
+  let nativeInitialized = false
+  const error = t.throws(() =>
+    executeGeneratedCjsBinding(
+      code,
+      new Map([
+        [
+          threadedLocal,
+          () => {
+            throw failures[0]
+          },
+        ],
+        [
+          threadlessLocal,
+          () => {
+            throw failures[1]
+          },
+        ],
+        [
+          threadedPackage,
+          () => {
+            throw failures[2]
+          },
+        ],
+        [
+          threadlessPackage,
+          () => {
+            throw failures[3]
+          },
+        ],
+        [
+          '/native.node',
+          () => {
+            nativeInitialized = true
+            return { runtime: 'native' }
+          },
+        ],
+      ]),
+      new Set([
+        threadedLocal,
+        threadedArtifact,
+        threadlessLocal,
+        threadlessArtifact,
+        threadedPackage,
+        threadlessPackage,
+      ]),
+      new Map(),
+      {
+        NAPI_RS_FORCE_WASI: 'error',
+        NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+      },
+    ),
+  ) as Error & { cause?: unknown }
+
+  t.is(
+    error.message,
+    'WASI binding not found and NAPI_RS_FORCE_WASI is set to error',
+  )
+  t.deepEqual(
+    getCauseMessages(error),
+    failures.map(({ message }) => message).reverse(),
+  )
+  t.false(nativeInitialized)
+})
+
 test('js binding rejects an unknown WASI flavor before binding initialization', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
     'wasm32-wasi',
@@ -2043,50 +2223,33 @@ test('js binding skips a stale local flavor loader whose wasm artifact is absent
   t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
-test('js binding does not mask non-missing WASI resolution failures', (t) => {
+test('js binding advances after a non-missing WASI resolution failure', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], undefined, [
     'wasm32-wasi',
     'wasm32-wasip1',
   ])
   const threadedLocal = './test.wasi.cjs'
   const singleLocal = './test.wasip1.cjs'
+  const singleArtifact = './test.wasm32-wasip1.wasm'
   const resolveError = Object.assign(
     new Error('invalid threaded package metadata'),
     {
       code: 'ERR_INVALID_PACKAGE_CONFIG',
     },
   )
-  const calls: string[] = []
-  const error = t.throws(() => {
-    const result = executeGeneratedCjsBinding(
-      code,
-      new Map([
-        [
-          threadedLocal,
-          () => {
-            calls.push(threadedLocal)
-            throw resolveError
-          },
-        ],
-        [
-          singleLocal,
-          () => {
-            calls.push(singleLocal)
-            return { sum: () => 42 }
-          },
-        ],
-      ]),
-      new Set([singleLocal]),
-      new Map([[threadedLocal, resolveError]]),
-    )
-    calls.push(...result.calls)
-  })
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([[singleLocal, () => ({ sum: () => 42 })]]),
+    new Set([singleLocal, singleArtifact]),
+    new Map([[threadedLocal, resolveError]]),
+  )
 
-  t.is(error, resolveError)
-  t.false(calls.includes(singleLocal))
+  t.false(result.calls.includes(threadedLocal))
+  t.true(result.calls.includes(singleLocal))
+  t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
-test('js binding does not treat an installed package with a broken entry as absent', (t) => {
+test('js binding advances after an installed package has a broken entry', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], undefined, [
     'wasm32-wasi',
     'wasm32-wasip1',
@@ -2103,24 +2266,25 @@ test('js binding does not treat an installed package with a broken entry as abse
       requestPath: threadedPackage,
     },
   )
-  const error = t.throws(() =>
-    executeGeneratedCjsBinding(
-      code,
-      new Map([[singlePackage, () => ({ sum: () => 42 })]]),
-      new Set([`${threadedPackage}/package.json`, singlePackage]),
-      new Map([[threadedPackage, resolveError]]),
-    ),
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([[singlePackage, () => ({ sum: () => 42 })]]),
+    new Set([`${threadedPackage}/package.json`, singlePackage]),
+    new Map([[threadedPackage, resolveError]]),
   )
 
-  t.is(error, resolveError)
+  t.false(result.calls.includes(threadedPackage))
+  t.true(result.calls.includes(singlePackage))
+  t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
-test('js binding preserves a broken package entry when package.json is not exported', (t) => {
+test('js binding advances after a broken package entry whose package.json is not exported', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], undefined, [
     'wasm32-wasi',
     'wasm32-wasip1',
   ])
   const threadedPackage = '@scope/test-wasm32-wasi'
+  const singlePackage = '@scope/test-wasm32-wasip1'
   const resolveError = Object.assign(
     new Error(`Cannot find module '${threadedPackage}/missing.cjs'`),
     {
@@ -2135,22 +2299,22 @@ test('js binding preserves a broken package entry when package.json is not expor
       code: 'ERR_PACKAGE_PATH_NOT_EXPORTED',
     },
   )
-  const error = t.throws(() =>
-    executeGeneratedCjsBinding(
-      code,
-      new Map(),
-      new Set(),
-      new Map([
-        [threadedPackage, resolveError],
-        [`${threadedPackage}/package.json`, packageJsonError],
-      ]),
-    ),
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([[singlePackage, () => ({ sum: () => 42 })]]),
+    new Set([singlePackage]),
+    new Map([
+      [threadedPackage, resolveError],
+      [`${threadedPackage}/package.json`, packageJsonError],
+    ]),
   )
 
-  t.is(error, resolveError)
+  t.false(result.calls.includes(threadedPackage))
+  t.true(result.calls.includes(singlePackage))
+  t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
-test('js binding preserves loader initialization errors without resolving again', (t) => {
+test('js binding records loader initialization errors without resolving the candidate again', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], undefined, [
     'wasm32-wasi',
     'wasm32-wasip1',
@@ -2158,69 +2322,88 @@ test('js binding preserves loader initialization errors without resolving again'
   const threadedLocal = './test.wasi.cjs'
   const threadedDebugArtifact = './test.wasm32-wasi.debug.wasm'
   const threadedArtifact = './test.wasm32-wasi.wasm'
+  const singleLocal = './test.wasip1.cjs'
+  const singleDebugArtifact = './test.wasm32-wasip1.debug.wasm'
+  const singleArtifact = './test.wasm32-wasip1.wasm'
   const initializationError = new Error('threaded initialization failed')
   const resolveCalls: string[] = []
-  const error = t.throws(() => {
-    executeGeneratedCjsBinding(
-      code,
-      new Map([
-        [
-          threadedLocal,
-          () => {
-            throw initializationError
-          },
-        ],
-      ]),
-      new Set([threadedLocal, threadedArtifact]),
-      new Map(),
-      { NAPI_RS_FORCE_WASI: 'true' },
-      resolveCalls,
-    )
-  })
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([
+      [
+        threadedLocal,
+        () => {
+          throw initializationError
+        },
+      ],
+      [singleLocal, () => ({ sum: () => 42 })],
+    ]),
+    new Set([threadedLocal, threadedArtifact, singleLocal, singleArtifact]),
+    new Map(),
+    { NAPI_RS_FORCE_WASI: 'true' },
+    resolveCalls,
+  )
 
-  t.is(error, initializationError)
   t.deepEqual(resolveCalls, [
     threadedLocal,
     threadedDebugArtifact,
     threadedArtifact,
+    singleLocal,
+    singleDebugArtifact,
+    singleArtifact,
   ])
+  t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
-test('js binding checks a WASI package version before initialization', (t) => {
+test('js binding advances after a WASI package version check fails', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
     'wasm32-wasi',
+    'wasm32-wasip1',
   ])
   const threadedPackage = '@scope/test-wasm32-wasi'
-  let initialized = false
-  const error = t.throws(() =>
-    executeGeneratedCjsBinding(
-      code,
-      new Map<string, () => unknown>([
-        [
-          `${threadedPackage}/package.json`,
-          () => ({
-            version: '2.0.0',
-          }),
-        ],
-        [
-          threadedPackage,
-          () => {
-            initialized = true
-            return { sum: () => 42 }
-          },
-        ],
-      ]),
-      new Set([threadedPackage, `${threadedPackage}/package.json`]),
-      new Map(),
-      {
-        NAPI_RS_FORCE_WASI: 'true',
-        NAPI_RS_ENFORCE_VERSION_CHECK: '1',
-      },
-    ),
+  const singlePackage = '@scope/test-wasm32-wasip1'
+  let threadedInitialized = false
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map<string, () => unknown>([
+      [
+        `${threadedPackage}/package.json`,
+        () => ({
+          version: '2.0.0',
+        }),
+      ],
+      [
+        threadedPackage,
+        () => {
+          threadedInitialized = true
+          return { sum: () => 1 }
+        },
+      ],
+      [
+        `${singlePackage}/package.json`,
+        () => ({
+          version: '1.0.0',
+        }),
+      ],
+      [singlePackage, () => ({ sum: () => 42 })],
+    ]),
+    new Set([
+      threadedPackage,
+      `${threadedPackage}/package.json`,
+      singlePackage,
+      `${singlePackage}/package.json`,
+    ]),
+    new Map(),
+    {
+      NAPI_RS_FORCE_WASI: 'true',
+      NAPI_RS_ENFORCE_VERSION_CHECK: '1',
+    },
   )
 
-  t.regex(error.message, /WASI binding package version mismatch/)
-  t.false(initialized)
+  t.false(threadedInitialized)
+  t.false(result.calls.includes(threadedPackage))
+  t.true(result.calls.includes(singlePackage))
+  t.is((result.exports as { sum: () => number }).sum(), 42)
 })
 
 // Matches a `node:` builtin scheme in either a `require('node:fs')` or an
@@ -2274,9 +2457,10 @@ test('createCjsBinding does not mutate frozen load errors', (t) => {
 
   const error = t.throws(() => {
     new Function('require', 'module', 'process', code)(require, module, process)
-  }) as Error & { cause?: Error }
+  }) as Error & { cause?: unknown }
 
-  t.is(error.cause?.message, immutableError.message)
+  const causeMessages = getCauseMessages(error)
+  t.is(causeMessages[causeMessages.length - 1], immutableError.message)
   t.false(Object.prototype.hasOwnProperty.call(immutableError, 'cause'))
 })
 
@@ -2327,6 +2511,9 @@ test('createCjsBinding forced WASI skips native addon initialization', (t) => {
 
 test('createCjsBinding forced WASI retains a lazy native fallback', (t) => {
   const nativeBinding = { runtime: 'native' }
+  const localLoader = './test.wasi.cjs'
+  const localArtifact = './test.wasm32-wasi.wasm'
+  const installedPackage = '@scope/test-wasm32-wasi'
   const requiredSpecifiers: string[] = []
   const require = Object.assign(
     (specifier: string) => {
@@ -2337,10 +2524,23 @@ test('createCjsBinding forced WASI retains a lazy native fallback', (t) => {
       if (specifier === '/native.node') {
         return nativeBinding
       }
-      throw new Error(`Missing WASI binding: ${specifier}`)
+      if (specifier === localLoader) {
+        throw new Error('local WASI initialization failed')
+      }
+      if (specifier === installedPackage) {
+        throw new Error('installed WASI initialization failed')
+      }
+      throw new Error(`Unexpected require: ${specifier}`)
     },
     {
       resolve(specifier: string) {
+        if (
+          specifier === localLoader ||
+          specifier === localArtifact ||
+          specifier === installedPackage
+        ) {
+          return specifier
+        }
         const error = new Error(`Cannot find module ${specifier}`)
         Object.assign(error, { code: 'MODULE_NOT_FOUND' })
         throw error
@@ -2361,7 +2561,73 @@ test('createCjsBinding forced WASI retains a lazy native fallback', (t) => {
   new Function('require', 'module', 'process', code)(require, module, process)
 
   t.is(module.exports, nativeBinding)
-  t.deepEqual(requiredSpecifiers, ['fs', '/native.node'])
+  t.deepEqual(requiredSpecifiers, [
+    'fs',
+    localLoader,
+    installedPackage,
+    '/native.node',
+  ])
+})
+
+test('createCjsBinding forced WASI preserves ordered load diagnostics without rewriting source causes', (t) => {
+  const code = createCjsBinding('test', '@scope/test', [])
+  const localLoader = './test.wasi.cjs'
+  const localArtifact = './test.wasm32-wasi.wasm'
+  const installedPackage = '@scope/test-wasm32-wasi'
+  const localError = new Error('local WASI initialization failed')
+  const packageRootCause = new Error('installed WASI root cause')
+  const packageError = Object.assign(
+    new Error('installed WASI initialization failed'),
+    {
+      cause: packageRootCause,
+    },
+  )
+  const nativeError = new Error('native initialization failed')
+  const attempts: string[] = []
+  const error = t.throws(() =>
+    executeGeneratedCjsBinding(
+      code,
+      new Map([
+        [
+          localLoader,
+          () => {
+            attempts.push(localLoader)
+            throw localError
+          },
+        ],
+        [
+          installedPackage,
+          () => {
+            attempts.push(installedPackage)
+            throw packageError
+          },
+        ],
+        [
+          '/native.node',
+          () => {
+            attempts.push('/native.node')
+            throw nativeError
+          },
+        ],
+      ]),
+      new Set([localLoader, localArtifact, installedPackage]),
+      new Map(),
+      {
+        NAPI_RS_FORCE_WASI: 'true',
+        NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+      },
+    ),
+  ) as Error & { cause?: unknown }
+
+  t.deepEqual(attempts, [localLoader, installedPackage, '/native.node'])
+  t.deepEqual(getCauseMessages(error), [
+    nativeError.message,
+    packageError.message,
+    localError.message,
+  ])
+  t.is(packageError.cause, packageRootCause)
+  t.false(Object.prototype.hasOwnProperty.call(localError, 'cause'))
+  t.false(Object.prototype.hasOwnProperty.call(nativeError, 'cause'))
 })
 
 test('createEsmBinding is Node 12 compatible', (t) => {

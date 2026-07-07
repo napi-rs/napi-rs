@@ -43,30 +43,33 @@ function createWasiFallbackChain(
         isPackage,
         localArtifacts,
       }) => `  if (!wasiBindingLoaded && (!__napiWasiFlavorRequested || __napiWasiFlavor === ${JSON.stringify(flavor)})) {
-    const candidateError = __napiWasiResolveCandidate('${specifier}', ${isPackage}, ${JSON.stringify(localArtifacts)})
-    if (!candidateError) {${
-      isPackage && packageVersion
-        ? `
-      if (process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-        const bindingPackageVersion = require('${specifier}/package.json').version
-        if (bindingPackageVersion !== '${packageVersion}') {
-          throw new Error(\`WASI binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
-        }
-      }`
-        : ''
-    }
-      wasiBinding = require('${specifier}')
-      nativeBinding = wasiBinding
-      wasiBindingLoaded = true
-    } else {
-      if (forceWasi) {
-        wasiBindingErrors.push(candidateError)${
-          isPackage
-            ? `
-        loadErrors.push(candidateError)`
-            : ''
-        }
+    let candidateError = null
+    let candidateFailed = false
+    try {
+      candidateError = __napiWasiResolveCandidate('${specifier}', ${isPackage}, ${JSON.stringify(localArtifacts)})
+      candidateFailed = candidateError !== null
+      if (!candidateFailed) {${
+        isPackage && packageVersion
+          ? `
+        if (process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          const bindingPackageVersion = require('${specifier}/package.json').version
+          if (bindingPackageVersion !== '${packageVersion}') {
+            throw new Error(\`WASI binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+          }
+        }`
+          : ''
       }
+        wasiBinding = require('${specifier}')
+        nativeBinding = wasiBinding
+        wasiBindingLoaded = true
+      }
+    } catch (err) {
+      candidateError = err
+      candidateFailed = true
+    }
+    if (candidateFailed) {
+      wasiBindingErrors.push(candidateError)
+      loadErrors.push(candidateError)
     }
   }`,
     )
