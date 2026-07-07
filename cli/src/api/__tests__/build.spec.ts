@@ -1,4 +1,10 @@
-import { existsSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { exec } from 'node:child_process'
 import {
   copyFile,
@@ -15,7 +21,7 @@ import { join as posixJoin, sep as posixSep } from 'node:path/posix'
 import { sep as win32Sep } from 'node:path/win32'
 import { fileURLToPath } from 'node:url'
 
-import ava, { type TestFn } from 'ava'
+import ava, { type ExecutionContext, type TestFn } from 'ava'
 
 import {
   buildProject,
@@ -716,16 +722,62 @@ test('napiCrossToolchainEnvs detects clang behind cc-rs wrapper and argument for
   }
 })
 
-test('napiCrossToolchainEnvs matches clang in space-containing compiler paths', (t) => {
+// Writes empty files at `relativePaths` under a fresh temp directory whose
+// subdirectories contain spaces, mirroring installs like `/opt/LLVM 18`.
+// Returns the temp directory root; removal is registered on `t.teardown`.
+const makeCompilerFixture = (
+  t: ExecutionContext,
+  relativePaths: Array<string>,
+): string => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'napi-clang-detect-'))
+  t.teardown(() => rmSync(fixtureRoot, { recursive: true, force: true }))
+  for (const relativePath of relativePaths) {
+    const absolutePath = join(fixtureRoot, relativePath)
+    mkdirSync(dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, '')
+  }
+  return fixtureRoot
+}
+
+test('napiCrossToolchainEnvs matches clang in space-containing paths that exist on disk', (t) => {
   const clangFlags = `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} `
 
-  // cc-rs's `env_tool` treats the WHOLE env value as an executable path
-  // before any whitespace splitting, so `TARGET_CC="/opt/LLVM 18/bin/clang"`
-  // runs clang — splitting it into `/opt/LLVM` + `18/bin/clang` would miss
-  // the clang detection entirely.
+  // cc-rs's `env_tool` treats the WHOLE env value as the compiler when it
+  // exists on the filesystem (`check_exe`) before any whitespace splitting,
+  // so `TARGET_CC="<tmp>/LLVM 18/bin/clang"` runs clang — splitting it into
+  // `<tmp>/LLVM` + `18/bin/clang` would miss the clang detection entirely.
+  const fixtureRoot = makeCompilerFixture(t, [
+    'LLVM 18/bin/clang',
+    'LLVM 18/bin/clang++-17',
+  ])
+  const cc = join(fixtureRoot, 'LLVM 18', 'bin', 'clang')
+  const cxx = join(fixtureRoot, 'LLVM 18', 'bin', 'clang++-17')
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+  )
+
+  t.is(envs.TARGET_CFLAGS, clangFlags, `TARGET_CC=${cc}`)
+  t.is(envs.TARGET_CXXFLAGS, clangFlags, `TARGET_CXX=${cxx}`)
+})
+
+test('napiCrossToolchainEnvs does not mistake existing space-containing non-clang paths for clang', (t) => {
+  const fixtureRoot = makeCompilerFixture(t, [
+    'app dir/bin/gcc',
+    'app dir/bin/g++',
+    // A clang-family tool that is not a compiler, in a space-containing path.
+    'LLVM 18/bin/clang-format',
+  ])
   for (const [cc, cxx] of [
-    ['/opt/LLVM 18/bin/clang', '/opt/LLVM 18/bin/clang++'],
-    ['/opt/LLVM 18/bin/clang-17', '/opt/LLVM 18/bin/clang++-17'],
+    [
+      join(fixtureRoot, 'app dir', 'bin', 'gcc'),
+      join(fixtureRoot, 'app dir', 'bin', 'g++'),
+    ],
+    [
+      join(fixtureRoot, 'LLVM 18', 'bin', 'clang-format'),
+      join(fixtureRoot, 'LLVM 18', 'bin', 'clang-format'),
+    ],
   ]) {
     const envs = napiCrossToolchainEnvs(
       napiCrossToolchainPath,
@@ -733,16 +785,37 @@ test('napiCrossToolchainEnvs matches clang in space-containing compiler paths', 
       { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
     )
 
-    t.is(envs.TARGET_CFLAGS, clangFlags, `TARGET_CC=${cc}`)
-    t.is(envs.TARGET_CXXFLAGS, clangFlags, `TARGET_CXX=${cxx}`)
+    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
   }
 })
 
-test('napiCrossToolchainEnvs does not mistake space-containing non-clang paths for clang', (t) => {
+test('napiCrossToolchainEnvs splits space-containing paths that do not exist on disk', (t) => {
+  // cc-rs only takes the whole value as a compiler path when it exists on
+  // the filesystem; otherwise it splits on whitespace, so this value runs
+  // `/nonexistent` with `dir/bin/clang` as an argument — never clang.
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    {
+      PATH: '/usr/bin',
+      TARGET_CC: '/nonexistent dir/bin/clang',
+      TARGET_CXX: '/nonexistent dir/bin/clang++',
+    },
+  )
+
+  t.is(envs.TARGET_CFLAGS, undefined)
+  t.is(envs.TARGET_CXXFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs does not mistake gcc with clang-ending arguments for clang', (t) => {
+  // The basename of each WHOLE value below is `clang`, but none of them
+  // exists as a file, so cc-rs splits on whitespace and runs gcc — clang
+  // flags injected here would hard-error the gcc compile.
   for (const [cc, cxx] of [
-    ['/opt/app dir/bin/gcc', '/opt/app dir/bin/g++'],
-    // A clang-family tool that is not a compiler, in a space-containing path.
-    ['/opt/LLVM 18/bin/clang-format', '/opt/LLVM 18/bin/clang-format'],
+    ['gcc --sysroot=/opt/clang', 'g++ --sysroot=/opt/clang'],
+    ['gcc -B/opt/LLVM 18/bin/clang', 'g++ -B/opt/LLVM 18/bin/clang'],
+    ['sccache gcc --sysroot=/opt/clang', 'sccache g++ --sysroot=/opt/clang'],
   ]) {
     const envs = napiCrossToolchainEnvs(
       napiCrossToolchainPath,

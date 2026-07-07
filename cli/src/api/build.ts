@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, parse, join, resolve } from 'node:path'
@@ -314,21 +314,20 @@ export function napiCrossToolchainEnvs(
   setEnvIfNotExists('BINDGEN_EXTRA_CLANG_ARGS', `--sysroot=${targetSysroot}`)
 
   // cc-rs parses the env value before executing it (`env_tool` in cc's
-  // lib.rs): the WHOLE value is first tried as an executable path on the
-  // filesystem — that is how it supports spaces in paths like
-  // `/opt/LLVM 18/bin/clang` — and only when that fails is the value split
+  // lib.rs): when the WHOLE value exists on the filesystem (`check_exe`)
+  // it is the compiler as-is — that is how it supports spaces in paths
+  // like `/opt/LLVM 18/bin/clang` — and only otherwise is the value split
   // on whitespace; then, when the first token is a known wrapper
   // (`sccache clang`) the second token is the compiler that actually runs,
   // otherwise the first token is and the rest are arguments
-  // (`clang -target …`). Mirror that ordering without touching the
-  // filesystem: when the value contains a path separator, match the whole
-  // value's executable name first (a wrapper-or-argument form like
-  // `sccache clang` or `clang -target …` never matches whole, because its
-  // basename has a space or an argument after `clang`), then fall back to
-  // the token split. Match on the executable name so path-qualified
-  // (`/usr/bin/clang`), triple-prefixed (`aarch64-linux-gnu-clang`) and
-  // versioned (`clang-18`) compilers are all recognized — but not
-  // clang-family tools that are not compilers (`clang-format`).
+  // (`clang -target …`). Mirror that ordering, filesystem probe included:
+  // a pure whole-value basename heuristic would misread argument forms
+  // that merely END in `clang`, like `gcc --sysroot=/opt/clang`, and
+  // inject clang-only flags into a gcc compile. Match on the executable
+  // name so path-qualified (`/usr/bin/clang`), triple-prefixed
+  // (`aarch64-linux-gnu-clang`) and versioned (`clang-18`) compilers are
+  // all recognized — but not clang-family tools that are not compilers
+  // (`clang-format`).
   const ccWrappers = new Set([
     'ccache',
     'distcc',
@@ -339,13 +338,23 @@ export function napiCrossToolchainEnvs(
     'kache',
   ])
   const clangExecutableName = /(^|-)clang(\+\+)?(-\d+)?$/
+  // cc-rs's `check_exe` only probes for existence (plus an `.exe` retry on
+  // Windows, where this napi-cross path never runs); requiring a regular
+  // file additionally keeps directories from being taken for compilers.
+  const isExistingFile = (path: string): boolean => {
+    try {
+      return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
+    } catch {
+      return false
+    }
+  }
   const isClangCompiler = (value: string | undefined): boolean => {
     if (!value) {
       return false
     }
     const trimmed = value.trim()
-    if (/[/\\]/.test(trimmed) && clangExecutableName.test(basename(trimmed))) {
-      return true
+    if (isExistingFile(trimmed)) {
+      return clangExecutableName.test(basename(trimmed))
     }
     const [first, second] = trimmed.split(/\s+/)
     const compiler = first && ccWrappers.has(basename(first)) ? second : first
