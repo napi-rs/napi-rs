@@ -35,6 +35,15 @@ async function waitForErrorReferencesToRelease(references, scenario) {
   throw new Error(`${scenario} retained JS Error references after native drops`)
 }
 
+function waitForQueuedErrorReleaseTurn() {
+  // The drop promises settle after the foreign-thread destructors enqueue
+  // their custom-GC releases, not after the owner-thread TSFN callback runs.
+  // This barrier keeps the worker alive for another owner event-loop turn
+  // before publishing `done`. It guarantees that dispatch opportunity, not an
+  // internal release count.
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 parentPort.on('message', ({ type, resultPath }) => {
   switch (type) {
     case 'require':
@@ -134,10 +143,14 @@ parentPort.on('message', ({ type, resultPath }) => {
         native.churnGlobalHandles(churnTarget, 200)
       }
       Promise.all(drops)
-        .then(() =>
-          waitForErrorReferencesToRelease(references, 'off-thread Error drop'),
-        )
-        .then(() => parentPort.postMessage('done'))
+        .then(async () => {
+          await waitForQueuedErrorReleaseTurn()
+          await waitForErrorReferencesToRelease(
+            references,
+            'off-thread Error drop',
+          )
+          parentPort.postMessage('done')
+        })
         .catch((e) => {
           throw e
         })
@@ -167,6 +180,7 @@ parentPort.on('message', ({ type, resultPath }) => {
       setImmediate(churn)
       settled
         .then(async (results) => {
+          await waitForQueuedErrorReleaseTurn()
           racing = false
           await waitForErrorReferencesToRelease(
             references,
@@ -195,13 +209,14 @@ parentPort.on('message', ({ type, resultPath }) => {
         native.churnGlobalHandles(churnTarget, 100)
       }
       Promise.all(drops)
-        .then(() =>
-          waitForErrorReferencesToRelease(
+        .then(async () => {
+          await waitForQueuedErrorReleaseTurn()
+          await waitForErrorReferencesToRelease(
             references,
             'off-thread cloned Error drop',
-          ),
-        )
-        .then(() => parentPort.postMessage('done'))
+          )
+          parentPort.postMessage('done')
+        })
         .catch((e) => {
           throw e
         })

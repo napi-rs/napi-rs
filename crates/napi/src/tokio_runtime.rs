@@ -438,6 +438,7 @@ impl AsyncRuntimeTaskFutureSlot {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn run_after_future_drop(after_drop: AsyncRuntimeAfterFutureDrop) {
+  let _operation = RuntimeOperationGuard::enter();
   crate::bindgen_runtime::catch_unwind_safely(after_drop);
 }
 
@@ -9003,6 +9004,53 @@ mod tests {
     assert!(futures::executor::block_on(handle)
       .expect_err("dropping a queued task must cancel its join handle")
       .is_cancelled());
+    try_start_async_runtime().unwrap();
+  }
+
+  #[test]
+  fn queued_unpolled_task_cancellation_rejects_reentrant_shutdown() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let shutdown_calls = BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst);
+    let (callback_result_tx, callback_result_rx) = mpsc::channel();
+    let (destructor_result_tx, destructor_result_rx) = mpsc::channel();
+    let destructor_probe = ShutdownOnDrop::new(destructor_result_tx);
+    let task = AsyncRuntimeTask::new(std::future::pending::<AsyncTaskOutcome>(), move |_| {
+      callback_result_tx
+        .send(try_shutdown_async_runtime())
+        .unwrap();
+      drop(destructor_probe);
+    });
+
+    QUEUE_SPAWN_TASK.store(true, Ordering::SeqCst);
+    submit_async_task(task);
+    QUEUE_SPAWN_TASK.store(false, Ordering::SeqCst);
+    let task = QUEUED_TASK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take()
+      .expect("the backend must retain the unpolled task");
+    std::thread::Builder::new()
+      .name(BACKEND_CANCELLATION_THREAD.to_owned())
+      .spawn(move || drop(task))
+      .expect("failed to spawn the cancellation worker")
+      .join()
+      .expect("the cancellation worker must not panic");
+
+    for result in [callback_result_rx, destructor_result_rx] {
+      let error = result
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the cancellation action must attempt shutdown")
+        .expect_err("cancellation actions must not reenter runtime shutdown");
+      assert!(error.reason.contains("inside an AsyncRuntime operation"));
+    }
+    assert_eq!(
+      BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst),
+      shutdown_calls,
+      "cancellation actions must fail before entering the backend shutdown hook"
+    );
+
+    try_shutdown_async_runtime().unwrap();
     try_start_async_runtime().unwrap();
   }
 

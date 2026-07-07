@@ -218,6 +218,24 @@ test('async generator should support return()', async (t) => {
   t.deepEqual(await iter.return?.(), { value: undefined, done: true })
 })
 
+test('async generator queues return behind pending next and remains closed', async (t) => {
+  const iterator = new DelayedCounter(3, 25)[Symbol.asyncIterator]()
+  const settlementOrder: string[] = []
+  const next = iterator.next().then((result) => {
+    settlementOrder.push('next')
+    return result
+  })
+  const returned = iterator.return!('stop').then((result) => {
+    settlementOrder.push('return')
+    return result
+  })
+
+  t.deepEqual(await next, { value: 0, done: false })
+  t.deepEqual(await returned, { value: undefined, done: true })
+  t.deepEqual(settlementOrder, ['next', 'return'])
+  t.deepEqual(await iterator.next(), { value: undefined, done: true })
+})
+
 test('async generator should support throw()', async (t) => {
   if (typeof AsyncFib === 'undefined') {
     t.pass(
@@ -230,6 +248,25 @@ test('async generator should support throw()', async (t) => {
   t.deepEqual(await iter.next(), { value: 1, done: false })
   // throw() should reject with the error passed to it
   await t.throwsAsync(() => iter.throw!(new Error('test error')))
+})
+
+test('async generator queues throw behind pending next and closes on rejection', async (t) => {
+  const iterator = new DelayedCounter(3, 25)[Symbol.asyncIterator]()
+  const thrown = new Error('queued throw')
+  const settlementOrder: string[] = []
+  const next = iterator.next().then((result) => {
+    settlementOrder.push('next')
+    return result
+  })
+  const throwing = iterator.throw!(thrown).catch((error) => {
+    settlementOrder.push('throw')
+    throw error
+  })
+
+  t.deepEqual(await next, { value: 0, done: false })
+  t.is(await t.throwsAsync(throwing), thrown)
+  t.deepEqual(settlementOrder, ['next', 'throw'])
+  t.deepEqual(await iterator.next(), { value: undefined, done: true })
 })
 
 test('async generator supports compound associated types through public N-API', async (t) => {
