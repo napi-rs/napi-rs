@@ -325,6 +325,7 @@ export const createBigInt = __napiModule.exports.createBigInt
 export const createBigIntI64 = __napiModule.exports.createBigIntI64
 export const createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
 export const createClassWithLifetimeFromRust = __napiModule.exports.createClassWithLifetimeFromRust
+export const createDelayedCounterPair = __napiModule.exports.createDelayedCounterPair
 export const createDetachableExternalArraybuffer = __napiModule.exports.createDetachableExternalArraybuffer
 export const createDirectClassReferenceCallback = __napiModule.exports.createDirectClassReferenceCallback
 export const createEmptyTypedArraySlices = __napiModule.exports.createEmptyTypedArraySlices

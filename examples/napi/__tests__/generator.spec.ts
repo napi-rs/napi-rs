@@ -12,6 +12,7 @@ import {
   AsyncReentrantGenerator,
   AsyncGeneratorSetupFailure,
   DelayedCounter,
+  createDelayedCounterPair,
   AsyncDataSource,
   shutdownRuntime,
 } from '../index.cjs'
@@ -415,20 +416,16 @@ test('AsyncDataSource factory pattern should work', async (t) => {
 })
 
 test('async generators should run concurrently', async (t) => {
-  if (typeof DelayedCounter === 'undefined') {
+  if (typeof createDelayedCounterPair === 'undefined') {
     t.pass(
-      'DelayedCounter is not available (tokio_rt feature not enabled), skipping test',
+      'createDelayedCounterPair is not available (tokio_rt feature not enabled), skipping test',
     )
     return
   }
 
-  // Create two counters that each take 50ms total
-  const counter1 = new DelayedCounter(5, 10) // 5 * 10ms = 50ms
-  const counter2 = new DelayedCounter(5, 10) // 5 * 10ms = 50ms
+  t.timeout(30_000)
+  const [counter1, counter2] = createDelayedCounterPair(5, 0)
 
-  const startTime = Date.now()
-
-  // Run both concurrently
   const [results1, results2] = await Promise.all([
     (async () => {
       const r: number[] = []
@@ -442,14 +439,6 @@ test('async generators should run concurrently', async (t) => {
     })(),
   ])
 
-  const elapsed = Date.now() - startTime
-
   t.deepEqual(results1, [0, 1, 2, 3, 4])
   t.deepEqual(results2, [0, 1, 2, 3, 4])
-  // If running concurrently, should take ~50ms, not ~100ms
-  // Allow very generous tolerance for CI/WASI environments
-  t.true(
-    elapsed < 300,
-    `Expected concurrent execution under 300ms, got ${elapsed}ms`,
-  )
 })

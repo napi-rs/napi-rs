@@ -108,6 +108,30 @@ jobs:
       - name: Clippy
         run: cargo clippy
 
+  trybuild:
+    # trybuild snapshots include rustc's rendered diagnostics. Run them once on
+    # stable Linux instead of multiplying compiler-version-specific text checks
+    # across every Node/platform matrix entry.
+    name: Compile-fail API contracts (stable Linux)
+    runs-on: ubuntu-latest
+    needs: audit
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: trybuild-stable-linux-cargo-cache
+      - name: Run compile-fail API contracts
+        run: cargo test -p napi-examples --test macro_tests -- --ignored
+
   build_and_test:
     needs: audit
     permissions:
@@ -125,7 +149,6 @@ jobs:
               yarn test
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              yarn test:macro
               cargo test
             toolchain: stable
           - host: ubuntu-latest
@@ -135,7 +158,7 @@ jobs:
               yarn test:cli
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              yarn test:macro
+              cargo test -p napi --features napi4 --test threadsafe_function_api_compile
             toolchain: 1.88.0
           - host: macos-latest
             target: aarch64-apple-darwin
@@ -157,7 +180,6 @@ jobs:
               yarn workspace @examples/napi test
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              yarn test:macro
               cargo test
             toolchain: stable
           - host: windows-11-arm
@@ -166,7 +188,6 @@ jobs:
             test: |
               yarn test:cli
               yarn test
-              yarn test:macro
             toolchain: stable
           - host: windows-latest
             target: i686-pc-windows-msvc

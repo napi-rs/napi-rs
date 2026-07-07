@@ -369,6 +369,7 @@ module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
 module.exports.createClassWithLifetimeFromRust = __napiModule.exports.createClassWithLifetimeFromRust
+module.exports.createDelayedCounterPair = __napiModule.exports.createDelayedCounterPair
 module.exports.createDetachableExternalArraybuffer = __napiModule.exports.createDetachableExternalArraybuffer
 module.exports.createDirectClassReferenceCallback = __napiModule.exports.createDirectClassReferenceCallback
 module.exports.createEmptyTypedArraySlices = __napiModule.exports.createEmptyTypedArraySlices

@@ -8,6 +8,7 @@ import { Worker } from 'node:worker_threads'
 import { setTimeout } from 'node:timers/promises'
 
 import test from 'ava'
+import type { ExecutionContext } from 'ava'
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 const require = createRequire(import.meta.url)
@@ -325,35 +326,52 @@ test('custom GC same-thread post-teardown drop (napi-rs#3357 must_fix #1)', asyn
   )
 })
 
+function testOffThreadErrorRelease(t: ExecutionContext, type: string) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--expose-gc',
+      join(__dirname, 'worker-error-lifecycle.js'),
+      type,
+      String(concurrency),
+    ],
+    {
+      encoding: 'utf8',
+      env: process.env,
+      timeout: 120_000,
+    },
+  )
+  const output = `${result.stdout}\n${result.stderr}`
+  t.is(result.error, undefined, result.error?.stack)
+  t.is(result.signal, null, output)
+  t.is(result.status, 0, output)
+  t.regex(result.stdout, /worker Error lifecycle passed/)
+}
+
 // (C) JS-derived `Error`s own a napi_ref; releasing them off the JS thread must be
 // routed through the custom GC like buffers (napi-rs#3368). Each worker interleaves
-// off-thread Error drops (spawned thread / async-runtime rejection / try_clone
-// siblings) with JS-thread GlobalHandles churn.
-test('JS-derived Error released off-thread (napi-rs#3368)', async (t) => {
-  await Promise.all(
-    Array.from({ length: concurrency }).map(() =>
-      Promise.all(
-        [
-          'error:value:offthread',
-          'error:reject:offthread',
-          'error:clone:threads',
-        ].map((type) =>
-          new Promise<Worker>((resolve, reject) => {
-            const w = new Worker(join(__dirname, 'worker.js'), {
-              env: process.env,
-            })
-            w.postMessage({ type })
-            w.on('message', (msg) => {
-              t.is(msg, 'done')
-              resolve(w)
-            })
-            w.on('error', reject)
-          }).then((w) => w.terminate()),
-        ),
-      ),
-    ),
-  )
-})
+// one off-thread release path with JS-thread GlobalHandles churn and reports
+// completion only after every native drop has finished.
+test.serial(
+  'JS-derived Error value released off-thread (napi-rs#3368)',
+  (t) => {
+    testOffThreadErrorRelease(t, 'error:value:offthread')
+  },
+)
+
+test.serial(
+  'JS-derived Promise rejection released off-thread (napi-rs#3368)',
+  (t) => {
+    testOffThreadErrorRelease(t, 'error:reject:offthread')
+  },
+)
+
+test.serial(
+  'cloned JS-derived Error released off-thread (napi-rs#3368)',
+  (t) => {
+    testOffThreadErrorRelease(t, 'error:clone:threads')
+  },
+)
 
 // (D) same-thread post-teardown Error drop: stashed on the worker's own JS thread,
 // dropped at thread-exit after env teardown -> aborted (leak) path (napi-rs#3368).

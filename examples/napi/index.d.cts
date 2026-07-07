@@ -800,6 +800,12 @@ export declare function createBufferSliceFromCopiedData(): Buffer
 
 export declare function createClassWithLifetimeFromRust(): ClassWithLifetime
 
+/**
+ * Creates two counters whose matching `next()` calls wait for each other.
+ * This gives the JavaScript tests a deterministic concurrency probe.
+ */
+export declare function createDelayedCounterPair(max: number, delayMs: number): Array<DelayedCounter>
+
 export declare function createDetachableExternalArraybuffer(): ArrayBuffer
 
 export declare function createDirectClassReferenceCallback(): (animal: Animal) => void
@@ -984,17 +990,18 @@ export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Pr
  * dropping a sibling is an atomic refcount decrement, and the underlying
  * reference is released only when the LAST sibling drops. Here the original
  * drops on the JS thread first (a plain decrement, no release), then the last
- * sibling drops off-thread — so the release is routed through the custom-GC
- * TSFN, exactly the path a shared reference must survive without corrupting
- * V8's GlobalHandles from a foreign thread.
+ * sibling drops on a libuv worker — so the release is routed through the
+ * custom-GC TSFN. The returned Promise confirms that release was queued.
  */
-export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
+export declare function dropClonedErrorsOnTwoThreads(value: unknown): Promise<void>
 
 /**
  * Converts `value` into an `Error` — creating a `napi_ref` to it, the same
- * code path a `Promise` rejection takes — and drops it on a spawned thread.
+ * code path a `Promise` rejection takes — and drops it on a libuv worker.
+ * The returned Promise confirms the off-thread destructor ran; custom-GC
+ * release of the `napi_ref` is queued separately on the JavaScript thread.
  */
-export declare function dropErrorFromValueOffThread(value: unknown): void
+export declare function dropErrorFromValueOffThread(value: unknown): Promise<void>
 
 export declare function either3(input: string | number | boolean): number
 

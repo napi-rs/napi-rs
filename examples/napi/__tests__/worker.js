@@ -13,6 +13,28 @@ const is32bit = process.arch === 'ia32'
 // Keep these reachable so their finalizers run during worker teardown, not an earlier GC.
 const runtimeLifecycleTeardownObjects = []
 
+async function waitForErrorReferencesToRelease(references, scenario) {
+  if (typeof global.gc !== 'function') {
+    throw new Error(`${scenario} requires --expose-gc`)
+  }
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    global.gc()
+    const pressure = new ArrayBuffer(1024 * 1024)
+    if (pressure.byteLength !== 1024 * 1024) {
+      throw new Error('failed to allocate GC pressure')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    if (references.every((reference) => reference.deref() === undefined)) {
+      return
+    }
+    // End the current job after deref(), which keeps live targets alive until
+    // the job boundary by specification.
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  throw new Error(`${scenario} retained JS Error references after native drops`)
+}
+
 parentPort.on('message', ({ type, resultPath }) => {
   switch (type) {
     case 'require':
@@ -99,15 +121,26 @@ parentPort.on('message', ({ type, resultPath }) => {
       parentPort.postMessage('done')
       break
     case 'error:value:offthread': {
-      // JS-derived Errors (napi_ref owners) dropped on spawned threads while
+      // JS-derived Errors (napi_ref owners) dropped on libuv workers while
       // this thread churns GlobalHandles (napi-rs#3368). Unfixed: fatal
       // 'Check failed: object_ != kGlobalHandleZapValue' or SIGSEGV.
       const churnTarget = {}
+      const drops = []
+      const references = []
       for (let i = 0; i < (isWasiTest ? 2 : is32bit ? 50 : 200); i++) {
-        native.dropErrorFromValueOffThread(new Error(`offthread ${i}`))
+        const error = new Error(`offthread ${i}`)
+        references.push(new WeakRef(error))
+        drops.push(native.dropErrorFromValueOffThread(error))
         native.churnGlobalHandles(churnTarget, 200)
       }
-      parentPort.postMessage('done')
+      Promise.all(drops)
+        .then(() =>
+          waitForErrorReferencesToRelease(references, 'off-thread Error drop'),
+        )
+        .then(() => parentPort.postMessage('done'))
+        .catch((e) => {
+          throw e
+        })
       break
     }
     case 'error:reject:offthread': {
@@ -117,12 +150,13 @@ parentPort.on('message', ({ type, resultPath }) => {
       // would finish before any drop; instead keep churning GlobalHandles on the
       // JS thread until every rejection has settled, so the churn actually races
       // the off-thread drops it is meant to amplify.
+      const references = []
       const settled = Promise.all(
-        Array.from({ length: isWasiTest ? 2 : 100 }).map((_, i) =>
-          native.awaitRejectionOffThread(
-            Promise.reject(new Error(`rejection ${i}`)),
-          ),
-        ),
+        Array.from({ length: isWasiTest ? 2 : 100 }).map((_, i) => {
+          const error = new Error(`rejection ${i}`)
+          references.push(new WeakRef(error))
+          return native.awaitRejectionOffThread(Promise.reject(error))
+        }),
       )
       let racing = true
       const churn = () => {
@@ -132,8 +166,12 @@ parentPort.on('message', ({ type, resultPath }) => {
       }
       setImmediate(churn)
       settled
-        .then((results) => {
+        .then(async (results) => {
           racing = false
+          await waitForErrorReferencesToRelease(
+            references,
+            'off-thread Promise rejection drop',
+          )
           parentPort.postMessage(
             results.every(Boolean) ? 'done' : 'promise did not reject',
           )
@@ -148,11 +186,25 @@ parentPort.on('message', ({ type, resultPath }) => {
       // try_clone siblings sharing one napi_ref, dropped on different threads
       // (napi-rs#3368): delete must only happen at refcount zero.
       const churnTarget = {}
+      const drops = []
+      const references = []
       for (let i = 0; i < (isWasiTest ? 2 : is32bit ? 50 : 100); i++) {
-        native.dropClonedErrorsOnTwoThreads(new Error(`clone ${i}`))
+        const error = new Error(`clone ${i}`)
+        references.push(new WeakRef(error))
+        drops.push(native.dropClonedErrorsOnTwoThreads(error))
         native.churnGlobalHandles(churnTarget, 100)
       }
-      parentPort.postMessage('done')
+      Promise.all(drops)
+        .then(() =>
+          waitForErrorReferencesToRelease(
+            references,
+            'off-thread cloned Error drop',
+          ),
+        )
+        .then(() => parentPort.postMessage('done'))
+        .catch((e) => {
+          throw e
+        })
       break
     }
     case 'stash:error:teardown':

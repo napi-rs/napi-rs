@@ -92,16 +92,34 @@ pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Resu
 // `Send`, and its `Drop` must be safe on any thread.
 // ---------------------------------------------------------------------------
 
-/// Converts `value` into an `Error` — creating a `napi_ref` to it, the same
-/// code path a `Promise` rejection takes — and drops it on a spawned thread.
+pub struct DropErrorTask {
+  error: Option<Error>,
+}
+
 #[napi]
-pub fn drop_error_from_value_off_thread(value: Unknown) -> Result<()> {
-  let error: Error = value.into();
-  // Deliberately detached: the drop racing the JS thread's concurrent
-  // GlobalHandles churn IS the regression under test; joining would
-  // serialize them and mask the unfixed crash.
-  std::thread::spawn(move || drop(error));
-  Ok(())
+impl Task for DropErrorTask {
+  type Output = ();
+  type JsValue = ();
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    drop(self.error.take());
+    Ok(())
+  }
+
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output)
+  }
+}
+
+/// Converts `value` into an `Error` — creating a `napi_ref` to it, the same
+/// code path a `Promise` rejection takes — and drops it on a libuv worker.
+/// The returned Promise confirms the off-thread destructor ran; custom-GC
+/// release of the `napi_ref` is queued separately on the JavaScript thread.
+#[napi]
+pub fn drop_error_from_value_off_thread(value: Unknown) -> AsyncTask<DropErrorTask> {
+  AsyncTask::new(DropErrorTask {
+    error: Some(value.into()),
+  })
 }
 
 /// Creates and deletes `count` references on the calling JS thread, so
@@ -141,20 +159,16 @@ pub async fn await_rejection_off_thread(promise: Promise<()>) -> Result<bool> {
 /// dropping a sibling is an atomic refcount decrement, and the underlying
 /// reference is released only when the LAST sibling drops. Here the original
 /// drops on the JS thread first (a plain decrement, no release), then the last
-/// sibling drops off-thread — so the release is routed through the custom-GC
-/// TSFN, exactly the path a shared reference must survive without corrupting
-/// V8's GlobalHandles from a foreign thread.
+/// sibling drops on a libuv worker — so the release is routed through the
+/// custom-GC TSFN. The returned Promise confirms that release was queued.
 #[napi]
-pub fn drop_cloned_errors_on_two_threads(value: Unknown) -> Result<()> {
+pub fn drop_cloned_errors_on_two_threads(value: Unknown) -> Result<AsyncTask<DropErrorTask>> {
   let error: Error = value.into();
   let sibling = error.try_clone()?;
-  // Drop the original on the owning JS thread first — not the last reference.
   drop(error);
-  // The last sibling drops off-thread: its release routes through the custom GC.
-  std::thread::spawn(move || drop(sibling))
-    .join()
-    .map_err(|_| Error::from_reason("sibling drop thread panicked"))?;
-  Ok(())
+  Ok(AsyncTask::new(DropErrorTask {
+    error: Some(sibling),
+  }))
 }
 
 thread_local! {

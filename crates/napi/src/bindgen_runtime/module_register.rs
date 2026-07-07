@@ -308,7 +308,7 @@ impl CustomGcHandle {
           sys::napi_call_threadsafe_function(
             self.tsfn.load(std::sync::atomic::Ordering::SeqCst),
             reference.cast(),
-            1,
+            sys::ThreadsafeFunctionCallMode::nonblocking,
           )
         };
         if status == sys::Status::napi_closing {

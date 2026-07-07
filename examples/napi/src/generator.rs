@@ -408,6 +408,7 @@ pub struct DelayedCounter {
   current: u32,
   max: u32,
   delay_ms: u64,
+  barrier: Option<std::sync::Arc<tokio::sync::Barrier>>,
 }
 
 #[napi]
@@ -423,9 +424,13 @@ impl AsyncGenerator for DelayedCounter {
     let current = self.current;
     let max = self.max;
     let delay_ms = self.delay_ms;
+    let barrier = self.barrier.clone();
     self.current += 1;
 
     async move {
+      if let Some(barrier) = barrier {
+        barrier.wait().await;
+      }
       // Actually sleep - this is truly async!
       tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
 
@@ -447,8 +452,24 @@ impl DelayedCounter {
       current: 0,
       max,
       delay_ms: delay_ms as u64,
+      barrier: None,
     }
   }
+}
+
+/// Creates two counters whose matching `next()` calls wait for each other.
+/// This gives the JavaScript tests a deterministic concurrency probe.
+#[napi]
+pub fn create_delayed_counter_pair(max: u32, delay_ms: u32) -> Vec<DelayedCounter> {
+  let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+  (0..2)
+    .map(|_| DelayedCounter {
+      current: 0,
+      max,
+      delay_ms: delay_ms as u64,
+      barrier: Some(barrier.clone()),
+    })
+    .collect()
 }
 
 // Async iterator that simulates fetching paginated data

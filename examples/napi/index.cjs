@@ -864,6 +864,7 @@ module.exports.createBigInt = nativeBinding.createBigInt
 module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = nativeBinding.createBufferSliceFromCopiedData
 module.exports.createClassWithLifetimeFromRust = nativeBinding.createClassWithLifetimeFromRust
+module.exports.createDelayedCounterPair = nativeBinding.createDelayedCounterPair
 module.exports.createDetachableExternalArraybuffer = nativeBinding.createDetachableExternalArraybuffer
 module.exports.createDirectClassReferenceCallback = nativeBinding.createDirectClassReferenceCallback
 module.exports.createEmptyTypedArraySlices = nativeBinding.createEmptyTypedArraySlices
