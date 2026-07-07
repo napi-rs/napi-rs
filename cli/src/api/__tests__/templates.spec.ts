@@ -113,7 +113,11 @@ module.exports = __napiModule.exports
 `
 
   function load() {
-    const module = { exports: {} }
+    const module: {
+      exports: {
+        add?: (left: number, right: number) => number
+      }
+    } = { exports: {} }
     const require = (specifier: string) => {
       switch (specifier) {
         case 'node:fs':
@@ -142,7 +146,7 @@ module.exports = __napiModule.exports
               _wasm: Uint8Array,
               options: { context: object },
             ) {
-              t.is(options.context, contexts.at(-1))
+              t.is(options.context, contexts.at(-1)!)
               return {
                 instance: {},
                 module: {},
@@ -169,7 +173,9 @@ module.exports = __napiModule.exports
     )(require, module, { cwd: () => '/', env: {} }, '/fixture', {
       Memory: class {},
     })
-    return module.exports
+    return module.exports as {
+      add: (left: number, right: number) => number
+    }
   }
 
   const first = load()
@@ -264,7 +270,7 @@ test('createCjsBinding does not mutate frozen load errors', (t) => {
 
   const error = t.throws(() => {
     new Function('require', 'module', 'process', code)(require, module, process)
-  })
+  }) as Error & { cause?: Error }
 
   t.is(error.cause?.message, immutableError.message)
   t.false(Object.prototype.hasOwnProperty.call(immutableError, 'cause'))

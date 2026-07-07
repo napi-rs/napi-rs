@@ -300,6 +300,10 @@ impl CustomGcHandle {
         sys::Status::napi_ok
       }
       CustomGcState::Active => {
+        if self.owner_thread == std::thread::current().id() {
+          drop(state);
+          return release_custom_gc_reference(self.env as sys::napi_env, reference);
+        }
         let status = unsafe {
           sys::napi_call_threadsafe_function(
             self.tsfn.load(std::sync::atomic::Ordering::SeqCst),

@@ -19,6 +19,9 @@ function nativeBinaryName() {
     const abi = process.report?.getReport?.()?.header.glibcVersionRuntime
       ? 'gnu'
       : 'musl'
+    if (process.arch === 'arm' && abi === 'gnu') {
+      return 'example.linux-arm-gnueabihf.node'
+    }
     const platform = platforms.find((candidate) => candidate.abi === abi)
     return `example.${platform.platformArchABI}.node`
   }

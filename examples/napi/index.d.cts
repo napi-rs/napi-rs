@@ -505,6 +505,8 @@ export interface A {
   foo: number
 }
 
+export declare function abandonDeferredClones(): void
+
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
@@ -550,6 +552,10 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function armTokioBlockingTlsRetirementProbe(resultPath: string, releasePath: string): Promise<void>
+
+export declare function armTokioWorkerTlsRetirementProbe(resultPath: string): void
+
 export declare function arrayBufferCopyFrom(): ArrayBuffer
 
 export declare function arrayBufferFromData(): ArrayBuffer
@@ -561,6 +567,14 @@ export declare function arrayBufferLenAsync(buf: Uint8Array): Promise<number>
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function arrayParams(arr: Array<number>): number
+
+export declare function assignClampedSliceAcrossDuplicateLoad(this: object): void
+
+export declare function assignClassInstanceAcrossDuplicateLoad(withAttributes: boolean): void
+
+export declare function assignClassInstanceFromLaterTurn(withAttributes: boolean): void
+
+export declare function assignTypedArraySliceAcrossDuplicateLoad(this: object): void
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
@@ -587,6 +601,11 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
+
+export interface AsyncWorkLifecycleHandle {
+  id: number
+  promise: Promise<number>
+}
 
 /**
  * Awaits `promise` on the async runtime; a rejection materializes as an
@@ -666,6 +685,8 @@ export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: n
 export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) => number) => number): number
 
 export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
+
+export declare function cancelAsyncWorkLifecycle(id: number): void
 
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
@@ -755,9 +776,17 @@ export declare function concatStr(s: string): string
 
 export declare function concatUtf16(s: string): string
 
+export declare function configureTokioThreadStopFileBarrier(enteredPath: string, releasePath: string, completedPath: string): void
+
 export declare function contains(source: string, target: string): boolean
 
+export declare function convertClampedSliceAcrossDuplicateLoad(): Uint8ClampedArray
+
+export declare function convertTypedArraySliceAcrossDuplicateLoad(): Uint8Array
+
 export declare function convertU32Array(input: Uint32Array): Array<number>
+
+export declare function copyExternalTokenAlias(value: ExternalObject<number>): ExternalObject<number>
 
 export declare function createArraybuffer(): ArrayBuffer
 
@@ -793,9 +822,15 @@ export declare function createExternalLatin1String(): string
 
 export declare function createExternalLatin1WithLatin1Chars(): string
 
+export declare function createExternalPublicBorrowProbe(): (value: ExternalObject<number>) => number
+
 export declare function createExternalRef(size: number): ExternalObject<number>
 
+export declare function createExternalRefProvenanceProbe(forged: boolean): unknown
+
 export declare function createExternalString(content: string): ExternalObject<string>
+
+export declare function createExternalTokenGcProbe(value: number): ExternalObject<number>
 
 export declare function createExternalTypedArray(): Uint32Array
 
@@ -804,6 +839,8 @@ export declare function createExternalUtf16String(): string
 export declare function createFunction(): (arg: number) => number
 
 export declare function createI32ArrayFromExternal(): Int32Array
+
+export declare function createMutableTypedArrayForOwnershipTest(empty?: boolean | undefined | null): unknown
 
 export declare function createNotUseNullableStruct(): NotUseNullableStruct
 
@@ -816,6 +853,10 @@ export declare function createObjectWithClassField(): ObjectFieldClassInstance
 export declare function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }
 
 export declare function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null
+
+export declare function createPanickingAsyncWork(): Promise<number>
+
+export declare function createQueuedAsyncWorkLifecycle(): AsyncWorkLifecycleHandle
 
 export declare function createReadableStream(): ReadableStream<Buffer>
 
@@ -832,6 +873,10 @@ export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 export declare function createRejectedPromise(message: string): Promise<number>
 
 export declare function createResolvedPromise(value: number): Promise<number>
+
+export declare function createResolvePanickingAsyncWork(): Promise<number>
+
+export declare function createRunningAsyncWorkLifecycle(): AsyncWorkLifecycleHandle
 
 export declare function createRuntimeLifecycleExternalLatin1Probe(resultPath: string): string
 
@@ -905,6 +950,8 @@ export interface DefaultUseNullableStruct {
   optionalStringField?: string
 }
 
+export declare function deferredFinalizeCallbackCount(): number
+
 export declare function defineClass(): typeof DynamicRustClass
 
 declare class DynamicRustClass {
@@ -917,6 +964,10 @@ export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): nu
 export declare function detachableExternalArraybufferFinalizeCount(): number
 
 export declare function detachArraybufferWithAlias(buffer: ArrayBuffer, alias: ArrayBuffer): void
+
+export declare function disposeAsyncWorkLifecycle(id: number): void
+
+export declare function disposeThreadsafeFunctionForEnvOwnership(): void
 
 /**
  * Counts the chunks read from a stream, swallowing (dropping) any read error.
@@ -944,8 +995,6 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
  * code path a `Promise` rejection takes — and drops it on a spawned thread.
  */
 export declare function dropErrorFromValueOffThread(value: unknown): void
-
-export declare function dropUnregisteredWeakTsfnForWasi(callback: () => void): void
 
 export declare function either3(input: string | number | boolean): number
 
@@ -983,9 +1032,13 @@ export type ExternalLinterLoadPluginCb =
 export type ExternalLinterLoadPluginCb2 =
   ((arg: string) => PluginLoadResult)
 
+export declare function externalTokenGcProbeFinalizeCount(): number
+
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
+
+export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
 
 export declare function fibonacci(n: number): number
 
@@ -1070,6 +1123,10 @@ export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
 
+export declare function inspectExternalRefAcrossDuplicateLoad(value: ExternalObject<number>): number
+
+export declare function inspectExternalTokenGcProbe(value: ExternalObject<number>): number
+
 export declare function intoUtf8(s: string): string
 
 export declare function joinPath(path: string, segment: string): string
@@ -1119,6 +1176,8 @@ export declare function mergeTupleArray(t1: TupleToArray, t2: TupleToArray): Tup
 export interface Meta {
   merge: boolean
 }
+
+export declare function mutableTypedArrayFinalizeCount(): number
 
 export declare function mutateAnimalPair(first: Animal, second: Animal): void
 
@@ -1204,6 +1263,8 @@ export declare function panic(): void
 
 export declare function panicInAsync(): Promise<void>
 
+export declare function panickingAsyncWorkFinallyCount(): number
+
 export declare function passSetToJs(): Set<string>
 
 export declare function passSetToRust(set: Set<string>): void
@@ -1226,6 +1287,10 @@ export interface PluginLoadResult {
 }
 
 export declare function plusOne(this: Width): number
+
+export declare function prepareTsfnBlockingCallRegression(callback: (arg: number) => void, counters: Int32Array, expectCleanupAbort: boolean): void
+
+export declare function prepareTsfnTeardownRegression(callback: () => void, counters: Int32Array, scenario: string, postFinalizeEnteredPath?: string | undefined | null, postFinalizeReleasePath?: string | undefined | null, postFinalizeCompletedPath?: string | undefined | null): void
 
 export declare function promiseInEither(input: number | Promise<number>): Promise<boolean>
 
@@ -1317,7 +1382,13 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+export declare function referThreadsafeFunctionForEnvOwnership(): void
+
+export declare function registerDeferredCleanupOrderProbe(resultPath: string): void
+
 export declare function registerEnvCleanupRuntimeLifecycleProbes(cleanupResultPath: string, asyncCleanupResultPath: string): void
+
+export declare function registerLateDeferredFinalizeCallback(): boolean
 
 export declare function registerModuleFinalizerProbes(this: object, probePaths: object): void
 
@@ -1329,13 +1400,24 @@ export declare function registerSelfDroppingAsyncCleanupHook(resultPath: string)
 
 export declare function registerSelfRemovingSyncCleanupHook(resultPath: string): void
 
+export declare function releaseAsyncWorkLifecycle(id: number): void
+
 export declare function removeRemovableAsyncCleanupHook(): void
 
 export declare function removeRemovableSyncCleanupHook(): void
 
+export interface RequestInit {
+  method?: string
+  headers?: Record<string, string>
+}
+
 export declare function resetPromiseRawCallbackDropCount(): void
 
 export declare function resetWeakReferenceGcTargetFinalizeCount(): void
+
+export declare function resolvePanickingAsyncWorkFinallyCount(): number
+
+export declare function restartTokioRuntimeAfterRetirement(): void
 
 export declare function returnCString(): string
 
@@ -1348,6 +1430,10 @@ export declare function returnFromSharedCrate(): Shared
 export declare function returnNull(): null
 
 export declare function returnObjectOnlyToJs(): ObjectOnlyToJs
+
+export declare function returnTypedArraySliceMutAcrossDuplicateLoad(): unknown
+
+export declare function returnTypedArraySliceRefAcrossDuplicateLoad(): unknown
 
 export declare function returnUndefined(): void
 
@@ -1373,6 +1459,10 @@ export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
+export declare function settleDeferredBeforeFinalizeRegistration(): object
+
+export declare function settleDeferredClone(): object
+
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
@@ -1385,9 +1475,19 @@ export declare function spawnFutureLifetime(input: number): Promise<string>
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
-export declare function startTokioWakerAfterCleanupProbe(enteredPath: string, releasePath: string, completedPath: string): Promise<void>
+export declare function startDeferredTeardownRace(readyPath: string, releasePath: string, donePath: string, count: number): void
+
+export declare function startReferencedTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
+
+export declare function startWeakTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
+
+export declare function stashBufferAcrossDuplicateLoad(value: Buffer): void
 
 export declare function stashBufferInThreadLocal(buf: Buffer): void
+
+export declare function stashClassInstanceForLaterTurn(classInstance: Animal): void
+
+export declare function stashErrorAcrossDuplicateLoad(value: unknown): void
 
 /**
  * Stashes a JS-derived `Error` in a Rust thread_local on the calling JS
@@ -1396,7 +1496,17 @@ export declare function stashBufferInThreadLocal(buf: Buffer): void
  */
 export declare function stashErrorInThreadLocal(value: unknown): void
 
+export declare function stashExternalRefAcrossDuplicateLoad(value: ExternalObject<number>): void
+
+export declare function stashExternalRefForTeardown(resultPath: string, value: number): void
+
+export declare function stashThreadsafeFunctionForEnvOwnership(value: ForeignEnvReferTsfn): void
+
+export declare function stashTypedArrayAcrossDuplicateLoad(value: Uint8Array): void
+
 export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
+
+export declare function stashTypedArraySlicesAcrossDuplicateLoad(typedArray: Uint8Array, clamped: Uint8ClampedArray): void
 
 export declare const enum Status {
   Pristine = 'Pristine',
@@ -1457,6 +1567,24 @@ export declare function sumNums(nums: Array<number>): number
 
 export declare function syncCleanupHookCounts(): Array<number>
 
+export declare function takeAdditionalBorrowedValueAcrossDuplicateLoad(kind: string): unknown
+
+export declare function takeBorrowedValueAcrossDuplicateLoad(): unknown
+
+export declare function takeBufferAcrossDuplicateLoad(): Buffer
+
+export declare function takeBufferSliceIntoBufferAcrossDuplicateLoad(): Buffer
+
+export declare function takeBufferSliceRefAcrossDuplicateLoad(): unknown
+
+export declare function takeClassInstanceFromLaterTurn(): Animal
+
+export declare function takeExternalRefAcrossDuplicateLoad(): ExternalObject<number>
+
+export declare function takeReferenceValueAcrossDuplicateLoad(kind: string): unknown
+
+export declare function takeTypedArrayAcrossDuplicateLoad(): Uint8Array
+
 /**
  * Function to test escaped quotes in comments.
  * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
@@ -1505,11 +1633,15 @@ export declare function throwDetachedPendingException(): void
 
 export declare function throwError(): void
 
+export declare function throwErrorAcrossDuplicateLoad(): void
+
 export declare function throwErrorWithCause(): void
 
 export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 
 export declare function toJsObj(): object
+
+export declare function tokioRuntimeLifecycleValue(value: number): Promise<number>
 
 /**
  * Regression cover for napi-rs#3370 cause preservation: a JS `Error` carrying
@@ -1611,6 +1743,8 @@ export declare function uint8ArrayFromExternal(): Uint8Array
 
 export declare function uint8ClampedArrayCopyFrom(): Uint8ClampedArray
 
+export declare function unrefThreadsafeFunctionForEnvOwnership(): void
+
 export declare function untypedTypedArrayBackingBytes(input: TypedArray): Array<number>
 
 export interface UseNullableStruct {
@@ -1673,6 +1807,12 @@ export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): num
 
 export declare function validateUndefined(i: undefined): boolean
 
+export declare function verifyReferenceValuesRejectNativeThread(legacyRefValue: object, unknownRefValue: unknown, symbolRefValue: symbol, objectRefValue: object, functionRefValue: () => void, buffer: Buffer): void
+
+export declare function verifyThreadsafeFunctionOwnerEnv(): void
+
+export declare function verifyTypedArraySlicesSameEnv(this: object, typedArray: Uint8Array, clamped: Uint8ClampedArray): void
+
 export interface ViteImportGlobMeta {
   isSubImportsPattern?: boolean
 }
@@ -1680,15 +1820,23 @@ export interface ViteImportGlobMeta {
 export type VoidNullable<T = void> =
   Nullable<T>
 
+export declare function waitForTokioRuntimeRetirement(): void
+
 export declare function weakReferenceGcTargetFinalizeCount(): number
 
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
 export declare function withAbortSignalHandle(signal: AbortSignal): Promise<number>
 
+export declare function withAdditionalBorrowedValuesAcrossDuplicateLoad(jsStringRef: string, objectRef: object, utf8String: string, utf16String: string, latin1String: string, deprecatedObject: object, deprecatedBoolean: unknown, callback: () => void): void
+
+export declare function withBorrowedValuesAcrossDuplicateLoad(value: unknown, bufferSliceRef: Buffer, bufferSliceIntoBuffer: Buffer, callback: () => void): void
+
 export declare function withinAsyncRuntimeIfAvailable(): void
 
 export declare function withoutAbortController(a: number, b: number): Promise<number>
+
+export declare function withReferenceValuesAcrossDuplicateLoad(legacyRefValue: object, unknownRefValue: unknown, symbolRefValue: symbol, objectRefValue: object, classInstance: Animal, callback: () => void): void
 
 export declare function xxh64Alias(input: Buffer): bigint
 
@@ -1746,145 +1894,3 @@ export declare class ComplexClass {
 export interface Shared {
   value: number
 }
-
-export declare function abandonDeferredClones(): void
-
-export declare function armTokioBlockingTlsRetirementProbe(resultPath: string, releasePath: string): Promise<void>
-
-export declare function armTokioWorkerTlsRetirementProbe(resultPath: string): void
-
-export declare function assignClassInstanceAcrossDuplicateLoad(withAttributes: boolean): void
-
-export declare function assignClassInstanceFromLaterTurn(withAttributes: boolean): void
-
-export declare function assignClampedSliceAcrossDuplicateLoad(this: object): void
-
-export declare function assignTypedArraySliceAcrossDuplicateLoad(this: object): void
-
-export declare function cancelAsyncWorkLifecycle(id: number): void
-
-export declare function configureTokioThreadStopFileBarrier(enteredPath: string, releasePath: string, completedPath: string): void
-
-export declare function convertClampedSliceAcrossDuplicateLoad(): Uint8ClampedArray
-
-export declare function convertTypedArraySliceAcrossDuplicateLoad(): Uint8Array
-
-export declare function copyExternalTokenAlias(value: ExternalObject<number>): ExternalObject<number>
-
-export declare function createExternalPublicBorrowProbe(): (value: ExternalObject<number>) => number
-
-export declare function createExternalRefProvenanceProbe(forged: boolean): unknown
-
-export declare function createExternalTokenGcProbe(value: number): ExternalObject<number>
-
-export declare function createMutableTypedArrayForOwnershipTest(empty?: boolean | undefined | null): unknown
-
-export declare function createPanickingAsyncWork(): Promise<number>
-
-export declare function createQueuedAsyncWorkLifecycle(): AsyncWorkLifecycleHandle
-
-export declare function createResolvePanickingAsyncWork(): Promise<number>
-
-export declare function createRunningAsyncWorkLifecycle(): AsyncWorkLifecycleHandle
-
-export declare function deferredFinalizeCallbackCount(): number
-
-export declare function disposeAsyncWorkLifecycle(id: number): void
-
-export declare function disposeThreadsafeFunctionForEnvOwnership(): void
-
-export declare function externalTokenGcProbeFinalizeCount(): number
-
-export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
-
-export declare function inspectExternalRefAcrossDuplicateLoad(value: ExternalObject<number>): number
-
-export declare function inspectExternalTokenGcProbe(value: ExternalObject<number>): number
-
-export declare function mutableTypedArrayFinalizeCount(): number
-
-export declare function panickingAsyncWorkFinallyCount(): number
-
-export declare function prepareTsfnBlockingCallRegression(callback: (arg: number) => void, counters: Int32Array, expectCleanupAbort: boolean): void
-
-export declare function prepareTsfnTeardownRegression(callback: () => void, counters: Int32Array, scenario: string, postFinalizeEnteredPath?: string | undefined | null, postFinalizeReleasePath?: string | undefined | null, postFinalizeCompletedPath?: string | undefined | null): void
-
-export declare function referThreadsafeFunctionForEnvOwnership(): void
-
-export declare function registerDeferredCleanupOrderProbe(resultPath: string): void
-
-export declare function registerLateDeferredFinalizeCallback(): boolean
-
-export declare function releaseAsyncWorkLifecycle(id: number): void
-
-export declare function resolvePanickingAsyncWorkFinallyCount(): number
-
-export declare function restartTokioRuntimeAfterRetirement(): void
-
-export declare function returnTypedArraySliceMutAcrossDuplicateLoad(): unknown
-
-export declare function returnTypedArraySliceRefAcrossDuplicateLoad(): unknown
-
-export declare function settleDeferredBeforeFinalizeRegistration(): object
-
-export declare function settleDeferredClone(): object
-
-export declare function stashBufferAcrossDuplicateLoad(value: Buffer): void
-
-export declare function stashClassInstanceForLaterTurn(classInstance: Animal): void
-
-export declare function stashErrorAcrossDuplicateLoad(value: unknown): void
-
-export declare function stashExternalRefAcrossDuplicateLoad(value: ExternalObject<number>): void
-
-export declare function stashExternalRefForTeardown(resultPath: string, value: number): void
-
-export declare function stashThreadsafeFunctionForEnvOwnership(value: ForeignEnvReferTsfn): void
-
-export declare function stashTypedArrayAcrossDuplicateLoad(value: Uint8Array): void
-
-export declare function stashTypedArraySlicesAcrossDuplicateLoad(typedArray: Uint8Array, clamped: Uint8ClampedArray): void
-
-export declare function startDeferredTeardownRace(readyPath: string, releasePath: string, donePath: string, count: number): void
-
-export declare function startReferencedTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
-
-export declare function startWeakTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
-
-export declare function takeAdditionalBorrowedValueAcrossDuplicateLoad(kind: string): unknown
-
-export declare function takeBorrowedValueAcrossDuplicateLoad(): unknown
-
-export declare function takeBufferAcrossDuplicateLoad(): Buffer
-
-export declare function takeBufferSliceIntoBufferAcrossDuplicateLoad(): Buffer
-
-export declare function takeBufferSliceRefAcrossDuplicateLoad(): unknown
-
-export declare function takeClassInstanceFromLaterTurn(): Animal
-
-export declare function takeExternalRefAcrossDuplicateLoad(): ExternalObject<number>
-
-export declare function takeReferenceValueAcrossDuplicateLoad(kind: string): unknown
-
-export declare function takeTypedArrayAcrossDuplicateLoad(): Uint8Array
-
-export declare function throwErrorAcrossDuplicateLoad(): void
-
-export declare function tokioRuntimeLifecycleValue(value: number): Promise<number>
-
-export declare function unrefThreadsafeFunctionForEnvOwnership(): void
-
-export declare function verifyReferenceValuesRejectNativeThread(legacyRefValue: object, unknownRefValue: unknown, symbolRefValue: symbol, objectRefValue: object, functionRefValue: () => void, buffer: Buffer): void
-
-export declare function verifyThreadsafeFunctionOwnerEnv(): void
-
-export declare function verifyTypedArraySlicesSameEnv(this: object, typedArray: Uint8Array, clamped: Uint8ClampedArray): void
-
-export declare function waitForTokioRuntimeRetirement(): void
-
-export declare function withAdditionalBorrowedValuesAcrossDuplicateLoad(jsStringRef: string, objectRef: object, utf8String: string, utf16String: string, latin1String: string, deprecatedObject: object, deprecatedBoolean: unknown, callback: () => void): void
-
-export declare function withBorrowedValuesAcrossDuplicateLoad(value: unknown, bufferSliceRef: Buffer, bufferSliceIntoBuffer: Buffer, callback: () => void): void
-
-export declare function withReferenceValuesAcrossDuplicateLoad(legacyRefValue: object, unknownRefValue: unknown, symbolRefValue: symbol, objectRefValue: object, classInstance: Animal, callback: () => void): void
