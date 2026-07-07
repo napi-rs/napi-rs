@@ -17,15 +17,16 @@ function createWasiFallbackChain(
   pkgName: string,
   flavors: string[],
   packageVersion?: string,
+  localWasiName = `./${localName}`,
 ): string {
   const candidates = [
     ...flavors.map((flavor) => ({
       flavor,
-      specifier: `./${localName}.${wasiLoaderSuffix(flavor)}.cjs`,
+      specifier: `${localWasiName}.${wasiLoaderSuffix(flavor)}.cjs`,
       isPackage: false,
       localArtifacts: [
-        `./${localName}.${flavor}.debug.wasm`,
-        `./${localName}.${flavor}.wasm`,
+        `${localWasiName}.${flavor}.debug.wasm`,
+        `${localWasiName}.${flavor}.wasm`,
       ],
     })),
     ...flavors.map((flavor) => ({
@@ -123,9 +124,16 @@ export function createCjsBinding(
   idents: string[],
   packageVersion?: string,
   wasiFlavors?: string[],
+  localWasiName?: string,
 ): string {
   return `${bindingHeader}
-${createCommonBinding(localName, pkgName, packageVersion, wasiFlavors)}
+${createCommonBinding(
+  localName,
+  pkgName,
+  packageVersion,
+  wasiFlavors,
+  localWasiName,
+)}
 module.exports = nativeBinding
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
@@ -139,6 +147,7 @@ export function createEsmBinding(
   idents: string[],
   packageVersion?: string,
   wasiFlavors?: string[],
+  localWasiName?: string,
 ): string {
   const exportsCode =
     idents.length > 0
@@ -150,7 +159,13 @@ import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const __dirname = new URL('.', import.meta.url).pathname
 
-${createCommonBinding(localName, pkgName, packageVersion, wasiFlavors)}
+${createCommonBinding(
+  localName,
+  pkgName,
+  packageVersion,
+  wasiFlavors,
+  localWasiName,
+)}
 ${exportsCode}
 `
 }
@@ -166,6 +181,7 @@ function createCommonBinding(
   pkgName: string,
   packageVersion?: string,
   wasiFlavors?: string[],
+  localWasiName?: string,
 ): string {
   function requireTuple(tuple: string, identSize = 8) {
     const identLow = ' '.repeat(identSize - 2)
@@ -409,7 +425,13 @@ if (!nativeBinding || forceWasi) {
   let wasiBinding = null
   let wasiBindingLoaded = false
   const wasiBindingErrors = []
-${createWasiFallbackChain(localName, pkgName, flavors, packageVersion)}
+${createWasiFallbackChain(
+  localName,
+  pkgName,
+  flavors,
+  packageVersion,
+  localWasiName,
+)}
   if (
     !wasiBindingLoaded &&
     forceWasi &&

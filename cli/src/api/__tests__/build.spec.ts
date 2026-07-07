@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { exec, execSync } from 'node:child_process'
+import { exec, execSync, spawnSync } from 'node:child_process'
 import {
   copyFile,
   mkdir,
@@ -1070,7 +1070,13 @@ test('WASI SDK compiler flags preserve paths containing spaces', (t) => {
   )
 })
 
-test('writeJsBinding creates nested custom entry directories', async (t) => {
+test('writeJsBinding executes nested custom entries with local WASI loaders', async (t) => {
+  const { projectDir } = t.context
+  await writeFile(
+    join(projectDir, 'nested-wasi.wasip1.cjs'),
+    'module.exports = { answer: 42 }\n',
+  )
+  await writeFile(join(projectDir, 'nested-wasi.wasm32-wasip1.wasm'), '')
   const output = await writeJsBinding({
     platform: true,
     idents: [],
@@ -1078,12 +1084,29 @@ test('writeJsBinding creates nested custom entry directories', async (t) => {
     binaryName: 'nested-wasi',
     packageName: 'nested-wasi',
     version: '1.0.0',
-    outputDir: t.context.projectDir,
+    outputDir: projectDir,
     wasiFlavors: ['wasm32-wasip1'],
   })
 
-  t.is(output?.path, join(t.context.projectDir, 'dist', 'binding.cjs'))
+  t.is(output?.path, join(projectDir, 'dist', 'binding.cjs'))
   t.true(existsSync(output!.path))
+  const binding = await readFile(output!.path, 'utf8')
+  t.true(binding.includes("require('../nested-wasi.wasip1.cjs')"))
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `process.stdout.write(String(require(${JSON.stringify(output!.path)}).answer))`,
+    ],
+    {
+      cwd: projectDir,
+      encoding: 'utf8',
+      env: { ...process.env, NAPI_RS_FORCE_WASI: 'true' },
+    },
+  )
+  t.is(result.status, 0, result.stderr)
+  t.is(result.stdout, '42')
 })
 
 test('writeJsBinding emits an untyped CJS WASI fallback loader', async (t) => {

@@ -71,7 +71,8 @@
     "js-yaml": "^4.2.0",
     "obug": "^2.1.2",
     "semver": "^7.8.2",
-    "typanion": "^3.14.0"
+    "typanion": "^3.14.0",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@emnapi/runtime": "^1.11.0",
@@ -88,7 +89,6 @@
     "prettier": "^3.8.3",
     "tsdown": "^0.22.2",
     "tslib": "^2.8.1",
-    "typescript": "^6.0.3",
     "typescript-legacy": "npm:typescript@4.9.5"
   },
   "peerDependencies": {

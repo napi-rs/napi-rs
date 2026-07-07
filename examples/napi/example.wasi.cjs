@@ -15,6 +15,50 @@ const {
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 
+function __getWorkerExecArgv() {
+  const __workerExecArgv = []
+  for (let __index = 0; __index < process.execArgv.length; __index += 1) {
+    const __arg = process.execArgv[__index]
+    if (
+      __arg === '--input-type' ||
+      __arg === '--eval' ||
+      __arg === '-e' ||
+      __arg === '--print' ||
+      __arg === '-p'
+    ) {
+      __index += 1
+      continue
+    }
+    if (
+      __arg.startsWith('--input-type=') ||
+      __arg.startsWith('--eval=') ||
+      __arg.startsWith('--print=')
+    ) {
+      continue
+    }
+    __workerExecArgv.push(__arg)
+  }
+  return __workerExecArgv
+}
+
+function __createWasiWorker(filename) {
+  try {
+    return new Worker(filename, {
+      env: process.env,
+      execArgv: __getWorkerExecArgv(),
+    })
+  } catch (error) {
+    if (!error || error.code !== 'ERR_WORKER_INVALID_EXEC_ARGV') {
+      throw error
+    }
+  }
+  return new Worker(filename, {
+    env: process.env,
+    execArgv: [],
+  })
+}
+
+
 const __rootDir = __nodePath.parse(process.cwd()).root
 
 const __wasi = new __nodeWASI({
@@ -152,9 +196,7 @@ try {
   reuseWorker: true,
     wasi: __wasi,
   onCreateWorker() {
-    const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
-      env: process.env,
-    })
+    const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
     }
@@ -430,8 +472,14 @@ module.exports.borrowAlignedZstPair = __napiModule.exports.borrowAlignedZstPair
 module.exports.boundedTsfnOwnerAbortState = __napiModule.exports.boundedTsfnOwnerAbortState
 module.exports.btreeSetToJs = __napiModule.exports.btreeSetToJs
 module.exports.btreeSetToRust = __napiModule.exports.btreeSetToRust
+module.exports.bufferAssertionTarget = __napiModule.exports.bufferAssertionTarget
+module.exports.bufferComplexOverride = __napiModule.exports.bufferComplexOverride
+module.exports.bufferDestructureBinding = __napiModule.exports.bufferDestructureBinding
+module.exports.bufferGenericConstraint = __napiModule.exports.bufferGenericConstraint
+module.exports.bufferGenericShadow = __napiModule.exports.bufferGenericShadow
 module.exports.bufferLenAsync = __napiModule.exports.bufferLenAsync
 module.exports.bufferPassThrough = __napiModule.exports.bufferPassThrough
+module.exports.bufferValueBinding = __napiModule.exports.bufferValueBinding
 module.exports.bufferWithAsyncBlock = __napiModule.exports.bufferWithAsyncBlock
 module.exports.buildThreadsafeFunctionFromFunction = __napiModule.exports.buildThreadsafeFunctionFromFunction
 module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.exports.buildThreadsafeFunctionFromFunctionCalleeHandle

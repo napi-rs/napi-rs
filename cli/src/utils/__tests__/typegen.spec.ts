@@ -11,6 +11,10 @@ import {
   correctStringIdent,
   processTypeDef,
   processTypeDefs,
+  appendTypeImports,
+  correctStringIdent,
+  processTypeDef,
+  removeNodeStreamWebTypeImports,
 } from '../typegen.js'
 
 test('should ident string correctly', (t) => {
@@ -267,6 +271,426 @@ test('runtimeStringEnum is a no-op when constEnum is set', async (t) => {
   t.snapshot(dts)
 })
 
+test('places type imports from the parsed TypeScript module structure', (t) => {
+  const source = `/// <reference lib="dom" />
+/* generated header */
+import './side-effect.js' with { type: 'javascript' }
+// keep this comment on the re-export
+export { Existing } from './existing.js' with { type: 'json' }
+import type { Present } from './present.js' with { mode: 'strict' }
+/** Documents value. */
+export declare const value: Present
+`
+
+  const result = appendTypeImports(source, [
+    { module: './present.js', name: 'Present' },
+    { module: 'buffer', name: 'Buffer' },
+  ])
+
+  t.is(
+    result,
+    `/// <reference lib="dom" />
+/* generated header */
+import './side-effect.js' with { type: 'javascript' }
+// keep this comment on the re-export
+export { Existing } from './existing.js' with { type: 'json' }
+import type { Present } from './present.js' with { mode: 'strict' }
+import type { Buffer } from "buffer"
+/** Documents value. */
+export declare const value: Present
+`,
+  )
+
+  t.is(
+    appendTypeImports(
+      `/// <reference lib="dom" />
+/* generated header */
+/** Documents value. */
+export declare const value: string
+`,
+      [{ module: 'buffer', name: 'Buffer' }],
+    ),
+    `/// <reference lib="dom" />
+/* generated header */
+import type { Buffer } from "buffer"
+/** Documents value. */
+export declare const value: string
+`,
+  )
+})
+
+test('removes only DOM-compatible node stream type imports', (t) => {
+  const source = `/// <reference lib="dom" />
+/* generated header */
+import type { ReadableStream, WritableStream } from 'node:stream/web' with { mode: 'types' }
+export { Existing } from './existing.js'
+export declare const stream: ReadableStream
+`
+
+  t.is(
+    removeNodeStreamWebTypeImports(source),
+    `/// <reference lib="dom" />
+/* generated header */
+export { Existing } from './existing.js'
+export declare const stream: ReadableStream
+`,
+  )
+  t.throws(
+    () =>
+      removeNodeStreamWebTypeImports(
+        `import type { ReadableStream as NodeReadableStream } from 'node:stream/web'\n`,
+      ),
+    { message: /unaliased types/ },
+  )
+})
+
+test('renders imported types inline without colliding with exported declarations', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-type-import-'))
+  const fixture = join(directory, 'type-def.jsonl')
+  const marker = '__NAPI_RS_TYPE_IMPORT_BUFFER__'
+
+  try {
+    await writeFile(
+      fixture,
+      [
+        {
+          kind: 'struct',
+          name: 'Buffer',
+          js_doc: '',
+          def: '',
+        },
+        {
+          kind: 'fn',
+          name: 'passThrough',
+          js_doc: '',
+          def: 'function passThrough(value: Buffer): Buffer',
+          def_with_type_import_markers: `function passThrough(value: ${marker}): ${marker}`,
+          type_imports: [{ marker, name: 'Buffer', module: 'buffer' }],
+        },
+        {
+          kind: 'struct',
+          name: 'BufferHolder',
+          js_doc: '',
+          def: 'constructor(value: Buffer)\\nreadonly copy: Buffer',
+          def_with_type_import_markers: `constructor(value: ${marker})\\nreadonly copy: ${marker}`,
+          type_imports: [{ marker, name: 'Buffer', module: 'buffer' }],
+        },
+        {
+          kind: 'impl',
+          name: 'BufferHolder',
+          js_doc: '',
+          def: 'value(): Buffer',
+          def_with_type_import_markers: `value(): ${marker}`,
+          type_imports: [{ marker, name: 'Buffer', module: 'buffer' }],
+        },
+        {
+          kind: 'fn',
+          name: 'usesExportedBuffer',
+          js_doc: '',
+          def: 'function usesExportedBuffer(value: Buffer): Buffer',
+        },
+      ]
+        .map((def) => JSON.stringify(def))
+        .join('\n') + '\n',
+    )
+
+    const { dts, dtsWithTypeImports } = await processTypeDef(fixture, true)
+    t.is(
+      dts,
+      `export declare class Buffer {
+
+}
+
+export declare class BufferHolder {
+  constructor(value: Buffer)
+  readonly copy: Buffer
+  value(): Buffer
+}
+
+export declare function passThrough(value: Buffer): Buffer
+
+export declare function usesExportedBuffer(value: Buffer): Buffer
+`,
+    )
+    t.is(
+      dtsWithTypeImports,
+      `export declare class Buffer {
+
+}
+
+export declare class BufferHolder {
+  constructor(value: import("buffer").Buffer)
+  readonly copy: import("buffer").Buffer
+  value(): import("buffer").Buffer
+}
+
+export declare function passThrough(value: import("buffer").Buffer): import("buffer").Buffer
+
+export declare function usesExportedBuffer(value: Buffer): Buffer
+`,
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('rewrites legacy Buffer imports with TypeScript binding semantics', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-buffer-bindings-'))
+  const fixture = join(directory, 'type-def.jsonl')
+  const legacyBufferImport = [{ name: 'Buffer', module: 'buffer' }]
+
+  try {
+    await writeFile(
+      fixture,
+      [
+        {
+          kind: 'fn',
+          name: 'constrained',
+          def: 'function constrained<T extends Buffer>(value: T): Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'shadowed',
+          def: 'function shadowed<Buffer>(value: Buffer): Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'shapes',
+          def: `function shapes<T>(value: {
+            Buffer(): string
+            mapped: { [Buffer in keyof T]: T[Buffer] }
+            inferred: Buffer extends infer Buffer ? Buffer : never
+            external: Buffer
+          }): Buffer`,
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'destructure',
+          def: 'function destructure({ Buffer }: { Buffer: string }, value: Buffer): Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'assertionTarget',
+          def: 'function assertionTarget(Buffer: unknown): asserts Buffer is string',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'predicate',
+          def: 'function predicate(value: unknown): asserts value is Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'parameterValueBinding',
+          def: 'function parameterValueBinding(before: typeof Buffer, Buffer: unknown): typeof Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'separateTypeAndValueBindings',
+          def: 'function separateTypeAndValueBindings(Buffer: unknown, value: Buffer): Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'destructuredValueBinding',
+          def: 'function destructuredValueBinding({ value: Buffer }: { value: unknown }): typeof Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'arrayValueBinding',
+          def: 'function arrayValueBinding([Buffer]: [unknown]): typeof Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'nestedValueBinding',
+          def: 'function nestedValueBinding(callback: (Buffer: unknown) => typeof Buffer, value: typeof Buffer): typeof Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'propertyNotBinding',
+          def: 'function propertyNotBinding(value: { Buffer: unknown }): typeof Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'qualifiedNames',
+          def: 'function qualifiedNames(value: Other.Buffer): typeof Other.Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'importTypeProperty',
+          def: 'function importTypeProperty(value: import("other").Buffer): import("other").Buffer',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'escaped',
+          def: 'function escaped(value: Buffer): "line\\nnext" | `template\\n${Buffer extends Uint8Array ? "buffer" : "other"}`',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'struct',
+          name: 'EscapedFields',
+          def: 'first: Buffer\\nsecond: "line\\nnext"',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'interface',
+          name: 'Buffer',
+          def: '',
+          js_mod: 'TypeOnlyScope',
+        },
+        {
+          kind: 'fn',
+          name: 'typeOnlyScope',
+          def: 'function typeOnlyScope(value: Buffer): typeof Buffer',
+          js_mod: 'TypeOnlyScope',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
+          name: 'Buffer',
+          def: 'function Buffer(): void',
+          js_mod: 'ValueOnlyScope',
+        },
+        {
+          kind: 'fn',
+          name: 'valueOnlyScope',
+          def: 'function valueOnlyScope(value: Buffer): typeof Buffer',
+          js_mod: 'ValueOnlyScope',
+          type_imports: legacyBufferImport,
+        },
+      ]
+        .map((def) => JSON.stringify(def))
+        .join('\n') + '\n',
+    )
+
+    const { dts, dtsWithTypeImports } = await processTypeDef(fixture, true)
+
+    t.regex(dtsWithTypeImports, /T extends import\("buffer"\)\.Buffer/)
+    t.regex(
+      dtsWithTypeImports,
+      /constrained<T extends import\("buffer"\)\.Buffer>\(value: T\): import\("buffer"\)\.Buffer/,
+    )
+    t.regex(dtsWithTypeImports, /shadowed<Buffer>\(value: Buffer\): Buffer/)
+    t.regex(dtsWithTypeImports, /Buffer\(\): string/)
+    t.regex(dtsWithTypeImports, /\[Buffer in keyof T\]: T\[Buffer\]/)
+    t.regex(
+      dtsWithTypeImports,
+      /import\("buffer"\)\.Buffer extends infer Buffer \? Buffer : never/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /\{ Buffer \}: \{ Buffer: string \}, value: import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /assertionTarget\(Buffer: unknown\): asserts Buffer is string/,
+    )
+    t.regex(dtsWithTypeImports, /asserts value is import\("buffer"\)\.Buffer/)
+    t.regex(
+      dtsWithTypeImports,
+      /parameterValueBinding\(before: typeof Buffer, Buffer: unknown\): typeof Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /separateTypeAndValueBindings\(Buffer: unknown, value: import\("buffer"\)\.Buffer\): import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /destructuredValueBinding\(\{ value: Buffer \}: \{ value: unknown \}\): typeof Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /arrayValueBinding\(\[Buffer\]: \[unknown\]\): typeof Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /nestedValueBinding\(callback: \(Buffer: unknown\) => typeof Buffer, value: typeof import\("buffer"\)\.Buffer\): typeof import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /propertyNotBinding\(value: \{ Buffer: unknown \}\): typeof import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /qualifiedNames\(value: Other\.Buffer\): typeof Other\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /importTypeProperty\(value: import\("other"\)\.Buffer\): import\("other"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /namespace TypeOnlyScope \{[\s\S]*typeOnlyScope\(value: Buffer\): typeof import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /namespace ValueOnlyScope \{[\s\S]*valueOnlyScope\(value: import\("buffer"\)\.Buffer\): typeof Buffer/,
+    )
+    t.true(dtsWithTypeImports.includes('"line\\nnext"'))
+    t.true(
+      dtsWithTypeImports.includes(
+        '`template\\n${import("buffer").Buffer extends Uint8Array ? "buffer" : "other"}`',
+      ),
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /first: import\("buffer"\)\.Buffer\n  second: "line\\nnext"/,
+    )
+    t.notRegex(dtsWithTypeImports, /__NAPI_RS_TYPE_IMPORT_/)
+    t.notRegex(dts, /import\("buffer"\)\.Buffer/)
+    t.true(dts.includes('"line\\nnext"'))
+
+    const threadlessDiagnostics = await compileDeclarations(
+      dtsWithTypeImports,
+      `declare module "buffer" { export class Buffer extends Uint8Array {} }
+declare module "other" { export interface Buffer {} }
+declare namespace Other {
+  interface Buffer {}
+  const Buffer: unknown
+}
+`,
+    )
+    t.deepEqual(threadlessDiagnostics, [])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('reports malformed legacy declaration input with TypeScript diagnostics', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-typegen-invalid-'))
+  const fixture = join(directory, 'type-def.jsonl')
+
+  try {
+    await writeFile(
+      fixture,
+      `${JSON.stringify({
+        kind: 'fn',
+        name: 'broken',
+        def: 'function broken(value: Buffer',
+        type_imports: [{ name: 'Buffer', module: 'buffer' }],
+      })}\n`,
+    )
+
+    const error = await t.throwsAsync(() => processTypeDef(fixture, true))
+    t.regex(error.message, /Failed to parse declaration source/)
+    t.regex(error.message, /\d+:\d+/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 async function compileIteratorConsumer(
   compiler: typeof typeScript,
   declarations: string,
@@ -434,6 +858,42 @@ inferredAsyncIterator.return(Promise.resolve(['complete', 1]))
       .getPreEmitDiagnostics(downstreamProgram)
       .map((diagnostic) =>
         compiler.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+      )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
+async function compileDeclarations(
+  declarations: string,
+  moduleDeclarations: string,
+): Promise<string[]> {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-typegen-compile-'))
+  const declarationPath = join(directory, 'index.d.ts')
+  const moduleDeclarationsPath = join(directory, 'modules.d.ts')
+
+  try {
+    await Promise.all([
+      writeFile(declarationPath, declarations),
+      writeFile(moduleDeclarationsPath, moduleDeclarations),
+    ])
+    const program = typeScript.createProgram(
+      [declarationPath, moduleDeclarationsPath],
+      {
+        lib: ['lib.es2022.d.ts'],
+        module: typeScript.ModuleKind.Node16,
+        moduleResolution: typeScript.ModuleResolutionKind.Node16,
+        noEmit: true,
+        skipLibCheck: false,
+        strict: true,
+        target: typeScript.ScriptTarget.ES2022,
+        types: [],
+      },
+    )
+    return typeScript
+      .getPreEmitDiagnostics(program)
+      .map((diagnostic) =>
+        typeScript.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
       )
   } finally {
     await rm(directory, { recursive: true, force: true })

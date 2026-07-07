@@ -156,7 +156,7 @@ impl ToTypeDef for NapiImpl {
             }
           })
           .collect::<Vec<_>>()
-          .join("\\n"),
+          .join("\n"),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
       })
@@ -222,9 +222,9 @@ impl NapiStruct {
             })
           })
           .collect::<Vec<_>>()
-          .join("\\n");
+          .join("\n");
         if class.ctor {
-          format!("{}\\nconstructor({})", def, ctor_args.join(", "))
+          format!("{}\nconstructor({})", def, ctor_args.join(", "))
         } else {
           def
         }
@@ -235,7 +235,7 @@ impl NapiStruct {
         .filter(|f| f.getter)
         .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
         .collect::<Vec<_>>()
-        .join("\\n"),
+        .join("\n"),
       NapiStructKind::StructuredEnum(structured_enum) => structured_enum
         .variants
         .iter()
@@ -261,7 +261,7 @@ impl NapiStruct {
           format!("  | {{ {def} }} ")
         })
         .collect::<Vec<_>>()
-        .join("\\n"),
+        .join("\n"),
     }
   }
 }

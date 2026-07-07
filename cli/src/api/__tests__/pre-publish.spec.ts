@@ -20,6 +20,7 @@ import ava, { type TestFn } from 'ava'
 import { createWasmModuleTypeDef } from '../../utils/index.js'
 import { createWasiDeferredBindingTypeDef } from '../build.js'
 import { prePublish } from '../pre-publish.js'
+import { createWasiBinding } from '../templates/load-wasi-template.js'
 
 const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
@@ -599,6 +600,51 @@ for (const dependency of [
   })
 }
 
+test('pre-publish accepts self-contained WASI packages without runtime dependencies', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    delete manifest.dependencies
+  })
+
+  await t.notThrowsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+})
+
+test('pre-publish rejects dependency-free packages with generated external runtime imports', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    delete manifest.dependencies
+  })
+  const binaryName = 'pre-publish-wasi'
+  await writeFile(
+    join(t.context.tmpDir, 'npm', 'wasm32-wasip1', `${binaryName}.wasip1.cjs`),
+    createWasiBinding(
+      `${binaryName}.wasm32-wasip1`,
+      binaryName,
+      4000,
+      65536,
+      false,
+      'wasm32-wasip1',
+    ),
+  )
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must declare WASI runtime dependencies/)
+})
+
 test('pre-publish rejects non-release wasm runtime dependency ranges', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir)
   await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
@@ -695,6 +741,23 @@ export const marker = Buffer.from('workerd-export')
     }),
   )
   t.regex(error.message, /must declare dependency buffer/)
+})
+
+test('pre-publish rejects buffer when packaged loaders do not import it', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    manifest.dependencies.buffer = directBufferDependency
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must omit buffer/)
 })
 
 test('pre-publish does not require buffer for a threaded fs-backed loader', async (t) => {

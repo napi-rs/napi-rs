@@ -244,10 +244,14 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
-    let type_imports = if uses_buffer_type {
-      r#", "type_imports": [{"name": "Buffer", "module": "buffer"}]"#
+    let imported_types = if uses_buffer_type {
+      format!(
+        r#", "def_with_type_import_markers": "{}", "type_imports": [{{"marker": "{}", "name": "Buffer", "module": "buffer"}}]"#,
+        escape_json(&self.def),
+        BUFFER_TYPE_IMPORT_MARKER,
+      )
     } else {
-      ""
+      String::new()
     };
 
     write!(
@@ -259,7 +263,7 @@ impl Display for TypeDef {
       escape_json(&def),
       original_name,
       js_mod,
-      type_imports,
+      imported_types,
     )
   }
 }
@@ -899,7 +903,7 @@ pub fn ty_to_ts_type(
 
 #[cfg(test)]
 mod tests {
-  use super::{escape_json, format_js_property_name, JSDoc, TypeDef};
+  use super::{escape_json, format_js_property_name, JSDoc, TypeDef, BUFFER_TYPE_IMPORT_MARKER};
 
   #[test]
   fn type_def_display_escapes_all_json_fields() {
@@ -927,6 +931,36 @@ mod tests {
       parsed["js_doc"].as_str(),
       Some(type_def.js_doc.to_string().as_str())
     );
+  }
+
+  #[test]
+  fn type_def_display_preserves_imported_type_provenance() {
+    let type_def = TypeDef {
+      kind: "fn".to_owned(),
+      name: "bufferPassThrough".to_owned(),
+      def: format!(
+        "function bufferPassThrough(value: {BUFFER_TYPE_IMPORT_MARKER}): {BUFFER_TYPE_IMPORT_MARKER}"
+      ),
+      ..Default::default()
+    };
+
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+
+    assert_eq!(
+      parsed["def"].as_str(),
+      Some("function bufferPassThrough(value: Buffer): Buffer")
+    );
+    assert_eq!(
+      parsed["def_with_type_import_markers"].as_str(),
+      Some(type_def.def.as_str())
+    );
+    assert_eq!(
+      parsed["type_imports"][0]["marker"].as_str(),
+      Some(BUFFER_TYPE_IMPORT_MARKER)
+    );
+    assert_eq!(parsed["type_imports"][0]["name"].as_str(), Some("Buffer"));
+    assert_eq!(parsed["type_imports"][0]["module"].as_str(), Some("buffer"));
   }
 
   #[test]

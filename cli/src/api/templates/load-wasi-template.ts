@@ -37,7 +37,15 @@ const __wasi = new __WASI({
   const workerErrorHandler = errorEvent
     ? `      worker.addEventListener('message', (event) => {
         if (event.data && typeof event.data === 'object' && event.data.type === 'error') {
-          window.dispatchEvent(new CustomEvent('napi-rs-worker-error', { detail: event.data }))
+          const __CustomEvent = globalThis.CustomEvent
+          if (
+            typeof globalThis.dispatchEvent === 'function' &&
+            typeof __CustomEvent === 'function'
+          ) {
+            globalThis.dispatchEvent(
+              new __CustomEvent('napi-rs-worker-error', { detail: event.data }),
+            )
+          }
         }
       })
 `
@@ -172,7 +180,7 @@ export const createWasiDeferredBrowserBinding = (
 ) => {
   const bufferImport = buffer ? `import { Buffer } from 'buffer'` : ''
   const emnapiInjectBuffer = buffer
-    ? '  __emnapiContext.feature.Buffer = Buffer\n'
+    ? '    __emnapiContext.feature.Buffer = Buffer\n'
     : ''
   return `import {
   instantiateNapiModule as __emnapiInstantiateNapiModule,
@@ -332,7 +340,8 @@ function __destroyManagedEmnapiContexts() {
   __managedExitProcess = undefined
   __managedExitListener = undefined
   let __firstError
-  for (const __destroy of [...__managedEmnapiContextDestroyers]) {
+  const __destroyers = Array.from(__managedEmnapiContextDestroyers)
+  for (const __destroy of __destroyers) {
     try {
       __destroy()
     } catch (error) {
@@ -395,7 +404,6 @@ function __createManagedEmnapiContext() {
     __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
     throw error
   }
-${emnapiInjectBuffer}\
   // emnapi <= 1.11 ignores autoDestroy and installs an anonymous listener.
   // Remove only listeners added synchronously by this context construction;
   // newer runtimes add none when autoDestroy is false.
@@ -463,6 +471,7 @@ export async function createInstance(__wasmInput) {
     destroy: __destroyEmnapiContext,
   } = __createManagedEmnapiContext()
   try {
+${emnapiInjectBuffer}\
     const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__emnapiModule, {
       context: __emnapiContext,
       asyncWorkPoolSize: 0,
@@ -570,16 +579,11 @@ export async function dispose() {
     return
   }
   const __disposePromise = (async () => {
-    try {
-      const __instance = await __instancePromise
-      __instance.dispose()
-    } finally {
-      // Cleanup failure can leave emnapi partially stopped. Never expose that
-      // instance again or retry cleanup against the poisoned context.
-      if (__defaultInstancePromise === __instancePromise) {
-        __defaultInstancePromise = undefined
-        __defaultModulePromise = undefined
-      }
+    const __instance = await __instancePromise
+    __instance.dispose()
+    if (__defaultInstancePromise === __instancePromise) {
+      __defaultInstancePromise = undefined
+      __defaultModulePromise = undefined
     }
   })()
   __defaultDisposePromise = __disposePromise
@@ -628,6 +632,52 @@ export const createWasiBinding = (
     ? `const { Worker } = require('node:worker_threads')
 `
     : ''
+  const workerExecArgv = threads
+    ? `
+function __getWorkerExecArgv() {
+  const __workerExecArgv = []
+  for (let __index = 0; __index < process.execArgv.length; __index += 1) {
+    const __arg = process.execArgv[__index]
+    if (
+      __arg === '--input-type' ||
+      __arg === '--eval' ||
+      __arg === '-e' ||
+      __arg === '--print' ||
+      __arg === '-p'
+    ) {
+      __index += 1
+      continue
+    }
+    if (
+      __arg.startsWith('--input-type=') ||
+      __arg.startsWith('--eval=') ||
+      __arg.startsWith('--print=')
+    ) {
+      continue
+    }
+    __workerExecArgv.push(__arg)
+  }
+  return __workerExecArgv
+}
+
+function __createWasiWorker(filename) {
+  try {
+    return new Worker(filename, {
+      env: process.env,
+      execArgv: __getWorkerExecArgv(),
+    })
+  } catch (error) {
+    if (!error || error.code !== 'ERR_WORKER_INVALID_EXEC_ARGV') {
+      throw error
+    }
+  }
+  return new Worker(filename, {
+    env: process.env,
+    execArgv: [],
+  })
+}
+`
+    : ''
   const workerRuntimeImport = threads
     ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
     : ''
@@ -648,9 +698,7 @@ export const createWasiBinding = (
 `
   const workerOption = threads
     ? `  onCreateWorker() {
-    const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
-      env: process.env,
-    })
+    const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
     }
@@ -697,6 +745,7 @@ ${workerRuntimeImport}\
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
+${workerExecArgv}
 
 const __rootDir = __nodePath.parse(process.cwd()).root
 

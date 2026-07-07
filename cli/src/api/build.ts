@@ -3,13 +3,12 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { basename, dirname, join, parse, resolve } from 'node:path'
+import { basename, dirname, join, parse, relative, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
 import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
-  appendTypeImports,
   CLI_VERSION,
   copyFileAsync,
   type Crate,
@@ -25,8 +24,8 @@ import {
   processTypeDefs,
   readFileAsync,
   readNapiConfig,
+  removeNodeStreamWebTypeImports,
   type Target,
-  type TypeImport,
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
@@ -553,7 +552,7 @@ class Builder {
   private readonly outputDir: string
   private readonly targetDir: string
   private readonly enableTypeDef: boolean = false
-  private typeImports: TypeImport[] = []
+  private typeDefWithTypeImports: string | undefined
 
   constructor(
     private readonly metadata: CargoWorkspaceMetadata,
@@ -1333,7 +1332,7 @@ class Builder {
       return []
     }
 
-    const { exports, dts, typeImports } = await generateTypeDef({
+    const { exports, dts, dtsWithTypeImports } = await generateTypeDef({
       typeDefDir,
       noDtsHeader: this.options.noDtsHeader,
       dtsHeader: this.options.dtsHeader,
@@ -1344,7 +1343,7 @@ class Builder {
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
     })
-    this.typeImports = typeImports
+    this.typeDefWithTypeImports = dtsWithTypeImports
 
     const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
 
@@ -1542,10 +1541,15 @@ class Builder {
 declare const binding: Record<string, unknown>
 export = binding
 `
-    const targetBindingTypeDef =
-      !hasThreads && this.config.wasm?.browser?.buffer === true
-        ? appendTypeImports(bindingTypeDef, this.typeImports)
+    const selectedBindingTypeDef =
+      !hasThreads &&
+      this.config.wasm?.browser?.buffer === true &&
+      this.typeDefWithTypeImports
+        ? this.typeDefWithTypeImports
         : bindingTypeDef
+    const targetBindingTypeDef = hasThreads
+      ? selectedBindingTypeDef
+      : removeNodeStreamWebTypeImports(selectedBindingTypeDef)
     await writeFileAsync(bindingTypeDefPath, targetBindingTypeDef, 'utf8')
     const outputs: Output[] = [
       { kind: 'js', path: bindingPath },
@@ -1666,6 +1670,14 @@ export async function writeJsBinding(
   }
 
   const name = options.jsBinding ?? 'index.js'
+  const dest = join(options.outputDir, name)
+  const localWasiName = relative(
+    dirname(dest),
+    join(options.outputDir, options.binaryName),
+  ).replaceAll('\\', '/')
+  const localWasiSpecifier = localWasiName.startsWith('.')
+    ? localWasiName
+    : `./${localWasiName}`
 
   const createBinding = options.esm ? createEsmBinding : createCjsBinding
   const binding = createBinding(
@@ -1675,10 +1687,10 @@ export async function writeJsBinding(
     // in npm preversion hook
     options.version,
     options.wasiFlavors,
+    localWasiSpecifier,
   )
 
   try {
-    const dest = join(options.outputDir, name)
     debug('Writing js binding to:')
     debug('  %i', dest)
     await mkdirAsync(dirname(dest), { recursive: true })
@@ -1709,9 +1721,13 @@ export interface GenerateTypeDefOptions {
  */
 export async function generateTypeDef(
   options: GenerateTypeDefOptions,
-): Promise<{ exports: string[]; dts: string; typeImports: TypeImport[] }> {
+): Promise<{
+  exports: string[]
+  dts: string
+  dtsWithTypeImports: string
+}> {
   if (!(await dirExistsAsync(options.typeDefDir))) {
-    return { exports: [], dts: '', typeImports: [] }
+    return { exports: [], dts: '', dtsWithTypeImports: '' }
   }
 
   let header = ''
@@ -1744,7 +1760,7 @@ export async function generateTypeDef(
 
   if (!files.length) {
     debug('No type def files found. Skip generating dts file.')
-    return { exports: [], dts: '', typeImports: [] }
+    return { exports: [], dts: '', dtsWithTypeImports: '' }
   }
 
   const typeDefFiles = files
@@ -1769,10 +1785,10 @@ export async function generateTypeDef(
   dts = processedTypeDefs.dts
   exports = processedTypeDefs.exports
   dts = processedTypeDefs.map(({ dts }) => dts).join('')
+  let dtsWithTypeImports = processedTypeDefs
+    .map(({ dtsWithTypeImports }) => dtsWithTypeImports)
+    .join('')
   exports = processedTypeDefs.flatMap(({ exports }) => exports)
-  const typeImports = processedTypeDefs.flatMap(
-    ({ typeImports }) => typeImports,
-  )
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `
@@ -1792,10 +1808,11 @@ export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array
   }
 
   dts = header + dts
+  dtsWithTypeImports = header + dtsWithTypeImports
 
   return {
     exports,
     dts,
-    typeImports,
+    dtsWithTypeImports,
   }
 }

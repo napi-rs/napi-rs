@@ -44,8 +44,23 @@ const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
 const directBufferDependency = '^6.0.3'
-const directBufferImportPattern =
-  /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]buffer['"]/
+const wasiRuntimeDependencies = [
+  '@napi-rs/wasm-runtime',
+  '@emnapi/core',
+  '@emnapi/runtime',
+  'buffer',
+]
+const wasiRuntimeImportPatterns = new Map(
+  wasiRuntimeDependencies.map((dependency) => [
+    dependency,
+    new RegExp(
+      String.raw`(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]${dependency.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        '\\$&',
+      )}['"]`,
+    ),
+  ]),
+)
 const require = createRequire(import.meta.url)
 
 interface PackageInfo {
@@ -1460,9 +1475,11 @@ async function validateReleasePackageContents({
     )
   }
   const packageFiles = [...new Set(packageJson.files)]
-  const packagedLoaderImportsBuffer =
-    target.arch === 'wasm32' &&
-    (await releasePackageImportsDirectBuffer(pkgDir, packageFiles))
+  const packagedRuntimeImports =
+    target.arch === 'wasm32'
+      ? await releasePackageRuntimeImports(pkgDir, packageFiles)
+      : new Set<string>()
+  const packagedLoaderImportsBuffer = packagedRuntimeImports.has('buffer')
 
   validateExpectedReleasePackageManifest(
     packageJson,
@@ -1470,6 +1487,7 @@ async function validateReleasePackageContents({
     binaryName,
     target,
     requireDirectBufferDependency || packagedLoaderImportsBuffer,
+    packagedRuntimeImports,
   )
 
   for (const file of packageFiles) {
@@ -1523,10 +1541,11 @@ async function validateReleasePackageContents({
   }
 }
 
-async function releasePackageImportsDirectBuffer(
+async function releasePackageRuntimeImports(
   pkgDir: string,
   packageFiles: string[],
 ) {
+  const runtimeImports = new Set<string>()
   for (const file of packageFiles) {
     if (!/\.(?:cjs|mjs|js)$/.test(file)) {
       continue
@@ -1535,11 +1554,14 @@ async function releasePackageImportsDirectBuffer(
     if (!existsSync(path) || !statSync(path).isFile()) {
       continue
     }
-    if (directBufferImportPattern.test(await readFileAsync(path, 'utf8'))) {
-      return true
+    const source = await readFileAsync(path, 'utf8')
+    for (const [dependency, pattern] of wasiRuntimeImportPatterns) {
+      if (pattern.test(source)) {
+        runtimeImports.add(dependency)
+      }
     }
   }
-  return false
+  return runtimeImports
 }
 
 function validateExpectedReleasePackageManifest(
@@ -1548,6 +1570,7 @@ function validateExpectedReleasePackageManifest(
   binaryName: string,
   target: Target,
   requireDirectBufferDependency: boolean,
+  packagedRuntimeImports: Set<string>,
 ) {
   const isWasm = target.arch === 'wasm32'
   const artifactExtension = isWasm ? 'wasm' : 'node'
@@ -1567,6 +1590,7 @@ function validateExpectedReleasePackageManifest(
     validateWasiReleasePackageManifest(
       packageJson,
       requireDirectBufferDependency,
+      packagedRuntimeImports,
     )
     const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
     const expectedTypes = `${binaryName}.${loaderSuffix}.d.cts`
@@ -1639,6 +1663,7 @@ function validateExpectedReleasePackageManifest(
 function validateWasiReleasePackageManifest(
   packageJson: ReleasePackageManifest,
   requireDirectBufferDependency: boolean,
+  packagedRuntimeImports: Set<string>,
 ) {
   if (packageJson.type !== 'module') {
     throw new Error(
@@ -1657,6 +1682,15 @@ function validateWasiReleasePackageManifest(
   }
 
   const dependencies = asRecord(packageJson.dependencies)
+  const declaredRuntimeDependencies = wasiRuntimeDependencies.filter(
+    (dependency) => dependencies?.[dependency] !== undefined,
+  )
+  if (
+    packagedRuntimeImports.size === 0 &&
+    declaredRuntimeDependencies.length === 0
+  ) {
+    return
+  }
   if (!dependencies) {
     throw new Error(
       `Release package ${packageJson.name} must declare WASI runtime dependencies`,
@@ -1701,6 +1735,10 @@ function validateWasiReleasePackageManifest(
         `Release package ${packageJson.name} must declare buffer ${directBufferDependency}; found ${bufferVersion}`,
       )
     }
+  } else if (dependencies.buffer !== undefined) {
+    throw new Error(
+      `Release package ${packageJson.name} must omit buffer when its loaders do not import it`,
+    )
   }
 }
 

@@ -101,6 +101,203 @@ test('threaded WASI node binding keeps the legacy wasm32-wasi package fallback',
   assertValidJS(t, node, 'threaded Node binding')
 })
 
+test('threaded WASI node workers sanitize inherited source execArgv', (t) => {
+  const code = createWasiBinding('test', '@scope/test', 1, 2)
+  let workerOptions:
+    | {
+        env?: Record<string, string>
+        execArgv?: string[]
+      }
+    | undefined
+
+  class Worker {
+    constructor(
+      _filename: string,
+      options: {
+        env?: Record<string, string>
+        execArgv?: string[]
+      },
+    ) {
+      workerOptions = options
+    }
+
+    unref() {}
+  }
+
+  const mockRequire = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('/test.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case 'node:worker_threads':
+        return { Worker }
+      case '@napi-rs/wasm-runtime':
+        return {
+          createOnMessage: () => () => {},
+          instantiateNapiModuleSync(
+            _wasm: Uint8Array,
+            options: { onCreateWorker(): Worker },
+          ) {
+            options.onCreateWorker()
+            return {
+              instance: {},
+              module: {},
+              napiModule: { exports: {} },
+            }
+          },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({ destroy() {} }),
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+  const processMock = {
+    cwd: () => '/',
+    env: { WORKER_TEST: '1' },
+    execArgv: [
+      '--trace-warnings',
+      '--input-type=module',
+      '--input-type',
+      'commonjs',
+      '--eval',
+      'evaluate()',
+      '-e',
+      'shortEvaluate()',
+      '--eval=inlineEvaluate()',
+      '--print',
+      'print()',
+      '-p',
+      'shortPrint()',
+      '--print=inlinePrint()',
+      '--require',
+      './hook.cjs',
+      '--print-bytecode',
+      '--conditions=worker-test',
+    ],
+    once() {},
+    rawListeners() {
+      return []
+    },
+    removeListener() {},
+  }
+  const originalExecArgv = [...processMock.execArgv]
+
+  new Function('require', 'process', '__dirname', code)(
+    mockRequire,
+    processMock,
+    '/fixture',
+  )
+
+  t.is(workerOptions?.env, processMock.env)
+  t.deepEqual(processMock.execArgv, originalExecArgv)
+  t.deepEqual(workerOptions?.execArgv, [
+    '--trace-warnings',
+    '--require',
+    './hook.cjs',
+    '--print-bytecode',
+    '--conditions=worker-test',
+  ])
+})
+
+test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => {
+  const code = createWasiBinding('test', '@scope/test', 1, 2)
+  const workerExecArgvAttempts: string[][] = []
+
+  class Worker {
+    constructor(
+      _filename: string,
+      options: {
+        execArgv?: string[]
+      },
+    ) {
+      const execArgv = options.execArgv ?? []
+      workerExecArgvAttempts.push(execArgv)
+      if (execArgv.includes('--title=test-worker')) {
+        const error = new Error('invalid worker arguments') as Error & {
+          code: string
+        }
+        error.code = 'ERR_WORKER_INVALID_EXEC_ARGV'
+        throw error
+      }
+    }
+
+    unref() {}
+  }
+
+  const mockRequire = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('/test.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case 'node:worker_threads':
+        return { Worker }
+      case '@napi-rs/wasm-runtime':
+        return {
+          createOnMessage: () => () => {},
+          instantiateNapiModuleSync(
+            _wasm: Uint8Array,
+            options: { onCreateWorker(): Worker },
+          ) {
+            options.onCreateWorker()
+            return {
+              instance: {},
+              module: {},
+              napiModule: { exports: {} },
+            }
+          },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({ destroy() {} }),
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+  const processMock = {
+    cwd: () => '/',
+    env: {},
+    execArgv: ['--title=test-worker', '--require', './hook.cjs'],
+    once() {},
+    rawListeners() {
+      return []
+    },
+    removeListener() {},
+  }
+
+  new Function('require', 'process', '__dirname', code)(
+    mockRequire,
+    processMock,
+    '/fixture',
+  )
+
+  t.deepEqual(workerExecArgvAttempts, [
+    ['--title=test-worker', '--require', './hook.cjs'],
+    [],
+  ])
+})
+
 test('standalone WASI node binding separates local and packaged artifact names', (t) => {
   const node = createWasiBinding(
     'test-wasi',
@@ -506,6 +703,164 @@ process.stdout.write('rollback-ok\\n')
     },
   )
 }
+
+test.serial(
+  'deferred WASI Buffer injection failures roll back contexts',
+  async (t) => {
+    const src = createWasiDeferredBrowserBinding(
+      'custom_async_runtime',
+      1,
+      2,
+      true,
+    )
+    const tmpDir = await mkdtemp(
+      join(
+        fileURLToPath(new URL('.', import.meta.url)),
+        '.tmp-buffer-rollback-',
+      ),
+    )
+    const initialBeforeExitListeners = new Set(
+      process.rawListeners('beforeExit'),
+    )
+    const initialExitListeners = new Set(process.rawListeners('exit'))
+    const state = {
+      cleanupError: undefined as Error | undefined,
+      contexts: 0,
+      destroyAttempts: [] as number[],
+      destroyed: [] as number[],
+      injectionError: new Error('Buffer injection failed'),
+      instantiations: 0,
+    }
+    ;(globalThis as any).__napiDeferredBufferState = state
+
+    try {
+      const runtimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(runtimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(runtimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(runtimeDir, 'index.js'),
+        `export class WASI {}
+export async function instantiateNapiModule() {
+  globalThis.__napiDeferredBufferState.instantiations += 1
+  return { napiModule: { exports: {} } }
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `export function createContext(options) {
+  if (options?.autoDestroy !== false) {
+    throw new Error('deferred loader must disable emnapi auto-destroy')
+  }
+  const state = globalThis.__napiDeferredBufferState
+  const id = ++state.contexts
+  process.once('beforeExit', () => {})
+  const feature = {}
+  Object.defineProperty(feature, 'Buffer', {
+    set() {
+      throw state.injectionError
+    },
+  })
+  return {
+    feature,
+    destroy() {
+      state.destroyAttempts.push(id)
+      if (state.cleanupError) {
+        throw state.cleanupError
+      }
+      state.destroyed.push(id)
+    },
+  }
+}
+`,
+      )
+
+      const loaderPath = join(tmpDir, 'deferred.mjs')
+      await writeFile(loaderPath, src)
+      const { createInstance } = await import(pathToFileURL(loaderPath).href)
+      const module = new WebAssembly.Module(
+        new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+      )
+      const getOwnedExitListeners = () =>
+        process
+          .rawListeners('exit')
+          .filter((listener) => !initialExitListeners.has(listener))
+      const countOwnedBeforeExitListeners = () =>
+        process
+          .rawListeners('beforeExit')
+          .filter((listener) => !initialBeforeExitListeners.has(listener))
+          .length
+
+      t.is(
+        await t.throwsAsync(() => createInstance(module)),
+        state.injectionError,
+      )
+      t.deepEqual(state.destroyAttempts, [1])
+      t.deepEqual(state.destroyed, [1])
+      t.is(state.instantiations, 0)
+      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(getOwnedExitListeners().length, 0)
+
+      const cleanupError = new Error('Buffer rollback failed')
+      state.cleanupError = cleanupError
+      const failedRollback = await t.throwsAsync(() => createInstance(module))
+      t.is(failedRollback, state.injectionError)
+      t.is(failedRollback.cause, cleanupError)
+      t.deepEqual(state.destroyAttempts, [1, 2])
+      t.deepEqual(state.destroyed, [1])
+      t.is(state.instantiations, 0)
+      t.is(countOwnedBeforeExitListeners(), 0)
+      const retainedExitListeners = getOwnedExitListeners()
+      t.is(retainedExitListeners.length, 1)
+
+      state.cleanupError = undefined
+      retainedExitListeners[0]()
+      t.deepEqual(state.destroyAttempts, [1, 2, 2])
+      t.deepEqual(state.destroyed, [1, 2])
+      t.is(getOwnedExitListeners().length, 0)
+    } finally {
+      for (const listener of process.rawListeners('beforeExit')) {
+        if (!initialBeforeExitListeners.has(listener)) {
+          process.removeListener('beforeExit', listener)
+        }
+      }
+      for (const listener of process.rawListeners('exit')) {
+        if (!initialExitListeners.has(listener)) {
+          process.removeListener('exit', listener)
+        }
+      }
+      delete (globalThis as any).__napiDeferredBufferState
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
 
 test('deferred single-thread WASI binding exposes typed lifecycle APIs', (t) => {
   const typeDef = createWasiDeferredBrowserBindingTypeDef(
@@ -1214,7 +1569,13 @@ export async function instantiateNapiModule(module, options) {
   state.contextOptions.push(options)
   // @emnapi/runtime 1.11.x ignores autoDestroy and installs this anonymous
   // listener. The generated loader must replace it with owned cleanup.
-  process.once('beforeExit', () => {})
+  if (
+    typeof process === 'object' &&
+    process !== null &&
+    typeof process.once === 'function'
+  ) {
+    process.once('beforeExit', () => {})
+  }
   if (state.contextError) {
     throw state.contextError
   }
@@ -1335,24 +1696,38 @@ export async function instantiateNapiModule(module, options) {
       t.deepEqual(state.destroyAttempts.slice(-3), [3, 3, 4])
       t.is(countOwnedExitListeners(), 0)
 
-      const replacement = await instantiate(moduleB)
-      t.is(replacement.id, 5)
-      t.is(countOwnedExitListeners(), 1)
-      state.cleanupError = cleanupError
-      const failedDispose = dispose()
-      const overlappingFailedDispose = instantiate(moduleA)
-      const failedDisposeError = t.throwsAsync(failedDispose)
-      const overlappingDisposeError = t.throwsAsync(overlappingFailedDispose)
-      t.is(await failedDisposeError, cleanupError)
-      t.is(await overlappingDisposeError, cleanupError)
-      t.is(countOwnedExitListeners(), 1)
-      state.cleanupError = undefined
-      runOwnedExitCleanup()
+      const hostProcess = globalThis.process
+      let replacement!: { id: number }
+      ;(globalThis as any).process = undefined
+      try {
+        replacement = await instantiate(moduleB)
+        t.is(replacement.id, 5)
+        state.cleanupError = cleanupError
+        const failedDispose = dispose()
+        const concurrentFailedDispose = dispose()
+        const overlappingFailedDispose = instantiate(moduleA)
+        t.is(await t.throwsAsync(failedDispose), cleanupError)
+        t.is(await t.throwsAsync(concurrentFailedDispose), cleanupError)
+        t.is(await t.throwsAsync(overlappingFailedDispose), cleanupError)
+        t.deepEqual(state.destroyAttempts.slice(-1), [5])
+
+        // A processless host has no terminal exit hook. Failed cleanup must
+        // retain singleton ownership so dispose() can retry it.
+        t.is(await instantiate(moduleB), replacement)
+        t.is(state.instances, 5)
+        await t.throwsAsync(() => instantiate(moduleA), {
+          message: /already owns a different WebAssembly\.Module/,
+        })
+
+        state.cleanupError = undefined
+        await Promise.all([dispose(), dispose()])
+        t.deepEqual(state.destroyAttempts.slice(-2), [5, 5])
+        t.deepEqual(state.destroyed, [1, 2, 3, 4, 5])
+      } finally {
+        ;(globalThis as any).process = hostProcess
+      }
       t.is(countOwnedExitListeners(), 0)
 
-      // Failed cleanup may leave the old context partially stopped. It is
-      // terminal for the singleton exports, but terminal cleanup retains a
-      // retry until the old context is actually destroyed.
       const afterFailedDispose = await instantiate(moduleA)
       t.is(afterFailedDispose.id, 6)
       t.not(afterFailedDispose, replacement)
@@ -1694,6 +2069,24 @@ test('createWasiBrowserBinding does not collide with an exported fetch binding',
   t.false(code.includes('await fetch(__wasmUrl)'))
   t.true(code.includes('const __AggregateError = globalThis.AggregateError'))
   t.false(code.includes('typeof AggregateError'))
+})
+
+test('browser WASI worker errors use the available global event realm', (t) => {
+  const code = createWasiBrowserBinding(
+    'test',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    true,
+  )
+
+  t.false(code.includes('window.dispatchEvent'))
+  t.false(code.includes('new CustomEvent('))
+  t.true(code.includes('const __CustomEvent = globalThis.CustomEvent'))
+  t.true(code.includes("typeof globalThis.dispatchEvent === 'function'"))
+  t.true(code.includes('globalThis.dispatchEvent('))
 })
 
 test('WASI main loaders create an isolated context', (t) => {
