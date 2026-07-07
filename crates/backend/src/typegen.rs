@@ -13,6 +13,8 @@ mod r#type;
 
 use syn::{PathSegment, Type, TypePath, TypeSlice};
 
+const BUFFER_TYPE_IMPORT_MARKER: &str = "__NAPI_RS_TYPE_IMPORT_BUFFER__";
+
 #[derive(Default, Debug)]
 pub struct TypeDef {
   pub kind: String,
@@ -226,6 +228,12 @@ impl Display for JSDoc {
 
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    let uses_buffer_type = self.def.contains(BUFFER_TYPE_IMPORT_MARKER);
+    let def = if uses_buffer_type {
+      self.def.replace(BUFFER_TYPE_IMPORT_MARKER, "Buffer")
+    } else {
+      self.def.clone()
+    };
     let js_mod = if let Some(js_mod) = &self.js_mod {
       format!(", \"js_mod\": \"{}\"", escape_json(js_mod))
     } else {
@@ -236,16 +244,22 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
+    let type_imports = if uses_buffer_type {
+      r#", "type_imports": [{"name": "Buffer", "module": "buffer"}]"#
+    } else {
+      ""
+    };
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
-      escape_json(&self.def),
+      escape_json(&def),
       original_name,
       js_mod,
+      type_imports,
     )
   }
 }
@@ -319,9 +333,9 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
 
     // Buffer types
     map.extend([
-      ("JsBuffer", ("Buffer", false, false)),
-      ("BufferSlice", ("Buffer", false, false)),
-      ("Buffer", ("Buffer", false, false)),
+      ("JsBuffer", (BUFFER_TYPE_IMPORT_MARKER, false, false)),
+      ("BufferSlice", (BUFFER_TYPE_IMPORT_MARKER, false, false)),
+      ("Buffer", (BUFFER_TYPE_IMPORT_MARKER, false, false)),
     ]);
 
     // Error and Result types (note: Result is a union type)

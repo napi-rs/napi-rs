@@ -9,6 +9,7 @@ import * as colors from 'colorette'
 
 import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
+  appendTypeImports,
   CLI_VERSION,
   copyFileAsync,
   type Crate,
@@ -25,6 +26,7 @@ import {
   readFileAsync,
   readNapiConfig,
   type Target,
+  type TypeImport,
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
@@ -551,6 +553,7 @@ class Builder {
   private readonly outputDir: string
   private readonly targetDir: string
   private readonly enableTypeDef: boolean = false
+  private typeImports: TypeImport[] = []
 
   constructor(
     private readonly metadata: CargoWorkspaceMetadata,
@@ -1330,7 +1333,7 @@ class Builder {
       return []
     }
 
-    const { exports, dts } = await generateTypeDef({
+    const { exports, dts, typeImports } = await generateTypeDef({
       typeDefDir,
       noDtsHeader: this.options.noDtsHeader,
       dtsHeader: this.options.dtsHeader,
@@ -1341,6 +1344,7 @@ class Builder {
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
     })
+    this.typeImports = typeImports
 
     const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
 
@@ -1538,7 +1542,11 @@ class Builder {
 declare const binding: Record<string, unknown>
 export = binding
 `
-    await writeFileAsync(bindingTypeDefPath, bindingTypeDef, 'utf8')
+    const targetBindingTypeDef =
+      !hasThreads && this.config.wasm?.browser?.buffer === true
+        ? appendTypeImports(bindingTypeDef, this.typeImports)
+        : bindingTypeDef
+    await writeFileAsync(bindingTypeDefPath, targetBindingTypeDef, 'utf8')
     const outputs: Output[] = [
       { kind: 'js', path: bindingPath },
       { kind: 'js', path: browserBindingPath },
@@ -1701,9 +1709,9 @@ export interface GenerateTypeDefOptions {
  */
 export async function generateTypeDef(
   options: GenerateTypeDefOptions,
-): Promise<{ exports: string[]; dts: string }> {
+): Promise<{ exports: string[]; dts: string; typeImports: TypeImport[] }> {
   if (!(await dirExistsAsync(options.typeDefDir))) {
-    return { exports: [], dts: '' }
+    return { exports: [], dts: '', typeImports: [] }
   }
 
   let header = ''
@@ -1736,7 +1744,7 @@ export async function generateTypeDef(
 
   if (!files.length) {
     debug('No type def files found. Skip generating dts file.')
-    return { exports: [], dts: '' }
+    return { exports: [], dts: '', typeImports: [] }
   }
 
   const typeDefFiles = files
@@ -1760,6 +1768,11 @@ export async function generateTypeDef(
 
   dts = processedTypeDefs.dts
   exports = processedTypeDefs.exports
+  dts = processedTypeDefs.map(({ dts }) => dts).join('')
+  exports = processedTypeDefs.flatMap(({ exports }) => exports)
+  const typeImports = processedTypeDefs.flatMap(
+    ({ typeImports }) => typeImports,
+  )
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `
@@ -1783,5 +1796,6 @@ export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array
   return {
     exports,
     dts,
+    typeImports,
   }
 }

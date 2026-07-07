@@ -50,6 +50,12 @@ interface TypeDefLine {
   asyncIterator?: [yieldType: string, returnType: string, nextType: string]
   js_doc?: string
   js_mod?: string
+  type_imports?: TypeImport[]
+}
+
+export interface TypeImport {
+  name: string
+  module: string
 }
 
 function parseTypeParameters(
@@ -287,6 +293,15 @@ export async function processTypeDefs(
   const groupedTypeDefs = await Promise.all(
     intermediateTypeFiles.map(async (file) =>
       preprocessTypeDef(await readIntermediateTypeFile(file)),
+  const defs = await readIntermediateTypeFile(intermediateTypeFile)
+  const typeImports = collectTypeImports(defs)
+  const groupedDefs = preprocessTypeDef(defs)
+  const hasIteratorClass = Array.from(groupedDefs.values()).some((defs) =>
+    defs.some(
+      (def) =>
+        def.kind === TypeDefKind.Struct &&
+        def.extends !== undefined &&
+        parseIteratorExtends(def.extends) !== undefined,
     ),
   )
   const topLevelExportNames = new Set<string>()
@@ -413,7 +428,76 @@ export async function processTypeDefs(
   return {
     dts,
     exports,
+    typeImports,
   }
+}
+
+function collectTypeImports(defs: TypeDefLine[]): TypeImport[] {
+  const imports = new Map<string, TypeImport>()
+  for (const typeImport of defs.flatMap((def) => def.type_imports ?? [])) {
+    imports.set(`${typeImport.module}\0${typeImport.name}`, typeImport)
+  }
+  return [...imports.values()].sort(
+    (a, b) => a.module.localeCompare(b.module) || a.name.localeCompare(b.name),
+  )
+}
+
+export function appendTypeImports(
+  source: string,
+  typeImports: TypeImport[],
+): string {
+  const missingImports = typeImports.filter(
+    (typeImport) => !hasNamedImport(source, typeImport),
+  )
+  if (missingImports.length === 0) {
+    return source
+  }
+
+  const importsByModule = new Map<string, string[]>()
+  for (const { module, name } of missingImports) {
+    const names = importsByModule.get(module) ?? []
+    names.push(name)
+    importsByModule.set(module, names)
+  }
+  const importSource = [...importsByModule]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([module, names]) =>
+        `import type { ${[...new Set(names)].sort().join(', ')} } from '${module}'`,
+    )
+    .join('\n')
+  let insertionOffset = 0
+  const importPattern =
+    /^import\s+(?:type\s+)?[\s\S]*?\s+from\s+['"][^'"\n]+['"][ \t]*;?/gm
+  for (const match of source.matchAll(importPattern)) {
+    insertionOffset = match.index + match[0].length
+  }
+  if (insertionOffset === 0) {
+    insertionOffset =
+      source.match(
+        /^(?:(?:[ \t]*\/\*[\s\S]*?\*\/|[ \t]*\/\/[^\n]*)(?:\r?\n|$)|[ \t]*\r?\n)*/,
+      )?.[0].length ?? 0
+  }
+
+  const before = source.slice(0, insertionOffset).trimEnd()
+  const after = source.slice(insertionOffset).trim()
+  return `${before}${before ? '\n' : ''}${importSource}${after ? `\n\n${after}` : ''}\n`
+}
+
+function hasNamedImport(source: string, typeImport: TypeImport): boolean {
+  const escapedModule = typeImport.module.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const importPattern = new RegExp(
+    `import\\s+(?:type\\s+)?\\{([^}]*)\\}\\s+from\\s+['"]${escapedModule}['"]`,
+    'g',
+  )
+
+  return [...source.matchAll(importPattern)].some((match) =>
+    match[1].split(',').some((specifier) => {
+      const importedName = specifier.trim().replace(/^type\s+/, '')
+      const [, localName = importedName] = importedName.split(/\s+as\s+/)
+      return localName === typeImport.name
+    }),
+  )
 }
 
 async function readIntermediateTypeFile(file: string) {
