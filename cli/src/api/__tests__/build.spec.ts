@@ -574,6 +574,65 @@ test('napiCrossToolchainEnvs derives clang flags from the effective sysroot', (t
   )
 })
 
+test('napiCrossToolchainEnvs sets a bare toolchain PATH when the env has none', (t) => {
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    {},
+  )
+
+  // No `:undefined` tail when the provided env has no PATH at all.
+  t.is(envs.PATH, `${napiCrossToolchainPath}/bin`)
+})
+
+test('napiCrossToolchainEnvs recognizes path-qualified, prefixed and versioned clang', (t) => {
+  const clangFlags = `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} `
+
+  for (const [cc, cxx] of [
+    ['/usr/bin/clang', '/opt/llvm/bin/clang++'],
+    ['aarch64-linux-gnu-clang', 'aarch64-linux-gnu-clang++'],
+    ['clang-18', 'clang++-18'],
+  ]) {
+    const envs = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      'aarch64-unknown-linux-gnu',
+      { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+    )
+
+    t.is(envs.TARGET_CFLAGS, clangFlags, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, clangFlags, `TARGET_CXX=${cxx}`)
+  }
+
+  // The CC/CXX fallback (used when TARGET_CC/TARGET_CXX are unset) applies
+  // the same detection.
+  const fallbackEnvs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', CC: '/usr/bin/clang', CXX: '/opt/llvm/bin/clang++' },
+  )
+  t.is(fallbackEnvs.TARGET_CFLAGS, clangFlags)
+  t.is(fallbackEnvs.TARGET_CXXFLAGS, clangFlags)
+})
+
+test('napiCrossToolchainEnvs does not mistake non-clang tools for clang', (t) => {
+  for (const [cc, cxx] of [
+    ['gcc', 'g++'],
+    ['x86_64-unknown-linux-gnu-gcc', 'x86_64-unknown-linux-gnu-g++'],
+    // `clang-format` is a clang-family tool but not a compiler.
+    ['clang-format', 'clang-format'],
+    ['someclangthing', 'someclangthing'],
+  ]) {
+    const envs = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      'aarch64-unknown-linux-gnu',
+      { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+    )
+
+    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+  }
+})
+
 test('buildProject rejects invalid cross flag combinations upfront', async (t) => {
   const { projectDir } = t.context
 

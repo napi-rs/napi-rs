@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { parse, join, resolve } from 'node:path'
+import { basename, parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -313,21 +313,25 @@ export function napiCrossToolchainEnvs(
   const targetSysroot = env.TARGET_SYSROOT || envs.TARGET_SYSROOT
   setEnvIfNotExists('BINDGEN_EXTRA_CLANG_ARGS', `--sysroot=${targetSysroot}`)
 
-  if (
-    env.TARGET_CC?.startsWith('clang') ||
-    (env.CC?.startsWith('clang') && !env.TARGET_CC)
-  ) {
+  // Match on the executable name so path-qualified (`/usr/bin/clang`),
+  // triple-prefixed (`aarch64-linux-gnu-clang`) and versioned (`clang-18`)
+  // compilers are all recognized — but not clang-family tools that are not
+  // compilers (`clang-format`).
+  const isClangCompiler = (compiler: string | undefined): boolean =>
+    compiler !== undefined &&
+    /(^|-)clang(\+\+)?(-\d+)?$/.test(basename(compiler))
+
+  if (isClangCompiler(env.TARGET_CC || env.CC)) {
     const TARGET_CFLAGS = env.TARGET_CFLAGS || ''
     envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
   }
-  if (
-    (env.CXX?.startsWith('clang++') && !env.TARGET_CXX) ||
-    env.TARGET_CXX?.startsWith('clang++')
-  ) {
+  if (isClangCompiler(env.TARGET_CXX || env.CXX)) {
     const TARGET_CXXFLAGS = env.TARGET_CXXFLAGS || ''
     envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
   }
-  envs.PATH = `${toolchainPath}/bin:${env.PATH}`
+  envs.PATH = env.PATH
+    ? `${toolchainPath}/bin:${env.PATH}`
+    : `${toolchainPath}/bin`
   return envs
 }
 
@@ -457,7 +461,7 @@ class Builder {
       )
     } catch (e) {
       throw new Error(
-        `Failed to set up the \`--use-napi-cross\` toolchain for ${this.target.triple}: ${(e as Error).message}. Please check the network connection to the npm registry and retry, or use \`--cross-compile\` (\`-x\`) / \`--use-cross\` instead.`,
+        `Failed to set up the \`--use-napi-cross\` toolchain for ${this.target.triple}: ${(e as Error).message}. Check filesystem permissions and network connectivity to the npm registry, then retry, or use \`--cross-compile\` (\`-x\`) / \`--use-cross\` instead.`,
         { cause: e },
       )
     }
