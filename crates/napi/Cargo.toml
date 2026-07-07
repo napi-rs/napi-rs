@@ -47,6 +47,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 independent = true
 
 [features]
+# Integration-test-only fault injection used by examples/napi.
+__internal_test_runtime_cleanup_hook_failure = []
 async = ["tokio_rt"]
 async-runtime = ["napi4"]
 chrono_date = ["chrono", "napi5"]

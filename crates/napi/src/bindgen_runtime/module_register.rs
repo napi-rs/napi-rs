@@ -252,6 +252,48 @@ fn rollback_unowned_runtime_preserving_registration_error(mut error: crate::Erro
   error
 }
 
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+#[cfg(all(
+  feature = "__internal_test_runtime_cleanup_hook_failure",
+  not(target_family = "wasm")
+))]
+static RUNTIME_CLEANUP_HOOK_FAILURE_INJECTED: std::sync::atomic::AtomicBool =
+  std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+unsafe fn add_runtime_env_cleanup_hook(
+  env: sys::napi_env,
+  cleanup_data: *mut std::ffi::c_void,
+) -> sys::napi_status {
+  #[cfg(all(
+    feature = "__internal_test_runtime_cleanup_hook_failure",
+    not(target_family = "wasm")
+  ))]
+  // This feature is enabled only by the module-init rollback integration fixture.
+  if std::env::var_os("NAPI_MODULE_INIT_ROLLBACK_FAIL_RUNTIME_CLEANUP_HOOK").is_some()
+    && !RUNTIME_CLEANUP_HOOK_FAILURE_INJECTED.swap(true, std::sync::atomic::Ordering::AcqRel)
+  {
+    return sys::Status::napi_generic_failure;
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  {
+    unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data) }
+  }
+  #[cfg(target_family = "wasm")]
+  {
+    unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data) }
+  }
+}
+
 // Per-env custom-GC infrastructure (#3357). Module registration first installs a provisional
 // handle so values captured by module-init callbacks can route off-thread drops without creating
 // a native callback that could outlive a failed load. After exports succeed, the handle becomes
@@ -700,12 +742,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       #[cfg(feature = "async-runtime")]
       async_runtime_env_reserved: AtomicBool::new(false),
     }));
-    #[cfg(not(target_family = "wasm"))]
-    let status =
-      unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
-    #[cfg(target_family = "wasm")]
-    let status =
-      unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
+    let status = unsafe { add_runtime_env_cleanup_hook(env, cleanup_data.cast()) };
     if status != sys::Status::napi_ok {
       drop(unsafe { Box::from_raw(cleanup_data) });
       let error = crate::Error::new(
