@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
+import type { ExecutionContext } from 'ava'
 
 import {
   Fib,
@@ -30,13 +31,22 @@ async function waitFor(
   predicate: () => boolean,
   message: string,
 ): Promise<void> {
-  const deadline = Date.now() + 5_000
+  const deadline = Date.now() + (process.arch === 'arm' ? 30_000 : 5_000)
   while (!predicate()) {
     if (Date.now() >= deadline) {
       throw new Error(message)
     }
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
+}
+
+function releaseAdmissionProbeOnFailure(
+  t: ExecutionContext,
+  probe: AsyncIteratorAdmissionProbe,
+): void {
+  t.teardown(() => {
+    probe.release(16)
+  })
 }
 
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
@@ -590,6 +600,7 @@ test('async generator queues a reentrant next request and remains usable', async
 
 test('async generator admits concurrent next hooks in FIFO order', async (t) => {
   const probe = new AsyncIteratorAdmissionProbe(['value', 'value', 'value'])
+  releaseAdmissionProbeOnFailure(t, probe)
   const iterator = probe[Symbol.asyncIterator]()
   const requests = [iterator.next(), iterator.next(), iterator.next()]
 
@@ -620,6 +631,7 @@ test('async generator admits concurrent next hooks in FIFO order', async (t) => 
 
 test('async generator admits return only after a pending next settles', async (t) => {
   const probe = new AsyncIteratorAdmissionProbe(['value'])
+  releaseAdmissionProbeOnFailure(t, probe)
   const iterator = probe[Symbol.asyncIterator]()
   const next = iterator.next()
   const returned = iterator.return!('stop')
@@ -642,6 +654,7 @@ test('async generator admits return only after a pending next settles', async (t
 
 test('async generator admits throw only after a pending next settles', async (t) => {
   const probe = new AsyncIteratorAdmissionProbe(['value'])
+  releaseAdmissionProbeOnFailure(t, probe)
   const iterator = probe[Symbol.asyncIterator]()
   const thrown = new Error('admitted throw')
   const next = iterator.next()
@@ -856,6 +869,7 @@ test('async generator hands off after a queued setup failure', async (t) => {
     'setup-panic',
     'value',
   ])
+  releaseAdmissionProbeOnFailure(t, probe)
   const iterator = probe[Symbol.asyncIterator]()
   const first = iterator.next()
   const failing = iterator.next()
@@ -876,6 +890,7 @@ test('async generator hands off after a queued setup failure', async (t) => {
 
 test('async generator hands off after a queued argument conversion failure', async (t) => {
   const probe = new AsyncIteratorAdmissionProbe(['value', 'value', 'value'])
+  releaseAdmissionProbeOnFailure(t, probe)
   const iterator = probe[Symbol.asyncIterator]()
   const first = iterator.next()
   const failing = iterator.next(Symbol('invalid') as never)
@@ -906,6 +921,7 @@ for (const outcome of ['error', 'panic'] as const) {
       return
     }
     const probe = new AsyncIteratorAdmissionProbe(['value', outcome, 'value'])
+    releaseAdmissionProbeOnFailure(t, probe)
     const iterator = probe[Symbol.asyncIterator]()
     const first = iterator.next()
     const failing = iterator.next()
