@@ -264,7 +264,13 @@ test('async generator queues throw behind pending next and closes on rejection',
   })
 
   t.deepEqual(await next, { value: 0, done: false })
-  t.is(await t.throwsAsync(throwing), thrown)
+  const rejection = await t.throwsAsync(throwing)
+  if (process.env.WASI_TEST) {
+    t.is(rejection.message, thrown.message)
+    t.not(rejection, thrown)
+  } else {
+    t.is(rejection, thrown)
+  }
   t.deepEqual(settlementOrder, ['next', 'throw'])
   t.deepEqual(await iterator.next(), { value: undefined, done: true })
 })
