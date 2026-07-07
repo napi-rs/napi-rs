@@ -602,16 +602,71 @@ test('napiCrossToolchainEnvs recognizes path-qualified, prefixed and versioned c
     t.is(envs.TARGET_CFLAGS, clangFlags, `TARGET_CC=${cc}`)
     t.is(envs.TARGET_CXXFLAGS, clangFlags, `TARGET_CXX=${cxx}`)
   }
+})
 
-  // The CC/CXX fallback (used when TARGET_CC/TARGET_CXX are unset) applies
-  // the same detection.
-  const fallbackEnvs = napiCrossToolchainEnvs(
+test('napiCrossToolchainEnvs ignores CC/CXX when the toolchain compiler is effective', (t) => {
+  // With TARGET_CC/TARGET_CXX unset, the function itself exports the
+  // toolchain gcc/g++ as TARGET_CC/TARGET_CXX — and cc-rs prefers TARGET_CC
+  // over CC for cross builds, so a clang in CC/CXX never actually runs.
+  // Injecting the clang-only `--gcc-toolchain=` flag here would hard-error
+  // the gcc that does run.
+  const envs = napiCrossToolchainEnvs(
     napiCrossToolchainPath,
     'aarch64-unknown-linux-gnu',
     { PATH: '/usr/bin', CC: '/usr/bin/clang', CXX: '/opt/llvm/bin/clang++' },
   )
-  t.is(fallbackEnvs.TARGET_CFLAGS, clangFlags)
-  t.is(fallbackEnvs.TARGET_CXXFLAGS, clangFlags)
+
+  t.true(envs.TARGET_CC.endsWith('-gcc'))
+  t.true(envs.TARGET_CXX.endsWith('-g++'))
+  t.is(envs.TARGET_CFLAGS, undefined)
+  t.is(envs.TARGET_CXXFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs treats an empty TARGET_CC as unset for clang detection', (t) => {
+  // Falsy semantics: a present-but-empty TARGET_CC still gets the toolchain
+  // gcc written to the build environment, so the CC fallback must not
+  // resurrect clang detection for a compiler that will not run.
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', TARGET_CC: '', CC: '/usr/bin/clang' },
+  )
+
+  t.is(
+    envs.TARGET_CC,
+    join(napiCrossToolchainPath, 'bin', 'aarch64-unknown-linux-gnu-gcc'),
+  )
+  t.is(envs.TARGET_CFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs lets a user TARGET_CC=clang win over CC=gcc', (t) => {
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', TARGET_CC: 'clang', CC: 'gcc' },
+  )
+
+  t.is(
+    envs.TARGET_CFLAGS,
+    `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} `,
+  )
+  // The CXX side is untouched, so it stays on the toolchain g++ without
+  // clang flags — each language is detected independently.
+  t.is(envs.TARGET_CXXFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs injects no flags on either side when only CC=clang is set', (t) => {
+  // Both languages default to the toolchain gcc/g++; neither effective
+  // compiler is clang, so neither flag set is injected.
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', CC: 'clang' },
+  )
+
+  t.true(envs.TARGET_CC.endsWith('-gcc'))
+  t.is(envs.TARGET_CFLAGS, undefined)
+  t.is(envs.TARGET_CXXFLAGS, undefined)
 })
 
 test('napiCrossToolchainEnvs does not mistake non-clang tools for clang', (t) => {

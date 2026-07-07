@@ -321,11 +321,18 @@ export function napiCrossToolchainEnvs(
     compiler !== undefined &&
     /(^|-)clang(\+\+)?(-\d+)?$/.test(basename(compiler))
 
-  if (isClangCompiler(env.TARGET_CC || env.CC)) {
+  // Detect clang on the EFFECTIVE target compiler: the user's TARGET_CC if
+  // set, otherwise the toolchain gcc exported above (`envs.TARGET_CC`).
+  // cc-rs prefers TARGET_CC over CC for cross builds, so a plain `CC=clang`
+  // never runs here and must not trigger the clang-only `--gcc-toolchain=`
+  // flag (gcc hard-errors on it). The trailing `env.CC`/`env.CXX` terms are
+  // unreachable today (exactly one of the first two is always truthy) but
+  // keep the check correct if the toolchain default ever becomes conditional.
+  if (isClangCompiler(env.TARGET_CC || envs.TARGET_CC || env.CC)) {
     const TARGET_CFLAGS = env.TARGET_CFLAGS || ''
     envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
   }
-  if (isClangCompiler(env.TARGET_CXX || env.CXX)) {
+  if (isClangCompiler(env.TARGET_CXX || envs.TARGET_CXX || env.CXX)) {
     const TARGET_CXXFLAGS = env.TARGET_CXXFLAGS || ''
     envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
   }
