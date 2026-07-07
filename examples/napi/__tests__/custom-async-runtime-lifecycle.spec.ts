@@ -7,6 +7,9 @@ import test from 'ava'
 const customRuntimeEntry = fileURLToPath(
   new URL('../../custom-async-runtime/index.cjs', import.meta.url),
 )
+const pureRuntimeDirectory = fileURLToPath(
+  new URL('../../custom-async-runtime/.pure-runtime/', import.meta.url),
+)
 const lifecycleHelper = fileURLToPath(
   new URL('./custom-async-runtime-lifecycle.js', import.meta.url),
 )
@@ -18,11 +21,19 @@ if (!process.env.WASI_TEST) {
       existsSync(customRuntimeEntry),
       `custom async runtime fixture is missing: ${customRuntimeEntry}`,
     )
+    t.true(
+      existsSync(pureRuntimeDirectory),
+      `pure custom async runtime fixture is missing: ${pureRuntimeDirectory}`,
+    )
   })
 }
 
 function runScenario(
-  scenario: 'combined' | 'retained-waker' | 'submission-transitions',
+  scenario:
+    | 'combined'
+    | 'pure-registration-race'
+    | 'retained-waker'
+    | 'submission-transitions',
 ) {
   return spawnSync(process.execPath, [lifecycleHelper, scenario], {
     encoding: 'utf8',
@@ -44,6 +55,19 @@ nativeTest(
     t.is(result.signal, null, output)
     t.is(result.status, 0, output)
     t.regex(result.stdout, /combined runtime lifecycle passed/)
+  },
+)
+
+nativeTest(
+  'pure custom runtime serializes last-environment shutdown with replacement registration',
+  (t) => {
+    const result = runScenario('pure-registration-race')
+    const output = `${result.stdout}\n${result.stderr}`
+
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /pure async-runtime registration race passed/)
   },
 )
 

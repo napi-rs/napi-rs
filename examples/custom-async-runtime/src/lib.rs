@@ -11,17 +11,14 @@ use std::{
 
 #[cfg(not(target_family = "wasm"))]
 use std::{
+  path::Path,
   task::Waker,
-  time::{SystemTime, UNIX_EPOCH},
+  thread,
+  time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-use std::{
-  path::Path,
-  sync::mpsc,
-  thread,
-  time::{Duration, Instant},
-};
+use std::sync::mpsc;
 
 use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
@@ -76,9 +73,9 @@ struct RuntimeState {
   defer_next_task_wake: AtomicBool,
   fail_next_shutdown: AtomicBool,
   panic_next_shutdown: AtomicBool,
-  #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+  #[cfg(not(target_family = "wasm"))]
   start_transition_barrier: Mutex<Option<LifecycleHookBarrier>>,
-  #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+  #[cfg(not(target_family = "wasm"))]
   shutdown_transition_barrier: Mutex<Option<LifecycleHookBarrier>>,
   #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
   shutdown_probe: Mutex<Option<ShutdownProbe>>,
@@ -310,7 +307,7 @@ impl RuntimeState {
     }
   }
 
-  #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+  #[cfg(not(target_family = "wasm"))]
   fn arm_lifecycle_hook_barrier(
     &self,
     hook: LifecycleHook,
@@ -334,7 +331,7 @@ impl RuntimeState {
     Ok(())
   }
 
-  #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+  #[cfg(not(target_family = "wasm"))]
   fn wait_for_lifecycle_hook_barrier(&self, hook: LifecycleHook) -> Result<()> {
     let barrier = lock(match hook {
       LifecycleHook::Start => &self.start_transition_barrier,
@@ -438,14 +435,14 @@ impl RuntimeState {
   }
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 #[derive(Clone, Copy)]
 enum LifecycleHook {
   Start,
   Shutdown,
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 impl LifecycleHook {
   fn parse(value: &str) -> Result<Self> {
     match value {
@@ -459,7 +456,7 @@ impl LifecycleHook {
   }
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 impl std::fmt::Display for LifecycleHook {
   fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     formatter.write_str(match self {
@@ -469,7 +466,7 @@ impl std::fmt::Display for LifecycleHook {
   }
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 struct LifecycleHookBarrier {
   entered_path: String,
   release_path: String,
@@ -760,7 +757,7 @@ unsafe impl AsyncRuntime for TestRuntime {
   }
 
   fn start(&self) -> Result<()> {
-    #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+    #[cfg(not(target_family = "wasm"))]
     self
       .state
       .wait_for_lifecycle_hook_barrier(LifecycleHook::Start)?;
@@ -789,7 +786,7 @@ unsafe impl AsyncRuntime for TestRuntime {
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
     #[cfg(not(target_family = "wasm"))]
     cancellation_order::mark_active_poll_shutdown_entered();
-    #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+    #[cfg(not(target_family = "wasm"))]
     self
       .state
       .wait_for_lifecycle_hook_barrier(LifecycleHook::Shutdown)?;
@@ -924,26 +921,29 @@ struct WrappedExports;
 
 #[napi(module_exports)]
 pub fn preserve_exports_wrap_slot(mut exports: Object) -> Result<()> {
-  #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+  #[cfg(not(target_family = "wasm"))]
   if std::env::var_os("NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST").is_some() {
-    exports.create_named_method(
-      "startTokioRetirementProbe",
-      start_tokio_retirement_probe_c_callback,
-    )?;
-    exports.create_named_method("failNextShutdown", fail_next_shutdown_c_callback)?;
-    exports.create_named_method("panicNextShutdown", panic_next_shutdown_c_callback)?;
-    exports.create_named_method(
-      "startShutdownPanicProbe",
-      start_shutdown_panic_probe_c_callback,
-    )?;
     exports.create_named_method(
       "armSubmissionTransitionBarrier",
       arm_submission_transition_barrier_c_callback,
     )?;
-    exports.create_named_method(
-      "probeSubmissionTransition",
-      probe_submission_transition_c_callback,
-    )?;
+    #[cfg(feature = "tokio-rt")]
+    {
+      exports.create_named_method(
+        "startTokioRetirementProbe",
+        start_tokio_retirement_probe_c_callback,
+      )?;
+      exports.create_named_method("failNextShutdown", fail_next_shutdown_c_callback)?;
+      exports.create_named_method("panicNextShutdown", panic_next_shutdown_c_callback)?;
+      exports.create_named_method(
+        "startShutdownPanicProbe",
+        start_shutdown_panic_probe_c_callback,
+      )?;
+      exports.create_named_method(
+        "probeSubmissionTransition",
+        probe_submission_transition_c_callback,
+      )?;
+    }
   }
   exports.wrap(WrappedExports, None)
 }
@@ -1155,7 +1155,7 @@ pub fn start_shutdown_panic_probe(started_path: String, stopped_path: String) ->
     .start_shutdown_probe(started_path, stopped_path)
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 #[napi(no_export)]
 pub fn arm_submission_transition_barrier(
   hook: String,
@@ -1262,7 +1262,7 @@ pub fn spawn_blocking_value(value: u32) -> Result<u32> {
   )
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 fn wait_for_file(path: &Path) -> bool {
   let deadline = Instant::now() + Duration::from_secs(30);
   while !path.exists() {
@@ -1274,7 +1274,7 @@ fn wait_for_file(path: &Path) -> bool {
   true
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[cfg(not(target_family = "wasm"))]
 fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
   let temporary_path = path.with_extension("tmp");
   std::fs::write(&temporary_path, contents)?;

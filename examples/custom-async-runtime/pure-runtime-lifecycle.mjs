@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { access, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   isMainThread,
@@ -55,6 +56,22 @@ async function assertFileMissing(path, message) {
     (error) => error?.code === 'ENOENT',
     message,
   )
+}
+
+async function waitForFile(path, message) {
+  const deadline = Date.now() + timeoutMilliseconds
+  while (Date.now() < deadline) {
+    try {
+      await access(path)
+      return
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw error
+      }
+    }
+    await delay(10)
+  }
+  throw new Error(message)
 }
 
 export async function findPureRuntimeBinding() {
@@ -237,10 +254,115 @@ export async function runPureRuntimeReloadLifecycle(bindingFile) {
   }
 }
 
+export async function runPureRuntimeRegistrationRace(bindingFile) {
+  assert.ok(
+    isAbsolute(bindingFile),
+    'pure-runtime binding path must be absolute',
+  )
+
+  const directory = await mkdtemp(
+    join(tmpdir(), 'napi-pure-runtime-registration-race-'),
+  )
+  const enteredPath = join(directory, 'shutdown-entered')
+  const replacementAttemptPath = join(directory, 'replacement-attempted')
+  const releasePath = join(directory, 'shutdown-release')
+  const workerEnvironment = {
+    ...process.env,
+    NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST: '1',
+  }
+  let retiringWorker
+  let replacementWorker
+  let retiringTermination
+
+  try {
+    retiringWorker = new Worker(new URL(import.meta.url), {
+      env: workerEnvironment,
+      workerData: {
+        bindingFile,
+        enteredPath,
+        mode: 'arm-shutdown',
+        releasePath,
+      },
+    })
+    const ready = await waitForMessage(retiringWorker)
+    assert.equal(ready.value, 42)
+    assert.equal(ready.metrics.tokioRuntimeEnabled, false)
+
+    retiringTermination = retiringWorker.terminate()
+    await waitForFile(
+      enteredPath,
+      'pure-runtime shutdown did not enter the lifecycle barrier',
+    )
+
+    replacementWorker = new Worker(new URL(import.meta.url), {
+      env: workerEnvironment,
+      workerData: {
+        attemptPath: replacementAttemptPath,
+        bindingFile,
+        mode: 'load',
+      },
+    })
+    let replacementSettled = false
+    const replacement = waitForMessage(replacementWorker).then(
+      (result) => {
+        replacementSettled = true
+        return result
+      },
+      (error) => {
+        replacementSettled = true
+        throw error
+      },
+    )
+
+    await waitForFile(
+      replacementAttemptPath,
+      'replacement worker did not reach module registration',
+    )
+    await delay(100)
+    assert.equal(
+      replacementSettled,
+      false,
+      'replacement registration completed before last-environment shutdown',
+    )
+
+    await writeFile(releasePath, 'release')
+    await retiringTermination
+    retiringTermination = undefined
+    const replacementResult = await replacement
+    assert.equal(replacementResult.value, 42)
+    assert.equal(replacementResult.metrics.tokioRuntimeEnabled, false)
+    assert.equal(replacementResult.metrics.backendDropCalls, 0)
+
+    console.log('pure async-runtime registration race passed')
+  } finally {
+    await writeFile(releasePath, 'release').catch(() => {})
+    await retiringTermination?.catch(() => {})
+    await retiringWorker?.terminate().catch(() => {})
+    await replacementWorker?.terminate().catch(() => {})
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
 async function runWorker() {
   try {
     const require = createRequire(import.meta.url)
+    if (workerData.attemptPath) {
+      await writeFile(workerData.attemptPath, 'attempted')
+    }
     const binding = require(workerData.bindingFile)
+    if (workerData.mode === 'arm-shutdown') {
+      const value = await binding.asyncDouble(21)
+      binding.armSubmissionTransitionBarrier(
+        'shutdown',
+        workerData.enteredPath,
+        workerData.releasePath,
+      )
+      parentPort.postMessage({
+        metrics: binding.getRuntimeMetrics(),
+        value,
+      })
+      return
+    }
     const value = await binding.asyncDouble(21)
     parentPort.postMessage({
       metrics: binding.getRuntimeMetrics(),

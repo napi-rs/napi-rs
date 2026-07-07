@@ -15,6 +15,13 @@ export declare class ExternalObject<T> {
 }
 
 export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
+declare global {
+  interface IteratorObject<T, TReturn = unknown, TNext = unknown>
+    extends Iterator<T, TReturn, TNext> {
+    [Symbol.iterator](): IteratorObject<T, TReturn, TNext>
+  }
+}
+
 export declare class AlignedZst {
   constructor()
   static create(): AlignedZst
@@ -208,12 +215,14 @@ export declare class ClassWithLifetime {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
 export declare class ComplexTypeGenerator {
-  [Symbol.iterator](): Iterator<number[], [string, number], Record<string, number>>
+  constructor()
+  [Symbol.iterator](): this
   next(value?: Record<string, number>): IteratorResult<number[], [string, number]>
   return(value?: [string, number]): IteratorResult<number[], [string, number]>
   throw(exception?: unknown): IteratorResult<number[], [string, number]>
-  constructor()
 }
+
+export interface ComplexTypeGenerator extends IteratorObject<number[], [string, number], Record<string, number>> {}
 
 export declare class Context {
   maybeNeed?: boolean
@@ -297,12 +306,14 @@ export declare class Dog {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
 export declare class Fib {
-  [Symbol.iterator](): Iterator<number, void, number>
+  constructor()
+  [Symbol.iterator](): this
   next(value?: number): IteratorResult<number, void>
   return(value?: void): IteratorResult<number, void>
   throw(exception?: unknown): IteratorResult<number, void>
-  constructor()
 }
+
+export interface Fib extends IteratorObject<number, void, number> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -312,12 +323,14 @@ export declare class Fib {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
 export declare class Fib2 {
-  [Symbol.iterator](): Iterator<number, void, number>
+  static create(seed: number): Fib2
+  [Symbol.iterator](): this
   next(value?: number): IteratorResult<number, void>
   return(value?: void): IteratorResult<number, void>
   throw(exception?: unknown): IteratorResult<number, void>
-  static create(seed: number): Fib2
 }
+
+export interface Fib2 extends IteratorObject<number, void, number> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -330,11 +343,13 @@ export declare class Fib3 {
   current: number
   nextNum: number
   constructor(current: number, nextNum: number)
-  [Symbol.iterator](): Iterator<number, void, number>
+  [Symbol.iterator](): this
   next(value?: number): IteratorResult<number, void>
   return(value?: void): IteratorResult<number, void>
   throw(exception?: unknown): IteratorResult<number, void>
 }
+
+export interface Fib3 extends IteratorObject<number, void, number> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -347,12 +362,14 @@ export declare class Fib4 {
   current: number
   nextItem: number
   constructor(current: number, nextItem: number)
-  [Symbol.iterator](): Iterator<unknown, void, number>
+  toJSON(): Array<number>
+  [Symbol.iterator](): this
   next(value?: number): IteratorResult<unknown, void>
   return(value?: void): IteratorResult<unknown, void>
   throw(exception?: unknown): IteratorResult<unknown, void>
-  toJSON(): Array<number>
 }
+
+export interface Fib4 extends IteratorObject<unknown, void, number> {}
 
 export declare class GetterSetterWithClosures {
   constructor()
@@ -436,12 +453,14 @@ export declare class Reader {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
 export declare class ReentrantGenerator {
-  [Symbol.iterator](): Iterator<number, void, () => void>
+  constructor()
+  [Symbol.iterator](): this
   next(value?: () => void): IteratorResult<number, void>
   return(value?: void): IteratorResult<number, void>
   throw(exception?: unknown): IteratorResult<number, void>
-  constructor()
 }
+
+export interface ReentrantGenerator extends IteratorObject<number, void, () => void> {}
 
 export declare class Selector {
   orderBy: Array<string>

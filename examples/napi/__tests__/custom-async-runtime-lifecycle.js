@@ -8,6 +8,10 @@ const lifecycleModuleUrl = new URL(
   '../../custom-async-runtime/runtime-lifecycle-helper.mjs',
   import.meta.url,
 )
+const pureLifecycleModuleUrl = new URL(
+  '../../custom-async-runtime/pure-runtime-lifecycle.mjs',
+  import.meta.url,
+)
 const { runCombinedRuntimeLifecycle, runSubmissionTransitionLifecycle } =
   await import(lifecycleModuleUrl.href)
 const scenario = process.argv[2] ?? 'combined'
@@ -26,6 +30,12 @@ switch (scenario) {
     process.stderr.write('retained custom-runtime task waker armed\n')
     binding.shutdownRuntime()
     throw new Error('shutdown unexpectedly returned with a retained task waker')
+  }
+  case 'pure-registration-race': {
+    const { findPureRuntimeBinding, runPureRuntimeRegistrationRace } =
+      await import(pureLifecycleModuleUrl.href)
+    await runPureRuntimeRegistrationRace(await findPureRuntimeBinding())
+    break
   }
   default:
     throw new TypeError(

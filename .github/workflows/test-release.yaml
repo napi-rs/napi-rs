@@ -455,6 +455,8 @@ jobs:
           path: |
             examples/custom-async-runtime/index.cjs
             examples/custom-async-runtime/*.node
+            examples/custom-async-runtime/.pure-runtime/*.node
+          include-hidden-files: true
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -527,6 +529,8 @@ jobs:
           path: |
             examples/custom-async-runtime/index.cjs
             examples/custom-async-runtime/*.node
+            examples/custom-async-runtime/.pure-runtime/*.node
+          include-hidden-files: true
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
