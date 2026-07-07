@@ -168,12 +168,18 @@ export const createWasiDeferredBrowserBinding = (
   // 4,000-page default.
   initialMemory = 1024,
   maximumMemory = 65536,
+  buffer = false,
 ) => {
+  const bufferImport = buffer ? `import { Buffer } from 'buffer'` : ''
+  const emnapiInjectBuffer = buffer
+    ? '  __emnapiContext.feature.Buffer = Buffer\n'
+    : ''
   return `import {
   instantiateNapiModule as __emnapiInstantiateNapiModule,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
+${bufferImport}
 
 /**
  * Deferred, workerd-safe instantiation: no top-level I/O, no compile-from-bytes.
@@ -389,6 +395,7 @@ function __createManagedEmnapiContext() {
     __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
     throw error
   }
+${emnapiInjectBuffer}\
   // emnapi <= 1.11 ignores autoDestroy and installs an anonymous listener.
   // Remove only listeners added synchronously by this context construction;
   // newer runtimes add none when autoDestroy is false.

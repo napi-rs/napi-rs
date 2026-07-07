@@ -1577,6 +1577,7 @@ export = binding
           name,
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
+          this.config.wasm?.browser?.buffer,
         ),
         'utf8',
       )

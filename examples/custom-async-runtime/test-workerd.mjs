@@ -276,9 +276,11 @@ try {
   // return value + 1.
   assert.deepEqual(body.results, [42, 200, 8])
   assert.equal(body.blockOn, 6)
+  assert.deepEqual(body.buffer, [0, 1, 255])
   assert.equal(body.rejected, true)
   // 4 async tasks were spawned: 2x asyncDouble, 1x spawnFuture, 1x asyncError.
   assert.ok(body.spawnCalls >= 4, `spawnCalls: ${body.spawnCalls}`)
+  assert.equal(body.hasGlobalBuffer, false)
   assert.equal(body.hasNodeProcess, false)
   console.log('workerd single-thread async runtime OK')
 } finally {

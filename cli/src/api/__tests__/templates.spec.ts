@@ -239,6 +239,12 @@ test('WASI node binding preserves package resolution failures', (t) => {
 
 test('deferred single-thread WASI binding is workerd-safe', (t) => {
   const src = createWasiDeferredBrowserBinding('custom_async_runtime')
+  const bufferedSrc = createWasiDeferredBrowserBinding(
+    'custom_async_runtime',
+    1024,
+    65536,
+    true,
+  )
   // workerd bans: I/O in global scope, compile-from-bytes
   t.false(src.includes('await fetch'))
   t.false(src.includes('arrayBuffer'))
@@ -261,6 +267,10 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
   t.true(src.includes('__managedEmnapiContextDestroyers'))
   t.true(src.includes("__process.once('exit', __destroyManagedEmnapiContexts)"))
+  t.false(src.includes("import { Buffer } from 'buffer'"))
+  t.false(src.includes('__emnapiContext.feature.Buffer = Buffer'))
+  t.true(bufferedSrc.includes("import { Buffer } from 'buffer'"))
+  t.true(bufferedSrc.includes('__emnapiContext.feature.Buffer = Buffer'))
   t.false(
     src.includes(
       "__process.once('beforeExit', __destroyManagedEmnapiContexts)",

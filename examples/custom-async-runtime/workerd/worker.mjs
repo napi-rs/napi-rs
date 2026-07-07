@@ -35,8 +35,10 @@ export default {
         isWasm: api.isWasm(),
         results: [a, b, c],
         blockOn: api.blockOnValue(5),
+        buffer: Array.from(api.testBuffer()),
         rejected,
         spawnCalls: metrics.spawnCalls,
+        hasGlobalBuffer: typeof globalThis.Buffer !== 'undefined',
         hasNodeProcess: typeof process !== 'undefined',
       })
     } catch (e) {

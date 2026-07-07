@@ -27,6 +27,12 @@ use napi::bindgen_prelude::{
   try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
   AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Env, Error, FnArgs, JsObjectValue,
   JsValue, Object, PromiseRaw, Result, Status, Unknown,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, FnArgs, JsObjectValue, JsValue, Object,
+  PromiseRaw, Result, Status, Unknown,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, JsValue, Object, PromiseRaw,
+  Result, Status, Unknown,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Buffer, Env, Error, JsObjectValue, Object, PromiseRaw,
+  Result, Status,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
@@ -1360,6 +1366,11 @@ pub async fn async_panic_string(value: u32) {
 #[napi]
 pub async fn async_never() {
   std::future::pending::<()>().await;
+}
+
+#[napi]
+pub fn test_buffer() -> Buffer {
+  Buffer::from(vec![0, 1, 255])
 }
 
 #[napi(async_iterator)]
