@@ -716,6 +716,45 @@ test('napiCrossToolchainEnvs detects clang behind cc-rs wrapper and argument for
   }
 })
 
+test('napiCrossToolchainEnvs matches clang in space-containing compiler paths', (t) => {
+  const clangFlags = `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} `
+
+  // cc-rs's `env_tool` treats the WHOLE env value as an executable path
+  // before any whitespace splitting, so `TARGET_CC="/opt/LLVM 18/bin/clang"`
+  // runs clang — splitting it into `/opt/LLVM` + `18/bin/clang` would miss
+  // the clang detection entirely.
+  for (const [cc, cxx] of [
+    ['/opt/LLVM 18/bin/clang', '/opt/LLVM 18/bin/clang++'],
+    ['/opt/LLVM 18/bin/clang-17', '/opt/LLVM 18/bin/clang++-17'],
+  ]) {
+    const envs = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      'aarch64-unknown-linux-gnu',
+      { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+    )
+
+    t.is(envs.TARGET_CFLAGS, clangFlags, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, clangFlags, `TARGET_CXX=${cxx}`)
+  }
+})
+
+test('napiCrossToolchainEnvs does not mistake space-containing non-clang paths for clang', (t) => {
+  for (const [cc, cxx] of [
+    ['/opt/app dir/bin/gcc', '/opt/app dir/bin/g++'],
+    // A clang-family tool that is not a compiler, in a space-containing path.
+    ['/opt/LLVM 18/bin/clang-format', '/opt/LLVM 18/bin/clang-format'],
+  ]) {
+    const envs = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      'aarch64-unknown-linux-gnu',
+      { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+    )
+
+    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+  }
+})
+
 test('napiCrossToolchainEnvs does not mistake wrapped or argument-form non-clang for clang', (t) => {
   for (const [cc, cxx] of [
     ['sccache gcc', 'sccache g++'],

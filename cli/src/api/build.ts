@@ -314,14 +314,21 @@ export function napiCrossToolchainEnvs(
   setEnvIfNotExists('BINDGEN_EXTRA_CLANG_ARGS', `--sysroot=${targetSysroot}`)
 
   // cc-rs parses the env value before executing it (`env_tool` in cc's
-  // lib.rs): the value is split on whitespace; when the first token is a
-  // known wrapper (`sccache clang`) the second token is the compiler that
-  // actually runs, otherwise the first token is and the rest are arguments
-  // (`clang -target …`). Extract that compiler token the same way, then
-  // match on its executable name so path-qualified (`/usr/bin/clang`),
-  // triple-prefixed (`aarch64-linux-gnu-clang`) and versioned (`clang-18`)
-  // compilers are all recognized — but not clang-family tools that are not
-  // compilers (`clang-format`).
+  // lib.rs): the WHOLE value is first tried as an executable path on the
+  // filesystem — that is how it supports spaces in paths like
+  // `/opt/LLVM 18/bin/clang` — and only when that fails is the value split
+  // on whitespace; then, when the first token is a known wrapper
+  // (`sccache clang`) the second token is the compiler that actually runs,
+  // otherwise the first token is and the rest are arguments
+  // (`clang -target …`). Mirror that ordering without touching the
+  // filesystem: when the value contains a path separator, match the whole
+  // value's executable name first (a wrapper-or-argument form like
+  // `sccache clang` or `clang -target …` never matches whole, because its
+  // basename has a space or an argument after `clang`), then fall back to
+  // the token split. Match on the executable name so path-qualified
+  // (`/usr/bin/clang`), triple-prefixed (`aarch64-linux-gnu-clang`) and
+  // versioned (`clang-18`) compilers are all recognized — but not
+  // clang-family tools that are not compilers (`clang-format`).
   const ccWrappers = new Set([
     'ccache',
     'distcc',
@@ -331,15 +338,19 @@ export function napiCrossToolchainEnvs(
     'buildcache',
     'kache',
   ])
+  const clangExecutableName = /(^|-)clang(\+\+)?(-\d+)?$/
   const isClangCompiler = (value: string | undefined): boolean => {
     if (!value) {
       return false
     }
-    const [first, second] = value.trim().split(/\s+/)
+    const trimmed = value.trim()
+    if (/[/\\]/.test(trimmed) && clangExecutableName.test(basename(trimmed))) {
+      return true
+    }
+    const [first, second] = trimmed.split(/\s+/)
     const compiler = first && ccWrappers.has(basename(first)) ? second : first
     return (
-      compiler !== undefined &&
-      /(^|-)clang(\+\+)?(-\d+)?$/.test(basename(compiler))
+      compiler !== undefined && clangExecutableName.test(basename(compiler))
     )
   }
 
