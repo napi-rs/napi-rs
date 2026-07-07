@@ -5,8 +5,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { exec } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { exec, execSync } from 'node:child_process'
 import {
   copyFile,
@@ -27,20 +25,16 @@ import ava, { type ExecutionContext, type TestFn } from 'ava'
 
 import {
   buildProject,
-  generateTypeDef,
-  napiCrossToolchainEnvs,
-  validateCrossCompileFlags,
-  validateNapiCrossSupport,
-  writeJsBinding,
-} from '../build.js'
-import { getSystemDefaultTarget } from '../../utils/index.js'
   collectStaleWasiBuildOutputNames,
   createArtifactDestinationName,
   createWasiBrowserEntry,
   createWasiCompilerFlags,
   createWasiDeferredBindingTypeDef,
   generateTypeDef,
+  napiCrossToolchainEnvs,
   selectWasiBrowserTarget,
+  validateCrossCompileFlags,
+  validateNapiCrossSupport,
   verifyWasiReactor,
   writeJsBinding,
 } from '../build.js'
@@ -237,139 +231,6 @@ test('generateTypeDef preserves deterministic file order', async (t) => {
     dts.indexOf('function alpha(): void') <
       dts.indexOf('function zeta(): void'),
   )
-})
-
-test('WASI artifact names remain flavor-specific without --platform', (t) => {
-  const sourceName = 'binding.wasm'
-  const threaded = createArtifactDestinationName(
-    'binding',
-    parseTriple('wasm32-wasip1-threads'),
-    sourceName,
-    false,
-  )
-  const threadless = createArtifactDestinationName(
-    'binding',
-    parseTriple('wasm32-wasip1'),
-    sourceName,
-    false,
-  )
-
-  t.is(threaded, 'binding.wasm32-wasi.wasm')
-  t.is(threadless, 'binding.wasm32-wasip1.wasm')
-  t.not(threaded, threadless)
-})
-
-test('WASI SDK compiler flags preserve paths containing spaces', (t) => {
-  const wasiSdkPath = join(t.context.tmpDir, 'WASI SDK')
-  const sysroot = join(wasiSdkPath, 'share', 'wasi-sysroot')
-  const linker = join(wasiSdkPath, 'bin', 'wasm-ld')
-  const flags = createWasiCompilerFlags(
-    wasiSdkPath,
-    'wasm32-wasip1-threads',
-    true,
-  )
-
-  t.is(
-    flags.compileFlags,
-    `'--target=wasm32-wasip1-threads' '--sysroot=${sysroot}' '-pthread' '-mllvm' '-wasm-enable-sjlj'`,
-  )
-  t.is(
-    flags.linkerFlags,
-    `'-fuse-ld=${linker}' '--target=wasm32-wasip1-threads'`,
-  )
-})
-
-test('writeJsBinding creates nested custom entry directories', async (t) => {
-  const output = await writeJsBinding({
-    platform: true,
-    idents: [],
-    jsBinding: join('dist', 'binding.cjs'),
-    binaryName: 'nested-wasi',
-    packageName: 'nested-wasi',
-    version: '1.0.0',
-    outputDir: t.context.projectDir,
-    wasiFlavors: ['wasm32-wasip1'],
-  })
-
-  t.is(output?.path, join(t.context.projectDir, 'dist', 'binding.cjs'))
-  t.true(existsSync(output!.path))
-})
-
-test('writeJsBinding emits an untyped CJS WASI fallback loader', async (t) => {
-  const { projectDir } = t.context
-  const output = await writeJsBinding({
-    platform: true,
-    idents: [],
-    binaryName: 'untyped-wasi',
-    packageName: 'untyped-wasi',
-    version: '1.0.0',
-    outputDir: projectDir,
-    wasiFlavors: ['wasm32-wasip1'],
-  })
-
-  t.is(output?.path, join(projectDir, 'index.js'))
-  const binding = await readFile(join(projectDir, 'index.js'), 'utf8')
-  t.true(binding.includes("require('./untyped-wasi.wasip1.cjs')"))
-  t.true(binding.includes("require('untyped-wasi-wasm32-wasip1')"))
-  t.true(binding.includes('module.exports = nativeBinding'))
-})
-
-test.serial(
-  'writeJsBinding emits an executable untyped ESM WASI fallback loader',
-  async (t) => {
-    const { projectDir } = t.context
-    await writeFile(
-      join(projectDir, 'untyped-esm-wasi.wasip1.cjs'),
-      'module.exports = { answer: 42 }\n',
-    )
-    await writeFile(join(projectDir, 'untyped-esm-wasi.wasm32-wasip1.wasm'), '')
-    const output = await writeJsBinding({
-      platform: true,
-      esm: true,
-      idents: [],
-      jsBinding: 'index.mjs',
-      binaryName: 'untyped-esm-wasi',
-      packageName: 'untyped-esm-wasi',
-      version: '1.0.0',
-      outputDir: projectDir,
-      wasiFlavors: ['wasm32-wasip1'],
-    })
-
-    t.is(output?.path, join(projectDir, 'index.mjs'))
-    const previousForceWasi = process.env.NAPI_RS_FORCE_WASI
-    process.env.NAPI_RS_FORCE_WASI = 'true'
-    try {
-      const binding = await import(
-        `${pathToFileURL(output!.path).href}?test=${Date.now()}`
-      )
-      t.is(binding.default.answer, 42)
-      t.false('answer' in binding)
-    } finally {
-      if (previousForceWasi === undefined) {
-        delete process.env.NAPI_RS_FORCE_WASI
-      } else {
-        process.env.NAPI_RS_FORCE_WASI = previousForceWasi
-      }
-    }
-  },
-)
-
-test('WASI artifact verification requires a reactor initializer', async (t) => {
-  const missingPath = join(t.context.tmpDir, 'missing-initialize.wasm')
-  await writeFile(missingPath, new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
-  const error = await t.throwsAsync(() => verifyWasiReactor(missingPath))
-  t.regex(error.message, /does not export _initialize/)
-
-  const validPath = join(t.context.tmpDir, 'reactor.wasm')
-  await writeFile(
-    validPath,
-    new Uint8Array([
-      0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 15, 1, 11,
-      95, 105, 110, 105, 116, 105, 97, 108, 105, 122, 101, 0, 0, 10, 4, 1, 2, 0,
-      11,
-    ]),
-  )
-  await t.notThrowsAsync(() => verifyWasiReactor(validPath))
 })
 
 test('should throw on emnapi version mismatch in wasm build', async (t) => {
@@ -1006,141 +867,6 @@ test('buildProject rejects invalid cross flag combinations upfront', async (t) =
     `[package]
 name = "cross_flags_check"
 version = "0.1.0"
-// Integration: an explicit threadless target controls the emitted loader and
-// browser entry even when package config declares only the threaded flavor.
-test('explicit WASI build target selects the browser flavor', (t) => {
-  const target = selectWasiBrowserTarget(
-    parseTriple('wasm32-wasip1'),
-    [parseTriple('wasm32-wasip1-threads')],
-    [parseTriple('wasm32-wasip1')],
-  )
-
-  t.is(target?.platformArchABI, 'wasm32-wasip1')
-})
-
-test('WASI cleanup preserves configured sibling flavors and removes obsolete ones', (t) => {
-  const binaryName = 'cleanup-wasi'
-  const threadless = parseTriple('wasm32-wasip1')
-  const threaded = parseTriple('wasm32-wasip1-threads')
-  const withConfiguredThreaded = collectStaleWasiBuildOutputNames(
-    binaryName,
-    threadless,
-    [threaded],
-  )
-  t.false(withConfiguredThreaded.has(`${binaryName}.wasi.cjs`))
-  t.false(withConfiguredThreaded.has('wasi-worker.mjs'))
-  t.true(withConfiguredThreaded.has(`${binaryName}.wasip1.cjs`))
-
-  const afterThreadlessTransition = collectStaleWasiBuildOutputNames(
-    binaryName,
-    threadless,
-    [threadless],
-  )
-  for (const file of [
-    `${binaryName}.wasi.cjs`,
-    `${binaryName}.wasi.d.cts`,
-    `${binaryName}.wasi-browser.js`,
-    `${binaryName}.wasm32-wasi.wasm`,
-    `${binaryName}.wasm32-wasi.debug.wasm`,
-    'wasi-worker.mjs',
-    'wasi-worker-browser.mjs',
-  ]) {
-    t.true(afterThreadlessTransition.has(file))
-  }
-})
-
-test('untyped WASI browser entry forwards the default export', async (t) => {
-  const { projectDir } = t.context
-  const packageName = 'untyped-browser-entry-wasm32-wasip1'
-  const packageDir = join(projectDir, 'node_modules', packageName)
-  await mkdir(packageDir, { recursive: true })
-  await writeFile(
-    join(packageDir, 'package.json'),
-    JSON.stringify({
-      name: packageName,
-      type: 'module',
-      exports: './index.js',
-    }),
-  )
-  await writeFile(
-    join(packageDir, 'index.js'),
-    'export default { answer: 42 }\n',
-  )
-  const entryPath = join(projectDir, 'browser.mjs')
-  await writeFile(
-    entryPath,
-    createWasiBrowserEntry('untyped-browser-entry', 'wasm32-wasip1', []),
-  )
-
-  const binding = await import(
-    `${pathToFileURL(entryPath).href}?test=${Date.now()}`
-  )
-  t.is(binding.default.answer, 42)
-  t.is(
-    createWasiBrowserEntry('typed-browser-entry', 'wasm32-wasip1', ['sum']),
-    "export * from 'typed-browser-entry-wasm32-wasip1'\n",
-  )
-})
-
-test('deferred WASI declarations preserve typed and untyped bindings', (t) => {
-  t.true(
-    createWasiDeferredBindingTypeDef('./binding.wasip1.cjs', true).includes(
-      "export type WasiBinding = typeof import('./binding.wasip1.cjs')",
-    ),
-  )
-  const untyped = createWasiDeferredBindingTypeDef(
-    './binding.wasip1.cjs',
-    false,
-  )
-  t.true(untyped.includes('export type WasiBinding = Record<string, unknown>'))
-  t.false(untyped.includes("import('./binding.wasip1.cjs')"))
-})
-
-test('direct untyped wasm32-wasip1 build emits complete browser and workerd entries', async (t) => {
-  // The wasm32-wasip1 build needs the rust target; the cli test suite runs on
-  // lanes that only install the host toolchain, so skip when unavailable.
-  // Exact per-line match: a substring probe would be satisfied by a listing
-  // containing only `wasm32-wasip1-threads`.
-  const targetLibDir = execSync(
-    'rustc --print target-libdir --target wasm32-wasip1',
-    {
-      encoding: 'utf8',
-    },
-  ).trim()
-  if (
-    !existsSync(targetLibDir) ||
-    !(await readdir(targetLibDir)).some((file) => file.startsWith('libcore-'))
-  ) {
-    t.pass('skipped: wasm32-wasip1 rust target is not installed')
-    return
-  }
-
-  const { projectDir } = t.context
-  const crateName = 'wasip1_direct'
-  const binaryName = 'wasip1-direct'
-  const packageName = 'wasip1-direct'
-  const version = '0.1.0'
-
-  const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
-    win32Sep,
-    posixSep,
-  )
-  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
-    win32Sep,
-    posixSep,
-  )
-  const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
-    win32Sep,
-    posixSep,
-  )
-
-  await mkdir(join(projectDir, 'src'), { recursive: true })
-
-  await writeFile(
-    join(projectDir, 'Cargo.toml'),
-    `[package]
-name = "${crateName}"
-version = "${version}"
 edition = "2021"
 
 [lib]
@@ -1148,15 +874,6 @@ crate-type = ["cdylib"]
 `,
   )
   await writeFile(join(projectDir, 'src', 'lib.rs'), '')
-
-[dependencies]
-napi = { path = "${napiPath}", default-features = false, features = ["napi4"] }
-napi-derive = { path = "${napiDerivePath}", default-features = false, features = ["strict"] }
-
-[build-dependencies]
-napi-build = { path = "${napiBuildPath}" }
-`,
-  )
   await writeFile(
     join(projectDir, 'package.json'),
     `${JSON.stringify(
@@ -1164,12 +881,6 @@ napi-build = { path = "${napiBuildPath}" }
         name: 'cross-flags-check',
         version: '0.1.0',
         napi: { binaryName: 'cross-flags-check' },
-        name: packageName,
-        version,
-        napi: {
-          binaryName,
-          targets: ['wasm32-wasip1-threads'],
-        },
       },
       null,
       2,
@@ -1318,6 +1029,301 @@ const isNapiCrossUnsupportedHost =
     )
   },
 )
+
+test('WASI artifact names remain flavor-specific without --platform', (t) => {
+  const sourceName = 'binding.wasm'
+  const threaded = createArtifactDestinationName(
+    'binding',
+    parseTriple('wasm32-wasip1-threads'),
+    sourceName,
+    false,
+  )
+  const threadless = createArtifactDestinationName(
+    'binding',
+    parseTriple('wasm32-wasip1'),
+    sourceName,
+    false,
+  )
+
+  t.is(threaded, 'binding.wasm32-wasi.wasm')
+  t.is(threadless, 'binding.wasm32-wasip1.wasm')
+  t.not(threaded, threadless)
+})
+
+test('WASI SDK compiler flags preserve paths containing spaces', (t) => {
+  const wasiSdkPath = join(t.context.tmpDir, 'WASI SDK')
+  const sysroot = join(wasiSdkPath, 'share', 'wasi-sysroot')
+  const linker = join(wasiSdkPath, 'bin', 'wasm-ld')
+  const flags = createWasiCompilerFlags(
+    wasiSdkPath,
+    'wasm32-wasip1-threads',
+    true,
+  )
+
+  t.is(
+    flags.compileFlags,
+    `'--target=wasm32-wasip1-threads' '--sysroot=${sysroot}' '-pthread' '-mllvm' '-wasm-enable-sjlj'`,
+  )
+  t.is(
+    flags.linkerFlags,
+    `'-fuse-ld=${linker}' '--target=wasm32-wasip1-threads'`,
+  )
+})
+
+test('writeJsBinding creates nested custom entry directories', async (t) => {
+  const output = await writeJsBinding({
+    platform: true,
+    idents: [],
+    jsBinding: join('dist', 'binding.cjs'),
+    binaryName: 'nested-wasi',
+    packageName: 'nested-wasi',
+    version: '1.0.0',
+    outputDir: t.context.projectDir,
+    wasiFlavors: ['wasm32-wasip1'],
+  })
+
+  t.is(output?.path, join(t.context.projectDir, 'dist', 'binding.cjs'))
+  t.true(existsSync(output!.path))
+})
+
+test('writeJsBinding emits an untyped CJS WASI fallback loader', async (t) => {
+  const { projectDir } = t.context
+  const output = await writeJsBinding({
+    platform: true,
+    idents: [],
+    binaryName: 'untyped-wasi',
+    packageName: 'untyped-wasi',
+    version: '1.0.0',
+    outputDir: projectDir,
+    wasiFlavors: ['wasm32-wasip1'],
+  })
+
+  t.is(output?.path, join(projectDir, 'index.js'))
+  const binding = await readFile(join(projectDir, 'index.js'), 'utf8')
+  t.true(binding.includes("require('./untyped-wasi.wasip1.cjs')"))
+  t.true(binding.includes("require('untyped-wasi-wasm32-wasip1')"))
+  t.true(binding.includes('module.exports = nativeBinding'))
+})
+
+test.serial(
+  'writeJsBinding emits an executable untyped ESM WASI fallback loader',
+  async (t) => {
+    const { projectDir } = t.context
+    await writeFile(
+      join(projectDir, 'untyped-esm-wasi.wasip1.cjs'),
+      'module.exports = { answer: 42 }\n',
+    )
+    await writeFile(join(projectDir, 'untyped-esm-wasi.wasm32-wasip1.wasm'), '')
+    const output = await writeJsBinding({
+      platform: true,
+      esm: true,
+      idents: [],
+      jsBinding: 'index.mjs',
+      binaryName: 'untyped-esm-wasi',
+      packageName: 'untyped-esm-wasi',
+      version: '1.0.0',
+      outputDir: projectDir,
+      wasiFlavors: ['wasm32-wasip1'],
+    })
+
+    t.is(output?.path, join(projectDir, 'index.mjs'))
+    const previousForceWasi = process.env.NAPI_RS_FORCE_WASI
+    process.env.NAPI_RS_FORCE_WASI = 'true'
+    try {
+      const binding = await import(
+        `${pathToFileURL(output!.path).href}?test=${Date.now()}`
+      )
+      t.is(binding.default.answer, 42)
+      t.false('answer' in binding)
+    } finally {
+      if (previousForceWasi === undefined) {
+        delete process.env.NAPI_RS_FORCE_WASI
+      } else {
+        process.env.NAPI_RS_FORCE_WASI = previousForceWasi
+      }
+    }
+  },
+)
+
+test('WASI artifact verification requires a reactor initializer', async (t) => {
+  const missingPath = join(t.context.tmpDir, 'missing-initialize.wasm')
+  await writeFile(missingPath, new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
+  const error = await t.throwsAsync(() => verifyWasiReactor(missingPath))
+  t.regex(error.message, /does not export _initialize/)
+
+  const validPath = join(t.context.tmpDir, 'reactor.wasm')
+  await writeFile(
+    validPath,
+    new Uint8Array([
+      0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 15, 1, 11,
+      95, 105, 110, 105, 116, 105, 97, 108, 105, 122, 101, 0, 0, 10, 4, 1, 2, 0,
+      11,
+    ]),
+  )
+  await t.notThrowsAsync(() => verifyWasiReactor(validPath))
+})
+
+// An explicit threadless target controls the emitted loader and browser entry
+// even when package config declares only the threaded flavor.
+test('explicit WASI build target selects the browser flavor', (t) => {
+  const target = selectWasiBrowserTarget(
+    parseTriple('wasm32-wasip1'),
+    [parseTriple('wasm32-wasip1-threads')],
+    [parseTriple('wasm32-wasip1')],
+  )
+
+  t.is(target?.platformArchABI, 'wasm32-wasip1')
+})
+
+test('WASI cleanup preserves configured sibling flavors and removes obsolete ones', (t) => {
+  const binaryName = 'cleanup-wasi'
+  const threadless = parseTriple('wasm32-wasip1')
+  const threaded = parseTriple('wasm32-wasip1-threads')
+  const withConfiguredThreaded = collectStaleWasiBuildOutputNames(
+    binaryName,
+    threadless,
+    [threaded],
+  )
+  t.false(withConfiguredThreaded.has(`${binaryName}.wasi.cjs`))
+  t.false(withConfiguredThreaded.has('wasi-worker.mjs'))
+  t.true(withConfiguredThreaded.has(`${binaryName}.wasip1.cjs`))
+
+  const afterThreadlessTransition = collectStaleWasiBuildOutputNames(
+    binaryName,
+    threadless,
+    [threadless],
+  )
+  for (const file of [
+    `${binaryName}.wasi.cjs`,
+    `${binaryName}.wasi.d.cts`,
+    `${binaryName}.wasi-browser.js`,
+    `${binaryName}.wasm32-wasi.wasm`,
+    `${binaryName}.wasm32-wasi.debug.wasm`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ]) {
+    t.true(afterThreadlessTransition.has(file))
+  }
+})
+
+test('untyped WASI browser entry forwards the default export', async (t) => {
+  const { projectDir } = t.context
+  const packageName = 'untyped-browser-entry-wasm32-wasip1'
+  const packageDir = join(projectDir, 'node_modules', packageName)
+  await mkdir(packageDir, { recursive: true })
+  await writeFile(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      type: 'module',
+      exports: './index.js',
+    }),
+  )
+  await writeFile(
+    join(packageDir, 'index.js'),
+    'export default { answer: 42 }\n',
+  )
+  const entryPath = join(projectDir, 'browser.mjs')
+  await writeFile(
+    entryPath,
+    createWasiBrowserEntry('untyped-browser-entry', 'wasm32-wasip1', []),
+  )
+
+  const binding = await import(
+    `${pathToFileURL(entryPath).href}?test=${Date.now()}`
+  )
+  t.is(binding.default.answer, 42)
+  t.is(
+    createWasiBrowserEntry('typed-browser-entry', 'wasm32-wasip1', ['sum']),
+    "export * from 'typed-browser-entry-wasm32-wasip1'\n",
+  )
+})
+
+test('deferred WASI declarations preserve typed and untyped bindings', (t) => {
+  t.true(
+    createWasiDeferredBindingTypeDef('./binding.wasip1.cjs', true).includes(
+      "export type WasiBinding = typeof import('./binding.wasip1.cjs')",
+    ),
+  )
+  const untyped = createWasiDeferredBindingTypeDef(
+    './binding.wasip1.cjs',
+    false,
+  )
+  t.true(untyped.includes('export type WasiBinding = Record<string, unknown>'))
+  t.false(untyped.includes("import('./binding.wasip1.cjs')"))
+})
+
+test('direct untyped wasm32-wasip1 build emits complete browser and workerd entries', async (t) => {
+  // The wasm32-wasip1 build needs the Rust target; generic CLI test lanes only
+  // install the host toolchain, so skip when the target is unavailable.
+  const targetLibDir = execSync(
+    'rustc --print target-libdir --target wasm32-wasip1',
+    {
+      encoding: 'utf8',
+    },
+  ).trim()
+  if (
+    !existsSync(targetLibDir) ||
+    !(await readdir(targetLibDir)).some((file) => file.startsWith('libcore-'))
+  ) {
+    t.pass('skipped: wasm32-wasip1 rust target is not installed')
+    return
+  }
+
+  const { projectDir } = t.context
+  const crateName = 'wasip1_direct'
+  const binaryName = 'wasip1-direct'
+  const packageName = 'wasip1-direct'
+  const version = '0.1.0'
+
+  const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+
+  await writeFile(
+    join(projectDir, 'Cargo.toml'),
+    `[package]
+name = "${crateName}"
+version = "${version}"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}", default-features = false, features = ["napi4"] }
+napi-derive = { path = "${napiDerivePath}", default-features = false, features = ["strict"] }
+
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`,
+  )
+  await writeFile(
+    join(projectDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: packageName,
+        version,
+        napi: {
+          binaryName,
+          targets: ['wasm32-wasip1-threads'],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
   await writeFile(
     join(projectDir, 'build.rs'),
     'fn main() {\n    napi_build::setup();\n}\n',
@@ -1328,7 +1334,7 @@ const isNapiCrossUnsupportedHost =
   )
 
   // `setWasiEnv` requires @emnapi/core and @emnapi/runtime resolvable from
-  // the project with versions matching the cli's own `emnapi` package.
+  // the project with versions matching the CLI's own `emnapi` package.
   const emnapiVersion = JSON.parse(
     await readFile(
       join(repoRoot, 'node_modules', 'emnapi', 'package.json'),
@@ -1349,7 +1355,7 @@ const isNapiCrossUnsupportedHost =
   }
 
   // `buildProject` resolves to `{ task }` without awaiting the build; the
-  // cargo compile + postBuild run on the returned task promise.
+  // cargo compile and post-build work run on the returned task promise.
   const { task } = await buildProject({
     platform: true,
     target: 'wasm32-wasip1',
@@ -1357,7 +1363,6 @@ const isNapiCrossUnsupportedHost =
   })
   await task
 
-  // the build emitted the wasip1-named loader set...
   t.true(existsSync(join(projectDir, `${binaryName}.wasip1.cjs`)))
   t.true(existsSync(join(projectDir, `${binaryName}.wasip1.d.cts`)))
   t.true(existsSync(join(projectDir, `${binaryName}.wasip1-browser.js`)))
@@ -1365,8 +1370,8 @@ const isNapiCrossUnsupportedHost =
   t.true(existsSync(join(projectDir, `${binaryName}.wasip1-deferred.d.ts`)))
   t.false(existsSync(join(projectDir, `${binaryName}.wasi.cjs`)))
 
-  // The built flavor still participates in the fallback chain even though it
-  // differs from the configured flavor.
+  // The built flavor participates in the fallback chain even though it differs
+  // from the configured flavor.
   const js = await readFile(join(projectDir, 'index.js'), 'utf-8')
   t.regex(js, new RegExp(`require\\('\\./${binaryName}\\.wasip1\\.cjs'\\)`))
   t.regex(js, new RegExp(`require\\('${packageName}-wasm32-wasip1'\\)`))

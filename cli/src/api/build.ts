@@ -3,8 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { basename, parse, join, resolve } from 'node:path'
-import { dirname, parse, join, resolve } from 'node:path'
+import { basename, dirname, join, parse, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -682,40 +681,26 @@ class Builder {
     const controller = new AbortController()
 
     const watch = this.options.watch
-    const buildTask = new Promise<void>((resolve, reject) => {
-      const cargoOverride = process.env.CARGO
-      if (
-        cargoOverride &&
-        (this.options.useCross || this.options.crossCompile)
-      ) {
-        const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
-        const requestedFlag = this.options.useCross
-          ? '`--use-cross`'
-          : '`--cross-compile` (`-x`)'
-        debug.warn(
-          `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
-        )
-      }
-      const command =
-        cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
-      const buildProcess = spawn(command, this.args, {
-        env: { ...process.env, ...this.envs },
-        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
-        cwd: this.options.cwd,
-        signal: controller.signal,
-      })
     const buildTask = (
       watch ? Promise.resolve() : this.removeStaleBuildOutputs()
     ).then(
       () =>
         new Promise<void>((resolve, reject) => {
-          if (this.options.useCross && this.options.crossCompile) {
-            throw new Error(
-              '`--use-cross` and `--cross-compile` can not be used together',
+          const cargoOverride = process.env.CARGO
+          if (
+            cargoOverride &&
+            (this.options.useCross || this.options.crossCompile)
+          ) {
+            const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
+            const requestedFlag = this.options.useCross
+              ? '`--use-cross`'
+              : '`--cross-compile` (`-x`)'
+            debug.warn(
+              `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
             )
           }
           const command =
-            process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
+            cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
           const buildProcess = spawn(command, this.args, {
             env: { ...process.env, ...this.envs },
             stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
