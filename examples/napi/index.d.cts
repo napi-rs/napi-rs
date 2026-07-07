@@ -1507,7 +1507,7 @@ export declare function stashExternalRefAcrossDuplicateLoad(value: ExternalObjec
 
 export declare function stashExternalRefForTeardown(resultPath: string, value: number): void
 
-export declare function stashThreadsafeFunctionForEnvOwnership(value: ForeignEnvReferTsfn): void
+export declare function stashThreadsafeFunctionForEnvOwnership(value: () => void): void
 
 export declare function stashTypedArrayAcrossDuplicateLoad(value: Uint8Array): void
 

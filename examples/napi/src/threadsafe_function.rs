@@ -34,7 +34,9 @@ thread_local! {
 
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 #[napi(js_name = "stashThreadsafeFunctionForEnvOwnership")]
-fn stash_threadsafe_function_for_env_ownership(value: ForeignEnvReferTsfn) {
+fn stash_threadsafe_function_for_env_ownership(
+  #[napi(ts_arg_type = "() => void")] value: ForeignEnvReferTsfn,
+) {
   FOREIGN_ENV_REFER_TSFN.with(|stored| *stored.borrow_mut() = Some(value));
 }
 

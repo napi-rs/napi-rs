@@ -188,9 +188,14 @@ async function exposeLifecycleExportsAcrossTargets() {
 
 export function mergeLifecycleDeclarations(source, previousSource) {
   const missingDeclarations = []
+  const declarationStarts = [
+    'export interface AsyncWorkLifecycleHandle {',
+    ...unsupportedWasiFunctions.map(
+      (name) => `export declare function ${name}(`,
+    ),
+  ]
 
-  for (const name of unsupportedWasiFunctions) {
-    const declarationStart = `export declare function ${name}(`
+  for (const declarationStart of declarationStarts) {
     if (source.includes(declarationStart)) {
       continue
     }
@@ -198,7 +203,9 @@ export function mergeLifecycleDeclarations(source, previousSource) {
     const separator = start === -1 ? -1 : previousSource.indexOf('\n\n', start)
     const end = separator === -1 ? previousSource.length : separator
     if (start === -1) {
-      throw new Error(`Could not preserve ${name} declaration for WASI`)
+      throw new Error(
+        `Could not preserve declaration starting with ${declarationStart} for WASI`,
+      )
     }
     missingDeclarations.push(previousSource.slice(start, end).trimEnd())
   }
