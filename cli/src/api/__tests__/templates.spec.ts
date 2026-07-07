@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -1213,7 +1214,7 @@ test('js binding wasi fallback tries local flavors before package fallbacks', (t
   }
   // every candidate is guarded so a loaded threaded binding is never
   // silently overridden by the non-threaded flavor
-  const guardCount = code.match(/if \(!wasiBindingLoaded\) \{/g)?.length ?? 0
+  const guardCount = code.match(/if \(!wasiBindingLoaded && \(/g)?.length ?? 0
   t.is(guardCount, order.length)
   assertValidJS(t, code, 'cjs binding with both wasi flavors')
 })
@@ -1324,6 +1325,208 @@ test('js binding advances to the next WASI flavor when earlier candidates are ab
 
   t.true(result.calls.includes(singleLocal))
   t.is((result.exports as { sum: () => number }).sum(), 42)
+})
+
+test('js binding defaults to the threaded package when both WASI flavors are installed', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  const threadedPackage = '@scope/test-wasm32-wasi'
+  const threadlessPackage = '@scope/test-wasm32-wasip1'
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([
+      [threadedPackage, () => ({ runtime: 'threaded' })],
+      [threadlessPackage, () => ({ runtime: 'threadless' })],
+    ]),
+    new Set([threadedPackage, threadlessPackage]),
+  )
+
+  t.is((result.exports as { runtime: string }).runtime, 'threaded')
+  t.true(result.calls.includes(threadedPackage))
+  t.false(result.calls.includes(threadlessPackage))
+})
+
+test('js binding selects the threadless package through the dual-flavor root loader', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  const threadedPackage = '@scope/test-wasm32-wasi'
+  const threadlessPackage = '@scope/test-wasm32-wasip1'
+  const result = executeGeneratedCjsBinding(
+    code,
+    new Map([
+      [threadedPackage, () => ({ runtime: 'threaded' })],
+      [threadlessPackage, () => ({ runtime: 'threadless' })],
+    ]),
+    new Set([threadedPackage, threadlessPackage]),
+    new Map(),
+    { NAPI_RS_WASI_FLAVOR: 'wasm32-wasip1' },
+  )
+
+  t.is((result.exports as { runtime: string }).runtime, 'threadless')
+  t.deepEqual(result.calls, ['fs', threadlessPackage])
+  t.false(result.resolveCalls.includes('./test.wasi.cjs'))
+  t.false(result.resolveCalls.includes(threadedPackage))
+})
+
+test('root package selects an installed WASI flavor in a real dual-flavor layout', async (t) => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'napi-rs-wasi-flavors-'))
+  const rootPackageDir = join(tempDir, 'node_modules', '@scope', 'test')
+  const threadedPackageDir = join(
+    tempDir,
+    'node_modules',
+    '@scope',
+    'test-wasm32-wasi',
+  )
+  const threadlessPackageDir = join(
+    tempDir,
+    'node_modules',
+    '@scope',
+    'test-wasm32-wasip1',
+  )
+  const entryPath = join(tempDir, 'consumer.cjs')
+  const baseEnv = { ...process.env }
+  delete baseEnv.NAPI_RS_FORCE_WASI
+  delete baseEnv.NAPI_RS_WASI_FLAVOR
+
+  try {
+    await Promise.all([
+      mkdir(rootPackageDir, { recursive: true }),
+      mkdir(threadedPackageDir, { recursive: true }),
+      mkdir(threadlessPackageDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(
+        join(rootPackageDir, 'package.json'),
+        JSON.stringify({
+          name: '@scope/test',
+          version: '1.0.0',
+          main: 'index.cjs',
+        }),
+      ),
+      writeFile(
+        join(rootPackageDir, 'index.cjs'),
+        createCjsBinding(
+          'test',
+          '@scope/test',
+          ['runtime'],
+          undefined,
+          ['wasm32-wasi', 'wasm32-wasip1'],
+        ),
+      ),
+      writeFile(
+        join(threadedPackageDir, 'package.json'),
+        JSON.stringify({
+          name: '@scope/test-wasm32-wasi',
+          version: '1.0.0',
+          main: 'index.cjs',
+        }),
+      ),
+      writeFile(
+        join(threadedPackageDir, 'index.cjs'),
+        "module.exports = { runtime: 'threaded' }\n",
+      ),
+      writeFile(
+        join(threadlessPackageDir, 'package.json'),
+        JSON.stringify({
+          name: '@scope/test-wasm32-wasip1',
+          version: '1.0.0',
+          main: 'index.cjs',
+        }),
+      ),
+      writeFile(
+        join(threadlessPackageDir, 'index.cjs'),
+        "module.exports = { runtime: 'threadless' }\n",
+      ),
+      writeFile(
+        entryPath,
+        "process.stdout.write(require('@scope/test').runtime)\n",
+      ),
+    ])
+
+    const defaultResult = await execFileAsync(process.execPath, [entryPath], {
+      cwd: tempDir,
+      env: { ...baseEnv, NAPI_RS_FORCE_WASI: 'true' },
+    })
+    t.is(defaultResult.stdout, 'threaded')
+
+    const selectedResult = await execFileAsync(process.execPath, [entryPath], {
+      cwd: tempDir,
+      env: { ...baseEnv, NAPI_RS_WASI_FLAVOR: 'wasm32-wasip1' },
+    })
+    t.is(selectedResult.stdout, 'threadless')
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('js binding rejects an unavailable selected WASI flavor without loading native', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  let nativeInitialized = false
+  const error = t.throws(() =>
+    executeGeneratedCjsBinding(
+      code,
+      new Map([
+        [
+          '/native.node',
+          () => {
+            nativeInitialized = true
+            return { runtime: 'native' }
+          },
+        ],
+        ['@scope/test-wasm32-wasi', () => ({ runtime: 'threaded' })],
+      ]),
+      new Set(['@scope/test-wasm32-wasi']),
+      new Map(),
+      {
+        NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+        NAPI_RS_WASI_FLAVOR: 'wasm32-wasip1',
+      },
+    ),
+  )
+
+  t.is(error.message, 'WASI binding for flavor "wasm32-wasip1" not found')
+  t.false(nativeInitialized)
+})
+
+test('js binding rejects an unknown WASI flavor before binding initialization', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['runtime'], undefined, [
+    'wasm32-wasi',
+    'wasm32-wasip1',
+  ])
+  let nativeInitialized = false
+  const error = t.throws(() =>
+    executeGeneratedCjsBinding(
+      code,
+      new Map([
+        [
+          '/native.node',
+          () => {
+            nativeInitialized = true
+            return { runtime: 'native' }
+          },
+        ],
+      ]),
+      new Set(),
+      new Map(),
+      {
+        NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+        NAPI_RS_WASI_FLAVOR: 'wasm32-unknown',
+      },
+    ),
+  )
+
+  t.is(
+    error.message,
+    'Unsupported WASI flavor "wasm32-unknown". Available flavors: wasm32-wasi, wasm32-wasip1',
+  )
+  t.false(nativeInitialized)
 })
 
 test('js binding prefers an explicit local threadless artifact over an installed threaded package', (t) => {

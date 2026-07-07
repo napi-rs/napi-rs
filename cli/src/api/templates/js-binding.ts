@@ -1,5 +1,9 @@
 import { wasiLoaderSuffix } from '../../utils/index.js'
 
+function resolveWasiFlavors(wasiFlavors?: string[]): string[] {
+  return wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
+}
+
 /**
  * Generate the WASI fallback `require` chain for `binding.cjs`/`binding.js`.
  *
@@ -11,13 +15,12 @@ import { wasiLoaderSuffix } from '../../utils/index.js'
 function createWasiFallbackChain(
   localName: string,
   pkgName: string,
+  flavors: string[],
   packageVersion?: string,
-  wasiFlavors?: string[],
 ): string {
-  const flavors =
-    wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
   const candidates = [
     ...flavors.map((flavor) => ({
+      flavor,
       specifier: `./${localName}.${wasiLoaderSuffix(flavor)}.cjs`,
       isPackage: false,
       localArtifacts: [
@@ -26,6 +29,7 @@ function createWasiFallbackChain(
       ],
     })),
     ...flavors.map((flavor) => ({
+      flavor,
       specifier: `${pkgName}-${flavor}`,
       isPackage: true,
       localArtifacts: undefined,
@@ -33,7 +37,12 @@ function createWasiFallbackChain(
   ]
   const chain = candidates
     .map(
-      ({ specifier, isPackage, localArtifacts }) => `  if (!wasiBindingLoaded) {
+      ({
+        flavor,
+        specifier,
+        isPackage,
+        localArtifacts,
+      }) => `  if (!wasiBindingLoaded && (!__napiWasiFlavorRequested || __napiWasiFlavor === ${JSON.stringify(flavor)})) {
     const candidateError = __napiWasiResolveCandidate('${specifier}', ${isPackage}, ${JSON.stringify(localArtifacts)})
     if (!candidateError) {${
       isPackage && packageVersion
@@ -182,6 +191,8 @@ ${identLow}} catch (e) {
 ${ident}loadErrors.push(e)
 ${identLow}}${versionCheck}`
   }
+
+  const flavors = resolveWasiFlavors(wasiFlavors)
 
   return `const { readFileSync } = require('fs')
 let nativeBinding = null
@@ -363,9 +374,29 @@ function createLoadErrorChain(errors) {
 // Treating any non-empty string as truthy (the historical behavior) meant
 // NAPI_RS_FORCE_WASI=false, NAPI_RS_FORCE_WASI=0, etc. inadvertently triggered
 // the WASI path, causing ENOENT for packages shipped without a .wasi.cjs file.
+//
+// NAPI_RS_WASI_FLAVOR selects one exact generated flavor and implies strict
+// WASI loading. It never crosses into another flavor or falls back to native.
+const __napiWasiFlavors = ${JSON.stringify(flavors)}
+const __napiWasiFlavor = process.env.NAPI_RS_WASI_FLAVOR
+const __napiWasiFlavorRequested =
+  typeof __napiWasiFlavor === 'string' && __napiWasiFlavor.length > 0
+if (
+  __napiWasiFlavorRequested &&
+  __napiWasiFlavors.indexOf(__napiWasiFlavor) === -1
+) {
+  throw new Error(
+    'Unsupported WASI flavor "' +
+      __napiWasiFlavor +
+      '". Available flavors: ' +
+      __napiWasiFlavors.join(', '),
+  )
+}
 const forceWasiError = process.env.NAPI_RS_FORCE_WASI === 'error'
 const forceWasi =
-  process.env.NAPI_RS_FORCE_WASI === 'true' || forceWasiError
+  process.env.NAPI_RS_FORCE_WASI === 'true' ||
+  forceWasiError ||
+  __napiWasiFlavorRequested
 
 if (!forceWasi) {
   nativeBinding = requireNative()
@@ -375,12 +406,21 @@ if (!nativeBinding || forceWasi) {
   let wasiBinding = null
   let wasiBindingLoaded = false
   const wasiBindingErrors = []
-${createWasiFallbackChain(localName, pkgName, packageVersion, wasiFlavors)}
-  if (!wasiBindingLoaded && forceWasi && !forceWasiError) {
+${createWasiFallbackChain(localName, pkgName, flavors, packageVersion)}
+  if (
+    !wasiBindingLoaded &&
+    forceWasi &&
+    !forceWasiError &&
+    !__napiWasiFlavorRequested
+  ) {
     nativeBinding = requireNative()
   }
-  if (forceWasiError && !wasiBindingLoaded) {
-    const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
+  if ((forceWasiError || __napiWasiFlavorRequested) && !wasiBindingLoaded) {
+    const error = new Error(
+      __napiWasiFlavorRequested
+        ? 'WASI binding for flavor "' + __napiWasiFlavor + '" not found'
+        : 'WASI binding not found and NAPI_RS_FORCE_WASI is set to error',
+    )
     error.cause = createLoadErrorChain(wasiBindingErrors)
     throw error
   }

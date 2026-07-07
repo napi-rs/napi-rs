@@ -7,6 +7,33 @@ the threadless runtime. The historical `wasm32-wasi` and
 package and artifact identity. Configuring more than one alias for the same
 artifact set is an error.
 
+## Selecting a WASI flavor in Node.js
+
+The root Node.js entry prefers a native addon. When native loading is
+unavailable, it tries local WASI loaders and then installed flavor packages.
+Within each group the default order is threaded (`wasm32-wasi`) and then
+threadless (`wasm32-wasip1`).
+
+Set `NAPI_RS_WASI_FLAVOR` to a generated flavor identity to select it through
+the root package:
+
+```sh
+NAPI_RS_WASI_FLAVOR=wasm32-wasip1 node app.js
+```
+
+The selector enters the WASI path without requiring
+`NAPI_RS_FORCE_WASI`, skips every other WASI flavor, and does not fall back to
+a native addon if the selected flavor cannot load. This makes the result
+deterministic when both optional flavor packages are installed, including
+isolated pnpm and Yarn PnP layouts. Use `wasm32-wasi` to select the threaded
+flavor. An unsupported value reports the flavor identities generated for that
+package.
+
+Without `NAPI_RS_WASI_FLAVOR`, existing behavior is unchanged.
+`NAPI_RS_FORCE_WASI=true` prefers the default WASI fallback chain but retains a
+lazy native fallback, while `NAPI_RS_FORCE_WASI=error` requires some generated
+WASI flavor to load.
+
 The root package exposes deferred workerd and Wasm entries. In a Workers
 project built by Wrangler:
 

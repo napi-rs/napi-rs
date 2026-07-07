@@ -1,11 +1,8 @@
-// Worker entry proving the single-thread custom-async-runtime fixture works
-// inside real workerd. The `.wasm` import is kept external by esbuild and is
-// declared as a CompiledWasm module in the miniflare harness, so `wasmModule`
-// is a genuine precompiled `WebAssembly.Module` — exactly what the deferred
-// loader's `instantiate()` requires (compile-from-bytes is banned on workerd).
-import wasmModule from './custom_async_runtime.wasm32-wasip1.wasm'
-
-import { instantiate } from '../custom_async_runtime.wasip1-deferred.js'
+// Exercise the public root-package facades. The harness installs the packed
+// root package with its flavor package kept transitive, then bundles this file
+// from that isolated consumer.
+import wasmModule from '@examples/custom-async-runtime/wasm.wasm'
+import { instantiate } from '@examples/custom-async-runtime/workerd'
 
 // Instantiate lazily inside the handler, memoized across requests. Kicking it
 // off at top level fails on workerd with "Disallowed operation called within
@@ -40,6 +37,7 @@ export default {
         blockOn: api.blockOnValue(5),
         rejected,
         spawnCalls: metrics.spawnCalls,
+        hasNodeProcess: typeof process !== 'undefined',
       })
     } catch (e) {
       // Return the stack instead of letting workerd emit an opaque 500 so the
