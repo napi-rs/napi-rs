@@ -1,3 +1,5 @@
+#![deny(unused_must_use)]
+
 use std::{
   future::Future,
   pin::Pin,
@@ -8,7 +10,8 @@ use std::{
 };
 
 use napi::bindgen_prelude::{
-  try_register_async_runtime, AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask, External,
+  try_register_async_runtime, AsyncGenerator, AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask,
+  External, Generator,
 };
 use napi_derive::napi;
 
@@ -153,4 +156,89 @@ pub async fn previous_generated_async_export(value: u32) -> u32 {
 #[napi]
 pub async fn previous_generated_async_class(value: u32) -> PreviousGeneratedClass {
   PreviousGeneratedClass { value }
+}
+
+#[napi(iterator)]
+pub struct PreviousGeneratedIterator {
+  current: u32,
+  end: u32,
+}
+
+#[napi]
+impl Generator for PreviousGeneratedIterator {
+  type Yield = u32;
+  type Next = ();
+  type Return = ();
+
+  fn next(&mut self, _value: Option<Self::Next>) -> Option<Self::Yield> {
+    if self.current >= self.end {
+      return None;
+    }
+    let value = self.current;
+    self.current += 1;
+    Some(value)
+  }
+}
+
+#[napi]
+impl PreviousGeneratedIterator {
+  #[napi(constructor)]
+  pub fn new(current: u32, end: u32) -> Self {
+    Self { current, end }
+  }
+
+  #[napi(factory)]
+  pub fn create(current: u32, end: u32) -> Self {
+    Self { current, end }
+  }
+}
+
+#[napi]
+pub fn previous_generated_iterator(current: u32, end: u32) -> PreviousGeneratedIterator {
+  PreviousGeneratedIterator { current, end }
+}
+
+#[napi(async_iterator)]
+pub struct PreviousGeneratedAsyncIterator {
+  current: u32,
+  end: u32,
+}
+
+#[napi]
+impl AsyncGenerator for PreviousGeneratedAsyncIterator {
+  type Yield = u32;
+  type Next = ();
+  type Return = ();
+
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = napi::Result<Option<Self::Yield>>> + Send + 'static {
+    let value = if self.current < self.end {
+      let value = self.current;
+      self.current += 1;
+      Some(value)
+    } else {
+      None
+    };
+    async move { Ok(value) }
+  }
+}
+
+#[napi]
+impl PreviousGeneratedAsyncIterator {
+  #[napi(constructor)]
+  pub fn new(current: u32, end: u32) -> Self {
+    Self { current, end }
+  }
+
+  #[napi(factory)]
+  pub fn create(current: u32, end: u32) -> Self {
+    Self { current, end }
+  }
+}
+
+#[napi]
+pub fn previous_generated_async_iterator(current: u32, end: u32) -> PreviousGeneratedAsyncIterator {
+  PreviousGeneratedAsyncIterator { current, end }
 }

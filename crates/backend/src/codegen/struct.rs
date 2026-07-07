@@ -354,7 +354,9 @@ impl NapiStruct {
 
     let is_empty_struct_hint = fields_len == 0;
 
-    let constructor = if class.implement_iterator {
+    let constructor = if class.implement_async_iterator {
+      quote! { unsafe { cb.construct_async_generator::<#is_empty_struct_hint, #name>(#js_name_str, #construct) } }
+    } else if class.implement_iterator {
       quote! { unsafe { cb.construct_generator::<#is_empty_struct_hint, #name>(#js_name_str, #construct) } }
     } else {
       quote! { unsafe { cb.construct::<#is_empty_struct_hint, #name>(#js_name_str, #construct) } }
@@ -480,6 +482,11 @@ impl NapiStruct {
             unsafe {
               let (instance_value, wrapped_value) =
                 napi::__private::codegen_v1::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
+              {
+                let env = env.raw();
+                #iterator_implementation
+                #async_iterator_implementation
+              }
               napi::__private::codegen_v1::try_new_class_instance(instance_value, env.raw(), wrapped_value)
             }
           } else {
@@ -548,7 +555,13 @@ impl NapiStruct {
       return quote! {};
     }
     quote! {
-      unsafe { napi::__private::create_iterator::<#name>(env, instance_value, wrapped_value); }
+      unsafe {
+        napi::__private::codegen_v1::create_iterator::<#name>(
+          env,
+          instance_value,
+          wrapped_value,
+        )?;
+      }
     }
   }
 
@@ -562,7 +575,11 @@ impl NapiStruct {
     // `AsyncGenerator` whose Future must be `Send + 'static`, so all data is owned and
     // no lifetime invariants need to be upheld by the caller.
     quote! {
-      napi::__private::create_async_iterator::<#name>(env, instance_value, wrapped_value);
+      napi::__private::codegen_v1::create_async_iterator::<#name>(
+        env,
+        instance_value,
+        wrapped_value,
+      )?;
     }
   }
 
@@ -1876,5 +1893,96 @@ mod tests {
       !generated.contains("Box :: into_raw"),
       "generated conversion must not release ownership before fallible instance creation"
     );
+  }
+
+  #[test]
+  fn default_async_iterator_constructor_uses_async_generator_construction() {
+    let class = NapiClass {
+      fields: vec![],
+      ctor: true,
+      implement_iterator: false,
+      implement_async_iterator: true,
+      is_tuple: false,
+      use_custom_finalize: false,
+    };
+    let napi_struct = NapiStruct {
+      name: Ident::new("AsyncIteratorConstructor", Span::call_site()),
+      js_name: "AsyncIteratorConstructor".to_owned(),
+      comments: vec![],
+      js_mod: None,
+      use_nullable: false,
+      register_name: Ident::new("__register__AsyncIteratorConstructor", Span::call_site()),
+      kind: NapiStructKind::Class(class.clone()),
+      has_lifetime: false,
+      is_generator: false,
+      is_async_generator: true,
+    };
+
+    let generated = napi_struct.gen_default_ctor(&class).to_string();
+
+    assert!(
+      generated.contains("construct_async_generator"),
+      "async iterator constructors must install the async iterator implementation"
+    );
+    assert!(
+      !generated.contains("cb . construct ::"),
+      "async iterator constructors must not use plain class construction"
+    );
+  }
+
+  #[test]
+  fn into_instance_installs_iterator_implementations_before_class_instance_conversion() {
+    for (name, implement_iterator, implement_async_iterator, installer) in [
+      ("SyncIteratorClass", true, false, "create_iterator"),
+      ("AsyncIteratorClass", false, true, "create_async_iterator"),
+    ] {
+      let class = NapiClass {
+        fields: vec![],
+        ctor: false,
+        implement_iterator,
+        implement_async_iterator,
+        is_tuple: false,
+        use_custom_finalize: false,
+      };
+      let napi_struct = NapiStruct {
+        name: Ident::new(name, Span::call_site()),
+        js_name: name.to_owned(),
+        comments: vec![],
+        js_mod: None,
+        use_nullable: false,
+        register_name: Ident::new(&format!("__register__{name}"), Span::call_site()),
+        kind: NapiStructKind::Class(class.clone()),
+        has_lifetime: false,
+        is_generator: implement_iterator,
+        is_async_generator: implement_async_iterator,
+      };
+
+      let generated = napi_struct
+        .gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(&class)
+        .to_string();
+      let into_instance_start = generated
+        .find("fn into_instance")
+        .expect("generated JavaScriptClassExt must contain into_instance");
+      let into_reference_start = generated
+        .find("fn into_reference")
+        .expect("generated JavaScriptClassExt must contain into_reference");
+      let into_instance = &generated[into_instance_start..into_reference_start];
+      let new_instance = into_instance
+        .find("new_instance_with_owned_value")
+        .expect("into_instance must construct and wrap the native value");
+      let iterator = into_instance
+        .find(installer)
+        .expect("into_instance must install the iterator implementation");
+      assert!(
+        into_instance.contains(&format!("codegen_v1 :: {installer}")),
+        "current generated iterator installation must use the versioned codegen contract"
+      );
+      let class_instance = into_instance
+        .find("try_new_class_instance")
+        .expect("into_instance must return a ClassInstance");
+
+      assert!(new_instance < iterator);
+      assert!(iterator < class_instance);
+    }
   }
 }

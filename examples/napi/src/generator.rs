@@ -156,6 +156,37 @@ impl Fib4 {
 }
 
 #[napi(iterator)]
+pub struct SyncIteratorIntoInstance {
+  current: u32,
+  end: u32,
+}
+
+#[napi]
+impl Generator for SyncIteratorIntoInstance {
+  type Yield = u32;
+  type Next = ();
+  type Return = ();
+
+  fn next(&mut self, _value: Option<Self::Next>) -> Option<Self::Yield> {
+    if self.current >= self.end {
+      return None;
+    }
+    let value = self.current;
+    self.current += 1;
+    Some(value)
+  }
+}
+
+#[napi]
+pub fn create_sync_iterator_into_instance(
+  env: &Env,
+  current: u32,
+  end: u32,
+) -> Result<ClassInstance<'_, SyncIteratorIntoInstance>> {
+  SyncIteratorIntoInstance { current, end }.into_instance(env)
+}
+
+#[napi(iterator)]
 pub struct ComplexTypeGenerator {
   current: u32,
 }
@@ -182,6 +213,56 @@ impl ComplexTypeGenerator {
   pub fn new() -> Self {
     Self { current: 0 }
   }
+}
+
+#[napi(iterator)]
+pub struct GeneratorLifecycleProbe {
+  next_calls: u32,
+  complete_calls: u32,
+}
+
+#[napi]
+impl Generator for GeneratorLifecycleProbe {
+  type Yield = u32;
+  type Next = ();
+  type Return = String;
+
+  fn next(&mut self, _value: Option<Self::Next>) -> Option<Self::Yield> {
+    self.next_calls += 1;
+    (self.next_calls == 1).then_some(self.next_calls)
+  }
+
+  fn complete(&mut self, value: Option<Self::Return>) -> Option<Self::Return> {
+    self.complete_calls += 1;
+    value.map(|value| format!("{value}:{}", self.complete_calls))
+  }
+}
+
+#[napi]
+#[allow(clippy::new_without_default)]
+impl GeneratorLifecycleProbe {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self {
+      next_calls: 0,
+      complete_calls: 0,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn next_calls(&self) -> u32 {
+    self.next_calls
+  }
+
+  #[napi(getter)]
+  pub fn complete_calls(&self) -> u32 {
+    self.complete_calls
+  }
+}
+
+#[napi]
+pub async fn create_generator_lifecycle_probe() -> GeneratorLifecycleProbe {
+  GeneratorLifecycleProbe::new()
 }
 
 #[napi(iterator)]
@@ -267,6 +348,69 @@ impl AsyncFib {
   }
 }
 
+#[napi(async_iterator, constructor)]
+pub struct AsyncIteratorConstructor {
+  pub current: u32,
+  pub end: u32,
+}
+
+#[napi]
+impl AsyncGenerator for AsyncIteratorConstructor {
+  type Yield = u32;
+  type Next = ();
+  type Return = ();
+
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let value = if self.current < self.end {
+      let value = self.current;
+      self.current += 1;
+      Some(value)
+    } else {
+      None
+    };
+    async move { Ok(value) }
+  }
+}
+
+#[napi(async_iterator)]
+pub struct AsyncIteratorIntoInstance {
+  current: u32,
+  end: u32,
+}
+
+#[napi]
+impl AsyncGenerator for AsyncIteratorIntoInstance {
+  type Yield = u32;
+  type Next = ();
+  type Return = ();
+
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let value = if self.current < self.end {
+      let value = self.current;
+      self.current += 1;
+      Some(value)
+    } else {
+      None
+    };
+    async move { Ok(value) }
+  }
+}
+
+#[napi]
+pub fn create_async_iterator_into_instance(
+  env: &Env,
+  current: u32,
+  end: u32,
+) -> Result<ClassInstance<'_, AsyncIteratorIntoInstance>> {
+  AsyncIteratorIntoInstance { current, end }.into_instance(env)
+}
+
 #[napi(async_iterator)]
 pub struct AsyncComplexTypeGenerator {
   current: u32,
@@ -290,11 +434,12 @@ impl AsyncGenerator for AsyncComplexTypeGenerator {
     async move { Ok(Some([previous, current])) }
   }
 
+  #[allow(clippy::manual_async_fn)]
   fn complete(
     &mut self,
     value: Option<Self::Return>,
-  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
-    async move { Ok(value.map(|(first, second)| [first, second])) }
+  ) -> impl Future<Output = Result<Option<Self::Return>>> + Send + 'static {
+    async move { Ok(value) }
   }
 }
 
@@ -372,12 +517,12 @@ impl AsyncGenerator for AsyncGeneratorSetupFailure {
 
   fn complete(
     &mut self,
-    _value: Option<Self::Return>,
-  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    value: Option<Self::Return>,
+  ) -> impl Future<Output = Result<Option<Self::Return>>> + Send + 'static {
     if self.panic_in == "return" {
       panic!("intentional async generator return setup panic");
     }
-    async { Ok(None) }
+    async move { Ok(value) }
   }
 
   fn catch(
@@ -391,7 +536,8 @@ impl AsyncGenerator for AsyncGeneratorSetupFailure {
     if self.panic_in == "throw" {
       panic!("intentional async generator throw setup panic");
     }
-    async { Ok(None) }
+    let value = (self.panic_in == "throw-value").then_some(1);
+    async move { Ok(value) }
   }
 }
 
@@ -401,6 +547,11 @@ impl AsyncGeneratorSetupFailure {
   pub fn new(panic_in: String) -> Self {
     Self { panic_in }
   }
+}
+
+#[napi]
+pub async fn create_async_generator_setup_failure() -> AsyncGeneratorSetupFailure {
+  AsyncGeneratorSetupFailure::new("none".to_owned())
 }
 
 struct AsyncIteratorAdmissionProbeState {
@@ -465,7 +616,7 @@ impl AsyncGenerator for AsyncIteratorAdmissionProbe {
   fn complete(
     &mut self,
     value: Option<Self::Return>,
-  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+  ) -> impl Future<Output = Result<Option<Self::Return>>> + Send + 'static {
     self
       .state
       .events
@@ -473,9 +624,9 @@ impl AsyncGenerator for AsyncIteratorAdmissionProbe {
       .unwrap_or_else(std::sync::PoisonError::into_inner)
       .push(format!(
         "return:{}",
-        value.unwrap_or_else(|| "undefined".to_owned())
+        value.as_deref().unwrap_or("undefined")
       ));
-    async { Ok(None) }
+    async move { Ok(value) }
   }
 
   fn catch(
@@ -489,7 +640,7 @@ impl AsyncGenerator for AsyncIteratorAdmissionProbe {
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner)
       .push("throw".to_owned());
-    let error = value.into();
+    let error = Error::from_unknown_without_coercion(value);
     async move { Err(error) }
   }
 }

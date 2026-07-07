@@ -12,11 +12,13 @@ use std::{
 };
 
 #[cfg(feature = "deferred_trace")]
-use crate::{bindgen_runtime::JsObjectValue, JsValue};
+use crate::{bindgen_runtime::NapiValueOwner, JsValue};
 use crate::{
   bindgen_runtime::{Object, ToNapiValue},
   check_status, sys, Env, Error, Result,
 };
+
+const DEFERRED_REJECTION_FALLBACK_MESSAGE: &str = "Failed to create deferred rejection";
 
 #[cfg(feature = "deferred_trace")]
 /// A javascript error which keeps a stack trace
@@ -26,9 +28,68 @@ use crate::{
 ///
 /// See this issue for more details:
 /// https://github.com/nodejs/node-addon-api/issues/595
-#[repr(transparent)]
 #[derive(Clone)]
-struct DeferredTrace(sys::napi_ref);
+struct DeferredTrace(Arc<DeferredTraceInner>);
+
+#[cfg(feature = "deferred_trace")]
+struct DeferredTraceInner {
+  reference: AtomicPtr<sys::napi_ref__>,
+  owner: NapiValueOwner,
+}
+
+// SAFETY: `deferred_trace` requires N-API 4. The only operation permitted from
+// non-owner threads is `release`, which atomically claims the reference and
+// routes deletion through `NapiValueOwner`'s custom-GC handle. Reading the
+// referenced JavaScript value remains confined to the owner thread.
+#[cfg(feature = "deferred_trace")]
+unsafe impl Send for DeferredTraceInner {}
+
+// SAFETY: shared access only atomically claims the reference for release.
+// JavaScript value access still occurs exclusively on the owner thread.
+#[cfg(feature = "deferred_trace")]
+unsafe impl Sync for DeferredTraceInner {}
+
+#[cfg(feature = "deferred_trace")]
+impl DeferredTraceInner {
+  fn reference(&self) -> Result<sys::napi_ref> {
+    let reference = self.reference.load(Ordering::Acquire);
+    if reference.is_null() {
+      Err(Error::from_reason(
+        "DeferredTrace reference was already released",
+      ))
+    } else {
+      Ok(reference)
+    }
+  }
+
+  fn take_reference(&self) -> sys::napi_ref {
+    self.reference.swap(ptr::null_mut(), Ordering::AcqRel)
+  }
+
+  fn release(&self) {
+    let reference = self.take_reference();
+    if reference.is_null() {
+      return;
+    }
+    let status = self.owner.release_reference(reference);
+    if status != sys::Status::napi_ok
+      && status != sys::Status::napi_closing
+      && cfg!(debug_assertions)
+    {
+      eprintln!(
+        "Failed to release reference in DeferredTrace: {}",
+        crate::Status::from(status)
+      );
+    }
+  }
+}
+
+#[cfg(feature = "deferred_trace")]
+impl Drop for DeferredTraceInner {
+  fn drop(&mut self) {
+    self.release();
+  }
+}
 
 #[cfg(feature = "deferred_trace")]
 impl DeferredTrace {
@@ -48,35 +109,69 @@ impl DeferredTrace {
       "Create reference in DeferredTrace failed"
     )?;
 
-    Ok(Self(result))
+    Ok(Self(Arc::new(DeferredTraceInner {
+      reference: AtomicPtr::new(result),
+      owner: NapiValueOwner::new(raw_env),
+    })))
   }
 
   fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
     let env = Env::from_raw(raw_env);
-    let mut raw = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_get_reference_value(raw_env, self.0, &mut raw) },
-      "Failed to get referenced value in DeferredTrace"
-    )?;
+    let err_value = (|| {
+      let reference = self.0.reference()?;
+      let mut raw = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_get_reference_value(raw_env, reference, &mut raw) },
+        "Failed to get referenced value in DeferredTrace"
+      )?;
 
-    // Reuse the original JS rejection value when it is safe to read on this thread;
-    // the shared `napi_ref` is released when `err` drops at the end of the call.
-    let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
-      Ok(err_raw_value)
-    } else {
-      let mut obj = Object::from_raw(raw_env, raw);
-      obj.set_named_property("message", &err.reason)?;
-      obj.set_named_property(
-        "code",
-        env.create_string_from_std(format!("{}", err.status))?,
+      // Reuse the original JS rejection value when it is safe to read on this thread;
+      // the shared `napi_ref` is released when `err` drops at the end of the call.
+      if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
+        return Ok(err_raw_value);
+      }
+
+      let message = env.create_string(&err.reason)?;
+      let code = env.create_string_from_std(format!("{}", err.status))?;
+      let properties = [
+        sys::napi_property_descriptor {
+          utf8name: c"message".as_ptr().cast(),
+          name: ptr::null_mut(),
+          method: None,
+          getter: None,
+          setter: None,
+          value: message.raw(),
+          attributes: sys::PropertyAttributes::writable | sys::PropertyAttributes::configurable,
+          data: ptr::null_mut(),
+        },
+        sys::napi_property_descriptor {
+          utf8name: c"code".as_ptr().cast(),
+          name: ptr::null_mut(),
+          method: None,
+          getter: None,
+          setter: None,
+          value: code.raw(),
+          attributes: sys::PropertyAttributes::writable | sys::PropertyAttributes::configurable,
+          data: ptr::null_mut(),
+        },
+      ];
+      check_status!(
+        unsafe { sys::napi_define_properties(raw_env, raw, properties.len(), properties.as_ptr()) },
+        "Failed to define DeferredTrace error properties"
       )?;
       Ok(raw)
-    };
-    check_status!(
-      unsafe { sys::napi_delete_reference(raw_env, self.0) },
-      "Failed to get referenced value in DeferredTrace"
-    )?;
+    })();
+
+    self.0.release();
     err_value
+  }
+
+  #[cfg(test)]
+  fn empty_for_test(env: sys::napi_env) -> Self {
+    Self(Arc::new(DeferredTraceInner {
+      reference: AtomicPtr::new(ptr::null_mut()),
+      owner: NapiValueOwner::new(env),
+    }))
   }
 }
 
@@ -1023,6 +1118,7 @@ fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Resul
   );
 
   if let Err(e) = release_tsfn_result.and(result).and_then(|res| {
+    clear_deferred_pending_exception(env);
     check_status!(
       unsafe { sys::napi_resolve_deferred(env, deferred, res) },
       "Resolve deferred value failed"
@@ -1030,13 +1126,7 @@ fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Resul
     .map(|_| {
       #[cfg(feature = "deferred_trace")]
       {
-        let _status = unsafe { sys::napi_delete_reference(env, trace.0) };
-        if _status != sys::Status::napi_ok && cfg!(debug_assertions) {
-          eprintln!(
-            "Failed to delete reference in deferred {}",
-            crate::Status::from(_status)
-          );
-        }
+        trace.0.release();
       }
     })
   }) {
@@ -1045,30 +1135,76 @@ fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Resul
     #[cfg(not(feature = "deferred_trace"))]
     let error = unsafe { ToNapiValue::to_napi_value(env, e) };
 
-    match error {
-      Ok(error) => {
-        unsafe { sys::napi_reject_deferred(env, deferred, error) };
-        run_finalize_callback(finalize_callback, env);
-      }
+    let rejection = match error {
+      Ok(error) => Some(error),
       Err(err) => {
-        run_finalize_callback(finalize_callback, env);
         if cfg!(debug_assertions) {
-          eprintln!("Failed to reject deferred: {err:?}");
-          let mut err = ptr::null_mut();
-          let mut err_msg = ptr::null_mut();
-          unsafe {
-            sys::napi_create_string_utf8(env, c"Rejection failed".as_ptr().cast(), 0, &mut err_msg);
-            sys::napi_create_error(env, ptr::null_mut(), err_msg, &mut err);
-            sys::napi_reject_deferred(env, deferred, err);
-          }
+          eprintln!("Failed to create deferred rejection: {err:?}");
         }
+        fallback_deferred_rejection(env)
+      }
+    };
+    if let Some(rejection) = rejection {
+      clear_deferred_pending_exception(env);
+      let reject_status = unsafe { sys::napi_reject_deferred(env, deferred, rejection) };
+      if reject_status != sys::Status::napi_ok && cfg!(debug_assertions) {
+        eprintln!(
+          "Failed to reject deferred: {}",
+          crate::Status::from(reject_status)
+        );
       }
     }
+    run_finalize_callback(finalize_callback, env);
   } else {
     run_finalize_callback(finalize_callback, env);
   }
   drop(tsfn);
   drop(_payload_guard);
+}
+
+fn fallback_deferred_rejection(env: sys::napi_env) -> Option<sys::napi_value> {
+  if let Some(exception) = take_deferred_pending_exception(env) {
+    return Some(exception);
+  }
+
+  let mut message = ptr::null_mut();
+  if unsafe {
+    sys::napi_create_string_utf8(
+      env,
+      DEFERRED_REJECTION_FALLBACK_MESSAGE.as_ptr().cast(),
+      DEFERRED_REJECTION_FALLBACK_MESSAGE.len() as isize,
+      &mut message,
+    )
+  } == sys::Status::napi_ok
+  {
+    return Some(message);
+  }
+
+  clear_deferred_pending_exception(env);
+  let mut undefined = ptr::null_mut();
+  (unsafe { sys::napi_get_undefined(env, &mut undefined) } == sys::Status::napi_ok)
+    .then_some(undefined)
+}
+
+fn take_deferred_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
+  let mut is_pending = false;
+  if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } != sys::Status::napi_ok
+    || !is_pending
+  {
+    return None;
+  }
+
+  let mut exception = ptr::null_mut();
+  if unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) } == sys::Status::napi_ok
+  {
+    Some(exception)
+  } else {
+    None
+  }
+}
+
+fn clear_deferred_pending_exception(env: sys::napi_env) {
+  let _ = take_deferred_pending_exception(env);
 }
 
 fn run_finalize_callback(finalize_callback: Option<FinalizeCallbackHandle>, env: sys::napi_env) {
@@ -1197,7 +1333,7 @@ mod tests {
       }),
       _handle_lease: DeferredTsfnHandleLease::new(state),
       #[cfg(feature = "deferred_trace")]
-      trace: DeferredTrace(ptr::null_mut()),
+      trace: DeferredTrace::empty_for_test(env),
       finalize_callback,
       settlement: DeferredSettlement::default(),
       _data: PhantomData,
@@ -1226,6 +1362,18 @@ mod tests {
     callback.run(std::ptr::null_mut());
 
     assert_eq!(called_on.get(), Some(owner_thread));
+  }
+
+  #[cfg(feature = "deferred_trace")]
+  #[test]
+  fn deferred_trace_clones_share_one_release_claim() {
+    let trace = DeferredTrace::empty_for_test(ptr::null_mut());
+    let clone = trace.clone();
+    let reference = 1usize as sys::napi_ref;
+    trace.0.reference.store(reference, Ordering::Release);
+
+    assert_eq!(trace.0.take_reference(), reference);
+    assert!(clone.0.take_reference().is_null());
   }
 
   #[test]

@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Generated class methods, iterators, and field accessors now participate in native
   borrow checking, and every constructor and factory path uses a unique aligned allocation for
   zero-sized class values.
+- **Breaking:** Generated async-iterator `Next` types no longer add `undefined`; the CLI represents
+  an omitted `next()` argument separately from an explicitly supplied value, matching runtime
+  conversion behavior.
 - **Breaking:** Native class codegen rejects borrowed reference fields before expansion, and
   generated `JavaScriptClassExt::into_instance` implementations use fallible class-instance
   construction.

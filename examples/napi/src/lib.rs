@@ -96,11 +96,30 @@ pub const DEFAULT_COST: u32 = 12;
 pub const TYPE_SKIPPED_CONST: u32 = 12;
 
 #[napi]
-pub fn shutdown_runtime() {
+pub fn shutdown_runtime() -> Result<()> {
+  #[cfg(all(not(target_family = "wasm"), not(feature = "noop")))]
+  {
+    napi::bindgen_prelude::try_shutdown_async_runtime()?;
+    let retirement = napi::bindgen_prelude::tokio_runtime_retirement_waiter();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+      match retirement.wait() {
+        Ok(()) => break,
+        Err(error)
+          if error.status == napi::Status::WouldDeadlock
+            && std::time::Instant::now() < deadline =>
+        {
+          std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        Err(error) => return Err(error),
+      }
+    }
+  }
   #[cfg(all(target_family = "wasm", tokio_unstable, not(feature = "noop")))]
   {
     napi::bindgen_prelude::shutdown_async_runtime();
   }
+  Ok(())
 }
 
 #[napi(module_exports)]

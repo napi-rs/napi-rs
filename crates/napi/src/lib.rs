@@ -308,11 +308,15 @@ pub mod __private {
     }
 
     pub use super::async_runtime_v1::within_selected_async_runtime;
+    pub use crate::bindgen_runtime::iterator::try_create_iterator as create_iterator;
     pub use crate::bindgen_runtime::{
       acquire_native_borrow, get_class_constructor_for_env_by_type, new_instance_with_owned_value,
       register_native_borrow, register_native_borrow_with_value, NativeBorrowBarrier,
       NativeBorrowScope,
     };
+
+    #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
+    pub use crate::bindgen_runtime::async_iterator::try_create_async_iterator as create_async_iterator;
 
     pub unsafe fn try_new_class_instance<'env, T: 'env>(
       value: crate::sys::napi_value,

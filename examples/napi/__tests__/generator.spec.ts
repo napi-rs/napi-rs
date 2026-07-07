@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import test from 'ava'
 
 import {
@@ -6,6 +10,7 @@ import {
   Fib3,
   Fib4,
   ComplexTypeGenerator,
+  GeneratorLifecycleProbe,
   ReentrantGenerator,
   AsyncFib,
   AsyncComplexTypeGenerator,
@@ -16,7 +21,10 @@ import {
   createDelayedCounterPair,
   AsyncDataSource,
   shutdownRuntime,
+  throwAsyncError,
 } from '../index.cjs'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 async function waitFor(
   predicate: () => boolean,
@@ -68,9 +76,11 @@ for (const [index, factory] of [
     })
     t.deepEqual(iterator.return?.(), {
       done: true,
+      value: undefined,
     })
     t.deepEqual(iterator.next(), {
       done: true,
+      value: undefined,
     })
   })
 
@@ -91,6 +101,7 @@ for (const [index, factory] of [
     t.throws(() => iterator.throw!(new Error()))
     t.deepEqual(iterator.next(), {
       done: true,
+      value: undefined,
     })
   })
 
@@ -178,6 +189,66 @@ test('generator supports compound associated types through public N-API', (t) =>
   })
 })
 
+test('generator persists natural completion and invokes return hook once', (t) => {
+  const naturallyCompleted = new GeneratorLifecycleProbe()
+
+  t.deepEqual(naturallyCompleted.next(), { done: false, value: 1 })
+  t.deepEqual(naturallyCompleted.next(), { done: true, value: undefined })
+  t.is(naturallyCompleted.nextCalls, 2)
+  t.deepEqual(naturallyCompleted.next(), { done: true, value: undefined })
+  t.is(naturallyCompleted.nextCalls, 2)
+  t.deepEqual(naturallyCompleted.return!('after'), {
+    done: true,
+    value: 'after',
+  })
+  t.is(naturallyCompleted.completeCalls, 0)
+
+  const returned = new GeneratorLifecycleProbe()
+  t.deepEqual(returned.return!('first'), {
+    done: true,
+    value: 'first:1',
+  })
+  t.is(returned.completeCalls, 1)
+  t.deepEqual(returned.return!('second'), {
+    done: true,
+    value: 'second',
+  })
+  t.is(returned.completeCalls, 1)
+
+  const stateDescriptor = Object.getOwnPropertyDescriptor(
+    returned,
+    '[[GeneratorState]]',
+  )
+  t.false(stateDescriptor?.writable)
+  t.false(stateDescriptor?.enumerable)
+  t.false(stateDescriptor?.configurable)
+  t.false(Reflect.set(returned, '[[GeneratorState]]', false))
+  t.throws(() => {
+    Object.defineProperty(returned, '[[GeneratorState]]', { value: false })
+  })
+  t.deepEqual(returned.return!('third'), {
+    done: true,
+    value: 'third',
+  })
+  t.is(returned.completeCalls, 1)
+})
+
+test('iterator installation failures reject async results', (t) => {
+  const result = spawnSync(
+    process.execPath,
+    [join(__dirname, 'iterator-installation-failure.js')],
+    {
+      encoding: 'utf8',
+      env: process.env,
+      timeout: 30_000,
+    },
+  )
+  const output = `${result.stdout}\n${result.stderr}`
+  t.is(result.error, undefined, result.error?.stack)
+  t.is(result.signal, null, output)
+  t.is(result.status, 0, output)
+})
+
 test('generator rejects a reentrant mutable borrow and remains usable', (t) => {
   const iterator = new ReentrantGenerator()
   let nestedError: unknown
@@ -194,6 +265,63 @@ test('generator rejects a reentrant mutable borrow and remains usable', (t) => {
   )
   t.regex(String(nestedError), /cannot be borrowed mutably/)
   t.deepEqual(iterator.next(), { done: false, value: 2 })
+})
+
+test('generator rejects invalid next input without advancing', (t) => {
+  const iterator = new Fib4(0, 1)
+
+  t.throws(() => iterator.next(Symbol('invalid') as never), {
+    message: /Failed to convert napi value Symbol/,
+  })
+  t.deepEqual(iterator.next(), { done: false, value: { number: 1 } })
+  t.deepEqual(iterator.next(), { done: false, value: { number: 1 } })
+})
+
+test('generator rejects a forged receiver without advancing', (t) => {
+  const iterator = new Fib4(0, 1)
+  const next = iterator.next
+  const forgedReceiver = Object.defineProperty({}, '[[GeneratorState]]', {
+    value: false,
+    writable: true,
+  })
+
+  t.throws(() => next.call(forgedReceiver, 5), {
+    message: /incompatible receiver/,
+  })
+  t.deepEqual(iterator.toJSON(), [0, 1])
+  t.deepEqual(iterator.next(), { done: false, value: { number: 1 } })
+})
+
+test('generator rejects explicit undefined return without closing', (t) => {
+  const iterator = new GeneratorLifecycleProbe()
+
+  t.throws(() => iterator.return!(undefined as never), {
+    message: /Failed to convert JavaScript value `Undefined`/,
+  })
+  t.is(iterator.completeCalls, 0)
+  t.deepEqual(iterator.next(), { done: false, value: 1 })
+})
+
+test('generator default throw preserves arbitrary values and closes', (t) => {
+  for (const value of [
+    { reason: 'object rejection' },
+    42,
+    'string rejection',
+    undefined,
+    null,
+    Symbol('symbol rejection'),
+  ]) {
+    const iterator = new Fib()
+    let rejection: unknown
+    try {
+      iterator.throw!(value)
+      t.fail('throw() must throw')
+    } catch (error) {
+      rejection = error
+    }
+    t.is(rejection, value)
+    t.deepEqual(iterator.next(), { done: true, value: undefined })
+  }
 })
 
 // AsyncGenerator tests
@@ -228,6 +356,20 @@ test('async generator should support next()', async (t) => {
   t.deepEqual(await iter.next(), { value: 2, done: false })
 })
 
+test('returned async generator should itself be async iterable', async (t) => {
+  const iterator = new AsyncFib()[Symbol.asyncIterator]()
+  const values: number[] = []
+
+  t.is(iterator[Symbol.asyncIterator](), iterator)
+  for await (const value of iterator) {
+    values.push(value)
+    if (values.length === 3) {
+      break
+    }
+  }
+  t.deepEqual(values, [1, 1, 2])
+})
+
 test('async generator should support return()', async (t) => {
   if (typeof AsyncFib === 'undefined') {
     t.pass(
@@ -254,9 +396,49 @@ test('async generator queues return behind pending next and remains closed', asy
   })
 
   t.deepEqual(await next, { value: 0, done: false })
-  t.deepEqual(await returned, { value: undefined, done: true })
+  t.deepEqual(await returned, { value: 'stop', done: true })
   t.deepEqual(settlementOrder, ['next', 'return'])
   t.deepEqual(await iterator.next(), { value: undefined, done: true })
+})
+
+test('async generator preserves each return value after closing', async (t) => {
+  const iterator = new DelayedCounter(3, 0)[Symbol.asyncIterator]()
+
+  t.deepEqual(await iterator.return!('first'), {
+    value: 'first',
+    done: true,
+  })
+  t.deepEqual(await iterator.return!('second'), {
+    value: 'second',
+    done: true,
+  })
+})
+
+test('queued async returns recover terminal ownership after conversion failures', async (t) => {
+  const succeeding = new AsyncComplexTypeGenerator()[Symbol.asyncIterator]()
+  const failed = succeeding.return!(Symbol('invalid') as never)
+  const returned = succeeding.return!([8, 13])
+  const skipped = succeeding.next({ first: 2, second: 3 })
+
+  await t.throwsAsync(failed, {
+    message: /Failed to get Array length/,
+  })
+  t.deepEqual(await returned, { value: [8, 13], done: true })
+  t.deepEqual(await skipped, { value: undefined, done: true })
+
+  const recovering = new AsyncComplexTypeGenerator()[Symbol.asyncIterator]()
+  const firstFailure = recovering.return!(Symbol('first') as never)
+  const secondFailure = recovering.return!(Symbol('second') as never)
+  const follower = recovering.next({ first: 2, second: 3 })
+
+  await t.throwsAsync(firstFailure, {
+    message: /Failed to get Array length/,
+  })
+  await t.throwsAsync(secondFailure, {
+    message: /Failed to get Array length/,
+  })
+  t.deepEqual(await follower, { value: [0, 5], done: false })
+  t.deepEqual(await recovering.next(), { value: [5, 6], done: false })
 })
 
 test('async generator should support throw()', async (t) => {
@@ -354,6 +536,44 @@ test('async generator supports compound associated types through public N-API', 
   })
 })
 
+test('async return keeps priority over next reentered by conversion', async (t) => {
+  const iterator = new AsyncComplexTypeGenerator()[Symbol.asyncIterator]()
+  let nested: Promise<IteratorResult<number[]>> | undefined
+  const value = [8, 13] as [number, number]
+  Object.defineProperty(value, 0, {
+    get() {
+      nested = iterator.next({ first: 2, second: 3 })
+      return 8
+    },
+  })
+
+  const returned = iterator.return!(value)
+
+  t.is(nested, undefined)
+  t.deepEqual(await returned, { done: true, value: [8, 13] })
+  t.deepEqual(await nested!, { done: true, value: undefined })
+})
+
+test('failed async return conversion reopens its terminal reservation', async (t) => {
+  const iterator = new AsyncComplexTypeGenerator()[Symbol.asyncIterator]()
+  const marker = { reason: 'return conversion failed' }
+  let nested: Promise<IteratorResult<number[]>> | undefined
+  const value = [8, 13] as [number, number]
+  Object.defineProperty(value, 0, {
+    get() {
+      nested = iterator.next({ first: 2, second: 3 })
+      throw marker
+    },
+  })
+
+  const returned = iterator.return!(value)
+
+  t.is(nested, undefined)
+  t.is(await rejectionOf(returned), marker)
+  t.deepEqual(await nested!, { done: false, value: [0, 5] })
+  t.deepEqual(await iterator.next(), { done: false, value: [5, 6] })
+})
+
 test('async generator queues a reentrant next request and remains usable', async (t) => {
   const iterator = new AsyncReentrantGenerator()[Symbol.asyncIterator]()
   let nestedPromise: Promise<IteratorResult<number>> | undefined
@@ -417,7 +637,7 @@ test('async generator admits return only after a pending next settles', async (t
     'return hook was not admitted after next settled',
   )
   t.deepEqual(probe.events, ['next:0:value', 'return:stop'])
-  t.deepEqual(await returned, { done: true, value: undefined })
+  t.deepEqual(await returned, { done: true, value: 'stop' })
 })
 
 test('async generator admits throw only after a pending next settles', async (t) => {
@@ -436,12 +656,194 @@ test('async generator admits throw only after a pending next settles', async (t)
   probe.release(1)
   t.deepEqual(await next, { done: false, value: 0 })
   const rejection = await t.throwsAsync(throwing)
-  if (process.env.WASI_TEST) {
-    t.is(rejection.message, thrown.message)
-  } else {
-    t.is(rejection, thrown)
-  }
+  t.is(rejection, thrown)
   t.deepEqual(probe.events, ['next:0:value', 'throw'])
+})
+
+function poisonObjectPrototypeSetters(keys: PropertyKey[]) {
+  const originalDescriptors = new Map(
+    keys.map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(Object.prototype, key),
+    ]),
+  )
+  const setterCalls: PropertyKey[] = []
+
+  for (const key of keys) {
+    Object.defineProperty(Object.prototype, key, {
+      configurable: true,
+      set() {
+        setterCalls.push(key)
+        throw new Error(`inherited ${String(key)} setter must not run`)
+      },
+    })
+  }
+
+  return {
+    setterCalls,
+    restore() {
+      for (const key of keys) {
+        const descriptor = originalDescriptors.get(key)
+        if (descriptor) {
+          Object.defineProperty(Object.prototype, key, descriptor)
+        } else {
+          Reflect.deleteProperty(Object.prototype, key)
+        }
+      }
+    },
+  }
+}
+
+test.serial('generator installation ignores inherited setters', (t) => {
+  const poisoned = poisonObjectPrototypeSetters([
+    Symbol.iterator,
+    Symbol.asyncIterator,
+    'next',
+    'return',
+    'throw',
+  ])
+
+  try {
+    const sync = new Fib4(0, 1)
+    const syncFactoryDescriptor = Object.getOwnPropertyDescriptor(
+      sync,
+      Symbol.iterator,
+    )
+    t.is(typeof syncFactoryDescriptor?.value, 'function')
+    t.true(syncFactoryDescriptor?.writable)
+    t.true(syncFactoryDescriptor?.enumerable)
+    t.true(syncFactoryDescriptor?.configurable)
+    t.is(sync[Symbol.iterator](), sync)
+    for (const key of ['next', 'return', 'throw'] as const) {
+      const descriptor = Object.getOwnPropertyDescriptor(sync, key)
+      t.is(typeof descriptor?.value, 'function')
+      t.true(descriptor?.writable)
+      t.true(descriptor?.enumerable)
+      t.true(descriptor?.configurable)
+    }
+    const syncResult = sync.next()
+    t.is(syncResult.done, false)
+    t.is((syncResult.value as { number: number }).number, 1)
+
+    const owner = new AsyncFib()
+    const factoryDescriptor = Object.getOwnPropertyDescriptor(
+      owner,
+      Symbol.asyncIterator,
+    )
+    t.is(typeof factoryDescriptor?.value, 'function')
+    t.true(factoryDescriptor?.writable)
+    t.true(factoryDescriptor?.enumerable)
+    t.true(factoryDescriptor?.configurable)
+
+    const iterator = owner[Symbol.asyncIterator]()
+    for (const key of ['next', 'return', 'throw'] as const) {
+      const descriptor = Object.getOwnPropertyDescriptor(iterator, key)
+      t.is(typeof descriptor?.value, 'function')
+      t.true(descriptor?.writable)
+      t.true(descriptor?.enumerable)
+      t.true(descriptor?.configurable)
+    }
+    const iteratorDescriptor = Object.getOwnPropertyDescriptor(
+      iterator,
+      Symbol.asyncIterator,
+    )
+    t.is(typeof iteratorDescriptor?.value, 'function')
+    t.true(iteratorDescriptor?.writable)
+    t.true(iteratorDescriptor?.enumerable)
+    t.true(iteratorDescriptor?.configurable)
+    t.is(iteratorDescriptor?.value.call(iterator), iterator)
+    t.is(poisoned.setterCalls.length, 0)
+  } finally {
+    poisoned.restore()
+  }
+})
+
+test.serial(
+  'async generator value holders ignore inherited setters',
+  async (t) => {
+    const iterator = new AsyncFib()[Symbol.asyncIterator]()
+    const keys: PropertyKey[] = ['[[ErrorValue]]', '[[RequestValue]]']
+    const poisoned = poisonObjectPrototypeSetters(keys)
+
+    try {
+      const nextResult = await iterator.next(7)
+      t.is(nextResult.value, 7)
+      t.is(nextResult.done, false)
+      const rejection = { reason: 'exact inherited-setter rejection' }
+      t.is(await rejectionOf(iterator.throw!(rejection)), rejection)
+      t.is(poisoned.setterCalls.length, 0)
+    } finally {
+      poisoned.restore()
+    }
+  },
+)
+
+test('iterator results ignore inherited setters', (t) => {
+  const result = spawnSync(
+    process.execPath,
+    [join(__dirname, 'iterator-result-own-properties.js')],
+    {
+      encoding: 'utf8',
+      env: process.env,
+      timeout: 30_000,
+    },
+  )
+  const output = `${result.stdout}\n${result.stderr}`
+  t.is(result.error, undefined, result.error?.stack)
+  t.is(result.signal, null, output)
+  t.is(result.status, 0, output)
+  t.regex(result.stdout, /Iterator result own properties passed/)
+})
+
+test.serial(
+  'deferred trace rejection ignores inherited code setters',
+  async (t) => {
+    const originalCode = Object.getOwnPropertyDescriptor(
+      Error.prototype,
+      'code',
+    )
+    let setterCalls = 0
+    Object.defineProperty(Error.prototype, 'code', {
+      configurable: true,
+      set() {
+        setterCalls++
+        throw new Error('inherited code setter must not run')
+      },
+    })
+
+    try {
+      const rejection = (await rejectionOf(throwAsyncError())) as Error & {
+        code: string
+      }
+      t.is(rejection.message, 'Async Error')
+      t.is(rejection.code, 'InvalidArg')
+      t.is(setterCalls, 0)
+      t.true(Object.hasOwn(rejection, 'code'))
+    } finally {
+      if (originalCode) {
+        Object.defineProperty(Error.prototype, 'code', originalCode)
+      } else {
+        delete (Error.prototype as Error & { code?: string }).code
+      }
+    }
+  },
+)
+
+test('deferred trace releases its rejection reference after settlement', (t) => {
+  const result = spawnSync(
+    process.execPath,
+    ['--expose-gc', join(__dirname, 'deferred-trace-release.js')],
+    {
+      encoding: 'utf8',
+      env: process.env,
+      timeout: 30_000,
+    },
+  )
+  const output = `${result.stdout}\n${result.stderr}`
+  t.is(result.error, undefined, result.error?.stack)
+  t.is(result.signal, null, output)
+  t.is(result.status, 0, output)
+  t.regex(result.stdout, /Deferred trace release passed/)
 })
 
 test('async generator hands off after a queued setup failure', async (t) => {
@@ -488,8 +890,13 @@ test('async generator hands off after a queued argument conversion failure', asy
   await t.throwsAsync(failing, {
     message: /Failed to convert napi value Symbol/,
   })
-  t.deepEqual(await follower, { done: true, value: undefined })
-  t.deepEqual(probe.events, ['next:0:value'])
+  await waitFor(
+    () => probe.events.length === 2,
+    'follower was not admitted after argument conversion failure',
+  )
+  probe.release(1)
+  t.deepEqual(await follower, { done: false, value: 1 })
+  t.deepEqual(probe.events, ['next:0:value', 'next:1:value'])
 })
 
 for (const outcome of ['error', 'panic'] as const) {
@@ -538,6 +945,7 @@ test('async generator setup failures return rejected Promises', async (t) => {
   await t.throwsAsync(invalidNextPromise!, {
     message: /Failed to convert napi value Symbol/,
   })
+  t.deepEqual(await invalidNextIterator.next(), { done: false, value: 1 })
 
   const invalidReturnIterator = new AsyncGeneratorSetupFailure('none')[
     Symbol.asyncIterator
@@ -552,6 +960,18 @@ test('async generator setup failures return rejected Promises', async (t) => {
   await t.throwsAsync(invalidReturnPromise!, {
     message: /Failed to convert napi value Symbol/,
   })
+  t.deepEqual(await invalidReturnIterator.next(), { done: false, value: 1 })
+
+  const promiseReturnIterator = new AsyncGeneratorSetupFailure('none')[
+    Symbol.asyncIterator
+  ]()
+  await t.throwsAsync(
+    promiseReturnIterator.return!(Promise.resolve(1) as never),
+    {
+      message: /Failed to convert napi value Object/,
+    },
+  )
+  t.deepEqual(await promiseReturnIterator.next(), { done: false, value: 1 })
 
   const pendingException = { reason: 'pending async generator exception' }
   const pendingExceptionIterator = new AsyncGeneratorSetupFailure(
@@ -568,6 +988,32 @@ test('async generator setup failures return rejected Promises', async (t) => {
   })
   t.true(pendingExceptionPromise instanceof Promise)
   t.is(await rejectionOf(pendingExceptionPromise!), pendingException)
+
+  const handledThrowIterator = new AsyncGeneratorSetupFailure('none')[
+    Symbol.asyncIterator
+  ]()
+  t.deepEqual(await handledThrowIterator.throw!('handled'), {
+    done: true,
+    value: undefined,
+  })
+  t.deepEqual(await handledThrowIterator.next(), {
+    done: true,
+    value: undefined,
+  })
+
+  const yieldingThrowIterator = new AsyncGeneratorSetupFailure('throw-value')[
+    Symbol.asyncIterator
+  ]()
+  const yieldingThrow = yieldingThrowIterator.throw!('handled')
+  const yieldingThrowFollower = yieldingThrowIterator.next()
+  t.deepEqual(await yieldingThrow, {
+    done: false,
+    value: 1,
+  })
+  t.deepEqual(await yieldingThrowFollower, {
+    done: false,
+    value: 1,
+  })
 
   if (process.env.WASI_TEST) {
     return

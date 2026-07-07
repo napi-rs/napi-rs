@@ -208,6 +208,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@emnapi/runtime@patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch":
+  version: 1.11.2
+  resolution: "@emnapi/runtime@patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch::version=1.11.2&hash=68d5f0"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/500e49d5e93543aef5b9d846fef5e0cf6a2bb5ae199e7c9d502adc41c6ad3cb0f08a3300ae98dec3e7521e416ca99fd12363f7f744b8d40b444680d3778874bb
+  languageName: node
+  linkType: hard
+
 "@emnapi/wasi-threads@npm:1.0.4":
   version: 1.0.4
   resolution: "@emnapi/wasi-threads@npm:1.0.4"

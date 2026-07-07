@@ -21,6 +21,8 @@ use crate::{bindgen_runtime::ToNapiValue, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
+const ERROR_VALUE_KEY: &CStr = c"[[ErrorValue]]";
+
 #[cfg(feature = "napi4")]
 type ErrorRefHandle = std::sync::Arc<ErrorRef>;
 #[cfg(not(feature = "napi4"))]
@@ -152,11 +154,14 @@ impl<S: AsRef<str>> Error<S> {
 }
 
 impl Error {
-  #[cfg_attr(
-    not(any(feature = "tokio_rt", feature = "async-runtime")),
-    allow(dead_code)
-  )]
-  pub(crate) fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
+  /// Retains an arbitrary JavaScript value as the exact value produced when this
+  /// error is converted back to JavaScript.
+  ///
+  /// Unlike [`From<Unknown>`], this does not coerce the value or read any of its
+  /// properties. This is useful for APIs such as `Promise` and async-generator
+  /// rejection paths, where JavaScript permits any value and requires its
+  /// identity to be preserved.
+  pub fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
     let env = value.0.env;
     let mut holder = ptr::null_mut();
     let status = unsafe { sys::napi_create_object(env, &mut holder) };
@@ -166,14 +171,18 @@ impl Error {
         "Create Error value holder failed".to_owned(),
       );
     }
-    let status = unsafe {
-      sys::napi_set_named_property(
-        env,
-        holder,
-        c"[[ErrorValue]]".as_ptr().cast(),
-        value.0.value,
-      )
-    };
+    let properties = [sys::napi_property_descriptor {
+      utf8name: ERROR_VALUE_KEY.as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: value.0.value,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    }];
+    let status =
+      unsafe { sys::napi_define_properties(env, holder, properties.len(), properties.as_ptr()) };
     if status != sys::Status::napi_ok {
       return Self::new(
         Status::from(status),
@@ -477,7 +486,7 @@ impl<S: AsRef<str>> Error<S> {
     }
     if error_ref.indirect {
       let status = unsafe {
-        sys::napi_get_named_property(env, result, c"[[ErrorValue]]".as_ptr().cast(), &mut result)
+        sys::napi_get_named_property(env, result, ERROR_VALUE_KEY.as_ptr().cast(), &mut result)
       };
       if status != sys::Status::napi_ok {
         return None;

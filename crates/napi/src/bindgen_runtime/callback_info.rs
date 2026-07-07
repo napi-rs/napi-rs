@@ -132,7 +132,9 @@ impl<const N: usize> CallbackInfo<N> {
     obj: T,
   ) -> Result<sys::napi_value> {
     let (instance, generator_ptr) = self._construct::<IsEmptyStructHint, T>(js_name, obj)?;
-    unsafe { crate::__private::create_iterator(self.env, instance, generator_ptr) };
+    unsafe {
+      crate::bindgen_runtime::iterator::try_create_iterator(self.env, instance, generator_ptr)
+    }?;
     Ok(instance)
   }
 
@@ -150,7 +152,9 @@ impl<const N: usize> CallbackInfo<N> {
     obj: T,
   ) -> Result<sys::napi_value> {
     let (instance, generator_ptr) = self._factory(js_name, obj)?;
-    unsafe { crate::__private::create_iterator(self.env, instance, generator_ptr) };
+    unsafe {
+      crate::bindgen_runtime::iterator::try_create_iterator(self.env, instance, generator_ptr)
+    }?;
     Ok(instance)
   }
 
@@ -164,7 +168,11 @@ impl<const N: usize> CallbackInfo<N> {
     obj: T,
   ) -> Result<sys::napi_value> {
     let (instance, generator_ptr) = self._construct::<IsEmptyStructHint, T>(js_name, obj)?;
-    crate::__private::create_async_iterator(self.env, instance, generator_ptr);
+    crate::bindgen_runtime::async_iterator::try_create_async_iterator(
+      self.env,
+      instance,
+      generator_ptr,
+    )?;
     Ok(instance)
   }
 
@@ -177,7 +185,11 @@ impl<const N: usize> CallbackInfo<N> {
     obj: T,
   ) -> Result<sys::napi_value> {
     let (instance, generator_ptr) = self._factory(js_name, obj)?;
-    crate::__private::create_async_iterator(self.env, instance, generator_ptr);
+    crate::bindgen_runtime::async_iterator::try_create_async_iterator(
+      self.env,
+      instance,
+      generator_ptr,
+    )?;
     Ok(instance)
   }
 

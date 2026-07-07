@@ -32,11 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Generated native class references now reject overlapping mutable borrows, including public field accessors and reentrant conversion callbacks. Compatibility accessors such as `CallContext::get::<&T>()` reject bare class references at public callback boundaries, and `Array::get_ref` was removed; use owned `Reference<T>` values with `Reference::with` / `Reference::with_mut` for scoped access. `ClassInstance<T>` now owns a strong JavaScript reference, resolves a fresh Node-API handle for every JavaScript conversion, and exposes `clone_reference` / `into_reference` instead of a cached public `napi_value`. Its `as_object` method now takes the current `Env` and returns `Result<Object>`.
 - **Breaking:** Generated iterator and async-iterator callbacks now reject reentrant mutable access
   to the same native class value instead of constructing overlapping `&mut T` references.
+- **Breaking:** `Generator::Return` now requires `ToNapiValue`, `AsyncGenerator::Return` now
+  requires `ToNapiValue + Send + 'static`, and both `complete` hooks return
+  `Option<Self::Return>` instead of `Option<Self::Yield>`. Existing implementations should update
+  their output types; the default implementation returns the supplied value. Upgrade
+  `@napi-rs/cli` with the runtime so generated declarations use the matching direct-value
+  `return()` contract and include `undefined` for natural completion. Runtime callbacks and
+  generated `next()` signatures distinguish omitted arguments from explicit `undefined`.
 - **Breaking:** Builds targeting N-API 1-3 no longer implement `Send` or `Sync` for `Error`, `Buffer`, or `FunctionRef`, because those versions have no thread-safe primitive for releasing their JavaScript references. Enable `napi4` for cross-thread ownership, or keep these values on their creating JavaScript thread.
 - **Breaking:** `CleanupEnvHook` no longer implements `Copy` or `Clone`, and `Env::remove_env_cleanup_hook` consumes it. A successful removal reclaims the callback allocation, so the right to remove a hook must have one owner.
 
 ### Fixed
 
+- Iterator installation failures now propagate through generated class conversions, detached sync
+  iterator methods retain and validate their exact owner, sync generator completion state is no
+  longer writable from JavaScript, and rejected async `return()` arguments leave the iterator open.
+- Unresolved or cancelled `JsDeferred` values now release their deferred stack-trace reference
+  instead of retaining it until environment teardown.
 - Class constructor lookup is now scoped by environment, Rust type, and JavaScript namespace, so
   classes with the same JavaScript name in different namespaces retain the correct prototype.
 - Restored the infallible `ClassInstance::new` signature expected by previously released generated

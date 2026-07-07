@@ -17,8 +17,15 @@ export declare class ExternalObject<T> {
 export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
 declare global {
   interface IteratorObject<T, TReturn = unknown, TNext = unknown>
-    extends Iterator<T, TReturn, TNext> {
-    [Symbol.iterator](): IteratorObject<T, TReturn, TNext>
+    extends globalThis.Iterator<T, TReturn, TNext> {
+    [globalThis.Symbol.iterator](): globalThis.IteratorObject<T, TReturn, TNext>
+  }
+
+  interface __NapiRsAsyncGenerator<TOwner, T, TReturn, TNext> {
+    next(...[value]: [] | [TNext]): globalThis.Promise<globalThis.IteratorResult<T, TReturn | undefined>>
+    return(...[value]: [] | [TReturn]): globalThis.Promise<globalThis.IteratorResult<T, TReturn | undefined>>
+    throw(exception?: unknown): globalThis.Promise<globalThis.IteratorResult<T, TReturn | undefined>>
+    [globalThis.Symbol.asyncIterator](): this
   }
 }
 
@@ -103,8 +110,8 @@ export type JsAssets = Assets
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncComplexTypeGenerator {
-  [Symbol.asyncIterator](): AsyncGenerator<number[], [number, number], Record<string, number> | undefined>
   constructor()
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncComplexTypeGenerator, number[], [number, number], Record<string, number>>
 }
 
 /**
@@ -114,9 +121,9 @@ export declare class AsyncComplexTypeGenerator {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncDataSource {
-  [Symbol.asyncIterator](): AsyncGenerator<string, void, undefined>
   /** Creates an async data source that yields each item with a simulated I/O delay */
   static fromData(data: Array<string>, delayMs: number): AsyncDataSource
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncDataSource, string, void, undefined>
 }
 
 /**
@@ -126,8 +133,8 @@ export declare class AsyncDataSource {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncFib {
-  [Symbol.asyncIterator](): AsyncGenerator<number, void, number | undefined>
   constructor()
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncFib, number, void, number>
 }
 
 /**
@@ -137,8 +144,8 @@ export declare class AsyncFib {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncGeneratorSetupFailure {
-  [Symbol.asyncIterator](): AsyncGenerator<number, number, number | undefined>
   constructor(panicIn: string)
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncGeneratorSetupFailure, number, number, number>
 }
 
 /**
@@ -148,10 +155,34 @@ export declare class AsyncGeneratorSetupFailure {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncIteratorAdmissionProbe {
-  [Symbol.asyncIterator](): AsyncGenerator<number, string, number | undefined>
   constructor(outcomes: Array<string>)
   get events(): Array<string>
   release(count: number): void
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorAdmissionProbe, number, string, number>
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class AsyncIteratorConstructor {
+  current: number
+  end: number
+  constructor(current: number, end: number)
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorConstructor, number, void, undefined>
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class AsyncIteratorIntoInstance {
+
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorIntoInstance, number, void, undefined>
 }
 
 /**
@@ -161,8 +192,8 @@ export declare class AsyncIteratorAdmissionProbe {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncReentrantGenerator {
-  [Symbol.asyncIterator](): AsyncGenerator<number, void, () => void | undefined>
   constructor()
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncReentrantGenerator, number, void, () => void>
 }
 
 export declare class AsyncThrowClass {
@@ -229,13 +260,13 @@ export declare class ClassWithLifetime {
  */
 export declare class ComplexTypeGenerator {
   constructor()
-  [Symbol.iterator](): this
-  next(value?: Record<string, number>): IteratorResult<number[], [string, number]>
-  return(value?: [string, number]): IteratorResult<number[], [string, number]>
-  throw(exception?: unknown): IteratorResult<number[], [string, number]>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [Record<string, number>]): globalThis.IteratorResult<number[], ([string, number]) | undefined>
+  return(...[value]: [] | [[string, number]]): globalThis.IteratorResult<number[], ([string, number]) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number[], ([string, number]) | undefined>
 }
 
-export interface ComplexTypeGenerator extends IteratorObject<number[], [string, number], Record<string, number>> {}
+export interface ComplexTypeGenerator extends globalThis.Omit<globalThis.IteratorObject<number[], ([string, number]) | undefined, Record<string, number>>, 'next' | 'return' | 'throw'> {}
 
 export declare class Context {
   maybeNeed?: boolean
@@ -254,7 +285,7 @@ export declare class Context {
  */
 export declare class CounterRepro {
   constructor(max: number)
-  [Symbol.asyncIterator](): AsyncGenerator<number, void, undefined>
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<CounterRepro, number, void, undefined>
 }
 
 export declare class CreateStringClass {
@@ -301,9 +332,9 @@ export declare class DefaultUseNullableClass {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class DelayedCounter {
-  [Symbol.asyncIterator](): AsyncGenerator<number, string, undefined>
   /** Creates a counter that yields values from 0 to max-1 with a delay between each */
   constructor(max: number, delayMs: number)
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<DelayedCounter, number, string, undefined>
 }
 
 export declare class Dog {
@@ -320,13 +351,13 @@ export declare class Dog {
  */
 export declare class Fib {
   constructor()
-  [Symbol.iterator](): this
-  next(value?: number): IteratorResult<number, void>
-  return(value?: void): IteratorResult<number, void>
-  throw(exception?: unknown): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
-export interface Fib extends IteratorObject<number, void, number> {}
+export interface Fib extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -337,13 +368,13 @@ export interface Fib extends IteratorObject<number, void, number> {}
  */
 export declare class Fib2 {
   static create(seed: number): Fib2
-  [Symbol.iterator](): this
-  next(value?: number): IteratorResult<number, void>
-  return(value?: void): IteratorResult<number, void>
-  throw(exception?: unknown): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
-export interface Fib2 extends IteratorObject<number, void, number> {}
+export interface Fib2 extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -356,13 +387,13 @@ export declare class Fib3 {
   current: number
   nextNum: number
   constructor(current: number, nextNum: number)
-  [Symbol.iterator](): this
-  next(value?: number): IteratorResult<number, void>
-  return(value?: void): IteratorResult<number, void>
-  throw(exception?: unknown): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
-export interface Fib3 extends IteratorObject<number, void, number> {}
+export interface Fib3 extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -376,13 +407,32 @@ export declare class Fib4 {
   nextItem: number
   constructor(current: number, nextItem: number)
   toJSON(): Array<number>
-  [Symbol.iterator](): this
-  next(value?: number): IteratorResult<unknown, void>
-  return(value?: void): IteratorResult<unknown, void>
-  throw(exception?: unknown): IteratorResult<unknown, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<unknown, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<unknown, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<unknown, (void) | undefined>
 }
 
-export interface Fib4 extends IteratorObject<unknown, void, number> {}
+export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+
+/**
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ */
+export declare class GeneratorLifecycleProbe {
+  constructor()
+  get nextCalls(): number
+  get completeCalls(): number
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [undefined]): globalThis.IteratorResult<number, (string) | undefined>
+  return(...[value]: [] | [string]): globalThis.IteratorResult<number, (string) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (string) | undefined>
+}
+
+export interface GeneratorLifecycleProbe extends globalThis.Omit<globalThis.IteratorObject<number, (string) | undefined, undefined>, 'next' | 'return' | 'throw'> {}
 
 export declare class GetterSetterWithClosures {
   constructor()
@@ -467,13 +517,13 @@ export declare class Reader {
  */
 export declare class ReentrantGenerator {
   constructor()
-  [Symbol.iterator](): this
-  next(value?: () => void): IteratorResult<number, void>
-  return(value?: void): IteratorResult<number, void>
-  throw(exception?: unknown): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [() => void]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
-export interface ReentrantGenerator extends IteratorObject<number, void, () => void> {}
+export interface ReentrantGenerator extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, () => void>, 'next' | 'return' | 'throw'> {}
 
 export declare class Selector {
   orderBy: Array<string>
@@ -482,6 +532,23 @@ export declare class Selector {
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
+
+/**
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ */
+export declare class SyncIteratorIntoInstance {
+
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [undefined]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
+}
+
+export interface SyncIteratorIntoInstance extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, undefined>, 'next' | 'return' | 'throw'> {}
 
 export declare class Thing {
 
@@ -803,6 +870,10 @@ export declare function copyExternalTokenAlias(value: ExternalObject<number>): E
 
 export declare function createArraybuffer(): ArrayBuffer
 
+export declare function createAsyncGeneratorSetupFailure(): Promise<AsyncGeneratorSetupFailure>
+
+export declare function createAsyncIteratorIntoInstance(current: number, end: number): AsyncIteratorIntoInstance
+
 export declare function createAsyncReferenceSetupProbe(value: number): ExternalObject<number>
 
 export declare function createBigInt(): bigint
@@ -856,6 +927,8 @@ export declare function createExternalTypedArray(): Uint32Array
 export declare function createExternalUtf16String(): string
 
 export declare function createFunction(): (arg: number) => number
+
+export declare function createGeneratorLifecycleProbe(): Promise<GeneratorLifecycleProbe>
 
 export declare function createI32ArrayFromExternal(): Int32Array
 
@@ -914,6 +987,8 @@ export declare function createSymbol(): symbol
 export declare function createSymbolFor(desc: string): symbol
 
 export declare function createSymbolRef(desc: string): symbol
+
+export declare function createSyncIteratorIntoInstance(current: number, end: number): SyncIteratorIntoInstance
 
 export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
 

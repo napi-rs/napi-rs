@@ -57,8 +57,8 @@ assert.notEqual(factory.ownerRef.deref(), undefined)
 
 for (const [method, args, expected] of [
   ['next', [], { value: 1, done: false }],
-  ['return', [0], { value: undefined, done: true }],
-  ['throw', [new Error('ignored')], { value: null, done: false }],
+  ['return', [0], { value: 0, done: true }],
+  ['throw', [new Error('ignored')], { value: undefined, done: true }],
 ]) {
   const retained = takeIteratorCallback(method)
   await forceCompactingGc()

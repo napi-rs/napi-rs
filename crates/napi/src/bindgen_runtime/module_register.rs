@@ -947,7 +947,7 @@ unsafe fn initialize_module_exports(env: sys::napi_env, exports: sys::napi_value
         )?;
 
         if class_registration.implement_iterator {
-          unsafe { crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr) };
+          unsafe { crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr) }?;
           ensure_no_pending_exception(env, "Iterator class setup left a pending exception")?;
         }
 

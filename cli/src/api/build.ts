@@ -21,7 +21,7 @@ import {
   type NapiConfig,
   parseMetadata,
   parseTriple,
-  processTypeDef,
+  processTypeDefs,
   readFileAsync,
   readNapiConfig,
   type Target,
@@ -1352,18 +1352,15 @@ export async function generateTypeDef(
     )
   }
 
-  const processedTypeDefs = await Promise.all(
-    typeDefFiles.map((file) =>
-      processTypeDef(
-        join(options.typeDefDir, file.name),
-        constEnum,
-        runtimeStringEnum,
-      ),
-    ),
+  const processedTypeDefs = await processTypeDefs(
+    typeDefFiles.map((file) => join(options.typeDefDir, file.name)),
+    constEnum,
+    runtimeStringEnum,
+    header,
   )
 
-  dts = processedTypeDefs.map(({ dts }) => dts).join('')
-  exports = processedTypeDefs.flatMap(({ exports }) => exports)
+  dts = processedTypeDefs.dts
+  exports = processedTypeDefs.exports
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `

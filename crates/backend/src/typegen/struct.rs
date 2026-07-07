@@ -104,11 +104,10 @@ impl ToTypeDef for NapiImpl {
       let yield_type = ty_to_ts_type(output_type, false, true, false).0;
       let next_type = if let Some(ref ty) = self.async_iterator_next_type {
         let ty_str = ty_to_ts_type(ty, false, false, false).0;
-        // Make TNext accept undefined so `for await...of` works (it calls next() with no args)
         if ty_str == "void" || ty_str == "undefined" {
           "undefined".to_owned()
         } else {
-          format!("{} | undefined", ty_str)
+          ty_str
         }
       } else {
         "undefined".to_owned()
