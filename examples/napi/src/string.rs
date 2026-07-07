@@ -116,7 +116,7 @@ pub fn create_external_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf1
 }
 
 #[cfg(not(feature = "noop"))]
-#[napi(no_export)]
+#[napi]
 pub fn create_runtime_lifecycle_external_utf16_probe<'env>(
   env: &'env Env,
   result_path: String,
@@ -151,7 +151,7 @@ pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<JsStringLat
 }
 
 #[cfg(not(feature = "noop"))]
-#[napi(no_export)]
+#[napi]
 pub fn create_runtime_lifecycle_external_latin1_probe<'env>(
   env: &'env Env,
   result_path: String,
@@ -175,23 +175,6 @@ pub fn create_runtime_lifecycle_external_latin1_probe<'env>(
       },
     )
   }
-}
-
-#[cfg(not(feature = "noop"))]
-pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
-  fixture.create_named_method(
-    "createRuntimeLifecycleExternalUtf16Probe",
-    create_runtime_lifecycle_external_utf16_probe_c_callback,
-  )?;
-  fixture.create_named_method(
-    "createRuntimeLifecycleExternalLatin1Probe",
-    create_runtime_lifecycle_external_latin1_probe_c_callback,
-  )
-}
-
-#[cfg(feature = "noop")]
-pub(crate) fn install_lifecycle_fixture(_fixture: &mut Object) -> Result<()> {
-  Ok(())
 }
 
 #[napi]

@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process'
-import { dirname } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { unsupportedWasiFunctions } from './unsupported-wasi-exports.mjs'
 
 const packageDirectory = dirname(fileURLToPath(import.meta.url))
 const napiCli = fileURLToPath(new URL('../../cli/cli.mjs', import.meta.url))
-const userArguments = process.argv.slice(2)
+const declarationPath = fileURLToPath(new URL('index.d.cts', import.meta.url))
 
 function run(arguments_) {
   return new Promise((resolve, reject) => {
@@ -81,44 +84,196 @@ function fixtureArguments(arguments_) {
   return forwarded
 }
 
-await run([
-  'build',
-  '--platform',
-  '--js',
-  'index.cjs',
-  '--dts',
-  'index.d.cts',
-  ...userArguments,
-])
+function unsupportedWasiExportHelper(binding, helperName) {
+  const names = unsupportedWasiFunctions
+    .map((name) => `  '${name}',`)
+    .join('\n')
+  return `const unsupportedWasiFunctions = new Set([\n${names}\n])
 
-const target =
-  optionValue(userArguments, ['--target', '-t']) ??
-  process.env.CARGO_BUILD_TARGET
+function ${helperName}(name) {
+  const value = ${binding}[name]
+  if (
+    value !== undefined ||
+    !unsupportedWasiFunctions.has(name)
+  ) {
+    return value
+  }
+  return function unsupportedWasiFunction() {
+    const error = new Error(
+      \`The "\${name}" export is not supported by this WASI binding\`,
+    )
+    error.code = 'NAPI_RS_UNSUPPORTED_WASI_EXPORT'
+    throw error
+  }
+}
 
-if (!target?.startsWith('wasm32-')) {
+`
+}
+
+async function exposeLifecycleExportsAcrossTargets() {
+  const bindings = [
+    {
+      file: 'index.cjs',
+      binding: 'nativeBinding',
+      helper: 'getBindingExport',
+      marker: 'module.exports = nativeBinding\n',
+      assignment(name) {
+        return [
+          `module.exports.${name} = nativeBinding.${name}`,
+          `module.exports.${name} = getBindingExport('${name}')`,
+        ]
+      },
+    },
+    {
+      file: 'example.wasi.cjs',
+      binding: '__napiModule.exports',
+      helper: 'getWasiBindingExport',
+      marker: 'module.exports = __napiModule.exports\n',
+      assignment(name) {
+        return [
+          `module.exports.${name} = __napiModule.exports.${name}`,
+          `module.exports.${name} = getWasiBindingExport('${name}')`,
+        ]
+      },
+    },
+    {
+      file: 'example.wasi-browser.js',
+      binding: '__napiModule.exports',
+      helper: 'getWasiBindingExport',
+      marker: 'export const ',
+      assignment(name) {
+        return [
+          `export const ${name} = __napiModule.exports.${name}`,
+          `export const ${name} = getWasiBindingExport('${name}')`,
+        ]
+      },
+    },
+  ]
+
+  for (const { file, binding, helper, marker, assignment } of bindings) {
+    const path = fileURLToPath(new URL(file, import.meta.url))
+    let source
+    try {
+      source = await readFile(path, 'utf8')
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        continue
+      }
+      throw error
+    }
+
+    if (!source.includes(marker)) {
+      throw new Error(`Could not locate lifecycle export marker in ${file}`)
+    }
+    if (!source.includes(`function ${helper}(`)) {
+      source = source.replace(
+        marker,
+        `${unsupportedWasiExportHelper(binding, helper)}${marker}`,
+      )
+    }
+    for (const name of unsupportedWasiFunctions) {
+      const [generated, replacement] = assignment(name)
+      if (source.includes(replacement)) {
+        continue
+      }
+      if (source.includes(generated)) {
+        source = source.replace(generated, replacement)
+      } else {
+        source += `${source.endsWith('\n') ? '' : '\n'}${replacement}\n`
+      }
+    }
+    await writeFile(path, source)
+  }
+}
+
+export function mergeLifecycleDeclarations(source, previousSource) {
+  const missingDeclarations = []
+
+  for (const name of unsupportedWasiFunctions) {
+    const declarationStart = `export declare function ${name}(`
+    if (source.includes(declarationStart)) {
+      continue
+    }
+    const start = previousSource.indexOf(declarationStart)
+    const separator = start === -1 ? -1 : previousSource.indexOf('\n\n', start)
+    const end = separator === -1 ? previousSource.length : separator
+    if (start === -1) {
+      throw new Error(`Could not preserve ${name} declaration for WASI`)
+    }
+    missingDeclarations.push(previousSource.slice(start, end).trimEnd())
+  }
+
+  if (missingDeclarations.length === 0) {
+    return source
+  }
+
+  return `${source.trimEnd()}\n\n${missingDeclarations.join('\n\n')}\n`
+}
+
+async function preserveLifecycleDeclarations(previousSource) {
+  const source = await readFile(declarationPath, 'utf8')
+  const nextSource = mergeLifecycleDeclarations(source, previousSource)
+
+  if (nextSource !== source) {
+    await writeFile(declarationPath, nextSource)
+  }
+}
+
+async function main(userArguments) {
+  const target =
+    optionValue(userArguments, ['--target', '-t']) ??
+    process.env.CARGO_BUILD_TARGET
+  const previousDeclarationSource = target?.startsWith('wasm32-')
+    ? await readFile(declarationPath, 'utf8')
+    : undefined
+
   await run([
     'build',
-    '--manifest-path',
-    'module-init-rollback/Cargo.toml',
-    '--package-json-path',
-    'module-init-rollback/package.json',
-    '--output-dir',
-    'module-init-rollback',
+    '--platform',
+    '--js',
+    'index.cjs',
     '--dts',
-    '../../../target/napi-module-init-rollback-fixture.d.ts',
-    ...fixtureArguments(userArguments),
+    'index.d.cts',
+    ...userArguments,
   ])
 
-  await run([
-    'build',
-    '--manifest-path',
-    'tsfn-retention/Cargo.toml',
-    '--package-json-path',
-    'tsfn-retention/package.json',
-    '--output-dir',
-    'tsfn-retention',
-    '--dts',
-    '../../../target/napi-tsfn-retention-fixture.d.ts',
-    ...fixtureArguments(userArguments),
-  ])
+  await exposeLifecycleExportsAcrossTargets()
+  if (previousDeclarationSource !== undefined) {
+    await preserveLifecycleDeclarations(previousDeclarationSource)
+  }
+
+  if (!target?.startsWith('wasm32-')) {
+    await run([
+      'build',
+      '--manifest-path',
+      'module-init-rollback/Cargo.toml',
+      '--package-json-path',
+      'module-init-rollback/package.json',
+      '--output-dir',
+      'module-init-rollback',
+      '--dts',
+      '../../../target/napi-module-init-rollback-fixture.d.ts',
+      ...fixtureArguments(userArguments),
+    ])
+
+    await run([
+      'build',
+      '--manifest-path',
+      'tsfn-retention/Cargo.toml',
+      '--package-json-path',
+      'tsfn-retention/package.json',
+      '--output-dir',
+      'tsfn-retention',
+      '--dts',
+      '../../../target/napi-tsfn-retention-fixture.d.ts',
+      ...fixtureArguments(userArguments),
+    ])
+  }
+}
+
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  await main(process.argv.slice(2))
 }

@@ -5,7 +5,12 @@ import {
   Fib2,
   Fib3,
   Fib4,
+  ComplexTypeGenerator,
+  ReentrantGenerator,
   AsyncFib,
+  AsyncComplexTypeGenerator,
+  AsyncReentrantGenerator,
+  AsyncGeneratorSetupFailure,
   DelayedCounter,
   AsyncDataSource,
   shutdownRuntime,
@@ -136,6 +141,37 @@ test('generator subclasses should preserve the prototype chain', (t) => {
   }
 })
 
+test('generator supports compound associated types through public N-API', (t) => {
+  const iterator = new ComplexTypeGenerator()
+
+  t.deepEqual(iterator.next({ first: 2, second: 3 }), {
+    done: false,
+    value: [0, 5],
+  })
+  t.deepEqual(iterator.return?.(['complete', 7]), {
+    done: true,
+    value: ['complete', 7],
+  })
+})
+
+test('generator rejects a reentrant mutable borrow and remains usable', (t) => {
+  const iterator = new ReentrantGenerator()
+  let nestedError: unknown
+
+  t.deepEqual(
+    iterator.next(() => {
+      try {
+        iterator.next()
+      } catch (error) {
+        nestedError = error
+      }
+    }),
+    { done: false, value: 1 },
+  )
+  t.regex(String(nestedError), /cannot be borrowed mutably/)
+  t.deepEqual(iterator.next(), { done: false, value: 2 })
+})
+
 // AsyncGenerator tests
 test('async generator should work with for-await-of', async (t) => {
   if (typeof AsyncFib === 'undefined') {
@@ -193,6 +229,105 @@ test('async generator should support throw()', async (t) => {
   t.deepEqual(await iter.next(), { value: 1, done: false })
   // throw() should reject with the error passed to it
   await t.throwsAsync(() => iter.throw!(new Error('test error')))
+})
+
+test('async generator supports compound associated types through public N-API', async (t) => {
+  const iterator = new AsyncComplexTypeGenerator()[Symbol.asyncIterator]()
+
+  t.deepEqual(await iterator.next({ first: 2, second: 3 }), {
+    done: false,
+    value: [0, 5],
+  })
+  t.deepEqual(await iterator.return?.([8, 13]), {
+    done: true,
+    value: [8, 13],
+  })
+})
+
+test('async generator rejects a reentrant mutable borrow and remains usable', async (t) => {
+  const iterator = new AsyncReentrantGenerator()[Symbol.asyncIterator]()
+  let nestedPromise: Promise<IteratorResult<number>> | undefined
+
+  t.deepEqual(
+    await iterator.next(() => {
+      nestedPromise = iterator.next()
+    }),
+    { done: false, value: 1 },
+  )
+  await t.throwsAsync(nestedPromise!, {
+    message: /cannot be borrowed mutably/,
+  })
+  t.deepEqual(await iterator.next(), { done: false, value: 2 })
+})
+
+test('async generator setup failures return rejected Promises', async (t) => {
+  const invalidNextIterator = new AsyncGeneratorSetupFailure('none')[
+    Symbol.asyncIterator
+  ]()
+  let invalidNextPromise: Promise<IteratorResult<number>> | undefined
+  t.notThrows(() => {
+    invalidNextPromise = invalidNextIterator.next(Symbol('invalid') as never)
+  })
+  t.true(invalidNextPromise instanceof Promise)
+  await t.throwsAsync(invalidNextPromise!, {
+    message: /Failed to convert napi value Symbol/,
+  })
+
+  const invalidReturnIterator = new AsyncGeneratorSetupFailure('none')[
+    Symbol.asyncIterator
+  ]()
+  let invalidReturnPromise: Promise<IteratorResult<number>> | undefined
+  t.notThrows(() => {
+    invalidReturnPromise = invalidReturnIterator.return!(
+      Symbol('invalid') as never,
+    )
+  })
+  t.true(invalidReturnPromise instanceof Promise)
+  await t.throwsAsync(invalidReturnPromise!, {
+    message: /Failed to convert napi value Symbol/,
+  })
+
+  const pendingException = new Error('pending async generator exception')
+  const pendingExceptionIterator = new AsyncGeneratorSetupFailure(
+    'throw-pending-exception',
+  )[Symbol.asyncIterator]()
+  const throwingValue = {
+    [Symbol.toPrimitive]() {
+      throw pendingException
+    },
+  }
+  let pendingExceptionPromise: Promise<IteratorResult<number>> | undefined
+  t.notThrows(() => {
+    pendingExceptionPromise = pendingExceptionIterator.throw!(throwingValue)
+  })
+  t.true(pendingExceptionPromise instanceof Promise)
+  t.is(await t.throwsAsync(pendingExceptionPromise!), pendingException)
+
+  if (process.env.WASI_TEST) {
+    return
+  }
+
+  for (const [method, message] of [
+    ['next', /next setup panic/],
+    ['return', /return setup panic/],
+    ['throw', /throw setup panic/],
+  ] as const) {
+    const iterator = new AsyncGeneratorSetupFailure(method)[
+      Symbol.asyncIterator
+    ]()
+    let promise: Promise<IteratorResult<number>> | undefined
+    t.notThrows(() => {
+      if (method === 'next') {
+        promise = iterator.next()
+      } else if (method === 'return') {
+        promise = iterator.return!(0)
+      } else {
+        promise = iterator.throw!(new Error('trigger throw hook'))
+      }
+    })
+    t.true(promise instanceof Promise)
+    await t.throwsAsync(promise!, { message })
+  }
 })
 
 // Truly async generator tests - these use actual async delays

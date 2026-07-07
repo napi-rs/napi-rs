@@ -1,12 +1,9 @@
 use std::{fs, future::poll_fn, task::Poll, time::Duration};
 
 use futures::channel::oneshot;
-use napi::{
-  bindgen_prelude::{spawn as spawn_on_tokio_runtime, JsObjectValue, Object},
-  Error, Result, Status,
-};
+use napi::{bindgen_prelude::spawn as spawn_on_tokio_runtime, Error, Result, Status};
 
-#[napi(no_export)]
+#[napi]
 pub async fn start_tokio_waker_after_cleanup_probe(
   entered_path: String,
   release_path: String,
@@ -50,11 +47,4 @@ pub async fn start_tokio_waker_after_cleanup_probe(
       )
     })?
     .map_err(|reason| Error::new(Status::GenericFailure, reason))
-}
-
-pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
-  fixture.create_named_method(
-    "startTokioWakerAfterCleanupProbe",
-    start_tokio_waker_after_cleanup_probe_c_callback,
-  )
 }

@@ -72,6 +72,38 @@ const flagFixture = join(
   'runtime_string_enum_flag',
 )
 
+const namespaceIteratorFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'namespace_iterator',
+)
+
+test('keeps same-named namespace classes isolated and iterators portable', async (t) => {
+  const { dts } = await processTypeDef(namespaceIteratorFixture, true)
+
+  t.false(dts.includes('extends Iterator'))
+  t.true(
+    dts.includes(
+      '[Symbol.iterator](): Iterator<[number, number], [string, number], Record<string, number>>\n' +
+        '  next(value?: Record<string, number>): IteratorResult<[number, number], [string, number]>\n' +
+        '  return(value?: [string, number]): IteratorResult<[number, number], [string, number]>\n' +
+        '  throw(exception?: unknown): IteratorResult<[number, number], [string, number]>',
+    ),
+  )
+  t.true(dts.includes('class DerivedClass extends BaseClass'))
+  t.is(dts.match(/alphaMethod/g)?.length, 1)
+  t.is(dts.match(/betaMethod/g)?.length, 1)
+  t.regex(
+    dts,
+    /namespace alpha \{\n  export class SharedClass \{\n    alphaMethod\(\): void\n  \}/,
+  )
+  t.regex(
+    dts,
+    /namespace beta \{\n  export class SharedClass \{\n    betaMethod\(\): void\n  \}/,
+  )
+})
+
 test('should process type def with noConstEnum and runtimeStringEnum correctly', async (t) => {
   const { dts } = await processTypeDef(flagFixture, false, true)
 

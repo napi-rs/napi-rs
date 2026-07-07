@@ -3,7 +3,8 @@ use napi::*;
 #[js_function(1)]
 pub fn detach_arraybuffer(ctx: CallContext) -> Result<()> {
   let input = ctx.get::<JsArrayBuffer>(0)?;
-  input.detach()?;
+  // No Rust alias or backing-store reference is retained after this call.
+  unsafe { input.detach()? };
   Ok(())
 }
 

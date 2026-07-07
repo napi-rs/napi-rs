@@ -1,6 +1,6 @@
 use napi::{
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  Error, Status,
+  Error,
 };
 
 struct LocalStatus(*const ());
@@ -11,8 +11,8 @@ impl AsRef<str> for LocalStatus {
   }
 }
 
-impl From<Status> for LocalStatus {
-  fn from(_value: Status) -> Self {
+impl From<napi::Status> for LocalStatus {
+  fn from(_value: napi::Status) -> Self {
     Self(std::ptr::null())
   }
 }

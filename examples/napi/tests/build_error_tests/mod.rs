@@ -1,7 +1,22 @@
 //! Include the test files here so they can be formatted properly with `cargo fmt`
 
 pub mod assign_js_value_to_class;
+pub mod class_reference_field_alias;
+pub mod class_reference_field_lifetime;
+pub mod class_reference_field_mut;
+pub mod class_reference_field_shared;
+pub mod external_ref_legacy_mutability;
+pub mod external_ref_mutability;
+pub mod external_ref_thread_safety;
 pub mod fn_outside_impl_factory;
+pub mod native_borrow_scope;
+pub mod promise_raw_callback_lifetime_catch;
+pub mod promise_raw_callback_lifetime_finally;
+pub mod promise_raw_callback_lifetime_then;
+pub mod reference_family_class_instance_mutability;
+pub mod reference_family_mutability;
+pub mod reference_family_share_with;
+pub mod reference_family_thread_safety;
 pub mod ts_arg_type_1;
 pub mod ts_arg_type_2;
 pub mod ts_arg_type_3;

@@ -1,0 +1,5 @@
+error: Class field types with lifetimes cannot be stored in a napi class unless the outer type is `ClassInstance`, `Reference`, `SharedReference`, or `WeakReference`
+ --> tests/build_error_tests/class_reference_field_alias.rs:7:14
+  |
+7 |   pub value: Borrowed<'a>,
+  |              ^^^^^^^^^^^^

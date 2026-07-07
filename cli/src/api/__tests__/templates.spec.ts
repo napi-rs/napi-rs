@@ -2,7 +2,10 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
-import { createWasiBrowserBinding } from '../templates/load-wasi-template.js'
+import {
+  createWasiBinding,
+  createWasiBrowserBinding,
+} from '../templates/load-wasi-template.js'
 import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
 
 const test = ava
@@ -96,6 +99,93 @@ for (const { name, args } of browserBindingCases) {
   })
 }
 
+test('createWasiBrowserBinding does not collide with an exported fetch binding', (t) => {
+  const code = createWasiBrowserBinding('test')
+
+  t.true(code.includes('await globalThis.fetch(__wasmUrl)'))
+  t.false(code.includes('await fetch(__wasmUrl)'))
+})
+
+test('WASI main loaders create an isolated context', (t) => {
+  const contexts: object[] = []
+  const code = `${createWasiBinding('test', '@scope/test')}
+module.exports = __napiModule.exports
+`
+
+  function load() {
+    const module = { exports: {} }
+    const require = (specifier: string) => {
+      switch (specifier) {
+        case 'node:fs':
+          return {
+            existsSync: (path: string) => path.endsWith('test.wasm'),
+            readFileSync: () => new Uint8Array(),
+          }
+        case 'node:path':
+          return {
+            join: (...parts: string[]) => parts.join('/'),
+            parse: () => ({ root: '/' }),
+          }
+        case 'node:wasi':
+          return { WASI: class {} }
+        case 'node:worker_threads':
+          return { Worker: class {} }
+        case '@napi-rs/wasm-runtime':
+          return {
+            createContext() {
+              const context = {}
+              contexts.push(context)
+              return context
+            },
+            createOnMessage() {},
+            instantiateNapiModuleSync(
+              _wasm: Uint8Array,
+              options: { context: object },
+            ) {
+              t.is(options.context, contexts.at(-1))
+              return {
+                instance: {},
+                module: {},
+                napiModule: {
+                  exports: {
+                    add: (left: number, right: number) => left + right,
+                  },
+                },
+              }
+            },
+          }
+        default:
+          throw new Error(`Unexpected require: ${specifier}`)
+      }
+    }
+
+    new Function(
+      'require',
+      'module',
+      'process',
+      '__dirname',
+      'WebAssembly',
+      code,
+    )(require, module, { cwd: () => '/', env: {} }, '/fixture', {
+      Memory: class {},
+    })
+    return module.exports
+  }
+
+  const first = load()
+  const firstContext = contexts.at(-1)
+  const second = load()
+  const secondContext = contexts.at(-1)
+
+  t.not(firstContext, secondContext)
+  t.is(first.add(1, 2), 3)
+  t.is(second.add(2, 3), 5)
+
+  const browserCode = createWasiBrowserBinding('test')
+  t.true(browserCode.includes('createContext as __emnapiCreateContext'))
+  t.false(browserCode.includes('napi.rs.wasi.context'))
+})
+
 const workerBindingCases: Array<{
   name: string
   args: Parameters<typeof createWasiBrowserWorkerBinding>
@@ -151,6 +241,99 @@ for (const { name, code } of cjsBindingCases) {
     )
   })
 }
+
+test('createCjsBinding does not mutate frozen load errors', (t) => {
+  const immutableError = Object.freeze(
+    Object.assign(new Error('immutable loader failure'), {
+      code: 'MODULE_NOT_FOUND',
+    }),
+  )
+  const require = (specifier: string) => {
+    if (specifier === 'fs') {
+      return { readFileSync: () => '' }
+    }
+    throw immutableError
+  }
+  const module = { exports: {} }
+  const process = {
+    arch: 'arm64',
+    env: { NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node' },
+    platform: 'darwin',
+  }
+  const code = createCjsBinding('test', '@scope/test', [])
+
+  const error = t.throws(() => {
+    new Function('require', 'module', 'process', code)(require, module, process)
+  })
+
+  t.is(error.cause?.message, immutableError.message)
+  t.false(Object.prototype.hasOwnProperty.call(immutableError, 'cause'))
+})
+
+test('createCjsBinding forced WASI skips native addon initialization', (t) => {
+  const wasiBinding = { runtime: 'wasi' }
+  const requiredSpecifiers: string[] = []
+  const require = (specifier: string) => {
+    requiredSpecifiers.push(specifier)
+    if (specifier === 'fs') {
+      return { readFileSync: () => '' }
+    }
+    if (specifier === './test.wasi.cjs') {
+      return wasiBinding
+    }
+    throw new Error(`Unexpected native require: ${specifier}`)
+  }
+  const module = { exports: {} }
+  const process = {
+    arch: 'arm64',
+    env: {
+      NAPI_RS_FORCE_WASI: 'true',
+      NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+    },
+    platform: 'darwin',
+  }
+  const code = createCjsBinding('test', '@scope/test', [])
+
+  new Function('require', 'module', 'process', code)(require, module, process)
+
+  t.is(module.exports, wasiBinding)
+  t.deepEqual(requiredSpecifiers, ['fs', './test.wasi.cjs'])
+})
+
+test('createCjsBinding forced WASI retains a lazy native fallback', (t) => {
+  const nativeBinding = { runtime: 'native' }
+  const requiredSpecifiers: string[] = []
+  const require = (specifier: string) => {
+    requiredSpecifiers.push(specifier)
+    if (specifier === 'fs') {
+      return { readFileSync: () => '' }
+    }
+    if (specifier === '/native.node') {
+      return nativeBinding
+    }
+    throw new Error(`Missing WASI binding: ${specifier}`)
+  }
+  const module = { exports: {} }
+  const process = {
+    arch: 'arm64',
+    env: {
+      NAPI_RS_FORCE_WASI: 'true',
+      NAPI_RS_NATIVE_LIBRARY_PATH: '/native.node',
+    },
+    platform: 'darwin',
+  }
+  const code = createCjsBinding('test', '@scope/test', [])
+
+  new Function('require', 'module', 'process', code)(require, module, process)
+
+  t.is(module.exports, nativeBinding)
+  t.deepEqual(requiredSpecifiers, [
+    'fs',
+    './test.wasi.cjs',
+    '@scope/test-wasm32-wasi',
+    '/native.node',
+  ])
+})
 
 test('createEsmBinding is Node 12 compatible', (t) => {
   const code = createEsmBinding('test', '@scope/test', ['sum'])

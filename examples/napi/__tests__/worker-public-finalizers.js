@@ -31,55 +31,30 @@ const worker = new Worker(
   `
     const { parentPort, workerData } = require('node:worker_threads')
 
-    const lifecycle = {
-      __napiRsLifecycleFixtureToken:
-        'napi-rs-internal-lifecycle-fixture-v1',
-      moduleFinalizers: {
-        object: workerData.paths.object,
-        propertyClosurePanic: workerData.paths.propertyClosurePanic,
-        propertyClosureAfterPanic: workerData.paths.propertyClosureAfterPanic,
-      },
-    }
-    globalThis.__NAPI_RS_LIFECYCLE_FIXTURE__ = lifecycle
     const native = require(workerData.addonPath)
-    delete globalThis.__NAPI_RS_LIFECYCLE_FIXTURE__
-    for (const name of [
-      'RuntimeLifecycleFinalize',
-      'runtimeLifecycleFinalizeResult',
-      'pendingAsyncBlockWithTerminalFinalizer',
-      'asyncBlockTerminalFinalizerCount',
-      'configureTokioThreadStopFileBarrier',
-      'tokioThreadStopCount',
-      'registerEnvCleanupRuntimeLifecycleProbes',
-      'setInstanceDataRuntimeLifecycleProbe',
-      'createRuntimeLifecycleExternalProbe',
-      'createRuntimeLifecycleExternalLatin1Probe',
-      'createRuntimeLifecycleExternalUtf16Probe',
-      '__napiRsModuleFinalizerPanic',
-      '__napiRsModuleFinalizerAfterPanic',
-    ]) {
-      if (Object.hasOwn(native, name)) {
-        throw new Error(\`lifecycle fixture export leaked: \${name}\`)
-      }
-    }
+    native.registerModuleFinalizerProbes({
+      object: workerData.paths.object,
+      propertyClosurePanic: workerData.paths.propertyClosurePanic,
+      propertyClosureAfterPanic: workerData.paths.propertyClosureAfterPanic,
+    })
 
-    lifecycle.registerEnvCleanupRuntimeLifecycleProbes(
+    native.registerEnvCleanupRuntimeLifecycleProbes(
       workerData.paths.cleanup,
       workerData.paths.asyncCleanup,
     )
-    lifecycle.setInstanceDataRuntimeLifecycleProbe(
+    native.setInstanceDataRuntimeLifecycleProbe(
       workerData.paths.instanceData,
     )
     const retained = [
       new native.CustomFinalize(4, 4),
-      lifecycle.createRuntimeLifecycleFinalizer(
+      native.createRuntimeLifecycleFinalizer(
         workerData.paths.runtimeObject,
       ),
-      lifecycle.createRuntimeLifecycleExternalProbe(workerData.paths.external),
-      lifecycle.createRuntimeLifecycleExternalLatin1Probe(
+      native.createRuntimeLifecycleExternalProbe(workerData.paths.external),
+      native.createRuntimeLifecycleExternalLatin1Probe(
         workerData.paths.latin1,
       ),
-      lifecycle.createRuntimeLifecycleExternalUtf16Probe(
+      native.createRuntimeLifecycleExternalUtf16Probe(
         workerData.paths.utf16,
       ),
     ]

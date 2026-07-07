@@ -29,6 +29,95 @@ interface TypeDefLine {
   js_mod?: string
 }
 
+function parseIteratorExtends(
+  extendsDef: string,
+): [yieldType: string, returnType: string, nextType: string] | undefined {
+  const match = extendsDef.trim().match(/^Iterator\s*<([\s\S]*)>$/)
+  if (!match) {
+    return
+  }
+
+  const parameters: string[] = []
+  let start = 0
+  const depths = {
+    angle: 0,
+    brace: 0,
+    bracket: 0,
+    parenthesis: 0,
+  }
+  let quote: "'" | '"' | '`' | undefined
+  let escaped = false
+
+  for (let index = 0; index < match[1].length; index += 1) {
+    const character = match[1][index]
+    if (quote) {
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === quote) {
+        quote = undefined
+      }
+      continue
+    }
+
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+
+    switch (character) {
+      case '<':
+        depths.angle += 1
+        break
+      case '>':
+        if (match[1][index - 1] !== '=') {
+          depths.angle -= 1
+        }
+        break
+      case '{':
+        depths.brace += 1
+        break
+      case '}':
+        depths.brace -= 1
+        break
+      case '[':
+        depths.bracket += 1
+        break
+      case ']':
+        depths.bracket -= 1
+        break
+      case '(':
+        depths.parenthesis += 1
+        break
+      case ')':
+        depths.parenthesis -= 1
+        break
+      case ',':
+        if (Object.values(depths).every((depth) => depth === 0)) {
+          parameters.push(match[1].slice(start, index).trim())
+          start = index + 1
+        }
+        break
+    }
+
+    if (Object.values(depths).some((depth) => depth < 0)) {
+      return
+    }
+  }
+
+  if (quote || Object.values(depths).some((depth) => depth !== 0)) {
+    return
+  }
+
+  parameters.push(match[1].slice(start).trim())
+  if (parameters.length !== 3 || parameters.some((parameter) => !parameter)) {
+    return
+  }
+
+  return parameters as [string, string, string]
+}
+
 /**
  * Render a single intermediate type-def line as the TypeScript source it
  * should produce in `index.d.ts`.
@@ -79,25 +168,30 @@ function prettyPrint(
       break
     }
 
-    case TypeDefKind.Struct:
-      const extendsDef = line.extends ? ` extends ${line.extends}` : ''
-      if (line.extends) {
-        // Extract generic params from extends type like Iterator<T, TResult, TNext>
-        const genericMatch = line.extends.match(/Iterator<(.+)>$/)
-        if (genericMatch) {
-          const [T, TResult, TNext] = genericMatch[1]
-            .split(',')
-            .map((p) => p.trim())
-          line.def =
-            line.def +
-            `\nnext(value?: ${TNext}): IteratorResult<${T}, ${TResult}>`
-        }
+    case TypeDefKind.Struct: {
+      let classDef = line.def
+      let extendsDef = line.extends ? ` extends ${line.extends}` : ''
+      const iteratorTypes = line.extends
+        ? parseIteratorExtends(line.extends)
+        : undefined
+      if (iteratorTypes) {
+        // Do not extend the `Iterator` constructor: that declaration is only
+        // available with `esnext.iterator`, while napi iterator classes also
+        // work on runtimes and TypeScript projects without iterator helpers.
+        const [T, TResult, TNext] = iteratorTypes
+        classDef +=
+          `\n[Symbol.iterator](): Iterator<${T}, ${TResult}, ${TNext}>` +
+          `\nnext(value?: ${TNext}): IteratorResult<${T}, ${TResult}>` +
+          `\nreturn(value?: ${TResult}): IteratorResult<${T}, ${TResult}>` +
+          `\nthrow(exception?: unknown): IteratorResult<${T}, ${TResult}>`
+        extendsDef = ''
       }
-      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${line.def}\n}`
+      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${classDef}\n}`
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
       }
       break
+    }
 
     case TypeDefKind.Fn:
       s += `${exportDeclare(ambient)} ${line.def}`
@@ -229,18 +323,19 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
     }
 
     const group = namespaceGrouped.get(namespace)!
+    const classKey = `${namespace}\0${def.name}`
 
     if (def.kind === TypeDefKind.Struct) {
       group.push(def)
-      classDefs.set(def.name, def)
+      classDefs.set(classKey, def)
     } else if (def.kind === TypeDefKind.Extends) {
-      const classDef = classDefs.get(def.name)
+      const classDef = classDefs.get(classKey)
       if (classDef) {
         classDef.extends = def.def
       }
     } else if (def.kind === TypeDefKind.Impl) {
       // merge `impl` into class definition
-      const classDef = classDefs.get(def.name)
+      const classDef = classDefs.get(classKey)
       if (classDef) {
         if (classDef.def) {
           classDef.def += '\n'

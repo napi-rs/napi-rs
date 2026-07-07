@@ -1,12 +1,13 @@
 use std::{marker::PhantomData, ptr};
 
 use crate::{
-  bindgen_runtime::{FromNapiMutRef, FromNapiValue, ToNapiValue},
+  bindgen_runtime::{FromNapiMutRef, FromNapiValue, NapiValueOwner, ToNapiValue},
   check_status, sys, Env, JsValue, Result,
 };
 
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
+  pub(crate) owner: NapiValueOwner,
   pub(crate) _phantom: PhantomData<T>,
   pub(crate) taken: bool,
 }
@@ -17,6 +18,7 @@ unsafe impl<T> Sync for Ref<T> {}
 
 impl<'env, T: JsValue<'env>> Ref<T> {
   pub fn new(env: &Env, value: &T) -> Result<Ref<T>> {
+    crate::bindgen_runtime::ensure_same_env(value.value().env, env.0)?;
     let mut raw_ref = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_create_reference(env.0, value.raw(), 1, &mut raw_ref) },
@@ -25,12 +27,14 @@ impl<'env, T: JsValue<'env>> Ref<T> {
     )?;
     Ok(Ref {
       raw_ref,
+      owner: NapiValueOwner::new(env.0),
       taken: false,
       _phantom: PhantomData,
     })
   }
 
   pub fn unref(&mut self, env: &Env) -> Result<()> {
+    self.owner.ensure_access(env.0, "Ref")?;
     check_status!(
       unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut 0) },
       "unref Ref failed"
@@ -54,6 +58,7 @@ impl<T: FromNapiValue> Ref<T> {
         "Ref value has been deleted",
       ));
     }
+    self.owner.ensure_access(env.0, "Ref")?;
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) },
@@ -65,8 +70,14 @@ impl<T: FromNapiValue> Ref<T> {
 
 impl<T: 'static + FromNapiMutRef> Ref<T> {
   /// Get the value reference from the reference
+  ///
+  /// # Safety
+  ///
+  /// The caller must guarantee exclusive access to the referenced native value for the returned
+  /// reference's lifetime.
   #[allow(clippy::mut_from_ref)]
-  pub fn get_value_mut(&self, env: &Env) -> Result<&mut T> {
+  pub unsafe fn get_value_mut(&self, env: &Env) -> Result<&mut T> {
+    self.owner.ensure_access(env.0, "Ref")?;
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) },
@@ -85,10 +96,18 @@ impl<'env, T: FromNapiValue + JsValue<'env>> FromNapiValue for Ref<T> {
 
 impl<T: 'static> ToNapiValue for Ref<T> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    if let Err(error) = val.owner.ensure_access(env, "Ref") {
+      let _ = val.owner.release_reference(val.raw_ref);
+      return Err(error);
+    }
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env, val.raw_ref, &mut result) },
       "Failed to get reference value"
+    )?;
+    check_status!(
+      val.owner.release_reference(val.raw_ref),
+      "Failed to release Ref after conversion"
     )?;
     Ok(result)
   }

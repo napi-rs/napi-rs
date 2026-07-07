@@ -6,7 +6,8 @@ use std::marker::PhantomData;
 use std::ptr;
 
 use crate::{
-  bindgen_prelude::*, check_status, raw_finalize, sys, type_of, Callback, TaggedObject, Value,
+  bindgen_prelude::*, bindgen_runtime::NapiValueOwner, check_status, raw_finalize, sys, type_of,
+  Callback, TaggedObject, Value,
 };
 #[cfg(feature = "napi5")]
 use crate::{Env, PropertyClosures};
@@ -697,7 +698,8 @@ impl FromNapiValue for Object<'_> {
 }
 
 impl ToNapiValue for &Object<'_> {
-  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    super::ensure_same_env(val.0.env, env)?;
     Ok(val.0.value)
   }
 }
@@ -922,7 +924,10 @@ impl Object<'_> {
       unsafe { sys::napi_create_reference(self.0.env, self.0.value, 1, &mut ref_) },
       "Failed to create reference"
     )?;
-    Ok(ObjectRef { inner: ref_ })
+    Ok(ObjectRef {
+      inner: ref_,
+      owner: NapiValueOwner::new(self.0.env),
+    })
   }
 }
 
@@ -933,6 +938,7 @@ impl Object<'_> {
 /// Set the `LEAK_CHECK` to `false` to disable the leak check during the `Drop`
 pub struct ObjectRef<const LEAK_CHECK: bool = true> {
   pub(crate) inner: sys::napi_ref,
+  pub(crate) owner: NapiValueOwner,
 }
 
 unsafe impl<const LEAK_CHECK: bool> Send for ObjectRef<LEAK_CHECK> {}
@@ -948,6 +954,7 @@ impl<const LEAK_CHECK: bool> Drop for ObjectRef<LEAK_CHECK> {
 impl<const LEAK_CHECK: bool> ObjectRef<LEAK_CHECK> {
   /// Get the object from the reference
   pub fn get_value<'env>(&self, env: &'env Env) -> Result<Object<'env>> {
+    self.owner.ensure_access(env.0, "ObjectRef")?;
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.inner, &mut result) },
@@ -958,6 +965,7 @@ impl<const LEAK_CHECK: bool> ObjectRef<LEAK_CHECK> {
 
   /// Unref the reference
   pub fn unref(mut self, env: &Env) -> Result<()> {
+    self.owner.ensure_access(env.0, "ObjectRef")?;
     check_status!(
       unsafe { sys::napi_delete_reference(env.0, self.inner) },
       "delete Ref failed"
@@ -974,12 +982,16 @@ impl<const LEAK_CHECK: bool> FromNapiValue for ObjectRef<LEAK_CHECK> {
       unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
       "Failed to create reference"
     )?;
-    Ok(Self { inner: ref_ })
+    Ok(Self {
+      inner: ref_,
+      owner: NapiValueOwner::new(env),
+    })
   }
 }
 
 impl<const LEAK_CHECK: bool> ToNapiValue for &ObjectRef<LEAK_CHECK> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    val.owner.ensure_access(env, "ObjectRef")?;
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },
@@ -991,6 +1003,13 @@ impl<const LEAK_CHECK: bool> ToNapiValue for &ObjectRef<LEAK_CHECK> {
 
 impl<const LEAK_CHECK: bool> ToNapiValue for ObjectRef<LEAK_CHECK> {
   unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
+    if let Err(error) = val.owner.ensure_access(env, "ObjectRef") {
+      let status = val.owner.release_reference(val.inner);
+      if status == sys::Status::napi_ok || status == sys::Status::napi_closing {
+        val.inner = ptr::null_mut();
+      }
+      return Err(error);
+    }
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },

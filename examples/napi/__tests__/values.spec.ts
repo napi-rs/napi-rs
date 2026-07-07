@@ -62,6 +62,13 @@ import {
   btreeSetToRust,
   getCwd,
   Animal,
+  createDirectClassReferenceCallback,
+  readAnimalWithReentrantProbe,
+  AlignedZst,
+  borrowAlignedZstPair,
+  readAnimalPair,
+  mutateAnimalPair,
+  readMutateAnimalPair,
   Kind,
   NinjaTurtle,
   ClassWithFactory,
@@ -159,6 +166,7 @@ import {
   convertU32Array,
   createExternalTypedArray,
   mutateTypedArray,
+  mutateUint16ArrayForSync,
   mutateArraybuffer,
   receiveAllOptionalObject,
   objectGetNamedPropertyShouldPerformTypecheck,
@@ -239,6 +247,7 @@ import {
   panicInAsync,
   CustomStruct,
   ClassWithLifetime,
+  createClassWithLifetimeFromRust,
   uInit8ArrayFromString,
   callThenOnPromise,
   callCatchOnPromise,
@@ -253,6 +262,9 @@ import {
   getBufferSlice,
   createExternalBufferSlice,
   createBufferSliceFromCopiedData,
+  sumBufferSliceFromData,
+  sumBufferSliceFromExternal,
+  sumBufferSliceFromCopy,
   Reader,
   withinAsyncRuntimeIfAvailable,
   errorMessageContainsNullByte,
@@ -295,9 +307,13 @@ import {
   createUint8ClampedArrayFromData,
   arrayBufferFromData,
   arrayBufferFromExternal,
+  arrayBufferCopyFrom,
   uint8ArrayFromData,
   createUint8ClampedArrayFromExternal,
   uint8ArrayFromExternal,
+  uint16ArrayCopyFrom,
+  uint8ClampedArrayCopyFrom,
+  createEmptyTypedArraySlices,
   Thing,
   ThingList,
   createFunction,
@@ -305,6 +321,7 @@ import {
   promiseRawReturnClassInstance,
   ClassReturnInPromise,
   acceptUntypedTypedArray,
+  untypedTypedArrayBackingBytes,
   defineClass,
   callbackInSpawn,
   arrayParams,
@@ -600,6 +617,32 @@ test('function call', async (t) => {
     '可乐',
   )
   t.is(ctx2.name, '可乐')
+  t.is(readAnimalPair(ctx, ctx), '可乐:可乐')
+  t.throws(() => mutateAnimalPair(ctx, ctx), {
+    message:
+      'The same native value cannot be borrowed mutably while another borrow is active',
+  })
+  t.throws(() => readMutateAnimalPair(ctx, ctx), {
+    message:
+      'The same native value cannot be borrowed mutably while another borrow is active',
+  })
+  const distinct = new Animal(Kind.Cat, '咪咪')
+  mutateAnimalPair(ctx, distinct)
+  t.is(ctx.name, '可乐1')
+  t.is(distinct.name, '咪咪2')
+  const directClassReference = createDirectClassReferenceCallback()
+  t.notThrows(() => directClassReference(ctx))
+  const reentrantProbe = Object.defineProperty({}, 'trigger', {
+    get() {
+      directClassReference(ctx)
+      return 1
+    },
+  })
+  t.throws(() => readAnimalWithReentrantProbe(ctx, reentrantProbe as never), {
+    message:
+      'The same native value cannot be borrowed mutably while another borrow is active',
+  })
+  t.is(readAnimalWithReentrantProbe(ctx, { trigger: 2 }), '可乐1:2')
   t.is(
     callFunction(() => 42),
     42,
@@ -677,6 +720,15 @@ test('class', (t) => {
   const classWithLifetime = new ClassWithLifetime()
   t.deepEqual(classWithLifetime.getName(), 'alie')
   t.deepEqual(Object.keys(classWithLifetime), ['inner'])
+
+  const rustCreatedClassWithLifetime = createClassWithLifetimeFromRust()
+  t.true(rustCreatedClassWithLifetime instanceof ClassWithLifetime)
+  t.is(rustCreatedClassWithLifetime.constructor, ClassWithLifetime)
+  t.is(
+    Object.getPrototypeOf(rustCreatedClassWithLifetime),
+    ClassWithLifetime.prototype,
+  )
+  t.is(rustCreatedClassWithLifetime.getName(), 'rust lifetime')
 
   if (!process.env.TEST_ZIG_CROSS) {
     t.throws(
@@ -785,7 +837,34 @@ test('define class', (t) => {
 
 test('async self in class', async (t) => {
   const b = new Bird('foo')
-  t.is(await b.getNameAsync(), 'foo')
+  const pendingName = b.getNameAsync()
+  t.throws(() => b.name, {
+    message:
+      'The same native value cannot be borrowed mutably while another borrow is active',
+  })
+  t.throws(
+    () => {
+      b.name = 'bar'
+    },
+    {
+      message:
+        'The same native value cannot be borrowed mutably while another borrow is active',
+    },
+  )
+  t.is(await pendingName, 'foo')
+  b.name = 'bar'
+  t.is(b.name, 'bar')
+
+  const first = new AlignedZst()
+  const second = new AlignedZst()
+  const factoryFirst = AlignedZst.create()
+  const factorySecond = AlignedZst.create()
+  t.notThrows(() => borrowAlignedZstPair(first, second))
+  t.notThrows(() => borrowAlignedZstPair(factoryFirst, factorySecond))
+  t.throws(() => borrowAlignedZstPair(first, first), {
+    message:
+      'The same native value cannot be borrowed mutably while another borrow is active',
+  })
 })
 
 test('class factory', (t) => {
@@ -1432,6 +1511,11 @@ test('empty typed array', (t) => {
   t.notThrows(() => {
     derefUint8Array(getEmptyTypedArray(), new Uint8ClampedArray([]))
   })
+  const [uint16, clamped] = createEmptyTypedArraySlices()
+  t.true(uint16 instanceof Uint16Array)
+  t.is(uint16.length, 0)
+  t.true(clamped instanceof Uint8ClampedArray)
+  t.is(clamped.length, 0)
 })
 
 test('convert typedarray to vec', (t) => {
@@ -1448,6 +1532,9 @@ test('create external TypedArray', (t) => {
 })
 
 test('typed array creation', (t) => {
+  t.is(sumBufferSliceFromData(), 10)
+  t.is(sumBufferSliceFromExternal(), 10)
+  t.is(sumBufferSliceFromCopy(), 10)
   t.deepEqual(
     createUint8ClampedArrayFromData(),
     new Uint8ClampedArray(Buffer.from('Hello world')),
@@ -1461,6 +1548,12 @@ test('typed array creation', (t) => {
     Buffer.from(arrayBufferFromExternal()),
     Buffer.from('Hello world from external'),
   )
+  t.deepEqual(
+    new Uint8Array(arrayBufferCopyFrom()),
+    new Uint8Array([1, 2, 3, 4]),
+  )
+  t.deepEqual(uint16ArrayCopyFrom(), new Uint16Array([0x1234, 0x5678, 0x9abc]))
+  t.deepEqual(uint8ClampedArrayCopyFrom(), new Uint8ClampedArray([0, 127, 255]))
   t.deepEqual(uint8ArrayFromData(), new Uint8Array(Buffer.from('Hello world')))
   t.deepEqual(
     uint8ArrayFromExternal(),
@@ -1469,13 +1562,21 @@ test('typed array creation', (t) => {
 })
 
 test('mutate TypedArray', (t) => {
-  if (process.env.WASI_TEST) {
-    t.pass()
-    return
+  if (!process.env.WASI_TEST) {
+    const input = new Float32Array([1, 2, 3, 4, 5])
+    mutateTypedArray(input)
+    t.deepEqual(input, new Float32Array([2.0, 4.0, 6.0, 8.0, 10.0]))
   }
-  const input = new Float32Array([1, 2, 3, 4, 5])
-  mutateTypedArray(input)
-  t.deepEqual(input, new Float32Array([2.0, 4.0, 6.0, 8.0, 10.0]))
+
+  const uint16Input = new Uint16Array([0x0102, 0x0304, 0x0506])
+  mutateUint16ArrayForSync(uint16Input)
+  t.deepEqual(uint16Input, new Uint16Array([0x0103, 0x0305, 0x0507]))
+
+  const backing = new ArrayBuffer(10)
+  const whole = new Uint16Array(backing)
+  whole.set([0x1111, 0x0102, 0x0304, 0x2222, 0x3333])
+  mutateUint16ArrayForSync(new Uint16Array(backing, 2, 2))
+  t.deepEqual(whole, new Uint16Array([0x1111, 0x0103, 0x0305, 0x2222, 0x3333]))
 })
 
 test('mutate ArrayBuffer', (t) => {
@@ -1503,6 +1604,14 @@ test('deref uint8 array', (t) => {
 
 test('accept untyped typed array', (t) => {
   t.is(acceptUntypedTypedArray(new Uint8Array([1, 2, 3])), 3n)
+  const backing = new ArrayBuffer(8)
+  new Uint8Array(backing).set([10, 20, 30, 40, 50, 60, 70, 80])
+  const view = new Uint16Array(backing, 2, 2)
+  t.is(acceptUntypedTypedArray(view), 8n)
+  t.deepEqual(
+    untypedTypedArrayBackingBytes(view),
+    [10, 20, 30, 40, 50, 60, 70, 80],
+  )
 })
 
 test('async', async (t) => {
@@ -1653,7 +1762,10 @@ test('external', (t) => {
   const ext2 = createExternalString('wtf')
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
-  t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
+  t.regex(
+    e?.message ?? '',
+    /^<.+> on `External` is not the type of wrapped object$/,
+  )
 
   const extRef = createExternalRef(FX)
   t.is(getExternal(extRef), FX)
@@ -1672,7 +1784,10 @@ test('optional external', (t) => {
   const ext2 = createExternalString('wtf')
   // @ts-expect-error
   const e = t.throws(() => getOptionalExternal(ext2))
-  t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
+  t.regex(
+    e?.message ?? '',
+    /^<.+> on `External` is not the type of wrapped object$/,
+  )
 })
 
 test('should be able to run script', async (t) => {

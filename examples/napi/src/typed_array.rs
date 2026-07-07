@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use napi::bindgen_prelude::*;
@@ -45,6 +47,40 @@ pub fn create_buffer_slice_from_copied_data(env: &Env) -> Result<BufferSlice<'_>
 }
 
 #[napi]
+pub fn sum_buffer_slice_from_data(env: &Env) -> Result<u32> {
+  Ok(
+    BufferSlice::from_data(env, vec![1, 2, 3, 4])?
+      .iter()
+      .map(|value| u32::from(*value))
+      .sum(),
+  )
+}
+
+#[napi]
+pub fn sum_buffer_slice_from_external(env: &Env) -> Result<u32> {
+  let mut data = vec![1u8, 2, 3, 4];
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+  let value = unsafe {
+    BufferSlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      drop(Vec::from_raw_parts(ptr, len, len));
+    })?
+  };
+  Ok(value.iter().map(|value| u32::from(*value)).sum())
+}
+
+#[napi]
+pub fn sum_buffer_slice_from_copy(env: &Env) -> Result<u32> {
+  Ok(
+    BufferSlice::copy_from(env, [1, 2, 3, 4])?
+      .iter()
+      .map(|value| u32::from(*value))
+      .sum(),
+  )
+}
+
+#[napi]
 fn get_empty_typed_array() -> Uint8Array {
   vec![].into()
 }
@@ -64,6 +100,17 @@ fn mutate_typed_array(mut input: Float32Array) {
   for item in unsafe { input.as_mut() } {
     *item *= 2.0;
   }
+}
+
+#[napi]
+fn mutate_uint16_array_for_sync(env: &Env, mut input: Uint16Array) {
+  for item in unsafe { input.as_mut() } {
+    *item = item.wrapping_add(1);
+  }
+  #[cfg(target_family = "wasm")]
+  input.sync(env);
+  #[cfg(not(target_family = "wasm"))]
+  let _ = env;
 }
 
 #[napi]
@@ -125,6 +172,168 @@ thread_local! {
 #[napi]
 fn stash_typed_array_in_thread_local(buf: Uint8Array) {
   STASHED_TYPED_ARRAYS.with(|c| c.borrow_mut().push(buf));
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+thread_local! {
+  static LIFECYCLE_STASHED_BUFFER: RefCell<Option<Buffer>> = const { RefCell::new(None) };
+  static LIFECYCLE_STASHED_TYPED_ARRAY: RefCell<Option<Uint8Array>> = const { RefCell::new(None) };
+  static LIFECYCLE_STASHED_TYPED_ARRAY_SLICE: RefCell<Option<Uint8ArraySlice<'static>>> =
+    const { RefCell::new(None) };
+  static LIFECYCLE_STASHED_CLAMPED_SLICE: RefCell<Option<Uint8ClampedSlice<'static>>> =
+    const { RefCell::new(None) };
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+static MUTABLE_TYPED_ARRAY_FINALIZE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "stashBufferAcrossDuplicateLoad")]
+fn stash_lifecycle_buffer(value: Buffer) {
+  LIFECYCLE_STASHED_BUFFER.with(|stored| *stored.borrow_mut() = Some(value));
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "takeBufferAcrossDuplicateLoad")]
+fn take_lifecycle_buffer() -> Result<Buffer> {
+  LIFECYCLE_STASHED_BUFFER
+    .with(|stored| stored.borrow_mut().take())
+    .ok_or_else(|| Error::from_reason("no lifecycle Buffer was stashed"))
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "stashTypedArrayAcrossDuplicateLoad")]
+fn stash_lifecycle_typed_array(value: Uint8Array) {
+  LIFECYCLE_STASHED_TYPED_ARRAY.with(|stored| *stored.borrow_mut() = Some(value));
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "takeTypedArrayAcrossDuplicateLoad")]
+fn take_lifecycle_typed_array() -> Result<Uint8Array> {
+  LIFECYCLE_STASHED_TYPED_ARRAY
+    .with(|stored| stored.borrow_mut().take())
+    .ok_or_else(|| Error::from_reason("no lifecycle TypedArray was stashed"))
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+fn lifecycle_typed_array_slice() -> Result<Uint8ArraySlice<'static>> {
+  LIFECYCLE_STASHED_TYPED_ARRAY_SLICE
+    .with(|stored| *stored.borrow())
+    .ok_or_else(|| Error::from_reason("no lifecycle TypedArray slice was stashed"))
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+fn lifecycle_clamped_slice() -> Result<Uint8ClampedSlice<'static>> {
+  LIFECYCLE_STASHED_CLAMPED_SLICE
+    .with(|stored| *stored.borrow())
+    .ok_or_else(|| Error::from_reason("no lifecycle clamped TypedArray slice was stashed"))
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "stashTypedArraySlicesAcrossDuplicateLoad")]
+fn stash_lifecycle_typed_array_slices(
+  typed_array: Uint8ArraySlice<'static>,
+  clamped: Uint8ClampedSlice<'static>,
+) {
+  LIFECYCLE_STASHED_TYPED_ARRAY_SLICE.with(|stored| *stored.borrow_mut() = Some(typed_array));
+  LIFECYCLE_STASHED_CLAMPED_SLICE.with(|stored| *stored.borrow_mut() = Some(clamped));
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "verifyTypedArraySlicesSameEnv")]
+#[allow(clippy::needless_borrows_for_generic_args)]
+fn verify_lifecycle_typed_array_slices_same_env(
+  env: Env,
+  mut typed_array: Uint8ArraySlice,
+  clamped: Uint8ClampedSlice,
+  this: This,
+) -> Result<()> {
+  unsafe {
+    <&Uint8ArraySlice<'_>>::to_napi_value(env.raw(), &typed_array)?;
+    <&mut Uint8ArraySlice<'_>>::to_napi_value(env.raw(), &mut typed_array)?;
+  }
+  typed_array.assign_to_this(this, "typedArraySlice")?;
+  typed_array.into_typed_array(&env)?;
+  clamped.assign_to_this(this, "clampedTypedArraySlice")?;
+  clamped.into_typed_array(&env)?;
+  Ok(())
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "returnTypedArraySliceRefAcrossDuplicateLoad")]
+#[allow(clippy::needless_borrows_for_generic_args)]
+fn return_lifecycle_typed_array_slice_ref(env: Env) -> Result<Unknown<'static>> {
+  let value = lifecycle_typed_array_slice()?;
+  let raw = unsafe { <&Uint8ArraySlice<'_>>::to_napi_value(env.raw(), &value)? };
+  Ok(unsafe { Unknown::from_raw_unchecked(env.raw(), raw) })
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "returnTypedArraySliceMutAcrossDuplicateLoad")]
+#[allow(clippy::needless_borrows_for_generic_args)]
+fn return_lifecycle_typed_array_slice_mut(env: Env) -> Result<Unknown<'static>> {
+  let mut value = lifecycle_typed_array_slice()?;
+  let raw = unsafe { <&mut Uint8ArraySlice<'_>>::to_napi_value(env.raw(), &mut value)? };
+  Ok(unsafe { Unknown::from_raw_unchecked(env.raw(), raw) })
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "assignTypedArraySliceAcrossDuplicateLoad")]
+fn assign_lifecycle_typed_array_slice_to_this(this: This) -> Result<()> {
+  lifecycle_typed_array_slice()?.assign_to_this(this, "typedArraySlice")?;
+  Ok(())
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "convertTypedArraySliceAcrossDuplicateLoad")]
+fn convert_lifecycle_typed_array_slice(env: &Env) -> Result<Uint8Array> {
+  lifecycle_typed_array_slice()?.into_typed_array(env)
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "assignClampedSliceAcrossDuplicateLoad")]
+fn assign_lifecycle_clamped_slice_to_this(this: This) -> Result<()> {
+  lifecycle_clamped_slice()?.assign_to_this(this, "clampedTypedArraySlice")?;
+  Ok(())
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "convertClampedSliceAcrossDuplicateLoad")]
+fn convert_lifecycle_clamped_slice(env: &Env) -> Result<Uint8ClampedSlice<'static>> {
+  lifecycle_clamped_slice()?.into_typed_array(env)
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "createMutableTypedArrayForOwnershipTest")]
+fn create_mutable_typed_array_for_ownership_test(
+  env: &Env,
+  empty: Option<bool>,
+) -> Result<Unknown<'_>> {
+  let mut data = if empty.unwrap_or(false) {
+    Vec::new()
+  } else {
+    vec![1u8, 2, 3, 4]
+  };
+  let data_ptr = data.as_mut_ptr();
+  let length = data.len();
+  let capacity = data.capacity();
+  std::mem::forget(data);
+
+  let mut typed_array = unsafe {
+    Uint8Array::with_external_data(data_ptr, length, move |data, finalized_length| {
+      debug_assert_eq!(finalized_length, length);
+      drop(Vec::from_raw_parts(data, finalized_length, capacity));
+      MUTABLE_TYPED_ARRAY_FINALIZE_COUNT.fetch_add(1, Ordering::SeqCst);
+    })
+  };
+  let raw_value = unsafe { ToNapiValue::to_napi_value(env.raw(), &mut typed_array)? };
+  Ok(unsafe { Unknown::from_raw_unchecked(env.raw(), raw_value) })
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi]
+fn mutable_typed_array_finalize_count() -> u32 {
+  MUTABLE_TYPED_ARRAY_FINALIZE_COUNT.load(Ordering::SeqCst) as u32
 }
 
 #[napi]
@@ -311,6 +520,31 @@ pub fn array_buffer_from_external(env: &Env) -> Result<ArrayBuffer<'_>> {
 }
 
 #[napi]
+pub fn array_buffer_copy_from(env: &Env) -> Result<ArrayBuffer<'_>> {
+  ArrayBuffer::copy_from(env, [1, 2, 3, 4])
+}
+
+#[napi]
+pub fn uint16_array_copy_from(env: &Env) -> Result<Uint16ArraySlice<'_>> {
+  Uint16ArraySlice::copy_from(env, [0x1234, 0x5678, 0x9abc])
+}
+
+#[napi]
+pub fn uint8_clamped_array_copy_from(env: &Env) -> Result<Uint8ClampedSlice<'_>> {
+  Uint8ClampedSlice::copy_from(env, [0, 127, 255])
+}
+
+#[napi]
+pub fn create_empty_typed_array_slices(
+  env: &Env,
+) -> Result<(Uint16ArraySlice<'_>, Uint8ClampedSlice<'_>)> {
+  Ok((
+    Uint16ArraySlice::from_data(env, Vec::new())?,
+    Uint8ClampedSlice::from_data(env, Vec::new())?,
+  ))
+}
+
+#[napi]
 pub fn uint8_array_from_data(env: &Env) -> Result<Uint8ArraySlice<'_>> {
   Uint8ArraySlice::from_data(env, b"Hello world")
 }
@@ -341,6 +575,11 @@ pub fn create_i32_array_from_external(env: &Env) -> Result<Int32ArraySlice<'_>> 
 #[napi]
 pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
   input.arraybuffer.len()
+}
+
+#[napi]
+pub fn untyped_typed_array_backing_bytes(input: TypedArray) -> Vec<u8> {
+  input.arraybuffer.to_vec()
 }
 
 #[napi]

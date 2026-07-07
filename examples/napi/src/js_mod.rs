@@ -81,3 +81,79 @@ use napi::bindgen_prelude::Buffer;
 pub fn xxh64_alias(input: Buffer) -> u64 {
   xxh3::xxh64(input)
 }
+
+#[napi(js_name = "duplicateClassNameAlpha")]
+mod duplicate_class_name_alpha {
+  #[napi(js_name = "SharedClass")]
+  pub struct AlphaSharedClass {
+    value: u32,
+  }
+
+  #[napi]
+  impl AlphaSharedClass {
+    #[napi(constructor)]
+    pub fn new(value: u32) -> Self {
+      Self { value }
+    }
+
+    #[napi(factory)]
+    pub fn create(value: u32) -> Self {
+      Self { value }
+    }
+
+    #[napi]
+    pub fn incremented(&self) -> Self {
+      Self {
+        value: self.value + 1,
+      }
+    }
+
+    #[napi(getter)]
+    pub fn value(&self) -> u32 {
+      self.value
+    }
+
+    #[napi(getter)]
+    pub fn namespace(&self) -> &'static str {
+      "alpha"
+    }
+  }
+}
+
+#[napi(js_name = "duplicateClassNameBeta")]
+mod duplicate_class_name_beta {
+  #[napi(js_name = "SharedClass")]
+  pub struct BetaSharedClass {
+    value: u32,
+  }
+
+  #[napi]
+  impl BetaSharedClass {
+    #[napi(constructor)]
+    pub fn new(value: u32) -> Self {
+      Self { value }
+    }
+
+    #[napi(factory)]
+    pub fn create(value: u32) -> Self {
+      Self { value }
+    }
+
+    #[napi]
+    pub fn incremented(&self) -> Self {
+      Self {
+        value: self.value + 1,
+      }
+    }
+
+    #[napi(getter)]
+    pub fn value(&self) -> u32 {
+      self.value
+    }
+
+    #[napi(getter)]
+    pub fn namespace(&self) -> &'static str {
+      "beta"
+    }
+  }
+}

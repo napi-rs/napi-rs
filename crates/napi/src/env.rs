@@ -20,7 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 #[cfg(feature = "napi8")]
-use crate::async_cleanup_hook::AsyncCleanupHook;
+use crate::async_cleanup_hook::{AsyncCleanupHook, AsyncCleanupHookData};
 #[cfg(all(feature = "napi6", feature = "compat-mode"))]
 use crate::bindgen_runtime::u128_with_sign_to_napi_value;
 #[cfg(feature = "napi6")]
@@ -35,8 +35,10 @@ use crate::bindgen_runtime::PromiseRaw;
 use crate::bindgen_runtime::{
   FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
 };
+#[cfg(all(feature = "napi3", not(all(target_family = "wasm", feature = "noop"))))]
+use crate::cleanup_env::CleanupEnvHookData;
 #[cfg(feature = "napi3")]
-use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
+use crate::cleanup_env::{CleanupEnvHook, PendingCleanupEnvHook};
 #[cfg(feature = "serde-json")]
 use crate::js_values::{De, Ser};
 #[cfg(all(feature = "napi4", feature = "compat-mode"))]
@@ -319,10 +321,14 @@ impl Env {
         // Rust uses 0x1 as the data pointer for empty buffers,
         // but NAPI/V8 only allows multiple buffers to have
         // the same data pointer if it's 0x0.
-        sys::napi_create_buffer(self.0, length, ptr::null_mut(), &mut raw_value)
+        let status = sys::napi_create_buffer(self.0, length, ptr::null_mut(), &mut raw_value);
+        if status == sys::Status::napi_ok {
+          data = Vec::new();
+        }
+        status
       } else {
         let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
-        let status = sys::napi_create_external_buffer(
+        let mut status = sys::napi_create_external_buffer(
           self.0,
           length,
           data_ptr.cast(),
@@ -334,18 +340,20 @@ impl Env {
         if status == sys::Status::napi_no_external_buffers_allowed {
           drop(Box::from_raw(hint_ptr));
           let mut dest_data_ptr = ptr::null_mut();
-          let status = sys::napi_create_buffer_copy(
+          status = sys::napi_create_buffer_copy(
             self.0,
             length,
             data.as_ptr().cast(),
             &mut dest_data_ptr,
             &mut raw_value,
           );
-          data = Vec::from_raw_parts(dest_data_ptr.cast(), length, length);
-          status
-        } else {
-          status
+          if status == sys::Status::napi_ok {
+            data = Vec::from_raw_parts(dest_data_ptr.cast(), length, length);
+          }
+        } else if status != sys::Status::napi_ok {
+          drop(Box::from_raw(hint_ptr));
         }
+        status
       }
     })?;
     Ok(JsBufferValue::new(
@@ -377,7 +385,7 @@ impl Env {
   /// later copy the data back out.
   pub unsafe fn create_buffer_with_borrowed_data<Hint, Finalize>(
     &self,
-    mut data: *mut u8,
+    data: *mut u8,
     length: usize,
     hint: Hint,
     finalize_callback: Finalize,
@@ -393,6 +401,7 @@ impl Env {
       ));
     }
     let hint_ptr = Box::into_raw(Box::new((hint, finalize_callback)));
+    let mut result_data = data;
     unsafe {
       let status = sys::napi_create_external_buffer(
         self.0,
@@ -404,18 +413,22 @@ impl Env {
       );
       if status == sys::Status::napi_no_external_buffers_allowed {
         let (hint, finalize) = *Box::from_raw(hint_ptr);
-        let mut result_data = ptr::null_mut();
+        let mut copied_data = ptr::null_mut();
         let status = sys::napi_create_buffer_copy(
           self.0,
           length,
           data.cast(),
-          &mut result_data,
+          &mut copied_data,
           &mut raw_value,
         );
-        data = result_data.cast();
+        if status == sys::Status::napi_ok {
+          result_data = copied_data.cast();
+        }
         finalize(*self, hint);
         check_status!(status)?;
-      } else {
+      } else if status != sys::Status::napi_ok {
+        let (hint, finalize) = *Box::from_raw(hint_ptr);
+        finalize(*self, hint);
         check_status!(status)?;
       }
     };
@@ -425,7 +438,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data, length, length) }),
+      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(result_data, length, length) }),
     ))
   }
 
@@ -504,7 +517,12 @@ impl Env {
   pub fn create_arraybuffer_with_data(&self, mut data: Vec<u8>) -> Result<JsArrayBufferValue> {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
-    let data_ptr = data.as_mut_ptr();
+    let mut result_data = if length == 0 {
+      ptr::null_mut()
+    } else {
+      data.as_mut_ptr()
+    };
+    let mut external = false;
     if length == 0 {
       // Rust uses 0x1 as the data pointer for empty buffers,
       // but NAPI/V8 only allows multiple buffers to have
@@ -518,7 +536,7 @@ impl Env {
       let mut status = unsafe {
         sys::napi_create_external_arraybuffer(
           self.0,
-          data_ptr.cast(),
+          result_data.cast(),
           length,
           Some(drop_buffer),
           hint_ptr.cast(),
@@ -533,21 +551,27 @@ impl Env {
         };
         check_status!(status, "Failed to create arraybuffer")?;
         if length > 0 {
-          unsafe { ptr::copy_nonoverlapping(data_ptr, underlying_data.cast(), length) };
+          unsafe { ptr::copy_nonoverlapping(result_data, underlying_data.cast(), length) };
         }
+        result_data = underlying_data.cast();
+      } else if status == sys::Status::napi_ok {
+        external = true;
       } else {
+        unsafe { drop(Box::from_raw(hint_ptr)) };
         check_status!(status, "Failed to create arraybuffer")?;
       }
     }
 
-    mem::forget(data);
+    if external {
+      mem::forget(data);
+    }
     Ok(JsArrayBufferValue::new(
       JsArrayBuffer(Value {
         env: self.0,
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data_ptr.cast(),
+      result_data.cast(),
       length,
     ))
   }
@@ -581,6 +605,7 @@ impl Env {
   {
     let mut raw_value = ptr::null_mut();
     let hint_ptr = Box::into_raw(Box::new((hint, finalize_callback)));
+    let mut result_data = if length == 0 { ptr::null_mut() } else { data };
     unsafe {
       let status = sys::napi_create_external_arraybuffer(
         self.0,
@@ -613,10 +638,15 @@ impl Env {
         if status == sys::Status::napi_ok && length > 0 {
           ptr::copy_nonoverlapping(data, underlying_data.cast(), length);
         }
+        if status == sys::Status::napi_ok {
+          result_data = underlying_data.cast();
+        }
         // Always call finalize to clean up caller's resources, even on error
         finalize(*self, hint);
         check_status!(status, "Failed to create arraybuffer")?;
-      } else {
+      } else if status != sys::Status::napi_ok {
+        let (hint, finalize) = *Box::from_raw(hint_ptr);
+        finalize(*self, hint);
         check_status!(status)?;
       }
     };
@@ -626,7 +656,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data as *mut c_void,
+      result_data.cast(),
       length,
     ))
   }
@@ -937,6 +967,7 @@ impl Env {
   where
     T: FromNapiValue,
   {
+    reference.owner.ensure_access(self.0, "Ref")?;
     let mut js_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
@@ -955,6 +986,7 @@ impl Env {
   where
     T: FromNapiValue,
   {
+    reference.owner.ensure_access(self.0, "Ref")?;
     let mut js_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
@@ -997,8 +1029,7 @@ impl Env {
 
   #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `&External` instead")]
-  #[allow(clippy::mut_from_ref)]
-  pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
+  pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&T> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
       check_status!(sys::napi_get_value_external(
@@ -1010,7 +1041,7 @@ impl Env {
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
+        (*tagged_object).object.as_ref().ok_or_else(|| {
           Error::new(
             Status::InvalidArg,
             "nothing attach to js_external".to_owned(),
@@ -1103,33 +1134,22 @@ impl Env {
     T: 'static,
     F: 'static + FnOnce(T),
   {
-    let hook = CleanupEnvHookData {
-      data: cleanup_data,
-      hook: Box::new(cleanup_fn),
-    };
-    let hook_ref = Box::leak(Box::new(hook));
+    let hook = PendingCleanupEnvHook::new(cleanup_data, cleanup_fn);
+    #[cfg(not(all(target_family = "wasm", feature = "noop")))]
+    let hook_data = hook.as_ptr();
     #[cfg(not(target_family = "wasm"))]
-    {
-      check_status!(unsafe {
-        sys::napi_add_env_cleanup_hook(
-          self.0,
-          Some(cleanup_env::<T>),
-          (hook_ref as *mut CleanupEnvHookData<T>).cast(),
-        )
-      })?;
-    }
+    let status =
+      unsafe { sys::napi_add_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook_data.cast()) };
 
     #[cfg(all(target_family = "wasm", not(feature = "noop")))]
-    {
-      check_status!(unsafe {
-        crate::napi_add_env_cleanup_hook(
-          self.0,
-          Some(cleanup_env::<T>),
-          (hook_ref as *mut CleanupEnvHookData<T>).cast(),
-        )
-      })?;
-    }
-    Ok(CleanupEnvHook(hook_ref))
+    let status =
+      unsafe { crate::napi_add_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook_data.cast()) };
+
+    #[cfg(all(target_family = "wasm", feature = "noop"))]
+    let status = sys::Status::napi_ok;
+
+    check_status!(status)?;
+    Ok(hook.commit())
   }
 
   #[cfg(feature = "napi3")]
@@ -1137,9 +1157,27 @@ impl Env {
   where
     T: 'static,
   {
-    check_status!(unsafe {
-      sys::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook.0 as *mut _)
-    })
+    #[cfg(not(all(target_family = "wasm", feature = "noop")))]
+    let Some(hook_data) = hook.registered_ptr() else {
+      return Ok(());
+    };
+    #[cfg(not(target_family = "wasm"))]
+    let status = unsafe {
+      sys::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook_data.cast())
+    };
+
+    #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+    let status = unsafe {
+      crate::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook_data.cast())
+    };
+
+    #[cfg(all(target_family = "wasm", feature = "noop"))]
+    let status = sys::Status::napi_ok;
+
+    if status == sys::Status::napi_ok {
+      unsafe { hook.reclaim() };
+    }
+    check_status!(status)
   }
 
   #[cfg(all(feature = "napi4", feature = "compat-mode"))]
@@ -1161,11 +1199,8 @@ impl Env {
     ThreadsafeFunction::<T, Unknown, V>::create(self.0, func.0.value, callback)
   }
 
-  #[cfg(all(
-    any(feature = "tokio_rt", feature = "async-runtime"),
-    feature = "napi4",
-    feature = "compat-mode"
-  ))]
+  #[cfg(all(feature = "tokio_rt", feature = "napi4", feature = "compat-mode"))]
+  /// Spawn a future on napi's built-in Tokio runtime.
   #[deprecated(since = "3.0.0", note = "Please use `Env::spawn_future` instead")]
   pub fn execute_tokio_future<
     T: 'static + Send,
@@ -1190,7 +1225,7 @@ impl Env {
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
   ))]
-  /// Spawn a future, return a JavaScript Promise which takes the result of the future
+  /// Spawn a future on the selected async backend and return its JavaScript promise.
   pub fn spawn_future<
     T: 'static + Send + ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
@@ -1200,19 +1235,19 @@ impl Env {
   ) -> Result<PromiseRaw<'_, T>> {
     use crate::tokio_runtime;
 
-    let promise = tokio_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
+    let promise = tokio_runtime::execute_selected_async_future(self.0, fut, |env, val| unsafe {
       ToNapiValue::to_napi_value(env, val)
     })?;
 
-    Ok(PromiseRaw::new(self.0, promise))
+    // SAFETY: the selected runtime created `promise` in this environment.
+    Ok(unsafe { PromiseRaw::new(self.0, promise) })
   }
 
   #[cfg(all(
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
   ))]
-  /// Spawn a future with a callback
-  /// So you can access the `Env` and resolved value after the future completed
+  /// Spawn a future on the selected async backend with an owner-thread completion callback.
   pub fn spawn_future_with_callback<
     'env,
     T: 'static + Send,
@@ -1226,14 +1261,16 @@ impl Env {
   ) -> Result<PromiseRaw<'env, V>> {
     use crate::tokio_runtime;
 
-    let promise = tokio_runtime::execute_tokio_future(self.0, fut, move |env, val| unsafe {
-      let env = Env::from_raw(env);
-      let static_env = core::mem::transmute::<&Env, &'env Env>(&env);
-      let val = callback(static_env, val)?;
-      ToNapiValue::to_napi_value(env.0, val)
-    })?;
+    let promise =
+      tokio_runtime::execute_selected_async_future(self.0, fut, move |env, val| unsafe {
+        let env = Env::from_raw(env);
+        let static_env = core::mem::transmute::<&Env, &'env Env>(&env);
+        let val = callback(static_env, val)?;
+        ToNapiValue::to_napi_value(env.0, val)
+      })?;
 
-    Ok(PromiseRaw::new(self.0, promise))
+    // SAFETY: the selected runtime created `promise` in this environment.
+    Ok(unsafe { PromiseRaw::new(self.0, promise) })
   }
 
   /// Creates a deferred promise, which can be resolved or rejected from a background thread.
@@ -1335,22 +1372,20 @@ impl Env {
     cleanup_fn: F,
   ) -> Result<AsyncCleanupHook>
   where
-    F: FnOnce(Arg),
+    F: FnOnce(Arg) + 'static,
     Arg: 'static,
   {
+    let data = AsyncCleanupHookData::new(move || cleanup_fn(arg));
+    let native_data = AsyncCleanupHookData::native_data(&data);
     let mut handle = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_add_async_cleanup_hook(
-        self.0,
-        Some(
-          async_finalize::<Arg, F>
-            as unsafe extern "C" fn(handle: sys::napi_async_cleanup_hook_handle, data: *mut c_void),
-        ),
-        Box::leak(Box::new((arg, cleanup_fn))) as *mut (Arg, F) as *mut c_void,
-        &mut handle,
-      )
-    })?;
-    Ok(AsyncCleanupHook(handle))
+    let status = unsafe {
+      sys::napi_add_async_cleanup_hook(self.0, Some(async_finalize), native_data, &mut handle)
+    };
+    if status != sys::Status::napi_ok {
+      unsafe { AsyncCleanupHookData::reclaim_native_data(native_data) };
+    }
+    check_status!(status)?;
+    Ok(AsyncCleanupHook::new(handle, data))
   }
 
   /// This API is very similar to [`add_removable_async_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_removable_async_cleanup_hook)
@@ -1359,20 +1394,18 @@ impl Env {
   #[cfg(feature = "napi8")]
   pub fn add_async_cleanup_hook<Arg, F>(&self, arg: Arg, cleanup_fn: F) -> Result<()>
   where
-    F: FnOnce(Arg),
+    F: FnOnce(Arg) + 'static,
     Arg: 'static,
   {
-    check_status!(unsafe {
-      sys::napi_add_async_cleanup_hook(
-        self.0,
-        Some(
-          async_finalize::<Arg, F>
-            as unsafe extern "C" fn(handle: sys::napi_async_cleanup_hook_handle, data: *mut c_void),
-        ),
-        Box::leak(Box::new((arg, cleanup_fn))) as *mut (Arg, F) as *mut c_void,
-        ptr::null_mut(),
-      )
-    })
+    let data = AsyncCleanupHookData::new(move || cleanup_fn(arg));
+    let native_data = AsyncCleanupHookData::native_data(&data);
+    let status = unsafe {
+      sys::napi_add_async_cleanup_hook(self.0, Some(async_finalize), native_data, ptr::null_mut())
+    };
+    if status != sys::Status::napi_ok {
+      unsafe { AsyncCleanupHookData::reclaim_native_data(native_data) };
+    }
+    check_status!(status)
   }
 
   #[cfg(feature = "napi9")]
@@ -1570,7 +1603,7 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   });
 }
 
-#[cfg(feature = "napi3")]
+#[cfg(all(feature = "napi3", not(all(target_family = "wasm", feature = "noop"))))]
 unsafe extern "C" fn cleanup_env<T: 'static>(hook_data: *mut c_void) {
   crate::bindgen_runtime::with_runtime_teardown_guard(|| {
     crate::bindgen_runtime::catch_unwind_safely(|| {
@@ -1596,28 +1629,11 @@ pub(crate) unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize
 }
 
 #[cfg(feature = "napi8")]
-unsafe extern "C" fn async_finalize<Arg, F>(
+unsafe extern "C" fn async_finalize(
   handle: sys::napi_async_cleanup_hook_handle,
   data: *mut c_void,
-) where
-  Arg: 'static,
-  F: FnOnce(Arg),
-{
-  crate::bindgen_runtime::with_runtime_teardown_guard(|| {
-    crate::bindgen_runtime::catch_unwind_safely(|| {
-      let (arg, callback) = unsafe { *Box::from_raw(data as *mut (Arg, F)) };
-      callback(arg);
-    });
-    if !handle.is_null() {
-      crate::bindgen_runtime::catch_unwind_safely(|| {
-        let status = unsafe { sys::napi_remove_async_cleanup_hook(handle) };
-        assert!(
-          status == sys::Status::napi_ok,
-          "Remove async cleanup hook failed after async cleanup callback"
-        );
-      });
-    }
-  });
+) {
+  unsafe { AsyncCleanupHookData::run_callback(handle, data) };
 }
 
 #[cfg(feature = "napi5")]
@@ -1676,6 +1692,7 @@ pub(crate) unsafe extern "C" fn trampoline<
       env: &mut env,
       this: raw_this,
       args: raw_args.as_slice(),
+      _native_borrow_barrier: crate::bindgen_runtime::NativeBorrowBarrier::new(),
     })
   })
   .and_then(|ret| unsafe { <Return as ToNapiValue>::to_napi_value(raw_env, ret) })
@@ -1723,6 +1740,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
+  let _native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   raw_args
     .first()
     .ok_or_else(|| Error::new(Status::InvalidArg, "Missing argument in property setter"))
@@ -1774,6 +1792,7 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
+  let _native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   unsafe { crate::bindgen_runtime::This::from_napi_value(raw_env, raw_this) }
     .and_then(|this| closure(env, this))
     .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })

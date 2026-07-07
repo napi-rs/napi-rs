@@ -16,6 +16,14 @@ static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 
 const STRUCT_FIELD_SPECIAL_CASE: &[&str] = &["Option", "Result"];
 
+fn class_type_id_type(name: &Ident, has_lifetime: bool) -> TokenStream {
+  if has_lifetime {
+    quote! { #name<'static> }
+  } else {
+    quote! { #name }
+  }
+}
+
 #[cfg(feature = "tracing")]
 fn gen_tracing_debug(class_name: &str, method_name: &str) -> TokenStream {
   let full_name = format!("{}::{}", class_name, method_name);
@@ -32,19 +40,27 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(
   name: &Ident,
+  js_mod: Option<&String>,
   to_napi_val_impl: TokenStream,
   has_lifetime: bool,
 ) -> TokenStream {
+  let rust_type = class_type_id_type(name, has_lifetime);
   let name_str = name.to_string();
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
     quote! { #name }
   };
-  let js_name_str = format!("{name_str}\0");
+  let js_mod = js_mod_to_token_stream(js_mod);
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
-      if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+      if let Some(ctor_ref) =
+        napi::__private::codegen_v1::get_class_constructor_for_env_by_type(
+          env,
+          std::any::TypeId::of::<#rust_type>(),
+          #js_mod,
+        )
+      {
         let mut ctor = std::ptr::null_mut();
         napi::check_status!(
           napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
@@ -123,6 +139,12 @@ fn gen_napi_value_map_impl(
           #name_str,
         )?;
 
+        napi::__private::codegen_v1::register_native_borrow_with_value(
+          env,
+          napi_val,
+          wrapped_val.cast::<#name>(),
+          false,
+        )?;
         Ok(&*(wrapped_val as *const #name))
       }
     }
@@ -141,6 +163,12 @@ fn gen_napi_value_map_impl(
           #name_str,
         )?;
 
+        napi::__private::codegen_v1::register_native_borrow_with_value(
+          env,
+          napi_val,
+          wrapped_val.cast::<#name>(),
+          true,
+        )?;
         Ok(&mut *(wrapped_val as *mut #name))
       }
     }
@@ -202,16 +230,30 @@ fn gen_named_property_descriptor(
   }
 }
 
-fn gen_raw_field_getter(
-  value_ident: &Ident,
-  raw_ident: &Ident,
-  ty: &syn::Type,
-  field_js_name: &str,
-  field_name_c_string: &TokenStream,
-  struct_name: &str,
+struct RawFieldGetter<'a> {
+  value_ident: &'a Ident,
+  raw_ident: &'a Ident,
+  ty: &'a syn::Type,
+  field_js_name: &'a str,
+  field_name_c_string: &'a TokenStream,
+  struct_name: &'a str,
   is_optional_field: bool,
   use_nullable: bool,
   obj_raw: TokenStream,
+}
+
+fn gen_raw_field_getter(
+  RawFieldGetter {
+    value_ident,
+    raw_ident,
+    ty,
+    field_js_name,
+    field_name_c_string,
+    struct_name,
+    is_optional_field,
+    use_nullable,
+    obj_raw,
+  }: RawFieldGetter<'_>,
 ) -> TokenStream {
   let read_helper = if is_optional_field && !use_nullable {
     quote! { from_raw_optional_field }
@@ -342,11 +384,13 @@ impl NapiStruct {
       NapiStructKind::Transparent(transparent) => self.gen_napi_value_transparent_impl(transparent),
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
+        self.js_mod.as_ref(),
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
         self.has_lifetime,
       ),
       NapiStructKind::Class(class) => gen_napi_value_map_impl(
         &self.name,
+        self.js_mod.as_ref(),
         self.gen_to_napi_value_ctor_impl(class),
         self.has_lifetime,
       ),
@@ -362,8 +406,10 @@ impl NapiStruct {
     class: &NapiClass,
   ) -> TokenStream {
     let name = &self.name;
+    let rust_type = class_type_id_type(name, self.has_lifetime);
     let js_name_raw = &self.js_name;
     let js_name_str = format!("{js_name_raw}\0");
+    let js_mod = js_mod_to_token_stream(self.js_mod.as_ref());
     let iterator_implementation = self.gen_iterator_property(class, name);
     let async_iterator_implementation = self.gen_async_iterator_property(class, name);
     let (object_finalize_impl, to_napi_value_impl, javascript_class_ext_impl) = if self.has_lifetime
@@ -396,10 +442,16 @@ impl NapiStruct {
           env: napi::sys::napi_env,
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
-          if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) =
+            napi::__private::codegen_v1::get_class_constructor_for_env_by_type(
+              env,
+              std::any::TypeId::of::<#rust_type>(),
+              #js_mod,
+            )
+          {
             // Keep ownership in Rust until both instance construction and wrapping succeed.
             let (instance_value, wrapped_value) =
-              napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env, val, ctor_ref)?;
+              napi::__private::codegen_v1::new_instance_with_owned_value::<#name>(env, val, ctor_ref)?;
             #iterator_implementation
             #async_iterator_implementation
             let _ = wrapped_value;
@@ -418,11 +470,17 @@ impl NapiStruct {
       #javascript_class_ext_impl {
         fn into_instance<'scope>(self, env: &'scope napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<'scope, Self>>
          {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) =
+            napi::__private::codegen_v1::get_class_constructor_for_env_by_type(
+              env.raw(),
+              std::any::TypeId::of::<#rust_type>(),
+              #js_mod,
+            )
+          {
             unsafe {
               let (instance_value, wrapped_value) =
-                napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
-              Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
+                napi::__private::codegen_v1::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
+              napi::__private::codegen_v1::try_new_class_instance(instance_value, env.raw(), wrapped_value)
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -432,10 +490,16 @@ impl NapiStruct {
         }
 
         fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) =
+            napi::__private::codegen_v1::get_class_constructor_for_env_by_type(
+              env.raw(),
+              std::any::TypeId::of::<#rust_type>(),
+              #js_mod,
+            )
+          {
             unsafe {
               let (instance_value, wrapped_value) =
-                napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
+                napi::__private::codegen_v1::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
               {
                 let env = env.raw();
                 #iterator_implementation
@@ -451,7 +515,13 @@ impl NapiStruct {
         }
 
         fn instance_of<'env, V: napi::JsValue<'env>>(env: &napi::bindgen_prelude::Env, value: &V) -> napi::bindgen_prelude::Result<bool> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) =
+            napi::__private::codegen_v1::get_class_constructor_for_env_by_type(
+              env.raw(),
+              std::any::TypeId::of::<#rust_type>(),
+              #js_mod,
+            )
+          {
             let mut ctor = std::ptr::null_mut();
             napi::check_status!(
               unsafe { napi::sys::napi_get_reference_value(env.raw(), ctor_ref, &mut ctor) },
@@ -498,8 +568,10 @@ impl NapiStruct {
 
   fn gen_to_napi_value_ctor_impl(&self, class: &NapiClass) -> TokenStream {
     let name = &self.name;
+    let rust_type = class_type_id_type(name, self.has_lifetime);
     let js_name_without_null = &self.js_name;
     let js_name_str = format!("{}\0", &self.js_name);
+    let js_mod = js_mod_to_token_stream(self.js_mod.as_ref());
 
     let mut field_conversions = vec![];
     let mut field_destructions = vec![];
@@ -557,7 +629,13 @@ impl NapiStruct {
           env: napi::bindgen_prelude::sys::napi_env,
           val: #name,
         ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) =
+            napi::__private::codegen_v1::get_class_constructor_for_env_by_type(
+              env,
+              std::any::TypeId::of::<#rust_type>(),
+              #js_mod,
+            )
+          {
             let mut ctor = std::ptr::null_mut();
 
             napi::bindgen_prelude::check_status!(
@@ -651,17 +729,17 @@ impl NapiStruct {
           }
 
           let raw_ident = Ident::new(&format!("__obj_field_raw_{}", idx), Span::call_site());
-          obj_field_getters.push(gen_raw_field_getter(
-            &alias_ident,
-            &raw_ident,
-            &ty,
+          obj_field_getters.push(gen_raw_field_getter(RawFieldGetter {
+            value_ident: &alias_ident,
+            raw_ident: &raw_ident,
+            ty: &ty,
             field_js_name,
-            &field_name_c_string,
-            &name_str,
+            field_name_c_string: &field_name_c_string,
+            struct_name: &name_str,
             is_optional_field,
-            self.use_nullable,
-            quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
-          ));
+            use_nullable: self.use_nullable,
+            obj_raw: quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
+          }));
         }
         syn::Member::Unnamed(i) => {
           let arg_name = format_ident!("arg{}", i);
@@ -702,17 +780,17 @@ impl NapiStruct {
           }
 
           let raw_ident = Ident::new(&format!("__obj_field_raw_{}", idx), Span::call_site());
-          obj_field_getters.push(gen_raw_field_getter(
-            &arg_name,
-            &raw_ident,
-            &ty,
+          obj_field_getters.push(gen_raw_field_getter(RawFieldGetter {
+            value_ident: &arg_name,
+            raw_ident: &raw_ident,
+            ty: &ty,
             field_js_name,
-            &field_name_c_string,
-            "",
+            field_name_c_string: &field_name_c_string,
+            struct_name: "",
             is_optional_field,
-            self.use_nullable,
-            quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
-          ));
+            use_nullable: self.use_nullable,
+            obj_raw: quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
+          }));
         }
       }
     }
@@ -912,7 +990,9 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
-              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              let _napi_native_borrow =
+                napi::__private::codegen_v1::acquire_native_borrow(this_ptr, true)?;
+              let obj: &mut #struct_name = unsafe { &mut *this_ptr };
               #to_napi_value_convert
             }
           },
@@ -934,10 +1014,12 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
-              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              let _napi_native_borrow =
+                napi::__private::codegen_v1::acquire_native_borrow(this_ptr, true)?;
               let val = unsafe {
                 <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, value)?
               };
+              let obj: &mut #struct_name = unsafe { &mut *this_ptr };
               obj.#field_ident = val;
               unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }
             }
@@ -969,6 +1051,7 @@ impl NapiStruct {
 
   fn gen_register(&self, class: &NapiClass) -> TokenStream {
     let name = &self.name;
+    let rust_type = class_type_id_type(name, self.has_lifetime);
     let struct_register_name = &self.register_name;
     let js_name = format!("{}\0", self.js_name);
     let implement_iterator = class.implement_iterator;
@@ -1046,7 +1129,7 @@ impl NapiStruct {
         #[allow(clippy::all)]
         #[ctor(unsafe)]
         fn #struct_register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
+          napi::__private::register_class(std::any::TypeId::of::<#rust_type>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
         }
       }
 
@@ -1055,7 +1138,7 @@ impl NapiStruct {
       #[cfg(all(not(test), target_family = "wasm"))]
       #[no_mangle]
       extern "C" fn #struct_register_name() {
-        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
+        napi::__private::register_class(std::any::TypeId::of::<#rust_type>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
       }
     }
   }
@@ -1146,17 +1229,17 @@ impl NapiStruct {
             }
 
             let raw_ident = Ident::new(&format!("__variant_field_raw_{}", idx), Span::call_site());
-            obj_field_getters.push(gen_raw_field_getter(
-              &alias_ident,
-              &raw_ident,
-              &ty,
+            obj_field_getters.push(gen_raw_field_getter(RawFieldGetter {
+              value_ident: &alias_ident,
+              raw_ident: &raw_ident,
+              ty: &ty,
               field_js_name,
-              &field_name_c_string,
-              &name_str,
+              field_name_c_string: &field_name_c_string,
+              struct_name: &name_str,
               is_optional_field,
-              self.use_nullable,
-              quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
-            ));
+              use_nullable: self.use_nullable,
+              obj_raw: quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
+            }));
           }
           syn::Member::Unnamed(i) => {
             let arg_name = format_ident!("arg{}", i);
@@ -1196,17 +1279,17 @@ impl NapiStruct {
             }
 
             let raw_ident = Ident::new(&format!("__variant_field_raw_{}", idx), Span::call_site());
-            obj_field_getters.push(gen_raw_field_getter(
-              &arg_name,
-              &raw_ident,
-              &ty,
+            obj_field_getters.push(gen_raw_field_getter(RawFieldGetter {
+              value_ident: &arg_name,
+              raw_ident: &raw_ident,
+              ty: &ty,
               field_js_name,
-              &field_name_c_string,
-              "",
+              field_name_c_string: &field_name_c_string,
+              struct_name: "",
               is_optional_field,
-              self.use_nullable,
-              quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
-            ));
+              use_nullable: self.use_nullable,
+              obj_raw: quote! { napi::bindgen_prelude::JsValue::raw(&obj) },
+            }));
           }
         }
       }
@@ -1580,6 +1663,7 @@ impl NapiImpl {
     }
 
     let name = &self.name;
+    let rust_type = class_type_id_type(name, self.has_lifetime);
     let name_str = self.name.to_string();
     let js_name = format!("{}\0", self.js_name);
     let mod_name = Ident::new(
@@ -1712,14 +1796,14 @@ impl NapiImpl {
         napi::ctor::declarative::ctor! {
           #[ctor(unsafe)]
           fn #register_name() {
-            napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], false);
+            napi::__private::register_class(std::any::TypeId::of::<#rust_type>(), #js_mod_ident, #js_name, vec![#(#props),*], false);
           }
         }
 
         #[cfg(all(not(test), target_family = "wasm"))]
         #[no_mangle]
         extern "C" fn #register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props_wasm),*], false);
+          napi::__private::register_class(std::any::TypeId::of::<#rust_type>(), #js_mod_ident, #js_name, vec![#(#props_wasm),*], false);
         }
       }
     })

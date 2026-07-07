@@ -45,23 +45,6 @@ impl<'env> Array<'env> {
     }
   }
 
-  pub fn get_ref<T: 'static + FromNapiRef>(&self, index: u32) -> Result<Option<&'env T>> {
-    if index >= self.len() {
-      return Ok(None);
-    }
-
-    let mut ret = ptr::null_mut();
-    unsafe {
-      check_status!(
-        sys::napi_get_element(self.env, self.inner, index, &mut ret),
-        "Failed to get element with index `{}`",
-        index,
-      )?;
-
-      Ok(Some(T::from_napi_ref(self.env, ret)?))
-    }
-  }
-
   pub fn set<T: ToNapiValue>(&mut self, index: u32, val: T) -> Result<()> {
     unsafe {
       let napi_val = T::to_napi_value(self.env, val)?;

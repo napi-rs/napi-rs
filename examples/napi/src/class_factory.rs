@@ -1,4 +1,4 @@
-use napi::Result;
+use napi::{bindgen_prelude::Promise, Error, Result};
 
 async fn always_4() -> i32 {
   4
@@ -28,6 +28,23 @@ impl ClassWithFactory {
     Ok(Self {
       name: format!("{name}-{}", always_4().await),
     })
+  }
+
+  #[napi(factory, skip_typescript)]
+  pub async fn with_name_after(name: String, gate: Promise<()>) -> Result<Self> {
+    gate.await?;
+    Ok(Self { name })
+  }
+
+  #[napi(factory, skip_typescript)]
+  pub async fn fail_after(gate: Promise<()>) -> Result<Self> {
+    gate.await?;
+    Err(Error::from_reason("intentional async factory failure"))
+  }
+
+  #[napi(factory, skip_typescript)]
+  pub async fn pending() -> Self {
+    std::future::pending().await
   }
 
   #[napi]

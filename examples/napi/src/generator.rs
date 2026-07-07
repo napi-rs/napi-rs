@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::future::Future;
 
 use napi::{bindgen_prelude::*, iterator::ScopedGenerator};
@@ -153,6 +154,64 @@ impl Fib4 {
   }
 }
 
+#[napi(iterator)]
+pub struct ComplexTypeGenerator {
+  current: u32,
+}
+
+#[napi]
+impl Generator for ComplexTypeGenerator {
+  type Yield = [u32; 2];
+  type Next = HashMap<String, u32>;
+  type Return = (String, u32);
+
+  fn next(&mut self, value: Option<Self::Next>) -> Option<Self::Yield> {
+    let previous = self.current;
+    self.current += value
+      .map(|entries| entries.into_values().sum())
+      .unwrap_or(1);
+    Some([previous, self.current])
+  }
+}
+
+#[napi]
+#[allow(clippy::new_without_default)]
+impl ComplexTypeGenerator {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self { current: 0 }
+  }
+}
+
+#[napi(iterator)]
+pub struct ReentrantGenerator {
+  calls: u32,
+}
+
+#[napi]
+impl<'a> ScopedGenerator<'a> for ReentrantGenerator {
+  type Yield = u32;
+  type Next = Function<'a, (), ()>;
+  type Return = ();
+
+  fn next(&mut self, _env: &'a Env, callback: Option<Self::Next>) -> Option<Self::Yield> {
+    self.calls += 1;
+    callback
+      .map(|callback| callback.call(()))
+      .transpose()
+      .ok()?;
+    Some(self.calls)
+  }
+}
+
+#[napi]
+impl ReentrantGenerator {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self { calls: 0 }
+  }
+}
+
 // Async iterator example - demonstrates the async generator pattern.
 // This example computes Fibonacci synchronously but returns via an async block,
 // showing the basic structure needed for AsyncGenerator implementations.
@@ -204,6 +263,142 @@ impl AsyncFib {
       current: 0,
       next: 1,
     }
+  }
+}
+
+#[napi(async_iterator)]
+pub struct AsyncComplexTypeGenerator {
+  current: u32,
+}
+
+#[napi]
+impl AsyncGenerator for AsyncComplexTypeGenerator {
+  type Yield = [u32; 2];
+  type Next = HashMap<String, u32>;
+  type Return = (u32, u32);
+
+  fn next(
+    &mut self,
+    value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let previous = self.current;
+    self.current += value
+      .map(|entries| entries.into_values().sum())
+      .unwrap_or(1);
+    let current = self.current;
+    async move { Ok(Some([previous, current])) }
+  }
+
+  fn complete(
+    &mut self,
+    value: Option<Self::Return>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    async move { Ok(value.map(|(first, second)| [first, second])) }
+  }
+}
+
+#[napi]
+#[allow(clippy::new_without_default)]
+impl AsyncComplexTypeGenerator {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self { current: 0 }
+  }
+}
+
+#[napi(async_iterator)]
+pub struct AsyncReentrantGenerator {
+  env: usize,
+  calls: u32,
+}
+
+#[napi]
+impl AsyncGenerator for AsyncReentrantGenerator {
+  type Yield = u32;
+  type Next = FunctionRef<(), ()>;
+  type Return = ();
+
+  fn next(
+    &mut self,
+    callback: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    self.calls += 1;
+    let value = self.calls;
+    let callback_result = callback
+      .map(|callback| {
+        let env = Env::from_raw(self.env as napi::sys::napi_env);
+        callback.borrow_back(&env)?.call(())
+      })
+      .transpose();
+    async move {
+      callback_result?;
+      Ok(Some(value))
+    }
+  }
+}
+
+#[napi]
+impl AsyncReentrantGenerator {
+  #[napi(constructor)]
+  pub fn new(env: Env) -> Self {
+    Self {
+      env: env.raw() as usize,
+      calls: 0,
+    }
+  }
+}
+
+#[napi(async_iterator)]
+pub struct AsyncGeneratorSetupFailure {
+  panic_in: String,
+}
+
+#[napi]
+impl AsyncGenerator for AsyncGeneratorSetupFailure {
+  type Yield = u32;
+  type Next = i32;
+  type Return = i32;
+
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    if self.panic_in == "next" {
+      panic!("intentional async generator next setup panic");
+    }
+    async { Ok(Some(1)) }
+  }
+
+  fn complete(
+    &mut self,
+    _value: Option<Self::Return>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    if self.panic_in == "return" {
+      panic!("intentional async generator return setup panic");
+    }
+    async { Ok(None) }
+  }
+
+  fn catch(
+    &mut self,
+    _env: Env,
+    value: Unknown,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    if self.panic_in == "throw-pending-exception" {
+      let _ = value.coerce_to_string();
+    }
+    if self.panic_in == "throw" {
+      panic!("intentional async generator throw setup panic");
+    }
+    async { Ok(None) }
+  }
+}
+
+#[napi]
+impl AsyncGeneratorSetupFailure {
+  #[napi(constructor)]
+  pub fn new(panic_in: String) -> Self {
+    Self { panic_in }
   }
 }
 

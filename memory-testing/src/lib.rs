@@ -106,8 +106,9 @@ impl MemoryHolder {
     env: Env,
     holder_ref: Reference<MemoryHolder>,
   ) -> Result<ChildReference> {
+    // The borrowed holder remains reachable only through the returned SharedReference.
     let child_holder =
-      holder_ref.share_with(env, |holder_ref| Ok(ChildHolder { inner: holder_ref }))?;
+      unsafe { holder_ref.share_with(env, |holder_ref| Ok(ChildHolder { inner: holder_ref }))? };
     Ok(ChildReference(child_holder))
   }
 }

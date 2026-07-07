@@ -254,7 +254,7 @@ impl NapiFn {
                   } else {
                     return Some(FnArg {
                       arg: "this".to_owned(),
-                      ts_type: "this".to_owned(),
+                      ts_type: "object".to_owned(),
                       is_optional: false,
                     });
                   }

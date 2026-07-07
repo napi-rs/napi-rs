@@ -1,3 +1,5 @@
+#[cfg(not(feature = "noop"))]
+use std::cell::Cell;
 use std::cell::{LazyCell, RefCell};
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
@@ -24,10 +26,15 @@ use std::{any::TypeId, collections::HashMap};
 
 use rustc_hash::FxBuildHasher;
 
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi4", feature = "node_version_detect")
+))]
+use crate::check_status_or_throw;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use crate::NodeVersion;
 #[cfg(not(feature = "noop"))]
-use crate::{check_status, check_status_or_throw, JsError};
+use crate::{check_status, JsError};
 use crate::{sys, Property, Result};
 
 // #[napi] fn
@@ -132,6 +139,23 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_RUNTIME_ENVS: LazyLock<Mutex<HashMap<usize, RuntimeEnvRegistration>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[cfg(all(not(feature = "noop"), feature = "napi4"))]
+fn checked_update_atomic(
+  value: &AtomicUsize,
+  update: impl Fn(usize) -> Option<usize>,
+) -> std::result::Result<usize, usize> {
+  let mut current = value.load(Ordering::Acquire);
+  loop {
+    let Some(next) = update(current) else {
+      return Err(current);
+    };
+    match value.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
+      Ok(previous) => return Ok(previous),
+      Err(actual) => current = actual,
+    }
+  }
+}
+
 #[cfg(all(
   not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime"),
@@ -179,41 +203,239 @@ pub(crate) fn with_registered_runtime_env<T>(env: usize, f: impl FnOnce() -> T) 
 
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
+  static CALLBACK_ENV_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+  #[cfg(not(feature = "noop"))]
+  static MODULE_REGISTRATION_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
-// Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per isolate in
-// `create_custom_gc`, and every Buffer/TypedArray drop routes through it.
-// `AtomicPtr<_>` + `RwLock<bool>` are auto `Send + Sync`, so no `unsafe impl` is required.
-// No `impl Drop`: freeing the `Arc` touches zero Node/V8 resources; Node owns the TSFN (created +
-// unref'd at module load, destroyed at env teardown which fires `custom_gc_handle_finalize`).
+
+pub(crate) struct CallbackEnvGuard {
+  env: usize,
+}
+
+pub(crate) fn enter_callback_env(env: sys::napi_env) -> CallbackEnvGuard {
+  let env = env as usize;
+  CALLBACK_ENV_STACK.with(|stack| stack.borrow_mut().push(env));
+  CallbackEnvGuard { env }
+}
+
+impl Drop for CallbackEnvGuard {
+  fn drop(&mut self) {
+    CALLBACK_ENV_STACK.with(|stack| {
+      let actual = stack
+        .borrow_mut()
+        .pop()
+        .expect("callback environment guards must be dropped in stack order");
+      assert_eq!(
+        actual, self.env,
+        "callback environment guards must be dropped in stack order"
+      );
+    });
+  }
+}
+
+pub(crate) fn current_callback_env() -> Option<sys::napi_env> {
+  CALLBACK_ENV_STACK.with(|stack| {
+    stack
+      .borrow()
+      .last()
+      .copied()
+      .map(|env| env as sys::napi_env)
+  })
+}
+
+#[cfg(not(feature = "noop"))]
+struct ModuleRegistrationGuard;
+
+#[cfg(not(feature = "noop"))]
+impl ModuleRegistrationGuard {
+  fn enter() -> Result<Self> {
+    MODULE_REGISTRATION_ACTIVE.with(|active| {
+      if active.replace(true) {
+        Err(crate::Error::new(
+          crate::Status::GenericFailure,
+          "N-API module registration cannot be re-entered on the same thread",
+        ))
+      } else {
+        Ok(Self)
+      }
+    })
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for ModuleRegistrationGuard {
+  fn drop(&mut self) {
+    MODULE_REGISTRATION_ACTIVE.with(|active| {
+      debug_assert!(active.replace(false));
+    });
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn rollback_unowned_runtime_preserving_registration_error(mut error: crate::Error) -> crate::Error {
+  if let Err(cleanup_error) =
+    crate::tokio_runtime::rollback_unowned_async_runtime_after_registration_failure()
+  {
+    error
+      .reason
+      .push_str("; additionally, async runtime rollback failed: ");
+    error.reason.push_str(&cleanup_error.reason);
+  }
+  error
+}
+
+// Per-env custom-GC infrastructure (#3357). Module registration first installs a provisional
+// handle so values captured by module-init callbacks can route off-thread drops without creating
+// a native callback that could outlive a failed load. After exports succeed, the handle becomes
+// active and owns one unref'd TSFN until env teardown.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+struct CustomGcOwnerCleanupContext {
+  handle: std::sync::Arc<CustomGcHandle>,
+}
+
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
   env: usize,
   owner_thread: std::thread::ThreadId,
   tsfn: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__>,
-  aborted: std::sync::RwLock<bool>,
+  owner_cleanup_context: std::sync::atomic::AtomicPtr<CustomGcOwnerCleanupContext>,
+  state: std::sync::Mutex<CustomGcState>,
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+enum CustomGcState {
+  Pending(Vec<usize>),
+  Active,
+  RolledBack(Vec<usize>),
+  Closed,
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 impl CustomGcHandle {
-  pub(crate) fn get_raw(&self) -> sys::napi_threadsafe_function {
-    self.tsfn.load(std::sync::atomic::Ordering::SeqCst)
-  }
-  // drop path: read-lock held ACROSS the napi_call so finalize's write-lock blocks until the call returns
-  pub(crate) fn with_read_aborted<RT>(&self, f: impl FnOnce(bool) -> RT) -> RT {
-    let g = self
-      .aborted
-      .read()
+  pub(crate) fn release_reference(&self, reference: sys::napi_ref) -> sys::napi_status {
+    let mut state = self
+      .state
+      .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    f(*g)
+    match &mut *state {
+      CustomGcState::Closed => sys::Status::napi_closing,
+      CustomGcState::Pending(pending) => {
+        pending.push(reference as usize);
+        sys::Status::napi_ok
+      }
+      CustomGcState::RolledBack(pending) => {
+        if self.owner_thread == std::thread::current().id() {
+          drop(state);
+          return release_custom_gc_reference(self.env as sys::napi_env, reference);
+        }
+        pending.push(reference as usize);
+        sys::Status::napi_ok
+      }
+      CustomGcState::Active => {
+        let status = unsafe {
+          sys::napi_call_threadsafe_function(
+            self.tsfn.load(std::sync::atomic::Ordering::SeqCst),
+            reference.cast(),
+            1,
+          )
+        };
+        if status == sys::Status::napi_closing {
+          *state = CustomGcState::Closed;
+        }
+        status
+      }
+    }
   }
-  fn set_aborted(&self) {
-    *self
-      .aborted
-      .write()
-      .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+
+  pub(crate) fn can_access_from_current_thread(&self, env: sys::napi_env) -> bool {
+    self.env == env as usize
+      && self.owner_thread == std::thread::current().id()
+      && !matches!(
+        *self
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner),
+        CustomGcState::Closed
+      )
   }
+
+  fn activate(&self, tsfn: sys::napi_threadsafe_function) -> Vec<usize> {
+    self.tsfn.store(tsfn, std::sync::atomic::Ordering::SeqCst);
+    let mut state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match std::mem::replace(&mut *state, CustomGcState::Active) {
+      CustomGcState::Pending(pending) => pending,
+      CustomGcState::Active => Vec::new(),
+      CustomGcState::RolledBack(pending) => {
+        *state = CustomGcState::RolledBack(pending);
+        Vec::new()
+      }
+      CustomGcState::Closed => {
+        *state = CustomGcState::Closed;
+        Vec::new()
+      }
+    }
+  }
+
+  fn rollback(&self) -> Vec<usize> {
+    let mut state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match std::mem::replace(&mut *state, CustomGcState::RolledBack(Vec::new())) {
+      CustomGcState::Pending(pending) | CustomGcState::RolledBack(pending) => pending,
+      CustomGcState::Active => {
+        *state = CustomGcState::Active;
+        Vec::new()
+      }
+      CustomGcState::Closed => {
+        *state = CustomGcState::Closed;
+        Vec::new()
+      }
+    }
+  }
+
+  fn close_for_env_cleanup(&self) -> (sys::napi_threadsafe_function, Vec<usize>) {
+    let mut state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match std::mem::replace(&mut *state, CustomGcState::Closed) {
+      CustomGcState::Pending(pending) | CustomGcState::RolledBack(pending) => {
+        (ptr::null_mut(), pending)
+      }
+      CustomGcState::Active => (
+        self.tsfn.load(std::sync::atomic::Ordering::SeqCst),
+        Vec::new(),
+      ),
+      CustomGcState::Closed => (ptr::null_mut(), Vec::new()),
+    }
+  }
+
+  fn close_from_finalize(&self) -> bool {
+    let mut state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(*state, CustomGcState::Active) {
+      *state = CustomGcState::Closed;
+      true
+    } else {
+      false
+    }
+  }
+
   fn is_active_for(&self, env: sys::napi_env) -> bool {
-    self.env == env as usize && self.with_read_aborted(|aborted| !aborted)
+    self.env == env as usize
+      && matches!(
+        *self
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner),
+        CustomGcState::Active
+      )
   }
 }
 
@@ -223,38 +445,34 @@ struct CustomGcRegistration {
   owned: bool,
 }
 
-// `create_custom_gc` installs the current registration's handle on its JavaScript thread, and
+// `prepare_custom_gc` installs the current registration's handle under its exact `napi_env`, and
 // `FromNapiValue` captures that handle for the value's owning env. Duplicate `process.dlopen` calls
-// may supply multiple `napi_env` pointers on the same isolate thread, so owner-thread checks use the
-// captured Rust `ThreadId`, while the per-handle aborted flag prevents a retired env from being
-// mistaken for a later registration on a reused thread.
+// may supply multiple `napi_env` pointers on the same isolate thread; an env-keyed map prevents a
+// reference created by one registration from being routed through another registration's TSFN.
 thread_local! {
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
-  // Per-thread "this isolate's custom-GC handle".
-  pub(crate) static CURRENT_CUSTOM_GC_HANDLE:
-    std::cell::RefCell<Option<std::sync::Arc<CustomGcHandle>>> = const { std::cell::RefCell::new(None) };
+  pub(crate) static CURRENT_CUSTOM_GC_HANDLES:
+    std::cell::RefCell<HashMap<usize, std::sync::Arc<CustomGcHandle>>> =
+      std::cell::RefCell::new(HashMap::new());
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-pub(crate) fn current_custom_gc_handle() -> Option<std::sync::Arc<CustomGcHandle>> {
+pub(crate) fn current_custom_gc_handle(
+  env: sys::napi_env,
+) -> Option<std::sync::Arc<CustomGcHandle>> {
   // clone = one refcount inc, at from_napi_value capture
-  CURRENT_CUSTOM_GC_HANDLE.with(|c| c.borrow().clone())
+  CURRENT_CUSTOM_GC_HANDLES.with(|handles| handles.borrow().get(&(env as usize)).cloned())
 }
 
-#[cfg(all(feature = "napi4", not(feature = "noop")))]
-pub(crate) fn current_thread_owns_custom_gc(handle: &std::sync::Arc<CustomGcHandle>) -> bool {
-  // Node may provide a distinct `napi_env` for duplicate process.dlopen calls
-  // in the same isolate. The Rust thread identity remains stable across those
-  // registrations and is unique while the owner thread is alive. Callers pair
-  // this check with the handle's aborted lock to reject retired environments.
-  handle.owner_thread == std::thread::current().id()
+struct RegisteredClass {
+  js_name: &'static str,
+  constructor: sys::napi_ref,
 }
 
-type RegisteredClasses = PersistedPerInstanceHashMap<
-  /* export name */ String,
-  /* constructor */ sys::napi_ref,
-  FxBuildHasher,
->;
+type RegisteredClassKey = (TypeId, Option<&'static str>);
+type RegisteredClassesForEnv = HashMap<RegisteredClassKey, RegisteredClass, FxBuildHasher>;
+type RegisteredClasses =
+  PersistedPerInstanceHashMap</* napi_env */ usize, RegisteredClassesForEnv, FxBuildHasher>;
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
@@ -320,7 +538,77 @@ pub fn register_module_export_hook(_cb: ExportRegisterHookCallback) {}
 
 #[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
-  REGISTERED_CLASSES.with(|cell| cell.borrow_mut(|map| map.get(js_name).copied()))
+  if let Some(env) = current_callback_env() {
+    return get_class_constructor_for_env(env, js_name);
+  }
+  REGISTERED_CLASSES.with(|cell| {
+    cell.borrow_mut(|map| {
+      let mut matches = map
+        .values()
+        .flat_map(HashMap::values)
+        .filter(|class| class.js_name == js_name)
+        .map(|class| class.constructor);
+      let constructor = matches.next()?;
+      matches.next().is_none().then_some(constructor)
+    })
+  })
+}
+
+#[doc(hidden)]
+pub fn get_class_constructor_for_env(
+  env: sys::napi_env,
+  js_name: &'static str,
+) -> Option<sys::napi_ref> {
+  REGISTERED_CLASSES.with(|cell| {
+    cell.borrow_mut(|map| {
+      let mut matches = map
+        .get(&(env as usize))?
+        .values()
+        .filter(|class| class.js_name == js_name)
+        .map(|class| class.constructor);
+      let constructor = matches.next()?;
+      matches.next().is_none().then_some(constructor)
+    })
+  })
+}
+
+#[doc(hidden)]
+pub fn get_class_constructor_for_env_by_type(
+  env: sys::napi_env,
+  rust_type_id: TypeId,
+  js_mod: Option<&'static str>,
+) -> Option<sys::napi_ref> {
+  REGISTERED_CLASSES.with(|cell| {
+    cell.borrow_mut(|map| {
+      map
+        .get(&(env as usize))
+        .and_then(|classes| classes.get(&(rust_type_id, js_mod)))
+        .map(|class| class.constructor)
+    })
+  })
+}
+
+#[cfg(all(not(feature = "noop"), feature = "napi3"))]
+pub(crate) fn cleanup_registered_classes_for_env(env: sys::napi_env) {
+  if env.is_null() {
+    return;
+  }
+  let classes = REGISTERED_CLASSES
+    .with(|registered| registered.borrow_mut(|classes| classes.remove(&(env as usize))));
+  let Some(classes) = classes else {
+    return;
+  };
+  for class in classes.into_values() {
+    let status = unsafe { sys::napi_delete_reference(env, class.constructor) };
+    if status != sys::Status::napi_ok && cfg!(debug_assertions) {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!(
+          "Failed to delete registered class reference during environment cleanup: {}",
+          crate::Status::from(status)
+        );
+      });
+    }
+  }
 }
 
 #[cfg(not(feature = "noop"))]
@@ -386,6 +674,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
   unsafe {
     sys::setup();
   }
+  let _registration_guard = match ModuleRegistrationGuard::enter() {
+    Ok(guard) => guard,
+    Err(error) => {
+      JsError::from(error).throw_into(env);
+      return exports;
+    }
+  };
   #[cfg(feature = "node_version_detect")]
   {
     NODE_VERSION.get_or_init(|| {
@@ -410,9 +705,12 @@ pub unsafe extern "C" fn napi_register_module_v1(
     });
   }
 
-  let resolver_env_owned = match crate::sendable_resolver::register_resolver_env(env) {
+  let resolver_registration = crate::sendable_resolver::register_resolver_env(env);
+  let resolver_env_owned = match resolver_registration {
     Ok(owned) => owned,
     Err(error) => {
+      #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+      let error = rollback_unowned_runtime_preserving_registration_error(error);
       JsError::from(error).throw_into(env);
       return exports;
     }
@@ -447,7 +745,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
       drop(unsafe { Box::from_raw(cleanup_data) });
       decrement_runtime_module_count(env);
       rollback_resolver_env(env, resolver_env_owned);
-      check_status_or_throw!(env, status, "Failed to add env cleanup hook");
+      let error = crate::Error::new(
+        crate::Status::from(status),
+        "Failed to add env cleanup hook",
+      );
+      #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+      let error = rollback_unowned_runtime_preserving_registration_error(error);
+      JsError::from(error).throw_into(env);
       FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
       return exports;
     }
@@ -466,6 +770,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     {
       if let Err(error) = crate::tokio_runtime::reserve_async_runtime_env() {
         rollback_runtime_env(env, cleanup_data);
+        let error = rollback_unowned_runtime_preserving_registration_error(error);
         JsError::from(error).throw_into(env);
         FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
         return exports;
@@ -496,19 +801,18 @@ pub unsafe extern "C" fn napi_register_module_v1(
     return exports;
   }
 
-  // Install the per-env custom-GC handle (#3357) BEFORE running ANY module-init
+  // Install the provisional per-env custom-GC handle (#3357) BEFORE running ANY module-init
   // callback below (the export-register callbacks, `module_register_hook_callback`,
   // and the compat `MODULE_EXPORTS` callbacks). Those callbacks can capture a
   // `Buffer`/`TypedArray` via `from_napi_value`, which snapshots the thread-local
-  // `CURRENT_CUSTOM_GC_HANDLE`. If the handle were installed afterwards (as it was
+  // `CURRENT_CUSTOM_GC_HANDLES`. If the handle were installed afterwards (as it was
   // originally), such a value would record `None`; because `Buffer`/`TypedArray`
   // are `Send`, dropping it later on a non-JS thread would fall through to a direct
-  // `napi_reference_unref(env, ..)` on the WRONG thread — the cross-isolate
-  // use-after-free this change exists to prevent. `create_custom_gc` only needs a
-  // valid `env` (it creates a dummy function + the per-env TSFN and never reads
-  // `exports`), so running it this early is safe.
+  // `napi_reference_unref(env, ..)` on the WRONG thread. The TSFN itself is not
+  // created until exports succeed, so a failed module load leaves no native
+  // callback that the loader must keep mapped.
   #[cfg(feature = "napi4")]
-  let custom_gc_registration = match create_custom_gc(env) {
+  let custom_gc_registration = match prepare_custom_gc(env) {
     Ok(registration) => registration,
     Err(error) => {
       #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
@@ -525,27 +829,45 @@ pub unsafe extern "C" fn napi_register_module_v1(
   };
 
   if let Err(error) = unsafe { initialize_module_exports(env, exports) } {
+    // Export setters and module hooks can retain callbacks before throwing. Keep
+    // per-environment infrastructure alive until the real environment teardown.
+    // Native addons also need an explicit loader reference; WASI cleanup hooks
+    // retain the owning environment and its WebAssembly callback table.
+    #[cfg(not(target_family = "wasm"))]
+    retain_current_module_for_unload_safety();
     #[cfg(feature = "napi4")]
-    rollback_custom_gc(custom_gc_registration);
-    #[cfg(all(
-      feature = "napi4",
-      any(feature = "tokio_rt", feature = "async-runtime")
-    ))]
-    rollback_runtime_env(env, _runtime_cleanup);
-    #[cfg(not(all(
-      feature = "napi4",
-      any(feature = "tokio_rt", feature = "async-runtime")
-    )))]
-    rollback_module_count();
-    #[cfg(all(
-      feature = "napi4",
-      not(any(feature = "tokio_rt", feature = "async-runtime"))
-    ))]
-    rollback_resolver_env(env, resolver_env_owned);
+    let error = {
+      let mut error = error;
+      if let Err(commit_error) =
+        unsafe { commit_custom_gc_preserving_pending_exception(&custom_gc_registration) }
+      {
+        rollback_custom_gc(custom_gc_registration);
+        error.reason.push_str("; failed to retain escaped values: ");
+        error.reason.push_str(&commit_error.reason);
+      }
+      error
+    };
+    #[cfg(feature = "async-runtime")]
+    crate::tokio_runtime::commit_async_runtime_module_retention();
     JsError::from(error).throw_into(env);
     FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
     return exports;
   }
+
+  #[cfg(feature = "napi4")]
+  if let Err(error) = commit_custom_gc(&custom_gc_registration) {
+    rollback_custom_gc(custom_gc_registration);
+    #[cfg(not(target_family = "wasm"))]
+    retain_current_module_for_unload_safety();
+    #[cfg(feature = "async-runtime")]
+    crate::tokio_runtime::commit_async_runtime_module_retention();
+    JsError::from(error).throw_into(env);
+    FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+    return exports;
+  }
+
+  #[cfg(feature = "async-runtime")]
+  crate::tokio_runtime::commit_async_runtime_module_retention();
 
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
@@ -553,6 +875,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
 #[cfg(not(feature = "noop"))]
 unsafe fn initialize_module_exports(env: sys::napi_env, exports: sys::napi_value) -> Result<()> {
+  let _callback_env = enter_callback_env(env);
   let mut exports_objects: HashSet<String> = HashSet::default();
   let register_callbacks = MODULE_REGISTER_CALLBACK
     .read()
@@ -581,9 +904,13 @@ unsafe fn initialize_module_exports(env: sys::napi_env, exports: sys::napi_value
     }
   }
 
-  let mut registered_classes = HashMap::default();
+  REGISTERED_CLASSES.with(|cell| {
+    cell.borrow_mut(|map| {
+      map.entry(env as usize).or_insert_with(HashMap::default);
+    });
+  });
   MODULE_CLASS_PROPERTIES.borrow(|inner| -> Result<()> {
-    for js_mods in inner.values() {
+    for (rust_type_id, js_mods) in inner {
       for (js_mod, class_registration) in js_mods {
         let exports_js_mod =
           unsafe { exports_object_for_module(env, exports, *js_mod, &mut exports_objects) }?;
@@ -626,7 +953,29 @@ unsafe fn initialize_module_exports(env: sys::napi_env, exports: sys::napi_value
           "Failed to create constructor reference for class `{}`",
           &js_name,
         )?;
-        registered_classes.insert(js_name.to_string(), ctor_ref);
+        // The export setter can execute arbitrary JavaScript and throw after retaining `class_ptr`.
+        // Publish its constructor first so factories on an escaped class remain usable.
+        let previous = REGISTERED_CLASSES.with(|cell| {
+          cell.borrow_mut(|map| {
+            map
+              .entry(env as usize)
+              .or_insert_with(HashMap::default)
+              .insert(
+                (*rust_type_id, *js_mod),
+                RegisteredClass {
+                  js_name,
+                  constructor: ctor_ref,
+                },
+              )
+          })
+        });
+        if let Some(previous) = previous {
+          check_status!(
+            unsafe { sys::napi_delete_reference(env, previous.constructor) },
+            "Failed to replace constructor reference for class `{}`",
+            &js_name,
+          )?;
+        }
 
         check_status!(
           unsafe {
@@ -639,12 +988,6 @@ unsafe fn initialize_module_exports(env: sys::napi_env, exports: sys::napi_value
     }
     Ok(())
   })?;
-
-  REGISTERED_CLASSES.with(|cell| {
-    cell.borrow_mut(|map| {
-      *map = registered_classes;
-    })
-  });
 
   let module_register_hook_callback = *MODULE_REGISTER_HOOK_CALLBACK
     .read()
@@ -735,11 +1078,102 @@ pub(crate) unsafe extern "C" fn noop(
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-fn create_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
-  if let Some(handle) = CURRENT_CUSTOM_GC_HANDLE.with(|current| {
-    current
+unsafe fn add_custom_gc_owner_cleanup_hook(
+  env: sys::napi_env,
+  context: *mut CustomGcOwnerCleanupContext,
+) -> sys::napi_status {
+  #[cfg(not(target_family = "wasm"))]
+  {
+    unsafe { sys::napi_add_env_cleanup_hook(env, Some(custom_gc_owner_cleanup), context.cast()) }
+  }
+  #[cfg(target_family = "wasm")]
+  {
+    unsafe { crate::napi_add_env_cleanup_hook(env, Some(custom_gc_owner_cleanup), context.cast()) }
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+unsafe fn remove_custom_gc_owner_cleanup_hook(
+  env: sys::napi_env,
+  context: *mut CustomGcOwnerCleanupContext,
+) -> sys::napi_status {
+  #[cfg(not(target_family = "wasm"))]
+  {
+    unsafe { sys::napi_remove_env_cleanup_hook(env, Some(custom_gc_owner_cleanup), context.cast()) }
+  }
+  #[cfg(target_family = "wasm")]
+  {
+    unsafe {
+      crate::napi_remove_env_cleanup_hook(env, Some(custom_gc_owner_cleanup), context.cast())
+    }
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn register_custom_gc_owner_cleanup(handle: &std::sync::Arc<CustomGcHandle>) -> Result<()> {
+  if !handle
+    .owner_cleanup_context
+    .load(std::sync::atomic::Ordering::Acquire)
+    .is_null()
+  {
+    return Ok(());
+  }
+  let context = Box::into_raw(Box::new(CustomGcOwnerCleanupContext {
+    handle: handle.clone(),
+  }));
+  let status = unsafe { add_custom_gc_owner_cleanup_hook(handle.env as sys::napi_env, context) };
+  if status != sys::Status::napi_ok {
+    drop(unsafe { Box::from_raw(context) });
+    return Err(crate::Error::new(
+      crate::Status::from(status),
+      "Failed to add Custom GC environment cleanup hook",
+    ));
+  }
+  handle
+    .owner_cleanup_context
+    .store(context, std::sync::atomic::Ordering::Release);
+  Ok(())
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn rearm_custom_gc_owner_cleanup(handle: &std::sync::Arc<CustomGcHandle>) -> Result<()> {
+  let context = handle
+    .owner_cleanup_context
+    .swap(ptr::null_mut(), std::sync::atomic::Ordering::AcqRel);
+  if context.is_null() {
+    return register_custom_gc_owner_cleanup(handle);
+  }
+  let env = handle.env as sys::napi_env;
+  let remove_status = unsafe { remove_custom_gc_owner_cleanup_hook(env, context) };
+  if remove_status != sys::Status::napi_ok {
+    handle
+      .owner_cleanup_context
+      .store(context, std::sync::atomic::Ordering::Release);
+    return Err(crate::Error::new(
+      crate::Status::from(remove_status),
+      "Failed to reorder Custom GC environment cleanup hook",
+    ));
+  }
+  let add_status = unsafe { add_custom_gc_owner_cleanup_hook(env, context) };
+  if add_status != sys::Status::napi_ok {
+    drop(unsafe { Box::from_raw(context) });
+    return Err(crate::Error::new(
+      crate::Status::from(add_status),
+      "Failed to re-add Custom GC environment cleanup hook",
+    ));
+  }
+  handle
+    .owner_cleanup_context
+    .store(context, std::sync::atomic::Ordering::Release);
+  Ok(())
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn prepare_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
+  if let Some(handle) = CURRENT_CUSTOM_GC_HANDLES.with(|handles| {
+    handles
       .borrow()
-      .as_ref()
+      .get(&(env as usize))
       .filter(|handle| handle.is_active_for(env))
       .cloned()
   }) {
@@ -749,9 +1183,30 @@ fn create_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
     });
   }
 
-  // Per-env custom-GC TSFN (#3357): created for EVERY isolate. It is `napi_unref`'d so it never pins
-  // the event loop (worker terminate/exit cannot hang), and Node owns it (torn down via
-  // `custom_gc_handle_finalize` at env teardown).
+  let handle = std::sync::Arc::new(CustomGcHandle {
+    env: env as usize,
+    owner_thread: std::thread::current().id(),
+    tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
+    owner_cleanup_context: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
+    state: std::sync::Mutex::new(CustomGcState::Pending(Vec::new())),
+  });
+  register_custom_gc_owner_cleanup(&handle)?;
+  CURRENT_CUSTOM_GC_HANDLES.with(|handles| {
+    handles.borrow_mut().insert(env as usize, handle.clone());
+  });
+  Ok(CustomGcRegistration {
+    handle,
+    owned: true,
+  })
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn commit_custom_gc(registration: &CustomGcRegistration) -> Result<()> {
+  if !registration.owned {
+    return Ok(());
+  }
+
+  let env = registration.handle.env as sys::napi_env;
   let mut custom_gc_fn = ptr::null_mut();
   check_status!(
     unsafe {
@@ -771,13 +1226,7 @@ fn create_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
     unsafe { sys::napi_create_string_utf8(env, c"CustomGC".as_ptr(), 8, &mut async_resource_name) },
     "Create async resource string in napi_register_module_v1"
   )?;
-  let handle = std::sync::Arc::new(CustomGcHandle {
-    env: env as usize,
-    owner_thread: std::thread::current().id(),
-    tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
-    aborted: std::sync::RwLock::new(false),
-  });
-  let weak_ptr = std::sync::Arc::downgrade(&handle).into_raw();
+  let weak_ptr = std::sync::Arc::downgrade(&registration.handle).into_raw();
   let mut custom_gc_tsfn = ptr::null_mut();
   let status = unsafe {
     sys::napi_create_threadsafe_function(
@@ -819,6 +1268,10 @@ fn create_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
     }
   }
 
+  registration
+    .handle
+    .tsfn
+    .store(custom_gc_tsfn, std::sync::atomic::Ordering::SeqCst);
   let unref_status = unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) };
   if unref_status != sys::Status::napi_ok {
     let abort_status = unsafe {
@@ -850,14 +1303,101 @@ fn create_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
     }
   }
 
-  handle
-    .tsfn
-    .store(custom_gc_tsfn, std::sync::atomic::Ordering::SeqCst);
-  CURRENT_CUSTOM_GC_HANDLE.with(|current| *current.borrow_mut() = Some(handle.clone()));
-  Ok(CustomGcRegistration {
-    handle,
-    owned: true,
-  })
+  if let Err(error) = rearm_custom_gc_owner_cleanup(&registration.handle) {
+    #[cfg(not(target_family = "wasm"))]
+    let mut error = error;
+    let abort_status = unsafe {
+      sys::napi_release_threadsafe_function(
+        custom_gc_tsfn,
+        sys::ThreadsafeFunctionReleaseMode::abort,
+      )
+    };
+    #[cfg(not(target_family = "wasm"))]
+    {
+      retain_current_module_for_unload_safety();
+      if abort_status != sys::Status::napi_ok {
+        error
+          .reason
+          .push_str("; aborting the Custom GC ThreadsafeFunction returned ");
+        error
+          .reason
+          .push_str(crate::Status::from(abort_status).as_ref());
+      }
+      return Err(error);
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      let _ = (abort_status, error);
+      // The host may still invoke the TSFN finalizer after abort. A failed
+      // cleanup-hook reorder leaves no callback that can prove the instance
+      // remains alive until then.
+      std::process::abort();
+    }
+  }
+
+  release_custom_gc_references(
+    env,
+    registration.handle.activate(custom_gc_tsfn),
+    "Failed to release reference queued during Custom GC initialization",
+  )
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+unsafe fn commit_custom_gc_preserving_pending_exception(
+  registration: &CustomGcRegistration,
+) -> Result<()> {
+  let env = registration.handle.env as sys::napi_env;
+  let mut is_pending = false;
+  check_status!(
+    unsafe { sys::napi_is_exception_pending(env, &mut is_pending) },
+    "Failed to check for a pending exception before Custom GC initialization",
+  )?;
+  let pending_exception = if is_pending {
+    let mut exception = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) },
+      "Failed to suspend the pending exception during Custom GC initialization",
+    )?;
+    Some(exception)
+  } else {
+    None
+  };
+
+  let commit_result = commit_custom_gc(registration);
+  let restore_result = pending_exception.map_or(Ok(()), |exception| {
+    check_status!(
+      unsafe { sys::napi_throw(env, exception) },
+      "Failed to restore the pending exception after Custom GC initialization",
+    )
+  });
+
+  match (commit_result, restore_result) {
+    (Ok(()), Ok(())) => Ok(()),
+    (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+    (Err(mut commit_error), Err(restore_error)) => {
+      commit_error
+        .reason
+        .push_str("; restoring the original pending exception failed: ");
+      commit_error.reason.push_str(&restore_error.reason);
+      Err(commit_error)
+    }
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn release_custom_gc_references(
+  env: sys::napi_env,
+  references: Vec<usize>,
+  reason: &'static str,
+) -> Result<()> {
+  let mut first_error = None;
+  for reference in references {
+    let status = release_custom_gc_reference(env, reference as sys::napi_ref);
+    if status != sys::Status::napi_ok && first_error.is_none() {
+      first_error = Some(crate::Error::new(crate::Status::from(status), reason));
+    }
+  }
+  first_error.map_or(Ok(()), Err)
 }
 
 #[cfg(all(
@@ -925,7 +1465,7 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup, env_closing: bool) {
   let resolver_env_owned = cleanup.resolver_env_owned.swap(false, Ordering::AcqRel);
   crate::bindgen_runtime::with_runtime_teardown_guard(|| {
     if runtime_env_tasks_owned {
-      crate::tokio_runtime::cancel_runtime_env_tasks(env);
+      crate::tokio_runtime::cancel_and_wait_runtime_env_tasks(env);
       crate::js_values::clear_finalize_callbacks_for_env(env);
     }
     if env_closing {
@@ -986,16 +1526,14 @@ fn increment_module_count(_env: sys::napi_env) -> usize {
 
 #[cfg(all(
   not(feature = "noop"),
+  feature = "napi4",
   not(all(
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
   ))
 ))]
 fn rollback_module_count() {
-  MODULE_COUNT
-    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-      count.checked_sub(1)
-    })
+  checked_update_atomic(&MODULE_COUNT, |count| count.checked_sub(1))
     .unwrap_or_else(|_| std::process::abort());
 }
 
@@ -1154,11 +1692,8 @@ fn decrement_runtime_module_count_with_last(env: sys::napi_env, on_last: impl Fn
   if remove_env {
     registered.remove(&env);
   }
-  let previous = MODULE_COUNT
-    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-      count.checked_sub(1)
-    })
-    .unwrap_or_else(|_| {
+  let previous =
+    checked_update_atomic(&MODULE_COUNT, |count| count.checked_sub(1)).unwrap_or_else(|_| {
       // Wrapping to usize::MAX would permanently suppress last-environment
       // retirement and could let the addon unload under native workers.
       std::process::abort();
@@ -1170,16 +1705,11 @@ fn decrement_runtime_module_count_with_last(env: sys::napi_env, on_last: impl Fn
   was_last
 }
 
-#[cfg(all(not(feature = "noop"), not(target_family = "wasm"), feature = "napi4"))]
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 #[inline(never)]
 fn module_retention_anchor() {}
 
-#[cfg(all(
-  not(feature = "noop"),
-  not(target_family = "wasm"),
-  windows,
-  feature = "napi4"
-))]
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm"), windows))]
 pub(crate) fn retain_current_module_for_unload_safety() {
   const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 0x0000_0001;
   const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 0x0000_0004;
@@ -1223,8 +1753,7 @@ pub(crate) fn retain_current_module_for_unload_safety() {
     target_os = "netbsd",
     target_os = "solaris",
     target_os = "illumos"
-  ),
-  feature = "napi4"
+  )
 ))]
 pub(crate) fn retain_current_module_for_unload_safety() {
   #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -1262,8 +1791,7 @@ pub(crate) fn retain_current_module_for_unload_safety() {
 #[cfg(all(
   not(feature = "noop"),
   not(target_family = "wasm"),
-  target_os = "openbsd",
-  feature = "napi4"
+  target_os = "openbsd"
 ))]
 pub(crate) fn retain_current_module_for_unload_safety() {
   const DL_REFERENCE: std::ffi::c_int = 4;
@@ -1291,8 +1819,7 @@ pub(crate) fn retain_current_module_for_unload_safety() {
   not(feature = "noop"),
   unix,
   not(target_os = "aix"),
-  target_vendor = "apple",
-  feature = "napi4"
+  target_vendor = "apple"
 ))]
 fn current_image_is_main_executable(local_symbol: *const std::ffi::c_void) -> bool {
   unsafe extern "C" {
@@ -1318,8 +1845,7 @@ fn current_image_is_main_executable(local_symbol: *const std::ffi::c_void) -> bo
       any(target_os = "solaris", target_os = "illumos"),
       any(target_arch = "x86", target_arch = "x86_64")
     )
-  ),
-  feature = "napi4"
+  )
 ))]
 fn current_image_is_main_executable(local_symbol: *const std::ffi::c_void) -> bool {
   const PT_LOAD: libc::c_uint = 1;
@@ -1393,20 +1919,19 @@ fn current_image_is_main_executable(local_symbol: *const std::ffi::c_void) -> bo
 #[cfg(all(
   not(feature = "noop"),
   any(target_os = "solaris", target_os = "illumos"),
-  not(any(target_arch = "x86", target_arch = "x86_64")),
-  feature = "napi4"
+  not(any(target_arch = "x86", target_arch = "x86_64"))
 ))]
 fn current_image_is_main_executable(_local_symbol: *const std::ffi::c_void) -> bool {
   false
 }
 
-#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+#[cfg(all(not(feature = "noop"), any(target_os = "aix", test)))]
 fn aix_text_range_contains(start: usize, size: usize, address: usize) -> Option<bool> {
   let end = start.checked_add(size)?;
   Some((start..end).contains(&address))
 }
 
-#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+#[cfg(all(not(feature = "noop"), any(target_os = "aix", test)))]
 fn aix_loader_names(record_tail: &[u8]) -> Option<(&[u8], &[u8])> {
   let filename_end = record_tail.iter().position(|byte| *byte == 0)?;
   let member_start = filename_end.checked_add(1)?;
@@ -1415,7 +1940,7 @@ fn aix_loader_names(record_tail: &[u8]) -> Option<(&[u8], &[u8])> {
   Some((&record_tail[..filename_end], &member_tail[..member_end]))
 }
 
-#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+#[cfg(all(not(feature = "noop"), any(target_os = "aix", test)))]
 fn aix_dlopen_path(filename: &[u8], member: &[u8]) -> Option<Vec<u8>> {
   if filename.is_empty() || filename.contains(&0) || member.contains(&0) {
     return None;
@@ -1437,13 +1962,16 @@ fn aix_dlopen_path(filename: &[u8], member: &[u8]) -> Option<Vec<u8>> {
   Some(path)
 }
 
-#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(target_os = "aix", all(test, target_pointer_width = "64"))
+))]
 fn aix_loader_record_is_main_executable(text_start: usize, member: &[u8]) -> bool {
   const AIX_EXECUTABLE_TEXT_BASE: usize = 0x1_0000_0000;
   member.is_empty() && text_start == AIX_EXECUTABLE_TEXT_BASE
 }
 
-#[cfg(all(not(feature = "noop"), target_os = "aix", feature = "napi4"))]
+#[cfg(all(not(feature = "noop"), target_os = "aix"))]
 fn aix_loader_file_is_main_executable(
   text_start: usize,
   filename: &[u8],
@@ -1465,12 +1993,7 @@ fn aix_loader_file_is_main_executable(
   Some(loaded_file.st_dev() == executable.st_dev() && loaded_file.st_ino() == executable.st_ino())
 }
 
-#[cfg(all(
-  not(feature = "noop"),
-  not(target_family = "wasm"),
-  target_os = "aix",
-  feature = "napi4"
-))]
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm"), target_os = "aix"))]
 pub(crate) fn retain_current_module_for_unload_safety() {
   const INITIAL_LOADQUERY_RECORDS: usize = 64;
 
@@ -1600,8 +2123,7 @@ pub(crate) fn retain_current_module_for_unload_safety() {
     target_os = "solaris",
     target_os = "illumos",
     target_os = "aix"
-  )),
-  feature = "napi4"
+  ))
 ))]
 pub(crate) fn retain_current_module_for_unload_safety() {
   // No portable loader-pinning API is available. Returning could let the host
@@ -1609,7 +2131,7 @@ pub(crate) fn retain_current_module_for_unload_safety() {
   std::process::abort();
 }
 
-#[cfg(all(test, not(feature = "noop"), feature = "napi4"))]
+#[cfg(all(test, not(feature = "noop"), target_pointer_width = "64"))]
 mod aix_loader_tests {
   use super::{
     aix_dlopen_path, aix_loader_names, aix_loader_record_is_main_executable,
@@ -1700,29 +2222,33 @@ fn rollback_custom_gc(registration: CustomGcRegistration) {
 
   #[cfg(not(target_family = "wasm"))]
   retain_current_module_for_unload_safety();
-
-  // Keep the aborted handle in TLS as a safe sentinel for any partially
-  // exported native callback that remains reachable after process.dlopen
-  // throws. A later successful registration replaces it because it is no
-  // longer active.
-  registration.handle.set_aborted();
-  let status = unsafe {
-    sys::napi_release_threadsafe_function(
-      registration.handle.get_raw(),
-      sys::ThreadsafeFunctionReleaseMode::abort,
-    )
-  };
-
-  #[cfg(not(target_family = "wasm"))]
-  {
-    let _ = status;
+  if let Err(error) = register_custom_gc_owner_cleanup(&registration.handle) {
+    #[cfg(not(target_family = "wasm"))]
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!("Failed to retain Custom GC cleanup after module rollback: {error}");
+    });
+    #[cfg(target_family = "wasm")]
+    {
+      let _ = error;
+      // Off-thread drops can continue queueing references after rollback. The
+      // cleanup hook is the only callback that can drain them before the WASI
+      // instance and its callback table are destroyed.
+      std::process::abort();
+    }
   }
-  #[cfg(target_family = "wasm")]
-  {
-    let _ = status;
-    // Aborting a TSFN schedules its native finalizer. WASI has no loader
-    // handle that can keep this callback code alive after module load fails.
-    std::process::abort();
+
+  // Keep the rolled-back handle as a safe sentinel for values still owned by
+  // failed module-init code. Owner-thread drops release immediately; native
+  // thread drops queue until the environment cleanup hook runs.
+  let env = registration.handle.env as sys::napi_env;
+  if let Err(error) = release_custom_gc_references(
+    env,
+    registration.handle.rollback(),
+    "Failed to release reference during Custom GC rollback",
+  ) {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!("{error}");
+    });
   }
 }
 
@@ -1745,12 +2271,63 @@ unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) ->
   ptr::null_mut()
 }
 
-// Per-env custom-GC finalize (#3357): sets the per-handle `aborted` flag when Node tears down the
-// owner env's TSFN. `finalize_data` is the `Weak<CustomGcHandle>` smuggled in via
-// `thread_finalize_data`; we reclaim that weak count here.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn remove_current_custom_gc_handle(handle: &std::sync::Arc<CustomGcHandle>) {
+  let _ = CURRENT_CUSTOM_GC_HANDLES.try_with(|handles| {
+    let mut handles = handles.borrow_mut();
+    if handles
+      .get(&handle.env)
+      .is_some_and(|current| std::sync::Arc::ptr_eq(current, handle))
+    {
+      handles.remove(&handle.env);
+    }
+  });
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+unsafe extern "C" fn custom_gc_owner_cleanup(data: *mut std::ffi::c_void) {
+  if data.is_null() {
+    return;
+  }
+  let context = unsafe { Box::<CustomGcOwnerCleanupContext>::from_raw(data.cast()) };
+  let handle = &context.handle;
+  handle
+    .owner_cleanup_context
+    .store(ptr::null_mut(), std::sync::atomic::Ordering::Release);
+  let env = handle.env as sys::napi_env;
+  let (tsfn, references) = handle.close_for_env_cleanup();
+  for reference in references {
+    let status = release_custom_gc_reference(env, reference as sys::napi_ref);
+    if status != sys::Status::napi_ok && cfg!(debug_assertions) {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!(
+          "Failed to release rolled-back Custom GC reference during environment cleanup: {}",
+          crate::Status::from(status)
+        );
+      });
+    }
+  }
+  cleanup_registered_classes_for_env(env);
+  remove_current_custom_gc_handle(handle);
+  if !tsfn.is_null() {
+    let status = unsafe {
+      sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::abort)
+    };
+    if status != sys::Status::napi_ok {
+      #[cfg(not(target_family = "wasm"))]
+      retain_current_module_for_unload_safety();
+      #[cfg(target_family = "wasm")]
+      std::process::abort();
+    }
+  }
+}
+
+// Per-env custom-GC finalize (#3357): closes the handle when Node tears down the owner env's TSFN.
+// `finalize_data` is the `Weak<CustomGcHandle>` smuggled in via `thread_finalize_data`; we reclaim
+// that weak count here.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 unsafe extern "C" fn custom_gc_handle_finalize(
-  _env: sys::napi_env,
+  env: sys::napi_env,
   finalize_data: *mut std::ffi::c_void,
   _finalize_hint: *mut std::ffi::c_void,
 ) {
@@ -1760,10 +2337,24 @@ unsafe extern "C" fn custom_gc_handle_finalize(
   if let Some(handle) =
     unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(finalize_data.cast()) }.upgrade()
   {
-    // owner env gone, ref already invalidated by V8 -> mark aborted (write-lock)
-    handle.set_aborted();
+    // The owner cleanup hook retires the TSFN before Node reaches this native
+    // finalizer. This fallback also handles a host that finalizes first.
+    if handle.close_from_finalize() {
+      cleanup_registered_classes_for_env(env);
+      remove_current_custom_gc_handle(&handle);
+    }
   }
   // temp Weak dropped here -> reclaims the weak count
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn release_custom_gc_reference(env: sys::napi_env, reference: sys::napi_ref) -> sys::napi_status {
+  let mut ref_count = 0;
+  let status = unsafe { sys::napi_reference_unref(env, reference, &mut ref_count) };
+  if status != sys::Status::napi_ok || ref_count != 0 {
+    return status;
+  }
+  unsafe { sys::napi_delete_reference(env, reference) }
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
@@ -1780,20 +2371,6 @@ extern "C" fn custom_gc(
   if env.is_null() || data.is_null() {
     return;
   }
-  let mut ref_count = 0;
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_reference_unref(env, data.cast(), &mut ref_count) },
-    "Failed to unref reference in Custom GC"
-  );
-  // Both ArrayBuffer/Buffer and `Error` references reach 0 here: each is created
-  // at refcount 1 and routed through this TSFN exactly once, by its owner's drop
-  // (for `Error`, the last `Arc<ErrorRef>`), so the unref above always hits 0.
-  if ref_count == 0 {
-    check_status_or_throw!(
-      env,
-      unsafe { sys::napi_delete_reference(env, data.cast()) },
-      "Failed to delete reference in Custom GC"
-    );
-  }
+  let status = release_custom_gc_reference(env, data.cast());
+  check_status_or_throw!(env, status, "Failed to release reference in Custom GC");
 }

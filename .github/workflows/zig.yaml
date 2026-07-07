@@ -90,6 +90,7 @@ jobs:
           name: napi-${{ matrix.target }}
           path: |
             ./examples/napi/*.node
+            ./examples/napi/module-init-rollback/*.node
             ./examples/napi/tsfn-retention/*.node
           if-no-files-found: error
       - name: Upload artifacts

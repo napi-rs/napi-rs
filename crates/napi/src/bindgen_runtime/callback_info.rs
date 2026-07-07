@@ -1,7 +1,6 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
-use std::sync::Arc;
 
 use crate::{bindgen_prelude::*, check_status, iterator::ScopedGenerator};
 
@@ -11,15 +10,13 @@ thread_local! {
   pub static ___CALL_FROM_FACTORY: Cell<bool> = const { Cell::new(false) };
 }
 
-#[repr(transparent)]
-struct EmptyStructPlaceholder(u8);
-
 #[doc(hidden)]
 pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,
   pub this: sys::napi_value,
   pub args: [sys::napi_value; N],
-  this_reference: sys::napi_ref,
+  this_reference: Cell<sys::napi_ref>,
+  callback_env: Option<super::module_register::CallbackEnvGuard>,
 }
 
 impl<const N: usize> CallbackInfo<N> {
@@ -75,8 +72,19 @@ impl<const N: usize> CallbackInfo<N> {
       env,
       this,
       args,
-      this_reference,
+      this_reference: Cell::new(this_reference),
+      callback_env: Some(super::module_register::enter_callback_env(env)),
     })
+  }
+
+  /// Ends the callback context after async argument conversion has finished.
+  ///
+  /// Async result conversion enters the exact settlement environment through `SendableResolver`,
+  /// so retaining this setup guard in the resolver would make independently settling callbacks
+  /// depend on stack order.
+  #[doc(hidden)]
+  pub fn release_callback_env(&mut self) {
+    self.callback_env.take();
   }
 
   pub fn get_arg(&self, index: usize) -> sys::napi_value {
@@ -92,39 +100,15 @@ impl<const N: usize> CallbackInfo<N> {
     js_name: &str,
     obj: T,
   ) -> Result<(sys::napi_value, *mut T)> {
-    let obj = Box::new(obj);
     let this = self.this();
-    let mut value_ref = Box::into_raw(obj);
-    // for empty struct like `#[napi] struct A;`, the `value_ref` will be `0x1`
-    // and it will be overwritten by the others instance of the same class
-    if IsEmptyStructHint || value_ref as usize == 0x1 {
-      value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
-    }
-    let mut object_ref = ptr::null_mut();
-    // `Reference` needs atomic ref-counting for its `unsafe impl Sync`, so the finalize
-    // callbacks slot is an `Arc`. The inner callback list is only accessed on the JS thread
-    // (see `Reference`), so the non-`Send`/`Sync` interior is sound here.
-    #[allow(clippy::arc_with_non_send_sync)]
-    let finalize_callbacks_ptr = Arc::into_raw(Arc::new(FinalizeCallbacks::new(Box::new(|| {}))));
-    unsafe {
-      check_status!(
-        sys::napi_wrap(
-          self.env,
-          this,
-          value_ref.cast(),
-          Some(raw_finalize_unchecked::<T>),
-          ptr::null_mut(),
-          &mut object_ref
-        ),
-        "Failed to initialize class `{js_name}`",
-      )?;
-    };
-
-    Reference::<T>::add_ref(
-      self.env,
-      value_ref.cast(),
-      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
-    );
+    let _ = IsEmptyStructHint;
+    let value_ref = unsafe { crate::bindgen_runtime::wrap_owned_class_value(self.env, this, obj) }
+      .map_err(|err| {
+        Error::new(
+          err.status,
+          format!("Failed to initialize class `{js_name}`: {}", err.reason),
+        )
+      })?;
     Ok((this, value_ref))
   }
 
@@ -204,15 +188,17 @@ impl<const N: usize> CallbackInfo<N> {
   ) -> Result<(sys::napi_value, *mut T)> {
     let mut this = self.this();
     let mut instance = ptr::null_mut();
-    if !self.this_reference.is_null() {
+    let this_reference = self.this_reference.get();
+    if !this_reference.is_null() {
       check_status!(
-        unsafe { sys::napi_get_reference_value(self.env, self.this_reference, &mut this) },
+        unsafe { sys::napi_get_reference_value(self.env, this_reference, &mut this) },
         "Failed to get reference value for `this` in async class factory"
       )?;
       check_status!(
-        unsafe { sys::napi_delete_reference(self.env, self.this_reference) },
+        unsafe { sys::napi_delete_reference(self.env, this_reference) },
         "Failed to delete reference for `this` in async class factory"
       )?;
+      self.this_reference.set(ptr::null_mut());
     }
     ___CALL_FROM_FACTORY.with(|s| s.set(true));
     let status =
@@ -226,55 +212,16 @@ impl<const N: usize> CallbackInfo<N> {
       return Ok((ptr::null_mut(), ptr::null_mut()));
     }
     check_status!(status, "Failed to create instance of class `{}`", js_name)?;
-    let obj = Box::new(obj);
-    // See `_construct`: `Arc` is required for `Reference`'s `Sync` impl; the callback list
-    // is only touched on the JS thread.
-    #[allow(clippy::arc_with_non_send_sync)]
-    let finalize_callbacks_ptr = Arc::into_raw(Arc::new(FinalizeCallbacks::new(Box::new(|| {}))));
-    let mut object_ref = ptr::null_mut();
-    let mut value_ref = Box::into_raw(obj);
-
-    // for empty struct like `#[napi] struct A;`, the `value_ref` will be `0x1`
-    // and it will be overwritten by the others instance of the same class
-    if value_ref as usize == 0x1 {
-      value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
-    }
-    check_status!(
-      unsafe {
-        sys::napi_wrap(
-          self.env,
-          instance,
-          value_ref.cast(),
-          Some(raw_finalize_unchecked::<T>),
-          ptr::null_mut(),
-          &mut object_ref,
-        )
-      },
-      "Failed to initialize class `{}`",
-      js_name,
-    )?;
-
-    Reference::<T>::add_ref(
-      self.env,
-      value_ref.cast(),
-      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
-    );
+    let value_ref =
+      unsafe { crate::bindgen_runtime::wrap_owned_class_value(self.env, instance, obj) }.map_err(
+        |err| {
+          Error::new(
+            err.status,
+            format!("Failed to initialize class `{js_name}`: {}", err.reason),
+          )
+        },
+      )?;
     Ok((instance, value_ref))
-  }
-
-  pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
-  where
-    T: FromNapiMutRef + TypeName,
-  {
-    unsafe { self.unwrap_raw::<T>() }.map(|raw| Box::leak(unsafe { Box::from_raw(raw) }))
-  }
-
-  pub fn unwrap_borrow<T>(&mut self) -> Result<&'static T>
-  where
-    T: FromNapiRef + TypeName,
-  {
-    unsafe { self.unwrap_raw::<T>() }
-      .map(|raw| Box::leak(unsafe { Box::from_raw(raw) }) as &'static T)
   }
 
   #[doc(hidden)]
@@ -293,6 +240,22 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
 
       Ok(wrapped_val.cast())
+    }
+  }
+}
+
+impl<const N: usize> Drop for CallbackInfo<N> {
+  fn drop(&mut self) {
+    let this_reference = self.this_reference.replace(ptr::null_mut());
+    if this_reference.is_null() {
+      return;
+    }
+    let status = unsafe { sys::napi_delete_reference(self.env, this_reference) };
+    if status != sys::Status::napi_ok && cfg!(debug_assertions) {
+      eprintln!(
+        "Failed to delete `this` reference for async class factory: {}",
+        Status::from(status)
+      );
     }
   }
 }

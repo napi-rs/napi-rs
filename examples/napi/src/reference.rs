@@ -1,4 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+  cell::RefCell,
+  rc::Rc,
+  sync::atomic::{AtomicUsize, Ordering},
+};
 
 use napi::bindgen_prelude::*;
 
@@ -39,7 +43,8 @@ impl JsRepo {
   #[napi]
   pub fn remote(&self, reference: Reference<JsRepo>, env: Env) -> Result<JsRemote> {
     Ok(JsRemote {
-      inner: reference.share_with(env, |repo| Ok(repo.inner.remote()))?,
+      // The borrowed repository remains reachable only through the returned SharedReference.
+      inner: unsafe { reference.share_with(env, |repo| Ok(repo.inner.remote()))? },
     })
   }
 }
@@ -54,7 +59,8 @@ impl JsRemote {
   #[napi(constructor)]
   pub fn new(repo: Reference<JsRepo>, env: Env) -> Result<Self> {
     Ok(Self {
-      inner: repo.share_with(env, |repo| Ok(repo.inner.remote()))?,
+      // The borrowed repository remains reachable only through the returned SharedReference.
+      inner: unsafe { repo.share_with(env, |repo| Ok(repo.inner.remote()))? },
     })
   }
 
@@ -88,12 +94,11 @@ impl CSSRuleList {
 
   #[napi(getter)]
   pub fn name(&self, env: Env) -> Result<Option<String>> {
-    Ok(
-      self
-        .parent
-        .upgrade(env)?
-        .map(|stylesheet| stylesheet.name.clone()),
-    )
+    self
+      .parent
+      .upgrade(env)?
+      .map(|stylesheet| stylesheet.with(|stylesheet| stylesheet.name.clone()))
+      .transpose()
   }
 }
 
@@ -159,4 +164,67 @@ impl CSSStyleSheet {
       rules: self.rules.as_ref().unwrap().clone(env)?,
     })
   }
+}
+
+static WEAK_REFERENCE_GC_TARGET_FINALIZE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[napi]
+pub struct WeakReferenceGcTarget {
+  value: u32,
+}
+
+impl Drop for WeakReferenceGcTarget {
+  fn drop(&mut self) {
+    WEAK_REFERENCE_GC_TARGET_FINALIZE_COUNT.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+#[napi]
+impl WeakReferenceGcTarget {
+  #[napi(constructor)]
+  pub fn new(value: u32) -> Self {
+    Self { value }
+  }
+}
+
+#[napi]
+pub struct WeakReferenceGcHolder {
+  target: WeakReference<WeakReferenceGcTarget>,
+}
+
+#[napi]
+impl WeakReferenceGcHolder {
+  #[napi(constructor)]
+  pub fn new(target: Reference<WeakReferenceGcTarget>) -> Self {
+    Self {
+      target: target.downgrade(),
+    }
+  }
+
+  #[napi]
+  pub fn with_target(&self, callback: Function<(), ()>) -> Result<u32> {
+    self
+      .target
+      .with(|target| {
+        let value = target.value;
+        callback.call(())?;
+        if WEAK_REFERENCE_GC_TARGET_FINALIZE_COUNT.load(Ordering::SeqCst) != 0 {
+          return Err(Error::from_reason(
+            "WeakReference target finalized while borrowed",
+          ));
+        }
+        Ok(value)
+      })?
+      .ok_or_else(|| Error::from_reason("WeakReference target was already finalized"))?
+  }
+}
+
+#[napi]
+pub fn reset_weak_reference_gc_target_finalize_count() {
+  WEAK_REFERENCE_GC_TARGET_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+}
+
+#[napi]
+pub fn weak_reference_gc_target_finalize_count() -> u32 {
+  WEAK_REFERENCE_GC_TARGET_FINALIZE_COUNT.load(Ordering::SeqCst) as u32
 }

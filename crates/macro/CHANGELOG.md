@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Current generated glue targets napi's versioned `codegen_v1` contract. Upgrade
+  `napi` before `napi-derive`; the new runtime keeps compatibility exports for previously released
+  derive code, while new derive code intentionally does not compile against the old runtime.
+- **Breaking:** Native `#[napi]` classes reject borrowed `&T` and `&mut T` fields with a direct
+  diagnostic because callback-scoped native borrow guards cannot span a class lifetime.
+
 ## [3.5.9](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.5.8...napi-derive-v3.5.9) - 2026-07-03
 
 ### Other

@@ -28,11 +28,10 @@ if (mode === 'wasi') {
     ),
     readFile(new URL('./index.d.cts', import.meta.url), 'utf8'),
   ])
-  assert.doesNotMatch(source, /node:worker_threads/)
-  assert.doesNotMatch(source, /\bWorker\b/)
-  assert.doesNotMatch(source, /shared:\s*true/)
-  assert.doesNotMatch(source, /onCreateWorker/)
-  assert.match(source, /asyncWorkPoolSize:\s*0/)
+  assert.match(source, /node:worker_threads/)
+  assert.match(source, /\bWorker\b/)
+  assert.match(source, /shared:\s*true/)
+  assert.match(source, /onCreateWorker/)
   assert.doesNotMatch(source, /retainTaskWaker/)
   assert.doesNotMatch(declarations, /retainTaskWaker/)
 }
@@ -46,6 +45,50 @@ const nativeBindingFile =
           filename.includes('custom_async_runtime'),
       )
     : undefined
+
+async function assertIteratorSetupRejects(binding, pattern, phase) {
+  for (const [method, argument] of [
+    ['next', undefined],
+    ['return', undefined],
+    ['throw', new Error(`${phase} iterator throw`)],
+  ]) {
+    const iterator = new binding.RuntimeAsyncIterator()[Symbol.asyncIterator]()
+    let promise
+    assert.doesNotThrow(() => {
+      promise = iterator[method](argument)
+    }, `${method}() must not throw synchronously while the runtime is ${phase}`)
+    assert.ok(
+      promise instanceof Promise,
+      `${method}() must return a Promise while the runtime is ${phase}`,
+    )
+    await assert.rejects(
+      promise,
+      pattern,
+      `${method}() must reject while the runtime is ${phase}`,
+    )
+  }
+}
+
+async function startRuntimeAfterRetirement(binding) {
+  const deadline = Date.now() + 5000
+
+  for (;;) {
+    try {
+      binding.startRuntime()
+      return
+    } catch (error) {
+      if (
+        error?.code !== 'WouldDeadlock' ||
+        error?.message !== 'Tokio runtime is still shutting down' ||
+        Date.now() >= deadline
+      ) {
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+}
+
 const initial = binding.getRuntimeMetrics()
 
 assert.equal(binding.isWasm(), mode === 'wasi')
@@ -126,6 +169,7 @@ const afterShutdown = binding.getRuntimeMetrics()
 assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
 assert.throws(() => binding.runtimeContextAdd(1), /not running/i)
 assert.throws(() => binding.blockOnValue(1), /not running/i)
+await assertIteratorSetupRejects(binding, /not running/i, 'stopped')
 
 if (mode === 'native') {
   assert.ok(
@@ -172,7 +216,7 @@ if (mode === 'native') {
   )
 }
 
-binding.startRuntime()
+await startRuntimeAfterRetirement(binding)
 const afterStart = binding.getRuntimeMetrics()
 assert.equal(afterStart.startCalls, beforeLifecycle.startCalls + 1)
 assert.equal(await binding.asyncDouble(21), 42)

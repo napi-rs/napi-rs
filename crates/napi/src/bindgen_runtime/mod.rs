@@ -7,6 +7,7 @@ pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
+pub use native_borrow::*;
 
 use super::sys;
 use crate::{Error, JsError, Result, Status};
@@ -22,6 +23,9 @@ mod error;
 pub mod iterator;
 mod js_values;
 mod module_register;
+mod native_borrow;
+
+pub(crate) use js_values::{ensure_same_env, NapiValueOwner};
 
 pub trait ObjectFinalize: Sized {
   /// Runs custom finalization before the native value is dropped.
@@ -58,6 +62,7 @@ pub(crate) fn catch_unwind_safely(f: impl FnOnce()) {
 }
 
 #[cfg_attr(feature = "noop", allow(dead_code))]
+#[cfg(feature = "napi3")]
 pub(crate) fn with_runtime_teardown_guard<T>(f: impl FnOnce() -> T) -> T {
   #[cfg(all(
     not(feature = "noop"),
@@ -101,53 +106,58 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
-  unsafe { finalize_object(env, *data, finalize_data) };
-}
-
-pub(crate) unsafe fn finalize_object<T: ObjectFinalize>(
-  env: sys::napi_env,
-  data: T,
-  finalize_data: *mut c_void,
-) {
+  let mut data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
+  let data_ptr = (&mut *data) as *mut T;
   unsafe {
-    finalize_object_with(env, data, finalize_data, |env, reference| {
-      sys::napi_delete_reference(env, reference)
-    });
+    finalize_object_with(
+      env,
+      data_ptr,
+      finalize_data,
+      |env, reference| sys::napi_delete_reference(env, reference),
+      move || drop(data),
+    );
   }
 }
 
-pub(crate) unsafe fn finalize_object_with<T: ObjectFinalize>(
+pub(crate) unsafe fn finalize_object_with<T: ObjectFinalize, DropData: FnOnce()>(
   env: sys::napi_env,
-  data: T,
+  data: *mut T,
   finalize_data: *mut c_void,
   delete_reference: impl FnMut(sys::napi_env, sys::napi_ref) -> sys::napi_status,
+  drop_data: DropData,
 ) {
-  let mut data = std::mem::ManuallyDrop::new(data);
-  let mut delete_reference = std::mem::ManuallyDrop::new(delete_reference);
+  let mut delete_reference = Some(delete_reference);
+  let mut drop_data = Some(drop_data);
   let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
     with_runtime_finalizer_guard(env, || unsafe {
-      run_object_finalizer(env, &mut *data, finalize_data, &mut *delete_reference)
+      run_object_finalizer(
+        env,
+        data,
+        finalize_data,
+        delete_reference
+          .as_mut()
+          .expect("reference deletion callback is present during finalization"),
+      )
     })
   }))
   .unwrap_or_else(|payload| Err(panic_to_error(payload)));
 
-  catch_unwind_safely(|| unsafe {
-    std::mem::ManuallyDrop::drop(&mut delete_reference);
+  catch_unwind_safely(|| {
+    drop(delete_reference.take());
   });
   let mut data_drop_started = false;
   catch_unwind_safely(|| {
     with_runtime_finalizer_guard(env, || {
       data_drop_started = true;
-      catch_unwind_safely(|| unsafe {
-        std::mem::ManuallyDrop::drop(&mut data);
-      });
+      if let Some(drop_data) = drop_data.take() {
+        catch_unwind_safely(drop_data);
+      }
     });
   });
   if !data_drop_started {
-    catch_unwind_safely(|| unsafe {
-      std::mem::ManuallyDrop::drop(&mut data);
-    });
+    if let Some(drop_data) = drop_data.take() {
+      catch_unwind_safely(drop_data);
+    }
   }
 
   if let Err(err) = result {
@@ -171,21 +181,19 @@ fn merge_object_finalize_cleanup_error(result: &mut Result<()>, cleanup_error: E
 
 unsafe fn run_object_finalizer<T: ObjectFinalize, DeleteReference>(
   env: sys::napi_env,
-  data: &mut T,
+  data: *mut T,
   finalize_data: *mut c_void,
   delete_reference: &mut DeleteReference,
 ) -> Result<()>
 where
   DeleteReference: FnMut(sys::napi_env, sys::napi_ref) -> sys::napi_status,
 {
-  let mut result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    data.finalize(Env::from_raw(env))
-  }))
-  .unwrap_or_else(|payload| Err(panic_to_error(payload)));
-  if let Some((_, ref_val, finalize_callbacks_ptr)) =
+  let mut cleanup_error = None;
+  if let Some((_, ref_val, finalize_callbacks_ptr, _owner)) =
     REFERENCE_MAP.with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)))
   {
     let finalize_callbacks_rc = unsafe { Arc::from_raw(finalize_callbacks_ptr) };
+    finalize_callbacks_rc.close();
 
     #[cfg(all(debug_assertions, not(target_family = "wasm")))]
     {
@@ -204,7 +212,7 @@ where
     let delete_reference_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
       delete_reference(env, ref_val)
     }));
-    let cleanup_error = match delete_reference_result {
+    cleanup_error = match delete_reference_result {
       Ok(sys::Status::napi_ok) => None,
       Ok(delete_reference_status) => {
         let status = Status::from(delete_reference_status);
@@ -224,9 +232,16 @@ where
         ))
       }
     };
-    if let Some(cleanup_error) = cleanup_error {
-      merge_object_finalize_cleanup_error(&mut result, cleanup_error);
-    }
+  }
+  // Dependent shared values are gone, so this is the first point where an exclusive borrow of the
+  // wrapped value can be created without aliasing one of their references.
+  let data = unsafe { &mut *data };
+  let mut result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    data.finalize(Env::from_raw(env))
+  }))
+  .unwrap_or_else(|payload| Err(panic_to_error(payload)));
+  if let Some(cleanup_error) = cleanup_error {
+    merge_object_finalize_cleanup_error(&mut result, cleanup_error);
   }
   result
 }
@@ -390,6 +405,21 @@ mod tests {
 
   impl ObjectFinalize for SuccessfulFinalize {}
 
+  struct FinalizeOrderingProbe {
+    callbacks: Arc<FinalizeCallbacks>,
+    dependent_drops: Arc<AtomicUsize>,
+    finalize_calls: Arc<AtomicUsize>,
+  }
+
+  impl ObjectFinalize for FinalizeOrderingProbe {
+    fn finalize(&mut self, _env: Env) -> Result<()> {
+      assert!(!self.callbacks.is_alive());
+      assert_eq!(self.dependent_drops.load(Ordering::SeqCst), 1);
+      self.finalize_calls.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+  }
+
   struct PanickingPanicPayload;
 
   impl Drop for PanickingPanicPayload {
@@ -452,7 +482,15 @@ mod tests {
     let callbacks_ptr = Arc::into_raw(callbacks);
     REFERENCE_MAP.with(|references| {
       references.borrow_mut(|references| {
-        references.insert(finalize_data, (finalize_data, reference, callbacks_ptr));
+        references.insert(
+          finalize_data,
+          (
+            finalize_data,
+            reference,
+            callbacks_ptr,
+            NapiValueOwner::new(std::ptr::null_mut()),
+          ),
+        );
       });
     });
     retained_callbacks
@@ -492,6 +530,44 @@ mod tests {
     assert!(!REFERENCE_MAP.with(|references| {
       references.borrow_mut(|references| references.contains_key(&finalize_data))
     }));
+  }
+
+  #[test]
+  fn reference_dependents_are_closed_and_dropped_before_object_finalization() {
+    let finalize_data = 0x3010usize as *mut c_void;
+    let reference = 0x3011usize as sys::napi_ref;
+    let dependent_drops = Arc::new(AtomicUsize::new(0));
+    let dependent_drops_for_finalize = dependent_drops.clone();
+    let callbacks = register_reference_state(
+      finalize_data,
+      reference,
+      Box::new(move || {
+        dependent_drops_for_finalize.fetch_add(1, Ordering::SeqCst);
+      }),
+    );
+    let finalize_calls = Arc::new(AtomicUsize::new(0));
+    let mut finalizer = FinalizeOrderingProbe {
+      callbacks,
+      dependent_drops: dependent_drops.clone(),
+      finalize_calls: finalize_calls.clone(),
+    };
+    let mut delete_reference = |_, deleted_reference| {
+      assert_eq!(deleted_reference, reference);
+      sys::Status::napi_ok
+    };
+
+    unsafe {
+      run_object_finalizer(
+        std::ptr::null_mut(),
+        &mut finalizer,
+        finalize_data,
+        &mut delete_reference,
+      )
+    }
+    .expect("reference cleanup must complete before the user finalizer");
+
+    assert_eq!(dependent_drops.load(Ordering::SeqCst), 1);
+    assert_eq!(finalize_calls.load(Ordering::SeqCst), 1);
   }
 
   #[test]

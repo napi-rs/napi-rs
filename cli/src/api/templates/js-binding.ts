@@ -225,47 +225,66 @@ function requireNative() {
   }
 }
 
-nativeBinding = requireNative()
+function createLoadErrorChain(errors) {
+  return errors.reduce((previous, current) => {
+    let message
+    try {
+      message =
+        current && typeof current.message === 'string'
+          ? current.message
+          : String(current)
+    } catch {
+      message = 'Unknown error'
+    }
+    const error = new Error(message)
+    error.cause = previous
+    return error
+  }, null)
+}
 
 // NAPI_RS_FORCE_WASI is a tri-state flag:
 //   unset / any other value → native binding preferred, WASI is only a fallback
-//   'true'                   → force WASI fallback even if native loaded
-//   'error'                  → force WASI and throw if no WASI binding is found
+//   'true'                   → prefer WASI, but retain native as a lazy fallback
+//   'error'                  → require WASI without initializing a native fallback
 // Treating any non-empty string as truthy (the historical behavior) meant
 // NAPI_RS_FORCE_WASI=false, NAPI_RS_FORCE_WASI=0, etc. inadvertently triggered
 // the WASI path, causing ENOENT for packages shipped without a .wasi.cjs file.
+const forceWasiError = process.env.NAPI_RS_FORCE_WASI === 'error'
 const forceWasi =
-  process.env.NAPI_RS_FORCE_WASI === 'true' || process.env.NAPI_RS_FORCE_WASI === 'error'
+  process.env.NAPI_RS_FORCE_WASI === 'true' || forceWasiError
+
+if (!forceWasi) {
+  nativeBinding = requireNative()
+}
 
 if (!nativeBinding || forceWasi) {
   let wasiBinding = null
-  let wasiBindingError = null
+  const wasiBindingErrors = []
   try {
     wasiBinding = require('./${localName}.wasi.cjs')
     nativeBinding = wasiBinding
   } catch (err) {
     if (forceWasi) {
-      wasiBindingError = err
+      wasiBindingErrors.push(err)
     }
   }
-  if (!nativeBinding || forceWasi) {
+  if (!nativeBinding) {
     try {
       wasiBinding = require('${pkgName}-wasm32-wasi')
       nativeBinding = wasiBinding
     } catch (err) {
       if (forceWasi) {
-        if (!wasiBindingError) {
-          wasiBindingError = err
-        } else {
-          wasiBindingError.cause = err
-        }
+        wasiBindingErrors.push(err)
         loadErrors.push(err)
       }
     }
   }
-  if (process.env.NAPI_RS_FORCE_WASI === 'error' && !wasiBinding) {
+  if (!nativeBinding && forceWasi && !forceWasiError) {
+    nativeBinding = requireNative()
+  }
+  if (forceWasiError && !wasiBinding) {
     const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
-    error.cause = wasiBindingError
+    error.cause = createLoadErrorChain(wasiBindingErrors)
     throw error
   }
 }
@@ -279,10 +298,7 @@ if (!nativeBinding) {
     )
     // assign instead of the \`new Error(message, { cause })\` options form,
     // which Node < 16.9 silently ignores
-    error.cause = loadErrors.reduce((err, cur) => {
-      cur.cause = err
-      return cur
-    })
+    error.cause = createLoadErrorChain(loadErrors)
     throw error
   }
   throw new Error(\`Failed to load native binding\`)

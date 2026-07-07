@@ -2,9 +2,9 @@ use std::{marker::PhantomData, ptr};
 
 use crate::{
   bindgen_prelude::{
-    sys, External, ExternalRef, FromNapiValue, Result, Status, TypeName, ValidateNapiValue,
+    sys, External, ExternalRef, FromNapiValue, Result, TypeName, ValidateNapiValue,
   },
-  check_status, Error, JsValue, Value, ValueType,
+  check_status, JsValue, Value, ValueType,
 };
 
 /// Represent the Node-API `External` value
@@ -48,44 +48,40 @@ impl<'env> JsExternal<'env> {
   /// Get the value from the `JsExternal`
   ///
   /// If the underlying value is not `T`, it will return `InvalidArg` error.
-  pub fn get_value<T: 'static>(&self) -> Result<&mut T> {
-    self.get_static_value::<T>().map(|ext| ext.as_mut())
+  pub fn get_value<T: 'static>(&self) -> Result<&T> {
+    self.get_static_value::<T>().map(|ext| ext.as_ref())
+  }
+
+  /// Mutably get the value from the `JsExternal`.
+  ///
+  /// # Safety
+  ///
+  /// The caller must guarantee that no other reference to the same external value exists for the
+  /// returned reference's lifetime.
+  pub unsafe fn get_value_mut<T: 'static>(&mut self) -> Result<&mut T> {
+    let mut unknown_tagged_object = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_value_external(self.0.env, self.0.value, &mut unknown_tagged_object) },
+      "Failed to get external value"
+    )?;
+    unsafe { External::inner_from_napi_value_mut(self.0.env, self.0.value, unknown_tagged_object) }
   }
 
   /// Create a reference to the `JsExternal`
   ///
   /// If the underlying value is not `T`, it will return `InvalidArg` error.
   pub fn create_ref<T: 'static>(&self) -> Result<ExternalRef<T>> {
-    let mut ref_ = ptr::null_mut();
-    let external = self.get_static_value()?;
-    check_status!(
-      unsafe { sys::napi_create_reference(self.0.env, self.0.value, 1, &mut ref_) },
-      "Failed to create reference on external value"
-    )?;
-    Ok(ExternalRef {
-      obj: external,
-      raw: ref_,
-      env: self.0.env,
-    })
+    unsafe { ExternalRef::from_napi_value(self.0.env, self.0.value) }
   }
 
   #[inline]
-  fn get_static_value<T: 'static>(&self) -> Result<&'static mut External<T>> {
+  fn get_static_value<T: 'static>(&self) -> Result<&'static External<T>> {
     let mut unknown_tagged_object = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_value_external(self.0.env, self.0.value, &mut unknown_tagged_object) },
       "Failed to get external value"
     )?;
 
-    match unsafe { External::from_raw_impl(unknown_tagged_object) } {
-      Some(external) => Ok(external),
-      None => Err(Error::new(
-        Status::InvalidArg,
-        format!(
-          "<{}> on `External` is not the type of wrapped object",
-          std::any::type_name::<T>()
-        ),
-      )),
-    }
+    unsafe { External::from_napi_value_impl(self.0.env, self.0.value, unknown_tagged_object) }
   }
 }

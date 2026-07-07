@@ -86,6 +86,101 @@ pub trait ToNapiValue: Sized {
   }
 }
 
+pub(crate) fn ensure_same_env(
+  owner_env: sys::napi_env,
+  destination_env: sys::napi_env,
+) -> Result<()> {
+  if owner_env != destination_env {
+    return Err(Error::new(
+      Status::InvalidArg,
+      "A borrowed JavaScript value cannot be used with a different napi_env".to_owned(),
+    ));
+  }
+  Ok(())
+}
+
+#[derive(Clone)]
+pub(crate) struct NapiValueOwner {
+  env: sys::napi_env,
+  owner_thread: std::thread::ThreadId,
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc_handle: Option<std::sync::Arc<crate::bindgen_prelude::CustomGcHandle>>,
+  // N-API 1-3 have no thread-safe disposal primitive. Keep every wrapper that
+  // relies on auto traits bound to the thread where its reference was created.
+  #[cfg(not(feature = "napi4"))]
+  thread_affinity: std::marker::PhantomData<Rc<()>>,
+}
+
+impl NapiValueOwner {
+  pub(crate) fn new(env: sys::napi_env) -> Self {
+    Self {
+      env,
+      owner_thread: std::thread::current().id(),
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      custom_gc_handle: crate::bindgen_prelude::current_custom_gc_handle(env),
+      #[cfg(not(feature = "napi4"))]
+      thread_affinity: std::marker::PhantomData,
+    }
+  }
+
+  pub(crate) fn env(&self) -> sys::napi_env {
+    self.env
+  }
+
+  pub(crate) fn ensure_access(&self, env: sys::napi_env, value_type: &str) -> Result<()> {
+    if self.env != env {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!("A JavaScript {value_type} cannot be used with a different napi_env"),
+      ));
+    }
+    if self.owner_thread != std::thread::current().id() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!("A JavaScript {value_type} cannot be accessed outside its owner thread"),
+      ));
+    }
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if self
+      .custom_gc_handle
+      .as_ref()
+      .is_some_and(|handle| !handle.can_access_from_current_thread(env))
+    {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!("A JavaScript {value_type} cannot be accessed after its owner napi_env has closed"),
+      ));
+    }
+    Ok(())
+  }
+
+  pub(crate) fn release_reference(&self, reference: sys::napi_ref) -> sys::napi_status {
+    if reference.is_null() {
+      return sys::Status::napi_ok;
+    }
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = self.custom_gc_handle.as_ref() {
+      return handle.release_reference(reference);
+    }
+    #[cfg(not(feature = "noop"))]
+    {
+      if self.owner_thread != std::thread::current().id() {
+        return sys::Status::napi_closing;
+      }
+      let mut ref_count = 0;
+      let status = unsafe { sys::napi_reference_unref(self.env, reference, &mut ref_count) };
+      if status != sys::Status::napi_ok || ref_count != 0 {
+        return status;
+      }
+      unsafe { sys::napi_delete_reference(self.env, reference) }
+    }
+    #[cfg(feature = "noop")]
+    {
+      sys::Status::napi_ok
+    }
+  }
+}
+
 impl ToNapiValue for sys::napi_value {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val)
@@ -93,8 +188,10 @@ impl ToNapiValue for sys::napi_value {
 }
 
 impl<'env, T: JsValue<'env>> ToNapiValue for T {
-  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(val.raw())
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let value = val.value();
+    ensure_same_env(value.env, env)?;
+    Ok(value.value)
   }
 }
 

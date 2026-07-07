@@ -1,10 +1,10 @@
 error[E0599]: the method `call` exists for reference `&ThreadsafeFunction<LocalPayload, (), (), napi::Status, false>`, but its trait bounds were not satisfied
- --> tests/build_error_tests/tsfn_thread_safety_1.rs:9:8
+ --> tests/build_error_tests/tsfn_thread_safety_1.rs:6:8
   |
-6 |   struct LocalPayload(*const ());
+3 |   struct LocalPayload(*const ());
   |   ------------------- doesn't satisfy `LocalPayload: Send`
 ...
-9 |     tsfn.call(
+6 |     tsfn.call(
   |     -----^^^^ method cannot be called due to unsatisfied trait bounds
   |
  ::: $WORKSPACE/crates/napi/src/threadsafe_function.rs

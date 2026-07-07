@@ -1,6 +1,6 @@
-use napi::{threadsafe_function::ThreadsafeFunction, Status};
+use napi::threadsafe_function::ThreadsafeFunction;
 
-fn access_raw_handle(tsfn: &ThreadsafeFunction<(), (), (), Status, false>) {
+fn access_raw_handle(tsfn: &ThreadsafeFunction<(), (), (), napi::Status, false>) {
   let _raw = tsfn.raw();
   let _handle = &tsfn.handle;
 }

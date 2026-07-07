@@ -1,7 +1,9 @@
+#[cfg(not(feature = "noop"))]
+use napi::bindgen_prelude::Object;
 use napi::{
   bindgen_prelude::{
-    Buffer, ClassInstance, Function, JavaScriptClassExt, JsObjectValue, JsValue, Object,
-    ObjectFinalize, This, Uint8Array, Unknown,
+    Buffer, ClassInstance, Function, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize,
+    Reference, This, Uint8Array, Unknown,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -126,6 +128,22 @@ impl Animal {
   }
 }
 
+#[napi]
+pub fn read_animal_pair(first: &Animal, second: &Animal) -> String {
+  format!("{}:{}", first.get_name(), second.get_name())
+}
+
+#[napi]
+pub fn mutate_animal_pair(first: &mut Animal, second: &mut Animal) {
+  first.name.push('1');
+  second.name.push('2');
+}
+
+#[napi]
+pub fn read_mutate_animal_pair(first: &Animal, second: &mut Animal) {
+  second.name = first.name.clone();
+}
+
 #[napi(constructor)]
 pub struct Dog {
   pub name: String,
@@ -159,6 +177,26 @@ impl Bird {
     slice.len() as u32
   }
 }
+
+#[napi]
+#[repr(align(64))]
+pub struct AlignedZst;
+
+#[napi]
+impl AlignedZst {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self
+  }
+
+  #[napi(factory)]
+  pub fn create() -> Self {
+    Self
+  }
+}
+
+#[napi]
+pub fn borrow_aligned_zst_pair(_first: &mut AlignedZst, _second: &mut AlignedZst) {}
 
 /// Smoking test for type generation
 #[napi]
@@ -432,7 +470,7 @@ impl ObjectFinalize for CustomFinalize {
 }
 
 #[cfg(not(feature = "noop"))]
-#[napi(no_export)]
+#[napi]
 fn create_runtime_lifecycle_finalizer<'env>(
   env: &'env Env,
   result_path: String,
@@ -442,19 +480,6 @@ fn create_runtime_lifecycle_finalizer<'env>(
     crate::env::record_runtime_transition_probe(&context.hint);
   })?;
   Ok(object)
-}
-
-#[cfg(not(feature = "noop"))]
-pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
-  fixture.create_named_method(
-    "createRuntimeLifecycleFinalizer",
-    create_runtime_lifecycle_finalizer_c_callback,
-  )
-}
-
-#[cfg(feature = "noop")]
-pub(crate) fn install_lifecycle_fixture(_fixture: &mut Object) -> Result<()> {
-  Ok(())
 }
 
 #[napi(constructor)]
@@ -542,9 +567,29 @@ impl<'scope> ClassWithLifetime<'scope> {
   }
 
   #[napi]
-  pub fn get_name(&self) -> &str {
-    self.inner.get_name()
+  pub fn get_name(&self) -> Result<String> {
+    self.inner.with(|animal| animal.get_name().to_owned())
   }
+}
+
+#[napi]
+pub fn create_class_with_lifetime_from_rust<'env>(
+  env: &'env Env,
+) -> Result<ClassInstance<'env, ClassWithLifetime<'env>>> {
+  let inner = Animal {
+    kind: Kind::Cat,
+    name: "rust lifetime".to_owned(),
+    optional_value: None,
+  }
+  .into_instance(env)?;
+  let inner2 = Animal {
+    kind: Kind::Dog,
+    name: "owned reference".to_owned(),
+    optional_value: None,
+  }
+  .into_instance(env)?;
+
+  ClassWithLifetime { inner, inner2 }.into_instance(env)
 }
 
 #[napi(js_name = "MyJsNamedClass")]
@@ -610,7 +655,7 @@ impl ThingList {
 }
 
 #[napi(
-  ts_return_type = r#"typeof DynamicRustClass\n\nclass DynamicRustClass {
+  ts_return_type = r#"typeof DynamicRustClass\n\ndeclare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }"#
@@ -623,6 +668,29 @@ pub fn define_class<'env>(env: &'env Env) -> Result<Function<'env>> {
       .with_utf8_name("rustMethod")?
       .with_method(rust_class_method_c_callback)],
   )
+}
+
+#[napi(ts_return_type = "(animal: Animal) => void")]
+pub fn create_direct_class_reference_callback<'env>(
+  env: &'env Env,
+) -> Result<Function<'env, Unknown<'env>, ()>> {
+  env.create_function_from_closure("directClassReference", |ctx| {
+    let animal: Reference<Animal> = ctx.get(0)?;
+    animal.with_mut(|_| ())
+  })
+}
+
+#[napi(object)]
+pub struct ReentrantClassBorrowProbe {
+  pub trigger: u32,
+}
+
+#[napi]
+pub fn read_animal_with_reentrant_probe(
+  animal: &Animal,
+  probe: ReentrantClassBorrowProbe,
+) -> String {
+  format!("{}:{}", animal.get_name(), probe.trigger)
 }
 
 #[napi(no_export)]

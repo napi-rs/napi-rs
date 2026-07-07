@@ -1,10 +1,9 @@
 import { createRequire } from 'node:module'
 import { parentPort, workerData } from 'node:worker_threads'
 
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const require = createRequire(import.meta.url)
-const { fixture: lifecycle } = requireLifecycleFixture(require, '../index.cjs')
+process.env.NAPI_RS_FORCE_WASI = 'true'
+const lifecycle = require('../index.cjs')
 
 await lifecycle.startTokioWakerAfterCleanupProbe(
   workerData.enteredPath,

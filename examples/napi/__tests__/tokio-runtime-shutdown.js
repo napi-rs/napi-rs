@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const require = createRequire(import.meta.url)
-const { binding, fixture: lifecycle } = requireLifecycleFixture(
-  require,
-  '../index.cjs',
-)
+const binding = require('../index.cjs')
+const lifecycle = binding
 
 const pendingInput = new Promise(() => {})
 const generatedPromise = binding.asyncPlus100(pendingInput)

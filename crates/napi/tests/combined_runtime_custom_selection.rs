@@ -12,7 +12,7 @@ use std::{
 
 use napi::bindgen_prelude::{
   spawn, spawn_on_custom_runtime, try_register_async_runtime, try_shutdown_async_runtime,
-  try_start_async_runtime, within_custom_runtime_if_available, AsyncRuntime, AsyncRuntimeGuard,
+  try_start_async_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeGuard,
   AsyncRuntimeTask,
 };
 
@@ -122,7 +122,7 @@ fn registration_before_use_selects_custom_and_keeps_paired_lifecycle() {
   try_start_async_runtime().unwrap();
   assert_eq!(state.starts.load(Ordering::SeqCst), 1);
 
-  within_custom_runtime_if_available(|| Ok(())).unwrap();
+  within_selected_async_runtime(|| Ok(())).unwrap();
   assert_eq!(state.enters.load(Ordering::SeqCst), 1);
   assert_eq!(state.exits.load(Ordering::SeqCst), 1);
 
@@ -148,7 +148,7 @@ fn registration_before_use_selects_custom_and_keeps_paired_lifecycle() {
 
   start_after_retirement();
   assert_eq!(state.starts.load(Ordering::SeqCst), 2);
-  within_custom_runtime_if_available(|| Ok(())).unwrap();
+  within_selected_async_runtime(|| Ok(())).unwrap();
   assert_eq!(state.enters.load(Ordering::SeqCst), 2);
   try_shutdown_async_runtime().unwrap();
 }

@@ -7,14 +7,26 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
-import { getDefaultContext } from '@napi-rs/wasm-runtime'
-
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const operationTimeout = 10_000
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
-const { fixture: lifecycle } = requireLifecycleFixture(require, '../index.cjs')
+process.env.NAPI_RS_FORCE_WASI = 'true'
+const wasmRuntime = require('@napi-rs/wasm-runtime')
+const createContext = wasmRuntime.createContext
+const wasiContexts = []
+wasmRuntime.createContext = function captureWasiContext(...args) {
+  const context = createContext.apply(this, args)
+  wasiContexts.push(context)
+  return context
+}
+let lifecycle
+try {
+  lifecycle = require('../index.cjs')
+} finally {
+  wasmRuntime.createContext = createContext
+}
+assert.equal(wasiContexts.length, 1)
+const [wasiContext] = wasiContexts
 const workerPath = join(__dirname, 'tokio-wasi-waker-worker.js')
 
 async function waitForFile(path, description) {
@@ -43,7 +55,8 @@ async function verifyWakeAfterContextCleanup() {
       completedPath,
     )
     await waitForFile(enteredPath, 'WASI waker thread entry')
-    getDefaultContext().destroy()
+    assert.equal(typeof wasiContext?.destroy, 'function')
+    wasiContext.destroy()
     await writeFile(releasePath, 'release')
     await waitForFile(completedPath, 'post-cleanup waker completion')
   } finally {

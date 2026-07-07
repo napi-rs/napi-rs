@@ -44,7 +44,8 @@ impl Drop for ResolverEntry {
 thread_local! {
   static RESOLVERS: RefCell<HashMap<ResolverId, ResolverEntry>> = RefCell::new(HashMap::new());
   static CLOSING_ENVS: RefCell<HashSet<EnvId>> = RefCell::new(HashSet::new());
-  static CURRENT_RESOLVER_ENV: Cell<Option<EnvId>> = const { Cell::new(None) };
+  static RETIRED_RESOLVER_ENVS: RefCell<HashSet<EnvId>> = RefCell::new(HashSet::new());
+  static RESOLVER_ENV_REQUIRES_EXACT: Cell<bool> = const { Cell::new(false) };
   static RESOLVER_CLEANUP_ENVS: RefCell<HashSet<EnvId>> = RefCell::new(HashSet::new());
   static RESOLVER_THREAD_GUARD: ResolverThreadGuard = const { ResolverThreadGuard };
 }
@@ -75,6 +76,7 @@ impl Drop for ResolverThreadGuard {
 struct ResolverHandle {
   key: ResolverKey,
   owner: ThreadId,
+  unavailable: Option<ResolverUnavailable>,
 }
 
 impl ResolverHandle {
@@ -85,7 +87,40 @@ impl ResolverHandle {
         identity: identity.clone(),
       },
       owner,
+      unavailable: None,
     })
+  }
+
+  fn unavailable(owner: ThreadId, unavailable: ResolverUnavailable) -> Arc<Self> {
+    Arc::new(Self {
+      key: ResolverKey {
+        id: 0,
+        identity: Weak::new(),
+      },
+      owner,
+      unavailable: Some(unavailable),
+    })
+  }
+}
+
+#[derive(Clone, Copy)]
+enum ResolverUnavailable {
+  EnvironmentClosed,
+  ExactEnvironmentRequired,
+}
+
+impl ResolverUnavailable {
+  fn error(self) -> Error {
+    match self {
+      Self::EnvironmentClosed => Error::new(
+        Status::Cancelled,
+        "Async resolver is no longer available because its Node environment was closed",
+      ),
+      Self::ExactEnvironmentRequired => Error::new(
+        Status::InvalidArg,
+        "SendableResolver::new requires an exact Node environment after multiple environments or environment teardown were observed on this thread; use SendableResolver::new_with_env",
+      ),
+    }
   }
 }
 
@@ -147,7 +182,17 @@ fn remove_resolver(
 
 #[cfg(feature = "napi3")]
 fn claim_resolver_env_cleanup(env: EnvId) -> bool {
+  RETIRED_RESOLVER_ENVS.with(|retired| {
+    retired.borrow_mut().remove(&env);
+  });
   RESOLVER_CLEANUP_ENVS.with(|envs| envs.borrow_mut().insert(env))
+}
+
+#[cfg(feature = "napi3")]
+fn mark_resolver_env_registered() {
+  if RESOLVER_CLEANUP_ENVS.with(|envs| envs.borrow().len() > 1) {
+    RESOLVER_ENV_REQUIRES_EXACT.with(|requires_exact| requires_exact.set(true));
+  }
 }
 
 #[cfg(feature = "napi3")]
@@ -157,8 +202,47 @@ fn release_resolver_env_cleanup(env: EnvId) -> bool {
     .unwrap_or(false)
 }
 
+#[cfg(feature = "napi3")]
+fn retire_resolver_env(env: EnvId) {
+  let _ = RESOLVER_ENV_REQUIRES_EXACT.try_with(|requires_exact| requires_exact.set(true));
+  let _ = RETIRED_RESOLVER_ENVS.try_with(|retired| {
+    retired.borrow_mut().insert(env);
+  });
+}
+
+enum ResolverEnvAssociation {
+  Exact(EnvId),
+  Unbound,
+  Unavailable(ResolverUnavailable),
+}
+
+fn current_resolver_env() -> ResolverEnvAssociation {
+  if let Some(env) = crate::bindgen_runtime::current_callback_env() {
+    return ResolverEnvAssociation::Exact(env as EnvId);
+  }
+  if let Some(env) = CLOSING_ENVS.with(|envs| {
+    let envs = envs.borrow();
+    let mut closing = envs.iter().copied();
+    let env = closing.next()?;
+    closing.next().is_none().then_some(env)
+  }) {
+    return ResolverEnvAssociation::Exact(env);
+  }
+  #[cfg(feature = "napi3")]
+  {
+    if RESOLVER_ENV_REQUIRES_EXACT.with(Cell::get)
+      || RESOLVER_CLEANUP_ENVS.with(|envs| envs.borrow().len() > 1)
+    {
+      return ResolverEnvAssociation::Unavailable(ResolverUnavailable::ExactEnvironmentRequired);
+    }
+    if let Some(env) = RESOLVER_CLEANUP_ENVS.with(|envs| envs.borrow().iter().next().copied()) {
+      return ResolverEnvAssociation::Exact(env);
+    }
+  }
+  ResolverEnvAssociation::Unbound
+}
+
 pub(crate) fn register_resolver_env(env: sys::napi_env) -> Result<bool> {
-  CURRENT_RESOLVER_ENV.with(|current| current.set(Some(env as EnvId)));
   #[cfg(feature = "napi3")]
   {
     let env_id = env as EnvId;
@@ -173,16 +257,20 @@ pub(crate) fn register_resolver_env(env: sys::napi_env) -> Result<bool> {
       unsafe { crate::napi_add_env_cleanup_hook(env, Some(resolver_env_cleanup), env.cast()) };
     if status != sys::Status::napi_ok {
       release_resolver_env_cleanup(env_id);
-      CURRENT_RESOLVER_ENV.with(|current| current.set(None));
+      retire_resolver_env(env_id);
       return Err(Error::new(
         Status::GenericFailure,
         "Failed to add SendableResolver environment cleanup hook",
       ));
     }
+    mark_resolver_env_registered();
     Ok(true)
   }
   #[cfg(not(feature = "napi3"))]
-  Ok(false)
+  {
+    let _ = env;
+    Ok(false)
+  }
 }
 
 #[cfg(feature = "napi4")]
@@ -205,12 +293,8 @@ pub(crate) fn unregister_resolver_env(env: sys::napi_env, owns_cleanup_hook: boo
       ));
     }
     release_resolver_env_cleanup(env as EnvId);
+    retire_resolver_env(env as EnvId);
   }
-  CURRENT_RESOLVER_ENV.with(|current| {
-    if current.get() == Some(env as EnvId) {
-      current.set(None);
-    }
-  });
   Ok(())
 }
 
@@ -220,7 +304,9 @@ pub(crate) fn unregister_resolver_env(env: sys::napi_env, owns_cleanup_hook: boo
 ))]
 pub(crate) fn cleanup_resolver_env(env: sys::napi_env, owns_cleanup_hook: bool) {
   if owns_cleanup_hook && release_resolver_env_cleanup(env as EnvId) {
+    retire_resolver_env(env as EnvId);
     clear_resolvers_for_env(env);
+    crate::bindgen_runtime::cleanup_registered_classes_for_env(env);
   }
 }
 
@@ -228,25 +314,25 @@ pub(crate) fn cleanup_resolver_env(env: sys::napi_env, owns_cleanup_hook: bool) 
 unsafe extern "C" fn resolver_env_cleanup(data: *mut core::ffi::c_void) {
   let env = data.cast();
   if release_resolver_env_cleanup(env as EnvId) {
+    retire_resolver_env(env as EnvId);
     crate::bindgen_runtime::with_runtime_teardown_guard(|| {
-      crate::bindgen_runtime::catch_unwind_safely(|| clear_resolvers_for_env(env));
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        clear_resolvers_for_env(env);
+        crate::bindgen_runtime::cleanup_registered_classes_for_env(env);
+      });
     });
   }
-  let _ = CURRENT_RESOLVER_ENV.try_with(|current| {
-    if current.get() == Some(env as EnvId) {
-      current.set(None);
-    }
-  });
 }
 
 /// A resolver handle that can cross worker threads while its closure remains owned by the
 /// JavaScript thread where the handle was created.
 ///
-/// With N-API 3 or newer, environment cleanup invalidates outstanding handles and drops their
-/// closures on the JavaScript owner thread. N-API 1/2 do not provide environment cleanup hooks;
-/// on those API levels callers must consume or drop every handle on its JavaScript owner thread
-/// before the Node environment closes. Dropping the last handle from another thread only queues
-/// owner-thread cleanup and cannot guarantee reclamation before teardown.
+/// With N-API 3 or newer, environment cleanup invalidates outstanding environment-associated
+/// handles and drops their closures on the JavaScript owner thread. N-API 1/2 do not provide
+/// environment cleanup hooks; on those API levels callers must consume or drop every handle on
+/// its JavaScript owner thread before the Node environment closes. Dropping the last handle from
+/// another thread only queues owner-thread cleanup and cannot guarantee reclamation before
+/// teardown.
 pub struct SendableResolver<
   Data: 'static + Send,
   R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
@@ -262,8 +348,22 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
   SendableResolver<Data, R>
 {
   /// Create a resolver owned by the current thread.
+  ///
+  /// The resolver is associated with the active callback environment. Without an active callback
+  /// it uses the sole registered environment. After multiple environments or environment teardown
+  /// are observed on the thread, unguarded construction fails closed for the remainder of that
+  /// thread. Use [`Self::new_with_env`] whenever an [`Env`](crate::Env) is available explicitly.
   pub fn new(resolver: R) -> Self {
-    Self::insert(CURRENT_RESOLVER_ENV.with(Cell::get), resolver)
+    match current_resolver_env() {
+      ResolverEnvAssociation::Exact(env) => Self::insert(Some(env), resolver),
+      ResolverEnvAssociation::Unbound => Self::insert(None, resolver),
+      ResolverEnvAssociation::Unavailable(unavailable) => Self::unavailable(resolver, unavailable),
+    }
+  }
+
+  /// Create a resolver owned by the current thread and an exact Node environment.
+  pub fn new_with_env(env: &crate::Env, resolver: R) -> Self {
+    Self::new_for_env(env.raw(), resolver)
   }
 
   #[cfg_attr(
@@ -288,10 +388,13 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
 
   fn insert(env: Option<EnvId>, resolver: R) -> Self {
     let owner = thread::current().id();
-    if env.is_some_and(|env| CLOSING_ENVS.with(|envs| envs.borrow().contains(&env))) {
+    if env.is_some_and(|env| {
+      CLOSING_ENVS.with(|envs| envs.borrow().contains(&env))
+        || RETIRED_RESOLVER_ENVS.with(|envs| envs.borrow().contains(&env))
+    }) {
       crate::bindgen_runtime::catch_unwind_safely(|| drop(resolver));
       return Self {
-        handle: ResolverHandle::new(0, owner),
+        handle: ResolverHandle::unavailable(owner, ResolverUnavailable::EnvironmentClosed),
         _data: PhantomData,
         _resolver: PhantomData,
       };
@@ -326,13 +429,31 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
     }
   }
 
+  fn unavailable(resolver: R, unavailable: ResolverUnavailable) -> Self {
+    let owner = thread::current().id();
+    crate::bindgen_runtime::catch_unwind_safely(|| drop(resolver));
+    Self {
+      handle: ResolverHandle::unavailable(owner, unavailable),
+      _data: PhantomData,
+      _resolver: PhantomData,
+    }
+  }
+
   /// Resolve on the owner thread where this handle was created.
   ///
   /// The handle may cross worker threads, but consuming it there returns a cancellation error
   /// and queues the owner-thread closure for cleanup by the next resolver operation on that
   /// thread or, on N-API 3+, by environment teardown, instead of invoking it on the wrong thread.
   pub fn resolve(self, env: sys::napi_env, data: Data) -> Result<sys::napi_value> {
-    let resolver = self.take()?;
+    let (owner_env, resolver) = self.take()?;
+    if owner_env.is_some_and(|owner_env| owner_env != env as EnvId) {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(resolver));
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Async resolver belongs to a different Node environment",
+      ));
+    }
+    let _callback_env = crate::bindgen_runtime::enter_callback_env(env);
     resolver(env, data)
   }
 
@@ -344,12 +465,15 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
     self.take().map(drop)
   }
 
-  fn take(self) -> Result<R> {
+  fn take(self) -> Result<(Option<EnvId>, R)> {
     if self.handle.owner != thread::current().id() {
       return Err(Error::new(
         Status::Cancelled,
         "Async resolver must be consumed on the thread where it was created",
       ));
+    }
+    if let Some(unavailable) = self.handle.unavailable {
+      return Err(unavailable.error());
     }
     drain_pending_resolver_cleanup();
     let mut entry = RESOLVERS
@@ -365,7 +489,7 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
       .take()
       .expect("registered resolver is taken exactly once");
     match resolver.downcast::<R>() {
-      Ok(resolver) => Ok(*resolver),
+      Ok(resolver) => Ok((entry.env, *resolver)),
       Err(resolver) => {
         crate::bindgen_runtime::catch_unwind_safely(|| drop(resolver));
         Err(Error::new(
@@ -390,9 +514,7 @@ pub(crate) fn clear_resolvers_for_env(env: sys::napi_env) {
     let mut resolvers = resolvers.borrow_mut();
     let ids = resolvers
       .iter()
-      .filter_map(|(id, entry)| {
-        (entry.env.is_none() || entry.env == Some(env as EnvId)).then_some(*id)
-      })
+      .filter_map(|(id, entry)| (entry.env == Some(env as EnvId)).then_some(*id))
       .collect::<Vec<_>>();
     ids
       .into_iter()
@@ -404,11 +526,6 @@ pub(crate) fn clear_resolvers_for_env(env: sys::napi_env) {
   }
   CLOSING_ENVS.with(|envs| {
     envs.borrow_mut().remove(&(env as EnvId));
-  });
-  CURRENT_RESOLVER_ENV.with(|current| {
-    if current.get() == Some(env as EnvId) {
-      current.set(None);
-    }
   });
 }
 
@@ -438,7 +555,6 @@ mod tests {
   }
 
   struct ReentrantDrop {
-    env: sys::napi_env,
     dropped: Rc<Cell<bool>>,
     nested_dropped_on: Rc<Cell<Option<ThreadId>>>,
   }
@@ -449,7 +565,7 @@ mod tests {
       let captured = DropThread {
         dropped_on: Rc::clone(&self.nested_dropped_on),
       };
-      let nested = SendableResolver::new_for_env(self.env, move |_, _: u32| {
+      let nested = SendableResolver::new(move |_, _: u32| {
         drop(captured);
         Ok(ptr::null_mut())
       });
@@ -667,15 +783,17 @@ mod tests {
   fn public_constructor_is_bound_to_the_current_environment() {
     let owner_thread = thread::current().id();
     let env = 4usize as sys::napi_env;
-    CURRENT_RESOLVER_ENV.with(|current| current.set(Some(env as EnvId)));
     let dropped_on = Rc::new(Cell::new(None));
     let captured = DropThread {
       dropped_on: Rc::clone(&dropped_on),
     };
-    let resolver = SendableResolver::new(move |_, _: u32| {
-      drop(captured);
-      Ok(ptr::null_mut())
-    });
+    let resolver = {
+      let _callback_env = crate::bindgen_runtime::enter_callback_env(env);
+      SendableResolver::new(move |_, _: u32| {
+        drop(captured);
+        Ok(ptr::null_mut())
+      })
+    };
     let (ready_tx, ready_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let (resolver_tx, resolver_rx) = mpsc::channel();
@@ -699,12 +817,121 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "napi3")]
+  fn ambiguous_environment_construction_fails_closed_through_teardown() {
+    let owner_thread = thread::current().id();
+    let first_env = 8usize as sys::napi_env;
+    let second_env = 9usize as sys::napi_env;
+    assert!(claim_resolver_env_cleanup(first_env as EnvId));
+    assert!(claim_resolver_env_cleanup(second_env as EnvId));
+    mark_resolver_env_registered();
+
+    let guarded_resolver = {
+      let _callback_env = crate::bindgen_runtime::enter_callback_env(second_env);
+      SendableResolver::new(return_resolved_value as TestResolver)
+    };
+
+    let first_drop = Rc::new(Cell::new(None));
+    let first_capture = DropThread {
+      dropped_on: Rc::clone(&first_drop),
+    };
+    let first_resolver = SendableResolver::new(move |_, _: u32| {
+      drop(first_capture);
+      Ok(ptr::null_mut())
+    });
+    assert_eq!(first_drop.get(), Some(owner_thread));
+    let error = first_resolver
+      .resolve(second_env, 41)
+      .expect_err("an unguarded resolver must fail closed while environments are ambiguous");
+    assert_eq!(error.status, Status::InvalidArg);
+    assert!(error.reason.contains("exact Node environment"));
+
+    assert!(release_resolver_env_cleanup(first_env as EnvId));
+    retire_resolver_env(first_env as EnvId);
+    clear_resolvers_for_env(first_env);
+
+    let survivor_drop = Rc::new(Cell::new(None));
+    let survivor_capture = DropThread {
+      dropped_on: Rc::clone(&survivor_drop),
+    };
+    let survivor_resolver = SendableResolver::new(move |_, _: u32| {
+      drop(survivor_capture);
+      Ok(ptr::null_mut())
+    });
+    assert_eq!(survivor_drop.get(), Some(owner_thread));
+    let error = survivor_resolver
+      .resolve(second_env, 42)
+      .expect_err("ambiguity must remain fail-closed until every overlapping env is gone");
+    assert_eq!(error.status, Status::InvalidArg);
+    assert_eq!(
+      guarded_resolver.resolve(second_env, 42).unwrap() as usize,
+      42
+    );
+
+    assert!(release_resolver_env_cleanup(second_env as EnvId));
+    retire_resolver_env(second_env as EnvId);
+    clear_resolvers_for_env(second_env);
+
+    let retired_drop = Rc::new(Cell::new(None));
+    let retired_capture = DropThread {
+      dropped_on: Rc::clone(&retired_drop),
+    };
+    let retired_resolver = SendableResolver::new(move |_, _: u32| {
+      drop(retired_capture);
+      Ok(ptr::null_mut())
+    });
+    assert_eq!(retired_drop.get(), Some(owner_thread));
+    let error = retired_resolver
+      .resolve(second_env, 43)
+      .expect_err("construction after the final env retires must fail closed");
+    assert_eq!(error.status, Status::InvalidArg);
+    assert!(error.reason.contains("exact Node environment"));
+  }
+
+  #[test]
+  fn nested_callback_environments_bind_public_resolvers_exactly() {
+    let outer_env = 10usize as sys::napi_env;
+    let inner_env = 11usize as sys::napi_env;
+    let (outer_resolver, inner_resolver) = {
+      let _outer_callback_env = crate::bindgen_runtime::enter_callback_env(outer_env);
+      let outer_resolver = SendableResolver::new(return_resolved_value as TestResolver);
+      let inner_resolver = {
+        let _inner_callback_env = crate::bindgen_runtime::enter_callback_env(inner_env);
+        SendableResolver::new(return_resolved_value as TestResolver)
+      };
+      (outer_resolver, inner_resolver)
+    };
+
+    clear_resolvers_for_env(outer_env);
+
+    let error = outer_resolver
+      .resolve(outer_env, 41)
+      .expect_err("the outer environment cleanup must invalidate only its resolver");
+    assert!(error.reason.contains("environment was closed"));
+    assert_eq!(inner_resolver.resolve(inner_env, 42).unwrap() as usize, 42);
+  }
+
+  #[test]
+  fn environment_bound_resolver_rejects_a_foreign_environment() {
+    let owner_env = 12usize as sys::napi_env;
+    let foreign_env = 13usize as sys::napi_env;
+    let env = crate::Env::from_raw(owner_env);
+    let resolver = SendableResolver::new_with_env(&env, return_resolved_value as TestResolver);
+
+    let error = resolver
+      .resolve(foreign_env, 42)
+      .expect_err("an exact environment association must be enforced at resolution");
+
+    assert_eq!(error.status, Status::InvalidArg);
+    assert!(error.reason.contains("different Node environment"));
+  }
+
+  #[test]
   fn environment_cleanup_allows_reentrant_resolver_destruction() {
     let env = 2usize as sys::napi_env;
     let dropped = Rc::new(Cell::new(false));
     let nested_dropped_on = Rc::new(Cell::new(None));
     let captured = ReentrantDrop {
-      env,
       dropped: Rc::clone(&dropped),
       nested_dropped_on: Rc::clone(&nested_dropped_on),
     };

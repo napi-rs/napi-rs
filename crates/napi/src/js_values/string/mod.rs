@@ -52,7 +52,8 @@ impl FromNapiValue for JsString<'_> {
 }
 
 impl ToNapiValue for &JsString<'_> {
-  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    crate::bindgen_runtime::ensure_same_env(val.0.env, env)?;
     Ok(val.raw())
   }
 }

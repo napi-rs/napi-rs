@@ -1,7 +1,11 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use napi::{
-  bindgen_prelude::{Array, Object},
+  bindgen_prelude::{Array, ArrayBuffer, ClassInstance, Object},
   Env,
 };
+
+static DETACHABLE_EXTERNAL_ARRAYBUFFER_FINALIZE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[napi]
 pub fn get_words() -> Vec<&'static str> {
@@ -76,5 +80,41 @@ impl ClassInArray {
 
 #[napi]
 pub fn get_class_from_array(arr: Array<'_>) -> napi::Result<Option<u32>> {
-  arr.get_ref::<ClassInArray>(0).map(|c| c.map(|c| c.value))
+  let Some(instance) = arr.get::<ClassInstance<ClassInArray>>(0)? else {
+    return Ok(None);
+  };
+  instance.with(|class| class.value).map(Some)
+}
+
+#[napi]
+pub fn create_detachable_external_arraybuffer(env: &Env) -> napi::Result<ArrayBuffer<'_>> {
+  let mut data = vec![1, 2, 3, 4];
+  let data_ptr = data.as_mut_ptr();
+  let data_len = data.len();
+  unsafe {
+    ArrayBuffer::from_external(env, data_ptr, data_len, data, |_, data| {
+      drop(data);
+      DETACHABLE_EXTERNAL_ARRAYBUFFER_FINALIZE_COUNT.fetch_add(1, Ordering::SeqCst);
+    })
+  }
+}
+
+#[napi]
+pub fn detach_arraybuffer_with_alias(
+  buffer: ArrayBuffer<'_>,
+  alias: ArrayBuffer<'_>,
+) -> napi::Result<()> {
+  if buffer.len() != alias.len() || !std::ptr::eq(buffer.as_ptr(), alias.as_ptr()) {
+    return Err(napi::Error::from_reason(
+      "expected ArrayBuffer arguments backed by the same allocation",
+    ));
+  }
+
+  // `alias` is intentionally last accessed before detachment. See ArrayBuffer::detach.
+  unsafe { buffer.detach() }
+}
+
+#[napi]
+pub fn detachable_external_arraybuffer_finalize_count() -> u32 {
+  DETACHABLE_EXTERNAL_ARRAYBUFFER_FINALIZE_COUNT.load(Ordering::SeqCst) as u32
 }

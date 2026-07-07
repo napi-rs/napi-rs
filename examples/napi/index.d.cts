@@ -15,6 +15,11 @@ export declare class ExternalObject<T> {
 }
 
 export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
+export declare class AlignedZst {
+  constructor()
+  static create(): AlignedZst
+}
+
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor
@@ -90,6 +95,17 @@ export type JsAssets = Assets
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
+export declare class AsyncComplexTypeGenerator {
+  [Symbol.asyncIterator](): AsyncGenerator<number[], [number, number], Record<string, number> | undefined>
+  constructor()
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
 export declare class AsyncDataSource {
   [Symbol.asyncIterator](): AsyncGenerator<string, void, undefined>
   /** Creates an async data source that yields each item with a simulated I/O delay */
@@ -104,6 +120,28 @@ export declare class AsyncDataSource {
  */
 export declare class AsyncFib {
   [Symbol.asyncIterator](): AsyncGenerator<number, void, number | undefined>
+  constructor()
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class AsyncGeneratorSetupFailure {
+  [Symbol.asyncIterator](): AsyncGenerator<number, number, number | undefined>
+  constructor(panicIn: string)
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class AsyncReentrantGenerator {
+  [Symbol.asyncIterator](): AsyncGenerator<number, void, () => void | undefined>
   constructor()
 }
 
@@ -160,6 +198,21 @@ export declare class ClassWithFactory {
 export declare class ClassWithLifetime {
   constructor()
   getName(): string
+}
+
+/**
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ */
+export declare class ComplexTypeGenerator {
+  [Symbol.iterator](): Iterator<number[], [string, number], Record<string, number>>
+  next(value?: Record<string, number>): IteratorResult<number[], [string, number]>
+  return(value?: [string, number]): IteratorResult<number[], [string, number]>
+  throw(exception?: unknown): IteratorResult<number[], [string, number]>
+  constructor()
 }
 
 export declare class Context {
@@ -237,56 +290,68 @@ export declare class Dog {
 }
 
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib extends Iterator<number, void, number> {
+export declare class Fib {
+  [Symbol.iterator](): Iterator<number, void, number>
+  next(value?: number): IteratorResult<number, void>
+  return(value?: void): IteratorResult<number, void>
+  throw(exception?: unknown): IteratorResult<number, void>
   constructor()
-  next(value?: number): IteratorResult<number, void>
 }
 
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib2 extends Iterator<number, void, number> {
+export declare class Fib2 {
+  [Symbol.iterator](): Iterator<number, void, number>
+  next(value?: number): IteratorResult<number, void>
+  return(value?: void): IteratorResult<number, void>
+  throw(exception?: unknown): IteratorResult<number, void>
   static create(seed: number): Fib2
-  next(value?: number): IteratorResult<number, void>
 }
 
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib3 extends Iterator<number, void, number> {
+export declare class Fib3 {
   current: number
   nextNum: number
   constructor(current: number, nextNum: number)
+  [Symbol.iterator](): Iterator<number, void, number>
   next(value?: number): IteratorResult<number, void>
+  return(value?: void): IteratorResult<number, void>
+  throw(exception?: unknown): IteratorResult<number, void>
 }
 
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib4 extends Iterator<unknown, void, number> {
+export declare class Fib4 {
   current: number
   nextItem: number
   constructor(current: number, nextItem: number)
-  toJSON(): Array<number>
+  [Symbol.iterator](): Iterator<unknown, void, number>
   next(value?: number): IteratorResult<unknown, void>
+  return(value?: void): IteratorResult<unknown, void>
+  throw(exception?: unknown): IteratorResult<unknown, void>
+  toJSON(): Array<number>
 }
 
 export declare class GetterSetterWithClosures {
@@ -363,6 +428,21 @@ export declare class Reader {
   read(): Buffer
 }
 
+/**
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ */
+export declare class ReentrantGenerator {
+  [Symbol.iterator](): Iterator<number, void, () => void>
+  next(value?: () => void): IteratorResult<number, void>
+  return(value?: void): IteratorResult<number, void>
+  throw(exception?: unknown): IteratorResult<number, void>
+  constructor()
+}
+
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>
@@ -386,6 +466,15 @@ export declare class UseNullableClass {
   nullableNumberField: number | null
   nullableStringField: string | null
   constructor(requiredNumberField: number, requiredStringField: string, nullableNumberField: number | null, nullableStringField: string | null)
+}
+
+export declare class WeakReferenceGcHolder {
+  constructor(target: WeakReferenceGcTarget)
+  withTarget(callback: () => void): number
+}
+
+export declare class WeakReferenceGcTarget {
+  constructor(value: number)
 }
 
 export declare class Width {
@@ -442,6 +531,8 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function arrayBufferCopyFrom(): ArrayBuffer
+
 export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
@@ -454,11 +545,17 @@ export declare function arrayParams(arr: Array<number>): number
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
+export declare function asyncCleanupHookCounts(): Array<number>
+
 export declare function asyncMultiTwo(arg: number): Promise<number>
+
+export declare function asyncPartialReferenceSetupProbe(first: ExternalObject<number>, second: ExternalObject<number>): Promise<number>
 
 export declare function asyncPlus100(p: Promise<number>): Promise<number>
 
 export declare function asyncReduceBuffer(buf: Buffer): Promise<number>
+
+export declare function asyncReferenceSetupProbe(probe: ExternalObject<number>, value: number): Promise<number>
 
 export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
@@ -494,6 +591,8 @@ export declare function bigintGetU64AsString(bi: bigint): string
 export interface BindingVitePluginMeta {
   'vite:import-glob': ViteImportGlobMeta
 }
+
+export declare function borrowAlignedZstPair(first: AlignedZst, second: AlignedZst): void
 
 export declare function btreeSetToJs(): Set<string>
 
@@ -643,11 +742,21 @@ export declare function convertU32Array(input: Uint32Array): Array<number>
 
 export declare function createArraybuffer(): ArrayBuffer
 
+export declare function createAsyncReferenceSetupProbe(value: number): ExternalObject<number>
+
 export declare function createBigInt(): bigint
 
 export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
+
+export declare function createClassWithLifetimeFromRust(): ClassWithLifetime
+
+export declare function createDetachableExternalArraybuffer(): ArrayBuffer
+
+export declare function createDirectClassReferenceCallback(): (animal: Animal) => void
+
+export declare function createEmptyTypedArraySlices(): [Uint16Array, Uint8ClampedArray]
 
 export declare function createExternal(size: number): ExternalObject<number>
 
@@ -704,6 +813,14 @@ export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 export declare function createRejectedPromise(message: string): Promise<number>
 
 export declare function createResolvedPromise(value: number): Promise<number>
+
+export declare function createRuntimeLifecycleExternalLatin1Probe(resultPath: string): string
+
+export declare function createRuntimeLifecycleExternalProbe(resultPath: string): unknown
+
+export declare function createRuntimeLifecycleExternalUtf16Probe(resultPath: string): string
+
+export declare function createRuntimeLifecycleFinalizer(resultPath: string): object
 
 export declare function createStaticLatin1String(): string
 
@@ -771,12 +888,16 @@ export interface DefaultUseNullableStruct {
 
 export declare function defineClass(): typeof DynamicRustClass
 
-class DynamicRustClass {
+declare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
+
+export declare function detachableExternalArraybufferFinalizeCount(): number
+
+export declare function detachArraybufferWithAlias(buffer: ArrayBuffer, alias: ArrayBuffer): void
 
 /**
  * Counts the chunks read from a stream, swallowing (dropping) any read error.
@@ -804,6 +925,8 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
  * code path a `Promise` rejection takes — and drops it on a spawned thread.
  */
 export declare function dropErrorFromValueOffThread(value: unknown): void
+
+export declare function dropUnregisteredWeakTsfnForWasi(callback: () => void): void
 
 export declare function either3(input: string | number | boolean): number
 
@@ -845,8 +968,6 @@ export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
-export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
-
 export declare function fibonacci(n: number): number
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
@@ -880,6 +1001,8 @@ export declare function getGlobal(): typeof global
 export declare function getIndexMapping(): Record<string, number>
 
 export declare function getIndexMappingWithHasher(): Record<string, number>
+
+export declare function getJsExternal(external: ExternalObject<number>): number
 
 export declare function getMapping(): Record<string, number>
 
@@ -978,6 +1101,8 @@ export interface Meta {
   merge: boolean
 }
 
+export declare function mutateAnimalPair(first: Animal, second: Animal): void
+
 export declare function mutateArraybuffer(buf: ArrayBuffer): void
 
 export declare function mutateExternal(external: ExternalObject<number>, newVal: number): void
@@ -985,6 +1110,8 @@ export declare function mutateExternal(external: ExternalObject<number>, newVal:
 export declare function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void
 
 export declare function mutateTypedArray(input: Float32Array): void
+
+export declare function mutateUint16ArrayForSync(input: Uint16Array): void
 
 export type MyPromise =
   string | Promise<string>
@@ -1066,6 +1193,8 @@ export declare function passSetWithHasherToJs(): Set<string>
 
 export declare function pathParent(path: string): string | null
 
+export declare function pendingAsyncBlockWithTerminalFinalizer(resultPath: string): Promise<undefined>
+
 export interface Pet {
   name: string
   kind: number
@@ -1081,7 +1210,21 @@ export declare function plusOne(this: Width): number
 
 export declare function promiseInEither(input: number | Promise<number>): Promise<boolean>
 
+export declare function promiseRawCallbackDropCount(): number
+
+export declare function promiseRawCatchCallbackDropProbe(input: Promise<undefined>): Promise<undefined>
+
+export declare function promiseRawCatchCallbackPanic(input: Promise<undefined>): Promise<undefined>
+
+export declare function promiseRawFinallyCallbackDropProbe(input: Promise<undefined>): Promise<undefined>
+
+export declare function promiseRawFinallyCallbackPanic(input: Promise<undefined>): Promise<undefined>
+
 export declare function promiseRawReturnClassInstance(): Promise<ClassReturnInPromise>
+
+export declare function promiseRawThenCallbackDropProbe(input: Promise<undefined>): Promise<undefined>
+
+export declare function promiseRawThenCallbackPanic(input: Promise<undefined>): Promise<undefined>
 
 export interface PropertyNameDigitTest {
   /** Property names starting with digits should be quoted */
@@ -1114,10 +1257,16 @@ export interface PropertyNameValidTest {
   with123Numbers: string
 }
 
+export declare function readAnimalPair(first: Animal, second: Animal): string
+
+export declare function readAnimalWithReentrantProbe(animal: Animal, probe: ReentrantClassBorrowProbe): string
+
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
 export declare function readFileAsync(path: string): Promise<Buffer>
+
+export declare function readMutateAnimalPair(first: Animal, second: Animal): void
 
 export declare function readPackageJson(): PackageJson
 
@@ -1141,14 +1290,33 @@ export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
 
+export interface ReentrantClassBorrowProbe {
+  trigger: number
+}
+
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
-export interface RequestInit {
-  method?: string
-  headers?: Record<string, string>
-}
+export declare function registerEnvCleanupRuntimeLifecycleProbes(cleanupResultPath: string, asyncCleanupResultPath: string): void
+
+export declare function registerModuleFinalizerProbes(this: object, probePaths: object): void
+
+export declare function registerRemovableAsyncCleanupHook(): void
+
+export declare function registerRemovableSyncCleanupHook(): void
+
+export declare function registerSelfDroppingAsyncCleanupHook(resultPath: string): void
+
+export declare function registerSelfRemovingSyncCleanupHook(resultPath: string): void
+
+export declare function removeRemovableAsyncCleanupHook(): void
+
+export declare function removeRemovableSyncCleanupHook(): void
+
+export declare function resetPromiseRawCallbackDropCount(): void
+
+export declare function resetWeakReferenceGcTargetFinalizeCount(): void
 
 export declare function returnCString(): string
 
@@ -1180,6 +1348,8 @@ export type RuleHandler<Args, Ret> =
 
 export declare function runScript(script: string): unknown
 
+export declare function setInstanceDataRuntimeLifecycleProbe(resultPath: string): void
+
 export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
@@ -1188,11 +1358,15 @@ export declare function shorterEscapableScope(createString: () => string | null)
 
 export declare function shorterScope(arr: unknown[]): Array<number>
 
+export declare function shutdownAsyncRuntimeForTest(): void
+
 export declare function shutdownRuntime(): void
 
 export declare function spawnFutureLifetime(input: number): Promise<string>
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
+
+export declare function startTokioWakerAfterCleanupProbe(enteredPath: string, releasePath: string, completedPath: string): Promise<void>
 
 export declare function stashBufferInThreadLocal(buf: Buffer): void
 
@@ -1250,11 +1424,19 @@ export type StructuredKindLowercase =
 
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
+export declare function sumBufferSliceFromCopy(): number
+
+export declare function sumBufferSliceFromData(): number
+
+export declare function sumBufferSliceFromExternal(): number
+
 export declare function sumIndexMapping(nums: Record<string, number>): number
 
 export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
+
+export declare function syncCleanupHookCounts(): Array<number>
 
 /**
  * Function to test escaped quotes in comments.
@@ -1402,9 +1584,15 @@ export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 
+export declare function uint16ArrayCopyFrom(): Uint16Array
+
 export declare function uint8ArrayFromData(): Uint8Array
 
 export declare function uint8ArrayFromExternal(): Uint8Array
+
+export declare function uint8ClampedArrayCopyFrom(): Uint8ClampedArray
+
+export declare function untypedTypedArrayBackingBytes(input: TypedArray): Array<number>
 
 export interface UseNullableStruct {
   requiredNumberField: number
@@ -1473,6 +1661,8 @@ export interface ViteImportGlobMeta {
 export type VoidNullable<T = void> =
   Nullable<T>
 
+export declare function weakReferenceGcTargetFinalizeCount(): number
+
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
 export declare function withAbortSignalHandle(signal: AbortSignal): Promise<number>
@@ -1482,6 +1672,28 @@ export declare function withinAsyncRuntimeIfAvailable(): void
 export declare function withoutAbortController(a: number, b: number): Promise<number>
 
 export declare function xxh64Alias(input: Buffer): bigint
+
+export declare namespace duplicateClassNameAlpha {
+  export class SharedClass {
+    constructor(value: number)
+    static create(value: number): SharedClass
+    incremented(): SharedClass
+    get value(): number
+    get namespace(): string
+  }
+  export type AlphaSharedClass = SharedClass
+}
+
+export declare namespace duplicateClassNameBeta {
+  export class SharedClass {
+    constructor(value: number)
+    static create(value: number): SharedClass
+    incremented(): SharedClass
+    get value(): number
+    get namespace(): string
+  }
+  export type BetaSharedClass = SharedClass
+}
 
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number
@@ -1515,3 +1727,145 @@ export declare class ComplexClass {
 export interface Shared {
   value: number
 }
+
+export declare function abandonDeferredClones(): void
+
+export declare function armTokioBlockingTlsRetirementProbe(resultPath: string, releasePath: string): Promise<void>
+
+export declare function armTokioWorkerTlsRetirementProbe(resultPath: string): void
+
+export declare function assignClassInstanceAcrossDuplicateLoad(withAttributes: boolean): void
+
+export declare function assignClassInstanceFromLaterTurn(withAttributes: boolean): void
+
+export declare function assignClampedSliceAcrossDuplicateLoad(this: object): void
+
+export declare function assignTypedArraySliceAcrossDuplicateLoad(this: object): void
+
+export declare function cancelAsyncWorkLifecycle(id: number): void
+
+export declare function configureTokioThreadStopFileBarrier(enteredPath: string, releasePath: string, completedPath: string): void
+
+export declare function convertClampedSliceAcrossDuplicateLoad(): Uint8ClampedArray
+
+export declare function convertTypedArraySliceAcrossDuplicateLoad(): Uint8Array
+
+export declare function copyExternalTokenAlias(value: ExternalObject<number>): ExternalObject<number>
+
+export declare function createExternalPublicBorrowProbe(): (value: ExternalObject<number>) => number
+
+export declare function createExternalRefProvenanceProbe(forged: boolean): unknown
+
+export declare function createExternalTokenGcProbe(value: number): ExternalObject<number>
+
+export declare function createMutableTypedArrayForOwnershipTest(empty?: boolean | undefined | null): unknown
+
+export declare function createPanickingAsyncWork(): Promise<number>
+
+export declare function createQueuedAsyncWorkLifecycle(): AsyncWorkLifecycleHandle
+
+export declare function createResolvePanickingAsyncWork(): Promise<number>
+
+export declare function createRunningAsyncWorkLifecycle(): AsyncWorkLifecycleHandle
+
+export declare function deferredFinalizeCallbackCount(): number
+
+export declare function disposeAsyncWorkLifecycle(id: number): void
+
+export declare function disposeThreadsafeFunctionForEnvOwnership(): void
+
+export declare function externalTokenGcProbeFinalizeCount(): number
+
+export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
+
+export declare function inspectExternalRefAcrossDuplicateLoad(value: ExternalObject<number>): number
+
+export declare function inspectExternalTokenGcProbe(value: ExternalObject<number>): number
+
+export declare function mutableTypedArrayFinalizeCount(): number
+
+export declare function panickingAsyncWorkFinallyCount(): number
+
+export declare function prepareTsfnBlockingCallRegression(callback: (arg: number) => void, counters: Int32Array, expectCleanupAbort: boolean): void
+
+export declare function prepareTsfnTeardownRegression(callback: () => void, counters: Int32Array, scenario: string, postFinalizeEnteredPath?: string | undefined | null, postFinalizeReleasePath?: string | undefined | null, postFinalizeCompletedPath?: string | undefined | null): void
+
+export declare function referThreadsafeFunctionForEnvOwnership(): void
+
+export declare function registerDeferredCleanupOrderProbe(resultPath: string): void
+
+export declare function registerLateDeferredFinalizeCallback(): boolean
+
+export declare function releaseAsyncWorkLifecycle(id: number): void
+
+export declare function resolvePanickingAsyncWorkFinallyCount(): number
+
+export declare function restartTokioRuntimeAfterRetirement(): void
+
+export declare function returnTypedArraySliceMutAcrossDuplicateLoad(): unknown
+
+export declare function returnTypedArraySliceRefAcrossDuplicateLoad(): unknown
+
+export declare function settleDeferredBeforeFinalizeRegistration(): object
+
+export declare function settleDeferredClone(): object
+
+export declare function stashBufferAcrossDuplicateLoad(value: Buffer): void
+
+export declare function stashClassInstanceForLaterTurn(classInstance: Animal): void
+
+export declare function stashErrorAcrossDuplicateLoad(value: unknown): void
+
+export declare function stashExternalRefAcrossDuplicateLoad(value: ExternalObject<number>): void
+
+export declare function stashExternalRefForTeardown(resultPath: string, value: number): void
+
+export declare function stashThreadsafeFunctionForEnvOwnership(value: ForeignEnvReferTsfn): void
+
+export declare function stashTypedArrayAcrossDuplicateLoad(value: Uint8Array): void
+
+export declare function stashTypedArraySlicesAcrossDuplicateLoad(typedArray: Uint8Array, clamped: Uint8ClampedArray): void
+
+export declare function startDeferredTeardownRace(readyPath: string, releasePath: string, donePath: string, count: number): void
+
+export declare function startReferencedTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
+
+export declare function startWeakTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
+
+export declare function takeAdditionalBorrowedValueAcrossDuplicateLoad(kind: string): unknown
+
+export declare function takeBorrowedValueAcrossDuplicateLoad(): unknown
+
+export declare function takeBufferAcrossDuplicateLoad(): Buffer
+
+export declare function takeBufferSliceIntoBufferAcrossDuplicateLoad(): Buffer
+
+export declare function takeBufferSliceRefAcrossDuplicateLoad(): unknown
+
+export declare function takeClassInstanceFromLaterTurn(): Animal
+
+export declare function takeExternalRefAcrossDuplicateLoad(): ExternalObject<number>
+
+export declare function takeReferenceValueAcrossDuplicateLoad(kind: string): unknown
+
+export declare function takeTypedArrayAcrossDuplicateLoad(): Uint8Array
+
+export declare function throwErrorAcrossDuplicateLoad(): void
+
+export declare function tokioRuntimeLifecycleValue(value: number): Promise<number>
+
+export declare function unrefThreadsafeFunctionForEnvOwnership(): void
+
+export declare function verifyReferenceValuesRejectNativeThread(legacyRefValue: object, unknownRefValue: unknown, symbolRefValue: symbol, objectRefValue: object, functionRefValue: () => void, buffer: Buffer): void
+
+export declare function verifyThreadsafeFunctionOwnerEnv(): void
+
+export declare function verifyTypedArraySlicesSameEnv(this: object, typedArray: Uint8Array, clamped: Uint8ClampedArray): void
+
+export declare function waitForTokioRuntimeRetirement(): void
+
+export declare function withAdditionalBorrowedValuesAcrossDuplicateLoad(jsStringRef: string, objectRef: object, utf8String: string, utf16String: string, latin1String: string, deprecatedObject: object, deprecatedBoolean: unknown, callback: () => void): void
+
+export declare function withBorrowedValuesAcrossDuplicateLoad(value: unknown, bufferSliceRef: Buffer, bufferSliceIntoBuffer: Buffer, callback: () => void): void
+
+export declare function withReferenceValuesAcrossDuplicateLoad(legacyRefValue: object, unknownRefValue: unknown, symbolRefValue: symbol, objectRefValue: object, classInstance: Animal, callback: () => void): void

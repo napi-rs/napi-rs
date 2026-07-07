@@ -283,6 +283,29 @@ function assertRuntimeJoinError(error, phase, kind) {
   assert.match(error.reason, /async runtime is not running/i)
 }
 
+async function assertIteratorSetupRejects(binding, phase) {
+  for (const [method, argument] of [
+    ['next', undefined],
+    ['return', undefined],
+    ['throw', new Error(`${phase} iterator throw`)],
+  ]) {
+    const iterator = new binding.RuntimeAsyncIterator()[Symbol.asyncIterator]()
+    let promise
+    assert.doesNotThrow(() => {
+      promise = iterator[method](argument)
+    }, `${method}() must not throw synchronously during ${phase}`)
+    assert.ok(
+      promise instanceof Promise,
+      `${method}() must return a Promise during ${phase}`,
+    )
+    await assert.rejects(
+      promise,
+      /async runtime is not running/i,
+      `${method}() must reject during ${phase}`,
+    )
+  }
+}
+
 async function runSubmissionTransitionPhase({
   binding,
   bindingFile,
@@ -348,6 +371,7 @@ async function runSubmissionTransitionPhase({
       },
       `generated async submission must reject during ${phase}`,
     )
+    await assertIteratorSetupRejects(binding, phase)
     assert.deepEqual(
       submissionMetrics(binding.getRuntimeMetrics()),
       before,

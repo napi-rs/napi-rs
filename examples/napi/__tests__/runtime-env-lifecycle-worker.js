@@ -3,8 +3,6 @@ import { createRequire, Module } from 'node:module'
 import { parentPort } from 'node:worker_threads'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const require = createRequire(import.meta.url)
 const retained = []
 let native
@@ -29,15 +27,13 @@ const TSFN_BLOCKING_CALLBACK_MASK = 0b111
 
 function loadNative() {
   if (!native) {
-    const loaded = requireLifecycleFixture(require, '../index.cjs')
-    native = loaded.binding
-    lifecycle = loaded.fixture
+    native = require('../index.cjs')
+    lifecycle = native
   }
   return native
 }
 
-function loadNativeAgain() {
-  const addon = loadNative()
+function findNativeModule(addon) {
   const nativeModule = Object.values(require.cache).find(
     (loadedModule) =>
       loadedModule?.filename?.endsWith('.node') &&
@@ -46,12 +42,60 @@ function loadNativeAgain() {
   if (!nativeModule) {
     throw new Error('loaded native binding was not found in the require cache')
   }
+  return nativeModule
+}
 
+function loadNativeAgain() {
+  const addon = loadNative()
+  const nativeModule = findNativeModule(addon)
   const duplicateModule = new Module(`${nativeModule.filename}:duplicate`)
   duplicateModule.filename = nativeModule.filename
   process.dlopen(duplicateModule, nativeModule.filename)
   retained.push(duplicateModule)
-  return duplicateModule.exports
+  return {
+    binding: duplicateModule.exports,
+    lifecycle: duplicateModule.exports,
+  }
+}
+
+function failNativeLoadAgain() {
+  const nativeModule = findNativeModule(loadNative())
+  const failedModule = new Module(`${nativeModule.filename}:failed`)
+  const initializationError = new Error(
+    'intentional duplicate process.dlopen initialization failure',
+  )
+  failedModule.filename = nativeModule.filename
+  // Node holds its native-addon loader mutex while this setter runs, so a recursive
+  // process.dlopen here would deadlock before napi_register_module_v1 is reached.
+  failedModule.exports = new Proxy(
+    {},
+    {
+      set(target, property, value) {
+        Reflect.set(target, property, value)
+        throw initializationError
+      },
+    },
+  )
+
+  let observedError
+  try {
+    process.dlopen(failedModule, nativeModule.filename)
+  } catch (error) {
+    observedError = error
+  }
+  if (observedError !== initializationError) {
+    throw new Error(
+      'failed duplicate process.dlopen did not preserve the initialization error',
+    )
+  }
+  const exportedNames = Object.keys(failedModule.exports)
+  if (exportedNames.length !== 1) {
+    throw new Error(
+      `failed duplicate process.dlopen retained ${exportedNames.length} exports`,
+    )
+  }
+  retained.push(failedModule)
+  return exportedNames[0]
 }
 
 function loadNativeAtSynchronizedBoundary(loadControl) {
@@ -208,9 +252,13 @@ parentPort.on(
           }
           let duplicateResult
           let duplicateInFlightResult
+          let failedDuplicateExport
           if (duplicateLoad) {
             const duplicateLoadError = new TypeError(
               'duplicate process.dlopen Error identity',
+              {
+                cause: new Error('duplicate process.dlopen Error cause'),
+              },
             )
             const duplicateLoadErrorMarker = {
               source: 'original-worker-error',
@@ -221,26 +269,97 @@ parentPort.on(
               value: duplicateLoadErrorMarker,
             })
             lifecycle.stashErrorAcrossDuplicateLoad(duplicateLoadError)
+            lifecycle.stashBufferAcrossDuplicateLoad(Buffer.from([11, 22, 33]))
+            lifecycle.stashTypedArrayAcrossDuplicateLoad(
+              Uint8Array.from([44, 55, 66]),
+            )
             const duplicateInFlight = new addon.Bird(
               'duplicate-load-in-flight',
             ).getNameAsync()
-            duplicateResult = await loadNativeAgain().asyncMultiTwo(2)
+            failedDuplicateExport = failNativeLoadAgain()
+            const duplicate = loadNativeAgain()
+            duplicateResult = await duplicate.binding.asyncMultiTwo(2)
             duplicateInFlightResult = await duplicateInFlight
+            const originalAnimal = addon.Animal.withKind(addon.Kind.Dog)
+            const duplicateAnimal = duplicate.binding.Animal.withKind(
+              duplicate.binding.Kind.Dog,
+            )
+            const originalBird =
+              originalAnimal.returnOtherClassWithCustomConstructor()
+            const duplicateBird =
+              duplicateAnimal.returnOtherClassWithCustomConstructor()
+            if (
+              !(originalBird instanceof addon.Bird) ||
+              originalBird instanceof duplicate.binding.Bird ||
+              originalBird.name !== 'parrot'
+            ) {
+              throw new Error(
+                'original addon callback used the duplicate environment class constructor',
+              )
+            }
+            if (
+              !(duplicateBird instanceof duplicate.binding.Bird) ||
+              duplicateBird instanceof addon.Bird ||
+              duplicateBird.name !== 'parrot'
+            ) {
+              throw new Error(
+                'duplicate addon callback used the original environment class constructor',
+              )
+            }
             let thrownError
             try {
-              lifecycle.throwErrorAcrossDuplicateLoad()
+              duplicate.lifecycle.throwErrorAcrossDuplicateLoad()
             } catch (error) {
               thrownError = error
             }
-            if (thrownError !== duplicateLoadError) {
+            if (!(thrownError instanceof Error)) {
               throw new Error(
-                'duplicate process.dlopen replaced the custom-GC Error identity',
+                'duplicate process.dlopen did not rebuild the foreign-env Error',
               )
             }
-            if (thrownError.lifecycleMarker !== duplicateLoadErrorMarker) {
+            if (thrownError === duplicateLoadError) {
               throw new Error(
-                'duplicate process.dlopen discarded custom Error properties',
+                'duplicate process.dlopen reused a foreign-env Error reference',
               )
+            }
+            if (
+              !thrownError.message.includes(
+                'duplicate process.dlopen Error identity',
+              ) ||
+              !thrownError.cause?.message.includes(
+                'duplicate process.dlopen Error cause',
+              )
+            ) {
+              throw new Error(
+                'duplicate process.dlopen discarded rebuilt Error diagnostics',
+              )
+            }
+            if (thrownError.lifecycleMarker !== undefined) {
+              throw new Error(
+                'duplicate process.dlopen unexpectedly retained a foreign Error property',
+              )
+            }
+            for (const [name, take] of [
+              ['Buffer', duplicate.lifecycle.takeBufferAcrossDuplicateLoad],
+              [
+                'TypedArray',
+                duplicate.lifecycle.takeTypedArrayAcrossDuplicateLoad,
+              ],
+            ]) {
+              let conversionError
+              try {
+                take()
+              } catch (error) {
+                conversionError = error
+              }
+              if (
+                !(conversionError instanceof Error) ||
+                !conversionError.message.includes('different napi_env')
+              ) {
+                throw new Error(
+                  `duplicate process.dlopen ${name} conversion did not reject its foreign napi_env`,
+                )
+              }
             }
           }
           if (enteredPath && releasePath && retirementCompletedPath) {
@@ -281,6 +400,7 @@ parentPort.on(
             type: 'ready',
             duplicateResult,
             duplicateInFlightResult,
+            failedDuplicateExport,
           })
           Atomics.wait(new Int32Array(teardownBlocker), 0, 0)
           break
@@ -389,7 +509,7 @@ parentPort.on(
           break
         }
         case 'load-runtime': {
-          const addon = loadNativeAtSynchronizedBoundary(loadControl)
+          loadNativeAtSynchronizedBoundary(loadControl)
           if (retirementCompletedPath && !existsSync(retirementCompletedPath)) {
             throw new Error(
               'replacement addon loaded before the previous Tokio runtime retired',

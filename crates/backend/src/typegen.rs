@@ -227,12 +227,12 @@ impl Display for JSDoc {
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let js_mod = if let Some(js_mod) = &self.js_mod {
-      format!(", \"js_mod\": \"{js_mod}\"")
+      format!(", \"js_mod\": \"{}\"", escape_json(js_mod))
     } else {
       "".to_string()
     };
     let original_name = if let Some(original_name) = &self.original_name {
-      format!(", \"original_name\": \"{original_name}\"")
+      format!(", \"original_name\": \"{}\"", escape_json(original_name))
     } else {
       "".to_string()
     };
@@ -240,8 +240,8 @@ impl Display for TypeDef {
     write!(
       f,
       r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
-      self.kind,
-      self.name,
+      escape_json(&self.kind),
+      escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
       escape_json(&self.def),
       original_name,
@@ -885,7 +885,35 @@ pub fn ty_to_ts_type(
 
 #[cfg(test)]
 mod tests {
-  use super::{escape_json, format_js_property_name};
+  use super::{escape_json, format_js_property_name, JSDoc, TypeDef};
+
+  #[test]
+  fn type_def_display_escapes_all_json_fields() {
+    let type_def = TypeDef {
+      kind: "impl".to_owned(),
+      name: "Quoted\"Name\\Line".to_owned(),
+      original_name: Some("Original\nName".to_owned()),
+      def: "method(): \"value\"".to_owned(),
+      js_mod: Some("namespace\\\"name".to_owned()),
+      js_doc: JSDoc::new(["A \"quoted\" doc"]),
+    };
+
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+
+    assert_eq!(parsed["kind"].as_str(), Some(type_def.kind.as_str()));
+    assert_eq!(parsed["name"].as_str(), Some(type_def.name.as_str()));
+    assert_eq!(
+      parsed["original_name"].as_str(),
+      type_def.original_name.as_deref()
+    );
+    assert_eq!(parsed["def"].as_str(), Some(type_def.def.as_str()));
+    assert_eq!(parsed["js_mod"].as_str(), type_def.js_mod.as_deref());
+    assert_eq!(
+      parsed["js_doc"].as_str(),
+      Some(type_def.js_doc.to_string().as_str())
+    );
+  }
 
   #[test]
   fn test_escape_json_escaped_quotes() {

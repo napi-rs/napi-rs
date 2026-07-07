@@ -77,7 +77,8 @@ impl WriteableStream<'_> {
       },
       "Get ready property failed"
     )?;
-    Ok(PromiseRaw::new(self.env, promise))
+    // SAFETY: `promise` was created in `self.env` above.
+    Ok(unsafe { PromiseRaw::new(self.env, promise) })
   }
 
   /// The `abort()` method of the `WritableStream` interface aborts the stream,
@@ -111,7 +112,8 @@ impl WriteableStream<'_> {
       },
       "Call abort function failed"
     )?;
-    Ok(PromiseRaw::new(self.env, promise))
+    // SAFETY: `promise` was created in `self.env` above.
+    Ok(unsafe { PromiseRaw::new(self.env, promise) })
   }
 
   /// The `close()` method of the `WritableStream` interface closes the associated stream.
@@ -144,6 +146,7 @@ impl WriteableStream<'_> {
       },
       "Call close function failed"
     )?;
-    Ok(PromiseRaw::new(self.env, promise))
+    // SAFETY: `promise` was created in `self.env` above.
+    Ok(unsafe { PromiseRaw::new(self.env, promise) })
   }
 }

@@ -6,9 +6,9 @@ error[E0277]: `Rc<Cell<u32>>` cannot be sent between threads safely
    |
    = help: within `LocalReturn`, the trait `Send` is not implemented for `Rc<Cell<u32>>`
 note: required because it appears within the type `LocalReturn`
-  --> tests/build_error_tests/tsfn_thread_safety_4.rs:7:8
+  --> tests/build_error_tests/tsfn_thread_safety_4.rs:5:8
    |
- 7 | struct LocalReturn(Rc<Cell<u32>>);
+ 5 | struct LocalReturn(Rc<Cell<u32>>);
    |        ^^^^^^^^^^^
 note: required by a bound in `ThreadsafeFunction::<T, Return, CallJsBackArgs, ErrorStatus, false, Weak, MaxQueueSize>::call_async`
   --> $WORKSPACE/crates/napi/src/threadsafe_function.rs

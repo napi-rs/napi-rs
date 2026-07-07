@@ -25,10 +25,12 @@ impl From<(String, i32)> for ComplexClass {
 impl<'env> From<Either<ClassInstance<'env, ComplexClass>, String>> for ComplexClass {
   fn from(value: Either<ClassInstance<'env, ComplexClass>, String>) -> Self {
     match value {
-      Either::A(instance) => ComplexClass {
-        value: (*instance).value.clone(),
-        number: instance.number,
-      },
+      Either::A(instance) => instance
+        .with(|instance| ComplexClass {
+          value: instance.value.clone(),
+          number: instance.number,
+        })
+        .expect("generated argument conversion holds a compatible shared borrow"),
       Either::B(value) => ComplexClass { value, number: 0 },
     }
   }
@@ -37,15 +39,18 @@ impl<'env> From<Either<ClassInstance<'env, ComplexClass>, String>> for ComplexCl
 #[napi]
 impl ComplexClass {
   #[napi(constructor)]
-  pub fn new(value: Either<String, ClassInstance<ComplexClass>>, number: i32) -> Self {
+  pub fn new(
+    value: Either<String, ClassInstance<ComplexClass>>,
+    number: i32,
+  ) -> napi::Result<Self> {
     let value_str = match value {
       Either::A(s) => s,
-      Either::B(instance) => format!("cloned:{}", (*instance).value),
+      Either::B(instance) => instance.with(|instance| format!("cloned:{}", instance.value))?,
     };
-    ComplexClass {
+    Ok(ComplexClass {
       value: value_str,
       number,
-    }
+    })
   }
 
   #[napi]

@@ -1,7 +1,5 @@
 import { createRequire } from 'node:module'
 
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const require = createRequire(import.meta.url)
 const [mode, manualStopPath, joinedPath] = process.argv.slice(2)
 
@@ -15,7 +13,7 @@ if (
   )
 }
 
-const { fixture: lifecycle } = requireLifecycleFixture(require, '../index.cjs')
+const lifecycle = require('../index.cjs')
 const startWorker =
   mode === 'weak'
     ? lifecycle.startWeakTsfnFinalizerLivenessWorker

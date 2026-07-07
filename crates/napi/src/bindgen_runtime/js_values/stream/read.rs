@@ -129,7 +129,8 @@ impl<T> ReadableStream<'_, T> {
       },
       "Call abort function failed"
     )?;
-    Ok(PromiseRaw::new(self.env, promise))
+    // SAFETY: `promise` was created in `self.env` above.
+    Ok(unsafe { PromiseRaw::new(self.env, promise) })
   }
 }
 

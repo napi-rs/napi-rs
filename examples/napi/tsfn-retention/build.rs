@@ -7,7 +7,7 @@ fn main() {
     && !matches!(target_os.as_str(), "windows" | "android"))
     || matches!(target_os.as_str(), "freebsd" | "openbsd");
 
-  if target_os == "linux" {
+  if target_os == "linux" && target_env == "gnu" {
     // Keep calls from the statically linked napi crate bound to this fixture's
     // test interposers instead of allowing ELF symbol preemption to resolve
     // them directly to Node's exports.

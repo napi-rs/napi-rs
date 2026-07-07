@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Current generated glue targets napi's versioned `codegen_v1` contract. Upgrade the
+  napi runtime before the derive crates; previously released derive code remains compatible with
+  the new runtime, while new derive code intentionally does not compile against the old runtime.
+- **Breaking:** Generated class methods, iterators, and field accessors now participate in native
+  borrow checking, and every constructor and factory path uses a unique aligned allocation for
+  zero-sized class values.
+- **Breaking:** Native class codegen rejects borrowed reference fields before expansion, and
+  generated `JavaScriptClassExt::into_instance` implementations use fallible class-instance
+  construction.
+
+### Fixed
+
+- Bare `This` parameters on exported free functions now generate `this: object` instead of the
+  invalid TypeScript declaration `this: this`.
+
 ## [5.1.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.0...napi-derive-backend-v5.1.1) - 2026-07-03
 
 ### Other

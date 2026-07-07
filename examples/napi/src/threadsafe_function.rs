@@ -1,11 +1,14 @@
 use std::{sync::Arc, thread, time::Duration};
 
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+use std::cell::RefCell;
+
 #[cfg(not(target_family = "wasm"))]
 use std::{
   future::Future,
   pin::pin,
   sync::{
-    atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicI32, Ordering},
     mpsc::{channel, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender},
     Mutex,
   },
@@ -15,14 +18,71 @@ use std::{
 
 use napi::{
   bindgen_prelude::*,
-  threadsafe_function::{
-    install_threadsafe_function_native_enqueue_hook, ThreadsafeFunction,
-    ThreadsafeFunctionCallMode, UnknownReturnValue,
-  },
+  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue},
   UnknownRef,
 };
 
 use crate::class::Animal;
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+type ForeignEnvReferTsfn = ThreadsafeFunction<(), (), (), Status, false, false, 0>;
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+thread_local! {
+  static FOREIGN_ENV_REFER_TSFN: RefCell<Option<ForeignEnvReferTsfn>> = const { RefCell::new(None) };
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "stashThreadsafeFunctionForEnvOwnership")]
+fn stash_threadsafe_function_for_env_ownership(value: ForeignEnvReferTsfn) {
+  FOREIGN_ENV_REFER_TSFN.with(|stored| *stored.borrow_mut() = Some(value));
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "verifyThreadsafeFunctionOwnerEnv")]
+#[allow(deprecated)]
+fn verify_threadsafe_function_owner_env(env: &Env) -> Result<()> {
+  FOREIGN_ENV_REFER_TSFN.with(|stored| {
+    let mut stored = stored.borrow_mut();
+    let value = stored
+      .as_mut()
+      .ok_or_else(|| Error::from_reason("no ThreadsafeFunction was stashed"))?;
+    value.unref(env)?;
+    value.refer(env)
+  })
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "referThreadsafeFunctionForEnvOwnership")]
+#[allow(deprecated)]
+fn refer_threadsafe_function_for_env_ownership(env: &Env) -> Result<()> {
+  FOREIGN_ENV_REFER_TSFN.with(|stored| {
+    stored
+      .borrow_mut()
+      .as_mut()
+      .ok_or_else(|| Error::from_reason("no ThreadsafeFunction was stashed"))?
+      .refer(env)
+  })
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "unrefThreadsafeFunctionForEnvOwnership")]
+#[allow(deprecated)]
+fn unref_threadsafe_function_for_env_ownership(env: &Env) -> Result<()> {
+  FOREIGN_ENV_REFER_TSFN.with(|stored| {
+    stored
+      .borrow_mut()
+      .as_mut()
+      .ok_or_else(|| Error::from_reason("no ThreadsafeFunction was stashed"))?
+      .unref(env)
+  })
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "disposeThreadsafeFunctionForEnvOwnership")]
+fn dispose_threadsafe_function_for_env_ownership() {
+  FOREIGN_ENV_REFER_TSFN.with(|stored| drop(stored.borrow_mut().take()));
+}
 
 #[cfg(not(target_family = "wasm"))]
 const TSFN_TEARDOWN_PAYLOAD_DROP_INDEX: usize = 0;
@@ -299,6 +359,7 @@ impl TsfnTeardownThread {
     self
       .state
       .record_bit(TSFN_QUIESCENCE_FINALIZER_INDEX, self.identity_bit);
+    #[cfg(not(feature = "noop"))]
     if try_start_async_runtime().is_ok() {
       self.state.add(TSFN_TEARDOWN_UNEXPECTED_INDEX);
     }
@@ -407,7 +468,7 @@ fn start_tsfn_finalizer_liveness_worker<const WEAK: bool>(
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
+#[napi]
 pub fn start_referenced_tsfn_finalizer_liveness_worker(
   callback: Function<(), ()>,
   manual_stop_path: String,
@@ -417,7 +478,7 @@ pub fn start_referenced_tsfn_finalizer_liveness_worker(
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
+#[napi]
 pub fn start_weak_tsfn_finalizer_liveness_worker(
   callback: Function<(), ()>,
   manual_stop_path: String,
@@ -704,6 +765,7 @@ impl Drop for TsfnClosingFinalizerDrop {
     if self.state.load(TSFN_QUIESCENCE_FINALIZER_INDEX) != TSFN_SCENARIO_WORKER_BIT {
       self.state.add(TSFN_TEARDOWN_UNEXPECTED_INDEX);
     }
+    #[cfg(not(feature = "noop"))]
     if try_start_async_runtime().is_ok() {
       self.state.add(TSFN_TEARDOWN_UNEXPECTED_INDEX);
     }
@@ -893,107 +955,10 @@ fn verify_shared_tsfn_abort(callback: &Function<(), ()>) -> Result<()> {
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
-pub fn verify_tsfn_unlimited_blocking_contention(callback: Function<(), ()>) -> Result<()> {
-  let tsfn = callback
-    .build_threadsafe_function::<()>()
-    .build_callback(|_| Ok(()))?;
-  // SAFETY: The only native worker is joined below, and the finalizer does not
-  // wait for either queued JavaScript callback.
-  unsafe { tsfn.register_finalizer(|| {}) }?;
-
-  let invocation_count = Arc::new(AtomicUsize::new(0));
-  let (first_entered, first_mode) = channel();
-  let (second_entered, second_mode) = channel();
-  let (release_first, first_released) = channel();
-  let hook_invocation_count = Arc::clone(&invocation_count);
-  let first_released = Mutex::new(first_released);
-  let hook_guard = install_threadsafe_function_native_enqueue_hook(move |mode| {
-    match hook_invocation_count.fetch_add(1, Ordering::SeqCst) {
-      0 => {
-        let _ = first_entered.send(mode);
-        let _ = first_released
-          .lock()
-          .unwrap_or_else(std::sync::PoisonError::into_inner)
-          .recv();
-      }
-      1 => {
-        let _ = second_entered.send(mode);
-      }
-      _ => {}
-    }
-  })
-  .map_err(|reason| Error::new(Status::GenericFailure, reason))?;
-
-  let background_tsfn = tsfn.clone();
-  let (background_finished, background_result) = channel();
-  let background_thread = thread::spawn(move || {
-    let status = background_tsfn.call((), ThreadsafeFunctionCallMode::Blocking);
-    let _ = background_finished.send(status);
-  });
-
-  let first_mode = first_mode.recv_timeout(TSFN_TEST_TIMEOUT);
-  let owner_status = first_mode
-    .as_ref()
-    .ok()
-    .map(|_| tsfn.call((), ThreadsafeFunctionCallMode::Blocking));
-  let _ = release_first.send(());
-  let background_status = background_result.recv_timeout(TSFN_TEST_TIMEOUT);
-  let join_result = background_thread.join();
-  let second_mode = second_mode.try_recv();
-  drop(hook_guard);
-
-  let first_mode = first_mode.map_err(|error| {
-    Error::new(
-      Status::GenericFailure,
-      format!("unlimited TSFN background call did not reach native enqueue: {error}"),
-    )
-  })?;
-  let owner_status = owner_status.expect("owner call runs after the first enqueue is observed");
-  let background_status = background_status.map_err(|error| {
-    Error::new(
-      Status::GenericFailure,
-      format!("unlimited TSFN background call did not finish: {error}"),
-    )
-  })?;
-  join_result.map_err(|_| {
-    Error::new(
-      Status::GenericFailure,
-      "unlimited TSFN background call panicked",
-    )
-  })?;
-  let second_mode = second_mode.map_err(|error| {
-    Error::new(
-      Status::GenericFailure,
-      format!("unlimited TSFN owner call did not reach native enqueue: {error}"),
-    )
-  })?;
-
-  if first_mode != ThreadsafeFunctionCallMode::NonBlocking
-    || second_mode != ThreadsafeFunctionCallMode::NonBlocking
-    || owner_status != Status::Ok
-    || background_status != Status::Ok
-    || invocation_count.load(Ordering::SeqCst) != 2
-  {
-    return Err(Error::new(
-      Status::GenericFailure,
-      format!(
-        "unlimited Blocking calls did not use independent native nonblocking enqueues: \
-         first_mode={first_mode:?}, second_mode={second_mode:?}, owner_status={owner_status:?}, \
-         background_status={background_status:?}, invocations={}",
-        invocation_count.load(Ordering::SeqCst)
-      ),
-    ));
-  }
-
-  Ok(())
-}
-
-#[cfg(not(target_family = "wasm"))]
 type ScenarioTsfn = ThreadsafeFunction<(), (), (), Status, false, false, 0>;
 
 #[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
+#[napi]
 pub fn prepare_tsfn_blocking_call_regression(
   callback: Function<u32, ()>,
   counters: Int32Array,
@@ -1211,7 +1176,7 @@ fn prepare_pending_payload_tsfn_scenario(
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
+#[napi]
 pub fn prepare_tsfn_teardown_regression(
   callback: Function<(), ()>,
   counters: Int32Array,
@@ -1330,45 +1295,13 @@ impl From<Status> for ErrorStatus {
 }
 
 #[cfg(target_family = "wasm")]
-#[napi(no_export)]
+#[napi]
 pub fn drop_unregistered_weak_tsfn_for_wasi(callback: Function<(), ()>) -> Result<()> {
   let tsfn = callback
     .build_threadsafe_function::<()>()
     .weak::<true>()
     .build_callback(|_| Ok(()))?;
   drop(tsfn);
-  Ok(())
-}
-
-pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
-  #[cfg(not(target_family = "wasm"))]
-  {
-    fixture.create_named_method(
-      "startReferencedTsfnFinalizerLivenessWorker",
-      start_referenced_tsfn_finalizer_liveness_worker_c_callback,
-    )?;
-    fixture.create_named_method(
-      "startWeakTsfnFinalizerLivenessWorker",
-      start_weak_tsfn_finalizer_liveness_worker_c_callback,
-    )?;
-    fixture.create_named_method(
-      "prepareTsfnBlockingCallRegression",
-      prepare_tsfn_blocking_call_regression_c_callback,
-    )?;
-    fixture.create_named_method(
-      "prepareTsfnTeardownRegression",
-      prepare_tsfn_teardown_regression_c_callback,
-    )?;
-    fixture.create_named_method(
-      "verifyTsfnUnlimitedBlockingContention",
-      verify_tsfn_unlimited_blocking_contention_c_callback,
-    )?;
-  }
-  #[cfg(target_family = "wasm")]
-  fixture.create_named_method(
-    "dropUnregisteredWeakTsfnForWasi",
-    drop_unregistered_weak_tsfn_for_wasi_c_callback,
-  )?;
   Ok(())
 }
 
@@ -1465,8 +1398,7 @@ fn threadsafe_function_closure_capture(
   func: Function<Reference<Animal>, ()>,
 ) -> napi::Result<()> {
   let str = "test";
-  let default_value_reference: Reference<Animal> =
-    unsafe { Reference::from_napi_value(env.raw(), default_value.value)? };
+  let default_value_reference = default_value.clone_reference(env)?;
   let tsfn = func
     .build_threadsafe_function::<()>()
     .build_callback(move |ctx| {

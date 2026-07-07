@@ -10,6 +10,7 @@ pub struct CallContext<'env> {
   raw_this: sys::napi_value,
   callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
+  _native_borrow_barrier: crate::bindgen_runtime::NativeBorrowBarrier,
   /// arguments.length
   pub length: usize,
 }
@@ -42,6 +43,7 @@ impl<'env> CallContext<'env> {
       raw_this,
       callback_info,
       args,
+      _native_borrow_barrier: crate::bindgen_runtime::NativeBorrowBarrier::new(),
       length,
     }
   }

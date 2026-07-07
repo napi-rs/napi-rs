@@ -12,7 +12,7 @@ use std::{
 
 use napi::bindgen_prelude::{
   spawn, try_block_on_custom_runtime, try_register_async_runtime, try_shutdown_async_runtime,
-  try_start_async_runtime, within_custom_runtime_if_available, AsyncRuntime, AsyncRuntimeTask,
+  try_start_async_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeTask,
 };
 
 static REJECTED_RUNTIME_SHUT_DOWN: AtomicBool = AtomicBool::new(false);
@@ -61,7 +61,7 @@ fn assert_tokio_task_cancelled(handle: tokio::task::JoinHandle<()>) {
 fn passive_async_runtime_selects_tokio_and_rejects_late_registration() {
   try_start_async_runtime().expect("combined runtime must default to built-in Tokio");
 
-  within_custom_runtime_if_available(|| {
+  within_selected_async_runtime(|| {
     tokio::runtime::Handle::try_current()
       .expect("generated async-runtime entry guards must enter selected Tokio");
     Ok(())
@@ -87,7 +87,7 @@ fn passive_async_runtime_selects_tokio_and_rejects_late_registration() {
   assert_tokio_task_cancelled(pending);
 
   start_after_retirement();
-  within_custom_runtime_if_available(|| {
+  within_selected_async_runtime(|| {
     tokio::runtime::Handle::try_current().expect("restarted Tokio runtime must be entered");
     Ok(())
   })

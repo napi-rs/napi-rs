@@ -4,14 +4,14 @@ use super::{Either, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiV
 
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
-#[cfg(feature = "napi4")]
-use crate::Status;
 #[cfg(feature = "compat-mode")]
 #[allow(deprecated)]
 pub use crate::JsFunction;
+#[cfg(feature = "napi4")]
+use crate::Status;
 use crate::{
-  bindgen_runtime::JsObjectValue, check_pending_exception, check_status, sys, Env, JsValue, Result,
-  ValueType,
+  bindgen_runtime::{JsObjectValue, NapiValueOwner},
+  check_pending_exception, check_status, sys, Env, JsValue, Result, ValueType,
 };
 
 pub trait JsValuesTupleIntoVec {
@@ -182,7 +182,7 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
     )?;
     Ok(FunctionRef {
       inner: reference,
-      env: self.env,
+      owner: NapiValueOwner::new(self.env),
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
@@ -526,16 +526,22 @@ impl<
 /// It can be used to outlive the scope of the function.
 pub struct FunctionRef<Args: JsValuesTupleIntoVec, Return> {
   pub(crate) inner: sys::napi_ref,
-  pub(crate) env: sys::napi_env,
+  owner: NapiValueOwner,
   _args: std::marker::PhantomData<Args>,
   _return: std::marker::PhantomData<Return>,
 }
 
+// The raw N-API handles are only accessed after proving owner-env and owner-thread
+// identity. Drop routes reference release through the owner env's custom-GC handle
+// when available and never calls N-API directly from a foreign thread.
+#[cfg(feature = "napi4")]
 unsafe impl<Args: JsValuesTupleIntoVec, Return> Send for FunctionRef<Args, Return> {}
+#[cfg(feature = "napi4")]
 unsafe impl<Args: JsValuesTupleIntoVec, Return> Sync for FunctionRef<Args, Return> {}
 
 impl<Args: JsValuesTupleIntoVec, Return> FunctionRef<Args, Return> {
   pub fn borrow_back<'scope>(&self, env: &'scope Env) -> Result<Function<'scope, Args, Return>> {
+    self.owner.ensure_access(env.0, "FunctionRef")?;
     let mut value = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.inner, &mut value) },
@@ -553,8 +559,12 @@ impl<Args: JsValuesTupleIntoVec, Return> FunctionRef<Args, Return> {
 
 impl<Args: JsValuesTupleIntoVec, Return> Drop for FunctionRef<Args, Return> {
   fn drop(&mut self) {
-    let status = unsafe { sys::napi_delete_reference(self.env, self.inner) };
-    debug_assert_eq!(status, sys::Status::napi_ok, "Drop FunctionRef failed");
+    let status = self.owner.release_reference(self.inner);
+    assert!(
+      status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+      "Release FunctionRef reference failed {}",
+      crate::Status::from(status)
+    );
   }
 }
 
@@ -577,7 +587,7 @@ impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for FunctionRef<Args, Ret
     )?;
     Ok(FunctionRef {
       inner: reference,
-      env,
+      owner: NapiValueOwner::new(env),
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
@@ -593,6 +603,7 @@ pub struct FunctionCallContext<'scope> {
   pub(crate) args: &'scope [sys::napi_value],
   pub(crate) this: sys::napi_value,
   pub env: &'scope mut Env,
+  pub(crate) _native_borrow_barrier: crate::bindgen_runtime::NativeBorrowBarrier,
 }
 
 impl FunctionCallContext<'_> {

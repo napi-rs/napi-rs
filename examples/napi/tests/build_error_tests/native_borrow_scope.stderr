@@ -1,0 +1,7 @@
+error[E0133]: call to unsafe function `napi::bindgen_prelude::NativeBorrowScope::new` is unsafe and requires unsafe function or block
+ --> tests/build_error_tests/native_borrow_scope.rs:4:16
+  |
+4 |   let _scope = NativeBorrowScope::new();
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+  |
+  = note: consult the function's documentation for information on how to avoid undefined behavior

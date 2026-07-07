@@ -447,6 +447,7 @@ jobs:
           name: ${{ matrix.settings.target }}-example
           path: |
             examples/napi/*.node
+            examples/napi/module-init-rollback/*.node
             examples/napi/tsfn-retention/*.node
       - uses: actions/upload-artifact@v7
         with:
@@ -517,6 +518,7 @@ jobs:
           name: ${{ matrix.settings.target }}-example
           path: |
             examples/napi/*.node
+            examples/napi/module-init-rollback/*.node
             examples/napi/tsfn-retention/*.node
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
@@ -770,6 +772,13 @@ jobs:
       - name: Check build
         run: cargo check -p ${{ matrix.settings.package }} ${{ matrix.settings.extra_args }} -F ${{ matrix.settings.features }}
 
+      - name: Test N-API thread-affinity and cleanup-hook contracts
+        if: matrix.settings.package == 'napi' && matrix.settings.features == 'napi3'
+        run: |
+          cargo test -p napi --no-default-features --features napi1 --test thread_affinity_api
+          cargo test -p napi --no-default-features --features napi3 --test thread_affinity_api --test cleanup_hook_api
+          cargo test -p napi --no-default-features --features napi4 --test thread_affinity_api --test cleanup_hook_api
+
   test-freebsd:
     runs-on: ubuntu-latest
     name: Test freebsd target
@@ -868,6 +877,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
+      - name: Test previous derive against current runtime
+        run: |
+          cargo build --locked --manifest-path crates/napi/tests/fixtures/previous-derive/Cargo.toml
+          node crates/napi/tests/fixtures/previous-derive/test.mjs
       - name: Build
         run: |
           node cli/cli.mjs build \
@@ -880,7 +893,7 @@ jobs:
 
   check-custom-async-runtime-wasi:
     runs-on: ubuntu-latest
-    name: Test custom async runtime on threadless WASI
+    name: Test custom async runtime on threaded WASI
     timeout-minutes: 10
     needs: audit
     steps:
@@ -894,110 +907,40 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip1
+          targets: wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      - name: Link minimal cleanup-hook feature sets
-        shell: bash
-        run: |
-          fixture="${RUNNER_TEMP}/napi-wasi-link-fixture"
-          mkdir -p "${fixture}/src"
-          cat > "${fixture}/Cargo.toml" <<EOF
-          [package]
-          name = "napi-wasi-link-fixture"
-          version = "0.0.0"
-          edition = "2021"
-          publish = false
-
-          [lib]
-          crate-type = ["cdylib"]
-
-          [features]
-          default = []
-          napi3 = ["napi/napi3"]
-          napi4 = ["napi/napi4"]
-
-          [dependencies]
-          napi = { path = "${GITHUB_WORKSPACE}/crates/napi", default-features = false }
-
-          [workspace]
-          EOF
-          cat > "${fixture}/build.rs" <<'EOF'
-          fn main() {
-            println!("cargo:rustc-link-arg=--import-undefined");
-            println!("cargo:rustc-link-arg=--no-entry");
-          }
-          EOF
-          cat > "${fixture}/src/lib.rs" <<'EOF'
-          use napi::{bindgen_prelude::napi_register_module_v1, sys};
-
-          #[no_mangle]
-          pub unsafe extern "C" fn linked_napi_register_module_v1(
-            env: sys::napi_env,
-            exports: sys::napi_value,
-          ) -> sys::napi_value {
-            unsafe { napi_register_module_v1(env, exports) }
-          }
-          EOF
-
-          for api in napi3 napi4; do
-            target_dir="${RUNNER_TEMP}/napi-wasi-${api}"
-            cargo build \
-              --manifest-path "${fixture}/Cargo.toml" \
-              --target wasm32-wasip1 \
-              --no-default-features \
-              --features "${api}" \
-              --target-dir "${target_dir}"
-            node --input-type=module - \
-              "${target_dir}/wasm32-wasip1/debug/napi_wasi_link_fixture.wasm" \
-              "${api}" <<'EOF'
-          import assert from 'node:assert/strict'
-          import { readFileSync } from 'node:fs'
-
-          const [wasmPath, api] = process.argv.slice(2)
-          const imports = WebAssembly.Module.imports(
-            new WebAssembly.Module(readFileSync(wasmPath)),
-          ).filter(({ name }) =>
-            [
-              'napi_add_env_cleanup_hook',
-              'napi_remove_env_cleanup_hook',
-            ].includes(name),
-          )
-          imports.sort((a, b) => a.name.localeCompare(b.name))
-          const expected =
-            api === 'napi3'
-              ? [
-                  {
-                    module: 'napi',
-                    name: 'napi_add_env_cleanup_hook',
-                    kind: 'function',
-                  },
-                ]
-              : [
-                  {
-                    module: 'napi',
-                    name: 'napi_add_env_cleanup_hook',
-                    kind: 'function',
-                  },
-                  {
-                    module: 'napi',
-                    name: 'napi_remove_env_cleanup_hook',
-                    kind: 'function',
-                  },
-                ]
-          assert.deepEqual(imports, expected)
-          EOF
-          done
+      - name: Build WASM runtime
+        run: yarn workspace @napi-rs/wasm-runtime build
       - name: Check non-noop runtime feature sets
         run: |
-          cargo check -p napi --no-default-features --features napi4,async-runtime --target wasm32-wasip1
-          cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1
-          cargo check -p napi-custom-async-runtime-example --target wasm32-wasip1
+          cargo check -p napi --no-default-features --features napi4,async-runtime --target wasm32-wasip1-threads
+          cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1-threads
+          cargo check -p napi-custom-async-runtime-example --target wasm32-wasip1-threads
+          cargo check -p napi-examples --features noop --target wasm32-wasip1-threads
         env:
-          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1
-      - name: Build threadless WASI artifact
-        run: yarn workspace @examples/custom-async-runtime build --target wasm32-wasip1 --profile wasi
-      - name: Test threadless WASI artifact
+          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1-threads
+          RUSTFLAGS: '--cfg tokio_unstable'
+      - name: Check minimal cleanup-hook imports
+        run: |
+          for api in napi3 napi4; do
+            cargo build \
+              --manifest-path examples/napi/wasi-cleanup-hook-link/Cargo.toml \
+              --target wasm32-wasip1-threads \
+              --target-dir "target/wasi-cleanup-hook-${api}" \
+              --no-default-features \
+              --features "${api}"
+            node examples/napi/wasi-cleanup-hook-link/check-imports.mjs \
+              "target/wasi-cleanup-hook-${api}/wasm32-wasip1-threads/debug/napi_wasi_cleanup_hook_link.wasm" \
+              "${api}"
+          done
+        env:
+          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1-threads
+      - name: Build threaded WASI artifact
+        run: yarn workspace @examples/custom-async-runtime build --target wasm32-wasip1-threads --profile wasi
+        env:
+          RUSTFLAGS: '--cfg tokio_unstable'
+      - name: Test threaded WASI artifact
         run: node examples/custom-async-runtime/test.mjs wasi
 
   check-unix-runtime-module-retention:
@@ -1049,9 +992,7 @@ jobs:
             echo '::endgroup::'
           done
         env:
-          # Nightly renamed AtomicUsize::fetch_update after the workspace MSRV.
-          # Allow that one lint on this tier-3 target while denying every other warning.
-          CARGO_TARGET_POWERPC64_IBM_AIX_RUSTFLAGS: '-Dwarnings -Adeprecated'
+          CARGO_TARGET_POWERPC64_IBM_AIX_RUSTFLAGS: '-Dwarnings'
           CARGO_TARGET_X86_64_UNKNOWN_OPENBSD_RUSTFLAGS: '-Dwarnings'
           CARGO_TARGET_X86_64_UNKNOWN_DRAGONFLY_RUSTFLAGS: '-Dwarnings'
 

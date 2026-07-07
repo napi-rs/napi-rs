@@ -447,24 +447,26 @@ async function runRace(duplicateLoad = false) {
   let loadState
   try {
     first = new Worker(workerPath, { env: process.env })
-    const { duplicateResult, duplicateInFlightResult } = await request(
-      first,
-      {
-        type: 'hold-pending-work',
-        enteredPath,
-        releasePath,
-        retirementCompletedPath,
-        teardownBlocker,
-        tsfnTeardownState,
-        runtimeFinalizerPath,
-        asyncFinalizerPath,
-        duplicateLoad,
-      },
-      'ready',
-    )
+    const { duplicateResult, duplicateInFlightResult, failedDuplicateExport } =
+      await request(
+        first,
+        {
+          type: 'hold-pending-work',
+          enteredPath,
+          releasePath,
+          retirementCompletedPath,
+          teardownBlocker,
+          tsfnTeardownState,
+          runtimeFinalizerPath,
+          asyncFinalizerPath,
+          duplicateLoad,
+        },
+        'ready',
+      )
     if (duplicateLoad) {
       assert.equal(duplicateResult, 4)
       assert.equal(duplicateInFlightResult, 'duplicate-load-in-flight')
+      assert.equal(typeof failedDuplicateExport, 'string')
     }
 
     const firstWorkerDescription = duplicateLoad

@@ -1,0 +1,23 @@
+[package]
+edition = "2021"
+name = "napi-wasi-cleanup-hook-link"
+publish = false
+rust-version = "1.88"
+version = "0.0.0"
+
+[lib]
+crate-type = ["cdylib"]
+name = "napi_wasi_cleanup_hook_link"
+
+[features]
+default = []
+napi3 = ["napi/napi3"]
+napi4 = ["napi/napi4"]
+
+[dependencies]
+napi = { path = "../../../crates/napi", default-features = false }
+
+[build-dependencies]
+napi-build = { path = "../../../crates/build" }
+
+[workspace]

@@ -15,6 +15,21 @@ fn run_build_error_tests() {
   t.compile_fail("tests/build_error_tests/tsfn_thread_safety_3.rs");
   t.compile_fail("tests/build_error_tests/tsfn_thread_safety_4.rs");
   t.compile_fail("tests/build_error_tests/tsfn_thread_safety_5.rs");
+  t.compile_fail("tests/build_error_tests/external_ref_*.rs");
+  t.compile_fail("tests/build_error_tests/reference_family_*.rs");
+  t.compile_fail("tests/build_error_tests/native_borrow_scope.rs");
   t.pass("tests/build_error_tests/tsfn_thread_safety_6.rs");
   t.compile_fail("tests/build_error_tests/tsfn_raw_api_*.rs");
+}
+
+#[test]
+fn run_class_reference_field_build_error_tests() {
+  let t = trybuild::TestCases::new();
+  t.compile_fail("tests/build_error_tests/class_reference_field_*.rs");
+}
+
+#[test]
+fn run_promise_raw_callback_build_error_tests() {
+  let t = trybuild::TestCases::new();
+  t.compile_fail("tests/build_error_tests/promise_raw_callback_lifetime_*.rs");
 }

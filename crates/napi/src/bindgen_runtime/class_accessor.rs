@@ -21,13 +21,19 @@ pub struct ClassAccessorCallbackInfo<const N: usize> {
   env: sys::napi_env,
   this: sys::napi_value,
   args: [sys::napi_value; N],
+  _callback_env: super::module_register::CallbackEnvGuard,
 }
 
 impl<const N: usize> ClassAccessorCallbackInfo<N> {
   #[doc(hidden)]
   #[inline]
   pub fn new(env: sys::napi_env, this: sys::napi_value, args: [sys::napi_value; N]) -> Self {
-    Self { env, this, args }
+    Self {
+      env,
+      this,
+      args,
+      _callback_env: super::module_register::enter_callback_env(env),
+    }
   }
 
   #[doc(hidden)]

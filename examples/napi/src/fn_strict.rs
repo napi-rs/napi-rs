@@ -53,9 +53,9 @@ fn validate_date_time(_d: DateTime<Utc>) -> i64 {
   1
 }
 
-#[napi(strict)]
-fn validate_external(e: &External<u32>) -> u32 {
-  **e
+#[napi(strict, ts_args_type = "e: ExternalObject<number>")]
+fn validate_external(e: &External<Cell<u32>>) -> u32 {
+  e.get()
 }
 
 #[napi(strict, ts_args_type = "cb: () => number")]
@@ -142,3 +142,4 @@ async fn return_undefined_if_invalid_promise(input: Promise<bool>) -> Result<boo
   let input_value = input.await?;
   Ok(!input_value)
 }
+use std::cell::Cell;

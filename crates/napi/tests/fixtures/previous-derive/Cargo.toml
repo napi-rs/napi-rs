@@ -1,0 +1,18 @@
+[package]
+name = "napi-previous-derive-compat"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
+
+[dependencies]
+futures = "0.3"
+napi = { path = "../../..", default-features = false, features = ["napi4", "async-runtime"] }
+napi-derive = "=3.5.9"
+
+[build-dependencies]
+napi-build = { path = "../../../../build" }

@@ -1,6 +1,19 @@
 //! Compile-time coverage for runtime helper signatures across additive Cargo features.
 #![cfg(not(feature = "noop"))]
 
+#[test]
+fn promise_raw_constructor_requires_raw_handle_invariants() {
+  use std::marker::PhantomData;
+
+  use napi::{bindgen_prelude::PromiseRaw, sys};
+
+  fn assert_signature<'env>(_: PhantomData<&'env ()>) {
+    let _: unsafe fn(sys::napi_env, sys::napi_value) -> PromiseRaw<'env, ()> = PromiseRaw::new;
+  }
+
+  assert_signature(PhantomData);
+}
+
 #[cfg(feature = "napi4")]
 #[test]
 fn threadsafe_function_quiescence_finalizer_apis_are_unsafe() {
@@ -129,8 +142,8 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 
   use napi::bindgen_prelude::{
     block_on_custom_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
-    try_block_on_custom_runtime, within_custom_runtime_if_available, AsyncRuntime,
-    AsyncRuntimeTask, JoinHandle,
+    try_block_on_custom_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeTask,
+    JoinHandle,
   };
 
   struct CompileRuntime;
@@ -164,7 +177,11 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
   }
 
   fn assert_enter_signature() -> napi::Result<u8> {
-    within_custom_runtime_if_available(|| Ok(42))
+    within_selected_async_runtime(|| Ok(42))
+  }
+
+  fn assert_codegen_enter_signature() -> napi::Result<u8> {
+    napi::__private::codegen_v1::within_selected_async_runtime(|| Ok(42))
   }
 
   let _ = assert_spawn_signature as fn() -> JoinHandle<u8>;
@@ -172,6 +189,9 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
   let _ = assert_block_on_signature as fn() -> u8;
   let _ = assert_try_block_on_signature as fn() -> napi::Result<u8>;
   let _ = assert_enter_signature as fn() -> napi::Result<u8>;
+  let _ = assert_codegen_enter_signature as fn() -> napi::Result<u8>;
+  assert_eq!(napi::__private::async_runtime_v1::CONTRACT_VERSION, 1);
+  assert_eq!(napi::__private::codegen_v1::CONTRACT_VERSION, 1);
 
   let _ = napi::bindgen_prelude::register_async_runtime::<CompileRuntime> as fn(CompileRuntime);
   let _ = napi::bindgen_prelude::try_register_async_runtime::<CompileRuntime>
@@ -184,6 +204,11 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
     let _ = napi::bindgen_prelude::try_create_custom_async_runtime::<CompileRuntime>
       as fn(CompileRuntime) -> napi::Result<()>;
   }
+
+  let _ = napi::bindgen_prelude::start_async_runtime as fn();
+  let _ = napi::bindgen_prelude::try_start_async_runtime as fn() -> napi::Result<()>;
+  let _ = napi::bindgen_prelude::shutdown_async_runtime as fn();
+  let _ = napi::bindgen_prelude::try_shutdown_async_runtime as fn() -> napi::Result<()>;
 }
 
 #[cfg(feature = "tokio_rt")]
@@ -214,6 +239,16 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
     waiter.cancel();
   }
 
+  fn assert_execute_tokio_future_signature(
+    env: napi::sys::napi_env,
+  ) -> napi::Result<napi::sys::napi_value> {
+    napi::bindgen_prelude::execute_tokio_future(
+      env,
+      async { Ok::<_, napi::Error>(42_u8) },
+      |_, _| Ok(std::ptr::null_mut()),
+    )
+  }
+
   fn assert_waiter_traits<T: Clone + Send + Sync>() {}
 
   let _ = assert_spawn_signature as fn() -> tokio::task::JoinHandle<()>;
@@ -223,5 +258,7 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
   let _ = assert_retirement_cancel_signature as fn(&TokioRuntimeRetirementWaiter);
   let _ = create_custom_tokio_runtime as fn(tokio::runtime::Runtime);
   let _ = try_create_custom_tokio_runtime as fn(tokio::runtime::Runtime) -> napi::Result<()>;
+  let _ = assert_execute_tokio_future_signature
+    as fn(napi::sys::napi_env) -> napi::Result<napi::sys::napi_value>;
   assert_waiter_traits::<TokioRuntimeRetirementWaiter>();
 }

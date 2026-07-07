@@ -100,34 +100,54 @@ export async function runPureRuntimeReloadLifecycle(bindingFile) {
           5000,
         )
         ;(async () => {
-          let generatedPromise
-          try {
-            generatedPromise = binding.asyncDouble(21)
-          } catch (error) {
-            throw new Error(
-              \`generated async export threw synchronously instead of returning a Promise: \${error}\`,
-              { cause: error },
+          async function assertMissingRuntimePromise(operation, label) {
+            let promise
+            try {
+              promise = operation()
+            } catch (error) {
+              throw new Error(
+                \`\${label} threw synchronously instead of returning a Promise: \${error}\`,
+                { cause: error },
+              )
+            }
+            if (!(promise instanceof Promise)) {
+              throw new TypeError(\`\${label} did not return a Promise\`)
+            }
+            try {
+              await promise
+            } catch (error) {
+              const errors = []
+              let current = error
+              while (current) {
+                errors.push(String(current))
+                current = current.cause
+              }
+              if (/No AsyncRuntime backend is registered/i.test(errors.join('\\n'))) {
+                return
+              }
+              throw error
+            }
+            throw new Error(\`\${label} unexpectedly succeeded without a backend\`)
+          }
+
+          await assertMissingRuntimePromise(
+            () => binding.asyncDouble(21),
+            'generated async export',
+          )
+          console.log('pure async operation rejected without a backend')
+
+          for (const [method, argument] of [
+            ['next', undefined],
+            ['return', undefined],
+            ['throw', new Error('missing runtime iterator throw')],
+          ]) {
+            const iterator = new binding.RuntimeAsyncIterator()[Symbol.asyncIterator]()
+            await assertMissingRuntimePromise(
+              () => iterator[method](argument),
+              \`\${method}()\`,
             )
           }
-          if (!(generatedPromise instanceof Promise)) {
-            throw new TypeError('generated async export did not return a Promise')
-          }
-          try {
-            await generatedPromise
-          } catch (error) {
-            const errors = []
-            let current = error
-            while (current) {
-              errors.push(String(current))
-              current = current.cause
-            }
-            if (/No AsyncRuntime backend is registered/i.test(errors.join('\\n'))) {
-              console.log('pure async operation rejected without a backend')
-              return
-            }
-            throw error
-          }
-          throw new Error('pure async operation unexpectedly succeeded without a backend')
+          console.log('pure async iterators rejected without a backend')
         })().then(
           () => clearTimeout(timeout),
           (error) => {
@@ -156,6 +176,10 @@ export async function runPureRuntimeReloadLifecycle(bindingFile) {
   )
   assert.match(missingResult.stdout, /loaded without a backend/)
   assert.match(missingResult.stdout, /operation rejected without a backend/)
+  assert.match(
+    missingResult.stdout,
+    /async iterators rejected without a backend/,
+  )
 
   const directory = await mkdtemp(join(tmpdir(), 'napi-pure-runtime-reload-'))
   const dropMarker = join(directory, 'backend-dropped')

@@ -443,7 +443,8 @@ impl From<JsStringLatin1<'_>> for Vec<u8> {
 }
 
 impl ToNapiValue for JsStringLatin1<'_> {
-  unsafe fn to_napi_value(_: sys::napi_env, val: JsStringLatin1) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: JsStringLatin1) -> Result<sys::napi_value> {
+    crate::bindgen_runtime::ensure_same_env(val.inner.0.env, env)?;
     Ok(val.inner.0.value)
   }
 }

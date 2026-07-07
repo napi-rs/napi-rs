@@ -54,7 +54,8 @@ impl From<JsStringUtf8<'_>> for Vec<u8> {
 }
 
 impl ToNapiValue for JsStringUtf8<'_> {
-  unsafe fn to_napi_value(_: sys::napi_env, val: JsStringUtf8) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: JsStringUtf8) -> Result<sys::napi_value> {
+    crate::bindgen_runtime::ensure_same_env(val.inner.0.env, env)?;
     Ok(val.inner.0.value)
   }
 }

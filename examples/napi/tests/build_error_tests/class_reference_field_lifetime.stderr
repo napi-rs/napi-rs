@@ -1,0 +1,5 @@
+error: Borrowed reference fields (`&T` or `&mut T`) cannot be stored in a napi class because no `NativeBorrowScope` spans the class lifetime; store an owned value instead
+ --> tests/build_error_tests/class_reference_field_lifetime.rs:5:14
+  |
+5 |   pub value: &'a str,
+  |              ^^^^^^^

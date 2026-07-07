@@ -1,13 +1,9 @@
 import { createRequire } from 'node:module'
 import { parentPort } from 'node:worker_threads'
 
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const require = createRequire(import.meta.url)
-const { binding: native, fixture: lifecycle } = requireLifecycleFixture(
-  require,
-  '../index.cjs',
-)
+const native = require('../index.cjs')
+const lifecycle = native
 
 const isWasiTest = !!process.env.WASI_TEST
 // 32-bit (ia32, e.g. i686 Windows) has a ~2 GB address space; the off-thread

@@ -18,17 +18,15 @@ impl Drop for ModuleFinalizerPropertyClosureProbe {
 }
 
 #[cfg(not(feature = "noop"))]
-pub(crate) fn install_module_finalizer_probes(
-  export: &mut Object,
-  probe_paths: &Object,
-) -> Result<()> {
+#[napi]
+pub fn register_module_finalizer_probes(mut this: This<Object>, probe_paths: Object) -> Result<()> {
   let object_result_path: String = probe_paths.get_named_property("object")?;
   let property_panic_result_path: String =
     probe_paths.get_named_property("propertyClosurePanic")?;
   let property_after_panic_result_path: String =
     probe_paths.get_named_property("propertyClosureAfterPanic")?;
 
-  export.add_finalizer((), object_result_path, |context| {
+  this.add_finalizer((), object_result_path, |context| {
     crate::env::record_runtime_transition_probe(&context.hint);
     #[cfg(not(target_family = "wasm"))]
     panic!("intentional module object finalizer panic");
@@ -46,7 +44,7 @@ pub(crate) fn install_module_finalizer_probes(
     "__napiRsModuleFinalizerPanic",
     "__napiRsModuleFinalizerAfterPanic",
   ];
-  export.define_properties(&[
+  this.define_properties(&[
     Property::new()
       .with_utf8_name(property_names[0])?
       .with_getter_closure(move |_env, _this| {
@@ -62,7 +60,7 @@ pub(crate) fn install_module_finalizer_probes(
   ])?;
 
   for property_name in property_names {
-    if !export.delete_named_property(property_name)? {
+    if !this.delete_named_property(property_name)? {
       return Err(Error::new(
         Status::GenericFailure,
         format!("failed to remove temporary module finalizer property {property_name}"),

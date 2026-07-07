@@ -105,6 +105,38 @@ pub async fn read_file_async(path: String) -> Result<Buffer> {
 }
 ```
 
+### Custom async runtimes
+
+Enable `async-runtime` to route generated async exports through an addon-provided scheduler without
+requiring Tokio:
+
+```toml
+[dependencies]
+napi = { version = "4", default-features = false, features = ["napi4", "async-runtime"] }
+```
+
+Implement the unsafe `AsyncRuntime` contract and register one dormant backend from module
+initialization:
+
+```rust
+use napi::bindgen_prelude::{register_async_runtime, AsyncRuntime};
+use napi_derive::module_init;
+
+#[module_init]
+fn init() {
+  register_async_runtime(MyRuntime::new_dormant());
+}
+```
+
+Create threads and active scheduler resources in `AsyncRuntime::start`, not in the constructor, and
+fully quiesce them in `AsyncRuntime::shutdown`. The backend is reused across worker and renderer
+reloads, and its `Drop` implementation is not guaranteed to run. The trait documentation defines
+the task ownership, cancellation, guard, panic, and native-image unload-safety requirements.
+
+For the coordinated v4 release, upgrade `napi` before `napi-derive`. Derive v3 remains compatible
+with runtime v4 during migration, but does not gain v4 borrow and construction guarantees. Derive
+v4 intentionally requires runtime v4.
+
 more examples at [examples](./examples/napi)
 
 ## Building
@@ -121,8 +153,8 @@ name = "awesome"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = "3"
-napi-derive = "3"
+napi = "4"
+napi-derive = "4"
 
 [build-dependencies]
 napi-build = "1"
@@ -220,7 +252,7 @@ yarn test
 | Undefined/()             | undefined           | 1                                                                               | v8.0.0               |
 | Result<()>               | Error               | 1                                                                               | v8.0.0               |
 | T: Fn(...) -> Result<T>  | Function            | 1                                                                               | v8.0.0               |
-| Async/Future             | Promise<T>          | 4                                                                               | v10.6.0              | async                    |
+| Async/Future             | Promise<T>          | 4                                                                               | v10.6.0              | async or async-runtime   |
 | AsyncTask                | Promise<T>          | 1                                                                               | v8.5.0               |
 | JsGlobal                 | global              | 1                                                                               | v8.0.0               |
 | JsSymbol                 | Symbol              | 1                                                                               | v8.0.0               |

@@ -175,35 +175,18 @@ thread_local! {
 }
 
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
-#[napi(no_export)]
+#[napi(js_name = "stashErrorAcrossDuplicateLoad")]
 fn stash_lifecycle_error(value: Unknown) {
   LIFECYCLE_STASHED_ERROR.with(|stored| *stored.borrow_mut() = Some(value.into()));
 }
 
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
-#[napi(no_export)]
+#[napi(js_name = "throwErrorAcrossDuplicateLoad")]
 fn throw_stashed_lifecycle_error() -> Result<()> {
   let error = LIFECYCLE_STASHED_ERROR
     .with(|stored| stored.borrow_mut().take())
     .ok_or_else(|| Error::from_reason("no lifecycle Error was stashed"))?;
   Err(error)
-}
-
-#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
-pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
-  fixture.create_named_method(
-    "stashErrorAcrossDuplicateLoad",
-    stash_lifecycle_error_c_callback,
-  )?;
-  fixture.create_named_method(
-    "throwErrorAcrossDuplicateLoad",
-    throw_stashed_lifecycle_error_c_callback,
-  )
-}
-
-#[cfg(any(feature = "noop", target_family = "wasm"))]
-pub(crate) fn install_lifecycle_fixture(_fixture: &mut Object) -> Result<()> {
-  Ok(())
 }
 
 /// Regression cover for napi-rs#3370: `try_clone` off the owning JS thread

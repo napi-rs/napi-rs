@@ -8,12 +8,9 @@ use std::slice;
 #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
 use std::sync::Mutex;
 
-#[cfg(all(feature = "napi4", not(feature = "noop")))]
-use crate::bindgen_prelude::{
-  current_custom_gc_handle, current_thread_owns_custom_gc, CustomGcHandle,
-};
 use crate::{
-  bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsValue, Result, Value, ValueType,
+  bindgen_prelude::*, bindgen_runtime::NapiValueOwner, check_status, env::EMPTY_VEC, sys, JsValue,
+  Result, Value, ValueType,
 };
 
 #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
@@ -52,8 +49,20 @@ impl<'env> BufferSlice<'env> {
       }
     }
     let len = data.len();
+    if len == 0 {
+      check_status!(
+        unsafe { sys::napi_create_buffer(env.0, 0, ptr::null_mut(), &mut buf) },
+        "Failed to create empty buffer slice"
+      )?;
+      return Ok(Self {
+        inner: &mut [],
+        raw_value: buf,
+        env: env.0,
+      });
+    }
     let cap = data.capacity();
     let finalize_hint = Box::into_raw(Box::new((len, cap)));
+    let mut result_data = inner_ptr;
     let mut status = unsafe {
       sys::napi_create_external_buffer(
         env.0,
@@ -66,19 +75,27 @@ impl<'env> BufferSlice<'env> {
     };
     if status == sys::Status::napi_no_external_buffers_allowed {
       unsafe {
-        let _ = Box::from_raw(finalize_hint);
+        drop(Box::from_raw(finalize_hint));
       }
+      let mut copied_data = ptr::null_mut();
       status = unsafe {
         sys::napi_create_buffer_copy(
           env.0,
           len,
           data.as_mut_ptr().cast(),
-          ptr::null_mut(),
+          &mut copied_data,
           &mut buf,
         )
       };
-    } else {
+      if status == sys::Status::napi_ok {
+        result_data = copied_data.cast();
+      }
+    } else if status == sys::Status::napi_ok {
       mem::forget(data);
+    } else {
+      unsafe {
+        drop(Box::from_raw(finalize_hint));
+      }
     }
     check_status!(status, "Failed to create buffer slice from data")?;
 
@@ -86,7 +103,7 @@ impl<'env> BufferSlice<'env> {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(result_data, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -137,6 +154,7 @@ impl<'env> BufferSlice<'env> {
       }
     }
     let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
+    let mut result_data = data;
     let mut status = unsafe {
       sys::napi_create_external_buffer(
         env.0,
@@ -147,22 +165,27 @@ impl<'env> BufferSlice<'env> {
         &mut buf,
       )
     };
-    status = if status == sys::Status::napi_no_external_buffers_allowed {
+    if status == sys::Status::napi_no_external_buffers_allowed {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
-      let status =
-        unsafe { sys::napi_create_buffer_copy(env.0, len, data.cast(), ptr::null_mut(), &mut buf) };
+      let mut copied_data = ptr::null_mut();
+      status = unsafe {
+        sys::napi_create_buffer_copy(env.0, len, data.cast(), &mut copied_data, &mut buf)
+      };
+      if status == sys::Status::napi_ok {
+        result_data = copied_data.cast();
+      }
       finalize(*env, hint);
-      status
-    } else {
-      status
-    };
+    } else if status != sys::Status::napi_ok {
+      let (hint, finalize) = *Box::from_raw(hint_ptr);
+      finalize(*env, hint);
+    }
     check_status!(status, "Failed to create buffer slice from data")?;
 
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(result_data, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -176,17 +199,32 @@ impl<'env> BufferSlice<'env> {
     let data_ptr = data.as_ptr();
     let mut buf = ptr::null_mut();
     let mut result_ptr = ptr::null_mut();
-    check_status!(
-      unsafe {
-        sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), &mut result_ptr, &mut buf)
-      },
-      "Faild to create a buffer from copied data"
-    )?;
+    #[cfg(target_family = "wasm")]
+    let status = unsafe {
+      // emnapi's napi_create_buffer_copy uses a separate JavaScript allocation whose returned
+      // pointer is only a WASM shadow. Allocate in WASM memory so BufferSlice remains zero-copy.
+      sys::napi_create_buffer(env.0, len, &mut result_ptr, &mut buf)
+    };
+    #[cfg(not(target_family = "wasm"))]
+    let status = unsafe {
+      sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), &mut result_ptr, &mut buf)
+    };
+    check_status!(status, "Failed to create a buffer from copied data")?;
+    if len > 0 && result_ptr.is_null() {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "Buffer allocation returned a null data pointer".to_owned(),
+      ));
+    }
+    #[cfg(target_family = "wasm")]
+    if len > 0 {
+      unsafe { ptr::copy_nonoverlapping(data_ptr, result_ptr.cast(), len) };
+    }
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(result_ptr.cast(), len) }
       },
       raw_value: buf,
       env: env.0,
@@ -197,6 +235,7 @@ impl<'env> BufferSlice<'env> {
   ///
   /// This will perform a `napi_create_reference` internally.
   pub fn into_buffer(self, env: &Env) -> Result<Buffer> {
+    super::ensure_same_env(self.env, env.0)?;
     unsafe { Buffer::from_napi_value(env.0, self.raw_value) }
   }
 }
@@ -241,8 +280,8 @@ impl FromNapiValue for BufferSlice<'_> {
 }
 
 impl ToNapiValue for &BufferSlice<'_> {
-  #[allow(unused_variables)]
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    super::ensure_same_env(val.env, env)?;
     Ok(val.raw_value)
   }
 }
@@ -305,14 +344,13 @@ pub struct Buffer {
   pub(crate) inner: NonNull<u8>,
   pub(crate) len: usize,
   pub(crate) capacity: usize,
-  raw: Option<(sys::napi_ref, sys::napi_env)>,
-  #[cfg(all(feature = "napi4", not(feature = "noop")))]
-  custom_gc_handle: Option<std::sync::Arc<CustomGcHandle>>,
+  raw: Option<(sys::napi_ref, NapiValueOwner)>,
 }
 
 impl Drop for Buffer {
   fn drop(&mut self) {
-    if let Some((ref_, env)) = self.raw {
+    if let Some((ref_, owner)) = self.raw.as_ref() {
+      let ref_ = *ref_;
       if ref_.is_null() {
         return;
       }
@@ -320,66 +358,11 @@ impl Drop for Buffer {
       // This only happens with `napi4` feature enabled
       // We send back the Buffer reference value into the `CustomGC` ThreadsafeFunction callback
       // and destroy the reference in the thread where registered the `napi_register_module_v1`
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      {
-        if let Some(handle) = self.custom_gc_handle.as_ref() {
-          handle.with_read_aborted(|aborted| {
-            if aborted {
-              // owner env gone, V8 already invalidated the ref -> no-op (safe leak).
-              // Reached on BOTH the off-thread AND the same-thread (cached-value-at-thread-exit) paths.
-              return;
-            }
-            if current_thread_owns_custom_gc(handle) {
-              // same isolate's JS thread, owner alive -> direct unref+delete on the OWNER env.
-              // DELIBERATE copy of the trailing direct block below; the copy is `aborted`-gated, the
-              // trailing block is the non-napi4 / None-handle fallback. Do NOT "dedupe" either away.
-              let mut ref_count = 0;
-              check_status_or_throw!(
-                env,
-                unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
-                "Failed to unref Buffer reference in drop"
-              );
-              debug_assert!(
-                ref_count == 0,
-                "Buffer reference count in Buffer::drop is not zero"
-              );
-              check_status_or_throw!(
-                env,
-                unsafe { sys::napi_delete_reference(env, ref_) },
-                "Failed to delete Buffer reference in drop"
-              );
-            } else {
-              // off-thread OR a different isolate's JS thread (fixes F5) -> route to ITS tsfn
-              let status =
-                unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), ref_.cast(), 1) };
-              assert!(
-                status == sys::Status::napi_ok || status == sys::Status::napi_closing,
-                "Call custom GC in Buffer::drop failed {}",
-                Status::from(status)
-              );
-            }
-          });
-          return;
-        }
-        // handle == None -> fall through (under napi4 this is practically unreachable
-        // for a ref-carrying value: since #3357 `create_custom_gc` installs the per-env
-        // handle BEFORE any module-init callback runs, so any value captured via
-        // FromNapiValue on a registered JS thread records a real handle, not None).
-      }
-      let mut ref_count = 0;
-      check_status_or_throw!(
-        env,
-        unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
-        "Failed to unref Buffer reference in drop"
-      );
-      debug_assert!(
-        ref_count == 0,
-        "Buffer reference count in Buffer::drop is not zero"
-      );
-      check_status_or_throw!(
-        env,
-        unsafe { sys::napi_delete_reference(env, ref_) },
-        "Failed to delete Buffer reference in drop"
+      let status = owner.release_reference(ref_);
+      assert!(
+        status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+        "Release Buffer reference failed {}",
+        Status::from(status)
       );
     } else {
       unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
@@ -389,7 +372,9 @@ impl Drop for Buffer {
 
 /// SAFETY: This is undefined behavior, as the JS side may always modify the underlying buffer,
 /// without synchronization. Also see the docs for the `AsMut` impl.
+#[cfg(feature = "napi4")]
 unsafe impl Send for Buffer {}
+#[cfg(feature = "napi4")]
 unsafe impl Sync for Buffer {}
 
 impl Default for Buffer {
@@ -422,8 +407,6 @@ impl From<Vec<u8>> for Buffer {
       len,
       capacity,
       raw: None,
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc_handle: None,
     }
   }
 }
@@ -490,14 +473,14 @@ impl FromNapiValue for Buffer {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut buf = ptr::null_mut();
     let mut len = 0;
+    check_status!(
+      unsafe { sys::napi_get_buffer_info(env, napi_val, &mut buf, &mut len as *mut usize) },
+      "Failed to get Buffer pointer and length"
+    )?;
     let mut ref_ = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
       "Failed to create reference from Buffer"
-    )?;
-    check_status!(
-      unsafe { sys::napi_get_buffer_info(env, napi_val, &mut buf, &mut len as *mut usize) },
-      "Failed to get Buffer pointer and length"
     )?;
 
     // From the docs of `napi_get_buffer_info`:
@@ -517,9 +500,7 @@ impl FromNapiValue for Buffer {
       inner,
       len,
       capacity: len,
-      raw: Some((ref_, env)),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc_handle: current_custom_gc_handle(),
+      raw: Some((ref_, NapiValueOwner::new(env))),
     })
   }
 }
@@ -527,7 +508,9 @@ impl FromNapiValue for Buffer {
 impl ToNapiValue for Buffer {
   unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
     // From Node.js value, not from `Vec<u8>`
-    if let Some((ref_, _)) = val.raw {
+    if let Some((ref_, owner)) = val.raw.as_ref() {
+      let ref_ = *ref_;
+      owner.ensure_access(env, "Buffer")?;
       let mut buf = ptr::null_mut();
       check_status!(
         unsafe { sys::napi_get_reference_value(env, ref_, &mut buf) },
@@ -538,7 +521,11 @@ impl ToNapiValue for Buffer {
         unsafe { sys::napi_delete_reference(env, ref_) },
         "Failed to delete Buffer reference in Buffer::to_napi_value"
       )?;
-      val.raw = Some((ptr::null_mut(), ptr::null_mut()));
+      val
+        .raw
+        .as_mut()
+        .expect("Buffer raw reference disappeared")
+        .0 = ptr::null_mut();
       return Ok(buf);
     }
     let len = val.len;
@@ -573,6 +560,8 @@ impl ToNapiValue for Buffer {
               &mut ret,
             )
           };
+        } else if status != sys::Status::napi_ok {
+          drop(unsafe { Box::from_raw(val_box_ptr) });
         }
         status
       },

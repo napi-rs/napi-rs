@@ -1,8 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use napi::{
-  bindgen_prelude::FromNapiValue, threadsafe_function::ThreadsafeFunction, Result, Status,
-};
+use napi::{bindgen_prelude::FromNapiValue, threadsafe_function::ThreadsafeFunction, Result};
 
 struct LocalReturn(Rc<Cell<u32>>);
 
@@ -15,7 +13,9 @@ impl FromNapiValue for LocalReturn {
   }
 }
 
-fn enqueue_non_send_async_return(tsfn: &ThreadsafeFunction<(), LocalReturn, (), Status, false>) {
+fn enqueue_non_send_async_return(
+  tsfn: &ThreadsafeFunction<(), LocalReturn, (), napi::Status, false>,
+) {
   let _future = tsfn.call_async(());
 }
 

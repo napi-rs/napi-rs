@@ -1,4 +1,16 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use napi::{bindgen_prelude::*, Error, JsString};
+
+static PROMISE_RAW_CALLBACK_DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+struct PromiseRawCallbackDropProbe;
+
+impl Drop for PromiseRawCallbackDropProbe {
+  fn drop(&mut self) {
+    PROMISE_RAW_CALLBACK_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+  }
+}
 
 #[napi]
 pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
@@ -18,7 +30,7 @@ pub fn call_catch_on_promise(input: PromiseRaw<'_, u32>) -> Result<PromiseRaw<'_
 
 #[napi]
 pub fn call_finally_on_promise(
-  mut input: PromiseRaw<u32>,
+  input: PromiseRaw<u32>,
   on_finally: FunctionRef<(), ()>,
 ) -> Result<PromiseRaw<u32>> {
   input.finally(move |env| {
@@ -68,4 +80,74 @@ pub fn create_rejected_promise<'env>(
   message: String,
 ) -> Result<PromiseRaw<'env, u32>> {
   PromiseRaw::reject(env, Error::from_reason(message))
+}
+
+#[napi]
+pub fn reset_promise_raw_callback_drop_count() {
+  PROMISE_RAW_CALLBACK_DROP_COUNT.store(0, Ordering::SeqCst);
+}
+
+#[napi]
+pub fn promise_raw_callback_drop_count() -> u32 {
+  PROMISE_RAW_CALLBACK_DROP_COUNT.load(Ordering::SeqCst) as u32
+}
+
+#[napi]
+pub fn promise_raw_then_callback_drop_probe(
+  input: PromiseRaw<'_, ()>,
+) -> Result<PromiseRaw<'_, ()>> {
+  let probe = PromiseRawCallbackDropProbe;
+  input.then(move |_| {
+    drop(probe);
+    Ok(())
+  })
+}
+
+#[napi]
+pub fn promise_raw_catch_callback_drop_probe(
+  input: PromiseRaw<'_, ()>,
+) -> Result<PromiseRaw<'_, ()>> {
+  let probe = PromiseRawCallbackDropProbe;
+  input.catch(move |_: CallbackContext<String>| {
+    drop(probe);
+    Ok(())
+  })
+}
+
+#[napi]
+pub fn promise_raw_finally_callback_drop_probe(
+  input: PromiseRaw<'_, ()>,
+) -> Result<PromiseRaw<'_, ()>> {
+  let probe = PromiseRawCallbackDropProbe;
+  input.finally(move |_| {
+    drop(probe);
+    Ok(())
+  })
+}
+
+#[napi]
+pub fn promise_raw_then_callback_panic(input: PromiseRaw<'_, ()>) -> Result<PromiseRaw<'_, ()>> {
+  let probe = PromiseRawCallbackDropProbe;
+  input.then(move |_| -> Result<()> {
+    drop(probe);
+    panic!("PromiseRaw then callback panic");
+  })
+}
+
+#[napi]
+pub fn promise_raw_catch_callback_panic(input: PromiseRaw<'_, ()>) -> Result<PromiseRaw<'_, ()>> {
+  let probe = PromiseRawCallbackDropProbe;
+  input.catch(move |_: CallbackContext<String>| -> Result<()> {
+    drop(probe);
+    panic!("PromiseRaw catch callback panic");
+  })
+}
+
+#[napi]
+pub fn promise_raw_finally_callback_panic(input: PromiseRaw<'_, ()>) -> Result<PromiseRaw<'_, ()>> {
+  let probe = PromiseRawCallbackDropProbe;
+  input.finally(move |_| -> Result<()> {
+    drop(probe);
+    panic!("PromiseRaw finally callback panic");
+  })
 }

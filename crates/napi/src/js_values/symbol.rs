@@ -1,7 +1,7 @@
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{Env, FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
+  bindgen_runtime::{Env, FromNapiValue, NapiValueOwner, ToNapiValue, TypeName, ValidateNapiValue},
   check_status, sys, JsValue, Result, Value, ValueType,
 };
 
@@ -51,7 +51,10 @@ impl JsSymbol<'_> {
       unsafe { sys::napi_create_reference(self.0.env, self.0.value, 1, &mut ref_) },
       "Failed to create reference"
     )?;
-    Ok(SymbolRef { inner: ref_ })
+    Ok(SymbolRef {
+      inner: ref_,
+      owner: NapiValueOwner::new(self.0.env),
+    })
   }
 }
 
@@ -62,6 +65,7 @@ impl JsSymbol<'_> {
 /// Set the `LEAK_CHECK` to `false` to disable the leak check during the `Drop`
 pub struct SymbolRef<const LEAK_CHECK: bool = true> {
   pub(crate) inner: sys::napi_ref,
+  pub(crate) owner: NapiValueOwner,
 }
 
 unsafe impl<const LEAK_CHECK: bool> Send for SymbolRef<LEAK_CHECK> {}
@@ -77,6 +81,7 @@ impl<const LEAK_CHECK: bool> Drop for SymbolRef<LEAK_CHECK> {
 impl<const LEAK_CHECK: bool> SymbolRef<LEAK_CHECK> {
   /// Get the object from the reference
   pub fn get_value<'env>(&self, env: &'env Env) -> Result<JsSymbol<'env>> {
+    self.owner.ensure_access(env.0, "SymbolRef")?;
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.inner, &mut result) },
@@ -87,6 +92,7 @@ impl<const LEAK_CHECK: bool> SymbolRef<LEAK_CHECK> {
 
   /// Unref the reference
   pub fn unref(mut self, env: &Env) -> Result<()> {
+    self.owner.ensure_access(env.0, "SymbolRef")?;
     check_status!(
       unsafe { sys::napi_delete_reference(env.0, self.inner) },
       "delete Ref failed"
@@ -103,12 +109,16 @@ impl<const LEAK_CHECK: bool> FromNapiValue for SymbolRef<LEAK_CHECK> {
       unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
       "Failed to create reference"
     )?;
-    Ok(Self { inner: ref_ })
+    Ok(Self {
+      inner: ref_,
+      owner: NapiValueOwner::new(env),
+    })
   }
 }
 
 impl<const LEAK_CHECK: bool> ToNapiValue for &SymbolRef<LEAK_CHECK> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    val.owner.ensure_access(env, "SymbolRef")?;
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },
@@ -120,6 +130,13 @@ impl<const LEAK_CHECK: bool> ToNapiValue for &SymbolRef<LEAK_CHECK> {
 
 impl<const LEAK_CHECK: bool> ToNapiValue for SymbolRef<LEAK_CHECK> {
   unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
+    if let Err(error) = val.owner.ensure_access(env, "SymbolRef") {
+      let status = val.owner.release_reference(val.inner);
+      if status == sys::Status::napi_ok || status == sys::Status::napi_closing {
+        val.inner = ptr::null_mut();
+      }
+      return Err(error);
+    }
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },

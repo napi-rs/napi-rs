@@ -33,7 +33,10 @@ fn create_string<'env>(env: &'env Env, path: &Path) -> Result<JsString<'env>> {
 }
 
 #[napi]
-pub fn callback_in_spawn(env: &Env, callback: Function<Object, Unknown>) -> Result<()> {
+pub fn callback_in_spawn(
+  env: &Env,
+  callback: Function<'_, Object<'static>, Unknown<'static>>,
+) -> Result<()> {
   let callback_ref = callback.create_ref()?;
   env
     .spawn(AsyncTaskInSpawn {})?

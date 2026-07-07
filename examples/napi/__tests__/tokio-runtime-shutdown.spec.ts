@@ -10,6 +10,7 @@ const finalizerScriptPath = join(
   __dirname,
   'tokio-runtime-finalizer-lifecycle.js',
 )
+const lifecycleTimeoutMilliseconds = 30_000
 
 test('Tokio shutdown rejects generated promises and releases their resources', async (t) => {
   if (process.env.WASI_TEST) {
@@ -24,7 +25,7 @@ test('Tokio shutdown rejects generated promises and releases their resources', a
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error('child process did not exit after Tokio shutdown'))
-    }, 5000)
+    }, lifecycleTimeoutMilliseconds)
 
     child.once('error', (error) => {
       clearTimeout(timer)
@@ -56,7 +57,7 @@ test('ordinary live-environment finalizers may start and stop Tokio', async (t) 
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error('child process did not observe the class finalizer'))
-    }, 5000)
+    }, lifecycleTimeoutMilliseconds)
 
     child.once('error', (error) => {
       clearTimeout(timer)

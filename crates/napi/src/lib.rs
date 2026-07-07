@@ -52,10 +52,12 @@
 //! `within_runtime_if_available` APIs remain Tokio-backed whenever `tokio_rt` is enabled.
 //! `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
 //! `block_on_custom_runtime`, and `try_block_on_custom_runtime` explicitly require a registered
-//! custom backend. Despite its historical name, `within_custom_runtime_if_available` follows the
-//! generated-code selection: custom when registered in time, otherwise Tokio in a combined build.
-//! A pure `async-runtime` build remains tokio-free (enable the `tokio` feature explicitly if you
-//! still want the `napi::tokio` re-export).
+//! custom backend. Generated `#[napi(async_runtime)]` callbacks use the selected backend: custom
+//! when registered in time, otherwise Tokio in a combined build. A pure `async-runtime` build
+//! remains tokio-free (enable the `tokio` feature explicitly if you still want the `napi::tokio`
+//! re-export). The public `execute_tokio_future` function and deprecated
+//! `Env::execute_tokio_future` method remain available only with `tokio_rt` and always use the
+//! built-in Tokio runtime.
 //!
 //! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
 //! `AsyncRuntime` submission hook, and
@@ -127,7 +129,6 @@ extern "C" {
     fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
     arg: *mut core::ffi::c_void,
   ) -> sys::napi_status;
-  #[cfg(feature = "napi4")]
   fn napi_remove_env_cleanup_hook(
     env: sys::napi_env,
     fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
@@ -249,21 +250,78 @@ pub mod bindgen_prelude {
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
   )))]
-  pub fn within_custom_runtime_if_available<F: FnOnce() -> crate::Result<T>, T>(
+  pub fn within_selected_async_runtime<F: FnOnce() -> crate::Result<T>, T>(
     f: F,
   ) -> crate::Result<T> {
     f()
+  }
+
+  /// Compatibility entry point used by previously released `napi-derive` code.
+  #[doc(hidden)]
+  pub fn within_custom_runtime_if_available<F: FnOnce() -> crate::Result<T>, T>(
+    f: F,
+  ) -> crate::Result<T> {
+    within_selected_async_runtime(f)
   }
 }
 
 #[doc(hidden)]
 pub mod __private {
   pub use crate::bindgen_runtime::{
-    get_class_constructor, iterator::create_iterator, register_class, ___CALL_FROM_FACTORY,
+    get_class_constructor, get_class_constructor_for_env, get_class_constructor_for_env_by_type,
+    iterator::create_iterator, register_class, ___CALL_FROM_FACTORY,
   };
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub use crate::bindgen_runtime::async_iterator::create_async_iterator;
+
+  /// Versioned contract between generated `napi-derive` code and napi's selected async runtime.
+  ///
+  /// Code generation must move to a new module version when these signatures or routing semantics
+  /// change. Older generated async functions continue to use their existing compatibility entry
+  /// points.
+  #[doc(hidden)]
+  pub mod async_runtime_v1 {
+    pub const CONTRACT_VERSION: u32 = 1;
+
+    #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
+    pub use crate::tokio_runtime::within_selected_async_runtime;
+
+    #[cfg(not(any(feature = "tokio_rt", feature = "async-runtime")))]
+    pub use crate::bindgen_prelude::within_selected_async_runtime;
+  }
+
+  /// Versioned contract used by current `napi-derive` output.
+  ///
+  /// Previously released derive code continues to use the legacy hidden exports above. New code
+  /// generation must only add dependencies through a versioned module so runtime/derive release
+  /// compatibility can be tested explicitly.
+  #[doc(hidden)]
+  pub mod codegen_v1 {
+    pub const CONTRACT_VERSION: u32 = 1;
+
+    pub const fn assert_contract_version(version: u32) {
+      assert!(
+        version == CONTRACT_VERSION,
+        "incompatible napi codegen contract"
+      );
+    }
+
+    pub use super::async_runtime_v1::within_selected_async_runtime;
+    pub use crate::bindgen_runtime::{
+      acquire_native_borrow, get_class_constructor_for_env_by_type, new_instance_with_owned_value,
+      register_native_borrow, register_native_borrow_with_value, NativeBorrowBarrier,
+      NativeBorrowScope,
+    };
+
+    pub unsafe fn try_new_class_instance<'env, T: 'env>(
+      value: crate::sys::napi_value,
+      env: crate::sys::napi_env,
+      inner: *mut T,
+    ) -> crate::Result<crate::bindgen_runtime::ClassInstance<'env, T>> {
+      unsafe { crate::bindgen_runtime::ClassInstance::try_new(value, env, inner) }
+    }
+  }
 
   use crate::sys;
 

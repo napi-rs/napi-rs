@@ -9,17 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added the pluggable unsafe `AsyncRuntime` backend. After `shutdown()` returns, including an `Err` return, no backend-owned thread, task, waker, callback, destructor, function pointer, or vtable may execute addon code. Native registration permanently retains the winning backend's addon image before publication; the backend object is reused across environment reloads, its `Drop` is not guaranteed to run, and `shutdown()` is its resource-release hook.
-- Added `try_create_custom_tokio_runtime` so duplicate and unsupported runtime registration can be reported without panicking. Builds without the `tokio_rt` executor reject supplied runtimes after retiring them. Threaded WASI and AIX reject externally constructed Tokio runtimes after fully retiring them because those hosts cannot safely pin addon code before environment cleanup ownership exists.
+- Added the pluggable unsafe `AsyncRuntime` backend. After `shutdown()` returns, including an `Err` return, no backend-owned thread, task, waker, callback, destructor, function pointer, or vtable may execute addon code. During normal activation, native builds commit the winning backend's permanent image retention only after Node-API module registration succeeds. Explicit startup before Node-API module registration retains before calling the backend's `start` hook. A failed load is not retained solely because it registered a dormant backend, though other unload-safety mechanisms may still retain an image that published callbacks or handles before failing. The backend object is reused across environment reloads, its `Drop` is not guaranteed to run, and `shutdown()` is its resource-release hook.
+- Added `try_create_custom_tokio_runtime` so duplicate and unsupported runtime registration can be reported without panicking. The existing infallible `create_custom_tokio_runtime` keeps its first-registration-wins behavior and ignores duplicate configuration after safely retiring the rejected runtime. Builds without the `tokio_rt` executor reject supplied runtimes after retiring them. Threaded WASI and AIX reject externally constructed Tokio runtimes after fully retiring them because those hosts cannot safely pin addon code before environment cleanup ownership exists.
+- Added hidden, versioned `napi::__private::async_runtime_v1` and
+  `napi::__private::codegen_v1` contracts for current `napi-derive` output. Previously released
+  derive code remains supported by compatibility exports. The coordinated major release must
+  publish the runtime first: old derive plus new runtime is a transitional compatibility path
+  without the new borrow/construction semantics, while new derive plus old runtime intentionally
+  fails to compile.
 - Added unsafe thread-safe function finalizer APIs. `register_finalizer`, `build_callback_with_finalizer`, and `build_with_finalizer` require the callback to quiesce every native thread or task that can use the thread-safe function or execute addon code before returning, including during unwinding, and must not wait for JavaScript callbacks or queued payloads. A finalizer that enables natural teardown of a worker retaining the thread-safe function requires a weak or explicitly unreferenced thread-safe function.
 
 ### Changed
 
 - Made `async-runtime` additive: addons without a registered backend can still load, combined `async-runtime` + `tokio_rt` builds default generated async work to built-in Tokio, and registration from `#[module_init]` selects the custom backend before first-environment activation. The registration window closes when napi begins activating the first environment or an earlier runtime-backed operation commits a backend choice; a missing-backend error before any environment is activated leaves later registration available.
+- Kept the public `execute_tokio_future` function and deprecated `Env::execute_tokio_future` method Tokio-backed in combined builds. Generated async exports, `Env::spawn_future`, and `AsyncBlockBuilder` follow the selected async backend instead.
 - Custom-runtime join handles now report missing, stopped, or transitioning runtime states as runtime errors while preserving cancellation for work a backend declines or drops.
 - **Breaking:** `ObjectFinalize::finalize` now takes `&mut self` instead of consuming `self`. This lets napi-rs contain a custom finalizer panic separately from a panic in the finalized value's `Drop` implementation, while the runtime still drops the value immediately after reference cleanup.
 - **Breaking:** `ThreadsafeFunctionHandle` and the public `ThreadsafeFunction::handle` field are now private, and `ThreadsafeFunction::raw()` was removed, because exposing an unleased Node-API pointer allowed release and finalization races. `ThreadsafeFunction::abort` now takes `&self` and is shared and idempotent, so borrowed or `Arc`-wrapped callbacks can call `callback.abort()` directly without cloning merely to consume the handle. No raw-pointer replacement is provided.
 - **Breaking:** Thread-safe function calls now require queued payloads and callee-handled error statuses to be `Send`, return-value callbacks to be `Send + 'static`, async return values to be `Send`, and error-status types to be `'static`. These bounds prevent values queued from native threads or retained past the initiating stack frame from crossing threads or outliving borrowed data unsafely.
+- **Breaking:** `ExternalRef`, `Reference`, and `SharedReference` no longer expose `DerefMut` or implement `Sync`, and `WeakReference::get_mut` was removed. Cloned wrappers can point to the same native allocation, so those APIs allowed safe Rust to create aliased mutable references or race access across threads. The lifetime-extending `Reference::share_with` and `SharedReference::share_with` constructors are now unsafe and document their exclusivity and non-escape requirements.
+- **Breaking:** `JsExternal::get_value` now returns `&T`, `External<T>` no longer implements `FromNapiMutRef`, and mutable legacy external access requires the explicitly unsafe `JsExternal::get_value_mut`. Use `ExternalRef::with` / `with_mut` when ownership must outlive the current callback.
+- **Breaking:** Generated native class references now reject overlapping mutable borrows, including public field accessors and reentrant conversion callbacks. Compatibility accessors such as `CallContext::get::<&T>()` reject bare class references at public callback boundaries, and `Array::get_ref` was removed; use owned `Reference<T>` values with `Reference::with` / `Reference::with_mut` for scoped access. `ClassInstance<T>` now owns a strong JavaScript reference, resolves a fresh Node-API handle for every JavaScript conversion, and exposes `clone_reference` / `into_reference` instead of a cached public `napi_value`. Its `as_object` method now takes the current `Env` and returns `Result<Object>`.
+- **Breaking:** Generated iterator and async-iterator callbacks now reject reentrant mutable access
+  to the same native class value instead of constructing overlapping `&mut T` references.
+- **Breaking:** Builds targeting N-API 1-3 no longer implement `Send` or `Sync` for `Error`, `Buffer`, or `FunctionRef`, because those versions have no thread-safe primitive for releasing their JavaScript references. Enable `napi4` for cross-thread ownership, or keep these values on their creating JavaScript thread.
+- **Breaking:** `CleanupEnvHook` no longer implements `Copy` or `Clone`, and `Env::remove_env_cleanup_hook` consumes it. A successful removal reclaims the callback allocation, so the right to remove a hook must have one owner.
+
+### Fixed
+
+- Class constructor lookup is now scoped by environment, Rust type, and JavaScript namespace, so
+  classes with the same JavaScript name in different namespaces retain the correct prototype.
+- Restored the infallible `ClassInstance::new` signature expected by previously released generated
+  code, while exposing hidden fallible construction as `ClassInstance::try_new` for current codegen.
+- Failed WASI module registration keeps the custom-GC cleanup drain installed so later off-thread
+  reference drops are released during environment teardown.
+- Restored the hidden `within_custom_runtime_if_available` entry point as a forwarding
+  compatibility layer for previously released `napi-derive` code.
 
 ## [3.10.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.2...napi-v3.10.3) - 2026-07-04
 

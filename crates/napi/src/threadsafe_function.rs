@@ -18,6 +18,22 @@ use crate::{
   Result, Status,
 };
 
+fn checked_update_atomic(
+  value: &AtomicUsize,
+  update: impl Fn(usize) -> Option<usize>,
+) -> std::result::Result<usize, usize> {
+  let mut current = value.load(Ordering::Acquire);
+  loop {
+    let Some(next) = update(current) else {
+      return Err(current);
+    };
+    match value.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
+      Ok(previous) => return Ok(previous),
+      Err(actual) => current = actual,
+    }
+  }
+}
+
 #[deprecated(since = "2.17.0", note = "Please use `ThreadsafeFunction` instead")]
 pub type ThreadSafeCallContext<T> = ThreadsafeCallContext<T>;
 
@@ -44,75 +60,6 @@ impl From<ThreadsafeFunctionCallMode> for sys::napi_threadsafe_function_call_mod
   }
 }
 
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-type ThreadsafeFunctionNativeEnqueueHook =
-  dyn Fn(ThreadsafeFunctionCallMode) + Send + Sync + 'static;
-
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-static THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK: Mutex<
-  Option<(usize, Arc<ThreadsafeFunctionNativeEnqueueHook>)>,
-> = Mutex::new(None);
-
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-static THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK_ID: AtomicUsize = AtomicUsize::new(1);
-
-/// Removes a test-only native-enqueue hook when dropped.
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-#[doc(hidden)]
-pub struct ThreadsafeFunctionNativeEnqueueHookGuard {
-  id: usize,
-}
-
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-impl Drop for ThreadsafeFunctionNativeEnqueueHookGuard {
-  fn drop(&mut self) {
-    let mut active_hook = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if active_hook
-      .as_ref()
-      .is_some_and(|(active_id, _)| *active_id == self.id)
-    {
-      *active_hook = None;
-    }
-  }
-}
-
-/// Installs a process-global hook immediately before TSFN calls enter Node-API.
-///
-/// This exists only for deterministic real-addon lifecycle fixtures. The returned guard must
-/// outlive every call that can reach the hook.
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-#[doc(hidden)]
-pub fn install_threadsafe_function_native_enqueue_hook<F>(
-  hook: F,
-) -> std::result::Result<ThreadsafeFunctionNativeEnqueueHookGuard, &'static str>
-where
-  F: Fn(ThreadsafeFunctionCallMode) + Send + Sync + 'static,
-{
-  let mut active_hook = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner);
-  if active_hook.is_some() {
-    return Err("a ThreadsafeFunction native-enqueue hook is already installed");
-  }
-  let id = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK_ID.fetch_add(1, Ordering::Relaxed);
-  *active_hook = Some((id, Arc::new(hook)));
-  Ok(ThreadsafeFunctionNativeEnqueueHookGuard { id })
-}
-
-#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-fn run_threadsafe_function_native_enqueue_hook(mode: ThreadsafeFunctionCallMode) {
-  let hook = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner)
-    .as_ref()
-    .map(|(_, hook)| Arc::clone(hook));
-  if let Some(hook) = hook {
-    hook(mode);
-  }
-}
-
 fn native_enqueue_mode(
   requested_mode: ThreadsafeFunctionCallMode,
   max_queue_size: usize,
@@ -136,7 +83,10 @@ struct ThreadsafeFunctionFinalizeContext {
 
 #[cfg_attr(
   all(target_family = "wasm", feature = "noop"),
-  allow(dead_code, reason = "noop WASI builds cannot register env cleanup hooks")
+  allow(
+    dead_code,
+    reason = "noop WASI builds cannot register env cleanup hooks"
+  )
 )]
 struct ThreadsafeFunctionOwnerCleanupContext {
   state: Arc<ThreadsafeFunctionHandleState>,
@@ -170,6 +120,7 @@ impl ThreadsafeFunctionFinalizeResult {
 struct ThreadsafeFunctionHandleState {
   raw: AtomicPtr<sys::napi_threadsafe_function__>,
   max_queue_size: usize,
+  owner_env: usize,
   owner_cleanup_context: AtomicPtr<ThreadsafeFunctionOwnerCleanupContext>,
   lifecycle: RwLock<()>,
   blocking_call: Mutex<()>,
@@ -191,11 +142,13 @@ impl ThreadsafeFunctionHandle {
   fn new_with_max_queue_size(
     raw: sys::napi_threadsafe_function,
     max_queue_size: usize,
+    owner_env: sys::napi_env,
   ) -> Arc<Self> {
     Arc::new(Self {
       state: Arc::new(ThreadsafeFunctionHandleState {
         raw: AtomicPtr::new(raw),
         max_queue_size,
+        owner_env: owner_env as usize,
         owner_cleanup_context: AtomicPtr::new(ptr::null_mut()),
         lifecycle: RwLock::new(()),
         blocking_call: Mutex::new(()),
@@ -216,8 +169,8 @@ impl ThreadsafeFunctionHandle {
   }
 
   #[allow(clippy::arc_with_non_send_sync)]
-  fn null_with_max_queue_size(max_queue_size: usize) -> Arc<Self> {
-    Self::new_with_max_queue_size(null_mut(), max_queue_size)
+  fn null_with_max_queue_size(max_queue_size: usize, owner_env: sys::napi_env) -> Arc<Self> {
+    Self::new_with_max_queue_size(null_mut(), max_queue_size, owner_env)
   }
 
   fn read_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
@@ -281,6 +234,10 @@ impl ThreadsafeFunctionHandle {
     self.state.referred.store(referred, Ordering::Relaxed);
   }
 
+  fn ensure_owner_access(&self, env: sys::napi_env) -> Result<()> {
+    self.state.ensure_owner_access(env)
+  }
+
   fn register_finalizer(&self, callback: ThreadsafeFunctionFinalizeCallback) -> Result<()> {
     self.state.register_finalizer(callback)
   }
@@ -291,6 +248,22 @@ impl ThreadsafeFunctionHandle {
 }
 
 impl ThreadsafeFunctionHandleState {
+  fn ensure_owner_access(&self, env: sys::napi_env) -> Result<()> {
+    if self.owner_env != env as usize {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "A ThreadsafeFunction cannot be referenced through a different napi_env".to_owned(),
+      ));
+    }
+    if self.owner_thread != std::thread::current().id() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "A ThreadsafeFunction can only be referenced from its owner thread".to_owned(),
+      ));
+    }
+    Ok(())
+  }
+
   fn read_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
     self
       .lifecycle
@@ -499,25 +472,13 @@ impl ThreadsafeFunctionHandleState {
   }
 
   fn increment_rust_handle_count(&self) {
-    if self
-      .rust_handle_count
-      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-        count.checked_add(1)
-      })
-      .is_err()
-    {
+    if checked_update_atomic(&self.rust_handle_count, |count| count.checked_add(1)).is_err() {
       std::process::abort();
     }
   }
 
   fn decrement_rust_handle_count(&self) {
-    if self
-      .rust_handle_count
-      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-        count.checked_sub(1)
-      })
-      .is_err()
-    {
+    if checked_update_atomic(&self.rust_handle_count, |count| count.checked_sub(1)).is_err() {
       std::process::abort();
     }
   }
@@ -527,25 +488,13 @@ impl ThreadsafeFunctionHandleState {
   }
 
   fn increment_outstanding_payloads(&self) {
-    if self
-      .outstanding_payloads
-      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-        count.checked_add(1)
-      })
-      .is_err()
-    {
+    if checked_update_atomic(&self.outstanding_payloads, |count| count.checked_add(1)).is_err() {
       std::process::abort();
     }
   }
 
   fn decrement_outstanding_payloads(&self) {
-    if self
-      .outstanding_payloads
-      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-        count.checked_sub(1)
-      })
-      .is_err()
-    {
+    if checked_update_atomic(&self.outstanding_payloads, |count| count.checked_sub(1)).is_err() {
       std::process::abort();
     }
   }
@@ -684,7 +633,10 @@ fn retain_threadsafe_function_ownership_for_unload_safety() {
 
 #[cfg_attr(
   all(target_family = "wasm", feature = "noop"),
-  allow(dead_code, reason = "noop WASI builds cannot register env cleanup hooks")
+  allow(
+    dead_code,
+    reason = "noop WASI builds cannot register env cleanup hooks"
+  )
 )]
 unsafe extern "C" fn threadsafe_function_owner_cleanup(data: *mut c_void) {
   let context = unsafe { Box::<ThreadsafeFunctionOwnerCleanupContext>::from_raw(data.cast()) };
@@ -809,8 +761,6 @@ fn call_nonblocking_threadsafe_function_with_owned_data<T: Send + 'static>(
     let _lifecycle_guard = handle.read_lifecycle();
     match handle.acquire_call_slot_locked() {
       Ok(mut call_slot) => {
-        #[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-        run_threadsafe_function_native_enqueue_hook(ThreadsafeFunctionCallMode::NonBlocking);
         let data = Box::into_raw(Box::new(ThreadsafeFunctionCallData {
           handle: Arc::downgrade(handle),
           data: pending_data
@@ -881,8 +831,6 @@ fn call_blocking_threadsafe_function_with_owned_data<T: Send + 'static>(
       return status;
     }
   };
-  #[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
-  run_threadsafe_function_native_enqueue_hook(ThreadsafeFunctionCallMode::Blocking);
   let data = Box::into_raw(Box::new(ThreadsafeFunctionCallData {
     handle: Arc::downgrade(handle),
     data,
@@ -1231,7 +1179,7 @@ fn create_raw(
   }
 
   let mut raw_tsfn = ptr::null_mut();
-  let handle = ThreadsafeFunctionHandle::null_with_max_queue_size(max_queue_size);
+  let handle = ThreadsafeFunctionHandle::null_with_max_queue_size(max_queue_size, env);
   let finalize_context = Box::into_raw(Box::new(ThreadsafeFunctionFinalizeContext {
     state: Arc::clone(&handle.state),
   }));
@@ -1368,6 +1316,7 @@ impl<
   ///
   /// "ref" is a keyword so that we use "refer" here.
   pub fn refer(&mut self, env: &Env) -> Result<()> {
+    self.handle.ensure_owner_access(env.0)?;
     let _lifecycle_guard = self.handle.write_lifecycle();
     self.handle.with_read_aborted(|aborted| {
       if !aborted && !self.handle.is_closing() && !self.handle.is_referred() {
@@ -1385,6 +1334,7 @@ impl<
   /// See [napi_unref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_unref_threadsafe_function)
   /// for more information.
   pub fn unref(&mut self, env: &Env) -> Result<()> {
+    self.handle.ensure_owner_access(env.0)?;
     let _lifecycle_guard = self.handle.write_lifecycle();
     self.handle.with_read_aborted(|aborted| {
       if !aborted && !self.handle.is_closing() && self.handle.is_referred() {

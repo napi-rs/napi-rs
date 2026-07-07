@@ -1,0 +1,10 @@
+error[E0521]: borrowed data escapes outside of function
+ --> tests/build_error_tests/promise_raw_callback_lifetime_catch.rs:4:11
+  |
+3 | fn retain_borrowed_callback<'a>(promise: &PromiseRaw<'_, ()>, borrowed: &'a str) {
+  |                             -- lifetime `'a` defined here     -------- `borrowed` is a reference that is only valid in the function body
+4 |   let _ = promise.catch(move |_: CallbackContext<()>| Ok(borrowed.len() as u32));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |           |
+  |           `borrowed` escapes the function body here
+  |           argument requires that `'a` must outlive `'static`

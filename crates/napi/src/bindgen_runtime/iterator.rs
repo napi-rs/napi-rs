@@ -2,7 +2,10 @@ use std::ffi::{c_void, CStr};
 use std::ptr;
 
 use crate::Value;
-use crate::{bindgen_runtime::Unknown, check_status_or_throw, sys, Env};
+use crate::{
+  bindgen_runtime::{acquire_native_borrow, Unknown},
+  check_status_or_throw, sys, Env, JsError,
+};
 
 use super::{FromNapiValue, ToNapiValue};
 
@@ -410,7 +413,15 @@ extern "C" fn generator_next<'a, T: ScopedGenerator<'a> + 'a>(
     "Failed to create iterator result object",
   );
   if !completed {
-    let g = unsafe { Box::leak(Box::from_raw(generator_ptr as *mut T)) };
+    let generator_ptr = generator_ptr.cast::<T>();
+    let _native_borrow = match acquire_native_borrow(generator_ptr, true) {
+      Ok(guard) => guard,
+      Err(error) => {
+        unsafe { JsError::from(error).throw_into(env) };
+        return ptr::null_mut();
+      }
+    };
+    let g = unsafe { &mut *generator_ptr };
     let item = if argc == 0 {
       g.next(
         // SAFETY: `Env` is long lived
@@ -481,7 +492,15 @@ extern "C" fn generator_return<'a, T: ScopedGenerator<'a> + 'a>(
     "Get callback info from generator function failed"
   );
 
-  let g = unsafe { Box::leak(Box::from_raw(generator_ptr as *mut T)) };
+  let generator_ptr = generator_ptr.cast::<T>();
+  let _native_borrow = match acquire_native_borrow(generator_ptr, true) {
+    Ok(guard) => guard,
+    Err(error) => {
+      unsafe { JsError::from(error).throw_into(env) };
+      return ptr::null_mut();
+    }
+  };
+  let g = unsafe { &mut *generator_ptr };
   if argc == 0 {
     g.complete(None);
   } else {
@@ -571,7 +590,15 @@ extern "C" fn generator_throw<'a, T: ScopedGenerator<'a> + 'a>(
     "Get callback info from generator function failed"
   );
 
-  let g = unsafe { Box::leak(Box::from_raw(generator_ptr as *mut T)) };
+  let generator_ptr = generator_ptr.cast::<T>();
+  let _native_borrow = match acquire_native_borrow(generator_ptr, true) {
+    Ok(guard) => guard,
+    Err(error) => {
+      unsafe { JsError::from(error).throw_into(env) };
+      return ptr::null_mut();
+    }
+  };
+  let g = unsafe { &mut *generator_ptr };
   let catch_result = if argc == 0 {
     let mut undefined = ptr::null_mut();
     check_status_or_throw!(

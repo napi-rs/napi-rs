@@ -1,0 +1,22 @@
+error[E0308]: mismatched types
+ --> tests/build_error_tests/external_ref_legacy_mutability.rs:9:3
+  |
+8 | ) -> napi::Result<&'env mut u32> {
+  |      --------------------------- expected `Result<&'env mut u32, napi::Error>` because of return type
+9 |   value.get_value()
+  |   ^^^^^^^^^^^^^^^^^ types differ in mutability
+  |
+  = note: expected enum `Result<&'env mut u32, napi::Error>`
+             found enum `Result<&_, napi::Error>`
+
+error[E0277]: the trait bound `napi::bindgen_prelude::External<u32>: FromNapiMutRef` is not satisfied
+  --> tests/build_error_tests/external_ref_legacy_mutability.rs:13:31
+   |
+13 |   assert_mutable_conversion::<External<u32>>();
+   |                               ^^^^^^^^^^^^^ the trait `FromNapiMutRef` is not implemented for `napi::bindgen_prelude::External<u32>`
+   |
+note: required by a bound in `assert_mutable_conversion`
+  --> tests/build_error_tests/external_ref_legacy_mutability.rs:4:33
+   |
+ 4 | fn assert_mutable_conversion<T: FromNapiMutRef>() {}
+   |                                 ^^^^^^^^^^^^^^ required by this bound in `assert_mutable_conversion`

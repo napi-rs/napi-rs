@@ -24,16 +24,18 @@ use std::{
 };
 
 use futures::task::{waker_ref, ArcWake};
-#[cfg(not(target_family = "wasm"))]
-use napi::bindgen_prelude::register_async_runtime;
+use napi::bindgen_prelude::{
+  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
+  try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, Object, PromiseRaw, Result,
+  Status,
+};
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
-use napi::bindgen_prelude::{
-  spawn_blocking_on_custom_runtime, try_block_on_custom_runtime, try_register_async_runtime,
-  try_shutdown_async_runtime, try_start_async_runtime, AsyncRuntime, AsyncRuntimeGuard,
-  AsyncRuntimeTask, Env, Error, JsObjectValue, Object, PromiseRaw, Result, Status,
-};
 use napi_derive::napi;
+
+#[cfg(not(target_family = "wasm"))]
+mod cancellation_order;
 
 static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
 static RUNTIME_REGISTRATION: Once = Once::new();
@@ -71,6 +73,7 @@ struct RuntimeState {
   scheduler_idle: Condvar,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
+  defer_next_task_wake: AtomicBool,
   fail_next_shutdown: AtomicBool,
   panic_next_shutdown: AtomicBool,
   #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
@@ -639,7 +642,9 @@ impl ArcWake for Task {
     };
     runtime.wake_calls.fetch_add(1, Ordering::Relaxed);
     if runtime.enqueue(task.clone()) {
-      runtime.drain();
+      if !runtime.defer_next_task_wake.swap(false, Ordering::AcqRel) {
+        runtime.drain();
+      }
     }
   }
 }
@@ -782,6 +787,8 @@ unsafe impl AsyncRuntime for TestRuntime {
 
   fn shutdown(&self) -> Result<()> {
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
+    #[cfg(not(target_family = "wasm"))]
+    cancellation_order::mark_active_poll_shutdown_entered();
     #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
     self
       .state
@@ -887,10 +894,9 @@ fn init() {
     state
       .runtime_registration_calls
       .fetch_add(1, Ordering::Relaxed);
-    try_register_async_runtime(TestRuntime {
+    register_async_runtime(TestRuntime {
       state: Arc::clone(&state),
-    })
-    .expect("failed to register the custom async runtime");
+    });
 
     #[cfg(not(target_family = "wasm"))]
     if std::env::var_os("NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE").is_some() {
@@ -1062,6 +1068,33 @@ pub async fn async_never() {
   std::future::pending::<()>().await;
 }
 
+#[napi(async_iterator)]
+#[derive(Default)]
+pub struct RuntimeAsyncIterator;
+
+#[napi]
+impl AsyncGenerator for RuntimeAsyncIterator {
+  type Yield = u32;
+  type Next = ();
+  type Return = ();
+
+  #[allow(clippy::manual_async_fn)]
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    async { Ok(Some(1)) }
+  }
+}
+
+#[napi]
+impl RuntimeAsyncIterator {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self
+  }
+}
+
 #[cfg(not(target_family = "wasm"))]
 struct RetainTaskWaker;
 
@@ -1084,6 +1117,21 @@ pub async fn retain_task_waker() {
 #[napi]
 pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn defer_next_task_wake() {
+  state().defer_next_task_wake.store(true, Ordering::Release);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn drain_runtime_tasks() {
+  RUNTIME_STATE
+    .get()
+    .expect("Custom async runtime was not initialized")
+    .drain();
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1169,8 +1217,8 @@ pub fn probe_submission_transition<'env>(env: &'env Env) -> Result<Object<'env>>
   let future = submission_join_error(env, future)?;
   let blocking = submission_join_error(env, blocking)?;
   let mut result = Object::new(env)?;
-  result.set("future", &future)?;
-  result.set("blocking", &blocking)?;
+  result.set("future", future)?;
+  result.set("blocking", blocking)?;
   result.set("blockingWorkRan", blocking_work_ran.load(Ordering::Acquire))?;
   Ok(result)
 }

@@ -53,8 +53,8 @@ const __wasi = new __WASI({
     : `__emnapiInstantiateNapiModuleSync`
 
   return `import {
+  createContext as __emnapiCreateContext,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
-  getDefaultContext as __emnapiGetDefaultContext,
   ${emnapiInstantiateImport},
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -63,7 +63,7 @@ ${bufferImport}
 ${wasiCreation}
 
 const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url).href
-const __emnapiContext = __emnapiGetDefaultContext()
+const __emnapiContext = __emnapiCreateContext()
 ${emnapiInjectBuffer}
 
 const __sharedMemory = new WebAssembly.Memory({
@@ -72,7 +72,7 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
+const __wasmFile = await globalThis.fetch(__wasmUrl).then((res) => res.arrayBuffer())
 
 const {
   instance: __napiInstance,
@@ -126,8 +126,8 @@ const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
 const {
+  createContext: __emnapiCreateContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
-  getDefaultContext: __emnapiGetDefaultContext,
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 
@@ -141,7 +141,7 @@ const __wasi = new __nodeWASI({
   }
 })
 
-const __emnapiContext = __emnapiGetDefaultContext()
+const __emnapiContext = __emnapiCreateContext()
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: ${initialMemory},

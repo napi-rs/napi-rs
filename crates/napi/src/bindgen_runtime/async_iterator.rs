@@ -1,17 +1,149 @@
-use std::ffi::CStr;
+use std::ffi::{c_void, CStr};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, Object, ToNapiValue, Unknown},
-  check_status, check_status_or_throw, sys, Env, JsError, Value,
+  bindgen_runtime::{
+    acquire_native_borrow, FromNapiValue, Object, PromiseRaw, ToNapiValue, Unknown,
+  },
+  check_status, sys, Env, JsError, Value,
 };
 
-/// Hidden property name for storing the instance reference in async generators.
-/// This prevents premature garbage collection of the instance while the async generator is in use.
+/// Hidden property name for the GC-visible edge from async iterator callbacks to their owner.
+/// This prevents premature garbage collection without creating an uncollectable strong `napi_ref`.
 /// See: https://github.com/napi-rs/napi-rs/issues/3119
 const INSTANCE_REF_KEY: &CStr = c"[[InstanceRef]]";
+
+struct AsyncIteratorCallbackData {
+  env: sys::napi_env,
+  owner_ref: sys::napi_ref,
+}
+
+impl AsyncIteratorCallbackData {
+  fn owner_and_generator<T>(&self, env: sys::napi_env) -> crate::Result<(sys::napi_value, *mut T)> {
+    let mut owner = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, self.owner_ref, &mut owner) },
+      "Failed to get async iterator callback owner"
+    )?;
+    if owner.is_null() {
+      return Err(crate::Error::from_reason(
+        "Async iterator callback owner was already collected",
+      ));
+    }
+
+    let mut generator_ptr = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_unwrap(env, owner, &mut generator_ptr) },
+      "Failed to unwrap async iterator callback owner"
+    )?;
+    if generator_ptr.is_null() {
+      return Err(crate::Error::from_reason(
+        "Async iterator callback owner contained no native generator",
+      ));
+    }
+
+    Ok((owner, generator_ptr.cast()))
+  }
+}
+
+impl Drop for AsyncIteratorCallbackData {
+  fn drop(&mut self) {
+    if !self.owner_ref.is_null() {
+      unsafe {
+        sys::napi_delete_reference(self.env, self.owner_ref);
+      }
+    }
+  }
+}
+
+unsafe extern "C" fn finalize_async_iterator_callback(
+  env: sys::napi_env,
+  finalize_data: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  crate::bindgen_runtime::with_runtime_finalizer_guard(env, || {
+    crate::bindgen_runtime::catch_unwind_safely(|| unsafe {
+      drop(Box::from_raw(
+        finalize_data.cast::<AsyncIteratorCallbackData>(),
+      ));
+    });
+  });
+}
+
+fn define_instance_ref(
+  env: sys::napi_env,
+  target: sys::napi_value,
+  instance: sys::napi_value,
+) -> crate::Result<()> {
+  let properties = [sys::napi_property_descriptor {
+    utf8name: INSTANCE_REF_KEY.as_ptr().cast(),
+    name: ptr::null_mut(),
+    method: None,
+    getter: None,
+    setter: None,
+    value: instance,
+    attributes: sys::PropertyAttributes::default,
+    data: ptr::null_mut(),
+  }];
+
+  check_status!(
+    unsafe { sys::napi_define_properties(env, target, 1, properties.as_ptr()) },
+    "Failed to retain async iterator callback owner"
+  )
+}
+
+fn create_async_iterator_callback(
+  env: sys::napi_env,
+  owner: sys::napi_value,
+  name: &CStr,
+  callback: sys::napi_callback,
+) -> crate::Result<sys::napi_value> {
+  // The hidden JS property retains `owner`; this reference stays weak so the
+  // owner -> factory function -> owner cycle remains visible and collectible by GC.
+  let mut owner_ref = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_create_reference(env, owner, 0, &mut owner_ref) },
+    "Failed to create async iterator callback owner reference"
+  )?;
+
+  let mut callback_data = Box::new(AsyncIteratorCallbackData { env, owner_ref });
+  let callback_data_ptr = callback_data.as_mut() as *mut AsyncIteratorCallbackData;
+  let mut function = ptr::null_mut();
+  check_status!(
+    unsafe {
+      sys::napi_create_function(
+        env,
+        name.as_ptr(),
+        name.to_bytes().len() as isize,
+        callback,
+        callback_data_ptr.cast(),
+        &mut function,
+      )
+    },
+    "Failed to create async iterator callback"
+  )?;
+
+  define_instance_ref(env, function, owner)?;
+  // Tie the native callback data and its weak reference to the function's lifetime.
+  check_status!(
+    unsafe {
+      sys::napi_wrap(
+        env,
+        function,
+        callback_data_ptr.cast(),
+        Some(finalize_async_iterator_callback),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    },
+    "Failed to attach async iterator callback data"
+  )?;
+
+  let _ = Box::into_raw(callback_data);
+  Ok(function)
+}
 
 /// Implement a Iterator for the JavaScript Class.
 /// This feature is an experimental feature and is not yet stable.
@@ -54,25 +186,31 @@ pub trait AsyncGenerator {
 pub fn create_async_iterator<T: AsyncGenerator>(
   env: sys::napi_env,
   instance: sys::napi_value,
-  generator_ptr: *mut T,
+  _generator_ptr: *mut T,
 ) {
+  if let Err(error) = catch_generator_callback(|| create_async_iterator_impl::<T>(env, instance)) {
+    throw_generator_callback_error(env, error);
+  }
+}
+
+fn create_async_iterator_impl<T: AsyncGenerator>(
+  env: sys::napi_env,
+  instance: sys::napi_value,
+) -> crate::Result<()> {
   let mut global = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe { sys::napi_get_global(env, &mut global) },
     "Get global object failed",
-  );
+  )?;
   let mut symbol_object = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe {
       sys::napi_get_named_property(env, global, c"Symbol".as_ptr().cast(), &mut symbol_object)
     },
     "Get global object failed",
-  );
+  )?;
   let mut iterator_symbol = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe {
       sys::napi_get_named_property(
         env,
@@ -82,27 +220,18 @@ pub fn create_async_iterator<T: AsyncGenerator>(
       )
     },
     "Get Symbol.asyncIterator failed",
-  );
-  let mut generator_function = ptr::null_mut();
-  check_status_or_throw!(
+  )?;
+  let generator_function = create_async_iterator_callback(
     env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"AsyncIterator".as_ptr().cast(),
-        8,
-        Some(symbol_async_generator::<T>),
-        generator_ptr.cast(),
-        &mut generator_function,
-      )
-    },
-    "Create asyncIterator function failed",
-  );
-  check_status_or_throw!(
-    env,
+    instance,
+    c"AsyncIterator",
+    Some(symbol_async_generator::<T>),
+  )?;
+  check_status!(
     unsafe { sys::napi_set_property(env, instance, iterator_symbol, generator_function) },
     "Failed to set Symbol.asyncIterator on class instance",
-  );
+  )?;
+  Ok(())
 }
 
 #[doc(hidden)]
@@ -110,78 +239,61 @@ pub unsafe extern "C" fn symbol_async_generator<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  let mut this = ptr::null_mut();
-  let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
+  match catch_generator_callback(|| unsafe { symbol_async_generator_impl::<T>(env, info) }) {
+    Ok(value) => value,
+    Err(error) => {
+      throw_generator_callback_error(env, error);
+      ptr::null_mut()
+    }
+  }
+}
+
+fn throw_generator_callback_error(env: sys::napi_env, error: crate::Error) {
+  let mut is_pending = false;
+  if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } != sys::Status::napi_ok
+    || !is_pending
+  {
+    unsafe { JsError::from(error).throw_into(env) };
+  }
+}
+
+unsafe fn symbol_async_generator_impl<T: AsyncGenerator>(
+  env: sys::napi_env,
+  info: sys::napi_callback_info,
+) -> crate::Result<sys::napi_value> {
   let mut argc = 0;
-  let mut generator_ptr = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  let mut callback_data = ptr::null_mut();
+  check_status!(
     unsafe {
       sys::napi_get_cb_info(
         env,
         info,
         &mut argc,
-        argv.as_mut_ptr(),
-        &mut this,
-        &mut generator_ptr,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        &mut callback_data,
       )
     },
     "Get callback info from generator function failed"
-  );
+  )?;
+  let (owner, _generator_ptr) =
+    unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
+      .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?
+      .owner_and_generator::<T>(env)?;
+
   let mut generator_object = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe { sys::napi_create_object(env, &mut generator_object) },
     "Create Generator object failed"
-  );
-  let mut next_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"next".as_ptr().cast(),
-        4,
-        Some(generator_next::<T>),
-        generator_ptr,
-        &mut next_function,
-      )
-    },
-    "Create next function failed"
-  );
-  let mut return_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"return".as_ptr().cast(),
-        6,
-        Some(generator_return::<T>),
-        generator_ptr,
-        &mut return_function,
-      )
-    },
-    "Create next function failed"
-  );
-  let mut throw_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"throw".as_ptr().cast(),
-        5,
-        Some(generator_throw::<T>),
-        generator_ptr,
-        &mut throw_function,
-      )
-    },
-    "Create next function failed"
-  );
+  )?;
+  let next_function =
+    create_async_iterator_callback(env, owner, c"next", Some(generator_next::<T>))?;
+  let return_function =
+    create_async_iterator_callback(env, owner, c"return", Some(generator_return::<T>))?;
+  let throw_function =
+    create_async_iterator_callback(env, owner, c"throw", Some(generator_throw::<T>))?;
 
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe {
       sys::napi_set_named_property(
         env,
@@ -191,10 +303,9 @@ pub unsafe extern "C" fn symbol_async_generator<T: AsyncGenerator>(
       )
     },
     "Set next function on Generator object failed"
-  );
+  )?;
 
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe {
       sys::napi_set_named_property(
         env,
@@ -204,10 +315,9 @@ pub unsafe extern "C" fn symbol_async_generator<T: AsyncGenerator>(
       )
     },
     "Set return function on Generator object failed"
-  );
+  )?;
 
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe {
       sys::napi_set_named_property(
         env,
@@ -217,74 +327,11 @@ pub unsafe extern "C" fn symbol_async_generator<T: AsyncGenerator>(
       )
     },
     "Set throw function on Generator object failed"
-  );
+  )?;
 
-  let mut generator_state = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_get_boolean(env, false, &mut generator_state) },
-    "Create generator state failed"
-  );
+  define_instance_ref(env, generator_object, owner)?;
 
-  // The generator object needs to keep the instance alive while iteration is in progress.
-  // Without this reference, the instance can be garbage collected while the generator
-  // is still being used, leading to use-after-free when accessing generator_ptr.
-  let mut instance_ref = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_create_reference(env, this, 1, &mut instance_ref) },
-    "Failed to create reference to instance in async generator"
-  );
-
-  // Store the reference as an external value so it can be cleaned up later
-  let mut ref_holder = ptr::null_mut();
-  unsafe extern "C" fn cleanup_instance_ref(
-    _env: sys::napi_env,
-    data: *mut std::ffi::c_void,
-    _hint: *mut std::ffi::c_void,
-  ) {
-    let instance_ref = data as sys::napi_ref;
-    if !instance_ref.is_null() {
-      // Delete the reference when the generator is garbage collected
-      unsafe { sys::napi_delete_reference(_env, instance_ref) };
-    }
-  }
-
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_external(
-        env,
-        instance_ref.cast(),
-        Some(cleanup_instance_ref),
-        ptr::null_mut(),
-        &mut ref_holder,
-      )
-    },
-    "Failed to create external for instance reference"
-  );
-
-  // Store as a hidden property on the generator object
-  // Use napi_define_properties with default attributes (non-enumerable, non-writable, non-configurable)
-  // to make this property truly hidden from user code
-  let properties = [sys::napi_property_descriptor {
-    utf8name: INSTANCE_REF_KEY.as_ptr().cast(),
-    name: ptr::null_mut(),
-    method: None,
-    getter: None,
-    setter: None,
-    value: ref_holder,
-    attributes: sys::PropertyAttributes::default,
-    data: ptr::null_mut(),
-  }];
-
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_define_properties(env, generator_object, 1, properties.as_ptr()) },
-    "Failed to define instance reference property on generator object"
-  );
-
-  generator_object
+  Ok(generator_object)
 }
 
 extern "C" fn generator_next<T: AsyncGenerator>(
@@ -300,12 +347,42 @@ fn generator_callback(
 ) -> sys::napi_value {
   match catch_generator_callback(callback) {
     Ok(value) => value,
-    Err(e) => unsafe {
-      let js_error: JsError = e.into();
-      js_error.throw_into(env);
-      ptr::null_mut()
+    Err(error) => match catch_generator_callback(|| reject_generator_callback(env, error)) {
+      Ok(value) => value,
+      Err(error) => unsafe {
+        let js_error: JsError = error.into();
+        js_error.throw_into(env);
+        ptr::null_mut()
+      },
     },
   }
+}
+
+fn reject_generator_callback(
+  env: sys::napi_env,
+  error: crate::Error,
+) -> crate::Result<sys::napi_value> {
+  // Promise creation is not allowed while an exception is pending. Preserve that
+  // exact JS value by taking it before creating the rejected Promise.
+  let mut is_pending = false;
+  check_status!(
+    unsafe { sys::napi_is_exception_pending(env, &mut is_pending) },
+    "Failed to check for a pending async generator exception"
+  )?;
+
+  let env = Env::from_raw(env);
+  let promise = if is_pending {
+    let mut exception = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_and_clear_last_exception(env.0, &mut exception) },
+      "Failed to get and clear a pending async generator exception"
+    )?;
+    PromiseRaw::<()>::reject_raw(&env, exception)?
+  } else {
+    PromiseRaw::<()>::reject(&env, error)?
+  };
+
+  Ok(promise.inner)
 }
 
 fn catch_generator_callback<T>(callback: impl FnOnce() -> crate::Result<T>) -> crate::Result<T> {
@@ -338,10 +415,9 @@ fn generator_next_fn<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> crate::Result<sys::napi_value> {
-  let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;
-  let mut generator_ptr = ptr::null_mut();
+  let mut callback_data = ptr::null_mut();
   check_status!(
     unsafe {
       sys::napi_get_cb_info(
@@ -349,14 +425,19 @@ fn generator_next_fn<T: AsyncGenerator>(
         info,
         &mut argc,
         argv.as_mut_ptr(),
-        &mut this,
-        &mut generator_ptr,
+        ptr::null_mut(),
+        &mut callback_data,
       )
     },
     "Get callback info from generator function failed"
   )?;
 
-  let g = unsafe { Box::leak(Box::from_raw(generator_ptr as *mut T)) };
+  let (_owner, generator_ptr) =
+    unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
+      .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?
+      .owner_and_generator::<T>(env)?;
+  let _native_borrow = acquire_native_borrow(generator_ptr, true)?;
+  let g = unsafe { &mut *generator_ptr };
   let item = with_generator_argument::<T::Next, _>(env, argc, argv[0], |value| g.next(value))?;
 
   let env = Env::from_raw(env);
@@ -387,10 +468,9 @@ fn generator_return_fn<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> crate::Result<sys::napi_value> {
-  let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;
-  let mut generator_ptr = ptr::null_mut();
+  let mut callback_data = ptr::null_mut();
   check_status!(
     unsafe {
       sys::napi_get_cb_info(
@@ -398,14 +478,19 @@ fn generator_return_fn<T: AsyncGenerator>(
         info,
         &mut argc,
         argv.as_mut_ptr(),
-        &mut this,
-        &mut generator_ptr,
+        ptr::null_mut(),
+        &mut callback_data,
       )
     },
     "Get callback info from generator function failed"
   )?;
 
-  let g = unsafe { Box::leak(Box::from_raw(generator_ptr as *mut T)) };
+  let (_owner, generator_ptr) =
+    unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
+      .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?
+      .owner_and_generator::<T>(env)?;
+  let _native_borrow = acquire_native_borrow(generator_ptr, true)?;
+  let g = unsafe { &mut *generator_ptr };
   let item = g.complete(generator_argument::<T::Return>(env, argc, argv[0])?);
   let env = Env::from_raw(env);
   let promise = env.spawn_future_with_callback(item, |env, value| {
@@ -434,10 +519,9 @@ fn generator_throw_fn<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> crate::Result<sys::napi_value> {
-  let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;
-  let mut generator_ptr = ptr::null_mut();
+  let mut callback_data = ptr::null_mut();
   check_status!(
     unsafe {
       sys::napi_get_cb_info(
@@ -445,14 +529,19 @@ fn generator_throw_fn<T: AsyncGenerator>(
         info,
         &mut argc,
         argv.as_mut_ptr(),
-        &mut this,
-        &mut generator_ptr,
+        ptr::null_mut(),
+        &mut callback_data,
       )
     },
     "Get callback info from generator function failed"
   )?;
 
-  let g = unsafe { Box::leak(Box::from_raw(generator_ptr as *mut T)) };
+  let (_owner, generator_ptr) =
+    unsafe { callback_data.cast::<AsyncIteratorCallbackData>().as_ref() }
+      .ok_or_else(|| crate::Error::from_reason("Async iterator callback data was null"))?
+      .owner_and_generator::<T>(env)?;
+  let _native_borrow = acquire_native_borrow(generator_ptr, true)?;
+  let g = unsafe { &mut *generator_ptr };
   let caught = if argc == 0 {
     let mut undefined = ptr::null_mut();
     check_status!(

@@ -14,15 +14,8 @@ use std::sync::{
 
 #[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
-use napi::bindgen_prelude::{Env, JsObjectValue, Object, Result, Symbol};
+use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
 pub use napi_shared::*;
-
-#[cfg(not(feature = "noop"))]
-const LIFECYCLE_FIXTURE_GLOBAL: &str = "__NAPI_RS_LIFECYCLE_FIXTURE__";
-#[cfg(not(feature = "noop"))]
-const LIFECYCLE_FIXTURE_TOKEN_PROPERTY: &str = "__napiRsLifecycleFixtureToken";
-#[cfg(not(feature = "noop"))]
-const LIFECYCLE_FIXTURE_TOKEN: &str = "napi-rs-internal-lifecycle-fixture-v1";
 
 #[macro_use]
 extern crate napi_derive;
@@ -49,6 +42,7 @@ fn init() {
     .enable_all()
     .on_thread_start(|| {
       TOKIO_ACTIVE_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
+      #[cfg(not(feature = "noop"))]
       tokio_runtime_lifecycle::register_worker_tls_retirement_probe();
       let thread = std::thread::current();
       println!("tokio thread started {:?}", thread.name());
@@ -82,7 +76,7 @@ fn init() {
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
+#[napi]
 pub fn configure_tokio_thread_stop_file_barrier(
   entered_path: String,
   release_path: String,
@@ -103,65 +97,26 @@ pub const TYPE_SKIPPED_CONST: u32 = 12;
 
 #[napi]
 pub fn shutdown_runtime() {
-  #[cfg(all(target_family = "wasm", tokio_unstable))]
+  #[cfg(all(target_family = "wasm", tokio_unstable, not(feature = "noop")))]
   {
     napi::bindgen_prelude::shutdown_async_runtime();
   }
 }
 
 #[napi(module_exports)]
-pub fn exports(mut export: Object, env: Env) -> Result<()> {
+pub fn exports(mut export: Object) -> Result<()> {
   let symbol = Symbol::for_desc("NAPI_RS_SYMBOL");
   export.set_named_property("NAPI_RS_SYMBOL", symbol)?;
-
-  #[cfg(feature = "noop")]
-  let _ = env;
-
-  #[cfg(not(feature = "noop"))]
-  {
-    let global = env.get_global()?;
-    if global.has_named_property(LIFECYCLE_FIXTURE_GLOBAL)? {
-      let mut fixture: Object = global.get_named_property(LIFECYCLE_FIXTURE_GLOBAL)?;
-      let enabled = fixture.has_named_property(LIFECYCLE_FIXTURE_TOKEN_PROPERTY)?
-        && fixture.get_named_property::<String>(LIFECYCLE_FIXTURE_TOKEN_PROPERTY)?
-          == LIFECYCLE_FIXTURE_TOKEN;
-      if !enabled {
-        return Ok(());
-      }
-
-      #[cfg(not(target_family = "wasm"))]
-      fixture.create_named_method(
-        "configureTokioThreadStopFileBarrier",
-        configure_tokio_thread_stop_file_barrier_c_callback,
-      )?;
-
-      r#async::install_lifecycle_fixture(&mut fixture)?;
-      class::install_lifecycle_fixture(&mut fixture)?;
-      env::install_lifecycle_fixture(&mut fixture)?;
-      error::install_lifecycle_fixture(&mut fixture)?;
-      external::install_lifecycle_fixture(&mut fixture)?;
-      string::install_lifecycle_fixture(&mut fixture)?;
-      threadsafe_function::install_lifecycle_fixture(&mut fixture)?;
-
-      #[cfg(not(target_family = "wasm"))]
-      tokio_runtime_lifecycle::install_lifecycle_fixture(&mut fixture)?;
-      #[cfg(target_family = "wasm")]
-      tokio_wasi_lifecycle::install_lifecycle_fixture(&mut fixture)?;
-
-      if fixture.has_named_property("moduleFinalizers")? {
-        let probe_paths: Object = fixture.get_named_property("moduleFinalizers")?;
-        object::install_module_finalizer_probes(&mut export, &probe_paths)?;
-      }
-    }
-  }
-
   Ok(())
 }
 
 mod array;
 mod r#async;
 mod async_generator_repro;
+#[cfg(not(target_family = "wasm"))]
+mod async_work_lifecycle;
 mod bigint;
+mod borrowed_value;
 mod callback;
 mod class;
 mod class_factory;
@@ -196,9 +151,9 @@ mod string;
 mod symbol;
 mod task;
 mod threadsafe_function;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(not(target_family = "wasm"), not(feature = "noop")))]
 mod tokio_runtime_lifecycle;
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
 mod tokio_wasi_lifecycle;
 mod transparent;
 mod r#type;

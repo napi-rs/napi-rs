@@ -4,10 +4,8 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { requireLifecycleFixture } from './lifecycle-fixture.js'
-
 const require = createRequire(import.meta.url)
-const { fixture: lifecycle } = requireLifecycleFixture(require, '../index.cjs')
+const lifecycle = require('../index.cjs')
 const directory = await mkdtemp(join(tmpdir(), 'napi-tokio-worker-tls-'))
 const workerResultPath = join(directory, 'worker-retirement-result')
 const blockingResultPath = join(directory, 'blocking-retirement-result')

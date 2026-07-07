@@ -22,7 +22,8 @@ impl TypeName for JsBoolean {
 impl ValidateNapiValue for JsBoolean {}
 
 impl ToNapiValue for JsBoolean {
-  unsafe fn to_napi_value(_: sys::napi_env, value: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, value: Self) -> Result<sys::napi_value> {
+    crate::bindgen_runtime::ensure_same_env(value.0.env, env)?;
     Ok(value.0.value)
   }
 }

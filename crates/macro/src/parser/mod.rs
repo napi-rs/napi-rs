@@ -17,6 +17,7 @@ use napi_derive_backend::{
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 use syn::ext::IdentExt;
+use syn::fold::Fold;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::spanned::Spanned;
 use syn::{
@@ -51,6 +52,40 @@ static KNOWN_JS_VALUE_TYPES_WITH_LIFETIME: LazyLock<HashSet<&str>> = LazyLock::n
   ]
   .into()
 });
+
+#[derive(Default)]
+struct LifetimeDetector {
+  found: bool,
+}
+
+impl Fold for LifetimeDetector {
+  fn fold_lifetime(&mut self, lifetime: syn::Lifetime) -> syn::Lifetime {
+    self.found = true;
+    lifetime
+  }
+}
+
+fn type_contains_lifetime(ty: &Type) -> bool {
+  let mut detector = LifetimeDetector::default();
+  detector.fold_type(ty.clone());
+  detector.found
+}
+
+fn is_supported_storable_class_field_type(ty: &Type) -> bool {
+  match ty {
+    Type::Group(group) => is_supported_storable_class_field_type(&group.elem),
+    Type::Paren(paren) => is_supported_storable_class_field_type(&paren.elem),
+    Type::Path(syn::TypePath { qself: None, path }) => {
+      path.segments.last().is_some_and(|segment| {
+        matches!(
+          segment.ident.to_string().as_str(),
+          "ClassInstance" | "Reference" | "SharedReference" | "WeakReference"
+        )
+      })
+    }
+    _ => false,
+  }
+}
 
 fn get_register_ident(name: &str) -> Ident {
   let new_name = format!(
@@ -1336,6 +1371,14 @@ impl ConvertToAST for syn::ItemStruct {
     } else {
       // field lifetime check, JsValue types with lifetime can't be assigned to a field of napi class struct
       for syn::Field { ty, .. } in self.fields.iter() {
+        if matches!(ty, syn::Type::Reference(_)) {
+          errors.push(err_span!(
+            ty,
+            "Borrowed reference fields (`&T` or `&mut T`) cannot be stored in a napi class because no `NativeBorrowScope` spans the class lifetime; store an owned value instead"
+          ));
+          continue;
+        }
+
         if let syn::Type::Path(syn::TypePath { path, .. }) = ty {
           if let Some(PathSegment {
             ident,
@@ -1353,9 +1396,17 @@ impl ConvertToAST for syn::ItemStruct {
                   "Can't assign {} to a field of napi class struct",
                   ident
                 ));
+                continue;
               }
             }
           }
+        }
+
+        if type_contains_lifetime(ty) && !is_supported_storable_class_field_type(ty) {
+          errors.push(err_span!(
+            ty,
+            "Class field types with lifetimes cannot be stored in a napi class unless the outer type is `ClassInstance`, `Reference`, `SharedReference`, or `WeakReference`"
+          ));
         }
       }
       NapiStructKind::Class(NapiClass {
@@ -1453,24 +1504,20 @@ impl ConvertToAST for syn::ItemImpl {
               if (ident == "Task" || ident == "ScopedTask") && m.ident == "JsValue" {
                 task_output_type = Some(m.ty.clone());
               } else if ident == "Generator" || ident == "ScopedGenerator" {
-                if let Type::Path(_) = &m.ty {
-                  if m.ident == "Yield" {
-                    iterator_yield_type = Some(m.ty.clone());
-                  } else if m.ident == "Next" {
-                    iterator_next_type = Some(m.ty.clone());
-                  } else if m.ident == "Return" {
-                    iterator_return_type = Some(m.ty.clone());
-                  }
+                if m.ident == "Yield" {
+                  iterator_yield_type = Some(m.ty.clone());
+                } else if m.ident == "Next" {
+                  iterator_next_type = Some(m.ty.clone());
+                } else if m.ident == "Return" {
+                  iterator_return_type = Some(m.ty.clone());
                 }
               } else if ident == "AsyncGenerator" {
-                if let Type::Path(_) = &m.ty {
-                  if m.ident == "Yield" {
-                    async_iterator_yield_type = Some(m.ty.clone());
-                  } else if m.ident == "Next" {
-                    async_iterator_next_type = Some(m.ty.clone());
-                  } else if m.ident == "Return" {
-                    async_iterator_return_type = Some(m.ty.clone());
-                  }
+                if m.ident == "Yield" {
+                  async_iterator_yield_type = Some(m.ty.clone());
+                } else if m.ident == "Next" {
+                  async_iterator_next_type = Some(m.ty.clone());
+                } else if m.ident == "Return" {
+                  async_iterator_return_type = Some(m.ty.clone());
                 }
               }
             }

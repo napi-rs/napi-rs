@@ -1,3 +1,5 @@
+#![cfg(not(feature = "noop"))]
+
 use std::{
   cell::{Cell, RefCell},
   fs,
@@ -7,8 +9,7 @@ use std::{
 };
 
 use napi::bindgen_prelude::{
-  tokio_runtime_retirement_waiter, try_start_async_runtime, Error, JsObjectValue, Object, Result,
-  Status,
+  tokio_runtime_retirement_waiter, try_start_async_runtime, Error, Result, Status,
 };
 
 static TOKIO_WORKER_TLS_RESULT_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -33,7 +34,7 @@ impl Drop for TokioWorkerTlsProbe {
     let result = tokio_runtime_retirement_waiter().wait();
     let output = match result {
       Ok(()) => "Ok".to_owned(),
-      Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+      Err(error) => format!("{:?}\n{}", error.status, error.reason),
     };
     let _ = fs::write(result_path, output);
   }
@@ -46,7 +47,7 @@ impl Drop for TokioBlockingTlsProbe {
     let result = tokio_runtime_retirement_waiter().wait();
     let output = match result {
       Ok(()) => "Ok".to_owned(),
-      Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+      Err(error) => format!("{:?}\n{}", error.status, error.reason),
     };
     let _ = fs::write(&self.0, output);
   }
@@ -56,14 +57,14 @@ pub(crate) fn register_worker_tls_retirement_probe() {
   TOKIO_WORKER_TLS_PROBE.with(|probe| probe.set(Some(TokioWorkerTlsProbe)));
 }
 
-#[napi(no_export)]
+#[napi]
 pub fn arm_tokio_worker_tls_retirement_probe(result_path: String) {
   *TOKIO_WORKER_TLS_RESULT_PATH
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result_path.into());
 }
 
-#[napi(no_export)]
+#[napi]
 pub async fn arm_tokio_blocking_tls_retirement_probe(
   result_path: String,
   release_path: String,
@@ -90,40 +91,17 @@ pub async fn arm_tokio_blocking_tls_retirement_probe(
   Ok(())
 }
 
-#[napi(no_export)]
+#[napi]
 pub fn wait_for_tokio_runtime_retirement() -> Result<()> {
   tokio_runtime_retirement_waiter().wait()
 }
 
-#[napi(no_export)]
+#[napi]
 pub fn restart_tokio_runtime_after_retirement() -> Result<()> {
   try_start_async_runtime()
 }
 
-#[napi(no_export)]
+#[napi]
 pub async fn tokio_runtime_lifecycle_value(value: u32) -> u32 {
   value
-}
-
-pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
-  fixture.create_named_method(
-    "armTokioWorkerTlsRetirementProbe",
-    arm_tokio_worker_tls_retirement_probe_c_callback,
-  )?;
-  fixture.create_named_method(
-    "armTokioBlockingTlsRetirementProbe",
-    arm_tokio_blocking_tls_retirement_probe_c_callback,
-  )?;
-  fixture.create_named_method(
-    "waitForTokioRuntimeRetirement",
-    wait_for_tokio_runtime_retirement_c_callback,
-  )?;
-  fixture.create_named_method(
-    "restartTokioRuntimeAfterRetirement",
-    restart_tokio_runtime_after_retirement_c_callback,
-  )?;
-  fixture.create_named_method(
-    "tokioRuntimeLifecycleValue",
-    tokio_runtime_lifecycle_value_c_callback,
-  )
 }

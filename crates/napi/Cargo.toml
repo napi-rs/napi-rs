@@ -56,7 +56,6 @@ default = ["napi4", "dyn-symbols"]
 deferred_trace = ["napi4"]
 error_anyhow = ["anyhow"]
 experimental = ["napi-sys/experimental"]
-internal-test-fixture = []
 full = [
   "latin1",
   "napi10",
@@ -70,7 +69,7 @@ latin1 = ["encoding_rs"]
 napi1 = []
 napi2 = ["napi1", "napi-sys/napi2"]
 napi3 = ["napi2", "napi-sys/napi3"]
-napi4 = ["napi3", "napi-sys/napi4", "dep:libc"]
+napi4 = ["napi3", "napi-sys/napi4"]
 napi5 = ["napi4", "napi-sys/napi5"]
 napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
@@ -129,7 +128,7 @@ optional = true
 version = "0.1"
 
 [target.'cfg(unix)'.dependencies]
-libc = { version = "0.2.175", optional = true }
+libc = "0.2.175"
 
 [target.'cfg(any(all(target_family = "wasm", tokio_unstable), not(target_family = "wasm")))'.dependencies]
 tokio = { version = "1", features = [

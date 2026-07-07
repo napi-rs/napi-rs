@@ -16,8 +16,9 @@ use std::{
 };
 
 use napi::bindgen_prelude::{
-  register_async_runtime, try_register_async_runtime, try_shutdown_async_runtime,
-  try_start_async_runtime, AsyncRuntime, AsyncRuntimeTask,
+  register_async_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
+  try_block_on_custom_runtime, try_register_async_runtime, try_shutdown_async_runtime,
+  try_start_async_runtime, try_within_runtime_if_available, AsyncRuntime, AsyncRuntimeTask,
 };
 
 static PANIC_START: AtomicBool = AtomicBool::new(false);
@@ -168,6 +169,23 @@ fn registration_and_lifecycle_failures_return_errors() {
   );
   try_shutdown_async_runtime().expect("the registered backend must remain independently stoppable");
 
-  let error = try_register_async_runtime(SecondRuntime).unwrap_err();
-  assert!(error.reason.contains("more than once"));
+  register_async_runtime(SecondRuntime);
+
+  let error = futures::executor::block_on(spawn_on_custom_runtime(async {}))
+    .expect_err("infallible duplicate registration must poison custom task submission");
+  assert!(error.is_runtime_error());
+  assert!(error.to_string().contains("more than once"), "{error}");
+
+  let error = futures::executor::block_on(spawn_blocking_on_custom_runtime(|| ()))
+    .expect_err("infallible duplicate registration must poison custom blocking submission");
+  assert!(error.is_runtime_error());
+  assert!(error.to_string().contains("more than once"), "{error}");
+
+  let error = try_block_on_custom_runtime(async {})
+    .expect_err("infallible duplicate registration must poison custom block_on");
+  assert!(error.reason.contains("more than once"), "{error}");
+
+  let error = try_within_runtime_if_available(|| ())
+    .expect_err("infallible duplicate registration must poison runtime entry");
+  assert!(error.reason.contains("more than once"), "{error}");
 }
