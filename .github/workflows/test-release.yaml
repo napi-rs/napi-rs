@@ -1171,6 +1171,7 @@ jobs:
     needs:
       - audit
       - lint
+      - trybuild
       - build_and_test
       - build-and-test-msys2
       - build_only
