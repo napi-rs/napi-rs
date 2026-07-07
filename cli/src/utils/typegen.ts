@@ -5,6 +5,7 @@ import type {
   CompilerHost,
   CompilerOptions,
   Diagnostic,
+  EntityName,
   Identifier,
   NodeArray,
   SourceFile,
@@ -310,25 +311,24 @@ export async function processTypeDefs(
     intermediateTypeFiles.map(async (file) =>
       preprocessTypeDef(await readIntermediateTypeFile(file)),
   const defs = await readIntermediateTypeFile(intermediateTypeFile)
-  const dts = renderTypeDefs(
-    preprocessTypeDef(resolveTypeImportMarkers(defs, false)),
+  const typeImports = collectTypeImports(defs)
+  const dtsWithTypeImportMarkers = renderTypeDefs(
+    preprocessTypeDef(preserveTypeImportMarkers(defs)),
     constEnum,
     runtimeStringEnum,
     exports,
   )
-  const renderedDtsWithTypeImports = renderTypeDefs(
-    preprocessTypeDef(resolveTypeImportMarkers(defs, true)),
-    constEnum,
-    runtimeStringEnum,
-  )
-  const dtsWithTypeImports = rewriteBufferTypeReferences(
-    renderedDtsWithTypeImports,
+  const dts = rewriteTypeImportReferences(
+    dtsWithTypeImportMarkers,
+    typeImports,
+    false,
   )
 
   return {
     dts,
-    dtsWithTypeImports,
+    dtsWithTypeImportMarkers,
     exports,
+    typeImports,
   }
 }
 
@@ -502,48 +502,85 @@ function renderTypeDefs(
   return dts
 }
 
-function resolveTypeImportMarkers(
-  defs: TypeDefLine[],
-  inlineImports: boolean,
-): TypeDefLine[] {
-  return defs.map((def) => {
-    const sourceDef = def.def_with_type_import_markers ?? def.def
-    if (!def.type_imports?.length) {
-      return { ...def, def: sourceDef }
-    }
-    let resolvedDef = sourceDef
-    for (const { marker, module, name } of def.type_imports) {
-      if (!marker) {
-        continue
-      }
-      resolvedDef = resolvedDef.replaceAll(
-        marker,
-        inlineImports ? `import(${JSON.stringify(module)}).${name}` : name,
-      )
-    }
-    return { ...def, def: resolvedDef }
-  })
+function preserveTypeImportMarkers(defs: TypeDefLine[]): TypeDefLine[] {
+  return defs.map((def) => ({
+    ...def,
+    def: def.def_with_type_import_markers ?? def.def,
+  }))
+}
+
+function collectTypeImports(defs: TypeDefLine[]): TypeImport[] {
+  const imports = new Map<string, TypeImport>()
+  for (const typeImport of defs.flatMap((def) => def.type_imports ?? [])) {
+    imports.set(
+      `${typeImport.marker ?? ''}\0${typeImport.module}\0${typeImport.name}`,
+      typeImport,
+    )
+  }
+  return [...imports.values()].sort(
+    (left, right) =>
+      left.module.localeCompare(right.module) ||
+      left.name.localeCompare(right.name) ||
+      (left.marker ?? '').localeCompare(right.marker ?? ''),
+  )
 }
 
 const BUFFER_TYPE_REFERENCE = 'import("buffer").Buffer'
 const IN_MEMORY_DECLARATION_FILE = '/__napi_rs_typegen__.d.ts'
 
-function rewriteBufferTypeReferences(source: string): string {
+export function rewriteTypeImportReferences(
+  source: string,
+  typeImports: TypeImport[],
+  inlineImports: boolean,
+): string {
+  const markerReplacements = new Map<string, string>()
+  for (const { marker, module, name } of typeImports) {
+    if (marker) {
+      markerReplacements.set(
+        marker,
+        inlineImports ? `import(${JSON.stringify(module)}).${name}` : name,
+      )
+    }
+  }
+  const rewriteLegacyBuffer =
+    inlineImports &&
+    typeImports.some(
+      ({ module, name }) => module === 'buffer' && name === 'Buffer',
+    )
+  if (markerReplacements.size === 0 && !rewriteLegacyBuffer) {
+    return source
+  }
+
   const typeScript = loadTypeScript()
   const { program, sourceFile } = createDeclarationProgram(source)
-  const checker = program.getTypeChecker()
-  const replacements: Array<{ end: number; start: number }> = []
+  const checker = rewriteLegacyBuffer ? program.getTypeChecker() : undefined
+  const replacements: Array<{
+    end: number
+    replacement: string
+    start: number
+  }> = []
 
   const visit = (node: import('typescript').Node) => {
-    if (typeScript.isIdentifier(node) && node.text === 'Buffer') {
-      const meaning = bufferReferenceMeaning(typeScript, node)
+    if (typeScript.isIdentifier(node)) {
+      const markerReplacement = markerReplacements.get(node.text)
       if (
-        meaning !== undefined &&
-        checker.resolveName(node.text, node, meaning, false) === undefined
+        markerReplacement !== undefined &&
+        typeImportReferenceMeaning(typeScript, node) !== undefined
       ) {
         replacements.push({
           start: node.getStart(sourceFile),
           end: node.end,
+          replacement: markerReplacement,
+        })
+      } else if (
+        checker !== undefined &&
+        node.text === 'Buffer' &&
+        isUnboundBufferReference(typeScript, checker, node)
+      ) {
+        replacements.push({
+          start: node.getStart(sourceFile),
+          end: node.end,
+          replacement: BUFFER_TYPE_REFERENCE,
         })
       }
     }
@@ -555,24 +592,45 @@ function rewriteBufferTypeReferences(source: string): string {
   for (const replacement of replacements.reverse()) {
     rewritten =
       rewritten.slice(0, replacement.start) +
-      BUFFER_TYPE_REFERENCE +
+      replacement.replacement +
       rewritten.slice(replacement.end)
   }
   return rewritten
 }
 
-function bufferReferenceMeaning(
+function isUnboundBufferReference(
+  typeScript: TypeScriptModule,
+  checker: import('typescript').TypeChecker,
+  identifier: Identifier,
+): boolean {
+  const meaning = typeImportReferenceMeaning(typeScript, identifier)
+  return (
+    meaning !== undefined &&
+    checker.resolveName(identifier.text, identifier, meaning, false) ===
+      undefined
+  )
+}
+
+function typeImportReferenceMeaning(
   typeScript: TypeScriptModule,
   identifier: Identifier,
 ): SymbolFlags | undefined {
-  const parent = identifier.parent
+  let entityName: EntityName = identifier
+  while (
+    typeScript.isQualifiedName(entityName.parent) &&
+    entityName.parent.left === entityName
+  ) {
+    entityName = entityName.parent
+  }
+
+  const parent = entityName.parent
   if (
     typeScript.isTypeReferenceNode(parent) &&
-    parent.typeName === identifier
+    parent.typeName === entityName
   ) {
     return typeScript.SymbolFlags.Type
   }
-  if (typeScript.isTypeQueryNode(parent) && parent.exprName === identifier) {
+  if (typeScript.isTypeQueryNode(parent) && parent.exprName === entityName) {
     return typeScript.SymbolFlags.Value
   }
 }

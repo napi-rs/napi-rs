@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
@@ -7,6 +7,7 @@ import test from 'ava'
 import typeScript from 'typescript'
 import legacyTypeScript from 'typescript-legacy'
 
+import { generateTypeDef } from '../../api/build.js'
 import {
   correctStringIdent,
   processTypeDef,
@@ -15,6 +16,7 @@ import {
   correctStringIdent,
   processTypeDef,
   removeNodeStreamWebTypeImports,
+  rewriteTypeImportReferences,
 } from '../typegen.js'
 
 test('should ident string correctly', (t) => {
@@ -385,6 +387,14 @@ test('renders imported types inline without colliding with exported declarations
         },
         {
           kind: 'fn',
+          name: 'markerLiteral',
+          js_doc: '',
+          def: `function markerLiteral(value: Buffer, object: { ${marker}: string }): "${marker}"`,
+          def_with_type_import_markers: `function markerLiteral(value: ${marker}, object: { ${marker}: string }): "${marker}"`,
+          type_imports: [{ marker, name: 'Buffer', module: 'buffer' }],
+        },
+        {
+          kind: 'fn',
           name: 'usesExportedBuffer',
           js_doc: '',
           def: 'function usesExportedBuffer(value: Buffer): Buffer',
@@ -394,7 +404,15 @@ test('renders imported types inline without colliding with exported declarations
         .join('\n') + '\n',
     )
 
-    const { dts, dtsWithTypeImports } = await processTypeDef(fixture, true)
+    const { dts, dtsWithTypeImportMarkers, typeImports } = await processTypeDef(
+      fixture,
+      true,
+    )
+    const dtsWithTypeImports = rewriteTypeImportReferences(
+      dtsWithTypeImportMarkers,
+      typeImports,
+      true,
+    )
     t.is(
       dts,
       `export declare class Buffer {
@@ -406,6 +424,8 @@ export declare class BufferHolder {
   readonly copy: Buffer
   value(): Buffer
 }
+
+export declare function markerLiteral(value: Buffer, object: { ${marker}: string }): "${marker}"
 
 export declare function passThrough(value: Buffer): Buffer
 
@@ -424,11 +444,76 @@ export declare class BufferHolder {
   value(): import("buffer").Buffer
 }
 
+export declare function markerLiteral(value: import("buffer").Buffer, object: { ${marker}: string }): "${marker}"
+
 export declare function passThrough(value: import("buffer").Buffer): import("buffer").Buffer
 
 export declare function usesExportedBuffer(value: Buffer): Buffer
 `,
     )
+    t.is(dts.match(new RegExp(marker, 'g'))?.length, 2)
+    t.is(dtsWithTypeImports.match(new RegExp(marker, 'g'))?.length, 2)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('rewrites Buffer references after combining fragments and the declaration header', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-typegen-complete-'))
+  const fragmentDirectory = join(directory, 'fragments')
+  const headerDirectory = join(directory, 'header')
+  const legacyBufferImport = [{ name: 'Buffer', module: 'buffer' }]
+
+  try {
+    await Promise.all([mkdir(fragmentDirectory), mkdir(headerDirectory)])
+    await Promise.all([
+      writeFile(
+        join(fragmentDirectory, 'a.type'),
+        `${JSON.stringify({
+          kind: 'fn',
+          name: 'usesFragmentBuffer',
+          def: 'function usesFragmentBuffer(value: Buffer): Buffer',
+          type_imports: legacyBufferImport,
+        })}\n`,
+      ),
+      writeFile(
+        join(fragmentDirectory, 'b.type'),
+        `${JSON.stringify({
+          kind: 'struct',
+          name: 'Buffer',
+          def: '',
+        })}\n`,
+      ),
+      writeFile(
+        join(headerDirectory, 'a.type'),
+        `${JSON.stringify({
+          kind: 'fn',
+          name: 'usesHeaderBuffer',
+          def: 'function usesHeaderBuffer(value: Buffer): Buffer',
+          type_imports: legacyBufferImport,
+        })}\n`,
+      ),
+    ])
+
+    const [
+      { dtsWithTypeImports: fragmentTypeDef },
+      { dtsWithTypeImports: headerTypeDef },
+    ] = await Promise.all([
+      generateTypeDef({
+        typeDefDir: fragmentDirectory,
+        cwd: directory,
+      }),
+      generateTypeDef({
+        typeDefDir: headerDirectory,
+        cwd: directory,
+        dtsHeader: 'export declare class Buffer {}\n',
+      }),
+    ])
+
+    t.regex(fragmentTypeDef, /usesFragmentBuffer\(value: Buffer\): Buffer/)
+    t.notRegex(fragmentTypeDef, /import\("buffer"\)\.Buffer/)
+    t.regex(headerTypeDef, /usesHeaderBuffer\(value: Buffer\): Buffer/)
+    t.notRegex(headerTypeDef, /import\("buffer"\)\.Buffer/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -522,6 +607,12 @@ test('rewrites legacy Buffer imports with TypeScript binding semantics', async (
         },
         {
           kind: 'fn',
+          name: 'qualifiedTypeQuery',
+          def: 'function qualifiedTypeQuery(): typeof Buffer.from',
+          type_imports: legacyBufferImport,
+        },
+        {
+          kind: 'fn',
           name: 'qualifiedNames',
           def: 'function qualifiedNames(value: Other.Buffer): typeof Other.Buffer',
           type_imports: legacyBufferImport,
@@ -575,7 +666,15 @@ test('rewrites legacy Buffer imports with TypeScript binding semantics', async (
         .join('\n') + '\n',
     )
 
-    const { dts, dtsWithTypeImports } = await processTypeDef(fixture, true)
+    const { dts, dtsWithTypeImportMarkers, typeImports } = await processTypeDef(
+      fixture,
+      true,
+    )
+    const dtsWithTypeImports = rewriteTypeImportReferences(
+      dtsWithTypeImportMarkers,
+      typeImports,
+      true,
+    )
 
     t.regex(dtsWithTypeImports, /T extends import\("buffer"\)\.Buffer/)
     t.regex(
@@ -621,6 +720,10 @@ test('rewrites legacy Buffer imports with TypeScript binding semantics', async (
     t.regex(
       dtsWithTypeImports,
       /propertyNotBinding\(value: \{ Buffer: unknown \}\): typeof import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /qualifiedTypeQuery\(\): typeof import\("buffer"\)\.Buffer\.from/,
     )
     t.regex(
       dtsWithTypeImports,
@@ -683,7 +786,13 @@ test('reports malformed legacy declaration input with TypeScript diagnostics', a
       })}\n`,
     )
 
-    const error = await t.throwsAsync(() => processTypeDef(fixture, true))
+    const error = await t.throwsAsync(() =>
+      generateTypeDef({
+        typeDefDir: directory,
+        cwd: directory,
+        noDtsHeader: true,
+      }),
+    )
     t.regex(error.message, /Failed to parse declaration source/)
     t.regex(error.message, /\d+:\d+/)
   } finally {

@@ -25,6 +25,7 @@ import {
   readFileAsync,
   readNapiConfig,
   removeNodeStreamWebTypeImports,
+  rewriteTypeImportReferences,
   type Target,
   targetToEnvVar,
   tryInstallCargoBinary,
@@ -1785,10 +1786,13 @@ export async function generateTypeDef(
   dts = processedTypeDefs.dts
   exports = processedTypeDefs.exports
   dts = processedTypeDefs.map(({ dts }) => dts).join('')
-  let dtsWithTypeImports = processedTypeDefs
-    .map(({ dtsWithTypeImports }) => dtsWithTypeImports)
+  const dtsWithTypeImportMarkers = processedTypeDefs
+    .map(({ dtsWithTypeImportMarkers }) => dtsWithTypeImportMarkers)
     .join('')
   exports = processedTypeDefs.flatMap(({ exports }) => exports)
+  const typeImports = processedTypeDefs.flatMap(
+    ({ typeImports }) => typeImports,
+  )
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `
@@ -1808,7 +1812,11 @@ export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array
   }
 
   dts = header + dts
-  dtsWithTypeImports = header + dtsWithTypeImports
+  const dtsWithTypeImports = rewriteTypeImportReferences(
+    header + dtsWithTypeImportMarkers,
+    typeImports,
+    true,
+  )
 
   return {
     exports,
