@@ -150,7 +150,7 @@ function executeGeneratedWasiNodeBinding(
           return { WASI: class {} }
         case '@napi-rs/wasm-runtime':
           return {
-            getDefaultContext() {
+            createContext() {
               return {}
             },
             instantiateNapiModuleSync() {
@@ -284,9 +284,9 @@ test('browser WASI binding validates fetch before allocating runtime state', (t)
     false,
     false,
   )
-  const fetchOffset = src.indexOf('await fetch(__wasmUrl)')
+  const fetchOffset = src.indexOf('await globalThis.fetch(__wasmUrl)')
   const responseCheckOffset = src.indexOf('if (!__wasmResponse.ok)')
-  const contextOffset = src.indexOf('__emnapiGetDefaultContext()')
+  const contextOffset = src.indexOf('__emnapiCreateContext()')
   const memoryOffset = src.indexOf('new WebAssembly.Memory')
 
   t.true(fetchOffset > 0)
@@ -1580,12 +1580,21 @@ test('createCjsBinding does not mutate frozen load errors', (t) => {
       code: 'MODULE_NOT_FOUND',
     }),
   )
-  const require = (specifier: string) => {
-    if (specifier === 'fs') {
-      return { readFileSync: () => '' }
-    }
-    throw immutableError
-  }
+  const require = Object.assign(
+    (specifier: string) => {
+      if (specifier === 'fs') {
+        return { readFileSync: () => '' }
+      }
+      throw immutableError
+    },
+    {
+      resolve(specifier: string) {
+        const error = new Error(`Cannot find module ${specifier}`)
+        Object.assign(error, { code: 'MODULE_NOT_FOUND' })
+        throw error
+      },
+    },
+  )
   const module = { exports: {} }
   const process = {
     arch: 'arm64',
@@ -1605,16 +1614,31 @@ test('createCjsBinding does not mutate frozen load errors', (t) => {
 test('createCjsBinding forced WASI skips native addon initialization', (t) => {
   const wasiBinding = { runtime: 'wasi' }
   const requiredSpecifiers: string[] = []
-  const require = (specifier: string) => {
-    requiredSpecifiers.push(specifier)
-    if (specifier === 'fs') {
-      return { readFileSync: () => '' }
-    }
-    if (specifier === './test.wasi.cjs') {
-      return wasiBinding
-    }
-    throw new Error(`Unexpected native require: ${specifier}`)
-  }
+  const require = Object.assign(
+    (specifier: string) => {
+      requiredSpecifiers.push(specifier)
+      if (specifier === 'fs') {
+        return { readFileSync: () => '' }
+      }
+      if (specifier === './test.wasi.cjs') {
+        return wasiBinding
+      }
+      throw new Error(`Unexpected native require: ${specifier}`)
+    },
+    {
+      resolve(specifier: string) {
+        if (
+          specifier === './test.wasi.cjs' ||
+          specifier === './test.wasm32-wasi.wasm'
+        ) {
+          return specifier
+        }
+        const error = new Error(`Cannot find module ${specifier}`)
+        Object.assign(error, { code: 'MODULE_NOT_FOUND' })
+        throw error
+      },
+    },
+  )
   const module = { exports: {} }
   const process = {
     arch: 'arm64',
@@ -1635,16 +1659,25 @@ test('createCjsBinding forced WASI skips native addon initialization', (t) => {
 test('createCjsBinding forced WASI retains a lazy native fallback', (t) => {
   const nativeBinding = { runtime: 'native' }
   const requiredSpecifiers: string[] = []
-  const require = (specifier: string) => {
-    requiredSpecifiers.push(specifier)
-    if (specifier === 'fs') {
-      return { readFileSync: () => '' }
-    }
-    if (specifier === '/native.node') {
-      return nativeBinding
-    }
-    throw new Error(`Missing WASI binding: ${specifier}`)
-  }
+  const require = Object.assign(
+    (specifier: string) => {
+      requiredSpecifiers.push(specifier)
+      if (specifier === 'fs') {
+        return { readFileSync: () => '' }
+      }
+      if (specifier === '/native.node') {
+        return nativeBinding
+      }
+      throw new Error(`Missing WASI binding: ${specifier}`)
+    },
+    {
+      resolve(specifier: string) {
+        const error = new Error(`Cannot find module ${specifier}`)
+        Object.assign(error, { code: 'MODULE_NOT_FOUND' })
+        throw error
+      },
+    },
+  )
   const module = { exports: {} }
   const process = {
     arch: 'arm64',
@@ -1659,12 +1692,7 @@ test('createCjsBinding forced WASI retains a lazy native fallback', (t) => {
   new Function('require', 'module', 'process', code)(require, module, process)
 
   t.is(module.exports, nativeBinding)
-  t.deepEqual(requiredSpecifiers, [
-    'fs',
-    './test.wasi.cjs',
-    '@scope/test-wasm32-wasi',
-    '/native.node',
-  ])
+  t.deepEqual(requiredSpecifiers, ['fs', '/native.node'])
 })
 
 test('createEsmBinding is Node 12 compatible', (t) => {

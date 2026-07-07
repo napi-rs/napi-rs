@@ -51,11 +51,7 @@ function createWasiFallbackChain(
       wasiBindingLoaded = true
     } else {
       if (forceWasi) {
-        if (!wasiBindingError) {
-          wasiBindingError = candidateError
-        } else {
-          wasiBindingError.cause = candidateError
-        }${
+        wasiBindingErrors.push(candidateError)${
           isPackage
             ? `
         loadErrors.push(candidateError)`
@@ -377,34 +373,13 @@ if (!forceWasi) {
 
 if (!nativeBinding || forceWasi) {
   let wasiBinding = null
+  let wasiBindingLoaded = false
   const wasiBindingErrors = []
-  try {
-    wasiBinding = require('./${localName}.wasi.cjs')
-    nativeBinding = wasiBinding
-  } catch (err) {
-    if (forceWasi) {
-      wasiBindingErrors.push(err)
-    }
-  }
-  if (!nativeBinding) {
-    try {
-      wasiBinding = require('${pkgName}-wasm32-wasi')
-      nativeBinding = wasiBinding
-    } catch (err) {
-      if (forceWasi) {
-        wasiBindingErrors.push(err)
-        loadErrors.push(err)
-      }
-    }
-  }
-  if (!nativeBinding && forceWasi && !forceWasiError) {
+${createWasiFallbackChain(localName, pkgName, packageVersion, wasiFlavors)}
+  if (!wasiBindingLoaded && forceWasi && !forceWasiError) {
     nativeBinding = requireNative()
   }
-  if (forceWasiError && !wasiBinding) {
-  let wasiBindingLoaded = false
-  let wasiBindingError = null
-${createWasiFallbackChain(localName, pkgName, packageVersion, wasiFlavors)}
-  if (process.env.NAPI_RS_FORCE_WASI === 'error' && !wasiBindingLoaded) {
+  if (forceWasiError && !wasiBindingLoaded) {
     const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
     error.cause = createLoadErrorChain(wasiBindingErrors)
     throw error

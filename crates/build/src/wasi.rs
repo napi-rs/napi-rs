@@ -37,9 +37,14 @@ fn reactor_crt_path(sysroot: &Path, target: &str) -> PathBuf {
     .join("self-contained")
     .join("crt1-reactor.o")
 }
-  path::{Path, PathBuf},
-  process::Command,
-};
+
+fn wasi_sysroot_lib_dir(wasi_sdk_path: &Path, wasi_target: &str) -> PathBuf {
+  wasi_sdk_path
+    .join("share")
+    .join("wasi-sysroot")
+    .join("lib")
+    .join(wasi_target)
+}
 
 pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
@@ -48,6 +53,7 @@ pub fn setup() {
     target.as_str(),
     "wasm32-wasi" | "wasm32-wasi-preview1-threads" | "wasm32-wasip1-threads"
   ) || target.ends_with("-threads");
+
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");
   println!("cargo:rerun-if-env-changed=RUSTC");
   println!("cargo:rerun-if-env-changed=TARGET");
@@ -79,36 +85,22 @@ pub fn setup() {
   // 64000000 bytes = 64MiB
   println!("cargo:rustc-link-arg=-zstack-size=64000000");
   println!("cargo:rustc-link-arg=--no-check-features");
-  println!("cargo:rerun-if-env-changed=RUSTC");
+
   let rustc = env::var_os("RUSTC").expect("RUSTC must be set by Cargo");
-  let target = env::var("TARGET").expect("TARGET must be set by Cargo");
-  match rustc_sysroot(&rustc) {
-    Ok(sysroot) => {
-      let crt_reactor_path = reactor_crt_path(&sysroot, &target);
-      if crt_reactor_path.exists() {
-        println!("cargo:rustc-link-arg={}", crt_reactor_path.display());
-        println!("cargo:rustc-link-arg=--export=_initialize");
-      } else {
-        println!(
-          "cargo:warning=crt1-reactor.o not found at {}, the multi-threaded runtime may not be initialized correctly",
-          crt_reactor_path.display()
-        );
-      }
-    }
-    Err(err) => {
-      println!(
-        "cargo:warning=failed to locate crt1-reactor.o through rustc: {err}; the multi-threaded runtime may not be initialized correctly"
-      );
-    }
-  }
-  let rustc = env::var("RUSTC").expect("RUSTC must be set by Cargo");
-  let crt_reactor_path = find_crt1_reactor(&rustc, &target).unwrap_or_else(|error| {
+  let sysroot = rustc_sysroot(&rustc).unwrap_or_else(|error| {
     panic!(
-      "failed to locate crt1-reactor.o for {target}: {error}. Install the Rust standard library for this target and ensure RUSTC points to the compiler Cargo is using"
+      "failed to locate crt1-reactor.o for {target}: {error}. Ensure RUSTC points to the compiler Cargo is using"
     )
   });
+  let crt_reactor_path = reactor_crt_path(&sysroot, &target);
+  assert!(
+    crt_reactor_path.is_file(),
+    "failed to locate crt1-reactor.o for {target} at {}. Install the Rust standard library for this target",
+    crt_reactor_path.display()
+  );
   println!("cargo:rustc-link-arg={}", crt_reactor_path.display());
   println!("cargo:rustc-link-arg=--export=_initialize");
+
   if let Ok(wasi_sdk_path) = env::var("WASI_SDK_PATH") {
     let wasi_target = if has_threads {
       "wasm32-wasip1-threads"
@@ -117,8 +109,7 @@ pub fn setup() {
     };
     let wasi_lib_dir = wasi_sysroot_lib_dir(Path::new(&wasi_sdk_path), wasi_target);
     println!("cargo:rustc-link-search=native={}", wasi_lib_dir.display());
-    let setjmp_static_lib = wasi_lib_dir.join("libsetjmp.a");
-    if setjmp_static_lib.exists() {
+    if wasi_lib_dir.join("libsetjmp.a").is_file() {
       println!("cargo:rustc-link-lib=static=setjmp");
     }
   }
@@ -146,67 +137,15 @@ mod tests {
         .join("lib")
         .join("self-contained")
         .join("crt1-reactor.o")
-fn find_crt1_reactor(rustc: &str, target: &str) -> Result<PathBuf, String> {
-  let output = Command::new(rustc)
-    .args(["--print", "target-libdir", "--target", target])
-    .output()
-    .map_err(|error| format!("could not execute {rustc}: {error}"))?;
-
-  if !output.status.success() {
-    return Err(format!(
-      "{rustc} --print target-libdir failed: {}",
-      String::from_utf8_lossy(&output.stderr).trim()
-    ));
-  }
-
-  let target_libdir = String::from_utf8(output.stdout)
-    .map_err(|error| format!("rustc returned a non-UTF-8 target libdir: {error}"))?;
-  let target_libdir = target_libdir.trim();
-  if target_libdir.is_empty() {
-    return Err("rustc returned an empty target libdir".to_owned());
-  }
-
-  let path = crt1_reactor_from_target_libdir(Path::new(target_libdir));
-  if !path.is_file() {
-    return Err(format!("{} does not exist", path.display()));
-  }
-  Ok(path)
-}
-
-fn crt1_reactor_from_target_libdir(target_libdir: &Path) -> PathBuf {
-  target_libdir.join("self-contained").join("crt1-reactor.o")
-}
-
-fn wasi_sysroot_lib_dir(wasi_sdk_path: &Path, wasi_target: &str) -> PathBuf {
-  wasi_sdk_path
-    .join("share")
-    .join("wasi-sysroot")
-    .join("lib")
-    .join(wasi_target)
-}
-
-#[cfg(test)]
-mod tests {
-  use super::{crt1_reactor_from_target_libdir, wasi_sysroot_lib_dir};
-
-  #[test]
-  fn derives_reactor_from_target_libdir() {
-    let path = crt1_reactor_from_target_libdir(std::path::Path::new("/rust/target/lib"));
-    assert_eq!(
-      path,
-      std::path::Path::new("/rust/target/lib/self-contained/crt1-reactor.o")
     );
   }
 
   #[test]
   fn preserves_spaces_in_wasi_sysroot_path() {
-    let path = wasi_sysroot_lib_dir(
-      std::path::Path::new("/toolchains/WASI SDK"),
-      "wasm32-wasip1-threads",
-    );
+    let path = wasi_sysroot_lib_dir(Path::new("/toolchains/WASI SDK"), "wasm32-wasip1-threads");
     assert_eq!(
       path,
-      std::path::Path::new("/toolchains/WASI SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads")
+      Path::new("/toolchains/WASI SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads")
     );
   }
 }
