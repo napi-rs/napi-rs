@@ -688,6 +688,53 @@ test('napiCrossToolchainEnvs does not mistake non-clang tools for clang', (t) =>
   }
 })
 
+test('napiCrossToolchainEnvs detects clang behind cc-rs wrapper and argument forms', (t) => {
+  const clangFlags = `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} `
+
+  // cc-rs parses the env value before executing it (`env_tool`): the value
+  // is split on whitespace, a known wrapper prefix (`sccache clang`) runs
+  // the second token, and an argument form (`clang -target …`) runs the
+  // first token with the rest as arguments — clang runs in both cases.
+  for (const [cc, cxx] of [
+    ['sccache clang', 'sccache clang++'],
+    ['ccache clang-18', 'ccache clang++-18'],
+    ['distcc /usr/bin/clang', 'distcc /usr/bin/clang++'],
+    [
+      'clang -target aarch64-unknown-linux-gnu',
+      'clang++ -target aarch64-unknown-linux-gnu',
+    ],
+    ['/usr/bin/clang --sysroot=/x', '/usr/bin/clang++ --sysroot=/x'],
+  ]) {
+    const envs = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      'aarch64-unknown-linux-gnu',
+      { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+    )
+
+    t.is(envs.TARGET_CFLAGS, clangFlags, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, clangFlags, `TARGET_CXX=${cxx}`)
+  }
+})
+
+test('napiCrossToolchainEnvs does not mistake wrapped or argument-form non-clang for clang', (t) => {
+  for (const [cc, cxx] of [
+    ['sccache gcc', 'sccache g++'],
+    ['ccache gcc', 'ccache g++'],
+    ['gcc -B/foo', 'g++ -B/foo'],
+    // The compiler token behind the wrapper is still not a compiler.
+    ['sccache clang-format', 'sccache clang-format'],
+  ]) {
+    const envs = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      'aarch64-unknown-linux-gnu',
+      { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
+    )
+
+    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
+    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+  }
+})
+
 test('buildProject rejects invalid cross flag combinations upfront', async (t) => {
   const { projectDir } = t.context
 

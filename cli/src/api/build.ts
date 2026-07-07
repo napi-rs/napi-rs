@@ -313,13 +313,35 @@ export function napiCrossToolchainEnvs(
   const targetSysroot = env.TARGET_SYSROOT || envs.TARGET_SYSROOT
   setEnvIfNotExists('BINDGEN_EXTRA_CLANG_ARGS', `--sysroot=${targetSysroot}`)
 
-  // Match on the executable name so path-qualified (`/usr/bin/clang`),
+  // cc-rs parses the env value before executing it (`env_tool` in cc's
+  // lib.rs): the value is split on whitespace; when the first token is a
+  // known wrapper (`sccache clang`) the second token is the compiler that
+  // actually runs, otherwise the first token is and the rest are arguments
+  // (`clang -target …`). Extract that compiler token the same way, then
+  // match on its executable name so path-qualified (`/usr/bin/clang`),
   // triple-prefixed (`aarch64-linux-gnu-clang`) and versioned (`clang-18`)
   // compilers are all recognized — but not clang-family tools that are not
   // compilers (`clang-format`).
-  const isClangCompiler = (compiler: string | undefined): boolean =>
-    compiler !== undefined &&
-    /(^|-)clang(\+\+)?(-\d+)?$/.test(basename(compiler))
+  const ccWrappers = new Set([
+    'ccache',
+    'distcc',
+    'sccache',
+    'icecc',
+    'cachepot',
+    'buildcache',
+    'kache',
+  ])
+  const isClangCompiler = (value: string | undefined): boolean => {
+    if (!value) {
+      return false
+    }
+    const [first, second] = value.trim().split(/\s+/)
+    const compiler = first && ccWrappers.has(basename(first)) ? second : first
+    return (
+      compiler !== undefined &&
+      /(^|-)clang(\+\+)?(-\d+)?$/.test(basename(compiler))
+    )
+  }
 
   // Detect clang on the EFFECTIVE target compiler: the user's TARGET_CC if
   // set, otherwise the toolchain gcc exported above (`envs.TARGET_CC`).
