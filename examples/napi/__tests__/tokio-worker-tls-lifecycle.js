@@ -32,7 +32,10 @@ async function readResult(path) {
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
     try {
-      return await readFile(path, 'utf8')
+      const result = await readFile(path, 'utf8')
+      if (result.length > 0) {
+        return result
+      }
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         throw error

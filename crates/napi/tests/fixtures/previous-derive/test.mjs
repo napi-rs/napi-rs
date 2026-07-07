@@ -39,6 +39,9 @@ for (const [binding, value] of [
   const factoryInstance = binding.PreviousGeneratedClass.create(value + 1)
   assert.ok(factoryInstance instanceof binding.PreviousGeneratedClass)
   assert.equal(factoryInstance.value, value + 1)
+
+  const external = binding.previousGeneratedExternal(value + 2)
+  assert.equal(binding.previousGeneratedExternalValue(external), value + 2)
 }
 
 const before = first.previousRuntimeEnterCount()

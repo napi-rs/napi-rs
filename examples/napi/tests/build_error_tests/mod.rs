@@ -16,7 +16,6 @@ pub mod promise_raw_callback_lifetime_then;
 pub mod reference_family_class_instance_mutability;
 pub mod reference_family_mutability;
 pub mod reference_family_share_with;
-pub mod reference_family_thread_safety;
 pub mod ts_arg_type_1;
 pub mod ts_arg_type_2;
 pub mod ts_arg_type_3;

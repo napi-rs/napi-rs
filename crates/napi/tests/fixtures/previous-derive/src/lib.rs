@@ -8,7 +8,7 @@ use std::{
 };
 
 use napi::bindgen_prelude::{
-  try_register_async_runtime, AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask,
+  try_register_async_runtime, AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask, External,
 };
 use napi_derive::napi;
 
@@ -123,6 +123,16 @@ pub fn previous_generated_class(value: u32) -> PreviousGeneratedClass {
 #[napi]
 pub fn previous_generated_class_value(value: &PreviousGeneratedClass) -> u32 {
   value.value
+}
+
+#[napi]
+pub fn previous_generated_external(value: u32) -> External<u32> {
+  External::new(value)
+}
+
+#[napi]
+pub fn previous_generated_external_value(value: &External<u32>) -> u32 {
+  **value
 }
 
 #[napi(async_runtime)]

@@ -96,16 +96,24 @@ static EXTERNAL_PROVENANCE: LazyLock<Mutex<HashMap<ExternalToken, ExternalProven
   LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn allocate_external_token() -> Result<ExternalToken> {
-  NEXT_EXTERNAL_TOKEN
-    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-      current.checked_add(1)
-    })
-    .map_err(|_| {
+  let mut current = NEXT_EXTERNAL_TOKEN.load(Ordering::Relaxed);
+  loop {
+    let next = current.checked_add(1).ok_or_else(|| {
       Error::new(
         Status::GenericFailure,
         "External token space has been exhausted".to_owned(),
       )
-    })
+    })?;
+    match NEXT_EXTERNAL_TOKEN.compare_exchange_weak(
+      current,
+      next,
+      Ordering::Relaxed,
+      Ordering::Relaxed,
+    ) {
+      Ok(_) => return Ok(current),
+      Err(observed) => current = observed,
+    }
+  }
 }
 
 fn external_token(pointer: *mut c_void) -> Option<ExternalToken> {
@@ -588,7 +596,7 @@ impl<T: 'static> FromNapiRef for External<T> {
     )?;
     let control = clone_external_control::<T>(unknown_tagged_object, env, napi_val)?;
     unsafe {
-      crate::bindgen_runtime::register_native_borrow_with_value(
+      crate::bindgen_runtime::register_legacy_native_borrow_with_value(
         env,
         napi_val,
         control.external.get(),
@@ -637,7 +645,9 @@ impl<T: 'static> ToNapiValue for External<T> {
 ///
 /// The reference can only be converted back to JavaScript through its owning environment. During
 /// environment teardown, the JavaScript reference is closed before finalizers run; the Rust value
-/// remains available through `Deref` until the last `ExternalRef` is dropped.
+/// remains available through immutable `Deref` access until the last `ExternalRef` is dropped.
+/// Mutable access is deliberately not provided because multiple `ExternalRef` values can point to
+/// the same allocation; wrap `T` in an interior-mutability type when shared mutation is required.
 pub struct ExternalRef<T: 'static> {
   control: Arc<ExternalControlBlock<T>>,
   pub(crate) raw: sys::napi_ref,

@@ -80,4 +80,5 @@ features = ["skip_collect_on_exit"]
 napi-build = { path = "../../crates/build" }
 
 [dev-dependencies]
+static_assertions = "1"
 trybuild = "1.0"

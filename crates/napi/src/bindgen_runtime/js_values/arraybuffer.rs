@@ -93,6 +93,18 @@ extern "C" {
   ) -> crate::sys::napi_status;
 }
 
+#[cfg(target_family = "wasm")]
+fn sync_arraybuffer_from_wasm(
+  env: sys::napi_env,
+  arraybuffer: &mut sys::napi_value,
+  byte_length: usize,
+) -> Result<()> {
+  check_status!(
+    unsafe { emnapi_sync_memory(env, false, arraybuffer, 0, byte_length) },
+    "Failed to sync ArrayBuffer data from WebAssembly memory"
+  )
+}
+
 fn checked_typed_array_byte_length<T>(length: usize) -> Result<usize> {
   length.checked_mul(mem::size_of::<T>()).ok_or_else(|| {
     Error::new(
@@ -216,6 +228,8 @@ impl<'env> ArrayBuffer<'env> {
         let underlying_slice: &mut [u8] =
           unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
         underlying_slice.copy_from_slice(data.as_slice());
+        #[cfg(target_family = "wasm")]
+        sync_arraybuffer_from_wasm(env.0, &mut buf, len)?;
       }
       inner_ptr = underlying_data.cast();
     } else if status == sys::Status::napi_ok {
@@ -305,12 +319,20 @@ impl<'env> ArrayBuffer<'env> {
       if status == sys::Status::napi_ok && len > 0 {
         unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
       }
+      #[cfg(target_family = "wasm")]
+      let sync_result = if status == sys::Status::napi_ok && len > 0 {
+        sync_arraybuffer_from_wasm(env.0, &mut arraybuffer_value, len)
+      } else {
+        Ok(())
+      };
       if status == sys::Status::napi_ok {
         result_data = underlying_data.cast();
       }
       // Always call finalize to clean up caller's resources, even on error
       finalize(*env, hint);
       check_status!(status, "Failed to create arraybuffer from data")?;
+      #[cfg(target_family = "wasm")]
+      sync_result?;
     } else if status != sys::Status::napi_ok {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       finalize(*env, hint);
@@ -346,6 +368,8 @@ impl<'env> ArrayBuffer<'env> {
     )?;
     if len > 0 {
       unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
+      #[cfg(target_family = "wasm")]
+      sync_arraybuffer_from_wasm(env.0, &mut arraybuffer_value, len)?;
     }
 
     Ok(Self {
@@ -836,6 +860,8 @@ macro_rules! impl_typed_array {
             check_status!(status, "Create external arraybuffer failed")?;
             if length > 0 {
               unsafe { std::ptr::copy_nonoverlapping(hint.data.cast(), underlying_data, length) };
+              #[cfg(target_family = "wasm")]
+              sync_arraybuffer_from_wasm(env, &mut arraybuffer_value, length)?;
             }
           } else if status != sys::Status::napi_ok {
             drop(unsafe { Box::from_raw(hint_ptr) });
@@ -926,6 +952,8 @@ macro_rules! impl_typed_array {
             check_status!(status, "Create external arraybuffer failed")?;
             if length > 0 {
               unsafe { std::ptr::copy_nonoverlapping(val_data.cast(), underlying_data, length) };
+              #[cfg(target_family = "wasm")]
+              sync_arraybuffer_from_wasm(env, &mut arraybuffer_value, length)?;
             }
           } else if status == sys::Status::napi_ok {
             // N-API owns the hint from this point. Clear the original before any later fallible call.
@@ -1057,6 +1085,8 @@ macro_rules! impl_from_slice {
             let underlying_slice: &mut [u8] =
               unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), array_buffer_len) };
             underlying_slice.copy_from_slice(unsafe { core::slice::from_raw_parts(inner_ptr.cast(), array_buffer_len) });
+            #[cfg(target_family = "wasm")]
+            sync_arraybuffer_from_wasm(env.0, &mut buf, array_buffer_len)?;
           }
           inner_ptr = underlying_data.cast();
         } else if status == sys::Status::napi_ok {
@@ -1171,12 +1201,20 @@ macro_rules! impl_from_slice {
               unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), array_buffer_len) };
             underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data.cast(), array_buffer_len) });
           }
+          #[cfg(target_family = "wasm")]
+          let sync_result = if status == sys::Status::napi_ok && array_buffer_len > 0 {
+            sync_arraybuffer_from_wasm(env.0, &mut arraybuffer_value, array_buffer_len)
+          } else {
+            Ok(())
+          };
           if status == sys::Status::napi_ok {
             result_data = underlying_data.cast();
           }
           // Always call finalize to clean up caller's resources, even on error
           finalize(*env, hint);
           check_status!(status, "Failed to create arraybuffer from data")?;
+          #[cfg(target_family = "wasm")]
+          sync_result?;
         } else if status != sys::Status::napi_ok {
           let (hint, finalize) = *Box::from_raw(hint_ptr);
           finalize(*env, hint);
@@ -1242,6 +1280,8 @@ macro_rules! impl_from_slice {
               byte_length,
             )
           };
+          #[cfg(target_family = "wasm")]
+          sync_arraybuffer_from_wasm(env.0, &mut arraybuffer_value, byte_length)?;
         }
 
         let mut napi_val = ptr::null_mut();
@@ -1837,6 +1877,8 @@ impl<'env> Uint8ClampedSlice<'env> {
         let underlying_slice: &mut [u8] =
           unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
         underlying_slice.copy_from_slice(data.as_slice());
+        #[cfg(target_family = "wasm")]
+        sync_arraybuffer_from_wasm(env.0, &mut buf, len)?;
       }
       inner_ptr = underlying_data.cast();
     } else if status == sys::Status::napi_ok {
@@ -1943,12 +1985,20 @@ impl<'env> Uint8ClampedSlice<'env> {
           unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
         underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
       }
+      #[cfg(target_family = "wasm")]
+      let sync_result = if status == sys::Status::napi_ok && len > 0 {
+        sync_arraybuffer_from_wasm(env.0, &mut arraybuffer_value, len)
+      } else {
+        Ok(())
+      };
       if status == sys::Status::napi_ok {
         result_data = underlying_data.cast();
       }
       // Always call finalize to clean up caller's resources, even on error
       finalize(*env, hint);
       check_status!(status, "Failed to create arraybuffer from data")?;
+      #[cfg(target_family = "wasm")]
+      sync_result?;
     } else if status != sys::Status::napi_ok {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       finalize(*env, hint);
@@ -1998,6 +2048,8 @@ impl<'env> Uint8ClampedSlice<'env> {
     )?;
     if len > 0 {
       unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
+      #[cfg(target_family = "wasm")]
+      sync_arraybuffer_from_wasm(env.0, &mut arraybuffer_value, len)?;
     }
 
     let mut napi_val = ptr::null_mut();

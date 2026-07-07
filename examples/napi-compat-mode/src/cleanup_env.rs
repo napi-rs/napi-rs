@@ -1,7 +1,8 @@
 use std::cell::Cell;
 
 use napi::{
-  bindgen_prelude::External, CallContext, CleanupEnvHook, ContextlessResult, Env, JsObject, Result,
+  bindgen_prelude::{External, ExternalRef},
+  CallContext, CleanupEnvHook, ContextlessResult, Env, JsObject, Result,
 };
 
 #[contextless_function]
@@ -14,7 +15,7 @@ fn add_cleanup_hook(env: Env) -> ContextlessResult<External<Cell<Option<CleanupE
 
 #[js_function(1)]
 fn remove_cleanup_hook(ctx: CallContext) -> Result<()> {
-  let hook = ctx.get::<&External<Cell<Option<CleanupEnvHook<()>>>>>(0)?;
+  let hook = ctx.get::<ExternalRef<Cell<Option<CleanupEnvHook<()>>>>>(0)?;
   let hook = hook
     .take()
     .ok_or_else(|| napi::Error::from_reason("cleanup hook was already removed"))?;

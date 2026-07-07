@@ -1,5 +1,3 @@
-#[cfg(not(feature = "noop"))]
-use std::cell::Cell;
 use std::cell::{LazyCell, RefCell};
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
@@ -204,8 +202,6 @@ pub(crate) fn with_registered_runtime_env<T>(env: usize, f: impl FnOnce() -> T) 
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
   static CALLBACK_ENV_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
-  #[cfg(not(feature = "noop"))]
-  static MODULE_REGISTRATION_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub(crate) struct CallbackEnvGuard {
@@ -241,34 +237,6 @@ pub(crate) fn current_callback_env() -> Option<sys::napi_env> {
       .copied()
       .map(|env| env as sys::napi_env)
   })
-}
-
-#[cfg(not(feature = "noop"))]
-struct ModuleRegistrationGuard;
-
-#[cfg(not(feature = "noop"))]
-impl ModuleRegistrationGuard {
-  fn enter() -> Result<Self> {
-    MODULE_REGISTRATION_ACTIVE.with(|active| {
-      if active.replace(true) {
-        Err(crate::Error::new(
-          crate::Status::GenericFailure,
-          "N-API module registration cannot be re-entered on the same thread",
-        ))
-      } else {
-        Ok(Self)
-      }
-    })
-  }
-}
-
-#[cfg(not(feature = "noop"))]
-impl Drop for ModuleRegistrationGuard {
-  fn drop(&mut self) {
-    MODULE_REGISTRATION_ACTIVE.with(|active| {
-      debug_assert!(active.replace(false));
-    });
-  }
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -674,13 +642,6 @@ pub unsafe extern "C" fn napi_register_module_v1(
   unsafe {
     sys::setup();
   }
-  let _registration_guard = match ModuleRegistrationGuard::enter() {
-    Ok(guard) => guard,
-    Err(error) => {
-      JsError::from(error).throw_into(env);
-      return exports;
-    }
-  };
   #[cfg(feature = "node_version_detect")]
   {
     NODE_VERSION.get_or_init(|| {

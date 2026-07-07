@@ -481,52 +481,24 @@ struct ShutdownProbe {
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 #[derive(Default)]
 struct DuplicateProbeRuntime {
-  probe: Mutex<Option<ShutdownProbe>>,
+  stopped_path: Mutex<Option<String>>,
 }
 
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 impl DuplicateProbeRuntime {
   fn with_probe(started_path: String, stopped_path: String) -> Result<Self> {
-    let (stop_tx, stop_rx) = mpsc::sync_channel(0);
-    let (started_tx, started_rx) = mpsc::sync_channel(1);
-    let worker = thread::Builder::new()
-      .name("napi-duplicate-runtime-probe".to_owned())
-      .spawn(move || {
-        let start_result = write_file(Path::new(&started_path), "started")
-          .map_err(|error| format!("failed to publish duplicate probe startup: {error}"));
-        let started = start_result.is_ok();
-        let _ = started_tx.send(start_result);
-        if started {
-          let _ = stop_rx.recv();
-          let _ = write_file(Path::new(&stopped_path), "stopped");
-        }
-      })
-      .map_err(|error| {
-        Error::new(
-          Status::GenericFailure,
-          format!("failed to start duplicate runtime probe: {error}"),
-        )
-      })?;
-    match started_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(Ok(())) => Ok(Self {
-        probe: Mutex::new(Some(ShutdownProbe {
-          stop: stop_tx,
-          worker,
-        })),
-      }),
-      Ok(Err(error)) => {
-        let _ = worker.join();
-        Err(Error::new(Status::GenericFailure, error))
-      }
-      Err(error) => {
-        drop(stop_tx);
-        let _ = worker.join();
-        Err(Error::new(
-          Status::GenericFailure,
-          format!("duplicate runtime probe did not start: {error}"),
-        ))
-      }
-    }
+    // `module_init` runs while the native loader lock is held. Keep a
+    // rejected duplicate dormant: a worker started here can block on lazy
+    // symbol resolution while this thread waits to join it.
+    write_file(Path::new(&started_path), "started").map_err(|error| {
+      Error::new(
+        Status::GenericFailure,
+        format!("failed to publish duplicate probe startup: {error}"),
+      )
+    })?;
+    Ok(Self {
+      stopped_path: Mutex::new(Some(stopped_path)),
+    })
   }
 }
 
@@ -539,14 +511,15 @@ unsafe impl AsyncRuntime for DuplicateProbeRuntime {
   fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
 
   fn shutdown(&self) -> Result<()> {
-    let Some(probe) = lock(&self.probe).take() else {
+    let Some(stopped_path) = lock(&self.stopped_path).take() else {
       return Ok(());
     };
-    let _ = probe.stop.send(());
-    probe
-      .worker
-      .join()
-      .map_err(|_| Error::new(Status::GenericFailure, "duplicate runtime probe panicked"))
+    write_file(Path::new(&stopped_path), "stopped").map_err(|error| {
+      Error::new(
+        Status::GenericFailure,
+        format!("failed to publish duplicate probe shutdown: {error}"),
+      )
+    })
   }
 }
 
@@ -638,10 +611,9 @@ impl ArcWake for Task {
       return;
     };
     runtime.wake_calls.fetch_add(1, Ordering::Relaxed);
-    if runtime.enqueue(task.clone()) {
-      if !runtime.defer_next_task_wake.swap(false, Ordering::AcqRel) {
-        runtime.drain();
-      }
+    if runtime.enqueue(task.clone()) && !runtime.defer_next_task_wake.swap(false, Ordering::AcqRel)
+    {
+      runtime.drain();
     }
   }
 }

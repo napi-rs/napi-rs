@@ -1,6 +1,9 @@
 use std::convert::TryInto;
 
-use napi::{bindgen_prelude::External, CallContext, JsNumber, JsObject, Result};
+use napi::{
+  bindgen_prelude::{External, ExternalRef},
+  CallContext, JsNumber, JsObject, Result,
+};
 
 struct NativeObject {
   count: i32,
@@ -22,7 +25,7 @@ pub fn create_external_with_hint(ctx: CallContext) -> Result<External<NativeObje
 
 #[js_function(1)]
 pub fn get_external_count(ctx: CallContext) -> Result<JsNumber> {
-  let attached_obj = ctx.get::<&External<NativeObject>>(0)?;
+  let attached_obj = ctx.get::<ExternalRef<NativeObject>>(0)?;
   ctx.env.create_int32(attached_obj.count)
 }
 

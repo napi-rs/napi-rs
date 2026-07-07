@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `ThreadsafeFunctionHandle` and the public `ThreadsafeFunction::handle` field are now private, and `ThreadsafeFunction::raw()` was removed, because exposing an unleased Node-API pointer allowed release and finalization races. `ThreadsafeFunction::abort` now takes `&self` and is shared and idempotent, so borrowed or `Arc`-wrapped callbacks can call `callback.abort()` directly without cloning merely to consume the handle. No raw-pointer replacement is provided.
 - **Breaking:** Thread-safe function calls now require queued payloads and callee-handled error statuses to be `Send`, return-value callbacks to be `Send + 'static`, async return values to be `Send`, and error-status types to be `'static`. These bounds prevent values queued from native threads or retained past the initiating stack frame from crossing threads or outliving borrowed data unsafely.
 - **Breaking:** `ExternalRef`, `Reference`, and `SharedReference` no longer expose `DerefMut` or implement `Sync`, and `WeakReference::get_mut` was removed. Cloned wrappers can point to the same native allocation, so those APIs allowed safe Rust to create aliased mutable references or race access across threads. The lifetime-extending `Reference::share_with` and `SharedReference::share_with` constructors are now unsafe and document their exclusivity and non-escape requirements.
-- **Breaking:** `JsExternal::get_value` now returns `&T`, `External<T>` no longer implements `FromNapiMutRef`, and mutable legacy external access requires the explicitly unsafe `JsExternal::get_value_mut`. Use `ExternalRef::with` / `with_mut` when ownership must outlive the current callback.
+- **Breaking:** `JsExternal::get_value` now returns `&T`, `External<T>` no longer implements `FromNapiMutRef`, and mutable legacy external access requires the explicitly unsafe `JsExternal::get_value_mut`. `ExternalRef` provides owned immutable access when ownership must outlive the current callback; it deliberately has no mutable accessor because multiple references can alias the same allocation. Wrap the external value in an interior-mutability type when shared mutation is required.
 - **Breaking:** Generated native class references now reject overlapping mutable borrows, including public field accessors and reentrant conversion callbacks. Compatibility accessors such as `CallContext::get::<&T>()` reject bare class references at public callback boundaries, and `Array::get_ref` was removed; use owned `Reference<T>` values with `Reference::with` / `Reference::with_mut` for scoped access. `ClassInstance<T>` now owns a strong JavaScript reference, resolves a fresh Node-API handle for every JavaScript conversion, and exposes `clone_reference` / `into_reference` instead of a cached public `napi_value`. Its `as_object` method now takes the current `Env` and returns `Result<Object>`.
 - **Breaking:** Generated iterator and async-iterator callbacks now reject reentrant mutable access
   to the same native class value instead of constructing overlapping `&mut T` references.
@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference drops are released during environment teardown.
 - Restored the hidden `within_custom_runtime_if_available` entry point as a forwarding
   compatibility layer for previously released `napi-derive` code.
+- Repeated native addon initialization through `process.dlopen` no longer rejects valid same-thread
+  loads as recursive module registration.
+- WASI ArrayBuffer and TypedArray fallbacks now synchronize bytes copied from WebAssembly memory
+  into emnapi backing stores and still invoke caller finalizers when synchronization fails.
 
 ## [3.10.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.2...napi-v3.10.3) - 2026-07-04
 
