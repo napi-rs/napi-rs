@@ -1275,6 +1275,198 @@ test('pre-publish migrates legacy unmarked root facades', async (t) => {
   t.true(markerLines.every((line) => line === markerLines[0]))
 })
 
+test('pre-publish removes partial managed root facades when the target is removed', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const generatedFiles = [
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts',
+    'pre-publish-wasi.wasm32-wasip1.wasm',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts',
+  ]
+  const missingWasm = generatedFiles[2]
+  await rm(join(t.context.tmpDir, missingWasm))
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.napi.targets = []
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+  const packageJsonBeforeDryRun = await readFile(packageJsonPath, 'utf8')
+  const survivingFacadesBeforeDryRun = await Promise.all(
+    generatedFiles
+      .filter((file) => file !== missingWasm)
+      .map((file) => readFile(join(t.context.tmpDir, file))),
+  )
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: true,
+    ghRelease: false,
+    tagStyle: 'npm',
+  })
+
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBeforeDryRun)
+  t.false(existsSync(join(t.context.tmpDir, missingWasm)))
+  t.deepEqual(
+    await Promise.all(
+      generatedFiles
+        .filter((file) => file !== missingWasm)
+        .map((file) => readFile(join(t.context.tmpDir, file))),
+    ),
+    survivingFacadesBeforeDryRun,
+  )
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const reconciledPackageJson = JSON.parse(
+    await readFile(packageJsonPath, 'utf8'),
+  )
+  t.false(Object.hasOwn(reconciledPackageJson.exports ?? {}, './workerd'))
+  t.false(Object.hasOwn(reconciledPackageJson.exports ?? {}, './wasm'))
+  t.false(Object.hasOwn(reconciledPackageJson.exports ?? {}, './wasm.wasm'))
+  for (const file of generatedFiles) {
+    t.false(existsSync(join(t.context.tmpDir, file)))
+  }
+})
+
+test('pre-publish repairs partial managed root facades', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const workerdEntry = 'pre-publish-wasi.wasm32-wasip1.workerd.mjs'
+  const missingWorkerdType = 'pre-publish-wasi.wasm32-wasip1.workerd.d.mts'
+  const corruptWasmType = 'pre-publish-wasi.wasm32-wasip1.wasm.d.mts'
+  const originalWorkerdEntry = await readFile(
+    join(t.context.tmpDir, workerdEntry),
+    'utf8',
+  )
+  const originalMarkerLine = originalWorkerdEntry.slice(
+    0,
+    originalWorkerdEntry.indexOf('\n'),
+  )
+  await rm(join(t.context.tmpDir, missingWorkerdType))
+  await writeFile(
+    join(t.context.tmpDir, workerdEntry),
+    `${originalMarkerLine}\nexport const corruptWorkerd = true\n`,
+  )
+  await writeFile(
+    join(t.context.tmpDir, corruptWasmType),
+    'export declare const corrupt: true\n',
+  )
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJsonBeforeDryRun = await readFile(packageJsonPath, 'utf8')
+  const workerdEntryBeforeDryRun = await readFile(
+    join(t.context.tmpDir, workerdEntry),
+    'utf8',
+  )
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: true,
+    ghRelease: false,
+    tagStyle: 'npm',
+  })
+
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBeforeDryRun)
+  t.false(existsSync(join(t.context.tmpDir, missingWorkerdType)))
+  t.is(
+    await readFile(join(t.context.tmpDir, corruptWasmType), 'utf8'),
+    'export declare const corrupt: true\n',
+  )
+  t.is(
+    await readFile(join(t.context.tmpDir, workerdEntry), 'utf8'),
+    workerdEntryBeforeDryRun,
+  )
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const repairedWorkerdEntry = await readFile(
+    join(t.context.tmpDir, workerdEntry),
+    'utf8',
+  )
+  const markerLine = repairedWorkerdEntry.slice(
+    0,
+    repairedWorkerdEntry.indexOf('\n'),
+  )
+  t.is(
+    await readFile(join(t.context.tmpDir, missingWorkerdType), 'utf8'),
+    repairedWorkerdEntry,
+  )
+  t.is(
+    await readFile(join(t.context.tmpDir, corruptWasmType), 'utf8'),
+    `${markerLine}\n${createWasmModuleTypeDef()}`,
+  )
+})
+
+test('pre-publish rejects ambiguous partial root facades without mutation', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const missingFile = 'pre-publish-wasi.wasm32-wasip1.workerd.d.mts'
+  const customFacades = {
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs':
+      'export const userWorkerd = true\n',
+    'pre-publish-wasi.wasm32-wasip1.wasm': 'user-owned wasm',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts':
+      'export declare const userWasm: true\n',
+  }
+  await rm(join(t.context.tmpDir, missingFile))
+  await Promise.all(
+    Object.entries(customFacades).map(([file, contents]) =>
+      writeFile(join(t.context.tmpDir, file), contents),
+    ),
+  )
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJsonBefore = await readFile(packageJsonPath, 'utf8')
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+
+  t.regex(error.message, /partial or corrupt/)
+  t.regex(error.message, /ownership cannot be verified/)
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBefore)
+  t.false(existsSync(join(t.context.tmpDir, missingFile)))
+  for (const [file, contents] of Object.entries(customFacades)) {
+    t.is(await readFile(join(t.context.tmpDir, file), 'utf8'), contents)
+  }
+})
+
 test('pre-publish removes managed root facades when the threadless target is removed', async (t) => {
   const publishConfigExports = {
     import: './index.mjs',
@@ -1516,6 +1708,21 @@ test('pre-publish preflights facade conflicts before updating versions', async (
   const flavorManifest = JSON.parse(await readFile(flavorManifestPath, 'utf8'))
   flavorManifest.version = '0.0.0-unpublished'
   await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+  await writeFile(
+    join(
+      t.context.tmpDir,
+      'npm',
+      'wasm32-wasip1',
+      'pre-publish-wasi.wasip1.d.cts',
+    ),
+    "export { staged } from './types/staged.js'\n",
+  )
+  await mkdir(join(t.context.tmpDir, 'types'))
+  await writeFile(
+    join(t.context.tmpDir, 'types', 'staged.d.ts'),
+    'export declare const staged: true\n',
+  )
+  const flavorManifestBefore = await readFile(flavorManifestPath, 'utf8')
 
   await t.throwsAsync(() =>
     prePublish({
@@ -1526,10 +1733,12 @@ test('pre-publish preflights facade conflicts before updating versions', async (
       skipOptionalPublish: true,
     }),
   )
-  const unchangedManifest = JSON.parse(
-    await readFile(flavorManifestPath, 'utf8'),
+  t.is(await readFile(flavorManifestPath, 'utf8'), flavorManifestBefore)
+  t.false(
+    existsSync(
+      join(t.context.tmpDir, 'npm', 'wasm32-wasip1', 'types', 'staged.d.ts'),
+    ),
   )
-  t.is(unchangedManifest.version, '0.0.0-unpublished')
 })
 
 test('pre-publish rejects root facades omitted by npm pack', async (t) => {
@@ -1539,7 +1748,29 @@ test('pre-publish rejects root facades omitted by npm pack', async (t) => {
     '*.wasm\n*.wasm.d.mts\n*.workerd.mjs\n*.workerd.d.mts\n',
   )
 
-  const error = await t.throwsAsync(() =>
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const flavorManifestPath = join(
+    t.context.tmpDir,
+    'npm',
+    'wasm32-wasip1',
+    'package.json',
+  )
+  const packageJsonBefore = await readFile(packageJsonPath, 'utf8')
+  const flavorManifestBefore = await readFile(flavorManifestPath, 'utf8')
+  const dryRunError = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(dryRunError.message, /paths omitted by npm pack/)
+  t.regex(dryRunError.message, /package\.json "files".*\.npmignore/)
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBefore)
+  t.is(await readFile(flavorManifestPath, 'utf8'), flavorManifestBefore)
+
+  const realRunError = await t.throwsAsync(() =>
     prePublish({
       cwd: t.context.tmpDir,
       dryRun: false,
@@ -1548,8 +1779,14 @@ test('pre-publish rejects root facades omitted by npm pack', async (t) => {
       skipOptionalPublish: true,
     }),
   )
-  t.regex(error.message, /paths omitted by npm pack/)
-  t.regex(error.message, /package\.json "files".*\.npmignore/)
+  t.regex(realRunError.message, /paths omitted by npm pack/)
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBefore)
+  t.is(await readFile(flavorManifestPath, 'utf8'), flavorManifestBefore)
+  t.false(
+    existsSync(
+      join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.workerd.mjs'),
+    ),
+  )
 })
 
 test('pre-publish rejects exported directories omitted by npm pack', async (t) => {
@@ -1564,7 +1801,28 @@ test('pre-publish rejects exported directories omitted by npm pack', async (t) =
   await writeFile(join(t.context.tmpDir, 'dist', 'index.js'), 'export {}\n')
   await writeFile(join(t.context.tmpDir, '.npmignore'), 'dist/\n')
 
-  const error = await t.throwsAsync(() =>
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const flavorManifestPath = join(
+    t.context.tmpDir,
+    'npm',
+    'wasm32-wasip1',
+    'package.json',
+  )
+  const packageJsonBefore = await readFile(packageJsonPath, 'utf8')
+  const flavorManifestBefore = await readFile(flavorManifestPath, 'utf8')
+  const dryRunError = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(dryRunError.message, /paths omitted by npm pack: dist/)
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBefore)
+  t.is(await readFile(flavorManifestPath, 'utf8'), flavorManifestBefore)
+
+  const realRunError = await t.throwsAsync(() =>
     prePublish({
       cwd: t.context.tmpDir,
       dryRun: false,
@@ -1573,7 +1831,9 @@ test('pre-publish rejects exported directories omitted by npm pack', async (t) =
       skipOptionalPublish: true,
     }),
   )
-  t.regex(error.message, /paths omitted by npm pack: dist/)
+  t.regex(realRunError.message, /paths omitted by npm pack: dist/)
+  t.is(await readFile(packageJsonPath, 'utf8'), packageJsonBefore)
+  t.is(await readFile(flavorManifestPath, 'utf8'), flavorManifestBefore)
 })
 
 test('pre-publish accepts root facades in the npm packlist without a files allowlist', async (t) => {

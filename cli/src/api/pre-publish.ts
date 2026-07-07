@@ -21,7 +21,6 @@ import {
   debugFactory,
   copyFileAsync,
   mkdirAsync,
-  updatePackageJson,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   writeFileAsync,
@@ -71,23 +70,19 @@ export async function prePublish(userOptions: PrePublishOptions) {
     (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
   )
 
+  const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
   for (const target of targets) {
     const pkgDir = resolve(options.cwd, options.npmDir, target.platformArchABI)
-    await validateReleasePackage({
-      pkgDir,
-      rootDir,
-      packageName,
-      binaryName,
-      target,
-      requireDirectBufferDependency:
-        wasm?.browser?.buffer === true && wasm.browser.fs !== true,
-      materializeDeclarationDependencies: !options.dryRun,
-    })
-  }
-  if (threadlessWasiTarget) {
-    validateRootPackagePaths(
-      rootDir,
-      collectRootPackagePathReferences(packageJson),
+    releasePackagePlans.push(
+      await validateReleasePackage({
+        pkgDir,
+        rootDir,
+        packageName,
+        binaryName,
+        target,
+        requireDirectBufferDependency:
+          wasm?.browser?.buffer === true && wasm.browser.fs !== true,
+      }),
     )
   }
   const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
@@ -112,6 +107,25 @@ export async function prePublish(userOptions: PrePublishOptions) {
       reconciledPackageJson,
       rootFacade,
     )
+  }
+  const optionalDependencies = {
+    ...asRecord(packageJson.optionalDependencies),
+  }
+  for (const suffix of MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES) {
+    delete optionalDependencies[`${packageName}-${suffix}`]
+  }
+  for (const target of targets) {
+    optionalDependencies[`${packageName}-${target.platformArchABI}`] =
+      packageJson.version
+  }
+  const rootReleasePlan: RootReleaseMaterializationPlan = {
+    packageJson: reconciledPackageJson,
+    optionalDependencies,
+    facade: rootFacade,
+    staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+  }
+  if (rootFacade) {
+    await validateRootReleasePlan(rootDir, rootReleasePlan)
   }
 
   async function createGhRelease(packageName: string, version: string) {
@@ -206,53 +220,11 @@ export async function prePublish(userOptions: PrePublishOptions) {
   }
 
   if (!options.dryRun) {
+    for (const plan of releasePackagePlans) {
+      await materializeReleasePackagePlan(plan)
+    }
     await version(userOptions)
-    const optionalDependencies = {
-      ...asRecord(packageJson.optionalDependencies),
-    }
-    for (const suffix of MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES) {
-      delete optionalDependencies[`${packageName}-${suffix}`]
-    }
-    for (const target of targets) {
-      optionalDependencies[`${packageName}-${target.platformArchABI}`] =
-        packageJson.version
-    }
-    const packageJsonUpdate: Record<string, unknown> = {
-      optionalDependencies,
-    }
-    if (rootFacade) {
-      await materializeThreadlessWasiRootFacade(rootDir, rootFacade)
-    }
-    await updatePackageJson(packageJsonPath, packageJsonUpdate)
-    // updatePackageJson recursively merges objects. Facade fields need exact
-    // replacement so removed targets and renamed binaries do not leave stale
-    // exports or files behind.
-    const updatedPackageJson = JSON.parse(
-      await readFileAsync(packageJsonPath, 'utf8'),
-    )
-    updatedPackageJson.optionalDependencies = optionalDependencies
-    syncThreadlessWasiRootFacadeManifest(
-      updatedPackageJson,
-      reconciledPackageJson,
-    )
-    await writeFileAsync(
-      packageJsonPath,
-      JSON.stringify(updatedPackageJson, null, 2),
-    )
-    if (rootFacade) {
-      validateRootFacadePacklist(rootDir, [
-        ...rootFacade.generatedFiles,
-        ...collectRootPackagePathReferences(updatedPackageJson),
-      ])
-    }
-    const generatedFiles = new Set(rootFacade?.generatedFiles ?? [])
-    await Promise.all(
-      rootFacadeReconciliation.staleGeneratedFiles
-        .filter((file) => !generatedFiles.has(file))
-        .map((file) =>
-          rm(join(dirname(packageJsonPath), file), { force: true }),
-        ),
-    )
+    await materializeRootReleasePlan(rootDir, rootReleasePlan)
   }
 
   const { owner, repo, pkgInfo, octokit } = options.ghReleaseId
@@ -534,9 +506,22 @@ function getManagedThreadlessWasiRootFacadeFiles(
   const flavorPackage = `${packageName}-wasm32-wasip1`
   if (
     hasManagedThreadlessWasiRootFacadeMarker(rootDir, files, flavorPackage) ||
+    hasPartialManagedThreadlessWasiRootFacadeMarker(
+      rootDir,
+      npmDir,
+      files,
+      flavorPackage,
+    ) ||
     hasLegacyThreadlessWasiRootFacade(rootDir, npmDir, files, flavorPackage)
   ) {
     return files
+  }
+  if (
+    hasPartialOrCorruptThreadlessWasiRootFacade(rootDir, files, flavorPackage)
+  ) {
+    throw new Error(
+      'The threadless WASI root facade is partial or corrupt and ownership cannot be verified. Restore the generated facade files or remove the generated-shaped exports and files before running pre-publish.',
+    )
   }
   return undefined
 }
@@ -590,6 +575,47 @@ function hasManagedThreadlessWasiRootFacadeMarker(
   )
 }
 
+function hasPartialManagedThreadlessWasiRootFacadeMarker(
+  rootDir: string,
+  npmDir: string,
+  files: ThreadlessWasiRootFacadeFiles,
+  flavorPackage: string,
+) {
+  const availableWasmHashes = new Set<string>()
+  for (const wasm of [
+    readRegularFile(join(rootDir, files.wasmEntry)),
+    readRegularFile(join(npmDir, 'wasm32-wasip1', files.wasmEntry)),
+  ]) {
+    if (wasm) {
+      availableWasmHashes.add(createHash('sha256').update(wasm).digest('hex'))
+    }
+  }
+  if (availableWasmHashes.size === 0) {
+    return false
+  }
+
+  for (const file of [
+    files.workerdEntry,
+    files.workerdTypeDef,
+    files.wasmTypeDef,
+  ]) {
+    const contents = readRegularFile(join(rootDir, file))
+    if (!contents) {
+      continue
+    }
+    const markedFile = parseThreadlessWasiRootFacadeMarker(
+      contents.toString('utf8'),
+    )
+    if (
+      markedFile?.marker.flavorPackage === flavorPackage &&
+      availableWasmHashes.has(markedFile.marker.wasmSha256)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
 function hasLegacyThreadlessWasiRootFacade(
   rootDir: string,
   npmDir: string,
@@ -603,24 +629,50 @@ function hasLegacyThreadlessWasiRootFacade(
   const flavorWasmEntry = readRegularFile(
     join(npmDir, 'wasm32-wasip1', files.wasmEntry),
   )
-  if (
-    !workerdEntry ||
-    !workerdTypeDef ||
-    !wasmEntry ||
-    !wasmTypeDef ||
-    !flavorWasmEntry
-  ) {
+  if (!wasmEntry || !flavorWasmEntry || !wasmEntry.equals(flavorWasmEntry)) {
     return false
   }
 
   const forwardingModule =
     createThreadlessWasiRootForwardingModule(flavorPackage)
-  return (
-    workerdEntry.toString('utf8') === forwardingModule &&
-    workerdTypeDef.toString('utf8') === forwardingModule &&
-    wasmTypeDef.toString('utf8') === createWasmModuleTypeDef() &&
-    wasmEntry.equals(flavorWasmEntry)
+  const textFiles: Array<[string, Buffer | undefined, string]> = [
+    [files.workerdEntry, workerdEntry, forwardingModule],
+    [files.workerdTypeDef, workerdTypeDef, forwardingModule],
+    [files.wasmTypeDef, wasmTypeDef, createWasmModuleTypeDef()],
+  ]
+  return textFiles.every(
+    ([file, contents, expected]) =>
+      (!existsSync(join(rootDir, file)) && contents === undefined) ||
+      contents?.toString('utf8') === expected,
   )
+}
+
+function hasPartialOrCorruptThreadlessWasiRootFacade(
+  rootDir: string,
+  files: ThreadlessWasiRootFacadeFiles,
+  flavorPackage: string,
+) {
+  const facadeFiles = Object.values(files).map(
+    (file) => [file, readRegularFile(join(rootDir, file))] as const,
+  )
+  if (facadeFiles.some(([, contents]) => contents === undefined)) {
+    return true
+  }
+
+  const forwardingModule =
+    createThreadlessWasiRootForwardingModule(flavorPackage)
+  const expectedLegacyContents = new Map([
+    [files.workerdEntry, forwardingModule],
+    [files.workerdTypeDef, forwardingModule],
+    [files.wasmTypeDef, createWasmModuleTypeDef()],
+  ])
+  return facadeFiles.some(([file, contents]) => {
+    const source = contents!.toString('utf8')
+    return (
+      source.startsWith(WASI_ROOT_FACADE_MARKER_PREFIX) ||
+      source === expectedLegacyContents.get(file)
+    )
+  })
 }
 
 function readRegularFile(path: string) {
@@ -1212,6 +1264,79 @@ function validateRootFacadePacklist(
   }
 }
 
+interface RootReleaseMaterializationPlan {
+  packageJson: CommonPackageJsonFields
+  optionalDependencies: Record<string, unknown>
+  facade?: ThreadlessWasiRootFacade
+  staleGeneratedFiles: string[]
+}
+
+async function validateRootReleasePlan(
+  rootDir: string,
+  plan: RootReleaseMaterializationPlan,
+) {
+  const stagingRoot = await mkdtemp(
+    join(tmpdir(), 'napi-rs-pre-publish-root-validation-'),
+  )
+  const stagedRootDir = join(stagingRoot, 'package')
+  try {
+    await mkdirAsync(stagedRootDir, { recursive: true })
+    const packedFiles = readNpmPackFiles(rootDir, 'root package')
+    const referencedFiles = collectRootPackagePathReferences(plan.packageJson)
+    for (const file of new Set([
+      ...packedFiles,
+      ...referencedFiles,
+      'package.json',
+      '.npmignore',
+      '.gitignore',
+      '.npmrc',
+    ])) {
+      const source = join(rootDir, file)
+      if (!existsSync(source)) {
+        continue
+      }
+      const destination = join(stagedRootDir, file)
+      await mkdirAsync(dirname(destination), { recursive: true })
+      await cp(source, destination, { recursive: true })
+    }
+
+    await materializeRootReleasePlan(stagedRootDir, plan)
+    validateRootFacadePacklist(stagedRootDir, [
+      ...(plan.facade?.generatedFiles ?? []),
+      ...collectRootPackagePathReferences(plan.packageJson),
+    ])
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true })
+  }
+}
+
+async function materializeRootReleasePlan(
+  rootDir: string,
+  plan: RootReleaseMaterializationPlan,
+) {
+  if (plan.facade) {
+    await materializeThreadlessWasiRootFacade(rootDir, plan.facade)
+  }
+
+  const packageJsonPath = join(rootDir, 'package.json')
+  const updatedPackageJson = JSON.parse(
+    await readFileAsync(packageJsonPath, 'utf8'),
+  )
+  updatedPackageJson.optionalDependencies = plan.optionalDependencies
+  syncThreadlessWasiRootFacadeManifest(updatedPackageJson, plan.packageJson)
+  await writeFileAsync(
+    packageJsonPath,
+    JSON.stringify(updatedPackageJson, null, 2),
+  )
+
+  const generatedFiles = new Set(plan.facade?.generatedFiles ?? [])
+  await Promise.all(
+    plan.staleGeneratedFiles
+      .filter((file) => !generatedFiles.has(file))
+      .map((file) => rm(join(rootDir, file), { force: true })),
+  )
+}
+
 interface ReleasePackageValidationOptions {
   pkgDir: string
   rootDir: string
@@ -1219,7 +1344,14 @@ interface ReleasePackageValidationOptions {
   binaryName: string
   target: Target
   requireDirectBufferDependency: boolean
-  materializeDeclarationDependencies: boolean
+}
+
+interface ReleasePackageMaterializationPlan {
+  pkgDir: string
+  rootDir: string
+  packageFiles: string[]
+  declarationDependencies: string[]
+  updateManifest: boolean
 }
 
 interface ReleasePackageManifest {
@@ -1237,21 +1369,13 @@ interface ReleasePackageManifest {
 
 async function validateReleasePackage({
   pkgDir,
-  materializeDeclarationDependencies,
   ...options
-}: ReleasePackageValidationOptions) {
+}: ReleasePackageValidationOptions): Promise<ReleasePackageMaterializationPlan> {
   const packageJsonPath = join(pkgDir, 'package.json')
   if (!existsSync(packageJsonPath)) {
     throw new Error(
       `Release package manifest does not exist: ${packageJsonPath}`,
     )
-  }
-  if (materializeDeclarationDependencies) {
-    return validateReleasePackageContents({
-      ...options,
-      pkgDir,
-      materializeDeclarationDependencies,
-    })
   }
 
   const stagingRoot = await mkdtemp(
@@ -1260,13 +1384,36 @@ async function validateReleasePackage({
   const stagedPkgDir = join(stagingRoot, 'package')
   try {
     await cp(pkgDir, stagedPkgDir, { recursive: true })
-    await validateReleasePackageContents({
+    const validation = await validateReleasePackageContents({
       ...options,
       pkgDir: stagedPkgDir,
-      materializeDeclarationDependencies: true,
     })
+    return {
+      pkgDir,
+      rootDir: options.rootDir,
+      ...validation,
+    }
   } finally {
     await rm(stagingRoot, { recursive: true, force: true })
+  }
+}
+
+async function materializeReleasePackagePlan(
+  plan: ReleasePackageMaterializationPlan,
+) {
+  for (const declarationFile of plan.declarationDependencies) {
+    const destination = join(plan.pkgDir, declarationFile)
+    await mkdirAsync(dirname(destination), { recursive: true })
+    await copyFileAsync(join(plan.rootDir, declarationFile), destination)
+  }
+  if (plan.updateManifest) {
+    const packageJsonPath = join(plan.pkgDir, 'package.json')
+    const packageJson = JSON.parse(await readFileAsync(packageJsonPath, 'utf8'))
+    packageJson.files = plan.packageFiles
+    await writeFileAsync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    )
   }
 }
 
@@ -1277,7 +1424,6 @@ async function validateReleasePackageContents({
   binaryName,
   target,
   requireDirectBufferDependency,
-  materializeDeclarationDependencies,
 }: ReleasePackageValidationOptions) {
   const packageJsonPath = join(pkgDir, 'package.json')
   if (!existsSync(packageJsonPath)) {
@@ -1329,22 +1475,20 @@ async function validateReleasePackageContents({
     }
   }
 
-  const declarationFiles = await completeDeclarationDependencyClosure({
+  const declarationClosure = await completeDeclarationDependencyClosure({
     pkgDir,
     rootDir,
     packageName: expectedPackageName,
     packageFiles,
-    materialize: materializeDeclarationDependencies,
   })
-  if (declarationFiles.length > packageFiles.length) {
-    packageFiles.splice(0, packageFiles.length, ...declarationFiles)
-    if (materializeDeclarationDependencies) {
-      packageJson.files = packageFiles
-      await writeFileAsync(
-        packageJsonPath,
-        `${JSON.stringify(packageJson, null, 2)}\n`,
-      )
-    }
+  const updateManifest = declarationClosure.files.length > packageFiles.length
+  if (updateManifest) {
+    packageFiles.splice(0, packageFiles.length, ...declarationClosure.files)
+    packageJson.files = packageFiles
+    await writeFileAsync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    )
   }
 
   const publicFiles = new Set<string>(packageFiles)
@@ -1365,6 +1509,11 @@ async function validateReleasePackageContents({
     throw new Error(
       `Release package ${expectedPackageName} references files omitted by npm pack: ${omittedFiles.join(', ')}`,
     )
+  }
+  return {
+    packageFiles,
+    declarationDependencies: declarationClosure.materializedFiles,
+    updateManifest,
   }
 }
 
@@ -1549,7 +1698,6 @@ interface DeclarationDependencyClosureOptions {
   rootDir: string
   packageName: string
   packageFiles: string[]
-  materialize: boolean
 }
 
 async function completeDeclarationDependencyClosure({
@@ -1557,9 +1705,9 @@ async function completeDeclarationDependencyClosure({
   rootDir,
   packageName,
   packageFiles,
-  materialize,
 }: DeclarationDependencyClosureOptions) {
   const includedFiles = new Set(packageFiles)
+  const materializedFiles = new Set<string>()
   const queue = packageFiles.filter(isDeclarationFile)
   const visited = new Set<string>()
 
@@ -1588,14 +1736,10 @@ async function completeDeclarationDependencyClosure({
         )
       }
       if (!dependency) {
-        if (!materialize) {
-          throw new Error(
-            `Release package ${packageName} is not self-contained: ${declarationFile} depends on ${sourceDependency}`,
-          )
-        }
         const destination = join(pkgDir, sourceDependency)
         await mkdirAsync(dirname(destination), { recursive: true })
         await copyFileAsync(join(rootDir, sourceDependency), destination)
+        materializedFiles.add(sourceDependency)
       }
       if (!includedFiles.has(sourceDependency)) {
         includedFiles.add(sourceDependency)
@@ -1605,7 +1749,10 @@ async function completeDeclarationDependencyClosure({
       }
     }
   }
-  return [...includedFiles]
+  return {
+    files: [...includedFiles],
+    materializedFiles: [...materializedFiles],
+  }
 }
 
 function extractRelativeDeclarationSpecifiers(source: string) {

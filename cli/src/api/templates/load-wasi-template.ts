@@ -367,9 +367,10 @@ function __createManagedEmnapiContext() {
     if (__disposed) {
       return
     }
+    const __result = __emnapiContext.destroy()
     __disposed = true
     __unregisterExit?.()
-    return __emnapiContext.destroy()
+    return __result
   }
   try {
     __unregisterExit = __registerManagedEmnapiContext(
@@ -719,54 +720,103 @@ try {
   // listener. Remove only listeners added synchronously by this context.
   __removeAddedBeforeExitListeners(__beforeExitListeners)
 }
-process.once('exit', () => __emnapiContext.destroy())
+let __emnapiContextDestroyed = false
 
-const ${memoryName} = new WebAssembly.Memory({
-  initial: ${initialMemory},
-  maximum: ${maximumMemory},
-${threads ? '  shared: true,\n' : ''}\
-})
-
-let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
-const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
-
-if (__nodeFs.existsSync(__wasmDebugFilePath)) {
-  __wasmFilePath = __wasmDebugFilePath
-} else if (!__nodeFs.existsSync(__wasmFilePath)) {
-  const __wasiPackageEntry = require.resolve('${packageName}-${platformArchABI}')
-  const __packagedWasmFilePath = __nodePath.join(
-    __nodePath.dirname(__wasiPackageEntry),
-    '${packageWasmFileName}.wasm',
-  )
-  if (!__nodeFs.existsSync(__packagedWasmFilePath)) {
-    throw new Error(
-      '${packageName}-${platformArchABI} is installed but is missing ${packageWasmFileName}.wasm.',
-    )
+function __destroyEmnapiContext() {
+  if (__emnapiContextDestroyed) {
+    return
   }
-  __wasmFilePath = __packagedWasmFilePath
+  const __result = __emnapiContext.destroy()
+  __emnapiContextDestroyed = true
+  return __result
 }
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
-  context: __emnapiContext,
+function __attachCleanupError(__error, __cleanupError) {
+  try {
+    if (
+      __error &&
+      (typeof __error === 'object' || typeof __error === 'function') &&
+      __error.cause === undefined
+    ) {
+      __error.cause = __cleanupError
+    }
+  } catch {}
+}
+
+let ${memoryName}
+let __napiInstance
+let __wasiModule
+let __napiModule
+let __emnapiContextRegisteredForExit = false
+
+try {
+  process.once('exit', __destroyEmnapiContext)
+  __emnapiContextRegisteredForExit = true
+
+  ${memoryName} = new WebAssembly.Memory({
+    initial: ${initialMemory},
+    maximum: ${maximumMemory},
+${threads ? '    shared: true,\n' : ''}\
+  })
+
+  let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+  const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
+
+  if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+    __wasmFilePath = __wasmDebugFilePath
+  } else if (!__nodeFs.existsSync(__wasmFilePath)) {
+    const __wasiPackageEntry = require.resolve('${packageName}-${platformArchABI}')
+    const __packagedWasmFilePath = __nodePath.join(
+    __nodePath.dirname(__wasiPackageEntry),
+    '${packageWasmFileName}.wasm',
+    )
+    if (!__nodeFs.existsSync(__packagedWasmFilePath)) {
+      throw new Error(
+        '${packageName}-${platformArchABI} is installed but is missing ${packageWasmFileName}.wasm.',
+      )
+    }
+    __wasmFilePath = __packagedWasmFilePath
+  }
+
+  ;({
+    instance: __napiInstance,
+    module: __wasiModule,
+    napiModule: __napiModule,
+  } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
+    context: __emnapiContext,
 ${asyncWorkOptions}\
-  wasi: __wasi,
+    wasi: __wasi,
 ${workerOption}\
-  overwriteImports(importObject) {
-    importObject.env = {
-      ...importObject.env,
-      ...importObject.napi,
-      ...importObject.emnapi,
-      memory: ${memoryName},
-    }
-    return importObject
-  },
-  beforeInit({ instance }) {
-    for (const name of Object.keys(instance.exports)) {
-      if (name.startsWith('__napi_register__')) {
-        instance.exports[name]()
+    overwriteImports(importObject) {
+      importObject.env = {
+        ...importObject.env,
+        ...importObject.napi,
+        ...importObject.emnapi,
+        memory: ${memoryName},
       }
-    }
-  },
-})
+      return importObject
+    },
+    beforeInit({ instance }) {
+      for (const name of Object.keys(instance.exports)) {
+        if (name.startsWith('__napi_register__')) {
+          instance.exports[name]()
+        }
+      }
+    },
+  }))
+} catch (__error) {
+  try {
+    __destroyEmnapiContext()
+  } catch (__cleanupError) {
+    __attachCleanupError(__error, __cleanupError)
+    throw __error
+  }
+  if (__emnapiContextRegisteredForExit) {
+    try {
+      process.removeListener('exit', __destroyEmnapiContext)
+    } catch {}
+  }
+  throw __error
+}
 `
 }

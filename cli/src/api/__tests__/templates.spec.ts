@@ -715,6 +715,205 @@ process.once('exit', () => {
 )
 
 test.serial(
+  'Node WASI binding rolls back contexts after initialization failures',
+  async (t) => {
+    const tmpDir = await mkdtemp(
+      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-cjs-rollback-'),
+    )
+    const nodeBinding = `${createWasiBinding(
+      'binding',
+      'rollback-fixture-never-published',
+      1,
+      2,
+      false,
+      'wasm32-wasip1',
+    )}
+module.exports = __napiModule.exports
+`
+
+    try {
+      const runtimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      await mkdir(runtimeDir, { recursive: true })
+      await writeFile(
+        join(runtimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          main: './index.cjs',
+        }),
+      )
+      await writeFile(
+        join(runtimeDir, 'index.cjs'),
+        `module.exports = {
+  createContext(options) {
+    if (!options || options.autoDestroy !== false) {
+      throw new Error('generated loader must disable emnapi auto-destroy')
+    }
+    const state = globalThis.__cjsRollbackState
+    const id = ++state.contexts
+    return {
+      destroy() {
+        state.destroyAttempts.push(id)
+        if (state.cleanupError) {
+          throw state.cleanupError
+        }
+        state.destroyed.push(id)
+      },
+    }
+  },
+  instantiateNapiModuleSync() {
+    const state = globalThis.__cjsRollbackState
+    if (state.initializationError) {
+      throw state.initializationError
+    }
+    return {
+      instance: {},
+      module: {},
+      napiModule: { exports: {} },
+    }
+  },
+}
+`,
+      )
+      await writeFile(join(tmpDir, 'binding.cjs'), nodeBinding)
+      await writeFile(
+        join(tmpDir, 'test.cjs'),
+        `const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const bindingPath = path.join(__dirname, 'binding.cjs')
+const wasmPath = path.join(__dirname, 'binding.wasm')
+const initialExitListeners = new Set(process.rawListeners('exit'))
+const state = {
+  contexts: 0,
+  destroyAttempts: [],
+  destroyed: [],
+  cleanupError: undefined,
+  initializationError: undefined,
+  registrationError: undefined,
+}
+globalThis.__cjsRollbackState = state
+
+function ownedExitListeners() {
+  return process
+    .rawListeners('exit')
+    .filter((listener) => !initialExitListeners.has(listener))
+}
+
+function load() {
+  delete require.cache[bindingPath]
+  return require(bindingPath)
+}
+
+function expectPrimaryError(expected) {
+  let observed
+  try {
+    load()
+  } catch (error) {
+    observed = error
+  }
+  assert.strictEqual(observed, expected)
+  assert.strictEqual(ownedExitListeners().length, 0)
+  return observed
+}
+
+const originalOnce = process.once
+const registrationError = new Error('exit registration failed')
+const registrationCleanupError = new Error('registration cleanup failed')
+state.registrationError = registrationError
+state.cleanupError = registrationCleanupError
+process.once = function(event, listener) {
+  if (event === 'exit' && state.registrationError) {
+    throw state.registrationError
+  }
+  return originalOnce.call(this, event, listener)
+}
+try {
+  const observedRegistrationError = expectPrimaryError(registrationError)
+  assert.strictEqual(observedRegistrationError.cause, registrationCleanupError)
+} finally {
+  process.once = originalOnce
+  state.registrationError = undefined
+  state.cleanupError = undefined
+}
+
+const OriginalMemory = WebAssembly.Memory
+const memoryError = new Error('memory allocation failed')
+WebAssembly.Memory = class {
+  constructor() {
+    throw memoryError
+  }
+}
+try {
+  expectPrimaryError(memoryError)
+} finally {
+  WebAssembly.Memory = OriginalMemory
+}
+
+const cleanupError = new Error('cleanup failed')
+state.cleanupError = cleanupError
+let resolutionError
+try {
+  load()
+} catch (error) {
+  resolutionError = error
+}
+assert.strictEqual(resolutionError.code, 'MODULE_NOT_FOUND')
+assert.strictEqual(resolutionError.cause, cleanupError)
+const retainedExitListeners = ownedExitListeners()
+assert.strictEqual(retainedExitListeners.length, 1)
+assert.deepStrictEqual(state.destroyAttempts, [1, 2, 3])
+assert.deepStrictEqual(state.destroyed, [2])
+state.cleanupError = undefined
+retainedExitListeners[0]()
+assert.strictEqual(ownedExitListeners().length, 0)
+assert.deepStrictEqual(state.destroyAttempts, [1, 2, 3, 3])
+assert.deepStrictEqual(state.destroyed, [2, 3])
+
+fs.writeFileSync(wasmPath, '')
+const originalReadFileSync = fs.readFileSync
+const readError = new Error('wasm read failed')
+fs.readFileSync = function(filename, ...args) {
+  if (filename === wasmPath) {
+    throw readError
+  }
+  return originalReadFileSync.call(this, filename, ...args)
+}
+try {
+  expectPrimaryError(readError)
+} finally {
+  fs.readFileSync = originalReadFileSync
+}
+
+const initializationError = new Error('emnapi initialization failed')
+state.initializationError = initializationError
+expectPrimaryError(initializationError)
+
+assert.strictEqual(state.contexts, 5)
+assert.deepStrictEqual(state.destroyAttempts, [1, 2, 3, 3, 4, 5])
+assert.deepStrictEqual(state.destroyed, [2, 3, 4, 5])
+process.stdout.write('rollback-ok\\n')
+`,
+      )
+
+      const result = await execFileAsync(
+        process.execPath,
+        ['--unhandled-rejections=strict', join(tmpDir, 'test.cjs')],
+        { cwd: tmpDir, timeout: 10_000 },
+      )
+      t.is(result.stdout, 'rollback-ok\n')
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
   'deferred WASI binding shares, disposes, and isolates instances',
   async (t) => {
     const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
@@ -724,6 +923,7 @@ test.serial(
     const state = {
       contexts: 0,
       destroyed: [] as number[],
+      destroyAttempts: [] as number[],
       instances: 0,
       initializationError: undefined as Error | undefined,
       initializationGate: undefined as Promise<void> | undefined,
@@ -809,10 +1009,11 @@ export async function instantiateNapiModule(module, options) {
   const id = ++state.contexts
   return {
     destroy() {
-      state.destroyed.push(id)
+      state.destroyAttempts.push(id)
       if (state.cleanupError) {
         throw state.cleanupError
       }
+      state.destroyed.push(id)
     },
   }
 }
@@ -830,10 +1031,16 @@ export async function instantiateNapiModule(module, options) {
       const moduleB = new WebAssembly.Module(
         new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
       )
-      const countOwnedExitListeners = () =>
+      const getOwnedExitListeners = () =>
         process
           .rawListeners('exit')
-          .filter((listener) => !initialExitListeners.has(listener)).length
+          .filter((listener) => !initialExitListeners.has(listener))
+      const countOwnedExitListeners = () => getOwnedExitListeners().length
+      const runOwnedExitCleanup = () => {
+        const listeners = getOwnedExitListeners()
+        t.is(listeners.length, 1)
+        listeners[0]()
+      }
 
       const memoryError = new Error('memory allocation failed')
       ;(WebAssembly as any).Memory = class {
@@ -861,10 +1068,15 @@ export async function instantiateNapiModule(module, options) {
       )
       t.is(rejectedInitialization, initializationError)
       t.is(rejectedInitialization.cause, cleanupError)
-      t.deepEqual(state.destroyed, [1])
-      t.is(countOwnedExitListeners(), 0)
+      t.deepEqual(state.destroyAttempts, [1])
+      t.deepEqual(state.destroyed, [])
+      t.is(countOwnedExitListeners(), 1)
       state.initializationError = undefined
       state.cleanupError = undefined
+      runOwnedExitCleanup()
+      t.deepEqual(state.destroyAttempts, [1, 1])
+      t.deepEqual(state.destroyed, [1])
+      t.is(countOwnedExitListeners(), 0)
 
       const [first, second] = await Promise.all([
         instantiate(moduleA),
@@ -902,11 +1114,13 @@ export async function instantiateNapiModule(module, options) {
         cleanupError,
       )
       t.is(countOwnedExitListeners(), 1)
+      t.deepEqual(state.destroyAttempts.slice(-1), [3])
       state.cleanupError = undefined
       independentA.dispose()
       independentA.dispose()
       independentB.dispose()
       t.deepEqual(state.destroyed, [1, 2, 3, 4])
+      t.deepEqual(state.destroyAttempts.slice(-3), [3, 3, 4])
       t.is(countOwnedExitListeners(), 0)
 
       const replacement = await instantiate(moduleB)
@@ -919,12 +1133,14 @@ export async function instantiateNapiModule(module, options) {
       const overlappingDisposeError = t.throwsAsync(overlappingFailedDispose)
       t.is(await failedDisposeError, cleanupError)
       t.is(await overlappingDisposeError, cleanupError)
-      t.is(countOwnedExitListeners(), 0)
+      t.is(countOwnedExitListeners(), 1)
       state.cleanupError = undefined
+      runOwnedExitCleanup()
+      t.is(countOwnedExitListeners(), 0)
 
       // Failed cleanup may leave the old context partially stopped. It is
-      // terminal: the poisoned exports are never returned again and ownership
-      // is clear for either module.
+      // terminal for the singleton exports, but terminal cleanup retains a
+      // retry until the old context is actually destroyed.
       const afterFailedDispose = await instantiate(moduleA)
       t.is(afterFailedDispose.id, 6)
       t.not(afterFailedDispose, replacement)
@@ -984,10 +1200,13 @@ export async function instantiateNapiModule(module, options) {
         observedInitializationError = error
       }
       t.is(observedInitializationError, hostileInitializationError)
-      t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-      t.is(countOwnedExitListeners(), 0)
+      t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+      t.is(countOwnedExitListeners(), 1)
       state.initializationError = undefined
       state.cleanupError = undefined
+      runOwnedExitCleanup()
+      t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+      t.is(countOwnedExitListeners(), 0)
 
       const pendingBeforeFirstAwait = instantiate(Promise.resolve(moduleA))
       const disposeBeforeFirstAwait = dispose()

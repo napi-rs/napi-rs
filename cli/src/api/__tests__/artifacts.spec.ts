@@ -810,3 +810,59 @@ test('preserves unrelated files in native npm dirs', async (t) => {
   )
   t.true(existsSync(join(distDir, artifactName)))
 })
+
+test('preserves user-owned root binaries and removes stale managed artifacts', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-root-ownership'
+  const platformArchABI = 'linux-x64-gnu'
+  const artifactName = `${binaryName}.${platformArchABI}.node`
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: binaryName,
+      version: '1.0.0',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu'],
+      },
+    }),
+  )
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const distDir = join(tmpDir, 'npm', platformArchABI)
+  await mkdir(artifactsDir)
+  await mkdir(distDir, { recursive: true })
+  await writeFile(join(artifactsDir, artifactName), 'native artifact')
+
+  const userOwnedFiles = [
+    `${binaryName}.custom.node`,
+    `${binaryName}.custom.wasm`,
+    `${binaryName}.linux-arm64-gnu.wasm`,
+    `${binaryName}.wasm32-wasip1.node`,
+  ]
+  const staleManagedFiles = [
+    `${binaryName}.linux-arm64-gnu.node`,
+    `${binaryName}.wasm32-wasip1.wasm`,
+  ]
+  await Promise.all([
+    ...userOwnedFiles.map((fileName) =>
+      writeFile(join(tmpDir, fileName), `user-owned ${fileName}`),
+    ),
+    ...staleManagedFiles.map((fileName) =>
+      writeFile(join(tmpDir, fileName), `stale ${fileName}`),
+    ),
+  ])
+
+  await collectArtifacts({ cwd: tmpDir })
+
+  for (const fileName of userOwnedFiles) {
+    t.is(
+      await readFile(join(tmpDir, fileName), 'utf8'),
+      `user-owned ${fileName}`,
+    )
+  }
+  for (const fileName of staleManagedFiles) {
+    t.false(existsSync(join(tmpDir, fileName)), fileName)
+  }
+  t.is(await readFile(join(tmpDir, artifactName), 'utf8'), 'native artifact')
+  t.true(existsSync(join(distDir, artifactName)))
+})

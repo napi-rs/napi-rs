@@ -15,9 +15,11 @@ import {
   type ArtifactsOptions,
 } from '../def/artifacts.js'
 import {
+  AVAILABLE_TARGETS,
   debugFactory,
   fileExists,
   mkdirAsync,
+  parseTriple,
   readFileAsync,
   readNapiConfig,
   readdirAsync,
@@ -41,6 +43,10 @@ interface PendingWrite {
   content: Buffer
   source: string
 }
+
+// Removed configured targets are recognizable only when their output identity
+// belongs to napi-rs's supported target set.
+const supportedArtifactTargets = AVAILABLE_TARGETS.map(parseTriple)
 
 export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
@@ -471,11 +477,10 @@ async function removeStaleManagedDestinations(
 ) {
   const stalePaths: string[] = []
   const managedBinaryFiles = new Set(
-    targets.map((target) => artifactName(binaryName, target)),
+    [...supportedArtifactTargets, ...targets].map((target) =>
+      artifactName(binaryName, target),
+    ),
   )
-  for (const platformArchABI of ['wasm32-wasi', 'wasm32-wasip1']) {
-    managedBinaryFiles.add(`${binaryName}.${platformArchABI}.wasm`)
-  }
   const managedWasiFiles = new Set<string>()
   for (const loaderSuffix of new Set([
     'wasi',
@@ -513,20 +518,16 @@ async function removeStaleManagedDestinations(
   }
 
   if (await fileExists(packageRoot)) {
-    const configuredIdentities = new Set(
-      targets.map((target) => artifactName(binaryName, target)),
-    )
     for (const entry of await readdirAsync(packageRoot, {
       withFileTypes: true,
     })) {
+      const path = join(packageRoot, entry.name)
       if (
         entry.isFile() &&
-        entry.name.startsWith(`${binaryName}.`) &&
-        (entry.name.endsWith('.node') || entry.name.endsWith('.wasm')) &&
-        !configuredIdentities.has(entry.name) &&
-        !pendingWrites.has(join(packageRoot, entry.name))
+        managedBinaryFiles.has(entry.name) &&
+        !pendingWrites.has(path)
       ) {
-        stalePaths.push(join(packageRoot, entry.name))
+        stalePaths.push(path)
       }
     }
   }
