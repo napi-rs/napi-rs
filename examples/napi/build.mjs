@@ -259,7 +259,7 @@ function generatedAssignmentPattern(assignment) {
       source += token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     }
   }
-  return new RegExp(source)
+  return new RegExp(source, 'g')
 }
 
 function insertGeneratedExport(source, name, assignment, pattern) {
@@ -336,12 +336,26 @@ ${returnMarker}`,
       ? replacement
       : generated
     const alternative = desired === generated ? replacement : generated
-    if (generatedAssignmentPattern(desired).test(source)) {
+    const desiredPattern = generatedAssignmentPattern(desired)
+    const alternativePattern = generatedAssignmentPattern(alternative)
+    const desiredMatches = [...source.matchAll(desiredPattern)]
+    const alternativeMatches = [...source.matchAll(alternativePattern)]
+    if (desiredMatches.length === 1 && alternativeMatches.length === 0) {
       continue
     }
-    const alternativePattern = generatedAssignmentPattern(alternative)
-    if (alternativePattern.test(source)) {
-      source = source.replace(alternativePattern, desired)
+    const existingAssignmentPattern = new RegExp(
+      `(?:${desiredPattern.source})|(?:${alternativePattern.source})`,
+      'g',
+    )
+    if (desiredMatches.length + alternativeMatches.length > 0) {
+      let retainedAssignment = false
+      source = source.replace(existingAssignmentPattern, () => {
+        if (retainedAssignment) {
+          return ''
+        }
+        retainedAssignment = true
+        return desired
+      })
     } else {
       source = insertGeneratedExport(source, name, desired, exportPattern)
     }

@@ -120,20 +120,28 @@ function __captureEmnapiAutoDestroyListener() {
 
 const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
 let __emnapiContext
+let __emnapiContextDestroyed = false
+let __emnapiContextDestroying = false
+let __emnapiContextDestroyPromise
+let __emnapiContextRegisteredForBeforeExit = false
+let __emnapiContextRegisteredForExit = false
+let __emnapiContextBeforeExitRegistrationRetryCount = 0
+let __emnapiContextBeforeExitRegistrationRetryScheduled = false
+let __contextInitializationError
+let __contextInitializationFailed = false
 try {
   __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
   // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
   // contract that keeps this context alive until our explicit cleanup runs.
   __emnapiContext.suppressDestroy()
+} catch (error) {
+  __contextInitializationError = error
+  __contextInitializationFailed = true
 } finally {
   // Remove only the exact legacy callback captured above. suppressDestroy()
   // remains the safety net if listener removal is unavailable or fails.
   __finishAutoDestroyCapture?.()
 }
-let __emnapiContextDestroyed = false
-let __emnapiContextDestroyPromise
-let __emnapiContextRegisteredForBeforeExit = false
-let __emnapiContextRegisteredForExit = false
 
 function __destroyEmnapiContext() {
   if (__emnapiContextDestroyed) {
@@ -142,24 +150,59 @@ function __destroyEmnapiContext() {
   if (__emnapiContextDestroyPromise) {
     return __emnapiContextDestroyPromise
   }
-  const __result = __emnapiContext.destroy()
-  if (__result && typeof __result.then === 'function') {
-    const __promise = Promise.resolve(__result).then(
+  if (__emnapiContextDestroying) {
+    return
+  }
+  __emnapiContextDestroying = true
+  let __result
+  try {
+    __result = __emnapiContext.destroy()
+  } catch (error) {
+    __emnapiContextDestroying = false
+    throw error
+  }
+  let __then
+  try {
+    if (
+      __result !== null &&
+      (typeof __result === 'object' || typeof __result === 'function')
+    ) {
+      __then = __result.then
+    }
+  } catch (error) {
+    __emnapiContextDestroying = false
+    throw error
+  }
+  if (typeof __then === 'function') {
+    let __resolveResult
+    let __rejectResult
+    const __resultPromise = new Promise((resolve, reject) => {
+      __resolveResult = resolve
+      __rejectResult = reject
+    })
+    const __promise = __resultPromise.then(
       (value) => {
+        __emnapiContextDestroying = false
         __emnapiContextDestroyed = true
         __emnapiContextDestroyPromise = undefined
         return value
       },
       (error) => {
+        __emnapiContextDestroying = false
         __emnapiContextDestroyPromise = undefined
         throw error
       },
     )
     __emnapiContextDestroyPromise = __promise
+    try {
+      Reflect.apply(__then, __result, [__resolveResult, __rejectResult])
+    } catch (error) {
+      __rejectResult(error)
+    }
     return __promise
   }
+  __emnapiContextDestroying = false
   __emnapiContextDestroyed = true
-  return __result
 }
 
 function __removeEmnapiContextBeforeExitListener() {
@@ -173,6 +216,7 @@ function __removeEmnapiContextBeforeExitListener() {
 
 function __removeEmnapiContextCleanupListeners() {
   __removeEmnapiContextBeforeExitListener()
+  __emnapiContextBeforeExitRegistrationRetryCount = 0
   if (__emnapiContextRegisteredForExit) {
     try {
       process.removeListener('exit', __destroyEmnapiContextAtExit)
@@ -181,10 +225,41 @@ function __removeEmnapiContextCleanupListeners() {
   }
 }
 
+function __scheduleEmnapiContextBeforeExitRegistration() {
+  if (
+    __emnapiContextDestroyed ||
+    __emnapiContextRegisteredForBeforeExit ||
+    __emnapiContextBeforeExitRegistrationRetryScheduled ||
+    __emnapiContextBeforeExitRegistrationRetryCount >= 3
+  ) {
+    return
+  }
+  __emnapiContextBeforeExitRegistrationRetryScheduled = true
+  __emnapiContextBeforeExitRegistrationRetryCount++
+  queueMicrotask(() => {
+    __emnapiContextBeforeExitRegistrationRetryScheduled = false
+    if (
+      __emnapiContextDestroyed ||
+      __emnapiContextRegisteredForBeforeExit
+    ) {
+      return
+    }
+    try {
+      __registerEmnapiContextBeforeExit()
+    } catch {}
+  })
+}
+
 function __registerEmnapiContextBeforeExit() {
   if (!__emnapiContextRegisteredForBeforeExit) {
-    process.once('beforeExit', __destroyEmnapiContextBeforeExit)
+    try {
+      process.once('beforeExit', __destroyEmnapiContextBeforeExit)
+    } catch (error) {
+      __scheduleEmnapiContextBeforeExitRegistration()
+      throw error
+    }
     __emnapiContextRegisteredForBeforeExit = true
+    __emnapiContextBeforeExitRegistrationRetryCount = 0
   }
 }
 
@@ -209,8 +284,8 @@ function __destroyEmnapiContextBeforeExit() {
     })
     return
   }
-  if (__result && typeof __result.then === 'function') {
-    void Promise.resolve(__result).then(
+  if (__result) {
+    void __result.then(
       () => {
         __removeEmnapiContextCleanupListeners()
       },
@@ -232,8 +307,8 @@ function __destroyEmnapiContextAtExit() {
   __emnapiContextRegisteredForExit = false
   try {
     const __result = __destroyEmnapiContext()
-    if (__result && typeof __result.then === 'function') {
-      void Promise.resolve(__result).catch(() => {})
+    if (__result) {
+      void __result.catch(() => {})
     }
   } catch {}
 }
@@ -248,6 +323,57 @@ function __attachCleanupError(__error, __cleanupError) {
       __error.cause = __cleanupError
     }
   } catch {}
+}
+
+if (__contextInitializationFailed) {
+  let __registrationError
+  let __registrationFailed = false
+  if (__emnapiContext !== undefined) {
+    try {
+      __registerEmnapiContextBeforeExit()
+    } catch (error) {
+      __attachCleanupError(__contextInitializationError, error)
+      __registrationError = error
+      __registrationFailed = true
+    }
+    let __cleanupResult
+    let __cleanupFailed = false
+    try {
+      __cleanupResult = __destroyEmnapiContext()
+    } catch (error) {
+      __cleanupFailed = true
+      __attachCleanupError(
+        __registrationFailed
+          ? __registrationError
+          : __contextInitializationError,
+        error,
+      )
+      try {
+        __registerEmnapiContextBeforeExit()
+      } catch {}
+    }
+    if (__cleanupResult) {
+      void __cleanupResult.then(
+        () => {
+          __removeEmnapiContextCleanupListeners()
+        },
+        (error) => {
+          __attachCleanupError(
+            __registrationFailed
+              ? __registrationError
+              : __contextInitializationError,
+            error,
+          )
+          try {
+            __registerEmnapiContextBeforeExit()
+          } catch {}
+        },
+      )
+    } else if (!__cleanupFailed) {
+      __removeEmnapiContextCleanupListeners()
+    }
+  }
+  throw __contextInitializationError
 }
 
 let __sharedMemory
@@ -368,22 +494,23 @@ try {
   } catch (__cleanupError) {
     __cleanupFailed = true
     __attachCleanupError(__error, __cleanupError)
+    try {
+      __registerEmnapiContextBeforeExit()
+    } catch {}
   }
-  if (__cleanupResult && typeof __cleanupResult.then === 'function') {
-    void Promise.resolve(__cleanupResult).then(
+  if (__cleanupResult) {
+    void __cleanupResult.then(
       () => {
         __removeEmnapiContextCleanupListeners()
       },
       (__cleanupError) => {
         __attachCleanupError(__error, __cleanupError)
+        try {
+          __registerEmnapiContextBeforeExit()
+        } catch {}
       },
     )
   } else if (!__cleanupFailed) {
-    __removeEmnapiContextCleanupListeners()
-  }
-  if (!__emnapiContextRegisteredForBeforeExit) {
-    // Listener registration itself failed, so no partial lifecycle ownership
-    // can remain even when the best-effort context rollback also fails.
     __removeEmnapiContextCleanupListeners()
   }
   throw __error

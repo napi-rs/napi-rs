@@ -93,8 +93,10 @@ fresh singleton after cleanup rather than exports that are being destroyed. If
 the first singleton is still initializing, cleanup waits for that initialization
 to settle before destroying its context.
 `createInstance()` creates an independent instance and returns
-`{ exports, dispose }`; call the returned `dispose()` when that instance is no
-longer needed. Independent instances are not automatically disposed at
+`{ exports, dispose }`; call and await the returned `dispose()` when that
+instance is no longer needed. It consistently returns a promise, including
+when emnapi cleanup completes synchronously. Independent instances are not
+automatically disposed at
 `beforeExit`, while initializing or after success, so retained exports remain
 usable if a listener schedules more work; their cleanup ownership stays
 explicit. The `./workerd` package export includes TypeScript declarations;
@@ -104,6 +106,20 @@ enabled. Intentionally untyped packages expose it as
 API without a broken import of the declaration-less root package. If
 initialization fails and immediate context rollback also fails, the loader
 retains that cleanup ownership so a later `beforeExit` pass can retry it.
+`dispose()` still attempts those retained rollbacks when singleton cleanup
+fails, while preserving the singleton error as the primary rejection.
+
+`Context.destroy()` is synchronous in emnapi's public contract. The deferred
+loader also contains nonconforming promise-like results defensively. Keep and
+await the first `dispose()` promise. Direct instance-disposal recursion and
+module lifecycle calls that re-enter from a pending module-owned destroy reject
+with `ERR_NAPI_WASI_LIFECYCLE_REENTRY` instead of joining a promise cycle.
+This guard lasts until a nonconforming async destroy settles; successful
+independent-instance cleanup does not block singleton lifecycle calls.
+Conforming synchronous emnapi cleanup coalesces concurrent `dispose()` calls.
+Replacement `instantiate()` calls wait for the complete public cleanup,
+including every retained failed-initialization rollback present before cleanup
+finishes.
 
 The eager CommonJS WASI loader keeps its emnapi context alive for the process
 lifetime. Node.js can emit `beforeExit` repeatedly when a listener schedules

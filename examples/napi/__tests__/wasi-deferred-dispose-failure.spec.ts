@@ -31,3 +31,26 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     t.regex(result.stdout, /deferred failed-dispose lifecycle passed/)
   },
 )
+
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'deferred WASI contains reentrant and hostile cleanup behavior',
+  (t) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--unhandled-rejections=strict',
+        join(__dirname, 'wasi-deferred-hostile-lifecycle.js'),
+      ],
+      {
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 30_000,
+      },
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /deferred hostile lifecycle passed/)
+  },
+)

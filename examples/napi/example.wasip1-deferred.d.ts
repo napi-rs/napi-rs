@@ -5,11 +5,12 @@ export type WasiModuleInput =
 
 export interface WasiInstance {
   readonly exports: WasiBinding
-  dispose(): void | Promise<void>
+  dispose(): Promise<void>
 }
 
 export function instantiate(wasmInput: WasiModuleInput): Promise<WasiBinding>
 export function createInstance(
   wasmInput: WasiModuleInput,
 ): Promise<WasiInstance>
+/** Dispose the singleton and retry retained failed-initialization cleanup. */
 export function dispose(): Promise<void>

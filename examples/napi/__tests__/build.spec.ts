@@ -80,6 +80,51 @@ export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones
   t.notThrows(() => Function(secondPass.replace(/^export /gm, ''))())
 })
 
+test('lifecycle export regeneration removes stale duplicate assignments', async (t) => {
+  const formattedSource = await format(
+    `const __napiModule = { exports: {} }
+function getWasiBindingExport(name) {
+  return __napiModule.exports[name]
+}
+export const abandonDeferredClones = __napiModule.exports.abandonDeferredClones
+export const abandonDeferredClones = getWasiBindingExport(
+  'abandonDeferredClones',
+)
+export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')
+`,
+    { parser: 'babel' },
+  )
+  const output = {
+    file: 'example.wasi-browser.js',
+    binding: '__napiModule.exports',
+    helper: 'getWasiBindingExport',
+    forwardedFunctions: ['abandonDeferredClones'],
+    marker: 'export const ',
+    exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
+    assignment(name: string) {
+      return [
+        `export const ${name} = __napiModule.exports.${name}`,
+        `export const ${name} = getWasiBindingExport('${name}')`,
+      ]
+    },
+  }
+
+  const outputSource = mergeLifecycleLoaderExports(formattedSource, output)
+
+  t.is(outputSource.match(/export const abandonDeferredClones/g)?.length, 1)
+  t.true(
+    outputSource.includes(
+      "export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')",
+    ),
+  )
+  t.false(
+    outputSource.includes(
+      'export const abandonDeferredClones = __napiModule.exports.abandonDeferredClones',
+    ),
+  )
+  t.notThrows(() => Function(outputSource.replace(/^export /gm, ''))())
+})
+
 test('checked threaded artifacts retain the WASI export surface and portable stubs', async (t) => {
   const directory = join(import.meta.dirname, '..')
   const [
@@ -97,10 +142,10 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
     readFile(join(directory, 'index.d.cts'), 'utf8'),
     readFile(join(directory, 'browser.js'), 'utf8'),
   ])
-  const deferredSource = await readFile(
-    join(directory, 'example.wasip1-deferred.js'),
-    'utf8',
-  )
+  const [deferredSource, deferredDeclarationSource] = await Promise.all([
+    readFile(join(directory, 'example.wasip1-deferred.js'), 'utf8'),
+    readFile(join(directory, 'example.wasip1-deferred.d.ts'), 'utf8'),
+  ])
   const privateWasiTestExports = [
     'dropUnregisteredWeakTsfnForWasi',
     'startTokioWakerAfterCleanupProbe',
@@ -143,6 +188,8 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
       '__napiModule.exports[name] = getDeferredWasiBindingExport(',
     ),
   )
+  t.true(deferredDeclarationSource.includes('dispose(): Promise<void>'))
+  t.false(deferredDeclarationSource.includes('dispose(): void | Promise<void>'))
   t.regex(rootSource, /['"]wasm32-wasi['"]/)
   t.regex(rootSource, /['"]wasm32-wasip1['"]/)
   t.is(rootBrowserSource, "export * from '@examples/napi-wasm32-wasip1'\n")

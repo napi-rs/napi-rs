@@ -148,16 +148,30 @@ function __attachCleanupError(__error, __cleanupError) {
   } catch {}
 }
 
+function __createLifecycleReentryError(__operation) {
+  const __error = new Error(
+    __operation +
+      '() cannot run while an emnapi Context.destroy() call is still active; await the original cleanup promise instead.',
+  )
+  __error.code = 'ERR_NAPI_WASI_LIFECYCLE_REENTRY'
+  return __error
+}
+
 const __managedEmnapiContextDestroyers = new Set()
 let __managedCleanupProcess
 let __managedBeforeExitListener
 let __managedDestroyPromise
+let __managedDestroyersInFlight
+let __managedBeforeExitRegistrationRetryCount = 0
+let __managedBeforeExitRegistrationRetryScheduled = false
+let __moduleLifecycleDestroyDepth = 0
 
 function __removeManagedEmnapiCleanupListeners() {
   const __process = __managedCleanupProcess
   const __beforeExitListener = __managedBeforeExitListener
   __managedCleanupProcess = undefined
   __managedBeforeExitListener = undefined
+  __managedBeforeExitRegistrationRetryCount = 0
   if (__process && __beforeExitListener) {
     try {
       __process.removeListener('beforeExit', __beforeExitListener)
@@ -165,20 +179,54 @@ function __removeManagedEmnapiCleanupListeners() {
   }
 }
 
+function __scheduleManagedBeforeExitListenerRegistration() {
+  if (
+    !__managedCleanupProcess ||
+    __managedBeforeExitListener ||
+    __managedEmnapiContextDestroyers.size === 0 ||
+    __managedBeforeExitRegistrationRetryScheduled ||
+    __managedBeforeExitRegistrationRetryCount >= 3
+  ) {
+    return
+  }
+  __managedBeforeExitRegistrationRetryScheduled = true
+  __managedBeforeExitRegistrationRetryCount++
+  queueMicrotask(() => {
+    __managedBeforeExitRegistrationRetryScheduled = false
+    if (
+      !__managedCleanupProcess ||
+      __managedBeforeExitListener ||
+      __managedEmnapiContextDestroyers.size === 0
+    ) {
+      return
+    }
+    try {
+      __registerManagedBeforeExitListener()
+    } catch {}
+  })
+}
+
 function __registerManagedBeforeExitListener() {
   if (!__managedCleanupProcess || __managedBeforeExitListener) {
     return
   }
-  __managedCleanupProcess.once(
-    'beforeExit',
-    __destroyManagedEmnapiContextsBeforeExit,
-  )
+  try {
+    __managedCleanupProcess.once(
+      'beforeExit',
+      __destroyManagedEmnapiContextsBeforeExit,
+    )
+  } catch (error) {
+    __scheduleManagedBeforeExitListenerRegistration()
+    throw error
+  }
   __managedBeforeExitListener = __destroyManagedEmnapiContextsBeforeExit
+  __managedBeforeExitRegistrationRetryCount = 0
 }
 
 function __settleManagedEmnapiContextDestroy(__promise) {
   if (__managedDestroyPromise === __promise) {
     __managedDestroyPromise = undefined
+    __managedDestroyersInFlight = undefined
   }
   if (__managedEmnapiContextDestroyers.size === 0) {
     __removeManagedEmnapiCleanupListeners()
@@ -189,6 +237,99 @@ function __settleManagedEmnapiContextDestroy(__promise) {
   } catch {}
 }
 
+function __destroyManagedEmnapiContexts(__excludedDestroyers) {
+  if (__managedDestroyPromise) {
+    return __managedDestroyPromise
+  }
+  const __destroyers = Array.from(__managedEmnapiContextDestroyers).filter(
+    (__destroy) => !__excludedDestroyers?.has(__destroy),
+  )
+  if (__destroyers.length === 0) {
+    return Promise.resolve()
+  }
+  let __resolveDestroy
+  let __rejectDestroy
+  const __promise = new Promise((resolve, reject) => {
+    __resolveDestroy = resolve
+    __rejectDestroy = reject
+  })
+  __managedDestroyPromise = __promise
+  __managedDestroyersInFlight = new Set(__destroyers)
+  void Promise.all(
+    __destroyers.map((__destroy) => {
+      try {
+        return Promise.resolve(__destroy()).then(
+          () => ({ failed: false }),
+          (error) => ({ failed: true, error }),
+        )
+      } catch (error) {
+        return { failed: true, error }
+      }
+    }),
+  ).then((__results) => {
+    let __primaryError
+    let __failed = false
+    for (const __result of __results) {
+      if (!__result.failed) {
+        continue
+      }
+      if (!__failed) {
+        __failed = true
+        __primaryError = __result.error
+      } else {
+        __attachCleanupError(__primaryError, __result.error)
+      }
+    }
+    if (__failed) {
+      __rejectDestroy(__primaryError)
+    } else {
+      __resolveDestroy()
+    }
+  }, __rejectDestroy)
+  void __promise.then(
+    () => {
+      __settleManagedEmnapiContextDestroy(__promise)
+    },
+    () => {
+      __settleManagedEmnapiContextDestroy(__promise)
+    },
+  )
+  return __promise
+}
+
+async function __drainManagedEmnapiContexts(__excludedDestroyers) {
+  const __attemptedDestroyers = new Set(__excludedDestroyers)
+  let __primaryError
+  let __failed = false
+  while (true) {
+    let __promise = __managedDestroyPromise
+    let __destroyers = __managedDestroyersInFlight
+    if (!__promise) {
+      __promise = __destroyManagedEmnapiContexts(__attemptedDestroyers)
+      __destroyers = __managedDestroyersInFlight
+      if (!__destroyers) {
+        break
+      }
+    }
+    for (const __destroy of __destroyers) {
+      __attemptedDestroyers.add(__destroy)
+    }
+    try {
+      await __promise
+    } catch (error) {
+      if (!__failed) {
+        __failed = true
+        __primaryError = error
+      } else {
+        __attachCleanupError(__primaryError, error)
+      }
+    }
+  }
+  if (__failed) {
+    throw __primaryError
+  }
+}
+
 function __destroyManagedEmnapiContextsBeforeExit() {
   // A once listener is consumed before Node invokes it, including when another
   // cleanup batch is still pending.
@@ -196,48 +337,22 @@ function __destroyManagedEmnapiContextsBeforeExit() {
   if (__managedDestroyPromise) {
     return
   }
-  const __destroyers = Array.from(__managedEmnapiContextDestroyers)
-  const __promise = Promise.all(
-    __destroyers.map((__destroy) => {
-      try {
-        return Promise.resolve(__destroy())
-      } catch (error) {
-        return Promise.reject(error)
-      }
-    }),
-  )
-  __managedDestroyPromise = __promise
-  void __promise.then(
-    () => {
-      __settleManagedEmnapiContextDestroy(__promise)
-    },
-    (error) => {
-      __settleManagedEmnapiContextDestroy(__promise)
-      queueMicrotask(() => {
-        throw error
-      })
-    },
-  )
+  void __destroyManagedEmnapiContexts().catch((error) => {
+    queueMicrotask(() => {
+      throw error
+    })
+  })
 }
 
 function __registerManagedEmnapiContext(__process, __destroy) {
-  if (
-    !__process ||
-    typeof __process.once !== 'function' ||
-    typeof __process.removeListener !== 'function'
-  ) {
-    return
-  }
   __managedEmnapiContextDestroyers.add(__destroy)
-  try {
-    if (!__managedCleanupProcess) {
-      __managedCleanupProcess = __process
-    }
-    __registerManagedBeforeExitListener()
-  } catch (error) {
-    __removeManagedEmnapiCleanupListeners()
-    __managedEmnapiContextDestroyers.delete(__destroy)
-    throw error
+  if (
+    !__managedCleanupProcess &&
+    __process &&
+    typeof __process.once === 'function' &&
+    typeof __process.removeListener === 'function'
+  ) {
+    __managedCleanupProcess = __process
   }
   let __registered = true
   return () => {
@@ -246,11 +361,7 @@ function __registerManagedEmnapiContext(__process, __destroy) {
     }
     __registered = false
     __managedEmnapiContextDestroyers.delete(__destroy)
-    if (
-      __managedEmnapiContextDestroyers.size === 0 &&
-      __managedBeforeExitListener &&
-      __managedCleanupProcess
-    ) {
+    if (__managedEmnapiContextDestroyers.size === 0) {
       __removeManagedEmnapiCleanupListeners()
     }
   }
@@ -262,75 +373,161 @@ async function __createManagedEmnapiContext() {
   const __finishAutoDestroyCapture =
     __captureEmnapiAutoDestroyListener(__process)
   let __emnapiContext
+  let __contextInitializationError
+  let __contextInitializationFailed = false
   try {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
     // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
     // contract that keeps this context alive until our explicit cleanup runs.
     __emnapiContext.suppressDestroy()
+  } catch (error) {
+    __contextInitializationError = error
+    __contextInitializationFailed = true
   } finally {
     // Remove only the exact legacy callback captured above. suppressDestroy()
     // remains the safety net if listener removal is unavailable or fails.
     __finishAutoDestroyCapture?.()
   }
+  if (__emnapiContext === undefined) {
+    throw __contextInitializationError
+  }
   let __disposed = false
+  let __destroying = false
   let __destroyPromise
   let __cleanupRegistered = false
   let __unregisterCleanup
-  const __destroy = () => {
+  const __destroy = (__blocksModuleLifecycle = false) => {
     if (__disposed) {
       return
+    }
+    if (__destroying) {
+      throw __createLifecycleReentryError('dispose')
     }
     if (__destroyPromise) {
       return __destroyPromise
     }
-    const __result = __emnapiContext.destroy()
-    if (__result && typeof __result.then === 'function') {
-      const __promise = Promise.resolve(__result).then(
+    __destroying = true
+    let __result
+    const __finishDestroyInvocation = () => {
+      __destroying = false
+    }
+    const __finishModuleLifecycleDestroy = () => {
+      if (__blocksModuleLifecycle) {
+        __blocksModuleLifecycle = false
+        __moduleLifecycleDestroyDepth--
+      }
+    }
+    if (__blocksModuleLifecycle) {
+      __moduleLifecycleDestroyDepth++
+    }
+    try {
+      __result = __emnapiContext.destroy()
+    } catch (error) {
+      __finishDestroyInvocation()
+      __finishModuleLifecycleDestroy()
+      throw error
+    }
+    let __then
+    try {
+      if (
+        __result !== null &&
+        (typeof __result === 'object' || typeof __result === 'function')
+      ) {
+        __then = __result.then
+      }
+    } catch (error) {
+      __finishDestroyInvocation()
+      __finishModuleLifecycleDestroy()
+      throw error
+    }
+    if (typeof __then === 'function') {
+      let __resolveResult
+      let __rejectResult
+      const __resultPromise = new Promise((resolve, reject) => {
+        __resolveResult = resolve
+        __rejectResult = reject
+      })
+      const __promise = __resultPromise.then(
         (value) => {
+          __finishDestroyInvocation()
+          __finishModuleLifecycleDestroy()
           __disposed = true
           __destroyPromise = undefined
           __unregisterCleanup?.()
           return value
         },
         (error) => {
+          __finishDestroyInvocation()
+          __finishModuleLifecycleDestroy()
           __destroyPromise = undefined
           throw error
         },
       )
       __destroyPromise = __promise
+      try {
+        Reflect.apply(__then, __result, [__resolveResult, __rejectResult])
+      } catch (error) {
+        __rejectResult(error)
+      }
       return __promise
     }
+    __finishDestroyInvocation()
+    __finishModuleLifecycleDestroy()
     __disposed = true
     __unregisterCleanup?.()
-    return __result
   }
-  const __registerCleanup = async (__beforeExitDestroy = __destroy) => {
+  const __destroyForModuleLifecycle = () => __destroy(true)
+  const __registerCleanup = (
+    __beforeExitDestroy = __destroyForModuleLifecycle,
+  ) => {
     if (__cleanupRegistered || __disposed) {
       return
     }
+    __unregisterCleanup = __registerManagedEmnapiContext(
+      __process,
+      __beforeExitDestroy,
+    )
+    __cleanupRegistered = true
+    __registerManagedBeforeExitListener()
+  }
+  if (__contextInitializationFailed) {
+    let __registrationError
+    let __registrationFailed = false
     try {
-      __unregisterCleanup = __registerManagedEmnapiContext(
-        __process,
-        __beforeExitDestroy,
-      )
-      __cleanupRegistered = true
+      __registerCleanup()
     } catch (error) {
-      try {
-        await __destroy()
-      } catch (disposeError) {
-        __attachCleanupError(error, disposeError)
-      }
-      throw error
+      __attachCleanupError(__contextInitializationError, error)
+      __registrationError = error
+      __registrationFailed = true
     }
+    try {
+      await __destroyForModuleLifecycle()
+    } catch (error) {
+      __attachCleanupError(
+        __registrationFailed
+          ? __registrationError
+          : __contextInitializationError,
+        error,
+      )
+      try {
+        __registerManagedBeforeExitListener()
+      } catch {}
+    }
+    throw __contextInitializationError
   }
   return {
     context: __emnapiContext,
     destroy: __destroy,
+    destroyForModuleLifecycle: __destroyForModuleLifecycle,
     registerCleanup: __registerCleanup,
   }
 }
 
-async function __createInstance(__wasmInput, __beforeExitDestroy) {
+async function __createInstance(
+  __wasmInput,
+  __beforeExitDestroy,
+  __onManagedDestroyer,
+) {
   const __module = await __resolveModule(__wasmInput)
   const __emnapiModule = await __normalizeModuleForEmnapi(__module)
   const __wasi = new __WASI({
@@ -347,10 +544,12 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
   })
   let __lifecycleState = 'pending'
   let __destroyEmnapiContext
+  let __destroyOwnedContext
+  let __destroyManagedOwnedContext
   const __destroyBeforeExit = __beforeExitDestroy
     ? async () => {
         if (__lifecycleState === 'failed') {
-          await __destroyEmnapiContext()
+          await __destroyManagedOwnedContext()
           return
         }
         __lifecycleState = 'disposal'
@@ -363,20 +562,24 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
           // The singleton's initialization rejection is already observable
           // through instantiate() and dispose(). Managed beforeExit cleanup
           // owns only context destruction, including retrying a failed rollback.
-          await __destroyEmnapiContext()
+          await __destroyManagedOwnedContext()
         }
       }
     : undefined
   const {
     context: __emnapiContext,
     destroy,
+    destroyForModuleLifecycle,
     registerCleanup: __registerCleanup,
   } = await __createManagedEmnapiContext()
   __destroyEmnapiContext = destroy
-  if (__destroyBeforeExit) {
-    await __registerCleanup(__destroyBeforeExit)
-  }
+  __destroyOwnedContext = () => __destroyEmnapiContext()
+  __destroyManagedOwnedContext = destroyForModuleLifecycle
   try {
+    if (__destroyBeforeExit) {
+      __onManagedDestroyer(__destroyBeforeExit)
+      await __registerCleanup(__destroyBeforeExit)
+    }
     __emnapiContext.feature.Buffer = Buffer
     const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
       __emnapiModule,
@@ -415,15 +618,19 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
     }
     return {
       exports: __napiModule.exports,
-      dispose() {
+      async dispose() {
         if (__lifecycleState !== 'failed') {
           __lifecycleState = 'disposal'
         }
-        return __destroyEmnapiContext()
+        return __beforeExitDestroy
+          ? __destroyManagedOwnedContext()
+          : __destroyOwnedContext()
       },
     }
   } catch (error) {
     __lifecycleState = 'failed'
+    let __registrationError
+    let __registrationFailed = false
     if (!__beforeExitDestroy) {
       try {
         // Independent instances are caller-owned while pending and after
@@ -431,16 +638,23 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
         await __registerCleanup()
       } catch (registrationError) {
         __attachCleanupError(error, registrationError)
-        throw error
+        __registrationError = registrationError
+        __registrationFailed = true
       }
     }
     try {
-      await __destroyEmnapiContext()
+      await __destroyManagedOwnedContext()
     } catch (disposeError) {
       // Initialization is the primary failure. Preserve it even if cleanup
       // also fails, while retaining the cleanup error when the value is
       // extensible and has no existing cause.
-      __attachCleanupError(error, disposeError)
+      __attachCleanupError(
+        __registrationFailed ? __registrationError : error,
+        disposeError,
+      )
+      try {
+        __registerManagedBeforeExitListener()
+      } catch {}
     }
     throw error
   }
@@ -546,25 +760,41 @@ let __defaultModulePromise
 let __defaultInstancePromise
 let __defaultDisposePromise
 let __defaultDisposalStarted = false
+const __defaultManagedDestroyers = new WeakMap()
+let __moduleDisposePromise
 
 /**
  * Instantiate a module-local singleton. Concurrent and repeated calls
  * with the same module share one instance and one Memory allocation.
  */
 export function instantiate(__wasmInput) {
+  const __modulePromise = __resolveModule(__wasmInput)
+  if (__moduleLifecycleDestroyDepth !== 0) {
+    void __modulePromise.catch(() => {})
+    return Promise.reject(__createLifecycleReentryError('instantiate'))
+  }
+  if (__moduleDisposePromise) {
+    void __modulePromise.catch(() => {})
+    return __moduleDisposePromise.then(() => instantiate(__modulePromise))
+  }
   if (__defaultDisposalStarted) {
-    const __modulePromise = __resolveModule(__wasmInput)
     // Observe rejected input immediately, but preserve lifecycle ordering and
     // error precedence by instantiating only after disposal succeeds. A failed
     // disposal retains the old instance only so its cleanup can be retried.
     void __modulePromise.catch(() => {})
-    return dispose().then(() => instantiate(__modulePromise))
+    const __disposePromise = __defaultDisposePromise ?? dispose()
+    return __disposePromise.then(() => instantiate(__modulePromise))
   }
-  const __modulePromise = __resolveModule(__wasmInput)
   if (!__defaultInstancePromise) {
     __defaultModulePromise = __modulePromise
     const __instancePromise = __modulePromise.then((__module) =>
-      __createInstance(__module, dispose),
+      __createInstance(
+        __module,
+        __disposeDefaultInstance,
+        (__managedDestroyer) => {
+          __defaultManagedDestroyers.set(__instancePromise, __managedDestroyer)
+        },
+      ),
     )
     __defaultInstancePromise = __instancePromise
     void __instancePromise.catch(() => {
@@ -589,11 +819,7 @@ export function instantiate(__wasmInput) {
   )
 }
 
-/**
- * Dispose the singleton created by instantiate(). A later call may create a
- * fresh instance, including from a different module.
- */
-export async function dispose() {
+async function __disposeDefaultInstance(__onDestroy) {
   if (__defaultDisposePromise) {
     return __defaultDisposePromise
   }
@@ -604,13 +830,29 @@ export async function dispose() {
   }
   __defaultDisposalStarted = true
   const __disposePromise = (async () => {
-    const __instance = await __instancePromise
+    let __instance
+    try {
+      __instance = await __instancePromise
+    } catch (error) {
+      const __managedDestroyer =
+        __defaultManagedDestroyers.get(__instancePromise)
+      if (__managedDestroyer) {
+        __onDestroy?.(__managedDestroyer)
+      }
+      __defaultManagedDestroyers.delete(__instancePromise)
+      throw error
+    }
+    const __managedDestroyer = __defaultManagedDestroyers.get(__instancePromise)
+    if (__managedDestroyer) {
+      __onDestroy?.(__managedDestroyer)
+    }
     await __instance.dispose()
     if (__defaultInstancePromise === __instancePromise) {
       __defaultInstancePromise = undefined
       __defaultModulePromise = undefined
       __defaultDisposalStarted = false
     }
+    __defaultManagedDestroyers.delete(__instancePromise)
   })()
   __defaultDisposePromise = __disposePromise
   try {
@@ -620,4 +862,70 @@ export async function dispose() {
       __defaultDisposePromise = undefined
     }
   }
+}
+
+async function __dispose() {
+  let __defaultDisposeError
+  let __defaultDisposeFailed = false
+  let __attemptedDefaultDestroyer
+  try {
+    await __disposeDefaultInstance((__destroyer) => {
+      __attemptedDefaultDestroyer = __destroyer
+    })
+  } catch (error) {
+    __defaultDisposeError = error
+    __defaultDisposeFailed = true
+  }
+  const __excludedDestroyers = new Set()
+  if (__defaultDisposeFailed && __attemptedDefaultDestroyer) {
+    __excludedDestroyers.add(__attemptedDefaultDestroyer)
+  }
+  try {
+    await __drainManagedEmnapiContexts(__excludedDestroyers)
+  } catch (error) {
+    if (!__defaultDisposeFailed) {
+      throw error
+    }
+    if (error !== __defaultDisposeError) {
+      __attachCleanupError(__defaultDisposeError, error)
+    }
+  }
+  if (__defaultDisposeFailed) {
+    throw __defaultDisposeError
+  }
+}
+
+/**
+ * Dispose the singleton created by instantiate(). A later call may create a
+ * fresh instance, including from a different module. This also retries cleanup
+ * retained after a failed initialization rollback.
+ */
+export function dispose() {
+  if (__moduleLifecycleDestroyDepth !== 0) {
+    return Promise.reject(__createLifecycleReentryError('dispose'))
+  }
+  if (__moduleDisposePromise) {
+    return __moduleDisposePromise
+  }
+  let __resolveDispose
+  let __rejectDispose
+  const __promise = new Promise((resolve, reject) => {
+    __resolveDispose = resolve
+    __rejectDispose = reject
+  })
+  __moduleDisposePromise = __promise
+  void __dispose().then(__resolveDispose, __rejectDispose)
+  void __promise.then(
+    () => {
+      if (__moduleDisposePromise === __promise) {
+        __moduleDisposePromise = undefined
+      }
+    },
+    () => {
+      if (__moduleDisposePromise === __promise) {
+        __moduleDisposePromise = undefined
+      }
+    },
+  )
+  return __promise
 }

@@ -1780,10 +1780,7 @@ export declare function throwErrorWithCause(): void
 
 export declare function throwPromiseRejectionAcrossDuplicateLoad(): void
 
-export declare function throwSyntaxError(
-  error: string,
-  code?: string | undefined | null,
-): void
+export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 
 export declare function toJsObj(): object
 

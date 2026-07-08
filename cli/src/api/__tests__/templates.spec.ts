@@ -610,7 +610,7 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.false(src.includes('initial: 4000'))
   t.true(src.includes('export function instantiate'))
   t.true(src.includes('export async function createInstance'))
-  t.true(src.includes('export async function dispose'))
+  t.true(src.includes('export function dispose'))
   t.true(src.includes('asyncWorkPoolSize: 0'))
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
   t.true(src.includes('__emnapiContext.suppressDestroy()'))
@@ -1375,6 +1375,8 @@ test('deferred single-thread WASI binding exposes typed lifecycle APIs', (t) => 
       'export function createInstance(wasmInput: WasiModuleInput): Promise<WasiInstance>',
     ),
   )
+  t.true(typeDef.includes('dispose(): Promise<void>'))
+  t.false(typeDef.includes('dispose(): void | Promise<void>'))
   const result = parseSync('workerd.d.ts', typeDef, {
     lang: 'ts',
     sourceType: 'module',
@@ -1816,8 +1818,30 @@ export async function instantiateNapiModule() {
       state.destroyAttempts++
       const reentrantDispose = state.reentrantDispose
       state.reentrantDispose = undefined
-      const reentrantResult = reentrantDispose?.()
+      let reentrantResult
+      if (reentrantDispose) {
+        reentrantResult = state.asyncReentrantDispose
+          ? Promise.resolve()
+              .then(() => Promise.resolve())
+              .then(() => reentrantDispose())
+          : reentrantDispose()
+      }
+      if (reentrantResult) {
+        reentrantResult = Promise.resolve(reentrantResult).then(
+          () => {
+            state.reentrantResolutions++
+          },
+          (error) => {
+            state.reentrantErrors.push(error)
+          },
+        )
+      }
       if (state.destroyAttempts <= state.cleanupFailures) {
+        if (state.returnReentrantDispose && reentrantResult) {
+          return Promise.resolve(reentrantResult).then(() => {
+            throw state.cleanupError
+          })
+        }
         return Promise.reject(state.cleanupError)
       }
       const finish = () => {
@@ -1851,15 +1875,19 @@ const initializationError = new Error('initialization failed')
 const registrationError = new Error('beforeExit registration failed')
 const cleanupError = new Error('registration rollback failed')
 const state = {
-  cleanupFailures: mode === 'singleton' ? 2 : 1,
+  asyncReentrantDispose: mode === 'singleton',
+  cleanupFailures: 1,
   cleanupError,
   destroyAttempts: 0,
   destroyed: 0,
   initializationError,
+  reentrantErrors: [],
+  reentrantResolutions: 0,
+  returnReentrantDispose: mode === 'singleton',
 }
 globalThis.__napiRegistrationRetryState = state
 
-const { createInstance, instantiate } = await import('./deferred.mjs')
+const { createInstance, dispose, instantiate } = await import('./deferred.mjs')
 const module = new WebAssembly.Module(
   new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
 )
@@ -1871,6 +1899,9 @@ function throwOnceOnBeforeExit(event) {
 }
 process.on('newListener', throwOnceOnBeforeExit)
 try {
+  if (mode === 'singleton') {
+    state.reentrantDispose = dispose
+  }
   const pending =
     mode === 'singleton' ? instantiate(module) : createInstance(module)
   await assert.rejects(pending, (error) => {
@@ -1898,6 +1929,11 @@ retainedBeforeExitListeners[0](0)
 await new Promise((resolve) => setImmediate(resolve))
 assert.equal(state.destroyAttempts, state.cleanupFailures + 1)
 assert.equal(state.destroyed, 1)
+assert.deepEqual(
+  state.reentrantErrors.map((error) => error.code),
+  mode === 'singleton' ? ['ERR_NAPI_WASI_LIFECYCLE_REENTRY'] : [],
+)
+assert.equal(state.reentrantResolutions, 0)
 assert.equal(
   process
     .rawListeners('beforeExit')
@@ -1916,19 +1952,19 @@ const nodeProcess = process
 const initializationError = new Error('initialization failed')
 const cleanupError = new Error('initial rollback failed')
 const state = {
+  asyncReentrantDispose: true,
   cleanupError,
   cleanupFailures: 1,
   destroyAttempts: 0,
   destroyed: 0,
   initializationError,
+  reentrantErrors: [],
+  reentrantResolutions: 0,
 }
 globalThis.__napiRegistrationRetryState = state
 globalThis.process = undefined
 
 const { createInstance, dispose, instantiate } = await import('./deferred.mjs')
-if (mode === 'independent') {
-  state.reentrantDispose = dispose
-}
 const module = new WebAssembly.Module(
   new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
 )
@@ -1942,22 +1978,30 @@ await assert.rejects(pending, (error) => {
 assert.equal(state.destroyAttempts, 1)
 assert.equal(state.destroyed, 0)
 
+await new Promise((resolve) => setTimeout(resolve, 0))
 let releaseCleanup
 state.cleanupGate = new Promise((resolve) => {
   releaseCleanup = resolve
 })
 state.reentrantDispose = dispose
 const cleanup = dispose()
-let concurrentSettled = false
-const concurrentCleanup = dispose().then(() => {
-  concurrentSettled = true
+while (state.destroyAttempts < 2) {
+  await Promise.resolve()
+}
+await assert.rejects(dispose(), (error) => {
+  assert.equal(error.code, 'ERR_NAPI_WASI_LIFECYCLE_REENTRY')
+  return true
 })
 await new Promise((resolve) => setImmediate(resolve))
-assert.equal(concurrentSettled, false)
 releaseCleanup()
-await Promise.all([cleanup, concurrentCleanup])
+await cleanup
 assert.equal(state.destroyAttempts, 2)
 assert.equal(state.destroyed, 1)
+assert.deepEqual(
+  state.reentrantErrors.map((error) => error.code),
+  ['ERR_NAPI_WASI_LIFECYCLE_REENTRY'],
+)
+assert.equal(state.reentrantResolutions, 0)
 
 globalThis.process = nodeProcess
 nodeProcess.stdout.write(\`\${mode}-processless-retry-ok\\n\`)
@@ -1969,10 +2013,13 @@ nodeProcess.stdout.write(\`\${mode}-processless-retry-ok\\n\`)
 
 const nodeProcess = process
 const state = {
+  asyncReentrantDispose: true,
   cleanupFailures: 0,
   destroyAttempts: 0,
   destroyed: 0,
   initializeSuccessfully: true,
+  reentrantErrors: [],
+  reentrantResolutions: 0,
   returnReentrantDispose: true,
 }
 globalThis.__napiRegistrationRetryState = state
@@ -1987,6 +2034,11 @@ state.reentrantDispose = dispose
 await dispose()
 assert.equal(state.destroyAttempts, 1)
 assert.equal(state.destroyed, 1)
+assert.deepEqual(
+  state.reentrantErrors.map((error) => error.code),
+  ['ERR_NAPI_WASI_LIFECYCLE_REENTRY'],
+)
+assert.equal(state.reentrantResolutions, 0)
 
 globalThis.process = nodeProcess
 nodeProcess.stdout.write('successful-reentrant-dispose-ok\\n')
@@ -1998,10 +2050,13 @@ nodeProcess.stdout.write('successful-reentrant-dispose-ok\\n')
 
 const nodeProcess = process
 const state = {
+  asyncReentrantDispose: true,
   cleanupFailures: 0,
   destroyAttempts: 0,
   destroyed: 0,
   initializeSuccessfully: true,
+  reentrantErrors: [],
+  reentrantResolutions: 0,
   returnReentrantDispose: true,
 }
 globalThis.__napiRegistrationRetryState = state
@@ -2020,6 +2075,9 @@ assert.equal(state.destroyed, 2)
 
 await dispose()
 assert.equal(state.destroyAttempts, 2)
+assert.equal(state.destroyed, 2)
+assert.deepEqual(state.reentrantErrors, [])
+assert.equal(state.reentrantResolutions, 1)
 globalThis.process = nodeProcess
 nodeProcess.stdout.write('independent-reentrant-dispose-ok\\n')
 `,
@@ -2315,22 +2373,20 @@ const waitForDestroyed = async (expected) => {
 }
 
 process.once('beforeExit', () => {
-  setImmediate(() => {
+  setTimeout(() => {
     void (async () => {
-      let replacementSingletonSettled = false
-      const replacementSingletonPromise = deferred.instantiate(module)
-      void replacementSingletonPromise.then(() => {
-        replacementSingletonSettled = true
-      })
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      if (replacementSingletonSettled) {
-        throw new Error(
-          'overlapping instantiate did not wait for automatic disposal',
-        )
+      let overlappingError
+      try {
+        await deferred.instantiate(module)
+      } catch (error) {
+        overlappingError = error
+      }
+      if (overlappingError?.code !== 'ERR_NAPI_WASI_LIFECYCLE_REENTRY') {
+        throw new Error('overlapping instantiate did not reject lifecycle reentry')
       }
 
-      const replacementSingleton = await replacementSingletonPromise
       await waitForDestroyed(1)
+      const replacementSingleton = await deferred.instantiate(module)
       if (!globalThis.__beforeExitTestContexts[1].destroyed) {
         throw new Error('first beforeExit pass did not destroy the singleton')
       }
@@ -2500,6 +2556,15 @@ module.exports = __napiModule.exports
         if (state.cleanupError) {
           throw state.cleanupError
         }
+        if (state.destroyThenGetterError) {
+          const error = state.destroyThenGetterError
+          state.destroyThenGetterError = undefined
+          return Object.defineProperty({}, 'then', {
+            get() {
+              throw error
+            },
+          })
+        }
         state.destroyed.push(id)
       },
     }
@@ -2522,6 +2587,7 @@ const state = {
   destroyAttempts: [],
   destroyed: [],
   cleanupError: undefined,
+  destroyThenGetterError: undefined,
   initializationError: undefined,
 }
 globalThis.__cjsRollbackState = state
@@ -2609,6 +2675,23 @@ assert.strictEqual(ownedBeforeExitListeners().length, 0)
 assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3])
 assert.deepStrictEqual(state.destroyed, [1, 2, 3])
 
+const destroyThenGetterError = new Error('destroy then getter failed')
+state.destroyThenGetterError = destroyThenGetterError
+let observedHostileThenError
+try {
+  load()
+} catch (error) {
+  observedHostileThenError = error
+}
+assert.strictEqual(observedHostileThenError.code, 'MODULE_NOT_FOUND')
+assert.strictEqual(observedHostileThenError.cause, destroyThenGetterError)
+const hostileThenRetryListeners = ownedBeforeExitListeners()
+assert.strictEqual(hostileThenRetryListeners.length, 1)
+hostileThenRetryListeners[0]()
+assert.strictEqual(ownedBeforeExitListeners().length, 0)
+assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3, 4, 4])
+assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4])
+
 fs.writeFileSync(wasmPath, '')
 const originalReadFileSync = fs.readFileSync
 const readError = new Error('wasm read failed')
@@ -2628,9 +2711,12 @@ const initializationError = new Error('emnapi initialization failed')
 state.initializationError = initializationError
 expectPrimaryError(initializationError)
 
-assert.strictEqual(state.contexts, 5)
-assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3, 4, 5])
-assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4, 5])
+assert.strictEqual(state.contexts, 6)
+assert.deepStrictEqual(
+  state.destroyAttempts,
+  [1, 1, 2, 3, 3, 4, 4, 5, 6],
+)
+assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4, 5, 6])
 process.stdout.write('rollback-ok\\n')
 `,
       )
@@ -2878,6 +2964,7 @@ test.serial(
       initializationGate: undefined as Promise<void> | undefined,
       cleanupError: undefined as Error | undefined,
       contextError: undefined as Error | undefined,
+      destroyThenGetterError: undefined as Error | undefined,
       contextOptions: [] as unknown[],
       liveContexts: new Set<number>(),
     }
@@ -2987,6 +3074,15 @@ export async function instantiateNapiModule(module, options) {
       if (cleanupError) {
         throw cleanupError
       }
+      if (state.destroyThenGetterError) {
+        const error = state.destroyThenGetterError
+        state.destroyThenGetterError = undefined
+        return Object.defineProperty({}, 'then', {
+          get() {
+            throw error
+          },
+        })
+      }
       const cleanupGate = state.cleanupGates.get(id)
       if (cleanupGate) {
         state.cleanupGates.delete(id)
@@ -3093,16 +3189,15 @@ export async function instantiateNapiModule(module, options) {
       t.is(state.instances, 4)
       t.is(countOwnedBeforeExitListeners(), 0)
       state.cleanupError = cleanupError
-      t.is(
-        t.throws(() => independentA.dispose()),
-        cleanupError,
-      )
+      t.is(await t.throwsAsync(() => independentA.dispose()), cleanupError)
       t.is(countOwnedBeforeExitListeners(), 0)
       t.deepEqual(state.destroyAttempts.slice(-1), [3])
       state.cleanupError = undefined
-      independentA.dispose()
-      independentA.dispose()
-      independentB.dispose()
+      await Promise.all([
+        independentA.dispose(),
+        independentA.dispose(),
+        independentB.dispose(),
+      ])
       t.deepEqual(state.destroyed, [1, 2, 3, 4])
       t.deepEqual(state.destroyAttempts.slice(-3), [3, 3, 4])
       t.is(countOwnedBeforeExitListeners(), 0)
@@ -3408,13 +3503,97 @@ export async function instantiateNapiModule(module, options) {
       t.false(state.destroyed.includes(overlappingFailedRollbackContextId))
 
       releaseOverlappingCleanup()
-      await new Promise((resolve) => setImmediate(resolve))
+      await new Promise((resolve) => setTimeout(resolve, 0))
       t.true(state.destroyed.includes(overlappingCleanupContextId))
       t.false(state.destroyed.includes(overlappingFailedRollbackContextId))
       t.is(countOwnedBeforeExitListeners(), 1)
 
       await runOwnedBeforeExitCleanup()
       t.true(state.destroyed.includes(overlappingFailedRollbackContextId))
+      t.is(new Set(state.destroyed).size, state.contexts)
+      t.is(countOwnedBeforeExitListeners(), 0)
+
+      await instantiate(moduleA)
+      const orderedSingletonContextId = state.contexts
+      const orderedInitializationError = new Error(
+        'ordered retained initialization failed',
+      )
+      state.initializationError = orderedInitializationError
+      const orderedRetainedContextId = state.contexts + 1
+      state.cleanupErrors.set(orderedRetainedContextId, cleanupError)
+      t.is(
+        await t.throwsAsync(() => createInstance(moduleB)),
+        orderedInitializationError,
+      )
+      state.initializationError = undefined
+      state.cleanupErrors.delete(orderedRetainedContextId)
+
+      let releaseOrderedCleanup!: () => void
+      state.cleanupGates.set(
+        orderedRetainedContextId,
+        new Promise<void>((resolve) => {
+          releaseOrderedCleanup = resolve
+        }),
+      )
+      const orderedDisposal = dispose()
+      while (state.cleanupGates.has(orderedRetainedContextId)) {
+        await Promise.resolve()
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const orderedReplacementError = await t.throwsAsync(() =>
+        instantiate(moduleB),
+      )
+      t.is(
+        (orderedReplacementError as Error & { code?: string }).code,
+        'ERR_NAPI_WASI_LIFECYCLE_REENTRY',
+      )
+      releaseOrderedCleanup()
+      await orderedDisposal
+      const orderedReplacementExports = await instantiate(moduleB)
+      t.true(state.destroyed.includes(orderedSingletonContextId))
+      t.true(state.destroyed.includes(orderedRetainedContextId))
+      t.is(orderedReplacementExports.id, state.instances)
+      await dispose()
+
+      const hostileThenError = new Error('destroy then getter failed')
+      const hostileThenInstance = await createInstance(moduleA)
+      const hostileThenContextId = state.contexts
+      state.destroyThenGetterError = hostileThenError
+      t.is(
+        await t.throwsAsync(() => hostileThenInstance.dispose()),
+        hostileThenError,
+      )
+      t.false(state.destroyed.includes(hostileThenContextId))
+      await hostileThenInstance.dispose()
+      t.true(state.destroyed.includes(hostileThenContextId))
+
+      await instantiate(moduleA)
+      const failedSingletonContextId = state.contexts
+      const retainedInitializationError = new Error(
+        'retained independent initialization failed',
+      )
+      const retainedCleanupError = new Error(
+        'retained independent cleanup failed',
+      )
+      state.initializationError = retainedInitializationError
+      const retainedContextId = state.contexts + 1
+      state.cleanupErrors.set(retainedContextId, retainedCleanupError)
+      t.is(
+        await t.throwsAsync(() => createInstance(moduleB)),
+        retainedInitializationError,
+      )
+      state.initializationError = undefined
+      state.cleanupErrors.delete(retainedContextId)
+      t.false(state.destroyed.includes(retainedContextId))
+
+      const singletonCleanupError = new Error('singleton cleanup failed')
+      state.cleanupErrors.set(failedSingletonContextId, singletonCleanupError)
+      t.is(await t.throwsAsync(() => dispose()), singletonCleanupError)
+      t.false(state.destroyed.includes(failedSingletonContextId))
+      t.true(state.destroyed.includes(retainedContextId))
+      state.cleanupErrors.delete(failedSingletonContextId)
+      await dispose()
+      t.true(state.destroyed.includes(failedSingletonContextId))
       t.is(new Set(state.destroyed).size, state.contexts)
       t.is(countOwnedBeforeExitListeners(), 0)
     } finally {
