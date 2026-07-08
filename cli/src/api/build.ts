@@ -78,6 +78,10 @@ const MANAGED_WASI_FLAVORS = [
 
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = { kind: OutputKind; path: string }
+type WasiBindingMetadata = {
+  exports: string[]
+  bindingTypeDef?: string
+}
 
 type BuildOptions = RawBuildOptions & { cargoOptions?: string[] }
 type ParsedBuildOptions = Omit<BuildOptions, 'cwd'> & { cwd: string }
@@ -282,10 +286,12 @@ function envBoolean(value: string | undefined) {
 function createWasiArtifactMetadata(
   rootEntry: string | null,
   binaryName: string,
+  exports: string[],
 ) {
   return `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
     version: 2,
     rootEntry,
+    exports,
     managedRootEntries: [
       'browser.js',
       ...(rootEntry ? [rootEntry] : []),
@@ -320,7 +326,15 @@ function parseExistingWasiArtifactMetadata(content: string) {
     ) {
       return undefined
     }
-    return { managedRootEntries }
+    const exports = metadata.exports
+    return {
+      managedRootEntries,
+      exports:
+        Array.isArray(exports) &&
+        exports.every((entry) => typeof entry === 'string')
+          ? exports
+          : undefined,
+    }
   } catch {
     return undefined
   }
@@ -1162,6 +1176,34 @@ class Builder {
     return entries
   }
 
+  private async readExistingWasiBindingMetadata(wasiTarget: Target) {
+    const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
+    const bindingPath = join(
+      this.finalOutputDir,
+      `${this.config.binaryName}.${loaderSuffix}.cjs`,
+    )
+    const bindingTypeDefPath = join(
+      this.finalOutputDir,
+      `${this.config.binaryName}.${loaderSuffix}.d.cts`,
+    )
+    if (
+      !(await fileExists(bindingPath)) ||
+      !(await fileExists(bindingTypeDefPath))
+    ) {
+      return undefined
+    }
+    const artifactMetadata = parseExistingWasiArtifactMetadata(
+      await readFileAsync(bindingPath, 'utf8'),
+    )
+    if (artifactMetadata?.exports === undefined) {
+      return undefined
+    }
+    return {
+      exports: artifactMetadata.exports,
+      bindingTypeDef: await readFileAsync(bindingTypeDefPath, 'utf8'),
+    }
+  }
+
   private pickBinary() {
     let set = false
     if (this.options.watch) {
@@ -1962,11 +2004,11 @@ class Builder {
   ) {
     if (distFileName) {
       const { dir } = parse(distFileName)
-      // For a wasi build, emit the loader set of the flavor being built; for
-      // non-wasi builds regenerate the loader set of EVERY declared wasi
-      // flavor (each with its own `hasThreads`), so the emitted files are
-      // deterministic regardless of the build target. Two triples mapping to
-      // the same `platformArchABI` (e.g. `wasm32-wasip1-threads` and
+      // A WASI build owns the export/declaration metadata for its flavor.
+      // Non-WASI builds use that metadata to regenerate declared loader sets
+      // without substituting the native surface. Legacy flavor files without
+      // metadata remain untouched. Two triples mapping to the same
+      // `platformArchABI` (e.g. `wasm32-wasip1-threads` and
       // `wasm32-wasi-preview1-threads`) describe the same artifact set, so
       // dedupe on it.
       const wasiTargets: Target[] = []
@@ -1983,9 +2025,19 @@ class Builder {
         wasiTargets.push(wasiTarget)
       }
       const outputs: Output[] = []
+      const metadataByFlavor = new Map<string, WasiBindingMetadata>()
       for (const wasiTarget of wasiTargets) {
+        const metadata =
+          this.target.platform === 'wasi' &&
+          wasiTarget.platformArchABI === this.target.platformArchABI
+            ? { exports: idents }
+            : await this.readExistingWasiBindingMetadata(wasiTarget)
+        if (!metadata) {
+          continue
+        }
+        metadataByFlavor.set(wasiTarget.platformArchABI, metadata)
         outputs.push(
-          ...(await this.writeWasiBindingForTarget(wasiTarget, dir, idents)),
+          ...(await this.writeWasiBindingForTarget(wasiTarget, dir, metadata)),
         )
       }
       if (wasiTargets.length > 0) {
@@ -1999,15 +2051,29 @@ class Builder {
           wasiTargets,
         )
         const browserEntryPath = join(dir, 'browser.js')
-        await writeFileAtomic(
-          browserEntryPath,
-          createWasiBrowserEntry(
-            this.config.packageName,
-            browserFlavor.platformArchABI,
-            idents,
-          ),
+        const browserMetadata = metadataByFlavor.get(
+          browserFlavor.platformArchABI,
         )
-        outputs.push({ kind: 'js', path: browserEntryPath })
+        if (browserMetadata) {
+          await writeFileAtomic(
+            browserEntryPath,
+            createWasiBrowserEntry(
+              this.config.packageName,
+              browserFlavor.platformArchABI,
+              browserMetadata.exports,
+            ),
+          )
+          outputs.push({ kind: 'js', path: browserEntryPath })
+        } else {
+          const existingBrowserEntryPath = join(
+            this.finalOutputDir,
+            'browser.js',
+          )
+          if (await fileExists(existingBrowserEntryPath)) {
+            await copyFileAtomic(existingBrowserEntryPath, browserEntryPath)
+            outputs.push({ kind: 'js', path: browserEntryPath })
+          }
+        }
       }
       return outputs
     }
@@ -2017,8 +2083,9 @@ class Builder {
   private async writeWasiBindingForTarget(
     wasiTarget: Target,
     dir: string,
-    idents: string[],
+    metadata: WasiBindingMetadata,
   ): Promise<Output[]> {
+    const { exports: idents } = metadata
     const hasThreads = wasiTargetHasThreads(wasiTarget)
     const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
     // the wasm file stem referenced from inside the loaders
@@ -2049,6 +2116,7 @@ class Builder {
           ? (this.options.jsBinding ?? 'index.js')
           : null,
         this.config.binaryName,
+        idents,
       ) +
         createWasiBinding(
           name,
@@ -2084,30 +2152,30 @@ class Builder {
         '\n',
       'utf8',
     )
-    const finalSourceTypeDefPath = join(
-      this.finalOutputDir,
-      this.options.dts ?? 'index.d.ts',
-    )
-    const sourceTypeDefPath = this.enableTypeDef
-      ? this.getStagedOutputPath(finalSourceTypeDefPath)
-      : finalSourceTypeDefPath
-    const bindingTypeDef = this.enableTypeDef
-      ? await readFileAsync(sourceTypeDefPath, 'utf8')
-      : `${DEFAULT_TYPE_DEF_HEADER}
+    let bindingTypeDef = metadata.bindingTypeDef
+    if (bindingTypeDef === undefined) {
+      const finalSourceTypeDefPath = join(
+        this.finalOutputDir,
+        this.options.dts ?? 'index.d.ts',
+      )
+      const sourceTypeDefPath = this.enableTypeDef
+        ? this.getStagedOutputPath(finalSourceTypeDefPath)
+        : finalSourceTypeDefPath
+      const sourceTypeDef = this.enableTypeDef
+        ? await readFileAsync(sourceTypeDefPath, 'utf8')
+        : `${DEFAULT_TYPE_DEF_HEADER}
 declare const binding: Record<string, unknown>
 export = binding
 `
-    const selectedBindingTypeDef =
-      !hasThreads &&
-      this.config.wasm?.browser?.buffer === true &&
-      this.typeDefWithTypeImports
-        ? this.typeDefWithTypeImports
-        : bindingTypeDef
-    await writeFileAtomic(
-      bindingTypeDefPath,
-      this.enableTypeDef
+      const selectedSourceTypeDef =
+        !hasThreads &&
+        this.config.wasm?.browser?.buffer === true &&
+        this.typeDefWithTypeImports
+          ? this.typeDefWithTypeImports
+          : sourceTypeDef
+      bindingTypeDef = this.enableTypeDef
         ? prepareWasiBindingTypeDef(
-            selectedBindingTypeDef,
+            selectedSourceTypeDef,
             finalSourceTypeDefPath,
             join(
               this.finalOutputDir,
@@ -2117,10 +2185,10 @@ export = binding
             this.config.packageJson.type,
           )
         : hasThreads
-          ? selectedBindingTypeDef
-          : removeNodeStreamWebTypeImports(selectedBindingTypeDef),
-      'utf8',
-    )
+          ? selectedSourceTypeDef
+          : removeNodeStreamWebTypeImports(selectedSourceTypeDef)
+    }
+    await writeFileAtomic(bindingTypeDefPath, bindingTypeDef, 'utf8')
     const outputs: Output[] = [
       { kind: 'js', path: bindingPath },
       { kind: 'js', path: browserBindingPath },

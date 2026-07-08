@@ -2254,3 +2254,257 @@ if (args.includes('metadata')) {
     }
   },
 )
+
+test.serial(
+  'native builds preserve target-specific WASI exports and declarations',
+  async (t) => {
+    const { projectDir } = t.context
+    const crateName = 'target_specific_exports'
+    const binaryName = 'target-specific-exports'
+    const packageName = 'target-specific-exports'
+    const version = '0.1.0'
+    const nativeTarget = getSystemDefaultTarget()
+    const nativeArtifactName =
+      nativeTarget.platform === 'darwin'
+        ? `lib${crateName}.dylib`
+        : nativeTarget.platform === 'win32'
+          ? `${crateName}.dll`
+          : `lib${crateName}.so`
+    const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+
+    await mkdir(join(projectDir, 'src'), { recursive: true })
+    await writeFile(
+      join(projectDir, 'Cargo.toml'),
+      `[package]
+name = "${crateName}"
+version = "${version}"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}" }
+napi-derive = { path = "${napiDerivePath}" }
+
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`,
+    )
+    await writeFile(
+      join(projectDir, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: packageName,
+          version,
+          napi: {
+            binaryName,
+            targets: [nativeTarget.triple, 'wasm32-wasip1'],
+            wasm: {
+              initialMemory: 64,
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    await writeFile(
+      join(projectDir, 'build.rs'),
+      'fn main() {\n    napi_build::setup();\n}\n',
+    )
+    await writeFile(
+      join(projectDir, 'src', 'lib.rs'),
+      `use napi_derive::napi;
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn native_only() -> &'static str {
+    "native"
+}
+
+#[cfg(target_family = "wasm")]
+#[napi]
+pub fn wasi_only() -> &'static str {
+    "wasi"
+}
+`,
+    )
+
+    const emnapiVersion = JSON.parse(
+      await readFile(
+        join(repoRoot, 'node_modules', 'emnapi', 'package.json'),
+        'utf-8',
+      ),
+    ).version
+    for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+      const pkgDir = join(projectDir, 'node_modules', pkg)
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(
+        join(pkgDir, 'package.json'),
+        JSON.stringify({ name: pkg, version: emnapiVersion, main: 'index.js' }),
+      )
+      await writeFile(
+        join(pkgDir, 'index.js'),
+        `module.exports = { version: "${emnapiVersion}" }`,
+      )
+    }
+
+    const cargoExecutable = execSync('command -v cargo', {
+      encoding: 'utf8',
+    }).trim()
+    const cargoShim = join(projectDir, 'cargo-shim.cjs')
+    await writeFile(
+      cargoShim,
+      `#!/usr/bin/env node
+const { mkdirSync, writeFileSync } = require('node:fs')
+const { join } = require('node:path')
+const { spawnSync } = require('node:child_process')
+
+const args = process.argv.slice(2)
+if (args.includes('metadata')) {
+  const result = spawnSync(${JSON.stringify(cargoExecutable)}, args, {
+    stdio: 'inherit',
+    env: process.env,
+  })
+  process.exit(result.status === null ? 1 : result.status)
+}
+
+const target = args[args.indexOf('--target') + 1]
+const profileIndex = args.indexOf('--profile')
+const profile =
+  profileIndex === -1
+    ? args.includes('--release')
+      ? 'release'
+      : 'debug'
+    : args[profileIndex + 1]
+const isWasi = target.startsWith('wasm32-')
+const artifactDir = join(
+  ${JSON.stringify(projectDir)},
+  'target',
+  target,
+  profile,
+)
+mkdirSync(artifactDir, { recursive: true })
+writeFileSync(
+  join(
+    artifactDir,
+    isWasi ? ${JSON.stringify(`${crateName}.wasm`)} : ${JSON.stringify(nativeArtifactName)},
+  ),
+  isWasi
+    ? Buffer.from([
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 15,
+        1, 11, 95, 105, 110, 105, 116, 105, 97, 108, 105, 122, 101, 0, 0, 10,
+        4, 1, 2, 0, 11,
+      ])
+    : 'native artifact',
+)
+
+const exportName = isWasi ? 'wasiOnly' : 'nativeOnly'
+mkdirSync(process.env.NAPI_TYPE_DEF_TMP_FOLDER, { recursive: true })
+writeFileSync(
+  join(process.env.NAPI_TYPE_DEF_TMP_FOLDER, ${JSON.stringify(crateName)}),
+  JSON.stringify({
+    kind: 'fn',
+    name: exportName,
+    def: \`function \${exportName}(): string\`,
+  }) + '\\n',
+)
+`,
+    )
+    await chmod(cargoShim, 0o755)
+
+    const previousCargo = process.env.CARGO
+    process.env.CARGO = cargoShim
+    try {
+      const { task: wasiBuildTask } = await buildProject({
+        platform: true,
+        target: 'wasm32-wasip1',
+        cwd: projectDir,
+      })
+      await wasiBuildTask
+
+      const wasiOutputPaths = [
+        `${binaryName}.wasip1.cjs`,
+        `${binaryName}.wasip1-browser.js`,
+        `${binaryName}.wasip1.d.cts`,
+      ]
+      const wasiOutputs = new Map(
+        await Promise.all(
+          wasiOutputPaths.map(
+            async (file) =>
+              [file, await readFile(join(projectDir, file), 'utf8')] as const,
+          ),
+        ),
+      )
+      for (const [file, source] of wasiOutputs) {
+        t.true(source.includes('wasiOnly'), `${file} contains wasiOnly`)
+        t.false(source.includes('nativeOnly'), `${file} excludes nativeOnly`)
+        if (!file.endsWith('.d.cts')) {
+          t.true(source.includes('initial: 64'), `${file} uses initial config`)
+        }
+      }
+
+      const packageJsonPath = join(projectDir, 'package.json')
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+      packageJson.napi.wasm.initialMemory = 128
+      await writeFile(
+        packageJsonPath,
+        `${JSON.stringify(packageJson, null, 2)}\n`,
+      )
+      const { task: nativeBuildTask } = await buildProject({
+        platform: true,
+        target: nativeTarget.triple,
+        cwd: projectDir,
+      })
+      await nativeBuildTask
+
+      for (const [file, source] of wasiOutputs) {
+        const regeneratedSource = await readFile(join(projectDir, file), 'utf8')
+        t.true(
+          regeneratedSource.includes('wasiOnly'),
+          `${file} preserves wasiOnly`,
+        )
+        t.false(
+          regeneratedSource.includes('nativeOnly'),
+          `${file} excludes nativeOnly`,
+        )
+        if (file.endsWith('.d.cts')) {
+          t.is(regeneratedSource, source, `${file} preserves its declaration`)
+        } else {
+          t.not(regeneratedSource, source, `${file} is regenerated`)
+          t.true(
+            regeneratedSource.includes('initial: 128'),
+            `${file} uses updated config`,
+          )
+        }
+      }
+      const nativeBinding = await readFile(join(projectDir, 'index.js'), 'utf8')
+      t.true(nativeBinding.includes('nativeOnly'))
+      t.false(nativeBinding.includes('wasiOnly'))
+      const nativeTypeDef = await readFile(
+        join(projectDir, 'index.d.ts'),
+        'utf8',
+      )
+      t.true(nativeTypeDef.includes('nativeOnly'))
+      t.false(nativeTypeDef.includes('wasiOnly'))
+    } finally {
+      if (previousCargo === undefined) {
+        delete process.env.CARGO
+      } else {
+        process.env.CARGO = previousCargo
+      }
+    }
+  },
+)
