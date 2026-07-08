@@ -1804,15 +1804,17 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// napi installs cleanup ownership for every Node environment, on native and wasm hosts, and
   /// calls this after the last live environment exits. An explicit `shutdown_async_runtime` call
   /// can also invoke this while environments remain live. Stop accepting work before returning
-  /// and drop queued [`AsyncRuntimeTask`] values so their promises are cancelled. Return `Ok(())`
-  /// only after backend-owned worker threads and already-running work have fully quiesced: Node may
-  /// unload a worker's addon image as soon as its environment cleanup returns. Do not wait for
-  /// JavaScript callbacks triggered by cancellation, and do not call napi's runtime registration
-  /// or lifecycle functions recursively from this hook. The hook must be idempotent and tolerate
-  /// being called before `start`, after a partial failed `start`, and repeatedly without an
-  /// intervening `start`. If this returns an error, the same quiescence guarantee still applies;
-  /// napi keeps submissions closed and rejects restart until shutdown is retried successfully,
-  /// preventing scheduler generations from overlapping.
+  /// and drop queued [`AsyncRuntimeTask`] values and queued
+  /// [`spawn_blocking`](AsyncRuntime::spawn_blocking) closures so their promises and join handles
+  /// are cancelled. Return `Ok(())` only after backend-owned worker threads, running tasks, and
+  /// running blocking closures have fully quiesced: Node may unload a worker's addon image as soon
+  /// as its environment cleanup returns. Do not wait for JavaScript callbacks triggered by
+  /// cancellation, and do not call napi's runtime registration or lifecycle functions recursively
+  /// from this hook. The hook must be idempotent and tolerate being called before `start`, after a
+  /// partial failed `start`, and repeatedly without an intervening `start`. If this returns an
+  /// error, the same quiescence guarantee still applies; napi keeps submissions closed and rejects
+  /// restart until shutdown is retried successfully, preventing scheduler generations from
+  /// overlapping.
   fn shutdown(&self) -> Result<()>;
 
   /// Optional hook: run `work` on the backend's blocking-capable lane.

@@ -133,6 +133,13 @@ fully quiesce them in `AsyncRuntime::shutdown`. The backend is reused across wor
 reloads, and its `Drop` implementation is not guaranteed to run. The trait documentation defines
 the task ownership, cancellation, guard, panic, and native-image unload-safety requirements.
 
+napi automatically starts the backend for the first live Node environment and shuts it down after
+the last environment exits. Embedders and tests can use `try_start_async_runtime` and
+`try_shutdown_async_runtime` for explicit lifecycle control; an explicit shutdown remains in
+effect until an explicit start. See the
+[complete custom-runtime example](https://github.com/napi-rs/napi-rs/tree/main/examples/custom-async-runtime)
+for a scheduler implementation, blocking work, cancellation, reloads, and feature-unified builds.
+
 For the coordinated v4 release, upgrade `napi` before `napi-derive`. Derive v3 remains compatible
 with runtime v4 during migration, but does not gain v4 borrow and construction guarantees.
 Specifically, napi-derive 3.5.9 synchronous `#[napi(async_runtime)]` guards use the established
