@@ -1,8 +1,3 @@
-import { createRequire } from 'node:module'
-
-import test from 'ava'
-
-const require = createRequire(import.meta.url)
 import { Buffer as NodeBuffer } from 'node:buffer'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -28,6 +23,10 @@ test.skipIf(!isThreadlessWasiBufferTest)(
         'Built-in Tokio async tasks require a threaded WASI target. Use wasm32-wasip1-threads, or enable async-runtime and register a custom AsyncRuntime backend for wasm32-wasip1.',
     })
     t.is(binding.add(2, 3), 5)
+  },
+)
+
+test.skipIf(!isThreadlessWasiBufferTest)(
   'threadless WASI loaders avoid shared memory and workers',
   async (t) => {
     const files = [
