@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
   chmod,
@@ -8,9 +9,11 @@ import {
   mkdtemp,
   readFile,
   readlink,
+  realpath,
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -29,6 +32,17 @@ import {
 } from '../misc.js'
 
 const execFileAsync = promisify(execFile)
+const reconciliationLockRoot = join(
+  tmpdir(),
+  'napi-rs-filesystem-reconciliation',
+)
+
+function reconciliationLockPath(key: string) {
+  return join(
+    reconciliationLockRoot,
+    createHash('sha256').update(key).digest('hex'),
+  )
+}
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -487,6 +501,71 @@ test('filesystem reconciliation serializes operations for one output root', asyn
     'second:end',
   ])
 })
+
+test.serial(
+  'filesystem reconciliation reclaims an expired lease owned by a live PID',
+  async (t) => {
+    t.timeout(5_000)
+    const root = join(t.context.tmpDir, 'expired-live-pid')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const ownerPath = join(lockPath, 'owner.json')
+    const token = '00000000-0000-4000-8000-000000000001'
+    const leasePath = join(lockPath, `${token}.lease`)
+    const expiredAt = new Date(Date.now() - 24 * 60 * 60 * 1_000)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(
+      ownerPath,
+      JSON.stringify({
+        createdAt: expiredAt.getTime(),
+        key,
+        pid: process.pid,
+        token,
+      }),
+    )
+    await writeFile(leasePath, String(expiredAt.getTime()))
+    await utimes(leasePath, expiredAt, expiredAt)
+
+    let completed = false
+    await withFileSystemReconciliation(root, async () => {
+      completed = true
+    })
+
+    t.true(completed)
+    t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation release preserves a replacement lock token',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'replacement-owner')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const ownerPath = join(lockPath, 'owner.json')
+    const replacementToken = '00000000-0000-4000-8000-000000000002'
+    const replacementLeasePath = join(lockPath, `${replacementToken}.lease`)
+
+    await withFileSystemReconciliation(root, async () => {
+      await writeFile(
+        ownerPath,
+        JSON.stringify({
+          createdAt: Date.now(),
+          key,
+          pid: process.pid,
+          token: replacementToken,
+        }),
+      )
+      await writeFile(replacementLeasePath, String(Date.now()))
+    })
+
+    t.true(existsSync(lockPath))
+    t.is(JSON.parse(await readFile(ownerPath, 'utf8')).token, replacementToken)
+    await rm(lockPath, { force: true, recursive: true })
+  },
+)
 
 test('package reconciliation identity ignores custom output directories', (t) => {
   t.is(

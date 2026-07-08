@@ -14,7 +14,7 @@ import {
   lstat,
 } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -37,11 +37,14 @@ const reconciliationLockRoot = join(
   'napi-rs-filesystem-reconciliation',
 )
 const incompleteLockGracePeriod = 30_000
+const reconciliationLeaseRefreshInterval = 5_000
+const reconciliationLeaseTimeout = 30_000
 
 interface ReconciliationLockOwner {
   createdAt: number
   key: string
   pid: number
+  token: string
 }
 
 export interface FileSystemTransactionWrite {
@@ -382,24 +385,139 @@ async function acquireReconciliationLock(key: string) {
   while (true) {
     try {
       await mkdir(lockPath)
-      const owner: ReconciliationLockOwner = {
-        createdAt: Date.now(),
-        key,
-        pid: process.pid,
-      }
-      await writeFile(ownerPath, JSON.stringify(owner), 'utf8')
-      return () => rm(lockPath, { force: true, recursive: true })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
         throw error
       }
-    }
 
-    if (await isStaleReconciliationLock(lockPath, ownerPath, key)) {
-      await rm(lockPath, { force: true, recursive: true })
+      if (await isStaleReconciliationLock(lockPath, ownerPath, key)) {
+        const stalePath = `${lockPath}.stale.${randomUUID()}`
+        try {
+          await rename(lockPath, stalePath)
+        } catch (renameError) {
+          if (
+            (renameError as NodeJS.ErrnoException).code === 'ENOENT' ||
+            (renameError as NodeJS.ErrnoException).code === 'EACCES' ||
+            (renameError as NodeJS.ErrnoException).code === 'EPERM'
+          ) {
+            await delay(20)
+            continue
+          }
+          throw renameError
+        }
+        await rm(stalePath, { force: true, recursive: true })
+        continue
+      }
+      await delay(20)
       continue
     }
-    await delay(20)
+
+    const token = randomUUID()
+    const owner: ReconciliationLockOwner = {
+      createdAt: Date.now(),
+      key,
+      pid: process.pid,
+      token,
+    }
+    try {
+      await writeFile(ownerPath, JSON.stringify(owner), 'utf8')
+      const leasePath = reconciliationLeasePath(lockPath, token)
+      await refreshReconciliationLease(ownerPath, leasePath, key, token)
+      return maintainReconciliationLease(
+        lockPath,
+        ownerPath,
+        leasePath,
+        key,
+        token,
+      )
+    } catch (error) {
+      if (await reconciliationLockIsOwnedBy(ownerPath, key, token)) {
+        await rm(lockPath, { force: true, recursive: true })
+      } else {
+        try {
+          const lockStat = await stat(lockPath)
+          if (Date.now() - lockStat.mtimeMs <= incompleteLockGracePeriod) {
+            await rm(lockPath, { force: true, recursive: true })
+          }
+        } catch (statError) {
+          if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw statError
+          }
+        }
+      }
+      throw error
+    }
+  }
+}
+
+function reconciliationLeasePath(lockPath: string, token: string) {
+  return join(lockPath, `${token}.lease`)
+}
+
+function maintainReconciliationLease(
+  lockPath: string,
+  ownerPath: string,
+  leasePath: string,
+  key: string,
+  token: string,
+) {
+  let refreshTail = Promise.resolve()
+  const timer = setInterval(() => {
+    refreshTail = refreshTail
+      .then(() => refreshReconciliationLease(ownerPath, leasePath, key, token))
+      .catch((error) => {
+        debug.warn(
+          `Failed to refresh filesystem reconciliation lease: ${(error as Error).message}`,
+        )
+      })
+  }, reconciliationLeaseRefreshInterval)
+  timer.unref()
+
+  return async () => {
+    clearInterval(timer)
+    await refreshTail
+    if (await reconciliationLockIsOwnedBy(ownerPath, key, token)) {
+      await rm(lockPath, { force: true, recursive: true })
+    }
+  }
+}
+
+async function refreshReconciliationLease(
+  ownerPath: string,
+  leasePath: string,
+  key: string,
+  token: string,
+) {
+  if (!(await reconciliationLockIsOwnedBy(ownerPath, key, token))) {
+    return
+  }
+  try {
+    await writeFile(leasePath, String(Date.now()), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error
+    }
+  }
+}
+
+async function reconciliationLockIsOwnedBy(
+  ownerPath: string,
+  key: string,
+  token: string,
+) {
+  try {
+    const owner = JSON.parse(
+      await readFile(ownerPath, 'utf8'),
+    ) as ReconciliationLockOwner
+    return owner.key === key && owner.token === token
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code === 'ENOENT' ||
+      error instanceof SyntaxError
+    ) {
+      return false
+    }
+    throw error
   }
 }
 
@@ -412,12 +530,35 @@ async function isStaleReconciliationLock(
     const owner = JSON.parse(
       await readFile(ownerPath, 'utf8'),
     ) as ReconciliationLockOwner
-    return (
+    if (
       owner.key !== key ||
+      !Number.isSafeInteger(owner.createdAt) ||
+      owner.createdAt <= 0 ||
+      owner.createdAt > Date.now() + incompleteLockGracePeriod ||
       !Number.isSafeInteger(owner.pid) ||
       owner.pid <= 0 ||
-      !processExists(owner.pid)
-    )
+      !isReconciliationLockToken(owner.token)
+    ) {
+      return true
+    }
+    if (!processExists(owner.pid)) {
+      return true
+    }
+    try {
+      const leaseStat = await stat(
+        reconciliationLeasePath(lockPath, owner.token),
+      )
+      const leaseAge = Date.now() - leaseStat.mtimeMs
+      return (
+        leaseAge > reconciliationLeaseTimeout ||
+        leaseAge < -reconciliationLeaseTimeout
+      )
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+      return Date.now() - owner.createdAt > incompleteLockGracePeriod
+    }
   } catch (error) {
     if (
       (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
@@ -435,6 +576,15 @@ async function isStaleReconciliationLock(
       throw statError
     }
   }
+}
+
+function isReconciliationLockToken(token: unknown): token is string {
+  return (
+    typeof token === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      token,
+    )
+  )
 }
 
 function processExists(pid: number) {
