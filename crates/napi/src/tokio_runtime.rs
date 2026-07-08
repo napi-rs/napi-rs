@@ -59,7 +59,13 @@ use futures::future::{AbortHandle, Abortable};
 #[cfg(not(feature = "noop"))]
 use futures::FutureExt;
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    feature = "async-runtime",
+    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
+  )
+))]
 use crate::check_status;
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
@@ -6302,7 +6308,13 @@ fn execute_selected_async_future_with_terminal_finalizer<
   Ok(std::ptr::null_mut())
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    feature = "async-runtime",
+    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
+  )
+))]
 struct OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   env: sys::napi_env,
   fut: Option<Fut>,
@@ -6310,7 +6322,13 @@ struct OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    feature = "async-runtime",
+    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
+  )
+))]
 impl<Fut, Resolver> OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   fn new(
     env: sys::napi_env,
@@ -6327,7 +6345,13 @@ impl<Fut, Resolver> OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   }
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    feature = "async-runtime",
+    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
+  )
+))]
 impl<Fut, Resolver> Drop for OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   fn drop(&mut self) {
     if let Some(fut) = self.fut.take() {
@@ -6343,7 +6367,13 @@ impl<Fut, Resolver> Drop for OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   }
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    feature = "async-runtime",
+    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
+  )
+))]
 fn reject_async_future_setup<
   Data: 'static + Send,
   Fut: 'static + Send,
@@ -6455,44 +6485,85 @@ fn execute_custom_runtime_future<
   Ok(promise.0.value)
 }
 
-#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  )
+))]
 fn spawn_generated_tokio_task(
   runtime: TokioRuntimeLease,
   future: impl Future<Output = ()> + Send + 'static,
 ) {
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
-  ))]
-  {
-    let retirement = runtime.retirement_signal();
-    let generation = runtime.generation();
-    let workers = runtime.worker_tracker();
-    let register_worker = matches!(
-      runtime.handle().runtime_flavor(),
-      tokio::runtime::RuntimeFlavor::MultiThread
-    );
-    runtime.spawn(TokioRuntimeGenerationFuture::new(
-      async move {
-        let _retirement = retirement;
-        future.await;
-      },
-      generation,
-      workers,
-      register_worker,
-    ));
-  }
-
-  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
-  {
-    std::thread::spawn(move || {
-      let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
-      runtime.block_on(future);
-    });
-  }
+  let retirement = runtime.retirement_signal();
+  let generation = runtime.generation();
+  let workers = runtime.worker_tracker();
+  let register_worker = matches!(
+    runtime.handle().runtime_flavor(),
+    tokio::runtime::RuntimeFlavor::MultiThread
+  );
+  runtime.spawn(TokioRuntimeGenerationFuture::new(
+    async move {
+      let _retirement = retirement;
+      future.await;
+    },
+    generation,
+    workers,
+    register_worker,
+  ));
 }
 
-#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  target_family = "wasm",
+  not(tokio_unstable)
+))]
+fn threadless_wasi_builtin_tokio_error() -> Error {
+  Error::new(
+    crate::Status::GenericFailure,
+    "Built-in Tokio async tasks require a threaded WASI target. Use wasm32-wasip1-threads, or \
+     enable async-runtime and register a custom AsyncRuntime backend for wasm32-wasip1.",
+  )
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  target_family = "wasm",
+  not(tokio_unstable)
+))]
+fn execute_builtin_tokio_future<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
+  _require_selected_tokio: bool,
+) -> Result<sys::napi_value> {
+  run_async_block_terminal_finalizer(&terminal_finalizer);
+  reject_async_future_setup(
+    env,
+    fut,
+    resolver,
+    None,
+    threadless_wasi_builtin_tokio_error(),
+  )
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  )
+))]
 fn execute_builtin_tokio_future<
   Data: 'static + Send,
   Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
@@ -6740,7 +6811,39 @@ fn execute_custom_runtime_future_with_finalize_callback<
   Ok(promise.0.value)
 }
 
-#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  target_family = "wasm",
+  not(tokio_unstable)
+))]
+fn execute_builtin_tokio_future_with_finalize_callback<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<sys::napi_value> {
+  reject_async_future_setup(
+    env,
+    fut,
+    resolver,
+    finalize_callback,
+    threadless_wasi_builtin_tokio_error(),
+  )
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  )
+))]
 fn execute_builtin_tokio_future_with_finalize_callback<
   Data: 'static + Send,
   Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
