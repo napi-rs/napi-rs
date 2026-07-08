@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -303,6 +304,147 @@ test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => 
     [],
   ])
 })
+
+test.serial(
+  'threaded WASI node initialization rollback terminates every created worker exactly once',
+  async (t) => {
+    const code = createWasiBinding('test', '@scope/test', 1, 2)
+    const liveWorkers = new Set<Worker>()
+    const workers: Worker[] = []
+    const terminationPromises: Promise<number>[] = []
+    const events: string[] = []
+    let contexts = 0
+    let activeContext = 0
+    let initializationError: Error
+
+    class Worker {
+      readonly id = workers.length + 1
+      readonly context = activeContext
+      terminateCalls = 0
+
+      constructor() {
+        workers.push(this)
+        liveWorkers.add(this)
+      }
+
+      unref() {}
+
+      terminate() {
+        this.terminateCalls += 1
+        events.push(`terminate:${this.context}:${this.id}`)
+        const termination = new Promise<number>((resolve) => {
+          setImmediate(() => {
+            liveWorkers.delete(this)
+            events.push(`terminated:${this.context}:${this.id}`)
+            resolve(0)
+          })
+        })
+        terminationPromises.push(termination)
+        return termination
+      }
+    }
+
+    const mockRequire = (specifier: string) => {
+      switch (specifier) {
+        case 'node:fs':
+          return {
+            existsSync: (path: string) => path.endsWith('/test.wasm'),
+            readFileSync: () => new Uint8Array(),
+          }
+        case 'node:path':
+          return {
+            join: (...parts: string[]) => parts.join('/'),
+            parse: () => ({ root: '/' }),
+          }
+        case 'node:wasi':
+          return { WASI: class {} }
+        case 'node:worker_threads':
+          return { Worker }
+        case '@napi-rs/wasm-runtime':
+          return {
+            createOnMessage: () => () => {},
+            instantiateNapiModuleSync(
+              _wasm: Uint8Array,
+              options: {
+                context: { id: number }
+                onCreateWorker(): Worker
+              },
+            ) {
+              activeContext = options.context.id
+              options.onCreateWorker()
+              options.onCreateWorker()
+              options.onCreateWorker()
+              throw initializationError
+            },
+          }
+        case '@emnapi/runtime':
+          return {
+            createContext: () => {
+              const id = ++contexts
+              return {
+                id,
+                suppressDestroy() {},
+                destroy() {
+                  events.push(`destroy:${id}`)
+                },
+              }
+            },
+          }
+        default:
+          throw new Error(`Unexpected require: ${specifier}`)
+      }
+    }
+    const processMock = Object.assign(new EventEmitter(), {
+      cwd: () => '/',
+      env: {},
+      execArgv: [],
+    })
+    const execute = new Function(
+      'require',
+      'process',
+      '__dirname',
+      'WebAssembly',
+      code,
+    )
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      initializationError = new Error(`initialization failed: ${attempt}`)
+      const eventOffset = events.length
+      const terminationOffset = terminationPromises.length
+      const workerOffset = workers.length
+      let observed
+      try {
+        execute(mockRequire, processMock, '/fixture', {
+          Memory: class {},
+        })
+      } catch (error) {
+        observed = error
+      }
+
+      t.is(observed, initializationError)
+      t.deepEqual(events.slice(eventOffset, eventOffset + 4), [
+        `terminate:${attempt}:${workerOffset + 1}`,
+        `terminate:${attempt}:${workerOffset + 2}`,
+        `terminate:${attempt}:${workerOffset + 3}`,
+        `destroy:${attempt}`,
+      ])
+      await Promise.all(terminationPromises.slice(terminationOffset))
+      t.is(liveWorkers.size, 0)
+      t.true(
+        workers
+          .slice(workerOffset)
+          .every((worker) => worker.terminateCalls === 1),
+      )
+      t.is(processMock.rawListeners('beforeExit').length, 0)
+      t.is(processMock.rawListeners('exit').length, 0)
+    }
+
+    t.is(contexts, 3)
+    t.is(workers.length, 9)
+    t.is(terminationPromises.length, 9)
+    t.true(workers.every((worker) => worker.terminateCalls === 1))
+  },
+)
 
 test('standalone WASI node binding separates local and packaged artifact names', (t) => {
   const node = createWasiBinding(

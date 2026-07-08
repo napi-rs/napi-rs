@@ -58,6 +58,23 @@ function __createWasiWorker(filename) {
   })
 }
 
+const __wasiInitializationWorkers = new Set()
+
+function __terminateWasiInitializationWorkers(__error) {
+  for (const __worker of __wasiInitializationWorkers) {
+    __wasiInitializationWorkers.delete(__worker)
+    try {
+      const __termination = __worker.terminate()
+      if (__termination && typeof __termination.then === 'function') {
+        void Promise.resolve(__termination).catch((__cleanupError) => {
+          __attachCleanupError(__error, __cleanupError)
+        })
+      }
+    } catch (__cleanupError) {
+      __attachCleanupError(__error, __cleanupError)
+    }
+  }
+}
 
 const __rootDir = __nodePath.parse(process.cwd()).root
 
@@ -285,6 +302,7 @@ try {
     wasi: __wasi,
   onCreateWorker() {
     const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
+    __wasiInitializationWorkers.add(worker)
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
     }
@@ -340,7 +358,9 @@ try {
   try {
     __registerEmnapiContextAtExit()
   } catch {}
+  __wasiInitializationWorkers.clear()
 } catch (__error) {
+  __terminateWasiInitializationWorkers(__error)
   let __cleanupResult
   let __cleanupFailed = false
   try {

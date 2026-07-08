@@ -789,6 +789,27 @@ function __createWasiWorker(filename) {
 }
 `
     : ''
+  const workerTracking = threads
+    ? `
+const __wasiInitializationWorkers = new Set()
+
+function __terminateWasiInitializationWorkers(__error) {
+  for (const __worker of __wasiInitializationWorkers) {
+    __wasiInitializationWorkers.delete(__worker)
+    try {
+      const __termination = __worker.terminate()
+      if (__termination && typeof __termination.then === 'function') {
+        void Promise.resolve(__termination).catch((__cleanupError) => {
+          __attachCleanupError(__error, __cleanupError)
+        })
+      }
+    } catch (__cleanupError) {
+      __attachCleanupError(__error, __cleanupError)
+    }
+  }
+}
+`
+    : '\n'
   const workerRuntimeImport = threads
     ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
     : ''
@@ -810,6 +831,7 @@ function __createWasiWorker(filename) {
   const workerOption = threads
     ? `  onCreateWorker() {
     const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
+    __wasiInitializationWorkers.add(worker)
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
     }
@@ -856,7 +878,8 @@ ${workerRuntimeImport}\
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
-${workerExecArgv}
+${workerExecArgv}\
+${workerTracking}\
 
 const __rootDir = __nodePath.parse(process.cwd()).root
 
@@ -1101,7 +1124,9 @@ ${workerOption}\
   try {
     __registerEmnapiContextAtExit()
   } catch {}
+${threads ? '  __wasiInitializationWorkers.clear()\n' : ''}\
 } catch (__error) {
+${threads ? '  __terminateWasiInitializationWorkers(__error)\n' : ''}\
   let __cleanupResult
   let __cleanupFailed = false
   try {

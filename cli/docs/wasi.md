@@ -108,6 +108,9 @@ retains that cleanup ownership so a later `beforeExit` pass can retry it.
 The eager CommonJS WASI loader keeps its emnapi context alive for the process
 lifetime. Node.js can emit `beforeExit` repeatedly when a listener schedules
 more work, and cached eager exports must remain usable after every such cycle.
+For threaded targets, initialization owns every worker returned by
+`onCreateWorker`; if initialization fails, the loader starts each worker's
+termination exactly once before rolling the context back.
 At the actual `exit` event, the loader makes one synchronous best-effort
 `Context.destroy()` call so emnapi's synchronous cleanup queue can run.
 Consumers that need deterministic cleanup before process exit should use the
