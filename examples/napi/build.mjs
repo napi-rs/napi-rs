@@ -152,18 +152,13 @@ function insertGeneratedExport(source, name, assignment, pattern) {
   return `${source.trimEnd()}\n${assignment}\n`
 }
 
-async function exposeLifecycleExportsAcrossTargets(target) {
-  const forwardedFunctions = [
-    ...unsupportedWasiFunctions,
-    ...(target === 'wasm32-wasip1-threads'
-      ? threadedWasiBrowserTestFunctions
-      : []),
-  ]
+async function exposeLifecycleExportsAcrossTargets() {
   const bindings = [
     {
       file: 'index.cjs',
       binding: 'nativeBinding',
       helper: 'getBindingExport',
+      forwardedFunctions: unsupportedWasiFunctions,
       marker: 'module.exports = nativeBinding\n',
       exportPattern: /^module\.exports\.([A-Za-z_$][\w$]*) = /gm,
       assignment(name) {
@@ -177,6 +172,10 @@ async function exposeLifecycleExportsAcrossTargets(target) {
       file: 'example.wasi.cjs',
       binding: '__napiModule.exports',
       helper: 'getWasiBindingExport',
+      forwardedFunctions: [
+        ...unsupportedWasiFunctions,
+        ...threadedWasiBrowserTestFunctions,
+      ],
       marker: 'module.exports = __napiModule.exports\n',
       exportPattern: /^module\.exports\.([A-Za-z_$][\w$]*) = /gm,
       assignment(name) {
@@ -190,6 +189,10 @@ async function exposeLifecycleExportsAcrossTargets(target) {
       file: 'example.wasi-browser.js',
       binding: '__napiModule.exports',
       helper: 'getWasiBindingExport',
+      forwardedFunctions: [
+        ...unsupportedWasiFunctions,
+        ...threadedWasiBrowserTestFunctions,
+      ],
       marker: 'export const ',
       exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
       assignment(name) {
@@ -205,6 +208,7 @@ async function exposeLifecycleExportsAcrossTargets(target) {
     file,
     binding,
     helper,
+    forwardedFunctions,
     marker,
     exportPattern,
     assignment,
@@ -526,13 +530,11 @@ async function main(userArguments) {
     ...userArguments,
   ])
 
-  await exposeLifecycleExportsAcrossTargets(target)
+  await exposeLifecycleExportsAcrossTargets()
   if (previousDeclarationSource !== undefined) {
     await preserveLifecycleDeclarations(previousDeclarationSource)
   }
-  if (target === 'wasm32-wasip1-threads') {
-    await instrumentThreadedWasiBrowserTsfnWait()
-  }
+  await instrumentThreadedWasiBrowserTsfnWait()
 
   if (!target?.startsWith('wasm32-')) {
     await run([

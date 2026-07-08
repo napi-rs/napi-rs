@@ -1081,6 +1081,8 @@ jobs:
         run: |
           yarn build
           yarn workspace @examples/napi build --target wasm32-wasip1-threads --profile wasi
+          # Native builds also regenerate configured WASI loaders.
+          yarn workspace @examples/napi build --target x86_64-unknown-linux-gnu --release
         env:
           RUSTFLAGS: '--cfg tokio_unstable'
       - name: Test

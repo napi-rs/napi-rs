@@ -1091,8 +1091,6 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): Promise<vo
  */
 export declare function dropErrorFromValueOffThread(value: unknown): Promise<void>
 
-export declare function dropUnregisteredWeakTsfnForWasi(callback: () => void): void
-
 export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
@@ -1575,8 +1573,6 @@ export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: numb
 export declare function startDeferredTeardownRace(readyPath: string, releasePath: string, donePath: string, count: number): void
 
 export declare function startReferencedTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
-
-export declare function startTokioWakerAfterCleanupProbe(enteredPath: string, releasePath: string, completedPath: string): Promise<void>
 
 export declare function startWeakTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
 

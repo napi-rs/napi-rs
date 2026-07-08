@@ -39,6 +39,19 @@ const wasiOnlyLifecycleExports = [
   'dropUnregisteredWeakTsfnForWasi',
   'startTokioWakerAfterCleanupProbe',
 ]
+const threadedWasiBrowserTestExports = [
+  'abortBoundedTsfnFromOwnerAgent',
+  'abortBoundedTsfnPostCallFromOwnerAgent',
+  'armBoundedTsfnPostCallNativeWait',
+  'boundedTsfnOwnerAbortState',
+  'boundedTsfnPostCallAbortState',
+  'finishBoundedTsfnOwnerAbort',
+  'finishBoundedTsfnPostCallAbort',
+  'prepareBoundedTsfnOwnerAbort',
+  'prepareBoundedTsfnPostCallAbort',
+  'releaseBoundedTsfnNativeWait',
+  'releaseBoundedTsfnPostCallSlot',
+]
 const nativeFunctionExports = [
   ...new Set([...unsupportedWasiFunctions, ...crossTargetLifecycleExports]),
 ]
@@ -67,6 +80,11 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
     const source = await readFile(join(__dirname, '..', file), 'utf8')
     for (const name of generatedLifecycleExports) {
       t.true(source.includes(name), `${file}: ${name}`)
+    }
+    if (file.startsWith('example.wasi')) {
+      for (const name of threadedWasiBrowserTestExports) {
+        t.true(source.includes(name), `${file}: ${name}`)
+      }
     }
     const helper =
       file === 'index.cjs'
