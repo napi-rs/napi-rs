@@ -570,10 +570,11 @@ try {
   __handoffEmnapiContextCleanupToExit()
   __wasiInitializationWorkers.clear()
 } catch (__error) {
-  __terminateWasiInitializationWorkers(__error)
   let __cleanupResult
   let __cleanupFailed = false
   try {
+    // Context cleanup must quiesce runtime-owned work before threaded loaders
+    // terminate their emnapi workers.
     __cleanupResult = __destroyEmnapiContext()
   } catch (__cleanupError) {
     __cleanupFailed = true
@@ -587,6 +588,7 @@ try {
   if (__cleanupResult) {
     void __cleanupResult.then(
       () => {
+        __terminateWasiInitializationWorkers(__error)
         try {
           __removeEmnapiContextCleanupListeners()
         } catch (__cleanupError) {
@@ -595,6 +597,7 @@ try {
       },
       (__cleanupError) => {
         __preserveCleanupError(__error, __cleanupError)
+        __terminateWasiInitializationWorkers(__error)
         try {
           __retainEmnapiContextCleanupListener()
         } catch (__listenerError) {
@@ -602,11 +605,14 @@ try {
         }
       },
     )
-  } else if (!__cleanupFailed) {
-    try {
-      __removeEmnapiContextCleanupListeners()
-    } catch (__cleanupError) {
-      __preserveCleanupError(__error, __cleanupError)
+  } else {
+    __terminateWasiInitializationWorkers(__error)
+    if (!__cleanupFailed) {
+      try {
+        __removeEmnapiContextCleanupListeners()
+      } catch (__cleanupError) {
+        __preserveCleanupError(__error, __cleanupError)
+      }
     }
   }
   throw __error

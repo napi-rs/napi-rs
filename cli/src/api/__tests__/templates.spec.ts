@@ -423,10 +423,10 @@ test.serial(
 
       t.is(observed, initializationError)
       t.deepEqual(events.slice(eventOffset, eventOffset + 4), [
+        `destroy:${attempt}`,
         `terminate:${attempt}:${workerOffset + 1}`,
         `terminate:${attempt}:${workerOffset + 2}`,
         `terminate:${attempt}:${workerOffset + 3}`,
-        `destroy:${attempt}`,
       ])
       await Promise.all(terminationPromises.slice(terminationOffset))
       t.is(liveWorkers.size, 0)
@@ -443,6 +443,144 @@ test.serial(
     t.is(workers.length, 9)
     t.is(terminationPromises.length, 9)
     t.true(workers.every((worker) => worker.terminateCalls === 1))
+  },
+)
+
+test.serial(
+  'threaded WASI node rollback waits for context cleanup before worker fallback',
+  async (t) => {
+    for (const mode of [
+      'async-success',
+      'sync-failure',
+      'async-failure',
+    ] as const) {
+      const code = createWasiBinding('test', '@scope/test', 1, 2)
+      const events: string[] = []
+      const initializationError = new Error(`initialization failed: ${mode}`)
+      const cleanupError = new Error(`cleanup failed: ${mode}`)
+      const queuedMicrotasks: Array<() => void> = []
+      const workers: Worker[] = []
+
+      class Worker {
+        terminateCalls = 0
+
+        constructor() {
+          workers.push(this)
+        }
+
+        unref() {}
+
+        terminate() {
+          this.terminateCalls += 1
+          events.push('terminate')
+          return Promise.resolve(0)
+        }
+      }
+
+      const mockRequire = (specifier: string) => {
+        switch (specifier) {
+          case 'node:fs':
+            return {
+              existsSync: (path: string) => path.endsWith('/test.wasm'),
+              readFileSync: () => new Uint8Array(),
+            }
+          case 'node:path':
+            return {
+              join: (...parts: string[]) => parts.join('/'),
+              parse: () => ({ root: '/' }),
+            }
+          case 'node:wasi':
+            return { WASI: class {} }
+          case 'node:worker_threads':
+            return { Worker }
+          case '@napi-rs/wasm-runtime':
+            return {
+              createOnMessage: () => () => {},
+              instantiateNapiModuleSync(
+                _wasm: Uint8Array,
+                options: { onCreateWorker(): Worker },
+              ) {
+                options.onCreateWorker()
+                throw initializationError
+              },
+            }
+          case '@emnapi/runtime':
+            return {
+              createContext: () => ({
+                suppressDestroy() {},
+                destroy() {
+                  events.push('destroy')
+                  if (mode === 'sync-failure') {
+                    throw cleanupError
+                  }
+                  return new Promise<void>((resolve, reject) => {
+                    setImmediate(() => {
+                      events.push('destroy-settled')
+                      if (mode === 'async-failure') {
+                        reject(cleanupError)
+                      } else {
+                        resolve()
+                      }
+                    })
+                  })
+                },
+              }),
+            }
+          default:
+            throw new Error(`Unexpected require: ${specifier}`)
+        }
+      }
+      const processMock = Object.assign(new EventEmitter(), {
+        cwd: () => '/',
+        env: {},
+        execArgv: [],
+      })
+      const execute = new Function(
+        'require',
+        'process',
+        '__dirname',
+        'WebAssembly',
+        'queueMicrotask',
+        code,
+      )
+
+      let observed
+      try {
+        execute(
+          mockRequire,
+          processMock,
+          '/fixture',
+          { Memory: class {} },
+          (callback: () => void) => queuedMicrotasks.push(callback),
+        )
+      } catch (error) {
+        observed = error
+      }
+
+      t.is(observed, initializationError)
+      if (mode === 'sync-failure') {
+        t.deepEqual(events, ['destroy', 'terminate'])
+      } else {
+        t.deepEqual(events, ['destroy'])
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve)
+        })
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve)
+        })
+        t.deepEqual(events, ['destroy', 'destroy-settled', 'terminate'])
+      }
+      t.is(workers[0]?.terminateCalls, 1)
+      if (mode === 'async-success') {
+        t.is(initializationError.cause, undefined)
+        t.is(processMock.rawListeners('beforeExit').length, 0)
+      } else {
+        t.is(initializationError.cause, cleanupError)
+        t.is(processMock.rawListeners('beforeExit').length, 1)
+      }
+      t.is(processMock.rawListeners('exit').length, 0)
+      t.is(queuedMicrotasks.length, 0)
+    }
   },
 )
 

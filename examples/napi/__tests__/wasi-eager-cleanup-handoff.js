@@ -85,10 +85,18 @@ try {
 
 const generatedBeforeExitListeners = process
   .rawListeners('beforeExit')
-  .filter((listener) => listener.name === '__destroyEmnapiContextBeforeExit')
+  .filter(
+    (listener) =>
+      listener.name === '__destroyEmnapiContextBeforeExit' ||
+      listener.listener?.name === '__destroyEmnapiContextBeforeExit',
+  )
 const generatedExitListeners = process
   .rawListeners('exit')
-  .filter((listener) => listener.name === '__destroyEmnapiContextAtExit')
+  .filter(
+    (listener) =>
+      listener.name === '__destroyEmnapiContextAtExit' ||
+      listener.listener?.name === '__destroyEmnapiContextAtExit',
+  )
 
 assert.equal(generatedBeforeExitListeners.length, 0)
 assert.equal(generatedExitListeners.length, 0)

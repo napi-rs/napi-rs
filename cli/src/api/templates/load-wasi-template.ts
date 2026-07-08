@@ -1123,6 +1123,31 @@ function __terminateWasiInitializationWorkers(__error) {
 }
 `
     : '\n'
+  const workerCleanupOrderComment = threads
+    ? `    // Context cleanup must quiesce runtime-owned work before threaded loaders
+    // terminate their emnapi workers.
+`
+    : ''
+  const synchronousInitializationCleanup = threads
+    ? `  } else {
+    __terminateWasiInitializationWorkers(__error)
+    if (!__cleanupFailed) {
+      try {
+        __removeEmnapiContextCleanupListeners()
+      } catch (__cleanupError) {
+        __preserveCleanupError(__error, __cleanupError)
+      }
+    }
+  }
+`
+    : `  } else if (!__cleanupFailed) {
+    try {
+      __removeEmnapiContextCleanupListeners()
+    } catch (__cleanupError) {
+      __preserveCleanupError(__error, __cleanupError)
+    }
+  }
+`
   const workerRuntimeImport = threads
     ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
     : ''
@@ -1649,10 +1674,10 @@ ${workerOption}\
   __handoffEmnapiContextCleanupToExit()
 ${threads ? '  __wasiInitializationWorkers.clear()\n' : ''}\
 } catch (__error) {
-${threads ? '  __terminateWasiInitializationWorkers(__error)\n' : ''}\
   let __cleanupResult
   let __cleanupFailed = false
   try {
+${workerCleanupOrderComment}\
     __cleanupResult = __destroyEmnapiContext()
   } catch (__cleanupError) {
     __cleanupFailed = true
@@ -1666,6 +1691,7 @@ ${threads ? '  __terminateWasiInitializationWorkers(__error)\n' : ''}\
   if (__cleanupResult) {
     void __cleanupResult.then(
       () => {
+${threads ? '        __terminateWasiInitializationWorkers(__error)\n' : ''}\
         try {
           __removeEmnapiContextCleanupListeners()
         } catch (__cleanupError) {
@@ -1674,6 +1700,7 @@ ${threads ? '  __terminateWasiInitializationWorkers(__error)\n' : ''}\
       },
       (__cleanupError) => {
         __preserveCleanupError(__error, __cleanupError)
+${threads ? '        __terminateWasiInitializationWorkers(__error)\n' : ''}\
         try {
           __retainEmnapiContextCleanupListener()
         } catch (__listenerError) {
@@ -1681,13 +1708,7 @@ ${threads ? '  __terminateWasiInitializationWorkers(__error)\n' : ''}\
         }
       },
     )
-  } else if (!__cleanupFailed) {
-    try {
-      __removeEmnapiContextCleanupListeners()
-    } catch (__cleanupError) {
-      __preserveCleanupError(__error, __cleanupError)
-    }
-  }
+${synchronousInitializationCleanup}\
   throw __error
 }
 `
