@@ -6,8 +6,9 @@ import { dispose, instantiate } from '../example.wasip1-deferred.js'
 const wasmBytes = await readFile(
   new URL('../example.wasm32-wasip1.wasm', import.meta.url),
 )
-const wasmModule = await WebAssembly.compile(wasmBytes)
-const originalInstantiate = WebAssembly.instantiate
+const webAssembly = Reflect.get(globalThis, 'WebAssembly')
+const wasmModule = await webAssembly.compile(wasmBytes)
+const originalInstantiate = Reflect.get(webAssembly, 'instantiate')
 const initializationError = new Error(
   'intentional deferred initialization failure',
 )
@@ -26,7 +27,9 @@ const scheduleBeforeExit = (event) => {
 }
 
 process.on('newListener', scheduleBeforeExit)
-WebAssembly.instantiate = () => Promise.reject(initializationError)
+Reflect.set(webAssembly, 'instantiate', () =>
+  Promise.reject(initializationError),
+)
 try {
   await assert.rejects(instantiate(wasmModule), (error) => {
     assert.strictEqual(error, initializationError)
@@ -35,7 +38,7 @@ try {
   await new Promise((resolve) => setImmediate(resolve))
 } finally {
   process.removeListener('newListener', scheduleBeforeExit)
-  WebAssembly.instantiate = originalInstantiate
+  Reflect.set(webAssembly, 'instantiate', originalInstantiate)
 }
 
 assert.equal(beforeExitScheduled, true)
