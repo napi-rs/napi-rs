@@ -233,7 +233,7 @@ function __registerManagedEmnapiContext(__process, __destroy) {
   }
 }
 
-async function __createManagedEmnapiContext() {
+async function __createManagedEmnapiContext(__beforeExitDestroy) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -281,7 +281,10 @@ async function __createManagedEmnapiContext() {
     return __result
   }
   try {
-    __unregisterCleanup = __registerManagedEmnapiContext(__process, __destroy)
+    __unregisterCleanup = __registerManagedEmnapiContext(
+      __process,
+      __beforeExitDestroy ?? __destroy,
+    )
   } catch (error) {
     try {
       await __destroy()
@@ -301,6 +304,84 @@ async function __createManagedEmnapiContext() {
   return {
     context: __emnapiContext,
     destroy: __destroy,
+  }
+}
+
+async function __createInstance(__wasmInput, __beforeExitDestroy) {
+  const __module = await __resolveModule(__wasmInput)
+  const __emnapiModule = await __normalizeModuleForEmnapi(__module)
+  const __wasi = new __WASI({
+    version: 'preview1',
+  })
+  // The wasm module is linked with `--import-memory`, so a Memory must be
+  // provided. It is allocated here in function scope (workerd bans global
+  // scope allocation) and is not shared (no threads, no SharedArrayBuffer).
+  // Allocate it before the emnapi context so a host memory-limit failure cannot
+  // leak a context that never reaches instantiation.
+  const __wasmMemory = new WebAssembly.Memory({
+    initial: 16384,
+    maximum: 65536,
+  })
+  const { context: __emnapiContext, destroy: __destroyEmnapiContext } =
+    await __createManagedEmnapiContext(__beforeExitDestroy)
+  try {
+    __emnapiContext.feature.Buffer = Buffer
+    const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
+      __emnapiModule,
+      {
+        context: __emnapiContext,
+        asyncWorkPoolSize: 0,
+        wasi: __wasi,
+        overwriteImports(importObject) {
+          importObject.env = {
+            ...importObject.env,
+            ...importObject.napi,
+            ...importObject.emnapi,
+            memory: __wasmMemory,
+          }
+          return importObject
+        },
+        beforeInit({ instance }) {
+          for (const name of Object.keys(instance.exports)) {
+            if (name.startsWith('__napi_register__')) {
+              instance.exports[name]()
+            }
+          }
+        },
+      },
+    )
+    for (const name of unsupportedWasiFunctions) {
+      if (__napiModule.exports[name] === undefined) {
+        __napiModule.exports[name] = getDeferredWasiBindingExport(
+          __napiModule.exports,
+          name,
+        )
+      }
+    }
+    return {
+      exports: __napiModule.exports,
+      dispose() {
+        return __destroyEmnapiContext()
+      },
+    }
+  } catch (error) {
+    try {
+      await __destroyEmnapiContext()
+    } catch (disposeError) {
+      // Initialization is the primary failure. Preserve it even if cleanup
+      // also fails, while retaining the cleanup error when the value is
+      // extensible and has no existing cause.
+      try {
+        if (
+          error &&
+          (typeof error === 'object' || typeof error === 'function') &&
+          error.cause === undefined
+        ) {
+          error.cause = disposeError
+        }
+      } catch {}
+    }
+    throw error
   }
 }
 
@@ -397,81 +478,7 @@ function getDeferredWasiBindingExport(binding, name) {
 }
 
 export async function createInstance(__wasmInput) {
-  const __module = await __resolveModule(__wasmInput)
-  const __emnapiModule = await __normalizeModuleForEmnapi(__module)
-  const __wasi = new __WASI({
-    version: 'preview1',
-  })
-  // The wasm module is linked with `--import-memory`, so a Memory must be
-  // provided. It is allocated here in function scope (workerd bans global
-  // scope allocation) and is not shared (no threads, no SharedArrayBuffer).
-  // Allocate it before the emnapi context so a host memory-limit failure cannot
-  // leak a context that never reaches instantiation.
-  const __wasmMemory = new WebAssembly.Memory({
-    initial: 16384,
-    maximum: 65536,
-  })
-  const { context: __emnapiContext, destroy: __destroyEmnapiContext } =
-    await __createManagedEmnapiContext()
-  try {
-    __emnapiContext.feature.Buffer = Buffer
-    const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
-      __emnapiModule,
-      {
-        context: __emnapiContext,
-        asyncWorkPoolSize: 0,
-        wasi: __wasi,
-        overwriteImports(importObject) {
-          importObject.env = {
-            ...importObject.env,
-            ...importObject.napi,
-            ...importObject.emnapi,
-            memory: __wasmMemory,
-          }
-          return importObject
-        },
-        beforeInit({ instance }) {
-          for (const name of Object.keys(instance.exports)) {
-            if (name.startsWith('__napi_register__')) {
-              instance.exports[name]()
-            }
-          }
-        },
-      },
-    )
-    for (const name of unsupportedWasiFunctions) {
-      if (__napiModule.exports[name] === undefined) {
-        __napiModule.exports[name] = getDeferredWasiBindingExport(
-          __napiModule.exports,
-          name,
-        )
-      }
-    }
-    return {
-      exports: __napiModule.exports,
-      dispose() {
-        return __destroyEmnapiContext()
-      },
-    }
-  } catch (error) {
-    try {
-      await __destroyEmnapiContext()
-    } catch (disposeError) {
-      // Initialization is the primary failure. Preserve it even if cleanup
-      // also fails, while retaining the cleanup error when the value is
-      // extensible and has no existing cause.
-      try {
-        if (
-          error &&
-          (typeof error === 'object' || typeof error === 'function') &&
-          error.cause === undefined
-        ) {
-          error.cause = disposeError
-        }
-      } catch {}
-    }
-    throw error
-  }
+  return __createInstance(__wasmInput)
 }
 
 let __defaultModulePromise
@@ -495,7 +502,7 @@ export function instantiate(__wasmInput) {
   if (!__defaultInstancePromise) {
     __defaultModulePromise = __modulePromise
     const __instancePromise = __modulePromise.then((__module) =>
-      createInstance(__module),
+      __createInstance(__module, dispose),
     )
     __defaultInstancePromise = __instancePromise
     void __instancePromise.catch(() => {

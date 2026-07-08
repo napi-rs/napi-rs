@@ -417,7 +417,7 @@ function __registerManagedEmnapiContext(__process, __destroy) {
   }
 }
 
-async function __createManagedEmnapiContext() {
+async function __createManagedEmnapiContext(__beforeExitDestroy) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -467,7 +467,7 @@ async function __createManagedEmnapiContext() {
   try {
     __unregisterCleanup = __registerManagedEmnapiContext(
       __process,
-      __destroy,
+      __beforeExitDestroy ?? __destroy,
     )
   } catch (error) {
     try {
@@ -491,11 +491,7 @@ async function __createManagedEmnapiContext() {
   }
 }
 
-/**
- * Create an independent instance. Call dispose() when the instance is no
- * longer needed so emnapi cleanup hooks run deterministically.
- */
-export async function createInstance(__wasmInput) {
+async function __createInstance(__wasmInput, __beforeExitDestroy) {
   const __module = await __resolveModule(__wasmInput)
   const __emnapiModule = await __normalizeModuleForEmnapi(__module)
   const __wasi = new __WASI({
@@ -513,7 +509,7 @@ export async function createInstance(__wasmInput) {
   const {
     context: __emnapiContext,
     destroy: __destroyEmnapiContext,
-  } = await __createManagedEmnapiContext()
+  } = await __createManagedEmnapiContext(__beforeExitDestroy)
   try {
 ${emnapiInjectBuffer}\
     const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__emnapiModule, {
@@ -564,6 +560,14 @@ ${emnapiInjectBuffer}\
   }
 }
 
+/**
+ * Create an independent instance. Call dispose() when the instance is no
+ * longer needed so emnapi cleanup hooks run deterministically.
+ */
+export async function createInstance(__wasmInput) {
+  return __createInstance(__wasmInput)
+}
+
 let __defaultModulePromise
 let __defaultInstancePromise
 let __defaultDisposePromise
@@ -585,7 +589,7 @@ export function instantiate(__wasmInput) {
   if (!__defaultInstancePromise) {
     __defaultModulePromise = __modulePromise
     const __instancePromise = __modulePromise.then((__module) =>
-      createInstance(__module),
+      __createInstance(__module, dispose),
     )
     __defaultInstancePromise = __instancePromise
     void __instancePromise.catch(() => {

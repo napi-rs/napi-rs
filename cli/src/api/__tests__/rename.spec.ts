@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,6 +7,8 @@ import ava, { type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
 import { renameProject } from '../rename.js'
+
+const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -66,6 +68,21 @@ async function createFixtureProject(
       `${JSON.stringify(options.configData, null, 2)}\n`,
     )
   }
+}
+
+async function listFiles(directory: string, prefix = ''): Promise<string[]> {
+  const files: string[] = []
+  for (const entry of await readdir(join(directory, prefix), {
+    withFileTypes: true,
+  })) {
+    const path = join(prefix, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...(await listFiles(directory, path)))
+    } else {
+      files.push(path)
+    }
+  }
+  return files
 }
 
 test('omitting binaryName keeps existing wasi artifact names and binary references', async (t) => {
@@ -178,4 +195,167 @@ test('repository updates package.json when provided', async (t) => {
   t.is(packageJson.name, 'renamed')
   t.is(packageJson.repository.url, 'https://example.com/new.git')
   t.is(packageJson.repository.type, 'git')
+})
+
+test('binaryName renames every configured WASI artifact and package reference', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'wasi-artifact-rename')
+  const oldName = 'foo'
+  const newName = 'renamed'
+  const threadedSuffixes = [
+    'wasm32-wasi.wasm',
+    'wasm32-wasi.debug.wasm',
+    'wasi.cjs',
+    'wasi.d.cts',
+    'wasi-browser.js',
+  ]
+  const threadlessSuffixes = [
+    'wasm32-wasip1.wasm',
+    'wasm32-wasip1.debug.wasm',
+    'wasm32-wasip1.wasm.d.ts',
+    'wasm32-wasip1.wasm.d.mts',
+    'wasm32-wasip1.workerd.mjs',
+    'wasm32-wasip1.workerd.d.mts',
+    'wasip1.cjs',
+    'wasip1.d.cts',
+    'wasip1-browser.js',
+    'wasip1-deferred.js',
+    'wasip1-deferred.d.ts',
+  ]
+  const managedSuffixes = [
+    'wasm',
+    'debug.wasm',
+    ...threadedSuffixes,
+    ...threadlessSuffixes,
+  ]
+  const oldManagedFiles = managedSuffixes.map(
+    (suffix) => `${oldName}.${suffix}`,
+  )
+  const newManagedFiles = managedSuffixes.map(
+    (suffix) => `${newName}.${suffix}`,
+  )
+  const allOldReferences = oldManagedFiles.join('\n')
+  const artifactContent = (file: string) => {
+    if (file.endsWith('.wasm')) {
+      return 'wasm artifact'
+    }
+    const metadata = file.endsWith('.cjs')
+      ? `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+          version: 2,
+          rootEntry: 'index.cjs',
+          exports: [],
+          managedRootEntries: [
+            'browser.js',
+            'index.cjs',
+            `${oldName}.wasm`,
+            `${oldName}.debug.wasm`,
+          ],
+        })}\n`
+      : ''
+    return `${metadata}${allOldReferences}\n`
+  }
+
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      main: 'index.cjs',
+      browser: 'browser.js',
+      files: oldManagedFiles,
+      exports: {
+        './workerd': `./${oldName}.wasm32-wasip1.workerd.mjs`,
+        './wasm': `./${oldName}.wasm32-wasip1.wasm`,
+      },
+      napi: {
+        binaryName: oldName,
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+      },
+    },
+    cargoPackageName: oldName,
+  })
+
+  await Promise.all([
+    ...oldManagedFiles.map((file) =>
+      writeFile(join(projectPath, file), artifactContent(file)),
+    ),
+    writeFile(join(projectPath, 'index.cjs'), `${allOldReferences}\n`),
+    writeFile(join(projectPath, 'browser.js'), `${allOldReferences}\n`),
+    writeFile(
+      join(projectPath, '.gitattributes'),
+      `${oldManagedFiles
+        .map((file) => `${file} linguist-generated=true`)
+        .join('\n')}\n`,
+    ),
+  ])
+
+  for (const platformArchABI of ['wasm32-wasi', 'wasm32-wasip1']) {
+    const packageDirectory = join(projectPath, 'npm', platformArchABI)
+    await mkdir(packageDirectory, { recursive: true })
+    const packageFiles = (
+      platformArchABI === 'wasm32-wasi' ? threadedSuffixes : threadlessSuffixes
+    ).map((suffix) => `${oldName}.${suffix}`)
+    await Promise.all([
+      ...packageFiles.map((file) =>
+        writeFile(join(packageDirectory, file), artifactContent(file)),
+      ),
+      writeFile(
+        join(packageDirectory, 'package.json'),
+        `${JSON.stringify(
+          {
+            name: `@scope/original-${platformArchABI}`,
+            main:
+              platformArchABI === 'wasm32-wasi'
+                ? `${oldName}.wasi.cjs`
+                : `${oldName}.wasip1.cjs`,
+            files: packageFiles,
+            exports:
+              platformArchABI === 'wasm32-wasip1'
+                ? {
+                    './workerd': `./${oldName}.wasip1-deferred.js`,
+                    './wasm': `./${oldName}.wasm32-wasip1.wasm`,
+                  }
+                : undefined,
+          },
+          null,
+          2,
+        )}\n`,
+      ),
+    ])
+  }
+
+  await renameProject({
+    cwd: projectPath,
+    binaryName: newName,
+  })
+
+  const files = await listFiles(projectPath)
+  for (const oldFile of oldManagedFiles) {
+    t.false(
+      files.some((file) => file.split(/[\\/]/).includes(oldFile)),
+      `stale filename: ${oldFile}`,
+    )
+  }
+  for (const newFile of newManagedFiles) {
+    t.true(existsSync(join(projectPath, newFile)), newFile)
+  }
+  for (const platformArchABI of ['wasm32-wasi', 'wasm32-wasip1']) {
+    const packageDirectory = join(projectPath, 'npm', platformArchABI)
+    const suffixes =
+      platformArchABI === 'wasm32-wasi' ? threadedSuffixes : threadlessSuffixes
+    for (const suffix of suffixes) {
+      t.true(
+        existsSync(join(packageDirectory, `${newName}.${suffix}`)),
+        `${platformArchABI}: ${newName}.${suffix}`,
+      )
+    }
+  }
+
+  for (const file of files) {
+    if (file.endsWith('.wasm')) {
+      continue
+    }
+    const content = await readFile(join(projectPath, file), 'utf8')
+    for (const oldFile of oldManagedFiles) {
+      t.false(content.includes(oldFile), `${file}: ${oldFile}`)
+    }
+  }
 })

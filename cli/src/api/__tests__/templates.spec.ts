@@ -457,9 +457,9 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   // The wasm imports `env.memory` (built with `--import-memory`), so a
   // Memory allocation is required — but only in function scope
   // (workerd-legal), never in global scope.
-  const exportOffset = src.indexOf('export async function createInstance')
-  t.true(exportOffset > 0)
-  const topLevel = src.slice(0, exportOffset)
+  const instanceFactoryOffset = src.indexOf('async function __createInstance')
+  t.true(instanceFactoryOffset > 0)
+  const topLevel = src.slice(0, instanceFactoryOffset)
   t.false(topLevel.includes('new WebAssembly.Memory'))
   t.false(topLevel.includes('fetch('))
   t.false(src.includes('shared: true'))
@@ -1675,54 +1675,72 @@ const waitForDestroyed = async (expected) => {
 }
 
 process.once('beforeExit', () => {
-  void (async () => {
-    await waitForDestroyed(3)
-    if (
-      globalThis.__beforeExitTestContexts.some((context) => !context.destroyed)
-    ) {
-      throw new Error('first beforeExit pass did not destroy every context')
-    }
+  setImmediate(() => {
+    void (async () => {
+      let replacementSingletonSettled = false
+      const replacementSingletonPromise = deferred.instantiate(module)
+      void replacementSingletonPromise.then(() => {
+        replacementSingletonSettled = true
+      })
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      if (replacementSingletonSettled) {
+        throw new Error(
+          'overlapping instantiate did not wait for automatic disposal',
+        )
+      }
 
-    delete require.cache[require.resolve('./binding.cjs')]
-    const replacementOrdinary = require('./binding.cjs')
-    await deferred.dispose()
-    const replacementSingleton = await deferred.instantiate(module)
-    const replacementIndependent = await deferred.createInstance(module)
-    if (
-      replacementOrdinary.ping() !== 'ordinary' ||
-      replacementSingleton.ping() !== 'deferred' ||
-      replacementIndependent.exports.ping() !== 'deferred'
-    ) {
-      throw new Error('fresh contexts were not usable after resumed work')
-    }
-    if (globalThis.__beforeExitTestContexts.length !== 6) {
-      throw new Error('replacement contexts were not created')
-    }
+      const replacementSingleton = await replacementSingletonPromise
+      await waitForDestroyed(3)
+      if (
+        globalThis.__beforeExitTestContexts.slice(0, 3).some(
+          (context) => !context.destroyed,
+        )
+      ) {
+        throw new Error('first beforeExit pass did not destroy every context')
+      }
 
-    process.once('beforeExit', () => {
-      void waitForDestroyed(6)
-        .then(() => {
-          if (
-            globalThis.__beforeExitTestContexts.some(
-              (context) => !context.destroyed,
-            )
-          ) {
-            throw new Error(
-              'second beforeExit pass did not destroy replacement contexts',
-            )
-          }
-          process.stdout.write('cleaned\\n')
-        })
-        .catch((error) => {
-          setImmediate(() => {
-            throw error
+      delete require.cache[require.resolve('./binding.cjs')]
+      const replacementOrdinary = require('./binding.cjs')
+      const replacementIndependent = await deferred.createInstance(module)
+      if (replacementSingleton === singleton) {
+        throw new Error('automatic disposal retained the destroyed singleton')
+      }
+      if (
+        replacementOrdinary.ping() !== 'ordinary' ||
+        replacementSingleton.ping() !== 'deferred' ||
+        replacementIndependent.exports.ping() !== 'deferred'
+      ) {
+        throw new Error('fresh contexts were not usable after resumed work')
+      }
+      if (globalThis.__beforeExitTestContexts.length !== 6) {
+        throw new Error('replacement contexts were not created')
+      }
+
+      process.once('beforeExit', () => {
+        void waitForDestroyed(6)
+          .then(() => {
+            if (
+              globalThis.__beforeExitTestContexts.some(
+                (context) => !context.destroyed,
+              )
+            ) {
+              throw new Error(
+                'second beforeExit pass did not destroy replacement contexts',
+              )
+            }
+            process.stdout.write('cleaned\\n')
           })
-        })
-    })
-    process.stdout.write('resumed\\n')
-  })().catch((error) => {
-    setImmediate(() => {
-      throw error
+          .catch((error) => {
+            setImmediate(() => {
+              throw error
+            })
+          })
+      })
+      process.stdout.write('resumed\\n')
+    })().catch((error) => {
+      setImmediate(() => {
+        throw error
+      })
     })
   })
 })
