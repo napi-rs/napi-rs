@@ -132,6 +132,34 @@ jobs:
       - name: Run compile-fail API contracts
         run: cargo test -p napi-examples --test macro_tests -- --ignored
 
+  test-cli-node-baselines:
+    name: Packed CLI - node@${{ matrix.node }}
+    runs-on: ubuntu-latest
+    needs: audit
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.17.0', '22.13.0']
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup build node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build CLI package
+        run: yarn workspace @napi-rs/cli build
+      - name: Setup test node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Test packed raw CLI
+        run: node cli/e2e/raw-cli-test.mjs
+
   build_and_test:
     needs: audit
     permissions:
@@ -1096,6 +1124,14 @@ jobs:
         run: yarn workspace @examples/napi test __tests__/wasi-buffer-public-api.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
+      - name: Test lifecycle public surface
+        run: |
+          yarn workspace @examples/napi test \
+            __tests__/lifecycle-public-surface.spec.ts \
+            __tests__/stock-emnapi-lifecycle.spec.ts
+        env:
+          WASI_TEST: 'true'
+          NAPI_RS_WASI_FLAVOR: wasm32-wasip1
       - name: Browser test (single-thread, no cross-origin isolation)
         run: |
           yarn workspace @examples/custom-async-runtime playwright install chromium
@@ -1226,6 +1262,7 @@ jobs:
       - audit
       - lint
       - trybuild
+      - test-cli-node-baselines
       - build_and_test
       - build-and-test-msys2
       - build_only

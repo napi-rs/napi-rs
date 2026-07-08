@@ -17,13 +17,18 @@ import {
 import {
   readFileAsync,
   readNapiConfig,
+  collectRelativeDeclarationSpecifiers,
   createWasmModuleTypeDef,
+  copyFileAtomic,
   debugFactory,
-  copyFileAsync,
+  getPackageReconciliationRoot,
   mkdirAsync,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
-  writeFileAsync,
+  writeFileAtomic,
+  withFileSystemReconciliation,
+  AVAILABLE_TARGETS,
+  parseTriple,
   type CommonPackageJsonFields,
   type Target,
 } from '../utils/index.js'
@@ -36,10 +41,9 @@ const THREADLESS_WASI_ROOT_SUBPATHS = new Set([
   './wasm',
   './wasm.wasm',
 ])
-const MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES = [
-  'wasm32-wasi',
-  'wasm32-wasip1',
-]
+const MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES = new Set(
+  AVAILABLE_TARGETS.map((target) => parseTriple(target).platformArchABI),
+)
 const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
@@ -76,75 +80,107 @@ export async function prePublish(userOptions: PrePublishOptions) {
   const options = applyDefaultPrePublishOptions(userOptions)
 
   const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
-
-  const { packageJson, targets, packageName, binaryName, npmClient, wasm } =
-    await readNapiConfig(
-      packageJsonPath,
-      options.configPath ? resolve(options.cwd, options.configPath) : undefined,
-    )
-  const rootDir = dirname(packageJsonPath)
-  const threadlessWasiTarget = targets.find(
-    (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
+  const rootDir = getPackageReconciliationRoot(
+    options.cwd,
+    options.packageJsonPath,
   )
+  const prepared = await withFileSystemReconciliation(rootDir, async () => {
+    const { packageJson, targets, packageName, binaryName, npmClient, wasm } =
+      await readNapiConfig(
+        packageJsonPath,
+        options.configPath
+          ? resolve(options.cwd, options.configPath)
+          : undefined,
+      )
+    const threadlessWasiTarget = targets.find(
+      (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
+    )
 
-  const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
-  for (const target of targets) {
-    const pkgDir = resolve(options.cwd, options.npmDir, target.platformArchABI)
-    releasePackagePlans.push(
-      await validateReleasePackage({
-        pkgDir,
-        rootDir,
+    const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
+    for (const target of targets) {
+      const pkgDir = resolve(
+        options.cwd,
+        options.npmDir,
+        target.platformArchABI,
+      )
+      releasePackagePlans.push(
+        await validateReleasePackage({
+          pkgDir,
+          rootDir,
+          packageName,
+          binaryName,
+          target,
+          requireDirectBufferDependency:
+            wasm?.browser?.buffer === true &&
+            (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
+        }),
+      )
+    }
+    const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
+      packageJson,
+      rootDir,
+      resolve(options.cwd, options.npmDir),
+      packageName,
+    )
+    let reconciledPackageJson = rootFacadeReconciliation.packageJson
+    let rootFacade: ThreadlessWasiRootFacade | undefined
+    if (threadlessWasiTarget) {
+      rootFacade = planThreadlessWasiRootFacade({
+        packageJsonPath,
+        packageJson: reconciledPackageJson,
         packageName,
         binaryName,
-        target,
-        requireDirectBufferDependency:
-          wasm?.browser?.buffer === true &&
-          (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
-      }),
-    )
-  }
-  const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
-    packageJson,
-    rootDir,
-    resolve(options.cwd, options.npmDir),
-    packageName,
-  )
-  let reconciledPackageJson = rootFacadeReconciliation.packageJson
-  let rootFacade: ThreadlessWasiRootFacade | undefined
-  if (threadlessWasiTarget) {
-    rootFacade = planThreadlessWasiRootFacade({
-      packageJsonPath,
+        target: threadlessWasiTarget,
+        npmDir: resolve(options.cwd, options.npmDir),
+        managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+      })
+      reconciledPackageJson = applyThreadlessWasiRootFacade(
+        reconciledPackageJson,
+        rootFacade,
+      )
+    }
+    const optionalDependencies = {
+      ...asRecord(packageJson.optionalDependencies),
+    }
+    const managedPackageNames = new Set([packageName])
+    for (const flavorPackage of rootFacadeReconciliation.managedFlavorPackages) {
+      for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+        const ending = `-${suffix}`
+        if (flavorPackage.endsWith(ending)) {
+          managedPackageNames.add(flavorPackage.slice(0, -ending.length))
+        }
+      }
+    }
+    for (const managedPackageName of managedPackageNames) {
+      for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+        delete optionalDependencies[`${managedPackageName}-${suffix}`]
+      }
+    }
+    for (const target of targets) {
+      optionalDependencies[`${packageName}-${target.platformArchABI}`] =
+        packageJson.version
+    }
+    const rootReleasePlan: RootReleaseMaterializationPlan = {
       packageJson: reconciledPackageJson,
-      packageName,
-      binaryName,
-      target: threadlessWasiTarget,
-      npmDir: resolve(options.cwd, options.npmDir),
-      managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
-    })
-    reconciledPackageJson = applyThreadlessWasiRootFacade(
-      reconciledPackageJson,
-      rootFacade,
-    )
-  }
-  const optionalDependencies = {
-    ...asRecord(packageJson.optionalDependencies),
-  }
-  for (const suffix of MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES) {
-    delete optionalDependencies[`${packageName}-${suffix}`]
-  }
-  for (const target of targets) {
-    optionalDependencies[`${packageName}-${target.platformArchABI}`] =
-      packageJson.version
-  }
-  const rootReleasePlan: RootReleaseMaterializationPlan = {
-    packageJson: reconciledPackageJson,
-    optionalDependencies,
-    facade: rootFacade,
-    staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
-  }
-  if (rootFacade) {
-    await validateRootReleasePlan(rootDir, rootReleasePlan)
-  }
+      optionalDependencies,
+      facade: rootFacade,
+      staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+    }
+    if (rootFacade) {
+      await validateRootReleasePlan(rootDir, rootReleasePlan)
+    }
+
+    if (!options.dryRun) {
+      for (const plan of releasePackagePlans) {
+        await materializeReleasePackagePlan(plan)
+      }
+      await version(userOptions)
+      await materializeRootReleasePlan(rootDir, rootReleasePlan)
+    }
+
+    return { binaryName, npmClient, packageJson, packageName, targets }
+  })
+  const { binaryName, npmClient, packageJson, packageName, targets } = prepared
 
   async function createGhRelease(packageName: string, version: string) {
     if (!options.ghRelease) {
@@ -235,14 +271,6 @@ export async function prePublish(userOptions: PrePublishOptions) {
       }
     }
     return { owner, repo, pkgInfo, octokit }
-  }
-
-  if (!options.dryRun) {
-    for (const plan of releasePackagePlans) {
-      await materializeReleasePackagePlan(plan)
-    }
-    await version(userOptions)
-    await materializeRootReleasePlan(rootDir, rootReleasePlan)
   }
 
   const { owner, repo, pkgInfo, octokit } = options.ghReleaseId
@@ -362,8 +390,14 @@ interface ThreadlessWasiRootFacadeFiles {
 }
 
 interface ThreadlessWasiRootFacadeReconciliation {
+  managedFlavorPackages: string[]
   packageJson: CommonPackageJsonFields
   staleGeneratedFiles: string[]
+}
+
+interface ManagedThreadlessWasiRootFacade {
+  files: ThreadlessWasiRootFacadeFiles
+  flavorPackage: string
 }
 
 interface ThreadlessWasiRootFacadeMarker {
@@ -380,6 +414,7 @@ function reconcileThreadlessWasiRootFacade(
 ): ThreadlessWasiRootFacadeReconciliation {
   const reconciledPackageJson = { ...packageJson }
   const staleGeneratedFiles = new Set<string>()
+  const managedFlavorPackages = new Set<string>()
   const rootExports = removeThreadlessWasiRootExports(
     packageJson.exports,
     packageJson,
@@ -389,6 +424,9 @@ function reconcileThreadlessWasiRootFacade(
   )
   for (const file of rootExports.generatedFiles) {
     staleGeneratedFiles.add(file)
+  }
+  if (rootExports.managedFlavorPackage) {
+    managedFlavorPackages.add(rootExports.managedFlavorPackage)
   }
   setOptionalProperty(
     reconciledPackageJson as Record<string, unknown>,
@@ -411,6 +449,9 @@ function reconcileThreadlessWasiRootFacade(
     for (const file of publishConfigExports.generatedFiles) {
       staleGeneratedFiles.add(file)
     }
+    if (publishConfigExports.managedFlavorPackage) {
+      managedFlavorPackages.add(publishConfigExports.managedFlavorPackage)
+    }
     const reconciledPublishConfig = { ...publishConfig }
     setOptionalProperty(
       reconciledPublishConfig,
@@ -427,6 +468,7 @@ function reconcileThreadlessWasiRootFacade(
   }
 
   return {
+    managedFlavorPackages: [...managedFlavorPackages],
     packageJson: reconciledPackageJson,
     staleGeneratedFiles: [...staleGeneratedFiles],
   }
@@ -440,21 +482,28 @@ function removeThreadlessWasiRootExports(
   packageName: string,
 ) {
   const exportsMap = asRecord(currentExports)
-  const generatedFiles = getManagedThreadlessWasiRootFacadeFiles(
+  const managedFacade = getManagedThreadlessWasiRootFacadeFiles(
     exportsMap,
     rootDir,
     npmDir,
     packageName,
   )
-  if (!exportsMap || !generatedFiles) {
-    return { exports: currentExports, generatedFiles: [] }
+  if (!exportsMap || !managedFacade) {
+    return {
+      exports: currentExports,
+      generatedFiles: [],
+      managedFlavorPackage: undefined,
+    }
   }
+  const { files: generatedFiles, flavorPackage: managedFlavorPackage } =
+    managedFacade
 
   const nextExports = { ...exportsMap }
   delete nextExports['./workerd']
   delete nextExports['./wasm']
   delete nextExports['./wasm.wasm']
   const keys = Object.keys(nextExports)
+  const generatedLegacyExports = createLegacyDeepImportExports(rootDir)
   if (
     Object.prototype.hasOwnProperty.call(nextExports, '.') &&
     nextExports['./*'] === './*' &&
@@ -464,19 +513,29 @@ function removeThreadlessWasiRootExports(
     ) &&
     keys
       .filter((key) => key !== '.' && key !== './*')
-      .every((key) => isGeneratedLegacyDeepImportExport(key, nextExports[key]))
+      .every(
+        (key) =>
+          generatedLegacyExports[key] !== undefined &&
+          isDeepStrictEqual(nextExports[key], generatedLegacyExports[key]),
+      )
   ) {
-    return { exports: undefined, generatedFiles: Object.values(generatedFiles) }
+    return {
+      exports: undefined,
+      generatedFiles: Object.values(generatedFiles),
+      managedFlavorPackage,
+    }
   }
   if (keys.length === 1 && keys[0] === '.') {
     return {
       exports: nextExports['.'],
       generatedFiles: Object.values(generatedFiles),
+      managedFlavorPackage,
     }
   }
   return {
     exports: keys.length > 0 ? nextExports : undefined,
     generatedFiles: Object.values(generatedFiles),
+    managedFlavorPackage,
   }
 }
 
@@ -485,7 +544,7 @@ function getManagedThreadlessWasiRootFacadeFiles(
   rootDir: string,
   npmDir: string,
   packageName: string,
-): ThreadlessWasiRootFacadeFiles | undefined {
+): ManagedThreadlessWasiRootFacade | undefined {
   if (!exportsMap) {
     return undefined
   }
@@ -522,17 +581,12 @@ function getManagedThreadlessWasiRootFacadeFiles(
     return undefined
   }
   const flavorPackage = `${packageName}-wasm32-wasip1`
-  if (
-    hasManagedThreadlessWasiRootFacadeMarker(rootDir, files, flavorPackage) ||
-    hasPartialManagedThreadlessWasiRootFacadeMarker(
-      rootDir,
-      npmDir,
-      files,
-      flavorPackage,
-    ) ||
-    hasLegacyThreadlessWasiRootFacade(rootDir, npmDir, files, flavorPackage)
-  ) {
-    return files
+  const managedFlavorPackage =
+    getManagedThreadlessWasiRootFacadeMarker(rootDir, files) ??
+    getPartialManagedThreadlessWasiRootFacadeMarker(rootDir, npmDir, files) ??
+    getLegacyThreadlessWasiRootFacade(rootDir, npmDir, files)
+  if (managedFlavorPackage) {
+    return { files, flavorPackage: managedFlavorPackage }
   }
   if (
     hasPartialOrCorruptThreadlessWasiRootFacade(rootDir, files, flavorPackage)
@@ -544,24 +598,23 @@ function getManagedThreadlessWasiRootFacadeFiles(
   return undefined
 }
 
-function hasManagedThreadlessWasiRootFacadeMarker(
+function getManagedThreadlessWasiRootFacadeMarker(
   rootDir: string,
   files: ThreadlessWasiRootFacadeFiles,
-  flavorPackage: string,
 ) {
   const workerdEntry = readRegularFile(join(rootDir, files.workerdEntry))
   const workerdTypeDef = readRegularFile(join(rootDir, files.workerdTypeDef))
   const wasmEntry = readRegularFile(join(rootDir, files.wasmEntry))
   const wasmTypeDef = readRegularFile(join(rootDir, files.wasmTypeDef))
   if (!workerdEntry || !workerdTypeDef || !wasmEntry || !wasmTypeDef) {
-    return false
+    return undefined
   }
 
   const markedFiles = [workerdEntry, workerdTypeDef, wasmTypeDef].map((file) =>
     parseThreadlessWasiRootFacadeMarker(file.toString('utf8')),
   )
   if (markedFiles.some((file) => file === undefined)) {
-    return false
+    return undefined
   }
   const [markedWorkerdEntry, markedWorkerdTypeDef, markedWasmTypeDef] =
     markedFiles as Array<{
@@ -573,31 +626,31 @@ function hasManagedThreadlessWasiRootFacadeMarker(
     markedWorkerdEntry.markerLine !== markedWorkerdTypeDef.markerLine ||
     markedWorkerdEntry.markerLine !== markedWasmTypeDef.markerLine
   ) {
-    return false
+    return undefined
   }
 
   const expectedMarker: ThreadlessWasiRootFacadeMarker = {
     version: 1,
-    flavorPackage,
+    flavorPackage: markedWorkerdEntry.marker.flavorPackage,
     wasmSha256: createHash('sha256').update(wasmEntry).digest('hex'),
   }
   if (!isDeepStrictEqual(markedWorkerdEntry.marker, expectedMarker)) {
-    return false
+    return undefined
   }
-  const forwardingModule =
-    createThreadlessWasiRootForwardingModule(flavorPackage)
-  return (
-    markedWorkerdEntry.body === forwardingModule &&
+  const forwardingModule = createThreadlessWasiRootForwardingModule(
+    markedWorkerdEntry.marker.flavorPackage,
+  )
+  return markedWorkerdEntry.body === forwardingModule &&
     markedWorkerdTypeDef.body === forwardingModule &&
     markedWasmTypeDef.body === createWasmModuleTypeDef()
-  )
+    ? markedWorkerdEntry.marker.flavorPackage
+    : undefined
 }
 
-function hasPartialManagedThreadlessWasiRootFacadeMarker(
+function getPartialManagedThreadlessWasiRootFacadeMarker(
   rootDir: string,
   npmDir: string,
   files: ThreadlessWasiRootFacadeFiles,
-  flavorPackage: string,
 ) {
   const availableWasmHashes = new Set<string>()
   for (const wasm of [
@@ -609,9 +662,10 @@ function hasPartialManagedThreadlessWasiRootFacadeMarker(
     }
   }
   if (availableWasmHashes.size === 0) {
-    return false
+    return undefined
   }
 
+  const flavorPackages = new Set<string>()
   for (const file of [
     files.workerdEntry,
     files.workerdTypeDef,
@@ -625,20 +679,19 @@ function hasPartialManagedThreadlessWasiRootFacadeMarker(
       contents.toString('utf8'),
     )
     if (
-      markedFile?.marker.flavorPackage === flavorPackage &&
+      markedFile !== undefined &&
       availableWasmHashes.has(markedFile.marker.wasmSha256)
     ) {
-      return true
+      flavorPackages.add(markedFile.marker.flavorPackage)
     }
   }
-  return false
+  return flavorPackages.size === 1 ? [...flavorPackages][0] : undefined
 }
 
-function hasLegacyThreadlessWasiRootFacade(
+function getLegacyThreadlessWasiRootFacade(
   rootDir: string,
   npmDir: string,
   files: ThreadlessWasiRootFacadeFiles,
-  flavorPackage: string,
 ) {
   const workerdEntry = readRegularFile(join(rootDir, files.workerdEntry))
   const workerdTypeDef = readRegularFile(join(rootDir, files.workerdTypeDef))
@@ -648,21 +701,33 @@ function hasLegacyThreadlessWasiRootFacade(
     join(npmDir, 'wasm32-wasip1', files.wasmEntry),
   )
   if (!wasmEntry || !flavorWasmEntry || !wasmEntry.equals(flavorWasmEntry)) {
-    return false
+    return undefined
   }
 
-  const forwardingModule =
-    createThreadlessWasiRootForwardingModule(flavorPackage)
-  const textFiles: Array<[string, Buffer | undefined, string]> = [
-    [files.workerdEntry, workerdEntry, forwardingModule],
-    [files.workerdTypeDef, workerdTypeDef, forwardingModule],
-    [files.wasmTypeDef, wasmTypeDef, createWasmModuleTypeDef()],
-  ]
-  return textFiles.every(
-    ([file, contents, expected]) =>
-      (!existsSync(join(rootDir, file)) && contents === undefined) ||
-      contents?.toString('utf8') === expected,
-  )
+  const forwardingPackages = new Set<string>()
+  for (const [file, contents] of [
+    [files.workerdEntry, workerdEntry],
+    [files.workerdTypeDef, workerdTypeDef],
+  ] as const) {
+    if (!existsSync(join(rootDir, file)) && contents === undefined) {
+      continue
+    }
+    const flavorPackage = contents
+      ? parseThreadlessWasiRootForwardingModule(contents.toString('utf8'))
+      : undefined
+    if (!flavorPackage) {
+      return undefined
+    }
+    forwardingPackages.add(flavorPackage)
+  }
+  if (
+    (existsSync(join(rootDir, files.wasmTypeDef)) ||
+      wasmTypeDef !== undefined) &&
+    wasmTypeDef?.toString('utf8') !== createWasmModuleTypeDef()
+  ) {
+    return undefined
+  }
+  return forwardingPackages.size === 1 ? [...forwardingPackages][0] : undefined
 }
 
 function hasPartialOrCorruptThreadlessWasiRootFacade(
@@ -758,6 +823,26 @@ function createThreadlessWasiRootFacadeMarker(
 
 function createThreadlessWasiRootForwardingModule(flavorPackage: string) {
   return `export * from ${JSON.stringify(`${flavorPackage}/workerd`)}\n`
+}
+
+function parseThreadlessWasiRootForwardingModule(source: string) {
+  const match = /^export \* from (".+")\n$/.exec(source)
+  if (!match) {
+    return undefined
+  }
+  let specifier: unknown
+  try {
+    specifier = JSON.parse(match[1])
+  } catch {
+    return undefined
+  }
+  if (
+    typeof specifier !== 'string' ||
+    !specifier.endsWith('-wasm32-wasip1/workerd')
+  ) {
+    return undefined
+  }
+  return specifier.slice(0, -'/workerd'.length)
 }
 
 function applyThreadlessWasiRootFacade(
@@ -897,22 +982,22 @@ async function materializeThreadlessWasiRootFacade(
   rootDir: string,
   facade: ThreadlessWasiRootFacade,
 ) {
-  await copyFileAsync(
+  await copyFileAtomic(
     facade.wasmSourcePath,
     join(rootDir, facade.files.wasmEntry),
   )
   await Promise.all([
-    writeFileAsync(
+    writeFileAtomic(
       join(rootDir, facade.files.workerdEntry),
       `${facade.marker}\n${facade.forwardingModule}`,
       'utf8',
     ),
-    writeFileAsync(
+    writeFileAtomic(
       join(rootDir, facade.files.workerdTypeDef),
       `${facade.marker}\n${facade.forwardingModule}`,
       'utf8',
     ),
-    writeFileAsync(
+    writeFileAtomic(
       join(rootDir, facade.files.wasmTypeDef),
       `${facade.marker}\n${createWasmModuleTypeDef()}`,
       'utf8',
@@ -1105,19 +1190,6 @@ function createLegacyDeepImportExports(rootDir: string) {
   }
 
   return exportsMap
-}
-
-function isGeneratedLegacyDeepImportExport(key: string, value: unknown) {
-  if (typeof value !== 'string') {
-    return false
-  }
-  return LEGACY_DEEP_IMPORT_EXTENSIONS.some(
-    (extension) =>
-      value === `${key}${extension}` ||
-      value === `${key}/index${extension}` ||
-      (value.startsWith(`${key}/`) &&
-        !value.slice(key.length + 1).includes('..')),
-  )
 }
 
 function collectRootPackagePathReferences(
@@ -1342,7 +1414,7 @@ async function materializeRootReleasePlan(
   )
   updatedPackageJson.optionalDependencies = plan.optionalDependencies
   syncThreadlessWasiRootFacadeManifest(updatedPackageJson, plan.packageJson)
-  await writeFileAsync(
+  await writeFileAtomic(
     packageJsonPath,
     JSON.stringify(updatedPackageJson, null, 2),
   )
@@ -1422,13 +1494,13 @@ async function materializeReleasePackagePlan(
   for (const declarationFile of plan.declarationDependencies) {
     const destination = join(plan.pkgDir, declarationFile)
     await mkdirAsync(dirname(destination), { recursive: true })
-    await copyFileAsync(join(plan.rootDir, declarationFile), destination)
+    await copyFileAtomic(join(plan.rootDir, declarationFile), destination)
   }
   if (plan.updateManifest) {
     const packageJsonPath = join(plan.pkgDir, 'package.json')
     const packageJson = JSON.parse(await readFileAsync(packageJsonPath, 'utf8'))
     packageJson.files = plan.packageFiles
-    await writeFileAsync(
+    await writeFileAtomic(
       packageJsonPath,
       `${JSON.stringify(packageJson, null, 2)}\n`,
     )
@@ -1509,7 +1581,7 @@ async function validateReleasePackageContents({
   if (updateManifest) {
     packageFiles.splice(0, packageFiles.length, ...declarationClosure.files)
     packageJson.files = packageFiles
-    await writeFileAsync(
+    await writeFileAtomic(
       packageJsonPath,
       `${JSON.stringify(packageJson, null, 2)}\n`,
     )
@@ -1801,7 +1873,7 @@ async function completeDeclarationDependencyClosure({
       if (!dependency) {
         const destination = join(pkgDir, sourceDependency)
         await mkdirAsync(dirname(destination), { recursive: true })
-        await copyFileAsync(join(rootDir, sourceDependency), destination)
+        await copyFileAtomic(join(rootDir, sourceDependency), destination)
         materializedFiles.add(sourceDependency)
       }
       if (!includedFiles.has(sourceDependency)) {
@@ -1819,262 +1891,7 @@ async function completeDeclarationDependencyClosure({
 }
 
 function extractRelativeDeclarationSpecifiers(source: string) {
-  const specifiers = new Set<string>()
-  const { tokens, references } = scanDeclaration(source)
-
-  for (const reference of references) {
-    if (reference.startsWith('.')) {
-      specifiers.add(reference)
-    }
-  }
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index]
-    let specifier: string | undefined
-
-    if (token.kind === 'identifier' && token.value === 'from') {
-      const next = tokens[index + 1]
-      if (next?.kind === 'string') {
-        specifier = next.value
-      }
-    } else if (token.kind === 'identifier' && token.value === 'import') {
-      const next = tokens[index + 1]
-      if (next?.kind === 'string') {
-        specifier = next.value
-      } else if (
-        next?.kind === 'punctuator' &&
-        next.value === '(' &&
-        tokens[index + 2]?.kind === 'string'
-      ) {
-        specifier = tokens[index + 2].value
-      }
-    } else if (
-      token.kind === 'identifier' &&
-      token.value === 'require' &&
-      tokens[index + 1]?.kind === 'punctuator' &&
-      tokens[index + 1].value === '(' &&
-      tokens[index + 2]?.kind === 'string'
-    ) {
-      specifier = tokens[index + 2].value
-    }
-
-    if (specifier?.startsWith('.')) {
-      specifiers.add(specifier)
-    }
-  }
-  return specifiers
-}
-
-interface DeclarationToken {
-  kind: 'identifier' | 'string' | 'punctuator'
-  value: string
-}
-
-function scanDeclaration(source: string) {
-  const tokens: DeclarationToken[] = []
-  const references: string[] = []
-  let index = 0
-  let onlyWhitespaceOnLine = true
-  let allowReferenceDirectives = true
-
-  function addToken(token: DeclarationToken) {
-    tokens.push(token)
-    allowReferenceDirectives = false
-    onlyWhitespaceOnLine = false
-  }
-
-  function scanCode(stopAtTemplateExpression = false) {
-    let braceDepth = 0
-
-    while (index < source.length) {
-      const current = source[index]
-      const next = source[index + 1]
-
-      if (current === '\r' || current === '\n') {
-        if (current === '\r' && next === '\n') {
-          index += 1
-        }
-        index += 1
-        onlyWhitespaceOnLine = true
-        continue
-      }
-      if (
-        current === ' ' ||
-        current === '\t' ||
-        current === '\v' ||
-        current === '\f'
-      ) {
-        index += 1
-        continue
-      }
-
-      if (current === '/' && next === '/') {
-        const commentStartsLine = onlyWhitespaceOnLine
-        const commentStart = index
-        index += 2
-        while (
-          index < source.length &&
-          source[index] !== '\r' &&
-          source[index] !== '\n'
-        ) {
-          index += 1
-        }
-        if (allowReferenceDirectives && commentStartsLine) {
-          const reference = parseTripleSlashReference(
-            source.slice(commentStart, index),
-          )
-          if (reference) {
-            references.push(reference)
-          }
-        }
-        onlyWhitespaceOnLine = false
-        continue
-      }
-
-      if (current === '/' && next === '*') {
-        index += 2
-        onlyWhitespaceOnLine = false
-        while (index < source.length) {
-          if (source[index] === '*' && source[index + 1] === '/') {
-            index += 2
-            break
-          }
-          if (source[index] === '\r' || source[index] === '\n') {
-            if (source[index] === '\r' && source[index + 1] === '\n') {
-              index += 1
-            }
-            onlyWhitespaceOnLine = true
-          }
-          index += 1
-        }
-        onlyWhitespaceOnLine = false
-        continue
-      }
-
-      if (current === "'" || current === '"') {
-        addToken({
-          kind: 'string',
-          value: readDeclarationString(current),
-        })
-        continue
-      }
-
-      if (current === '`') {
-        allowReferenceDirectives = false
-        onlyWhitespaceOnLine = false
-        scanTemplate()
-        continue
-      }
-
-      if (isDeclarationIdentifierStart(current)) {
-        const start = index
-        index += 1
-        while (
-          index < source.length &&
-          isDeclarationIdentifierPart(source[index])
-        ) {
-          index += 1
-        }
-        addToken({
-          kind: 'identifier',
-          value: source.slice(start, index),
-        })
-        continue
-      }
-
-      if (stopAtTemplateExpression && current === '}') {
-        if (braceDepth === 0) {
-          index += 1
-          return
-        }
-        braceDepth -= 1
-      } else if (stopAtTemplateExpression && current === '{') {
-        braceDepth += 1
-      }
-
-      addToken({ kind: 'punctuator', value: current })
-      index += 1
-    }
-  }
-
-  function readDeclarationString(quote: "'" | '"') {
-    let value = ''
-    index += 1
-    while (index < source.length) {
-      const current = source[index]
-      if (current === '\\') {
-        value += current
-        if (index + 1 < source.length) {
-          value += source[index + 1]
-          index += 2
-        } else {
-          index += 1
-        }
-        continue
-      }
-      if (current === quote) {
-        index += 1
-        break
-      }
-      value += current
-      index += 1
-    }
-    return value
-  }
-
-  function scanTemplate() {
-    index += 1
-    while (index < source.length) {
-      const current = source[index]
-      const next = source[index + 1]
-      if (current === '\\') {
-        index += Math.min(2, source.length - index)
-        continue
-      }
-      if (current === '`') {
-        index += 1
-        return
-      }
-      if (current === '$' && next === '{') {
-        index += 2
-        scanCode(true)
-        continue
-      }
-      if (current === '\r' || current === '\n') {
-        if (current === '\r' && next === '\n') {
-          index += 1
-        }
-        onlyWhitespaceOnLine = true
-      } else {
-        onlyWhitespaceOnLine = false
-      }
-      index += 1
-    }
-  }
-
-  scanCode()
-  return { tokens, references }
-}
-
-function parseTripleSlashReference(comment: string) {
-  const match =
-    /^\/\/\/\s*<reference\s+path\s*=\s*(['"])([^'"]+)\1.*?\/>\s*$/.exec(comment)
-  return match?.[2]
-}
-
-function isDeclarationIdentifierStart(value: string) {
-  const code = value.charCodeAt(0)
-  return (
-    value === '$' ||
-    value === '_' ||
-    (code >= 65 && code <= 90) ||
-    (code >= 97 && code <= 122)
-  )
-}
-
-function isDeclarationIdentifierPart(value: string) {
-  const code = value.charCodeAt(0)
-  return isDeclarationIdentifierStart(value) || (code >= 48 && code <= 57)
+  return new Set(collectRelativeDeclarationSpecifiers(source))
 }
 
 function resolveDeclarationDependency(

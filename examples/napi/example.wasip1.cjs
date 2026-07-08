@@ -7,56 +7,11 @@
 const __nodeFs = require('node:fs')
 const __nodePath = require('node:path')
 const { WASI: __nodeWASI } = require('node:wasi')
-const { Worker } = require('node:worker_threads')
 
 const {
-  createOnMessage: __wasmCreateOnMessageForFsProxy,
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
-
-function __getWorkerExecArgv() {
-  const __workerExecArgv = []
-  for (let __index = 0; __index < process.execArgv.length; __index += 1) {
-    const __arg = process.execArgv[__index]
-    if (
-      __arg === '--input-type' ||
-      __arg === '--eval' ||
-      __arg === '-e' ||
-      __arg === '--print' ||
-      __arg === '-p'
-    ) {
-      __index += 1
-      continue
-    }
-    if (
-      __arg.startsWith('--input-type=') ||
-      __arg.startsWith('--eval=') ||
-      __arg.startsWith('--print=')
-    ) {
-      continue
-    }
-    __workerExecArgv.push(__arg)
-  }
-  return __workerExecArgv
-}
-
-function __createWasiWorker(filename) {
-  try {
-    return new Worker(filename, {
-      env: process.env,
-      execArgv: __getWorkerExecArgv(),
-    })
-  } catch (error) {
-    if (!error || error.code !== 'ERR_WORKER_INVALID_EXEC_ARGV') {
-      throw error
-    }
-  }
-  return new Worker(filename, {
-    env: process.env,
-    execArgv: [],
-  })
-}
 
 
 const __rootDir = __nodePath.parse(process.cwd()).root
@@ -221,7 +176,7 @@ function __attachCleanupError(__error, __cleanupError) {
   } catch {}
 }
 
-let __sharedMemory
+let __wasmMemory
 let __napiInstance
 let __wasiModule
 let __napiModule
@@ -231,26 +186,25 @@ try {
   process.once('exit', __destroyEmnapiContextAtExit)
   __emnapiContextRegisteredForExit = true
 
-  __sharedMemory = new WebAssembly.Memory({
+  __wasmMemory = new WebAssembly.Memory({
     initial: 16384,
     maximum: 65536,
-    shared: true,
   })
 
-  let __wasmFilePath = __nodePath.join(__dirname, 'example.wasm32-wasi.wasm')
-  const __wasmDebugFilePath = __nodePath.join(__dirname, 'example.wasm32-wasi.debug.wasm')
+  let __wasmFilePath = __nodePath.join(__dirname, 'example.wasm32-wasip1.wasm')
+  const __wasmDebugFilePath = __nodePath.join(__dirname, 'example.wasm32-wasip1.debug.wasm')
 
   if (__nodeFs.existsSync(__wasmDebugFilePath)) {
     __wasmFilePath = __wasmDebugFilePath
   } else if (!__nodeFs.existsSync(__wasmFilePath)) {
-    const __wasiPackageEntry = require.resolve('@examples/napi-wasm32-wasi')
+    const __wasiPackageEntry = require.resolve('@examples/napi-wasm32-wasip1')
     const __packagedWasmFilePath = __nodePath.join(
     __nodePath.dirname(__wasiPackageEntry),
-    'example.wasm32-wasi.wasm',
+    'example.wasm32-wasip1.wasm',
     )
     if (!__nodeFs.existsSync(__packagedWasmFilePath)) {
       throw new Error(
-        '@examples/napi-wasm32-wasi is installed but is missing example.wasm32-wasi.wasm.',
+        '@examples/napi-wasm32-wasip1 is installed but is missing example.wasm32-wasip1.wasm.',
       )
     }
     __wasmFilePath = __packagedWasmFilePath
@@ -262,53 +216,14 @@ try {
     napiModule: __napiModule,
   } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
     context: __emnapiContext,
-  asyncWorkPoolSize: (function() {
-    const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
-    // NaN > 0 is false
-    if (threadsSizeFromEnv > 0) {
-      return threadsSizeFromEnv
-    } else {
-      return 4
-    }
-  })(),
-  reuseWorker: true,
+  asyncWorkPoolSize: 0,
     wasi: __wasi,
-  onCreateWorker() {
-    const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
-    worker.onmessage = ({ data }) => {
-      __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
-    }
-
-    // The main thread of Node.js waits for all the active handles before exiting.
-    // But Rust threads are never waited without `thread::join`.
-    // So here we hack the code of Node.js to prevent the workers from being referenced (active).
-    // According to https://github.com/nodejs/node/blob/19e0d472728c79d418b74bddff588bea70a403d0/lib/internal/worker.js#L415,
-    // a worker is consist of two handles: kPublicPort and kHandle.
-    {
-      const kPublicPort = Object.getOwnPropertySymbols(worker).find(s =>
-        s.toString().includes("kPublicPort")
-      );
-      if (kPublicPort) {
-        worker[kPublicPort].ref = () => {};
-      }
-
-      const kHandle = Object.getOwnPropertySymbols(worker).find(s =>
-        s.toString().includes("kHandle")
-      );
-      if (kHandle) {
-        worker[kHandle].ref = () => {};
-      }
-
-      worker.unref();
-    }
-    return worker
-  },
     overwriteImports(importObject) {
       importObject.env = {
         ...importObject.env,
         ...importObject.napi,
         ...importObject.emnapi,
-        memory: __sharedMemory,
+        memory: __wasmMemory,
       }
       return importObject
     },
@@ -395,7 +310,6 @@ const unsupportedWasiFunctions = new Set([
   'stashErrorAcrossDuplicateLoad',
   'stashExternalRefAcrossDuplicateLoad',
   'stashExternalRefForTeardown',
-  'stashPromiseRejectionAcrossDuplicateLoad',
   'stashThreadsafeFunctionForEnvOwnership',
   'stashTypedArrayAcrossDuplicateLoad',
   'stashTypedArraySlicesAcrossDuplicateLoad',
@@ -412,8 +326,6 @@ const unsupportedWasiFunctions = new Set([
   'takeReferenceValueAcrossDuplicateLoad',
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
-  'throwPromiseRejectionAcrossDuplicateLoad',
-  'tokioRuntimeFactoryCallCount',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',
@@ -459,7 +371,6 @@ module.exports.AsyncFib = __napiModule.exports.AsyncFib
 module.exports.AsyncGeneratorSetupFailure = __napiModule.exports.AsyncGeneratorSetupFailure
 module.exports.AsyncIteratorAdmissionProbe = __napiModule.exports.AsyncIteratorAdmissionProbe
 module.exports.AsyncIteratorConstructor = __napiModule.exports.AsyncIteratorConstructor
-module.exports.AsyncIteratorFailedSendProbe = __napiModule.exports.AsyncIteratorFailedSendProbe
 module.exports.AsyncIteratorIntoInstance = __napiModule.exports.AsyncIteratorIntoInstance
 module.exports.AsyncReentrantGenerator = __napiModule.exports.AsyncReentrantGenerator
 module.exports.AsyncThrowClass = __napiModule.exports.AsyncThrowClass
@@ -515,8 +426,6 @@ module.exports.UseNullableClass = __napiModule.exports.UseNullableClass
 module.exports.WeakReferenceGcHolder = __napiModule.exports.WeakReferenceGcHolder
 module.exports.WeakReferenceGcTarget = __napiModule.exports.WeakReferenceGcTarget
 module.exports.Width = __napiModule.exports.Width
-module.exports.abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')
-module.exports.abortBoundedTsfnFromOwnerAgent = __napiModule.exports.abortBoundedTsfnFromOwnerAgent
 module.exports.acceptArraybuffer = __napiModule.exports.acceptArraybuffer
 module.exports.acceptSlice = __napiModule.exports.acceptSlice
 module.exports.acceptStream = __napiModule.exports.acceptStream
@@ -534,8 +443,6 @@ module.exports.appendBuffer = __napiModule.exports.appendBuffer
 module.exports.appendToOsString = __napiModule.exports.appendToOsString
 module.exports.apply0 = __napiModule.exports.apply0
 module.exports.apply1 = __napiModule.exports.apply1
-module.exports.armTokioBlockingTlsRetirementProbe = getWasiBindingExport('armTokioBlockingTlsRetirementProbe')
-module.exports.armTokioWorkerTlsRetirementProbe = getWasiBindingExport('armTokioWorkerTlsRetirementProbe')
 module.exports.arrayBufferCopyFrom = __napiModule.exports.arrayBufferCopyFrom
 module.exports.arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 module.exports.arrayBufferFromExternal = __napiModule.exports.arrayBufferFromExternal
@@ -561,7 +468,6 @@ module.exports.bigintFromI128 = __napiModule.exports.bigintFromI128
 module.exports.bigintFromI64 = __napiModule.exports.bigintFromI64
 module.exports.bigintGetU64AsString = __napiModule.exports.bigintGetU64AsString
 module.exports.borrowAlignedZstPair = __napiModule.exports.borrowAlignedZstPair
-module.exports.boundedTsfnOwnerAbortState = __napiModule.exports.boundedTsfnOwnerAbortState
 module.exports.btreeSetToJs = __napiModule.exports.btreeSetToJs
 module.exports.btreeSetToRust = __napiModule.exports.btreeSetToRust
 module.exports.bufferAssertionTarget = __napiModule.exports.bufferAssertionTarget
@@ -678,6 +584,7 @@ module.exports.detachArraybufferWithAlias = __napiModule.exports.detachArraybuff
 module.exports.drainStreamCount = __napiModule.exports.drainStreamCount
 module.exports.dropClonedErrorsOnTwoThreads = __napiModule.exports.dropClonedErrorsOnTwoThreads
 module.exports.dropErrorFromValueOffThread = __napiModule.exports.dropErrorFromValueOffThread
+module.exports.dropUnregisteredWeakTsfnForWasi = __napiModule.exports.dropUnregisteredWeakTsfnForWasi
 module.exports.either3 = __napiModule.exports.either3
 module.exports.either4 = __napiModule.exports.either4
 module.exports.eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
@@ -695,7 +602,6 @@ module.exports.extendsJavascriptError = __napiModule.exports.extendsJavascriptEr
 module.exports.f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 module.exports.f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 module.exports.fibonacci = __napiModule.exports.fibonacci
-module.exports.finishBoundedTsfnOwnerAbort = __napiModule.exports.finishBoundedTsfnOwnerAbort
 module.exports.fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
 module.exports.getBigintJsonValue = __napiModule.exports.getBigintJsonValue
@@ -766,9 +672,6 @@ module.exports.passSetWithHasherToJs = __napiModule.exports.passSetWithHasherToJ
 module.exports.pathParent = __napiModule.exports.pathParent
 module.exports.pendingAsyncBlockWithTerminalFinalizer = __napiModule.exports.pendingAsyncBlockWithTerminalFinalizer
 module.exports.plusOne = __napiModule.exports.plusOne
-module.exports.prepareBoundedTsfnOwnerAbort = __napiModule.exports.prepareBoundedTsfnOwnerAbort
-module.exports.prepareTsfnBlockingCallRegression = getWasiBindingExport('prepareTsfnBlockingCallRegression')
-module.exports.prepareTsfnTeardownRegression = getWasiBindingExport('prepareTsfnTeardownRegression')
 module.exports.promiseInEither = __napiModule.exports.promiseInEither
 module.exports.promiseRawCallbackDropCount = __napiModule.exports.promiseRawCallbackDropCount
 module.exports.promiseRawCatchCallbackDropProbe = __napiModule.exports.promiseRawCatchCallbackDropProbe
@@ -802,8 +705,6 @@ module.exports.registerRemovableAsyncCleanupHook = __napiModule.exports.register
 module.exports.registerRemovableSyncCleanupHook = __napiModule.exports.registerRemovableSyncCleanupHook
 module.exports.registerSelfDroppingAsyncCleanupHook = __napiModule.exports.registerSelfDroppingAsyncCleanupHook
 module.exports.registerSelfRemovingSyncCleanupHook = __napiModule.exports.registerSelfRemovingSyncCleanupHook
-module.exports.releaseAsyncWorkLifecycle = getWasiBindingExport('releaseAsyncWorkLifecycle')
-module.exports.releaseBoundedTsfnNativeWait = __napiModule.exports.releaseBoundedTsfnNativeWait
 module.exports.removeRemovableAsyncCleanupHook = __napiModule.exports.removeRemovableAsyncCleanupHook
 module.exports.removeRemovableSyncCleanupHook = __napiModule.exports.removeRemovableSyncCleanupHook
 module.exports.resetPromiseRawCallbackDropCount = __napiModule.exports.resetPromiseRawCallbackDropCount
@@ -828,21 +729,12 @@ module.exports.shutdownAsyncRuntimeForTest = __napiModule.exports.shutdownAsyncR
 module.exports.shutdownRuntime = __napiModule.exports.shutdownRuntime
 module.exports.spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 module.exports.spawnThreadInThread = __napiModule.exports.spawnThreadInThread
-module.exports.startDeferredTeardownRace = getWasiBindingExport('startDeferredTeardownRace')
-module.exports.startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport('startReferencedTsfnFinalizerLivenessWorker')
-module.exports.startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport('startWeakTsfnFinalizerLivenessWorker')
-module.exports.stashBufferAcrossDuplicateLoad = getWasiBindingExport('stashBufferAcrossDuplicateLoad')
+module.exports.startTokioWakerAfterCleanupProbe = __napiModule.exports.startTokioWakerAfterCleanupProbe
 module.exports.stashBufferInThreadLocal = __napiModule.exports.stashBufferInThreadLocal
 module.exports.stashErrorInThreadLocal = __napiModule.exports.stashErrorInThreadLocal
-module.exports.stashExternalRefAcrossDuplicateLoad = getWasiBindingExport('stashExternalRefAcrossDuplicateLoad')
-module.exports.stashExternalRefForTeardown = getWasiBindingExport('stashExternalRefForTeardown')
-module.exports.stashPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('stashPromiseRejectionAcrossDuplicateLoad')
-module.exports.stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport('stashThreadsafeFunctionForEnvOwnership')
-module.exports.stashTypedArrayAcrossDuplicateLoad = getWasiBindingExport('stashTypedArrayAcrossDuplicateLoad')
 module.exports.stashTypedArrayInThreadLocal = __napiModule.exports.stashTypedArrayInThreadLocal
 module.exports.Status = __napiModule.exports.Status
 module.exports.StatusInValidate = __napiModule.exports.StatusInValidate
-module.exports.stoppedTokioAsyncBlockCleanupOrder = __napiModule.exports.stoppedTokioAsyncBlockCleanupOrder
 module.exports.StringEnum = __napiModule.exports.StringEnum
 module.exports.sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 module.exports.sumBufferSliceFromCopy = __napiModule.exports.sumBufferSliceFromCopy
@@ -870,11 +762,8 @@ module.exports.throwAsyncError = __napiModule.exports.throwAsyncError
 module.exports.throwDetachedPendingException = __napiModule.exports.throwDetachedPendingException
 module.exports.throwError = __napiModule.exports.throwError
 module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause
-module.exports.throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
-module.exports.tokioRuntimeFactoryCallCount = getWasiBindingExport('tokioRuntimeFactoryCallCount')
-module.exports.tokioRuntimeLifecycleValue = getWasiBindingExport('tokioRuntimeLifecycleValue')
 module.exports.tryCloneErrorCauseOffThread = __napiModule.exports.tryCloneErrorCauseOffThread
 module.exports.tryCloneErrorCauseTransitiveOffThread = __napiModule.exports.tryCloneErrorCauseTransitiveOffThread
 module.exports.tryCloneErrorOffThread = __napiModule.exports.tryCloneErrorOffThread

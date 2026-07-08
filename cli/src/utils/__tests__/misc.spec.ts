@@ -1,11 +1,29 @@
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 
 import ava, { type TestFn } from 'ava'
 
-import { updatePackageJson } from '../misc.js'
+import {
+  commitFileSystemTransaction,
+  copyFileAtomic,
+  getPackageReconciliationRoot,
+  updatePackageJson,
+  withFileSystemReconciliation,
+  writeFileAtomic,
+} from '../misc.js'
+
+const execFileAsync = promisify(execFile)
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -54,3 +72,158 @@ test('updatePackageJson merges nested objects instead of overwriting them', asyn
     '@napi-rs/fixture-darwin-arm64': '1.0.1',
   })
 })
+
+test('writeFileAtomic replaces a file without leaving temporary output', async (t) => {
+  const path = join(t.context.tmpDir, 'nested', 'output.txt')
+  await writeFileAtomic(path, 'first', 'utf8')
+  await writeFileAtomic(path, 'second', 'utf8')
+
+  t.is(await readFile(path, 'utf8'), 'second')
+})
+
+test('copyFileAtomic replaces a file without exposing a partial destination', async (t) => {
+  const source = join(t.context.tmpDir, 'source.bin')
+  const destination = join(t.context.tmpDir, 'nested', 'destination.bin')
+  await writeFile(source, 'first')
+  await copyFileAtomic(source, destination)
+  await writeFile(source, 'second')
+  await copyFileAtomic(source, destination)
+
+  t.is(await readFile(destination, 'utf8'), 'second')
+})
+
+test('filesystem transactions restore prior outputs after a commit failure', async (t) => {
+  const root = join(t.context.tmpDir, 'transaction')
+  const staging = join(t.context.tmpDir, 'staging')
+  const first = join(root, 'first.txt')
+  const second = join(root, 'second.txt')
+  const stagedFirst = join(staging, 'first.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(first, 'prior first'),
+    writeFile(second, 'prior second'),
+    writeFile(stagedFirst, 'replacement first'),
+  ])
+
+  await t.throwsAsync(() =>
+    commitFileSystemTransaction(
+      root,
+      [
+        { source: stagedFirst, destination: first },
+        { source: join(staging, 'missing.txt'), destination: second },
+      ],
+      [],
+    ),
+  )
+
+  t.is(await readFile(first, 'utf8'), 'prior first')
+  t.is(await readFile(second, 'utf8'), 'prior second')
+})
+
+test('filesystem reconciliation serializes operations for one output root', async (t) => {
+  const events: string[] = []
+  let releaseFirst!: () => void
+  let markFirstStarted!: () => void
+  const firstBlocked = new Promise<void>((resolve) => {
+    releaseFirst = resolve
+  })
+  const firstStarted = new Promise<void>((resolve) => {
+    markFirstStarted = resolve
+  })
+
+  const first = withFileSystemReconciliation(t.context.tmpDir, async () => {
+    events.push('first:start')
+    markFirstStarted()
+    await firstBlocked
+    events.push('first:end')
+  })
+  const second = withFileSystemReconciliation(t.context.tmpDir, async () => {
+    events.push('second:start')
+    events.push('second:end')
+  })
+
+  await firstStarted
+  t.deepEqual(events, ['first:start'])
+  releaseFirst()
+  await Promise.all([first, second])
+  t.deepEqual(events, [
+    'first:start',
+    'first:end',
+    'second:start',
+    'second:end',
+  ])
+})
+
+test('package reconciliation identity ignores custom output directories', (t) => {
+  t.is(
+    getPackageReconciliationRoot(
+      join(t.context.tmpDir, 'project'),
+      join('config', 'package.json'),
+    ),
+    join(t.context.tmpDir, 'project', 'config'),
+  )
+})
+
+test.serial(
+  'filesystem reconciliation serializes separate processes through canonical aliases',
+  async (t) => {
+    const realRoot = join(t.context.tmpDir, 'real-root')
+    const aliasRoot = join(t.context.tmpDir, 'alias-root')
+    const workerPath = join(t.context.tmpDir, 'worker.mjs')
+    const criticalPath = join(t.context.tmpDir, 'critical')
+    const logPath = join(t.context.tmpDir, 'events.log')
+    await mkdir(realRoot, { recursive: true })
+    await symlink(realRoot, aliasRoot, 'dir')
+    await writeFile(
+      workerPath,
+      `import { appendFile, open, rm } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+        new URL('../misc.ts', import.meta.url).href,
+      )}
+
+const [id, root, criticalPath, logPath] = process.argv.slice(2)
+await withFileSystemReconciliation(root, async () => {
+  let critical
+  try {
+    critical = await open(criticalPath, 'wx')
+    await appendFile(logPath, id + ':start\\n')
+    await delay(75)
+    await appendFile(logPath, id + ':end\\n')
+  } finally {
+    await critical?.close()
+    await rm(criticalPath, { force: true })
+  }
+})
+`,
+    )
+
+    await Promise.all(
+      [realRoot, aliasRoot, realRoot, aliasRoot].map((root, index) =>
+        execFileAsync(
+          process.execPath,
+          [
+            '--import',
+            '@oxc-node/core/register',
+            workerPath,
+            String(index),
+            root,
+            criticalPath,
+            logPath,
+          ],
+          { cwd: process.cwd() },
+        ),
+      ),
+    )
+
+    const events = (await readFile(logPath, 'utf8')).trim().split('\n')
+    t.is(events.length, 8)
+    for (let index = 0; index < events.length; index += 2) {
+      const id = events[index].split(':')[0]
+      t.deepEqual(events.slice(index, index + 2), [`${id}:start`, `${id}:end`])
+    }
+  },
+)

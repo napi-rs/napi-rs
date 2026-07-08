@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import { dirname, relative, resolve } from 'node:path'
 
 import { sortBy } from 'es-toolkit'
 import type {
@@ -310,9 +311,15 @@ export async function processTypeDefs(
   const typeDefs = await Promise.all(
     intermediateTypeFiles.map((file) => readIntermediateTypeFile(file)),
   )
-  const typeImports = collectTypeImports(typeDefs.flat())
+  const typeDefsWithUniqueMarkers = makeTypeImportMarkersUnique(
+    typeDefs,
+    reservedDeclarationText,
+  )
+  const typeImports = collectTypeImports(typeDefsWithUniqueMarkers.flat())
   const dtsWithTypeImportMarkers = renderTypeDefs(
-    typeDefs.map((defs) => preprocessTypeDef(preserveTypeImportMarkers(defs))),
+    typeDefsWithUniqueMarkers.map((defs) =>
+      preprocessTypeDef(preserveTypeImportMarkers(defs)),
+    ),
     constEnum,
     runtimeStringEnum,
     exports,
@@ -462,6 +469,136 @@ function renderTypeDefs(
   return dts
 }
 
+function makeTypeImportMarkersUnique(
+  typeDefGroups: TypeDefLine[][],
+  reservedDeclarationText: string,
+): TypeDefLine[][] {
+  const reservedText = [
+    reservedDeclarationText,
+    ...typeDefGroups
+      .flat()
+      .flatMap((def) => [def.def, def.js_doc ?? '', def.name]),
+  ].join('\n')
+  const allocated = new Set<string>()
+
+  return typeDefGroups.map((defs) =>
+    defs.map((def) => {
+      const markedDefinition = def.def_with_type_import_markers
+      const reallocations: Array<{
+        importedName: string
+        nextMarker: string
+        previousMarker: string
+      }> = []
+      const typeImports = def.type_imports?.map((typeImport) => {
+        if (!typeImport.marker || markedDefinition === undefined) {
+          return { ...typeImport }
+        }
+        const base = typeImport.marker
+        let marker = base
+        for (
+          let suffix = 1;
+          allocated.has(marker) || reservedText.includes(marker);
+          suffix += 1
+        ) {
+          marker = `${base}_${suffix}`
+        }
+        allocated.add(marker)
+        reallocations.push({
+          importedName: typeImport.name,
+          nextMarker: marker,
+          previousMarker: typeImport.marker,
+        })
+        return { ...typeImport, marker }
+      })
+      return {
+        ...def,
+        def_with_type_import_markers:
+          markedDefinition === undefined
+            ? undefined
+            : reallocateTypeImportMarkers(
+                def.def,
+                markedDefinition,
+                reallocations,
+              ),
+        type_imports: typeImports,
+      }
+    }),
+  )
+}
+
+function reallocateTypeImportMarkers(
+  definition: string,
+  markedDefinition: string,
+  reallocations: Array<{
+    importedName: string
+    nextMarker: string
+    previousMarker: string
+  }>,
+) {
+  const changedReallocations = reallocations
+    .filter(({ nextMarker, previousMarker }) => previousMarker !== nextMarker)
+    .sort(
+      (left, right) => right.previousMarker.length - left.previousMarker.length,
+    )
+  if (changedReallocations.length === 0) {
+    return markedDefinition
+  }
+
+  let definitionOffset = 0
+  let markedOffset = 0
+  let rewritten = ''
+  while (markedOffset < markedDefinition.length) {
+    let markerOffset = -1
+    let reallocation: (typeof changedReallocations)[number] | undefined
+    for (const candidate of changedReallocations) {
+      const candidateOffset = markedDefinition.indexOf(
+        candidate.previousMarker,
+        markedOffset,
+      )
+      if (
+        candidateOffset !== -1 &&
+        (markerOffset === -1 || candidateOffset < markerOffset)
+      ) {
+        markerOffset = candidateOffset
+        reallocation = candidate
+      }
+    }
+    if (markerOffset === -1 || reallocation === undefined) {
+      break
+    }
+    const prefix = markedDefinition.slice(markedOffset, markerOffset)
+    if (!definition.startsWith(prefix, definitionOffset)) {
+      throw new Error(
+        `Imported type marker ${reallocation.previousMarker} does not match its declaration`,
+      )
+    }
+    rewritten += prefix
+    definitionOffset += prefix.length
+    markedOffset = markerOffset + reallocation.previousMarker.length
+
+    if (definition.startsWith(reallocation.previousMarker, definitionOffset)) {
+      rewritten += reallocation.previousMarker
+      definitionOffset += reallocation.previousMarker.length
+    } else if (
+      definition.startsWith(reallocation.importedName, definitionOffset)
+    ) {
+      rewritten += reallocation.nextMarker
+      definitionOffset += reallocation.importedName.length
+    } else {
+      throw new Error(
+        `Imported type marker ${reallocation.previousMarker} does not match ${reallocation.importedName} in its declaration`,
+      )
+    }
+  }
+
+  const markedRemainder = markedDefinition.slice(markedOffset)
+  const definitionRemainder = definition.slice(definitionOffset)
+  if (markedRemainder !== definitionRemainder) {
+    throw new Error('Imported type markers leave mismatched declaration text')
+  }
+  return rewritten + markedRemainder
+}
+
 function preserveTypeImportMarkers(defs: TypeDefLine[]): TypeDefLine[] {
   return defs.map((def) => ({
     ...def,
@@ -486,6 +623,7 @@ function collectTypeImports(defs: TypeDefLine[]): TypeImport[] {
 }
 
 const BUFFER_TYPE_REFERENCE = 'import("buffer").Buffer'
+const BUFFER_HERITAGE_ALIAS = '__NapiRsBuffer'
 const IN_MEMORY_DECLARATION_FILE = '/__napi_rs_typegen__.d.ts'
 
 export function rewriteTypeImportReferences(
@@ -493,27 +631,30 @@ export function rewriteTypeImportReferences(
   typeImports: TypeImport[],
   inlineImports: boolean,
 ): string {
-  const markerReplacements = new Map<string, string>()
-  for (const { marker, module, name } of typeImports) {
+  const markerImports = new Map<string, TypeImport>()
+  for (const typeImport of typeImports) {
+    const { marker } = typeImport
     if (marker) {
-      markerReplacements.set(
-        marker,
-        inlineImports ? `import(${JSON.stringify(module)}).${name}` : name,
-      )
+      markerImports.set(marker, typeImport)
     }
   }
-  const rewriteLegacyBuffer =
-    inlineImports &&
-    typeImports.some(
-      ({ module, name }) => module === 'buffer' && name === 'Buffer',
-    )
-  if (markerReplacements.size === 0 && !rewriteLegacyBuffer) {
+  const rewriteUnboundBuffer = inlineImports && source.includes('Buffer')
+  if (markerImports.size === 0 && !rewriteUnboundBuffer) {
     return source
   }
 
   const typeScript = loadTypeScript()
   const { program, sourceFile } = createDeclarationProgram(source)
-  const checker = rewriteLegacyBuffer ? program.getTypeChecker() : undefined
+  const checker = rewriteUnboundBuffer ? program.getTypeChecker() : undefined
+  let bufferHeritageAlias: string | undefined
+  const getBufferHeritageAlias = () => {
+    bufferHeritageAlias ??= createCollisionSafeIdentifier(
+      typeScript,
+      sourceFile,
+      BUFFER_HERITAGE_ALIAS,
+    )
+    return bufferHeritageAlias
+  }
   const replacements: Array<{
     end: number
     replacement: string
@@ -522,15 +663,24 @@ export function rewriteTypeImportReferences(
 
   const visit = (node: import('typescript').Node) => {
     if (typeScript.isIdentifier(node)) {
-      const markerReplacement = markerReplacements.get(node.text)
+      const markerImport = markerImports.get(node.text)
       if (
-        markerReplacement !== undefined &&
+        markerImport !== undefined &&
         typeImportReferenceMeaning(typeScript, node) !== undefined
       ) {
+        const useBufferHeritageAlias =
+          inlineImports &&
+          markerImport.module === 'buffer' &&
+          markerImport.name === 'Buffer' &&
+          isHeritageReference(typeScript, node)
         replacements.push({
           start: node.getStart(sourceFile),
           end: node.end,
-          replacement: markerReplacement,
+          replacement: inlineImports
+            ? useBufferHeritageAlias
+              ? getBufferHeritageAlias()
+              : `import(${JSON.stringify(markerImport.module)}).${markerImport.name}`
+            : markerImport.name,
         })
       } else if (
         checker !== undefined &&
@@ -540,7 +690,9 @@ export function rewriteTypeImportReferences(
         replacements.push({
           start: node.getStart(sourceFile),
           end: node.end,
-          replacement: BUFFER_TYPE_REFERENCE,
+          replacement: isHeritageReference(typeScript, node)
+            ? getBufferHeritageAlias()
+            : BUFFER_TYPE_REFERENCE,
         })
       }
     }
@@ -555,7 +707,195 @@ export function rewriteTypeImportReferences(
       replacement.replacement +
       rewritten.slice(replacement.end)
   }
+  if (bufferHeritageAlias) {
+    rewritten = appendAliasedImport(
+      rewritten,
+      'buffer',
+      'Buffer',
+      bufferHeritageAlias,
+    )
+  }
   return rewritten
+}
+
+export function rebaseDeclarationSpecifiers(
+  source: string,
+  sourcePath: string,
+  destinationPath: string,
+): string {
+  const references = collectRelativeDeclarationSpecifierReferences(source)
+  const replacements: Array<{
+    end: number
+    replacement: string
+    start: number
+  }> = []
+
+  for (const reference of references) {
+    const absoluteTarget = resolve(dirname(sourcePath), reference.specifier)
+    let rebased = relative(dirname(destinationPath), absoluteTarget).replaceAll(
+      '\\',
+      '/',
+    )
+    if (!rebased.startsWith('.')) {
+      rebased = `./${rebased}`
+    }
+    replacements.push({
+      start: reference.start,
+      end: reference.end,
+      replacement: rebased,
+    })
+  }
+
+  let rebasedSource = source
+  for (const replacement of replacements
+    .filter(
+      (replacement, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.start === replacement.start &&
+            candidate.end === replacement.end,
+        ) === index,
+    )
+    .sort((left, right) => right.start - left.start)) {
+    rebasedSource =
+      rebasedSource.slice(0, replacement.start) +
+      replacement.replacement +
+      rebasedSource.slice(replacement.end)
+  }
+  return rebasedSource
+}
+
+interface DeclarationSpecifierReference {
+  end: number
+  specifier: string
+  start: number
+}
+
+export function collectRelativeDeclarationSpecifiers(source: string): string[] {
+  return [
+    ...new Set(
+      collectRelativeDeclarationSpecifierReferences(source).map(
+        ({ specifier }) => specifier,
+      ),
+    ),
+  ]
+}
+
+function collectRelativeDeclarationSpecifierReferences(
+  source: string,
+): DeclarationSpecifierReference[] {
+  const typeScript = loadTypeScript()
+  const sourceFile = typeScript.createSourceFile(
+    IN_MEMORY_DECLARATION_FILE,
+    source,
+    typeScript.ScriptTarget.Latest,
+    true,
+    typeScript.ScriptKind.TS,
+  )
+  const references: DeclarationSpecifierReference[] = []
+  const addStringLiteral = (node: import('typescript').StringLiteralLike) => {
+    if (!node.text.startsWith('.')) {
+      return
+    }
+    references.push({
+      start: node.getStart(sourceFile) + 1,
+      end: node.end - 1,
+      specifier: node.text,
+    })
+  }
+  const visit = (node: import('typescript').Node) => {
+    if (
+      (typeScript.isImportDeclaration(node) ||
+        typeScript.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      typeScript.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      addStringLiteral(node.moduleSpecifier)
+    } else if (
+      typeScript.isImportTypeNode(node) &&
+      typeScript.isLiteralTypeNode(node.argument) &&
+      typeScript.isStringLiteralLike(node.argument.literal)
+    ) {
+      addStringLiteral(node.argument.literal)
+    } else if (
+      typeScript.isExternalModuleReference(node) &&
+      node.expression &&
+      typeScript.isStringLiteralLike(node.expression)
+    ) {
+      addStringLiteral(node.expression)
+    } else if (
+      typeScript.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      typeScript.isStringLiteralLike(node.arguments[0]) &&
+      (node.expression.kind === typeScript.SyntaxKind.ImportKeyword ||
+        (typeScript.isIdentifier(node.expression) &&
+          node.expression.text === 'require'))
+    ) {
+      addStringLiteral(node.arguments[0])
+    }
+    typeScript.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  const preprocessed = typeScript.preProcessFile(source, true, true)
+  for (const reference of [
+    ...preprocessed.referencedFiles,
+    ...preprocessed.typeReferenceDirectives,
+  ]) {
+    if (reference.fileName.startsWith('.')) {
+      references.push({
+        start: reference.pos,
+        end: reference.end,
+        specifier: reference.fileName,
+      })
+    }
+  }
+
+  return references
+    .filter(
+      (reference, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.start === reference.start &&
+            candidate.end === reference.end,
+        ) === index,
+    )
+    .sort((left, right) => left.start - right.start)
+}
+
+function createCollisionSafeIdentifier(
+  typeScript: TypeScriptModule,
+  sourceFile: SourceFile,
+  baseName: string,
+): string {
+  const identifiers = new Set<string>()
+  const visit = (node: import('typescript').Node) => {
+    if (typeScript.isIdentifier(node)) {
+      identifiers.add(node.text)
+    }
+    typeScript.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  let identifier = baseName
+  let suffix = 1
+  while (identifiers.has(identifier)) {
+    identifier = `${baseName}_${suffix}`
+    suffix += 1
+  }
+  return identifier
+}
+
+function isHeritageReference(
+  typeScript: TypeScriptModule,
+  identifier: Identifier,
+): boolean {
+  const parent = identifier.parent
+  return (
+    typeScript.isExpressionWithTypeArguments(parent) &&
+    parent.expression === identifier &&
+    typeScript.isHeritageClause(parent.parent)
+  )
 }
 
 function isUnboundBufferReference(
@@ -592,6 +932,19 @@ function typeImportReferenceMeaning(
   }
   if (typeScript.isTypeQueryNode(parent) && parent.exprName === entityName) {
     return typeScript.SymbolFlags.Value
+  }
+  if (
+    typeScript.isExpressionWithTypeArguments(parent) &&
+    parent.expression === entityName &&
+    typeScript.isHeritageClause(parent.parent)
+  ) {
+    const heritageClause = parent.parent
+    const declaration = heritageClause.parent
+    return heritageClause.token === typeScript.SyntaxKind.ExtendsKeyword &&
+      (typeScript.isClassDeclaration(declaration) ||
+        typeScript.isClassExpression(declaration))
+      ? typeScript.SymbolFlags.Value
+      : typeScript.SymbolFlags.Type
   }
 }
 
@@ -753,6 +1106,29 @@ export function appendTypeImports(
   return insertDeclarationSource(source, insertionOffset, importSource, newline)
 }
 
+function appendAliasedImport(
+  source: string,
+  module: string,
+  importedName: string,
+  localName: string,
+): string {
+  const typeScript = loadTypeScript()
+  const parsed = parseDeclarationSource(source)
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
+  const importDeclarations = parsed.statements.filter(
+    typeScript.isImportDeclaration,
+  )
+  const insertionOffset = importDeclarations.length
+    ? endOfLine(source, importDeclarations.at(-1)!.end)
+    : leadingDeclarationPreambleEnd(source, parsed)
+  return insertDeclarationSource(
+    source,
+    insertionOffset,
+    `import { ${importedName} as ${localName} } from ${JSON.stringify(module)}`,
+    newline,
+  )
+}
+
 export function removeNodeStreamWebTypeImports(source: string): string {
   const typeScript = loadTypeScript()
   const parsed = parseDeclarationSource(source)
@@ -797,6 +1173,46 @@ export function removeNodeStreamWebTypeImports(source: string): string {
     result = result.slice(0, removal.start) + result.slice(removal.end)
   }
   return result
+}
+
+export function rewriteUnboundNodeGlobalTypeQueries(source: string): string {
+  if (!source.includes('global')) {
+    return source
+  }
+  const typeScript = loadTypeScript()
+  const { program, sourceFile } = createDeclarationProgram(source)
+  const checker = program.getTypeChecker()
+  const replacements: Array<{ start: number; end: number }> = []
+  const visit = (node: import('typescript').Node) => {
+    if (
+      typeScript.isIdentifier(node) &&
+      node.text === 'global' &&
+      typeScript.isTypeQueryNode(node.parent) &&
+      node.parent.exprName === node &&
+      checker.resolveName(
+        node.text,
+        node,
+        typeScript.SymbolFlags.Value,
+        false,
+      ) === undefined
+    ) {
+      replacements.push({
+        start: node.getStart(sourceFile),
+        end: node.end,
+      })
+    }
+    typeScript.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  let rewritten = source
+  for (const replacement of replacements.reverse()) {
+    rewritten =
+      rewritten.slice(0, replacement.start) +
+      'globalThis' +
+      rewritten.slice(replacement.end)
+  }
+  return rewritten
 }
 
 function parseDeclarationSource(source: string) {

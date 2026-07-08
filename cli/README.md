@@ -15,6 +15,11 @@ yarn add @napi-rs/cli -D
 yarn napi build
 ```
 
+## Requirements
+
+`@napi-rs/cli` supports Node.js `^20.17.0`, `^22.13.0`, and `>=23.5.0`.
+Earlier Node.js releases are no longer supported by the CLI runtime.
+
 ## Commands
 
 | Command         | desc                                                           | docs                                                |

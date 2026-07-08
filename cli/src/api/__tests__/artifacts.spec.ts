@@ -389,13 +389,202 @@ test('collects WASI loaders from target-specific artifact directories', async (t
   t.true(existsSync(join(singleDir, `${binaryName}.wasip1-deferred.js`)))
   t.true(existsSync(join(threadedDir, `${binaryName}.wasi.cjs`)))
   t.true(existsSync(join(threadedDir, 'wasi-worker.mjs')))
-  t.is(
-    await readFile(join(tmpDir, 'index.js'), 'utf8'),
-    '// index wasm32-wasip1',
-  )
+  t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), '// index wasm32-wasi')
   t.is(
     await readFile(join(tmpDir, 'browser.js'), 'utf8'),
     '// browser wasm32-wasip1',
+  )
+})
+
+test('preserves a native root entry while selecting the WASI browser independently', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-native-root'
+  await setupWasiProject(tmpDir, binaryName, [
+    {
+      target: 'wasm32-wasip1',
+      platformArchABI: 'wasm32-wasip1',
+      loaderSuffix: 'wasip1',
+      hasThreads: false,
+      withDeferredLoader: true,
+    },
+  ])
+  const packageJsonPath = join(tmpDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.napi.targets.unshift('x86_64-unknown-linux-gnu')
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+  await writeFile(
+    join(tmpDir, 'artifacts', `${binaryName}.linux-x64-gnu.node`),
+    'native binary',
+  )
+  await writeFile(join(tmpDir, 'index.js'), '// native root entry')
+
+  await collectArtifacts({ cwd: tmpDir })
+
+  t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), '// native root entry')
+  t.is(await readFile(join(tmpDir, 'browser.js'), 'utf8'), '// root browser')
+})
+
+test('serializes concurrent dual-flavor artifact reconciliation', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-concurrent-flavors'
+  await setupWasiProject(tmpDir, binaryName, [
+    {
+      target: 'wasm32-wasip1',
+      platformArchABI: 'wasm32-wasip1',
+      loaderSuffix: 'wasip1',
+      hasThreads: false,
+      withDeferredLoader: true,
+    },
+    {
+      target: 'wasm32-wasip1-threads',
+      platformArchABI: 'wasm32-wasi',
+      loaderSuffix: 'wasi',
+      hasThreads: true,
+      withDeferredLoader: false,
+    },
+  ])
+
+  await Promise.all([
+    collectArtifacts({ cwd: tmpDir }),
+    collectArtifacts({ cwd: tmpDir }),
+  ])
+
+  t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), '// root index')
+  t.is(await readFile(join(tmpDir, 'browser.js'), 'utf8'), '// root browser')
+  for (const [target, files] of [
+    [
+      'wasm32-wasip1',
+      [
+        `${binaryName}.wasip1.cjs`,
+        `${binaryName}.wasip1.d.cts`,
+        `${binaryName}.wasip1-deferred.js`,
+      ],
+    ],
+    [
+      'wasm32-wasi',
+      [`${binaryName}.wasi.cjs`, `${binaryName}.wasi.d.cts`, 'wasi-worker.mjs'],
+    ],
+  ] as const) {
+    for (const file of files) {
+      t.true(existsSync(join(tmpDir, 'npm', target, file)), `${target}/${file}`)
+    }
+  }
+})
+
+test('does not rescan the npm output subtree when outputDir is its ancestor', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-npm-subtree'
+  const outputDir = join(tmpDir, 'artifacts')
+  const npmDir = join(outputDir, 'npm')
+  const artifactName = `${binaryName}.linux-x64-gnu.node`
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: binaryName,
+      version: '1.0.0',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu'],
+      },
+    }),
+  )
+  await mkdir(join(outputDir, 'input'), { recursive: true })
+  await writeFile(join(outputDir, 'input', artifactName), 'native binary')
+
+  await collectArtifacts({ cwd: tmpDir, outputDir, npmDir })
+  await t.notThrowsAsync(() =>
+    collectArtifacts({ cwd: tmpDir, outputDir, npmDir }),
+  )
+  t.is(
+    await readFile(join(npmDir, 'linux-x64-gnu', artifactName), 'utf8'),
+    'native binary',
+  )
+})
+
+for (const layout of ['equal', 'below'] as const) {
+  test(`preserves artifact sources when outputDir is ${layout} npmDir`, async (t) => {
+    const { tmpDir } = t.context
+    const binaryName = `test-artifacts-npm-${layout}`
+    const npmDir = join(tmpDir, 'npm')
+    const outputDir = layout === 'equal' ? npmDir : join(npmDir, 'incoming')
+    const artifactName = `${binaryName}.linux-x64-gnu.node`
+    await writeFile(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: binaryName,
+        version: '1.0.0',
+        napi: {
+          binaryName,
+          targets: ['x86_64-unknown-linux-gnu'],
+        },
+      }),
+    )
+    await mkdir(outputDir, { recursive: true })
+    const source = join(outputDir, artifactName)
+    await writeFile(source, 'native source artifact')
+
+    await collectArtifacts({ cwd: tmpDir, outputDir, npmDir })
+    await t.notThrowsAsync(() =>
+      collectArtifacts({ cwd: tmpDir, outputDir, npmDir }),
+    )
+
+    t.is(await readFile(source, 'utf8'), 'native source artifact')
+    t.is(
+      await readFile(join(npmDir, 'linux-x64-gnu', artifactName), 'utf8'),
+      'native source artifact',
+    )
+  })
+}
+
+test('removes a previously managed custom WASI root entry after it changes', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-changed-root'
+  const oldRootEntry = join('old', 'binding.cjs')
+  const newRootEntry = join('dist', 'binding.cjs')
+  await setupWasiProject(
+    tmpDir,
+    binaryName,
+    [
+      {
+        target: 'wasm32-wasip1',
+        platformArchABI: 'wasm32-wasip1',
+        loaderSuffix: 'wasip1',
+        hasThreads: false,
+        withDeferredLoader: true,
+      },
+    ],
+    newRootEntry,
+  )
+  const buildOutputDir = join(tmpDir, 'build-output')
+  await mkdir(join(buildOutputDir, 'dist'), { recursive: true })
+  for (const fileName of [
+    `${binaryName}.wasip1.cjs`,
+    `${binaryName}.wasip1.d.cts`,
+    `${binaryName}.wasip1-browser.js`,
+    `${binaryName}.wasip1-deferred.js`,
+    `${binaryName}.wasip1-deferred.d.ts`,
+    'browser.js',
+    newRootEntry,
+  ]) {
+    await rename(join(tmpDir, fileName), join(buildOutputDir, fileName))
+  }
+  await mkdir(dirname(join(tmpDir, oldRootEntry)), { recursive: true })
+  await writeFile(join(tmpDir, oldRootEntry), '// stale managed root')
+  await writeFile(
+    join(tmpDir, `${binaryName}.wasip1.cjs`),
+    `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+      version: 2,
+      rootEntry: oldRootEntry,
+      managedRootEntries: ['browser.js', oldRootEntry],
+    })}\n`,
+  )
+
+  await collectArtifacts({ cwd: tmpDir, buildOutputDir })
+
+  t.false(existsSync(join(tmpDir, oldRootEntry)))
+  t.is(
+    await readFile(join(tmpDir, newRootEntry), 'utf8'),
+    `// root entry ${newRootEntry}`,
   )
 })
 
@@ -834,6 +1023,7 @@ test('preserves user-owned root binaries and removes stale managed artifacts', a
   await writeFile(join(artifactsDir, artifactName), 'native artifact')
 
   const userOwnedFiles = [
+    'browser.js',
     `${binaryName}.custom.node`,
     `${binaryName}.custom.wasm`,
     `${binaryName}.linux-arm64-gnu.wasm`,

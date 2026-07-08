@@ -10,6 +10,9 @@ import { unsupportedWasiFunctions } from '../unsupported-wasi-exports.mjs'
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const isWasi = Boolean(process.env.WASI_TEST)
+const wasiLoaderSuffix =
+  process.env.NAPI_RS_WASI_FLAVOR === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
+const directWasiLoader = `../example.${wasiLoaderSuffix}.cjs`
 if (isWasi) {
   process.env.NAPI_RS_FORCE_WASI = 'true'
 }
@@ -69,9 +72,9 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
   for (const file of [
     'index.cjs',
     'index.d.cts',
-    'example.wasi.cjs',
-    'example.wasi-browser.js',
-    'example.wasi.d.cts',
+    `example.${wasiLoaderSuffix}.cjs`,
+    `example.${wasiLoaderSuffix}-browser.js`,
+    `example.${wasiLoaderSuffix}.d.cts`,
   ]) {
     const source = await readFile(join(__dirname, '..', file), 'utf8')
     for (const name of generatedLifecycleExports) {
@@ -101,7 +104,8 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
     const helper =
       file === 'index.cjs'
         ? 'getBindingExport'
-        : file === 'example.wasi.cjs' || file === 'example.wasi-browser.js'
+        : file === `example.${wasiLoaderSuffix}.cjs` ||
+            file === `example.${wasiLoaderSuffix}-browser.js`
           ? 'getWasiBindingExport'
           : undefined
     if (helper) {
@@ -127,7 +131,7 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
 test.skipIf(!isWasi)(
   'WASI exposes native-only stubs and preserves real lifecycle exports',
   (t) => {
-    const directWasiBinding = require('../example.wasi.cjs')
+    const directWasiBinding = require(directWasiLoader)
 
     for (const name of unsupportedWasiFunctions) {
       t.is(typeof binding[name], 'function', name)

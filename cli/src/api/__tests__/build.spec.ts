@@ -7,6 +7,7 @@ import {
 } from 'node:fs'
 import { exec, execSync, spawnSync } from 'node:child_process'
 import {
+  chmod,
   copyFile,
   mkdir,
   readFile,
@@ -31,7 +32,11 @@ import {
   createWasiCompilerFlags,
   createWasiDeferredBindingTypeDef,
   generateTypeDef,
+  getCargoDependencyGraphFingerprint,
+  getTypeDefCacheFolder,
   napiCrossToolchainEnvs,
+  prepareWasiBindingTypeDef,
+  removeWasmCustomSection,
   selectWasiBrowserTarget,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
@@ -232,6 +237,570 @@ test('generateTypeDef preserves deterministic file order', async (t) => {
       dts.indexOf('function zeta(): void'),
   )
 })
+
+test('type definition cache isolates effective Cargo build configurations', async (t) => {
+  const { projectDir } = t.context
+  const targetDir = join(projectDir, 'target')
+  const manifestPath = join(projectDir, 'Cargo.toml')
+  const crateName = 'cache_identity'
+  const baseOptions = {
+    targetDir,
+    crateName,
+    manifestPath,
+    targetTriple: 'x86_64-unknown-linux-gnu',
+    profile: 'dev',
+  }
+  const folderFor = (
+    overrides: Partial<Parameters<typeof getTypeDefCacheFolder>[0]> = {},
+  ) => getTypeDefCacheFolder({ ...baseOptions, ...overrides })
+
+  const nativeFolder = folderFor()
+  const wasiFolder = folderFor({ targetTriple: 'wasm32-wasip1-threads' })
+  const releaseFolder = folderFor({ profile: 'release' })
+  const featureFolder = folderFor({ features: ['native-lifecycle'] })
+  const allFeaturesFolder = folderFor({ allFeatures: true })
+  const noDefaultFeaturesFolder = folderFor({ noDefaultFeatures: true })
+  const cargoOptionFolder = folderFor({
+    cargoOptions: ['--config', 'build.rustflags=["--cfg=from-cargo-option"]'],
+  })
+  const cargoConfigFolder = folderFor({
+    cargoConfig: [
+      [join(projectDir, '.cargo', 'config.toml'), 'config-content-a'],
+    ],
+  })
+  const rustCfgFolder = folderFor({
+    rustFlags: { RUSTFLAGS: '--cfg native_lifecycle' },
+  })
+  const profileEnvFolder = folderFor({
+    cargoProfileEnv: { CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: 'false' },
+  })
+  const dependencyGraphFolder = folderFor({
+    cargoDependencyGraph: 'dependency-graph-a',
+  })
+
+  for (const configuredFolder of [
+    wasiFolder,
+    releaseFolder,
+    featureFolder,
+    allFeaturesFolder,
+    noDefaultFeaturesFolder,
+    cargoOptionFolder,
+    cargoConfigFolder,
+    rustCfgFolder,
+    profileEnvFolder,
+    dependencyGraphFolder,
+  ]) {
+    t.not(configuredFolder, nativeFolder)
+  }
+  t.is(
+    folderFor({ features: ['feature-b', 'feature-a'] }),
+    folderFor({ features: ['feature-a,feature-b'] }),
+  )
+  t.is(
+    folderFor({
+      cargoProfileEnv: {
+        CARGO_PROFILE_DEV_OPT_LEVEL: '1',
+        CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: 'false',
+      },
+    }),
+    folderFor({
+      cargoProfileEnv: {
+        CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: 'false',
+        CARGO_PROFILE_DEV_OPT_LEVEL: '1',
+      },
+    }),
+  )
+  t.is(
+    folderFor({
+      cargoConfig: [
+        [join(projectDir, '.cargo', 'config.toml'), 'config-content-a'],
+        [join(projectDir, '.cargo', 'target.toml'), 'target-content'],
+      ],
+    }),
+    folderFor({
+      cargoConfig: [
+        [join(projectDir, '.cargo', 'target.toml'), 'target-content'],
+        [join(projectDir, '.cargo', 'config.toml'), 'config-content-a'],
+      ],
+    }),
+  )
+  t.not(
+    cargoConfigFolder,
+    folderFor({
+      cargoConfig: [
+        [join(projectDir, '.cargo', 'config.toml'), 'config-content-b'],
+      ],
+    }),
+  )
+  t.not(
+    dependencyGraphFolder,
+    folderFor({ cargoDependencyGraph: 'dependency-graph-b' }),
+  )
+
+  await mkdir(nativeFolder, { recursive: true })
+  await writeFile(
+    join(nativeFolder, crateName),
+    '{"kind":"fn","name":"nativeLifecycle","def":"function nativeLifecycle(): void"}\n',
+  )
+  await mkdir(wasiFolder, { recursive: true })
+  await writeFile(
+    join(wasiFolder, crateName),
+    '{"kind":"fn","name":"wasiOnly","def":"function wasiOnly(): void"}\n',
+  )
+  await mkdir(rustCfgFolder, { recursive: true })
+  await writeFile(
+    join(rustCfgFolder, crateName),
+    '{"kind":"fn","name":"cfgOnly","def":"function cfgOnly(): void"}\n',
+  )
+
+  const wasiTypeDef = await generateTypeDef({
+    typeDefDir: wasiFolder,
+    cwd: projectDir,
+  })
+  t.regex(wasiTypeDef.dts, /function wasiOnly\(\): void/)
+  const cfgTypeDef = await generateTypeDef({
+    typeDefDir: rustCfgFolder,
+    cwd: projectDir,
+  })
+  t.regex(cfgTypeDef.dts, /function cfgOnly\(\): void/)
+
+  const returnedNativeFolder = folderFor()
+  t.is(returnedNativeFolder, nativeFolder)
+  const { dts } = await generateTypeDef({
+    typeDefDir: returnedNativeFolder,
+    cwd: projectDir,
+  })
+  t.regex(dts, /function nativeLifecycle\(\): void/)
+  t.notRegex(dts, /wasiOnly|cfgOnly/)
+})
+
+test('Cargo dependency graph fingerprints are deterministic', (t) => {
+  const metadataFor = (reverse: boolean, includeDependency: boolean) => {
+    const rootPackage = {
+      id: 'root-package',
+      manifest_path: '/workspace/root/Cargo.toml',
+      features: { default: ['feature-b', 'feature-a'] },
+      dependencies: includeDependency
+        ? [
+            {
+              name: 'dependency',
+              source: null,
+              req: '^1.0.0',
+              kind: null,
+              rename: null,
+              optional: false,
+              uses_default_features: true,
+              features: reverse
+                ? ['feature-b', 'feature-a']
+                : ['feature-a', 'feature-b'],
+              target: null,
+              registry: null,
+            },
+          ]
+        : [],
+    }
+    const dependencyPackage = {
+      id: 'dependency-package',
+      manifest_path: '/workspace/dependency/Cargo.toml',
+      features: {},
+      dependencies: [],
+    }
+    const rootNode = {
+      id: rootPackage.id,
+      dependencies: includeDependency ? [dependencyPackage.id] : [],
+      deps: includeDependency
+        ? [
+            {
+              name: 'dependency',
+              pkg: dependencyPackage.id,
+              dep_kinds: reverse
+                ? [
+                    { kind: 'build', target: null },
+                    { kind: null, target: null },
+                  ]
+                : [
+                    { kind: null, target: null },
+                    { kind: 'build', target: null },
+                  ],
+            },
+          ]
+        : [],
+      features: reverse
+        ? ['feature-b', 'feature-a']
+        : ['feature-a', 'feature-b'],
+    }
+    const dependencyNode = {
+      id: dependencyPackage.id,
+      dependencies: [],
+      deps: [],
+      features: [],
+    }
+    const packages = includeDependency
+      ? [rootPackage, dependencyPackage]
+      : [rootPackage]
+    const nodes = includeDependency ? [rootNode, dependencyNode] : [rootNode]
+    if (reverse) {
+      packages.reverse()
+      nodes.reverse()
+    }
+    return {
+      packages,
+      resolve: { root: rootPackage.id, nodes },
+    } as unknown as Parameters<typeof getCargoDependencyGraphFingerprint>[0]
+  }
+
+  const fingerprint = getCargoDependencyGraphFingerprint(
+    metadataFor(false, true),
+    'root-package',
+  )
+  t.is(
+    getCargoDependencyGraphFingerprint(metadataFor(true, true), 'root-package'),
+    fingerprint,
+  )
+  t.not(
+    getCargoDependencyGraphFingerprint(
+      metadataFor(false, false),
+      'root-package',
+    ),
+    fingerprint,
+  )
+})
+
+test.serial(
+  'CLI type definition cache isolates Cargo config files and profile env',
+  async (t) => {
+    const { projectDir } = t.context
+    const crateName = 'type_def_cache_e2e'
+    const target = getSystemDefaultTarget()
+    const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const configPath = join(projectDir, '.cargo', 'config.toml')
+    const typeDefPath = join(projectDir, 'generated', 'types', 'index.d.ts')
+    const cleanEnv = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) => !name.startsWith('CARGO_PROFILE_'),
+      ),
+    )
+    const cliPath = join(repoRoot, 'cli', 'cli.mjs')
+
+    await mkdir(join(projectDir, 'src'), { recursive: true })
+    await mkdir(dirname(configPath), { recursive: true })
+    await writeFile(
+      join(projectDir, 'Cargo.toml'),
+      `[package]
+name = "${crateName}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}" }
+napi-derive = { path = "${napiDerivePath}" }
+
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`,
+    )
+    await writeFile(
+      join(projectDir, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: crateName,
+          version: '0.1.0',
+          napi: {
+            binaryName: crateName,
+            targets: [target.triple],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    await writeFile(
+      join(projectDir, 'build.rs'),
+      'fn main() {\n  napi_build::setup();\n}\n',
+    )
+    await writeFile(
+      join(projectDir, 'src', 'lib.rs'),
+      `#![allow(unexpected_cfgs)]
+
+use napi_derive::napi;
+
+#[cfg(cache_config_a)]
+#[napi]
+pub fn cargo_config_a() {}
+
+#[cfg(cache_config_b)]
+#[napi]
+pub fn cargo_config_b() {}
+
+#[cfg(debug_assertions)]
+#[napi]
+pub fn debug_assertions_enabled() {}
+
+#[cfg(not(debug_assertions))]
+#[napi]
+pub fn debug_assertions_disabled() {}
+`,
+    )
+
+    const writeCargoConfig = (cfg: string) =>
+      writeFile(configPath, `[build]\nrustflags = ["--cfg", "${cfg}"]\n`)
+    const runBuild = (
+      cargoProfileEnv: Record<string, string> = {},
+      dts = join('generated', 'types', 'index.d.ts'),
+    ) =>
+      spawnSync(
+        process.execPath,
+        [
+          cliPath,
+          'build',
+          '--cwd',
+          projectDir,
+          '--target',
+          target.triple,
+          '--dts',
+          dts,
+        ],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...cleanEnv, ...cargoProfileEnv },
+          maxBuffer: 20 * 1024 * 1024,
+        },
+      )
+    const expectBuild = (
+      cargoProfileEnv: Record<string, string> = {},
+      dts?: string,
+    ) => {
+      const result = runBuild(cargoProfileEnv, dts)
+      const output = `${result.stdout}\n${result.stderr}`
+      t.is(result.error, undefined, result.error?.stack)
+      t.is(result.signal, null, output)
+      t.is(result.status, 0, output)
+    }
+    const expectTypeDef = async (included: string[], excluded: string[]) => {
+      const source = await readFile(typeDefPath, 'utf8')
+      for (const name of included) {
+        t.true(source.includes(`function ${name}(`), name)
+      }
+      for (const name of excluded) {
+        t.false(source.includes(`function ${name}(`), name)
+      }
+    }
+    const cacheFolderCount = async () =>
+      (
+        await readdir(join(projectDir, 'target', 'napi-rs'), {
+          withFileTypes: true,
+        })
+      ).filter((entry) => entry.isDirectory()).length
+
+    await writeCargoConfig('cache_config_a')
+    expectBuild()
+    await expectTypeDef(
+      ['cargoConfigA', 'debugAssertionsEnabled'],
+      ['cargoConfigB', 'debugAssertionsDisabled'],
+    )
+    t.is(await cacheFolderCount(), 1)
+
+    await writeCargoConfig('cache_config_b')
+    expectBuild()
+    await expectTypeDef(
+      ['cargoConfigB', 'debugAssertionsEnabled'],
+      ['cargoConfigA', 'debugAssertionsDisabled'],
+    )
+    t.is(await cacheFolderCount(), 2)
+
+    expectBuild({ CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: 'false' })
+    await expectTypeDef(
+      ['cargoConfigB', 'debugAssertionsDisabled'],
+      ['cargoConfigA', 'debugAssertionsEnabled'],
+    )
+    t.is(await cacheFolderCount(), 3)
+
+    await writeCargoConfig('cache_config_a')
+    expectBuild()
+    await expectTypeDef(
+      ['cargoConfigA', 'debugAssertionsEnabled'],
+      ['cargoConfigB', 'debugAssertionsDisabled'],
+    )
+    t.is(await cacheFolderCount(), 3)
+
+    const generatedArtifact = (await readdir(projectDir)).find(
+      (file) =>
+        file.startsWith(`${crateName}.`) &&
+        (file.endsWith('.node') || file.endsWith('.wasm')),
+    )
+    t.truthy(generatedArtifact)
+    const generatedArtifactPath = join(projectDir, generatedArtifact!)
+    await writeFile(generatedArtifactPath, 'prior native artifact')
+    const blockedParent = join(projectDir, 'blocked-type-dir')
+    await writeFile(blockedParent, 'not a directory')
+    const failedWrite = runBuild({}, join('blocked-type-dir', 'index.d.ts'))
+    const failedOutput = `${failedWrite.stdout}\n${failedWrite.stderr}`
+    t.not(failedWrite.status, 0, failedOutput)
+    t.regex(failedOutput, /Failed to write type def file/)
+    t.is(await readFile(generatedArtifactPath, 'utf8'), 'prior native artifact')
+  },
+)
+
+test.serial(
+  'type definition cache drops exports from removed napi-derived dependencies',
+  async (t) => {
+    const { projectDir } = t.context
+    const target = getSystemDefaultTarget()
+    const dependencyDir = join(projectDir, 'removed-dependency')
+    const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const rootManifest = (includeDependency: boolean) => `[package]
+name = "type_def_dependency_removal"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}" }
+napi-derive = { path = "${napiDerivePath}" }
+${includeDependency ? 'removed-napi-dependency = { path = "./removed-dependency" }\n' : ''}
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`
+    const rootSource = (includeDependency: boolean) => `use napi_derive::napi;
+${includeDependency ? 'pub use removed_napi_dependency::removed_dependency_export;\n' : ''}
+#[napi]
+pub fn retained_export() {}
+`
+
+    await Promise.all([
+      mkdir(join(projectDir, 'src'), { recursive: true }),
+      mkdir(join(dependencyDir, 'src'), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(projectDir, 'Cargo.toml'), rootManifest(true)),
+      writeFile(
+        join(projectDir, 'package.json'),
+        `${JSON.stringify(
+          {
+            name: 'type-def-dependency-removal',
+            version: '0.1.0',
+            napi: {
+              binaryName: 'type-def-dependency-removal',
+              targets: [target.triple],
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      ),
+      writeFile(
+        join(projectDir, 'build.rs'),
+        'fn main() {\n  napi_build::setup();\n}\n',
+      ),
+      writeFile(join(projectDir, 'src', 'lib.rs'), rootSource(true)),
+      writeFile(
+        join(dependencyDir, 'Cargo.toml'),
+        `[package]
+name = "removed-napi-dependency"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}" }
+napi-derive = { path = "${napiDerivePath}" }
+
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`,
+      ),
+      writeFile(
+        join(dependencyDir, 'build.rs'),
+        'fn main() {\n  napi_build::setup();\n}\n',
+      ),
+      writeFile(
+        join(dependencyDir, 'src', 'lib.rs'),
+        `use napi_derive::napi;
+
+#[napi]
+pub fn removed_dependency_export() {}
+`,
+      ),
+    ])
+
+    const runBuild = async () => {
+      const { task } = await buildProject({
+        cwd: projectDir,
+        target: target.triple,
+        platform: true,
+        jsBinding: 'index.cjs',
+        dts: 'index.d.ts',
+      })
+      await task
+    }
+    const readOutputs = () =>
+      Promise.all([
+        readFile(join(projectDir, 'index.d.ts'), 'utf8'),
+        readFile(join(projectDir, 'index.cjs'), 'utf8'),
+      ])
+    const cacheFolderCount = async () =>
+      (
+        await readdir(join(projectDir, 'target', 'napi-rs'), {
+          withFileTypes: true,
+        })
+      ).filter((entry) => entry.isDirectory()).length
+
+    await runBuild()
+    const [initialDeclarations, initialLoader] = await readOutputs()
+    t.regex(initialDeclarations, /function removedDependencyExport\(\): void/)
+    t.regex(initialDeclarations, /function retainedExport\(\): void/)
+    t.regex(
+      initialLoader,
+      /module\.exports\.removedDependencyExport = nativeBinding\.removedDependencyExport/,
+    )
+    t.is(await cacheFolderCount(), 1)
+
+    await runBuild()
+    t.is(await cacheFolderCount(), 1)
+
+    await Promise.all([
+      writeFile(join(projectDir, 'Cargo.toml'), rootManifest(false)),
+      writeFile(join(projectDir, 'src', 'lib.rs'), rootSource(false)),
+    ])
+    await runBuild()
+
+    const [declarations, loader] = await readOutputs()
+    t.regex(declarations, /function retainedExport\(\): void/)
+    t.notRegex(declarations, /removedDependencyExport/)
+    t.notRegex(loader, /removedDependencyExport/)
+    t.is(await cacheFolderCount(), 2)
+  },
+)
 
 test('should throw on emnapi version mismatch in wasm build', async (t) => {
   const { projectDir } = t.context
@@ -535,8 +1104,8 @@ test('napiCrossToolchainEnvs points the build at the downloaded toolchain', (t) 
   t.is(envs.BINDGEN_EXTRA_CLANG_ARGS, `--sysroot=${napiCrossDownloadedSysroot}`)
   t.is(envs.PATH, `${napiCrossToolchainPath}/bin:/usr/bin`)
   // gcc is the default compiler, so no clang-specific flags are set.
-  t.is(envs.TARGET_CFLAGS, undefined)
-  t.is(envs.TARGET_CXXFLAGS, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'))
+  t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'))
 })
 
 test('napiCrossToolchainEnvs respects a user-provided TARGET_SYSROOT', (t) => {
@@ -547,7 +1116,7 @@ test('napiCrossToolchainEnvs respects a user-provided TARGET_SYSROOT', (t) => {
   )
 
   // The user's value wins: it is not overridden...
-  t.is(envs.TARGET_SYSROOT, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_SYSROOT'))
   // ...and the derived flags use it.
   t.is(envs.BINDGEN_EXTRA_CLANG_ARGS, '--sysroot=/opt/custom-sysroot')
 })
@@ -635,8 +1204,8 @@ test('napiCrossToolchainEnvs ignores CC/CXX when the toolchain compiler is effec
 
   t.true(envs.TARGET_CC.endsWith('-gcc'))
   t.true(envs.TARGET_CXX.endsWith('-g++'))
-  t.is(envs.TARGET_CFLAGS, undefined)
-  t.is(envs.TARGET_CXXFLAGS, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'))
+  t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'))
 })
 
 test('napiCrossToolchainEnvs treats an empty TARGET_CC as unset for clang detection', (t) => {
@@ -653,7 +1222,7 @@ test('napiCrossToolchainEnvs treats an empty TARGET_CC as unset for clang detect
     envs.TARGET_CC,
     join(napiCrossToolchainPath, 'bin', 'aarch64-unknown-linux-gnu-gcc'),
   )
-  t.is(envs.TARGET_CFLAGS, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'))
 })
 
 test('napiCrossToolchainEnvs lets a user TARGET_CC=clang win over CC=gcc', (t) => {
@@ -669,7 +1238,7 @@ test('napiCrossToolchainEnvs lets a user TARGET_CC=clang win over CC=gcc', (t) =
   )
   // The CXX side is untouched, so it stays on the toolchain g++ without
   // clang flags — each language is detected independently.
-  t.is(envs.TARGET_CXXFLAGS, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'))
 })
 
 test('napiCrossToolchainEnvs injects no flags on either side when only CC=clang is set', (t) => {
@@ -682,8 +1251,8 @@ test('napiCrossToolchainEnvs injects no flags on either side when only CC=clang 
   )
 
   t.true(envs.TARGET_CC.endsWith('-gcc'))
-  t.is(envs.TARGET_CFLAGS, undefined)
-  t.is(envs.TARGET_CXXFLAGS, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'))
+  t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'))
 })
 
 test('napiCrossToolchainEnvs does not mistake non-clang tools for clang', (t) => {
@@ -700,8 +1269,8 @@ test('napiCrossToolchainEnvs does not mistake non-clang tools for clang', (t) =>
       { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
     )
 
-    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
-    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'), `TARGET_CC=${cc}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'), `TARGET_CXX=${cxx}`)
   }
 })
 
@@ -796,8 +1365,8 @@ test('napiCrossToolchainEnvs does not mistake existing space-containing non-clan
       { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
     )
 
-    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
-    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'), `TARGET_CC=${cc}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'), `TARGET_CXX=${cxx}`)
   }
 })
 
@@ -815,8 +1384,8 @@ test('napiCrossToolchainEnvs splits space-containing paths that do not exist on 
     },
   )
 
-  t.is(envs.TARGET_CFLAGS, undefined)
-  t.is(envs.TARGET_CXXFLAGS, undefined)
+  t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'))
+  t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'))
 })
 
 test('napiCrossToolchainEnvs does not mistake gcc with clang-ending arguments for clang', (t) => {
@@ -834,8 +1403,8 @@ test('napiCrossToolchainEnvs does not mistake gcc with clang-ending arguments fo
       { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
     )
 
-    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
-    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'), `TARGET_CC=${cc}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'), `TARGET_CXX=${cxx}`)
   }
 })
 
@@ -853,8 +1422,8 @@ test('napiCrossToolchainEnvs does not mistake wrapped or argument-form non-clang
       { PATH: '/usr/bin', TARGET_CC: cc, TARGET_CXX: cxx },
     )
 
-    t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
-    t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CFLAGS'), `TARGET_CC=${cc}`)
+    t.false(Object.hasOwn(envs, 'TARGET_CXXFLAGS'), `TARGET_CXX=${cxx}`)
   }
 })
 
@@ -1070,6 +1639,89 @@ test('WASI SDK compiler flags preserve paths containing spaces', (t) => {
   )
 })
 
+test('WASI SDK flags honor shell parsing mode for Windows-style paths', (t) => {
+  const windowsPath = String.raw`C:\WASI SDK`
+  const escaped = createWasiCompilerFlags(
+    windowsPath,
+    'wasm32-wasip1',
+    false,
+    true,
+  )
+  t.true(
+    escaped.compileFlags.includes(
+      String.raw`'--sysroot=C:\WASI SDK/share/wasi-sysroot'`,
+    ),
+  )
+
+  const unescaped = createWasiCompilerFlags(
+    String.raw`C:\wasi-sdk`,
+    'wasm32-wasip1',
+    false,
+    false,
+  )
+  t.is(
+    unescaped.compileFlags,
+    String.raw`--target=wasm32-wasip1 --sysroot=C:\wasi-sdk/share/wasi-sysroot -mllvm -wasm-enable-sjlj`,
+  )
+  t.throws(
+    () => createWasiCompilerFlags(windowsPath, 'wasm32-wasip1', false, false),
+    { message: /CC_SHELL_ESCAPED_FLAGS.*cannot contain whitespace/ },
+  )
+})
+
+test('WASI declarations rebase nested modules and reject ESM roots', (t) => {
+  const source = `export { value } from './nested.mjs'\n`
+  t.is(
+    prepareWasiBindingTypeDef(
+      source,
+      join(t.context.projectDir, 'types', 'index.d.cts'),
+      join(t.context.projectDir, 'binding.wasi.d.cts'),
+      true,
+    ),
+    `export { value } from './types/nested.mjs'\n`,
+  )
+  const error = t.throws(() =>
+    prepareWasiBindingTypeDef(
+      source,
+      join(t.context.projectDir, 'types', 'index.d.mts'),
+      join(t.context.projectDir, 'binding.wasi.d.cts'),
+      true,
+    ),
+  )
+  t.regex(error.message, /Cannot emit the CommonJS WASI declaration/)
+  const modulePackageError = t.throws(() =>
+    prepareWasiBindingTypeDef(
+      source,
+      join(t.context.projectDir, 'types', 'index.d.ts'),
+      join(t.context.projectDir, 'binding.wasi.d.cts'),
+      true,
+      'module',
+    ),
+  )
+  t.regex(
+    modulePackageError.message,
+    /Cannot emit the CommonJS WASI declaration/,
+  )
+  t.notThrows(() =>
+    prepareWasiBindingTypeDef(
+      source,
+      join(t.context.projectDir, 'types', 'index.d.ts'),
+      join(t.context.projectDir, 'binding.wasi.d.cts'),
+      true,
+      'commonjs',
+    ),
+  )
+  t.is(
+    prepareWasiBindingTypeDef(
+      'export declare const runtimeGlobal: typeof global\n',
+      join(t.context.projectDir, 'types', 'index.d.cts'),
+      join(t.context.projectDir, 'binding.wasip1.d.cts'),
+      false,
+    ),
+    'export declare const runtimeGlobal: typeof globalThis\n',
+  )
+})
+
 test('writeJsBinding executes nested custom entries with local WASI loaders', async (t) => {
   const { projectDir } = t.context
   await writeFile(
@@ -1202,6 +1854,7 @@ test('WASI cleanup preserves configured sibling flavors and removes obsolete one
   const binaryName = 'cleanup-wasi'
   const threadless = parseTriple('wasm32-wasip1')
   const threaded = parseTriple('wasm32-wasip1-threads')
+  const native = parseTriple('x86_64-unknown-linux-gnu')
   const withConfiguredThreaded = collectStaleWasiBuildOutputNames(
     binaryName,
     threadless,
@@ -1210,6 +1863,8 @@ test('WASI cleanup preserves configured sibling flavors and removes obsolete one
   t.false(withConfiguredThreaded.has(`${binaryName}.wasi.cjs`))
   t.false(withConfiguredThreaded.has('wasi-worker.mjs'))
   t.true(withConfiguredThreaded.has(`${binaryName}.wasip1.cjs`))
+  t.false(withConfiguredThreaded.has(`${binaryName}.wasm32-wasip1.wasm`))
+  t.false(withConfiguredThreaded.has(`${binaryName}.wasm32-wasip1.debug.wasm`))
 
   const afterThreadlessTransition = collectStaleWasiBuildOutputNames(
     binaryName,
@@ -1227,6 +1882,77 @@ test('WASI cleanup preserves configured sibling flavors and removes obsolete one
   ]) {
     t.true(afterThreadlessTransition.has(file))
   }
+
+  const afterNativeTransition = collectStaleWasiBuildOutputNames(
+    binaryName,
+    native,
+    [native],
+  )
+  for (const file of [
+    `${binaryName}.wasip1.cjs`,
+    `${binaryName}.wasip1.d.cts`,
+    `${binaryName}.wasip1-browser.js`,
+    `${binaryName}.wasip1-deferred.js`,
+    `${binaryName}.wasip1-deferred.d.ts`,
+    `${binaryName}.wasm32-wasip1.wasm`,
+    `${binaryName}.wasm32-wasip1.debug.wasm`,
+    `${binaryName}.wasi.cjs`,
+    `${binaryName}.wasi.d.cts`,
+    `${binaryName}.wasi-browser.js`,
+    `${binaryName}.wasm32-wasi.wasm`,
+    `${binaryName}.wasm32-wasi.debug.wasm`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ]) {
+    t.true(afterNativeTransition.has(file), file)
+  }
+})
+
+test('WASM rewriting removes nondeterministic build IDs structurally', (t) => {
+  const encodeU32 = (value: number) => {
+    const bytes = []
+    do {
+      let byte = value & 0x7f
+      value >>>= 7
+      if (value !== 0) {
+        byte |= 0x80
+      }
+      bytes.push(byte)
+    } while (value !== 0)
+    return bytes
+  }
+  const customSection = (name: string, payload: number[]) => {
+    const nameBytes = [...Buffer.from(name)]
+    const contents = [...encodeU32(nameBytes.length), ...nameBytes, ...payload]
+    return [0, ...encodeU32(contents.length), ...contents]
+  }
+  const moduleWithBuildId = (buildId: number[]) =>
+    new Uint8Array([
+      0,
+      97,
+      115,
+      109,
+      1,
+      0,
+      0,
+      0,
+      ...customSection('keep', [1, 2, 3]),
+      ...customSection('build_id', buildId),
+    ])
+
+  const first = removeWasmCustomSection(
+    moduleWithBuildId([1, 2, 3]),
+    'build_id',
+  )
+  const second = removeWasmCustomSection(
+    moduleWithBuildId([4, 5, 6]),
+    'build_id',
+  )
+
+  t.deepEqual(first, second)
+  const module = new WebAssembly.Module(first as BufferSource)
+  t.is(WebAssembly.Module.customSections(module, 'build_id').length, 0)
+  t.is(WebAssembly.Module.customSections(module, 'keep').length, 1)
 })
 
 test('untyped WASI browser entry forwards the default export', async (t) => {
@@ -1276,47 +2002,49 @@ test('deferred WASI declarations preserve typed and untyped bindings', (t) => {
   t.false(untyped.includes("import('./binding.wasip1.cjs')"))
 })
 
-test('direct untyped wasm32-wasip1 build emits complete browser and workerd entries', async (t) => {
-  // The wasm32-wasip1 build needs the Rust target; generic CLI test lanes only
-  // install the host toolchain, so skip when the target is unavailable.
-  const targetLibDir = execSync(
-    'rustc --print target-libdir --target wasm32-wasip1',
-    {
-      encoding: 'utf8',
-    },
-  ).trim()
-  if (
-    !existsSync(targetLibDir) ||
-    !(await readdir(targetLibDir)).some((file) => file.startsWith('libcore-'))
-  ) {
-    t.pass('skipped: wasm32-wasip1 rust target is not installed')
-    return
-  }
+test.serial(
+  'direct untyped wasm32-wasip1 build emits complete browser and workerd entries',
+  async (t) => {
+    // The wasm32-wasip1 build needs the Rust target; generic CLI test lanes only
+    // install the host toolchain, so skip when the target is unavailable.
+    const targetLibDir = execSync(
+      'rustc --print target-libdir --target wasm32-wasip1',
+      {
+        encoding: 'utf8',
+      },
+    ).trim()
+    if (
+      !existsSync(targetLibDir) ||
+      !(await readdir(targetLibDir)).some((file) => file.startsWith('libcore-'))
+    ) {
+      t.pass('skipped: wasm32-wasip1 rust target is not installed')
+      return
+    }
 
-  const { projectDir } = t.context
-  const crateName = 'wasip1_direct'
-  const binaryName = 'wasip1-direct'
-  const packageName = 'wasip1-direct'
-  const version = '0.1.0'
+    const { projectDir } = t.context
+    const crateName = 'wasip1_direct'
+    const binaryName = 'wasip1-direct'
+    const packageName = 'wasip1-direct'
+    const version = '0.1.0'
 
-  const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
-    win32Sep,
-    posixSep,
-  )
-  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
-    win32Sep,
-    posixSep,
-  )
-  const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
-    win32Sep,
-    posixSep,
-  )
+    const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+      win32Sep,
+      posixSep,
+    )
+    const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+      win32Sep,
+      posixSep,
+    )
 
-  await mkdir(join(projectDir, 'src'), { recursive: true })
+    await mkdir(join(projectDir, 'src'), { recursive: true })
 
-  await writeFile(
-    join(projectDir, 'Cargo.toml'),
-    `[package]
+    await writeFile(
+      join(projectDir, 'Cargo.toml'),
+      `[package]
 name = "${crateName}"
 version = "${version}"
 edition = "2021"
@@ -1331,126 +2059,198 @@ napi-derive = { path = "${napiDerivePath}", default-features = false, features =
 [build-dependencies]
 napi-build = { path = "${napiBuildPath}" }
 `,
-  )
-  await writeFile(
-    join(projectDir, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: packageName,
-        version,
-        napi: {
-          binaryName,
-          targets: ['wasm32-wasip1-threads'],
+    )
+    await writeFile(
+      join(projectDir, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: packageName,
+          version,
+          napi: {
+            binaryName,
+            targets: ['wasm32-wasip1-threads'],
+          },
         },
-      },
-      null,
-      2,
-    )}\n`,
-  )
-  await writeFile(
-    join(projectDir, 'build.rs'),
-    'fn main() {\n    napi_build::setup();\n}\n',
-  )
-  await writeFile(
-    join(projectDir, 'src', 'lib.rs'),
-    'use napi_derive::napi;\n\n#[napi]\npub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n',
-  )
-
-  // `setWasiEnv` requires @emnapi/core and @emnapi/runtime resolvable from
-  // the project with versions matching the CLI's own `emnapi` package.
-  const emnapiVersion = JSON.parse(
-    await readFile(
-      join(repoRoot, 'node_modules', 'emnapi', 'package.json'),
-      'utf-8',
-    ),
-  ).version
-  for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
-    const pkgDir = join(projectDir, 'node_modules', pkg)
-    await mkdir(pkgDir, { recursive: true })
-    await writeFile(
-      join(pkgDir, 'package.json'),
-      JSON.stringify({ name: pkg, version: emnapiVersion, main: 'index.js' }),
+        null,
+        2,
+      )}\n`,
     )
     await writeFile(
-      join(pkgDir, 'index.js'),
-      `module.exports = { version: "${emnapiVersion}" }`,
+      join(projectDir, 'build.rs'),
+      'fn main() {\n    napi_build::setup();\n}\n',
     )
-  }
+    await writeFile(
+      join(projectDir, 'src', 'lib.rs'),
+      'use napi_derive::napi;\n\n#[napi]\npub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n',
+    )
 
-  // `buildProject` resolves to `{ task }` without awaiting the build; the
-  // cargo compile and post-build work run on the returned task promise.
-  const { task } = await buildProject({
-    platform: true,
-    target: 'wasm32-wasip1',
-    cwd: projectDir,
-  })
-  await task
+    // `setWasiEnv` requires @emnapi/core and @emnapi/runtime resolvable from
+    // the project with versions matching the CLI's own `emnapi` package.
+    const emnapiVersion = JSON.parse(
+      await readFile(
+        join(repoRoot, 'node_modules', 'emnapi', 'package.json'),
+        'utf-8',
+      ),
+    ).version
+    for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+      const pkgDir = join(projectDir, 'node_modules', pkg)
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(
+        join(pkgDir, 'package.json'),
+        JSON.stringify({ name: pkg, version: emnapiVersion, main: 'index.js' }),
+      )
+      await writeFile(
+        join(pkgDir, 'index.js'),
+        `module.exports = { version: "${emnapiVersion}" }`,
+      )
+    }
 
-  t.true(existsSync(join(projectDir, `${binaryName}.wasip1.cjs`)))
-  t.true(existsSync(join(projectDir, `${binaryName}.wasip1.d.cts`)))
-  t.true(existsSync(join(projectDir, `${binaryName}.wasip1-browser.js`)))
-  t.true(existsSync(join(projectDir, `${binaryName}.wasip1-deferred.js`)))
-  t.true(existsSync(join(projectDir, `${binaryName}.wasip1-deferred.d.ts`)))
-  t.false(existsSync(join(projectDir, `${binaryName}.wasi.cjs`)))
+    // `buildProject` resolves to `{ task }` without awaiting the build; the
+    // cargo compile and post-build work run on the returned task promise.
+    const { task } = await buildProject({
+      platform: true,
+      target: 'wasm32-wasip1',
+      cwd: projectDir,
+    })
+    await task
 
-  // The built flavor participates in the fallback chain even though it differs
-  // from the configured flavor.
-  const js = await readFile(join(projectDir, 'index.js'), 'utf-8')
-  t.regex(js, new RegExp(`require\\('\\./${binaryName}\\.wasip1\\.cjs'\\)`))
-  t.regex(js, new RegExp(`require\\('${packageName}-wasm32-wasip1'\\)`))
-  t.is(
-    await readFile(join(projectDir, 'browser.js'), 'utf8'),
-    `export * from '${packageName}-wasm32-wasip1'\nexport { default } from '${packageName}-wasm32-wasip1'\n`,
-  )
-  const workerdTypeDef = await readFile(
-    join(projectDir, `${binaryName}.wasip1-deferred.d.ts`),
-    'utf8',
-  )
-  t.true(
-    workerdTypeDef.includes(
-      'export type WasiBinding = Record<string, unknown>',
-    ),
-  )
-  t.false(workerdTypeDef.includes(`import('${packageName}')`))
-  t.is(
-    await readFile(join(projectDir, `${binaryName}.wasip1.d.cts`), 'utf8'),
-    `${DEFAULT_TYPE_DEF_HEADER}
+    t.true(existsSync(join(projectDir, `${binaryName}.wasip1.cjs`)))
+    t.true(existsSync(join(projectDir, `${binaryName}.wasip1.d.cts`)))
+    t.true(existsSync(join(projectDir, `${binaryName}.wasip1-browser.js`)))
+    t.true(existsSync(join(projectDir, `${binaryName}.wasip1-deferred.js`)))
+    t.true(existsSync(join(projectDir, `${binaryName}.wasip1-deferred.d.ts`)))
+    t.false(existsSync(join(projectDir, `${binaryName}.wasi.cjs`)))
+
+    // The built flavor participates in the fallback chain even though it differs
+    // from the configured flavor.
+    const js = await readFile(join(projectDir, 'index.js'), 'utf-8')
+    t.regex(js, new RegExp(`require\\('\\./${binaryName}\\.wasip1\\.cjs'\\)`))
+    t.regex(js, new RegExp(`require\\('${packageName}-wasm32-wasip1'\\)`))
+    t.is(
+      await readFile(join(projectDir, 'browser.js'), 'utf8'),
+      `export * from '${packageName}-wasm32-wasip1'\nexport { default } from '${packageName}-wasm32-wasip1'\n`,
+    )
+    const workerdTypeDef = await readFile(
+      join(projectDir, `${binaryName}.wasip1-deferred.d.ts`),
+      'utf8',
+    )
+    t.true(
+      workerdTypeDef.includes(
+        'export type WasiBinding = Record<string, unknown>',
+      ),
+    )
+    t.false(workerdTypeDef.includes(`import('${packageName}')`))
+    t.is(
+      await readFile(join(projectDir, `${binaryName}.wasip1.d.cts`), 'utf8'),
+      `${DEFAULT_TYPE_DEF_HEADER}
 declare const binding: Record<string, unknown>
 export = binding
 `,
-  )
-  t.false(existsSync(join(projectDir, 'index.d.ts')))
+    )
+    t.false(existsSync(join(projectDir, 'index.d.ts')))
 
-  const staleThreadedFiles = [
-    `${binaryName}.wasi.cjs`,
-    `${binaryName}.wasi.d.cts`,
-    `${binaryName}.wasi-browser.js`,
-    `${binaryName}.wasi-deferred.js`,
-    `${binaryName}.wasi-deferred.d.ts`,
-    `${binaryName}.wasm32-wasi.wasm`,
-    `${binaryName}.wasm32-wasi.debug.wasm`,
-    'wasi-worker.mjs',
-    'wasi-worker-browser.mjs',
-  ]
-  await Promise.all(
-    staleThreadedFiles.map((file) =>
-      writeFile(join(projectDir, file), `stale ${file}\n`),
-    ),
-  )
-
-  // A subsequent build removes threaded outputs after configuration
-  // transitions to threadless-only.
-  const packageJsonPath = join(projectDir, 'package.json')
-  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
-  packageJson.napi.targets = ['wasm32-wasip1']
-  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
-  const { task: rebuildTask } = await buildProject({
-    platform: true,
-    target: 'wasm32-wasip1',
-    cwd: projectDir,
+    const previousOutputs = new Map(
+      await Promise.all(
+        [
+          `${binaryName}.wasm32-wasip1.wasm`,
+          `${binaryName}.wasip1.cjs`,
+          `${binaryName}.wasip1.d.cts`,
+          'index.js',
+        ].map(
+          async (file) =>
+            [file, await readFile(join(projectDir, file))] as const,
+        ),
+      ),
+    )
+    const sourceWasm = join(
+      projectDir,
+      'target',
+      'wasm32-wasip1',
+      'debug',
+      `${crateName}.wasm`,
+    )
+    const previousSourceWasm = await readFile(sourceWasm)
+    await writeFile(sourceWasm, new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
+    const cargoShim = join(projectDir, 'cargo-shim.cjs')
+    const cargoExecutable = execSync('command -v cargo', {
+      encoding: 'utf8',
+    }).trim()
+    await writeFile(
+      cargoShim,
+      `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args.includes('metadata')) {
+  const result = spawnSync(${JSON.stringify(cargoExecutable)}, args, {
+    stdio: 'inherit',
   })
-  await rebuildTask
-  for (const file of staleThreadedFiles) {
-    t.false(existsSync(join(projectDir, file)))
-  }
-})
+  process.exit(result.status === null ? 1 : result.status)
+}
+`,
+    )
+    await chmod(cargoShim, 0o755)
+    const originalCargo = process.env.CARGO
+    process.env.CARGO = cargoShim
+    try {
+      const { task: invalidReactorTask } = await buildProject({
+        platform: true,
+        target: 'wasm32-wasip1',
+        cwd: projectDir,
+      })
+      const invalidReactorError = await t.throwsAsync(invalidReactorTask)
+      t.regex(invalidReactorError.message, /Failed to copy artifact/)
+      t.regex(
+        String(
+          (invalidReactorError as Error & { cause?: Error }).cause?.message,
+        ),
+        /does not export _initialize/,
+      )
+    } finally {
+      if (originalCargo === undefined) {
+        delete process.env.CARGO
+      } else {
+        process.env.CARGO = originalCargo
+      }
+      await writeFile(sourceWasm, previousSourceWasm)
+    }
+    for (const [file, contents] of previousOutputs) {
+      t.deepEqual(await readFile(join(projectDir, file)), contents, file)
+    }
+
+    const staleThreadedFiles = [
+      `${binaryName}.wasi.cjs`,
+      `${binaryName}.wasi.d.cts`,
+      `${binaryName}.wasi-browser.js`,
+      `${binaryName}.wasi-deferred.js`,
+      `${binaryName}.wasi-deferred.d.ts`,
+      `${binaryName}.wasm32-wasi.wasm`,
+      `${binaryName}.wasm32-wasi.debug.wasm`,
+      'wasi-worker.mjs',
+      'wasi-worker-browser.mjs',
+    ]
+    await Promise.all(
+      staleThreadedFiles.map((file) =>
+        writeFile(join(projectDir, file), `stale ${file}\n`),
+      ),
+    )
+
+    // A subsequent build removes threaded outputs after configuration
+    // transitions to threadless-only.
+    const packageJsonPath = join(projectDir, 'package.json')
+    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+    packageJson.napi.targets = ['wasm32-wasip1']
+    await writeFile(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    )
+    const { task: rebuildTask } = await buildProject({
+      platform: true,
+      target: 'wasm32-wasip1',
+      cwd: projectDir,
+    })
+    await rebuildTask
+    for (const file of staleThreadedFiles) {
+      t.false(existsSync(join(projectDir, file)))
+    }
+  },
+)

@@ -1644,6 +1644,93 @@ test('pre-publish removes managed root facades when the threadless target is rem
   }
 })
 
+test('pre-publish computes queued plans from the locked package snapshot', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const threadlessConfig = join(t.context.tmpDir, 'threadless.json')
+  const emptyConfig = join(t.context.tmpDir, 'empty.json')
+  await Promise.all([
+    writeFile(
+      threadlessConfig,
+      JSON.stringify({
+        binaryName: 'pre-publish-wasi',
+        targets: ['wasm32-wasip1'],
+      }),
+    ),
+    writeFile(
+      emptyConfig,
+      JSON.stringify({
+        binaryName: 'pre-publish-wasi',
+        targets: [],
+      }),
+    ),
+  ])
+
+  await Promise.all([
+    prePublish({
+      cwd: t.context.tmpDir,
+      configPath: threadlessConfig,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+    prePublish({
+      cwd: t.context.tmpDir,
+      configPath: emptyConfig,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  ])
+
+  const packageJson = JSON.parse(
+    await readFile(join(t.context.tmpDir, 'package.json'), 'utf8'),
+  )
+  t.false(Object.hasOwn(packageJson.exports ?? {}, './workerd'))
+  t.false(Object.hasOwn(packageJson.exports ?? {}, './wasm'))
+  t.false(Object.hasOwn(packageJson.exports ?? {}, './wasm.wasm'))
+  t.deepEqual(packageJson.optionalDependencies, {})
+  for (const file of [
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts',
+    'pre-publish-wasi.wasm32-wasip1.wasm',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts',
+  ]) {
+    t.false(existsSync(join(t.context.tmpDir, file)), file)
+  }
+})
+
+test('pre-publish replaces stale managed target optional dependencies', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.optionalDependencies = {
+    'pre-publish-wasi-darwin-arm64': '0.9.0',
+    'pre-publish-wasi-linux-x64-gnu': '0.9.0',
+    'pre-publish-wasi-wasm32-wasi': '0.9.0',
+    'pre-publish-wasi-wasm32-wasip1': '0.9.0',
+    'user-owned-optional': '^1.0.0',
+  }
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const reconciledPackageJson = JSON.parse(
+    await readFile(packageJsonPath, 'utf8'),
+  )
+  t.deepEqual(reconciledPackageJson.optionalDependencies, {
+    'pre-publish-wasi-wasm32-wasip1': '1.0.0',
+    'user-owned-optional': '^1.0.0',
+  })
+})
+
 test('pre-publish removes synthesized legacy aliases with the root facades', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir, {
     rootFiles: ['index.js', 'index.mjs', 'index.d.ts', 'feature.js'],
@@ -1675,6 +1762,100 @@ test('pre-publish removes synthesized legacy aliases with the root facades', asy
     await readFile(packageJsonPath, 'utf8'),
   )
   t.false(Object.hasOwn(reconciledPackageJson, 'exports'))
+})
+
+test('pre-publish preserves user deep-import mappings while removing generated facades', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootFiles: ['index.js', 'index.mjs', 'index.d.ts', 'feature/custom.js'],
+  })
+  await mkdir(join(t.context.tmpDir, 'feature'))
+  await writeFile(
+    join(t.context.tmpDir, 'feature', 'custom.js'),
+    'module.exports = 1\n',
+  )
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.exports['./feature'] = './feature/custom.js'
+  packageJson.napi.targets = []
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const reconciled = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.is(reconciled.exports['./feature'], './feature/custom.js')
+})
+
+test('pre-publish validates facade ownership with the recorded package before a rename', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const packageJsonPath = join(t.context.tmpDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  for (const file of [
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts',
+  ]) {
+    const path = join(t.context.tmpDir, file)
+    const contents = await readFile(path, 'utf8')
+    await writeFile(path, contents.slice(contents.indexOf('\n') + 1))
+  }
+  packageJson.optionalDependencies['pre-publish-wasi-wasm32-wasi'] = '1.0.0'
+  packageJson.optionalDependencies['user-owned-optional'] = '^1.0.0'
+  packageJson.name = 'pre-publish-renamed-package'
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+  const flavorManifestPath = join(
+    t.context.tmpDir,
+    'npm',
+    'wasm32-wasip1',
+    'package.json',
+  )
+  const flavorManifest = JSON.parse(await readFile(flavorManifestPath, 'utf8'))
+  flavorManifest.name = 'pre-publish-renamed-package-wasm32-wasip1'
+  await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const workerdFacade = await readFile(
+    join(t.context.tmpDir, 'pre-publish-wasi.wasm32-wasip1.workerd.mjs'),
+    'utf8',
+  )
+  t.true(
+    workerdFacade.includes('pre-publish-renamed-package-wasm32-wasip1/workerd'),
+  )
+  const reconciledPackageJson = JSON.parse(
+    await readFile(packageJsonPath, 'utf8'),
+  )
+  t.deepEqual(reconciledPackageJson.optionalDependencies, {
+    'pre-publish-renamed-package-wasm32-wasip1': '1.0.0',
+    'user-owned-optional': '^1.0.0',
+  })
 })
 
 test('pre-publish replaces managed root facades when binaryName changes', async (t) => {
@@ -2232,13 +2413,15 @@ test.serial(
     await writeFile(
       join(packageDir, 'pre-publish-wasi.wasip1.d.cts'),
       [
-        '/// <reference path="./types/reference.d.ts" preserve="true" />',
+        '/// <reference preserve="true" path="./types/reference.d.ts" />',
+        '/// <reference preserve="true" types="./types/type-package" />',
         '// <reference path="./types/commented-reference.d.ts" />',
         '/* <reference path="./types/block-comment-reference.d.ts" /> */',
         `export type ImportText = "import('./types/string-import.js')"`,
         `export type ReferenceText = "<reference path='./types/string-reference.d.ts' />"`,
         "export type RequireText = `require('./types/template-require.cjs')`",
         `export { value } from './types/one.js'`,
+        String.raw`export { escaped } from '.\u002ftypes/escaped.js'`,
         '',
       ].join('\n'),
     )
@@ -2246,6 +2429,14 @@ test.serial(
     await writeFile(
       join(t.context.tmpDir, 'types', 'reference.d.ts'),
       'export declare const referenced: true\n',
+    )
+    await writeFile(
+      join(t.context.tmpDir, 'types', 'type-package.d.ts'),
+      'export declare const typePackage: true\n',
+    )
+    await writeFile(
+      join(t.context.tmpDir, 'types', 'escaped.d.ts'),
+      'export declare const escaped: true\n',
     )
     await writeFile(
       join(t.context.tmpDir, 'types', 'one.d.ts'),
@@ -2301,12 +2492,16 @@ test.serial(
       await readFile(join(packageDir, 'package.json'), 'utf8'),
     )
     t.true(flavorManifest.files.includes('types/reference.d.ts'))
+    t.true(flavorManifest.files.includes('types/type-package.d.ts'))
+    t.true(flavorManifest.files.includes('types/escaped.d.ts'))
     t.true(flavorManifest.files.includes('types/one.d.ts'))
     t.true(flavorManifest.files.includes('types/two.d.ts'))
     t.true(flavorManifest.files.includes('types/side-effect.d.mts'))
     t.true(flavorManifest.files.includes('types/required.d.cts'))
     t.true(flavorManifest.files.includes('types/query.d.ts'))
     t.true(existsSync(join(packageDir, 'types', 'reference.d.ts')))
+    t.true(existsSync(join(packageDir, 'types', 'type-package.d.ts')))
+    t.true(existsSync(join(packageDir, 'types', 'escaped.d.ts')))
     t.true(existsSync(join(packageDir, 'types', 'one.d.ts')))
     t.true(existsSync(join(packageDir, 'types', 'two.d.ts')))
 
@@ -2368,7 +2563,7 @@ test('pre-publish rejects missing triple-slash references with attributes', asyn
   const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
   await writeFile(
     join(packageDir, 'pre-publish-wasi.wasip1.d.cts'),
-    '/// <reference path="./types/missing.d.ts" preserve="true" />\n',
+    '/// <reference preserve="true" path="./types/missing.d.ts" />\n',
   )
 
   const error = await t.throwsAsync(() =>

@@ -9,10 +9,9 @@ import { unsupportedWasiFunctions } from './unsupported-wasi-exports.mjs'
 
 const packageDirectory = dirname(fileURLToPath(import.meta.url))
 const napiCli = fileURLToPath(new URL('../../cli/cli.mjs', import.meta.url))
-const declarationPaths = ['index.d.cts', 'example.wasi.d.cts'].map((file) =>
-  fileURLToPath(new URL(file, import.meta.url)),
+const rootDeclarationPath = fileURLToPath(
+  new URL('index.d.cts', import.meta.url),
 )
-const [rootDeclarationPath] = declarationPaths
 const unsupportedWasiFunctionSet = new Set(unsupportedWasiFunctions)
 const threadedWasiBrowserTestFunctions = [
   'abortBoundedTsfnFromOwnerAgent',
@@ -21,12 +20,108 @@ const threadedWasiBrowserTestFunctions = [
   'prepareBoundedTsfnOwnerAbort',
   'releaseBoundedTsfnNativeWait',
 ]
+const REGENERATE_ALL_FLAG = '--regenerate-all'
+const nativeRootOutputFiles = ['index.cjs', 'index.d.cts']
+const threadlessOutputFiles = [
+  'browser.js',
+  'example.wasm32-wasip1.wasm',
+  'example.wasm32-wasip1.debug.wasm',
+  'example.wasip1.cjs',
+  'example.wasip1.d.cts',
+  'example.wasip1-browser.js',
+  'example.wasip1-deferred.js',
+  'example.wasip1-deferred.d.ts',
+]
+const regenerationBuildArguments = [
+  [],
+  ['--target', 'wasm32-wasip1', '--profile', 'wasi'],
+  ['--target', 'wasm32-wasip1-threads', '--profile', 'wasi'],
+]
+const cargoBuildTargetEnvironmentVariable = 'CARGO_BUILD_TARGET'
 
-function run(arguments_) {
+function withoutImplicitCargoTarget(environment) {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      ([name]) => name.toUpperCase() !== cargoBuildTargetEnvironmentVariable,
+    ),
+  )
+}
+
+function unsupportedWasiDeclaration(name) {
+  return `export declare function ${name}(...args: unknown[]): never`
+}
+
+function lifecycleOutputFiles(target) {
+  const loaderSuffix = target === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
+  const wasiForwardedFunctions =
+    loaderSuffix === 'wasi'
+      ? [
+          ...unsupportedWasiFunctions,
+          ...threadedWasiBrowserTestFunctions,
+        ]
+      : unsupportedWasiFunctions
+  return {
+    declarations: ['index.d.cts', `example.${loaderSuffix}.d.cts`],
+    loaders: [
+      {
+        file: 'index.cjs',
+        binding: 'nativeBinding',
+        helper: 'getBindingExport',
+        forwardedFunctions: unsupportedWasiFunctions,
+        marker: 'module.exports = nativeBinding\n',
+        exportPattern: /^module\.exports\.([A-Za-z_$][\w$]*) = /gm,
+        assignment(name) {
+          return [
+            `module.exports.${name} = nativeBinding.${name}`,
+            `module.exports.${name} = getBindingExport('${name}')`,
+          ]
+        },
+      },
+      {
+        file: `example.${loaderSuffix}.cjs`,
+        binding: '__napiModule.exports',
+        helper: 'getWasiBindingExport',
+        forwardedFunctions: wasiForwardedFunctions,
+        marker: 'module.exports = __napiModule.exports\n',
+        exportPattern: /^module\.exports\.([A-Za-z_$][\w$]*) = /gm,
+        assignment(name) {
+          return [
+            `module.exports.${name} = __napiModule.exports.${name}`,
+            `module.exports.${name} = getWasiBindingExport('${name}')`,
+          ]
+        },
+      },
+      {
+        file: `example.${loaderSuffix}-browser.js`,
+        binding: '__napiModule.exports',
+        helper: 'getWasiBindingExport',
+        forwardedFunctions: wasiForwardedFunctions,
+        marker: 'export const ',
+        exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
+        assignment(name) {
+          return [
+            `export const ${name} = __napiModule.exports.${name}`,
+            `export const ${name} = getWasiBindingExport('${name}')`,
+          ]
+        },
+      },
+      ...(loaderSuffix === 'wasip1'
+        ? [
+            {
+              file: 'example.wasip1-deferred.js',
+              deferred: true,
+            },
+          ]
+        : []),
+    ],
+  }
+}
+
+function run(arguments_, environment = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [napiCli, ...arguments_], {
       cwd: packageDirectory,
-      env: process.env,
+      env: environment,
       stdio: 'inherit',
     })
     child.once('error', reject)
@@ -149,67 +244,9 @@ function insertGeneratedExport(source, name, assignment, pattern) {
   return `${source.trimEnd()}\n${assignment}\n`
 }
 
-async function exposeLifecycleExportsAcrossTargets() {
-  const bindings = [
-    {
-      file: 'index.cjs',
-      binding: 'nativeBinding',
-      helper: 'getBindingExport',
-      forwardedFunctions: unsupportedWasiFunctions,
-      marker: 'module.exports = nativeBinding\n',
-      exportPattern: /^module\.exports\.([A-Za-z_$][\w$]*) = /gm,
-      assignment(name) {
-        return [
-          `module.exports.${name} = nativeBinding.${name}`,
-          `module.exports.${name} = getBindingExport('${name}')`,
-        ]
-      },
-    },
-    {
-      file: 'example.wasi.cjs',
-      binding: '__napiModule.exports',
-      helper: 'getWasiBindingExport',
-      forwardedFunctions: [
-        ...unsupportedWasiFunctions,
-        ...threadedWasiBrowserTestFunctions,
-      ],
-      marker: 'module.exports = __napiModule.exports\n',
-      exportPattern: /^module\.exports\.([A-Za-z_$][\w$]*) = /gm,
-      assignment(name) {
-        return [
-          `module.exports.${name} = __napiModule.exports.${name}`,
-          `module.exports.${name} = getWasiBindingExport('${name}')`,
-        ]
-      },
-    },
-    {
-      file: 'example.wasi-browser.js',
-      binding: '__napiModule.exports',
-      helper: 'getWasiBindingExport',
-      forwardedFunctions: [
-        ...unsupportedWasiFunctions,
-        ...threadedWasiBrowserTestFunctions,
-      ],
-      marker: 'export const ',
-      exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
-      assignment(name) {
-        return [
-          `export const ${name} = __napiModule.exports.${name}`,
-          `export const ${name} = getWasiBindingExport('${name}')`,
-        ]
-      },
-    },
-  ]
-
-  for (const {
-    file,
-    binding,
-    helper,
-    forwardedFunctions,
-    marker,
-    exportPattern,
-    assignment,
-  } of bindings) {
+async function exposeLifecycleExports(bindings) {
+  for (const output of bindings) {
+    const { file } = output
     const path = fileURLToPath(new URL(file, import.meta.url))
     let source
     try {
@@ -221,6 +258,51 @@ async function exposeLifecycleExportsAcrossTargets() {
       throw error
     }
 
+    if (output.deferred) {
+      const helperMarker = 'export async function createInstance(__wasmInput)'
+      const returnMarker =
+        '    return {\n      exports: __napiModule.exports,\n'
+      if (!source.includes(helperMarker) || !source.includes(returnMarker)) {
+        throw new Error(
+          `Could not locate deferred lifecycle export markers in ${file}`,
+        )
+      }
+      if (!source.includes('function getDeferredWasiBindingExport(')) {
+        source = source.replace(
+          helperMarker,
+          `${unsupportedDeferredWasiExportHelper()}\n${helperMarker}`,
+        )
+      }
+      if (
+        !source.includes(
+          '__napiModule.exports[name] = getDeferredWasiBindingExport(',
+        )
+      ) {
+        source = source.replace(
+          returnMarker,
+          `    for (const name of unsupportedWasiFunctions) {
+      if (__napiModule.exports[name] === undefined) {
+        __napiModule.exports[name] = getDeferredWasiBindingExport(
+          __napiModule.exports,
+          name,
+        )
+      }
+    }
+${returnMarker}`,
+        )
+      }
+      await writeFile(path, source)
+      continue
+    }
+
+    const {
+      binding,
+      helper,
+      forwardedFunctions = unsupportedWasiFunctions,
+      marker,
+      exportPattern,
+      assignment,
+    } = output
     if (!source.includes(marker)) {
       throw new Error(`Could not locate lifecycle export marker in ${file}`)
     }
@@ -270,17 +352,46 @@ function insertGeneratedDeclaration(source, name, declaration) {
   return `${source.trimEnd()}\n\n${declaration}\n`
 }
 
+function unsupportedDeferredWasiExportHelper() {
+  const names = unsupportedWasiFunctions
+    .map((name) => `  '${name}',`)
+    .join('\n')
+  return `const unsupportedWasiFunctions = new Set([\n${names}\n])
+
+function getDeferredWasiBindingExport(binding, name) {
+  const value = binding[name]
+  if (
+    value !== undefined ||
+    !unsupportedWasiFunctions.has(name)
+  ) {
+    return value
+  }
+  return function unsupportedWasiFunction() {
+    const error = new Error(
+      \`The "\${name}" export is not supported by this WASI binding\`,
+    )
+    error.code = 'NAPI_RS_UNSUPPORTED_WASI_EXPORT'
+    throw error
+  }
+}
+`
+}
+
 export function mergeLifecycleDeclarations(source, previousSource) {
-  const declarationStarts = [
-    'export interface AsyncWorkLifecycleHandle {',
-    'export interface RequestInit {',
-    ...unsupportedWasiFunctions.map(
-      (name) => `export declare function ${name}(`,
-    ),
+  const declarations = [
+    { start: 'export interface AsyncWorkLifecycleHandle {' },
+    { start: 'export interface RequestInit {' },
+    ...unsupportedWasiFunctions.map((name) => ({
+      start: `export declare function ${name}(`,
+      replacement: unsupportedWasiDeclaration(name),
+    })),
   ]
 
-  for (const declarationStart of declarationStarts) {
-    if (source.includes(declarationStart)) {
+  for (const { start: declarationStart, replacement } of declarations) {
+    if (
+      source.includes(declarationStart) ||
+      (replacement !== undefined && source.includes(replacement))
+    ) {
       continue
     }
     const start = previousSource.indexOf(declarationStart)
@@ -291,7 +402,8 @@ export function mergeLifecycleDeclarations(source, previousSource) {
         `Could not preserve declaration starting with ${declarationStart} for WASI`,
       )
     }
-    const declaration = previousSource.slice(start, end).trimEnd()
+    const declaration =
+      replacement ?? previousSource.slice(start, end).trimEnd()
     const name = declarationStart.match(
       /(?:interface|function)\s+([A-Za-z_$][\w$]*)/,
     )[1]
@@ -719,59 +831,141 @@ ${browserScopeMarker}`,
   await writeFile(browserPath, browserSource)
 }
 
-async function main(userArguments) {
+async function readNativeRootOutputs() {
+  return Object.fromEntries(
+    await Promise.all(
+      nativeRootOutputFiles.map(async (file) => [
+        file,
+        await readFile(new URL(file, import.meta.url)),
+      ]),
+    ),
+  )
+}
+
+async function restoreNativeRootOutputs(outputs) {
+  await Promise.all(
+    nativeRootOutputFiles.map((file) =>
+      writeFile(new URL(file, import.meta.url), outputs[file]),
+    ),
+  )
+}
+
+async function readOutputFiles(files) {
+  const outputs = {}
+  await Promise.all(
+    files.map(async (file) => {
+      try {
+        outputs[file] = await readFile(new URL(file, import.meta.url))
+      } catch (error) {
+        if (error?.code !== 'ENOENT') {
+          throw error
+        }
+      }
+    }),
+  )
+  return outputs
+}
+
+async function restoreOutputFiles(outputs) {
+  await Promise.all(
+    Object.entries(outputs).map(([file, contents]) =>
+      writeFile(new URL(file, import.meta.url), contents),
+    ),
+  )
+}
+
+export async function regenerateArtifacts({
+  runBuild = main,
+  readRootOutputs = readNativeRootOutputs,
+  restoreRootOutputs = restoreNativeRootOutputs,
+  readRetainedFlavorOutputs = () => readOutputFiles(threadlessOutputFiles),
+  restoreRetainedFlavorOutputs = restoreOutputFiles,
+  environment = process.env,
+} = {}) {
+  const explicitTargetEnvironment = withoutImplicitCargoTarget(environment)
+  await runBuild(regenerationBuildArguments[0], explicitTargetEnvironment)
+  const nativeRootOutputs = await readRootOutputs()
+  let retainedFlavorOutputs
+  try {
+    await runBuild(regenerationBuildArguments[1], explicitTargetEnvironment)
+    retainedFlavorOutputs = await readRetainedFlavorOutputs()
+    await runBuild(regenerationBuildArguments[2], explicitTargetEnvironment)
+  } finally {
+    try {
+      if (retainedFlavorOutputs !== undefined) {
+        await restoreRetainedFlavorOutputs(retainedFlavorOutputs)
+      }
+    } finally {
+      await restoreRootOutputs(nativeRootOutputs)
+    }
+  }
+}
+
+async function main(userArguments, environment = process.env) {
   const target =
     optionValue(userArguments, ['--target', '-t']) ??
-    process.env.CARGO_BUILD_TARGET
+    environment.CARGO_BUILD_TARGET
+  const lifecycleOutputs = lifecycleOutputFiles(target)
   const previousDeclarationSource = target?.startsWith('wasm32-')
     ? await readFile(rootDeclarationPath, 'utf8')
     : undefined
 
-  await run([
-    'build',
-    '--platform',
-    '--js',
-    'index.cjs',
-    '--dts',
-    'index.d.cts',
-    ...userArguments,
-  ])
+  await run(
+    [
+      'build',
+      '--platform',
+      '--js',
+      'index.cjs',
+      '--dts',
+      'index.d.cts',
+      ...userArguments,
+    ],
+    environment,
+  )
 
-  await exposeLifecycleExportsAcrossTargets()
+  await exposeLifecycleExports(lifecycleOutputs.loaders)
   if (previousDeclarationSource !== undefined) {
     await preserveLifecycleDeclarations(
-      declarationPaths,
+      lifecycleOutputs.declarations.map((file) =>
+        fileURLToPath(new URL(file, import.meta.url)),
+      ),
       previousDeclarationSource,
     )
   }
   await instrumentThreadedWasiBrowserTsfnWait()
 
   if (!target?.startsWith('wasm32-')) {
-    await run([
-      'build',
-      '--manifest-path',
-      'module-init-rollback/Cargo.toml',
-      '--package-json-path',
-      'module-init-rollback/package.json',
-      '--output-dir',
-      'module-init-rollback',
-      '--dts',
-      '../../../target/napi-module-init-rollback-fixture.d.ts',
-      ...fixtureArguments(userArguments),
-    ])
+    await run(
+      [
+        'build',
+        '--manifest-path',
+        'module-init-rollback/Cargo.toml',
+        '--package-json-path',
+        'module-init-rollback/package.json',
+        '--output-dir',
+        'module-init-rollback',
+        '--dts',
+        '../../../target/napi-module-init-rollback-fixture.d.ts',
+        ...fixtureArguments(userArguments),
+      ],
+      environment,
+    )
 
-    await run([
-      'build',
-      '--manifest-path',
-      'tsfn-retention/Cargo.toml',
-      '--package-json-path',
-      'tsfn-retention/package.json',
-      '--output-dir',
-      'tsfn-retention',
-      '--dts',
-      '../../../target/napi-tsfn-retention-fixture.d.ts',
-      ...fixtureArguments(userArguments),
-    ])
+    await run(
+      [
+        'build',
+        '--manifest-path',
+        'tsfn-retention/Cargo.toml',
+        '--package-json-path',
+        'tsfn-retention/package.json',
+        '--output-dir',
+        'tsfn-retention',
+        '--dts',
+        '../../../target/napi-tsfn-retention-fixture.d.ts',
+        ...fixtureArguments(userArguments),
+      ],
+      environment,
+    )
   }
 }
 
@@ -779,5 +973,13 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  await main(process.argv.slice(2))
+  const userArguments = process.argv.slice(2)
+  if (userArguments.includes(REGENERATE_ALL_FLAG)) {
+    if (userArguments.length !== 1) {
+      throw new Error(`${REGENERATE_ALL_FLAG} does not accept build arguments`)
+    }
+    await regenerateArtifacts()
+  } else {
+    await main(userArguments)
+  }
 }

@@ -18,7 +18,7 @@ import {
   AVAILABLE_TARGETS,
   debugFactory,
   fileExists,
-  mkdirAsync,
+  getPackageReconciliationRoot,
   parseTriple,
   readFileAsync,
   readNapiConfig,
@@ -28,7 +28,8 @@ import {
   unlinkAsync,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
-  writeFileAsync,
+  withFileSystemReconciliation,
+  writeFileAtomic,
 } from '../utils/index.js'
 import { WASI_ARTIFACT_METADATA_PREFIX } from './build.js'
 
@@ -44,13 +45,29 @@ interface PendingWrite {
   source: string
 }
 
+interface WasiArtifactMetadata {
+  rootEntry: string | null
+  managedRootEntries: string[]
+}
+
 // Removed configured targets are recognizable only when their output identity
 // belongs to napi-rs's supported target set.
 const supportedArtifactTargets = AVAILABLE_TARGETS.map(parseTriple)
 
 export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
+  const packageRoot = getPackageReconciliationRoot(
+    options.cwd,
+    options.packageJsonPath,
+  )
+  return withFileSystemReconciliation(packageRoot, () =>
+    collectArtifactsUnlocked(options),
+  )
+}
 
+async function collectArtifactsUnlocked(
+  options: ReturnType<typeof applyDefaultArtifactsOptions>,
+) {
   const cwd = resolve(options.cwd)
   const resolvePath = (...paths: string[]) => resolve(cwd, ...paths)
   const packageJsonPath = resolvePath(options.packageJsonPath)
@@ -61,9 +78,25 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       options.configPath ? resolvePath(options.configPath) : undefined,
     )
   const npmDir = resolvePath(options.npmDir)
+  const outputDir = resolvePath(options.outputDir)
   const buildOutputDir = options.buildOutputDir
     ? resolvePath(options.buildOutputDir)
     : cwd
+  const managedTargetDirs = [
+    ...new Set(
+      [...supportedArtifactTargets, ...targets].map(
+        (target) => target.platformArchABI,
+      ),
+    ),
+  ].map((target) => join(npmDir, target))
+  const excludedSourceRoots = isStrictDescendant(outputDir, npmDir)
+    ? [npmDir]
+    : resolve(outputDir) === resolve(npmDir)
+      ? managedTargetDirs
+      : []
+  const protectedSourcePaths = new Set(
+    await collectRegularFiles(outputDir, excludedSourceRoots),
+  )
 
   const universalSourceBins = new Set(
     targets
@@ -76,7 +109,7 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       .filter(Boolean) as string[],
   )
 
-  const artifacts = await collectNodeBinaries(resolvePath(options.outputDir))
+  const artifacts = await collectNodeBinaries(outputDir, excludedSourceRoots)
   const artifactsByIdentity = collectArtifactIdentities(artifacts, binaryName)
   rejectDuplicateArtifactIdentities(artifactsByIdentity)
 
@@ -105,7 +138,13 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
   if (missingTargets.length > 0) {
     await Promise.all(
       missingTargets.map((target) =>
-        removeTargetDestinations(packageRoot, npmDir, binaryName, target),
+        removeTargetDestinations(
+          packageRoot,
+          npmDir,
+          binaryName,
+          target,
+          protectedSourcePaths,
+        ),
       ),
     )
     throw new Error(
@@ -132,7 +171,13 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
         await findWasiArtifactSource(candidates, binaryName, target),
       )
     } catch (error) {
-      await removeTargetDestinations(packageRoot, npmDir, binaryName, target)
+      await removeTargetDestinations(
+        packageRoot,
+        npmDir,
+        binaryName,
+        target,
+        protectedSourcePaths,
+      )
       throw error
     }
   }
@@ -156,13 +201,10 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
     wasiTargets[0]
   if (browserTarget) {
     try {
-      await addWasiRootEntries(
+      await addWasiBrowserEntry(
         pendingWrites,
         packageRoot,
-        binaryName,
-        browserTarget,
         wasiSources.get(browserTarget.platformArchABI)!,
-        packageJson.main,
       )
     } catch (error) {
       await removeTargetDestinations(
@@ -170,10 +212,21 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
         npmDir,
         binaryName,
         browserTarget,
+        protectedSourcePaths,
       )
       throw error
     }
   }
+  await addArtifactRootEntry({
+    pendingWrites,
+    packageRoot,
+    packageMain: packageJson.main,
+    binaryName,
+    targets,
+    artifactsByIdentity,
+    wasiTargets,
+    wasiSources,
+  })
 
   for (const target of wasiTargets) {
     const source = wasiSources.get(target.platformArchABI)!
@@ -207,6 +260,8 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
     binaryName,
     targets,
     pendingWrites,
+    await collectManagedRootEntries(packageRoot, binaryName, wasiSources),
+    protectedSourcePaths,
   )
 
   await Promise.all(
@@ -216,8 +271,7 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
           destination,
         )}]`,
       )
-      await mkdirAsync(dirname(destination), { recursive: true })
-      await writeFileAsync(destination, content)
+      await writeFileAtomic(destination, content)
     }),
   )
 }
@@ -293,13 +347,10 @@ async function findWasiArtifactSource(
   )
 }
 
-async function addWasiRootEntries(
+async function addWasiBrowserEntry(
   pendingWrites: Map<string, PendingWrite>,
   packageRoot: string,
-  binaryName: string,
-  browserTarget: Target,
   source: WasiArtifactSource,
-  packageMain: string | undefined,
 ) {
   const browserSource = source.files.get('browser.js')
   if (!browserSource) {
@@ -313,9 +364,18 @@ async function addWasiRootEntries(
     browserSource,
     await readFileAsync(browserSource),
   )
+}
 
+async function addWasiRootEntry(
+  pendingWrites: Map<string, PendingWrite>,
+  packageRoot: string,
+  binaryName: string,
+  rootTarget: Target,
+  source: WasiArtifactSource,
+  packageMain: string | undefined,
+) {
   const bindingSource = source.files.get(
-    `${binaryName}.${wasiLoaderSuffix(browserTarget.platformArchABI)}.cjs`,
+    `${binaryName}.${wasiLoaderSuffix(rootTarget.platformArchABI)}.cjs`,
   )!
   const metadata = parseWasiArtifactMetadata(
     await readFileAsync(bindingSource, 'utf8'),
@@ -324,7 +384,7 @@ async function addWasiRootEntries(
   const rootEntry =
     metadata === undefined
       ? await findLegacyRootEntry(source.dir, packageMain)
-      : metadata
+      : metadata.rootEntry
   if (rootEntry === null) {
     return
   }
@@ -352,6 +412,101 @@ async function addWasiRootEntries(
   )
 }
 
+async function addArtifactRootEntry({
+  pendingWrites,
+  packageRoot,
+  packageMain,
+  binaryName,
+  targets,
+  artifactsByIdentity,
+  wasiTargets,
+  wasiSources,
+}: {
+  pendingWrites: Map<string, PendingWrite>
+  packageRoot: string
+  packageMain: string | undefined
+  binaryName: string
+  targets: Target[]
+  artifactsByIdentity: Map<string, string[]>
+  wasiTargets: Target[]
+  wasiSources: Map<string, WasiArtifactSource>
+}) {
+  const nativeTargets = targets.filter((target) => target.platform !== 'wasi')
+  const rootCandidates = packageRootEntryCandidates(packageMain)
+
+  for (const target of nativeTargets) {
+    const artifactPath = artifactsByIdentity.get(
+      artifactName(binaryName, target),
+    )?.[0]
+    if (!artifactPath) {
+      continue
+    }
+    const sourceDir = dirname(artifactPath)
+    for (const candidate of rootCandidates) {
+      const source = resolveArtifactRelativePath(
+        sourceDir,
+        candidate,
+        'native root entry',
+      )
+      if (!(await fileExists(source.absolute))) {
+        continue
+      }
+      const destination = resolveArtifactRelativePath(
+        packageRoot,
+        source.relative,
+        'native root entry destination',
+      )
+      addPendingWrite(
+        pendingWrites,
+        destination.absolute,
+        source.absolute,
+        await readFileAsync(source.absolute),
+      )
+      return
+    }
+  }
+
+  if (nativeTargets.length > 0) {
+    for (const candidate of rootCandidates) {
+      const existing = resolveArtifactRelativePath(
+        packageRoot,
+        candidate,
+        'existing native root entry',
+      )
+      if (!(await fileExists(existing.absolute))) {
+        continue
+      }
+      addPendingWrite(
+        pendingWrites,
+        existing.absolute,
+        existing.absolute,
+        await readFileAsync(existing.absolute),
+      )
+      return
+    }
+  }
+
+  const rootTarget =
+    wasiTargets.find((target) => wasiTargetHasThreads(target)) ?? wasiTargets[0]
+  if (rootTarget) {
+    await addWasiRootEntry(
+      pendingWrites,
+      packageRoot,
+      binaryName,
+      rootTarget,
+      wasiSources.get(rootTarget.platformArchABI)!,
+      packageMain,
+    )
+  }
+}
+
+function packageRootEntryCandidates(packageMain: string | undefined) {
+  return [
+    ...(packageMain && /\.[cm]?js$/i.test(packageMain) ? [packageMain] : []),
+    'index.js',
+  ]
+}
+
 function parseWasiArtifactMetadata(content: string, source: string) {
   const firstLine = content.split(/\r?\n/, 1)[0]
   if (!firstLine.startsWith(WASI_ARTIFACT_METADATA_PREFIX)) {
@@ -365,27 +520,37 @@ function parseWasiArtifactMetadata(content: string, source: string) {
       cause: error,
     })
   }
+  if (typeof metadata !== 'object' || metadata === null) {
+    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
+  }
+  const record = metadata as Record<string, unknown>
   if (
-    typeof metadata !== 'object' ||
-    metadata === null ||
-    !('version' in metadata) ||
-    metadata.version !== 1 ||
-    !('rootEntry' in metadata) ||
-    (metadata.rootEntry !== null && typeof metadata.rootEntry !== 'string')
+    (record.version !== 1 && record.version !== 2) ||
+    (record.rootEntry !== null && typeof record.rootEntry !== 'string')
   ) {
     throw new Error(`Unsupported WASI artifact metadata in ${source}`)
   }
-  return metadata.rootEntry
+  const managedRootEntries =
+    record.version === 1
+      ? ['browser.js', ...(record.rootEntry ? [record.rootEntry] : [])]
+      : record.managedRootEntries
+  if (
+    !Array.isArray(managedRootEntries) ||
+    !managedRootEntries.every((entry) => typeof entry === 'string')
+  ) {
+    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
+  }
+  return {
+    rootEntry: record.rootEntry as string | null,
+    managedRootEntries: [...new Set(managedRootEntries)],
+  } satisfies WasiArtifactMetadata
 }
 
 async function findLegacyRootEntry(
   sourceDir: string,
   packageMain: string | undefined,
 ) {
-  const candidates = [
-    ...(packageMain && /\.[cm]?js$/i.test(packageMain) ? [packageMain] : []),
-    'index.js',
-  ]
+  const candidates = packageRootEntryCandidates(packageMain)
   for (const candidate of new Set(candidates)) {
     const path = resolveArtifactRelativePath(
       sourceDir,
@@ -449,6 +614,7 @@ async function removeTargetDestinations(
   npmDir: string,
   binaryName: string,
   target: Target,
+  protectedSourcePaths: Set<string>,
 ) {
   const identity = artifactName(binaryName, target)
   const paths = [
@@ -465,7 +631,11 @@ async function removeTargetDestinations(
     }
     paths.push(join(packageRoot, `${binaryName}.wasm`))
   }
-  await Promise.all(paths.map(unlinkIfExists))
+  await Promise.all(
+    paths
+      .filter((path) => !protectedSourcePaths.has(resolve(path)))
+      .map(unlinkIfExists),
+  )
 }
 
 async function removeStaleManagedDestinations(
@@ -474,6 +644,8 @@ async function removeStaleManagedDestinations(
   binaryName: string,
   targets: Target[],
   pendingWrites: Map<string, PendingWrite>,
+  managedRootEntries: string[],
+  protectedSourcePaths: Set<string>,
 ) {
   const stalePaths: string[] = []
   const managedBinaryFiles = new Set(
@@ -532,7 +704,22 @@ async function removeStaleManagedDestinations(
     }
   }
 
-  await Promise.all(stalePaths.map(unlinkIfExists))
+  for (const entry of managedRootEntries) {
+    const path = resolveArtifactRelativePath(
+      packageRoot,
+      entry,
+      'managed WASI root entry',
+    ).absolute
+    if (!pendingWrites.has(path)) {
+      stalePaths.push(path)
+    }
+  }
+
+  await Promise.all(
+    stalePaths
+      .filter((path) => !protectedSourcePaths.has(resolve(path)))
+      .map(unlinkIfExists),
+  )
 }
 
 function allManagedWasiFiles(binaryName: string, target: Target) {
@@ -565,6 +752,39 @@ async function unlinkIfExists(path: string) {
       throw error
     }
   }
+}
+
+async function collectManagedRootEntries(
+  packageRoot: string,
+  binaryName: string,
+  wasiSources: Map<string, WasiArtifactSource>,
+) {
+  const entries = new Set<string>()
+  const loaderPaths = new Set<string>()
+  for (const loaderSuffix of ['wasi', 'wasip1']) {
+    loaderPaths.add(join(packageRoot, `${binaryName}.${loaderSuffix}.cjs`))
+  }
+  for (const source of wasiSources.values()) {
+    for (const [fileName, path] of source.files) {
+      if (fileName.endsWith('.cjs')) {
+        loaderPaths.add(path)
+      }
+    }
+  }
+
+  for (const path of loaderPaths) {
+    if (!(await fileExists(path))) {
+      continue
+    }
+    const metadata = parseWasiArtifactMetadata(
+      await readFileAsync(path, 'utf8'),
+      path,
+    )
+    for (const entry of metadata?.managedRootEntries ?? []) {
+      entries.add(entry)
+    }
+  }
+  return [...entries]
 }
 
 function collectArtifactIdentities(filePaths: string[], binaryName: string) {
@@ -606,7 +826,15 @@ function rejectDuplicateArtifactIdentities(
   }
 }
 
-async function collectNodeBinaries(root: string) {
+async function collectNodeBinaries(root: string, excludedRoots: string[] = []) {
+  const resolvedRoot = resolve(root)
+  if (
+    excludedRoots.some((excludedRoot) =>
+      isPathAtOrBelow(resolvedRoot, excludedRoot),
+    )
+  ) {
+    return []
+  }
   const files = await readdirAsync(root, { withFileTypes: true })
   const nodeBinaries = files
     .filter(
@@ -619,8 +847,56 @@ async function collectNodeBinaries(root: string) {
   const dirs = files.filter((file) => file.isDirectory())
   for (const dir of dirs) {
     if (dir.name !== 'node_modules') {
-      nodeBinaries.push(...(await collectNodeBinaries(join(root, dir.name))))
+      nodeBinaries.push(
+        ...(await collectNodeBinaries(join(root, dir.name), excludedRoots)),
+      )
     }
   }
   return nodeBinaries.sort()
+}
+
+async function collectRegularFiles(
+  root: string,
+  excludedRoots: string[] = [],
+): Promise<string[]> {
+  const resolvedRoot = resolve(root)
+  if (
+    excludedRoots.some((excludedRoot) =>
+      isPathAtOrBelow(resolvedRoot, excludedRoot),
+    )
+  ) {
+    return []
+  }
+  const files = await readdirAsync(resolvedRoot, { withFileTypes: true })
+  const regularFiles = files
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(resolvedRoot, entry.name))
+  for (const entry of files) {
+    if (entry.isDirectory() && entry.name !== 'node_modules') {
+      regularFiles.push(
+        ...(await collectRegularFiles(
+          join(resolvedRoot, entry.name),
+          excludedRoots,
+        )),
+      )
+    }
+  }
+  return regularFiles
+}
+
+function isStrictDescendant(root: string, candidate: string) {
+  const relativePath = relative(resolve(root), resolve(candidate))
+  return (
+    relativePath !== '' &&
+    !relativePath.startsWith('..') &&
+    !isAbsolute(relativePath)
+  )
+}
+
+function isPathAtOrBelow(path: string, root: string) {
+  const relativePath = relative(resolve(root), resolve(path))
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+  )
 }

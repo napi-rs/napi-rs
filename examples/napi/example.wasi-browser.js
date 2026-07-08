@@ -347,7 +347,7 @@ try {
   }))
 } catch (__error) {
   try {
-    __emnapiContext.destroy()
+    await __emnapiContext.destroy()
   } catch (__cleanupError) {
     throw __createInitializationCleanupError(__error, __cleanupError)
   }

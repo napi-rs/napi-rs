@@ -13,9 +13,36 @@ import {
   correctStringIdent,
   processTypeDef,
   processTypeDefs,
+  rebaseDeclarationSpecifiers,
   removeNodeStreamWebTypeImports,
   rewriteTypeImportReferences,
 } from '../typegen.js'
+
+test('rebases nested declaration imports and ordered reference attributes', (t) => {
+  const source = [
+    '/// <reference preserve="true" path="./reference.d.ts" />',
+    `export { value } from './nested.mjs'`,
+    `export type Query = import('./query.js').Query`,
+    String.raw`export { escaped } from '.\u002fescaped.mjs'`,
+    '',
+  ].join('\n')
+  const rebased = rebaseDeclarationSpecifiers(
+    source,
+    '/project/types/index.d.cts',
+    '/project/binding.wasi.d.cts',
+  )
+
+  t.is(
+    rebased,
+    [
+      '/// <reference preserve="true" path="./types/reference.d.ts" />',
+      `export { value } from './types/nested.mjs'`,
+      `export type Query = import('./types/query.js').Query`,
+      `export { escaped } from './types/escaped.mjs'`,
+      '',
+    ].join('\n'),
+  )
+})
 
 test('should ident string correctly', (t) => {
   const input = `
@@ -456,6 +483,52 @@ export declare function usesExportedBuffer(value: Buffer): Buffer
   }
 })
 
+test('allocates imported type markers globally across records and headers', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-type-markers-'))
+  const marker = '__NAPI_RS_TYPE_IMPORT_BUFFER__'
+  const files = [join(directory, 'a.type'), join(directory, 'b.type')]
+
+  try {
+    await Promise.all(
+      files.map((file, index) =>
+        writeFile(
+          file,
+          `${JSON.stringify({
+            kind: 'fn',
+            name: `record${index}`,
+            def: `function record${index}(value: Buffer): Buffer`,
+            def_with_type_import_markers: `function record${index}(value: ${marker}): ${marker}`,
+            type_imports: [{ marker, name: 'Buffer', module: 'buffer' }],
+          })}\n`,
+        ),
+      ),
+    )
+
+    const processed = await processTypeDefs(
+      files,
+      true,
+      false,
+      `interface ${marker} {}\ninterface ${marker}_1 {}\n`,
+    )
+    t.deepEqual(
+      processed.typeImports.map(({ marker }) => marker),
+      [`${marker}_2`, `${marker}_3`],
+    )
+    t.regex(processed.dtsWithTypeImportMarkers, new RegExp(`${marker}_2`))
+    t.regex(processed.dtsWithTypeImportMarkers, new RegExp(`${marker}_3`))
+
+    const rewritten = rewriteTypeImportReferences(
+      processed.dtsWithTypeImportMarkers,
+      processed.typeImports,
+      true,
+    )
+    t.notRegex(rewritten, /__NAPI_RS_TYPE_IMPORT_BUFFER__/)
+    t.is(rewritten.match(/import\("buffer"\)\.Buffer/g)?.length, 4)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('rewrites Buffer references after combining fragments and the declaration header', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'napi-rs-typegen-complete-'))
   const fragmentDirectory = join(directory, 'fragments')
@@ -515,6 +588,117 @@ test('rewrites Buffer references after combining fragments and the declaration h
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test('rewrites unbound Buffer references from custom-only overrides', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-custom-buffer-'))
+  const fixture = join(directory, 'type-def.jsonl')
+
+  try {
+    await writeFile(
+      fixture,
+      [
+        {
+          kind: 'fn',
+          name: 'customOnlyBuffer',
+          def: 'function customOnlyBuffer(value: Buffer): Buffer',
+        },
+        {
+          kind: 'interface',
+          name: 'CustomOnlyBufferObject',
+          def: 'value: Buffer',
+        },
+        {
+          kind: 'fn',
+          name: 'customOnlyShadowed',
+          def: 'function customOnlyShadowed<Buffer>(value: Buffer): Buffer',
+        },
+        {
+          kind: 'fn',
+          name: 'customOnlyValueBinding',
+          def: 'function customOnlyValueBinding(Buffer: unknown): typeof Buffer',
+        },
+      ]
+        .map((def) => JSON.stringify(def))
+        .join('\n') + '\n',
+    )
+
+    const { dts, dtsWithTypeImports } = await generateTypeDef({
+      typeDefDir: directory,
+      cwd: directory,
+      noDtsHeader: true,
+    })
+
+    t.regex(dts, /customOnlyBuffer\(value: Buffer\): Buffer/)
+    t.regex(
+      dtsWithTypeImports,
+      /customOnlyBuffer\(value: import\("buffer"\)\.Buffer\): import\("buffer"\)\.Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /interface CustomOnlyBufferObject \{\n  value: import\("buffer"\)\.Buffer\n\}/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /customOnlyShadowed<Buffer>\(value: Buffer\): Buffer/,
+    )
+    t.regex(
+      dtsWithTypeImports,
+      /customOnlyValueBinding\(Buffer: unknown\): typeof Buffer/,
+    )
+    t.deepEqual(
+      await compileDeclarations(
+        dtsWithTypeImports,
+        'declare module "buffer" { export class Buffer extends Uint8Array {} }\n',
+      ),
+      [],
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('rewrites Buffer heritage clauses with a collision-safe import', async (t) => {
+  const marker = '__NAPI_RS_TYPE_IMPORT_BUFFER_HERITAGE__'
+  const source = `/* generated header */
+interface __NapiRsBuffer {}
+export interface BufferHeritage extends Buffer {}
+export declare class BufferClassHeritage extends Buffer {}
+export interface MarkerBufferHeritage extends ${marker} {}
+export declare namespace ScopedBufferHeritage {
+  interface Buffer {}
+  interface LocalHeritage extends Buffer {}
+}
+`
+
+  const rewritten = rewriteTypeImportReferences(
+    source,
+    [{ marker, module: 'buffer', name: 'Buffer' }],
+    true,
+  )
+
+  t.is(
+    rewritten,
+    `/* generated header */
+import { Buffer as __NapiRsBuffer_1 } from "buffer"
+interface __NapiRsBuffer {}
+export interface BufferHeritage extends __NapiRsBuffer_1 {}
+export declare class BufferClassHeritage extends __NapiRsBuffer_1 {}
+export interface MarkerBufferHeritage extends __NapiRsBuffer_1 {}
+export declare namespace ScopedBufferHeritage {
+  interface Buffer {}
+  interface LocalHeritage extends Buffer {}
+}
+`,
+  )
+  t.notRegex(rewritten, /extends import\("buffer"\)\.Buffer/)
+  t.deepEqual(
+    await compileDeclarations(
+      rewritten,
+      'declare module "buffer" { export class Buffer {} }\n',
+    ),
+    [],
+  )
 })
 
 test('rewrites legacy Buffer imports with TypeScript binding semantics', async (t) => {
