@@ -86,14 +86,21 @@ TypeScript declarations whose default export is `WebAssembly.Module`.
 `instantiate()` owns a module-local singleton and deduplicates concurrent calls
 for the same `WebAssembly.Module`. Call `dispose()` before replacing that
 module. Calls that begin while disposal is in progress wait for it and create a
-fresh singleton after cleanup succeeds.
+fresh singleton after cleanup succeeds. The deferred loader automatically
+starts singleton disposal when Node.js emits `beforeExit`; a later listener
+that calls `instantiate()` observes that state immediately and receives a
+fresh singleton after cleanup rather than exports that are being destroyed.
 `createInstance()` creates an independent instance and returns
 `{ exports, dispose }`; call the returned `dispose()` when that instance is no
-longer needed. The `./workerd` package export includes TypeScript declarations;
-`exports` is typed from the addon's root package when napi-rs type generation is
-enabled. Intentionally untyped packages expose it as
-`Record<string, unknown>`, so strict TypeScript consumers can use the lifecycle
-API without a broken import of the declaration-less root package.
+longer needed. Independent instances are not automatically disposed at
+`beforeExit`, so retained exports remain usable if a listener schedules more
+work; their cleanup ownership stays explicit. The `./workerd` package export
+includes TypeScript declarations; `exports` is typed from the addon's root
+package when napi-rs type generation is enabled. Intentionally untyped packages
+expose it as `Record<string, unknown>`, so strict TypeScript consumers can use
+the lifecycle API without a broken import of the declaration-less root package.
+If initialization fails and immediate context rollback also fails, the loader
+retains that cleanup ownership so a later `beforeExit` pass can retry it.
 
 The eager CommonJS WASI loader keeps its emnapi context alive for the process
 lifetime. Node.js can emit `beforeExit` repeatedly when a listener schedules

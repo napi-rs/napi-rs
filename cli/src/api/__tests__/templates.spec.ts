@@ -478,6 +478,7 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
     src,
     /__managedCleanupProcess\.once\(\s*'beforeExit',\s*__destroyManagedEmnapiContextsBeforeExit,\s*\)/,
   )
+  t.false(src.includes('Promise.resolve().then(__destroy)'))
   t.false(/\.once\(\s*['"]exit['"]/.test(src))
   t.false(src.includes("__process.rawListeners('beforeExit')"))
   t.false(src.includes('__removeAddedBeforeExitListeners'))
@@ -630,7 +631,7 @@ process.exit(0)
 )
 
 test.serial(
-  'successful eager WASI contexts stay live while deferred cleanup retries on beforeExit',
+  'successful eager WASI contexts stay live while deferred rollback cleanup retries on beforeExit',
   async (t) => {
     const nodeSrc = `${createWasiBinding(
       'binding',
@@ -698,6 +699,10 @@ module.exports = __napiModule.exports
         join(runtimeDir, 'index.mjs'),
         `export class WASI {}
 export async function instantiateNapiModule() {
+  const state = globalThis.__beforeExitRetryState
+  if (state?.initializationError) {
+    throw state.initializationError
+  }
   return { napiModule: { exports: {} } }
 }
 `,
@@ -796,6 +801,7 @@ process.once('exit', () => {
   caught: 0,
   destroyed: 0,
   errorMessage: 'deferred cleanup failed',
+  initializationError: new Error('deferred initialization failed'),
   unexpected: [],
 }
 const state = globalThis.__beforeExitRetryState
@@ -811,7 +817,7 @@ process.once('exit', () => {
   if (
     state.attempts !== 2 ||
     state.destroyed !== 1 ||
-    state.caught !== 1 ||
+    state.caught !== 0 ||
     state.unexpected.length !== 0
   ) {
     process.stderr.write('deferred retry state: ' + JSON.stringify(state) + '\\n')
@@ -820,11 +826,21 @@ process.once('exit', () => {
   }
   process.stdout.write('deferred-retry-ok\\n')
 })
-const { createInstance } = await import('./deferred.mjs')
+const { instantiate } = await import('./deferred.mjs')
 const module = new WebAssembly.Module(
   new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
 )
-await createInstance(module)
+try {
+  await instantiate(module)
+  throw new Error('deferred initialization unexpectedly succeeded')
+} catch (error) {
+  if (
+    error !== state.initializationError ||
+    error.cause?.message !== state.errorMessage
+  ) {
+    throw error
+  }
+}
 `,
       )
 
@@ -1149,7 +1165,9 @@ export async function instantiateNapiModule() {
 
       const loaderPath = join(tmpDir, 'deferred.mjs')
       await writeFile(loaderPath, src)
-      const { createInstance } = await import(pathToFileURL(loaderPath).href)
+      const { createInstance, instantiate } = await import(
+        pathToFileURL(loaderPath).href
+      )
       const module = new WebAssembly.Module(
         new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
       )
@@ -1169,7 +1187,7 @@ export async function instantiateNapiModule() {
 
       const cleanupError = new Error('Buffer rollback failed')
       state.cleanupError = cleanupError
-      const failedRollback = await t.throwsAsync(() => createInstance(module))
+      const failedRollback = await t.throwsAsync(() => instantiate(module))
       t.is(failedRollback, state.injectionError)
       t.is(failedRollback.cause, cleanupError)
       t.deepEqual(state.destroyAttempts, [1, 2])
@@ -1658,13 +1676,12 @@ process.once('beforeExit', () => {
       }
 
       const replacementSingleton = await replacementSingletonPromise
-      await waitForDestroyed(2)
-      if (
-        globalThis.__beforeExitTestContexts.slice(1, 3).some(
-          (context) => !context.destroyed,
-        )
-      ) {
-        throw new Error('first beforeExit pass did not destroy deferred contexts')
+      await waitForDestroyed(1)
+      if (!globalThis.__beforeExitTestContexts[1].destroyed) {
+        throw new Error('first beforeExit pass did not destroy the singleton')
+      }
+      if (globalThis.__beforeExitTestContexts[2].destroyed) {
+        throw new Error('first beforeExit pass destroyed an independent context')
       }
 
       const replacementIndependent = await deferred.createInstance(module)
@@ -1673,6 +1690,7 @@ process.once('beforeExit', () => {
       }
       if (
         ordinary.ping() !== 'ordinary' ||
+        independent.exports.ping() !== 'deferred' ||
         replacementSingleton.ping() !== 'deferred' ||
         replacementIndependent.exports.ping() !== 'deferred'
       ) {
@@ -1683,27 +1701,39 @@ process.once('beforeExit', () => {
       }
 
       process.once('beforeExit', () => {
-        void waitForDestroyed(4)
-          .then(() => {
-            if (
-              globalThis.__beforeExitTestContexts.slice(1).some(
-                (context) => !context.destroyed,
-              )
-            ) {
-              throw new Error(
-                'second beforeExit pass did not destroy deferred replacement contexts',
-              )
-            }
-            if (globalThis.__beforeExitTestContexts[0].destroyed) {
-              throw new Error('eager context was destroyed while exports remain cached')
-            }
-            process.stdout.write('cleaned\\n')
+        void (async () => {
+          await waitForDestroyed(2)
+          if (!globalThis.__beforeExitTestContexts[3].destroyed) {
+            throw new Error(
+              'second beforeExit pass did not destroy the replacement singleton',
+            )
+          }
+          if (
+            globalThis.__beforeExitTestContexts[2].destroyed ||
+            globalThis.__beforeExitTestContexts[4].destroyed
+          ) {
+            throw new Error('beforeExit destroyed an independent context')
+          }
+          if (
+            independent.exports.ping() !== 'deferred' ||
+            replacementIndependent.exports.ping() !== 'deferred'
+          ) {
+            throw new Error('independent exports were unusable after beforeExit')
+          }
+          await Promise.all([
+            independent.dispose(),
+            replacementIndependent.dispose(),
+          ])
+          await waitForDestroyed(4)
+          if (globalThis.__beforeExitTestContexts[0].destroyed) {
+            throw new Error('eager context was destroyed while exports remain cached')
+          }
+          process.stdout.write('cleaned\\n')
+        })().catch((error) => {
+          setImmediate(() => {
+            throw error
           })
-          .catch((error) => {
-            setImmediate(() => {
-              throw error
-            })
-          })
+        })
       })
       process.stdout.write('resumed\\n')
     })().catch((error) => {
@@ -2373,13 +2403,13 @@ export async function instantiateNapiModule(module, options) {
       ])
       t.not(independentA.exports, independentB.exports)
       t.is(state.instances, 4)
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedBeforeExitListeners(), 0)
       state.cleanupError = cleanupError
       t.is(
         t.throws(() => independentA.dispose()),
         cleanupError,
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedBeforeExitListeners(), 0)
       t.deepEqual(state.destroyAttempts.slice(-1), [3])
       state.cleanupError = undefined
       independentA.dispose()
@@ -2568,7 +2598,7 @@ export async function instantiateNapiModule(module, options) {
       const concurrentInstances = await Promise.all(
         Array.from({ length: 20 }, () => createInstance(moduleA)),
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedBeforeExitListeners(), 0)
       for (const instance of concurrentInstances) {
         instance.dispose()
       }
@@ -2578,11 +2608,22 @@ export async function instantiateNapiModule(module, options) {
       const destroyedBeforeRepeatedInstances = state.destroyed.length
       for (let i = 0; i < 20; i++) {
         const instance = await createInstance(moduleA)
-        t.is(countOwnedBeforeExitListeners(), 1)
+        t.is(countOwnedBeforeExitListeners(), 0)
         instance.dispose()
         t.is(countOwnedBeforeExitListeners(), 0)
       }
       t.is(state.destroyed.length, destroyedBeforeRepeatedInstances + 20)
+
+      const beforeExitSingleton = await instantiate(moduleA)
+      const [beforeExitListener] = process
+        .rawListeners('beforeExit')
+        .filter((listener) => !initialBeforeExitListeners.has(listener))
+      t.truthy(beforeExitListener)
+      beforeExitListener(0)
+      const replacementAfterBeforeExit = await instantiate(moduleA)
+      t.not(replacementAfterBeforeExit, beforeExitSingleton)
+      await dispose()
+      t.is(countOwnedBeforeExitListeners(), 0)
     } finally {
       ;(WebAssembly as any).Memory = originalMemory
       for (const listener of process.rawListeners('beforeExit')) {
@@ -2669,7 +2710,7 @@ export async function instantiateNapiModule(module) {
       const instances = await Promise.all(
         Array.from({ length: 20 }, () => createInstance(module)),
       )
-      t.is(countOwnedBeforeExitListeners(), 1)
+      t.is(countOwnedBeforeExitListeners(), 0)
       for (const instance of instances) {
         instance.dispose()
       }

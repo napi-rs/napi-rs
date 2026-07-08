@@ -171,7 +171,13 @@ function __destroyManagedEmnapiContextsBeforeExit() {
   __managedBeforeExitListener = undefined
   const __destroyers = Array.from(__managedEmnapiContextDestroyers)
   const __promise = Promise.all(
-    __destroyers.map((__destroy) => Promise.resolve().then(__destroy)),
+    __destroyers.map((__destroy) => {
+      try {
+        return Promise.resolve(__destroy())
+      } catch (error) {
+        return Promise.reject(error)
+      }
+    }),
   )
   __managedDestroyPromise = __promise
   void __promise.then(
@@ -304,6 +310,9 @@ async function __createManagedEmnapiContext(__beforeExitDestroy) {
   return {
     context: __emnapiContext,
     destroy: __destroy,
+    unregisterCleanup() {
+      __unregisterCleanup?.()
+    },
   }
 }
 
@@ -322,8 +331,17 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
     initial: 16384,
     maximum: 65536,
   })
-  const { context: __emnapiContext, destroy: __destroyEmnapiContext } =
-    await __createManagedEmnapiContext(__beforeExitDestroy)
+  let __initialized = false
+  let __destroyEmnapiContext
+  const __destroyBeforeExit = __beforeExitDestroy
+    ? () => (__initialized ? __beforeExitDestroy() : __destroyEmnapiContext())
+    : undefined
+  const {
+    context: __emnapiContext,
+    destroy,
+    unregisterCleanup: __unregisterCleanup,
+  } = await __createManagedEmnapiContext(__destroyBeforeExit)
+  __destroyEmnapiContext = destroy
   try {
     __emnapiContext.feature.Buffer = Buffer
     const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
@@ -350,6 +368,12 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
         },
       },
     )
+    __initialized = true
+    if (!__beforeExitDestroy) {
+      // Independent instances are explicitly owned by their caller. Keep the
+      // returned exports live across resumable beforeExit cycles.
+      __unregisterCleanup()
+    }
     for (const name of unsupportedWasiFunctions) {
       if (__napiModule.exports[name] === undefined) {
         __napiModule.exports[name] = getDeferredWasiBindingExport(

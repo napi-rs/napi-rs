@@ -10,7 +10,7 @@ const isThreadlessWasiBufferTest = Boolean(
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 test.skipIf(!isThreadlessWasiBufferTest)(
-  'deferred WASI automatic cleanup replaces the singleton when work resumes',
+  'deferred WASI preserves explicit instances and replaces the singleton when work resumes',
   (t) => {
     const result = spawnSync(
       process.execPath,
