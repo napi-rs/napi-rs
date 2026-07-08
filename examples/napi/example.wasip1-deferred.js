@@ -545,19 +545,20 @@ export async function createInstance(__wasmInput) {
 let __defaultModulePromise
 let __defaultInstancePromise
 let __defaultDisposePromise
+let __defaultDisposalStarted = false
 
 /**
  * Instantiate a module-local singleton. Concurrent and repeated calls
  * with the same module share one instance and one Memory allocation.
  */
 export function instantiate(__wasmInput) {
-  if (__defaultDisposePromise) {
-    const __disposePromise = __defaultDisposePromise
+  if (__defaultDisposalStarted) {
     const __modulePromise = __resolveModule(__wasmInput)
     // Observe rejected input immediately, but preserve lifecycle ordering and
-    // error precedence by instantiating only after the active disposal.
+    // error precedence by instantiating only after disposal succeeds. A failed
+    // disposal retains the old instance only so its cleanup can be retried.
     void __modulePromise.catch(() => {})
-    return __disposePromise.then(() => instantiate(__modulePromise))
+    return dispose().then(() => instantiate(__modulePromise))
   }
   const __modulePromise = __resolveModule(__wasmInput)
   if (!__defaultInstancePromise) {
@@ -598,14 +599,17 @@ export async function dispose() {
   }
   const __instancePromise = __defaultInstancePromise
   if (!__instancePromise) {
+    __defaultDisposalStarted = false
     return
   }
+  __defaultDisposalStarted = true
   const __disposePromise = (async () => {
     const __instance = await __instancePromise
     await __instance.dispose()
     if (__defaultInstancePromise === __instancePromise) {
       __defaultInstancePromise = undefined
       __defaultModulePromise = undefined
+      __defaultDisposalStarted = false
     }
   })()
   __defaultDisposePromise = __disposePromise

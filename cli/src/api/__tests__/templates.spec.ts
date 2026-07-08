@@ -2389,6 +2389,7 @@ test.serial(
       cleanupError: undefined as Error | undefined,
       contextError: undefined as Error | undefined,
       contextOptions: [] as unknown[],
+      liveContexts: new Set<number>(),
     }
     ;(globalThis as any).__napiDeferredTestState = state
     const originalMemory = WebAssembly.Memory
@@ -2441,7 +2442,19 @@ export async function instantiateNapiModule(module, options) {
     await state.initializationGate
   }
   await Promise.resolve()
-  return { napiModule: { exports: { id } } }
+  const contextId = options.context.id
+  return {
+    napiModule: {
+      exports: {
+        id,
+        assertLive() {
+          if (!state.liveContexts.has(contextId)) {
+            throw new Error('dead context')
+          }
+        },
+      },
+    },
+  }
 }
 `,
       )
@@ -2471,10 +2484,15 @@ export async function instantiateNapiModule(module, options) {
     throw state.contextError
   }
   const id = ++state.contexts
+  state.liveContexts.add(id)
   return {
+    id,
     suppressDestroy() {},
     destroy() {
       state.destroyAttempts.push(id)
+      // emnapi marks the context as stopping before cleanup hooks run. A
+      // throwing hook therefore leaves previously returned exports unusable.
+      state.liveContexts.delete(id)
       const cleanupError = state.cleanupErrors.get(id) ?? state.cleanupError
       if (cleanupError) {
         throw cleanupError
@@ -2600,11 +2618,12 @@ export async function instantiateNapiModule(module, options) {
       t.is(countOwnedBeforeExitListeners(), 0)
 
       const hostProcess = globalThis.process
-      let replacement!: { id: number }
+      let replacement!: { id: number; assertLive(): void }
       ;(globalThis as any).process = undefined
       try {
         replacement = await instantiate(moduleB)
         t.is(replacement.id, 5)
+        t.notThrows(() => replacement.assertLive())
         state.cleanupError = cleanupError
         const failedDispose = dispose()
         const concurrentFailedDispose = dispose()
@@ -2613,30 +2632,37 @@ export async function instantiateNapiModule(module, options) {
         t.is(await t.throwsAsync(concurrentFailedDispose), cleanupError)
         t.is(await t.throwsAsync(overlappingFailedDispose), cleanupError)
         t.deepEqual(state.destroyAttempts.slice(-1), [5])
-
-        // A processless host has no beforeExit hook. Failed cleanup must
-        // retain singleton ownership so dispose() can retry it.
-        t.is(await instantiate(moduleB), replacement)
-        t.is(state.instances, 5)
-        await t.throwsAsync(() => instantiate(moduleA), {
-          message: /already owns a different WebAssembly\.Module/,
+        t.throws(() => replacement.assertLive(), {
+          message: 'dead context',
         })
 
-        state.cleanupError = undefined
-        await Promise.all([dispose(), dispose()])
+        // A processless host has no beforeExit hook. Failed cleanup must
+        // retain singleton ownership only so cleanup can be retried. The
+        // invalidated exports must never be published again.
+        t.is(await t.throwsAsync(() => instantiate(moduleB)), cleanupError)
+        t.is(state.instances, 5)
         t.deepEqual(state.destroyAttempts.slice(-2), [5, 5])
+
+        state.cleanupError = undefined
+        const [recovered, concurrentRecovered] = await Promise.all([
+          instantiate(moduleB),
+          instantiate(moduleB),
+        ])
+        t.is(recovered, concurrentRecovered)
+        t.not(recovered, replacement)
+        t.is(recovered.id, 6)
+        t.notThrows(() => recovered.assertLive())
+        t.deepEqual(state.destroyAttempts.slice(-3), [5, 5, 5])
+        t.is(state.instances, 6)
         t.deepEqual(state.destroyed, [1, 2, 3, 4, 5])
+        await dispose()
+        t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6])
+        t.throws(() => recovered.assertLive(), {
+          message: 'dead context',
+        })
       } finally {
         ;(globalThis as any).process = hostProcess
       }
-      t.is(countOwnedBeforeExitListeners(), 0)
-
-      const afterFailedDispose = await instantiate(moduleA)
-      t.is(afterFailedDispose.id, 6)
-      t.not(afterFailedDispose, replacement)
-      t.is(countOwnedBeforeExitListeners(), 1)
-      await dispose()
-      t.deepEqual(state.destroyed, [1, 2, 3, 4, 5, 6])
       t.is(countOwnedBeforeExitListeners(), 0)
 
       state.initializationError = initializationError
