@@ -1144,6 +1144,8 @@ jobs:
           yarn workspace @examples/custom-async-runtime test:browser
       - name: Workerd test (miniflare)
         run: yarn workspace @examples/custom-async-runtime test:workerd
+      - name: Test examples/napi threadless public surfaces
+        run: yarn workspace @examples/napi test:wasi-public-surfaces
 
   test-node-wasi:
     runs-on: ubuntu-latest
