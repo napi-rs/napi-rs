@@ -822,7 +822,7 @@ export async function instantiateNapiModule(module) {
       t.deepEqual(JSON.parse(result.stdout), {
         marker: 'workerd-export',
         sameWasm: true,
-        liveListeners: 1,
+        liveListeners: 0,
         disposedListeners: 0,
       })
       const typeTestPath = join(consumerDir, 'workerd-export.ts')
