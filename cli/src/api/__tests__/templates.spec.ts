@@ -1750,6 +1750,348 @@ if (mode === 'cleanup-failure') {
 )
 
 test.serial(
+  'deferred WASI retries cleanup ownership after listener registration and rollback fail',
+  async (t) => {
+    const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
+    const tmpDir = await mkdtemp(
+      join(
+        fileURLToPath(new URL('.', import.meta.url)),
+        '.tmp-registration-retry-',
+      ),
+    )
+
+    try {
+      const runtimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(runtimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(runtimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(runtimeDir, 'index.js'),
+        `export class WASI {}
+export async function instantiateNapiModule() {
+  const state = globalThis.__napiRegistrationRetryState
+  if (state.initializeSuccessfully) {
+    return { napiModule: { exports: {} } }
+  }
+  throw state.initializationError
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `export function createContext(options) {
+  if (options?.autoDestroy !== false) {
+    throw new Error('deferred loader must disable emnapi auto-destroy')
+  }
+  return {
+    suppressDestroy() {},
+    destroy() {
+      const state = globalThis.__napiRegistrationRetryState
+      state.destroyAttempts++
+      const reentrantDispose = state.reentrantDispose
+      state.reentrantDispose = undefined
+      const reentrantResult = reentrantDispose?.()
+      if (state.destroyAttempts <= state.cleanupFailures) {
+        return Promise.reject(state.cleanupError)
+      }
+      const finish = () => {
+        state.destroyed++
+      }
+      const dependencies = []
+      if (state.returnReentrantDispose && reentrantResult) {
+        dependencies.push(reentrantResult)
+      }
+      if (state.cleanupGate) {
+        dependencies.push(state.cleanupGate)
+      }
+      if (dependencies.length > 0) {
+        return Promise.all(dependencies).then(finish)
+      }
+      finish()
+      return Promise.resolve()
+    },
+  }
+}
+`,
+      )
+      await writeFile(join(tmpDir, 'deferred.mjs'), src)
+      await writeFile(
+        join(tmpDir, 'retry.mjs'),
+        `import assert from 'node:assert/strict'
+
+const mode = process.argv[2]
+const initialBeforeExitListeners = new Set(process.rawListeners('beforeExit'))
+const initializationError = new Error('initialization failed')
+const registrationError = new Error('beforeExit registration failed')
+const cleanupError = new Error('registration rollback failed')
+const state = {
+  cleanupFailures: mode === 'singleton' ? 2 : 1,
+  cleanupError,
+  destroyAttempts: 0,
+  destroyed: 0,
+  initializationError,
+}
+globalThis.__napiRegistrationRetryState = state
+
+const { createInstance, instantiate } = await import('./deferred.mjs')
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+function throwOnceOnBeforeExit(event) {
+  if (event === 'beforeExit') {
+    process.removeListener('newListener', throwOnceOnBeforeExit)
+    throw registrationError
+  }
+}
+process.on('newListener', throwOnceOnBeforeExit)
+try {
+  const pending =
+    mode === 'singleton' ? instantiate(module) : createInstance(module)
+  await assert.rejects(pending, (error) => {
+    if (mode === 'singleton') {
+      assert.strictEqual(error, registrationError)
+      assert.strictEqual(error.cause, cleanupError)
+    } else {
+      assert.strictEqual(error, initializationError)
+      assert.strictEqual(error.cause, registrationError)
+      assert.strictEqual(registrationError.cause, cleanupError)
+    }
+    return true
+  })
+} finally {
+  process.removeListener('newListener', throwOnceOnBeforeExit)
+}
+
+assert.equal(state.destroyAttempts, state.cleanupFailures)
+assert.equal(state.destroyed, 0)
+const retainedBeforeExitListeners = process
+  .rawListeners('beforeExit')
+  .filter((listener) => !initialBeforeExitListeners.has(listener))
+assert.equal(retainedBeforeExitListeners.length, 1)
+retainedBeforeExitListeners[0](0)
+await new Promise((resolve) => setImmediate(resolve))
+assert.equal(state.destroyAttempts, state.cleanupFailures + 1)
+assert.equal(state.destroyed, 1)
+assert.equal(
+  process
+    .rawListeners('beforeExit')
+    .filter((listener) => !initialBeforeExitListeners.has(listener)).length,
+  0,
+)
+process.stdout.write(\`\${mode}-registration-retry-ok\\n\`)
+`,
+      )
+      await writeFile(
+        join(tmpDir, 'processless.mjs'),
+        `import assert from 'node:assert/strict'
+
+const mode = process.argv[2]
+const nodeProcess = process
+const initializationError = new Error('initialization failed')
+const cleanupError = new Error('initial rollback failed')
+const state = {
+  cleanupError,
+  cleanupFailures: 1,
+  destroyAttempts: 0,
+  destroyed: 0,
+  initializationError,
+}
+globalThis.__napiRegistrationRetryState = state
+globalThis.process = undefined
+
+const { createInstance, dispose, instantiate } = await import('./deferred.mjs')
+if (mode === 'independent') {
+  state.reentrantDispose = dispose
+}
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+const pending =
+  mode === 'singleton' ? instantiate(module) : createInstance(module)
+await assert.rejects(pending, (error) => {
+  assert.strictEqual(error, initializationError)
+  assert.strictEqual(error.cause, cleanupError)
+  return true
+})
+assert.equal(state.destroyAttempts, 1)
+assert.equal(state.destroyed, 0)
+
+let releaseCleanup
+state.cleanupGate = new Promise((resolve) => {
+  releaseCleanup = resolve
+})
+state.reentrantDispose = dispose
+const cleanup = dispose()
+let concurrentSettled = false
+const concurrentCleanup = dispose().then(() => {
+  concurrentSettled = true
+})
+await new Promise((resolve) => setImmediate(resolve))
+assert.equal(concurrentSettled, false)
+releaseCleanup()
+await Promise.all([cleanup, concurrentCleanup])
+assert.equal(state.destroyAttempts, 2)
+assert.equal(state.destroyed, 1)
+
+globalThis.process = nodeProcess
+nodeProcess.stdout.write(\`\${mode}-processless-retry-ok\\n\`)
+`,
+      )
+      await writeFile(
+        join(tmpDir, 'successful-reentrant.mjs'),
+        `import assert from 'node:assert/strict'
+
+const nodeProcess = process
+const state = {
+  cleanupFailures: 0,
+  destroyAttempts: 0,
+  destroyed: 0,
+  initializeSuccessfully: true,
+  returnReentrantDispose: true,
+}
+globalThis.__napiRegistrationRetryState = state
+globalThis.process = undefined
+
+const { dispose, instantiate } = await import('./deferred.mjs')
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+await instantiate(module)
+state.reentrantDispose = dispose
+await dispose()
+assert.equal(state.destroyAttempts, 1)
+assert.equal(state.destroyed, 1)
+
+globalThis.process = nodeProcess
+nodeProcess.stdout.write('successful-reentrant-dispose-ok\\n')
+`,
+      )
+      await writeFile(
+        join(tmpDir, 'independent-reentrant.mjs'),
+        `import assert from 'node:assert/strict'
+
+const nodeProcess = process
+const state = {
+  cleanupFailures: 0,
+  destroyAttempts: 0,
+  destroyed: 0,
+  initializeSuccessfully: true,
+  returnReentrantDispose: true,
+}
+globalThis.__napiRegistrationRetryState = state
+globalThis.process = undefined
+
+const { createInstance, dispose, instantiate } = await import('./deferred.mjs')
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+await instantiate(module)
+const independent = await createInstance(module)
+state.reentrantDispose = dispose
+await independent.dispose()
+assert.equal(state.destroyAttempts, 2)
+assert.equal(state.destroyed, 2)
+
+await dispose()
+assert.equal(state.destroyAttempts, 2)
+globalThis.process = nodeProcess
+nodeProcess.stdout.write('independent-reentrant-dispose-ok\\n')
+`,
+      )
+
+      const results = await Promise.all(
+        ['independent', 'singleton'].map((mode) =>
+          execFileAsync(
+            process.execPath,
+            ['--unhandled-rejections=strict', join(tmpDir, 'retry.mjs'), mode],
+            { cwd: tmpDir, timeout: 10_000 },
+          ),
+        ),
+      )
+      const processlessResults = await Promise.all(
+        ['independent', 'singleton'].map((mode) =>
+          execFileAsync(
+            process.execPath,
+            [
+              '--unhandled-rejections=strict',
+              join(tmpDir, 'processless.mjs'),
+              mode,
+            ],
+            { cwd: tmpDir, timeout: 10_000 },
+          ),
+        ),
+      )
+      const successfulReentrantResult = await execFileAsync(
+        process.execPath,
+        [
+          '--unhandled-rejections=strict',
+          join(tmpDir, 'successful-reentrant.mjs'),
+        ],
+        { cwd: tmpDir, timeout: 10_000 },
+      )
+      const independentReentrantResult = await execFileAsync(
+        process.execPath,
+        [
+          '--unhandled-rejections=strict',
+          join(tmpDir, 'independent-reentrant.mjs'),
+        ],
+        { cwd: tmpDir, timeout: 10_000 },
+      )
+      t.deepEqual(
+        results.map((result) => result.stdout),
+        [
+          'independent-registration-retry-ok\n',
+          'singleton-registration-retry-ok\n',
+        ],
+      )
+      t.deepEqual(
+        processlessResults.map((result) => result.stdout),
+        [
+          'independent-processless-retry-ok\n',
+          'singleton-processless-retry-ok\n',
+        ],
+      )
+      t.is(
+        successfulReentrantResult.stdout,
+        'successful-reentrant-dispose-ok\n',
+      )
+      t.is(
+        independentReentrantResult.stdout,
+        'independent-reentrant-dispose-ok\n',
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
   'WASI loaders preserve newListener-owned beforeExit listeners and retained eager exports when work resumes',
   async (t) => {
     const tmpDir = await mkdtemp(
@@ -2181,7 +2523,6 @@ const state = {
   destroyed: [],
   cleanupError: undefined,
   initializationError: undefined,
-  registrationError: undefined,
 }
 globalThis.__cjsRollbackState = state
 
@@ -2196,7 +2537,7 @@ function load() {
   return require(bindingPath)
 }
 
-function expectPrimaryError(expected) {
+function expectPrimaryError(expected, expectedOwnedListeners = 0) {
   let observed
   try {
     load()
@@ -2204,29 +2545,36 @@ function expectPrimaryError(expected) {
     observed = error
   }
   assert.strictEqual(observed, expected)
-  assert.strictEqual(ownedBeforeExitListeners().length, 0)
+  assert.strictEqual(
+    ownedBeforeExitListeners().length,
+    expectedOwnedListeners,
+  )
   return observed
 }
 
-const originalOnce = process.once
 const registrationError = new Error('beforeExit registration failed')
 const registrationCleanupError = new Error('registration cleanup failed')
-state.registrationError = registrationError
 state.cleanupError = registrationCleanupError
-process.once = function(event, listener) {
-  if (event === 'beforeExit' && state.registrationError) {
-    throw state.registrationError
+function throwOnceOnBeforeExit(event) {
+  if (event === 'beforeExit') {
+    process.removeListener('newListener', throwOnceOnBeforeExit)
+    throw registrationError
   }
-  return originalOnce.call(this, event, listener)
 }
+process.on('newListener', throwOnceOnBeforeExit)
 try {
-  const observedRegistrationError = expectPrimaryError(registrationError)
+  const observedRegistrationError = expectPrimaryError(registrationError, 1)
   assert.strictEqual(observedRegistrationError.cause, registrationCleanupError)
 } finally {
-  process.once = originalOnce
-  state.registrationError = undefined
-  state.cleanupError = undefined
+  process.removeListener('newListener', throwOnceOnBeforeExit)
 }
+const registrationRetryListeners = ownedBeforeExitListeners()
+assert.strictEqual(registrationRetryListeners.length, 1)
+state.cleanupError = undefined
+registrationRetryListeners[0]()
+assert.strictEqual(ownedBeforeExitListeners().length, 0)
+assert.deepStrictEqual(state.destroyAttempts, [1, 1])
+assert.deepStrictEqual(state.destroyed, [1])
 
 const OriginalMemory = WebAssembly.Memory
 const memoryError = new Error('memory allocation failed')
@@ -2253,13 +2601,13 @@ assert.strictEqual(resolutionError.code, 'MODULE_NOT_FOUND')
 assert.strictEqual(resolutionError.cause, cleanupError)
 const retainedBeforeExitListeners = ownedBeforeExitListeners()
 assert.strictEqual(retainedBeforeExitListeners.length, 1)
-assert.deepStrictEqual(state.destroyAttempts, [1, 2, 3])
-assert.deepStrictEqual(state.destroyed, [2])
+assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3])
+assert.deepStrictEqual(state.destroyed, [1, 2])
 state.cleanupError = undefined
 retainedBeforeExitListeners[0]()
 assert.strictEqual(ownedBeforeExitListeners().length, 0)
-assert.deepStrictEqual(state.destroyAttempts, [1, 2, 3, 3])
-assert.deepStrictEqual(state.destroyed, [2, 3])
+assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3])
+assert.deepStrictEqual(state.destroyed, [1, 2, 3])
 
 fs.writeFileSync(wasmPath, '')
 const originalReadFileSync = fs.readFileSync
@@ -2281,8 +2629,8 @@ state.initializationError = initializationError
 expectPrimaryError(initializationError)
 
 assert.strictEqual(state.contexts, 5)
-assert.deepStrictEqual(state.destroyAttempts, [1, 2, 3, 3, 4, 5])
-assert.deepStrictEqual(state.destroyed, [2, 3, 4, 5])
+assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3, 4, 5])
+assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4, 5])
 process.stdout.write('rollback-ok\\n')
 `,
       )
