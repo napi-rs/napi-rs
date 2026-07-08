@@ -7215,12 +7215,47 @@ mod tests {
   static START_DURING_SHUTDOWN: AtomicBool = AtomicBool::new(false);
   static USE_SYNCHRONOUS_LIFECYCLE_HOOKS: AtomicBool = AtomicBool::new(false);
   static WAIT_FOR_ACTIVE_WORK_ON_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+  static PAUSE_BACKEND_WORKER_START: AtomicBool = AtomicBool::new(false);
   static ACTIVE_BACKEND_WORK: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+  static BACKEND_WORKER_START: (Mutex<(usize, bool)>, Condvar) =
+    (Mutex::new((0, false)), Condvar::new());
   static QUEUED_TASK: Mutex<Option<AsyncRuntimeTask>> = Mutex::new(None);
   static QUEUED_BLOCKING: Mutex<Option<Box<dyn FnOnce() + Send + 'static>>> = Mutex::new(None);
   static LIFECYCLE_REENTRY_ERROR: Mutex<Option<String>> = Mutex::new(None);
   static RUNTIME_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
-  fn runtime_state_test_guard() -> MutexGuard<'static, ()> {
+  struct RuntimeStateTestGuard {
+    _guard: MutexGuard<'static, ()>,
+    drained_active: Option<mpsc::Sender<usize>>,
+  }
+
+  impl RuntimeStateTestGuard {
+    fn observe_drain(mut self, drained_active: mpsc::Sender<usize>) -> Self {
+      self.drained_active = Some(drained_active);
+      self
+    }
+  }
+
+  impl Drop for RuntimeStateTestGuard {
+    fn drop(&mut self) {
+      let mut active = ACTIVE_BACKEND_WORK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      WAIT_FOR_ACTIVE_WORK_ON_SHUTDOWN.store(false, Ordering::SeqCst);
+      ACTIVE_BACKEND_WORK.1.notify_all();
+      while *active != 0 {
+        active = ACTIVE_BACKEND_WORK
+          .1
+          .wait(active)
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+      }
+      if let Some(drained_active) = self.drained_active.take() {
+        let _ = drained_active.send(*active);
+      }
+    }
+  }
+
+  fn runtime_state_test_guard() -> RuntimeStateTestGuard {
     let guard = RUNTIME_STATE_TEST_LOCK
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -7249,6 +7284,11 @@ mod tests {
     USE_SYNCHRONOUS_LIFECYCLE_HOOKS.store(false, Ordering::SeqCst);
     WAIT_FOR_ACTIVE_WORK_ON_SHUTDOWN.store(false, Ordering::SeqCst);
     ACTIVE_BACKEND_WORK.1.notify_all();
+    PAUSE_BACKEND_WORKER_START.store(false, Ordering::SeqCst);
+    *BACKEND_WORKER_START
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = (0, false);
     assert!(
       QUEUED_TASK
         .lock()
@@ -7270,7 +7310,10 @@ mod tests {
     if CUSTOM_ASYNC_RUNTIME.get().is_some() {
       try_start_async_runtime().unwrap();
     }
-    guard
+    RuntimeStateTestGuard {
+      _guard: guard,
+      drained_active: None,
+    }
   }
 
   /// Resets `DECLINE_SPAWN_BLOCKING` even if the test body panics.
@@ -7312,6 +7355,47 @@ mod tests {
         ACTIVE_BACKEND_WORK.1.notify_all();
       }
     }
+  }
+
+  fn wait_if_backend_worker_start_is_paused() {
+    if !PAUSE_BACKEND_WORKER_START.load(Ordering::SeqCst) {
+      return;
+    }
+    let mut state = BACKEND_WORKER_START
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.0 += 1;
+    BACKEND_WORKER_START.1.notify_all();
+    while !state.1 {
+      state = BACKEND_WORKER_START
+        .1
+        .wait(state)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    }
+  }
+
+  fn wait_for_backend_workers_at_start(expected: usize) {
+    let mut state = BACKEND_WORKER_START
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    while state.0 != expected {
+      state = BACKEND_WORKER_START
+        .1
+        .wait(state)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    }
+  }
+
+  fn release_backend_worker_start() {
+    PAUSE_BACKEND_WORKER_START.store(false, Ordering::SeqCst);
+    let mut state = BACKEND_WORKER_START
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.1 = true;
+    BACKEND_WORKER_START.1.notify_all();
   }
 
   struct SelfWaitingShutdown;
@@ -7482,10 +7566,12 @@ mod tests {
         }
         return Ok(());
       }
+      let active = ActiveBackendWork::enter();
       std::thread::Builder::new()
         .name(BACKEND_WORKER_THREAD.to_owned())
         .spawn(move || {
-          let _active = ActiveBackendWork::enter();
+          wait_if_backend_worker_start_is_paused();
+          let _active = active;
           futures::executor::block_on(task);
         })
         .expect("failed to spawn the InlineRuntime worker thread");
@@ -7621,10 +7707,12 @@ mod tests {
         }
         return Ok(());
       }
+      let active = ActiveBackendWork::enter();
       std::thread::Builder::new()
         .name(BACKEND_BLOCKING_THREAD.to_owned())
         .spawn(move || {
-          let _active = ActiveBackendWork::enter();
+          wait_if_backend_worker_start_is_paused();
+          let _active = active;
           work();
         })
         .expect("failed to spawn the InlineRuntime blocking thread");
@@ -7636,6 +7724,85 @@ mod tests {
   fn ensure_runtime() {
     static REGISTER: std::sync::Once = std::sync::Once::new();
     REGISTER.call_once(|| register_async_runtime(InlineRuntime));
+  }
+
+  #[test]
+  fn runtime_state_test_guard_waits_for_reserved_backend_work() {
+    ensure_runtime();
+    let (reserved_work_tx, reserved_work_rx) = mpsc::channel();
+    let (drained_active_tx, drained_active_rx) = mpsc::channel();
+    let (self_wait_released_tx, self_wait_released_rx) = mpsc::channel();
+    let (release_work_tx, release_work_rx) = mpsc::channel();
+
+    let guard_owner = std::thread::spawn(move || {
+      let guard = runtime_state_test_guard().observe_drain(drained_active_tx);
+      WAIT_FOR_ACTIVE_WORK_ON_SHUTDOWN.store(true, Ordering::SeqCst);
+      PAUSE_BACKEND_WORKER_START.store(true, Ordering::SeqCst);
+
+      let self_waiting_worker = spawn(async move {
+        let mut active = ACTIVE_BACKEND_WORK
+          .0
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while WAIT_FOR_ACTIVE_WORK_ON_SHUTDOWN.load(Ordering::SeqCst) && *active != 0 {
+          active = ACTIVE_BACKEND_WORK
+            .1
+            .wait(active)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        self_wait_released_tx.send(()).unwrap();
+      });
+      let delayed_worker = spawn_blocking(move || {
+        release_work_rx.recv().unwrap();
+      });
+
+      wait_for_backend_workers_at_start(2);
+      reserved_work_tx
+        .send(
+          *ACTIVE_BACKEND_WORK
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+        .unwrap();
+      drop(guard);
+      futures::executor::block_on(self_waiting_worker).unwrap();
+      futures::executor::block_on(delayed_worker).unwrap();
+    });
+
+    let reserved_work = reserved_work_rx.recv().unwrap();
+    release_backend_worker_start();
+
+    let self_wait_released = self_wait_released_rx
+      .recv_timeout(Duration::from_secs(5))
+      .is_ok();
+    if !self_wait_released {
+      let active = ACTIVE_BACKEND_WORK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      WAIT_FOR_ACTIVE_WORK_ON_SHUTDOWN.store(false, Ordering::SeqCst);
+      ACTIVE_BACKEND_WORK.1.notify_all();
+      drop(active);
+    }
+    release_work_tx.send(()).unwrap();
+    guard_owner.join().unwrap();
+    let drained_active = drained_active_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("the shared test guard must report its drained backend work");
+
+    assert!(
+      reserved_work == 2,
+      "backend work must be reserved before its worker thread begins"
+    );
+    assert!(
+      drained_active == 0,
+      "the shared test guard must drain reserved backend work before returning"
+    );
+    assert!(
+      self_wait_released,
+      "test guard cleanup must release a backend self-waiting during shutdown"
+    );
   }
 
   #[test]
