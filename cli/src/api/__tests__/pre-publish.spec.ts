@@ -17,7 +17,10 @@ import { promisify } from 'node:util'
 
 import ava, { type TestFn } from 'ava'
 
-import { createWasmModuleTypeDef } from '../../utils/index.js'
+import {
+  createWasmModuleTypeDef,
+  MINIMUM_WASI_NODE_VERSION,
+} from '../../utils/index.js'
 import { createWasiDeferredBindingTypeDef } from '../build.js'
 import { prePublish } from '../pre-publish.js'
 import { createWasiBinding } from '../templates/load-wasi-template.js'
@@ -66,6 +69,8 @@ async function setupThreadlessPackage(
     rootExports?: unknown
     rootFiles?: string[] | null
     publishConfig?: Record<string, unknown>
+    rootEngines?: Record<string, string>
+    targets?: string[]
     wasmBrowser?: {
       fs?: boolean
       buffer?: boolean
@@ -82,12 +87,13 @@ async function setupThreadlessPackage(
       main: 'index.js',
       module: 'index.mjs',
       types: 'index.d.ts',
+      engines: options.rootEngines,
       ...(options.rootFiles === null ? {} : { files: rootFiles }),
       exports: options.rootExports,
       publishConfig: options.publishConfig,
       napi: {
         binaryName,
-        targets: ['wasm32-wasip1'],
+        targets: options.targets ?? ['wasm32-wasip1'],
         ...(options.wasmBrowser
           ? { wasm: { browser: options.wasmBrowser } }
           : {}),
@@ -188,6 +194,8 @@ export declare const marker: "workerd-export"
 async function setupThreadedPackage(
   tmpDir: string,
   options: {
+    rootEngines?: Record<string, string>
+    skipRootPackage?: boolean
     wasmBrowser?: {
       fs?: boolean
       buffer?: boolean
@@ -195,22 +203,25 @@ async function setupThreadedPackage(
   } = {},
 ) {
   const binaryName = 'pre-publish-wasi'
-  await writeFile(
-    join(tmpDir, 'package.json'),
-    JSON.stringify({
-      name: binaryName,
-      version: '1.0.0',
-      main: 'index.js',
-      napi: {
-        binaryName,
-        targets: ['wasm32-wasip1-threads'],
-        ...(options.wasmBrowser
-          ? { wasm: { browser: options.wasmBrowser } }
-          : {}),
-      },
-    }),
-  )
-  await writeFile(join(tmpDir, 'index.js'), 'module.exports = {}\n')
+  if (!options.skipRootPackage) {
+    await writeFile(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: binaryName,
+        version: '1.0.0',
+        main: 'index.js',
+        engines: options.rootEngines,
+        napi: {
+          binaryName,
+          targets: ['wasm32-wasip1-threads'],
+          ...(options.wasmBrowser
+            ? { wasm: { browser: options.wasmBrowser } }
+            : {}),
+        },
+      }),
+    )
+    await writeFile(join(tmpDir, 'index.js'), 'module.exports = {}\n')
+  }
 
   const packageDir = join(tmpDir, 'npm', 'wasm32-wasi')
   await mkdir(packageDir, { recursive: true })
@@ -253,6 +264,34 @@ async function setupThreadedPackage(
           : '',
     )
   }
+}
+
+async function setupNativeFlavorPackage(tmpDir: string) {
+  const binaryName = 'pre-publish-wasi'
+  const packageDir = join(tmpDir, 'npm', 'linux-x64-gnu')
+  const artifact = `${binaryName}.linux-x64-gnu.node`
+  await mkdir(packageDir, { recursive: true })
+  await writeFile(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: `${binaryName}-linux-x64-gnu`,
+      version: '1.0.0',
+      main: artifact,
+      files: [artifact],
+    }),
+  )
+  await writeFile(join(packageDir, artifact), '')
+}
+
+async function materializePrePublish(tmpDir: string) {
+  await prePublish({
+    cwd: tmpDir,
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+  return JSON.parse(await readFile(join(tmpDir, 'package.json'), 'utf8'))
 }
 
 async function updateThreadlessFlavorManifest(
@@ -520,6 +559,64 @@ test('pre-publish validates a complete threadless package in dry-run mode', asyn
       tagStyle: 'npm',
     }),
   )
+})
+
+test('pre-publish adds the WASI node floor to threadless-only roots', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootEngines: { npm: '>=9' },
+  })
+
+  const packageJson = await materializePrePublish(t.context.tmpDir)
+
+  t.deepEqual(packageJson.engines, {
+    npm: '>=9',
+    node: MINIMUM_WASI_NODE_VERSION,
+  })
+})
+
+test('pre-publish restricts threaded-only roots to the WASI node floor', async (t) => {
+  await setupThreadedPackage(t.context.tmpDir, {
+    rootEngines: { node: '>=12' },
+  })
+
+  const packageJson = await materializePrePublish(t.context.tmpDir)
+
+  t.is(packageJson.engines.node, MINIMUM_WASI_NODE_VERSION)
+})
+
+test('pre-publish restricts roots containing both WASI flavors', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootEngines: { node: '>=12' },
+    targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+  })
+  await setupThreadedPackage(t.context.tmpDir, { skipRootPackage: true })
+
+  const packageJson = await materializePrePublish(t.context.tmpDir)
+
+  t.is(packageJson.engines.node, MINIMUM_WASI_NODE_VERSION)
+})
+
+test('pre-publish preserves root engines for mixed native and WASI targets', async (t) => {
+  const engines = { node: '>=12', npm: '>=9' }
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootEngines: engines,
+    targets: ['wasm32-wasip1', 'x86_64-unknown-linux-gnu'],
+  })
+  await setupNativeFlavorPackage(t.context.tmpDir)
+
+  const packageJson = await materializePrePublish(t.context.tmpDir)
+
+  t.deepEqual(packageJson.engines, engines)
+})
+
+test('pre-publish preserves stricter WASI-only root engine ranges', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootEngines: { node: '>=18', npm: '>=9' },
+  })
+
+  const packageJson = await materializePrePublish(t.context.tmpDir)
+
+  t.deepEqual(packageJson.engines, { node: '>=18', npm: '>=9' })
 })
 
 test('pre-publish requires module type for WASI packages', async (t) => {

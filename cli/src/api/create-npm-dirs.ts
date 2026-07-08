@@ -2,10 +2,7 @@ import { rm as rawRmAsync } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 
-import { Comparator, Range, minVersion, subset } from 'semver'
-
 const require = createRequire(import.meta.url)
-const minimumWasiNodeVersion = '>=14.18.0'
 const directBufferDependency = '^6.0.3'
 
 import {
@@ -15,9 +12,11 @@ import {
 import {
   createWasmModuleTypeDef,
   debugFactory,
+  MINIMUM_WASI_NODE_VERSION,
   readNapiConfig,
   mkdirAsync as rawMkdirAsync,
   pick,
+  restrictWasiNodeEngine,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   writeFileAsync as rawWriteFileAsync,
@@ -232,7 +231,7 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         ...scopedPackageJson.engines,
         node: scopedPackageJson.engines?.node
           ? restrictWasiNodeEngine(scopedPackageJson.engines.node)
-          : minimumWasiNodeVersion,
+          : MINIMUM_WASI_NODE_VERSION,
       }
       const emnapiVersion = require('emnapi/package.json').version
       scopedPackageJson.dependencies = {
@@ -275,70 +274,4 @@ function readme(packageName: string, target: Target) {
 
 This is the **${target.triple}** binary for \`${packageName}\`
 `
-}
-
-function restrictWasiNodeEngine(nodeRange: string) {
-  try {
-    if (subset(nodeRange, minimumWasiNodeVersion)) {
-      return nodeRange
-    }
-
-    if (subset(minimumWasiNodeVersion, nodeRange)) {
-      return minimumWasiNodeVersion
-    }
-
-    const minimumComparator = new Comparator(minimumWasiNodeVersion)
-    const restrictedRangeSets = new Range(nodeRange).set
-      .map((comparators) =>
-        normalizeComparatorSet([...comparators, minimumComparator]),
-      )
-      .filter(
-        (candidate): candidate is string =>
-          candidate !== undefined && minVersion(candidate) !== null,
-      )
-
-    if (restrictedRangeSets.length > 0) {
-      return restrictedRangeSets.join(' || ')
-    }
-  } catch {
-    // ignore
-  }
-
-  return minimumWasiNodeVersion
-}
-
-function normalizeComparatorSet(comparators: Comparator[]) {
-  const exactMatch = comparators.find(({ operator }) => operator === '')
-  if (exactMatch) {
-    return comparators.every((comparator) => comparator.test(exactMatch.semver))
-      ? exactMatch.value
-      : undefined
-  }
-
-  let lowerBound: Comparator | undefined
-  let upperBound: Comparator | undefined
-
-  for (const comparator of comparators) {
-    if (comparator.operator === '>' || comparator.operator === '>=') {
-      if (
-        !lowerBound ||
-        comparator.semver.compare(lowerBound.semver) > 0 ||
-        (comparator.semver.compare(lowerBound.semver) === 0 &&
-          comparator.operator === '>')
-      ) {
-        lowerBound = comparator
-      }
-    } else if (comparator.operator === '<' || comparator.operator === '<=') {
-      if (
-        !upperBound ||
-        comparator.semver.compare(upperBound.semver) < 0 ||
-        (comparator.semver.compare(upperBound.semver) === 0 &&
-          comparator.operator === '<')
-      ) {
-        upperBound = comparator
-      }
-    }
-  }
-
-  return [lowerBound?.value, upperBound?.value].filter(Boolean).join(' ')
 }

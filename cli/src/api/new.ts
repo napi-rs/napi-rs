@@ -24,7 +24,10 @@ import {
   wasiTargetHasThreads,
   type SupportedPackageManager,
 } from '../utils/index.js'
-import { napiEngineRequirement } from '../utils/version.js'
+import {
+  napiEngineRequirement,
+  restrictWasiNodeEngine,
+} from '../utils/version.js'
 import { renameProject } from './rename.js'
 import { createCjsBinding } from './templates/index.js'
 
@@ -765,7 +768,14 @@ export async function newProject(userOptions: RawNewOptions) {
       if (!pkgJson.engines) {
         pkgJson.engines = {}
       }
-      pkgJson.engines.node = napiEngineRequirement(options.minNodeApiVersion)
+      const nodeEngineRequirement = napiEngineRequirement(
+        options.minNodeApiVersion,
+      )
+      pkgJson.engines.node = options.targets.every(
+        (target) => parseTriple(target).platform === 'wasi',
+      )
+        ? restrictWasiNodeEngine(nodeEngineRequirement)
+        : nodeEngineRequirement
 
       // Update license if different from template
       if (options.license && pkgJson.license !== options.license) {

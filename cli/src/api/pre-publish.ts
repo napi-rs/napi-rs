@@ -22,7 +22,9 @@ import {
   copyFileAtomic,
   debugFactory,
   getPackageReconciliationRoot,
+  MINIMUM_WASI_NODE_VERSION,
   mkdirAsync,
+  restrictWasiNodeEngine,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   writeFileAtomic,
@@ -160,9 +162,17 @@ export async function prePublish(userOptions: PrePublishOptions) {
       optionalDependencies[`${packageName}-${target.platformArchABI}`] =
         packageJson.version
     }
+    const nodeEngine =
+      targets.length > 0 &&
+      targets.every((target) => target.platform === 'wasi')
+        ? restrictWasiNodeEngine(
+            packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
+          )
+        : undefined
     const rootReleasePlan: RootReleaseMaterializationPlan = {
       packageJson: reconciledPackageJson,
       optionalDependencies,
+      nodeEngine,
       facade: rootFacade,
       staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
     }
@@ -1357,6 +1367,7 @@ function validateRootFacadePacklist(
 interface RootReleaseMaterializationPlan {
   packageJson: CommonPackageJsonFields
   optionalDependencies: Record<string, unknown>
+  nodeEngine?: string
   facade?: ThreadlessWasiRootFacade
   staleGeneratedFiles: string[]
 }
@@ -1413,6 +1424,12 @@ async function materializeRootReleasePlan(
     await readFileAsync(packageJsonPath, 'utf8'),
   )
   updatedPackageJson.optionalDependencies = plan.optionalDependencies
+  if (plan.nodeEngine !== undefined) {
+    updatedPackageJson.engines = {
+      ...asRecord(updatedPackageJson.engines),
+      node: plan.nodeEngine,
+    }
+  }
   syncThreadlessWasiRootFacadeManifest(updatedPackageJson, plan.packageJson)
   await writeFileAtomic(
     packageJsonPath,

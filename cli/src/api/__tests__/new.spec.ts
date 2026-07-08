@@ -18,7 +18,11 @@ import { parse as parseToml } from '@std/toml'
 import ava, { type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
-import { CLI_VERSION } from '../../utils/index.js'
+import {
+  CLI_VERSION,
+  MINIMUM_WASI_NODE_VERSION,
+  napiEngineRequirement,
+} from '../../utils/index.js'
 import { newProject } from '../new.js'
 
 const require = createRequire(import.meta.url)
@@ -188,7 +192,7 @@ test('create a new project with default options', async (t) => {
   t.is(pkgJson.name, 'default-project')
   t.is(pkgJson.napi.binaryName, 'default-project')
   t.is(pkgJson.license, 'MIT')
-  t.truthy(pkgJson.engines.node)
+  t.is(pkgJson.engines.node, napiEngineRequirement(4))
   t.false('browser' in pkgJson)
   t.false(pkgJson.files.includes('browser.js'))
   t.falsy(existsSync(join(projectPath, 'browser.js')))
@@ -261,6 +265,7 @@ for (const packageManager of ['yarn', 'pnpm'] as const) {
         await readFile(join(projectPath, 'package.json'), 'utf-8'),
       )
       t.deepEqual(pkgJson.napi.targets, ['wasm32-wasip1'])
+      t.is(pkgJson.engines.node, MINIMUM_WASI_NODE_VERSION)
       t.is(pkgJson.devDependencies['@napi-rs/cli'], `^${CLI_VERSION}`)
       const lockfile =
         packageManager === 'yarn' ? 'yarn.lock' : 'pnpm-lock.yaml'
@@ -385,6 +390,7 @@ test.serial(
       'wasm32-wasip1-threads',
       'wasm32-wasip1',
     ])
+    t.is(pkgJson.engines.node, MINIMUM_WASI_NODE_VERSION)
     const workflow = yamlLoad(
       await readFile(
         join(projectPath, '.github', 'workflows', 'CI.yml'),
@@ -481,7 +487,7 @@ test('create a new project with custom path, name, and targets', async (t) => {
   t.is(pkgJson.name, '@custom/full-project')
   t.is(pkgJson.napi.binaryName, 'full-project')
   t.is(pkgJson.license, 'Apache-2.0')
-  t.true(pkgJson.engines.node.includes('>= 14.0.0'))
+  t.is(pkgJson.engines.node, napiEngineRequirement(6))
   t.is(pkgJson.browser, 'browser.js')
   t.true(pkgJson.files.includes('browser.js'))
   t.true(existsSync(join(projectPath, 'browser.js')))
