@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises'
@@ -97,7 +99,10 @@ test('filesystem transactions restore prior outputs after a commit failure', asy
   const staging = join(t.context.tmpDir, 'staging')
   const first = join(root, 'first.txt')
   const second = join(root, 'second.txt')
+  const oldName = join(root, 'old-name.txt')
+  const newName = join(root, 'new-name.txt')
   const stagedFirst = join(staging, 'first.txt')
+  const stagedRename = join(staging, 'renamed.txt')
   await Promise.all([
     mkdir(root, { recursive: true }),
     mkdir(staging, { recursive: true }),
@@ -105,14 +110,29 @@ test('filesystem transactions restore prior outputs after a commit failure', asy
   await Promise.all([
     writeFile(first, 'prior first'),
     writeFile(second, 'prior second'),
+    writeFile(oldName, 'prior renamed file'),
     writeFile(stagedFirst, 'replacement first'),
+    writeFile(stagedRename, 'replacement renamed file'),
   ])
+  if (process.platform !== 'win32') {
+    await Promise.all([
+      chmod(first, 0o755),
+      chmod(second, 0o640),
+      chmod(oldName, 0o751),
+    ])
+  }
 
   await t.throwsAsync(() =>
     commitFileSystemTransaction(
       root,
       [
-        { source: stagedFirst, destination: first },
+        { source: stagedFirst, destination: first, mode: 0o600 },
+        {
+          source: stagedRename,
+          destination: newName,
+          mode: 0o700,
+          removeBeforeWrite: oldName,
+        },
         { source: join(staging, 'missing.txt'), destination: second },
       ],
       [],
@@ -121,6 +141,55 @@ test('filesystem transactions restore prior outputs after a commit failure', asy
 
   t.is(await readFile(first, 'utf8'), 'prior first')
   t.is(await readFile(second, 'utf8'), 'prior second')
+  t.is(await readFile(oldName, 'utf8'), 'prior renamed file')
+  t.false(existsSync(newName))
+  if (process.platform !== 'win32') {
+    t.is((await stat(first)).mode & 0o7777, 0o755)
+    t.is((await stat(second)).mode & 0o7777, 0o640)
+    t.is((await stat(oldName)).mode & 0o7777, 0o751)
+  }
+})
+
+test('filesystem transactions apply requested modes to writes and staged renames', async (t) => {
+  const root = join(t.context.tmpDir, 'transaction-modes')
+  const staging = join(t.context.tmpDir, 'transaction-mode-staging')
+  const existing = join(root, 'existing.txt')
+  const oldName = join(root, 'old-name.txt')
+  const newName = join(root, 'new-name.txt')
+  const stagedExisting = join(staging, 'existing.txt')
+  const stagedRename = join(staging, 'renamed.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(existing, 'prior existing'),
+    writeFile(oldName, 'prior renamed file'),
+    writeFile(stagedExisting, 'replacement existing'),
+    writeFile(stagedRename, 'replacement renamed file'),
+  ])
+
+  await commitFileSystemTransaction(
+    root,
+    [
+      { source: stagedExisting, destination: existing, mode: 0o755 },
+      {
+        source: stagedRename,
+        destination: newName,
+        mode: 0o751,
+        removeBeforeWrite: oldName,
+      },
+    ],
+    [],
+  )
+
+  t.is(await readFile(existing, 'utf8'), 'replacement existing')
+  t.false(existsSync(oldName))
+  t.is(await readFile(newName, 'utf8'), 'replacement renamed file')
+  if (process.platform !== 'win32') {
+    t.is((await stat(existing)).mode & 0o7777, 0o755)
+    t.is((await stat(newName)).mode & 0o7777, 0o751)
+  }
 })
 
 test('filesystem reconciliation serializes operations for one output root', async (t) => {

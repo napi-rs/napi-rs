@@ -1,4 +1,4 @@
-import { lstatSync } from 'node:fs'
+import { lstatSync, realpathSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -55,29 +55,21 @@ const DEPENDENCY_FIELDS = new Set([
 const RECURSIVE_PACKAGE_KEY_FIELDS = new Set(['overrides', 'resolutions'])
 
 type JsonRecord = Record<string, unknown>
-type RenameCommitPhase =
-  | 'managed-rename'
-  | 'package-manifest'
-  | 'config'
-  | 'cargo'
-  | 'workflow'
-  | 'flavor-manifest'
-  | 'managed-text'
-  | 'readme'
-
-interface RenameTestOptions extends RenameOptions {
-  __testFailCommitPhase?: RenameCommitPhase
-}
 
 interface ManagedFileRename {
   source: string
   destination: string
 }
 
+interface PlannedManagedFileRename extends ManagedFileRename {
+  replacesSameFile: boolean
+}
+
 interface PreparedWrite {
   content: Buffer
   destination: string
-  phase: RenameCommitPhase
+  mode: number
+  removeBeforeWrite?: string
 }
 
 class RenameTransactionPlan {
@@ -87,12 +79,17 @@ class RenameTransactionPlan {
   addWrite(
     destination: string,
     content: Buffer | string,
-    phase: RenameCommitPhase,
+    mode: number,
+    removeBeforeWrite?: string,
   ) {
     const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content)
     const existing = this.writes.get(destination)
     if (existing) {
-      if (!existing.content.equals(buffer)) {
+      if (
+        !existing.content.equals(buffer) ||
+        existing.mode !== mode ||
+        existing.removeBeforeWrite !== removeBeforeWrite
+      ) {
         throw new Error(
           `Rename prepared conflicting updates for ${destination}`,
         )
@@ -102,7 +99,8 @@ class RenameTransactionPlan {
     this.writes.set(destination, {
       content: buffer,
       destination,
-      phase,
+      mode,
+      removeBeforeWrite,
     })
   }
 
@@ -128,6 +126,11 @@ function assertRegularFile(path: string, description: string) {
   if (!stats.isFile()) {
     throw new Error(`${description} must be a regular file: ${path}`)
   }
+  return stats
+}
+
+function fileMode(path: string, description: string) {
+  return assertRegularFile(path, description).mode & 0o7777
 }
 
 function assertSafeBinaryName(name: unknown, description: string) {
@@ -318,15 +321,82 @@ function replaceManifestReference(
       return `./${relativeFile}`
     }
   }
-  for (const [oldPackageName, newPackageName] of packageRenames) {
-    if (value === oldPackageName) {
-      return newPackageName
-    }
-    if (value.startsWith(`${oldPackageName}/`)) {
-      return `${newPackageName}${value.slice(oldPackageName.length)}`
+  return replacePackageSelectors(value, packageRenames, false)
+}
+
+function isPackageSelectorPrefix(
+  value: string,
+  index: number,
+  packageName: string,
+  allowSelectorPrefix: boolean,
+) {
+  if (index === 0 || (index === 4 && value.startsWith('npm:'))) {
+    return true
+  }
+  if (!allowSelectorPrefix) {
+    return false
+  }
+
+  const previous = value[index - 1]
+  if (previous !== '/' && previous !== '>') {
+    return false
+  }
+  if (previous === '/' && !packageName.startsWith('@')) {
+    const previousSlash = value.lastIndexOf('/', index - 2)
+    const previousSegment = value
+      .slice(previousSlash + 1, index - 1)
+      .replace(/^npm:/, '')
+    if (previousSegment.startsWith('@')) {
+      return false
     }
   }
-  return value
+  return true
+}
+
+function replacePackageSelectors(
+  value: string,
+  packageRenames: Map<string, string>,
+  allowSelectorPrefix: boolean,
+) {
+  let cursor = 0
+  let updated = ''
+  const renames = [...packageRenames].sort(
+    ([left], [right]) => right.length - left.length,
+  )
+
+  while (cursor < value.length) {
+    let match: { index: number; name: string; replacement: string } | undefined
+    for (const [name, replacement] of renames) {
+      let index = value.indexOf(name, cursor)
+      while (index !== -1) {
+        const next = value[index + name.length]
+        if (
+          isPackageSelectorPrefix(value, index, name, allowSelectorPrefix) &&
+          (next === undefined || next === '/' || next === '@')
+        ) {
+          break
+        }
+        index = value.indexOf(name, index + name.length)
+      }
+      if (
+        index !== -1 &&
+        (!match ||
+          index < match.index ||
+          (index === match.index && name.length > match.name.length))
+      ) {
+        match = { index, name, replacement }
+      }
+    }
+
+    if (!match) {
+      updated += value.slice(cursor)
+      break
+    }
+    updated += value.slice(cursor, match.index)
+    updated += match.replacement
+    cursor = match.index + match.name.length
+  }
+  return updated || value
 }
 
 function defineJsonProperty(target: JsonRecord, key: string, value: unknown) {
@@ -379,7 +449,7 @@ function rewriteReferenceTree(
   return updated
 }
 
-function rewritePackageMapKeys(
+function rewritePackageMap(
   value: unknown,
   packageRenames: Map<string, string>,
   recursive: boolean,
@@ -387,7 +457,7 @@ function rewritePackageMapKeys(
   if (Array.isArray(value)) {
     return value.map((entry) =>
       typeof entry === 'string'
-        ? replaceManifestReference(entry, new Map(), packageRenames)
+        ? replacePackageSelectors(entry, packageRenames, true)
         : entry,
     )
   }
@@ -397,16 +467,38 @@ function rewritePackageMapKeys(
 
   const updated = createJsonRecord()
   for (const [key, entry] of Object.entries(value)) {
-    const updatedKey = replaceManifestReference(key, new Map(), packageRenames)
+    const updatedKey = replacePackageSelectors(key, packageRenames, true)
     if (Object.prototype.hasOwnProperty.call(updated, updatedKey)) {
       throw new Error(
         `Renaming package reference ${key} conflicts with existing key ${updatedKey}`,
       )
     }
+    const updatedEntry =
+      typeof entry === 'string'
+        ? replacePackageSelectors(entry, packageRenames, false)
+        : recursive
+          ? rewritePackageMap(entry, packageRenames, true)
+          : entry
+    defineJsonProperty(updated, updatedKey, updatedEntry)
+  }
+  return updated
+}
+
+function rewritePnpmConfig(
+  value: unknown,
+  packageRenames: Map<string, string>,
+) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+  const updated = createJsonRecord()
+  for (const [key, entry] of Object.entries(value)) {
     defineJsonProperty(
       updated,
-      updatedKey,
-      recursive ? rewritePackageMapKeys(entry, packageRenames, true) : entry,
+      key,
+      key === 'overrides'
+        ? rewritePackageMap(entry, packageRenames, true)
+        : entry,
     )
   }
   return updated
@@ -560,11 +652,13 @@ function rewritePackageManifest(
         false,
       )
     } else if (DEPENDENCY_FIELDS.has(key)) {
-      rewritten = rewritePackageMapKeys(entry, packageRenames, false)
+      rewritten = rewritePackageMap(entry, packageRenames, false)
     } else if (key === 'bundledDependencies' || key === 'bundleDependencies') {
-      rewritten = rewritePackageMapKeys(entry, packageRenames, false)
+      rewritten = rewritePackageMap(entry, packageRenames, false)
     } else if (RECURSIVE_PACKAGE_KEY_FIELDS.has(key)) {
-      rewritten = rewritePackageMapKeys(entry, packageRenames, true)
+      rewritten = rewritePackageMap(entry, packageRenames, true)
+    } else if (key === 'pnpm') {
+      rewritten = rewritePnpmConfig(entry, packageRenames)
     } else if (key === 'scripts') {
       rewritten = rewriteScripts(entry, fileRenames, packageRenames)
     } else if (key === 'publishConfig') {
@@ -747,6 +841,36 @@ function collectManagedFileRenames(
   return operations
 }
 
+function pathsReferToSameFile(left: string, right: string) {
+  try {
+    const leftStats = lstatSync(left)
+    const rightStats = lstatSync(right)
+    if (!leftStats.isFile() || !rightStats.isFile()) {
+      return false
+    }
+    const leftPath = realpathSync.native(left)
+    const rightPath = realpathSync.native(right)
+    if (
+      leftPath === rightPath ||
+      (process.platform === 'win32' &&
+        leftPath.toLowerCase() === rightPath.toLowerCase())
+    ) {
+      return true
+    }
+    return (
+      (process.platform === 'darwin' || process.platform === 'win32') &&
+      resolve(left).toLowerCase() === resolve(right).toLowerCase() &&
+      leftStats.dev === rightStats.dev &&
+      leftStats.ino === rightStats.ino
+    )
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
+}
+
 function preflightManagedFileRenames(operations: ManagedFileRename[]) {
   const operationsBySource = new Map<string, ManagedFileRename>()
   const sources = new Set<string>()
@@ -774,22 +898,28 @@ function preflightManagedFileRenames(operations: ManagedFileRename[]) {
     destinations.set(operation.destination, operation.source)
   }
 
+  const planned: PlannedManagedFileRename[] = []
   for (const operation of operationsBySource.values()) {
+    const replacesSameFile =
+      pathExists(operation.destination) &&
+      pathsReferToSameFile(operation.source, operation.destination)
     if (
       pathExists(operation.destination) &&
-      !sources.has(operation.destination)
+      !sources.has(operation.destination) &&
+      !replacesSameFile
     ) {
       throw new Error(
         `Cannot rename managed file ${operation.source}: destination already exists: ${operation.destination}`,
       )
     }
+    planned.push({ ...operation, replacesSameFile })
   }
-  return [...operationsBySource.values()]
+  return planned
 }
 
 async function prepareManagedFileRenames(
   plan: RenameTransactionPlan,
-  operations: ManagedFileRename[],
+  operations: PlannedManagedFileRename[],
   fileRenames: Map<string, string>,
   packageRenames: Map<string, string>,
 ) {
@@ -797,6 +927,7 @@ async function prepareManagedFileRenames(
     operations.map((operation) => operation.destination),
   )
   for (const operation of operations) {
+    const mode = fileMode(operation.source, 'Managed rename source')
     const content = await readFileAsync(operation.source)
     plan.addWrite(
       operation.destination,
@@ -807,9 +938,10 @@ async function prepareManagedFileRenames(
             fileRenames,
             packageRenames,
           ),
-      'managed-rename',
+      mode,
+      operation.replacesSameFile ? operation.source : undefined,
     )
-    if (!destinations.has(operation.source)) {
+    if (!operation.replacesSameFile && !destinations.has(operation.source)) {
       plan.removals.add(operation.source)
     }
   }
@@ -824,7 +956,7 @@ async function prepareManagedTextWrite(
   if (plan.hasWrite(path) || !pathExists(path) || path.endsWith('.wasm')) {
     return
   }
-  assertRegularFile(path, 'Managed text file')
+  const mode = fileMode(path, 'Managed text file')
   const content = await readFileAsync(path, 'utf8')
   const updated = replaceManagedTextReferences(
     content,
@@ -832,7 +964,7 @@ async function prepareManagedTextWrite(
     packageRenames,
   )
   if (updated !== content) {
-    plan.addWrite(path, updated, 'managed-text')
+    plan.addWrite(path, updated, mode)
   }
 }
 
@@ -858,10 +990,10 @@ async function prepareManagedPackageReadme(
   if (!pathExists(path)) {
     return
   }
-  assertRegularFile(path, 'Managed package README')
+  const mode = fileMode(path, 'Managed package README')
   const content = await readFileAsync(path, 'utf8')
   if (content === managedPackageReadme(oldPackageName, target)) {
-    plan.addWrite(path, managedPackageReadme(newPackageName, target), 'readme')
+    plan.addWrite(path, managedPackageReadme(newPackageName, target), mode)
   }
 }
 
@@ -917,7 +1049,6 @@ function sanitizeCargoPackageName(binaryName: string) {
 async function executeRenameTransaction(
   projectRoot: string,
   plan: RenameTransactionPlan,
-  failPhase?: RenameCommitPhase,
 ) {
   if (plan.writes.size === 0 && plan.removals.size === 0) {
     return
@@ -929,38 +1060,22 @@ async function executeRenameTransaction(
     let sequence = 0
     for (const prepared of plan.writes.values()) {
       const source = join(stagingRoot, String(sequence++))
-      await writeFile(source, prepared.content)
+      await writeFile(source, prepared.content, { mode: prepared.mode })
       writes.push({
         destination: prepared.destination,
-        phase: prepared.phase,
+        mode: prepared.mode,
+        removeBeforeWrite: prepared.removeBeforeWrite,
         source,
       })
     }
 
-    if (failPhase) {
-      const injected = writes.find((write) => write.phase === failPhase)
-      if (!injected) {
-        throw new Error(
-          `Cannot inject rename transaction failure: phase ${failPhase} was not planned`,
-        )
-      }
-      injected.source = join(stagingRoot, `missing-${failPhase}`)
-    }
-
-    await commitFileSystemTransaction(
-      projectRoot,
-      writes.map(({ destination, source }) => ({ destination, source })),
-      [...plan.removals],
-    )
+    await commitFileSystemTransaction(projectRoot, writes, [...plan.removals])
   } finally {
     await rm(stagingRoot, { force: true, recursive: true })
   }
 }
 
-async function renameProjectUnlocked(
-  userOptions: RenameOptions,
-  failPhase?: RenameCommitPhase,
-) {
+async function renameProjectUnlocked(userOptions: RenameOptions) {
   const options = applyDefaultRenameOptions(userOptions)
   const projectRoot = await realpath(resolve(options.cwd))
   const packageJsonPath = await resolveCanonicalFile(
@@ -1033,7 +1148,7 @@ async function renameProjectUnlocked(
   const hasManagedReferenceRenames =
     managedWasiRenames.size > 0 || managedPackageRenames.size > 0
 
-  assertRegularFile(packageJsonPath, 'package.json')
+  const packageJsonMode = fileMode(packageJsonPath, 'package.json')
   const packageJsonContent = await readFileAsync(packageJsonPath, 'utf8')
   const parsedPackageJson = JSON.parse(packageJsonContent)
   const packageJsonData = asJsonRecord(parsedPackageJson)
@@ -1105,11 +1220,11 @@ async function renameProjectUnlocked(
         managedPackageRenames,
       ),
     ),
-    'package-manifest',
+    packageJsonMode,
   )
 
   if (configPath) {
-    assertRegularFile(configPath, 'NAPI config')
+    const configMode = fileMode(configPath, 'NAPI config')
     const configContent = await readFileAsync(configPath, 'utf8')
     const configData = asJsonRecord(JSON.parse(configContent))
     if (!configData) {
@@ -1119,7 +1234,7 @@ async function renameProjectUnlocked(
     plan.addWrite(
       configPath,
       serializeJsonLike(configContent, configData),
-      'config',
+      configMode,
     )
   }
 
@@ -1129,12 +1244,12 @@ async function renameProjectUnlocked(
       resolve(projectRoot, options.manifestPath),
       'Cargo manifest',
     )
-    assertRegularFile(cargoTomlPath, 'Cargo manifest')
+    const cargoTomlMode = fileMode(cargoTomlPath, 'Cargo manifest')
     const tomlContent = await readFileAsync(cargoTomlPath, 'utf8')
     const cargoToml = parseToml(tomlContent) as any
     if (cargoToml.package) {
       cargoToml.package.name = sanitizeCargoPackageName(newName)
-      plan.addWrite(cargoTomlPath, stringifyToml(cargoToml), 'cargo')
+      plan.addWrite(cargoTomlPath, stringifyToml(cargoToml), cargoTomlMode)
     }
 
     const workflowPath = join(projectRoot, '.github', 'workflows', 'CI.yml')
@@ -1142,6 +1257,10 @@ async function renameProjectUnlocked(
       const canonicalWorkflowPath = await resolveCanonicalFile(
         projectRoot,
         workflowPath,
+        'GitHub Actions workflow',
+      )
+      const workflowMode = fileMode(
+        canonicalWorkflowPath,
         'GitHub Actions workflow',
       )
       const workflowContent = await readFileAsync(canonicalWorkflowPath, 'utf8')
@@ -1155,7 +1274,7 @@ async function renameProjectUnlocked(
             noRefs: true,
             sortKeys: false,
           }),
-          'workflow',
+          workflowMode,
         )
       }
     }
@@ -1191,7 +1310,10 @@ async function renameProjectUnlocked(
         'Managed package manifest',
       )
       if (pathExists(targetPackageJsonPath)) {
-        assertRegularFile(targetPackageJsonPath, 'Managed package manifest')
+        const manifestMode = fileMode(
+          targetPackageJsonPath,
+          'Managed package manifest',
+        )
         const content = await readFileAsync(targetPackageJsonPath, 'utf8')
         const manifest = asJsonRecord(JSON.parse(content))
         if (!manifest) {
@@ -1208,11 +1330,7 @@ async function renameProjectUnlocked(
           ),
         )
         if (updatedContent !== content) {
-          plan.addWrite(
-            targetPackageJsonPath,
-            updatedContent,
-            'flavor-manifest',
-          )
+          plan.addWrite(targetPackageJsonPath, updatedContent, manifestMode)
         }
       }
     }
@@ -1296,17 +1414,16 @@ async function renameProjectUnlocked(
     }
   }
 
-  await executeRenameTransaction(projectRoot, plan, failPhase)
+  await executeRenameTransaction(projectRoot, plan)
 }
 
 export async function renameProject(userOptions: RenameOptions) {
-  const failPhase = (userOptions as RenameTestOptions).__testFailCommitPhase
   const options = applyDefaultRenameOptions(userOptions)
   const reconciliationRoot = getPackageReconciliationRoot(
     options.cwd,
     options.packageJsonPath,
   )
   return withFileSystemReconciliation(reconciliationRoot, () =>
-    renameProjectUnlocked(options, failPhase),
+    renameProjectUnlocked(options),
   )
 }

@@ -7,6 +7,7 @@ import {
   stat,
   readdir,
   access,
+  chmod,
   rename,
   rm,
   realpath,
@@ -43,6 +44,8 @@ interface ReconciliationLockOwner {
 
 export interface FileSystemTransactionWrite {
   destination: string
+  mode?: number
+  removeBeforeWrite?: string
   source: string
 }
 
@@ -64,7 +67,11 @@ export async function writeFileAtomic(
   }
 }
 
-export async function copyFileAtomic(source: string, destination: string) {
+export async function copyFileAtomic(
+  source: string,
+  destination: string,
+  mode?: number,
+) {
   await mkdir(dirname(destination), { recursive: true })
   const temporaryPath = join(
     dirname(destination),
@@ -72,6 +79,9 @@ export async function copyFileAtomic(source: string, destination: string) {
   )
   try {
     await copyFile(source, temporaryPath)
+    if (mode !== undefined) {
+      await chmod(temporaryPath, mode)
+    }
     await rename(temporaryPath, destination)
   } finally {
     await rm(temporaryPath, { force: true })
@@ -121,57 +131,119 @@ export async function commitFileSystemTransaction(
   removals: string[],
 ) {
   const transactionRoot = resolve(root)
+  const transactionWrites = writes.map((write) => ({
+    destination: resolveTransactionPath(transactionRoot, write.destination),
+    mode: write.mode,
+    removeBeforeWrite: write.removeBeforeWrite
+      ? resolveTransactionPath(transactionRoot, write.removeBeforeWrite)
+      : undefined,
+    source: write.source,
+  }))
   const writesByDestination = new Map(
-    writes.map((write) => [
-      resolveTransactionPath(transactionRoot, write.destination),
-      write.source,
-    ]),
+    transactionWrites.map((write) => [write.destination, write]),
   )
+  const resolvedRemovals = removals.map((path) =>
+    resolveTransactionPath(transactionRoot, path),
+  )
+  const preWriteRemovals = new Set(
+    transactionWrites.flatMap(({ removeBeforeWrite }) =>
+      removeBeforeWrite ? [removeBeforeWrite] : [],
+    ),
+  )
+  const replacementDestinations = new Set(
+    transactionWrites.flatMap(({ destination, removeBeforeWrite }) =>
+      removeBeforeWrite ? [destination] : [],
+    ),
+  )
+  for (const { destination, removeBeforeWrite } of transactionWrites) {
+    if (!removeBeforeWrite) {
+      continue
+    }
+    if (!(await fileExists(removeBeforeWrite))) {
+      throw new Error(
+        `Filesystem transaction replacement source does not exist: ${removeBeforeWrite}`,
+      )
+    }
+    if (
+      (await fileExists(destination)) &&
+      !(await pathsReferToSameFilesystemEntry(removeBeforeWrite, destination))
+    ) {
+      throw new Error(
+        `Filesystem transaction replacement destination is occupied: ${destination}`,
+      )
+    }
+  }
   const affected = new Set([
     ...writesByDestination.keys(),
-    ...removals.map((path) => resolveTransactionPath(transactionRoot, path)),
+    ...resolvedRemovals,
+    ...preWriteRemovals,
   ])
   const backupRoot = await mkdirTemporaryChild(
     transactionRoot,
     'transaction-backup',
   )
-  const backups = new Map<string, string>()
+  const backups = new Map<string, { mode: number; path: string }>()
 
   try {
     for (const path of affected) {
+      if (replacementDestinations.has(path)) {
+        continue
+      }
       if (!(await fileExists(path))) {
         continue
       }
       const backup = join(backupRoot, relative(transactionRoot, path))
-      await copyFileAtomic(path, backup)
-      backups.set(path, backup)
+      const mode = (await stat(path)).mode & 0o7777
+      await copyFileAtomic(path, backup, mode)
+      backups.set(path, { mode, path: backup })
     }
 
     try {
-      for (const [destination, source] of writesByDestination) {
-        await copyFileAtomic(source, destination)
+      for (const path of preWriteRemovals) {
+        await rm(path, { force: true, recursive: true })
+      }
+      for (const { destination, mode, source } of transactionWrites) {
+        await copyFileAtomic(source, destination, mode)
       }
       for (const path of affected) {
-        if (!writesByDestination.has(path)) {
+        if (!writesByDestination.has(path) && !preWriteRemovals.has(path)) {
           await rm(path, { force: true, recursive: true })
         }
       }
     } catch (error) {
-      await Promise.all(
-        [...affected].map(async (path) => {
-          const backup = backups.get(path)
-          if (backup) {
-            await copyFileAtomic(backup, path)
-          } else {
-            await rm(path, { force: true, recursive: true })
-          }
-        }),
-      )
+      for (const path of [...affected].reverse()) {
+        await rm(path, { force: true, recursive: true })
+      }
+      for (const [path, backup] of backups) {
+        await copyFileAtomic(backup.path, path, backup.mode)
+      }
       throw error
     }
   } finally {
     await rm(backupRoot, { force: true, recursive: true })
   }
+}
+
+async function pathsReferToSameFilesystemEntry(left: string, right: string) {
+  const [leftPath, rightPath, leftStats, rightStats] = await Promise.all([
+    realpath(left),
+    realpath(right),
+    stat(left),
+    stat(right),
+  ])
+  if (
+    leftPath === rightPath ||
+    (process.platform === 'win32' &&
+      leftPath.toLowerCase() === rightPath.toLowerCase())
+  ) {
+    return true
+  }
+  return (
+    (process.platform === 'darwin' || process.platform === 'win32') &&
+    resolve(left).toLowerCase() === resolve(right).toLowerCase() &&
+    leftStats.dev === rightStats.dev &&
+    leftStats.ino === rightStats.ino
+  )
 }
 
 async function canonicalizeReconciliationPath(path: string) {
