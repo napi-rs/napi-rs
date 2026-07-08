@@ -139,24 +139,16 @@ function __captureEmnapiAutoDestroyListener(__process) {
 const __managedEmnapiContextDestroyers = new Set()
 let __managedCleanupProcess
 let __managedBeforeExitListener
-let __managedExitListener
 let __managedDestroyPromise
 
 function __removeManagedEmnapiCleanupListeners() {
   const __process = __managedCleanupProcess
   const __beforeExitListener = __managedBeforeExitListener
-  const __exitListener = __managedExitListener
   __managedCleanupProcess = undefined
   __managedBeforeExitListener = undefined
-  __managedExitListener = undefined
   if (__process && __beforeExitListener) {
     try {
       __process.removeListener('beforeExit', __beforeExitListener)
-    } catch {}
-  }
-  if (__process && __exitListener) {
-    try {
-      __process.removeListener('exit', __exitListener)
     } catch {}
   }
 }
@@ -170,27 +162,6 @@ function __registerManagedBeforeExitListener() {
     __destroyManagedEmnapiContextsBeforeExit,
   )
   __managedBeforeExitListener = __destroyManagedEmnapiContextsBeforeExit
-}
-
-function __destroyManagedEmnapiContexts() {
-  __removeManagedEmnapiCleanupListeners()
-  let __firstError
-  const __destroyers = Array.from(__managedEmnapiContextDestroyers)
-  for (const __destroy of __destroyers) {
-    try {
-      const __result = __destroy()
-      if (__result && typeof __result.then === 'function') {
-        void Promise.resolve(__result).catch(() => {})
-      }
-    } catch (error) {
-      if (__firstError === undefined) {
-        __firstError = error
-      }
-    }
-  }
-  if (__firstError) {
-    throw __firstError
-  }
 }
 
 function __destroyManagedEmnapiContextsBeforeExit() {
@@ -240,10 +211,6 @@ function __registerManagedEmnapiContext(__process, __destroy) {
       __managedCleanupProcess = __process
     }
     __registerManagedBeforeExitListener()
-    if (!__managedExitListener) {
-      __process.once('exit', __destroyManagedEmnapiContexts)
-      __managedExitListener = __destroyManagedEmnapiContexts
-    }
   } catch (error) {
     __removeManagedEmnapiCleanupListeners()
     __managedEmnapiContextDestroyers.delete(__destroy)
@@ -259,7 +226,6 @@ function __registerManagedEmnapiContext(__process, __destroy) {
     if (
       __managedEmnapiContextDestroyers.size === 0 &&
       __managedBeforeExitListener &&
-      __managedExitListener &&
       __managedCleanupProcess
     ) {
       __removeManagedEmnapiCleanupListeners()
@@ -285,7 +251,7 @@ async function __createManagedEmnapiContext() {
   }
   let __disposed = false
   let __destroyPromise
-  let __unregisterExit
+  let __unregisterCleanup
   const __destroy = () => {
     if (__disposed) {
       return
@@ -299,7 +265,7 @@ async function __createManagedEmnapiContext() {
         (value) => {
           __disposed = true
           __destroyPromise = undefined
-          __unregisterExit?.()
+          __unregisterCleanup?.()
           return value
         },
         (error) => {
@@ -311,11 +277,11 @@ async function __createManagedEmnapiContext() {
       return __promise
     }
     __disposed = true
-    __unregisterExit?.()
+    __unregisterCleanup?.()
     return __result
   }
   try {
-    __unregisterExit = __registerManagedEmnapiContext(__process, __destroy)
+    __unregisterCleanup = __registerManagedEmnapiContext(__process, __destroy)
   } catch (error) {
     try {
       await __destroy()

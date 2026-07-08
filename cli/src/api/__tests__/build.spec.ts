@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { exec, execSync, spawnSync } from 'node:child_process'
+import { exec, execFileSync, execSync, spawnSync } from 'node:child_process'
 import {
   chmod,
   copyFile,
@@ -51,6 +51,39 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../../..')
+
+function findCargoExecutable() {
+  const output =
+    process.platform === 'win32'
+      ? execFileSync('where.exe', ['cargo'], { encoding: 'utf8' })
+      : execFileSync('sh', ['-c', 'command -v cargo'], { encoding: 'utf8' })
+  const executable = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+  if (!executable) {
+    throw new Error('Failed to locate cargo executable')
+  }
+  return executable
+}
+
+async function writeCargoShim(projectDir: string, source: string) {
+  const scriptPath = join(projectDir, 'cargo-shim.cjs')
+  await writeFile(scriptPath, source)
+
+  if (process.platform === 'win32') {
+    const commandPath = join(projectDir, 'cargo-shim.cmd')
+    const nodeExecutable = process.execPath.replaceAll('%', '%%')
+    await writeFile(
+      commandPath,
+      `@echo off\r\n"${nodeExecutable}" "%~dp0cargo-shim.cjs" %*\r\n`,
+    )
+    return commandPath
+  }
+
+  await chmod(scriptPath, 0o755)
+  return scriptPath
+}
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -1641,27 +1674,26 @@ test('WASI SDK compiler flags preserve paths containing spaces', (t) => {
 
 test('WASI SDK flags honor shell parsing mode for Windows-style paths', (t) => {
   const windowsPath = String.raw`C:\WASI SDK`
+  const escapedSysroot = join(windowsPath, 'share', 'wasi-sysroot')
   const escaped = createWasiCompilerFlags(
     windowsPath,
     'wasm32-wasip1',
     false,
     true,
   )
-  t.true(
-    escaped.compileFlags.includes(
-      String.raw`'--sysroot=C:\WASI SDK/share/wasi-sysroot'`,
-    ),
-  )
+  t.true(escaped.compileFlags.includes(`'--sysroot=${escapedSysroot}'`))
 
+  const unescapedWindowsPath = String.raw`C:\wasi-sdk`
+  const unescapedSysroot = join(unescapedWindowsPath, 'share', 'wasi-sysroot')
   const unescaped = createWasiCompilerFlags(
-    String.raw`C:\wasi-sdk`,
+    unescapedWindowsPath,
     'wasm32-wasip1',
     false,
     false,
   )
   t.is(
     unescaped.compileFlags,
-    String.raw`--target=wasm32-wasip1 --sysroot=C:\wasi-sdk/share/wasi-sysroot -mllvm -wasm-enable-sjlj`,
+    `--target=wasm32-wasip1 --sysroot=${unescapedSysroot} -mllvm -wasm-enable-sjlj`,
   )
   t.throws(
     () => createWasiCompilerFlags(windowsPath, 'wasm32-wasip1', false, false),
@@ -2171,12 +2203,9 @@ export = binding
     )
     const previousSourceWasm = await readFile(sourceWasm)
     await writeFile(sourceWasm, new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
-    const cargoShim = join(projectDir, 'cargo-shim.cjs')
-    const cargoExecutable = execSync('command -v cargo', {
-      encoding: 'utf8',
-    }).trim()
-    await writeFile(
-      cargoShim,
+    const cargoExecutable = findCargoExecutable()
+    const cargoShim = await writeCargoShim(
+      projectDir,
       `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
 const args = process.argv.slice(2)
@@ -2188,7 +2217,6 @@ if (args.includes('metadata')) {
 }
 `,
     )
-    await chmod(cargoShim, 0o755)
     const originalCargo = process.env.CARGO
     process.env.CARGO = cargoShim
     try {
@@ -2361,12 +2389,9 @@ pub fn wasi_only() -> &'static str {
       )
     }
 
-    const cargoExecutable = execSync('command -v cargo', {
-      encoding: 'utf8',
-    }).trim()
-    const cargoShim = join(projectDir, 'cargo-shim.cjs')
-    await writeFile(
-      cargoShim,
+    const cargoExecutable = findCargoExecutable()
+    const cargoShim = await writeCargoShim(
+      projectDir,
       `#!/usr/bin/env node
 const { mkdirSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
@@ -2423,7 +2448,6 @@ writeFileSync(
 )
 `,
     )
-    await chmod(cargoShim, 0o755)
 
     const previousCargo = process.env.CARGO
     process.env.CARGO = cargoShim

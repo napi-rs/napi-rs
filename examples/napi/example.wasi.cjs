@@ -116,7 +116,6 @@ try {
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiContextRegisteredForBeforeExit = false
-let __emnapiContextRegisteredForExit = false
 
 function __destroyEmnapiContext() {
   if (__emnapiContextDestroyed) {
@@ -151,12 +150,6 @@ function __removeEmnapiContextCleanupListeners() {
       process.removeListener('beforeExit', __destroyEmnapiContextBeforeExit)
     } catch {}
     __emnapiContextRegisteredForBeforeExit = false
-  }
-  if (__emnapiContextRegisteredForExit) {
-    try {
-      process.removeListener('exit', __destroyEmnapiContextAtExit)
-    } catch {}
-    __emnapiContextRegisteredForExit = false
   }
 }
 
@@ -200,15 +193,6 @@ function __destroyEmnapiContextBeforeExit() {
   }
 }
 
-function __destroyEmnapiContextAtExit() {
-  try {
-    const __result = __destroyEmnapiContext()
-    if (__result && typeof __result.then === 'function') {
-      void Promise.resolve(__result).catch(() => {})
-    }
-  } catch {}
-}
-
 function __attachCleanupError(__error, __cleanupError) {
   try {
     if (
@@ -228,8 +212,6 @@ let __napiModule
 
 try {
   __registerEmnapiContextBeforeExit()
-  process.once('exit', __destroyEmnapiContextAtExit)
-  __emnapiContextRegisteredForExit = true
 
   __sharedMemory = new WebAssembly.Memory({
     initial: 16384,
@@ -341,7 +323,7 @@ try {
   } else if (!__cleanupFailed) {
     __removeEmnapiContextCleanupListeners()
   }
-  if (!__emnapiContextRegisteredForExit) {
+  if (!__emnapiContextRegisteredForBeforeExit) {
     // Listener registration itself failed, so no partial lifecycle ownership
     // can remain even when the best-effort context rollback also fails.
     __removeEmnapiContextCleanupListeners()
