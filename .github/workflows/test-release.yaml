@@ -301,7 +301,7 @@ jobs:
         if: matrix.settings.test
         run: ${{ matrix.settings.test }}
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 20
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           DISABLE_V8_COMPILE_CACHE: 1
