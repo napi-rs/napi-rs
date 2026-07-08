@@ -11,6 +11,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixtureDirectory = join(__dirname, '..', 'module-init-rollback')
 const addonPath = join(fixtureDirectory, 'module-init-rollback.node')
 const runnerPath = join(__dirname, 'module-init-rollback.js')
+const supportsCleanupHookInterposition =
+  process.platform === 'darwin' || process.platform === 'linux'
 
 async function runScenario(
   runner: string,
@@ -90,7 +92,7 @@ test.skipIf(isWasi)(
   },
 )
 
-test.skipIf(isWasi)(
+test.skipIf(isWasi || !supportsCleanupHookInterposition)(
   'cleanup-hook registration failure rolls the custom runtime back before Tokio',
   async (t) => {
     const temporaryDirectory = await mkdtemp(

@@ -284,48 +284,6 @@ fn rollback_unowned_runtime_with_retirement_preserving_registration_error(
   error
 }
 
-#[cfg(all(
-  not(feature = "noop"),
-  any(feature = "tokio_rt", feature = "async-runtime"),
-  feature = "napi4"
-))]
-#[cfg(all(
-  feature = "__internal_test_runtime_cleanup_hook_failure",
-  not(target_family = "wasm")
-))]
-static RUNTIME_CLEANUP_HOOK_FAILURE_INJECTED: std::sync::atomic::AtomicBool =
-  std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(all(
-  not(feature = "noop"),
-  any(feature = "tokio_rt", feature = "async-runtime"),
-  feature = "napi4"
-))]
-unsafe fn add_runtime_env_cleanup_hook(
-  env: sys::napi_env,
-  cleanup_data: *mut std::ffi::c_void,
-) -> sys::napi_status {
-  #[cfg(all(
-    feature = "__internal_test_runtime_cleanup_hook_failure",
-    not(target_family = "wasm")
-  ))]
-  // This feature is enabled only by the module-init rollback integration fixture.
-  if std::env::var_os("NAPI_MODULE_INIT_ROLLBACK_FAIL_RUNTIME_CLEANUP_HOOK").is_some()
-    && !RUNTIME_CLEANUP_HOOK_FAILURE_INJECTED.swap(true, std::sync::atomic::Ordering::AcqRel)
-  {
-    return sys::Status::napi_generic_failure;
-  }
-
-  #[cfg(not(target_family = "wasm"))]
-  {
-    unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data) }
-  }
-  #[cfg(target_family = "wasm")]
-  {
-    unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data) }
-  }
-}
-
 // Per-env custom-GC infrastructure (#3357). Module registration first installs a provisional
 // handle so values captured by module-init callbacks can route off-thread drops without creating
 // a native callback that could outlive a failed load. After exports succeed, the handle becomes
@@ -774,7 +732,12 @@ pub unsafe extern "C" fn napi_register_module_v1(
       #[cfg(feature = "async-runtime")]
       async_runtime_env_reserved: AtomicBool::new(false),
     }));
-    let status = unsafe { add_runtime_env_cleanup_hook(env, cleanup_data.cast()) };
+    #[cfg(not(target_family = "wasm"))]
+    let status =
+      unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
+    #[cfg(target_family = "wasm")]
+    let status =
+      unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
     if status != sys::Status::napi_ok {
       drop(unsafe { Box::from_raw(cleanup_data) });
       let error = crate::Error::new(
@@ -1595,13 +1558,6 @@ fn decrement_runtime_module_count(env: sys::napi_env) {
   #[cfg(not(feature = "tokio_rt"))]
   let tokio_shutdown_failed = false;
   let _was_last = decrement_runtime_module_count_with_last(env, || {
-    #[cfg(all(
-      feature = "__internal_test_runtime_module_retirement_barrier",
-      feature = "async-runtime",
-      not(target_family = "wasm")
-    ))]
-    run_runtime_module_retirement_barrier();
-
     #[cfg(feature = "tokio_rt")]
     match crate::tokio_runtime::shutdown_tokio_runtime() {
       Ok(()) => {
@@ -1700,49 +1656,6 @@ fn decrement_runtime_module_count(env: sys::napi_env) {
       // Tokio retirement thread to wait for.
       std::process::abort();
     }
-  }
-}
-
-#[cfg(all(
-  feature = "__internal_test_runtime_module_retirement_barrier",
-  feature = "async-runtime",
-  not(feature = "noop"),
-  feature = "napi4",
-  not(target_family = "wasm")
-))]
-fn run_runtime_module_retirement_barrier() {
-  use std::{
-    path::Path,
-    thread,
-    time::{Duration, Instant},
-  };
-
-  let (Ok(entered_path), Ok(result_path), Ok(release_path)) = (
-    std::env::var("NAPI_TEST_RUNTIME_MODULE_RETIREMENT_ENTERED"),
-    std::env::var("NAPI_TEST_RUNTIME_MODULE_RETIREMENT_RESULT"),
-    std::env::var("NAPI_TEST_RUNTIME_MODULE_RETIREMENT_RELEASE"),
-  ) else {
-    return;
-  };
-
-  if std::fs::write(&entered_path, "entered").is_err() {
-    return;
-  }
-  let result = thread::spawn(crate::tokio_runtime::try_start_async_runtime)
-    .join()
-    .map_or_else(
-      |_| "Panic\nexplicit runtime start panicked".to_owned(),
-      |result| match result {
-        Ok(()) => "Ok\nexplicit runtime start succeeded".to_owned(),
-        Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
-      },
-    );
-  let _ = std::fs::write(result_path, result);
-
-  let deadline = Instant::now() + Duration::from_secs(30);
-  let release_path = Path::new(&release_path);
-  while !release_path.exists() && Instant::now() < deadline {
-    thread::sleep(Duration::from_millis(5));
   }
 }
 

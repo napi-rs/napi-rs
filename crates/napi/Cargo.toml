@@ -47,12 +47,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 independent = true
 
 [features]
-# Integration-test-only fault injection used by examples/napi.
-__internal_test_runtime_cleanup_hook_failure = []
-# Integration-test-only last-environment retirement barrier used by examples/napi.
-__internal_test_runtime_module_retirement_barrier = []
-# Integration-test-only TSFN blocking-state observation used by examples/napi.
-__internal_test_tsfn_blocking_state = []
 async = ["tokio_rt"]
 async-runtime = ["napi4"]
 chrono_date = ["chrono", "napi5"]

@@ -41,16 +41,10 @@ const wasiOnlyLifecycleExports = [
 ]
 const threadedWasiBrowserTestExports = [
   'abortBoundedTsfnFromOwnerAgent',
-  'abortBoundedTsfnPostCallFromOwnerAgent',
-  'armBoundedTsfnPostCallNativeWait',
   'boundedTsfnOwnerAbortState',
-  'boundedTsfnPostCallAbortState',
   'finishBoundedTsfnOwnerAbort',
-  'finishBoundedTsfnPostCallAbort',
   'prepareBoundedTsfnOwnerAbort',
-  'prepareBoundedTsfnPostCallAbort',
   'releaseBoundedTsfnNativeWait',
-  'releaseBoundedTsfnPostCallSlot',
 ]
 const nativeFunctionExports = [
   ...new Set([...unsupportedWasiFunctions, ...crossTargetLifecycleExports]),
@@ -84,6 +78,10 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
     if (file.startsWith('example.wasi')) {
       for (const name of threadedWasiBrowserTestExports) {
         t.true(source.includes(name), `${file}: ${name}`)
+      }
+    } else {
+      for (const name of threadedWasiBrowserTestExports) {
+        t.false(source.includes(name), `${file}: ${name}`)
       }
     }
     const helper =

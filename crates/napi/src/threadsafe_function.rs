@@ -130,12 +130,6 @@ const TSFN_OWNER_RELEASE_PENDING: u8 = 1;
 const TSFN_OWNER_ABORT_PENDING: u8 = 2;
 const TSFN_OWNER_RETIRED: u8 = 3;
 
-#[cfg(all(
-  feature = "__internal_test_tsfn_blocking_state",
-  target_family = "wasm"
-))]
-type ThreadsafeFunctionBlockingWaitObserver = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
-
 struct ThreadsafeFunctionHandle {
   state: Arc<ThreadsafeFunctionHandleState>,
 }
@@ -155,36 +149,9 @@ struct ThreadsafeFunctionOwnerCleanupContext {
   state: Arc<ThreadsafeFunctionHandleState>,
 }
 
-#[cfg(all(
-  feature = "__internal_test_tsfn_blocking_state",
-  target_family = "wasm"
-))]
-static THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS: AtomicUsize = AtomicUsize::new(0);
-
 impl ThreadsafeFunctionOwnerCleanupContext {
   fn into_raw(state: Arc<ThreadsafeFunctionHandleState>) -> *mut Self {
-    #[cfg(all(
-      feature = "__internal_test_tsfn_blocking_state",
-      target_family = "wasm"
-    ))]
-    THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS.fetch_add(1, Ordering::AcqRel);
     Box::into_raw(Box::new(Self { state }))
-  }
-}
-
-impl Drop for ThreadsafeFunctionOwnerCleanupContext {
-  fn drop(&mut self) {
-    #[cfg(all(
-      feature = "__internal_test_tsfn_blocking_state",
-      target_family = "wasm"
-    ))]
-    if checked_update_atomic(&THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS, |count| {
-      count.checked_sub(1)
-    })
-    .is_err()
-    {
-      std::process::abort();
-    }
   }
 }
 
@@ -217,11 +184,6 @@ struct ThreadsafeFunctionHandleState {
   blocking_active: AtomicUsize,
   blocking_waiter: Mutex<()>,
   blocking_idle: Condvar,
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  blocking_wait_observer: Mutex<Option<ThreadsafeFunctionBlockingWaitObserver>>,
   #[cfg(not(target_family = "wasm"))]
   owner_thread: ThreadId,
   #[cfg(target_family = "wasm")]
@@ -280,11 +242,6 @@ impl ThreadsafeFunctionHandle {
         blocking_active: AtomicUsize::new(0),
         blocking_waiter: Mutex::new(()),
         blocking_idle: Condvar::new(),
-        #[cfg(all(
-          feature = "__internal_test_tsfn_blocking_state",
-          target_family = "wasm"
-        ))]
-        blocking_wait_observer: Mutex::new(None),
         #[cfg(not(target_family = "wasm"))]
         owner_thread: std::thread::current().id(),
         #[cfg(target_family = "wasm")]
@@ -373,17 +330,6 @@ impl ThreadsafeFunctionHandle {
 
   fn register_finalizer(&self, callback: ThreadsafeFunctionFinalizeCallback) -> Result<()> {
     self.state.register_finalizer(callback)
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  fn register_blocking_wait_observer(
-    &self,
-    observer: ThreadsafeFunctionBlockingWaitObserver,
-  ) -> Result<()> {
-    self.state.register_blocking_wait_observer(observer)
   }
 
   fn new_payload_guard(&self) -> ThreadsafeFunctionPayloadGuard {
@@ -601,48 +547,12 @@ impl ThreadsafeFunctionHandleState {
       .blocking_waiter
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    #[cfg(all(
-      feature = "__internal_test_tsfn_blocking_state",
-      target_family = "wasm"
-    ))]
-    if self.blocking_active.load(Ordering::Acquire) != 0 {
-      let observer = self
-        .blocking_wait_observer
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone();
-      if observer.is_some_and(|observer| !observer()) {
-        return;
-      }
-    }
     while self.blocking_active.load(Ordering::Acquire) != 0 {
       waiter = self
         .blocking_idle
         .wait(waiter)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  fn register_blocking_wait_observer(
-    &self,
-    observer: ThreadsafeFunctionBlockingWaitObserver,
-  ) -> Result<()> {
-    let mut registered = self
-      .blocking_wait_observer
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if registered.is_some() {
-      return Err(Error::new(
-        Status::InvalidArg,
-        "Threadsafe Function blocking wait observer has already been registered",
-      ));
-    }
-    *registered = Some(observer);
-    Ok(())
   }
 
   fn register_finalizer(&self, callback: ThreadsafeFunctionFinalizeCallback) -> Result<()> {
@@ -1717,64 +1627,6 @@ impl<
       .handle
       .retire(sys::ThreadsafeFunctionReleaseMode::abort))
   }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  #[doc(hidden)]
-  pub fn __test_register_blocking_wait_observer<F>(&self, observer: F) -> Result<()>
-  where
-    F: Fn() -> bool + Send + Sync + 'static,
-  {
-    self
-      .handle
-      .register_blocking_wait_observer(Arc::new(observer))
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  #[doc(hidden)]
-  pub fn __test_blocking_call_state(&self) -> (bool, u8, u8, bool) {
-    let current_agent = WasmHostAgent::current();
-    (
-      self.handle.state.blocking_active.load(Ordering::Acquire) != 0,
-      self.handle.state.owner_agent as u8,
-      current_agent as u8,
-      self.handle.state.owner_agent.is_identifiable_owner()
-        && self.handle.state.owner_agent == current_agent,
-    )
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  #[doc(hidden)]
-  pub fn __test_handle_state_ptr(&self) -> usize {
-    Arc::as_ptr(&self.handle.state) as usize
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  #[doc(hidden)]
-  pub fn __test_with_lifecycle_read_lock<F: FnOnce()>(&self, callback: F) {
-    let _lifecycle_guard = self.handle.read_lifecycle();
-    callback();
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  #[doc(hidden)]
-  pub fn __test_owner_cleanup_context_count() -> usize {
-    THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS.load(Ordering::Acquire)
-  }
 }
 
 impl<
@@ -1880,30 +1732,6 @@ impl<
         callback: Box::new(|_d: Result<Return>, _: Env| Ok(())),
       },
       mode,
-    )
-    .into()
-  }
-
-  #[cfg(all(
-    feature = "__internal_test_tsfn_blocking_state",
-    target_family = "wasm"
-  ))]
-  #[doc(hidden)]
-  pub fn __test_call_bounded_blocking<BeforeNative: FnOnce(), AfterNative: FnOnce(Status)>(
-    &self,
-    value: T,
-    before_native: BeforeNative,
-    after_native: AfterNative,
-  ) -> Status {
-    call_blocking_threadsafe_function_with_owned_data(
-      &self.handle,
-      ThreadsafeFunctionCallJsBackData {
-        data: value,
-        call_variant: ThreadsafeFunctionCallVariant::Direct,
-        callback: Box::new(|_d: Result<Return>, _: Env| Ok(())),
-      },
-      before_native,
-      |status| after_native(status.into()),
     )
     .into()
   }

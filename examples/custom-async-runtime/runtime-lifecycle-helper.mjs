@@ -261,88 +261,57 @@ export async function runModuleRetirementRace(bindingFile) {
   assert.ok(bindingFile, 'native binding path is required')
   assert.ok(isAbsolute(bindingFile), 'native binding path must be absolute')
 
-  const directory = await mkdtemp(
-    join(tmpdir(), 'napi-runtime-module-retirement-'),
-  )
-  const enteredPath = join(directory, 'entered')
-  const releasePath = join(directory, 'release')
-  process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_ENTERED = enteredPath
-  process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_RELEASE = releasePath
-
-  const first = new Worker(new URL(import.meta.url), {
-    workerData: {
-      bindingFile,
-      role: 'retire-module',
-    },
-  })
-  const second = new Worker(new URL(import.meta.url), {
-    workerData: {
-      bindingFile,
-      role: 'retire-module',
-    },
-  })
-  let replacement
-  let firstTermination
-  let secondTermination
-
-  try {
-    await Promise.all([
-      waitForMessage(first, 'retirement-ready'),
-      waitForMessage(second, 'retirement-ready'),
-    ])
-    firstTermination = first.terminate()
-    await waitForFile(enteredPath)
-
-    secondTermination = second.terminate()
-
-    replacement = new Worker(new URL(import.meta.url), {
-      workerData: {
-        bindingFile,
-        role: 'load',
-      },
-    })
-    await waitForMessage(replacement, 'loading')
-    let secondSettled = false
-    let replacementSettled = false
-    const secondStopped = secondTermination.finally(() => {
-      secondSettled = true
-    })
-    const replacementLoaded = waitForMessage(replacement, 'loaded').finally(
-      () => {
-        replacementSettled = true
-      },
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    const retiring = Array.from(
+      { length: 3 },
+      () =>
+        new Worker(new URL(import.meta.url), {
+          workerData: {
+            bindingFile,
+            role: 'retire-module',
+          },
+        }),
     )
-    await delay(100)
-    assert.equal(
-      secondSettled,
-      false,
-      'the last old environment retired before the earlier cleanup committed its module decrement',
-    )
-    assert.equal(
-      replacementSettled,
-      false,
-      'replacement registration overtook an earlier environment/module retirement generation',
-    )
-
-    await writeFile(releasePath, 'release')
-    await firstTermination
-    firstTermination = undefined
-    await secondStopped
-    secondTermination = undefined
-    const loaded = await replacementLoaded
-    assert.equal(loaded.value, 42)
-    console.log('module retirement race passed')
-  } finally {
-    delete process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_ENTERED
-    delete process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_RELEASE
-    await writeFile(releasePath, 'release').catch(() => {})
-    await firstTermination?.catch(() => {})
-    await secondTermination?.catch(() => {})
-    await first.terminate().catch(() => {})
-    await second.terminate().catch(() => {})
-    await replacement?.terminate().catch(() => {})
-    await rm(directory, { recursive: true, force: true })
+    const replacements = []
+    try {
+      await Promise.all(
+        retiring.map((worker) => waitForMessage(worker, 'retirement-ready')),
+      )
+      const retirements = retiring.map((worker) => worker.terminate())
+      for (let index = 0; index < retiring.length; index += 1) {
+        const replacement = new Worker(new URL(import.meta.url), {
+          workerData: {
+            bindingFile,
+            role: 'load-after-retirement',
+          },
+        })
+        replacements.push(replacement)
+      }
+      await Promise.all(
+        replacements.map((worker) => waitForMessage(worker, 'loaded')),
+      )
+      await Promise.all(retirements)
+      const probed = replacements.map((worker) =>
+        waitForMessage(worker, 'probed'),
+      )
+      for (const replacement of replacements) {
+        replacement.postMessage('probe')
+      }
+      const results = await Promise.all(probed)
+      assert.deepEqual(
+        results.map(({ value }) => value),
+        replacements.map(() => 42),
+        `replacement generation ${iteration} observed a stale stopped runtime`,
+      )
+    } finally {
+      await Promise.all(
+        [...retiring, ...replacements].map((worker) =>
+          worker.terminate().catch(() => {}),
+        ),
+      )
+    }
   }
+  console.log('module retirement race passed')
 }
 
 function submissionMetrics(metrics) {
@@ -573,6 +542,29 @@ async function runWorker() {
       const value = await binding.asyncDouble(21)
       const { startCalls } = binding.getRuntimeMetrics()
       parentPort.postMessage({ type: 'loaded', startCalls, value })
+      return
+    }
+
+    if (workerData.role === 'load-after-retirement') {
+      const binding = require(workerData.bindingFile)
+      parentPort.postMessage({ type: 'loaded' })
+      const command = await new Promise((resolve) => {
+        parentPort.once('message', resolve)
+      })
+      if (command !== 'probe') {
+        throw new TypeError(`unknown replacement worker command: ${command}`)
+      }
+      let value
+      try {
+        value = await binding.asyncDouble(21)
+      } catch (error) {
+        error.message += `; runtime metrics: ${JSON.stringify(
+          binding.getRuntimeMetrics(),
+        )}`
+        throw error
+      }
+      parentPort.postMessage({ type: 'probed', value })
+      parentPort.on('message', () => {})
       return
     }
 

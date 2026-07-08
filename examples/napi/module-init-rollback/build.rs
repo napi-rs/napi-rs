@@ -7,6 +7,10 @@ fn main() {
     && !matches!(target_os.as_str(), "windows" | "android"))
     || matches!(target_os.as_str(), "freebsd" | "openbsd");
 
+  if target_os == "linux" {
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--wrap=napi_add_env_cleanup_hook");
+  }
+
   if setup_would_disable_unloading {
     setup_rerun_tracking();
   } else {

@@ -6,16 +6,10 @@ globalThis.Buffer = Buffer
 
 type BrowserTsfnTestBinding = typeof import('../index.cjs') & {
   abortBoundedTsfnFromOwnerAgent(): void
-  abortBoundedTsfnPostCallFromOwnerAgent(): void
-  armBoundedTsfnPostCallNativeWait(): void
   boundedTsfnOwnerAbortState(): Array<number>
-  boundedTsfnPostCallAbortState(): Array<number>
   finishBoundedTsfnOwnerAbort(): void
-  finishBoundedTsfnPostCallAbort(): void
   prepareBoundedTsfnOwnerAbort(callback: (arg: number) => void): void
-  prepareBoundedTsfnPostCallAbort(callback: (arg: number) => void): void
   releaseBoundedTsfnNativeWait(): void
-  releaseBoundedTsfnPostCallSlot(): void
 }
 
 // @ts-expect-error
@@ -26,96 +20,15 @@ const {
   Bird,
   GetterSetterWithClosures,
   abortBoundedTsfnFromOwnerAgent,
-  abortBoundedTsfnPostCallFromOwnerAgent,
-  armBoundedTsfnPostCallNativeWait,
   boundedTsfnOwnerAbortState,
-  boundedTsfnPostCallAbortState,
   finishBoundedTsfnOwnerAbort,
-  finishBoundedTsfnPostCallAbort,
   prepareBoundedTsfnOwnerAbort,
-  prepareBoundedTsfnPostCallAbort,
   releaseBoundedTsfnNativeWait,
-  releaseBoundedTsfnPostCallSlot,
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
   asyncTaskReadFile,
   testWorkers,
 }: BrowserTsfnTestBinding = await import('../example.wasi-browser')
-
-async function verifyBoundedPostCallAbort(): Promise<void> {
-  prepareBoundedTsfnPostCallAbort(() => {})
-  try {
-    await expect
-      .poll(
-        () => {
-          const state = boundedTsfnPostCallAbortState()
-          return [state[0], state[29]]
-        },
-        { timeout: 10_000 },
-      )
-      .toEqual([1, 0])
-    armBoundedTsfnPostCallNativeWait()
-    await expect
-      .poll(
-        () => {
-          const state = boundedTsfnPostCallAbortState()
-          return [
-            state[0],
-            state[3],
-            state[5],
-            state[6],
-            state[7],
-            state[8],
-            state[10],
-            state[29],
-          ]
-        },
-        { timeout: 10_000 },
-      )
-      .toEqual([1, 1, 1, 1, 1, 1, 0, 0])
-
-    const atomicWait = Atomics.wait
-    let ownerAtomicWaitCalls = 0
-    Atomics.wait = function () {
-      ownerAtomicWaitCalls += 1
-      throw new Error('browser-window owner entered Atomics.wait')
-    }
-    try {
-      abortBoundedTsfnPostCallFromOwnerAgent()
-      expect(ownerAtomicWaitCalls).toBe(0)
-      expect(boundedTsfnPostCallAbortState()[10]).toBe(0)
-    } finally {
-      Atomics.wait = atomicWait
-    }
-
-    releaseBoundedTsfnPostCallSlot()
-    await expect
-      .poll(
-        () => {
-          const state = boundedTsfnPostCallAbortState()
-          return [
-            state[10],
-            state[11],
-            state[18],
-            state[20],
-            state[27],
-            state[34],
-            state[29],
-          ]
-        },
-        { timeout: 10_000 },
-      )
-      .toEqual([1, 1, 1, 1, 1, 1, 0])
-    finishBoundedTsfnPostCallAbort()
-  } finally {
-    try {
-      releaseBoundedTsfnPostCallSlot()
-    } catch {}
-    try {
-      finishBoundedTsfnPostCallAbort()
-    } catch {}
-  }
-}
 
 describe('NAPI-RS wasi browser test', function () {
   it('DEFAULT_COST', function () {
@@ -162,18 +75,17 @@ describe('NAPI-RS wasi browser test', function () {
   })
 
   it('owner-agent TSFN abort does not enter an atomic wait', async () => {
-    await verifyBoundedPostCallAbort()
     prepareBoundedTsfnOwnerAbort(() => {})
     try {
       await expect
         .poll(
           () => {
             const state = boundedTsfnOwnerAbortState()
-            return [state[0], state[1], state[30]]
+            return [state[0], state[29]]
           },
           { timeout: 10_000 },
         )
-        .toEqual([1, 1, 1])
+        .toEqual([1, 0])
 
       const atomicWait = Atomics.wait
       let ownerAtomicWaitCalls = 0
@@ -183,25 +95,27 @@ describe('NAPI-RS wasi browser test', function () {
       }
       try {
         abortBoundedTsfnFromOwnerAgent()
-        expect(boundedTsfnOwnerAbortState()).toEqual([
-          1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1,
-          3, 3, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0,
-        ])
-
         await expect
           .poll(
             () => {
               const state = boundedTsfnOwnerAbortState()
-              return [state[10], state[14], state[20]]
+              return [
+                state[3],
+                state[5],
+                state[6],
+                state[7],
+                state[10],
+                state[11],
+                state[18],
+                state[20],
+                state[28],
+                state[29],
+              ]
             },
             { timeout: 10_000 },
           )
-          .toEqual([1, 1, 1])
+          .toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 0])
         expect(ownerAtomicWaitCalls).toBe(0)
-        expect(boundedTsfnOwnerAbortState()).toEqual([
-          1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1,
-          3, 3, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1,
-        ])
       } finally {
         Atomics.wait = atomicWait
       }
@@ -212,7 +126,7 @@ describe('NAPI-RS wasi browser test', function () {
       const deadline = Date.now() + 10_000
       while (Date.now() < deadline) {
         const state = boundedTsfnOwnerAbortState()
-        if (state[10] === 1 && state[14] === 1 && state[20] === 1) {
+        if (state[10] === 1 && state[20] === 1) {
           break
         }
         await new Promise((resolve) => setTimeout(resolve, 10))

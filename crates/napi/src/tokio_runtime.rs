@@ -2754,21 +2754,13 @@ pub(crate) fn unregister_async_runtime_env_with_retirement(
     // before its callback acquires that registry.
     lifecycle.state = RuntimeLifecycleState::Stopping;
     (
-      remaining_envs,
       previous_state,
       previous_error,
       lifecycle.selection,
       shutdown_runtime,
     )
   };
-  let (remaining_envs, previous_state, previous_error, selection, shutdown_runtime) = transition;
-  if remaining_envs != 0 {
-    #[cfg(all(
-      feature = "__internal_test_runtime_module_retirement_barrier",
-      not(target_family = "wasm")
-    ))]
-    run_runtime_env_retirement_barrier();
-  }
+  let (previous_state, previous_error, selection, shutdown_runtime) = transition;
   if shutdown_runtime {
     finish_selected_runtime_shutdown_with_retirement(
       selection,
@@ -2789,40 +2781,6 @@ pub(crate) fn unregister_async_runtime_env_with_retirement(
         .take()
         .expect("runtime environment retirement runs exactly once"),
     )
-  }
-}
-
-#[cfg(all(
-  feature = "__internal_test_runtime_module_retirement_barrier",
-  feature = "async-runtime",
-  not(feature = "noop"),
-  not(target_family = "wasm")
-))]
-fn run_runtime_env_retirement_barrier() {
-  use std::{
-    path::Path,
-    time::{Duration, Instant},
-  };
-
-  static ENTERED: AtomicBool = AtomicBool::new(false);
-
-  let (Ok(entered_path), Ok(release_path)) = (
-    std::env::var("NAPI_TEST_RUNTIME_ENV_RETIREMENT_ENTERED"),
-    std::env::var("NAPI_TEST_RUNTIME_ENV_RETIREMENT_RELEASE"),
-  ) else {
-    return;
-  };
-  if ENTERED.swap(true, Ordering::AcqRel) {
-    return;
-  }
-  if std::fs::write(entered_path, "entered").is_err() {
-    return;
-  }
-
-  let deadline = Instant::now() + Duration::from_secs(30);
-  let release_path = Path::new(&release_path);
-  while !release_path.exists() && Instant::now() < deadline {
-    std::thread::sleep(Duration::from_millis(5));
   }
 }
 

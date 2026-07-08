@@ -13,16 +13,10 @@ const declarationPath = fileURLToPath(new URL('index.d.cts', import.meta.url))
 const unsupportedWasiFunctionSet = new Set(unsupportedWasiFunctions)
 const threadedWasiBrowserTestFunctions = [
   'abortBoundedTsfnFromOwnerAgent',
-  'abortBoundedTsfnPostCallFromOwnerAgent',
-  'armBoundedTsfnPostCallNativeWait',
   'boundedTsfnOwnerAbortState',
-  'boundedTsfnPostCallAbortState',
   'finishBoundedTsfnOwnerAbort',
-  'finishBoundedTsfnPostCallAbort',
   'prepareBoundedTsfnOwnerAbort',
-  'prepareBoundedTsfnPostCallAbort',
   'releaseBoundedTsfnNativeWait',
-  'releaseBoundedTsfnPostCallSlot',
 ]
 
 function run(arguments_) {

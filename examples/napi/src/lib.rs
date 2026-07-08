@@ -170,6 +170,8 @@ mod string;
 mod symbol;
 mod task;
 mod threadsafe_function;
+#[cfg(napi_tsfn_public_behavior_test)]
+mod threadsafe_function_browser;
 #[cfg(all(not(target_family = "wasm"), not(feature = "noop")))]
 mod tokio_runtime_lifecycle;
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
