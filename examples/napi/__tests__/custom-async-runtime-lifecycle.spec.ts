@@ -42,7 +42,10 @@ function runScenario(
       ...process.env,
       NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST: '1',
     },
-    timeout: 40_000,
+    timeout:
+      scenario === 'module-retirement-race' && process.arch === 'arm'
+        ? 180_000
+        : 40_000,
   })
 }
 

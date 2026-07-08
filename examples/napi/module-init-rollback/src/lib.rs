@@ -11,7 +11,7 @@ use std::{
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
 mod native_cleanup_hook_failure {
   use std::{
     ffi::c_void,
@@ -75,7 +75,7 @@ mod native_cleanup_hook_failure {
     }
   }
 
-  #[cfg(target_os = "linux")]
+  #[cfg(all(target_os = "linux", target_env = "gnu"))]
   unsafe extern "C" {
     fn __real_napi_add_env_cleanup_hook(
       env: sys::napi_env,
@@ -84,7 +84,7 @@ mod native_cleanup_hook_failure {
     ) -> sys::napi_status;
   }
 
-  #[cfg(target_os = "linux")]
+  #[cfg(all(target_os = "linux", target_env = "gnu"))]
   #[no_mangle]
   unsafe extern "C" fn __wrap_napi_add_env_cleanup_hook(
     env: sys::napi_env,

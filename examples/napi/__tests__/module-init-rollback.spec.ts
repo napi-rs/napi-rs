@@ -12,7 +12,9 @@ const fixtureDirectory = join(__dirname, '..', 'module-init-rollback')
 const addonPath = join(fixtureDirectory, 'module-init-rollback.node')
 const runnerPath = join(__dirname, 'module-init-rollback.js')
 const supportsCleanupHookInterposition =
-  process.platform === 'darwin' || process.platform === 'linux'
+  process.platform === 'darwin' ||
+  (process.platform === 'linux' &&
+    Boolean(process.report?.getReport?.()?.header.glibcVersionRuntime))
 
 async function runScenario(
   runner: string,
