@@ -15,6 +15,8 @@ use std::{
   time::{Duration, Instant},
 };
 
+#[cfg(feature = "tokio_rt")]
+use napi::bindgen_prelude::tokio_runtime_retirement_waiter;
 use napi::bindgen_prelude::{
   register_async_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
   try_block_on_custom_runtime, try_register_async_runtime, try_shutdown_async_runtime,
@@ -152,8 +154,11 @@ fn registration_and_lifecycle_failures_return_errors() {
   try_shutdown_async_runtime().expect("runtime must shut down after retry");
   #[cfg(feature = "tokio_rt")]
   {
+    tokio_runtime_retirement_waiter()
+      .wait()
+      .expect("the previous Tokio generation must retire before repeated shutdown");
     try_shutdown_async_runtime()
-      .expect("repeated shutdown must restore the paired Tokio runtime for the custom hook");
+      .expect("the repeated custom shutdown hook may lazily construct its Tokio runtime");
   }
 
   start_after_retirement();

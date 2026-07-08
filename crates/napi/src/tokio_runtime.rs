@@ -1673,8 +1673,10 @@ mod tokio_future_cancellation_tests {
 /// generated `#[napi]` futures and current derive v4 `#[napi(async_runtime)]` entry guards to
 /// built-in Tokio. The legacy napi-derive 3.5.9 synchronous guard instead uses the established
 /// Tokio compatibility helper in combined builds, while its generated async exports follow this
-/// selected backend. In a pure `async-runtime` build, a missing-backend error before any
-/// environment is activated leaves selection undecided and does not prevent later registration.
+/// selected backend. Selecting and starting a custom backend does not construct Tokio; the first
+/// established Tokio compatibility helper call constructs it lazily after any previous generation
+/// has retired. In a pure `async-runtime` build, a missing-backend error before any environment is
+/// activated leaves selection undecided and does not prevent later registration.
 ///
 /// Under the `noop` feature this SPI cannot be installed:
 /// [`try_register_async_runtime`] safely retires the supplied backend and reports
@@ -1691,11 +1693,12 @@ mod tokio_future_cancellation_tests {
 /// [`within_runtime_if_available`] names remain Tokio compatibility APIs whenever `tokio_rt` is
 /// enabled, so Cargo feature unification cannot silently change their signatures or routing.
 /// The hidden [`within_selected_async_runtime`] helper follows the generated-code selection and
-/// enters built-in Tokio when a combined build selected Tokio. Tokio helpers reject
-/// external work while a custom-selected combined runtime is starting, stopping, or stopped, so
-/// callers cannot observe a half-transitioned pair. Runtime hooks may still use Tokio
-/// synchronously on the transition thread. Synchronous custom-runtime operations are gated for
-/// their full duration as well:
+/// enters built-in Tokio when a combined build selected Tokio. With a selected custom backend,
+/// activation waits for any old Tokio generation to retire but does not construct a replacement.
+/// Tokio helpers reject external work while that custom runtime is starting, stopping, or stopped;
+/// the first helper call during a running lifecycle constructs Tokio lazily. Runtime hooks may
+/// still use Tokio synchronously on the transition thread. Synchronous custom-runtime operations
+/// are gated for their full duration as well:
 /// shutdown waits for them to return, and external calls are rejected before startup, during
 /// lifecycle transitions, and after shutdown. Lifecycle hooks may still use those operations
 /// synchronously on the transition thread.
@@ -2589,11 +2592,7 @@ fn retry_failed_automatic_runtime_shutdown() -> Result<()> {
     }
   };
   if let Some(selection) = selection {
-    finish_selected_runtime_shutdown(
-      selection,
-      selection == AsyncRuntimeSelection::Custom,
-      selection == AsyncRuntimeSelection::Custom,
-    )?;
+    finish_selected_runtime_shutdown(selection, selection == AsyncRuntimeSelection::Custom)?;
   }
   Ok(())
 }
@@ -2656,7 +2655,6 @@ pub(crate) fn rollback_unowned_async_runtime_after_registration_failure_with_ret
     finish_selected_runtime_shutdown_with_retirement(
       selection,
       selection == AsyncRuntimeSelection::Custom,
-      false,
       retirement
         .take()
         .expect("runtime registration retirement runs exactly once"),
@@ -2713,7 +2711,6 @@ pub(crate) fn unregister_async_runtime_env_with_retirement(
     finish_selected_runtime_shutdown_with_retirement(
       selection,
       selection == AsyncRuntimeSelection::Custom,
-      false,
       retirement
         .take()
         .expect("runtime environment retirement runs exactly once"),
@@ -3528,8 +3525,9 @@ fn create_runtime(generation: usize) -> PreparedTokioRuntime {
   }
 }
 
-// Combined `async-runtime` + `tokio_rt` builds retain this runtime for the established free Tokio
-// helper APIs. Generated JavaScript-facing futures also use it when no custom backend was selected.
+// Combined `async-runtime` + `tokio_rt` builds create this runtime lazily for the established free
+// Tokio helper APIs when a custom backend is selected. Generated JavaScript-facing futures also
+// use it when no custom backend was selected.
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 struct SharedTokioRuntime {
   runtime: Option<Runtime>,
@@ -4302,6 +4300,49 @@ fn try_join_finished_tokio_runtime_retirement() -> Result<bool> {
   }
 }
 
+#[cfg(all(not(feature = "noop"), feature = "async-runtime", feature = "tokio_rt"))]
+fn finish_tokio_runtime_retirement(wait_for_retirement: bool) -> Result<()> {
+  loop {
+    let retirement = TOKIO_RUNTIME_STATE
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .retiring
+      .clone();
+    let Some(retirement) = retirement else {
+      return Ok(());
+    };
+
+    if wait_for_retirement {
+      let waiter = TokioRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+      #[cfg(any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", tokio_unstable)
+      ))]
+      waiter.wait_for(std::time::Duration::from_secs(5))?;
+      #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+      waiter.wait()?;
+    } else if !retirement.try_join_finished_thread()? {
+      return Err(Error::new(
+        crate::Status::WouldDeadlock,
+        "Tokio runtime is still shutting down",
+      ));
+    }
+    retirement.result()?;
+
+    let mut state = TOKIO_RUNTIME_STATE
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state
+      .retiring
+      .as_ref()
+      .is_some_and(|current| Arc::ptr_eq(current, &retirement))
+    {
+      state.retiring = None;
+      return Ok(());
+    }
+  }
+}
+
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static NEXT_TOKIO_RUNTIME_GENERATION: AtomicUsize = AtomicUsize::new(1);
 
@@ -4541,8 +4582,8 @@ fn shutdown_rejected_supplied_tokio_runtime(runtime: PreparedTokioRuntime) {
 ///
 /// This affects the built-in Tokio path whenever `tokio_rt` is enabled. In a combined
 /// `async-runtime` build, generated JavaScript-facing futures use this runtime when no custom
-/// backend was registered before selection. A selected custom backend still has a paired Tokio
-/// runtime for the established free Tokio helpers.
+/// backend was registered before selection. With a selected custom backend, the established free
+/// Tokio helpers construct their Tokio runtime lazily on first use.
 /// ### Example
 /// ```no_run
 /// use tokio::runtime::Builder;
@@ -4892,10 +4933,18 @@ fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
     }
 
     #[cfg(feature = "tokio_rt")]
-    if reason == RuntimeStartReason::Environment {
-      start_tokio_runtime_after_retirement()?;
-    } else {
-      start_tokio_runtime()?;
+    match selection {
+      AsyncRuntimeSelection::Custom => {
+        finish_tokio_runtime_retirement(reason == RuntimeStartReason::Environment)?;
+      }
+      AsyncRuntimeSelection::Tokio => {
+        if reason == RuntimeStartReason::Environment {
+          start_tokio_runtime_after_retirement()?;
+        } else {
+          start_tokio_runtime()?;
+        }
+      }
+      AsyncRuntimeSelection::Undecided => unreachable!("startup requires a selected backend"),
     }
 
     if selection == AsyncRuntimeSelection::Custom {
@@ -4982,7 +5031,6 @@ fn finish_runtime_retirement_without_shutdown(
 fn finish_selected_runtime_shutdown_with_retirement(
   selection: AsyncRuntimeSelection,
   call_custom_shutdown: bool,
-  _restart_tokio_before_custom_shutdown: bool,
   retirement: impl FnOnce(),
 ) -> Result<()> {
   let _transition = RuntimeTransitionGuard::enter();
@@ -4992,11 +5040,6 @@ fn finish_selected_runtime_shutdown_with_retirement(
       close_runtime_submissions()?;
     }
     cancel_all_env_tasks();
-
-    #[cfg(feature = "tokio_rt")]
-    if selection == AsyncRuntimeSelection::Custom && _restart_tokio_before_custom_shutdown {
-      start_tokio_runtime_after_retirement()?;
-    }
     shutdown_runtime_backends(selection, call_custom_shutdown)
   })();
 
@@ -5010,14 +5053,8 @@ fn finish_selected_runtime_shutdown_with_retirement(
 fn finish_selected_runtime_shutdown(
   selection: AsyncRuntimeSelection,
   call_custom_shutdown: bool,
-  restart_tokio_before_custom_shutdown: bool,
 ) -> Result<()> {
-  finish_selected_runtime_shutdown_with_retirement(
-    selection,
-    call_custom_shutdown,
-    restart_tokio_before_custom_shutdown,
-    || {},
-  )
+  finish_selected_runtime_shutdown_with_retirement(selection, call_custom_shutdown, || {})
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -5068,7 +5105,7 @@ fn acquire_tokio_runtime_use() -> Result<Option<RuntimeUsePermit>> {
 #[cfg(all(feature = "async-runtime", not(feature = "noop"), feature = "tokio_rt"))]
 fn acquire_tokio_runtime_for_use() -> Result<(Option<RuntimeUsePermit>, TokioRuntimeLease)> {
   let runtime_use = acquire_tokio_runtime_use()?;
-  let runtime = acquire_tokio_runtime(false)?;
+  let runtime = acquire_tokio_runtime(runtime_use.is_some())?;
   Ok((runtime_use, runtime))
 }
 
@@ -5082,12 +5119,13 @@ fn generated_futures_use_custom_runtime() -> Result<bool> {
 ///
 /// With only `async-runtime`, this delegates to the registered [`AsyncRuntime`] backend's `start`
 /// and reports a clear error when no backend was registered. In a combined
-/// `async-runtime` + `tokio_rt` build, a timely custom registration selects that backend and starts
-/// its paired Tokio runtime. Otherwise, environment activation or earlier runtime use selects the
-/// built-in Tokio runtime and `async-runtime` remains additive. In a combined build, calling this
-/// before registering a custom backend intentionally commits the built-in Tokio selection and later
-/// custom registration is rejected. A missing-backend error in a pure `async-runtime` build before
-/// any environment is activated leaves later registration available.
+/// `async-runtime` + `tokio_rt` build, a timely custom registration selects and starts only that
+/// backend; the established Tokio compatibility helpers construct Tokio lazily on first use.
+/// Otherwise, environment activation or earlier runtime use selects the built-in Tokio runtime and
+/// `async-runtime` remains additive. In a combined build, calling this before registering a custom
+/// backend intentionally commits the built-in Tokio selection and later custom registration is
+/// rejected. A missing-backend error in a pure `async-runtime` build before any environment is
+/// activated leaves later registration available.
 /// Without `async-runtime`, this starts only Tokio.
 ///
 /// In Node.js native targets, active runtime resources are shut down when the last Node
@@ -5143,12 +5181,12 @@ pub fn try_start_async_runtime() -> Result<()> {
 ///
 /// With only `async-runtime`, this shuts down the selected custom backend. In a combined
 /// `async-runtime` + `tokio_rt` build it shuts down either the selected built-in Tokio runtime or
-/// the selected custom backend and its paired Tokio runtime. Without `async-runtime`, it takes
-/// down only Tokio. Explicit shutdown is sticky: registering another Node worker or environment
-/// does not restart the selected backend until [`start_async_runtime`] or
-/// [`try_start_async_runtime`] is called. Automatic shutdown after the last environment exits
-/// remains restartable by a later environment. New environments can still load the addon while
-/// explicitly stopped, but runtime-backed operations reject until restart.
+/// the selected custom backend and any Tokio peer that its compatibility helpers created lazily.
+/// Without `async-runtime`, it takes down only Tokio. Explicit shutdown is sticky: registering
+/// another Node worker or environment does not restart the selected backend until
+/// [`start_async_runtime`] or [`try_start_async_runtime`] is called. Automatic shutdown after the
+/// last environment exits remains restartable by a later environment. New environments can still
+/// load the addon while explicitly stopped, but runtime-backed operations reject until restart.
 ///
 /// On native addons, once the built-in Tokio runtime has been created, last-environment cleanup
 /// may keep the native image mapped for the process lifetime even after Tokio worker threads and
@@ -5178,7 +5216,7 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
           .ok_or_else(runtime_finalizer_without_owner_error)
       })
       .transpose()?;
-    let (selection, call_custom_shutdown, restart_tokio) = {
+    let (selection, call_custom_shutdown) = {
       let mut lifecycle = runtime_lifecycle();
       if matches!(
         lifecycle.state,
@@ -5188,11 +5226,6 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
       }
       lifecycle.auto_start_enabled = false;
       let selection = lifecycle.selection;
-      let restart_tokio = selection == AsyncRuntimeSelection::Custom
-        && matches!(
-          lifecycle.state,
-          RuntimeLifecycleState::Stopped | RuntimeLifecycleState::ShutdownFailed
-        );
       let call_custom_shutdown = selection == AsyncRuntimeSelection::Custom
         && matches!(
           lifecycle.state,
@@ -5201,10 +5234,10 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
             | RuntimeLifecycleState::ShutdownFailed
         );
       lifecycle.state = RuntimeLifecycleState::Stopping;
-      (selection, call_custom_shutdown, restart_tokio)
+      (selection, call_custom_shutdown)
     };
     drop(finalizer_env);
-    finish_selected_runtime_shutdown(selection, call_custom_shutdown, restart_tokio)
+    finish_selected_runtime_shutdown(selection, call_custom_shutdown)
   }
   #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
   {
@@ -5991,9 +6024,7 @@ pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
   #[cfg(feature = "tokio_rt")]
   {
     #[cfg(feature = "async-runtime")]
-    let _runtime_use = acquire_tokio_runtime_use()?;
-    #[cfg(feature = "async-runtime")]
-    let runtime = acquire_tokio_runtime(false)?;
+    let (_runtime_use, runtime) = acquire_tokio_runtime_for_use()?;
     #[cfg(not(feature = "async-runtime"))]
     let runtime = try_runtime()?;
     let runtime_guard = runtime.enter();
@@ -6517,8 +6548,8 @@ fn execute_builtin_tokio_future<
   let (deferred, promise) = JsDeferred::new(&env)?;
   let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
   #[cfg(feature = "async-runtime")]
-  let _runtime_use = match acquire_tokio_runtime_use() {
-    Ok(runtime_use) => runtime_use,
+  let (_runtime_use, runtime) = match acquire_tokio_runtime_for_use() {
+    Ok(runtime) => runtime,
     Err(error) => {
       deferred.reject_with_cleanup(error, move || {
         drop_safely(fut);
@@ -6536,6 +6567,7 @@ fn execute_builtin_tokio_future<
   }
   #[cfg(not(feature = "async-runtime"))]
   let _ = require_selected_tokio;
+  #[cfg(not(feature = "async-runtime"))]
   let runtime = match acquire_tokio_runtime(false) {
     Ok(runtime) => runtime,
     Err(error) => {
@@ -6798,8 +6830,8 @@ fn execute_builtin_tokio_future_with_finalize_callback<
   deferred.set_finalize_callback(finalize_callback.take());
   let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
   #[cfg(feature = "async-runtime")]
-  let _runtime_use = match acquire_tokio_runtime_use() {
-    Ok(runtime_use) => runtime_use,
+  let (_runtime_use, runtime) = match acquire_tokio_runtime_for_use() {
+    Ok(runtime) => runtime,
     Err(error) => {
       deferred.reject_with_cleanup(error, move || {
         drop_safely(fut);
@@ -6813,6 +6845,7 @@ fn execute_builtin_tokio_future_with_finalize_callback<
     _runtime_use.is_none(),
     "selected Tokio work cannot acquire a custom-runtime permit"
   );
+  #[cfg(not(feature = "async-runtime"))]
   let runtime = match acquire_tokio_runtime(false) {
     Ok(runtime) => runtime,
     Err(error) => {
@@ -9655,6 +9688,7 @@ mod combined_feature_tests {
   struct CombinedRuntime;
 
   static CUSTOM_RUNNING: AtomicBool = AtomicBool::new(false);
+  static CUSTOM_START_USES_TOKIO: AtomicBool = AtomicBool::new(false);
   static FAIL_CUSTOM_START: AtomicBool = AtomicBool::new(false);
   static FAIL_CUSTOM_SHUTDOWN_AFTER_TOKIO_USE: AtomicBool = AtomicBool::new(false);
   static CUSTOM_STARTS: AtomicUsize = AtomicUsize::new(0);
@@ -9788,7 +9822,9 @@ mod combined_feature_tests {
         }
         *block = (false, false, false);
       }
-      try_block_on(async {}).expect("custom start hook must be able to use its Tokio peer");
+      if CUSTOM_START_USES_TOKIO.load(Ordering::SeqCst) {
+        try_block_on(async {}).expect("custom start hook must be able to use its Tokio peer");
+      }
       CUSTOM_RUNNING.store(true, Ordering::SeqCst);
       Ok(())
     }
@@ -9859,14 +9895,34 @@ mod combined_feature_tests {
       .expect("Tokio runtime did not retire cleanly");
   }
 
+  fn tokio_generation() -> Option<usize> {
+    TOKIO_RUNTIME_STATE
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .generation
+      .as_ref()
+      .map(|generation| generation.retirement.generation)
+  }
+
   #[test]
   fn combined_runtime_lifecycle_is_atomic_and_does_not_hold_tokio_locks_over_user_code() {
     ensure_runtime();
     try_start_async_runtime().unwrap();
     assert!(CUSTOM_RUNNING.load(Ordering::SeqCst));
+    {
+      let tokio_state = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(
+        tokio_state.lifecycle,
+        TokioRuntimeLifecycle::Uninitialized
+      ));
+      assert!(tokio_state.generation.is_none());
+      assert!(tokio_state.retiring.is_none());
+    }
     assert!(
-      tokio_runtime_requires_module_retention(),
-      "creating a Tokio generation must conservatively require native module retention"
+      !tokio_runtime_requires_module_retention(),
+      "custom runtime activation must not create or retain a Tokio generation"
     );
 
     let custom_handle: JoinHandle<u8> = spawn_on_custom_runtime(async { 42 });
@@ -9897,6 +9953,56 @@ mod combined_feature_tests {
       custom_enter_calls + 1,
       "the explicit custom entry helper must not switch to Tokio under feature unification"
     );
+    assert!(
+      tokio_generation().is_none(),
+      "custom-only work must not construct the Tokio compatibility runtime"
+    );
+
+    try_block_on(async {}).expect("first Tokio compatibility use must start its runtime lazily");
+    let first_tokio_generation =
+      tokio_generation().expect("first Tokio compatibility use must publish a generation");
+    assert!(
+      tokio_runtime_requires_module_retention(),
+      "creating a Tokio generation must conservatively require native module retention"
+    );
+    try_within_runtime_if_available(|| ())
+      .expect("a second Tokio compatibility helper must reuse the running generation");
+    assert_eq!(
+      tokio_generation(),
+      Some(first_tokio_generation),
+      "Tokio compatibility helpers must construct exactly one generation per lifecycle"
+    );
+
+    try_shutdown_async_runtime().unwrap();
+    wait_for_retirement();
+    start_after_retirement();
+    {
+      let tokio_state = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(
+        tokio_state.lifecycle,
+        TokioRuntimeLifecycle::Stopped
+      ));
+      assert!(tokio_state.generation.is_none());
+      assert!(tokio_state.retiring.is_none());
+    }
+    try_block_on(async {})
+      .expect("first Tokio compatibility use after custom restart must start lazily");
+    let restarted_tokio_generation =
+      tokio_generation().expect("Tokio compatibility use after restart must publish a generation");
+    assert_ne!(
+      restarted_tokio_generation, first_tokio_generation,
+      "a custom restart must create a fresh Tokio generation only when compatibility work resumes"
+    );
+    try_within_runtime_if_available(|| ())
+      .expect("subsequent Tokio compatibility use after restart must reuse its generation");
+    assert_eq!(
+      tokio_generation(),
+      Some(restarted_tokio_generation),
+      "the restarted lifecycle must also construct Tokio exactly once"
+    );
+    CUSTOM_START_USES_TOKIO.store(true, Ordering::SeqCst);
 
     FAIL_CUSTOM_SHUTDOWN_AFTER_TOKIO_USE.store(true, Ordering::SeqCst);
     let error = try_shutdown_async_runtime()
@@ -9924,8 +10030,9 @@ mod combined_feature_tests {
     assert!(error
       .reason
       .contains("injected custom runtime shutdown failure after Tokio use"));
+    wait_for_retirement();
     try_shutdown_async_runtime().expect(
-      "the custom shutdown retry must start a Tokio peer and retire it after the hook returns",
+      "the custom shutdown hook may lazily start a Tokio peer and retire it after returning",
     );
     wait_for_retirement();
     try_start_async_runtime().unwrap();
@@ -10067,9 +10174,9 @@ mod combined_feature_tests {
     assert!(error
       .reason
       .contains("injected custom runtime shutdown failure after Tokio use"));
-    try_shutdown_async_runtime().expect(
-      "failed-start rollback retry must start a Tokio peer and retire it after the hook returns",
-    );
+    wait_for_retirement();
+    try_shutdown_async_runtime()
+      .expect("failed-start rollback may lazily start a Tokio peer in the custom shutdown hook");
     wait_for_retirement();
     try_start_async_runtime().unwrap();
 
@@ -10302,7 +10409,7 @@ mod combined_feature_tests {
     futures::executor::block_on(blocking).unwrap();
     wait_for_retirement();
     try_shutdown_async_runtime()
-      .expect("an explicit retry may restart Tokio after the old generation retires");
+      .expect("an explicit retry may lazily start Tokio after the old generation retires");
     assert!(
       !custom_runtime_shutdown_quiescence_unproven(),
       "a normally returning shutdown retry must clear the panic marker"

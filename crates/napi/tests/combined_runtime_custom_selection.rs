@@ -113,7 +113,7 @@ fn assert_join_cancelled<T: Send + 'static>(
 }
 
 #[test]
-fn registration_before_use_selects_custom_and_keeps_paired_lifecycle() {
+fn registration_before_use_selects_custom_and_lazily_starts_paired_tokio() {
   let state = Arc::new(RuntimeState::default());
   try_register_async_runtime(TestRuntime {
     state: Arc::clone(&state),
@@ -141,7 +141,7 @@ fn registration_before_use_selects_custom_and_keeps_paired_lifecycle() {
   .is_cancelled());
   assert!(assert_join_cancelled(
     move || futures::executor::block_on(tokio_pending),
-    "paired Tokio task cancellation must settle its JoinHandle",
+    "lazily started Tokio task cancellation must settle its JoinHandle",
   )
   .unwrap_err()
   .is_cancelled());

@@ -50,6 +50,9 @@
 //!
 //! The established free `spawn`, `spawn_blocking`, `block_on`, and
 //! `within_runtime_if_available` APIs remain Tokio-backed whenever `tokio_rt` is enabled.
+//! Selecting or activating a custom backend in a combined build does not construct Tokio; the
+//! first call to one of those compatibility APIs creates the Tokio runtime lazily, and later calls
+//! reuse that generation until shutdown.
 //! `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
 //! `block_on_custom_runtime`, and `try_block_on_custom_runtime` explicitly require a registered
 //! custom backend. Current `napi-derive` v4 `#[napi(async_runtime)]` callbacks use the selected
