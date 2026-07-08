@@ -16,6 +16,7 @@ use napi::bindgen_prelude::{
 use napi_derive::napi;
 
 static ENTER_COUNT: AtomicUsize = AtomicUsize::new(0);
+static SPAWN_COUNT: AtomicUsize = AtomicUsize::new(0);
 static TASK_THREADS: LazyLock<Mutex<Vec<std::thread::JoinHandle<()>>>> =
   LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -41,6 +42,7 @@ unsafe impl AsyncRuntime for PreviousDeriveRuntime {
         }
       }) {
       Ok(thread) => {
+        SPAWN_COUNT.fetch_add(1, Ordering::SeqCst);
         TASK_THREADS
           .lock()
           .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -143,9 +145,19 @@ pub fn previous_generated_runtime_entry() -> napi::Result<u32> {
   Ok(42)
 }
 
+#[napi(async_runtime)]
+pub fn previous_generated_runtime_has_tokio_handle() -> bool {
+  tokio::runtime::Handle::try_current().is_ok()
+}
+
 #[napi]
 pub fn previous_runtime_enter_count() -> u32 {
   ENTER_COUNT.load(Ordering::SeqCst) as u32
+}
+
+#[napi]
+pub fn previous_runtime_spawn_count() -> u32 {
+  SPAWN_COUNT.load(Ordering::SeqCst) as u32
 }
 
 #[napi]

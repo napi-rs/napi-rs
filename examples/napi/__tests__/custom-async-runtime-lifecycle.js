@@ -23,6 +23,11 @@ switch (scenario) {
   case 'submission-transitions':
     await runSubmissionTransitionLifecycle(bindingFile)
     break
+  case 'module-retirement-race': {
+    const { runModuleRetirementRace } = await import(lifecycleModuleUrl.href)
+    await runModuleRetirementRace(bindingFile)
+    break
+  }
   case 'retained-waker': {
     const require = createRequire(import.meta.url)
     const binding = require(bindingFile)

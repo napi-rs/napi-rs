@@ -52,10 +52,15 @@
 //! `within_runtime_if_available` APIs remain Tokio-backed whenever `tokio_rt` is enabled.
 //! `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
 //! `block_on_custom_runtime`, and `try_block_on_custom_runtime` explicitly require a registered
-//! custom backend. Generated `#[napi(async_runtime)]` callbacks use the selected backend: custom
-//! when registered in time, otherwise Tokio in a combined build. A pure `async-runtime` build
-//! remains tokio-free (enable the `tokio` feature explicitly if you still want the `napi::tokio`
-//! re-export). The public `execute_tokio_future` function and deprecated
+//! custom backend. Current `napi-derive` v4 `#[napi(async_runtime)]` callbacks use the selected
+//! backend: custom when registered in time, otherwise Tokio in a combined build. The previously
+//! released `napi-derive` 3.5.9 synchronous `#[napi(async_runtime)]` guard called the established
+//! `within_runtime_if_available` compatibility helper, so it enters Tokio when both features are
+//! enabled; its generated async exports still use the selected backend. Use a pure
+//! `async-runtime` build or upgrade the derive crate when synchronous custom-runtime entry is
+//! required. A pure `async-runtime` build remains tokio-free (enable the `tokio` feature
+//! explicitly if you still want the `napi::tokio` re-export). The public
+//! `execute_tokio_future` function and deprecated
 //! `Env::execute_tokio_future` method remain available only with `tokio_rt` and always use the
 //! built-in Tokio runtime.
 //!

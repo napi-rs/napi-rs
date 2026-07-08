@@ -15,6 +15,7 @@ tokio-rt = ["napi/tokio_rt"]
 [dependencies]
 futures = "0.3"
 napi = { path = "../../crates/napi", default-features = false, features = [
+  "__internal_test_runtime_module_retirement_barrier",
   "napi4",
 ] }
 napi-derive = { path = "../../crates/macro", features = ["type-def"] }

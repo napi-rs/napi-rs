@@ -189,6 +189,20 @@ pub(crate) fn registered_runtime_env(env: usize) -> Option<RegisteredRuntimeEnvG
 }
 
 #[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  feature = "tokio_rt",
+  feature = "napi4"
+))]
+pub(crate) fn with_runtime_env_registry_lock_for_test<T>(f: impl FnOnce() -> T) -> T {
+  let _guard = REGISTERED_RUNTIME_ENVS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  f()
+}
+
+#[cfg(all(
   not(feature = "noop"),
   feature = "tokio_rt",
   not(feature = "async-runtime"),
@@ -243,6 +257,24 @@ pub(crate) fn current_callback_env() -> Option<sys::napi_env> {
 fn rollback_unowned_runtime_preserving_registration_error(mut error: crate::Error) -> crate::Error {
   if let Err(cleanup_error) =
     crate::tokio_runtime::rollback_unowned_async_runtime_after_registration_failure()
+  {
+    error
+      .reason
+      .push_str("; additionally, async runtime rollback failed: ");
+    error.reason.push_str(&cleanup_error.reason);
+  }
+  error
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn rollback_unowned_runtime_with_retirement_preserving_registration_error(
+  mut error: crate::Error,
+  retirement: impl FnOnce(),
+) -> crate::Error {
+  if let Err(cleanup_error) =
+    crate::tokio_runtime::rollback_unowned_async_runtime_after_registration_failure_with_retirement(
+      retirement,
+    )
   {
     error
       .reason
@@ -750,9 +782,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
         "Failed to add env cleanup hook",
       );
       #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-      // Custom shutdown may enter its paired Tokio runtime, so it must run before the
-      // module-count decrement can retire Tokio.
-      let error = rollback_unowned_runtime_preserving_registration_error(error);
+      // Keep the runtime in Stopping through both custom shutdown and the paired
+      // module-count retirement so a concurrent restart cannot publish a new generation.
+      let error =
+        rollback_unowned_runtime_with_retirement_preserving_registration_error(error, || {
+          decrement_runtime_module_count(env)
+        });
+      #[cfg(not(feature = "async-runtime"))]
       decrement_runtime_module_count(env);
       rollback_resolver_env(env, resolver_env_owned);
       JsError::from(error).throw_into(env);
@@ -1483,12 +1519,17 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup, env_closing: bool) {
     .async_runtime_env_reserved
     .swap(false, Ordering::AcqRel)
   {
-    if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env() {
+    if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env_with_retirement(|| {
+      decrement_runtime_module_count(env);
+    }) {
       crate::bindgen_runtime::catch_unwind_safely(|| {
         eprintln!("Failed to shut down async runtime: {error}");
       });
     }
+  } else {
+    decrement_runtime_module_count(env);
   }
+  #[cfg(not(feature = "async-runtime"))]
   decrement_runtime_module_count(env);
 }
 
@@ -1554,6 +1595,13 @@ fn decrement_runtime_module_count(env: sys::napi_env) {
   #[cfg(not(feature = "tokio_rt"))]
   let tokio_shutdown_failed = false;
   let _was_last = decrement_runtime_module_count_with_last(env, || {
+    #[cfg(all(
+      feature = "__internal_test_runtime_module_retirement_barrier",
+      feature = "async-runtime",
+      not(target_family = "wasm")
+    ))]
+    run_runtime_module_retirement_barrier();
+
     #[cfg(feature = "tokio_rt")]
     match crate::tokio_runtime::shutdown_tokio_runtime() {
       Ok(()) => {
@@ -1652,6 +1700,49 @@ fn decrement_runtime_module_count(env: sys::napi_env) {
       // Tokio retirement thread to wait for.
       std::process::abort();
     }
+  }
+}
+
+#[cfg(all(
+  feature = "__internal_test_runtime_module_retirement_barrier",
+  feature = "async-runtime",
+  not(feature = "noop"),
+  feature = "napi4",
+  not(target_family = "wasm")
+))]
+fn run_runtime_module_retirement_barrier() {
+  use std::{
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+  };
+
+  let (Ok(entered_path), Ok(result_path), Ok(release_path)) = (
+    std::env::var("NAPI_TEST_RUNTIME_MODULE_RETIREMENT_ENTERED"),
+    std::env::var("NAPI_TEST_RUNTIME_MODULE_RETIREMENT_RESULT"),
+    std::env::var("NAPI_TEST_RUNTIME_MODULE_RETIREMENT_RELEASE"),
+  ) else {
+    return;
+  };
+
+  if std::fs::write(&entered_path, "entered").is_err() {
+    return;
+  }
+  let result = thread::spawn(crate::tokio_runtime::try_start_async_runtime)
+    .join()
+    .map_or_else(
+      |_| "Panic\nexplicit runtime start panicked".to_owned(),
+      |result| match result {
+        Ok(()) => "Ok\nexplicit runtime start succeeded".to_owned(),
+        Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+      },
+    );
+  let _ = std::fs::write(result_path, result);
+
+  let deadline = Instant::now() + Duration::from_secs(30);
+  let release_path = Path::new(&release_path);
+  while !release_path.exists() && Instant::now() < deadline {
+    thread::sleep(Duration::from_millis(5));
   }
 }
 

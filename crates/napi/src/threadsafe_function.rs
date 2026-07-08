@@ -5,9 +5,10 @@ use std::os::raw::c_void;
 use std::ptr::{self, null_mut};
 use std::sync::{
   self,
-  atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering},
+  atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicUsize, Ordering},
   Arc, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError,
 };
+#[cfg(not(target_family = "wasm"))]
 use std::thread::ThreadId;
 
 use futures::channel::oneshot::{channel, Receiver};
@@ -17,6 +18,53 @@ use crate::{
   check_status, extract_error_cause, get_error_message_and_stack_trace, sys, Env, Error, JsError,
   Result, Status,
 };
+
+#[cfg(target_family = "wasm")]
+#[link(wasm_import_module = "env")]
+extern "C" {
+  fn _emnapi_is_main_browser_thread() -> i32;
+  fn _emnapi_is_main_runtime_thread() -> i32;
+}
+
+#[cfg(target_family = "wasm")]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WasmHostAgent {
+  BrowserWindow = 1,
+  MainRuntime = 2,
+  Worker = 3,
+}
+
+#[cfg(target_family = "wasm")]
+impl WasmHostAgent {
+  fn current() -> Self {
+    if unsafe { _emnapi_is_main_browser_thread() != 0 } {
+      Self::BrowserWindow
+    } else if unsafe { _emnapi_is_main_runtime_thread() != 0 } {
+      Self::MainRuntime
+    } else {
+      Self::Worker
+    }
+  }
+
+  fn atomic_wait_forbidden(self) -> bool {
+    self == Self::BrowserWindow
+  }
+
+  fn is_identifiable_owner(self) -> bool {
+    self != Self::Worker
+  }
+}
+
+#[cfg(target_family = "wasm")]
+fn current_agent_atomic_wait_forbidden() -> bool {
+  WasmHostAgent::current().atomic_wait_forbidden()
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn current_agent_atomic_wait_forbidden() -> bool {
+  false
+}
 
 fn checked_update_atomic(
   value: &AtomicUsize,
@@ -73,6 +121,21 @@ fn native_enqueue_mode(
   }
 }
 
+fn should_wait_for_blocking_call(atomic_wait_forbidden: bool) -> bool {
+  !atomic_wait_forbidden
+}
+
+const TSFN_OWNER_ACTIVE: u8 = 0;
+const TSFN_OWNER_RELEASE_PENDING: u8 = 1;
+const TSFN_OWNER_ABORT_PENDING: u8 = 2;
+const TSFN_OWNER_RETIRED: u8 = 3;
+
+#[cfg(all(
+  feature = "__internal_test_tsfn_blocking_state",
+  target_family = "wasm"
+))]
+type ThreadsafeFunctionBlockingWaitObserver = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
+
 struct ThreadsafeFunctionHandle {
   state: Arc<ThreadsafeFunctionHandleState>,
 }
@@ -92,13 +155,40 @@ struct ThreadsafeFunctionOwnerCleanupContext {
   state: Arc<ThreadsafeFunctionHandleState>,
 }
 
-type ThreadsafeFunctionFinalizeCallback = Box<dyn FnOnce() + Send + 'static>;
+#[cfg(all(
+  feature = "__internal_test_tsfn_blocking_state",
+  target_family = "wasm"
+))]
+static THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS: AtomicUsize = AtomicUsize::new(0);
 
-enum ThreadsafeFunctionFinalizeState {
-  Unregistered,
-  Registered(ThreadsafeFunctionFinalizeCallback),
-  Finalized,
+impl ThreadsafeFunctionOwnerCleanupContext {
+  fn into_raw(state: Arc<ThreadsafeFunctionHandleState>) -> *mut Self {
+    #[cfg(all(
+      feature = "__internal_test_tsfn_blocking_state",
+      target_family = "wasm"
+    ))]
+    THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS.fetch_add(1, Ordering::AcqRel);
+    Box::into_raw(Box::new(Self { state }))
+  }
 }
+
+impl Drop for ThreadsafeFunctionOwnerCleanupContext {
+  fn drop(&mut self) {
+    #[cfg(all(
+      feature = "__internal_test_tsfn_blocking_state",
+      target_family = "wasm"
+    ))]
+    if checked_update_atomic(&THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS, |count| {
+      count.checked_sub(1)
+    })
+    .is_err()
+    {
+      std::process::abort();
+    }
+  }
+}
+
+type ThreadsafeFunctionFinalizeCallback = Box<dyn FnOnce() + Send + 'static>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ThreadsafeFunctionFinalizeResult {
@@ -124,18 +214,53 @@ struct ThreadsafeFunctionHandleState {
   owner_cleanup_context: AtomicPtr<ThreadsafeFunctionOwnerCleanupContext>,
   lifecycle: RwLock<()>,
   blocking_call: Mutex<()>,
-  blocking_active: Mutex<bool>,
+  blocking_active: AtomicUsize,
+  blocking_waiter: Mutex<()>,
   blocking_idle: Condvar,
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  blocking_wait_observer: Mutex<Option<ThreadsafeFunctionBlockingWaitObserver>>,
+  #[cfg(not(target_family = "wasm"))]
   owner_thread: ThreadId,
+  #[cfg(target_family = "wasm")]
+  owner_agent: WasmHostAgent,
   closing: AtomicBool,
-  aborted: RwLock<bool>,
   referred: AtomicBool,
-  finalizer: Mutex<ThreadsafeFunctionFinalizeState>,
+  finalizer: AtomicPtr<ThreadsafeFunctionFinalizeCallback>,
+  finalizer_registration_claimed: AtomicBool,
+  finalization_started: AtomicBool,
   rust_handle_count: AtomicUsize,
   outstanding_payloads: AtomicUsize,
   begin_finalize_succeeded: AtomicBool,
   quiescence_callback_succeeded: AtomicBool,
   callback_dropped_normally: AtomicBool,
+  owner_retirement: AtomicU8,
+}
+
+struct ThreadsafeFunctionLifecycleReadGuard<'a> {
+  state: &'a ThreadsafeFunctionHandleState,
+  guard: Option<RwLockReadGuard<'a, ()>>,
+}
+
+impl Drop for ThreadsafeFunctionLifecycleReadGuard<'_> {
+  fn drop(&mut self) {
+    drop(self.guard.take());
+    let _ = self.state.try_finish_pending_retirement();
+  }
+}
+
+struct ThreadsafeFunctionLifecycleWriteGuard<'a> {
+  state: &'a ThreadsafeFunctionHandleState,
+  guard: Option<RwLockWriteGuard<'a, ()>>,
+}
+
+impl Drop for ThreadsafeFunctionLifecycleWriteGuard<'_> {
+  fn drop(&mut self) {
+    drop(self.guard.take());
+    let _ = self.state.try_finish_pending_retirement();
+  }
 }
 
 impl ThreadsafeFunctionHandle {
@@ -152,18 +277,29 @@ impl ThreadsafeFunctionHandle {
         owner_cleanup_context: AtomicPtr::new(ptr::null_mut()),
         lifecycle: RwLock::new(()),
         blocking_call: Mutex::new(()),
-        blocking_active: Mutex::new(false),
+        blocking_active: AtomicUsize::new(0),
+        blocking_waiter: Mutex::new(()),
         blocking_idle: Condvar::new(),
+        #[cfg(all(
+          feature = "__internal_test_tsfn_blocking_state",
+          target_family = "wasm"
+        ))]
+        blocking_wait_observer: Mutex::new(None),
+        #[cfg(not(target_family = "wasm"))]
         owner_thread: std::thread::current().id(),
+        #[cfg(target_family = "wasm")]
+        owner_agent: WasmHostAgent::current(),
         closing: AtomicBool::new(false),
-        aborted: RwLock::new(false),
         referred: AtomicBool::new(true),
-        finalizer: Mutex::new(ThreadsafeFunctionFinalizeState::Unregistered),
+        finalizer: AtomicPtr::new(ptr::null_mut()),
+        finalizer_registration_claimed: AtomicBool::new(false),
+        finalization_started: AtomicBool::new(false),
         rust_handle_count: AtomicUsize::new(0),
         outstanding_payloads: AtomicUsize::new(0),
         begin_finalize_succeeded: AtomicBool::new(false),
         quiescence_callback_succeeded: AtomicBool::new(false),
         callback_dropped_normally: AtomicBool::new(false),
+        owner_retirement: AtomicU8::new(TSFN_OWNER_ACTIVE),
       }),
     })
   }
@@ -173,11 +309,11 @@ impl ThreadsafeFunctionHandle {
     Self::new_with_max_queue_size(null_mut(), max_queue_size, owner_env)
   }
 
-  fn read_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
+  fn read_lifecycle(&self) -> ThreadsafeFunctionLifecycleReadGuard<'_> {
     self.state.read_lifecycle()
   }
 
-  fn write_lifecycle(&self) -> RwLockWriteGuard<'_, ()> {
+  fn write_lifecycle(&self) -> ThreadsafeFunctionLifecycleWriteGuard<'_> {
     self.state.write_lifecycle()
   }
 
@@ -211,11 +347,8 @@ impl ThreadsafeFunctionHandle {
     self.state.acquire_call_slot_locked()
   }
 
-  fn with_read_aborted<RT, F>(&self, f: F) -> RT
-  where
-    F: FnOnce(bool) -> RT,
-  {
-    self.state.with_read_aborted(f)
+  fn owner_retired(&self) -> bool {
+    self.state.owner_retired()
   }
 
   fn get_raw(&self) -> sys::napi_threadsafe_function {
@@ -242,6 +375,17 @@ impl ThreadsafeFunctionHandle {
     self.state.register_finalizer(callback)
   }
 
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  fn register_blocking_wait_observer(
+    &self,
+    observer: ThreadsafeFunctionBlockingWaitObserver,
+  ) -> Result<()> {
+    self.state.register_blocking_wait_observer(observer)
+  }
+
   fn new_payload_guard(&self) -> ThreadsafeFunctionPayloadGuard {
     ThreadsafeFunctionPayloadGuard::new(Arc::clone(&self.state))
   }
@@ -255,31 +399,41 @@ impl ThreadsafeFunctionHandleState {
         "A ThreadsafeFunction cannot be referenced through a different napi_env".to_owned(),
       ));
     }
-    if self.owner_thread != std::thread::current().id() {
+    if !self.is_owner_agent() {
       return Err(Error::new(
         Status::InvalidArg,
-        "A ThreadsafeFunction can only be referenced from its owner thread".to_owned(),
+        "A ThreadsafeFunction can only be referenced from its owner agent".to_owned(),
       ));
     }
     Ok(())
   }
 
-  fn read_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
-    self
-      .lifecycle
-      .read()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
+  fn read_lifecycle(&self) -> ThreadsafeFunctionLifecycleReadGuard<'_> {
+    ThreadsafeFunctionLifecycleReadGuard {
+      state: self,
+      guard: Some(
+        self
+          .lifecycle
+          .read()
+          .unwrap_or_else(std::sync::PoisonError::into_inner),
+      ),
+    }
   }
 
-  fn write_lifecycle(&self) -> RwLockWriteGuard<'_, ()> {
-    self
-      .lifecycle
-      .write()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
+  fn write_lifecycle(&self) -> ThreadsafeFunctionLifecycleWriteGuard<'_> {
+    ThreadsafeFunctionLifecycleWriteGuard {
+      state: self,
+      guard: Some(
+        self
+          .lifecycle
+          .write()
+          .unwrap_or_else(std::sync::PoisonError::into_inner),
+      ),
+    }
   }
 
   fn lock_blocking_call(&self) -> std::result::Result<MutexGuard<'_, ()>, sys::napi_status> {
-    if self.owner_thread == std::thread::current().id() {
+    if self.is_owner_agent() {
       match self.blocking_call.try_lock() {
         Ok(guard) => Ok(guard),
         Err(TryLockError::Poisoned(error)) => Ok(error.into_inner()),
@@ -296,45 +450,111 @@ impl ThreadsafeFunctionHandleState {
   }
 
   fn owner_thread_must_not_block(&self) -> bool {
-    self.max_queue_size != 0 && self.owner_thread == std::thread::current().id()
+    self.max_queue_size != 0 && (self.is_owner_agent() || current_agent_atomic_wait_forbidden())
   }
 
-  fn retire_locked(&self, mode: sys::napi_threadsafe_function_release_mode) -> sys::napi_status {
-    self.with_write_aborted(|mut aborted| {
-      if *aborted {
-        return sys::Status::napi_ok;
-      }
+  fn is_owner_agent(&self) -> bool {
+    #[cfg(not(target_family = "wasm"))]
+    {
+      self.owner_thread == std::thread::current().id()
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      self.owner_agent.is_identifiable_owner() && self.owner_agent == WasmHostAgent::current()
+    }
+  }
 
-      let status = unsafe { sys::napi_release_threadsafe_function(self.get_raw(), mode) };
-      if status == sys::Status::napi_ok {
-        *aborted = true;
+  fn request_retirement(&self, mode: sys::napi_threadsafe_function_release_mode) {
+    let requested = if mode == sys::ThreadsafeFunctionReleaseMode::abort {
+      TSFN_OWNER_ABORT_PENDING
+    } else {
+      TSFN_OWNER_RELEASE_PENDING
+    };
+    let mut current = self.owner_retirement.load(Ordering::Acquire);
+    loop {
+      let next = match current {
+        TSFN_OWNER_ACTIVE => requested,
+        TSFN_OWNER_RELEASE_PENDING if requested == TSFN_OWNER_ABORT_PENDING => requested,
+        TSFN_OWNER_RELEASE_PENDING | TSFN_OWNER_ABORT_PENDING | TSFN_OWNER_RETIRED => return,
+        _ => std::process::abort(),
+      };
+      match self.owner_retirement.compare_exchange_weak(
+        current,
+        next,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+      ) {
+        Ok(_) => return,
+        Err(actual) => current = actual,
       }
-      status
-    })
+    }
+  }
+
+  fn finish_pending_retirement_locked(&self) -> sys::napi_status {
+    let mut current = self.owner_retirement.load(Ordering::Acquire);
+    loop {
+      let mode = match current {
+        TSFN_OWNER_ACTIVE | TSFN_OWNER_RETIRED => return sys::Status::napi_ok,
+        TSFN_OWNER_RELEASE_PENDING => sys::ThreadsafeFunctionReleaseMode::release,
+        TSFN_OWNER_ABORT_PENDING => sys::ThreadsafeFunctionReleaseMode::abort,
+        _ => std::process::abort(),
+      };
+      match self.owner_retirement.compare_exchange_weak(
+        current,
+        TSFN_OWNER_RETIRED,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+      ) {
+        Ok(_) => {
+          let status = unsafe { sys::napi_release_threadsafe_function(self.get_raw(), mode) };
+          if status != sys::Status::napi_ok {
+            self.owner_retirement.store(current, Ordering::Release);
+          }
+          return status;
+        }
+        Err(actual) => current = actual,
+      }
+    }
+  }
+
+  fn try_finish_pending_retirement(&self) -> Option<sys::napi_status> {
+    match self.lifecycle.try_write() {
+      Ok(_guard) => Some(self.finish_pending_retirement_locked()),
+      Err(TryLockError::Poisoned(error)) => {
+        let _guard = error.into_inner();
+        Some(self.finish_pending_retirement_locked())
+      }
+      Err(TryLockError::WouldBlock) => None,
+    }
   }
 
   fn retire(&self, mode: sys::napi_threadsafe_function_release_mode) -> sys::napi_status {
-    let status = {
+    let atomic_wait_forbidden = current_agent_atomic_wait_forbidden();
+    if mode == sys::ThreadsafeFunctionReleaseMode::abort {
+      self.mark_closing();
+    }
+    self.request_retirement(mode);
+    let status = if atomic_wait_forbidden {
+      // Browser-window agents cannot wait for a contended Rust synchronization
+      // primitive. The last lifecycle guard completes this pending retirement.
+      self
+        .try_finish_pending_retirement()
+        .unwrap_or(sys::Status::napi_ok)
+    } else {
       let _lifecycle_guard = self.write_lifecycle();
-      if self.owner_retired() {
-        sys::Status::napi_ok
-      } else {
-        if mode == sys::ThreadsafeFunctionReleaseMode::abort {
-          self.mark_closing();
-        }
-        self.retire_locked(mode)
-      }
+      self.finish_pending_retirement_locked()
     };
     if mode == sys::ThreadsafeFunctionReleaseMode::abort && status == sys::Status::napi_ok {
-      // Every shared abort caller waits for the one serialized Blocking call,
-      // including callers that raced with an abort already in progress.
-      self.wait_for_blocking_call();
+      // Native and worker-thread abort callers wait for the one serialized
+      // Blocking call, including callers that raced with an abort already in
+      // progress. A browser window agent must never enter an atomic wait.
+      self.wait_for_blocking_call_if_allowed();
     }
     status
   }
 
   fn owner_retired(&self) -> bool {
-    self.with_read_aborted(|aborted| aborted)
+    self.owner_retirement.load(Ordering::Acquire) == TSFN_OWNER_RETIRED
   }
 
   fn record_begin_finalize_result(&self, succeeded: bool) {
@@ -366,77 +586,154 @@ impl ThreadsafeFunctionHandleState {
   }
 
   fn start_blocking_call(&self) -> ThreadsafeFunctionBlockingCall<'_> {
-    let mut active = self
-      .blocking_active
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    debug_assert!(!*active, "Blocking TSFN calls must be serialized");
-    *active = true;
+    let previous = self.blocking_active.swap(1, Ordering::AcqRel);
+    debug_assert!(previous == 0, "Blocking TSFN calls must be serialized");
     ThreadsafeFunctionBlockingCall { handle: self }
   }
 
-  fn wait_for_blocking_call(&self) {
-    let mut active = self
-      .blocking_active
+  fn wait_for_blocking_call_if_allowed(&self) {
+    if !should_wait_for_blocking_call(current_agent_atomic_wait_forbidden())
+      || self.blocking_active.load(Ordering::Acquire) == 0
+    {
+      return;
+    }
+    let mut waiter = self
+      .blocking_waiter
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    while *active {
-      active = self
+    #[cfg(all(
+      feature = "__internal_test_tsfn_blocking_state",
+      target_family = "wasm"
+    ))]
+    if self.blocking_active.load(Ordering::Acquire) != 0 {
+      let observer = self
+        .blocking_wait_observer
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+      if observer.is_some_and(|observer| !observer()) {
+        return;
+      }
+    }
+    while self.blocking_active.load(Ordering::Acquire) != 0 {
+      waiter = self
         .blocking_idle
-        .wait(active)
+        .wait(waiter)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
   }
 
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  fn register_blocking_wait_observer(
+    &self,
+    observer: ThreadsafeFunctionBlockingWaitObserver,
+  ) -> Result<()> {
+    let mut registered = self
+      .blocking_wait_observer
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if registered.is_some() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Threadsafe Function blocking wait observer has already been registered",
+      ));
+    }
+    *registered = Some(observer);
+    Ok(())
+  }
+
   fn register_finalizer(&self, callback: ThreadsafeFunctionFinalizeCallback) -> Result<()> {
+    self.register_finalizer_with_publish_hook(callback, || {})
+  }
+
+  fn register_finalizer_with_publish_hook(
+    &self,
+    callback: ThreadsafeFunctionFinalizeCallback,
+    after_publish: impl FnOnce(),
+  ) -> Result<()> {
     let _lifecycle_guard = self.write_lifecycle();
-    if self.is_closing() || self.with_read_aborted(|aborted| aborted) {
+    if self.is_closing() || self.owner_retired() {
       return Err(Error::new(
         Status::Closing,
         "Threadsafe Function finalizer cannot be registered after closing has started",
       ));
     }
 
-    let mut finalizer = self
-      .finalizer
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    match &*finalizer {
-      ThreadsafeFunctionFinalizeState::Unregistered => {
-        *finalizer = ThreadsafeFunctionFinalizeState::Registered(callback);
-        Ok(())
-      }
-      ThreadsafeFunctionFinalizeState::Registered(_) => Err(Error::new(
-        Status::InvalidArg,
-        "Threadsafe Function finalizer has already been registered",
-      )),
-      ThreadsafeFunctionFinalizeState::Finalized => Err(Error::new(
+    if self
+      .finalizer_registration_claimed
+      .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+      .is_err()
+    {
+      return Err(if self.finalization_started.load(Ordering::SeqCst) {
+        Error::new(
+          Status::Closing,
+          "Threadsafe Function finalizer cannot be registered after finalization",
+        )
+      } else {
+        Error::new(
+          Status::InvalidArg,
+          "Threadsafe Function finalizer has already been registered",
+        )
+      });
+    }
+    if self.finalization_started.load(Ordering::SeqCst) {
+      return Err(Error::new(
         Status::Closing,
         "Threadsafe Function finalizer cannot be registered after finalization",
-      )),
+      ));
+    }
+
+    let callback = Box::into_raw(Box::new(callback));
+    self.finalizer.store(callback, Ordering::SeqCst);
+    after_publish();
+    if self.finalization_started.load(Ordering::SeqCst) {
+      match self.finalizer.compare_exchange(
+        callback,
+        ptr::null_mut(),
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+      ) {
+        Ok(_) => {
+          // Finalization completed its one atomic take before this callback was
+          // published. Registration did not commit, so return ownership to the
+          // caller as a Closing error.
+          drop(unsafe { Box::from_raw(callback) });
+          Err(Error::new(
+            Status::Closing,
+            "Threadsafe Function finalizer cannot be registered after finalization",
+          ))
+        }
+        Err(actual) if actual.is_null() => {
+          // Finalization took the callback after publication. That atomic take
+          // is the successful registration linearization point.
+          Ok(())
+        }
+        Err(_) => {
+          // Only this registration can publish a non-null callback pointer.
+          std::process::abort();
+        }
+      }
+    } else {
+      Ok(())
     }
   }
 
   fn run_finalizer(&self) -> ThreadsafeFunctionFinalizeResult {
-    let callback = {
-      let mut finalizer = self
-        .finalizer
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-      match std::mem::replace(&mut *finalizer, ThreadsafeFunctionFinalizeState::Finalized) {
-        ThreadsafeFunctionFinalizeState::Registered(callback) => Some(callback),
-        ThreadsafeFunctionFinalizeState::Unregistered => {
-          return ThreadsafeFunctionFinalizeResult::Unregistered;
-        }
-        ThreadsafeFunctionFinalizeState::Finalized => {
-          return ThreadsafeFunctionFinalizeResult::AlreadyFinalized;
-        }
-      }
-    };
+    if self.finalization_started.swap(true, Ordering::SeqCst) {
+      return ThreadsafeFunctionFinalizeResult::AlreadyFinalized;
+    }
+    let callback = self.finalizer.swap(ptr::null_mut(), Ordering::SeqCst);
+    if callback.is_null() {
+      return ThreadsafeFunctionFinalizeResult::Unregistered;
+    }
+    let callback = *unsafe { Box::from_raw(callback) };
 
     let mut returned_normally = false;
     crate::bindgen_runtime::catch_unwind_safely(|| {
-      callback.expect("registered finalizer callback must be present")();
+      callback();
       returned_normally = true;
     });
     let result = if returned_normally {
@@ -451,7 +748,14 @@ impl ThreadsafeFunctionHandleState {
   }
 
   fn begin_finalize(&self) {
-    {
+    if current_agent_atomic_wait_forbidden() {
+      // Native N-API is already finalizing this owner. Publish closure without
+      // entering a potentially blocking Rust lock on the browser window.
+      self.mark_closing();
+      self
+        .owner_retirement
+        .store(TSFN_OWNER_RETIRED, Ordering::Release);
+    } else {
       // Node owns the TSFN while invoking this callback and deletes it after
       // the callback returns. Retire Rust's initial owner before running any
       // user finalizer or callback Drop, because either can synchronously drop
@@ -459,16 +763,20 @@ impl ThreadsafeFunctionHandleState {
       // `napi_release_threadsafe_function` for Node's active finalizer.
       let _lifecycle_guard = self.write_lifecycle();
       self.mark_closing();
-      self.with_write_aborted(|mut owner_retired| {
-        *owner_retired = true;
-      });
+      self
+        .owner_retirement
+        .store(TSFN_OWNER_RETIRED, Ordering::Release);
     }
-    self.wait_for_blocking_call();
+    self.wait_for_blocking_call_if_allowed();
   }
 
   fn finish_finalize(&self) {
-    let _lifecycle_guard = self.write_lifecycle();
-    self.set_raw(ptr::null_mut());
+    if current_agent_atomic_wait_forbidden() {
+      self.set_raw(ptr::null_mut());
+    } else {
+      let _lifecycle_guard = self.write_lifecycle();
+      self.set_raw(ptr::null_mut());
+    }
   }
 
   fn increment_rust_handle_count(&self) {
@@ -506,16 +814,18 @@ impl ThreadsafeFunctionHandleState {
   fn acquire_call_slot_locked(
     &self,
   ) -> std::result::Result<ThreadsafeFunctionCallSlot<'_>, sys::napi_status> {
-    let status = self.with_read_aborted(|aborted| {
-      if aborted || self.is_closing() {
-        sys::Status::napi_closing
-      } else {
-        unsafe { sys::napi_acquire_threadsafe_function(self.get_raw()) }
-      }
-    });
+    if self.owner_retirement.load(Ordering::Acquire) != TSFN_OWNER_ACTIVE || self.is_closing() {
+      return Err(sys::Status::napi_closing);
+    }
+    let raw = self.get_raw();
+    if raw.is_null() {
+      return Err(sys::Status::napi_closing);
+    }
+    let status = unsafe { sys::napi_acquire_threadsafe_function(raw) };
     if status == sys::Status::napi_ok {
       return Ok(ThreadsafeFunctionCallSlot {
         handle: self,
+        raw,
         acquired: true,
       });
     }
@@ -527,28 +837,6 @@ impl ThreadsafeFunctionHandleState {
     Err(status)
   }
 
-  fn with_read_aborted<RT, F>(&self, f: F) -> RT
-  where
-    F: FnOnce(bool) -> RT,
-  {
-    let aborted_guard = self
-      .aborted
-      .read()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    f(*aborted_guard)
-  }
-
-  fn with_write_aborted<RT, F>(&self, f: F) -> RT
-  where
-    F: FnOnce(RwLockWriteGuard<bool>) -> RT,
-  {
-    let aborted_guard = self
-      .aborted
-      .write()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    f(aborted_guard)
-  }
-
   fn get_raw(&self) -> sys::napi_threadsafe_function {
     self.raw.load(Ordering::SeqCst)
   }
@@ -558,14 +846,12 @@ impl ThreadsafeFunctionHandleState {
   }
 
   fn release_owner_cleanup_context(&self, env: sys::napi_env) -> bool {
-    #[cfg(not(target_family = "wasm"))]
-    {
-      let cleanup_context = self
-        .owner_cleanup_context
-        .swap(ptr::null_mut(), Ordering::AcqRel);
-      if cleanup_context.is_null() {
-        return true;
-      }
+    let cleanup_context = self
+      .owner_cleanup_context
+      .swap(ptr::null_mut(), Ordering::AcqRel);
+    if cleanup_context.is_null() {
+      true
+    } else {
       let status = unsafe { remove_threadsafe_function_owner_cleanup_hook(env, cleanup_context) };
       if status == sys::Status::napi_ok {
         drop(unsafe { Box::from_raw(cleanup_context) });
@@ -579,12 +865,14 @@ impl ThreadsafeFunctionHandleState {
         false
       }
     }
-    #[cfg(target_family = "wasm")]
-    {
-      // The WASI import for removing cleanup hooks is not available in every
-      // feature combination. Its hook context remains valid until env cleanup.
-      let _ = env;
-      true
+  }
+}
+
+impl Drop for ThreadsafeFunctionHandleState {
+  fn drop(&mut self) {
+    let callback = self.finalizer.swap(ptr::null_mut(), Ordering::AcqRel);
+    if !callback.is_null() {
+      drop(unsafe { Box::from_raw(callback) });
     }
   }
 }
@@ -612,13 +900,26 @@ unsafe fn add_threadsafe_function_owner_cleanup_hook(
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
 unsafe fn remove_threadsafe_function_owner_cleanup_hook(
   env: sys::napi_env,
   data: *mut ThreadsafeFunctionOwnerCleanupContext,
 ) -> sys::napi_status {
-  unsafe {
-    sys::napi_remove_env_cleanup_hook(env, Some(threadsafe_function_owner_cleanup), data.cast())
+  #[cfg(not(target_family = "wasm"))]
+  {
+    unsafe {
+      sys::napi_remove_env_cleanup_hook(env, Some(threadsafe_function_owner_cleanup), data.cast())
+    }
+  }
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  {
+    unsafe {
+      crate::napi_remove_env_cleanup_hook(env, Some(threadsafe_function_owner_cleanup), data.cast())
+    }
+  }
+  #[cfg(all(target_family = "wasm", feature = "noop"))]
+  {
+    let _ = (env, data);
+    sys::Status::napi_generic_failure
   }
 }
 
@@ -691,6 +992,7 @@ impl Drop for ThreadsafeFunctionPayloadGuard {
 
 struct ThreadsafeFunctionCallSlot<'a> {
   handle: &'a ThreadsafeFunctionHandleState,
+  raw: sys::napi_threadsafe_function,
   acquired: bool,
 }
 
@@ -700,26 +1002,27 @@ struct ThreadsafeFunctionBlockingCall<'a> {
 
 impl Drop for ThreadsafeFunctionBlockingCall<'_> {
   fn drop(&mut self) {
-    let mut active = self
+    let _waiter = self
       .handle
-      .blocking_active
+      .blocking_waiter
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *active = false;
+    self.handle.blocking_active.store(0, Ordering::Release);
     self.handle.blocking_idle.notify_all();
   }
 }
 
 impl ThreadsafeFunctionCallSlot<'_> {
+  fn raw(&self) -> sys::napi_threadsafe_function {
+    self.raw
+  }
+
   fn release_locked(&mut self) {
     if !self.acquired {
       return;
     }
     let status = unsafe {
-      sys::napi_release_threadsafe_function(
-        self.handle.get_raw(),
-        sys::ThreadsafeFunctionReleaseMode::release,
-      )
+      sys::napi_release_threadsafe_function(self.raw, sys::ThreadsafeFunctionReleaseMode::release)
     };
     self.acquired = false;
     debug_assert_eq!(status, sys::Status::napi_ok);
@@ -770,7 +1073,7 @@ fn call_nonblocking_threadsafe_function_with_owned_data<T: Send + 'static>(
         }));
         let status = unsafe {
           sys::napi_call_threadsafe_function(
-            handle.get_raw(),
+            call_slot.raw(),
             data.cast(),
             ThreadsafeFunctionCallMode::NonBlocking.into(),
           )
@@ -791,9 +1094,15 @@ fn call_nonblocking_threadsafe_function_with_owned_data<T: Send + 'static>(
   status
 }
 
-fn call_blocking_threadsafe_function_with_owned_data<T: Send + 'static>(
+fn call_blocking_threadsafe_function_with_owned_data<
+  T: Send + 'static,
+  BeforeNative: FnOnce(),
+  AfterNative: FnOnce(sys::napi_status),
+>(
   handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
+  before_native: BeforeNative,
+  after_native: AfterNative,
 ) -> sys::napi_status {
   if handle.owner_thread_must_not_block() {
     // Node cannot drain a bounded queue while its JavaScript thread is blocked.
@@ -836,13 +1145,15 @@ fn call_blocking_threadsafe_function_with_owned_data<T: Send + 'static>(
     data,
     payload_guard: handle.new_payload_guard(),
   }));
+  before_native();
   let status = unsafe {
     sys::napi_call_threadsafe_function(
-      handle.get_raw(),
+      call_slot.raw(),
       data.cast(),
       ThreadsafeFunctionCallMode::Blocking.into(),
     )
   };
+  after_native(status);
   if status == sys::Status::napi_closing {
     // Blocking calls cannot retain the lifecycle read lock while waiting,
     // because abort needs the write lock to wake them. Publish native closing
@@ -878,7 +1189,7 @@ fn call_threadsafe_function_with_owned_data<T: Send + 'static>(
       call_nonblocking_threadsafe_function_with_owned_data(handle, data)
     }
     ThreadsafeFunctionCallMode::Blocking => {
-      call_blocking_threadsafe_function_with_owned_data(handle, data)
+      call_blocking_threadsafe_function_with_owned_data(handle, data, || {}, |_| {})
     }
   }
 }
@@ -1207,9 +1518,7 @@ fn create_raw(
   )?;
   handle.set_raw(raw_tsfn);
 
-  let cleanup_context = Box::into_raw(Box::new(ThreadsafeFunctionOwnerCleanupContext {
-    state: Arc::clone(&handle.state),
-  }));
+  let cleanup_context = ThreadsafeFunctionOwnerCleanupContext::into_raw(Arc::clone(&handle.state));
   let cleanup_status = unsafe { add_threadsafe_function_owner_cleanup_hook(env, cleanup_context) };
   if cleanup_status == sys::Status::napi_ok {
     handle
@@ -1318,13 +1627,11 @@ impl<
   pub fn refer(&mut self, env: &Env) -> Result<()> {
     self.handle.ensure_owner_access(env.0)?;
     let _lifecycle_guard = self.handle.write_lifecycle();
-    self.handle.with_read_aborted(|aborted| {
-      if !aborted && !self.handle.is_closing() && !self.handle.is_referred() {
-        check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.handle.get_raw()) })?;
-        self.handle.set_referred(true);
-      }
-      Ok(())
-    })
+    if !self.handle.owner_retired() && !self.handle.is_closing() && !self.handle.is_referred() {
+      check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.handle.get_raw()) })?;
+      self.handle.set_referred(true);
+    }
+    Ok(())
   }
 
   #[deprecated(
@@ -1336,30 +1643,30 @@ impl<
   pub fn unref(&mut self, env: &Env) -> Result<()> {
     self.handle.ensure_owner_access(env.0)?;
     let _lifecycle_guard = self.handle.write_lifecycle();
-    self.handle.with_read_aborted(|aborted| {
-      if !aborted && !self.handle.is_closing() && self.handle.is_referred() {
-        check_status!(unsafe {
-          sys::napi_unref_threadsafe_function(env.0, self.handle.get_raw())
-        })?;
-        self.handle.set_referred(false);
-      }
-      Ok(())
-    })
+    if !self.handle.owner_retired() && !self.handle.is_closing() && self.handle.is_referred() {
+      check_status!(unsafe { sys::napi_unref_threadsafe_function(env.0, self.handle.get_raw()) })?;
+      self.handle.set_referred(false);
+    }
+    Ok(())
   }
 
   pub fn aborted(&self) -> bool {
-    self.handle.is_closing() || self.handle.with_read_aborted(|aborted| aborted)
+    self.handle.is_closing() || self.handle.owner_retired()
   }
 
   /// Register the callback that quiesces native threads using this thread-safe function.
   ///
   /// The callback runs exactly once on Node's main loop thread after new calls have been closed
-  /// and any in-flight blocking call has returned, before the JavaScript callback closure and its
-  /// captures are destroyed and before the native N-API finalizer returns. It should signal and
-  /// join every thread that can call, clone, or drop this thread-safe function. It must not wait
-  /// for JavaScript callbacks or queued TSFN payloads. For example, Node 26.0 drains an aborted
-  /// queue only after the native finalizer returns, while Node 26.1 drains it first; finalizers
-  /// must not depend on either ordering.
+  /// before the JavaScript callback closure and its captures are destroyed and before the native
+  /// N-API finalizer returns. Native finalization waits for an in-flight bounded blocking call to
+  /// return. Threaded browser WASI finalization only closes and wakes that call because the
+  /// owner/window agent is forbidden from entering an atomic wait. Browser workers must therefore
+  /// already be quiescent, or use a nonblocking ownership protocol, before owner-agent
+  /// finalization begins. On native targets the callback should signal and join every thread that
+  /// can call, clone, or drop this thread-safe function. It must not wait for JavaScript callbacks
+  /// or queued TSFN payloads. For example, Node 26.0 drains an aborted queue only after the native
+  /// finalizer returns, while Node 26.1 drains it first; finalizers must not depend on either
+  /// ordering.
   ///
   /// Registration is serialized with abort and finalization. If concurrent registrations race,
   /// exactly one succeeds and the others return [`Status::InvalidArg`]. Registration after abort
@@ -1400,13 +1707,73 @@ impl<
   /// caller.
   ///
   /// Abort is shared and idempotent. It closes the native queue through the serialized lifecycle
-  /// path, then waits until an in-flight blocking call has returned. Dropping all Rust references
-  /// normally releases the TSFN, but it does not replace abort when synchronous teardown must wake
-  /// a caller blocked on a full bounded queue.
+  /// path and wakes an in-flight bounded blocking call. Native and non-owner callers wait until
+  /// that call has returned. On threaded browser WASI, an owner/window-agent call returns after
+  /// issuing the abort because the window agent is forbidden from entering an atomic wait.
+  /// Dropping all Rust references normally releases the TSFN, but it does not replace abort when
+  /// teardown must wake a caller blocked on a full bounded queue.
   pub fn abort(&self) -> Result<()> {
     check_status!(self
       .handle
       .retire(sys::ThreadsafeFunctionReleaseMode::abort))
+  }
+
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  #[doc(hidden)]
+  pub fn __test_register_blocking_wait_observer<F>(&self, observer: F) -> Result<()>
+  where
+    F: Fn() -> bool + Send + Sync + 'static,
+  {
+    self
+      .handle
+      .register_blocking_wait_observer(Arc::new(observer))
+  }
+
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  #[doc(hidden)]
+  pub fn __test_blocking_call_state(&self) -> (bool, u8, u8, bool) {
+    let current_agent = WasmHostAgent::current();
+    (
+      self.handle.state.blocking_active.load(Ordering::Acquire) != 0,
+      self.handle.state.owner_agent as u8,
+      current_agent as u8,
+      self.handle.state.owner_agent.is_identifiable_owner()
+        && self.handle.state.owner_agent == current_agent,
+    )
+  }
+
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  #[doc(hidden)]
+  pub fn __test_handle_state_ptr(&self) -> usize {
+    Arc::as_ptr(&self.handle.state) as usize
+  }
+
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  #[doc(hidden)]
+  pub fn __test_with_lifecycle_read_lock<F: FnOnce()>(&self, callback: F) {
+    let _lifecycle_guard = self.handle.read_lifecycle();
+    callback();
+  }
+
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  #[doc(hidden)]
+  pub fn __test_owner_cleanup_context_count() -> usize {
+    THREADSAFE_FUNCTION_OWNER_CLEANUP_CONTEXTS.load(Ordering::Acquire)
   }
 }
 
@@ -1513,6 +1880,30 @@ impl<
         callback: Box::new(|_d: Result<Return>, _: Env| Ok(())),
       },
       mode,
+    )
+    .into()
+  }
+
+  #[cfg(all(
+    feature = "__internal_test_tsfn_blocking_state",
+    target_family = "wasm"
+  ))]
+  #[doc(hidden)]
+  pub fn __test_call_bounded_blocking<BeforeNative: FnOnce(), AfterNative: FnOnce(Status)>(
+    &self,
+    value: T,
+    before_native: BeforeNative,
+    after_native: AfterNative,
+  ) -> Status {
+    call_blocking_threadsafe_function_with_owned_data(
+      &self.handle,
+      ThreadsafeFunctionCallJsBackData {
+        data: value,
+        call_variant: ThreadsafeFunctionCallVariant::Direct,
+        callback: Box::new(|_d: Result<Return>, _: Env| Ok(())),
+      },
+      before_native,
+      |status| after_native(status.into()),
     )
     .into()
   }
@@ -1985,7 +2376,15 @@ impl FromNapiValue for UnknownReturnValue {
 
 #[cfg(test)]
 mod tests {
-  use super::{native_enqueue_mode, ThreadsafeFunctionCallMode};
+  use std::{
+    ptr,
+    sync::{atomic::AtomicUsize, mpsc, Arc},
+  };
+
+  use super::{
+    native_enqueue_mode, should_wait_for_blocking_call, Ordering, ThreadsafeFunctionCallMode,
+    ThreadsafeFunctionFinalizeResult, ThreadsafeFunctionHandle,
+  };
 
   #[test]
   fn unlimited_blocking_calls_use_the_nonblocking_native_enqueue_path() {
@@ -2005,5 +2404,76 @@ mod tests {
       native_enqueue_mode(ThreadsafeFunctionCallMode::NonBlocking, 1),
       ThreadsafeFunctionCallMode::NonBlocking
     );
+  }
+
+  #[test]
+  fn threaded_wasi_owner_policy_skips_blocking_call_waits() {
+    assert!(!should_wait_for_blocking_call(true));
+    assert!(should_wait_for_blocking_call(false));
+  }
+
+  #[test]
+  fn non_owner_waiter_observes_atomic_blocking_call_completion() {
+    let handle = ThreadsafeFunctionHandle::null_with_max_queue_size(1, ptr::null_mut());
+    let blocking_call = handle.start_blocking_call();
+    assert_ne!(handle.state.blocking_active.load(Ordering::Acquire), 0);
+
+    let state = Arc::clone(&handle.state);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (completed_tx, completed_rx) = mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+      entered_tx.send(()).unwrap();
+      state.wait_for_blocking_call_if_allowed();
+      completed_tx.send(()).unwrap();
+    });
+    entered_rx.recv().unwrap();
+
+    assert_ne!(handle.state.blocking_active.load(Ordering::Acquire), 0);
+    assert_eq!(completed_rx.try_recv(), Err(mpsc::TryRecvError::Empty));
+
+    drop(blocking_call);
+    completed_rx.recv().unwrap();
+    waiter.join().unwrap();
+  }
+
+  #[test]
+  fn finalization_observes_a_callback_published_by_concurrent_registration() {
+    let handle = ThreadsafeFunctionHandle::null_with_max_queue_size(0, ptr::null_mut());
+    let state = Arc::clone(&handle.state);
+    let callback_calls = Arc::new(AtomicUsize::new(0));
+    let registered_callback_calls = Arc::clone(&callback_calls);
+    let (published_tx, published_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+
+    let registration = std::thread::spawn(move || {
+      state.register_finalizer_with_publish_hook(
+        Box::new(move || {
+          registered_callback_calls.fetch_add(1, Ordering::SeqCst);
+        }),
+        move || {
+          published_tx.send(()).unwrap();
+          release_rx.recv().unwrap();
+        },
+      )
+    });
+    published_rx
+      .recv()
+      .expect("registration must publish before returning");
+
+    assert_eq!(
+      handle.state.run_finalizer(),
+      ThreadsafeFunctionFinalizeResult::ReturnedNormally
+    );
+    release_tx.send(()).unwrap();
+    registration
+      .join()
+      .unwrap()
+      .expect("a callback taken by finalization is successfully registered");
+    assert_eq!(callback_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+      handle.state.run_finalizer(),
+      ThreadsafeFunctionFinalizeResult::AlreadyFinalized
+    );
+    assert_eq!(callback_calls.load(Ordering::SeqCst), 1);
   }
 }

@@ -257,6 +257,94 @@ export async function runCombinedRuntimeLifecycle(bindingFile) {
   }
 }
 
+export async function runModuleRetirementRace(bindingFile) {
+  assert.ok(bindingFile, 'native binding path is required')
+  assert.ok(isAbsolute(bindingFile), 'native binding path must be absolute')
+
+  const directory = await mkdtemp(
+    join(tmpdir(), 'napi-runtime-module-retirement-'),
+  )
+  const enteredPath = join(directory, 'entered')
+  const releasePath = join(directory, 'release')
+  process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_ENTERED = enteredPath
+  process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_RELEASE = releasePath
+
+  const first = new Worker(new URL(import.meta.url), {
+    workerData: {
+      bindingFile,
+      role: 'retire-module',
+    },
+  })
+  const second = new Worker(new URL(import.meta.url), {
+    workerData: {
+      bindingFile,
+      role: 'retire-module',
+    },
+  })
+  let replacement
+  let firstTermination
+  let secondTermination
+
+  try {
+    await Promise.all([
+      waitForMessage(first, 'retirement-ready'),
+      waitForMessage(second, 'retirement-ready'),
+    ])
+    firstTermination = first.terminate()
+    await waitForFile(enteredPath)
+
+    secondTermination = second.terminate()
+
+    replacement = new Worker(new URL(import.meta.url), {
+      workerData: {
+        bindingFile,
+        role: 'load',
+      },
+    })
+    await waitForMessage(replacement, 'loading')
+    let secondSettled = false
+    let replacementSettled = false
+    const secondStopped = secondTermination.finally(() => {
+      secondSettled = true
+    })
+    const replacementLoaded = waitForMessage(replacement, 'loaded').finally(
+      () => {
+        replacementSettled = true
+      },
+    )
+    await delay(100)
+    assert.equal(
+      secondSettled,
+      false,
+      'the last old environment retired before the earlier cleanup committed its module decrement',
+    )
+    assert.equal(
+      replacementSettled,
+      false,
+      'replacement registration overtook an earlier environment/module retirement generation',
+    )
+
+    await writeFile(releasePath, 'release')
+    await firstTermination
+    firstTermination = undefined
+    await secondStopped
+    secondTermination = undefined
+    const loaded = await replacementLoaded
+    assert.equal(loaded.value, 42)
+    console.log('module retirement race passed')
+  } finally {
+    delete process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_ENTERED
+    delete process.env.NAPI_TEST_RUNTIME_ENV_RETIREMENT_RELEASE
+    await writeFile(releasePath, 'release').catch(() => {})
+    await firstTermination?.catch(() => {})
+    await secondTermination?.catch(() => {})
+    await first.terminate().catch(() => {})
+    await second.terminate().catch(() => {})
+    await replacement?.terminate().catch(() => {})
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
 function submissionMetrics(metrics) {
   return {
     completedTasks: metrics.completedTasks,
@@ -467,6 +555,14 @@ async function runWorker() {
         workerData.releasePath,
       )
       parentPort.postMessage({ type: 'ready', startCalls })
+      parentPort.on('message', () => {})
+      return
+    }
+
+    if (workerData.role === 'retire-module') {
+      const binding = require(workerData.bindingFile)
+      const value = await binding.asyncDouble(21)
+      parentPort.postMessage({ type: 'retirement-ready', value })
       parentPort.on('message', () => {})
       return
     }

@@ -1721,10 +1721,12 @@ mod tokio_future_cancellation_tests {
 ///
 /// If no custom backend has been registered, the registration window closes when napi begins
 /// activating the first Node-API environment, or earlier when a runtime-backed operation commits a
-/// backend choice. In a combined `async-runtime` + `tokio_rt` build, that choice defaults generated
-/// `#[napi]` futures and generated `#[napi(async_runtime)]` entry guards to built-in Tokio. In a
-/// pure `async-runtime` build, a missing-backend error before any environment is activated leaves
-/// selection undecided and does not prevent later registration.
+/// backend choice. In a combined `async-runtime` + `tokio_rt` build, that choice defaults current
+/// generated `#[napi]` futures and current derive v4 `#[napi(async_runtime)]` entry guards to
+/// built-in Tokio. The legacy napi-derive 3.5.9 synchronous guard instead uses the established
+/// Tokio compatibility helper in combined builds, while its generated async exports follow this
+/// selected backend. In a pure `async-runtime` build, a missing-backend error before any
+/// environment is activated leaves selection undecided and does not prevent later registration.
 ///
 /// Under the `noop` feature this SPI cannot be installed:
 /// [`try_register_async_runtime`] safely retires the supplied backend and reports
@@ -2671,40 +2673,157 @@ pub(crate) fn ensure_async_runtime_ready() -> Result<()> {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub(crate) fn rollback_unowned_async_runtime_after_registration_failure() -> Result<()> {
-  let selection = {
-    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
-    if lifecycle.active_envs != 0 || lifecycle.state != RuntimeLifecycleState::Running {
-      return Ok(());
-    }
-    lifecycle.state = RuntimeLifecycleState::Stopping;
-    lifecycle.selection
-  };
-  finish_selected_runtime_shutdown(selection, selection == AsyncRuntimeSelection::Custom, false)
+  rollback_unowned_async_runtime_after_registration_failure_with_retirement(|| {})
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-pub(crate) fn unregister_async_runtime_env() -> Result<()> {
-  let selection = {
-    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
-    if lifecycle.active_envs == 0 {
-      return Ok(());
-    }
-    lifecycle.active_envs -= 1;
-    if lifecycle.active_envs != 0 || lifecycle.state != RuntimeLifecycleState::Running {
-      None
-    } else {
-      lifecycle.state = RuntimeLifecycleState::Stopping;
-      Some(lifecycle.selection)
-    }
+pub(crate) fn rollback_unowned_async_runtime_after_registration_failure_with_retirement(
+  retirement: impl FnOnce(),
+) -> Result<()> {
+  let mut retirement = Some(retirement);
+  let transition = {
+    let mut lifecycle = match wait_for_runtime_transition(runtime_lifecycle()) {
+      Ok(lifecycle) => lifecycle,
+      Err(error) => {
+        retirement
+          .take()
+          .expect("runtime registration retirement runs exactly once")();
+        return Err(error);
+      }
+    };
+    let previous_state = lifecycle.state;
+    let previous_error = lifecycle.startup_error.clone();
+    let shutdown_runtime =
+      lifecycle.active_envs == 0 && previous_state == RuntimeLifecycleState::Running;
+    lifecycle.state = RuntimeLifecycleState::Stopping;
+    (
+      previous_state,
+      previous_error,
+      lifecycle.selection,
+      shutdown_runtime,
+    )
   };
-  let Some(selection) = selection else {
-    return Ok(());
+  let (previous_state, previous_error, selection, shutdown_runtime) = transition;
+  if shutdown_runtime {
+    finish_selected_runtime_shutdown_with_retirement(
+      selection,
+      selection == AsyncRuntimeSelection::Custom,
+      false,
+      retirement
+        .take()
+        .expect("runtime registration retirement runs exactly once"),
+    )
+  } else {
+    finish_runtime_retirement_without_shutdown(
+      previous_state,
+      previous_error,
+      retirement
+        .take()
+        .expect("runtime registration retirement runs exactly once"),
+    )
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn unregister_async_runtime_env_with_retirement(
+  retirement: impl FnOnce(),
+) -> Result<()> {
+  let mut retirement = Some(retirement);
+  let transition = {
+    let mut lifecycle = match wait_for_runtime_transition(runtime_lifecycle()) {
+      Ok(lifecycle) => lifecycle,
+      Err(error) => {
+        retirement
+          .take()
+          .expect("runtime environment retirement runs exactly once")();
+        return Err(error);
+      }
+    };
+    let had_active_env = lifecycle.active_envs != 0;
+    if had_active_env {
+      lifecycle.active_envs -= 1;
+    }
+    let remaining_envs = lifecycle.active_envs;
+    let previous_state = lifecycle.state;
+    let previous_error = lifecycle.startup_error.clone();
+    let shutdown_runtime =
+      had_active_env && remaining_envs == 0 && previous_state == RuntimeLifecycleState::Running;
+    // Every paired environment/module retirement is one visible transition.
+    // Registration/finalizer paths may acquire the environment registry before
+    // this mutex, so retirement must publish Stopping and release this mutex
+    // before its callback acquires that registry.
+    lifecycle.state = RuntimeLifecycleState::Stopping;
+    (
+      remaining_envs,
+      previous_state,
+      previous_error,
+      lifecycle.selection,
+      shutdown_runtime,
+    )
   };
-  // A prior failed shutdown may already have retired the selected runtime's
-  // Tokio peer. Final environment cleanup stays bounded and leaves that state
-  // for the next activation or explicit retry, both of which restore the peer
-  // before calling the custom shutdown hook again.
-  finish_selected_runtime_shutdown(selection, selection == AsyncRuntimeSelection::Custom, false)
+  let (remaining_envs, previous_state, previous_error, selection, shutdown_runtime) = transition;
+  if remaining_envs != 0 {
+    #[cfg(all(
+      feature = "__internal_test_runtime_module_retirement_barrier",
+      not(target_family = "wasm")
+    ))]
+    run_runtime_env_retirement_barrier();
+  }
+  if shutdown_runtime {
+    finish_selected_runtime_shutdown_with_retirement(
+      selection,
+      selection == AsyncRuntimeSelection::Custom,
+      false,
+      retirement
+        .take()
+        .expect("runtime environment retirement runs exactly once"),
+    )
+  } else {
+    // Non-last cleanup and cleanup after a prior explicit/failed shutdown do
+    // not stop the selected backend. Keep explicit lifecycle calls excluded
+    // until the paired module count has retired, then restore the stable state.
+    finish_runtime_retirement_without_shutdown(
+      previous_state,
+      previous_error,
+      retirement
+        .take()
+        .expect("runtime environment retirement runs exactly once"),
+    )
+  }
+}
+
+#[cfg(all(
+  feature = "__internal_test_runtime_module_retirement_barrier",
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
+fn run_runtime_env_retirement_barrier() {
+  use std::{
+    path::Path,
+    time::{Duration, Instant},
+  };
+
+  static ENTERED: AtomicBool = AtomicBool::new(false);
+
+  let (Ok(entered_path), Ok(release_path)) = (
+    std::env::var("NAPI_TEST_RUNTIME_ENV_RETIREMENT_ENTERED"),
+    std::env::var("NAPI_TEST_RUNTIME_ENV_RETIREMENT_RELEASE"),
+  ) else {
+    return;
+  };
+  if ENTERED.swap(true, Ordering::AcqRel) {
+    return;
+  }
+  if std::fs::write(entered_path, "entered").is_err() {
+    return;
+  }
+
+  let deadline = Instant::now() + Duration::from_secs(30);
+  let release_path = Path::new(&release_path);
+  while !release_path.exists() && Instant::now() < deadline {
+    std::thread::sleep(Duration::from_millis(5));
+  }
 }
 
 #[cfg(all(
@@ -4896,12 +5015,77 @@ fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-fn finish_selected_runtime_shutdown(
+struct RuntimeLifecyclePublication {
+  state: RuntimeLifecycleState,
+  startup_error: Option<String>,
+  published: bool,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl RuntimeLifecyclePublication {
+  fn shutdown() -> Self {
+    Self {
+      state: RuntimeLifecycleState::ShutdownFailed,
+      startup_error: Some("Async runtime lifecycle transition did not complete".to_owned()),
+      published: false,
+    }
+  }
+
+  fn set_state(&mut self, state: RuntimeLifecycleState, startup_error: Option<String>) {
+    self.state = state;
+    self.startup_error = startup_error;
+  }
+
+  fn set_shutdown_result(&mut self, result: &Result<()>) {
+    self.state = if result.is_ok() {
+      RuntimeLifecycleState::Stopped
+    } else {
+      RuntimeLifecycleState::ShutdownFailed
+    };
+    self.startup_error = result.as_ref().err().map(|error| error.reason.clone());
+  }
+
+  fn publish(&mut self) {
+    let mut lifecycle = runtime_lifecycle();
+    lifecycle.state = self.state;
+    lifecycle.startup_error = self.startup_error.take();
+    self.published = true;
+    RUNTIME_LIFECYCLE.1.notify_all();
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl Drop for RuntimeLifecyclePublication {
+  fn drop(&mut self) {
+    if !self.published {
+      self.publish();
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn finish_runtime_retirement_without_shutdown(
+  previous_state: RuntimeLifecycleState,
+  previous_error: Option<String>,
+  retirement: impl FnOnce(),
+) -> Result<()> {
+  let _transition = RuntimeTransitionGuard::enter();
+  let mut publication = RuntimeLifecyclePublication::shutdown();
+  retirement();
+  publication.set_state(previous_state, previous_error);
+  publication.publish();
+  Ok(())
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn finish_selected_runtime_shutdown_with_retirement(
   selection: AsyncRuntimeSelection,
   call_custom_shutdown: bool,
   _restart_tokio_before_custom_shutdown: bool,
+  retirement: impl FnOnce(),
 ) -> Result<()> {
   let _transition = RuntimeTransitionGuard::enter();
+  let mut publication = RuntimeLifecyclePublication::shutdown();
   let result: Result<()> = (|| {
     if selection == AsyncRuntimeSelection::Custom {
       close_runtime_submissions()?;
@@ -4915,15 +5099,24 @@ fn finish_selected_runtime_shutdown(
     shutdown_runtime_backends(selection, call_custom_shutdown)
   })();
 
-  let mut lifecycle = runtime_lifecycle();
-  lifecycle.state = if result.is_ok() {
-    RuntimeLifecycleState::Stopped
-  } else {
-    RuntimeLifecycleState::ShutdownFailed
-  };
-  lifecycle.startup_error = result.as_ref().err().map(|error| error.reason.clone());
-  RUNTIME_LIFECYCLE.1.notify_all();
+  retirement();
+  publication.set_shutdown_result(&result);
+  publication.publish();
   result
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn finish_selected_runtime_shutdown(
+  selection: AsyncRuntimeSelection,
+  call_custom_shutdown: bool,
+  restart_tokio_before_custom_shutdown: bool,
+) -> Result<()> {
+  finish_selected_runtime_shutdown_with_retirement(
+    selection,
+    call_custom_shutdown,
+    restart_tokio_before_custom_shutdown,
+    || {},
+  )
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -5095,7 +5288,10 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
       lifecycle.auto_start_enabled = false;
       let selection = lifecycle.selection;
       let restart_tokio = selection == AsyncRuntimeSelection::Custom
-        && lifecycle.state == RuntimeLifecycleState::ShutdownFailed;
+        && matches!(
+          lifecycle.state,
+          RuntimeLifecycleState::Stopped | RuntimeLifecycleState::ShutdownFailed
+        );
       let call_custom_shutdown = selection == AsyncRuntimeSelection::Custom
         && matches!(
           lifecycle.state,
@@ -5876,11 +6072,13 @@ where
 /// Enter the async runtime context for the duration of the provided closure, then call it.
 ///
 /// A pure `async-runtime` build enters the registered backend. If `tokio_rt` is enabled, including
-/// through feature unification, this established public helper enters Tokio. Generated
+/// through feature unification, this established public helper enters Tokio. Current derive v4
 /// `#[napi(async_runtime)]` callbacks independently follow the selected generated-code backend:
-/// custom when registered before selection, otherwise Tokio in a combined build. With
-/// `async-runtime` enabled, both entry paths hold the lifecycle open through guard destruction and
-/// reject calls before startup, during lifecycle transitions, and after shutdown.
+/// custom when registered before selection, otherwise Tokio in a combined build. The legacy
+/// napi-derive 3.5.9 synchronous guard calls this compatibility helper and therefore enters Tokio
+/// in a combined build. With `async-runtime` enabled, both entry paths hold the lifecycle open
+/// through guard destruction and reject calls before startup, during lifecycle transitions, and
+/// after shutdown.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
   try_within_runtime_if_available(f).unwrap_or_else(|error| panic!("{error}"))
 }
@@ -10080,7 +10278,7 @@ mod combined_feature_tests {
     let (cleanup_result_tx, cleanup_result_rx) = mpsc::channel();
     let cleanup = std::thread::spawn(move || {
       cleanup_result_tx
-        .send(unregister_async_runtime_env())
+        .send(unregister_async_runtime_env_with_retirement(|| {}))
         .unwrap();
     });
     cleanup_result_rx
@@ -10113,5 +10311,102 @@ mod combined_feature_tests {
     );
     wait_for_retirement();
     start_after_retirement();
+
+    {
+      let mut lifecycle = runtime_lifecycle();
+      lifecycle.active_envs = 2;
+      lifecycle.state = RuntimeLifecycleState::Running;
+      lifecycle.startup_error = None;
+    }
+    let (retirement_entered_tx, retirement_entered_rx) = mpsc::channel();
+    let (start_result_tx, start_result_rx) = mpsc::channel();
+    let (cleanup, start, start_while_registry_locked) =
+      crate::bindgen_runtime::with_runtime_env_registry_lock_for_test(|| {
+        let cleanup = std::thread::spawn(move || {
+          unregister_async_runtime_env_with_retirement(|| {
+            retirement_entered_tx.send(()).unwrap();
+            crate::bindgen_runtime::with_runtime_env_registry_lock_for_test(|| {});
+          })
+        });
+        retirement_entered_rx
+          .recv_timeout(Duration::from_secs(5))
+          .expect("environment retirement must reach the registry acquisition");
+
+        let start = std::thread::spawn(move || {
+          start_result_tx.send(try_start_async_runtime()).unwrap();
+        });
+        let start_while_registry_locked = start_result_rx.recv_timeout(Duration::from_secs(5));
+        (cleanup, start, start_while_registry_locked)
+      });
+    let start_result = match start_while_registry_locked {
+      Ok(result) => result,
+      Err(error) => {
+        let delayed_result = start_result_rx
+          .recv_timeout(Duration::from_secs(5))
+          .expect("explicit start must return after the registry lock is released");
+        cleanup.join().unwrap().unwrap();
+        start.join().unwrap();
+        panic!(
+          "environment retirement held the runtime lifecycle mutex while waiting for the registry: \
+           {error}; delayed start result: {delayed_result:?}"
+        );
+      }
+    };
+    let error =
+      start_result.expect_err("explicit start must observe the environment retirement transition");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
+    cleanup.join().unwrap().unwrap();
+    start.join().unwrap();
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
+    assert_eq!(runtime_lifecycle().active_envs, 1);
+
+    {
+      let mut lifecycle = runtime_lifecycle();
+      lifecycle.active_envs = 0;
+      lifecycle.state = RuntimeLifecycleState::Running;
+      lifecycle.startup_error = None;
+    }
+    let shutdowns_before_unowned_cleanup = CUSTOM_SHUTDOWNS.load(Ordering::SeqCst);
+    let unowned_retirement_ran = Arc::new(AtomicBool::new(false));
+    let unowned_retirement_marker = Arc::clone(&unowned_retirement_ran);
+    unregister_async_runtime_env_with_retirement(move || {
+      unowned_retirement_marker.store(true, Ordering::SeqCst);
+    })
+    .expect("cleanup without an active environment must still retire its module");
+    assert!(unowned_retirement_ran.load(Ordering::SeqCst));
+    assert_eq!(
+      CUSTOM_SHUTDOWNS.load(Ordering::SeqCst),
+      shutdowns_before_unowned_cleanup,
+      "cleanup without an active environment must not shut down the runtime"
+    );
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
+
+    let retirement_ran = Arc::new(AtomicBool::new(false));
+    {
+      let mut lifecycle = runtime_lifecycle();
+      lifecycle.active_envs = 1;
+      lifecycle.state = RuntimeLifecycleState::Stopping;
+    }
+    let retirement_marker = Arc::clone(&retirement_ran);
+    let error = {
+      let _transition = RuntimeTransitionGuard::enter();
+      unregister_async_runtime_env_with_retirement(move || {
+        retirement_marker.store(true, Ordering::SeqCst);
+      })
+      .expect_err("recursive cleanup must reject lifecycle waiting")
+    };
+    assert!(error
+      .reason
+      .contains("cannot wait recursively from a runtime hook"));
+    assert!(
+      retirement_ran.load(Ordering::SeqCst),
+      "recursive cleanup rejection must not skip module retirement"
+    );
+    {
+      let mut lifecycle = runtime_lifecycle();
+      lifecycle.active_envs = 0;
+      lifecycle.state = RuntimeLifecycleState::Running;
+      lifecycle.startup_error = None;
+    }
   }
 }

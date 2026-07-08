@@ -587,6 +587,10 @@ export interface A {
 
 export declare function abandonDeferredClones(): void
 
+export declare function abortBoundedTsfnFromOwnerAgent(): void
+
+export declare function abortBoundedTsfnPostCallFromOwnerAgent(): void
+
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
@@ -631,6 +635,8 @@ export declare function appendToOsString(s: string): string
 export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
+
+export declare function armBoundedTsfnPostCallNativeWait(): void
 
 export declare function armTokioBlockingTlsRetirementProbe(resultPath: string, releasePath: string): Promise<void>
 
@@ -711,6 +717,10 @@ export interface BindingVitePluginMeta {
 }
 
 export declare function borrowAlignedZstPair(first: AlignedZst, second: AlignedZst): void
+
+export declare function boundedTsfnOwnerAbortState(): Array<number>
+
+export declare function boundedTsfnPostCallAbortState(): Array<number>
 
 export declare function btreeSetToJs(): Set<string>
 
@@ -1091,6 +1101,8 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): Promise<vo
  */
 export declare function dropErrorFromValueOffThread(value: unknown): Promise<void>
 
+export declare function dropUnregisteredWeakTsfnForWasi(callback: () => void): void
+
 export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
@@ -1136,6 +1148,10 @@ export declare function f64ArrayToArray(input: Float64Array): Array<number>
 export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
 
 export declare function fibonacci(n: number): number
+
+export declare function finishBoundedTsfnOwnerAbort(): void
+
+export declare function finishBoundedTsfnPostCallAbort(): void
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
@@ -1383,6 +1399,10 @@ export interface PluginLoadResult {
 
 export declare function plusOne(this: Width): number
 
+export declare function prepareBoundedTsfnOwnerAbort(callback: (arg: number) => void): void
+
+export declare function prepareBoundedTsfnPostCallAbort(callback: (arg: number) => void): void
+
 export declare function prepareTsfnBlockingCallRegression(callback: (arg: number) => void, counters: Int32Array, expectCleanupAbort: boolean): void
 
 export declare function prepareTsfnTeardownRegression(callback: () => void, counters: Int32Array, scenario: string, postFinalizeEnteredPath?: string | undefined | null, postFinalizeReleasePath?: string | undefined | null, postFinalizeCompletedPath?: string | undefined | null): void
@@ -1497,6 +1517,10 @@ export declare function registerSelfRemovingSyncCleanupHook(resultPath: string):
 
 export declare function releaseAsyncWorkLifecycle(id: number): void
 
+export declare function releaseBoundedTsfnNativeWait(): void
+
+export declare function releaseBoundedTsfnPostCallSlot(): void
+
 export declare function removeRemovableAsyncCleanupHook(): void
 
 export declare function removeRemovableSyncCleanupHook(): void
@@ -1573,6 +1597,8 @@ export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: numb
 export declare function startDeferredTeardownRace(readyPath: string, releasePath: string, donePath: string, count: number): void
 
 export declare function startReferencedTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
+
+export declare function startTokioWakerAfterCleanupProbe(enteredPath: string, releasePath: string, completedPath: string): Promise<void>
 
 export declare function startWeakTsfnFinalizerLivenessWorker(callback: () => void, manualStopPath: string, joinedPath: string): void
 

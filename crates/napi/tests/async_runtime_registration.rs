@@ -57,6 +57,8 @@ unsafe impl AsyncRuntime for FirstRuntime {
     if PANIC_SHUTDOWN.load(Ordering::SeqCst) {
       panic!("backend shutdown panic");
     }
+    #[cfg(feature = "tokio_rt")]
+    try_within_runtime_if_available(|| ())?;
     PARTIAL_RUNTIME_RUNNING.store(false, Ordering::SeqCst);
     FIRST_RUNTIME_RUNNING.store(false, Ordering::SeqCst);
     Ok(())
@@ -148,6 +150,11 @@ fn registration_and_lifecycle_failures_return_errors() {
   try_shutdown_async_runtime().expect("a failed shutdown must be retryable");
   start_after_retirement();
   try_shutdown_async_runtime().expect("runtime must shut down after retry");
+  #[cfg(feature = "tokio_rt")]
+  {
+    try_shutdown_async_runtime()
+      .expect("repeated shutdown must restore the paired Tokio runtime for the custom hook");
+  }
 
   start_after_retirement();
   SHUTDOWN_ON_DUPLICATE_DROP.store(true, Ordering::SeqCst);

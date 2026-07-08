@@ -83,8 +83,7 @@ for (const [binding, value] of [
 
   const factoryAsyncIteratorOwner =
     binding.PreviousGeneratedAsyncIterator.create(value, value + 1)
-  const factoryAsyncIterator =
-    factoryAsyncIteratorOwner[Symbol.asyncIterator]()
+  const factoryAsyncIterator = factoryAsyncIteratorOwner[Symbol.asyncIterator]()
   assert.deepEqual(await factoryAsyncIterator.next(), {
     done: false,
     value,
@@ -94,8 +93,15 @@ for (const [binding, value] of [
 const before = first.previousRuntimeEnterCount()
 assert.equal(first.previousGeneratedRuntimeEntry(), 42)
 assert.equal(second.previousGeneratedRuntimeEntry(), 42)
-assert.equal(first.previousRuntimeEnterCount(), before + 2)
+assert.equal(first.previousGeneratedRuntimeHasTokioHandle(), true)
+assert.equal(second.previousGeneratedRuntimeHasTokioHandle(), true)
+assert.equal(
+  first.previousRuntimeEnterCount(),
+  before,
+  'napi-derive 3.5.9 synchronous async_runtime guards use the established Tokio compatibility helper in a combined build',
+)
 
+const asyncSpawnsBefore = first.previousRuntimeSpawnCount()
 assert.equal(await first.previousGeneratedAsyncExport(31), 31)
 assert.equal(await second.previousGeneratedAsyncExport(32), 32)
 const firstAsyncClass = await first.previousGeneratedAsyncClass(41)
@@ -104,6 +110,11 @@ assert.ok(firstAsyncClass instanceof first.PreviousGeneratedClass)
 assert.ok(secondAsyncClass instanceof second.PreviousGeneratedClass)
 assert.equal(firstAsyncClass.value, 41)
 assert.equal(secondAsyncClass.value, 42)
+assert.equal(
+  first.previousRuntimeSpawnCount(),
+  asyncSpawnsBefore + 4,
+  'legacy generated async exports must still use the selected custom backend',
+)
 
 async function assertLegacyInstallerThrows(property, construct) {
   const originalSymbol = globalThis.Symbol

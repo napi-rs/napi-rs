@@ -31,6 +31,7 @@ if (!process.env.WASI_TEST) {
 function runScenario(
   scenario:
     | 'combined'
+    | 'module-retirement-race'
     | 'pure-registration-race'
     | 'retained-waker'
     | 'submission-transitions',
@@ -68,6 +69,19 @@ nativeTest(
     t.is(result.signal, null, output)
     t.is(result.status, 0, output)
     t.regex(result.stdout, /pure async-runtime registration race passed/)
+  },
+)
+
+nativeTest(
+  'explicit restart cannot overtake last-environment module retirement',
+  (t) => {
+    const result = runScenario('module-retirement-race')
+    const output = `${result.stdout}\n${result.stderr}`
+
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /module retirement race passed/)
   },
 )
 

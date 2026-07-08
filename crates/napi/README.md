@@ -134,8 +134,13 @@ reloads, and its `Drop` implementation is not guaranteed to run. The trait docum
 the task ownership, cancellation, guard, panic, and native-image unload-safety requirements.
 
 For the coordinated v4 release, upgrade `napi` before `napi-derive`. Derive v3 remains compatible
-with runtime v4 during migration, but does not gain v4 borrow and construction guarantees. Derive
-v4 intentionally requires runtime v4.
+with runtime v4 during migration, but does not gain v4 borrow and construction guarantees.
+Specifically, napi-derive 3.5.9 synchronous `#[napi(async_runtime)]` guards use the established
+Tokio compatibility entry point when `async-runtime` and `tokio_rt` are both enabled, even if a
+custom backend was selected; legacy generated async exports still use that selected backend. Use a
+pure `async-runtime` build or upgrade to derive v4 when synchronous custom-runtime entry is
+required. Derive v4 intentionally requires runtime v4 and uses the versioned selected-runtime
+codegen contract.
 
 more examples at [examples](./examples/napi)
 

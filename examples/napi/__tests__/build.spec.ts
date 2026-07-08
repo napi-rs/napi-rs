@@ -16,13 +16,15 @@ test('WASI declaration preservation is idempotent and dependency-closed', async 
   id: number
   promise: Promise<number>
 }`
-    const declarations = unsupportedWasiFunctions.map(
-      (name, index) =>
-        index === 0
-          ? `export declare function ${name}(): AsyncWorkLifecycleHandle`
-          : `export declare function ${name}(): void`,
+    const requestInit = `export interface RequestInit {
+  method?: string
+}`
+    const declarations = unsupportedWasiFunctions.map((name, index) =>
+      index === 0
+        ? `export declare function ${name}(): AsyncWorkLifecycleHandle`
+        : `export declare function ${name}(): void`,
     )
-    const previousSource = `${lifecycleHandle}\n\n${declarations.join('\n\n')}\n`
+    const previousSource = `${lifecycleHandle}\n\n${requestInit}\n\n${declarations.join('\n\n')}\n`
 
     const firstBuild = mergeLifecycleDeclarations(
       generatedSource,
@@ -33,6 +35,7 @@ test('WASI declaration preservation is idempotent and dependency-closed', async 
     t.is(secondBuild, firstBuild)
     t.true(firstBuild.endsWith(`${declarations.at(-1)}\n`))
     t.is(firstBuild.split(lifecycleHandle).length - 1, 1)
+    t.is(firstBuild.split(requestInit).length - 1, 1)
     t.true(
       firstBuild.indexOf(lifecycleHandle) < firstBuild.indexOf(declarations[0]),
     )
