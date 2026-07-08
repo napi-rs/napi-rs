@@ -1128,9 +1128,7 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): Promise<vo
  * The returned Promise confirms the off-thread destructor ran; custom-GC
  * release of the `napi_ref` is queued separately on the JavaScript thread.
  */
-export declare function dropErrorFromValueOffThread(
-  value: unknown,
-): Promise<void>
+export declare function dropErrorFromValueOffThread(value: unknown): Promise<void>
 
 export declare function either3(input: string | number | boolean): number
 

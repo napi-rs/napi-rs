@@ -22,6 +22,7 @@ const threadedWasiBrowserTestFunctions = [
 ]
 const REGENERATE_ALL_FLAG = '--regenerate-all'
 const nativeRootOutputFiles = ['index.cjs', 'index.d.cts']
+const configuredWasiTargets = ['wasm32-wasip1', 'wasm32-wasip1-threads']
 const threadlessOutputFiles = [
   'browser.js',
   'example.wasm32-wasip1.wasm',
@@ -34,8 +35,12 @@ const threadlessOutputFiles = [
 ]
 const regenerationBuildArguments = [
   [],
-  ['--target', 'wasm32-wasip1', '--profile', 'wasi'],
-  ['--target', 'wasm32-wasip1-threads', '--profile', 'wasi'],
+  ...configuredWasiTargets.map((target) => [
+    '--target',
+    target,
+    '--profile',
+    'wasi',
+  ]),
 ]
 const cargoBuildTargetEnvironmentVariable = 'CARGO_BUILD_TARGET'
 
@@ -55,10 +60,7 @@ function lifecycleOutputFiles(target) {
   const loaderSuffix = target === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
   const wasiForwardedFunctions =
     loaderSuffix === 'wasi'
-      ? [
-          ...unsupportedWasiFunctions,
-          ...threadedWasiBrowserTestFunctions,
-        ]
+      ? [...unsupportedWasiFunctions, ...threadedWasiBrowserTestFunctions]
       : unsupportedWasiFunctions
   return {
     declarations: ['index.d.cts', `example.${loaderSuffix}.d.cts`],
@@ -115,6 +117,10 @@ function lifecycleOutputFiles(target) {
         : []),
     ],
   }
+}
+
+function emittedWasiTargets(target) {
+  return target?.startsWith('wasm32-') ? [target] : configuredWasiTargets
 }
 
 function run(arguments_, environment = process.env) {
@@ -388,22 +394,30 @@ export function mergeLifecycleDeclarations(source, previousSource) {
   ]
 
   for (const { start: declarationStart, replacement } of declarations) {
-    if (
-      source.includes(declarationStart) ||
-      (replacement !== undefined && source.includes(replacement))
-    ) {
+    if (replacement !== undefined && source.includes(replacement)) {
       continue
     }
-    const start = previousSource.indexOf(declarationStart)
-    const separator = start === -1 ? -1 : previousSource.indexOf('\n\n', start)
-    const end = separator === -1 ? previousSource.length : separator
-    if (start === -1) {
-      throw new Error(
-        `Could not preserve declaration starting with ${declarationStart} for WASI`,
-      )
+    const existingStart = source.indexOf(declarationStart)
+    if (replacement !== undefined && existingStart !== -1) {
+      const separator = source.indexOf('\n\n', existingStart)
+      const existingEnd = separator === -1 ? source.length : separator
+      source = source.slice(0, existingStart) + source.slice(existingEnd)
+    } else if (existingStart !== -1) {
+      continue
     }
-    const declaration =
-      replacement ?? previousSource.slice(start, end).trimEnd()
+    let declaration = replacement
+    if (declaration === undefined) {
+      const start = previousSource.indexOf(declarationStart)
+      const separator =
+        start === -1 ? -1 : previousSource.indexOf('\n\n', start)
+      const end = separator === -1 ? previousSource.length : separator
+      if (start === -1) {
+        throw new Error(
+          `Could not preserve declaration starting with ${declarationStart} for WASI`,
+        )
+      }
+      declaration = previousSource.slice(start, end).trimEnd()
+    }
     const name = declarationStart.match(
       /(?:interface|function)\s+([A-Za-z_$][\w$]*)/,
     )[1]
@@ -429,6 +443,15 @@ async function instrumentThreadedWasiBrowserTsfnWait() {
     new URL('wasi-worker-browser.mjs', import.meta.url),
   )
   let workerSource = await readFile(workerPath, 'utf8')
+  const instrumentationMarker = 'const TSFN_TEST_COUNTER_COUNT = 35\n'
+  const statePointerMarker =
+    'instance.exports.__napi_rs_test_tsfn_state_ptr()\n'
+  if (
+    workerSource.includes(instrumentationMarker) &&
+    workerSource.includes(statePointerMarker)
+  ) {
+    return
+  }
   const constantsMarker = 'const fs = createFsProxy(__memfsExported)\n'
   const onLoadMarker = '  onLoad({ wasmModule, wasmMemory }) {\n'
   const importsMarker = `      overwriteImports(importObject) {
@@ -921,8 +944,10 @@ async function main(userArguments, environment = process.env) {
   const target =
     optionValue(userArguments, ['--target', '-t']) ??
     environment.CARGO_BUILD_TARGET
-  const lifecycleOutputs = lifecycleOutputFiles(target)
-  const previousDeclarationSource = target?.startsWith('wasm32-')
+  const isWasiBuild = target?.startsWith('wasm32-') ?? false
+  const wasiTargets = emittedWasiTargets(target)
+  const lifecycleOutputs = wasiTargets.map(lifecycleOutputFiles)
+  const previousDeclarationSource = isWasiBuild
     ? await readFile(rootDeclarationPath, 'utf8')
     : undefined
 
@@ -939,17 +964,21 @@ async function main(userArguments, environment = process.env) {
     environment,
   )
 
-  await exposeLifecycleExports(lifecycleOutputs.loaders)
-  if (previousDeclarationSource !== undefined) {
+  const declarationSource =
+    previousDeclarationSource ?? (await readFile(rootDeclarationPath, 'utf8'))
+  for (const outputs of lifecycleOutputs) {
+    await exposeLifecycleExports(outputs.loaders)
     await preserveLifecycleDeclarations(
-      lifecycleOutputs.declarations.map((file) =>
-        fileURLToPath(new URL(file, import.meta.url)),
-      ),
-      previousDeclarationSource,
+      outputs.declarations
+        .filter((file) => isWasiBuild || file !== 'index.d.cts')
+        .map((file) => fileURLToPath(new URL(file, import.meta.url))),
+      declarationSource,
     )
   }
-  await instrumentThreadedWasiBrowserTsfnWait()
-  if (target === 'wasm32-wasip1') {
+  if (wasiTargets.some((wasiTarget) => wasiTarget !== 'wasm32-wasip1')) {
+    await instrumentThreadedWasiBrowserTsfnWait()
+  }
+  if (wasiTargets.includes('wasm32-wasip1')) {
     await formatGeneratedOutputs(
       [
         'example.wasip1-browser.js',
@@ -959,7 +988,7 @@ async function main(userArguments, environment = process.env) {
     )
   }
 
-  if (!target?.startsWith('wasm32-')) {
+  if (!isWasiBuild) {
     await run(
       [
         'build',

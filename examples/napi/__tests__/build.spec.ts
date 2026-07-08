@@ -52,41 +52,30 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
     nodeSource,
     declarationSource,
     rootSource,
+    rootDeclarationSource,
     rootBrowserSource,
   ] = await Promise.all([
     readFile(join(directory, 'example.wasi-browser.js'), 'utf8'),
     readFile(join(directory, 'example.wasi.cjs'), 'utf8'),
     readFile(join(directory, 'example.wasi.d.cts'), 'utf8'),
     readFile(join(directory, 'index.cjs'), 'utf8'),
+    readFile(join(directory, 'index.d.cts'), 'utf8'),
     readFile(join(directory, 'browser.js'), 'utf8'),
   ])
   const deferredSource = await readFile(
     join(directory, 'example.wasip1-deferred.js'),
     'utf8',
   )
-  const wasiOnlyExports = [
+  const privateWasiTestExports = [
     'dropUnregisteredWeakTsfnForWasi',
     'startTokioWakerAfterCleanupProbe',
   ]
 
-  for (const name of wasiOnlyExports) {
-    t.regex(
-      browserSource,
-      new RegExp(
-        `export const ${name}\\s*=\\s*__napiModule\\.exports\\.${name}`,
-      ),
-      name,
-    )
-    t.regex(
-      nodeSource,
-      new RegExp(
-        `module\\.exports\\.${name}\\s*=\\s*__napiModule\\.exports\\.${name}`,
-      ),
-      name,
-    )
-    t.regex(
-      declarationSource,
-      new RegExp(`export declare function ${name}\\(`),
+  for (const name of privateWasiTestExports) {
+    t.false(browserSource.includes(`export const ${name}`), name)
+    t.false(nodeSource.includes(`module.exports.${name} =`), name)
+    t.false(
+      declarationSource.includes(`export declare function ${name}(`),
       name,
     )
   }
@@ -101,6 +90,16 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
     )
   }
   t.false(declarationSource.includes('undici-types'))
+  t.true(
+    rootDeclarationSource.includes(
+      'export declare function abandonDeferredClones(): void',
+    ),
+  )
+  t.false(
+    rootDeclarationSource.includes(
+      'export declare function abandonDeferredClones(...args: unknown[]): never',
+    ),
+  )
   for (const name of unsupportedWasiFunctions) {
     t.true(deferredSource.includes(`'${name}',`), name)
   }
@@ -306,7 +305,10 @@ test('artifact regeneration restores native roots when retained flavor restorati
 test('WASI declaration preservation emits portable throwing stubs in both public files', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'napi-wasi-declarations-'))
   try {
-    const generatedSource = 'export interface Generated {}\n'
+    const generatedSource = `export interface Generated {}
+
+export declare function abandonDeferredClones(): void
+`
     const lifecycleHandle = `export interface AsyncWorkLifecycleHandle {
   id: number
   promise: Promise<number>
@@ -352,6 +354,11 @@ test('WASI declaration preservation emits portable throwing stubs in both public
 
     for (const source of secondBuild) {
       t.true(source.endsWith(`${preservedDeclarations.at(-1)}\n`))
+      t.false(
+        source.includes(
+          'export declare function abandonDeferredClones(): void',
+        ),
+      )
       t.false(source.includes('undici-types'))
       t.false(source.includes('value: Buffer'))
       for (const dependency of [lifecycleHandle, requestInit]) {

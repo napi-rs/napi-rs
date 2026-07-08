@@ -568,8 +568,6 @@ export const dropClonedErrorsOnTwoThreads =
   __napiModule.exports.dropClonedErrorsOnTwoThreads
 export const dropErrorFromValueOffThread =
   __napiModule.exports.dropErrorFromValueOffThread
-export const dropUnregisteredWeakTsfnForWasi =
-  __napiModule.exports.dropUnregisteredWeakTsfnForWasi
 export const either3 = __napiModule.exports.either3
 export const either4 = __napiModule.exports.either4
 export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
@@ -811,8 +809,6 @@ export const startDeferredTeardownRace = getWasiBindingExport(
 export const startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport(
   'startReferencedTsfnFinalizerLivenessWorker',
 )
-export const startTokioWakerAfterCleanupProbe =
-  __napiModule.exports.startTokioWakerAfterCleanupProbe
 export const startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport(
   'startWeakTsfnFinalizerLivenessWorker',
 )
