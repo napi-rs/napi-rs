@@ -52,6 +52,7 @@ const unsupportedWasiFunctions = new Set([
   'stashErrorAcrossDuplicateLoad',
   'stashExternalRefAcrossDuplicateLoad',
   'stashExternalRefForTeardown',
+  'stashPromiseRejectionAcrossDuplicateLoad',
   'stashThreadsafeFunctionForEnvOwnership',
   'stashTypedArrayAcrossDuplicateLoad',
   'stashTypedArraySlicesAcrossDuplicateLoad',
@@ -68,6 +69,7 @@ const unsupportedWasiFunctions = new Set([
   'takeReferenceValueAcrossDuplicateLoad',
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
+  'throwPromiseRejectionAcrossDuplicateLoad',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',
@@ -831,6 +833,9 @@ export const stashExternalRefAcrossDuplicateLoad = getWasiBindingExport(
 export const stashExternalRefForTeardown = getWasiBindingExport(
   'stashExternalRefForTeardown',
 )
+export const stashPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport(
+  'stashPromiseRejectionAcrossDuplicateLoad',
+)
 export const stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
   'stashThreadsafeFunctionForEnvOwnership',
 )
@@ -913,6 +918,9 @@ export const throwErrorAcrossDuplicateLoad = getWasiBindingExport(
   'throwErrorAcrossDuplicateLoad',
 )
 export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
+export const throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport(
+  'throwPromiseRejectionAcrossDuplicateLoad',
+)
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
 export const toJsObj = __napiModule.exports.toJsObj
 export const tokioRuntimeLifecycleValue = getWasiBindingExport(

@@ -953,21 +953,6 @@ export const shutdownAsyncRuntimeForTest =
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
 export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
-export const startDeferredTeardownRace = getWasiBindingExport('startDeferredTeardownRace')
-export const startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport('startReferencedTsfnFinalizerLivenessWorker')
-export const startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport('startWeakTsfnFinalizerLivenessWorker')
-export const stashBufferAcrossDuplicateLoad = getWasiBindingExport('stashBufferAcrossDuplicateLoad')
-export const stashBufferInThreadLocal = __napiModule.exports.stashBufferInThreadLocal
-export const stashClassInstanceForLaterTurn = getWasiBindingExport('stashClassInstanceForLaterTurn')
-export const stashErrorAcrossDuplicateLoad = getWasiBindingExport('stashErrorAcrossDuplicateLoad')
-export const stashErrorInThreadLocal = __napiModule.exports.stashErrorInThreadLocal
-export const stashExternalRefAcrossDuplicateLoad = getWasiBindingExport('stashExternalRefAcrossDuplicateLoad')
-export const stashExternalRefForTeardown = getWasiBindingExport('stashExternalRefForTeardown')
-export const stashPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('stashPromiseRejectionAcrossDuplicateLoad')
-export const stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport('stashThreadsafeFunctionForEnvOwnership')
-export const stashTypedArrayAcrossDuplicateLoad = getWasiBindingExport('stashTypedArrayAcrossDuplicateLoad')
-export const stashTypedArrayInThreadLocal = __napiModule.exports.stashTypedArrayInThreadLocal
-export const stashTypedArraySlicesAcrossDuplicateLoad = getWasiBindingExport('stashTypedArraySlicesAcrossDuplicateLoad')
 export const startDeferredTeardownRace = getWasiBindingExport(
   'startDeferredTeardownRace',
 )
@@ -995,6 +980,9 @@ export const stashExternalRefAcrossDuplicateLoad = getWasiBindingExport(
 )
 export const stashExternalRefForTeardown = getWasiBindingExport(
   'stashExternalRefForTeardown',
+)
+export const stashPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport(
+  'stashPromiseRejectionAcrossDuplicateLoad',
 )
 export const stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
   'stashThreadsafeFunctionForEnvOwnership',
@@ -1079,7 +1067,9 @@ export const throwErrorAcrossDuplicateLoad = getWasiBindingExport(
   'throwErrorAcrossDuplicateLoad',
 )
 export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
-export const throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
+export const throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport(
+  'throwPromiseRejectionAcrossDuplicateLoad',
+)
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
 export const toJsObj = __napiModule.exports.toJsObj
 export const tokioRuntimeFactoryCallCount = getWasiBindingExport('tokioRuntimeFactoryCallCount')

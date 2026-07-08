@@ -1619,6 +1619,8 @@ export declare function stashExternalRefAcrossDuplicateLoad(...args: unknown[]):
 
 export declare function stashExternalRefForTeardown(...args: unknown[]): never
 
+export declare function stashPromiseRejectionAcrossDuplicateLoad(...args: unknown[]): never
+
 export declare function stashThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
 
 export declare function stashTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
@@ -1755,6 +1757,8 @@ export declare function throwError(): void
 export declare function throwErrorAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function throwErrorWithCause(): void
+
+export declare function throwPromiseRejectionAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 
