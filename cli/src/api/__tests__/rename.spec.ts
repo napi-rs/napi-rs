@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import ava, { type ExecutionContext, type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
-import { createWasmModuleTypeDef } from '../../utils/index.js'
+import { createWasmModuleTypeDef, readNapiConfig } from '../../utils/index.js'
 import { prePublish } from '../pre-publish.js'
 import { renameProject } from '../rename.js'
 
@@ -682,5 +682,364 @@ test('combined scoped package and binary rename keeps every WASI flavor publisha
     oldPackageName,
     newBinaryName,
     newPackageName,
+  )
+})
+
+test('packageName-only rename preserves Cargo.toml byte-for-byte', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'cargo-preservation')
+  const cargoToml = `[package]
+# This comment and layout are project-owned.
+name="fixture" # keep this inline comment
+
+[package.metadata.custom]
+value = "unchanged"
+`
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'fixture',
+        packageName: '@old-scope/original',
+        targets: ['wasm32-wasip1'],
+      },
+    },
+    cargoPackageName: 'fixture',
+  })
+  await writeFile(join(projectPath, 'Cargo.toml'), cargoToml)
+
+  await renameProject({
+    cwd: projectPath,
+    packageName: '@new-scope/renamed',
+  })
+
+  t.is(await readFile(join(projectPath, 'Cargo.toml'), 'utf8'), cargoToml)
+})
+
+test('rename rejects binary path traversal without mutating outside files', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'traversal', 'project')
+  const outsidePath = join(dirname(projectPath), 'outside.wasi.cjs')
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1-threads'],
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+  await writeFile(outsidePath, 'outside sentinel\n')
+  const packageJsonBefore = await readFile(
+    join(projectPath, 'package.json'),
+    'utf8',
+  )
+  const cargoTomlBefore = await readFile(
+    join(projectPath, 'Cargo.toml'),
+    'utf8',
+  )
+
+  await t.throwsAsync(
+    renameProject({
+      cwd: projectPath,
+      binaryName: '../outside',
+    }),
+    { message: /Requested binary name must be a safe filename stem/ },
+  )
+
+  t.is(await readFile(outsidePath, 'utf8'), 'outside sentinel\n')
+  t.is(
+    await readFile(join(projectPath, 'package.json'), 'utf8'),
+    packageJsonBefore,
+  )
+  t.is(await readFile(join(projectPath, 'Cargo.toml'), 'utf8'), cargoTomlBefore)
+  t.is(
+    await readFile(join(projectPath, 'foo.wasi.cjs'), 'utf8'),
+    'node binding\n',
+  )
+})
+
+test('rename validates configured binary names before mutation', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'configured-traversal')
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: '../outside',
+        packageName: '@scope/original',
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+  const packageJsonBefore = await readFile(
+    join(projectPath, 'package.json'),
+    'utf8',
+  )
+
+  await t.throwsAsync(
+    renameProject({
+      cwd: projectPath,
+      packageName: '@scope/renamed',
+    }),
+    { message: /Configured binary name must be a safe filename stem/ },
+  )
+
+  t.is(
+    await readFile(join(projectPath, 'package.json'), 'utf8'),
+    packageJsonBefore,
+  )
+})
+
+test('rename rejects occupied managed destinations before mutation', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'occupied-destination')
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1-threads'],
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+  await writeFile(join(projectPath, 'bar.wasi.cjs'), 'destination sentinel\n')
+  const packageJsonBefore = await readFile(
+    join(projectPath, 'package.json'),
+    'utf8',
+  )
+
+  await t.throwsAsync(
+    renameProject({
+      cwd: projectPath,
+      binaryName: 'bar',
+    }),
+    { message: /destination already exists/ },
+  )
+
+  t.is(
+    await readFile(join(projectPath, 'foo.wasi.cjs'), 'utf8'),
+    'node binding\n',
+  )
+  t.is(
+    await readFile(join(projectPath, 'bar.wasi.cjs'), 'utf8'),
+    'destination sentinel\n',
+  )
+  t.is(
+    await readFile(join(projectPath, 'package.json'), 'utf8'),
+    packageJsonBefore,
+  )
+})
+
+test('two-phase rename preserves overlapping managed artifact chains', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'overlapping-renames')
+  const oldBinaryName = 'foo.wasm32-wasi'
+  await mkdir(projectPath, { recursive: true })
+  await writeFile(
+    join(projectPath, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'original',
+        version: '1.0.0',
+        napi: {
+          binaryName: oldBinaryName,
+          packageName: '@scope/original',
+          targets: ['wasm32-wasip1-threads'],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  await writeFile(join(projectPath, 'Cargo.toml'), '[package]\nname = "foo"\n')
+  await writeFile(
+    join(projectPath, `${oldBinaryName}.wasm32-wasi.wasm`),
+    'platform artifact',
+  )
+  await writeFile(
+    join(projectPath, `${oldBinaryName}.wasm`),
+    'generic artifact',
+  )
+
+  await renameProject({
+    cwd: projectPath,
+    binaryName: 'foo',
+  })
+
+  t.is(
+    await readFile(join(projectPath, 'foo.wasm32-wasi.wasm'), 'utf8'),
+    'platform artifact',
+  )
+  t.is(
+    await readFile(join(projectPath, 'foo.wasm'), 'utf8'),
+    'generic artifact',
+  )
+  t.false(existsSync(join(projectPath, `${oldBinaryName}.wasm32-wasi.wasm`)))
+})
+
+test('package rename preserves similarly prefixed dependencies and imports', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'package-prefix-collision')
+  const binaryName = 'fixture'
+  const oldPackageName = '@old-scope/original'
+  const newPackageName = '@new-scope/renamed'
+  const oldFlavor = `${oldPackageName}-wasm32-wasip1`
+  const newFlavor = `${newPackageName}-wasm32-wasip1`
+  const helperPackage = `${oldFlavor}-helper`
+
+  await createPackageIdentityFixture(projectPath, binaryName, oldPackageName)
+  const packageJsonPath = join(projectPath, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.optionalDependencies[helperPackage] = '1.0.0'
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+  await writeFile(
+    join(projectPath, 'index.cjs'),
+    `${await readFile(join(projectPath, 'index.cjs'), 'utf8')}\nrequire(${JSON.stringify(helperPackage)})\n`,
+  )
+
+  await renameProject({
+    cwd: projectPath,
+    packageName: newPackageName,
+  })
+
+  const updatedPackageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.is(updatedPackageJson.optionalDependencies[newFlavor], '1.0.0')
+  t.is(updatedPackageJson.optionalDependencies[helperPackage], '1.0.0')
+  t.false(
+    Object.prototype.hasOwnProperty.call(
+      updatedPackageJson.optionalDependencies,
+      `${newFlavor}-helper`,
+    ),
+  )
+  const rootEntry = await readFile(join(projectPath, 'index.cjs'), 'utf8')
+  t.true(rootEntry.includes(newFlavor))
+  t.true(rootEntry.includes(helperPackage))
+  t.false(rootEntry.includes(`${newFlavor}-helper`))
+})
+
+test('rename validates requested and configured npm package names', async (t) => {
+  const requestedProject = join(t.context.tmpDir, 'invalid-requested-package')
+  await createFixtureProject(requestedProject, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1'],
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+  const requestedPackageBefore = await readFile(
+    join(requestedProject, 'package.json'),
+    'utf8',
+  )
+  await t.throwsAsync(
+    renameProject({
+      cwd: requestedProject,
+      packageName: 'bad"name',
+    }),
+    { message: /Requested package name is not a valid npm package name/ },
+  )
+  t.is(
+    await readFile(join(requestedProject, 'package.json'), 'utf8'),
+    requestedPackageBefore,
+  )
+
+  const configuredProject = join(t.context.tmpDir, 'invalid-configured-package')
+  await createFixtureProject(configuredProject, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'foo',
+        packageName: 'bad"name',
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+  const configuredPackageBefore = await readFile(
+    join(configuredProject, 'package.json'),
+    'utf8',
+  )
+  await t.throwsAsync(
+    renameProject({
+      cwd: configuredProject,
+      name: 'renamed',
+    }),
+    { message: /Configured package name is not a valid npm package name/ },
+  )
+  t.is(
+    await readFile(join(configuredProject, 'package.json'), 'utf8'),
+    configuredPackageBefore,
+  )
+
+  await renameProject({
+    cwd: requestedProject,
+    packageName: '@scope/_renamed',
+  })
+  t.is(
+    JSON.parse(await readFile(join(requestedProject, 'package.json'), 'utf8'))
+      .napi.packageName,
+    '@scope/_renamed',
+  )
+})
+
+test('binary rename removes legacy inline and separated napi.name overrides', async (t) => {
+  const inlineProject = join(t.context.tmpDir, 'legacy-inline-config')
+  await createFixtureProject(inlineProject, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        name: 'foo',
+        packageName: '@scope/original',
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+
+  await renameProject({
+    cwd: inlineProject,
+    binaryName: 'inline-renamed',
+  })
+
+  const inlinePackageJson = JSON.parse(
+    await readFile(join(inlineProject, 'package.json'), 'utf8'),
+  )
+  t.false(Object.prototype.hasOwnProperty.call(inlinePackageJson.napi, 'name'))
+  t.is(
+    (await readNapiConfig(join(inlineProject, 'package.json'))).binaryName,
+    'inline-renamed',
+  )
+
+  const separatedProject = join(t.context.tmpDir, 'legacy-separated-config')
+  await createFixtureProject(separatedProject, {
+    packageJson: {
+      name: 'original',
+    },
+    cargoPackageName: 'foo',
+    configPath: 'napi.json',
+    configData: {
+      name: 'foo',
+      packageName: '@scope/original',
+    },
+  })
+
+  await renameProject({
+    cwd: separatedProject,
+    configPath: 'napi.json',
+    binaryName: 'separated-renamed',
+  })
+
+  const separatedConfig = JSON.parse(
+    await readFile(join(separatedProject, 'napi.json'), 'utf8'),
+  )
+  t.false(Object.prototype.hasOwnProperty.call(separatedConfig, 'name'))
+  t.is(
+    (
+      await readNapiConfig(
+        join(separatedProject, 'package.json'),
+        join(separatedProject, 'napi.json'),
+      )
+    ).binaryName,
+    'separated-renamed',
   )
 })

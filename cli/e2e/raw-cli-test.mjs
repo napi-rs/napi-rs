@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -143,6 +143,27 @@ export async function runPackedRawCliTest() {
 
     assert.ok(existsSync(outputDir))
     assert.ok(existsSync(npmDir))
+
+    await execFileAsync(
+      process.execPath,
+      [
+        rawCliPath,
+        'rename',
+        '--cwd',
+        projectDir,
+        '--package-name',
+        '@scope/raw-cli-renamed',
+      ],
+      {
+        cwd: repositoryRoot,
+        timeout: 10_000,
+      },
+    )
+    const renamedManifest = JSON.parse(
+      await readFile(join(projectDir, 'package.json'), 'utf8'),
+    )
+    assert.equal(renamedManifest.napi.binaryName, 'raw_cli_space_test')
+    assert.equal(renamedManifest.napi.packageName, '@scope/raw-cli-renamed')
   } finally {
     await Promise.all([
       rm(testDir, { force: true, recursive: true }),

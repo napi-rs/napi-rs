@@ -30,7 +30,7 @@ new NapiCli().rename({
 | packageJsonPath | --package-json-path | string | false    | 'package.json' | Path to `package.json`                                                                                             |
 | npmDir          | --npm-dir           | string | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |
 | name            | --name,-n           | string | false    |                | The new name of the project                                                                                        |
-| binaryName      | --binary-name,-b    | string | false    |                | The new binary name \*.node files                                                                                  |
+| binaryName      | --binary-name,-b    | string | false    |                | The new binary name *.node files                                                                                   |
 | packageName     | --package-name      | string | false    |                | The new package name of the project                                                                                |
 | manifestPath    | --manifest-path     | string | false    | 'Cargo.toml'   | Path to `Cargo.toml`                                                                                               |
 | repository      | --repository        | string | false    |                | The new repository of the project                                                                                  |
