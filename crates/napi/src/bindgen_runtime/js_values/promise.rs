@@ -75,7 +75,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       .catch(move |ctx: CallbackContext<Unknown>| {
         if let Some(sender) = tx_in_catch.replace(None) {
           // no need to handle the send error here, the receiver has been dropped
-          let _ = sender.send(Err(ctx.value.into()));
+          let _ = sender.send(Err(Error::from_unknown_without_coercion(ctx.value)));
         }
         Ok(())
       })?;

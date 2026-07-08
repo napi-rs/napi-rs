@@ -2077,12 +2077,26 @@ Napi4Test('await Promise in rust', async (t) => {
   t.is(result, fx + 100)
 })
 
-Napi4Test('Promise should reject raw error in rust', async (t) => {
-  const fxError = new Error('What is Happy Planet')
-  await t.throwsAsync(() => asyncPlus100(Promise.reject(fxError)), {
-    message: fxError.message,
-  })
-})
+Napi4Test(
+  'Promise rejection preserves exact JavaScript identity in rust',
+  async (t) => {
+    const rejections = [
+      new Error('What is Happy Planet'),
+      Object.freeze({ reason: 'non-Error rejection' }),
+    ]
+
+    for (const rejection of rejections) {
+      let observed: unknown
+      try {
+        await asyncPlus100(Promise.reject(rejection))
+        t.fail('Expected asyncPlus100 to reject')
+      } catch (error) {
+        observed = error
+      }
+      t.is(observed, rejection)
+    }
+  },
+)
 
 Napi4Test('call ThreadsafeFunction with callback', async (t) => {
   await t.notThrowsAsync(
