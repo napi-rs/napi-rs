@@ -120,6 +120,8 @@ const __sharedMemory = new WebAssembly.Memory({
 
 const __wasmFile = await globalThis.fetch(__wasmUrl).then((res) => res.arrayBuffer())
 
+let __tsfnTestStatePointer
+
 const {
   instance: __napiInstance,
   module: __wasiModule,
@@ -127,6 +129,7 @@ const {
 } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
+  reuseWorker: true,
   wasi: __wasi,
   onCreateWorker() {
     const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
@@ -138,6 +141,123 @@ const {
     return worker
   },
   overwriteImports(importObject) {
+    const TSFN_TEST_COUNTER_COUNT = 35
+    const TSFN_SCENARIO_INDEX = 0
+    const TSFN_CLEANUP_TRACKING_ARMED_INDEX = 22
+    const TSFN_CLEANUP_HOOK_ADDED_INDEX = 23
+    const TSFN_CLEANUP_HOOK_REMOVED_INDEX = 24
+    const TSFN_NATIVE_ABORT_CALLED_INDEX = 17
+    const TSFN_UNEXPECTED_INDEX = 29
+    const trackedTsfnCleanupHooks = new Map()
+    const getTsfnTestState = (pointer = __tsfnTestStatePointer) =>
+      pointer
+        ? new Int32Array(
+            __sharedMemory.buffer,
+            pointer,
+            TSFN_TEST_COUNTER_COUNT,
+          )
+        : undefined
+    const failTsfnTest = (state, code) => {
+      Atomics.compareExchange(state, TSFN_UNEXPECTED_INDEX, 0, code)
+    }
+    const cleanupHookKey = (env, callback, data) =>
+      `${env}:${callback}:${data}`
+
+    const addEnvCleanupHook = importObject.napi.napi_add_env_cleanup_hook
+    importObject.napi.napi_add_env_cleanup_hook = function (
+      env,
+      callback,
+      data,
+    ) {
+      const state = getTsfnTestState()
+      const scenario = state
+        ? Atomics.load(state, TSFN_SCENARIO_INDEX)
+        : 0
+      const track =
+        scenario !== 0 &&
+        Atomics.compareExchange(
+          state,
+          TSFN_CLEANUP_TRACKING_ARMED_INDEX,
+          1,
+          0,
+        ) === 1
+      const status = addEnvCleanupHook(env, callback, data)
+      if (track) {
+        const key = cleanupHookKey(env, callback, data)
+        const previous = trackedTsfnCleanupHooks.get(key)
+        if (
+          status !== 0 ||
+          (previous && !previous.removed) ||
+          Atomics.load(state, TSFN_CLEANUP_HOOK_ADDED_INDEX) !== 0
+        ) {
+          failTsfnTest(state, 50)
+        } else {
+          Atomics.store(state, TSFN_CLEANUP_HOOK_ADDED_INDEX, 1)
+          trackedTsfnCleanupHooks.set(key, {
+            pointer: __tsfnTestStatePointer,
+            removed: false,
+            scenario,
+          })
+        }
+      }
+      return status
+    }
+
+    const removeEnvCleanupHook =
+      importObject.napi.napi_remove_env_cleanup_hook
+    importObject.napi.napi_remove_env_cleanup_hook = function (
+      env,
+      callback,
+      data,
+    ) {
+      const key = cleanupHookKey(env, callback, data)
+      const tracked = trackedTsfnCleanupHooks.get(key)
+      const status = removeEnvCleanupHook(env, callback, data)
+      if (tracked) {
+        const state = getTsfnTestState(tracked.pointer)
+        if (
+          status !== 0 ||
+          tracked.removed ||
+          Atomics.load(state, TSFN_SCENARIO_INDEX) !== tracked.scenario ||
+          Atomics.load(state, TSFN_CLEANUP_HOOK_REMOVED_INDEX) !== 0
+        ) {
+          failTsfnTest(state, 51)
+        } else {
+          tracked.removed = true
+          Atomics.store(state, TSFN_CLEANUP_HOOK_REMOVED_INDEX, 1)
+        }
+      }
+      return status
+    }
+
+    const releaseThreadsafeFunction =
+      importObject.napi.napi_release_threadsafe_function
+    importObject.napi.napi_release_threadsafe_function = function (
+      func,
+      mode,
+    ) {
+      const status = releaseThreadsafeFunction(func, mode)
+      const state = getTsfnTestState()
+      if (
+        state &&
+        Atomics.load(state, TSFN_SCENARIO_INDEX) !== 0 &&
+        mode === 1
+      ) {
+        if (
+          status !== 0 ||
+          Atomics.compareExchange(
+            state,
+            TSFN_NATIVE_ABORT_CALLED_INDEX,
+            0,
+            1,
+          ) !== 0
+        ) {
+          failTsfnTest(state, 52)
+        }
+      }
+      return status
+    }
+
     importObject.env = {
       ...importObject.env,
       ...importObject.napi,
@@ -147,6 +267,8 @@ const {
     return importObject
   },
   beforeInit({ instance }) {
+    __tsfnTestStatePointer =
+      instance.exports.__napi_rs_test_tsfn_state_ptr()
     for (const name of Object.keys(instance.exports)) {
       if (name.startsWith('__napi_register__')) {
         instance.exports[name]()
@@ -403,6 +525,7 @@ export const disposeThreadsafeFunctionForEnvOwnership = getWasiBindingExport('di
 export const drainStreamCount = __napiModule.exports.drainStreamCount
 export const dropClonedErrorsOnTwoThreads = __napiModule.exports.dropClonedErrorsOnTwoThreads
 export const dropErrorFromValueOffThread = __napiModule.exports.dropErrorFromValueOffThread
+export const dropUnregisteredWeakTsfnForWasi = __napiModule.exports.dropUnregisteredWeakTsfnForWasi
 export const either3 = __napiModule.exports.either3
 export const either4 = __napiModule.exports.either4
 export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
@@ -570,6 +693,7 @@ export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 export const startDeferredTeardownRace = getWasiBindingExport('startDeferredTeardownRace')
 export const startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport('startReferencedTsfnFinalizerLivenessWorker')
+export const startTokioWakerAfterCleanupProbe = __napiModule.exports.startTokioWakerAfterCleanupProbe
 export const startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport('startWeakTsfnFinalizerLivenessWorker')
 export const stashBufferAcrossDuplicateLoad = getWasiBindingExport('stashBufferAcrossDuplicateLoad')
 export const stashBufferInThreadLocal = __napiModule.exports.stashBufferInThreadLocal

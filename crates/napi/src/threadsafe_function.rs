@@ -1618,8 +1618,9 @@ impl<
   ///
   /// Abort is shared and idempotent. It closes the native queue through the serialized lifecycle
   /// path and wakes an in-flight bounded blocking call. Native and non-owner callers wait until
-  /// that call has returned. On threaded browser WASI, an owner/window-agent call returns after
-  /// issuing the abort because the window agent is forbidden from entering an atomic wait.
+  /// that call has returned. On threaded browser WASI, an owner/window-agent call publishes the
+  /// abort request and returns without entering an atomic wait. If another call still holds a
+  /// lifecycle guard, that guard issues the native abort when it is released.
   /// Dropping all Rust references normally releases the TSFN, but it does not replace abort when
   /// teardown must wake a caller blocked on a full bounded queue.
   pub fn abort(&self) -> Result<()> {

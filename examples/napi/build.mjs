@@ -311,7 +311,7 @@ async function instrumentThreadedWasiBrowserTsfnWait() {
   const workerPath = fileURLToPath(
     new URL('wasi-worker-browser.mjs', import.meta.url),
   )
-  let source = await readFile(workerPath, 'utf8')
+  let workerSource = await readFile(workerPath, 'utf8')
   const constantsMarker = 'const fs = createFsProxy(__memfsExported)\n'
   const onLoadMarker = '  onLoad({ wasmModule, wasmMemory }) {\n'
   const importsMarker = `      overwriteImports(importObject) {
@@ -322,18 +322,21 @@ async function instrumentThreadedWasiBrowserTsfnWait() {
     })`
 
   if (
-    !source.includes(constantsMarker) ||
-    !source.includes(onLoadMarker) ||
-    !source.includes(importsMarker) ||
-    !source.includes(beforeInitMarker)
+    !workerSource.includes(constantsMarker) ||
+    !workerSource.includes(onLoadMarker) ||
+    !workerSource.includes(importsMarker) ||
+    !workerSource.includes(beforeInitMarker)
   ) {
     throw new Error('Could not instrument the threaded WASI browser worker')
   }
 
-  source = source.replace(
+  workerSource = workerSource.replace(
     constantsMarker,
     `${constantsMarker}
 const TSFN_TEST_COUNTER_COUNT = 35
+const TSFN_SCENARIO_INDEX = 0
+const TSFN_DEFERRED_ABORT_SCENARIO = 1
+const TSFN_POST_NATIVE_ABORT_SCENARIO = 2
 const TSFN_HOST_CALL_ARMED_INDEX = 4
 const TSFN_NATIVE_QUEUE_CONFIRMED_INDEX = 5
 const TSFN_NATIVE_WAIT_ENTERED_INDEX = 6
@@ -341,6 +344,10 @@ const TSFN_NATIVE_WAIT_RETURNED_INDEX = 7
 const TSFN_AFTER_NATIVE_ENTERED_INDEX = 8
 const TSFN_AFTER_NATIVE_RELEASED_INDEX = 9
 const TSFN_BLOCKING_RETURNED_INDEX = 10
+const TSFN_LIFECYCLE_GATE_ARMED_INDEX = 12
+const TSFN_LIFECYCLE_GATE_ENTERED_INDEX = 13
+const TSFN_LIFECYCLE_GATE_RELEASED_INDEX = 14
+const TSFN_NATIVE_ABORT_CALLED_INDEX = 17
 const TSFN_SLOT_RELEASE_CONFIRMED_INDEX = 27
 const TSFN_NATIVE_WAIT_ADDRESS_CONFIRMED_INDEX = 28
 const TSFN_UNEXPECTED_INDEX = 29
@@ -350,14 +357,36 @@ const TSFN_STATE_OFFSET = 140
 const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
 `,
   )
-  source = source.replace(
+  workerSource = workerSource.replace(
     onLoadMarker,
-    `${onLoadMarker}    let tsfnTestStatePointerSlot\n`,
+    `${onLoadMarker}    let tsfnTestStatePointer\n`,
   )
-  source = source.replace(
+  workerSource = workerSource.replace(
     importsMarker,
     `      overwriteImports(importObject) {
         let blockingCallFunction = 0
+        const getTsfnTestState = () =>
+          tsfnTestStatePointer
+            ? new Int32Array(
+                wasmMemory.buffer,
+                tsfnTestStatePointer,
+                TSFN_TEST_COUNTER_COUNT,
+              )
+            : undefined
+        const failTsfnTest = (state, code) => {
+          Atomics.compareExchange(state, TSFN_UNEXPECTED_INDEX, 0, code)
+        }
+        const waitForTsfnGate = (state, index) => {
+          const deadline = Date.now() + 10_000
+          while (Atomics.load(state, index) === 0) {
+            const remaining = deadline - Date.now()
+            if (remaining <= 0) {
+              return false
+            }
+            Atomics.wait(state, index, 0, Math.min(remaining, 10))
+          }
+          return true
+        }
         const callThreadsafeFunction =
           importObject.napi.napi_call_threadsafe_function
         const releaseThreadsafeFunction =
@@ -366,69 +395,73 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
           func,
           mode,
         ) {
-          const statePointer = tsfnTestStatePointerSlot
-            ? Atomics.load(
-                new Uint32Array(
-                  wasmMemory.buffer,
-                  tsfnTestStatePointerSlot,
+          const status = releaseThreadsafeFunction(func, mode)
+          const state = getTsfnTestState()
+          if (state && Atomics.load(state, TSFN_SCENARIO_INDEX) !== 0) {
+            if (mode === 1) {
+              if (
+                status !== 0 ||
+                Atomics.compareExchange(
+                  state,
+                  TSFN_NATIVE_ABORT_CALLED_INDEX,
+                  0,
                   1,
-                ),
-                0,
-              )
-            : 0
-          if (statePointer && mode === 0 && blockingCallFunction !== 0) {
-            const state = new Int32Array(
-              wasmMemory.buffer,
-              statePointer,
-              TSFN_TEST_COUNTER_COUNT,
-            )
+                ) !== 0
+              ) {
+                failTsfnTest(state, 40)
+              }
+            }
             if (
+              mode === 0 &&
+              blockingCallFunction !== 0 &&
               Atomics.load(state, TSFN_AFTER_NATIVE_ENTERED_INDEX) === 1 &&
               Atomics.load(state, TSFN_AFTER_NATIVE_RELEASED_INDEX) === 1 &&
               Atomics.load(state, TSFN_BLOCKING_RETURNED_INDEX) === 0
             ) {
-              if (func !== blockingCallFunction) {
-                Atomics.compareExchange(
+              if (status !== 0 || func !== blockingCallFunction) {
+                failTsfnTest(state, 41)
+              } else {
+                Atomics.store(
                   state,
-                  TSFN_UNEXPECTED_INDEX,
-                  0,
-                  51,
+                  TSFN_SLOT_RELEASE_CONFIRMED_INDEX,
+                  1,
                 )
-                return 1
               }
-              Atomics.store(
-                state,
-                TSFN_SLOT_RELEASE_CONFIRMED_INDEX,
-                1,
-              )
               blockingCallFunction = 0
             }
           }
-          return releaseThreadsafeFunction(func, mode)
+          return status
         }
         importObject.napi.napi_call_threadsafe_function = function (
           func,
           data,
           mode,
         ) {
-          const statePointer = tsfnTestStatePointerSlot
-            ? Atomics.load(
-                new Uint32Array(
-                  wasmMemory.buffer,
-                  tsfnTestStatePointerSlot,
-                  1,
-                ),
-                0,
-              )
-            : 0
-          if (!statePointer || mode !== 1) {
+          const state = getTsfnTestState()
+          if (!state || Atomics.load(state, TSFN_SCENARIO_INDEX) === 0) {
             return callThreadsafeFunction(func, data, mode)
           }
-          const state = new Int32Array(
-            wasmMemory.buffer,
-            statePointer,
-            TSFN_TEST_COUNTER_COUNT,
-          )
+
+          if (
+            mode === 0 &&
+            Atomics.load(state, TSFN_SCENARIO_INDEX) ===
+              TSFN_DEFERRED_ABORT_SCENARIO &&
+            Atomics.compareExchange(
+              state,
+              TSFN_LIFECYCLE_GATE_ARMED_INDEX,
+              1,
+              2,
+            ) === 1
+          ) {
+            Atomics.store(state, TSFN_LIFECYCLE_GATE_ENTERED_INDEX, 1)
+            if (!waitForTsfnGate(state, TSFN_LIFECYCLE_GATE_RELEASED_INDEX)) {
+              failTsfnTest(state, 42)
+            }
+          }
+
+          if (mode !== 1) {
+            return callThreadsafeFunction(func, data, mode)
+          }
           if (
             Atomics.compareExchange(
               state,
@@ -449,9 +482,9 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
           if (
             loadTsfnWord(TSFN_QUEUE_SIZE_OFFSET) !== 1 ||
             loadTsfnWord(TSFN_STATE_OFFSET) !== 0 ||
-            loadTsfnWord(TSFN_MAX_QUEUE_SIZE_OFFSET) !== 1
+              loadTsfnWord(TSFN_MAX_QUEUE_SIZE_OFFSET) !== 1
           ) {
-            Atomics.compareExchange(state, TSFN_UNEXPECTED_INDEX, 0, 50)
+            failTsfnTest(state, 43)
             throw new Error(
               'Bounded TSFN call did not enter native N-API with a full open queue',
             )
@@ -481,20 +514,30 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
             }
           }
           try {
-            return callThreadsafeFunction(func, data, mode)
+            const status = callThreadsafeFunction(func, data, mode)
+            if (
+              Atomics.load(state, TSFN_SCENARIO_INDEX) ===
+              TSFN_POST_NATIVE_ABORT_SCENARIO
+            ) {
+              Atomics.store(state, TSFN_AFTER_NATIVE_ENTERED_INDEX, 1)
+              if (!waitForTsfnGate(state, TSFN_AFTER_NATIVE_RELEASED_INDEX)) {
+                failTsfnTest(state, 44)
+              }
+            }
+            return status
           } finally {
             Atomics.wait = atomicWait
           }
         }
         importObject.env = {`,
   )
-  source = source.replace(
+  workerSource = workerSource.replace(
     beforeInitMarker,
     `          memory: wasmMemory,
         }
       },
       beforeInit({ instance }) {
-        tsfnTestStatePointerSlot =
+        tsfnTestStatePointer =
           instance.exports.__napi_rs_test_tsfn_state_ptr()
       },
     })`,
@@ -502,8 +545,173 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
   const prettierConfig = await resolveConfig(workerPath)
   await writeFile(
     workerPath,
-    await format(source, { ...prettierConfig, filepath: workerPath }),
+    await format(workerSource, { ...prettierConfig, filepath: workerPath }),
   )
+
+  const browserPath = fileURLToPath(
+    new URL('example.wasi-browser.js', import.meta.url),
+  )
+  let browserSource = await readFile(browserPath, 'utf8')
+  const browserScopeMarker = `const {
+  instance: __napiInstance,`
+  const browserWorkerReuseMarker = `  asyncWorkPoolSize: 4,
+  wasi: __wasi,`
+  const browserImportsMarker = `  overwriteImports(importObject) {
+    importObject.env = {`
+  const browserBeforeInitMarker = `  beforeInit({ instance }) {
+    for (const name of Object.keys(instance.exports)) {`
+
+  if (
+    !browserSource.includes(browserScopeMarker) ||
+    !browserSource.includes(browserWorkerReuseMarker) ||
+    !browserSource.includes(browserImportsMarker) ||
+    !browserSource.includes(browserBeforeInitMarker)
+  ) {
+    throw new Error('Could not instrument the threaded WASI browser host')
+  }
+
+  browserSource = browserSource.replace(
+    browserScopeMarker,
+    `let __tsfnTestStatePointer
+
+${browserScopeMarker}`,
+  )
+  browserSource = browserSource.replace(
+    browserWorkerReuseMarker,
+    `  asyncWorkPoolSize: 4,
+  reuseWorker: true,
+  wasi: __wasi,`,
+  )
+  browserSource = browserSource.replace(
+    browserImportsMarker,
+    `  overwriteImports(importObject) {
+    const TSFN_TEST_COUNTER_COUNT = 35
+    const TSFN_SCENARIO_INDEX = 0
+    const TSFN_CLEANUP_TRACKING_ARMED_INDEX = 22
+    const TSFN_CLEANUP_HOOK_ADDED_INDEX = 23
+    const TSFN_CLEANUP_HOOK_REMOVED_INDEX = 24
+    const TSFN_NATIVE_ABORT_CALLED_INDEX = 17
+    const TSFN_UNEXPECTED_INDEX = 29
+    const trackedTsfnCleanupHooks = new Map()
+    const getTsfnTestState = (pointer = __tsfnTestStatePointer) =>
+      pointer
+        ? new Int32Array(
+            __sharedMemory.buffer,
+            pointer,
+            TSFN_TEST_COUNTER_COUNT,
+          )
+        : undefined
+    const failTsfnTest = (state, code) => {
+      Atomics.compareExchange(state, TSFN_UNEXPECTED_INDEX, 0, code)
+    }
+    const cleanupHookKey = (env, callback, data) =>
+      \`\${env}:\${callback}:\${data}\`
+
+    const addEnvCleanupHook = importObject.napi.napi_add_env_cleanup_hook
+    importObject.napi.napi_add_env_cleanup_hook = function (
+      env,
+      callback,
+      data,
+    ) {
+      const state = getTsfnTestState()
+      const scenario = state
+        ? Atomics.load(state, TSFN_SCENARIO_INDEX)
+        : 0
+      const track =
+        scenario !== 0 &&
+        Atomics.compareExchange(
+          state,
+          TSFN_CLEANUP_TRACKING_ARMED_INDEX,
+          1,
+          0,
+        ) === 1
+      const status = addEnvCleanupHook(env, callback, data)
+      if (track) {
+        const key = cleanupHookKey(env, callback, data)
+        const previous = trackedTsfnCleanupHooks.get(key)
+        if (
+          status !== 0 ||
+          (previous && !previous.removed) ||
+          Atomics.load(state, TSFN_CLEANUP_HOOK_ADDED_INDEX) !== 0
+        ) {
+          failTsfnTest(state, 50)
+        } else {
+          Atomics.store(state, TSFN_CLEANUP_HOOK_ADDED_INDEX, 1)
+          trackedTsfnCleanupHooks.set(key, {
+            pointer: __tsfnTestStatePointer,
+            removed: false,
+            scenario,
+          })
+        }
+      }
+      return status
+    }
+
+    const removeEnvCleanupHook =
+      importObject.napi.napi_remove_env_cleanup_hook
+    importObject.napi.napi_remove_env_cleanup_hook = function (
+      env,
+      callback,
+      data,
+    ) {
+      const key = cleanupHookKey(env, callback, data)
+      const tracked = trackedTsfnCleanupHooks.get(key)
+      const status = removeEnvCleanupHook(env, callback, data)
+      if (tracked) {
+        const state = getTsfnTestState(tracked.pointer)
+        if (
+          status !== 0 ||
+          tracked.removed ||
+          Atomics.load(state, TSFN_SCENARIO_INDEX) !== tracked.scenario ||
+          Atomics.load(state, TSFN_CLEANUP_HOOK_REMOVED_INDEX) !== 0
+        ) {
+          failTsfnTest(state, 51)
+        } else {
+          tracked.removed = true
+          Atomics.store(state, TSFN_CLEANUP_HOOK_REMOVED_INDEX, 1)
+        }
+      }
+      return status
+    }
+
+    const releaseThreadsafeFunction =
+      importObject.napi.napi_release_threadsafe_function
+    importObject.napi.napi_release_threadsafe_function = function (
+      func,
+      mode,
+    ) {
+      const status = releaseThreadsafeFunction(func, mode)
+      const state = getTsfnTestState()
+      if (
+        state &&
+        Atomics.load(state, TSFN_SCENARIO_INDEX) !== 0 &&
+        mode === 1
+      ) {
+        if (
+          status !== 0 ||
+          Atomics.compareExchange(
+            state,
+            TSFN_NATIVE_ABORT_CALLED_INDEX,
+            0,
+            1,
+          ) !== 0
+        ) {
+          failTsfnTest(state, 52)
+        }
+      }
+      return status
+    }
+
+    importObject.env = {`,
+  )
+  browserSource = browserSource.replace(
+    browserBeforeInitMarker,
+    `  beforeInit({ instance }) {
+    __tsfnTestStatePointer =
+      instance.exports.__napi_rs_test_tsfn_state_ptr()
+    for (const name of Object.keys(instance.exports)) {`,
+  )
+  await writeFile(browserPath, browserSource)
 }
 
 async function main(userArguments) {
