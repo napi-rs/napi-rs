@@ -10,6 +10,20 @@ import { unsupportedWasiFunctions } from './unsupported-wasi-exports.mjs'
 const packageDirectory = dirname(fileURLToPath(import.meta.url))
 const napiCli = fileURLToPath(new URL('../../cli/cli.mjs', import.meta.url))
 const declarationPath = fileURLToPath(new URL('index.d.cts', import.meta.url))
+const unsupportedWasiFunctionSet = new Set(unsupportedWasiFunctions)
+const threadedWasiBrowserTestFunctions = [
+  'abortBoundedTsfnFromOwnerAgent',
+  'abortBoundedTsfnPostCallFromOwnerAgent',
+  'armBoundedTsfnPostCallNativeWait',
+  'boundedTsfnOwnerAbortState',
+  'boundedTsfnPostCallAbortState',
+  'finishBoundedTsfnOwnerAbort',
+  'finishBoundedTsfnPostCallAbort',
+  'prepareBoundedTsfnOwnerAbort',
+  'prepareBoundedTsfnPostCallAbort',
+  'releaseBoundedTsfnNativeWait',
+  'releaseBoundedTsfnPostCallSlot',
+]
 
 function run(arguments_) {
   return new Promise((resolve, reject) => {
@@ -138,7 +152,13 @@ function insertGeneratedExport(source, name, assignment, pattern) {
   return `${source.trimEnd()}\n${assignment}\n`
 }
 
-async function exposeLifecycleExportsAcrossTargets() {
+async function exposeLifecycleExportsAcrossTargets(target) {
+  const forwardedFunctions = [
+    ...unsupportedWasiFunctions,
+    ...(target === 'wasm32-wasip1-threads'
+      ? threadedWasiBrowserTestFunctions
+      : []),
+  ]
   const bindings = [
     {
       file: 'index.cjs',
@@ -209,15 +229,19 @@ async function exposeLifecycleExportsAcrossTargets() {
         `${unsupportedWasiExportHelper(binding, helper)}${marker}`,
       )
     }
-    for (const name of unsupportedWasiFunctions) {
+    for (const name of forwardedFunctions) {
       const [generated, replacement] = assignment(name)
-      if (source.includes(replacement)) {
+      const desired = unsupportedWasiFunctionSet.has(name)
+        ? replacement
+        : generated
+      const alternative = desired === generated ? replacement : generated
+      if (source.includes(desired)) {
         continue
       }
-      if (source.includes(generated)) {
-        source = source.replace(generated, replacement)
+      if (source.includes(alternative)) {
+        source = source.replace(alternative, desired)
       } else {
-        source = insertGeneratedExport(source, name, replacement, exportPattern)
+        source = insertGeneratedExport(source, name, desired, exportPattern)
       }
     }
     await writeFile(path, source)
@@ -502,7 +526,7 @@ async function main(userArguments) {
     ...userArguments,
   ])
 
-  await exposeLifecycleExportsAcrossTargets()
+  await exposeLifecycleExportsAcrossTargets(target)
   if (previousDeclarationSource !== undefined) {
     await preserveLifecycleDeclarations(previousDeclarationSource)
   }

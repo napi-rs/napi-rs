@@ -221,7 +221,7 @@ fn wait_for_browser_tsfn_state(
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn prepare_bounded_tsfn_owner_abort(callback: Function<u32, ()>) -> Result<()> {
   let owner_cleanup_context_baseline = BrowserBoundedTsfn::__test_owner_cleanup_context_count();
   let state = BrowserTsfnState::new(owner_cleanup_context_baseline);
@@ -470,7 +470,7 @@ pub fn prepare_bounded_tsfn_owner_abort(callback: Function<u32, ()>) -> Result<(
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn bounded_tsfn_owner_abort_state() -> Vec<i32> {
   BROWSER_BOUNDED_TSFN
     .lock()
@@ -492,7 +492,7 @@ pub fn bounded_tsfn_owner_abort_state() -> Vec<i32> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn abort_bounded_tsfn_from_owner_agent() -> Result<()> {
   let (tsfn, state) = browser_tsfn_test()?;
   state.store(BROWSER_TSFN_BLOCKING_WORKER_RELEASED_INDEX, 1);
@@ -581,7 +581,7 @@ pub fn abort_bounded_tsfn_from_owner_agent() -> Result<()> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn release_bounded_tsfn_native_wait() -> Result<()> {
   let (tsfn, state) = browser_tsfn_test()?;
   state.store(BROWSER_TSFN_AFTER_NATIVE_RELEASED_INDEX, 1);
@@ -590,7 +590,7 @@ pub fn release_bounded_tsfn_native_wait() -> Result<()> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn finish_bounded_tsfn_owner_abort() -> Result<()> {
   let mut stored = BROWSER_BOUNDED_TSFN
     .lock()
@@ -630,7 +630,7 @@ fn browser_post_call_tsfn_test() -> Result<(Arc<BrowserBoundedTsfn>, Arc<Browser
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn prepare_bounded_tsfn_post_call_abort(callback: Function<u32, ()>) -> Result<()> {
   let owner_cleanup_context_baseline = BrowserBoundedTsfn::__test_owner_cleanup_context_count();
   let state = BrowserTsfnState::new(owner_cleanup_context_baseline);
@@ -724,7 +724,7 @@ pub fn prepare_bounded_tsfn_post_call_abort(callback: Function<u32, ()>) -> Resu
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn arm_bounded_tsfn_post_call_native_wait() -> Result<()> {
   let (_, state) = browser_post_call_tsfn_test()?;
   state.store(BROWSER_TSFN_BLOCKING_WORKER_RELEASED_INDEX, 1);
@@ -756,7 +756,7 @@ pub fn arm_bounded_tsfn_post_call_native_wait() -> Result<()> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn bounded_tsfn_post_call_abort_state() -> Vec<i32> {
   BROWSER_POST_CALL_TSFN
     .lock()
@@ -778,7 +778,7 @@ pub fn bounded_tsfn_post_call_abort_state() -> Vec<i32> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn abort_bounded_tsfn_post_call_from_owner_agent() -> Result<()> {
   let (tsfn, state) = browser_post_call_tsfn_test()?;
   if state.load(BROWSER_TSFN_AFTER_NATIVE_ENTERED_INDEX) == 0
@@ -807,7 +807,7 @@ pub fn abort_bounded_tsfn_post_call_from_owner_agent() -> Result<()> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn release_bounded_tsfn_post_call_slot() -> Result<()> {
   let (_, state) = browser_post_call_tsfn_test()?;
   state.store(BROWSER_TSFN_AFTER_NATIVE_RELEASED_INDEX, 1);
@@ -815,7 +815,7 @@ pub fn release_bounded_tsfn_post_call_slot() -> Result<()> {
 }
 
 #[cfg(napi_tsfn_native_wait_test)]
-#[napi]
+#[napi(skip_typescript)]
 pub fn finish_bounded_tsfn_post_call_abort() -> Result<()> {
   let mut stored = BROWSER_POST_CALL_TSFN
     .lock()

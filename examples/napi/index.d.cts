@@ -587,10 +587,6 @@ export interface A {
 
 export declare function abandonDeferredClones(): void
 
-export declare function abortBoundedTsfnFromOwnerAgent(): void
-
-export declare function abortBoundedTsfnPostCallFromOwnerAgent(): void
-
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
@@ -635,8 +631,6 @@ export declare function appendToOsString(s: string): string
 export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
-
-export declare function armBoundedTsfnPostCallNativeWait(): void
 
 export declare function armTokioBlockingTlsRetirementProbe(resultPath: string, releasePath: string): Promise<void>
 
@@ -717,10 +711,6 @@ export interface BindingVitePluginMeta {
 }
 
 export declare function borrowAlignedZstPair(first: AlignedZst, second: AlignedZst): void
-
-export declare function boundedTsfnOwnerAbortState(): Array<number>
-
-export declare function boundedTsfnPostCallAbortState(): Array<number>
 
 export declare function btreeSetToJs(): Set<string>
 
@@ -1149,10 +1139,6 @@ export declare function fetch(url: string, requestInit?: RequestInit | undefined
 
 export declare function fibonacci(n: number): number
 
-export declare function finishBoundedTsfnOwnerAbort(): void
-
-export declare function finishBoundedTsfnPostCallAbort(): void
-
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
 export interface FunctionData {
@@ -1399,10 +1385,6 @@ export interface PluginLoadResult {
 
 export declare function plusOne(this: Width): number
 
-export declare function prepareBoundedTsfnOwnerAbort(callback: (arg: number) => void): void
-
-export declare function prepareBoundedTsfnPostCallAbort(callback: (arg: number) => void): void
-
 export declare function prepareTsfnBlockingCallRegression(callback: (arg: number) => void, counters: Int32Array, expectCleanupAbort: boolean): void
 
 export declare function prepareTsfnTeardownRegression(callback: () => void, counters: Int32Array, scenario: string, postFinalizeEnteredPath?: string | undefined | null, postFinalizeReleasePath?: string | undefined | null, postFinalizeCompletedPath?: string | undefined | null): void
@@ -1516,10 +1498,6 @@ export declare function registerSelfDroppingAsyncCleanupHook(resultPath: string)
 export declare function registerSelfRemovingSyncCleanupHook(resultPath: string): void
 
 export declare function releaseAsyncWorkLifecycle(id: number): void
-
-export declare function releaseBoundedTsfnNativeWait(): void
-
-export declare function releaseBoundedTsfnPostCallSlot(): void
 
 export declare function removeRemovableAsyncCleanupHook(): void
 
