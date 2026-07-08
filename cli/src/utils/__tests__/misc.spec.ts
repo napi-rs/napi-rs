@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import {
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -147,6 +148,100 @@ test('filesystem transactions restore prior outputs after a commit failure', asy
     t.is((await stat(first)).mode & 0o7777, 0o755)
     t.is((await stat(second)).mode & 0o7777, 0o640)
     t.is((await stat(oldName)).mode & 0o7777, 0o751)
+  }
+})
+
+test('filesystem transactions restore same-path replacements after a later failure', async (t) => {
+  const root = join(t.context.tmpDir, 'same-path-transaction')
+  const staging = join(t.context.tmpDir, 'same-path-staging')
+  const existing = join(root, 'existing.txt')
+  const stagedExisting = join(staging, 'existing.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(existing, 'prior existing'),
+    writeFile(stagedExisting, 'replacement existing'),
+  ])
+  if (process.platform !== 'win32') {
+    await chmod(existing, 0o751)
+  }
+
+  await t.throwsAsync(() =>
+    commitFileSystemTransaction(
+      root,
+      [
+        {
+          source: stagedExisting,
+          destination: existing,
+          mode: 0o600,
+          removeBeforeWrite: existing,
+        },
+        {
+          source: join(staging, 'missing.txt'),
+          destination: join(root, 'later.txt'),
+        },
+      ],
+      [],
+    ),
+  )
+
+  t.is(await readFile(existing, 'utf8'), 'prior existing')
+  t.false(existsSync(join(root, 'later.txt')))
+  if (process.platform !== 'win32') {
+    t.is((await stat(existing)).mode & 0o7777, 0o751)
+  }
+})
+
+test('filesystem transactions reject distinct case-sensitive hardlink replacements', async (t) => {
+  const root = join(t.context.tmpDir, 'hardlink-transaction')
+  const staging = join(t.context.tmpDir, 'hardlink-staging')
+  const oldName = join(root, 'entry.txt')
+  const caseVariant = join(root, 'ENTRY.txt')
+  const stagedReplacement = join(staging, 'replacement.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(oldName, 'prior entry'),
+    writeFile(stagedReplacement, 'replacement entry'),
+  ])
+  try {
+    await link(oldName, caseVariant)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      t.pass()
+      return
+    }
+    throw error
+  }
+  if (process.platform !== 'win32') {
+    await chmod(oldName, 0o751)
+  }
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [
+        {
+          source: stagedReplacement,
+          destination: caseVariant,
+          mode: 0o600,
+          removeBeforeWrite: oldName,
+        },
+      ],
+      [],
+    ),
+    { message: /replacement destination is occupied/ },
+  )
+
+  t.is(await readFile(oldName, 'utf8'), 'prior entry')
+  t.is(await readFile(caseVariant, 'utf8'), 'prior entry')
+  if (process.platform !== 'win32') {
+    t.is((await stat(oldName)).mode & 0o7777, 0o751)
+    t.is((await stat(caseVariant)).mode & 0o7777, 0o751)
   }
 })
 

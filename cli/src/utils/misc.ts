@@ -11,6 +11,7 @@ import {
   rename,
   rm,
   realpath,
+  lstat,
 } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -150,11 +151,27 @@ export async function commitFileSystemTransaction(
       removeBeforeWrite ? [removeBeforeWrite] : [],
     ),
   )
-  const replacementDestinations = new Set(
-    transactionWrites.flatMap(({ destination, removeBeforeWrite }) =>
-      removeBeforeWrite ? [destination] : [],
-    ),
-  )
+  const replacementAliasParents = new Map<string, string>()
+  const findReplacementAlias = (path: string): string => {
+    const parent = replacementAliasParents.get(path)
+    if (parent === undefined) {
+      replacementAliasParents.set(path, path)
+      return path
+    }
+    if (parent === path) {
+      return path
+    }
+    const root = findReplacementAlias(parent)
+    replacementAliasParents.set(path, root)
+    return root
+  }
+  const joinReplacementAliases = (left: string, right: string) => {
+    const leftRoot = findReplacementAlias(left)
+    const rightRoot = findReplacementAlias(right)
+    if (leftRoot !== rightRoot) {
+      replacementAliasParents.set(rightRoot, leftRoot)
+    }
+  }
   for (const { destination, removeBeforeWrite } of transactionWrites) {
     if (!removeBeforeWrite) {
       continue
@@ -164,15 +181,28 @@ export async function commitFileSystemTransaction(
         `Filesystem transaction replacement source does not exist: ${removeBeforeWrite}`,
       )
     }
-    if (
-      (await fileExists(destination)) &&
-      !(await pathsReferToSameFilesystemEntry(removeBeforeWrite, destination))
-    ) {
-      throw new Error(
-        `Filesystem transaction replacement destination is occupied: ${destination}`,
-      )
+    if (await fileExists(destination)) {
+      if (
+        !(await pathsReferToSameDirectoryEntry(removeBeforeWrite, destination))
+      ) {
+        throw new Error(
+          `Filesystem transaction replacement destination is occupied: ${destination}`,
+        )
+      }
+      joinReplacementAliases(removeBeforeWrite, destination)
     }
   }
+  const replacementAliasBackups = new Map<string, string>()
+  for (const { removeBeforeWrite } of transactionWrites) {
+    if (!removeBeforeWrite || !replacementAliasParents.has(removeBeforeWrite)) {
+      continue
+    }
+    const root = findReplacementAlias(removeBeforeWrite)
+    if (!replacementAliasBackups.has(root)) {
+      replacementAliasBackups.set(root, removeBeforeWrite)
+    }
+  }
+  const replacementBackupPaths = new Set(replacementAliasBackups.values())
   const affected = new Set([
     ...writesByDestination.keys(),
     ...resolvedRemovals,
@@ -186,7 +216,10 @@ export async function commitFileSystemTransaction(
 
   try {
     for (const path of affected) {
-      if (replacementDestinations.has(path)) {
+      if (
+        replacementAliasParents.has(path) &&
+        !replacementBackupPaths.has(path)
+      ) {
         continue
       }
       if (!(await fileExists(path))) {
@@ -224,25 +257,44 @@ export async function commitFileSystemTransaction(
   }
 }
 
-async function pathsReferToSameFilesystemEntry(left: string, right: string) {
+async function pathsReferToSameDirectoryEntry(left: string, right: string) {
+  const resolvedLeft = resolve(left)
+  const resolvedRight = resolve(right)
+  if (resolvedLeft === resolvedRight) {
+    return true
+  }
+
   const [leftPath, rightPath, leftStats, rightStats] = await Promise.all([
     realpath(left),
     realpath(right),
-    stat(left),
-    stat(right),
+    lstat(left),
+    lstat(right),
   ])
   if (
-    leftPath === rightPath ||
-    (process.platform === 'win32' &&
-      leftPath.toLowerCase() === rightPath.toLowerCase())
+    !leftStats.isFile() ||
+    !rightStats.isFile() ||
+    leftStats.dev !== rightStats.dev ||
+    leftStats.ino !== rightStats.ino
   ) {
-    return true
+    return false
   }
-  return (
-    (process.platform === 'darwin' || process.platform === 'win32') &&
-    resolve(left).toLowerCase() === resolve(right).toLowerCase() &&
-    leftStats.dev === rightStats.dev &&
-    leftStats.ino === rightStats.ino
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
+    return false
+  }
+  if (
+    resolvedLeft.toLowerCase() !== resolvedRight.toLowerCase() ||
+    leftPath.toLowerCase() !== rightPath.toLowerCase()
+  ) {
+    return false
+  }
+
+  const entries = await readdir(dirname(left))
+  const leftName = basename(left)
+  const rightName = basename(right)
+  return !(
+    leftName !== rightName &&
+    entries.includes(leftName) &&
+    entries.includes(rightName)
   )
 }
 

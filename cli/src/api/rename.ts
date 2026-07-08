@@ -53,6 +53,11 @@ const DEPENDENCY_FIELDS = new Set([
   'peerDependenciesMeta',
 ])
 const RECURSIVE_PACKAGE_KEY_FIELDS = new Set(['overrides', 'resolutions'])
+const PNPM_BUILT_DEPENDENCY_FIELDS = new Set([
+  'ignoredBuiltDependencies',
+  'neverBuiltDependencies',
+  'onlyBuiltDependencies',
+])
 
 type JsonRecord = Record<string, unknown>
 
@@ -475,11 +480,75 @@ function rewritePackageMap(
     }
     const updatedEntry =
       typeof entry === 'string'
-        ? replacePackageSelectors(entry, packageRenames, false)
+        ? replacePackageAliasDescriptor(entry, packageRenames)
         : recursive
           ? rewritePackageMap(entry, packageRenames, true)
           : entry
     defineJsonProperty(updated, updatedKey, updatedEntry)
+  }
+  return updated
+}
+
+function replacePackageAliasDescriptor(
+  value: string,
+  packageRenames: Map<string, string>,
+) {
+  return value.startsWith('npm:')
+    ? replacePackageSelectors(value, packageRenames, false)
+    : value
+}
+
+function rewritePackageSelectorKeys(
+  value: unknown,
+  packageRenames: Map<string, string>,
+) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+  const updated = createJsonRecord()
+  for (const [key, entry] of Object.entries(value)) {
+    const updatedKey = replacePackageSelectors(key, packageRenames, true)
+    if (Object.prototype.hasOwnProperty.call(updated, updatedKey)) {
+      throw new Error(
+        `Renaming package reference ${key} conflicts with existing key ${updatedKey}`,
+      )
+    }
+    defineJsonProperty(updated, updatedKey, entry)
+  }
+  return updated
+}
+
+function rewritePackageExtensions(
+  value: unknown,
+  packageRenames: Map<string, string>,
+) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+  const updated = createJsonRecord()
+  for (const [key, entry] of Object.entries(value)) {
+    const updatedKey = replacePackageSelectors(key, packageRenames, true)
+    if (Object.prototype.hasOwnProperty.call(updated, updatedKey)) {
+      throw new Error(
+        `Renaming package reference ${key} conflicts with existing key ${updatedKey}`,
+      )
+    }
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      defineJsonProperty(updated, updatedKey, entry)
+      continue
+    }
+
+    const updatedExtension = createJsonRecord()
+    for (const [field, fieldValue] of Object.entries(entry)) {
+      defineJsonProperty(
+        updatedExtension,
+        field,
+        DEPENDENCY_FIELDS.has(field)
+          ? rewritePackageMap(fieldValue, packageRenames, false)
+          : fieldValue,
+      )
+    }
+    defineJsonProperty(updated, updatedKey, updatedExtension)
   }
   return updated
 }
@@ -493,13 +562,17 @@ function rewritePnpmConfig(
   }
   const updated = createJsonRecord()
   for (const [key, entry] of Object.entries(value)) {
-    defineJsonProperty(
-      updated,
-      key,
-      key === 'overrides'
-        ? rewritePackageMap(entry, packageRenames, true)
-        : entry,
-    )
+    let rewritten = entry
+    if (key === 'overrides') {
+      rewritten = rewritePackageMap(entry, packageRenames, true)
+    } else if (key === 'patchedDependencies') {
+      rewritten = rewritePackageSelectorKeys(entry, packageRenames)
+    } else if (key === 'packageExtensions') {
+      rewritten = rewritePackageExtensions(entry, packageRenames)
+    } else if (PNPM_BUILT_DEPENDENCY_FIELDS.has(key)) {
+      rewritten = rewritePackageMap(entry, packageRenames, false)
+    }
+    defineJsonProperty(updated, key, rewritten)
   }
   return updated
 }

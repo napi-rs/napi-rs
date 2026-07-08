@@ -1144,9 +1144,38 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
   }
   packageJson.pnpm = {
     onlyBuiltDependencies: [oldFlavor],
+    ignoredBuiltDependencies: [oldFlavor, helperPackage],
+    neverBuiltDependencies: [oldFlavor],
     overrides: {
       [`parent>${oldFlavor}@^1`]: `npm:${oldFlavor}@1.0.0`,
       [`**/${helperPackage}`]: `npm:${helperPackage}@1.0.0`,
+      untouched: oldFlavor,
+    },
+    patchedDependencies: {
+      [`${oldFlavor}@1.0.0`]: `patches/${oldFlavor}.patch`,
+      [`${helperPackage}@1.0.0`]: `patches/${helperPackage}.patch`,
+    },
+    packageExtensions: {
+      [`${oldFlavor}@^1`]: {
+        dependencies: {
+          [oldFlavor]: `npm:${oldFlavor}@1.0.0`,
+          [helperPackage]: oldFlavor,
+        },
+        peerDependencies: {
+          [oldFlavor]: '^1.0.0',
+        },
+        peerDependenciesMeta: {
+          [oldFlavor]: {
+            optional: true,
+          },
+        },
+        description: oldFlavor,
+      },
+      [`${helperPackage}@^1`]: {
+        dependencies: {
+          [helperPackage]: '1.0.0',
+        },
+      },
     },
   }
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
@@ -1198,11 +1227,75 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
     updatedPackageJson.pnpm.overrides[`**/${helperPackage}`],
     `npm:${helperPackage}@1.0.0`,
   )
-  t.deepEqual(updatedPackageJson.pnpm.onlyBuiltDependencies, [oldFlavor])
+  t.is(updatedPackageJson.pnpm.overrides.untouched, oldFlavor)
+  t.deepEqual(updatedPackageJson.pnpm.onlyBuiltDependencies, [newFlavor])
+  t.deepEqual(updatedPackageJson.pnpm.ignoredBuiltDependencies, [
+    newFlavor,
+    helperPackage,
+  ])
+  t.deepEqual(updatedPackageJson.pnpm.neverBuiltDependencies, [newFlavor])
+  t.is(
+    updatedPackageJson.pnpm.patchedDependencies[`${newFlavor}@1.0.0`],
+    `patches/${oldFlavor}.patch`,
+  )
+  t.is(
+    updatedPackageJson.pnpm.patchedDependencies[`${helperPackage}@1.0.0`],
+    `patches/${helperPackage}.patch`,
+  )
+  t.deepEqual(updatedPackageJson.pnpm.packageExtensions[`${newFlavor}@^1`], {
+    dependencies: {
+      [newFlavor]: `npm:${newFlavor}@1.0.0`,
+      [helperPackage]: oldFlavor,
+    },
+    peerDependencies: {
+      [newFlavor]: '^1.0.0',
+    },
+    peerDependenciesMeta: {
+      [newFlavor]: {
+        optional: true,
+      },
+    },
+    description: oldFlavor,
+  })
+  t.deepEqual(
+    updatedPackageJson.pnpm.packageExtensions[`${helperPackage}@^1`],
+    {
+      dependencies: {
+        [helperPackage]: '1.0.0',
+      },
+    },
+  )
   const rootEntry = await readFile(join(projectPath, 'index.cjs'), 'utf8')
   t.true(rootEntry.includes(newFlavor))
   t.true(rootEntry.includes(helperPackage))
   t.false(rootEntry.includes(`${newFlavor}-helper`))
+})
+
+test('dependency versions preserve matching tags and GitHub shorthands', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'dependency-value-selectors')
+  const oldPackageName = 'original'
+  const newPackageName = 'renamed'
+  const oldFlavor = `${oldPackageName}-wasm32-wasip1`
+  const newFlavor = `${newPackageName}-wasm32-wasip1`
+  await createPackageIdentityFixture(projectPath, 'fixture', oldPackageName)
+  const packageJsonPath = join(projectPath, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.dependencies = {
+    alias: `npm:${oldFlavor}@1.0.0`,
+    tag: oldFlavor,
+    github: `${oldFlavor}/repo`,
+  }
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+
+  await renameProject({
+    cwd: projectPath,
+    packageName: newPackageName,
+  })
+
+  const updated = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.is(updated.dependencies.alias, `npm:${newFlavor}@1.0.0`)
+  t.is(updated.dependencies.tag, oldFlavor)
+  t.is(updated.dependencies.github, `${oldFlavor}/repo`)
 })
 
 test('unscoped package rename preserves scoped selector basenames', async (t) => {
