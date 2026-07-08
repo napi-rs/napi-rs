@@ -67,18 +67,24 @@ function findCargoExecutable() {
   return executable
 }
 
-async function writeCargoShim(projectDir: string, source: string) {
+async function writeCargoShim(
+  projectDir: string,
+  source: string,
+  platform: NodeJS.Platform = process.platform,
+) {
   const scriptPath = join(projectDir, 'cargo-shim.cjs')
   await writeFile(scriptPath, source)
 
-  if (process.platform === 'win32') {
-    const commandPath = join(projectDir, 'cargo-shim.cmd')
-    const nodeExecutable = process.execPath.replaceAll('%', '%%')
-    await writeFile(
-      commandPath,
-      `@echo off\r\n"${nodeExecutable}" "%~dp0cargo-shim.cjs" %*\r\n`,
+  if (platform === 'win32') {
+    await Promise.all(
+      ['build', 'metadata'].map((command) =>
+        writeFile(
+          join(projectDir, command),
+          `process.argv.splice(2, 0, ${JSON.stringify(command)})\nrequire('./cargo-shim.cjs')\n`,
+        ),
+      ),
     )
-    return commandPath
+    return process.execPath
   }
 
   await chmod(scriptPath, 0o755)
@@ -110,6 +116,34 @@ test.beforeEach(async (t) => {
 test.afterEach.always(async (t) => {
   if (existsSync(t.context.tmpDir)) {
     await rm(t.context.tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('Windows cargo shims preserve cargo subcommands without a shell', async (t) => {
+  const { projectDir } = t.context
+  const capturePath = join(projectDir, 'cargo-args.json')
+  const cargoShim = await writeCargoShim(
+    projectDir,
+    `require('node:fs').writeFileSync(
+  process.env.CARGO_SHIM_CAPTURE,
+  JSON.stringify(process.argv.slice(2)),
+)
+`,
+    'win32',
+  )
+
+  for (const command of ['metadata', 'build']) {
+    const result = spawnSync(cargoShim, [command, '--target', 'test-target'], {
+      cwd: projectDir,
+      env: { ...process.env, CARGO_SHIM_CAPTURE: capturePath },
+      encoding: 'utf8',
+    })
+    t.is(result.status, 0, result.stderr)
+    t.deepEqual(JSON.parse(await readFile(capturePath, 'utf8')), [
+      command,
+      '--target',
+      'test-target',
+    ])
   }
 })
 
