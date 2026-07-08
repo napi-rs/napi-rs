@@ -157,10 +157,12 @@ impl Error {
   /// Retains an arbitrary JavaScript value as the exact value produced when this
   /// error is converted back to JavaScript.
   ///
-  /// Unlike [`From<Unknown>`], this does not coerce the value or read any of its
-  /// properties. This is useful for APIs such as `Promise` and async-generator
-  /// rejection paths, where JavaScript permits any value and requires its
-  /// identity to be preserved.
+  /// Unlike [`From<Unknown>`], this never coerces the value. Non-Error values are
+  /// not inspected at all. For actual JavaScript Error values, it copies a
+  /// string-valued `message` as an owned cross-env fallback; a hostile accessor
+  /// is ignored and its exception is cleared. This is useful for APIs such as
+  /// `Promise` and async-generator rejection paths, where JavaScript permits any
+  /// value and requires its identity to be preserved in the originating env.
   pub fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
     let env = value.0.env;
     let mut holder = ptr::null_mut();
@@ -199,10 +201,69 @@ impl Error {
     }
     Self {
       status: Status::GenericFailure,
-      reason: String::new(),
+      reason: owned_error_message_without_coercion(value),
       cause: None,
       maybe_ref: Some(ErrorRefHandle::new(ErrorRef::new_indirect(reference, env))),
     }
+  }
+}
+
+fn owned_error_message_without_coercion(value: Unknown<'_>) -> String {
+  let env = value.0.env;
+  let mut is_error = false;
+  let status = unsafe { sys::napi_is_error(env, value.0.value, &mut is_error) };
+  if status != sys::Status::napi_ok {
+    clear_pending_exception_from_status(env, status);
+    return String::new();
+  }
+  if !is_error {
+    return String::new();
+  }
+
+  let mut message = ptr::null_mut();
+  let status = unsafe {
+    sys::napi_get_named_property(env, value.0.value, c"message".as_ptr().cast(), &mut message)
+  };
+  if status != sys::Status::napi_ok {
+    clear_pending_exception_from_status(env, status);
+    return "JavaScript Error".to_owned();
+  }
+
+  let mut value_type = -1;
+  if unsafe { sys::napi_typeof(env, message, &mut value_type) } != sys::Status::napi_ok
+    || value_type != sys::ValueType::napi_string
+  {
+    return "JavaScript Error".to_owned();
+  }
+
+  let mut length = 0;
+  if unsafe { sys::napi_get_value_string_utf8(env, message, ptr::null_mut(), 0, &mut length) }
+    != sys::Status::napi_ok
+  {
+    return "JavaScript Error".to_owned();
+  }
+  let mut bytes = vec![0; length + 1];
+  let mut written = 0;
+  if unsafe {
+    sys::napi_get_value_string_utf8(
+      env,
+      message,
+      bytes.as_mut_ptr().cast(),
+      bytes.len(),
+      &mut written,
+    )
+  } != sys::Status::napi_ok
+  {
+    return "JavaScript Error".to_owned();
+  }
+  bytes.truncate(written);
+  String::from_utf8(bytes).unwrap_or_else(|_| "JavaScript Error".to_owned())
+}
+
+fn clear_pending_exception_from_status(env: sys::napi_env, status: sys::napi_status) {
+  if status == sys::Status::napi_pending_exception {
+    let mut exception = ptr::null_mut();
+    let _ = unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) };
   }
 }
 

@@ -1494,64 +1494,6 @@ mod tokio_retirement_waiter_tests {
       TokioRuntimeRetirementStatus::Failed(_)
     ));
   }
-
-  #[test]
-  fn consumed_custom_tokio_runtime_slot_accepts_a_replacement() {
-    let first = tokio::runtime::Builder::new_current_thread()
-      .build()
-      .unwrap();
-    let slot = RwLock::new(Some(PreparedTokioRuntime {
-      runtime: first,
-      workers: Arc::new(TokioRuntimeWorkerTracker::default()),
-      may_spawn_untracked_threads: false,
-    }));
-    drop(
-      slot
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take(),
-    );
-
-    let replacement = tokio::runtime::Builder::new_current_thread()
-      .build()
-      .unwrap();
-    let replacement_id = replacement.handle().id();
-    assert!(install_user_defined_runtime(
-      &slot,
-      PreparedTokioRuntime {
-        runtime: replacement,
-        workers: Arc::new(TokioRuntimeWorkerTracker::default()),
-        may_spawn_untracked_threads: false,
-      },
-    )
-    .is_none());
-    assert_eq!(
-      slot
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .as_ref()
-        .expect("the consumed slot must accept a replacement")
-        .runtime
-        .handle()
-        .id(),
-      replacement_id
-    );
-
-    let duplicate = tokio::runtime::Builder::new_current_thread()
-      .build()
-      .unwrap();
-    let duplicate_id = duplicate.handle().id();
-    let rejected = install_user_defined_runtime(
-      &slot,
-      PreparedTokioRuntime {
-        runtime: duplicate,
-        workers: Arc::new(TokioRuntimeWorkerTracker::default()),
-        may_spawn_untracked_threads: false,
-      },
-    )
-    .expect("an occupied slot must reject a duplicate runtime");
-    assert_eq!(rejected.runtime.handle().id(), duplicate_id);
-  }
 }
 
 #[cfg(all(
@@ -3544,14 +3486,11 @@ struct PreparedTokioRuntime {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn create_runtime(generation: usize) -> PreparedTokioRuntime {
   // Check if we're supposed to use a user-defined runtime
-  if let Some(user_defined_rt) = USER_DEFINED_RT
-    .get()
-    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
-  {
+  if let Some(user_defined_rt) = take_user_defined_runtime() {
     return user_defined_rt;
   }
-  // If no user-defined runtime was installed, or it was already consumed by a previous
-  // generation, fall back to creating a default runtime.
+  // If no user-defined runtime was installed, or the one-shot registration was consumed by a
+  // previous generation, fall back to creating a default runtime.
 
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
@@ -4492,28 +4431,31 @@ fn try_runtime() -> Result<TokioRuntimeLease> {
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-static USER_DEFINED_RT: OnceLock<RwLock<Option<PreparedTokioRuntime>>> = OnceLock::new();
+enum UserDefinedTokioRuntime {
+  Pending(PreparedTokioRuntime),
+  Consumed,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+static USER_DEFINED_RT: OnceLock<RwLock<UserDefinedTokioRuntime>> = OnceLock::new();
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static USER_DEFINED_RT_REGISTRATION_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 const DUPLICATE_TOKIO_RUNTIME_ERROR: &str =
-  "create_custom_tokio_runtime was called more than once before the configured runtime was consumed";
+  "create_custom_tokio_runtime was called more than once; the first registration permanently owns \
+   the custom Tokio runtime slot";
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-fn install_user_defined_runtime(
-  slot: &RwLock<Option<PreparedTokioRuntime>>,
-  runtime: PreparedTokioRuntime,
-) -> Option<PreparedTokioRuntime> {
+fn take_user_defined_runtime() -> Option<PreparedTokioRuntime> {
+  let slot = USER_DEFINED_RT.get()?;
   let mut slot = slot
     .write()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
-  if slot.is_none() {
-    *slot = Some(runtime);
-    None
-  } else {
-    Some(runtime)
+  match std::mem::replace(&mut *slot, UserDefinedTokioRuntime::Consumed) {
+    UserDefinedTokioRuntime::Pending(runtime) => Some(runtime),
+    UserDefinedTokioRuntime::Consumed => None,
   }
 }
 
@@ -4622,9 +4564,10 @@ fn shutdown_rejected_supplied_tokio_runtime(runtime: PreparedTokioRuntime) {
 /// Threaded WASI cannot retain an unloading module image, so externally built runtimes are
 /// rejected after synchronous retirement. Use [`try_create_custom_tokio_runtime`] to receive that
 /// error directly. This compatibility wrapper ignores duplicate configuration, preserving its
-/// established first-registration-wins behavior. Other registration failures are recorded for the
-/// next addon environment load, where napi reports them as a JavaScript exception. AIX runtimes are
-/// rejected for the same unload-safety reason.
+/// established first-registration-wins behavior. The registration remains consumed after startup;
+/// shutdown and restart never reopen it for a replacement runtime. Other registration failures are
+/// recorded for the next addon environment load, where napi reports them as a JavaScript exception.
+/// AIX runtimes are rejected for the same unload-safety reason.
 pub fn create_custom_tokio_runtime(rt: Runtime) {
   if let Err(error) = try_create_custom_tokio_runtime(rt) {
     if error.reason == DUPLICATE_TOKIO_RUNTIME_ERROR {
@@ -4638,30 +4581,24 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
 
 /// Try to configure the built-in Tokio runtime without panicking or terminating the process.
 ///
-/// Call this from module initialization before any Tokio-backed napi work starts. Duplicate
-/// registration returns an error after safely initiating retirement of the rejected runtime.
-/// Threaded WASI rejects externally constructed runtimes because they may start threads before a
-/// Node-API environment owns cleanup; use the built-in runtime there.
+/// Call this from module initialization before any Tokio-backed napi work starts. Only the first
+/// registration can succeed. Startup permanently consumes that registration, so later calls remain
+/// duplicates across shutdown and restart and return an error after safely initiating retirement
+/// of the rejected runtime. Threaded WASI rejects externally constructed runtimes because they may
+/// start threads before a Node-API environment owns cleanup; use the built-in runtime there.
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub fn try_create_custom_tokio_runtime(rt: Runtime) -> Result<()> {
   let rt = prepare_supplied_tokio_runtime(rt)?;
-  let rejected = if let Some(slot) = USER_DEFINED_RT.get() {
-    install_user_defined_runtime(slot, rt)
-  } else {
-    match USER_DEFINED_RT.set(RwLock::new(Some(rt))) {
-      Ok(()) => None,
-      Err(runtime) => {
-        let runtime = runtime
-          .into_inner()
-          .unwrap_or_else(std::sync::PoisonError::into_inner)
-          .expect("new custom Tokio runtime slot must contain its runtime");
-        install_user_defined_runtime(
-          USER_DEFINED_RT
-            .get()
-            .expect("a failed OnceLock set must leave the winning slot installed"),
-          runtime,
-        )
-      }
+  let rejected = match USER_DEFINED_RT.set(RwLock::new(UserDefinedTokioRuntime::Pending(rt))) {
+    Ok(()) => None,
+    Err(runtime) => {
+      let runtime = runtime
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      let UserDefinedTokioRuntime::Pending(runtime) = runtime else {
+        unreachable!("a newly prepared custom Tokio runtime cannot already be consumed")
+      };
+      Some(runtime)
     }
   };
   if let Some(runtime) = rejected {

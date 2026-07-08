@@ -1,8 +1,14 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+  atomic::{AtomicUsize, Ordering},
+  Mutex,
+};
 
 use napi::{bindgen_prelude::*, Error, JsString};
 
 static PROMISE_RAW_CALLBACK_DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+static LIFECYCLE_STASHED_PROMISE_REJECTION: Mutex<Option<Error>> = Mutex::new(None);
 
 struct PromiseRawCallbackDropProbe;
 
@@ -16,6 +22,30 @@ impl Drop for PromiseRawCallbackDropProbe {
 pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
   let v = p.await?;
   Ok(v + 100)
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "stashPromiseRejectionAcrossDuplicateLoad")]
+pub async fn stash_promise_rejection_across_duplicate_load(promise: Promise<()>) -> Result<()> {
+  let rejection = match promise.await {
+    Ok(()) => return Err(Error::from_reason("expected Promise rejection")),
+    Err(rejection) => rejection,
+  };
+  *LIFECYCLE_STASHED_PROMISE_REJECTION
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rejection);
+  Ok(())
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[napi(js_name = "throwPromiseRejectionAcrossDuplicateLoad")]
+pub fn throw_promise_rejection_across_duplicate_load() -> Result<()> {
+  let rejection = LIFECYCLE_STASHED_PROMISE_REJECTION
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .take()
+    .ok_or_else(|| Error::from_reason("no Promise rejection was stashed"))?;
+  Err(rejection)
 }
 
 #[napi]

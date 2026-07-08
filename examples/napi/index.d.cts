@@ -1595,6 +1595,8 @@ export declare function stashExternalRefAcrossDuplicateLoad(value: ExternalObjec
 
 export declare function stashExternalRefForTeardown(resultPath: string, value: number): void
 
+export declare function stashPromiseRejectionAcrossDuplicateLoad(promise: Promise<undefined>): Promise<void>
+
 export declare function stashThreadsafeFunctionForEnvOwnership(value: () => void): void
 
 export declare function stashTypedArrayAcrossDuplicateLoad(value: Uint8Array): void
@@ -1731,6 +1733,8 @@ export declare function throwError(): void
 export declare function throwErrorAcrossDuplicateLoad(): void
 
 export declare function throwErrorWithCause(): void
+
+export declare function throwPromiseRejectionAcrossDuplicateLoad(): void
 
 export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 

@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added the pluggable unsafe `AsyncRuntime` backend. After `shutdown()` returns, including an `Err` return, no backend-owned thread, task, waker, callback, destructor, function pointer, or vtable may execute addon code. During normal activation, native builds commit the winning backend's permanent image retention only after Node-API module registration succeeds. Explicit startup before Node-API module registration retains before calling the backend's `start` hook. A failed load is not retained solely because it registered a dormant backend, though other unload-safety mechanisms may still retain an image that published callbacks or handles before failing. The backend object is reused across environment reloads, its `Drop` is not guaranteed to run, and `shutdown()` is its resource-release hook.
-- Added `try_create_custom_tokio_runtime` so duplicate and unsupported runtime registration can be reported without panicking. The existing infallible `create_custom_tokio_runtime` keeps its first-registration-wins behavior and ignores duplicate configuration after safely retiring the rejected runtime. Builds without the `tokio_rt` executor reject supplied runtimes after retiring them. Threaded WASI and AIX reject externally constructed Tokio runtimes after fully retiring them because those hosts cannot safely pin addon code before environment cleanup ownership exists.
+- Added `try_create_custom_tokio_runtime` so duplicate and unsupported runtime registration can be reported without panicking. The existing infallible `create_custom_tokio_runtime` keeps its permanent first-registration-wins behavior and ignores duplicate configuration after safely retiring the rejected runtime. Startup consumes the configured runtime without reopening registration, and later restarts use a new built-in runtime. Builds without the `tokio_rt` executor reject supplied runtimes after retiring them. Threaded WASI and AIX reject externally constructed Tokio runtimes after fully retiring them because those hosts cannot safely pin addon code before environment cleanup ownership exists.
 - Added hidden, versioned `napi::__private::async_runtime_v1` and
   `napi::__private::codegen_v1` contracts for current `napi-derive` output. Previously released
   derive code remains supported by compatibility exports. The coordinated major release must
@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Custom Tokio runtime registration no longer accepts and retains an unused replacement after the
+  first configured runtime has been consumed by startup.
+- Promise and async-iterator rejections backed by JavaScript `Error` values now retain an owned
+  message fallback when they must be rebuilt in a different Node-API environment.
 - Iterator installation failures now propagate through generated class conversions, detached sync
   iterator methods retain and validate their exact owner, sync generator completion state is no
   longer writable from JavaScript, and rejected async `return()` arguments leave the iterator open.

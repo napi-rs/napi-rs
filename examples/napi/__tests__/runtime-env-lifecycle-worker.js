@@ -269,6 +269,10 @@ parentPort.on(
               value: duplicateLoadErrorMarker,
             })
             lifecycle.stashErrorAcrossDuplicateLoad(duplicateLoadError)
+            const promiseRejection = new Error('parallel render failure')
+            await lifecycle.stashPromiseRejectionAcrossDuplicateLoad(
+              Promise.reject(promiseRejection),
+            )
             lifecycle.stashBufferAcrossDuplicateLoad(Buffer.from([11, 22, 33]))
             lifecycle.stashTypedArrayAcrossDuplicateLoad(
               Uint8Array.from([44, 55, 66]),
@@ -337,6 +341,27 @@ parentPort.on(
             if (thrownError.lifecycleMarker !== undefined) {
               throw new Error(
                 'duplicate process.dlopen unexpectedly retained a foreign Error property',
+              )
+            }
+            let thrownPromiseRejection
+            try {
+              duplicate.lifecycle.throwPromiseRejectionAcrossDuplicateLoad()
+            } catch (error) {
+              thrownPromiseRejection = error
+            }
+            if (!(thrownPromiseRejection instanceof Error)) {
+              throw new Error(
+                'duplicate process.dlopen did not rebuild the foreign-env Promise rejection',
+              )
+            }
+            if (thrownPromiseRejection === promiseRejection) {
+              throw new Error(
+                'duplicate process.dlopen reused a foreign-env Promise rejection reference',
+              )
+            }
+            if (thrownPromiseRejection.message !== 'parallel render failure') {
+              throw new Error(
+                `duplicate process.dlopen lost the Promise rejection reason: ${thrownPromiseRejection.message}`,
               )
             }
             for (const [name, take] of [

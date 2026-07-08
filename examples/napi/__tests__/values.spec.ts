@@ -2080,12 +2080,42 @@ Napi4Test('await Promise in rust', async (t) => {
 Napi4Test(
   'Promise rejection preserves exact JavaScript identity in rust',
   async (t) => {
-    const rejections = [
-      new Error('What is Happy Planet'),
-      Object.freeze({ reason: 'non-Error rejection' }),
-    ]
+    let nonErrorPropertyReads = 0
+    let nonErrorCoercions = 0
+    const nonErrorRejection = Object.freeze(
+      Object.defineProperties(
+        {},
+        {
+          message: {
+            get() {
+              nonErrorPropertyReads += 1
+              throw new Error('non-Error message must not be read')
+            },
+          },
+          [Symbol.toPrimitive]: {
+            value() {
+              nonErrorCoercions += 1
+              throw new Error('non-Error rejection must not be coerced')
+            },
+          },
+        },
+      ),
+    )
+    const hostileAccessorError = new Error('hidden hostile message')
+    let hostileMessageReads = 0
+    Object.defineProperty(hostileAccessorError, 'message', {
+      configurable: true,
+      get() {
+        hostileMessageReads += 1
+        throw new Error('hostile Error message getter')
+      },
+    })
 
-    for (const rejection of rejections) {
+    for (const rejection of [
+      new Error('What is Happy Planet'),
+      nonErrorRejection,
+      hostileAccessorError,
+    ]) {
       let observed: unknown
       try {
         await asyncPlus100(Promise.reject(rejection))
@@ -2095,6 +2125,10 @@ Napi4Test(
       }
       t.is(observed, rejection)
     }
+    t.is(nonErrorPropertyReads, 0)
+    t.is(nonErrorCoercions, 0)
+    t.is(hostileMessageReads, 1)
+    t.is(await asyncPlus100(Promise.resolve(1)), 101)
   },
 )
 
