@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import test from 'ava'
+import { format } from 'prettier'
 import typeScript from 'typescript'
 
 import {
   formatGeneratedOutputs,
+  mergeLifecycleLoaderExports,
   preserveLifecycleDeclarations,
   regenerateArtifacts,
 } from '../build.mjs'
@@ -43,6 +45,39 @@ test('generated threadless outputs are finalized with repository formatting', as
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test('formatted lifecycle exports remain valid across a second build pass', async (t) => {
+  const formattedSource = await format(
+    `const __napiModule = { exports: {} }
+function getWasiBindingExport(name) {
+  return __napiModule.exports[name]
+}
+export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')
+`,
+    { parser: 'babel' },
+  )
+  const output = {
+    file: 'example.wasi-browser.js',
+    binding: '__napiModule.exports',
+    helper: 'getWasiBindingExport',
+    forwardedFunctions: ['abandonDeferredClones'],
+    marker: 'export const ',
+    exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
+    assignment(name: string) {
+      return [
+        `export const ${name} = __napiModule.exports.${name}`,
+        `export const ${name} = getWasiBindingExport('${name}')`,
+      ]
+    },
+  }
+
+  const firstPass = mergeLifecycleLoaderExports(formattedSource, output)
+  const secondPass = mergeLifecycleLoaderExports(firstPass, output)
+
+  t.is(secondPass, formattedSource)
+  t.is(secondPass.match(/export const abandonDeferredClones/g)?.length, 1)
+  t.notThrows(() => Function(secondPass.replace(/^export /gm, ''))())
 })
 
 test('checked threaded artifacts retain the WASI export surface and portable stubs', async (t) => {

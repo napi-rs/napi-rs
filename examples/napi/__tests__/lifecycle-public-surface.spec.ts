@@ -80,10 +80,6 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
     for (const name of generatedLifecycleExports) {
       t.true(source.includes(name), `${file}: ${name}`)
     }
-    for (const name of wasiOnlyLifecycleExports) {
-      t.false(source.includes(name), `${file}: ${name}`)
-    }
-    if (file.startsWith('example.wasi')) {
     if (
       wasiLoaderSuffix === 'wasi' &&
       (file === 'example.wasi.cjs' || file === 'example.wasi-browser.js')

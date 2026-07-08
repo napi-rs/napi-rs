@@ -236,6 +236,32 @@ function compareGeneratedNames(left, right) {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
+function generatedAssignmentPattern(assignment) {
+  const tokens =
+    assignment.match(
+      /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|===|!==|=>|[^\s]/g,
+    ) ?? []
+  let source = ''
+  for (const [index, token] of tokens.entries()) {
+    if (index > 0) {
+      source += '\\s*'
+    }
+    if (token === ')' && tokens[index - 1] !== ',') {
+      source += ',?\\s*'
+    }
+    if (
+      (token.startsWith("'") && token.endsWith("'")) ||
+      (token.startsWith('"') && token.endsWith('"'))
+    ) {
+      const value = token.slice(1, -1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      source += `(?:'${value}'|"${value}")`
+    } else {
+      source += token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    }
+  }
+  return new RegExp(source)
+}
+
 function insertGeneratedExport(source, name, assignment, pattern) {
   let callableExportsStarted = false
   for (const match of source.matchAll(pattern)) {
@@ -248,6 +274,79 @@ function insertGeneratedExport(source, name, assignment, pattern) {
     }
   }
   return `${source.trimEnd()}\n${assignment}\n`
+}
+
+export function mergeLifecycleLoaderExports(source, output) {
+  const { file } = output
+  if (output.deferred) {
+    const helperMarker = 'export async function createInstance(__wasmInput)'
+    const returnMarker = '    return {\n      exports: __napiModule.exports,\n'
+    if (!source.includes(helperMarker) || !source.includes(returnMarker)) {
+      throw new Error(
+        `Could not locate deferred lifecycle export markers in ${file}`,
+      )
+    }
+    if (!source.includes('function getDeferredWasiBindingExport(')) {
+      source = source.replace(
+        helperMarker,
+        `${unsupportedDeferredWasiExportHelper()}\n${helperMarker}`,
+      )
+    }
+    if (
+      !source.includes(
+        '__napiModule.exports[name] = getDeferredWasiBindingExport(',
+      )
+    ) {
+      source = source.replace(
+        returnMarker,
+        `    for (const name of unsupportedWasiFunctions) {
+      if (__napiModule.exports[name] === undefined) {
+        __napiModule.exports[name] = getDeferredWasiBindingExport(
+          __napiModule.exports,
+          name,
+        )
+      }
+    }
+${returnMarker}`,
+      )
+    }
+    return source
+  }
+
+  const {
+    binding,
+    helper,
+    forwardedFunctions = unsupportedWasiFunctions,
+    marker,
+    exportPattern,
+    assignment,
+  } = output
+  if (!source.includes(marker)) {
+    throw new Error(`Could not locate lifecycle export marker in ${file}`)
+  }
+  if (!source.includes(`function ${helper}(`)) {
+    source = source.replace(
+      marker,
+      `${unsupportedWasiExportHelper(binding, helper)}${marker}`,
+    )
+  }
+  for (const name of forwardedFunctions) {
+    const [generated, replacement] = assignment(name)
+    const desired = unsupportedWasiFunctionSet.has(name)
+      ? replacement
+      : generated
+    const alternative = desired === generated ? replacement : generated
+    if (generatedAssignmentPattern(desired).test(source)) {
+      continue
+    }
+    const alternativePattern = generatedAssignmentPattern(alternative)
+    if (alternativePattern.test(source)) {
+      source = source.replace(alternativePattern, desired)
+    } else {
+      source = insertGeneratedExport(source, name, desired, exportPattern)
+    }
+  }
+  return source
 }
 
 async function exposeLifecycleExports(bindings) {
@@ -264,76 +363,7 @@ async function exposeLifecycleExports(bindings) {
       throw error
     }
 
-    if (output.deferred) {
-      const helperMarker = 'export async function createInstance(__wasmInput)'
-      const returnMarker =
-        '    return {\n      exports: __napiModule.exports,\n'
-      if (!source.includes(helperMarker) || !source.includes(returnMarker)) {
-        throw new Error(
-          `Could not locate deferred lifecycle export markers in ${file}`,
-        )
-      }
-      if (!source.includes('function getDeferredWasiBindingExport(')) {
-        source = source.replace(
-          helperMarker,
-          `${unsupportedDeferredWasiExportHelper()}\n${helperMarker}`,
-        )
-      }
-      if (
-        !source.includes(
-          '__napiModule.exports[name] = getDeferredWasiBindingExport(',
-        )
-      ) {
-        source = source.replace(
-          returnMarker,
-          `    for (const name of unsupportedWasiFunctions) {
-      if (__napiModule.exports[name] === undefined) {
-        __napiModule.exports[name] = getDeferredWasiBindingExport(
-          __napiModule.exports,
-          name,
-        )
-      }
-    }
-${returnMarker}`,
-        )
-      }
-      await writeFile(path, source)
-      continue
-    }
-
-    const {
-      binding,
-      helper,
-      forwardedFunctions = unsupportedWasiFunctions,
-      marker,
-      exportPattern,
-      assignment,
-    } = output
-    if (!source.includes(marker)) {
-      throw new Error(`Could not locate lifecycle export marker in ${file}`)
-    }
-    if (!source.includes(`function ${helper}(`)) {
-      source = source.replace(
-        marker,
-        `${unsupportedWasiExportHelper(binding, helper)}${marker}`,
-      )
-    }
-    for (const name of forwardedFunctions) {
-      const [generated, replacement] = assignment(name)
-      const desired = unsupportedWasiFunctionSet.has(name)
-        ? replacement
-        : generated
-      const alternative = desired === generated ? replacement : generated
-      if (source.includes(desired)) {
-        continue
-      }
-      if (source.includes(alternative)) {
-        source = source.replace(alternative, desired)
-      } else {
-        source = insertGeneratedExport(source, name, desired, exportPattern)
-      }
-    }
-    await writeFile(path, source)
+    await writeFile(path, mergeLifecycleLoaderExports(source, output))
   }
 }
 
@@ -446,33 +476,31 @@ async function instrumentThreadedWasiBrowserTsfnWait() {
   const instrumentationMarker = 'const TSFN_TEST_COUNTER_COUNT = 35\n'
   const statePointerMarker =
     'instance.exports.__napi_rs_test_tsfn_state_ptr()\n'
-  if (
+  const workerAlreadyInstrumented =
     workerSource.includes(instrumentationMarker) &&
     workerSource.includes(statePointerMarker)
-  ) {
-    return
-  }
-  const constantsMarker = 'const fs = createFsProxy(__memfsExported)\n'
-  const onLoadMarker = '  onLoad({ wasmModule, wasmMemory }) {\n'
-  const importsMarker = `      overwriteImports(importObject) {
+  if (!workerAlreadyInstrumented) {
+    const constantsMarker = 'const fs = createFsProxy(__memfsExported)\n'
+    const onLoadMarker = '  onLoad({ wasmModule, wasmMemory }) {\n'
+    const importsMarker = `      overwriteImports(importObject) {
         importObject.env = {`
-  const beforeInitMarker = `          memory: wasmMemory,
+    const beforeInitMarker = `          memory: wasmMemory,
         }
       },
     })`
 
-  if (
-    !workerSource.includes(constantsMarker) ||
-    !workerSource.includes(onLoadMarker) ||
-    !workerSource.includes(importsMarker) ||
-    !workerSource.includes(beforeInitMarker)
-  ) {
-    throw new Error('Could not instrument the threaded WASI browser worker')
-  }
+    if (
+      !workerSource.includes(constantsMarker) ||
+      !workerSource.includes(onLoadMarker) ||
+      !workerSource.includes(importsMarker) ||
+      !workerSource.includes(beforeInitMarker)
+    ) {
+      throw new Error('Could not instrument the threaded WASI browser worker')
+    }
 
-  workerSource = workerSource.replace(
-    constantsMarker,
-    `${constantsMarker}
+    workerSource = workerSource.replace(
+      constantsMarker,
+      `${constantsMarker}
 const TSFN_TEST_COUNTER_COUNT = 35
 const TSFN_SCENARIO_INDEX = 0
 const TSFN_DEFERRED_ABORT_SCENARIO = 1
@@ -496,14 +524,14 @@ const TSFN_QUEUE_SIZE_OFFSET = 60
 const TSFN_STATE_OFFSET = 140
 const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
 `,
-  )
-  workerSource = workerSource.replace(
-    onLoadMarker,
-    `${onLoadMarker}    let tsfnTestStatePointer\n`,
-  )
-  workerSource = workerSource.replace(
-    importsMarker,
-    `      overwriteImports(importObject) {
+    )
+    workerSource = workerSource.replace(
+      onLoadMarker,
+      `${onLoadMarker}    let tsfnTestStatePointer\n`,
+    )
+    workerSource = workerSource.replace(
+      importsMarker,
+      `      overwriteImports(importObject) {
         let blockingCallFunction = 0
         const getTsfnTestState = () =>
           tsfnTestStatePointer
@@ -670,10 +698,10 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
           }
         }
         importObject.env = {`,
-  )
-  workerSource = workerSource.replace(
-    beforeInitMarker,
-    `          memory: wasmMemory,
+    )
+    workerSource = workerSource.replace(
+      beforeInitMarker,
+      `          memory: wasmMemory,
         }
       },
       beforeInit({ instance }) {
@@ -681,25 +709,32 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
           instance.exports.__napi_rs_test_tsfn_state_ptr()
       },
     })`,
-  )
-  const prettierConfig = await resolveConfig(workerPath)
-  await writeFile(
-    workerPath,
-    await format(workerSource, { ...prettierConfig, filepath: workerPath }),
-  )
+    )
+    const prettierConfig = await resolveConfig(workerPath)
+    await writeFile(
+      workerPath,
+      await format(workerSource, { ...prettierConfig, filepath: workerPath }),
+    )
+  }
 
   const browserPath = fileURLToPath(
     new URL('example.wasi-browser.js', import.meta.url),
   )
   let browserSource = await readFile(browserPath, 'utf8')
-  const browserScopeMarker = `const {
-  instance: __napiInstance,`
-  const browserWorkerReuseMarker = `  asyncWorkPoolSize: 4,
-  wasi: __wasi,`
-  const browserImportsMarker = `  overwriteImports(importObject) {
-    importObject.env = {`
-  const browserBeforeInitMarker = `  beforeInit({ instance }) {
-    for (const name of Object.keys(instance.exports)) {`
+  const browserAlreadyInstrumented =
+    browserSource.includes(instrumentationMarker) &&
+    browserSource.includes(statePointerMarker) &&
+    browserSource.includes('reuseWorker: true')
+  if (browserAlreadyInstrumented) {
+    return
+  }
+  const browserScopeMarker = 'let __napiModule\n'
+  const browserWorkerReuseMarker = `    asyncWorkPoolSize: 4,
+    wasi: __wasi,`
+  const browserImportsMarker = `    overwriteImports(importObject) {
+      importObject.env = {`
+  const browserBeforeInitMarker = `    beforeInit({ instance }) {
+      for (const name of Object.keys(instance.exports)) {`
 
   if (
     !browserSource.includes(browserScopeMarker) ||
@@ -712,19 +747,17 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
 
   browserSource = browserSource.replace(
     browserScopeMarker,
-    `let __tsfnTestStatePointer
-
-${browserScopeMarker}`,
+    `${browserScopeMarker}let __tsfnTestStatePointer\n`,
   )
   browserSource = browserSource.replace(
     browserWorkerReuseMarker,
-    `  asyncWorkPoolSize: 4,
-  reuseWorker: true,
-  wasi: __wasi,`,
+    `    asyncWorkPoolSize: 4,
+    reuseWorker: true,
+    wasi: __wasi,`,
   )
   browserSource = browserSource.replace(
     browserImportsMarker,
-    `  overwriteImports(importObject) {
+    `    overwriteImports(importObject) {
     const TSFN_TEST_COUNTER_COUNT = 35
     const TSFN_SCENARIO_INDEX = 0
     const TSFN_CLEANUP_TRACKING_ARMED_INDEX = 22
@@ -846,12 +879,19 @@ ${browserScopeMarker}`,
   )
   browserSource = browserSource.replace(
     browserBeforeInitMarker,
-    `  beforeInit({ instance }) {
+    `    beforeInit({ instance }) {
     __tsfnTestStatePointer =
       instance.exports.__napi_rs_test_tsfn_state_ptr()
     for (const name of Object.keys(instance.exports)) {`,
   )
-  await writeFile(browserPath, browserSource)
+  const browserPrettierConfig = await resolveConfig(browserPath)
+  await writeFile(
+    browserPath,
+    await format(browserSource, {
+      ...browserPrettierConfig,
+      filepath: browserPath,
+    }),
+  )
 }
 
 async function readNativeRootOutputs() {
