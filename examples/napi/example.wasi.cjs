@@ -154,6 +154,7 @@ const unsupportedWasiFunctions = new Set([
   'stashErrorAcrossDuplicateLoad',
   'stashExternalRefAcrossDuplicateLoad',
   'stashExternalRefForTeardown',
+  'stashPromiseRejectionAcrossDuplicateLoad',
   'stashThreadsafeFunctionForEnvOwnership',
   'stashTypedArrayAcrossDuplicateLoad',
   'stashTypedArraySlicesAcrossDuplicateLoad',
@@ -170,6 +171,7 @@ const unsupportedWasiFunctions = new Set([
   'takeReferenceValueAcrossDuplicateLoad',
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
+  'throwPromiseRejectionAcrossDuplicateLoad',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',
@@ -622,7 +624,7 @@ module.exports.stashErrorAcrossDuplicateLoad = getWasiBindingExport('stashErrorA
 module.exports.stashErrorInThreadLocal = __napiModule.exports.stashErrorInThreadLocal
 module.exports.stashExternalRefAcrossDuplicateLoad = getWasiBindingExport('stashExternalRefAcrossDuplicateLoad')
 module.exports.stashExternalRefForTeardown = getWasiBindingExport('stashExternalRefForTeardown')
-module.exports.stashPromiseRejectionAcrossDuplicateLoad = __napiModule.exports.stashPromiseRejectionAcrossDuplicateLoad
+module.exports.stashPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('stashPromiseRejectionAcrossDuplicateLoad')
 module.exports.stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport('stashThreadsafeFunctionForEnvOwnership')
 module.exports.stashTypedArrayAcrossDuplicateLoad = getWasiBindingExport('stashTypedArrayAcrossDuplicateLoad')
 module.exports.stashTypedArrayInThreadLocal = __napiModule.exports.stashTypedArrayInThreadLocal
@@ -666,7 +668,7 @@ module.exports.throwDetachedPendingException = __napiModule.exports.throwDetache
 module.exports.throwError = __napiModule.exports.throwError
 module.exports.throwErrorAcrossDuplicateLoad = getWasiBindingExport('throwErrorAcrossDuplicateLoad')
 module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause
-module.exports.throwPromiseRejectionAcrossDuplicateLoad = __napiModule.exports.throwPromiseRejectionAcrossDuplicateLoad
+module.exports.throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
 module.exports.tokioRuntimeLifecycleValue = getWasiBindingExport('tokioRuntimeLifecycleValue')

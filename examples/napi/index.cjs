@@ -649,6 +649,7 @@ const unsupportedWasiFunctions = new Set([
   'stashErrorAcrossDuplicateLoad',
   'stashExternalRefAcrossDuplicateLoad',
   'stashExternalRefForTeardown',
+  'stashPromiseRejectionAcrossDuplicateLoad',
   'stashThreadsafeFunctionForEnvOwnership',
   'stashTypedArrayAcrossDuplicateLoad',
   'stashTypedArraySlicesAcrossDuplicateLoad',
@@ -665,6 +666,7 @@ const unsupportedWasiFunctions = new Set([
   'takeReferenceValueAcrossDuplicateLoad',
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
+  'throwPromiseRejectionAcrossDuplicateLoad',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',
@@ -1112,7 +1114,7 @@ module.exports.stashErrorAcrossDuplicateLoad = getBindingExport('stashErrorAcros
 module.exports.stashErrorInThreadLocal = nativeBinding.stashErrorInThreadLocal
 module.exports.stashExternalRefAcrossDuplicateLoad = getBindingExport('stashExternalRefAcrossDuplicateLoad')
 module.exports.stashExternalRefForTeardown = getBindingExport('stashExternalRefForTeardown')
-module.exports.stashPromiseRejectionAcrossDuplicateLoad = nativeBinding.stashPromiseRejectionAcrossDuplicateLoad
+module.exports.stashPromiseRejectionAcrossDuplicateLoad = getBindingExport('stashPromiseRejectionAcrossDuplicateLoad')
 module.exports.stashThreadsafeFunctionForEnvOwnership = getBindingExport('stashThreadsafeFunctionForEnvOwnership')
 module.exports.stashTypedArrayAcrossDuplicateLoad = getBindingExport('stashTypedArrayAcrossDuplicateLoad')
 module.exports.stashTypedArrayInThreadLocal = nativeBinding.stashTypedArrayInThreadLocal
@@ -1156,7 +1158,7 @@ module.exports.throwDetachedPendingException = nativeBinding.throwDetachedPendin
 module.exports.throwError = nativeBinding.throwError
 module.exports.throwErrorAcrossDuplicateLoad = getBindingExport('throwErrorAcrossDuplicateLoad')
 module.exports.throwErrorWithCause = nativeBinding.throwErrorWithCause
-module.exports.throwPromiseRejectionAcrossDuplicateLoad = nativeBinding.throwPromiseRejectionAcrossDuplicateLoad
+module.exports.throwPromiseRejectionAcrossDuplicateLoad = getBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
 module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
 module.exports.toJsObj = nativeBinding.toJsObj
 module.exports.tokioRuntimeLifecycleValue = getBindingExport('tokioRuntimeLifecycleValue')
