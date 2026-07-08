@@ -268,6 +268,9 @@ export const UseNullableClass = __napiModule.exports.UseNullableClass
 export const WeakReferenceGcHolder = __napiModule.exports.WeakReferenceGcHolder
 export const WeakReferenceGcTarget = __napiModule.exports.WeakReferenceGcTarget
 export const Width = __napiModule.exports.Width
+export const abandonDeferredClones = getWasiBindingExport(
+  'abandonDeferredClones',
+)
 export const acceptArraybuffer = __napiModule.exports.acceptArraybuffer
 export const acceptSlice = __napiModule.exports.acceptSlice
 export const acceptStream = __napiModule.exports.acceptStream
@@ -292,6 +295,12 @@ export const appendBuffer = __napiModule.exports.appendBuffer
 export const appendToOsString = __napiModule.exports.appendToOsString
 export const apply0 = __napiModule.exports.apply0
 export const apply1 = __napiModule.exports.apply1
+export const armTokioBlockingTlsRetirementProbe = getWasiBindingExport(
+  'armTokioBlockingTlsRetirementProbe',
+)
+export const armTokioWorkerTlsRetirementProbe = getWasiBindingExport(
+  'armTokioWorkerTlsRetirementProbe',
+)
 export const arrayBufferCopyFrom = __napiModule.exports.arrayBufferCopyFrom
 export const arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 export const arrayBufferFromExternal =
@@ -300,6 +309,18 @@ export const arrayBufferLenAsync = __napiModule.exports.arrayBufferLenAsync
 export const arrayBufferPassThrough =
   __napiModule.exports.arrayBufferPassThrough
 export const arrayParams = __napiModule.exports.arrayParams
+export const assignClampedSliceAcrossDuplicateLoad = getWasiBindingExport(
+  'assignClampedSliceAcrossDuplicateLoad',
+)
+export const assignClassInstanceAcrossDuplicateLoad = getWasiBindingExport(
+  'assignClassInstanceAcrossDuplicateLoad',
+)
+export const assignClassInstanceFromLaterTurn = getWasiBindingExport(
+  'assignClassInstanceFromLaterTurn',
+)
+export const assignTypedArraySliceAcrossDuplicateLoad = getWasiBindingExport(
+  'assignTypedArraySliceAcrossDuplicateLoad',
+)
 export const asyncBufferToArray = __napiModule.exports.asyncBufferToArray
 export const asyncCleanupHookCounts =
   __napiModule.exports.asyncCleanupHookCounts
@@ -365,6 +386,9 @@ export const callThreadsafeFunction =
 export const callWithNestedFunctionArg =
   __napiModule.exports.callWithNestedFunctionArg
 export const callWithTupleArg = __napiModule.exports.callWithTupleArg
+export const cancelAsyncWorkLifecycle = getWasiBindingExport(
+  'cancelAsyncWorkLifecycle',
+)
 export const captureErrorInCallback =
   __napiModule.exports.captureErrorInCallback
 export const chronoDateAdd1Minute = __napiModule.exports.chronoDateAdd1Minute
@@ -389,8 +413,20 @@ export const compressSync = __napiModule.exports.compressSync
 export const concatLatin1 = __napiModule.exports.concatLatin1
 export const concatStr = __napiModule.exports.concatStr
 export const concatUtf16 = __napiModule.exports.concatUtf16
+export const configureTokioThreadStopFileBarrier = getWasiBindingExport(
+  'configureTokioThreadStopFileBarrier',
+)
 export const contains = __napiModule.exports.contains
+export const convertClampedSliceAcrossDuplicateLoad = getWasiBindingExport(
+  'convertClampedSliceAcrossDuplicateLoad',
+)
+export const convertTypedArraySliceAcrossDuplicateLoad = getWasiBindingExport(
+  'convertTypedArraySliceAcrossDuplicateLoad',
+)
 export const convertU32Array = __napiModule.exports.convertU32Array
+export const copyExternalTokenAlias = getWasiBindingExport(
+  'copyExternalTokenAlias',
+)
 export const createArraybuffer = __napiModule.exports.createArraybuffer
 export const createAsyncGeneratorSetupFailure =
   __napiModule.exports.createAsyncGeneratorSetupFailure
@@ -427,8 +463,17 @@ export const createExternalLatin1String =
   __napiModule.exports.createExternalLatin1String
 export const createExternalLatin1WithLatin1Chars =
   __napiModule.exports.createExternalLatin1WithLatin1Chars
+export const createExternalPublicBorrowProbe = getWasiBindingExport(
+  'createExternalPublicBorrowProbe',
+)
 export const createExternalRef = __napiModule.exports.createExternalRef
+export const createExternalRefProvenanceProbe = getWasiBindingExport(
+  'createExternalRefProvenanceProbe',
+)
 export const createExternalString = __napiModule.exports.createExternalString
+export const createExternalTokenGcProbe = getWasiBindingExport(
+  'createExternalTokenGcProbe',
+)
 export const createExternalTypedArray =
   __napiModule.exports.createExternalTypedArray
 export const createExternalUtf16String =
@@ -438,6 +483,9 @@ export const createGeneratorLifecycleProbe =
   __napiModule.exports.createGeneratorLifecycleProbe
 export const createI32ArrayFromExternal =
   __napiModule.exports.createI32ArrayFromExternal
+export const createMutableTypedArrayForOwnershipTest = getWasiBindingExport(
+  'createMutableTypedArrayForOwnershipTest',
+)
 export const createNotUseNullableStruct =
   __napiModule.exports.createNotUseNullableStruct
 export const createObj = __napiModule.exports.createObj
@@ -447,6 +495,12 @@ export const createObjectWithClassField =
 export const createObjWithProperty = __napiModule.exports.createObjWithProperty
 export const createOptionalExternal =
   __napiModule.exports.createOptionalExternal
+export const createPanickingAsyncWork = getWasiBindingExport(
+  'createPanickingAsyncWork',
+)
+export const createQueuedAsyncWorkLifecycle = getWasiBindingExport(
+  'createQueuedAsyncWorkLifecycle',
+)
 export const createReadableStream = __napiModule.exports.createReadableStream
 export const createReadableStreamFromClass =
   __napiModule.exports.createReadableStreamFromClass
@@ -456,6 +510,12 @@ export const createReferenceOnFunction =
   __napiModule.exports.createReferenceOnFunction
 export const createRejectedPromise = __napiModule.exports.createRejectedPromise
 export const createResolvedPromise = __napiModule.exports.createResolvedPromise
+export const createResolvePanickingAsyncWork = getWasiBindingExport(
+  'createResolvePanickingAsyncWork',
+)
+export const createRunningAsyncWorkLifecycle = getWasiBindingExport(
+  'createRunningAsyncWorkLifecycle',
+)
 export const createRuntimeLifecycleExternalLatin1Probe =
   __napiModule.exports.createRuntimeLifecycleExternalLatin1Probe
 export const createRuntimeLifecycleExternalProbe =
@@ -488,12 +548,21 @@ export const customStatusCode = __napiModule.exports.customStatusCode
 export const CustomStringEnum = __napiModule.exports.CustomStringEnum
 export const dateToNumber = __napiModule.exports.dateToNumber
 export const DEFAULT_COST = __napiModule.exports.DEFAULT_COST
+export const deferredFinalizeCallbackCount = getWasiBindingExport(
+  'deferredFinalizeCallbackCount',
+)
 export const defineClass = __napiModule.exports.defineClass
 export const derefUint8Array = __napiModule.exports.derefUint8Array
 export const detachableExternalArraybufferFinalizeCount =
   __napiModule.exports.detachableExternalArraybufferFinalizeCount
 export const detachArraybufferWithAlias =
   __napiModule.exports.detachArraybufferWithAlias
+export const disposeAsyncWorkLifecycle = getWasiBindingExport(
+  'disposeAsyncWorkLifecycle',
+)
+export const disposeThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
+  'disposeThreadsafeFunctionForEnvOwnership',
+)
 export const drainStreamCount = __napiModule.exports.drainStreamCount
 export const dropClonedErrorsOnTwoThreads =
   __napiModule.exports.dropClonedErrorsOnTwoThreads
@@ -518,8 +587,12 @@ export const errorMessageContainsNullByte =
 export const esmResolve = __napiModule.exports.esmResolve
 export const extendsJavascriptError =
   __napiModule.exports.extendsJavascriptError
+export const externalTokenGcProbeFinalizeCount = getWasiBindingExport(
+  'externalTokenGcProbeFinalizeCount',
+)
 export const f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
+export const fetch = getWasiBindingExport('fetch')
 export const fibonacci = __napiModule.exports.fibonacci
 export const fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 export const generateFunctionAndCallIt =
@@ -561,6 +634,12 @@ export const i8ArrayToArray = __napiModule.exports.i8ArrayToArray
 export const indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 export const indexSetToJs = __napiModule.exports.indexSetToJs
 export const indexSetToRust = __napiModule.exports.indexSetToRust
+export const inspectExternalRefAcrossDuplicateLoad = getWasiBindingExport(
+  'inspectExternalRefAcrossDuplicateLoad',
+)
+export const inspectExternalTokenGcProbe = getWasiBindingExport(
+  'inspectExternalTokenGcProbe',
+)
 export const intoUtf8 = __napiModule.exports.intoUtf8
 export const joinPath = __napiModule.exports.joinPath
 export const jsErrorCallback = __napiModule.exports.jsErrorCallback
@@ -569,6 +648,9 @@ export const KindInValidate = __napiModule.exports.KindInValidate
 export const listObjKeys = __napiModule.exports.listObjKeys
 export const mapOption = __napiModule.exports.mapOption
 export const mergeTupleArray = __napiModule.exports.mergeTupleArray
+export const mutableTypedArrayFinalizeCount = getWasiBindingExport(
+  'mutableTypedArrayFinalizeCount',
+)
 export const mutateAnimalPair = __napiModule.exports.mutateAnimalPair
 export const mutateArraybuffer = __napiModule.exports.mutateArraybuffer
 export const mutateExternal = __napiModule.exports.mutateExternal
@@ -593,6 +675,9 @@ export const overrideWholeFunctionType =
   __napiModule.exports.overrideWholeFunctionType
 export const panic = __napiModule.exports.panic
 export const panicInAsync = __napiModule.exports.panicInAsync
+export const panickingAsyncWorkFinallyCount = getWasiBindingExport(
+  'panickingAsyncWorkFinallyCount',
+)
 export const passSetToJs = __napiModule.exports.passSetToJs
 export const passSetToRust = __napiModule.exports.passSetToRust
 export const passSetWithHasherToJs = __napiModule.exports.passSetWithHasherToJs
@@ -600,6 +685,12 @@ export const pathParent = __napiModule.exports.pathParent
 export const pendingAsyncBlockWithTerminalFinalizer =
   __napiModule.exports.pendingAsyncBlockWithTerminalFinalizer
 export const plusOne = __napiModule.exports.plusOne
+export const prepareTsfnBlockingCallRegression = getWasiBindingExport(
+  'prepareTsfnBlockingCallRegression',
+)
+export const prepareTsfnTeardownRegression = getWasiBindingExport(
+  'prepareTsfnTeardownRegression',
+)
 export const promiseInEither = __napiModule.exports.promiseInEither
 export const promiseRawCallbackDropCount =
   __napiModule.exports.promiseRawCallbackDropCount
@@ -642,8 +733,17 @@ export const receiveStrictObject = __napiModule.exports.receiveStrictObject
 export const receiveString = __napiModule.exports.receiveString
 export const referenceAsCallback = __napiModule.exports.referenceAsCallback
 export const referenceWithTupleArg = __napiModule.exports.referenceWithTupleArg
+export const referThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
+  'referThreadsafeFunctionForEnvOwnership',
+)
+export const registerDeferredCleanupOrderProbe = getWasiBindingExport(
+  'registerDeferredCleanupOrderProbe',
+)
 export const registerEnvCleanupRuntimeLifecycleProbes =
   __napiModule.exports.registerEnvCleanupRuntimeLifecycleProbes
+export const registerLateDeferredFinalizeCallback = getWasiBindingExport(
+  'registerLateDeferredFinalizeCallback',
+)
 export const registerModuleFinalizerProbes =
   __napiModule.exports.registerModuleFinalizerProbes
 export const registerRemovableAsyncCleanupHook =
@@ -654,6 +754,9 @@ export const registerSelfDroppingAsyncCleanupHook =
   __napiModule.exports.registerSelfDroppingAsyncCleanupHook
 export const registerSelfRemovingSyncCleanupHook =
   __napiModule.exports.registerSelfRemovingSyncCleanupHook
+export const releaseAsyncWorkLifecycle = getWasiBindingExport(
+  'releaseAsyncWorkLifecycle',
+)
 export const removeRemovableAsyncCleanupHook =
   __napiModule.exports.removeRemovableAsyncCleanupHook
 export const removeRemovableSyncCleanupHook =
@@ -662,12 +765,24 @@ export const resetPromiseRawCallbackDropCount =
   __napiModule.exports.resetPromiseRawCallbackDropCount
 export const resetWeakReferenceGcTargetFinalizeCount =
   __napiModule.exports.resetWeakReferenceGcTargetFinalizeCount
+export const resolvePanickingAsyncWorkFinallyCount = getWasiBindingExport(
+  'resolvePanickingAsyncWorkFinallyCount',
+)
+export const restartTokioRuntimeAfterRetirement = getWasiBindingExport(
+  'restartTokioRuntimeAfterRetirement',
+)
 export const returnCString = __napiModule.exports.returnCString
 export const returnEither = __napiModule.exports.returnEither
 export const returnEitherClass = __napiModule.exports.returnEitherClass
 export const returnFromSharedCrate = __napiModule.exports.returnFromSharedCrate
 export const returnNull = __napiModule.exports.returnNull
 export const returnObjectOnlyToJs = __napiModule.exports.returnObjectOnlyToJs
+export const returnTypedArraySliceMutAcrossDuplicateLoad = getWasiBindingExport(
+  'returnTypedArraySliceMutAcrossDuplicateLoad',
+)
+export const returnTypedArraySliceRefAcrossDuplicateLoad = getWasiBindingExport(
+  'returnTypedArraySliceRefAcrossDuplicateLoad',
+)
 export const returnUndefined = __napiModule.exports.returnUndefined
 export const returnUndefinedIfInvalid =
   __napiModule.exports.returnUndefinedIfInvalid
@@ -679,6 +794,10 @@ export const setInstanceDataRuntimeLifecycleProbe =
   __napiModule.exports.setInstanceDataRuntimeLifecycleProbe
 export const setNullByteProperty = __napiModule.exports.setNullByteProperty
 export const setSymbolInObj = __napiModule.exports.setSymbolInObj
+export const settleDeferredBeforeFinalizeRegistration = getWasiBindingExport(
+  'settleDeferredBeforeFinalizeRegistration',
+)
+export const settleDeferredClone = getWasiBindingExport('settleDeferredClone')
 export const shorterEscapableScope = __napiModule.exports.shorterEscapableScope
 export const shorterScope = __napiModule.exports.shorterScope
 export const shutdownAsyncRuntimeForTest =
@@ -686,14 +805,47 @@ export const shutdownAsyncRuntimeForTest =
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
 export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
+export const startDeferredTeardownRace = getWasiBindingExport(
+  'startDeferredTeardownRace',
+)
+export const startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport(
+  'startReferencedTsfnFinalizerLivenessWorker',
+)
 export const startTokioWakerAfterCleanupProbe =
   __napiModule.exports.startTokioWakerAfterCleanupProbe
+export const startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport(
+  'startWeakTsfnFinalizerLivenessWorker',
+)
+export const stashBufferAcrossDuplicateLoad = getWasiBindingExport(
+  'stashBufferAcrossDuplicateLoad',
+)
 export const stashBufferInThreadLocal =
   __napiModule.exports.stashBufferInThreadLocal
+export const stashClassInstanceForLaterTurn = getWasiBindingExport(
+  'stashClassInstanceForLaterTurn',
+)
+export const stashErrorAcrossDuplicateLoad = getWasiBindingExport(
+  'stashErrorAcrossDuplicateLoad',
+)
 export const stashErrorInThreadLocal =
   __napiModule.exports.stashErrorInThreadLocal
+export const stashExternalRefAcrossDuplicateLoad = getWasiBindingExport(
+  'stashExternalRefAcrossDuplicateLoad',
+)
+export const stashExternalRefForTeardown = getWasiBindingExport(
+  'stashExternalRefForTeardown',
+)
+export const stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
+  'stashThreadsafeFunctionForEnvOwnership',
+)
+export const stashTypedArrayAcrossDuplicateLoad = getWasiBindingExport(
+  'stashTypedArrayAcrossDuplicateLoad',
+)
 export const stashTypedArrayInThreadLocal =
   __napiModule.exports.stashTypedArrayInThreadLocal
+export const stashTypedArraySlicesAcrossDuplicateLoad = getWasiBindingExport(
+  'stashTypedArraySlicesAcrossDuplicateLoad',
+)
 export const Status = __napiModule.exports.Status
 export const StatusInValidate = __napiModule.exports.StatusInValidate
 export const StringEnum = __napiModule.exports.StringEnum
@@ -708,6 +860,31 @@ export const sumIndexMapping = __napiModule.exports.sumIndexMapping
 export const sumMapping = __napiModule.exports.sumMapping
 export const sumNums = __napiModule.exports.sumNums
 export const syncCleanupHookCounts = __napiModule.exports.syncCleanupHookCounts
+export const takeAdditionalBorrowedValueAcrossDuplicateLoad =
+  getWasiBindingExport('takeAdditionalBorrowedValueAcrossDuplicateLoad')
+export const takeBorrowedValueAcrossDuplicateLoad = getWasiBindingExport(
+  'takeBorrowedValueAcrossDuplicateLoad',
+)
+export const takeBufferAcrossDuplicateLoad = getWasiBindingExport(
+  'takeBufferAcrossDuplicateLoad',
+)
+export const takeBufferSliceIntoBufferAcrossDuplicateLoad =
+  getWasiBindingExport('takeBufferSliceIntoBufferAcrossDuplicateLoad')
+export const takeBufferSliceRefAcrossDuplicateLoad = getWasiBindingExport(
+  'takeBufferSliceRefAcrossDuplicateLoad',
+)
+export const takeClassInstanceFromLaterTurn = getWasiBindingExport(
+  'takeClassInstanceFromLaterTurn',
+)
+export const takeExternalRefAcrossDuplicateLoad = getWasiBindingExport(
+  'takeExternalRefAcrossDuplicateLoad',
+)
+export const takeReferenceValueAcrossDuplicateLoad = getWasiBindingExport(
+  'takeReferenceValueAcrossDuplicateLoad',
+)
+export const takeTypedArrayAcrossDuplicateLoad = getWasiBindingExport(
+  'takeTypedArrayAcrossDuplicateLoad',
+)
 export const testEscapedQuotesInComments =
   __napiModule.exports.testEscapedQuotesInComments
 export const testLatin1Methods = __napiModule.exports.testLatin1Methods
@@ -736,9 +913,15 @@ export const throwAsyncError = __napiModule.exports.throwAsyncError
 export const throwDetachedPendingException =
   __napiModule.exports.throwDetachedPendingException
 export const throwError = __napiModule.exports.throwError
+export const throwErrorAcrossDuplicateLoad = getWasiBindingExport(
+  'throwErrorAcrossDuplicateLoad',
+)
 export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
 export const toJsObj = __napiModule.exports.toJsObj
+export const tokioRuntimeLifecycleValue = getWasiBindingExport(
+  'tokioRuntimeLifecycleValue',
+)
 export const tryCloneErrorCauseOffThread =
   __napiModule.exports.tryCloneErrorCauseOffThread
 export const tryCloneErrorCauseTransitiveOffThread =
@@ -776,6 +959,9 @@ export const uint8ArrayFromExternal =
   __napiModule.exports.uint8ArrayFromExternal
 export const uint8ClampedArrayCopyFrom =
   __napiModule.exports.uint8ClampedArrayCopyFrom
+export const unrefThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
+  'unrefThreadsafeFunctionForEnvOwnership',
+)
 export const untypedTypedArrayBackingBytes =
   __napiModule.exports.untypedTypedArrayBackingBytes
 export const validateArray = __napiModule.exports.validateArray
@@ -806,208 +992,6 @@ export const validateTypedArraySlice =
 export const validateUint8ClampedSlice =
   __napiModule.exports.validateUint8ClampedSlice
 export const validateUndefined = __napiModule.exports.validateUndefined
-export const weakReferenceGcTargetFinalizeCount =
-  __napiModule.exports.weakReferenceGcTargetFinalizeCount
-export const withAbortController = __napiModule.exports.withAbortController
-export const withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
-export const withinAsyncRuntimeIfAvailable =
-  __napiModule.exports.withinAsyncRuntimeIfAvailable
-export const withoutAbortController =
-  __napiModule.exports.withoutAbortController
-export const xxh64Alias = __napiModule.exports.xxh64Alias
-export const duplicateClassNameAlpha =
-  __napiModule.exports.duplicateClassNameAlpha
-export const duplicateClassNameBeta =
-  __napiModule.exports.duplicateClassNameBeta
-export const xxh2 = __napiModule.exports.xxh2
-export const xxh3 = __napiModule.exports.xxh3
-export const ComplexClass = __napiModule.exports.ComplexClass
-export const abandonDeferredClones = getWasiBindingExport(
-  'abandonDeferredClones',
-)
-export const armTokioBlockingTlsRetirementProbe = getWasiBindingExport(
-  'armTokioBlockingTlsRetirementProbe',
-)
-export const armTokioWorkerTlsRetirementProbe = getWasiBindingExport(
-  'armTokioWorkerTlsRetirementProbe',
-)
-export const assignClassInstanceAcrossDuplicateLoad = getWasiBindingExport(
-  'assignClassInstanceAcrossDuplicateLoad',
-)
-export const assignClassInstanceFromLaterTurn = getWasiBindingExport(
-  'assignClassInstanceFromLaterTurn',
-)
-export const assignClampedSliceAcrossDuplicateLoad = getWasiBindingExport(
-  'assignClampedSliceAcrossDuplicateLoad',
-)
-export const assignTypedArraySliceAcrossDuplicateLoad = getWasiBindingExport(
-  'assignTypedArraySliceAcrossDuplicateLoad',
-)
-export const cancelAsyncWorkLifecycle = getWasiBindingExport(
-  'cancelAsyncWorkLifecycle',
-)
-export const configureTokioThreadStopFileBarrier = getWasiBindingExport(
-  'configureTokioThreadStopFileBarrier',
-)
-export const convertClampedSliceAcrossDuplicateLoad = getWasiBindingExport(
-  'convertClampedSliceAcrossDuplicateLoad',
-)
-export const convertTypedArraySliceAcrossDuplicateLoad = getWasiBindingExport(
-  'convertTypedArraySliceAcrossDuplicateLoad',
-)
-export const copyExternalTokenAlias = getWasiBindingExport(
-  'copyExternalTokenAlias',
-)
-export const createExternalPublicBorrowProbe = getWasiBindingExport(
-  'createExternalPublicBorrowProbe',
-)
-export const createExternalRefProvenanceProbe = getWasiBindingExport(
-  'createExternalRefProvenanceProbe',
-)
-export const createExternalTokenGcProbe = getWasiBindingExport(
-  'createExternalTokenGcProbe',
-)
-export const createMutableTypedArrayForOwnershipTest = getWasiBindingExport(
-  'createMutableTypedArrayForOwnershipTest',
-)
-export const createPanickingAsyncWork = getWasiBindingExport(
-  'createPanickingAsyncWork',
-)
-export const createQueuedAsyncWorkLifecycle = getWasiBindingExport(
-  'createQueuedAsyncWorkLifecycle',
-)
-export const createResolvePanickingAsyncWork = getWasiBindingExport(
-  'createResolvePanickingAsyncWork',
-)
-export const createRunningAsyncWorkLifecycle = getWasiBindingExport(
-  'createRunningAsyncWorkLifecycle',
-)
-export const deferredFinalizeCallbackCount = getWasiBindingExport(
-  'deferredFinalizeCallbackCount',
-)
-export const disposeAsyncWorkLifecycle = getWasiBindingExport(
-  'disposeAsyncWorkLifecycle',
-)
-export const disposeThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
-  'disposeThreadsafeFunctionForEnvOwnership',
-)
-export const externalTokenGcProbeFinalizeCount = getWasiBindingExport(
-  'externalTokenGcProbeFinalizeCount',
-)
-export const fetch = getWasiBindingExport('fetch')
-export const inspectExternalRefAcrossDuplicateLoad = getWasiBindingExport(
-  'inspectExternalRefAcrossDuplicateLoad',
-)
-export const inspectExternalTokenGcProbe = getWasiBindingExport(
-  'inspectExternalTokenGcProbe',
-)
-export const mutableTypedArrayFinalizeCount = getWasiBindingExport(
-  'mutableTypedArrayFinalizeCount',
-)
-export const panickingAsyncWorkFinallyCount = getWasiBindingExport(
-  'panickingAsyncWorkFinallyCount',
-)
-export const prepareTsfnBlockingCallRegression = getWasiBindingExport(
-  'prepareTsfnBlockingCallRegression',
-)
-export const prepareTsfnTeardownRegression = getWasiBindingExport(
-  'prepareTsfnTeardownRegression',
-)
-export const referThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
-  'referThreadsafeFunctionForEnvOwnership',
-)
-export const registerDeferredCleanupOrderProbe = getWasiBindingExport(
-  'registerDeferredCleanupOrderProbe',
-)
-export const registerLateDeferredFinalizeCallback = getWasiBindingExport(
-  'registerLateDeferredFinalizeCallback',
-)
-export const releaseAsyncWorkLifecycle = getWasiBindingExport(
-  'releaseAsyncWorkLifecycle',
-)
-export const resolvePanickingAsyncWorkFinallyCount = getWasiBindingExport(
-  'resolvePanickingAsyncWorkFinallyCount',
-)
-export const restartTokioRuntimeAfterRetirement = getWasiBindingExport(
-  'restartTokioRuntimeAfterRetirement',
-)
-export const returnTypedArraySliceMutAcrossDuplicateLoad = getWasiBindingExport(
-  'returnTypedArraySliceMutAcrossDuplicateLoad',
-)
-export const returnTypedArraySliceRefAcrossDuplicateLoad = getWasiBindingExport(
-  'returnTypedArraySliceRefAcrossDuplicateLoad',
-)
-export const settleDeferredBeforeFinalizeRegistration = getWasiBindingExport(
-  'settleDeferredBeforeFinalizeRegistration',
-)
-export const settleDeferredClone = getWasiBindingExport('settleDeferredClone')
-export const stashBufferAcrossDuplicateLoad = getWasiBindingExport(
-  'stashBufferAcrossDuplicateLoad',
-)
-export const stashClassInstanceForLaterTurn = getWasiBindingExport(
-  'stashClassInstanceForLaterTurn',
-)
-export const stashErrorAcrossDuplicateLoad = getWasiBindingExport(
-  'stashErrorAcrossDuplicateLoad',
-)
-export const stashExternalRefAcrossDuplicateLoad = getWasiBindingExport(
-  'stashExternalRefAcrossDuplicateLoad',
-)
-export const stashExternalRefForTeardown = getWasiBindingExport(
-  'stashExternalRefForTeardown',
-)
-export const stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
-  'stashThreadsafeFunctionForEnvOwnership',
-)
-export const stashTypedArrayAcrossDuplicateLoad = getWasiBindingExport(
-  'stashTypedArrayAcrossDuplicateLoad',
-)
-export const stashTypedArraySlicesAcrossDuplicateLoad = getWasiBindingExport(
-  'stashTypedArraySlicesAcrossDuplicateLoad',
-)
-export const startDeferredTeardownRace = getWasiBindingExport(
-  'startDeferredTeardownRace',
-)
-export const startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport(
-  'startReferencedTsfnFinalizerLivenessWorker',
-)
-export const startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport(
-  'startWeakTsfnFinalizerLivenessWorker',
-)
-export const takeAdditionalBorrowedValueAcrossDuplicateLoad =
-  getWasiBindingExport('takeAdditionalBorrowedValueAcrossDuplicateLoad')
-export const takeBorrowedValueAcrossDuplicateLoad = getWasiBindingExport(
-  'takeBorrowedValueAcrossDuplicateLoad',
-)
-export const takeBufferAcrossDuplicateLoad = getWasiBindingExport(
-  'takeBufferAcrossDuplicateLoad',
-)
-export const takeBufferSliceIntoBufferAcrossDuplicateLoad =
-  getWasiBindingExport('takeBufferSliceIntoBufferAcrossDuplicateLoad')
-export const takeBufferSliceRefAcrossDuplicateLoad = getWasiBindingExport(
-  'takeBufferSliceRefAcrossDuplicateLoad',
-)
-export const takeClassInstanceFromLaterTurn = getWasiBindingExport(
-  'takeClassInstanceFromLaterTurn',
-)
-export const takeExternalRefAcrossDuplicateLoad = getWasiBindingExport(
-  'takeExternalRefAcrossDuplicateLoad',
-)
-export const takeReferenceValueAcrossDuplicateLoad = getWasiBindingExport(
-  'takeReferenceValueAcrossDuplicateLoad',
-)
-export const takeTypedArrayAcrossDuplicateLoad = getWasiBindingExport(
-  'takeTypedArrayAcrossDuplicateLoad',
-)
-export const throwErrorAcrossDuplicateLoad = getWasiBindingExport(
-  'throwErrorAcrossDuplicateLoad',
-)
-export const tokioRuntimeLifecycleValue = getWasiBindingExport(
-  'tokioRuntimeLifecycleValue',
-)
-export const unrefThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
-  'unrefThreadsafeFunctionForEnvOwnership',
-)
 export const verifyReferenceValuesRejectNativeThread = getWasiBindingExport(
   'verifyReferenceValuesRejectNativeThread',
 )
@@ -1020,11 +1004,27 @@ export const verifyTypedArraySlicesSameEnv = getWasiBindingExport(
 export const waitForTokioRuntimeRetirement = getWasiBindingExport(
   'waitForTokioRuntimeRetirement',
 )
+export const weakReferenceGcTargetFinalizeCount =
+  __napiModule.exports.weakReferenceGcTargetFinalizeCount
+export const withAbortController = __napiModule.exports.withAbortController
+export const withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
 export const withAdditionalBorrowedValuesAcrossDuplicateLoad =
   getWasiBindingExport('withAdditionalBorrowedValuesAcrossDuplicateLoad')
 export const withBorrowedValuesAcrossDuplicateLoad = getWasiBindingExport(
   'withBorrowedValuesAcrossDuplicateLoad',
 )
+export const withinAsyncRuntimeIfAvailable =
+  __napiModule.exports.withinAsyncRuntimeIfAvailable
+export const withoutAbortController =
+  __napiModule.exports.withoutAbortController
 export const withReferenceValuesAcrossDuplicateLoad = getWasiBindingExport(
   'withReferenceValuesAcrossDuplicateLoad',
 )
+export const xxh64Alias = __napiModule.exports.xxh64Alias
+export const duplicateClassNameAlpha =
+  __napiModule.exports.duplicateClassNameAlpha
+export const duplicateClassNameBeta =
+  __napiModule.exports.duplicateClassNameBeta
+export const xxh2 = __napiModule.exports.xxh2
+export const xxh3 = __napiModule.exports.xxh3
+export const ComplexClass = __napiModule.exports.ComplexClass

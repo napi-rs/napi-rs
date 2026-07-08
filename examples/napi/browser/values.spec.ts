@@ -32,6 +32,8 @@ const {
   asyncTaskReadFile,
   testWorkers,
 }: BrowserTsfnTestBinding = await import('../example.wasi-browser')
+}: typeof import('../example.wasi.cjs') =
+  await import('../example.wasi-browser')
 
 async function runWasiWorkers(amount: number): Promise<void> {
   const { resolve, reject, promise } = Promise.withResolvers<void>()

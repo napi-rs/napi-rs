@@ -588,6 +588,8 @@ export interface A {
   foo: number
 }
 
+export declare function abandonDeferredClones(...args: unknown[]): never
+
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
@@ -633,6 +635,10 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function armTokioBlockingTlsRetirementProbe(...args: unknown[]): never
+
+export declare function armTokioWorkerTlsRetirementProbe(...args: unknown[]): never
+
 export declare function arrayBufferCopyFrom(): ArrayBuffer
 
 export declare function arrayBufferFromData(): ArrayBuffer
@@ -644,6 +650,14 @@ export declare function arrayBufferLenAsync(buf: Uint8Array): Promise<number>
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function arrayParams(arr: Array<number>): number
+
+export declare function assignClampedSliceAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function assignClassInstanceAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function assignClassInstanceFromLaterTurn(...args: unknown[]): never
+
+export declare function assignTypedArraySliceAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
@@ -670,6 +684,11 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 export declare function asyncTaskReadFile(path: string): Promise<import("buffer").Buffer>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
+
+export interface AsyncWorkLifecycleHandle {
+  id: number
+  promise: Promise<number>
+}
 
 /**
  * Awaits `promise` on the async runtime; a rejection materializes as an
@@ -770,6 +789,8 @@ export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) 
 
 export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
 
+export declare function cancelAsyncWorkLifecycle(...args: unknown[]): never
+
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
 export declare function chronoDateAdd1Minute(input: Date): Date
@@ -858,9 +879,17 @@ export declare function concatStr(s: string): string
 
 export declare function concatUtf16(s: string): string
 
+export declare function configureTokioThreadStopFileBarrier(...args: unknown[]): never
+
 export declare function contains(source: string, target: string): boolean
 
+export declare function convertClampedSliceAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function convertTypedArraySliceAcrossDuplicateLoad(...args: unknown[]): never
+
 export declare function convertU32Array(input: Uint32Array): Array<number>
+
+export declare function copyExternalTokenAlias(...args: unknown[]): never
 
 export declare function createArraybuffer(): ArrayBuffer
 
@@ -906,9 +935,15 @@ export declare function createExternalLatin1String(): string
 
 export declare function createExternalLatin1WithLatin1Chars(): string
 
+export declare function createExternalPublicBorrowProbe(...args: unknown[]): never
+
 export declare function createExternalRef(size: number): ExternalObject<number>
 
+export declare function createExternalRefProvenanceProbe(...args: unknown[]): never
+
 export declare function createExternalString(content: string): ExternalObject<string>
+
+export declare function createExternalTokenGcProbe(...args: unknown[]): never
 
 export declare function createExternalTypedArray(): Uint32Array
 
@@ -919,6 +954,8 @@ export declare function createFunction(): (arg: number) => number
 export declare function createGeneratorLifecycleProbe(): Promise<GeneratorLifecycleProbe>
 
 export declare function createI32ArrayFromExternal(): Int32Array
+
+export declare function createMutableTypedArrayForOwnershipTest(...args: unknown[]): never
 
 export declare function createNotUseNullableStruct(): NotUseNullableStruct
 
@@ -931,6 +968,10 @@ export declare function createObjectWithClassField(): ObjectFieldClassInstance
 export declare function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }
 
 export declare function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null
+
+export declare function createPanickingAsyncWork(...args: unknown[]): never
+
+export declare function createQueuedAsyncWorkLifecycle(...args: unknown[]): never
 
 export declare function createReadableStream(): ReadableStream<import("buffer").Buffer>
 
@@ -947,6 +988,10 @@ export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 export declare function createRejectedPromise(message: string): Promise<number>
 
 export declare function createResolvedPromise(value: number): Promise<number>
+
+export declare function createResolvePanickingAsyncWork(...args: unknown[]): never
+
+export declare function createRunningAsyncWorkLifecycle(...args: unknown[]): never
 
 export declare function createRuntimeLifecycleExternalLatin1Probe(resultPath: string): string
 
@@ -1022,6 +1067,8 @@ export interface DefaultUseNullableStruct {
   optionalStringField?: string
 }
 
+export declare function deferredFinalizeCallbackCount(...args: unknown[]): never
+
 export declare function defineClass(): typeof DynamicRustClass
 
 declare class DynamicRustClass {
@@ -1034,6 +1081,10 @@ export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): nu
 export declare function detachableExternalArraybufferFinalizeCount(): number
 
 export declare function detachArraybufferWithAlias(buffer: ArrayBuffer, alias: ArrayBuffer): void
+
+export declare function disposeAsyncWorkLifecycle(...args: unknown[]): never
+
+export declare function disposeThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
 
 /**
  * Counts the chunks read from a stream, swallowing (dropping) any read error.
@@ -1101,9 +1152,13 @@ export type ExternalLinterLoadPluginCb =
 export type ExternalLinterLoadPluginCb2 =
   ((arg: string) => PluginLoadResult)
 
+export declare function externalTokenGcProbeFinalizeCount(...args: unknown[]): never
+
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
+
+export declare function fetch(...args: unknown[]): never
 
 export declare function fibonacci(n: number): number
 
@@ -1188,6 +1243,10 @@ export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
 
+export declare function inspectExternalRefAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function inspectExternalTokenGcProbe(...args: unknown[]): never
+
 export declare function intoUtf8(s: string): string
 
 export declare function joinPath(path: string, segment: string): string
@@ -1237,6 +1296,8 @@ export declare function mergeTupleArray(t1: TupleToArray, t2: TupleToArray): Tup
 export interface Meta {
   merge: boolean
 }
+
+export declare function mutableTypedArrayFinalizeCount(...args: unknown[]): never
 
 export declare function mutateAnimalPair(first: Animal, second: Animal): void
 
@@ -1322,6 +1383,8 @@ export declare function panic(): void
 
 export declare function panicInAsync(): Promise<void>
 
+export declare function panickingAsyncWorkFinallyCount(...args: unknown[]): never
+
 export declare function passSetToJs(): Set<string>
 
 export declare function passSetToRust(set: Set<string>): void
@@ -1344,6 +1407,10 @@ export interface PluginLoadResult {
 }
 
 export declare function plusOne(this: Width): number
+
+export declare function prepareTsfnBlockingCallRegression(...args: unknown[]): never
+
+export declare function prepareTsfnTeardownRegression(...args: unknown[]): never
 
 export declare function promiseInEither(input: number | Promise<number>): Promise<boolean>
 
@@ -1435,7 +1502,13 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+export declare function referThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
+
+export declare function registerDeferredCleanupOrderProbe(...args: unknown[]): never
+
 export declare function registerEnvCleanupRuntimeLifecycleProbes(cleanupResultPath: string, asyncCleanupResultPath: string): void
+
+export declare function registerLateDeferredFinalizeCallback(...args: unknown[]): never
 
 export declare function registerModuleFinalizerProbes(this: object, probePaths: object): void
 
@@ -1447,13 +1520,24 @@ export declare function registerSelfDroppingAsyncCleanupHook(resultPath: string)
 
 export declare function registerSelfRemovingSyncCleanupHook(resultPath: string): void
 
+export declare function releaseAsyncWorkLifecycle(...args: unknown[]): never
+
 export declare function removeRemovableAsyncCleanupHook(): void
 
 export declare function removeRemovableSyncCleanupHook(): void
 
+export interface RequestInit {
+  method?: string
+  headers?: Record<string, string>
+}
+
 export declare function resetPromiseRawCallbackDropCount(): void
 
 export declare function resetWeakReferenceGcTargetFinalizeCount(): void
+
+export declare function resolvePanickingAsyncWorkFinallyCount(...args: unknown[]): never
+
+export declare function restartTokioRuntimeAfterRetirement(...args: unknown[]): never
 
 export declare function returnCString(): string
 
@@ -1466,6 +1550,10 @@ export declare function returnFromSharedCrate(): Shared
 export declare function returnNull(): null
 
 export declare function returnObjectOnlyToJs(): ObjectOnlyToJs
+
+export declare function returnTypedArraySliceMutAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function returnTypedArraySliceRefAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function returnUndefined(): void
 
@@ -1491,6 +1579,10 @@ export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
+export declare function settleDeferredBeforeFinalizeRegistration(...args: unknown[]): never
+
+export declare function settleDeferredClone(...args: unknown[]): never
+
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
@@ -1503,9 +1595,21 @@ export declare function spawnFutureLifetime(input: number): Promise<string>
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
+export declare function startDeferredTeardownRace(...args: unknown[]): never
+
+export declare function startReferencedTsfnFinalizerLivenessWorker(...args: unknown[]): never
+
 export declare function startTokioWakerAfterCleanupProbe(enteredPath: string, releasePath: string, completedPath: string): Promise<void>
 
+export declare function startWeakTsfnFinalizerLivenessWorker(...args: unknown[]): never
+
+export declare function stashBufferAcrossDuplicateLoad(...args: unknown[]): never
+
 export declare function stashBufferInThreadLocal(buf: import("buffer").Buffer): void
+
+export declare function stashClassInstanceForLaterTurn(...args: unknown[]): never
+
+export declare function stashErrorAcrossDuplicateLoad(...args: unknown[]): never
 
 /**
  * Stashes a JS-derived `Error` in a Rust thread_local on the calling JS
@@ -1514,7 +1618,17 @@ export declare function stashBufferInThreadLocal(buf: import("buffer").Buffer): 
  */
 export declare function stashErrorInThreadLocal(value: unknown): void
 
+export declare function stashExternalRefAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function stashExternalRefForTeardown(...args: unknown[]): never
+
+export declare function stashThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
+
+export declare function stashTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
+
 export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
+
+export declare function stashTypedArraySlicesAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare const enum Status {
   Pristine = 'Pristine',
@@ -1575,6 +1689,24 @@ export declare function sumNums(nums: Array<number>): number
 
 export declare function syncCleanupHookCounts(): Array<number>
 
+export declare function takeAdditionalBorrowedValueAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeBorrowedValueAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeBufferAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeBufferSliceIntoBufferAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeBufferSliceRefAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeClassInstanceFromLaterTurn(...args: unknown[]): never
+
+export declare function takeExternalRefAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeReferenceValueAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function takeTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
+
 /**
  * Function to test escaped quotes in comments.
  * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
@@ -1623,11 +1755,15 @@ export declare function throwDetachedPendingException(): void
 
 export declare function throwError(): void
 
+export declare function throwErrorAcrossDuplicateLoad(...args: unknown[]): never
+
 export declare function throwErrorWithCause(): void
 
 export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 
 export declare function toJsObj(): object
+
+export declare function tokioRuntimeLifecycleValue(...args: unknown[]): never
 
 /**
  * Regression cover for napi-rs#3370 cause preservation: a JS `Error` carrying
@@ -1729,6 +1865,8 @@ export declare function uint8ArrayFromExternal(): Uint8Array
 
 export declare function uint8ClampedArrayCopyFrom(): Uint8ClampedArray
 
+export declare function unrefThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
+
 export declare function untypedTypedArrayBackingBytes(input: TypedArray): Array<number>
 
 export interface UseNullableStruct {
@@ -1791,6 +1929,12 @@ export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): num
 
 export declare function validateUndefined(i: undefined): boolean
 
+export declare function verifyReferenceValuesRejectNativeThread(...args: unknown[]): never
+
+export declare function verifyThreadsafeFunctionOwnerEnv(...args: unknown[]): never
+
+export declare function verifyTypedArraySlicesSameEnv(...args: unknown[]): never
+
 export interface ViteImportGlobMeta {
   isSubImportsPattern?: boolean
 }
@@ -1798,15 +1942,23 @@ export interface ViteImportGlobMeta {
 export type VoidNullable<T = void> =
   Nullable<T>
 
+export declare function waitForTokioRuntimeRetirement(...args: unknown[]): never
+
 export declare function weakReferenceGcTargetFinalizeCount(): number
 
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
 export declare function withAbortSignalHandle(signal: AbortSignal): Promise<number>
 
+export declare function withAdditionalBorrowedValuesAcrossDuplicateLoad(...args: unknown[]): never
+
+export declare function withBorrowedValuesAcrossDuplicateLoad(...args: unknown[]): never
+
 export declare function withinAsyncRuntimeIfAvailable(): void
 
 export declare function withoutAbortController(a: number, b: number): Promise<number>
+
+export declare function withReferenceValuesAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function xxh64Alias(input: import("buffer").Buffer): bigint
 
@@ -1864,155 +2016,3 @@ export declare class ComplexClass {
 export interface Shared {
   value: number
 }
-
-export interface AsyncWorkLifecycleHandle {
-  id: number
-  promise: Promise<number>
-}
-
-export interface RequestInit {
-  method?: string
-  headers?: Record<string, string>
-}
-
-export declare function abandonDeferredClones(...args: unknown[]): never
-
-export declare function armTokioBlockingTlsRetirementProbe(...args: unknown[]): never
-
-export declare function armTokioWorkerTlsRetirementProbe(...args: unknown[]): never
-
-export declare function assignClassInstanceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function assignClassInstanceFromLaterTurn(...args: unknown[]): never
-
-export declare function assignClampedSliceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function assignTypedArraySliceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function cancelAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function configureTokioThreadStopFileBarrier(...args: unknown[]): never
-
-export declare function convertClampedSliceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function convertTypedArraySliceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function copyExternalTokenAlias(...args: unknown[]): never
-
-export declare function createExternalPublicBorrowProbe(...args: unknown[]): never
-
-export declare function createExternalRefProvenanceProbe(...args: unknown[]): never
-
-export declare function createExternalTokenGcProbe(...args: unknown[]): never
-
-export declare function createMutableTypedArrayForOwnershipTest(...args: unknown[]): never
-
-export declare function createPanickingAsyncWork(...args: unknown[]): never
-
-export declare function createQueuedAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function createResolvePanickingAsyncWork(...args: unknown[]): never
-
-export declare function createRunningAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function deferredFinalizeCallbackCount(...args: unknown[]): never
-
-export declare function disposeAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function disposeThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function externalTokenGcProbeFinalizeCount(...args: unknown[]): never
-
-export declare function fetch(...args: unknown[]): never
-
-export declare function inspectExternalRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function inspectExternalTokenGcProbe(...args: unknown[]): never
-
-export declare function mutableTypedArrayFinalizeCount(...args: unknown[]): never
-
-export declare function panickingAsyncWorkFinallyCount(...args: unknown[]): never
-
-export declare function prepareTsfnBlockingCallRegression(...args: unknown[]): never
-
-export declare function prepareTsfnTeardownRegression(...args: unknown[]): never
-
-export declare function referThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function registerDeferredCleanupOrderProbe(...args: unknown[]): never
-
-export declare function registerLateDeferredFinalizeCallback(...args: unknown[]): never
-
-export declare function releaseAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function resolvePanickingAsyncWorkFinallyCount(...args: unknown[]): never
-
-export declare function restartTokioRuntimeAfterRetirement(...args: unknown[]): never
-
-export declare function returnTypedArraySliceMutAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function returnTypedArraySliceRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function settleDeferredBeforeFinalizeRegistration(...args: unknown[]): never
-
-export declare function settleDeferredClone(...args: unknown[]): never
-
-export declare function stashBufferAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function stashClassInstanceForLaterTurn(...args: unknown[]): never
-
-export declare function stashErrorAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function stashExternalRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function stashExternalRefForTeardown(...args: unknown[]): never
-
-export declare function stashThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function stashTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function stashTypedArraySlicesAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function startDeferredTeardownRace(...args: unknown[]): never
-
-export declare function startReferencedTsfnFinalizerLivenessWorker(...args: unknown[]): never
-
-export declare function startWeakTsfnFinalizerLivenessWorker(...args: unknown[]): never
-
-export declare function takeAdditionalBorrowedValueAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBorrowedValueAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBufferAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBufferSliceIntoBufferAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBufferSliceRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeClassInstanceFromLaterTurn(...args: unknown[]): never
-
-export declare function takeExternalRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeReferenceValueAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function throwErrorAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function tokioRuntimeLifecycleValue(...args: unknown[]): never
-
-export declare function unrefThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function verifyReferenceValuesRejectNativeThread(...args: unknown[]): never
-
-export declare function verifyThreadsafeFunctionOwnerEnv(...args: unknown[]): never
-
-export declare function verifyTypedArraySlicesSameEnv(...args: unknown[]): never
-
-export declare function waitForTokioRuntimeRetirement(...args: unknown[]): never
-
-export declare function withAdditionalBorrowedValuesAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function withBorrowedValuesAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function withReferenceValuesAcrossDuplicateLoad(...args: unknown[]): never
