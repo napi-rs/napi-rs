@@ -874,6 +874,22 @@ async function restoreOutputFiles(outputs) {
   )
 }
 
+export async function formatGeneratedOutputs(paths) {
+  await Promise.all(
+    paths.map(async (path) => {
+      const source = await readFile(path, 'utf8')
+      const prettierConfig = await resolveConfig(path)
+      const formatted = await format(source, {
+        ...prettierConfig,
+        filepath: path,
+      })
+      if (formatted !== source) {
+        await writeFile(path, formatted)
+      }
+    }),
+  )
+}
+
 export async function regenerateArtifacts({
   runBuild = main,
   readRootOutputs = readNativeRootOutputs,
@@ -933,6 +949,15 @@ async function main(userArguments, environment = process.env) {
     )
   }
   await instrumentThreadedWasiBrowserTsfnWait()
+  if (target === 'wasm32-wasip1') {
+    await formatGeneratedOutputs(
+      [
+        'example.wasip1-browser.js',
+        'example.wasip1-deferred.js',
+        'example.wasip1-deferred.d.ts',
+      ].map((file) => fileURLToPath(new URL(file, import.meta.url))),
+    )
+  }
 
   if (!target?.startsWith('wasm32-')) {
     await run(

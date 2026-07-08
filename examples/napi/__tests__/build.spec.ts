@@ -6,10 +6,44 @@ import test from 'ava'
 import typeScript from 'typescript'
 
 import {
+  formatGeneratedOutputs,
   preserveLifecycleDeclarations,
   regenerateArtifacts,
 } from '../build.mjs'
 import { unsupportedWasiFunctions } from '../unsupported-wasi-exports.mjs'
+
+test('generated threadless outputs are finalized with repository formatting', async (t) => {
+  const directory = await mkdtemp(
+    join(import.meta.dirname, '..', '.generated-format-'),
+  )
+  const browserPath = join(directory, 'example.wasip1-browser.js')
+  const declarationPath = join(directory, 'example.wasip1-deferred.d.ts')
+  try {
+    await Promise.all([
+      writeFile(
+        browserPath,
+        'export const binding={value:"threadless",nested:{enabled:true}}\n',
+      ),
+      writeFile(
+        declarationPath,
+        'export type WasiModuleInput=WebAssembly.Module|PromiseLike<WebAssembly.Module>\n',
+      ),
+    ])
+
+    await formatGeneratedOutputs([browserPath, declarationPath])
+
+    t.is(
+      await readFile(browserPath, 'utf8'),
+      "export const binding = { value: 'threadless', nested: { enabled: true } }\n",
+    )
+    t.is(
+      await readFile(declarationPath, 'utf8'),
+      'export type WasiModuleInput =\n  WebAssembly.Module | PromiseLike<WebAssembly.Module>\n',
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('checked threaded artifacts retain the WASI export surface and portable stubs', async (t) => {
   const directory = join(import.meta.dirname, '..')
