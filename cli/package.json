@@ -25,6 +25,7 @@
   },
   "files": [
     "dist",
+    "docs",
     "src",
     "!__tests__"
   ],
