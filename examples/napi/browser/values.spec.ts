@@ -4,6 +4,20 @@ import { describe, it, expect } from 'vitest'
 
 globalThis.Buffer = Buffer
 
+type BrowserTsfnTestBinding = typeof import('../index.cjs') & {
+  abortBoundedTsfnFromOwnerAgent(): void
+  abortBoundedTsfnPostCallFromOwnerAgent(): void
+  armBoundedTsfnPostCallNativeWait(): void
+  boundedTsfnOwnerAbortState(): Array<number>
+  boundedTsfnPostCallAbortState(): Array<number>
+  finishBoundedTsfnOwnerAbort(): void
+  finishBoundedTsfnPostCallAbort(): void
+  prepareBoundedTsfnOwnerAbort(callback: (arg: number) => void): void
+  prepareBoundedTsfnPostCallAbort(callback: (arg: number) => void): void
+  releaseBoundedTsfnNativeWait(): void
+  releaseBoundedTsfnPostCallSlot(): void
+}
+
 // @ts-expect-error
 const {
   // @ts-expect-error
@@ -26,7 +40,7 @@ const {
   tsfnReturnPromiseTimeout,
   asyncTaskReadFile,
   testWorkers,
-}: typeof import('../index.cjs') = await import('../example.wasi-browser')
+}: BrowserTsfnTestBinding = await import('../example.wasi-browser')
 
 async function verifyBoundedPostCallAbort(): Promise<void> {
   prepareBoundedTsfnPostCallAbort(() => {})
