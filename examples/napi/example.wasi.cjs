@@ -374,7 +374,7 @@ function __attachCleanupError(__error, __cleanupError) {
         __error.cause = __cleanupError
         return __error.cause === __cleanupError
       }
-      return true
+      return __error.cause === __cleanupError
     }
   } catch {}
   return false

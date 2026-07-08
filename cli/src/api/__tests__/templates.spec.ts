@@ -787,6 +787,7 @@ function executeEagerWasiCleanupHandoffFault(
   const rollbackError = new Error('exit rollback failed')
   const cleanupError = new Error('cleanup failed')
   const events: string[] = []
+  const queuedMicrotasks: Array<() => void> = []
   const processMock = Object.assign(new EventEmitter(), {
     cwd: () => '/',
     env: {},
@@ -872,10 +873,11 @@ function executeEagerWasiCleanupHandoffFault(
 
   let observedError
   try {
-    new Function('require', 'process', '__dirname', code)(
+    new Function('require', 'process', '__dirname', 'queueMicrotask', code)(
       mockRequire,
       processMock,
       '/fixture',
+      (callback: () => void) => queuedMicrotasks.push(callback),
     )
   } catch (error) {
     observedError = error
@@ -887,6 +889,7 @@ function executeEagerWasiCleanupHandoffFault(
     handoffError,
     observedError,
     processMock,
+    queuedMicrotasks,
     rollbackError,
   }
 }
@@ -902,6 +905,7 @@ test('eager WASI cleanup keeps beforeExit ownership when exit registration fails
   ])
   t.is(result.processMock.rawListeners('beforeExit').length, 1)
   t.is(result.processMock.rawListeners('exit').length, 0)
+  t.is(result.queuedMicrotasks.length, 0)
 })
 
 test('eager WASI cleanup rolls exit ownership back when beforeExit removal fails', (t) => {
@@ -917,6 +921,7 @@ test('eager WASI cleanup rolls exit ownership back when beforeExit removal fails
   ])
   t.is(result.processMock.rawListeners('beforeExit').length, 1)
   t.is(result.processMock.rawListeners('exit').length, 0)
+  t.is(result.queuedMicrotasks.length, 0)
 })
 
 test('eager WASI cleanup preserves both owners when handoff rollback fails', (t) => {
@@ -939,6 +944,11 @@ test('eager WASI cleanup preserves both owners when handoff rollback fails', (t)
   ])
   t.is(result.processMock.rawListeners('beforeExit').length, 1)
   t.is(result.processMock.rawListeners('exit').length, 1)
+  t.is(result.queuedMicrotasks.length, 1)
+  t.is(
+    t.throws(() => result.queuedMicrotasks[0]()),
+    result.cleanupError,
+  )
 })
 
 test('eager WASI cleanup aggregates removal failures without losing ownership state', (t) => {
@@ -1039,6 +1049,92 @@ return {
   t.false(lifecycle.hasBeforeExit())
   t.false(lifecycle.hasExit())
   t.is(processMock.rawListeners('beforeExit').length, 0)
+  t.is(processMock.rawListeners('exit').length, 0)
+})
+
+test('eager WASI cleanup surfaces asynchronous listener removal failure when the primary cause is occupied', async (t) => {
+  const code = createWasiBinding(
+    'binding',
+    'cleanup-removal-never-published',
+    1,
+    2,
+    false,
+    'wasm32-wasip1',
+  )
+  const existingCause = new Error('existing primary cause')
+  const primaryError = new Error('initialization failed', {
+    cause: existingCause,
+  })
+  const removalError = new Error('beforeExit removal failed')
+  const queuedMicrotasks: Array<() => void> = []
+  const processMock = Object.assign(new EventEmitter(), {
+    cwd: () => '/',
+    env: {},
+  })
+  const removeListener = processMock.removeListener.bind(processMock)
+  processMock.removeListener = (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    if (
+      event === 'beforeExit' &&
+      listener.name === '__destroyEmnapiContextBeforeExit'
+    ) {
+      throw removalError
+    }
+    return removeListener(event, listener)
+  }
+  const mockRequire = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('/binding.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case '@napi-rs/wasm-runtime':
+        return {
+          instantiateNapiModuleSync() {
+            throw primaryError
+          },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({
+            destroy: () => Promise.resolve(),
+            suppressDestroy() {},
+          }),
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+
+  const error = t.throws(() =>
+    new Function('require', 'process', '__dirname', 'queueMicrotask', code)(
+      mockRequire,
+      processMock,
+      '/fixture',
+      (callback: () => void) => queuedMicrotasks.push(callback),
+    ),
+  )
+  t.is(error, primaryError)
+
+  await new Promise((resolve) => setImmediate(resolve))
+
+  t.is(primaryError.cause, existingCause)
+  t.is(queuedMicrotasks.length, 1)
+  t.is(
+    t.throws(() => queuedMicrotasks[0]()),
+    removalError,
+  )
+  t.is(processMock.rawListeners('beforeExit').length, 1)
   t.is(processMock.rawListeners('exit').length, 0)
 })
 
