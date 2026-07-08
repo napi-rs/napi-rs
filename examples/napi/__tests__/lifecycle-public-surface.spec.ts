@@ -75,6 +75,9 @@ test('generated JavaScript and declarations expose lifecycle integration probes'
     for (const name of generatedLifecycleExports) {
       t.true(source.includes(name), `${file}: ${name}`)
     }
+    for (const name of wasiOnlyLifecycleExports) {
+      t.false(source.includes(name), `${file}: ${name}`)
+    }
     if (file.startsWith('example.wasi')) {
       for (const name of threadedWasiBrowserTestExports) {
         t.true(source.includes(name), `${file}: ${name}`)

@@ -1297,7 +1297,7 @@ impl From<Status> for ErrorStatus {
 }
 
 #[cfg(target_family = "wasm")]
-#[napi]
+#[napi(skip_typescript)]
 pub fn drop_unregistered_weak_tsfn_for_wasi(callback: Function<(), ()>) -> Result<()> {
   let tsfn = callback
     .build_threadsafe_function::<()>()

@@ -3,7 +3,7 @@ use std::{fs, future::poll_fn, task::Poll, time::Duration};
 use futures::channel::oneshot;
 use napi::{bindgen_prelude::spawn as spawn_on_tokio_runtime, Error, Result, Status};
 
-#[napi]
+#[napi(skip_typescript)]
 pub async fn start_tokio_waker_after_cleanup_probe(
   entered_path: String,
   release_path: String,
