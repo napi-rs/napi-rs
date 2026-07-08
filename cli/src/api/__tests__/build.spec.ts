@@ -76,15 +76,24 @@ async function writeCargoShim(
   await writeFile(scriptPath, source)
 
   if (platform === 'win32') {
-    await Promise.all(
-      ['build', 'metadata'].map((command) =>
-        writeFile(
-          join(projectDir, command),
-          `process.argv.splice(2, 0, ${JSON.stringify(command)})\nrequire('./cargo-shim.cjs')\n`,
-        ),
-      ),
+    const rustSourcePath = join(projectDir, 'cargo-shim.rs')
+    const executablePath = join(projectDir, 'cargo-shim.exe')
+    await writeFile(
+      rustSourcePath,
+      `use std::{env, process::{exit, Command}};
+
+fn main() {
+    let status = Command::new(${JSON.stringify(process.execPath)})
+        .arg(${JSON.stringify(scriptPath)})
+        .args(env::args_os().skip(1))
+        .status()
+        .expect("failed to run Node.js cargo shim");
+    exit(status.code().unwrap_or(1));
+}
+`,
     )
-    return process.execPath
+    execFileSync('rustc', [rustSourcePath, '-o', executablePath])
+    return executablePath
   }
 
   await chmod(scriptPath, 0o755)
@@ -119,7 +128,7 @@ test.afterEach.always(async (t) => {
   }
 })
 
-test('Windows cargo shims preserve cargo subcommands without a shell', async (t) => {
+test('Windows cargo shims preserve global arguments without a shell', async (t) => {
   const { projectDir } = t.context
   const capturePath = join(projectDir, 'cargo-args.json')
   const cargoShim = await writeCargoShim(
@@ -133,17 +142,20 @@ test('Windows cargo shims preserve cargo subcommands without a shell', async (t)
   )
 
   for (const command of ['metadata', 'build']) {
-    const result = spawnSync(cargoShim, [command, '--target', 'test-target'], {
+    const args = [
+      '--config',
+      'net.git-fetch-with-cli=true',
+      command,
+      '--target',
+      'test-target',
+    ]
+    const result = spawnSync(cargoShim, args, {
       cwd: projectDir,
       env: { ...process.env, CARGO_SHIM_CAPTURE: capturePath },
       encoding: 'utf8',
     })
     t.is(result.status, 0, result.stderr)
-    t.deepEqual(JSON.parse(await readFile(capturePath, 'utf8')), [
-      command,
-      '--target',
-      'test-target',
-    ])
+    t.deepEqual(JSON.parse(await readFile(capturePath, 'utf8')), args)
   }
 })
 
