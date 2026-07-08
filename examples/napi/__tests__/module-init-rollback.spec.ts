@@ -11,10 +11,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixtureDirectory = join(__dirname, '..', 'module-init-rollback')
 const addonPath = join(fixtureDirectory, 'module-init-rollback.node')
 const runnerPath = join(__dirname, 'module-init-rollback.js')
+
+type DiagnosticReport = {
+  header?: {
+    glibcVersionRuntime?: string
+  }
+}
+
 const supportsCleanupHookInterposition =
   process.platform === 'darwin' ||
   (process.platform === 'linux' &&
-    Boolean(process.report?.getReport?.()?.header.glibcVersionRuntime))
+    Boolean(
+      (process.report?.getReport?.() as DiagnosticReport | undefined)?.header
+        ?.glibcVersionRuntime,
+    ))
 
 async function runScenario(
   runner: string,
