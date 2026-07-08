@@ -136,6 +136,18 @@ function __captureEmnapiAutoDestroyListener(__process) {
   }
 }
 
+function __attachCleanupError(__error, __cleanupError) {
+  try {
+    if (
+      __error &&
+      (typeof __error === 'object' || typeof __error === 'function') &&
+      __error.cause === undefined
+    ) {
+      __error.cause = __cleanupError
+    }
+  } catch {}
+}
+
 const __managedEmnapiContextDestroyers = new Set()
 let __managedCleanupProcess
 let __managedBeforeExitListener
@@ -239,7 +251,7 @@ function __registerManagedEmnapiContext(__process, __destroy) {
   }
 }
 
-async function __createManagedEmnapiContext(__beforeExitDestroy) {
+async function __createManagedEmnapiContext() {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -257,6 +269,7 @@ async function __createManagedEmnapiContext(__beforeExitDestroy) {
   }
   let __disposed = false
   let __destroyPromise
+  let __cleanupRegistered = false
   let __unregisterCleanup
   const __destroy = () => {
     if (__disposed) {
@@ -286,33 +299,29 @@ async function __createManagedEmnapiContext(__beforeExitDestroy) {
     __unregisterCleanup?.()
     return __result
   }
-  try {
-    __unregisterCleanup = __registerManagedEmnapiContext(
-      __process,
-      __beforeExitDestroy ?? __destroy,
-    )
-  } catch (error) {
-    try {
-      await __destroy()
-    } catch (disposeError) {
-      try {
-        if (
-          error &&
-          (typeof error === 'object' || typeof error === 'function') &&
-          error.cause === undefined
-        ) {
-          error.cause = disposeError
-        }
-      } catch {}
+  const __registerCleanup = async (__beforeExitDestroy = __destroy) => {
+    if (__cleanupRegistered || __disposed) {
+      return
     }
-    throw error
+    try {
+      __unregisterCleanup = __registerManagedEmnapiContext(
+        __process,
+        __beforeExitDestroy,
+      )
+      __cleanupRegistered = true
+    } catch (error) {
+      try {
+        await __destroy()
+      } catch (disposeError) {
+        __attachCleanupError(error, disposeError)
+      }
+      throw error
+    }
   }
   return {
     context: __emnapiContext,
     destroy: __destroy,
-    unregisterCleanup() {
-      __unregisterCleanup?.()
-    },
+    registerCleanup: __registerCleanup,
   }
 }
 
@@ -331,17 +340,26 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
     initial: 16384,
     maximum: 65536,
   })
-  let __initialized = false
+  let __lifecycleState = 'pending'
   let __destroyEmnapiContext
   const __destroyBeforeExit = __beforeExitDestroy
-    ? () => (__initialized ? __beforeExitDestroy() : __destroyEmnapiContext())
+    ? () => {
+        if (__lifecycleState === 'failed') {
+          return __destroyEmnapiContext()
+        }
+        __lifecycleState = 'disposal'
+        return __beforeExitDestroy()
+      }
     : undefined
   const {
     context: __emnapiContext,
     destroy,
-    unregisterCleanup: __unregisterCleanup,
-  } = await __createManagedEmnapiContext(__destroyBeforeExit)
+    registerCleanup: __registerCleanup,
+  } = await __createManagedEmnapiContext()
   __destroyEmnapiContext = destroy
+  if (__destroyBeforeExit) {
+    await __registerCleanup(__destroyBeforeExit)
+  }
   try {
     __emnapiContext.feature.Buffer = Buffer
     const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
@@ -368,11 +386,8 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
         },
       },
     )
-    __initialized = true
-    if (!__beforeExitDestroy) {
-      // Independent instances are explicitly owned by their caller. Keep the
-      // returned exports live across resumable beforeExit cycles.
-      __unregisterCleanup()
+    if (__lifecycleState === 'pending') {
+      __lifecycleState = 'succeeded'
     }
     for (const name of unsupportedWasiFunctions) {
       if (__napiModule.exports[name] === undefined) {
@@ -385,25 +400,31 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
     return {
       exports: __napiModule.exports,
       dispose() {
+        if (__lifecycleState !== 'failed') {
+          __lifecycleState = 'disposal'
+        }
         return __destroyEmnapiContext()
       },
     }
   } catch (error) {
+    __lifecycleState = 'failed'
+    if (!__beforeExitDestroy) {
+      try {
+        // Independent instances are caller-owned while pending and after
+        // success. Register only failed rollback so cleanup remains retryable.
+        await __registerCleanup()
+      } catch (registrationError) {
+        __attachCleanupError(error, registrationError)
+        throw error
+      }
+    }
     try {
       await __destroyEmnapiContext()
     } catch (disposeError) {
       // Initialization is the primary failure. Preserve it even if cleanup
       // also fails, while retaining the cleanup error when the value is
       // extensible and has no existing cause.
-      try {
-        if (
-          error &&
-          (typeof error === 'object' || typeof error === 'function') &&
-          error.cause === undefined
-        ) {
-          error.cause = disposeError
-        }
-      } catch {}
+      __attachCleanupError(error, disposeError)
     }
     throw error
   }

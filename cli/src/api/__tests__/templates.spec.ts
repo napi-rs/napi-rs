@@ -2201,7 +2201,7 @@ main().catch((error) => {
 )
 
 test.serial(
-  'deferred WASI binding shares, disposes, and isolates instances',
+  'deferred WASI binding shares, disposes, isolates, and orders beforeExit initialization',
   async (t) => {
     const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
     const tmpDir = await mkdtemp(
@@ -2614,16 +2614,62 @@ export async function instantiateNapiModule(module, options) {
       }
       t.is(state.destroyed.length, destroyedBeforeRepeatedInstances + 20)
 
-      const beforeExitSingleton = await instantiate(moduleA)
-      const [beforeExitListener] = process
+      let releaseSingletonInitialization!: () => void
+      state.initializationGate = new Promise<void>((resolve) => {
+        releaseSingletonInitialization = resolve
+      })
+      const pendingSingletonInstanceId = state.instances + 1
+      const pendingSingletonContextId = state.contexts + 1
+      const pendingBeforeExitSingleton = instantiate(moduleA)
+      while (state.instances < pendingSingletonInstanceId) {
+        await Promise.resolve()
+      }
+      const [pendingSingletonBeforeExitListener] = process
         .rawListeners('beforeExit')
         .filter((listener) => !initialBeforeExitListeners.has(listener))
-      t.truthy(beforeExitListener)
-      beforeExitListener(0)
-      const replacementAfterBeforeExit = await instantiate(moduleA)
-      t.not(replacementAfterBeforeExit, beforeExitSingleton)
+      t.truthy(pendingSingletonBeforeExitListener)
+      pendingSingletonBeforeExitListener(0)
+      t.false(state.destroyed.includes(pendingSingletonContextId))
+      const replacementAfterPendingBeforeExit = instantiate(moduleA)
+      t.is(state.instances, pendingSingletonInstanceId)
+      state.initializationGate = undefined
+      releaseSingletonInitialization()
+      const initializedDuringBeforeExit = await pendingBeforeExitSingleton
+      const replacementAfterBeforeExit = await replacementAfterPendingBeforeExit
+      t.is(initializedDuringBeforeExit.id, pendingSingletonInstanceId)
+      t.not(replacementAfterBeforeExit, initializedDuringBeforeExit)
+      t.true(state.destroyed.includes(pendingSingletonContextId))
+      t.false(state.destroyed.includes(pendingSingletonContextId + 1))
       await dispose()
       t.is(countOwnedBeforeExitListeners(), 0)
+
+      await instantiate(moduleA)
+      let releaseIndependentInitialization!: () => void
+      state.initializationGate = new Promise<void>((resolve) => {
+        releaseIndependentInitialization = resolve
+      })
+      const pendingIndependentInstanceId = state.instances + 1
+      const pendingIndependentContextId = state.contexts + 1
+      const pendingIndependent = createInstance(moduleB)
+      while (state.instances < pendingIndependentInstanceId) {
+        await Promise.resolve()
+      }
+      const [independentBeforeExitListener] = process
+        .rawListeners('beforeExit')
+        .filter((listener) => !initialBeforeExitListeners.has(listener))
+      t.truthy(independentBeforeExitListener)
+      independentBeforeExitListener(0)
+      t.false(state.destroyed.includes(pendingIndependentContextId))
+      const singletonDisposal = dispose()
+      state.initializationGate = undefined
+      releaseIndependentInitialization()
+      await singletonDisposal
+      const independentAfterBeforeExit = await pendingIndependent
+      t.is(independentAfterBeforeExit.exports.id, pendingIndependentInstanceId)
+      t.false(state.destroyed.includes(pendingIndependentContextId))
+      t.is(countOwnedBeforeExitListeners(), 0)
+      await independentAfterBeforeExit.dispose()
+      t.true(state.destroyed.includes(pendingIndependentContextId))
     } finally {
       ;(WebAssembly as any).Memory = originalMemory
       for (const listener of process.rawListeners('beforeExit')) {

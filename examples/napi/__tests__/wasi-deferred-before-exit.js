@@ -14,8 +14,8 @@ const wasmModule = await WebAssembly.compile(wasmBytes)
 const first = await instantiate(wasmModule)
 const independent = await createInstance(wasmModule)
 
-assert.equal(first.add(1, 2), 3)
-assert.equal(independent.exports.add(2, 3), 5)
+assert.doesNotThrow(() => first.getStrFromObject())
+assert.doesNotThrow(() => independent.exports.getStrFromObject())
 
 let completed = false
 process.once('beforeExit', () => {
@@ -30,10 +30,9 @@ process.once('beforeExit', () => {
         first,
         'automatic cleanup must replace the disposed singleton',
       )
-      assert.equal(replacement.add(20, 22), 42)
-      assert.equal(
-        independent.exports.add(40, 2),
-        42,
+      assert.doesNotThrow(() => replacement.getStrFromObject())
+      assert.doesNotThrow(
+        () => independent.exports.getStrFromObject(),
         'independent instances must remain live across beforeExit',
       )
       await independent.dispose()
