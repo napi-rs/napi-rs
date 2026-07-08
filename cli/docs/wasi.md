@@ -95,6 +95,15 @@ enabled. Intentionally untyped packages expose it as
 `Record<string, unknown>`, so strict TypeScript consumers can use the lifecycle
 API without a broken import of the declaration-less root package.
 
+The eager CommonJS WASI loader keeps its emnapi context alive for the process
+lifetime. Node.js can emit `beforeExit` repeatedly when a listener schedules
+more work, and cached eager exports must remain usable after every such cycle.
+At the actual `exit` event, the loader makes one synchronous best-effort
+`Context.destroy()` call so emnapi's synchronous cleanup queue can run.
+Consumers that need deterministic cleanup before process exit should use the
+deferred loader and call its `dispose()` function, or the `dispose` returned by
+`createInstance()`.
+
 When type generation is disabled, the generated browser root exposes the
 binding as its default export. `napi new` also removes the template's
 `index.d.ts` and declaration metadata instead of publishing stale template

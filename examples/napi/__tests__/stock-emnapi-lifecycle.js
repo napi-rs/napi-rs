@@ -6,13 +6,11 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { setTimeout as delay } from 'node:timers/promises'
 
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const exampleDirectory = join(__dirname, '..')
 const loaderSuffix = process.argv[2]
-const operationTimeout = 10_000
 const childMode = process.argv[3] === '--isolated-child'
 
 assert.ok(
@@ -39,51 +37,28 @@ async function copyPackage(specifier, destination) {
   await cp(packageRoot(specifier), destination, { recursive: true })
 }
 
-async function waitForResult(path, description) {
-  const deadline = Date.now() + operationTimeout
-  let lastError
-  while (Date.now() < deadline) {
-    try {
-      return await readFile(path, 'utf8')
-    } catch (error) {
-      lastError = error
-      await delay(10)
-    }
-  }
-  throw new Error(`timed out waiting for ${description}`, { cause: lastError })
-}
-
 async function runIsolatedLifecycle(directory) {
   const loaderName = `example.${loaderSuffix}.cjs`
   const loaderPath = join(directory, loaderName)
-  const cleanupPath = join(directory, 'cleanup')
-  const asyncCleanupPath = join(directory, 'async-cleanup')
   const isolatedRequire = createRequire(loaderPath)
   const resolvedLoaderPath = isolatedRequire.resolve(loaderPath)
   const emnapiRuntime = isolatedRequire('@emnapi/runtime')
   const originalCreateContext = emnapiRuntime.createContext
-  let destroyCompletions = 0
+  const initialBeforeExitListeners = new Set(process.rawListeners('beforeExit'))
+  const initialExitListeners = new Set(process.rawListeners('exit'))
+  let destroyCalls = 0
 
   assert.equal(isolatedRequire('@emnapi/runtime').version, '1.11.2')
   assert.equal(isolatedRequire('@emnapi/core').version, '1.11.2')
 
-  function loadFresh() {
-    delete isolatedRequire.cache[resolvedLoaderPath]
+  function load() {
     const contexts = []
     emnapiRuntime.createContext = function captureContext(...args) {
       const context = Reflect.apply(originalCreateContext, this, args)
       const originalDestroy = context.destroy
-      let destroyPromise
-      context.destroy = function delayedDestroy(...destroyArgs) {
-        if (!destroyPromise) {
-          destroyPromise = delay(50)
-            .then(() => Reflect.apply(originalDestroy, this, destroyArgs))
-            .then((result) => {
-              destroyCompletions += 1
-              return result
-            })
-        }
-        return destroyPromise
+      context.destroy = function capturedDestroy(...destroyArgs) {
+        destroyCalls += 1
+        return Reflect.apply(originalDestroy, this, destroyArgs)
       }
       contexts.push(context)
       return context
@@ -98,34 +73,41 @@ async function runIsolatedLifecycle(directory) {
     return binding
   }
 
-  const first = loadFresh()
-  assert.equal(first.add(1, 2), 3)
-  first.registerEnvCleanupRuntimeLifecycleProbes(cleanupPath, asyncCleanupPath)
+  const binding = load()
+  assert.equal(binding.add(1, 2), 3)
+  binding.registerEnvCleanupRuntimeLifecycleProbes(
+    join(directory, 'cleanup'),
+    join(directory, 'async-cleanup'),
+  )
+  assert.equal(
+    process
+      .rawListeners('beforeExit')
+      .filter((listener) => !initialBeforeExitListeners.has(listener)).length,
+    0,
+  )
+  assert.equal(
+    process
+      .rawListeners('exit')
+      .filter((listener) => !initialExitListeners.has(listener)).length,
+    1,
+  )
 
-  process.once('beforeExit', () => {
-    void (async () => {
-      assert.equal(await waitForResult(cleanupPath, 'sync cleanup result'), '0')
-      assert.equal(
-        await waitForResult(asyncCleanupPath, 'async cleanup result'),
-        '0',
-      )
-      assert.equal(destroyCompletions, 1)
-
-      const replacement = loadFresh()
-      assert.equal(replacement.add(2, 3), 5)
-      process.once('exit', () => {
-        assert.equal(
-          destroyCompletions,
-          2,
-          'replacement context must finish delayed cleanup on a later beforeExit pass',
-        )
-        process.stdout.write(`stock emnapi lifecycle passed: ${loaderSuffix}\n`)
-      })
-    })().catch((error) => {
-      setImmediate(() => {
-        throw error
-      })
+  let completedCycles = 0
+  const resumeWork = () => {
+    const cycle = completedCycles + 1
+    setImmediate(() => {
+      assert.equal(binding.add(cycle, 40), cycle + 40)
+      completedCycles = cycle
+      if (completedCycles === 3) {
+        process.removeListener('beforeExit', resumeWork)
+      }
     })
+  }
+  process.on('beforeExit', resumeWork)
+  process.once('exit', () => {
+    assert.equal(completedCycles, 3)
+    assert.equal(destroyCalls, 1)
+    process.stdout.write(`stock emnapi lifecycle passed: ${loaderSuffix}\n`)
   })
 }
 
@@ -201,6 +183,8 @@ if (childMode) {
     assert.equal(result.signal, null, output)
     assert.equal(result.status, 0, output)
     assert.match(result.stdout, /stock emnapi lifecycle passed/)
+    assert.equal(await readFile(join(directory, 'cleanup'), 'utf8'), '0')
+    assert.equal(await readFile(join(directory, 'async-cleanup'), 'utf8'), '0')
     process.stdout.write(result.stdout)
   } finally {
     await rm(directory, { recursive: true, force: true })

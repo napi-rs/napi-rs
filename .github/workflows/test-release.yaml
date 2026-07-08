@@ -1122,15 +1122,19 @@ jobs:
           yarn workspace @examples/napi build --target x86_64-unknown-linux-gnu --release
       - name: Test
         run: node examples/custom-async-runtime/test.mjs wasi
-      - name: Test public Buffer API
-        run: yarn workspace @examples/napi test __tests__/wasi-buffer-public-api.spec.ts
+      - name: Test public Buffer and deferred lifecycle APIs
+        run: |
+          yarn workspace @examples/napi test \
+            __tests__/wasi-buffer-public-api.spec.ts \
+            __tests__/wasi-deferred-before-exit.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface
         run: |
           yarn workspace @examples/napi test \
             __tests__/lifecycle-public-surface.spec.ts \
-            __tests__/stock-emnapi-lifecycle.spec.ts
+            __tests__/stock-emnapi-lifecycle.spec.ts \
+            __tests__/wasi-eager-before-exit.spec.ts
         env:
           WASI_TEST: 'true'
           NAPI_RS_WASI_FLAVOR: wasm32-wasip1

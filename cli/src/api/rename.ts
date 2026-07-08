@@ -19,15 +19,9 @@ import {
 
 const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
 
-function createManagedWasiRenames(
-  oldName: string,
-  newName: string,
-  targets: Target[],
-) {
-  const renames = new Map<string, string>()
-  const add = (suffix: string) => {
-    renames.set(`${oldName}.${suffix}`, `${newName}.${suffix}`)
-  }
+function createManagedWasiFiles(binaryName: string, targets: Target[]) {
+  const files = new Set<string>()
+  const add = (suffix: string) => files.add(`${binaryName}.${suffix}`)
   const wasiTargets = targets.filter((target) => target.platform === 'wasi')
   const flavors =
     wasiTargets.length > 0
@@ -64,7 +58,38 @@ function createManagedWasiRenames(
 
   add('wasm')
   add('debug.wasm')
+  return files
+}
+
+function createManagedWasiRenames(
+  oldName: string,
+  newName: string,
+  targets: Target[],
+) {
+  const renames = new Map<string, string>()
+  for (const oldFile of createManagedWasiFiles(oldName, targets)) {
+    renames.set(oldFile, `${newName}${oldFile.slice(oldName.length)}`)
+  }
   return renames
+}
+
+function createManagedPackageRenames(
+  oldPackageName: string,
+  newPackageName: string,
+  targets: Target[],
+) {
+  return new Map(
+    targets.map((target) => [
+      `${oldPackageName}-${target.platformArchABI}`,
+      `${newPackageName}-${target.platformArchABI}`,
+    ]),
+  )
+}
+
+function mergeManagedRenames(
+  ...renameMaps: Array<Map<string, string>>
+): Map<string, string> {
+  return new Map(renameMaps.flatMap((renames) => [...renames]))
 }
 
 function replaceManagedWasiReferences(
@@ -107,6 +132,29 @@ async function rewriteManagedWasiReferences(
   const updated = replaceManagedWasiReferences(content, renames)
   if (updated !== content) {
     await writeFileAsync(path, updated)
+  }
+}
+
+function managedPackageReadme(packageName: string, target: Target) {
+  return `# \`${packageName}-${target.platformArchABI}\`
+
+This is the **${target.triple}** binary for \`${packageName}\`
+`
+}
+
+async function rewriteManagedPackageReadme(
+  directory: string,
+  oldPackageName: string,
+  newPackageName: string,
+  target: Target,
+) {
+  const path = join(directory, 'README.md')
+  if (!existsSync(path)) {
+    return
+  }
+  const content = await readFileAsync(path, 'utf8')
+  if (content === managedPackageReadme(oldPackageName, target)) {
+    await writeFileAsync(path, managedPackageReadme(newPackageName, target))
   }
 }
 
@@ -153,6 +201,9 @@ export async function renameProject(userOptions: RenameOptions) {
   const options = applyDefaultRenameOptions(userOptions)
   const napiConfig = await readConfig(options)
   const oldName = napiConfig.binaryName
+  const oldPackageName = napiConfig.packageName
+  const newName = options.binaryName ?? oldName
+  const newPackageName = options.packageName ?? oldPackageName
   const managedWasiRenames =
     options.binaryName && oldName !== options.binaryName
       ? createManagedWasiRenames(
@@ -161,6 +212,18 @@ export async function renameProject(userOptions: RenameOptions) {
           napiConfig.targets,
         )
       : new Map<string, string>()
+  const managedPackageRenames =
+    options.packageName && oldPackageName !== options.packageName
+      ? createManagedPackageRenames(
+          oldPackageName,
+          options.packageName,
+          napiConfig.targets,
+        )
+      : new Map<string, string>()
+  const managedReferenceRenames = mergeManagedRenames(
+    managedWasiRenames,
+    managedPackageRenames,
+  )
 
   const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
   const cargoTomlPath = resolve(options.cwd, options.manifestPath)
@@ -221,7 +284,7 @@ export async function renameProject(userOptions: RenameOptions) {
     packageJsonPath,
     replaceManagedWasiReferences(
       JSON.stringify(packageJsonData, null, 2),
-      managedWasiRenames,
+      managedReferenceRenames,
     ),
   )
 
@@ -243,7 +306,7 @@ export async function renameProject(userOptions: RenameOptions) {
   const updatedTomlContent = stringifyToml(cargoToml)
 
   await writeFileAsync(cargoTomlPath, updatedTomlContent)
-  if (options.binaryName && oldName !== options.binaryName) {
+  if (managedWasiRenames.size > 0) {
     const githubActionsPath = find.dir('.github', {
       cwd: options.cwd,
     })
@@ -272,7 +335,9 @@ export async function renameProject(userOptions: RenameOptions) {
         }
       }
     }
+  }
 
+  if (managedReferenceRenames.size > 0) {
     const managedRootEntryNames = new Set<string>()
     for (const field of ['main', 'module', 'browser', 'types'] as const) {
       const entry = packageJsonData[field]
@@ -280,7 +345,7 @@ export async function renameProject(userOptions: RenameOptions) {
         managedRootEntryNames.add(entry)
       }
     }
-    for (const oldFile of managedWasiRenames.keys()) {
+    for (const oldFile of createManagedWasiFiles(oldName, napiConfig.targets)) {
       if (!oldFile.endsWith('.cjs')) {
         continue
       }
@@ -294,29 +359,44 @@ export async function renameProject(userOptions: RenameOptions) {
       }
     }
 
-    const managedDirectories = new Set([options.cwd])
-    for (const target of napiConfig.targets) {
-      if (target.platform === 'wasi') {
-        managedDirectories.add(
-          resolve(options.cwd, options.npmDir, target.platformArchABI),
-        )
-      }
+    await renameManagedWasiFiles(options.cwd, managedWasiRenames)
+    for (const file of createManagedWasiFiles(newName, napiConfig.targets)) {
+      await rewriteManagedWasiReferences(
+        join(options.cwd, file),
+        managedReferenceRenames,
+      )
     }
-    for (const directory of managedDirectories) {
+
+    for (const target of napiConfig.targets) {
+      const directory = resolve(
+        options.cwd,
+        options.npmDir,
+        target.platformArchABI,
+      )
       if (!existsSync(directory)) {
         continue
       }
-      await renameManagedWasiFiles(directory, managedWasiRenames)
-      for (const newFile of managedWasiRenames.values()) {
-        await rewriteManagedWasiReferences(
-          join(directory, newFile),
-          managedWasiRenames,
-        )
+      if (target.platform === 'wasi') {
+        await renameManagedWasiFiles(directory, managedWasiRenames)
+        for (const file of createManagedWasiFiles(newName, [target])) {
+          await rewriteManagedWasiReferences(
+            join(directory, file),
+            managedReferenceRenames,
+          )
+        }
       }
       await rewriteManagedWasiReferences(
         join(directory, 'package.json'),
-        managedWasiRenames,
+        managedReferenceRenames,
       )
+      if (managedPackageRenames.size > 0) {
+        await rewriteManagedPackageReadme(
+          directory,
+          oldPackageName,
+          newPackageName,
+          target,
+        )
+      }
     }
 
     for (const entry of managedRootEntryNames) {
@@ -325,11 +405,13 @@ export async function renameProject(userOptions: RenameOptions) {
         replaceManagedWasiReferences(entry, managedWasiRenames),
       )
       if (path) {
-        await rewriteManagedWasiReferences(path, managedWasiRenames)
+        await rewriteManagedWasiReferences(path, managedReferenceRenames)
       }
     }
 
-    const gitAttributesPath = join(options.cwd, '.gitattributes')
-    await rewriteManagedWasiReferences(gitAttributesPath, managedWasiRenames)
+    if (managedWasiRenames.size > 0) {
+      const gitAttributesPath = join(options.cwd, '.gitattributes')
+      await rewriteManagedWasiReferences(gitAttributesPath, managedWasiRenames)
+    }
   }
 }

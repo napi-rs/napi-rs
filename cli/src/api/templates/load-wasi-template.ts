@@ -852,6 +852,7 @@ try {
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiContextRegisteredForBeforeExit = false
+let __emnapiContextRegisteredForExit = false
 
 function __destroyEmnapiContext() {
   if (__emnapiContextDestroyed) {
@@ -880,7 +881,7 @@ function __destroyEmnapiContext() {
   return __result
 }
 
-function __removeEmnapiContextCleanupListeners() {
+function __removeEmnapiContextBeforeExitListener() {
   if (__emnapiContextRegisteredForBeforeExit) {
     try {
       process.removeListener('beforeExit', __destroyEmnapiContextBeforeExit)
@@ -889,10 +890,27 @@ function __removeEmnapiContextCleanupListeners() {
   }
 }
 
+function __removeEmnapiContextCleanupListeners() {
+  __removeEmnapiContextBeforeExitListener()
+  if (__emnapiContextRegisteredForExit) {
+    try {
+      process.removeListener('exit', __destroyEmnapiContextAtExit)
+    } catch {}
+    __emnapiContextRegisteredForExit = false
+  }
+}
+
 function __registerEmnapiContextBeforeExit() {
   if (!__emnapiContextRegisteredForBeforeExit) {
     process.once('beforeExit', __destroyEmnapiContextBeforeExit)
     __emnapiContextRegisteredForBeforeExit = true
+  }
+}
+
+function __registerEmnapiContextAtExit() {
+  if (!__emnapiContextRegisteredForExit) {
+    process.once('exit', __destroyEmnapiContextAtExit)
+    __emnapiContextRegisteredForExit = true
   }
 }
 
@@ -927,6 +945,16 @@ function __destroyEmnapiContextBeforeExit() {
   } else {
     __removeEmnapiContextCleanupListeners()
   }
+}
+
+function __destroyEmnapiContextAtExit() {
+  __emnapiContextRegisteredForExit = false
+  try {
+    const __result = __destroyEmnapiContext()
+    if (__result && typeof __result.then === 'function') {
+      void Promise.resolve(__result).catch(() => {})
+    }
+  } catch {}
 }
 
 function __attachCleanupError(__error, __cleanupError) {
@@ -1000,6 +1028,16 @@ ${workerOption}\
       }
     },
   }))
+  // CommonJS can retain these eager exports in its module cache across any
+  // number of beforeExit work-resumption cycles. Node provides no terminal
+  // beforeExit signal, so a successfully initialized context must remain live
+  // until exit. Context.destroy() is synchronous in emnapi's public contract,
+  // so terminal cleanup hooks still get a best-effort invocation. A
+  // nonconforming thenable cannot be awaited from exit, but is marked handled.
+  __removeEmnapiContextBeforeExitListener()
+  try {
+    __registerEmnapiContextAtExit()
+  } catch {}
 } catch (__error) {
   let __cleanupResult
   let __cleanupFailed = false

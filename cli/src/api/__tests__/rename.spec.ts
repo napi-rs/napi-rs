@@ -1,14 +1,19 @@
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import ava, { type TestFn } from 'ava'
+import ava, { type ExecutionContext, type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
+import { createWasmModuleTypeDef } from '../../utils/index.js'
+import { prePublish } from '../pre-publish.js'
 import { renameProject } from '../rename.js'
 
 const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
+const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
+const MINIMAL_WASM = Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -83,6 +88,280 @@ async function listFiles(directory: string, prefix = ''): Promise<string[]> {
     }
   }
   return files
+}
+
+async function createPackageIdentityFixture(
+  cwd: string,
+  binaryName: string,
+  packageName: string,
+) {
+  const targets = [
+    {
+      platformArchABI: 'wasm32-wasi',
+      triple: 'wasm32-wasip1-threads',
+      loaderSuffix: 'wasi',
+      threaded: true,
+    },
+    {
+      platformArchABI: 'wasm32-wasip1',
+      triple: 'wasm32-wasip1',
+      loaderSuffix: 'wasip1',
+      threaded: false,
+    },
+  ]
+  const facadePrefix = `${binaryName}.wasm32-wasip1`
+  const facadeFiles = [
+    `${facadePrefix}.workerd.mjs`,
+    `${facadePrefix}.workerd.d.mts`,
+    `${facadePrefix}.wasm`,
+    `${facadePrefix}.wasm.d.mts`,
+  ]
+  const flavorPackage = `${packageName}-wasm32-wasip1`
+  const facadeMarker = `${WASI_ROOT_FACADE_MARKER_PREFIX}${JSON.stringify({
+    version: 1,
+    flavorPackage,
+    wasmSha256: createHash('sha256').update(MINIMAL_WASM).digest('hex'),
+  })}`
+  const facadeForwarder = `export * from ${JSON.stringify(`${flavorPackage}/workerd`)}\n`
+
+  await mkdir(cwd, { recursive: true })
+  await writeFile(
+    join(cwd, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'rename-fixture-root',
+        version: '1.0.0',
+        main: 'index.cjs',
+        browser: 'browser.js',
+        types: 'index.d.cts',
+        files: ['index.cjs', 'browser.js', 'index.d.cts', ...facadeFiles],
+        exports: {
+          '.': {
+            types: './index.d.cts',
+            browser: './browser.js',
+            require: './index.cjs',
+            default: './index.cjs',
+          },
+          './workerd': {
+            types: `./${facadePrefix}.workerd.d.mts`,
+            default: `./${facadePrefix}.workerd.mjs`,
+          },
+          './wasm': {
+            types: `./${facadePrefix}.wasm.d.mts`,
+            default: `./${facadePrefix}.wasm`,
+          },
+          './wasm.wasm': {
+            types: `./${facadePrefix}.wasm.d.mts`,
+            default: `./${facadePrefix}.wasm`,
+          },
+        },
+        optionalDependencies: Object.fromEntries(
+          targets.map((target) => [
+            `${packageName}-${target.platformArchABI}`,
+            '1.0.0',
+          ]),
+        ),
+        napi: {
+          binaryName,
+          packageName,
+          targets: targets.map((target) => target.triple),
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  await writeFile(
+    join(cwd, 'Cargo.toml'),
+    `[package]\nname = "${binaryName}"\n`,
+  )
+  await writeFile(
+    join(cwd, 'index.cjs'),
+    targets
+      .map(
+        (target) =>
+          `require.resolve(${JSON.stringify(`${packageName}-${target.platformArchABI}`)})`,
+      )
+      .join('\n'),
+  )
+  await writeFile(
+    join(cwd, 'browser.js'),
+    `export * from ${JSON.stringify(`${packageName}-wasm32-wasip1`)}\n`,
+  )
+  await writeFile(
+    join(cwd, 'index.d.cts'),
+    'export declare const value: true\n',
+  )
+  await writeFile(
+    join(cwd, `${facadePrefix}.workerd.mjs`),
+    `${facadeMarker}\n${facadeForwarder}`,
+  )
+  await writeFile(
+    join(cwd, `${facadePrefix}.workerd.d.mts`),
+    `${facadeMarker}\n${facadeForwarder}`,
+  )
+  await writeFile(join(cwd, `${facadePrefix}.wasm`), MINIMAL_WASM)
+  await writeFile(
+    join(cwd, `${facadePrefix}.wasm.d.mts`),
+    `${facadeMarker}\n${createWasmModuleTypeDef()}`,
+  )
+
+  for (const target of targets) {
+    const directory = join(cwd, 'npm', target.platformArchABI)
+    await mkdir(directory, { recursive: true })
+    const artifact = `${binaryName}.${target.platformArchABI}.wasm`
+    const loader = `${binaryName}.${target.loaderSuffix}.cjs`
+    const types = `${binaryName}.${target.loaderSuffix}.d.cts`
+    const browser = `${binaryName}.${target.loaderSuffix}-browser.js`
+    const files = [artifact, loader, types, browser]
+    const manifest: Record<string, unknown> = {
+      name: `${packageName}-${target.platformArchABI}`,
+      version: '1.0.0',
+      type: 'module',
+      main: loader,
+      types,
+      browser,
+      files,
+    }
+    if (target.threaded) {
+      files.push('wasi-worker.mjs', 'wasi-worker-browser.mjs')
+    } else {
+      const deferred = `${binaryName}.${target.loaderSuffix}-deferred.js`
+      const deferredTypes = `${binaryName}.${target.loaderSuffix}-deferred.d.ts`
+      const wasmTypes = `${artifact}.d.ts`
+      files.push(deferred, deferredTypes, wasmTypes)
+      manifest.exports = {
+        '.': {
+          types: `./${types}`,
+          browser: `./${browser}`,
+          require: `./${loader}`,
+          default: `./${loader}`,
+        },
+        './workerd': {
+          types: `./${deferredTypes}`,
+          default: `./${deferred}`,
+        },
+        './wasm': {
+          types: `./${wasmTypes}`,
+          default: `./${artifact}`,
+        },
+        './wasm.wasm': {
+          types: `./${wasmTypes}`,
+          default: `./${artifact}`,
+        },
+        './package.json': './package.json',
+      }
+    }
+    await writeFile(
+      join(directory, 'package.json'),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    )
+    await writeFile(
+      join(directory, 'README.md'),
+      `# \`${packageName}-${target.platformArchABI}\`\n\nThis is the **${target.triple}** binary for \`${packageName}\`\n`,
+    )
+    await writeFile(join(directory, artifact), MINIMAL_WASM)
+    await writeFile(
+      join(directory, loader),
+      `module.exports = require(${JSON.stringify(`${packageName}-${target.platformArchABI}`)})\n`,
+    )
+    await writeFile(
+      join(directory, types),
+      'declare const binding: Record<string, unknown>\nexport = binding\n',
+    )
+    await writeFile(
+      join(directory, browser),
+      `export * from ${JSON.stringify(`${packageName}-${target.platformArchABI}`)}\n`,
+    )
+    if (target.threaded) {
+      await writeFile(join(directory, 'wasi-worker.mjs'), 'export {}\n')
+      await writeFile(join(directory, 'wasi-worker-browser.mjs'), 'export {}\n')
+    } else {
+      await writeFile(
+        join(directory, `${binaryName}.${target.loaderSuffix}-deferred.js`),
+        'export async function instantiate() {}\n',
+      )
+      await writeFile(
+        join(directory, `${binaryName}.${target.loaderSuffix}-deferred.d.ts`),
+        `export type WasiBinding = typeof import('./${loader}')\n`,
+      )
+      await writeFile(
+        join(directory, `${artifact}.d.ts`),
+        createWasmModuleTypeDef(),
+      )
+    }
+  }
+}
+
+async function assertPackageIdentityFixture(
+  t: ExecutionContext,
+  cwd: string,
+  oldBinaryName: string,
+  oldPackageName: string,
+  binaryName: string,
+  packageName: string,
+) {
+  const rootManifest = JSON.parse(
+    await readFile(join(cwd, 'package.json'), 'utf8'),
+  )
+  t.is(rootManifest.napi.binaryName, binaryName)
+  t.is(rootManifest.napi.packageName, packageName)
+  t.deepEqual(rootManifest.optionalDependencies, {
+    [`${packageName}-wasm32-wasi`]: '1.0.0',
+    [`${packageName}-wasm32-wasip1`]: '1.0.0',
+  })
+
+  for (const [platformArchABI, triple, loaderSuffix] of [
+    ['wasm32-wasi', 'wasm32-wasip1-threads', 'wasi'],
+    ['wasm32-wasip1', 'wasm32-wasip1', 'wasip1'],
+  ]) {
+    const directory = join(cwd, 'npm', platformArchABI)
+    const manifest = JSON.parse(
+      await readFile(join(directory, 'package.json'), 'utf8'),
+    )
+    const flavorPackage = `${packageName}-${platformArchABI}`
+    const loader = `${binaryName}.${loaderSuffix}.cjs`
+    t.is(manifest.name, flavorPackage)
+    t.is(manifest.main, loader)
+    t.is(
+      await readFile(join(directory, 'README.md'), 'utf8'),
+      `# \`${flavorPackage}\`\n\nThis is the **${triple}** binary for \`${packageName}\`\n`,
+    )
+    const loaderSource = await readFile(join(directory, loader), 'utf8')
+    t.true(loaderSource.includes(flavorPackage))
+    t.false(loaderSource.includes(oldPackageName))
+    t.true(existsSync(join(directory, `${binaryName}.${platformArchABI}.wasm`)))
+    if (binaryName !== oldBinaryName) {
+      t.false(
+        existsSync(join(directory, `${oldBinaryName}.${platformArchABI}.wasm`)),
+      )
+    }
+  }
+
+  for (const entry of ['index.cjs', 'browser.js']) {
+    const source = await readFile(join(cwd, entry), 'utf8')
+    t.true(source.includes(packageName))
+    t.false(source.includes(oldPackageName))
+  }
+  const facadePrefix = `${binaryName}.wasm32-wasip1`
+  const facadeSource = await readFile(
+    join(cwd, `${facadePrefix}.workerd.mjs`),
+    'utf8',
+  )
+  t.true(facadeSource.includes(`${packageName}-wasm32-wasip1/workerd`))
+  t.false(facadeSource.includes(oldPackageName))
+  if (binaryName !== oldBinaryName) {
+    t.false(existsSync(join(cwd, `${oldBinaryName}.wasm32-wasip1.workerd.mjs`)))
+  }
+
+  await t.notThrowsAsync(() =>
+    prePublish({
+      cwd,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
 }
 
 test('omitting binaryName keeps existing wasi artifact names and binary references', async (t) => {
@@ -358,4 +637,50 @@ test('binaryName renames every configured WASI artifact and package reference', 
       t.false(content.includes(oldFile), `${file}: ${oldFile}`)
     }
   }
+})
+
+test('packageName independently renames every flavor package identity and loader reference', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'package-identity-rename')
+  const binaryName = 'fixture'
+  const oldPackageName = '@old-scope/original'
+  const newPackageName = '@new-scope/renamed'
+
+  await createPackageIdentityFixture(projectPath, binaryName, oldPackageName)
+  await renameProject({
+    cwd: projectPath,
+    packageName: newPackageName,
+  })
+
+  await assertPackageIdentityFixture(
+    t,
+    projectPath,
+    binaryName,
+    oldPackageName,
+    binaryName,
+    newPackageName,
+  )
+})
+
+test('combined scoped package and binary rename keeps every WASI flavor publishable', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'combined-wasi-rename')
+  const oldBinaryName = 'fixture'
+  const newBinaryName = 'renamed'
+  const oldPackageName = '@old-scope/original'
+  const newPackageName = '@new-scope/renamed'
+
+  await createPackageIdentityFixture(projectPath, oldBinaryName, oldPackageName)
+  await renameProject({
+    cwd: projectPath,
+    binaryName: newBinaryName,
+    packageName: newPackageName,
+  })
+
+  await assertPackageIdentityFixture(
+    t,
+    projectPath,
+    oldBinaryName,
+    oldPackageName,
+    newBinaryName,
+    newPackageName,
+  )
 })

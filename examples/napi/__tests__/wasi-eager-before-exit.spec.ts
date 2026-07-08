@@ -10,11 +10,11 @@ const wasiLoaderSuffix =
   process.env.NAPI_RS_WASI_FLAVOR === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
 
 test.skipIf(!isWasi)(
-  'generated eager WASI loader stays usable with stock emnapi',
+  'eager WASI binding remains usable when beforeExit resumes work',
   (t) => {
     const result = spawnSync(
       process.execPath,
-      [join(__dirname, 'stock-emnapi-lifecycle.js'), wasiLoaderSuffix],
+      [join(__dirname, 'wasi-eager-before-exit.js'), wasiLoaderSuffix],
       {
         encoding: 'utf8',
         env: process.env,
@@ -25,6 +25,6 @@ test.skipIf(!isWasi)(
     t.is(result.error, undefined, result.error?.stack)
     t.is(result.signal, null, output)
     t.is(result.status, 0, output)
-    t.regex(result.stdout, /stock emnapi lifecycle passed/)
+    t.regex(result.stdout, /eager beforeExit lifecycle passed/)
   },
 )

@@ -520,7 +520,7 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
 })
 
 test.serial(
-  'WASI Node loaders do not destroy contexts from the process exit event',
+  'eager WASI Node loaders invoke synchronous context cleanup at process exit',
   async (t) => {
     const nodeSrc = `${createWasiBinding(
       'binding',
@@ -538,10 +538,11 @@ module.exports = __napiModule.exports
       2,
     )
 
-    for (const src of [nodeSrc, deferredSrc]) {
-      t.true(src.includes('beforeExit'))
-      t.false(/\.once\(\s*['"]exit['"]/.test(src))
-    }
+    t.true(nodeSrc.includes('beforeExit'))
+    t.true(
+      nodeSrc.includes("process.once('exit', __destroyEmnapiContextAtExit)"),
+    )
+    t.false(/\.once\(\s*['"]exit['"]/.test(deferredSrc))
 
     const tmpDir = await mkdtemp(
       join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-exit-cleanup-'),
@@ -566,12 +567,7 @@ module.exports = __napiModule.exports
         join(runtimeDir, 'package.json'),
         JSON.stringify({
           name: '@napi-rs/wasm-runtime',
-          exports: {
-            '.': {
-              import: './index.mjs',
-              require: './index.cjs',
-            },
-          },
+          main: './index.cjs',
         }),
       )
       await writeFile(
@@ -587,14 +583,6 @@ module.exports = __napiModule.exports
 }
 `,
       )
-      await writeFile(
-        join(runtimeDir, 'index.mjs'),
-        `export class WASI {}
-export async function instantiateNapiModule() {
-  return { napiModule: { exports: {} } }
-}
-`,
-      )
       const emnapiContext = `function createContext(options) {
   if (options?.autoDestroy !== false) {
     throw new Error('generated loader must disable emnapi auto-destroy')
@@ -602,7 +590,7 @@ export async function instantiateNapiModule() {
   return {
     suppressDestroy() {},
     destroy() {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+      process.stdout.write('terminal-cleanup\\n')
     },
   }
 }
@@ -611,12 +599,7 @@ export async function instantiateNapiModule() {
         join(emnapiRuntimeDir, 'package.json'),
         JSON.stringify({
           name: '@emnapi/runtime',
-          exports: {
-            '.': {
-              import: './index.mjs',
-              require: './index.cjs',
-            },
-          },
+          main: './index.cjs',
         }),
       )
       await writeFile(
@@ -625,44 +608,21 @@ export async function instantiateNapiModule() {
 module.exports = { createContext }
 `,
       )
-      await writeFile(
-        join(emnapiRuntimeDir, 'index.mjs'),
-        `${emnapiContext}
-export { createContext }
-`,
-      )
       await writeFile(join(tmpDir, 'binding.cjs'), nodeSrc)
       await writeFile(join(tmpDir, 'binding.wasm'), '')
-      await writeFile(join(tmpDir, 'deferred.mjs'), deferredSrc)
       await writeFile(
         join(tmpDir, 'exit.cjs'),
         `require('./binding.cjs')
 process.exit(0)
 `,
       )
-      await writeFile(
-        join(tmpDir, 'exit.mjs'),
-        `import { createInstance } from './deferred.mjs'
 
-const module = new WebAssembly.Module(
-  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
-)
-await createInstance(module)
-process.exit(0)
-`,
+      const result = await execFileAsync(
+        process.execPath,
+        ['--unhandled-rejections=strict', join(tmpDir, 'exit.cjs')],
+        { cwd: tmpDir, timeout: 2_000 },
       )
-
-      await t.notThrowsAsync(() =>
-        Promise.all(
-          ['exit.cjs', 'exit.mjs'].map((entry) =>
-            execFileAsync(
-              process.execPath,
-              ['--unhandled-rejections=strict', join(tmpDir, entry)],
-              { cwd: tmpDir, timeout: 2_000 },
-            ),
-          ),
-        ),
-      )
+      t.is(result.stdout, 'terminal-cleanup\n')
     } finally {
       await rm(tmpDir, { recursive: true, force: true })
     }
@@ -670,7 +630,7 @@ process.exit(0)
 )
 
 test.serial(
-  'WASI Node loaders retry failed cleanup on a later natural beforeExit',
+  'successful eager WASI contexts stay live while deferred cleanup retries on beforeExit',
   async (t) => {
     const nodeSrc = `${createWasiBinding(
       'binding',
@@ -812,20 +772,20 @@ process.on('uncaughtException', (error) => {
   }
   setImmediate(() => {})
 })
+require('./binding.cjs')
 process.once('exit', () => {
   if (
-    state.attempts !== 2 ||
-    state.destroyed !== 1 ||
-    state.caught !== 1 ||
+    state.attempts !== 1 ||
+    state.destroyed !== 0 ||
+    state.caught !== 0 ||
     state.unexpected.length !== 0
   ) {
-    process.stderr.write('ordinary retry state: ' + JSON.stringify(state) + '\\n')
+    process.stderr.write('ordinary terminal state: ' + JSON.stringify(state) + '\\n')
     process.exitCode = 1
     return
   }
-  process.stdout.write('ordinary-retry-ok\\n')
+  process.stdout.write('ordinary-terminal-attempt-ok\\n')
 })
-require('./binding.cjs')
 `,
       )
       await writeFile(
@@ -879,7 +839,7 @@ await createInstance(module)
       )
       t.deepEqual(
         results.map((result) => result.stdout),
-        ['ordinary-retry-ok\n', 'deferred-retry-ok\n'],
+        ['ordinary-terminal-attempt-ok\n', 'deferred-retry-ok\n'],
       )
     } finally {
       await rm(tmpDir, { recursive: true, force: true })
@@ -1460,7 +1420,7 @@ if (state.destroyed !== 1) {
 )
 
 test.serial(
-  'WASI loaders preserve newListener-owned beforeExit listeners and remain usable when work resumes',
+  'WASI loaders preserve newListener-owned beforeExit listeners and retained eager exports when work resumes',
   async (t) => {
     const tmpDir = await mkdtemp(
       join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-before-exit-'),
@@ -1509,6 +1469,7 @@ function createContext(options) {
     throw new Error('generated loader must disable emnapi auto-destroy')
   }
   const context = {
+    id: globalThis.__beforeExitTestContexts.length + 1,
     destroyed: false,
     destroyPromise: undefined,
     suppressed: false,
@@ -1516,6 +1477,13 @@ function createContext(options) {
       this.suppressed = true
     },
     destroy() {
+      if (this.id === 1) {
+        if (!this.destroyed) {
+          this.destroyed = true
+          globalThis.__beforeExitTestDestroyed++
+        }
+        return
+      }
       if (!this.destroyPromise) {
         this.destroyPromise = new Promise((resolve) => {
           setTimeout(resolve, 30)
@@ -1629,7 +1597,7 @@ process.removeListener('newListener', addUnrelatedBeforeExitListener)
 const retainedBeforeExitListeners = process.rawListeners('beforeExit')
 if (
   retainedBeforeExitListeners.length !==
-  initialBeforeExitListeners + unrelatedBeforeExitListeners.length + 2
+  initialBeforeExitListeners + unrelatedBeforeExitListeners.length + 1
 ) {
   throw new Error('generated beforeExit listener count is incorrect')
 }
@@ -1690,43 +1658,44 @@ process.once('beforeExit', () => {
       }
 
       const replacementSingleton = await replacementSingletonPromise
-      await waitForDestroyed(3)
+      await waitForDestroyed(2)
       if (
-        globalThis.__beforeExitTestContexts.slice(0, 3).some(
+        globalThis.__beforeExitTestContexts.slice(1, 3).some(
           (context) => !context.destroyed,
         )
       ) {
-        throw new Error('first beforeExit pass did not destroy every context')
+        throw new Error('first beforeExit pass did not destroy deferred contexts')
       }
 
-      delete require.cache[require.resolve('./binding.cjs')]
-      const replacementOrdinary = require('./binding.cjs')
       const replacementIndependent = await deferred.createInstance(module)
       if (replacementSingleton === singleton) {
         throw new Error('automatic disposal retained the destroyed singleton')
       }
       if (
-        replacementOrdinary.ping() !== 'ordinary' ||
+        ordinary.ping() !== 'ordinary' ||
         replacementSingleton.ping() !== 'deferred' ||
         replacementIndependent.exports.ping() !== 'deferred'
       ) {
-        throw new Error('fresh contexts were not usable after resumed work')
+        throw new Error('retained or replacement contexts were not usable')
       }
-      if (globalThis.__beforeExitTestContexts.length !== 6) {
+      if (globalThis.__beforeExitTestContexts.length !== 5) {
         throw new Error('replacement contexts were not created')
       }
 
       process.once('beforeExit', () => {
-        void waitForDestroyed(6)
+        void waitForDestroyed(4)
           .then(() => {
             if (
-              globalThis.__beforeExitTestContexts.some(
+              globalThis.__beforeExitTestContexts.slice(1).some(
                 (context) => !context.destroyed,
               )
             ) {
               throw new Error(
-                'second beforeExit pass did not destroy replacement contexts',
+                'second beforeExit pass did not destroy deferred replacement contexts',
               )
+            }
+            if (globalThis.__beforeExitTestContexts[0].destroyed) {
+              throw new Error('eager context was destroyed while exports remain cached')
             }
             process.stdout.write('cleaned\\n')
           })
@@ -1747,10 +1716,10 @@ process.once('beforeExit', () => {
 process.once('exit', () => {
   if (
     globalThis.__unrelatedBeforeExitRuns !== 5 ||
-    globalThis.__beforeExitTestDestroyed !== 6 ||
+    globalThis.__beforeExitTestDestroyed !== 5 ||
     globalThis.__beforeExitTestContexts.some((context) => !context.destroyed)
   ) {
-    throw new Error('terminal cleanup did not destroy every context')
+    throw new Error('terminal lifecycle state was incorrect')
   }
 })
 `,
@@ -2147,6 +2116,12 @@ const waitFor = async (condition) => {
   }
   assert.ok(condition(), 'timed out waiting for lifecycle state')
 }
+const runOwnedBeforeExitPass = async () => {
+  for (const listener of ownedBeforeExitListeners()) {
+    listener(0)
+  }
+  await new Promise((resolve) => setImmediate(resolve))
+}
 const load = (name) => {
   const entry = path.join(__dirname, name + '.cjs')
   delete require.cache[entry]
@@ -2156,29 +2131,22 @@ const load = (name) => {
 process.env.NAPI_RS_FORCE_WASI = 'true'
 const success = load('success')
 assert.strictEqual(success.runtime, 'fallback-2')
-assert.strictEqual(ownedBeforeExitListeners().length, 2)
-await waitFor(() => state.destroyed.includes(1))
 assert.strictEqual(ownedBeforeExitListeners().length, 1)
-
-ownedBeforeExitListeners()[0](0)
-await waitFor(() => state.destroyed.includes(2))
+await waitFor(() => state.destroyed.includes(1))
 assert.strictEqual(ownedBeforeExitListeners().length, 0)
+assert.deepStrictEqual(state.destroyAttempts, { 1: 1 })
 
 state.rejectFirstCleanupForId = 3
 const retry = load('retry')
 assert.strictEqual(retry.runtime, 'fallback-4')
 await waitFor(() => state.destroyAttempts[3] === 1)
 await new Promise((resolve) => setTimeout(resolve, 30))
-assert.deepStrictEqual(state.destroyAttempts, { 1: 1, 2: 1, 3: 1 })
-assert.strictEqual(ownedBeforeExitListeners().length, 2)
+assert.deepStrictEqual(state.destroyAttempts, { 1: 1, 3: 1 })
+assert.strictEqual(ownedBeforeExitListeners().length, 1)
 
-for (const listener of ownedBeforeExitListeners()) {
-  listener(0)
-}
-await waitFor(
-  () => state.destroyed.includes(3) && state.destroyed.includes(4),
-)
-assert.deepStrictEqual(state.destroyAttempts, { 1: 1, 2: 1, 3: 2, 4: 1 })
+await runOwnedBeforeExitPass()
+await waitFor(() => state.destroyed.includes(3))
+assert.deepStrictEqual(state.destroyAttempts, { 1: 1, 3: 2 })
 assert.strictEqual(ownedBeforeExitListeners().length, 0)
 process.stdout.write('fallback-cleanup-ok\\n')
 }
