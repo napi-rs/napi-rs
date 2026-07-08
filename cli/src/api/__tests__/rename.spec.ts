@@ -1,13 +1,28 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readlink,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import ava, { type ExecutionContext, type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
-import { createWasmModuleTypeDef, readNapiConfig } from '../../utils/index.js'
+import {
+  createWasmModuleTypeDef,
+  getPackageReconciliationRoot,
+  readNapiConfig,
+  withFileSystemReconciliation,
+} from '../../utils/index.js'
 import { prePublish } from '../pre-publish.js'
 import { renameProject } from '../rename.js'
 
@@ -88,6 +103,23 @@ async function listFiles(directory: string, prefix = ''): Promise<string[]> {
     }
   }
   return files
+}
+
+async function snapshotFiles(directory: string) {
+  return Object.fromEntries(
+    await Promise.all(
+      (await listFiles(directory)).sort().map(async (file) => {
+        const path = join(directory, file)
+        const stats = await lstat(path)
+        return [
+          file,
+          stats.isSymbolicLink()
+            ? `symlink:${await readlink(path)}`
+            : (await readFile(path)).toString('base64'),
+        ]
+      }),
+    ),
+  )
 }
 
 async function createPackageIdentityFixture(
@@ -1042,4 +1074,301 @@ test('binary rename removes legacy inline and separated napi.name overrides', as
     ).binaryName,
     'separated-renamed',
   )
+})
+
+test('rename transaction restores every file and name after each commit-phase failure', async (t) => {
+  const phases = [
+    'package-manifest',
+    'config',
+    'cargo',
+    'workflow',
+    'flavor-manifest',
+    'managed-rename',
+    'managed-text',
+    'readme',
+  ] as const
+
+  for (const phase of phases) {
+    const projectPath = join(t.context.tmpDir, `rollback-${phase}`)
+    await createPackageIdentityFixture(
+      projectPath,
+      'fixture',
+      '@old-scope/original',
+    )
+    await writeFile(
+      join(projectPath, 'napi.json'),
+      `${JSON.stringify(
+        {
+          binaryName: 'fixture',
+          packageName: '@old-scope/original',
+          targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    await mkdir(join(projectPath, '.github', 'workflows'), {
+      recursive: true,
+    })
+    await writeFile(
+      join(projectPath, '.github', 'workflows', 'CI.yml'),
+      'env:\n  APP_NAME: fixture\n',
+    )
+    const before = await snapshotFiles(projectPath)
+
+    await t.throwsAsync(
+      renameProject({
+        cwd: projectPath,
+        configPath: 'napi.json',
+        binaryName: 'renamed',
+        packageName: '@new-scope/renamed',
+        __testFailCommitPhase: phase,
+      } as Parameters<typeof renameProject>[0] & {
+        __testFailCommitPhase: (typeof phases)[number]
+      }),
+      undefined,
+      phase,
+    )
+
+    t.deepEqual(await snapshotFiles(projectPath), before, phase)
+  }
+})
+
+test('rename rejects a symlinked npm root that escapes the project', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'symlink-project')
+  const outsideNpmPath = join(t.context.tmpDir, 'outside-npm')
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1'],
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+  await mkdir(join(outsideNpmPath, 'wasm32-wasip1'), { recursive: true })
+  await writeFile(
+    join(outsideNpmPath, 'wasm32-wasip1', 'foo.wasip1.cjs'),
+    'outside sentinel\n',
+  )
+  await symlink(
+    outsideNpmPath,
+    join(projectPath, 'npm'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+  const projectBefore = await snapshotFiles(projectPath)
+  const outsideBefore = await snapshotFiles(outsideNpmPath)
+
+  await t.throwsAsync(
+    renameProject({
+      cwd: projectPath,
+      binaryName: 'renamed',
+    }),
+    { message: /npm package root escapes project root/ },
+  )
+
+  t.deepEqual(await snapshotFiles(projectPath), projectBefore)
+  t.deepEqual(await snapshotFiles(outsideNpmPath), outsideBefore)
+})
+
+test('binary rename does not modify a parent repository workflow', async (t) => {
+  const parentPath = join(t.context.tmpDir, 'parent-repository')
+  const projectPath = join(parentPath, 'packages', 'nested-project')
+  const parentWorkflowPath = join(parentPath, '.github', 'workflows', 'CI.yml')
+  await mkdir(dirname(parentWorkflowPath), { recursive: true })
+  await writeFile(parentWorkflowPath, 'env:\n  APP_NAME: parent-app\n')
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1-threads'],
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+
+  await renameProject({
+    cwd: projectPath,
+    binaryName: 'renamed',
+  })
+
+  t.is(
+    await readFile(parentWorkflowPath, 'utf8'),
+    'env:\n  APP_NAME: parent-app\n',
+  )
+})
+
+test('rename holds filesystem reconciliation across read, plan, and commit', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'reconciled-rename')
+  await createPackageIdentityFixture(
+    projectPath,
+    'fixture',
+    '@old-scope/original',
+  )
+  const packageJsonPath = join(projectPath, 'package.json')
+  let releaseBlocker!: () => void
+  let markBlockerStarted!: () => void
+  const blockerStarted = new Promise<void>((resolve) => {
+    markBlockerStarted = resolve
+  })
+  const blockerRelease = new Promise<void>((resolve) => {
+    releaseBlocker = resolve
+  })
+  const blocker = withFileSystemReconciliation(
+    getPackageReconciliationRoot(projectPath),
+    async () => {
+      markBlockerStarted()
+      await blockerRelease
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+      packageJson.description = 'written while reconciliation lock was held'
+      await writeFile(
+        packageJsonPath,
+        `${JSON.stringify(packageJson, null, 2)}\n`,
+      )
+    },
+  )
+  await blockerStarted
+
+  let renameSettled = false
+  const pendingRename = renameProject({
+    cwd: projectPath,
+    packageName: '@new-scope/renamed',
+  }).finally(() => {
+    renameSettled = true
+  })
+  await delay(50)
+  t.false(renameSettled)
+
+  releaseBlocker()
+  await Promise.all([blocker, pendingRename])
+  t.is(
+    JSON.parse(await readFile(packageJsonPath, 'utf8')).description,
+    'written while reconciliation lock was held',
+  )
+})
+
+test('package manifest rewriting updates script arguments but not arbitrary text', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'script-references')
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      description: 'node ./foo.wasi.cjs',
+      scripts: {
+        exact: 'node ./foo.wasi.cjs && node foo.wasm32-wasip1.workerd.mjs',
+        quoted: 'node "./foo.wasi.cjs"',
+        assignment: 'ENTRY=./foo.wasi.cjs node $ENTRY',
+        package: 'node --package=@scope/original-wasm32-wasip1 ./foo.wasi.cjs',
+        prefix: 'node ./foo.wasi.cjs.map',
+        embedded: 'echo "node ./foo.wasi.cjs"',
+      },
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+        targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+
+  await renameProject({
+    cwd: projectPath,
+    binaryName: 'renamed',
+    packageName: '@scope/renamed',
+  })
+
+  const packageJson = JSON.parse(
+    await readFile(join(projectPath, 'package.json'), 'utf8'),
+  )
+  t.is(packageJson.description, 'node ./foo.wasi.cjs')
+  t.is(
+    packageJson.scripts.exact,
+    'node ./renamed.wasi.cjs && node renamed.wasm32-wasip1.workerd.mjs',
+  )
+  t.is(packageJson.scripts.quoted, 'node "./renamed.wasi.cjs"')
+  t.is(packageJson.scripts.assignment, 'ENTRY=./renamed.wasi.cjs node $ENTRY')
+  t.is(
+    packageJson.scripts.package,
+    'node --package=@scope/renamed-wasm32-wasip1 ./renamed.wasi.cjs',
+  )
+  t.is(packageJson.scripts.prefix, 'node ./foo.wasi.cjs.map')
+  t.is(packageJson.scripts.embedded, 'echo "node ./foo.wasi.cjs"')
+})
+
+test('legacy configured package names can migrate to strict names', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'legacy-package-migration')
+  const oldPackageName = 'Legacy~Package'
+  const newPackageName = 'legacy-package'
+  await createPackageIdentityFixture(projectPath, 'fixture', oldPackageName)
+
+  await renameProject({
+    cwd: projectPath,
+    packageName: newPackageName,
+  })
+
+  await assertPackageIdentityFixture(
+    t,
+    projectPath,
+    'fixture',
+    oldPackageName,
+    'fixture',
+    newPackageName,
+  )
+
+  await t.throwsAsync(
+    renameProject({
+      cwd: projectPath,
+      packageName: oldPackageName,
+    }),
+    { message: /Requested package name is not a valid npm package name/ },
+  )
+})
+
+test('manifest rewriting preserves own __proto__ properties', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'proto-manifest')
+  const oldBinaryName = 'fixture'
+  const newBinaryName = 'renamed'
+  const oldPackageName = '@old-scope/original'
+  const newPackageName = '@new-scope/renamed'
+  await createPackageIdentityFixture(projectPath, oldBinaryName, oldPackageName)
+  const packageJsonPath = join(projectPath, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  Object.defineProperty(packageJson, '__proto__', {
+    configurable: true,
+    enumerable: true,
+    value: {
+      description: `${oldPackageName}-wasm32-wasip1`,
+      sentinel: true,
+    },
+    writable: true,
+  })
+  Object.defineProperty(packageJson.exports, '__proto__', {
+    configurable: true,
+    enumerable: true,
+    value: `./${oldBinaryName}.wasm32-wasip1.workerd.mjs`,
+    writable: true,
+  })
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+
+  await renameProject({
+    cwd: projectPath,
+    binaryName: newBinaryName,
+    packageName: newPackageName,
+  })
+
+  const updated = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.true(Object.prototype.hasOwnProperty.call(updated, '__proto__'))
+  t.deepEqual(Reflect.get(updated, '__proto__'), {
+    description: `${oldPackageName}-wasm32-wasip1`,
+    sentinel: true,
+  })
+  t.true(Object.prototype.hasOwnProperty.call(updated.exports, '__proto__'))
+  t.is(
+    Reflect.get(updated.exports, '__proto__'),
+    `./${newBinaryName}.wasm32-wasip1.workerd.mjs`,
+  )
+  t.is(Reflect.get(Object.prototype, 'sentinel'), undefined)
 })
