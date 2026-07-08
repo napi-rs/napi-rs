@@ -2016,7 +2016,7 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
     stderr = Buffer.concat([stderr, Buffer.from(data)])
   })
   return new Promise<void>((resolve) => {
-    p.on('exit', (code) => {
+    p.on('close', (code) => {
       t.is(code, 1)
       const stderrMsg = stderr.toString('utf8')
       console.info(stderrMsg)
@@ -2041,7 +2041,7 @@ Napi4Test(
       stderr = Buffer.concat([stderr, Buffer.from(data)])
     })
     return new Promise<void>((resolve) => {
-      p.on('exit', (code) => {
+      p.on('close', (code) => {
         t.is(code, 1)
         const stderrMsg = stderr.toString('utf8')
         console.info(stderrMsg)
