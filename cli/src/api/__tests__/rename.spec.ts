@@ -1134,6 +1134,15 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
     'flavor-alias': `npm:${oldFlavor}@1.0.0`,
     'helper-alias': `npm:${helperPackage}@1.0.0`,
   }
+  packageJson.dependenciesMeta = {
+    [oldFlavor]: {
+      note: oldFlavor,
+    },
+    [helperPackage]: {
+      note: oldFlavor,
+    },
+  }
+  packageJson.trustedDependencies = [oldFlavor, helperPackage]
   packageJson.resolutions = {
     [`**/${oldFlavor}`]: `npm:${oldFlavor}@1.0.0`,
     [`**/${helperPackage}`]: `npm:${helperPackage}@1.0.0`,
@@ -1190,8 +1199,14 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
       [oldFlavor]: oldFlavor,
       [helperPackage]: oldFlavor,
     },
+    allowBuilds: {
+      [oldFlavor]: true,
+      [helperPackage]: false,
+    },
+    trustPolicyExclude: [oldFlavor, helperPackage],
     peerDependencyRules: {
       ignoreMissing: [oldFlavor, helperPackage],
+      allowAny: [oldFlavor, helperPackage],
       allowedVersions: {
         [oldFlavor]: oldFlavor,
         [helperPackage]: oldFlavor,
@@ -1232,6 +1247,18 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
     updatedPackageJson.dependencies['helper-alias'],
     `npm:${helperPackage}@1.0.0`,
   )
+  t.deepEqual(updatedPackageJson.dependenciesMeta, {
+    [newFlavor]: {
+      note: oldFlavor,
+    },
+    [helperPackage]: {
+      note: oldFlavor,
+    },
+  })
+  t.deepEqual(updatedPackageJson.trustedDependencies, [
+    newFlavor,
+    helperPackage,
+  ])
   t.is(
     updatedPackageJson.resolutions[`**/${newFlavor}`],
     `npm:${newFlavor}@1.0.0`,
@@ -1319,8 +1346,17 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
     [newFlavor]: oldFlavor,
     [helperPackage]: oldFlavor,
   })
+  t.deepEqual(updatedPackageJson.pnpm.allowBuilds, {
+    [newFlavor]: true,
+    [helperPackage]: false,
+  })
+  t.deepEqual(updatedPackageJson.pnpm.trustPolicyExclude, [
+    newFlavor,
+    helperPackage,
+  ])
   t.deepEqual(updatedPackageJson.pnpm.peerDependencyRules, {
     ignoreMissing: [newFlavor, helperPackage],
+    allowAny: [newFlavor, helperPackage],
     allowedVersions: {
       [newFlavor]: oldFlavor,
       [helperPackage]: oldFlavor,

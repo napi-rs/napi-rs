@@ -323,6 +323,95 @@ test('filesystem transactions reject dangling symlink removals before mutation',
   t.false(existsSync(danglingTarget))
 })
 
+test('filesystem transactions reject existing destinations through escaping symlink parents', async (t) => {
+  const root = join(t.context.tmpDir, 'existing-parent-escape')
+  const outside = join(t.context.tmpDir, 'existing-parent-outside')
+  const staging = join(t.context.tmpDir, 'existing-parent-staging')
+  const existing = join(root, 'existing.txt')
+  const outsideDestination = join(outside, 'destination.txt')
+  const stagedExisting = join(staging, 'existing.txt')
+  const stagedOutside = join(staging, 'outside.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(outside, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(existing, 'prior existing'),
+    writeFile(outsideDestination, 'outside sentinel'),
+    writeFile(stagedExisting, 'replacement existing'),
+    writeFile(stagedOutside, 'outside replacement'),
+  ])
+  await symlink(
+    outside,
+    join(root, 'escape'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [
+        { source: stagedExisting, destination: existing },
+        {
+          source: stagedOutside,
+          destination: join(root, 'escape', 'destination.txt'),
+        },
+      ],
+      [],
+    ),
+    { message: /path escapes/ },
+  )
+
+  t.is(await readFile(existing, 'utf8'), 'prior existing')
+  t.is(await readFile(outsideDestination, 'utf8'), 'outside sentinel')
+  t.true((await lstat(join(root, 'escape'))).isSymbolicLink())
+})
+
+test('filesystem transactions reject missing destinations through escaping symlink parents', async (t) => {
+  const root = join(t.context.tmpDir, 'missing-parent-escape')
+  const outside = join(t.context.tmpDir, 'missing-parent-outside')
+  const staging = join(t.context.tmpDir, 'missing-parent-staging')
+  const existing = join(root, 'existing.txt')
+  const outsideDestination = join(outside, 'missing.txt')
+  const stagedExisting = join(staging, 'existing.txt')
+  const stagedOutside = join(staging, 'outside.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(outside, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(existing, 'prior existing'),
+    writeFile(stagedExisting, 'replacement existing'),
+    writeFile(stagedOutside, 'outside replacement'),
+  ])
+  await symlink(
+    outside,
+    join(root, 'escape'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [
+        { source: stagedExisting, destination: existing },
+        {
+          source: stagedOutside,
+          destination: join(root, 'escape', 'missing.txt'),
+        },
+      ],
+      [],
+    ),
+    { message: /path escapes/ },
+  )
+
+  t.is(await readFile(existing, 'utf8'), 'prior existing')
+  t.false(existsSync(outsideDestination))
+  t.true((await lstat(join(root, 'escape'))).isSymbolicLink())
+})
+
 test('filesystem transactions apply requested modes to writes and staged renames', async (t) => {
   const root = join(t.context.tmpDir, 'transaction-modes')
   const staging = join(t.context.tmpDir, 'transaction-mode-staging')

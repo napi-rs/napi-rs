@@ -132,20 +132,39 @@ export async function commitFileSystemTransaction(
   writes: FileSystemTransactionWrite[],
   removals: string[],
 ) {
-  const transactionRoot = resolve(root)
-  const transactionWrites = writes.map((write) => ({
-    destination: resolveTransactionPath(transactionRoot, write.destination),
-    mode: write.mode,
-    removeBeforeWrite: write.removeBeforeWrite
-      ? resolveTransactionPath(transactionRoot, write.removeBeforeWrite)
-      : undefined,
-    source: write.source,
-  }))
+  const requestedTransactionRoot = resolve(root)
+  const transactionRoot = await canonicalizeReconciliationPath(
+    requestedTransactionRoot,
+  )
+  const transactionWrites = await Promise.all(
+    writes.map(async (write) => ({
+      destination: await resolveCanonicalTransactionPath(
+        requestedTransactionRoot,
+        transactionRoot,
+        write.destination,
+      ),
+      mode: write.mode,
+      removeBeforeWrite: write.removeBeforeWrite
+        ? await resolveCanonicalTransactionPath(
+            requestedTransactionRoot,
+            transactionRoot,
+            write.removeBeforeWrite,
+          )
+        : undefined,
+      source: write.source,
+    })),
+  )
   const writesByDestination = new Map(
     transactionWrites.map((write) => [write.destination, write]),
   )
-  const resolvedRemovals = removals.map((path) =>
-    resolveTransactionPath(transactionRoot, path),
+  const resolvedRemovals = await Promise.all(
+    removals.map((path) =>
+      resolveCanonicalTransactionPath(
+        requestedTransactionRoot,
+        transactionRoot,
+        path,
+      ),
+    ),
   )
   const preWriteRemovals = new Set(
     transactionWrites.flatMap(({ removeBeforeWrite }) =>
@@ -444,6 +463,21 @@ function resolveTransactionPath(root: string, path: string) {
     throw new Error(`Filesystem transaction path escapes ${root}: ${path}`)
   }
   return resolved
+}
+
+async function resolveCanonicalTransactionPath(
+  requestedRoot: string,
+  canonicalRoot: string,
+  path: string,
+) {
+  const requestedPath = resolveTransactionPath(requestedRoot, path)
+  const canonicalParent = await canonicalizeReconciliationPath(
+    dirname(requestedPath),
+  )
+  return resolveTransactionPath(
+    canonicalRoot,
+    join(canonicalParent, basename(requestedPath)),
+  )
 }
 
 async function mkdirTemporaryChild(path: string, label: string) {

@@ -59,6 +59,7 @@ const PNPM_PACKAGE_ARRAY_FIELDS = new Set([
   'minimumReleaseAgeExclude',
   'neverBuiltDependencies',
   'onlyBuiltDependencies',
+  'trustPolicyExclude',
 ])
 
 type JsonRecord = Record<string, unknown>
@@ -593,7 +594,7 @@ function rewritePnpmPeerDependencyRules(
     defineJsonProperty(
       updated,
       key,
-      key === 'ignoreMissing'
+      key === 'ignoreMissing' || key === 'allowAny'
         ? rewritePackageSelectorArray(entry, packageRenames)
         : key === 'allowedVersions'
           ? rewritePackageSelectorKeys(entry, packageRenames)
@@ -640,6 +641,8 @@ function rewritePnpmConfig(
     } else if (key === 'packageExtensions') {
       rewritten = rewritePackageExtensions(entry, packageRenames)
     } else if (key === 'allowedDeprecatedVersions') {
+      rewritten = rewritePackageSelectorKeys(entry, packageRenames)
+    } else if (key === 'allowBuilds') {
       rewritten = rewritePackageSelectorKeys(entry, packageRenames)
     } else if (key === 'peerDependencyRules') {
       rewritten = rewritePnpmPeerDependencyRules(entry, packageRenames)
@@ -802,6 +805,10 @@ function rewritePackageManifest(
       )
     } else if (DEPENDENCY_FIELDS.has(key)) {
       rewritten = rewritePackageMap(entry, packageRenames, false)
+    } else if (key === 'dependenciesMeta') {
+      rewritten = rewritePackageSelectorKeys(entry, packageRenames)
+    } else if (key === 'trustedDependencies') {
+      rewritten = rewritePackageSelectorArray(entry, packageRenames)
     } else if (key === 'bundledDependencies' || key === 'bundleDependencies') {
       rewritten = rewritePackageMap(entry, packageRenames, false)
     } else if (RECURSIVE_PACKAGE_KEY_FIELDS.has(key)) {
