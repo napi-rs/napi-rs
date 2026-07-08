@@ -772,6 +772,276 @@ process.exit(0)
   },
 )
 
+function executeEagerWasiCleanupHandoffFault(
+  fault: 'exit-registration' | 'before-exit-removal' | 'handoff-rollback',
+) {
+  const code = createWasiBinding(
+    'binding',
+    'cleanup-handoff-never-published',
+    1,
+    2,
+    false,
+    'wasm32-wasip1',
+  )
+  const handoffError = new Error(fault)
+  const rollbackError = new Error('exit rollback failed')
+  const cleanupError = new Error('cleanup failed')
+  const events: string[] = []
+  const processMock = Object.assign(new EventEmitter(), {
+    cwd: () => '/',
+    env: {},
+  })
+  const once = processMock.once.bind(processMock)
+  processMock.once = (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    if (listener.name.startsWith('__destroyEmnapiContext')) {
+      events.push(`once:${event}:${listener.name}`)
+    }
+    if (
+      fault === 'exit-registration' &&
+      event === 'exit' &&
+      listener.name === '__destroyEmnapiContextAtExit'
+    ) {
+      throw handoffError
+    }
+    return once(event, listener)
+  }
+  const removeListener = processMock.removeListener.bind(processMock)
+  processMock.removeListener = (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    if (listener.name.startsWith('__destroyEmnapiContext')) {
+      events.push(`remove:${event}:${listener.name}`)
+    }
+    if (
+      (fault === 'before-exit-removal' || fault === 'handoff-rollback') &&
+      event === 'beforeExit' &&
+      listener.name === '__destroyEmnapiContextBeforeExit'
+    ) {
+      throw handoffError
+    }
+    if (
+      fault === 'handoff-rollback' &&
+      event === 'exit' &&
+      listener.name === '__destroyEmnapiContextAtExit'
+    ) {
+      throw rollbackError
+    }
+    return removeListener(event, listener)
+  }
+  const mockRequire = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('/binding.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case '@napi-rs/wasm-runtime':
+        return {
+          instantiateNapiModuleSync() {
+            return {
+              instance: {},
+              module: {},
+              napiModule: { exports: {} },
+            }
+          },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({
+            suppressDestroy() {},
+            destroy() {
+              throw cleanupError
+            },
+          }),
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+
+  let observedError
+  try {
+    new Function('require', 'process', '__dirname', code)(
+      mockRequire,
+      processMock,
+      '/fixture',
+    )
+  } catch (error) {
+    observedError = error
+  }
+
+  return {
+    cleanupError,
+    events,
+    handoffError,
+    observedError,
+    processMock,
+    rollbackError,
+  }
+}
+
+test('eager WASI cleanup keeps beforeExit ownership when exit registration fails', (t) => {
+  const result = executeEagerWasiCleanupHandoffFault('exit-registration')
+
+  t.is(result.observedError, result.handoffError)
+  t.is(result.handoffError.cause, result.cleanupError)
+  t.deepEqual(result.events, [
+    'once:beforeExit:__destroyEmnapiContextBeforeExit',
+    'once:exit:__destroyEmnapiContextAtExit',
+  ])
+  t.is(result.processMock.rawListeners('beforeExit').length, 1)
+  t.is(result.processMock.rawListeners('exit').length, 0)
+})
+
+test('eager WASI cleanup rolls exit ownership back when beforeExit removal fails', (t) => {
+  const result = executeEagerWasiCleanupHandoffFault('before-exit-removal')
+
+  t.is(result.observedError, result.handoffError)
+  t.is(result.handoffError.cause, result.cleanupError)
+  t.deepEqual(result.events, [
+    'once:beforeExit:__destroyEmnapiContextBeforeExit',
+    'once:exit:__destroyEmnapiContextAtExit',
+    'remove:beforeExit:__destroyEmnapiContextBeforeExit',
+    'remove:exit:__destroyEmnapiContextAtExit',
+  ])
+  t.is(result.processMock.rawListeners('beforeExit').length, 1)
+  t.is(result.processMock.rawListeners('exit').length, 0)
+})
+
+test('eager WASI cleanup preserves both owners when handoff rollback fails', (t) => {
+  const result = executeEagerWasiCleanupHandoffFault('handoff-rollback')
+
+  t.true(result.observedError instanceof AggregateError)
+  if (!(result.observedError instanceof AggregateError)) {
+    return
+  }
+  t.deepEqual(result.observedError.errors, [
+    result.handoffError,
+    result.rollbackError,
+  ])
+  t.is(result.observedError.cause, result.handoffError)
+  t.deepEqual(result.events, [
+    'once:beforeExit:__destroyEmnapiContextBeforeExit',
+    'once:exit:__destroyEmnapiContextAtExit',
+    'remove:beforeExit:__destroyEmnapiContextBeforeExit',
+    'remove:exit:__destroyEmnapiContextAtExit',
+  ])
+  t.is(result.processMock.rawListeners('beforeExit').length, 1)
+  t.is(result.processMock.rawListeners('exit').length, 1)
+})
+
+test('eager WASI cleanup aggregates removal failures without losing ownership state', (t) => {
+  const code = `${createWasiBinding(
+    'binding',
+    'cleanup-removal-never-published',
+    1,
+    2,
+    false,
+    'wasm32-wasip1',
+  )}
+__registerEmnapiContextBeforeExit()
+return {
+  remove: __removeEmnapiContextCleanupListeners,
+  hasBeforeExit: () => __emnapiContextRegisteredForBeforeExit,
+  hasExit: () => __emnapiContextRegisteredForExit,
+}
+`
+  const processMock = Object.assign(new EventEmitter(), {
+    cwd: () => '/',
+    env: {},
+  })
+  const mockRequire = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('/binding.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case '@napi-rs/wasm-runtime':
+        return {
+          instantiateNapiModuleSync() {
+            return {
+              instance: {},
+              module: {},
+              napiModule: { exports: {} },
+            }
+          },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({
+            destroy() {},
+            suppressDestroy() {},
+          }),
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+  const lifecycle = new Function('require', 'process', '__dirname', code)(
+    mockRequire,
+    processMock,
+    '/fixture',
+  ) as {
+    remove(): void
+    hasBeforeExit(): boolean
+    hasExit(): boolean
+  }
+  const beforeExitRemovalError = new Error('beforeExit removal failed')
+  const exitRemovalError = new Error('exit removal failed')
+  const removeListener = processMock.removeListener.bind(processMock)
+  processMock.removeListener = (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    if (
+      event === 'beforeExit' &&
+      listener.name === '__destroyEmnapiContextBeforeExit'
+    ) {
+      throw beforeExitRemovalError
+    }
+    if (event === 'exit' && listener.name === '__destroyEmnapiContextAtExit') {
+      throw exitRemovalError
+    }
+    return removeListener(event, listener)
+  }
+
+  const error = t.throws(() => lifecycle.remove())
+  t.true(error instanceof AggregateError)
+  if (error instanceof AggregateError) {
+    t.deepEqual(error.errors, [beforeExitRemovalError, exitRemovalError])
+  }
+  t.true(lifecycle.hasBeforeExit())
+  t.true(lifecycle.hasExit())
+  t.is(processMock.rawListeners('beforeExit').length, 1)
+  t.is(processMock.rawListeners('exit').length, 1)
+
+  processMock.removeListener = removeListener
+  lifecycle.remove()
+  t.false(lifecycle.hasBeforeExit())
+  t.false(lifecycle.hasExit())
+  t.is(processMock.rawListeners('beforeExit').length, 0)
+  t.is(processMock.rawListeners('exit').length, 0)
+})
+
 test.serial(
   'successful eager WASI contexts stay live while deferred rollback cleanup retries on beforeExit',
   async (t) => {
@@ -828,6 +1098,10 @@ module.exports = __napiModule.exports
         join(runtimeDir, 'index.cjs'),
         `module.exports = {
   instantiateNapiModuleSync() {
+    const state = globalThis.__beforeExitRetryState
+    if (state?.initializationError !== undefined) {
+      throw state.initializationError
+    }
     return {
       instance: {},
       module: {},
@@ -936,6 +1210,51 @@ process.once('exit', () => {
 `,
       )
       await writeFile(
+        join(tmpDir, 'retry-primitive.cjs'),
+        `globalThis.__beforeExitRetryState = {
+  async: true,
+  attempts: 0,
+  caught: 0,
+  destroyed: 0,
+  errorMessage: 'primitive cleanup failed',
+  initializationError: 17,
+  unexpected: [],
+}
+const state = globalThis.__beforeExitRetryState
+process.on('uncaughtException', (error) => {
+  if (error?.message === state.errorMessage) {
+    state.caught += 1
+  } else {
+    state.unexpected.push(String(error?.stack || error))
+  }
+  setImmediate(() => {})
+})
+let initializationError
+try {
+  require('./binding.cjs')
+} catch (error) {
+  initializationError = error
+}
+process.once('exit', () => {
+  if (
+    initializationError !== state.initializationError ||
+    state.attempts !== 2 ||
+    state.destroyed !== 1 ||
+    state.caught !== 1 ||
+    state.unexpected.length !== 0
+  ) {
+    process.stderr.write('primitive retry state: ' + JSON.stringify({
+      ...state,
+      initializationError,
+    }) + '\\n')
+    process.exitCode = 1
+    return
+  }
+  process.stdout.write('primitive-cleanup-observable\\n')
+})
+`,
+      )
+      await writeFile(
         join(tmpDir, 'retry.mjs'),
         `globalThis.__beforeExitRetryState = {
   async: true,
@@ -987,7 +1306,7 @@ try {
       )
 
       const results = await Promise.all(
-        ['retry.cjs', 'retry.mjs'].map((entry) =>
+        ['retry.cjs', 'retry-primitive.cjs', 'retry.mjs'].map((entry) =>
           execFileAsync(
             process.execPath,
             ['--unhandled-rejections=strict', join(tmpDir, entry)],
@@ -997,7 +1316,11 @@ try {
       )
       t.deepEqual(
         results.map((result) => result.stdout),
-        ['ordinary-terminal-attempt-ok\n', 'deferred-retry-ok\n'],
+        [
+          'ordinary-terminal-attempt-ok\n',
+          'primitive-cleanup-observable\n',
+          'deferred-retry-ok\n',
+        ],
       )
     } finally {
       await rm(tmpDir, { recursive: true, force: true })

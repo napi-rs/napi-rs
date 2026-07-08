@@ -28,3 +28,33 @@ test.skipIf(!isWasi)(
     t.regex(result.stdout, /eager beforeExit lifecycle passed/)
   },
 )
+
+for (const fault of [
+  'exit-registration',
+  'before-exit-removal',
+  'handoff-rollback',
+] as const) {
+  test.skipIf(!isWasi)(
+    `eager WASI cleanup handoff is transactional after ${fault}`,
+    (t) => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(__dirname, 'wasi-eager-cleanup-handoff.js'),
+          wasiLoaderSuffix,
+          fault,
+        ],
+        {
+          encoding: 'utf8',
+          env: process.env,
+          timeout: 30_000,
+        },
+      )
+      const output = `${result.stdout}\n${result.stderr}`
+      t.is(result.error, undefined, result.error?.stack)
+      t.is(result.signal, null, output)
+      t.is(result.status, 0, output)
+      t.regex(result.stdout, /eager cleanup handoff passed/)
+    },
+  )
+}

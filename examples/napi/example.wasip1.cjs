@@ -145,22 +145,41 @@ function __destroyEmnapiContext() {
 
 function __removeEmnapiContextBeforeExitListener() {
   if (__emnapiContextRegisteredForBeforeExit) {
-    try {
-      process.removeListener('beforeExit', __destroyEmnapiContextBeforeExit)
-    } catch {}
+    process.removeListener('beforeExit', __destroyEmnapiContextBeforeExit)
     __emnapiContextRegisteredForBeforeExit = false
   }
 }
 
-function __removeEmnapiContextCleanupListeners() {
-  __removeEmnapiContextBeforeExitListener()
-  __emnapiContextBeforeExitRegistrationRetryCount = 0
+function __removeEmnapiContextAtExitListener() {
   if (__emnapiContextRegisteredForExit) {
-    try {
-      process.removeListener('exit', __destroyEmnapiContextAtExit)
-    } catch {}
+    process.removeListener('exit', __destroyEmnapiContextAtExit)
     __emnapiContextRegisteredForExit = false
   }
+}
+
+function __removeEmnapiContextCleanupListeners() {
+  const __errors = []
+  try {
+    __removeEmnapiContextBeforeExitListener()
+  } catch (__error) {
+    __errors.push(__error)
+  }
+  try {
+    __removeEmnapiContextAtExitListener()
+  } catch (__error) {
+    __errors.push(__error)
+  }
+  if (__errors.length === 0) {
+    __emnapiContextBeforeExitRegistrationRetryCount = 0
+    return
+  }
+  if (__errors.length === 1) {
+    throw __errors[0]
+  }
+  throw new AggregateError(
+    __errors,
+    'emnapi context cleanup listener removal failed',
+  )
 }
 
 function __scheduleEmnapiContextBeforeExitRegistration() {
@@ -205,6 +224,38 @@ function __registerEmnapiContextAtExit() {
   if (!__emnapiContextRegisteredForExit) {
     process.once('exit', __destroyEmnapiContextAtExit)
     __emnapiContextRegisteredForExit = true
+  }
+}
+
+function __retainEmnapiContextCleanupListener() {
+  if (
+    __emnapiContextDestroyed ||
+    __emnapiContextRegisteredForBeforeExit ||
+    __emnapiContextRegisteredForExit
+  ) {
+    return
+  }
+  __registerEmnapiContextBeforeExit()
+}
+
+function __handoffEmnapiContextCleanupToExit() {
+  const __exitWasRegistered = __emnapiContextRegisteredForExit
+  __registerEmnapiContextAtExit()
+  try {
+    __removeEmnapiContextBeforeExitListener()
+  } catch (__error) {
+    if (!__exitWasRegistered) {
+      try {
+        __removeEmnapiContextAtExitListener()
+      } catch (__rollbackError) {
+        throw new AggregateError(
+          [__error, __rollbackError],
+          'emnapi context cleanup listener handoff failed',
+          { cause: __error },
+        )
+      }
+    }
+    throw __error
   }
 }
 
@@ -255,12 +306,24 @@ function __attachCleanupError(__error, __cleanupError) {
   try {
     if (
       __error &&
-      (typeof __error === 'object' || typeof __error === 'function') &&
-      __error.cause === undefined
+      (typeof __error === 'object' || typeof __error === 'function')
     ) {
-      __error.cause = __cleanupError
+      if (__error.cause === undefined) {
+        __error.cause = __cleanupError
+        return __error.cause === __cleanupError
+      }
+      return true
     }
   } catch {}
+  return false
+}
+
+function __preserveCleanupError(__error, __cleanupError) {
+  if (!__attachCleanupError(__error, __cleanupError)) {
+    queueMicrotask(() => {
+      throw __cleanupError
+    })
+  }
 }
 
 if (__contextInitializationFailed) {
@@ -270,7 +333,7 @@ if (__contextInitializationFailed) {
     try {
       __registerEmnapiContextBeforeExit()
     } catch (error) {
-      __attachCleanupError(__contextInitializationError, error)
+      __preserveCleanupError(__contextInitializationError, error)
       __registrationError = error
       __registrationFailed = true
     }
@@ -280,35 +343,59 @@ if (__contextInitializationFailed) {
       __cleanupResult = __destroyEmnapiContext()
     } catch (error) {
       __cleanupFailed = true
-      __attachCleanupError(
+      __preserveCleanupError(
         __registrationFailed
           ? __registrationError
           : __contextInitializationError,
         error,
       )
       try {
-        __registerEmnapiContextBeforeExit()
-      } catch {}
+        __retainEmnapiContextCleanupListener()
+      } catch (__listenerError) {
+        __preserveCleanupError(
+          __contextInitializationError,
+          __listenerError,
+        )
+      }
     }
     if (__cleanupResult) {
       void __cleanupResult.then(
         () => {
-          __removeEmnapiContextCleanupListeners()
+          try {
+            __removeEmnapiContextCleanupListeners()
+          } catch (__cleanupError) {
+            __preserveCleanupError(
+              __contextInitializationError,
+              __cleanupError,
+            )
+          }
         },
         (error) => {
-          __attachCleanupError(
+          __preserveCleanupError(
             __registrationFailed
               ? __registrationError
               : __contextInitializationError,
             error,
           )
           try {
-            __registerEmnapiContextBeforeExit()
-          } catch {}
+            __retainEmnapiContextCleanupListener()
+          } catch (__listenerError) {
+            __preserveCleanupError(
+              __contextInitializationError,
+              __listenerError,
+            )
+          }
         },
       )
     } else if (!__cleanupFailed) {
-      __removeEmnapiContextCleanupListeners()
+      try {
+        __removeEmnapiContextCleanupListeners()
+      } catch (__cleanupError) {
+        __preserveCleanupError(
+          __contextInitializationError,
+          __cleanupError,
+        )
+      }
     }
   }
   throw __contextInitializationError
@@ -377,10 +464,7 @@ try {
   // until exit. Context.destroy() is synchronous in emnapi's public contract,
   // so terminal cleanup hooks still get a best-effort invocation. A
   // nonconforming thenable cannot be awaited from exit, but is marked handled.
-  __removeEmnapiContextBeforeExitListener()
-  try {
-    __registerEmnapiContextAtExit()
-  } catch {}
+  __handoffEmnapiContextCleanupToExit()
 } catch (__error) {
   let __cleanupResult
   let __cleanupFailed = false
@@ -388,25 +472,37 @@ try {
     __cleanupResult = __destroyEmnapiContext()
   } catch (__cleanupError) {
     __cleanupFailed = true
-    __attachCleanupError(__error, __cleanupError)
+    __preserveCleanupError(__error, __cleanupError)
     try {
-      __registerEmnapiContextBeforeExit()
-    } catch {}
+      __retainEmnapiContextCleanupListener()
+    } catch (__listenerError) {
+      __preserveCleanupError(__error, __listenerError)
+    }
   }
   if (__cleanupResult) {
     void __cleanupResult.then(
       () => {
-        __removeEmnapiContextCleanupListeners()
+        try {
+          __removeEmnapiContextCleanupListeners()
+        } catch (__cleanupError) {
+          __preserveCleanupError(__error, __cleanupError)
+        }
       },
       (__cleanupError) => {
-        __attachCleanupError(__error, __cleanupError)
+        __preserveCleanupError(__error, __cleanupError)
         try {
-          __registerEmnapiContextBeforeExit()
-        } catch {}
+          __retainEmnapiContextCleanupListener()
+        } catch (__listenerError) {
+          __preserveCleanupError(__error, __listenerError)
+        }
       },
     )
   } else if (!__cleanupFailed) {
-    __removeEmnapiContextCleanupListeners()
+    try {
+      __removeEmnapiContextCleanupListeners()
+    } catch (__cleanupError) {
+      __preserveCleanupError(__error, __cleanupError)
+    }
   }
   throw __error
 }
