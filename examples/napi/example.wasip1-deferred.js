@@ -176,11 +176,26 @@ function __registerManagedBeforeExitListener() {
   __managedBeforeExitListener = __destroyManagedEmnapiContextsBeforeExit
 }
 
+function __settleManagedEmnapiContextDestroy(__promise) {
+  if (__managedDestroyPromise === __promise) {
+    __managedDestroyPromise = undefined
+  }
+  if (__managedEmnapiContextDestroyers.size === 0) {
+    __removeManagedEmnapiCleanupListeners()
+    return
+  }
+  try {
+    __registerManagedBeforeExitListener()
+  } catch {}
+}
+
 function __destroyManagedEmnapiContextsBeforeExit() {
+  // A once listener is consumed before Node invokes it, including when another
+  // cleanup batch is still pending.
+  __managedBeforeExitListener = undefined
   if (__managedDestroyPromise) {
     return
   }
-  __managedBeforeExitListener = undefined
   const __destroyers = Array.from(__managedEmnapiContextDestroyers)
   const __promise = Promise.all(
     __destroyers.map((__destroy) => {
@@ -194,20 +209,10 @@ function __destroyManagedEmnapiContextsBeforeExit() {
   __managedDestroyPromise = __promise
   void __promise.then(
     () => {
-      if (__managedDestroyPromise === __promise) {
-        __managedDestroyPromise = undefined
-      }
-      if (__managedEmnapiContextDestroyers.size === 0) {
-        __removeManagedEmnapiCleanupListeners()
-      }
+      __settleManagedEmnapiContextDestroy(__promise)
     },
     (error) => {
-      if (__managedDestroyPromise === __promise) {
-        __managedDestroyPromise = undefined
-      }
-      try {
-        __registerManagedBeforeExitListener()
-      } catch {}
+      __settleManagedEmnapiContextDestroy(__promise)
       queueMicrotask(() => {
         throw error
       })

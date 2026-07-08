@@ -2209,6 +2209,8 @@ test.serial(
     )
     const state = {
       contexts: 0,
+      cleanupErrors: new Map<number, Error>(),
+      cleanupGates: new Map<number, Promise<void>>(),
       destroyed: [] as number[],
       destroyAttempts: [] as number[],
       instances: 0,
@@ -2303,8 +2305,16 @@ export async function instantiateNapiModule(module, options) {
     suppressDestroy() {},
     destroy() {
       state.destroyAttempts.push(id)
-      if (state.cleanupError) {
-        throw state.cleanupError
+      const cleanupError = state.cleanupErrors.get(id) ?? state.cleanupError
+      if (cleanupError) {
+        throw cleanupError
+      }
+      const cleanupGate = state.cleanupGates.get(id)
+      if (cleanupGate) {
+        state.cleanupGates.delete(id)
+        return cleanupGate.then(() => {
+          state.destroyed.push(id)
+        })
       }
       state.destroyed.push(id)
     },
@@ -2670,6 +2680,57 @@ export async function instantiateNapiModule(module, options) {
       t.is(countOwnedBeforeExitListeners(), 0)
       await independentAfterBeforeExit.dispose()
       t.true(state.destroyed.includes(pendingIndependentContextId))
+
+      await instantiate(moduleA)
+      const overlappingCleanupContextId = state.contexts
+      let releaseOverlappingCleanup!: () => void
+      state.cleanupGates.set(
+        overlappingCleanupContextId,
+        new Promise<void>((resolve) => {
+          releaseOverlappingCleanup = resolve
+        }),
+      )
+      const [firstOverlappingBeforeExitListener] = process
+        .rawListeners('beforeExit')
+        .filter((listener) => !initialBeforeExitListeners.has(listener))
+      t.truthy(firstOverlappingBeforeExitListener)
+      firstOverlappingBeforeExitListener(0)
+      t.false(state.destroyed.includes(overlappingCleanupContextId))
+      t.is(countOwnedBeforeExitListeners(), 0)
+
+      const overlappingInitializationError = new Error(
+        'overlapping initialization failed',
+      )
+      state.initializationError = overlappingInitializationError
+      const overlappingFailedRollbackContextId = state.contexts + 1
+      state.cleanupErrors.set(overlappingFailedRollbackContextId, cleanupError)
+      t.is(
+        await t.throwsAsync(() => createInstance(moduleB)),
+        overlappingInitializationError,
+      )
+      state.initializationError = undefined
+      state.cleanupErrors.delete(overlappingFailedRollbackContextId)
+      t.is(countOwnedBeforeExitListeners(), 1)
+      t.false(state.destroyed.includes(overlappingFailedRollbackContextId))
+
+      const [secondOverlappingBeforeExitListener] = process
+        .rawListeners('beforeExit')
+        .filter((listener) => !initialBeforeExitListeners.has(listener))
+      t.truthy(secondOverlappingBeforeExitListener)
+      secondOverlappingBeforeExitListener(0)
+      t.is(countOwnedBeforeExitListeners(), 0)
+      t.false(state.destroyed.includes(overlappingFailedRollbackContextId))
+
+      releaseOverlappingCleanup()
+      await new Promise((resolve) => setImmediate(resolve))
+      t.true(state.destroyed.includes(overlappingCleanupContextId))
+      t.false(state.destroyed.includes(overlappingFailedRollbackContextId))
+      t.is(countOwnedBeforeExitListeners(), 1)
+
+      await runOwnedBeforeExitCleanup()
+      t.true(state.destroyed.includes(overlappingFailedRollbackContextId))
+      t.is(new Set(state.destroyed).size, state.contexts)
+      t.is(countOwnedBeforeExitListeners(), 0)
     } finally {
       ;(WebAssembly as any).Memory = originalMemory
       for (const listener of process.rawListeners('beforeExit')) {
