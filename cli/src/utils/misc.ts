@@ -13,6 +13,7 @@ import {
   realpath,
   lstat,
 } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
@@ -151,6 +152,21 @@ export async function commitFileSystemTransaction(
       removeBeforeWrite ? [removeBeforeWrite] : [],
     ),
   )
+  const affected = new Set([
+    ...writesByDestination.keys(),
+    ...resolvedRemovals,
+    ...preWriteRemovals,
+  ])
+  const affectedStats = new Map<string, Stats | undefined>()
+  for (const path of affected) {
+    const stats = await lstatIfExists(path)
+    if (stats && !stats.isFile()) {
+      throw new Error(
+        `Filesystem transaction path is not a regular file: ${path}`,
+      )
+    }
+    affectedStats.set(path, stats)
+  }
   const replacementAliasParents = new Map<string, string>()
   const findReplacementAlias = (path: string): string => {
     const parent = replacementAliasParents.get(path)
@@ -176,14 +192,21 @@ export async function commitFileSystemTransaction(
     if (!removeBeforeWrite) {
       continue
     }
-    if (!(await fileExists(removeBeforeWrite))) {
+    const replacementStats = affectedStats.get(removeBeforeWrite)
+    if (!replacementStats) {
       throw new Error(
         `Filesystem transaction replacement source does not exist: ${removeBeforeWrite}`,
       )
     }
-    if (await fileExists(destination)) {
+    const destinationStats = affectedStats.get(destination)
+    if (destinationStats) {
       if (
-        !(await pathsReferToSameDirectoryEntry(removeBeforeWrite, destination))
+        !(await pathsReferToSameDirectoryEntry(
+          removeBeforeWrite,
+          destination,
+          replacementStats,
+          destinationStats,
+        ))
       ) {
         throw new Error(
           `Filesystem transaction replacement destination is occupied: ${destination}`,
@@ -203,11 +226,6 @@ export async function commitFileSystemTransaction(
     }
   }
   const replacementBackupPaths = new Set(replacementAliasBackups.values())
-  const affected = new Set([
-    ...writesByDestination.keys(),
-    ...resolvedRemovals,
-    ...preWriteRemovals,
-  ])
   const backupRoot = await mkdirTemporaryChild(
     transactionRoot,
     'transaction-backup',
@@ -222,11 +240,12 @@ export async function commitFileSystemTransaction(
       ) {
         continue
       }
-      if (!(await fileExists(path))) {
+      const stats = affectedStats.get(path)
+      if (!stats) {
         continue
       }
       const backup = join(backupRoot, relative(transactionRoot, path))
-      const mode = (await stat(path)).mode & 0o7777
+      const mode = stats.mode & 0o7777
       await copyFileAtomic(path, backup, mode)
       backups.set(path, { mode, path: backup })
     }
@@ -257,18 +276,21 @@ export async function commitFileSystemTransaction(
   }
 }
 
-async function pathsReferToSameDirectoryEntry(left: string, right: string) {
+async function pathsReferToSameDirectoryEntry(
+  left: string,
+  right: string,
+  leftStats: Stats,
+  rightStats: Stats,
+) {
   const resolvedLeft = resolve(left)
   const resolvedRight = resolve(right)
   if (resolvedLeft === resolvedRight) {
     return true
   }
 
-  const [leftPath, rightPath, leftStats, rightStats] = await Promise.all([
+  const [leftPath, rightPath] = await Promise.all([
     realpath(left),
     realpath(right),
-    lstat(left),
-    lstat(right),
   ])
   if (
     !leftStats.isFile() ||
@@ -296,6 +318,17 @@ async function pathsReferToSameDirectoryEntry(left: string, right: string) {
     entries.includes(leftName) &&
     entries.includes(rightName)
   )
+}
+
+async function lstatIfExists(path: string) {
+  try {
+    return await lstat(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return
+    }
+    throw error
+  }
 }
 
 async function canonicalizeReconciliationPath(path: string) {

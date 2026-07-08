@@ -1122,6 +1122,9 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
   const oldFlavor = `${oldPackageName}-wasm32-wasip1`
   const newFlavor = `${newPackageName}-wasm32-wasip1`
   const helperPackage = `${oldFlavor}-helper`
+  const flavorPatchLocator = `~/.yarn/patches/${oldFlavor}.patch`
+  const helperPatchLocator = `~/.yarn/patches/${helperPackage}.patch`
+  const nestedPatchResolution = `@workspace/consumer/${oldFlavor}`
 
   await createPackageIdentityFixture(projectPath, binaryName, oldPackageName)
   const packageJsonPath = join(projectPath, 'package.json')
@@ -1134,6 +1137,10 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
   packageJson.resolutions = {
     [`**/${oldFlavor}`]: `npm:${oldFlavor}@1.0.0`,
     [`**/${helperPackage}`]: `npm:${helperPackage}@1.0.0`,
+    'flavor-patch': `patch:${oldFlavor}@npm%3A1.0.0#${flavorPatchLocator}`,
+    [nestedPatchResolution]: `patch:${oldFlavor}@npm%3A1.0.0#${flavorPatchLocator}`,
+    'helper-patch': `patch:${helperPackage}@npm%3A1.0.0#${helperPatchLocator}`,
+    'foreign-patch': `patch:@other/package@npm%3A1.0.0#${flavorPatchLocator}`,
   }
   packageJson.overrides = {
     [`${oldFlavor}@^1`]: {
@@ -1145,6 +1152,8 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
   packageJson.pnpm = {
     onlyBuiltDependencies: [oldFlavor],
     ignoredBuiltDependencies: [oldFlavor, helperPackage],
+    ignoredOptionalDependencies: [oldFlavor, helperPackage],
+    minimumReleaseAgeExclude: [oldFlavor, helperPackage],
     neverBuiltDependencies: [oldFlavor],
     overrides: {
       [`parent>${oldFlavor}@^1`]: `npm:${oldFlavor}@1.0.0`,
@@ -1177,6 +1186,23 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
         },
       },
     },
+    allowedDeprecatedVersions: {
+      [oldFlavor]: oldFlavor,
+      [helperPackage]: oldFlavor,
+    },
+    peerDependencyRules: {
+      ignoreMissing: [oldFlavor, helperPackage],
+      allowedVersions: {
+        [oldFlavor]: oldFlavor,
+        [helperPackage]: oldFlavor,
+      },
+      description: oldFlavor,
+    },
+    updateConfig: {
+      ignoreDependencies: [oldFlavor, helperPackage],
+      tag: oldFlavor,
+    },
+    unrelated: oldFlavor,
   }
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
   await writeFile(
@@ -1214,6 +1240,22 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
     updatedPackageJson.resolutions[`**/${helperPackage}`],
     `npm:${helperPackage}@1.0.0`,
   )
+  t.is(
+    updatedPackageJson.resolutions['flavor-patch'],
+    `patch:${newFlavor}@npm%3A1.0.0#${flavorPatchLocator}`,
+  )
+  t.is(
+    updatedPackageJson.resolutions[`@workspace/consumer/${newFlavor}`],
+    `patch:${newFlavor}@npm%3A1.0.0#${flavorPatchLocator}`,
+  )
+  t.is(
+    updatedPackageJson.resolutions['helper-patch'],
+    `patch:${helperPackage}@npm%3A1.0.0#${helperPatchLocator}`,
+  )
+  t.is(
+    updatedPackageJson.resolutions['foreign-patch'],
+    `patch:@other/package@npm%3A1.0.0#${flavorPatchLocator}`,
+  )
   t.deepEqual(updatedPackageJson.overrides[`${newFlavor}@^1`], {
     [newFlavor]: `npm:${newFlavor}@1.0.0`,
     [helperPackage]: `npm:${helperPackage}@1.0.0`,
@@ -1230,6 +1272,14 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
   t.is(updatedPackageJson.pnpm.overrides.untouched, oldFlavor)
   t.deepEqual(updatedPackageJson.pnpm.onlyBuiltDependencies, [newFlavor])
   t.deepEqual(updatedPackageJson.pnpm.ignoredBuiltDependencies, [
+    newFlavor,
+    helperPackage,
+  ])
+  t.deepEqual(updatedPackageJson.pnpm.ignoredOptionalDependencies, [
+    newFlavor,
+    helperPackage,
+  ])
+  t.deepEqual(updatedPackageJson.pnpm.minimumReleaseAgeExclude, [
     newFlavor,
     helperPackage,
   ])
@@ -1265,6 +1315,23 @@ test('package rename preserves similarly prefixed dependencies and imports', asy
       },
     },
   )
+  t.deepEqual(updatedPackageJson.pnpm.allowedDeprecatedVersions, {
+    [newFlavor]: oldFlavor,
+    [helperPackage]: oldFlavor,
+  })
+  t.deepEqual(updatedPackageJson.pnpm.peerDependencyRules, {
+    ignoreMissing: [newFlavor, helperPackage],
+    allowedVersions: {
+      [newFlavor]: oldFlavor,
+      [helperPackage]: oldFlavor,
+    },
+    description: oldFlavor,
+  })
+  t.deepEqual(updatedPackageJson.pnpm.updateConfig, {
+    ignoreDependencies: [newFlavor, helperPackage],
+    tag: oldFlavor,
+  })
+  t.is(updatedPackageJson.pnpm.unrelated, oldFlavor)
   const rootEntry = await readFile(join(projectPath, 'index.cjs'), 'utf8')
   t.true(rootEntry.includes(newFlavor))
   t.true(rootEntry.includes(helperPackage))
@@ -1277,6 +1344,7 @@ test('dependency versions preserve matching tags and GitHub shorthands', async (
   const newPackageName = 'renamed'
   const oldFlavor = `${oldPackageName}-wasm32-wasip1`
   const newFlavor = `${newPackageName}-wasm32-wasip1`
+  const patchLocator = `~/.yarn/patches/${oldFlavor}.patch`
   await createPackageIdentityFixture(projectPath, 'fixture', oldPackageName)
   const packageJsonPath = join(projectPath, 'package.json')
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
@@ -1284,6 +1352,9 @@ test('dependency versions preserve matching tags and GitHub shorthands', async (
     alias: `npm:${oldFlavor}@1.0.0`,
     tag: oldFlavor,
     github: `${oldFlavor}/repo`,
+    patch: `patch:${oldFlavor}@npm%3A1.0.0#${patchLocator}`,
+    'patch-prefix': `patch:${oldFlavor}-helper@npm%3A1.0.0#${patchLocator}`,
+    'patch-foreign': `patch:other@npm%3A1.0.0#${patchLocator}`,
   }
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
 
@@ -1296,6 +1367,18 @@ test('dependency versions preserve matching tags and GitHub shorthands', async (
   t.is(updated.dependencies.alias, `npm:${newFlavor}@1.0.0`)
   t.is(updated.dependencies.tag, oldFlavor)
   t.is(updated.dependencies.github, `${oldFlavor}/repo`)
+  t.is(
+    updated.dependencies.patch,
+    `patch:${newFlavor}@npm%3A1.0.0#${patchLocator}`,
+  )
+  t.is(
+    updated.dependencies['patch-prefix'],
+    `patch:${oldFlavor}-helper@npm%3A1.0.0#${patchLocator}`,
+  )
+  t.is(
+    updated.dependencies['patch-foreign'],
+    `patch:other@npm%3A1.0.0#${patchLocator}`,
+  )
 })
 
 test('unscoped package rename preserves scoped selector basenames', async (t) => {

@@ -3,9 +3,11 @@ import { existsSync } from 'node:fs'
 import {
   chmod,
   link,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readlink,
   rm,
   stat,
   symlink,
@@ -243,6 +245,82 @@ test('filesystem transactions reject distinct case-sensitive hardlink replacemen
     t.is((await stat(oldName)).mode & 0o7777, 0o751)
     t.is((await stat(caseVariant)).mode & 0o7777, 0o751)
   }
+})
+
+test('filesystem transactions reject live symlink replacements before mutation', async (t) => {
+  const root = join(t.context.tmpDir, 'live-symlink-transaction')
+  const staging = join(t.context.tmpDir, 'live-symlink-staging')
+  const existing = join(root, 'existing.txt')
+  const target = join(t.context.tmpDir, 'live-target.txt')
+  const replacementSource = join(root, 'replacement-source.txt')
+  const replacementDestination = join(root, 'replacement-destination.txt')
+  const stagedExisting = join(staging, 'existing.txt')
+  const stagedReplacement = join(staging, 'replacement.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(existing, 'prior existing'),
+    writeFile(target, 'prior target'),
+    writeFile(stagedExisting, 'replacement existing'),
+    writeFile(stagedReplacement, 'replacement symlink'),
+  ])
+  await symlink(target, replacementSource, 'file')
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [
+        { source: stagedExisting, destination: existing },
+        {
+          source: stagedReplacement,
+          destination: replacementDestination,
+          removeBeforeWrite: replacementSource,
+        },
+      ],
+      [],
+    ),
+    { message: /path is not a regular file/ },
+  )
+
+  t.is(await readFile(existing, 'utf8'), 'prior existing')
+  t.is(await readFile(target, 'utf8'), 'prior target')
+  t.true((await lstat(replacementSource)).isSymbolicLink())
+  t.is(await readlink(replacementSource), target)
+  t.false(existsSync(replacementDestination))
+})
+
+test('filesystem transactions reject dangling symlink removals before mutation', async (t) => {
+  const root = join(t.context.tmpDir, 'dangling-symlink-transaction')
+  const staging = join(t.context.tmpDir, 'dangling-symlink-staging')
+  const existing = join(root, 'existing.txt')
+  const danglingTarget = join(root, 'missing.txt')
+  const danglingLink = join(root, 'dangling.txt')
+  const stagedExisting = join(staging, 'existing.txt')
+  await Promise.all([
+    mkdir(root, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(existing, 'prior existing'),
+    writeFile(stagedExisting, 'replacement existing'),
+  ])
+  await symlink(danglingTarget, danglingLink, 'file')
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [{ source: stagedExisting, destination: existing }],
+      [danglingLink],
+    ),
+    { message: /path is not a regular file/ },
+  )
+
+  t.is(await readFile(existing, 'utf8'), 'prior existing')
+  t.true((await lstat(danglingLink)).isSymbolicLink())
+  t.is(await readlink(danglingLink), danglingTarget)
+  t.false(existsSync(danglingTarget))
 })
 
 test('filesystem transactions apply requested modes to writes and staged renames', async (t) => {

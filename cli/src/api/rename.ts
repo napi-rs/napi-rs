@@ -53,8 +53,10 @@ const DEPENDENCY_FIELDS = new Set([
   'peerDependenciesMeta',
 ])
 const RECURSIVE_PACKAGE_KEY_FIELDS = new Set(['overrides', 'resolutions'])
-const PNPM_BUILT_DEPENDENCY_FIELDS = new Set([
+const PNPM_PACKAGE_ARRAY_FIELDS = new Set([
   'ignoredBuiltDependencies',
+  'ignoredOptionalDependencies',
+  'minimumReleaseAgeExclude',
   'neverBuiltDependencies',
   'onlyBuiltDependencies',
 ])
@@ -460,11 +462,7 @@ function rewritePackageMap(
   recursive: boolean,
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) =>
-      typeof entry === 'string'
-        ? replacePackageSelectors(entry, packageRenames, true)
-        : entry,
-    )
+    return rewritePackageSelectorArray(value, packageRenames)
   }
   if (typeof value !== 'object' || value === null) {
     return value
@@ -480,7 +478,7 @@ function rewritePackageMap(
     }
     const updatedEntry =
       typeof entry === 'string'
-        ? replacePackageAliasDescriptor(entry, packageRenames)
+        ? replacePackageDescriptor(entry, packageRenames)
         : recursive
           ? rewritePackageMap(entry, packageRenames, true)
           : entry
@@ -489,13 +487,43 @@ function rewritePackageMap(
   return updated
 }
 
-function replacePackageAliasDescriptor(
+function replacePackageDescriptor(
   value: string,
   packageRenames: Map<string, string>,
 ) {
-  return value.startsWith('npm:')
-    ? replacePackageSelectors(value, packageRenames, false)
+  if (value.startsWith('npm:')) {
+    return replacePackageSelectors(value, packageRenames, false)
+  }
+  if (!value.startsWith('patch:')) {
+    return value
+  }
+
+  const source = value.slice('patch:'.length)
+  const packageSeparator = source.startsWith('@')
+    ? source.indexOf('@', source.indexOf('/') + 1)
+    : source.indexOf('@')
+  if (packageSeparator <= 0) {
+    return value
+  }
+  const packageName = source.slice(0, packageSeparator)
+  const replacement = packageRenames.get(packageName)
+  return replacement
+    ? `patch:${replacement}${source.slice(packageSeparator)}`
     : value
+}
+
+function rewritePackageSelectorArray(
+  value: unknown,
+  packageRenames: Map<string, string>,
+) {
+  if (!Array.isArray(value)) {
+    return value
+  }
+  return value.map((entry) =>
+    typeof entry === 'string'
+      ? replacePackageSelectors(entry, packageRenames, true)
+      : entry,
+  )
 }
 
 function rewritePackageSelectorKeys(
@@ -553,6 +581,48 @@ function rewritePackageExtensions(
   return updated
 }
 
+function rewritePnpmPeerDependencyRules(
+  value: unknown,
+  packageRenames: Map<string, string>,
+) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+  const updated = createJsonRecord()
+  for (const [key, entry] of Object.entries(value)) {
+    defineJsonProperty(
+      updated,
+      key,
+      key === 'ignoreMissing'
+        ? rewritePackageSelectorArray(entry, packageRenames)
+        : key === 'allowedVersions'
+          ? rewritePackageSelectorKeys(entry, packageRenames)
+          : entry,
+    )
+  }
+  return updated
+}
+
+function rewritePnpmUpdateConfig(
+  value: unknown,
+  packageRenames: Map<string, string>,
+) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+  const updated = createJsonRecord()
+  for (const [key, entry] of Object.entries(value)) {
+    defineJsonProperty(
+      updated,
+      key,
+      key === 'ignoreDependencies'
+        ? rewritePackageSelectorArray(entry, packageRenames)
+        : entry,
+    )
+  }
+  return updated
+}
+
 function rewritePnpmConfig(
   value: unknown,
   packageRenames: Map<string, string>,
@@ -569,8 +639,14 @@ function rewritePnpmConfig(
       rewritten = rewritePackageSelectorKeys(entry, packageRenames)
     } else if (key === 'packageExtensions') {
       rewritten = rewritePackageExtensions(entry, packageRenames)
-    } else if (PNPM_BUILT_DEPENDENCY_FIELDS.has(key)) {
-      rewritten = rewritePackageMap(entry, packageRenames, false)
+    } else if (key === 'allowedDeprecatedVersions') {
+      rewritten = rewritePackageSelectorKeys(entry, packageRenames)
+    } else if (key === 'peerDependencyRules') {
+      rewritten = rewritePnpmPeerDependencyRules(entry, packageRenames)
+    } else if (key === 'updateConfig') {
+      rewritten = rewritePnpmUpdateConfig(entry, packageRenames)
+    } else if (PNPM_PACKAGE_ARRAY_FIELDS.has(key)) {
+      rewritten = rewritePackageSelectorArray(entry, packageRenames)
     }
     defineJsonProperty(updated, key, rewritten)
   }
