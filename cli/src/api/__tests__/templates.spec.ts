@@ -1438,6 +1438,176 @@ if (state.destroyed !== 1) {
 )
 
 test.serial(
+  'deferred WASI beforeExit owns cleanup errors, not pending initialization errors',
+  async (t) => {
+    const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
+    const tmpDir = await mkdtemp(
+      join(
+        fileURLToPath(new URL('.', import.meta.url)),
+        '.tmp-before-exit-failure-',
+      ),
+    )
+
+    try {
+      const runtimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(runtimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(runtimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(runtimeDir, 'index.js'),
+        `export class WASI {}
+export async function instantiateNapiModule() {
+  const state = globalThis.__napiDeferredFailureState
+  state.initializationStarted = true
+  await state.initializationGate
+  throw state.initializationError
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `export function createContext(options) {
+  if (options?.autoDestroy !== false) {
+    throw new Error('deferred loader must disable emnapi auto-destroy')
+  }
+  return {
+    suppressDestroy() {},
+    destroy() {
+      const state = globalThis.__napiDeferredFailureState
+      state.destroyAttempts++
+      const error = state.cleanupErrors.shift()
+      if (error) {
+        return Promise.reject(error)
+      }
+      state.destroyed++
+      return Promise.resolve()
+    },
+  }
+}
+`,
+      )
+      await writeFile(join(tmpDir, 'deferred.mjs'), src)
+      await writeFile(
+        join(tmpDir, 'failure.mjs'),
+        `import assert from 'node:assert/strict'
+
+const mode = process.argv[2]
+const initialBeforeExitListeners = new Set(process.rawListeners('beforeExit'))
+const initializationError = new Error('pending initialization failed')
+const firstCleanupError = new Error('initial rollback failed')
+const secondCleanupError = new Error('managed cleanup failed')
+let releaseInitialization
+const state = {
+  cleanupErrors:
+    mode === 'cleanup-failure'
+      ? [firstCleanupError, secondCleanupError]
+      : [],
+  destroyAttempts: 0,
+  destroyed: 0,
+  initializationError,
+  initializationGate: new Promise((resolve) => {
+    releaseInitialization = resolve
+  }),
+  initializationStarted: false,
+}
+globalThis.__napiDeferredFailureState = state
+
+const { instantiate } = await import('./deferred.mjs')
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+const pending = instantiate(module)
+while (!state.initializationStarted) {
+  await Promise.resolve()
+}
+const ownedBeforeExitListeners = process
+  .rawListeners('beforeExit')
+  .filter((listener) => !initialBeforeExitListeners.has(listener))
+assert.equal(ownedBeforeExitListeners.length, 1)
+
+let uncaughtCleanup
+if (mode === 'cleanup-failure') {
+  process.once('uncaughtException', (error) => {
+    uncaughtCleanup = error
+  })
+}
+ownedBeforeExitListeners[0](0)
+releaseInitialization()
+
+await assert.rejects(pending, (error) => {
+  assert.strictEqual(error, initializationError)
+  assert.strictEqual(
+    error.cause,
+    mode === 'cleanup-failure' ? firstCleanupError : undefined,
+  )
+  return true
+})
+await new Promise((resolve) => setImmediate(resolve))
+
+if (mode === 'cleanup-failure') {
+  assert.strictEqual(uncaughtCleanup, secondCleanupError)
+  assert.equal(state.destroyAttempts, 2)
+  assert.equal(state.destroyed, 0)
+  process.stdout.write('managed-cleanup-failure-ok\\n')
+} else {
+  assert.strictEqual(uncaughtCleanup, undefined)
+  assert.equal(state.destroyAttempts, 1)
+  assert.equal(state.destroyed, 1)
+  process.stdout.write('initialization-failure-contained\\n')
+}
+`,
+      )
+
+      const results = await Promise.all(
+        ['cleanup-success', 'cleanup-failure'].map((mode) =>
+          execFileAsync(
+            process.execPath,
+            [
+              '--unhandled-rejections=strict',
+              join(tmpDir, 'failure.mjs'),
+              mode,
+            ],
+            { cwd: tmpDir, timeout: 10_000 },
+          ),
+        ),
+      )
+      t.deepEqual(
+        results.map((result) => result.stdout),
+        ['initialization-failure-contained\n', 'managed-cleanup-failure-ok\n'],
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
   'WASI loaders preserve newListener-owned beforeExit listeners and retained eager exports when work resumes',
   async (t) => {
     const tmpDir = await mkdtemp(

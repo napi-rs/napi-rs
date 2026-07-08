@@ -348,12 +348,23 @@ async function __createInstance(__wasmInput, __beforeExitDestroy) {
   let __lifecycleState = 'pending'
   let __destroyEmnapiContext
   const __destroyBeforeExit = __beforeExitDestroy
-    ? () => {
+    ? async () => {
         if (__lifecycleState === 'failed') {
-          return __destroyEmnapiContext()
+          await __destroyEmnapiContext()
+          return
         }
         __lifecycleState = 'disposal'
-        return __beforeExitDestroy()
+        try {
+          await __beforeExitDestroy()
+        } catch (error) {
+          if (__lifecycleState !== 'failed') {
+            throw error
+          }
+          // The singleton's initialization rejection is already observable
+          // through instantiate() and dispose(). Managed beforeExit cleanup
+          // owns only context destruction, including retrying a failed rollback.
+          await __destroyEmnapiContext()
+        }
       }
     : undefined
   const {

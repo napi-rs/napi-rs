@@ -28,3 +28,26 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     t.regex(result.stdout, /deferred beforeExit lifecycle passed/)
   },
 )
+
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'deferred WASI contains pending initialization failure during beforeExit cleanup',
+  (t) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--unhandled-rejections=strict',
+        join(__dirname, 'wasi-deferred-pending-failure.js'),
+      ],
+      {
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 30_000,
+      },
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /deferred pending failure lifecycle passed/)
+  },
+)
