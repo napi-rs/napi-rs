@@ -56,18 +56,9 @@ const wasiRuntimeDependencies = [
   '@emnapi/runtime',
   'buffer',
 ]
-const wasiRuntimeImportPatterns = new Map(
-  wasiRuntimeDependencies.map((dependency) => [
-    dependency,
-    new RegExp(
-      String.raw`(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]${dependency.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        '\\$&',
-      )}['"]`,
-    ),
-  ]),
-)
 const require = createRequire(import.meta.url)
+type TypeScriptModule = typeof import('typescript')
+let loadedTypeScript: TypeScriptModule | undefined
 
 interface PackageInfo {
   name: string
@@ -1644,13 +1635,68 @@ async function releasePackageRuntimeImports(
       continue
     }
     const source = await readFileAsync(path, 'utf8')
-    for (const [dependency, pattern] of wasiRuntimeImportPatterns) {
-      if (pattern.test(source)) {
-        runtimeImports.add(dependency)
-      }
+    for (const specifier of staticModuleSpecifiers(source, path)) {
+      const dependency = wasiRuntimeDependencies.find(
+        (candidate) =>
+          specifier === candidate || specifier.startsWith(`${candidate}/`),
+      )
+      if (dependency) runtimeImports.add(dependency)
     }
   }
   return runtimeImports
+}
+
+function staticModuleSpecifiers(source: string, path: string) {
+  const typescript = loadTypeScript()
+  const sourceFile = typescript.createSourceFile(
+    path,
+    source,
+    typescript.ScriptTarget.Latest,
+    true,
+    typescript.ScriptKind.JS,
+  )
+  const specifiers = new Set<string>()
+  const addSpecifier = (value: unknown) => {
+    if (typeof value === 'string') specifiers.add(value)
+  }
+  const visit = (node: import('typescript').Node) => {
+    if (
+      (typescript.isImportDeclaration(node) ||
+        typescript.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      typescript.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      addSpecifier(node.moduleSpecifier.text)
+    } else if (
+      typescript.isImportEqualsDeclaration(node) &&
+      typescript.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression &&
+      typescript.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      addSpecifier(node.moduleReference.expression.text)
+    } else if (
+      typescript.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      typescript.isStringLiteralLike(node.arguments[0]) &&
+      (node.expression.kind === typescript.SyntaxKind.ImportKeyword ||
+        (typescript.isIdentifier(node.expression) &&
+          node.expression.text === 'require') ||
+        (typescript.isPropertyAccessExpression(node.expression) &&
+          typescript.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === 'require' &&
+          node.expression.name.text === 'resolve'))
+    ) {
+      addSpecifier(node.arguments[0].text)
+    }
+    typescript.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return specifiers
+}
+
+function loadTypeScript(): TypeScriptModule {
+  loadedTypeScript ??= require('typescript') as TypeScriptModule
+  return loadedTypeScript
 }
 
 function validateExpectedReleasePackageManifest(

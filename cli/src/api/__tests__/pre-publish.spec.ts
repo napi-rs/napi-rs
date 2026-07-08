@@ -736,6 +736,35 @@ test('pre-publish accepts self-contained WASI packages without runtime dependenc
   )
 })
 
+test('pre-publish ignores runtime import examples inside self-contained loader strings', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    delete manifest.dependencies
+  })
+  const loaderPath = join(
+    t.context.tmpDir,
+    'npm',
+    'wasm32-wasip1',
+    'pre-publish-wasi.wasip1.cjs',
+  )
+  const loader = await readFile(loaderPath, 'utf8')
+  const runtimeHelp =
+    "Use `import { getDefaultContext } from '@emnapi/runtime'`"
+  await writeFile(
+    loaderPath,
+    `${loader}\nconst runtimeHelp = ${JSON.stringify(runtimeHelp)}\n`,
+  )
+
+  await t.notThrowsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+})
+
 test('pre-publish rejects dependency-free packages with generated external runtime imports', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir)
   await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
