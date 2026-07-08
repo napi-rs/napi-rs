@@ -375,6 +375,29 @@ function resolvePnpmCli() {
   throw new Error('Could not resolve the pnpm Corepack entrypoint from PATH')
 }
 
+function resolveYarnCli() {
+  const repositoryRoot = dirname(require.resolve('../../../../package.json'))
+  const repositoryManifest = JSON.parse(
+    readFileSync(join(repositoryRoot, 'package.json'), 'utf8'),
+  )
+  const yarnVersion = repositoryManifest.packageManager?.match(
+    /^yarn@([0-9]+\.[0-9]+\.[0-9]+)$/,
+  )?.[1]
+  if (!yarnVersion) {
+    throw new Error('Could not determine the repository Yarn version')
+  }
+  const yarnCli = join(
+    repositoryRoot,
+    '.yarn',
+    'releases',
+    `yarn-${yarnVersion}.cjs`,
+  )
+  if (!existsSync(yarnCli)) {
+    throw new Error(`Could not resolve the Yarn CLI at ${yarnCli}`)
+  }
+  return { yarnCli, yarnVersion }
+}
+
 function resolveNpmCliFrom(directory: string) {
   for (const candidate of [
     join(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
@@ -2402,6 +2425,110 @@ test.serial(
       ],
       { cwd: consumerDir },
     )
+  },
+)
+
+test.serial(
+  'packed root and flavor packages resolve workerd and wasm subpaths with Yarn PnP',
+  async (t) => {
+    await setupThreadlessPackage(t.context.tmpDir)
+    await prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    })
+
+    const npmCli = resolveNpmCli()
+    const { yarnCli, yarnVersion } = resolveYarnCli()
+    const flavorName = 'pre-publish-wasi-wasm32-wasip1'
+    const flavorTarball = await packWithNpm(
+      npmCli,
+      join(t.context.tmpDir, 'npm', 'wasm32-wasip1'),
+      t.context.tmpDir,
+    )
+    const rootTarball = await packWithNpm(
+      npmCli,
+      t.context.tmpDir,
+      t.context.tmpDir,
+    )
+    const localDependencies = await Promise.all([
+      createLocalPackage(
+        t.context.tmpDir,
+        '@napi-rs/wasm-runtime',
+        wasmRuntimeVersion,
+      ),
+      createLocalPackage(t.context.tmpDir, '@emnapi/core', emnapiVersion),
+      createLocalPackage(t.context.tmpDir, '@emnapi/runtime', emnapiVersion),
+    ])
+
+    const consumerDir = join(t.context.tmpDir, 'yarn-pnp-consumer')
+    await mkdir(consumerDir)
+    await writeFile(
+      join(consumerDir, 'package.json'),
+      JSON.stringify({
+        name: 'yarn-pnp-packed-consumer',
+        private: true,
+        type: 'module',
+        packageManager: `yarn@${yarnVersion}`,
+        dependencies: {
+          'pre-publish-wasi': fileDependency(consumerDir, rootTarball),
+        },
+        resolutions: {
+          [flavorName]: fileDependency(consumerDir, flavorTarball),
+          '@napi-rs/wasm-runtime': fileDependency(
+            consumerDir,
+            localDependencies[0],
+          ),
+          '@emnapi/core': fileDependency(consumerDir, localDependencies[1]),
+          '@emnapi/runtime': fileDependency(consumerDir, localDependencies[2]),
+        },
+      }),
+    )
+    await writeFile(
+      join(consumerDir, '.yarnrc.yml'),
+      `nodeLinker: pnp
+enableGlobalCache: false
+enableNetwork: false
+`,
+    )
+    await writeFile(join(consumerDir, 'yarn.lock'), '')
+    await execFileAsync(
+      process.execPath,
+      [yarnCli, 'install', '--mode=skip-build', '--no-immutable'],
+      {
+        cwd: consumerDir,
+        env: { ...process.env, COREPACK_ENABLE_PROJECT_SPEC: '0' },
+      },
+    )
+
+    t.true(existsSync(join(consumerDir, '.pnp.cjs')))
+    t.false(existsSync(join(consumerDir, 'node_modules')))
+
+    const runtimeResult = await execFileAsync(
+      process.execPath,
+      [
+        yarnCli,
+        'node',
+        '--input-type=module',
+        '--eval',
+        `import root from 'pre-publish-wasi'; import { marker } from 'pre-publish-wasi/workerd'; import { readFileSync } from 'node:fs'; import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); const rootRequire = createRequire(require.resolve('pre-publish-wasi')); const flavorRoot = rootRequire('${flavorName}'); const flavor = rootRequire('${flavorName}/package.json'); const wasm = readFileSync(require.resolve('pre-publish-wasi/wasm')).toString('hex'); const extensionWasm = readFileSync(require.resolve('pre-publish-wasi/wasm.wasm')).toString('hex'); let directFlavorResolved = true; try { require.resolve('${flavorName}') } catch { directFlavorResolved = false } process.stdout.write(JSON.stringify({ directFlavorResolved, extensionWasm, flavor: flavor.name, flavorRoot, marker, root, wasm }))`,
+      ],
+      {
+        cwd: consumerDir,
+        env: { ...process.env, COREPACK_ENABLE_PROJECT_SPEC: '0' },
+      },
+    )
+    t.deepEqual(JSON.parse(runtimeResult.stdout), {
+      directFlavorResolved: false,
+      extensionWasm: MINIMAL_WASM.toString('hex'),
+      flavor: flavorName,
+      flavorRoot: {},
+      marker: 'workerd-export',
+      root: { entry: 'module' },
+      wasm: MINIMAL_WASM.toString('hex'),
+    })
   },
 )
 
