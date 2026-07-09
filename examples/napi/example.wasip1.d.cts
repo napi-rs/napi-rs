@@ -183,6 +183,17 @@ export declare class AsyncIteratorConstructor {
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
+export declare class AsyncIteratorFailedSendProbe {
+  constructor(startResultPath: string)
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorFailedSendProbe, number, void, AsyncIteratorFailedSendValue>
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
 export declare class AsyncIteratorIntoInstance {
 
   [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorIntoInstance, number, void, undefined>
@@ -662,6 +673,10 @@ export declare function assignTypedArraySliceAcrossDuplicateLoad(...args: unknow
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
 export declare function asyncCleanupHookCounts(): Array<number>
+
+export interface AsyncIteratorFailedSendValue {
+  value: number
+}
 
 export declare function asyncMultiTwo(arg: number): Promise<number>
 
@@ -1639,6 +1654,8 @@ export declare const enum StatusInValidate {
   Ready = 'Ready',
   Done = 'Done'
 }
+
+export declare function stoppedTokioAsyncBlockCleanupOrder(resultPath: string): Promise<undefined>
 
 /** Example struct demonstrating object streaming with nested types */
 export interface StreamItem {

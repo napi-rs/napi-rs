@@ -367,7 +367,7 @@ function __registerManagedEmnapiContext(__process, __destroy) {
   }
 }
 
-async function __createManagedEmnapiContext() {
+async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -421,6 +421,9 @@ async function __createManagedEmnapiContext() {
       __moduleLifecycleDestroyDepth++
     }
     try {
+      // Context.destroy() disables JS before cleanup hooks run, so settle
+      // runtime-owned promises while this environment can still call JS.
+      __prepareEnvCleanup?.()
       __result = __emnapiContext.destroy()
     } catch (error) {
       __finishDestroyInvocation()
@@ -546,6 +549,7 @@ async function __createInstance(
   let __destroyEmnapiContext
   let __destroyOwnedContext
   let __destroyManagedOwnedContext
+  let __napiInstance
   const __destroyBeforeExit = __beforeExitDestroy
     ? async () => {
         if (__lifecycleState === 'failed') {
@@ -571,7 +575,13 @@ async function __createInstance(
     destroy,
     destroyForModuleLifecycle,
     registerCleanup: __registerCleanup,
-  } = await __createManagedEmnapiContext()
+  } = await __createManagedEmnapiContext(() => {
+    const __prepareWasmEnvCleanup =
+      __napiInstance?.exports.napi_prepare_wasm_env_cleanup
+    if (typeof __prepareWasmEnvCleanup === 'function') {
+      __prepareWasmEnvCleanup()
+    }
+  })
   __destroyEmnapiContext = destroy
   __destroyOwnedContext = () => __destroyEmnapiContext()
   __destroyManagedOwnedContext = destroyForModuleLifecycle
@@ -581,9 +591,9 @@ async function __createInstance(
       await __registerCleanup(__destroyBeforeExit)
     }
     __emnapiContext.feature.Buffer = Buffer
-    const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
-      __emnapiModule,
-      {
+    let __napiModule
+    ;({ instance: __napiInstance, napiModule: __napiModule } =
+      await __emnapiInstantiateNapiModule(__emnapiModule, {
         context: __emnapiContext,
         asyncWorkPoolSize: 0,
         wasi: __wasi,
@@ -597,14 +607,14 @@ async function __createInstance(
           return importObject
         },
         beforeInit({ instance }) {
+          __napiInstance = instance
           for (const name of Object.keys(instance.exports)) {
             if (name.startsWith('__napi_register__')) {
               instance.exports[name]()
             }
           }
         },
-      },
-    )
+      }))
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }

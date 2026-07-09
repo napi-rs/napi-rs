@@ -213,6 +213,8 @@ export const AsyncIteratorAdmissionProbe =
   __napiModule.exports.AsyncIteratorAdmissionProbe
 export const AsyncIteratorConstructor =
   __napiModule.exports.AsyncIteratorConstructor
+export const AsyncIteratorFailedSendProbe =
+  __napiModule.exports.AsyncIteratorFailedSendProbe
 export const AsyncIteratorIntoInstance =
   __napiModule.exports.AsyncIteratorIntoInstance
 export const AsyncReentrantGenerator =
@@ -854,6 +856,8 @@ export const stashTypedArraySlicesAcrossDuplicateLoad = getWasiBindingExport(
 )
 export const Status = __napiModule.exports.Status
 export const StatusInValidate = __napiModule.exports.StatusInValidate
+export const stoppedTokioAsyncBlockCleanupOrder =
+  __napiModule.exports.stoppedTokioAsyncBlockCleanupOrder
 export const StringEnum = __napiModule.exports.StringEnum
 export const sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 export const sumBufferSliceFromCopy =
