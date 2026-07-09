@@ -4606,6 +4606,14 @@ static USER_DEFINED_RT: OnceLock<UserDefinedTokioRuntime> = OnceLock::new();
 static USER_DEFINED_RT_REGISTRATION_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn user_defined_tokio_runtime_registration_error() -> Option<String> {
+  USER_DEFINED_RT_REGISTRATION_ERROR
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .clone()
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 const DUPLICATE_TOKIO_RUNTIME_ERROR: &str =
   "A custom Tokio runtime or runtime factory was registered more than once; the first registration \
    permanently owns the custom Tokio runtime slot";
@@ -5140,6 +5148,11 @@ enum RuntimeStartReason {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
+  #[cfg(feature = "tokio_rt")]
+  if let Some(reason) = user_defined_tokio_runtime_registration_error() {
+    return Err(Error::new(crate::Status::GenericFailure, reason));
+  }
+
   let finalizer_env = if reason == RuntimeStartReason::Explicit {
     runtime_finalizer_env()
       .map(|env| {
@@ -5596,12 +5609,8 @@ fn acquire_tokio_runtime_with_transition(
   transition_mode: TokioRuntimeTransitionMode,
 ) -> Result<TokioRuntimeLease> {
   std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<TokioRuntimeLease> {
-    if let Some(reason) = USER_DEFINED_RT_REGISTRATION_ERROR
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .as_ref()
-    {
-      return Err(Error::new(crate::Status::GenericFailure, reason.clone()));
+    if let Some(reason) = user_defined_tokio_runtime_registration_error() {
+      return Err(Error::new(crate::Status::GenericFailure, reason));
     }
     {
       let state = TOKIO_RUNTIME_STATE

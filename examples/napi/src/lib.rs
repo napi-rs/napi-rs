@@ -12,7 +12,7 @@ use std::sync::{
   Mutex,
 };
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(not(target_family = "wasm"), not(target_os = "aix")))]
 use napi::bindgen_prelude::create_custom_tokio_runtime_factory;
 use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
 pub use napi_shared::*;
@@ -37,7 +37,7 @@ static TOKIO_RUNTIME_FACTORY_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
 #[cfg(not(target_family = "wasm"))]
 static TOKIO_THREAD_STOP_BARRIER: Mutex<Option<(String, String, String)>> = Mutex::new(None);
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(not(target_family = "wasm"), not(target_os = "aix")))]
 #[napi_derive::module_init]
 fn init() {
   create_custom_tokio_runtime_factory(|| {
