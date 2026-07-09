@@ -20,6 +20,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
@@ -45,6 +46,73 @@ function reconciliationLockPath(key: string) {
     reconciliationLockRoot,
     createHash('sha256').update(key).digest('hex'),
   )
+}
+
+async function currentProcessIncarnation(root: string) {
+  const key = await realpath(root)
+  const ownerPath = join(reconciliationLockPath(key), 'owner.json')
+  let incarnation: unknown
+  await withFileSystemReconciliation(root, async () => {
+    const owner = JSON.parse(await readFile(ownerPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    if (!Object.hasOwn(owner, 'incarnation')) {
+      throw new Error('Reconciliation lock owner omitted its incarnation')
+    }
+    incarnation = owner.incarnation
+  })
+  if (typeof incarnation !== 'string') {
+    throw new Error(
+      `Process incarnation is unavailable on ${process.platform}: ${String(incarnation)}`,
+    )
+  }
+  if (
+    process.platform === 'linux' &&
+    !/^linux-proc:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:\d+$/.test(
+      incarnation,
+    )
+  ) {
+    throw new Error(`Linux process incarnation omitted boot_id: ${incarnation}`)
+  }
+  return incarnation
+}
+
+function differentProcessIncarnation(incarnation: string) {
+  return `${incarnation}0`
+}
+
+function differentProcessIncarnationFormat(incarnation: string) {
+  return incarnation.startsWith('windows-start:')
+    ? 'ps-lstart:QQ'
+    : 'windows-start:1'
+}
+
+async function installReconciliationReclaimGuard(
+  reclaimPath: string,
+  incarnation: string,
+) {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    try {
+      await writeFile(
+        reclaimPath,
+        JSON.stringify({
+          createdAt: Date.now(),
+          incarnation,
+          pid: process.pid,
+          token: '00000000-0000-4000-8000-000000000008',
+        }),
+        { flag: 'wx' },
+      )
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+    }
+  }
+  throw new Error('Timed out installing reconciliation reclaim guard')
 }
 
 const test = ava as TestFn<{
@@ -863,6 +931,251 @@ test.serial(
 
     t.true(completed)
     t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation bounds acquisition when a live legacy owner cannot be reclaimed',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'bounded-live-pid')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(
+      join(lockPath, 'owner.json'),
+      JSON.stringify({
+        createdAt: Date.now(),
+        key,
+        pid: process.pid,
+        token: '00000000-0000-4000-8000-000000000007',
+      }),
+    )
+
+    const originalNow = Object.getOwnPropertyDescriptor(performance, 'now')
+    const initialNow = performance.now()
+    let observations = 0
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => {
+        observations += 1
+        return observations < 3 ? initialNow : initialNow + 1_000_000
+      },
+    })
+    try {
+      const error = await t.throwsAsync(
+        withFileSystemReconciliation(root, async () => {}),
+        {
+          message:
+            /Timed out after \d+ms waiting for filesystem reconciliation lock/,
+        },
+      )
+      t.is((error as NodeJS.ErrnoException).code, 'ETIMEDOUT')
+    } finally {
+      if (originalNow) {
+        Object.defineProperty(performance, 'now', originalNow)
+      } else {
+        Reflect.deleteProperty(performance, 'now')
+      }
+      await rm(lockPath, { force: true, recursive: true })
+    }
+  },
+)
+
+test.serial(
+  'filesystem reconciliation eventually cleans its failed owner after a reclaim guard disappears',
+  async (t) => {
+    t.timeout(15_000)
+    const root = join(t.context.tmpDir, 'eventual-owner-cleanup')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const reclaimPath = join(lockPath, 'reclaim.json')
+    const incarnation = await currentProcessIncarnation(root)
+    const installGuard = installReconciliationReclaimGuard(
+      reclaimPath,
+      incarnation,
+    )
+
+    const originalNow = Object.getOwnPropertyDescriptor(performance, 'now')
+    const initialNow = performance.now()
+    let advanceClock = false
+    let currentNow = initialNow
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => {
+        if (advanceClock) {
+          currentNow += 10_000
+        }
+        return currentNow
+      },
+    })
+
+    let operationEntered = false
+    try {
+      const pending = withFileSystemReconciliation(root, async () => {
+        operationEntered = true
+      })
+      await installGuard
+      advanceClock = true
+      const error = await t.throwsAsync(pending, {
+        message:
+          /Timed out after 120000ms waiting for filesystem reconciliation lock/,
+      })
+      t.is((error as NodeJS.ErrnoException).code, 'ETIMEDOUT')
+      t.false(operationEntered)
+    } finally {
+      if (originalNow) {
+        Object.defineProperty(performance, 'now', originalNow)
+      } else {
+        Reflect.deleteProperty(performance, 'now')
+      }
+    }
+
+    await rm(reclaimPath, { force: true })
+    const cleanupDeadline = Date.now() + 5_000
+    while (existsSync(lockPath) && Date.now() < cleanupDeadline) {
+      await delay(25)
+    }
+    t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation reclaims a lock when its live PID has a different incarnation',
+  async (t) => {
+    t.timeout(10_000)
+    const root = join(t.context.tmpDir, 'reused-owner-pid')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const token = '00000000-0000-4000-8000-000000000004'
+    const incarnation = await currentProcessIncarnation(root)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(
+      join(lockPath, 'owner.json'),
+      JSON.stringify({
+        createdAt: Date.now(),
+        incarnation: differentProcessIncarnation(incarnation),
+        key,
+        pid: process.pid,
+        token,
+      }),
+    )
+
+    let completed = false
+    await withFileSystemReconciliation(root, async () => {
+      completed = true
+    })
+
+    t.true(completed)
+    t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation removes a reclaim candidate when its live PID has a different incarnation',
+  async (t) => {
+    t.timeout(10_000)
+    const root = join(t.context.tmpDir, 'reused-reclaim-pid')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const incarnation = await currentProcessIncarnation(root)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(
+      join(lockPath, 'owner.json'),
+      JSON.stringify({
+        createdAt: Date.now(),
+        incarnation: null,
+        key,
+        pid: 999_999_999,
+        token: '00000000-0000-4000-8000-000000000005',
+      }),
+    )
+    await writeFile(
+      join(lockPath, 'reclaim.json'),
+      JSON.stringify({
+        createdAt: Date.now(),
+        incarnation: differentProcessIncarnation(incarnation),
+        pid: process.pid,
+        token: '00000000-0000-4000-8000-000000000006',
+      }),
+    )
+
+    let completed = false
+    await withFileSystemReconciliation(root, async () => {
+      completed = true
+    })
+
+    t.true(completed)
+    t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation conservatively retains an unknown live-owner incarnation format',
+  async (t) => {
+    t.timeout(5_000)
+    const root = join(t.context.tmpDir, 'future-owner-incarnation')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const incarnation = await currentProcessIncarnation(root)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(
+      join(lockPath, 'owner.json'),
+      JSON.stringify({
+        createdAt: Date.now(),
+        incarnation: `future-v2:${incarnation}`,
+        key,
+        pid: process.pid,
+        token: '00000000-0000-4000-8000-000000000009',
+      }),
+    )
+
+    let completed = false
+    const pending = withFileSystemReconciliation(root, async () => {
+      completed = true
+    })
+    await delay(100)
+    t.false(completed)
+    await rm(lockPath, { force: true, recursive: true })
+    await pending
+    t.true(completed)
+  },
+)
+
+test.serial(
+  'filesystem reconciliation compares only matching live-owner incarnation formats',
+  async (t) => {
+    t.timeout(5_000)
+    const root = join(t.context.tmpDir, 'cross-format-owner-incarnation')
+    await mkdir(root, { recursive: true })
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const incarnation = await currentProcessIncarnation(root)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(
+      join(lockPath, 'owner.json'),
+      JSON.stringify({
+        createdAt: Date.now(),
+        incarnation: differentProcessIncarnationFormat(incarnation),
+        key,
+        pid: process.pid,
+        token: '00000000-0000-4000-8000-00000000000a',
+      }),
+    )
+
+    let completed = false
+    const pending = withFileSystemReconciliation(root, async () => {
+      completed = true
+    })
+    await delay(100)
+    t.false(completed)
+    await rm(lockPath, { force: true, recursive: true })
+    await pending
+    t.true(completed)
   },
 )
 

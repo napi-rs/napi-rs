@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import {
   readFile,
   writeFile,
@@ -17,6 +18,8 @@ import { constants, type Stats } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { performance } from 'node:perf_hooks'
+import { setTimeout as scheduleTimeout } from 'node:timers'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import pkgJson from '../../package.json' with { type: 'json' }
@@ -37,9 +40,15 @@ const reconciliationLockRoot = join(
 )
 const incompleteLockGracePeriod = 30_000
 const reconciliationLeaseRefreshInterval = 5_000
+const reconciliationLockAcquisitionTimeout = 120_000
+const reconciliationLockCleanupTimeout = 5_000
+const reconciliationLockCleanupRetryInterval = 250
+const processIncarnationCommandTimeout = 2_000
+const processIncarnationObservationCacheDuration = 1_000
 
 interface ReconciliationLockOwner {
   createdAt: number
+  incarnation: string | null
   key: string
   pid: number
   token: string
@@ -47,6 +56,7 @@ interface ReconciliationLockOwner {
 
 interface ReconciliationReclaimOwner {
   createdAt: number
+  incarnation: string | null
   pid: number
   token: string
 }
@@ -56,6 +66,24 @@ interface ReconciliationLockState {
   ownerContent?: string
   stale: boolean
 }
+
+interface ProcessIncarnationObservation {
+  expiresAt: number
+  incarnation: string | null
+}
+
+interface ReconciliationLockDeadline {
+  expiresAt: number
+  timeout: number
+}
+
+const processIncarnationObservations = new Map<
+  number,
+  ProcessIncarnationObservation
+>()
+let currentProcessIncarnation: string | undefined
+let currentProcessIncarnationProbe: Promise<string | null> | undefined
+let linuxBootId: string | undefined
 
 interface TransactionParentIdentity {
   canonicalParent: string
@@ -482,6 +510,10 @@ async function canonicalizeReconciliationPath(path: string) {
 }
 
 async function acquireReconciliationLock(key: string) {
+  const acquisitionDeadline = createReconciliationLockDeadline(
+    reconciliationLockAcquisitionTimeout,
+  )
+  const incarnation = await getCurrentProcessIncarnation()
   await mkdir(reconciliationLockRoot, { recursive: true })
   const lockPath = join(
     reconciliationLockRoot,
@@ -490,6 +522,7 @@ async function acquireReconciliationLock(key: string) {
   const ownerPath = join(lockPath, 'owner.json')
 
   while (true) {
+    assertReconciliationLockAcquisitionTimeRemaining(acquisitionDeadline, key)
     try {
       await mkdir(lockPath)
     } catch (error) {
@@ -509,23 +542,30 @@ async function acquireReconciliationLock(key: string) {
       ) {
         continue
       }
-      await delay(20)
+      await delayReconciliationLockRetry(acquisitionDeadline, key)
       continue
     }
 
     const token = randomUUID()
     const owner: ReconciliationLockOwner = {
       createdAt: Date.now(),
+      incarnation,
       key,
       pid: process.pid,
       token,
     }
     try {
       await writeFileAtomic(ownerPath, JSON.stringify(owner), 'utf8')
-      await waitForReconciliationReclaim(lockPath)
+      await waitForReconciliationReclaim(lockPath, acquisitionDeadline, key)
       const leasePath = reconciliationLeasePath(lockPath, token)
       if (
-        !(await initializeReconciliationLease(ownerPath, leasePath, key, token))
+        !(await initializeReconciliationLease(
+          ownerPath,
+          leasePath,
+          key,
+          token,
+          acquisitionDeadline,
+        ))
       ) {
         throw new Error(
           `Lost filesystem reconciliation lock ownership before initialization: ${key}`,
@@ -539,13 +579,100 @@ async function acquireReconciliationLock(key: string) {
         token,
       )
     } catch (error) {
-      await waitForReconciliationReclaim(lockPath)
-      if (await reconciliationLockIsOwnedBy(ownerPath, key, token)) {
-        await rm(lockPath, { force: true, recursive: true })
-      }
+      await cleanupFailedReconciliationLock(lockPath, ownerPath, key, token)
       throw error
     }
   }
+}
+
+async function cleanupFailedReconciliationLock(
+  lockPath: string,
+  ownerPath: string,
+  key: string,
+  token: string,
+) {
+  try {
+    await waitForReconciliationReclaim(
+      lockPath,
+      createReconciliationLockDeadline(reconciliationLockCleanupTimeout),
+      key,
+    )
+  } catch (cleanupError) {
+    debug.warn(
+      `Failed to wait for filesystem reconciliation reclaim during acquisition cleanup: ${errorMessage(cleanupError)}`,
+    )
+    try {
+      if (await pathExistsAsync(reconciliationReclaimPath(lockPath))) {
+        scheduleFailedReconciliationLockCleanup(lockPath, ownerPath, key, token)
+        return
+      }
+    } catch (reclaimCheckError) {
+      debug.warn(
+        `Failed to inspect filesystem reconciliation reclaim after acquisition cleanup timeout: ${errorMessage(reclaimCheckError)}`,
+      )
+      scheduleFailedReconciliationLockCleanup(lockPath, ownerPath, key, token)
+      return
+    }
+  }
+
+  try {
+    if (await reconciliationLockIsOwnedBy(ownerPath, key, token)) {
+      await rm(lockPath, { force: true, recursive: true })
+    }
+  } catch (cleanupError) {
+    debug.warn(
+      `Failed to clean up filesystem reconciliation lock after acquisition failure: ${errorMessage(cleanupError)}`,
+    )
+    scheduleFailedReconciliationLockCleanup(lockPath, ownerPath, key, token)
+  }
+}
+
+function scheduleFailedReconciliationLockCleanup(
+  lockPath: string,
+  ownerPath: string,
+  key: string,
+  token: string,
+) {
+  const timer = scheduleTimeout(() => {
+    void retryFailedReconciliationLockCleanup(
+      lockPath,
+      ownerPath,
+      key,
+      token,
+    ).catch((cleanupError) => {
+      debug.warn(
+        `Failed to retry filesystem reconciliation lock cleanup: ${errorMessage(cleanupError)}`,
+      )
+      scheduleFailedReconciliationLockCleanup(lockPath, ownerPath, key, token)
+    })
+  }, reconciliationLockCleanupRetryInterval)
+  timer.unref()
+}
+
+async function retryFailedReconciliationLockCleanup(
+  lockPath: string,
+  ownerPath: string,
+  key: string,
+  token: string,
+) {
+  const reclaimPath = reconciliationReclaimPath(lockPath)
+  if (await pathExistsAsync(reclaimPath)) {
+    await removeStaleReconciliationReclaim(reclaimPath)
+    if (await pathExistsAsync(reclaimPath)) {
+      scheduleFailedReconciliationLockCleanup(lockPath, ownerPath, key, token)
+      return
+    }
+  }
+  if (!(await reconciliationLockIsOwnedBy(ownerPath, key, token))) {
+    return
+  }
+  // A reclaimer that retired the original directory may expose a replacement
+  // at lockPath. Recheck the guard after token validation before removing.
+  if (await pathExistsAsync(reclaimPath)) {
+    scheduleFailedReconciliationLockCleanup(lockPath, ownerPath, key, token)
+    return
+  }
+  await rm(lockPath, { force: true, recursive: true })
 }
 
 function reconciliationLeasePath(lockPath: string, token: string) {
@@ -587,9 +714,10 @@ async function initializeReconciliationLease(
   leasePath: string,
   key: string,
   token: string,
+  acquisitionDeadline: ReconciliationLockDeadline,
 ) {
   const lockPath = dirname(ownerPath)
-  await waitForReconciliationReclaim(lockPath)
+  await waitForReconciliationReclaim(lockPath, acquisitionDeadline, key)
   if (!(await reconciliationLockIsOwnedBy(ownerPath, key, token))) {
     return false
   }
@@ -604,7 +732,7 @@ async function initializeReconciliationLease(
     }
     return false
   }
-  await waitForReconciliationReclaim(lockPath)
+  await waitForReconciliationReclaim(lockPath, acquisitionDeadline, key)
   if (await reconciliationLockIsOwnedBy(ownerPath, key, token)) {
     return true
   }
@@ -641,7 +769,11 @@ async function reconciliationLockIsOwnedBy(
     const owner = JSON.parse(
       await readFile(ownerPath, 'utf8'),
     ) as ReconciliationLockOwner
-    return owner.key === key && owner.token === token
+    return (
+      owner.key === key &&
+      owner.token === token &&
+      isValidProcessIncarnation(owner.incarnation)
+    )
   } catch (error) {
     if (
       (error as NodeJS.ErrnoException).code === 'ENOENT' ||
@@ -694,7 +826,8 @@ async function inspectReconciliationLock(
       owner.createdAt > Date.now() + incompleteLockGracePeriod ||
       !Number.isSafeInteger(owner.pid) ||
       owner.pid <= 0 ||
-      !isReconciliationLockToken(owner.token)
+      !isReconciliationLockToken(owner.token) ||
+      !isValidProcessIncarnation(owner.incarnation)
     ) {
       return {
         lockStats,
@@ -705,7 +838,7 @@ async function inspectReconciliationLock(
     return {
       lockStats,
       ownerContent,
-      stale: !processExists(owner.pid),
+      stale: await processOwnerIsStale(owner.pid, owner.incarnation),
     }
   } catch (error) {
     if (!(error instanceof SyntaxError)) {
@@ -729,6 +862,7 @@ async function tryReclaimStaleReconciliationLock(
   const token = randomUUID()
   const reclaimOwner: ReconciliationReclaimOwner = {
     createdAt: Date.now(),
+    incarnation: await getCurrentProcessIncarnation(),
     pid: process.pid,
     token,
   }
@@ -810,12 +944,17 @@ function reconciliationReclaimPath(lockPath: string) {
   return join(lockPath, 'reclaim.json')
 }
 
-async function waitForReconciliationReclaim(lockPath: string) {
+async function waitForReconciliationReclaim(
+  lockPath: string,
+  acquisitionDeadline: ReconciliationLockDeadline,
+  key: string,
+) {
   const reclaimPath = reconciliationReclaimPath(lockPath)
   while (await pathExistsAsync(reclaimPath)) {
+    assertReconciliationLockAcquisitionTimeRemaining(acquisitionDeadline, key)
     await removeStaleReconciliationReclaim(reclaimPath)
     if (await pathExistsAsync(reclaimPath)) {
-      await delay(20)
+      await delayReconciliationLockRetry(acquisitionDeadline, key)
     }
   }
 }
@@ -828,7 +967,7 @@ async function reconciliationReclaimIsOwnedBy(
     const owner = JSON.parse(
       await readFile(reclaimPath, 'utf8'),
     ) as ReconciliationReclaimOwner
-    return owner.token === token
+    return owner.token === token && isValidProcessIncarnation(owner.incarnation)
   } catch (error) {
     if (
       (error as NodeJS.ErrnoException).code === 'ENOENT' ||
@@ -846,14 +985,17 @@ async function removeStaleReconciliationReclaim(reclaimPath: string) {
     const owner = JSON.parse(
       await readFile(reclaimPath, 'utf8'),
     ) as ReconciliationReclaimOwner
-    stale =
+    const invalidOwner =
       !Number.isSafeInteger(owner.createdAt) ||
       owner.createdAt <= 0 ||
       owner.createdAt > Date.now() + incompleteLockGracePeriod ||
       !Number.isSafeInteger(owner.pid) ||
       owner.pid <= 0 ||
       !isReconciliationLockToken(owner.token) ||
-      !processExists(owner.pid)
+      !isValidProcessIncarnation(owner.incarnation)
+    stale = invalidOwner
+      ? true
+      : await processOwnerIsStale(owner.pid, owner.incarnation)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return
@@ -891,12 +1033,288 @@ function isReconciliationLockToken(token: unknown): token is string {
   )
 }
 
+function isValidProcessIncarnation(
+  incarnation: unknown,
+): incarnation is string | null | undefined {
+  return (
+    incarnation === undefined ||
+    incarnation === null ||
+    (typeof incarnation === 'string' &&
+      incarnation.length > 0 &&
+      incarnation.length <= 512 &&
+      !hasControlCharacter(incarnation))
+  )
+}
+
+function hasControlCharacter(value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code <= 0x1f || code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
+
+function processIncarnationFormat(incarnation: string) {
+  if (
+    /^linux-proc:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:\d+$/i.test(
+      incarnation,
+    )
+  ) {
+    return 'linux-proc'
+  }
+  if (/^windows-start:\d+$/.test(incarnation)) {
+    return 'windows-start'
+  }
+  if (/^ps-lstart:[A-Za-z0-9_-]+$/.test(incarnation)) {
+    return 'ps-lstart'
+  }
+}
+
+async function processOwnerIsStale(
+  pid: number,
+  expectedIncarnation: string | null | undefined,
+) {
+  if (!processExists(pid)) {
+    return true
+  }
+  // Legacy, unavailable, and newer unknown identity formats fall back to the
+  // live-PID check. Only a confirmed comparable mismatch permits reclamation.
+  if (typeof expectedIncarnation !== 'string') {
+    return false
+  }
+  const expectedFormat = processIncarnationFormat(expectedIncarnation)
+  if (expectedFormat === undefined) {
+    return false
+  }
+  const observedIncarnation = await observeProcessIncarnation(
+    pid,
+    expectedIncarnation,
+  )
+  return (
+    observedIncarnation !== null &&
+    processIncarnationFormat(observedIncarnation) === expectedFormat &&
+    observedIncarnation !== expectedIncarnation
+  )
+}
+
 function processExists(pid: number) {
   try {
     process.kill(pid, 0)
     return true
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+function getCurrentProcessIncarnation() {
+  if (currentProcessIncarnation !== undefined) {
+    return Promise.resolve(currentProcessIncarnation)
+  }
+  if (currentProcessIncarnationProbe !== undefined) {
+    return currentProcessIncarnationProbe
+  }
+
+  const probe = readProcessIncarnation(process.pid)
+  currentProcessIncarnationProbe = probe
+  void probe.then(
+    (incarnation) => {
+      if (incarnation !== null) {
+        currentProcessIncarnation = incarnation
+      }
+      if (currentProcessIncarnationProbe === probe) {
+        currentProcessIncarnationProbe = undefined
+      }
+    },
+    () => {
+      if (currentProcessIncarnationProbe === probe) {
+        currentProcessIncarnationProbe = undefined
+      }
+    },
+  )
+  return probe
+}
+
+async function observeProcessIncarnation(
+  pid: number,
+  expectedIncarnation: string,
+) {
+  if (pid === process.pid) {
+    return getCurrentProcessIncarnation()
+  }
+  const now = performance.now()
+  const cached = processIncarnationObservations.get(pid)
+  // A cached equality can only delay PID-reuse detection. Never reclaim from
+  // a cached mismatch because the PID may have been reused since observation.
+  if (
+    cached &&
+    cached.expiresAt > now &&
+    cached.incarnation === expectedIncarnation
+  ) {
+    return cached.incarnation
+  }
+  const incarnation = await readProcessIncarnation(pid)
+  processIncarnationObservations.set(pid, {
+    expiresAt: performance.now() + processIncarnationObservationCacheDuration,
+    incarnation,
+  })
+  return incarnation
+}
+
+async function readProcessIncarnation(pid: number): Promise<string | null> {
+  if (process.platform === 'linux') {
+    return readLinuxProcessIncarnation(pid)
+  }
+  if (process.platform === 'win32') {
+    return readWindowsProcessIncarnation(pid)
+  }
+  return readPosixProcessIncarnation(pid)
+}
+
+async function readLinuxProcessIncarnation(pid: number) {
+  try {
+    const [content, bootId] = await Promise.all([
+      readFile(`/proc/${pid}/stat`, 'utf8'),
+      readLinuxBootId(),
+    ])
+    if (bootId === null) {
+      return null
+    }
+    const commandEnd = content.lastIndexOf(')')
+    if (commandEnd === -1) {
+      return null
+    }
+    const fields = content
+      .slice(commandEnd + 1)
+      .trim()
+      .split(/\s+/)
+    const startTime = fields[19]
+    return startTime && /^\d+$/.test(startTime)
+      ? `linux-proc:${bootId}:${startTime}`
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function readLinuxBootId() {
+  if (linuxBootId !== undefined) {
+    return linuxBootId
+  }
+  try {
+    const bootId = (await readFile('/proc/sys/kernel/random/boot_id', 'utf8'))
+      .trim()
+      .toLowerCase()
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(bootId)) {
+      return null
+    }
+    linuxBootId = bootId
+    return bootId
+  } catch {
+    return null
+  }
+}
+
+async function readWindowsProcessIncarnation(pid: number) {
+  const systemRoot = process.env.SystemRoot
+  const powershell = systemRoot
+    ? join(
+        systemRoot,
+        'System32',
+        'WindowsPowerShell',
+        'v1.0',
+        'powershell.exe',
+      )
+    : 'powershell.exe'
+  const startTime = await executeProcessIncarnationCommand(powershell, [
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `try { (Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks } catch { exit 1 }`,
+  ])
+  return startTime && /^\d+$/.test(startTime)
+    ? `windows-start:${startTime}`
+    : null
+}
+
+async function readPosixProcessIncarnation(pid: number) {
+  const startTime = await executeProcessIncarnationCommand(
+    '/bin/ps',
+    ['-o', 'lstart=', '-p', String(pid)],
+    {
+      ...process.env,
+      LANG: 'C',
+      LC_ALL: 'C',
+      TZ: 'UTC',
+    },
+  )
+  return startTime
+    ? `ps-lstart:${Buffer.from(startTime).toString('base64url')}`
+    : null
+}
+
+function executeProcessIncarnationCommand(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string | null> {
+  return new Promise((resolveCommand) => {
+    execFile(
+      command,
+      args,
+      {
+        encoding: 'utf8',
+        env,
+        timeout: processIncarnationCommandTimeout,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error) {
+          resolveCommand(null)
+          return
+        }
+        const output = stdout.trim()
+        resolveCommand(output || null)
+      },
+    )
+  })
+}
+
+function assertReconciliationLockAcquisitionTimeRemaining(
+  acquisitionDeadline: ReconciliationLockDeadline,
+  key: string,
+) {
+  if (performance.now() < acquisitionDeadline.expiresAt) {
+    return
+  }
+  const error = new Error(
+    `Timed out after ${acquisitionDeadline.timeout}ms waiting for filesystem reconciliation lock: ${key}`,
+  ) as NodeJS.ErrnoException
+  error.code = 'ETIMEDOUT'
+  throw error
+}
+
+async function delayReconciliationLockRetry(
+  acquisitionDeadline: ReconciliationLockDeadline,
+  key: string,
+) {
+  assertReconciliationLockAcquisitionTimeRemaining(acquisitionDeadline, key)
+  await delay(
+    Math.max(
+      0,
+      Math.min(20, acquisitionDeadline.expiresAt - performance.now()),
+    ),
+  )
+}
+
+function createReconciliationLockDeadline(
+  timeout: number,
+): ReconciliationLockDeadline {
+  return {
+    expiresAt: performance.now() + timeout,
+    timeout,
   }
 }
 
