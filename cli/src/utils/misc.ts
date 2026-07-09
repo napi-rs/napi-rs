@@ -19,7 +19,13 @@ import {
   readlink,
   type FileHandle,
 } from 'node:fs/promises'
-import { constants, type Stats } from 'node:fs'
+import {
+  constants,
+  existsSync,
+  readFileSync,
+  realpathSync,
+  type Stats,
+} from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   basename,
@@ -71,6 +77,9 @@ const legacyFileSystemTransactionStateVersion = 1
 const fileSystemTransactionStateVersion = 2
 const fileSystemTransactionStateMaximumSize = 16 * 1024 * 1024
 const fileSystemTransactionMaximumEntries = 100_000
+const fileSystemTransactionCleanupTimeout = 5_000
+const fileSystemTransactionCleanupInitialRetryDelay = 10
+const fileSystemTransactionCleanupMaximumRetryDelay = 250
 
 interface ReconciliationLockOwner {
   candidate: string
@@ -405,6 +414,163 @@ export function getPackageReconciliationRoot(
   packageJsonPath = 'package.json',
 ) {
   return dirname(resolve(cwd, packageJsonPath))
+}
+
+export function resolvePackageReconciliationPaths(
+  cwd: string,
+  packageJsonPath = 'package.json',
+  managedPaths: string[] = [],
+) {
+  const canonicalCwd = canonicalizeManagedPackagePath(cwd)
+  const requestedPackageJsonPath = resolve(cwd, packageJsonPath)
+  const canonicalPackageJsonPath = canonicalizeManagedPackagePath(
+    requestedPackageJsonPath,
+  )
+  const canonicalPackageRoot = canonicalizeManagedPackagePath(
+    dirname(requestedPackageJsonPath),
+  )
+  const canonicalManagedPaths = managedPaths.map((path) =>
+    canonicalizeManagedPackagePath(resolve(cwd, path)),
+  )
+  if (
+    !managedPackagePathIsWithin(canonicalPackageRoot, canonicalPackageJsonPath)
+  ) {
+    throw new Error(
+      `Package manifest escapes its package root: ${requestedPackageJsonPath}`,
+    )
+  }
+
+  const packageRootAndCwdAreRelated =
+    managedPackagePathIsWithin(canonicalPackageRoot, canonicalCwd) ||
+    managedPackagePathIsWithin(canonicalCwd, canonicalPackageRoot)
+  if (!packageRootAndCwdAreRelated) {
+    throw managedPackageBoundaryError(
+      canonicalCwd,
+      canonicalPackageRoot,
+      canonicalManagedPaths,
+    )
+  }
+
+  const discoveryBoundary = managedPackagePathIsWithin(
+    canonicalCwd,
+    canonicalPackageRoot,
+  )
+    ? canonicalCwd
+    : canonicalPackageRoot
+  let candidate = canonicalPackageRoot
+  while (true) {
+    if (
+      hasPackageWorkspaceBoundaryMarker(candidate) &&
+      canonicalManagedPaths.every((path) =>
+        managedPackagePathIsWithin(candidate, path),
+      )
+    ) {
+      return {
+        boundary: candidate,
+        cwd: canonicalCwd,
+        managedPaths: canonicalManagedPaths,
+        packageJsonPath: canonicalPackageJsonPath,
+        packageRoot: canonicalPackageRoot,
+      }
+    }
+    if (candidate === discoveryBoundary) {
+      break
+    }
+    const parent = dirname(candidate)
+    if (
+      parent === candidate ||
+      !managedPackagePathIsWithin(discoveryBoundary, parent)
+    ) {
+      break
+    }
+    candidate = parent
+  }
+
+  if (
+    dirname(canonicalPackageRoot) !== canonicalPackageRoot &&
+    canonicalManagedPaths.every((path) =>
+      managedPackagePathIsWithin(canonicalPackageRoot, path),
+    )
+  ) {
+    return {
+      boundary: canonicalPackageRoot,
+      cwd: canonicalCwd,
+      managedPaths: canonicalManagedPaths,
+      packageJsonPath: canonicalPackageJsonPath,
+      packageRoot: canonicalPackageRoot,
+    }
+  }
+  throw managedPackageBoundaryError(
+    canonicalCwd,
+    canonicalPackageRoot,
+    canonicalManagedPaths,
+  )
+}
+
+function managedPackagePathIsWithin(root: string, path: string) {
+  const relativePath = relative(resolve(root), resolve(path))
+  return (
+    relativePath === '' ||
+    (!isAbsolute(relativePath) &&
+      relativePath !== '..' &&
+      !relativePath.startsWith(`..${sep}`))
+  )
+}
+
+function canonicalizeManagedPackagePath(path: string) {
+  let current = resolve(path)
+  const missingSegments: string[] = []
+  while (true) {
+    try {
+      return join(realpathSync.native(current), ...missingSegments)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+      const parent = dirname(current)
+      if (parent === current) {
+        return join(current, ...missingSegments)
+      }
+      missingSegments.unshift(basename(current))
+      current = parent
+    }
+  }
+}
+
+function hasPackageWorkspaceBoundaryMarker(directory: string) {
+  if (existsSync(join(directory, 'pnpm-workspace.yaml'))) {
+    return true
+  }
+  const manifestPath = join(directory, 'package.json')
+  if (!existsSync(manifestPath)) {
+    return false
+  }
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      workspaces?: unknown
+    }
+    return (
+      Array.isArray(manifest.workspaces) ||
+      (typeof manifest.workspaces === 'object' &&
+        manifest.workspaces !== null &&
+        Array.isArray((manifest.workspaces as { packages?: unknown }).packages))
+    )
+  } catch {
+    return false
+  }
+}
+
+function managedPackageBoundaryError(
+  cwd: string,
+  packageRoot: string,
+  managedPaths: string[],
+) {
+  return new Error(
+    `Managed package paths must stay within the project or workspace boundary discovered from ${cwd}: ${[
+      packageRoot,
+      ...managedPaths,
+    ].join(', ')}`,
+  )
 }
 
 export async function commitFileSystemTransaction(
@@ -3450,12 +3616,60 @@ function fileSystemTransactionSiblingPath(
   )
 }
 
-function fileSystemTransactionRetiredPath(root: string) {
+function fileSystemTransactionRetiredPath(
+  root: string,
+  excludedToken?: string,
+) {
+  let token: string
+  do {
+    token = randomUUID()
+  } while (
+    excludedToken !== undefined &&
+    fileSystemTransactionTokensMatch(token, excludedToken)
+  )
   return fileSystemTransactionSiblingPath(
     root,
     fileSystemTransactionRetiredMarker,
-    randomUUID(),
+    token,
   )
+}
+
+function fileSystemTransactionTokensMatch(left: string, right: string) {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
+function parseFileSystemTransactionSiblingName(name: string) {
+  const journalExtension = extname(fileSystemTransactionJournalName)
+  const journalBase = basename(
+    fileSystemTransactionJournalName,
+    journalExtension,
+  )
+  const normalizedName = fileSystemTransactionPlatformPathKey(name)
+  for (const [kind, marker] of [
+    ['candidate', fileSystemTransactionCandidateMarker],
+    ['retired', fileSystemTransactionRetiredMarker],
+  ] as const) {
+    const prefix = `${journalBase}${marker}`
+    const normalizedPrefix = fileSystemTransactionPlatformPathKey(prefix)
+    const normalizedExtension =
+      fileSystemTransactionPlatformPathKey(journalExtension)
+    if (
+      !normalizedName.startsWith(normalizedPrefix) ||
+      !normalizedName.endsWith(normalizedExtension)
+    ) {
+      continue
+    }
+    const token = name.slice(prefix.length, -journalExtension.length)
+    if (
+      isReconciliationLockToken(token) &&
+      normalizedName ===
+        fileSystemTransactionPlatformPathKey(
+          `${prefix}${token}${journalExtension}`,
+        )
+    ) {
+      return { kind, token }
+    }
+  }
 }
 
 async function createFileSystemTransactionCandidate(root: string) {
@@ -4575,10 +4789,19 @@ async function readFileSystemTransactionJournal(
   root: string,
   owner: FileSystemTransactionJournalOwner,
 ) {
-  const path = join(
+  return readFileSystemTransactionJournalAt(
+    root,
     fileSystemTransactionJournalPath(root),
-    fileSystemTransactionStateName,
+    owner,
   )
+}
+
+async function readFileSystemTransactionJournalAt(
+  root: string,
+  journalRoot: string,
+  owner: FileSystemTransactionJournalOwner,
+) {
+  const path = join(journalRoot, fileSystemTransactionStateName)
   const content = await readBoundedRegularFile(
     path,
     fileSystemTransactionStateMaximumSize,
@@ -4897,10 +5120,167 @@ async function recoverLegacyFileSystemTransaction(
   await removeFileSystemTransactionJournal(root, owner.token, journalStats)
 }
 
+async function cleanupUnpublishedFileSystemTransactionArtifacts(
+  root: string,
+  journal: FileSystemTransactionJournal,
+) {
+  const preparedArtifacts = new Map<
+    string,
+    FileSystemTransactionJournalFileState
+  >()
+  for (const entry of journal.entries) {
+    for (const [relativePath, label] of [
+      [entry.retired, 'Transaction retirement path'],
+      [entry.rollbackRetired, 'Transaction rollback retirement path'],
+    ] as const) {
+      if (relativePath === undefined) {
+        continue
+      }
+      const path = resolveFileSystemTransactionRelativePath(
+        root,
+        relativePath,
+        label,
+      )
+      if ((await lstatIfExists(path)) !== undefined) {
+        throw fileSystemTransactionConflictError(
+          path,
+          'an unpublished transaction unexpectedly contains a retirement artifact',
+        )
+      }
+    }
+    if (entry.prepared && entry.final) {
+      const path = resolveFileSystemTransactionRelativePath(
+        root,
+        entry.prepared,
+        'Transaction prepared replacement',
+      )
+      const current = await fileSystemTransactionFileStateIfExists(path)
+      if (current === undefined) {
+        continue
+      }
+      if (!fileSystemTransactionFileStatesExactlyMatch(current, entry.final)) {
+        throw fileSystemTransactionConflictError(
+          path,
+          'an unpublished transaction prepared artifact changed before recovery',
+        )
+      }
+      preparedArtifacts.set(path, entry.final)
+    }
+  }
+  await cleanupPreparedFileSystemTransactionArtifacts(preparedArtifacts)
+}
+
+async function assertRetiredFileSystemTransactionArtifactsAreAbsent(
+  root: string,
+  journal: FileSystemTransactionJournal,
+) {
+  for (const entry of journal.entries) {
+    for (const [relativePath, label] of [
+      [entry.prepared, 'Transaction prepared replacement'],
+      [entry.retired, 'Transaction retirement path'],
+      [entry.rollbackRetired, 'Transaction rollback retirement path'],
+    ] as const) {
+      if (relativePath === undefined) {
+        continue
+      }
+      const path = resolveFileSystemTransactionRelativePath(
+        root,
+        relativePath,
+        label,
+      )
+      if ((await lstatIfExists(path)) !== undefined) {
+        throw fileSystemTransactionConflictError(
+          path,
+          'a retired transaction still references a live artifact',
+        )
+      }
+    }
+  }
+}
+
+async function scavengeFileSystemTransactionSiblings(root: string) {
+  const entries = await readdir(root, { withFileTypes: true })
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
+    const sibling = parseFileSystemTransactionSiblingName(entry.name)
+    if (!sibling) {
+      continue
+    }
+    const path = join(root, entry.name)
+    try {
+      const stats = await lstatIfExists(path)
+      if (
+        !entry.isDirectory() ||
+        entry.isSymbolicLink() ||
+        !stats?.isDirectory() ||
+        stats.isSymbolicLink()
+      ) {
+        throw new Error(
+          `Filesystem transaction sibling is not an owned directory: ${path}`,
+        )
+      }
+      const owner = await readFileSystemTransactionOwnerAt(path)
+      if (sibling.kind === 'candidate' && owner.token !== sibling.token) {
+        throw new Error(
+          `Filesystem transaction candidate owner does not match its reserved path: ${path}`,
+        )
+      }
+      if (
+        sibling.kind === 'retired' &&
+        fileSystemTransactionTokensMatch(owner.token, sibling.token)
+      ) {
+        throw new Error(
+          `Filesystem transaction retirement reused its owner token: ${path}`,
+        )
+      }
+      const journal = await readFileSystemTransactionJournalAt(
+        root,
+        path,
+        owner,
+      )
+      if (sibling.kind === 'candidate') {
+        if (journal.phase !== 'prepared') {
+          throw new Error(
+            `Filesystem transaction candidate has an invalid ${journal.phase} phase: ${path}`,
+          )
+        }
+        await cleanupUnpublishedFileSystemTransactionArtifacts(root, journal)
+      } else {
+        if (
+          journal.version === legacyFileSystemTransactionStateVersion &&
+          journal.phase !== 'committed'
+        ) {
+          throw new Error(
+            `Legacy prepared filesystem transaction retirement may contain quarantined backups: ${path}`,
+          )
+        }
+        await assertRetiredFileSystemTransactionArtifactsAreAbsent(
+          root,
+          journal,
+        )
+      }
+      const retiredPath = await retireFileSystemTransactionState(
+        root,
+        path,
+        stats,
+        owner.token,
+      )
+      await removeFileSystemTransactionStateTree(retiredPath)
+      await syncDirectory(root)
+    } catch (error) {
+      debug.warn(
+        `Preserving filesystem transaction sibling ${path}: ${errorMessage(error)}`,
+      )
+    }
+  }
+}
+
 async function recoverFileSystemTransaction(root: string) {
   const journalRoot = fileSystemTransactionJournalPath(root)
   const journalStats = await lstatIfExists(journalRoot)
   if (!journalStats) {
+    await scavengeFileSystemTransactionSiblings(root)
     return
   }
   if (!journalStats.isDirectory() || journalStats.isSymbolicLink()) {
@@ -4922,20 +5302,21 @@ async function recoverFileSystemTransaction(root: string) {
   const journal = await readFileSystemTransactionJournal(root, owner)
   if (journal.version === legacyFileSystemTransactionStateVersion) {
     await recoverLegacyFileSystemTransaction(root, journal, owner, journalStats)
-    return
-  }
-  if (journal.phase === 'prepared') {
-    const rollbackErrors = await rollbackFileSystemTransaction(root, journal)
-    if (rollbackErrors.length > 0) {
-      throw new AggregateError(
-        rollbackErrors,
-        `Failed to recover interrupted filesystem transaction at ${journalRoot}`,
-        { cause: rollbackErrors[0] },
-      )
+  } else {
+    if (journal.phase === 'prepared') {
+      const rollbackErrors = await rollbackFileSystemTransaction(root, journal)
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError(
+          rollbackErrors,
+          `Failed to recover interrupted filesystem transaction at ${journalRoot}`,
+          { cause: rollbackErrors[0] },
+        )
+      }
     }
+    await cleanupFileSystemTransactionArtifacts(root, journal)
+    await removeFileSystemTransactionJournal(root, owner.token, journalStats)
   }
-  await cleanupFileSystemTransactionArtifacts(root, journal)
-  await removeFileSystemTransactionJournal(root, owner.token, journalStats)
+  await scavengeFileSystemTransactionSiblings(root)
 }
 
 function fileSystemTransactionStateMatches(
@@ -4971,12 +5352,14 @@ async function retireFileSystemTransactionState(
 
   let retiredPath: string
   while (true) {
-    retiredPath = fileSystemTransactionRetiredPath(root)
+    retiredPath = fileSystemTransactionRetiredPath(root, expectedToken)
     if (await lstatIfExists(retiredPath)) {
       continue
     }
     try {
-      await rename(path, retiredPath)
+      await retryWindowsFileSystemTransactionCleanup(() =>
+        rename(path, retiredPath),
+      )
       break
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
@@ -5004,6 +5387,48 @@ async function retireFileSystemTransactionState(
   return retiredPath
 }
 
+async function retryWindowsFileSystemTransactionCleanup<T>(
+  operation: () => Promise<T>,
+) {
+  const deadline = performance.now() + fileSystemTransactionCleanupTimeout
+  let retryDelay = fileSystemTransactionCleanupInitialRetryDelay
+  while (true) {
+    try {
+      return await operation()
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (
+        process.platform !== 'win32' ||
+        !['EACCES', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'].includes(
+          code ?? '',
+        ) ||
+        performance.now() >= deadline
+      ) {
+        throw error
+      }
+      await delay(
+        Math.max(0, Math.min(retryDelay, deadline - performance.now())),
+      )
+      retryDelay = Math.min(
+        retryDelay * 2,
+        fileSystemTransactionCleanupMaximumRetryDelay,
+      )
+    }
+  }
+}
+
+async function removeFileSystemTransactionStateTree(path: string) {
+  await retryWindowsFileSystemTransactionCleanup(async () => {
+    try {
+      await rm(path, { force: true, recursive: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+    }
+  })
+}
+
 async function removeFileSystemTransactionCandidate(
   root: string,
   candidateRoot: string,
@@ -5014,7 +5439,7 @@ async function removeFileSystemTransactionCandidate(
     candidateRoot,
     candidateStats,
   )
-  await rm(retiredPath, { force: true, recursive: true })
+  await removeFileSystemTransactionStateTree(retiredPath)
   await syncDirectory(root)
 }
 
@@ -5030,7 +5455,7 @@ async function removeFileSystemTransactionJournal(
     journalStats,
     token,
   )
-  await rm(retiredPath, { force: true, recursive: true })
+  await removeFileSystemTransactionStateTree(retiredPath)
   await syncDirectory(root)
 }
 

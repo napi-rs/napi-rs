@@ -22,7 +22,6 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import {
-  basename,
   dirname,
   extname,
   isAbsolute,
@@ -48,10 +47,10 @@ import {
   createWasmModuleTypeDef,
   copyFileAtomic,
   debugFactory,
-  getPackageReconciliationRoot,
   MINIMUM_WASI_NODE_VERSION,
   mkdirAsync,
   restrictWasiNodeEngine,
+  resolvePackageReconciliationPaths,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   writeFileAtomic,
@@ -234,23 +233,17 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   const options = applyDefaultPrePublishOptions(userOptions)
 
-  const requestedPackageJsonPath = resolve(options.cwd, options.packageJsonPath)
-  const requestedRootDir = getPackageReconciliationRoot(
+  const resolvedPaths = resolvePackageReconciliationPaths(
     options.cwd,
     options.packageJsonPath,
+    [options.npmDir],
   )
-  const requestedNpmDir = resolve(options.cwd, options.npmDir)
   const {
     boundary: reconciliationRoot,
-    npmDir,
     packageJsonPath,
-    rootDir,
-  } = resolveManagedPrePublishPaths(
-    options.cwd,
-    requestedPackageJsonPath,
-    requestedRootDir,
-    requestedNpmDir,
-  )
+    packageRoot: rootDir,
+  } = resolvedPaths
+  const npmDir = resolvedPaths.managedPaths[0]
   let preparedSnapshotRoot: string | undefined
   let prepared: PreparedPrePublish
   try {
@@ -1706,114 +1699,6 @@ function pathIsWithin(root: string, path: string) {
     (!isAbsolute(relativePath) &&
       relativePath !== '..' &&
       !relativePath.startsWith(`..${sep}`))
-  )
-}
-
-function canonicalizeManagedPath(path: string) {
-  let current = resolve(path)
-  const missingSegments: string[] = []
-  while (true) {
-    try {
-      return join(realpathSync.native(current), ...missingSegments)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error
-      }
-      const parent = dirname(current)
-      if (parent === current) {
-        return join(current, ...missingSegments)
-      }
-      missingSegments.unshift(basename(current))
-      current = parent
-    }
-  }
-}
-
-function hasWorkspaceBoundaryMarker(directory: string) {
-  if (existsSync(join(directory, 'pnpm-workspace.yaml'))) {
-    return true
-  }
-  const manifestPath = join(directory, 'package.json')
-  if (!existsSync(manifestPath)) {
-    return false
-  }
-  try {
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      workspaces?: unknown
-    }
-    return (
-      Array.isArray(manifest.workspaces) ||
-      (typeof manifest.workspaces === 'object' &&
-        manifest.workspaces !== null &&
-        Array.isArray((manifest.workspaces as { packages?: unknown }).packages))
-    )
-  } catch {
-    return false
-  }
-}
-
-function resolveManagedPrePublishPaths(
-  cwd: string,
-  packageJsonPath: string,
-  rootDir: string,
-  npmDir: string,
-) {
-  const canonicalCwd = canonicalizeManagedPath(cwd)
-  const canonicalPackageJsonPath = canonicalizeManagedPath(packageJsonPath)
-  const canonicalRootDir = canonicalizeManagedPath(rootDir)
-  const canonicalNpmDir = canonicalizeManagedPath(npmDir)
-  if (!pathIsWithin(canonicalRootDir, canonicalPackageJsonPath)) {
-    throw new Error(
-      `Pre-publish package manifest escapes its package root: ${packageJsonPath}`,
-    )
-  }
-
-  const packageRootAndCwdAreRelated =
-    pathIsWithin(canonicalRootDir, canonicalCwd) ||
-    pathIsWithin(canonicalCwd, canonicalRootDir)
-  if (!packageRootAndCwdAreRelated) {
-    throw new Error(
-      `Managed pre-publish paths must stay within the project or workspace boundary discovered from ${canonicalCwd}: ${canonicalRootDir}, ${canonicalNpmDir}`,
-    )
-  }
-
-  const discoveryBoundary = pathIsWithin(canonicalCwd, canonicalRootDir)
-    ? canonicalCwd
-    : canonicalRootDir
-  let candidate = canonicalRootDir
-  while (true) {
-    if (
-      hasWorkspaceBoundaryMarker(candidate) &&
-      pathIsWithin(candidate, canonicalNpmDir)
-    ) {
-      return {
-        boundary: candidate,
-        npmDir: canonicalNpmDir,
-        packageJsonPath: canonicalPackageJsonPath,
-        rootDir: canonicalRootDir,
-      }
-    }
-    if (candidate === discoveryBoundary) break
-    const parent = dirname(candidate)
-    if (parent === candidate || !pathIsWithin(discoveryBoundary, parent)) {
-      break
-    }
-    candidate = parent
-  }
-
-  if (
-    dirname(canonicalRootDir) !== canonicalRootDir &&
-    pathIsWithin(canonicalRootDir, canonicalNpmDir)
-  ) {
-    return {
-      boundary: canonicalRootDir,
-      npmDir: canonicalNpmDir,
-      packageJsonPath: canonicalPackageJsonPath,
-      rootDir: canonicalRootDir,
-    }
-  }
-  throw new Error(
-    `Managed pre-publish paths must stay within the project or workspace boundary discovered from ${canonicalCwd}: ${canonicalRootDir}, ${canonicalNpmDir}`,
   )
 }
 

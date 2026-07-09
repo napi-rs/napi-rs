@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { once } from 'node:events'
 import { existsSync } from 'node:fs'
 import {
   chmod,
@@ -29,6 +30,7 @@ import {
   commitFileSystemTransaction,
   copyFileAtomic,
   getPackageReconciliationRoot,
+  resolvePackageReconciliationPaths,
   updatePackageJson,
   withFileSystemReconciliation,
   writeFileAtomic,
@@ -1273,30 +1275,54 @@ test('filesystem transactions ignore a crash residue created before candidate ow
   t.false(existsSync(join(root, transactionJournalName)))
 })
 
-test('filesystem transactions ignore a prepared candidate that crashed before publication', async (t) => {
+test('filesystem transactions scavenge a prepared candidate that crashed before publication', async (t) => {
   const root = join(t.context.tmpDir, 'pre-publication-crash-root')
   const staging = join(t.context.tmpDir, 'pre-publication-crash-staging')
   const token = '00000000-0000-4000-8000-000000000102'
   const candidateRoot = transactionSiblingPath(root, 'candidate', token)
   const source = join(staging, 'source.txt')
   const destination = join(root, 'destination.txt')
+  const prepared = transactionArtifactPath(destination, token, 0, 'prepared')
   await Promise.all([
     mkdir(join(candidateRoot, 'backups'), { recursive: true }),
     mkdir(join(candidateRoot, 'inputs'), { recursive: true }),
     mkdir(staging, { recursive: true }),
   ])
+  await writeFile(prepared, 'unpublished replacement')
+  const [final, rootStats] = await Promise.all([
+    transactionFileState(prepared),
+    lstat(root),
+  ])
   await Promise.all([
     writeFile(
       join(candidateRoot, 'owner.json'),
-      JSON.stringify(transactionOwner(token)),
+      JSON.stringify(transactionOwner(token, 2)),
     ),
     writeFile(
       join(candidateRoot, 'state.json'),
       JSON.stringify({
-        entries: [],
+        entries: [
+          {
+            final,
+            parent: {
+              canonicalParent: '.',
+              dev: rootStats.dev,
+              identityPath: '.',
+              ino: rootStats.ino,
+            },
+            path: basename(destination),
+            prepared: basename(prepared),
+            retired: basename(
+              transactionArtifactPath(destination, token, 0, 'retired'),
+            ),
+            rollbackRetired: basename(
+              transactionArtifactPath(destination, token, 0, 'rollback'),
+            ),
+          },
+        ],
         phase: 'prepared',
         token,
-        version: 1,
+        version: 2,
       }),
     ),
     writeFile(source, 'committed'),
@@ -1305,15 +1331,17 @@ test('filesystem transactions ignore a prepared candidate that crashed before pu
   await commitFileSystemTransaction(root, [{ source, destination }], [])
 
   t.is(await readFile(destination, 'utf8'), 'committed')
-  t.true(existsSync(candidateRoot))
+  t.false(existsSync(prepared))
+  t.false(existsSync(candidateRoot))
   t.false(existsSync(join(root, transactionJournalName)))
 })
 
-test('filesystem transactions ignore cleanup state retired before a crash', async (t) => {
+test('filesystem transactions scavenge cleanup state retired before a crash', async (t) => {
   const root = join(t.context.tmpDir, 'retired-cleanup-crash-root')
   const staging = join(t.context.tmpDir, 'retired-cleanup-crash-staging')
-  const token = '00000000-0000-4000-8000-000000000103'
-  const retiredRoot = transactionSiblingPath(root, 'retired', token)
+  const ownerToken = '00000000-0000-4000-8000-000000000103'
+  const retiredToken = '00000000-0000-4000-8000-000000000104'
+  const retiredRoot = transactionSiblingPath(root, 'retired', retiredToken)
   const source = join(staging, 'source.txt')
   const destination = join(root, 'destination.txt')
   await Promise.all([
@@ -1324,15 +1352,15 @@ test('filesystem transactions ignore cleanup state retired before a crash', asyn
   await Promise.all([
     writeFile(
       join(retiredRoot, 'owner.json'),
-      JSON.stringify(transactionOwner(token)),
+      JSON.stringify(transactionOwner(ownerToken, 2)),
     ),
     writeFile(
       join(retiredRoot, 'state.json'),
       JSON.stringify({
         entries: [],
         phase: 'committed',
-        token,
-        version: 1,
+        token: ownerToken,
+        version: 2,
       }),
     ),
     writeFile(source, 'committed'),
@@ -1341,9 +1369,309 @@ test('filesystem transactions ignore cleanup state retired before a crash', asyn
   await commitFileSystemTransaction(root, [{ source, destination }], [])
 
   t.is(await readFile(destination, 'utf8'), 'committed')
-  t.true(existsSync(retiredRoot))
+  t.false(existsSync(retiredRoot))
   t.false(existsSync(join(root, transactionJournalName)))
 })
+
+test('filesystem transactions preserve malformed and unproven transaction siblings', async (t) => {
+  const root = join(t.context.tmpDir, 'unproven-transaction-siblings')
+  const staging = join(t.context.tmpDir, 'unproven-transaction-staging')
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  const candidatePathToken = '00000000-0000-4000-8000-000000000105'
+  const candidateOwnerToken = '00000000-0000-4000-8000-000000000106'
+  const mismatchedCandidate = transactionSiblingPath(
+    root,
+    'candidate',
+    candidatePathToken,
+  )
+  const malformedOwnerToken = '00000000-0000-4000-8000-000000000107'
+  const malformedRetired = transactionSiblingPath(
+    root,
+    'retired',
+    '00000000-0000-4000-8000-000000000108',
+  )
+  const legacyOwnerToken = '00000000-0000-4000-8000-000000000109'
+  const legacyRetired = transactionSiblingPath(
+    root,
+    'retired',
+    '00000000-0000-4000-8000-000000000110',
+  )
+  const reusedOwnerToken = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const reusedTokenRetired = transactionSiblingPath(
+    root,
+    'retired',
+    reusedOwnerToken.toUpperCase(),
+  )
+  await Promise.all([
+    mkdir(mismatchedCandidate, { recursive: true }),
+    mkdir(malformedRetired, { recursive: true }),
+    mkdir(legacyRetired, { recursive: true }),
+    mkdir(reusedTokenRetired, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(mismatchedCandidate, 'owner.json'),
+      JSON.stringify(transactionOwner(candidateOwnerToken, 2)),
+    ),
+    writeFile(
+      join(mismatchedCandidate, 'state.json'),
+      JSON.stringify({
+        entries: [],
+        phase: 'prepared',
+        token: candidateOwnerToken,
+        version: 2,
+      }),
+    ),
+    writeFile(
+      join(malformedRetired, 'owner.json'),
+      JSON.stringify(transactionOwner(malformedOwnerToken, 2)),
+    ),
+    writeFile(join(malformedRetired, 'state.json'), '{'),
+    writeFile(
+      join(legacyRetired, 'owner.json'),
+      JSON.stringify(transactionOwner(legacyOwnerToken)),
+    ),
+    writeFile(
+      join(legacyRetired, 'state.json'),
+      JSON.stringify({
+        entries: [],
+        phase: 'prepared',
+        token: legacyOwnerToken,
+        version: 1,
+      }),
+    ),
+    writeFile(
+      join(reusedTokenRetired, 'owner.json'),
+      JSON.stringify(transactionOwner(reusedOwnerToken, 2)),
+    ),
+    writeFile(
+      join(reusedTokenRetired, 'state.json'),
+      JSON.stringify({
+        entries: [],
+        phase: 'committed',
+        token: reusedOwnerToken,
+        version: 2,
+      }),
+    ),
+    writeFile(source, 'committed'),
+  ])
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.true(existsSync(mismatchedCandidate))
+  t.true(existsSync(malformedRetired))
+  t.true(existsSync(legacyRetired))
+  t.true(existsSync(reusedTokenRetired))
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test.serial(
+  'filesystem transaction scavenging waits for a concurrent reconciliation owner',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'concurrent-transaction-owner')
+    const staging = join(t.context.tmpDir, 'concurrent-transaction-staging')
+    const workerPath = join(t.context.tmpDir, 'transaction-owner-worker.mjs')
+    const source = join(staging, 'source.txt')
+    const destination = join(root, 'destination.txt')
+    const token = '00000000-0000-4000-8000-000000000111'
+    const candidateRoot = transactionSiblingPath(root, 'candidate', token)
+    await Promise.all([
+      mkdir(root, { recursive: true }),
+      mkdir(staging, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(source, 'committed'),
+      writeFile(
+        workerPath,
+        `import { mkdir, writeFile } from 'node:fs/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+          new URL('../misc.ts', import.meta.url).href,
+        )}
+
+const [root, candidateRoot, token] = process.argv.slice(2)
+await withFileSystemReconciliation(root, async () => {
+  await Promise.all([
+    mkdir(candidateRoot, { recursive: true }),
+    mkdir(candidateRoot + '/backups', { recursive: true }),
+    mkdir(candidateRoot + '/inputs', { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      candidateRoot + '/owner.json',
+      JSON.stringify({
+        kind: 'napi-rs-filesystem-transaction',
+        token,
+        version: 2,
+      }),
+    ),
+    writeFile(
+      candidateRoot + '/state.json',
+      JSON.stringify({
+        entries: [],
+        phase: 'prepared',
+        token,
+        version: 2,
+      }),
+    ),
+  ])
+  process.send?.('ready')
+  await new Promise((resolve) => {
+    process.once('message', resolve)
+  })
+})
+`,
+      ),
+    ])
+
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        workerPath,
+        root,
+        candidateRoot,
+        token,
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+      },
+    )
+    t.teardown(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
+      }
+    })
+    const childClosed = once(child, 'close')
+    t.deepEqual(await once(child, 'message'), ['ready', undefined])
+
+    let transactionSettled = false
+    const transaction = commitFileSystemTransaction(
+      root,
+      [{ source, destination }],
+      [],
+    ).finally(() => {
+      transactionSettled = true
+    })
+    await delay(100)
+
+    t.false(transactionSettled)
+    t.true(existsSync(candidateRoot))
+    t.false(existsSync(destination))
+
+    child.send('release')
+    await Promise.all([transaction, childClosed])
+
+    t.is(await readFile(destination, 'utf8'), 'committed')
+    t.false(existsSync(candidateRoot))
+  },
+)
+
+windowsTest(
+  'filesystem transaction scavenging retries Windows EPERM cleanup',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'windows-transaction-cleanup')
+    const staging = join(t.context.tmpDir, 'windows-transaction-staging')
+    const source = join(staging, 'source.txt')
+    const destination = join(root, 'destination.txt')
+    const token = '00000000-0000-4000-8000-000000000112'
+    const candidateRoot = transactionSiblingPath(root, 'candidate', token)
+    const heldPath = join(candidateRoot, 'held.txt')
+    const holderScript = join(t.context.tmpDir, 'hold-exclusive-file.ps1')
+    await Promise.all([
+      mkdir(candidateRoot, { recursive: true }),
+      mkdir(staging, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(source, 'committed'),
+      writeFile(heldPath, 'held'),
+      writeFile(
+        join(candidateRoot, 'owner.json'),
+        JSON.stringify(transactionOwner(token, 2)),
+      ),
+      writeFile(
+        join(candidateRoot, 'state.json'),
+        JSON.stringify({
+          entries: [],
+          phase: 'prepared',
+          token,
+          version: 2,
+        }),
+      ),
+      writeFile(
+        holderScript,
+        `param([string]$Path)
+$stream = [System.IO.FileStream]::new(
+  $Path,
+  [System.IO.FileMode]::Open,
+  [System.IO.FileAccess]::Read,
+  [System.IO.FileShare]::None
+)
+[Console]::Out.WriteLine('ready')
+[Console]::Out.Flush()
+Start-Sleep -Milliseconds 500
+$stream.Dispose()
+`,
+      ),
+    ])
+
+    const powershell = join(
+      process.env.SystemRoot!,
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe',
+    )
+    const holder = spawn(
+      powershell,
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        holderScript,
+        heldPath,
+      ],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    )
+    t.teardown(() => {
+      if (holder.exitCode === null && holder.signalCode === null) {
+        holder.kill('SIGKILL')
+      }
+    })
+    const holderClosed = once(holder, 'close')
+    await new Promise<void>((resolveReady, rejectReady) => {
+      let output = ''
+      holder.once('error', rejectReady)
+      holder.stdout!.on('data', (chunk) => {
+        output += chunk.toString()
+        if (output.includes('ready')) {
+          resolveReady()
+        }
+      })
+      holder.once('close', () => {
+        if (!output.includes('ready')) {
+          rejectReady(new Error('Exclusive Windows file holder exited early'))
+        }
+      })
+    })
+
+    const started = performance.now()
+    await commitFileSystemTransaction(root, [{ source, destination }], [])
+    const elapsed = performance.now() - started
+    await holderClosed
+
+    t.true(elapsed >= 100)
+    t.is(await readFile(destination, 'utf8'), 'committed')
+    t.false(existsSync(candidateRoot))
+  },
+)
 
 const permissionsTest = process.platform === 'win32' ? test.skip : test
 
@@ -3328,6 +3656,37 @@ test('package reconciliation identity ignores custom output directories', (t) =>
     ),
     join(t.context.tmpDir, 'project', 'config'),
   )
+})
+
+test('package reconciliation selects one workspace boundary for a nested package and sibling npm directory', async (t) => {
+  const workspaceRoot = join(t.context.tmpDir, 'workspace')
+  const packageRoot = join(workspaceRoot, 'packages', 'addon')
+  const npmDir = join(workspaceRoot, 'npm')
+  await Promise.all([
+    mkdir(packageRoot, { recursive: true }),
+    mkdir(npmDir, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(workspaceRoot, 'package.json'),
+      JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+    ),
+    writeFile(
+      join(packageRoot, 'package.json'),
+      JSON.stringify({ name: 'nested-addon', version: '1.0.0' }),
+    ),
+  ])
+
+  const paths = resolvePackageReconciliationPaths(
+    workspaceRoot,
+    join('packages', 'addon', 'package.json'),
+    ['npm'],
+  )
+
+  t.is(paths.boundary, await realpath(workspaceRoot))
+  t.is(paths.packageRoot, await realpath(packageRoot))
+  t.is(paths.packageJsonPath, await realpath(join(packageRoot, 'package.json')))
+  t.deepEqual(paths.managedPaths, [await realpath(npmDir)])
 })
 
 test.serial(

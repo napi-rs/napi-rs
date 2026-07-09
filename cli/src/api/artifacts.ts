@@ -21,11 +21,11 @@ import {
   commitFileSystemTransaction,
   debugFactory,
   fileExists,
-  getPackageReconciliationRoot,
   parseTriple,
   readFileAsync,
   readNapiConfig,
   readdirAsync,
+  resolvePackageReconciliationPaths,
   type Target,
   UniArchsByPlatform,
   unlinkAsync,
@@ -58,28 +58,37 @@ const supportedArtifactTargets = AVAILABLE_TARGETS.map(parseTriple)
 
 export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
-  const packageRoot = getPackageReconciliationRoot(
+  const resolvedPaths = resolvePackageReconciliationPaths(
     options.cwd,
     options.packageJsonPath,
+    [options.npmDir],
   )
-  return withFileSystemReconciliation(packageRoot, () =>
-    collectArtifactsUnlocked(options),
+  const { boundary } = resolvedPaths
+  return withFileSystemReconciliation(boundary, () =>
+    collectArtifactsUnlocked(options, resolvedPaths),
   )
 }
 
 async function collectArtifactsUnlocked(
   options: ReturnType<typeof applyDefaultArtifactsOptions>,
+  resolvedPaths: ReturnType<typeof resolvePackageReconciliationPaths>,
 ) {
-  const cwd = resolve(options.cwd)
-  const resolvePath = (...paths: string[]) => resolve(cwd, ...paths)
-  const packageJsonPath = resolvePath(options.packageJsonPath)
-  const packageRoot = dirname(packageJsonPath)
+  const requestedCwd = resolve(options.cwd)
+  const cwd = resolvedPaths.cwd
+  const resolvePath = (...paths: string[]) => {
+    const requestedPath = resolve(requestedCwd, ...paths)
+    return isPathAtOrBelow(requestedPath, requestedCwd)
+      ? resolve(cwd, relative(requestedCwd, requestedPath))
+      : requestedPath
+  }
+  const packageJsonPath = resolvedPaths.packageJsonPath
+  const packageRoot = resolvedPaths.packageRoot
   const { targets, binaryName, packageName, packageJson } =
     await readNapiConfig(
       packageJsonPath,
       options.configPath ? resolvePath(options.configPath) : undefined,
     )
-  const npmDir = resolvePath(options.npmDir)
+  const npmDir = resolvedPaths.managedPaths[0]
   const outputDir = resolvePath(options.outputDir)
   const buildOutputDir = options.buildOutputDir
     ? resolvePath(options.buildOutputDir)
@@ -266,10 +275,15 @@ async function collectArtifactsUnlocked(
     protectedSourcePaths,
   )
 
-  await commitArtifactReconciliation(pendingWrites, staleManagedDestinations)
+  await commitArtifactReconciliation(
+    resolvedPaths.boundary,
+    pendingWrites,
+    staleManagedDestinations,
+  )
 }
 
 async function commitArtifactReconciliation(
+  reconciliationRoot: string,
   pendingWrites: Map<string, PendingWrite>,
   staleManagedDestinations: string[],
 ) {
@@ -289,48 +303,17 @@ async function commitArtifactReconciliation(
         },
       ),
     )
-    const transactionPaths = [
-      ...writes.map(({ destination }) => destination),
-      ...staleManagedDestinations,
-    ]
-    if (transactionPaths.length === 0) {
+    if (writes.length === 0 && staleManagedDestinations.length === 0) {
       return
     }
     await commitFileSystemTransaction(
-      commonPathAncestor(transactionPaths.map(dirname)),
+      reconciliationRoot,
       writes,
       staleManagedDestinations,
     )
   } finally {
     await rm(stagingRoot, { force: true, recursive: true })
   }
-}
-
-function commonPathAncestor(paths: Iterable<string>) {
-  const resolvedPaths = [...paths].map((path) => resolve(path))
-  if (resolvedPaths.length === 0) {
-    throw new Error('Cannot compute a common path for no artifact outputs')
-  }
-  let common = resolvedPaths[0]
-  for (const path of resolvedPaths.slice(1)) {
-    while (true) {
-      const relativePath = relative(common, path)
-      if (
-        relativePath === '' ||
-        (relativePath !== '..' &&
-          !relativePath.startsWith(`..${sep}`) &&
-          !isAbsolute(relativePath))
-      ) {
-        break
-      }
-      const parent = dirname(common)
-      if (parent === common) {
-        break
-      }
-      common = parent
-    }
-  }
-  return common
 }
 
 function artifactName(binaryName: string, target: Target) {

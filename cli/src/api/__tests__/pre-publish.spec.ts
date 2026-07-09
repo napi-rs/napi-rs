@@ -1,19 +1,23 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { constants, existsSync, readFileSync, realpathSync } from 'node:fs'
 import {
   chmod,
+  copyFile,
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
   rm,
   symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import ava, { type TestFn } from 'ava'
@@ -23,6 +27,7 @@ import {
   MINIMUM_WASI_NODE_VERSION,
   parseTriple,
 } from '../../utils/index.js'
+import { collectArtifacts } from '../artifacts.js'
 import { createWasiDeferredBindingTypeDef } from '../build.js'
 import {
   commitPrePublishFileSystemTransaction,
@@ -34,12 +39,36 @@ const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const test = ava as TestFn<{ tmpDir: string }>
 const permissionsTest = process.platform === 'win32' ? test.skip : test
+const fifoTest = process.platform === 'win32' ? test.skip : test
 const MINIMAL_WASM = Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
 const emnapiVersion = require('emnapi/package.json').version
 const wasmRuntimeVersion =
   require('../../../../wasm-runtime/package.json').version
 const directBufferDependency = '^6.0.3'
 const wasiRootFacadeMarkerPrefix = '// napi-rs-wasi-root-facade:'
+
+async function tryOpenFifoWriter(path: string) {
+  try {
+    return await open(path, constants.O_WRONLY | constants.O_NONBLOCK)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENXIO') {
+      return
+    }
+    throw error
+  }
+}
+
+async function waitForFifoWriter(path: string) {
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    const writer = await tryOpenFifoWriter(path)
+    if (writer) {
+      return writer
+    }
+    await delay(5)
+  }
+  throw new Error(`Timed out waiting for FIFO reader at ${path}`)
+}
 
 async function createTestTempDir() {
   const tmpDir = join(
@@ -2566,6 +2595,137 @@ test('pre-publish contains a nested package and sibling npm directory in one tra
     existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
   )
 })
+
+fifoTest.serial(
+  'artifact collection and pre-publish share the nested workspace reconciliation boundary',
+  async (t) => {
+    const workspaceRoot = t.context.tmpDir
+    const packageRoot = join(workspaceRoot, 'packages', 'addon')
+    const npmDir = join(workspaceRoot, 'npm')
+    const flavorDir = join(npmDir, 'wasm32-wasip1')
+    const buildOutputDir = join(packageRoot, 'build-output')
+    const artifactsDir = join(packageRoot, 'artifacts')
+    const gatesDir = join(workspaceRoot, '.reconciliation-gates')
+    const browserGate = join(buildOutputDir, 'browser.js')
+    const prePublishConfigGate = join(gatesDir, 'pre-publish.json')
+    const binaryName = 'pre-publish-wasi'
+    const artifactName = `${binaryName}.wasm32-wasip1.wasm`
+    const config = JSON.stringify({
+      binaryName,
+      targets: ['wasm32-wasip1'],
+    })
+
+    await mkdir(packageRoot, { recursive: true })
+    await writeFile(
+      join(workspaceRoot, 'package.json'),
+      JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+    )
+    await setupThreadlessPackage(packageRoot)
+    await rename(join(packageRoot, 'npm'), npmDir)
+    await Promise.all([
+      mkdir(buildOutputDir, { recursive: true }),
+      mkdir(artifactsDir, { recursive: true }),
+      mkdir(gatesDir, { recursive: true }),
+    ])
+    await Promise.all([
+      copyFile(join(flavorDir, artifactName), join(artifactsDir, artifactName)),
+      copyFile(join(packageRoot, 'index.js'), join(buildOutputDir, 'index.js')),
+      ...[
+        `${binaryName}.wasip1.cjs`,
+        `${binaryName}.wasip1.d.cts`,
+        `${binaryName}.wasip1-browser.js`,
+        `${binaryName}.wasip1-deferred.js`,
+        `${binaryName}.wasip1-deferred.d.ts`,
+      ].map((file) =>
+        copyFile(join(flavorDir, file), join(buildOutputDir, file)),
+      ),
+    ])
+    await Promise.all([
+      execFileAsync('mkfifo', [browserGate]),
+      execFileAsync('mkfifo', [prePublishConfigGate]),
+    ])
+    const flavorManifestPath = join(flavorDir, 'package.json')
+    const flavorManifest = JSON.parse(
+      await readFile(flavorManifestPath, 'utf8'),
+    )
+    flavorManifest.version = '0.0.0-unpublished'
+    await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+
+    const collection = collectArtifacts({
+      cwd: workspaceRoot,
+      packageJsonPath: join('packages', 'addon', 'package.json'),
+      npmDir: 'npm',
+      outputDir: artifactsDir,
+      buildOutputDir,
+    })
+    const browserWriter = await waitForFifoWriter(browserGate)
+
+    const publication = prePublish({
+      cwd: workspaceRoot,
+      packageJsonPath: join('packages', 'addon', 'package.json'),
+      npmDir: 'npm',
+      configPath: prePublishConfigGate,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    })
+
+    let overlappingWriter
+    const overlapDeadline = Date.now() + 500
+    while (Date.now() < overlapDeadline && !overlappingWriter) {
+      overlappingWriter = await tryOpenFifoWriter(prePublishConfigGate)
+      if (!overlappingWriter) {
+        await delay(5)
+      }
+    }
+    if (overlappingWriter) {
+      await overlappingWriter.writeFile(config)
+      await overlappingWriter.close()
+      await unlink(prePublishConfigGate)
+    }
+    t.is(
+      overlappingWriter,
+      undefined,
+      'pre-publish read project state while artifact reconciliation held the workspace boundary',
+    )
+
+    await browserWriter.writeFile('// root browser\n')
+    await browserWriter.close()
+    await unlink(browserGate)
+    await collection
+
+    if (!overlappingWriter) {
+      const configWriter = await waitForFifoWriter(prePublishConfigGate)
+      await configWriter.writeFile(config)
+      await configWriter.close()
+      await unlink(prePublishConfigGate)
+    }
+    await publication
+
+    const reconciledRoot = JSON.parse(
+      await readFile(join(packageRoot, 'package.json'), 'utf8'),
+    )
+    const reconciledFlavor = JSON.parse(
+      await readFile(flavorManifestPath, 'utf8'),
+    )
+    t.is(
+      reconciledRoot.optionalDependencies['pre-publish-wasi-wasm32-wasip1'],
+      '1.0.0',
+    )
+    t.is(reconciledFlavor.version, '1.0.0')
+    t.is(
+      await readFile(join(packageRoot, 'browser.js'), 'utf8'),
+      '// root browser\n',
+    )
+    t.false(
+      existsSync(join(packageRoot, '.napi-rs-filesystem-transaction.swp')),
+    )
+    t.false(
+      existsSync(join(workspaceRoot, '.napi-rs-filesystem-transaction.swp')),
+    )
+  },
+)
 
 test.serial(
   'pre-publish publishes the immutable prepared snapshot after lock release',
