@@ -776,12 +776,9 @@ class Builder {
   }
 
   private setWasiEnv() {
-    const emnapi = join(
-      require.resolve('emnapi'),
-      '..',
-      'lib',
-      'wasm32-wasip1-threads',
-    )
+    const hasThreads = this.target.triple !== 'wasm32-wasip1'
+    const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
+    const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
     this.envs.EMNAPI_LINK_DIR = emnapi
     const emnapiVersion = require('emnapi/package.json').version
     const projectRequire = createRequire(join(this.options.cwd, 'package.json'))
@@ -831,15 +828,15 @@ class Builder {
       )
       this.setEnvIfNotExists(
         'TARGET_CFLAGS',
-        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
+        `--target=${wasiTarget} --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot${hasThreads ? ' -pthread' : ''} -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         'TARGET_CXXFLAGS',
-        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
+        `--target=${wasiTarget} --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot${hasThreads ? ' -pthread' : ''} -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         `TARGET_LDFLAGS`,
-        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasip1-threads`,
+        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=${wasiTarget}`,
       )
     }
   }

@@ -918,7 +918,7 @@ jobs:
 
   check-custom-async-runtime-wasi:
     runs-on: ubuntu-latest
-    name: Test custom async runtime on threaded WASI
+    name: Test custom async runtime on WASI
     timeout-minutes: 10
     needs: audit
     steps:
@@ -932,7 +932,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip1-threads
+          targets: wasm32-wasip1, wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Build WASM runtime
@@ -961,12 +961,12 @@ jobs:
           done
         env:
           EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1-threads
-      - name: Build threaded WASI artifact
-        run: yarn workspace @examples/custom-async-runtime build --target wasm32-wasip1-threads --profile wasi
+      - name: Test threadless WASI artifact
+        run: yarn workspace @examples/custom-async-runtime test:wasi
+      - name: Test threaded WASI artifact
+        run: yarn workspace @examples/custom-async-runtime test:wasi-threads
         env:
           RUSTFLAGS: '--cfg tokio_unstable'
-      - name: Test threaded WASI artifact
-        run: node examples/custom-async-runtime/test.mjs wasi
 
   check-unix-runtime-module-retention:
     runs-on: ubuntu-latest
