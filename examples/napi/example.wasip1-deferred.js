@@ -729,6 +729,7 @@ const unsupportedWasiFunctions = new Set([
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
   'throwPromiseRejectionAcrossDuplicateLoad',
+  'tokioRuntimeFactoryCallCount',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',

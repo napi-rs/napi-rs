@@ -1763,6 +1763,8 @@ export declare function throwSyntaxError(error: string, code?: string | undefine
 
 export declare function toJsObj(): object
 
+export declare function tokioRuntimeFactoryCallCount(...args: unknown[]): never
+
 export declare function tokioRuntimeLifecycleValue(...args: unknown[]): never
 
 /**

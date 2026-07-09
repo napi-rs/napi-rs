@@ -571,6 +571,7 @@ const unsupportedWasiFunctions = new Set([
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
   'throwPromiseRejectionAcrossDuplicateLoad',
+  'tokioRuntimeFactoryCallCount',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',
@@ -1071,6 +1072,7 @@ module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause
 module.exports.throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
+module.exports.tokioRuntimeFactoryCallCount = getWasiBindingExport('tokioRuntimeFactoryCallCount')
 module.exports.tokioRuntimeLifecycleValue = getWasiBindingExport('tokioRuntimeLifecycleValue')
 module.exports.tryCloneErrorCauseOffThread = __napiModule.exports.tryCloneErrorCauseOffThread
 module.exports.tryCloneErrorCauseTransitiveOffThread = __napiModule.exports.tryCloneErrorCauseTransitiveOffThread

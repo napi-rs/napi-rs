@@ -70,6 +70,7 @@ const unsupportedWasiFunctions = new Set([
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
   'throwPromiseRejectionAcrossDuplicateLoad',
+  'tokioRuntimeFactoryCallCount',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',
@@ -126,14 +127,14 @@ const __wasmMemory = new WebAssembly.Memory({
 
 const __emnapiContext = __emnapiCreateContext()
 
-function __createInitializationCleanupError(__error, __cleanupError) {
+function __createInitializationCleanupError(__error, __cleanupErrors) {
   let __message = 'WASI module initialization failed'
   try {
     if (__error && typeof __error.message === 'string') {
       __message = __error.message
     }
   } catch {}
-  const __errors = [__error, __cleanupError]
+  const __errors = [__error, ...__cleanupErrors]
   const __AggregateError = globalThis.AggregateError
   const __combinedError =
     typeof __AggregateError === 'function'
@@ -179,10 +180,14 @@ try {
     },
   }))
 } catch (__error) {
+  const __cleanupErrors = []
   try {
     await __emnapiContext.destroy()
   } catch (__cleanupError) {
-    throw __createInitializationCleanupError(__error, __cleanupError)
+    __cleanupErrors.push(__cleanupError)
+  }
+  if (__cleanupErrors.length > 0) {
+    throw __createInitializationCleanupError(__error, __cleanupErrors)
   }
   throw __error
 }
@@ -923,6 +928,9 @@ export const throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport(
 )
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
 export const toJsObj = __napiModule.exports.toJsObj
+export const tokioRuntimeFactoryCallCount = getWasiBindingExport(
+  'tokioRuntimeFactoryCallCount',
+)
 export const tokioRuntimeLifecycleValue = getWasiBindingExport(
   'tokioRuntimeLifecycleValue',
 )
