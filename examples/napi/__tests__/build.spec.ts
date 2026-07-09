@@ -273,7 +273,7 @@ test('checked threaded browser artifact rolls workers back after context cleanup
     join(generatedArtifactDirectory, 'example.wasi-browser.js'),
     'utf8',
   )
-  const contextCleanup = source.lastIndexOf('await __emnapiContext.destroy()')
+  const contextCleanup = source.lastIndexOf('await __destroyEmnapiContext()')
   const workerCleanup = source.lastIndexOf(
     'await __terminateWasiInitializationWorkers()',
   )
