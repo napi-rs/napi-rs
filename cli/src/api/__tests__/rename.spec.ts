@@ -1,5 +1,6 @@
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, watch } from 'node:fs'
 import {
   chmod,
   lstat,
@@ -7,6 +8,7 @@ import {
   readFile,
   readlink,
   readdir,
+  realpath,
   rename as move,
   rm,
   symlink,
@@ -23,7 +25,6 @@ import {
   createWasmModuleTypeDef,
   getPackageReconciliationRoot,
   readNapiConfig,
-  resolvePackageReconciliationPaths,
   withFileSystemReconciliation,
 } from '../../utils/index.js'
 import { prePublish } from '../pre-publish.js'
@@ -32,6 +33,8 @@ import { renameProject } from '../rename.js'
 const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
 const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
 const MINIMAL_WASM = Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
+const RECONCILIATION_LOCK_NAME = '.napi-rs-filesystem-reconciliation'
+const RECONCILIATION_CANDIDATE_MARKER = '.candidate.'
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -54,6 +57,155 @@ test.afterEach.always(async (t) => {
     await rm(t.context.tmpDir, { recursive: true, force: true })
   }
 })
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message: string,
+  timeout = 30_000,
+) {
+  const controller = new AbortController()
+  try {
+    return await Promise.race([
+      promise,
+      delay(timeout, undefined, { signal: controller.signal }).then(() => {
+        throw new Error(message)
+      }),
+    ])
+  } finally {
+    controller.abort()
+  }
+}
+
+async function waitForPath(path: string) {
+  while (!existsSync(path)) {
+    await delay(10)
+  }
+}
+
+async function watchForReconciliationAttempt(root: string) {
+  const canonicalRoot = await realpath(root)
+  const stats = await lstat(canonicalRoot)
+  const candidatePrefixes = [canonicalRoot, `inode:${stats.ino}`].map(
+    (key) =>
+      `${RECONCILIATION_LOCK_NAME}.${createHash('sha256')
+        .update(key)
+        .digest('hex')}${RECONCILIATION_CANDIDATE_MARKER}`,
+  )
+  let markAttempted!: () => void
+  let failAttempted!: (error: Error) => void
+  const attempted = new Promise<void>((resolve, reject) => {
+    markAttempted = resolve
+    failAttempted = reject
+  })
+  const watcher = watch(
+    dirname(canonicalRoot),
+    { persistent: false },
+    (_event, filename) => {
+      const name = filename?.toString()
+      if (
+        !name ||
+        candidatePrefixes.some((prefix) => name.startsWith(prefix))
+      ) {
+        markAttempted()
+      }
+    },
+  )
+  watcher.once('error', failAttempted)
+  return {
+    attempted,
+    close: () => watcher.close(),
+  }
+}
+
+async function writeRenameProbeWorker(path: string) {
+  await writeFile(
+    path,
+    `import { writeFile } from 'node:fs/promises'
+import { renameProject } from ${JSON.stringify(
+      new URL('../rename.ts', import.meta.url).href,
+    )}
+import { withFileSystemReconciliation } from ${JSON.stringify(
+      new URL('../../utils/misc.ts', import.meta.url).href,
+    )}
+
+const [
+  cwd,
+  packageJsonPath,
+  npmDir,
+  description,
+  probeRoot,
+  probePath,
+  resultPath,
+] = process.argv.slice(2)
+let result
+try {
+  result = renameProject({
+    cwd,
+    packageJsonPath,
+    npmDir,
+    description,
+  }).then(
+    () => ({ status: 'fulfilled' }),
+    (error) => ({
+      status: 'rejected',
+      code: error?.code,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  )
+} catch (error) {
+  result = Promise.resolve({
+    status: 'rejected',
+    code: error?.code,
+    message: error instanceof Error ? error.message : String(error),
+  })
+}
+
+await withFileSystemReconciliation(probeRoot, async () => {
+  await writeFile(probePath, '')
+})
+await writeFile(resultPath, JSON.stringify(await result))
+`,
+  )
+}
+
+function spawnTestWorker(workerPath: string, args: string[]) {
+  const child = spawn(
+    process.execPath,
+    ['--import', '@oxc-node/core/register', workerPath, ...args],
+    {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'ignore', 'pipe'],
+    },
+  )
+  let stderr = ''
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk
+  })
+  const completed = new Promise<void>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        reject(
+          new Error(
+            `Test worker exited with ${signal ?? code}: ${stderr.trim()}`,
+          ),
+        )
+      }
+    })
+  })
+  return {
+    completed,
+    terminate: async () => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill()
+      }
+      await completed.catch(() => {})
+    },
+  }
+}
 
 async function createFixtureProject(
   cwd: string,
@@ -1016,6 +1168,38 @@ const caseInsensitiveTest =
     : test.skip
 
 caseInsensitiveTest(
+  'rename accepts a case-variant package manifest path',
+  async (t) => {
+    const projectPath = join(t.context.tmpDir, 'case-insensitive-manifest')
+    await createFixtureProject(projectPath, {
+      packageJson: {
+        name: 'original',
+        napi: {
+          binaryName: 'foo',
+          packageName: '@scope/original',
+        },
+      },
+      cargoPackageName: 'foo',
+    })
+    if (!existsSync(join(projectPath, 'PACKAGE.JSON'))) {
+      t.pass()
+      return
+    }
+
+    await renameProject({
+      cwd: projectPath,
+      packageJsonPath: 'PACKAGE.JSON',
+      description: 'updated through a case variant',
+    })
+
+    const packageJson = JSON.parse(
+      await readFile(join(projectPath, 'package.json'), 'utf8'),
+    )
+    t.is(packageJson.description, 'updated through a case variant')
+  },
+)
+
+caseInsensitiveTest(
   'case-only rename accepts a destination that is the same filesystem entry',
   async (t) => {
     const projectPath = join(t.context.tmpDir, 'case-insensitive-rename')
@@ -1695,10 +1879,13 @@ test('rename holds filesystem reconciliation across read, plan, and commit', asy
   )
 })
 
-test('rename holds the workspace boundary before reading a nested package', async (t) => {
-  const workspacePath = join(t.context.tmpDir, 'reconciled-workspace')
+test('rename acquires the workspace boundary before reading a nested package', async (t) => {
+  const workspacePath = join(t.context.tmpDir, 'stale-workspace')
   const packagePath = join(workspacePath, 'packages', 'addon')
   const packageJsonPath = join(packagePath, 'package.json')
+  const workerPath = join(t.context.tmpDir, 'workspace-lock-worker.mjs')
+  const readyPath = join(t.context.tmpDir, 'workspace-lock-ready')
+  const releasePath = join(t.context.tmpDir, 'workspace-lock-release')
   await mkdir(workspacePath, { recursive: true })
   await writeFile(
     join(workspacePath, 'package.json'),
@@ -1710,49 +1897,285 @@ test('rename holds the workspace boundary before reading a nested package', asyn
     '@old-scope/original',
   )
   await move(join(packagePath, 'npm'), join(workspacePath, 'npm'))
-  const { boundary } = resolvePackageReconciliationPaths(
-    workspacePath,
-    'packages/addon/package.json',
-    ['npm'],
+  await writeFile(
+    workerPath,
+    `import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+      new URL('../../utils/misc.ts', import.meta.url).href,
+    )}
+
+const [root, packageJsonPath, readyPath, releasePath] = process.argv.slice(2)
+await withFileSystemReconciliation(root, async () => {
+  await writeFile(readyPath, '')
+  while (!existsSync(releasePath)) await delay(10)
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.concurrentField = 'preserved'
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\\n')
+})
+`,
   )
-
-  let releaseBlocker!: () => void
-  let markBlockerStarted!: () => void
-  const blockerStarted = new Promise<void>((resolve) => {
-    markBlockerStarted = resolve
-  })
-  const blockerRelease = new Promise<void>((resolve) => {
-    releaseBlocker = resolve
-  })
-  const blocker = withFileSystemReconciliation(boundary, async () => {
-    markBlockerStarted()
-    await blockerRelease
-    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
-    packageJson.concurrentField = 'preserved'
-    await writeFile(
-      packageJsonPath,
-      `${JSON.stringify(packageJson, null, 2)}\n`,
+  const blocker = spawnTestWorker(workerPath, [
+    workspacePath,
+    packageJsonPath,
+    readyPath,
+    releasePath,
+  ])
+  let workspaceAttempt:
+    | Awaited<ReturnType<typeof watchForReconciliationAttempt>>
+    | undefined
+  let pendingRename: ReturnType<typeof renameProject> | undefined
+  try {
+    await withTimeout(
+      Promise.race([
+        waitForPath(readyPath),
+        blocker.completed.then(() => {
+          throw new Error('Workspace lock worker exited before becoming ready')
+        }),
+      ]),
+      'Timed out waiting for the workspace lock worker',
     )
-  })
-  await blockerStarted
 
-  let renameSettled = false
-  const pendingRename = renameProject({
-    cwd: workspacePath,
-    packageJsonPath: 'packages/addon/package.json',
-    npmDir: 'npm',
-    description: 'updated after the workspace lock',
-  }).finally(() => {
-    renameSettled = true
-  })
-  await delay(50)
-  t.false(renameSettled)
+    workspaceAttempt = await watchForReconciliationAttempt(workspacePath)
+    pendingRename = renameProject({
+      cwd: workspacePath,
+      packageJsonPath: join('packages', 'addon', 'package.json'),
+      npmDir: 'npm',
+      description: 'updated after the workspace lock',
+    })
+    await withTimeout(
+      workspaceAttempt.attempted,
+      'Rename did not attempt the workspace reconciliation lock',
+    )
+    await writeFile(releasePath, '')
+    await Promise.all([blocker.completed, pendingRename])
+  } finally {
+    workspaceAttempt?.close()
+    await writeFile(releasePath, '').catch(() => {})
+    await blocker.terminate()
+    await pendingRename?.catch(() => {})
+  }
 
-  releaseBlocker()
-  await Promise.all([blocker, pendingRename])
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
   t.is(packageJson.concurrentField, 'preserved')
   t.is(packageJson.description, 'updated after the workspace lock')
+})
+
+test('rename keeps package-to-workspace lock order used by package operations', async (t) => {
+  const workspacePath = join(t.context.tmpDir, 'ordered-workspace')
+  const packagePath = join(workspacePath, 'packages', 'addon')
+  const packageJsonPath = join(packagePath, 'package.json')
+  const workerPath = join(t.context.tmpDir, 'package-lock-worker.mjs')
+  const renameWorkerPath = join(t.context.tmpDir, 'ordered-rename-worker.mjs')
+  const readyPath = join(t.context.tmpDir, 'package-lock-ready')
+  const probePath = join(t.context.tmpDir, 'workspace-probe-entered')
+  const resultPath = join(t.context.tmpDir, 'ordered-rename-result.json')
+  const widenPath = join(t.context.tmpDir, 'package-lock-widen')
+  const widenedPath = join(t.context.tmpDir, 'package-lock-widened')
+  await mkdir(workspacePath, { recursive: true })
+  await writeFile(
+    join(workspacePath, 'package.json'),
+    `${JSON.stringify({ private: true, workspaces: ['packages/*'] }, null, 2)}\n`,
+  )
+  await createPackageIdentityFixture(
+    packagePath,
+    'fixture',
+    '@old-scope/original',
+  )
+  await move(join(packagePath, 'npm'), join(workspacePath, 'npm'))
+  await writeRenameProbeWorker(renameWorkerPath)
+  await writeFile(
+    workerPath,
+    `import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+      new URL('../../utils/misc.ts', import.meta.url).href,
+    )}
+
+const [
+  packageRoot,
+  workspaceRoot,
+  packageJsonPath,
+  readyPath,
+  widenPath,
+  widenedPath,
+] = process.argv.slice(2)
+await withFileSystemReconciliation(packageRoot, async () => {
+  await writeFile(readyPath, '')
+  while (!existsSync(widenPath)) await delay(10)
+  await withFileSystemReconciliation(workspaceRoot, async () => {
+    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+    packageJson.orderedField = 'preserved'
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify(packageJson, null, 2) + '\\n',
+    )
+    await writeFile(widenedPath, '')
+  })
+})
+`,
+  )
+  const blocker = spawnTestWorker(workerPath, [
+    packagePath,
+    workspacePath,
+    packageJsonPath,
+    readyPath,
+    widenPath,
+    widenedPath,
+  ])
+  let renameWorker: ReturnType<typeof spawnTestWorker> | undefined
+  try {
+    await withTimeout(
+      Promise.race([
+        waitForPath(readyPath),
+        blocker.completed.then(() => {
+          throw new Error('Package lock worker exited before becoming ready')
+        }),
+      ]),
+      'Timed out waiting for the package lock worker',
+    )
+
+    renameWorker = spawnTestWorker(renameWorkerPath, [
+      workspacePath,
+      join('packages', 'addon', 'package.json'),
+      'npm',
+      'updated after ordered locking',
+      workspacePath,
+      probePath,
+      resultPath,
+    ])
+    await withTimeout(
+      Promise.race([
+        waitForPath(probePath),
+        renameWorker.completed.then(() => {
+          throw new Error(
+            'Rename worker exited before its workspace probe entered',
+          )
+        }),
+      ]),
+      'Rename queued the workspace lock before the package lock',
+    )
+    await writeFile(widenPath, '')
+    await withTimeout(
+      waitForPath(widenedPath),
+      'Package operation could not widen to the workspace lock',
+    )
+    await Promise.all([blocker.completed, renameWorker.completed])
+  } finally {
+    await writeFile(widenPath, '').catch(() => {})
+    await Promise.all([blocker.terminate(), renameWorker?.terminate()])
+  }
+
+  const result = JSON.parse(await readFile(resultPath, 'utf8')) as {
+    status: string
+  }
+  t.is(result.status, 'fulfilled')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.is(packageJson.orderedField, 'preserved')
+  t.is(packageJson.description, 'updated after ordered locking')
+})
+
+test('rename rejects workspace boundary changes after acquiring its locks', async (t) => {
+  const workspacePath = join(t.context.tmpDir, 'changing-workspace')
+  const packagePath = join(workspacePath, 'packages', 'addon')
+  const workspaceJsonPath = join(workspacePath, 'package.json')
+  const packageJsonPath = join(packagePath, 'package.json')
+  const blockerPath = join(t.context.tmpDir, 'boundary-blocker.mjs')
+  const renameWorkerPath = join(t.context.tmpDir, 'boundary-rename-worker.mjs')
+  const readyPath = join(t.context.tmpDir, 'boundary-blocker-ready')
+  const releasePath = join(t.context.tmpDir, 'boundary-blocker-release')
+  const probePath = join(t.context.tmpDir, 'boundary-workspace-probe')
+  const resultPath = join(t.context.tmpDir, 'boundary-rename-result.json')
+  await mkdir(workspacePath, { recursive: true })
+  await writeFile(
+    workspaceJsonPath,
+    `${JSON.stringify({ private: true, workspaces: ['packages/*'] }, null, 2)}\n`,
+  )
+  await createPackageIdentityFixture(
+    packagePath,
+    'fixture',
+    '@old-scope/original',
+  )
+  await move(join(packagePath, 'npm'), join(workspacePath, 'npm'))
+  await writeRenameProbeWorker(renameWorkerPath)
+  await writeFile(
+    blockerPath,
+    `import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+      new URL('../../utils/misc.ts', import.meta.url).href,
+    )}
+
+const [packageRoot, readyPath, releasePath] = process.argv.slice(2)
+await withFileSystemReconciliation(packageRoot, async () => {
+  await writeFile(readyPath, '')
+  while (!existsSync(releasePath)) await delay(10)
+})
+`,
+  )
+  const blocker = spawnTestWorker(blockerPath, [
+    packagePath,
+    readyPath,
+    releasePath,
+  ])
+  let renameWorker: ReturnType<typeof spawnTestWorker> | undefined
+  try {
+    await withTimeout(
+      Promise.race([
+        waitForPath(readyPath),
+        blocker.completed.then(() => {
+          throw new Error('Boundary blocker exited before becoming ready')
+        }),
+      ]),
+      'Timed out waiting for the boundary blocker',
+    )
+    renameWorker = spawnTestWorker(renameWorkerPath, [
+      workspacePath,
+      join('packages', 'addon', 'package.json'),
+      'npm',
+      'must not be committed',
+      workspacePath,
+      probePath,
+      resultPath,
+    ])
+    await withTimeout(
+      Promise.race([
+        waitForPath(probePath),
+        renameWorker.completed.then(() => {
+          throw new Error(
+            'Rename worker exited before its workspace probe entered',
+          )
+        }),
+      ]),
+      'Rename did not queue the package lock before its workspace probe',
+    )
+    await writeFile(
+      workspaceJsonPath,
+      `${JSON.stringify({ private: true }, null, 2)}\n`,
+    )
+    await writeFile(releasePath, '')
+    await Promise.all([blocker.completed, renameWorker.completed])
+  } finally {
+    await writeFile(releasePath, '').catch(() => {})
+    await Promise.all([blocker.terminate(), renameWorker?.terminate()])
+  }
+
+  const result = JSON.parse(await readFile(resultPath, 'utf8')) as {
+    code?: string
+    message?: string
+    status: string
+  }
+  t.is(result.status, 'rejected')
+  t.is(result.code, 'ESTALE')
+  t.regex(
+    result.message ?? '',
+    /Package reconciliation paths changed after their locks were acquired/,
+  )
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.false(Object.hasOwn(packageJson, 'description'))
 })
 
 test('package manifest rewriting updates script arguments but not arbitrary text', async (t) => {

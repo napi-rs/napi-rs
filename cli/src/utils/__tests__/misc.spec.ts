@@ -39,6 +39,7 @@ import {
   commitFileSystemTransaction,
   copyFileAtomic,
   getPackageReconciliationRoot,
+  getPackageReconciliationRoots,
   resolvePackageReconciliationPaths,
   updatePackageJson,
   withFileSystemReconciliation,
@@ -4096,6 +4097,61 @@ test('package reconciliation selects one workspace boundary for a nested package
   t.is(paths.packageRoot, await realpath(packageRoot))
   t.is(paths.packageJsonPath, await realpath(join(packageRoot, 'package.json')))
   t.deepEqual(paths.managedPaths, [await realpath(npmDir)])
+})
+
+test('package reconciliation roots follow package-to-ancestor lock order', async (t) => {
+  const projectRoot = join(t.context.tmpDir, 'project')
+  const workspaceRoot = join(projectRoot, 'workspace')
+  const packageRoot = join(workspaceRoot, 'packages', 'addon')
+  const npmDir = join(workspaceRoot, 'npm')
+  await Promise.all([
+    mkdir(packageRoot, { recursive: true }),
+    mkdir(npmDir, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(workspaceRoot, 'package.json'),
+      JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+    ),
+    writeFile(
+      join(packageRoot, 'package.json'),
+      JSON.stringify({ name: 'nested-addon', version: '1.0.0' }),
+    ),
+  ])
+
+  const paths = resolvePackageReconciliationPaths(
+    projectRoot,
+    join('workspace', 'packages', 'addon', 'package.json'),
+    [join('workspace', 'npm')],
+  )
+
+  t.deepEqual(getPackageReconciliationRoots(paths), [
+    await realpath(packageRoot),
+    await realpath(workspaceRoot),
+    await realpath(projectRoot),
+  ])
+})
+
+test('package reconciliation keeps the package root first when cwd is nested below it', async (t) => {
+  const packageRoot = join(t.context.tmpDir, 'parent-package')
+  const cwd = join(packageRoot, 'tools', 'rename')
+  const npmDir = join(cwd, 'npm')
+  await mkdir(npmDir, { recursive: true })
+  await writeFile(
+    join(packageRoot, 'package.json'),
+    JSON.stringify({ name: 'parent-package', version: '1.0.0' }),
+  )
+
+  const paths = resolvePackageReconciliationPaths(
+    cwd,
+    join('..', '..', 'package.json'),
+    ['npm'],
+  )
+
+  t.deepEqual(getPackageReconciliationRoots(paths), [
+    await realpath(packageRoot),
+    await realpath(cwd),
+  ])
 })
 
 test.serial(

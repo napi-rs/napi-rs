@@ -129,7 +129,8 @@ interface ReconciliationReclaimState {
 }
 
 type ReconciliationMetadataOwner =
-  ReconciliationLockOwner | ReconciliationReclaimOwner
+  | ReconciliationLockOwner
+  | ReconciliationReclaimOwner
 
 interface ReconciliationCandidateState {
   owner: ReconciliationMetadataOwner
@@ -181,7 +182,8 @@ let currentProcessIncarnation: string | undefined
 let currentProcessIncarnationProbe: Promise<string | null> | undefined
 let currentProcessExecutionIdentity: ProcessExecutionIdentity | undefined
 let currentProcessExecutionIdentityProbe:
-  Promise<ProcessExecutionIdentity> | undefined
+  | Promise<ProcessExecutionIdentity>
+  | undefined
 let linuxBootId: string | undefined
 
 interface TransactionParentIdentity {
@@ -513,6 +515,60 @@ export function resolvePackageReconciliationPaths(
     canonicalPackageRoot,
     canonicalManagedPaths,
   )
+}
+
+export function getPackageReconciliationRoots({
+  boundary,
+  cwd,
+  packageRoot,
+}: Pick<
+  ReturnType<typeof resolvePackageReconciliationPaths>,
+  'boundary' | 'cwd' | 'packageRoot'
+>) {
+  const roots: string[] = []
+  const rootIdentities = new Set<string>()
+  for (const root of [packageRoot, boundary, cwd]) {
+    const resolvedRoot = resolve(root)
+    const identity = fileSystemReconciliationCapabilityRoot(resolvedRoot)
+    if (rootIdentities.has(identity)) {
+      continue
+    }
+    if (
+      roots.some(
+        (existingRoot) =>
+          !managedPackagePathIsWithin(existingRoot, resolvedRoot) &&
+          !managedPackagePathIsWithin(resolvedRoot, existingRoot),
+      )
+    ) {
+      throw new Error(
+        `Package reconciliation roots must be nested: ${roots.join(', ')}, ${resolvedRoot}`,
+      )
+    }
+    rootIdentities.add(identity)
+    roots.push(resolvedRoot)
+  }
+
+  return roots
+}
+
+export async function withPackageFileSystemReconciliation<T>(
+  paths: Pick<
+    ReturnType<typeof resolvePackageReconciliationPaths>,
+    'boundary' | 'cwd' | 'packageRoot'
+  >,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const roots = getPackageReconciliationRoots(paths)
+  const acquire = (index: number): Promise<T> => {
+    if (index === roots.length) {
+      return operation()
+    }
+    return withFileSystemReconciliation(roots[index], () => acquire(index + 1))
+  }
+
+  // Build takes the package lock before widening to its transaction root.
+  // Preserve that semantic order even when cwd is below the package root.
+  return acquire(0)
 }
 
 function managedPackagePathIsWithin(root: string, path: string) {

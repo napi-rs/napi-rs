@@ -25,7 +25,7 @@ import {
   type Target,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
-  withFileSystemReconciliation,
+  withPackageFileSystemReconciliation,
 } from '../utils/index.js'
 
 const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
@@ -896,6 +896,77 @@ function assertPathWithin(
   }
 }
 
+function assertRenamePathIdentity(
+  expected: string,
+  actual: string,
+  description: string,
+) {
+  if (relative(expected, actual) === '' && relative(actual, expected) === '') {
+    return
+  }
+  const error = new Error(
+    `${description} changed after package reconciliation paths were resolved: ${expected} -> ${actual}`,
+  ) as NodeJS.ErrnoException
+  error.code = 'ESTALE'
+  error.path = actual
+  throw error
+}
+
+function revalidateRenameReconciliationPaths(
+  options: ReturnType<typeof applyDefaultRenameOptions>,
+  expected: ReturnType<typeof resolvePackageReconciliationPaths>,
+) {
+  let actual: ReturnType<typeof resolvePackageReconciliationPaths>
+  try {
+    actual = resolvePackageReconciliationPaths(
+      options.cwd,
+      options.packageJsonPath,
+      [options.npmDir],
+    )
+  } catch (cause) {
+    const error = new Error(
+      'Package reconciliation paths changed after their locks were acquired',
+      { cause },
+    ) as NodeJS.ErrnoException
+    error.code = 'ESTALE'
+    error.path = expected.boundary
+    throw error
+  }
+
+  assertRenamePathIdentity(
+    expected.boundary,
+    actual.boundary,
+    'Package reconciliation boundary',
+  )
+  assertRenamePathIdentity(expected.cwd, actual.cwd, 'Project root')
+  assertRenamePathIdentity(
+    expected.packageRoot,
+    actual.packageRoot,
+    'Package root',
+  )
+  assertRenamePathIdentity(
+    expected.packageJsonPath,
+    actual.packageJsonPath,
+    'Package manifest',
+  )
+  if (expected.managedPaths.length !== actual.managedPaths.length) {
+    const error = new Error(
+      'Managed package paths changed after their locks were acquired',
+    ) as NodeJS.ErrnoException
+    error.code = 'ESTALE'
+    error.path = actual.cwd
+    throw error
+  }
+  for (let index = 0; index < expected.managedPaths.length; index++) {
+    assertRenamePathIdentity(
+      expected.managedPaths[index],
+      actual.managedPaths[index],
+      `Managed package path ${index + 1}`,
+    )
+  }
+  return actual
+}
+
 async function canonicalizePath(path: string) {
   let current = resolve(path)
   const missingSegments: string[] = []
@@ -1231,13 +1302,27 @@ async function executeRenameTransaction(
   }
 }
 
-async function renameProjectUnlocked(userOptions: RenameOptions) {
+async function renameProjectUnlocked(
+  userOptions: RenameOptions,
+  resolvedPaths: ReturnType<typeof resolvePackageReconciliationPaths>,
+) {
   const options = applyDefaultRenameOptions(userOptions)
+  const lockedPaths = revalidateRenameReconciliationPaths(
+    options,
+    resolvedPaths,
+  )
   const projectRoot = await realpath(resolve(options.cwd))
-  const packageJsonPath = await resolveCanonicalFile(
+  assertRenamePathIdentity(lockedPaths.cwd, projectRoot, 'Project root')
+  const requestedPackageJsonPath = await resolveCanonicalFile(
     projectRoot,
     resolve(projectRoot, options.packageJsonPath),
     'package.json',
+  )
+  const packageJsonPath = await realpath(requestedPackageJsonPath)
+  assertRenamePathIdentity(
+    lockedPaths.packageJsonPath,
+    packageJsonPath,
+    'Package manifest',
   )
   const configPath = options.configPath
     ? await resolveCanonicalFile(
@@ -1249,6 +1334,11 @@ async function renameProjectUnlocked(userOptions: RenameOptions) {
   const npmRoot = await resolveCanonicalRoot(
     projectRoot,
     resolve(projectRoot, options.npmDir),
+    'npm package root',
+  )
+  assertRenamePathIdentity(
+    lockedPaths.managedPaths[0],
+    npmRoot,
     'npm package root',
   )
   const normalizedOptions = {
@@ -1575,12 +1665,12 @@ async function renameProjectUnlocked(userOptions: RenameOptions) {
 
 export async function renameProject(userOptions: RenameOptions) {
   const options = applyDefaultRenameOptions(userOptions)
-  const { boundary } = resolvePackageReconciliationPaths(
+  const resolvedPaths = resolvePackageReconciliationPaths(
     options.cwd,
     options.packageJsonPath,
     [options.npmDir],
   )
-  return withFileSystemReconciliation(boundary, () =>
-    renameProjectUnlocked(options),
+  return withPackageFileSystemReconciliation(resolvedPaths, () =>
+    renameProjectUnlocked(options, resolvedPaths),
   )
 }
