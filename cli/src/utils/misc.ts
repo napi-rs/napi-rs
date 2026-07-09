@@ -675,35 +675,40 @@ async function commitFileSystemTransactionUnlocked(
       })
     }
 
-    await Promise.all(
-      preparedWrites.map(async (write, index) => {
-        const prepared = fileSystemTransactionArtifactPath(
-          write.destination,
-          transactionToken,
-          index,
-          'prepared',
-        )
-        await assertTransactionParentUnchanged(
-          transactionRoot,
-          write.destination,
-          parentIdentities,
-        )
-        const state = await prepareFileSystemTransactionReplacement(
-          join(candidateInputRoot, basename(write.input)),
-          prepared,
-          write.final,
-          () =>
-            assertTransactionParentUnchanged(
-              transactionRoot,
-              write.destination,
-              parentIdentities,
-            ),
-        )
-        write.prepared = prepared
-        write.final = state
-        preparedArtifacts.set(prepared, state)
-      }),
-    )
+    const preparations = preparedWrites.map(async (write, index) => {
+      const prepared = fileSystemTransactionArtifactPath(
+        write.destination,
+        transactionToken,
+        index,
+        'prepared',
+      )
+      await assertTransactionParentUnchanged(
+        transactionRoot,
+        write.destination,
+        parentIdentities,
+      )
+      const state = await prepareFileSystemTransactionReplacement(
+        join(candidateInputRoot, basename(write.input)),
+        prepared,
+        write.final,
+        () =>
+          assertTransactionParentUnchanged(
+            transactionRoot,
+            write.destination,
+            parentIdentities,
+          ),
+      )
+      write.prepared = prepared
+      write.final = state
+      preparedArtifacts.set(prepared, state)
+    })
+    try {
+      await Promise.all(preparations)
+    } catch (error) {
+      // Cleanup owns every prepared pathname only after all creators stop.
+      await Promise.allSettled(preparations)
+      throw error
+    }
 
     const preparedWritesByDestination = new Map(
       preparedWrites.map((write) => [write.destination, write]),
@@ -5050,11 +5055,25 @@ function atomicTemporaryPath(path: string) {
 }
 
 async function syncFile(path: string) {
-  const handle = await open(path, 'r')
+  let restoreMode: number | undefined
+  if (process.platform === 'win32') {
+    const mode = (await stat(path)).mode & 0o7777
+    if ((mode & 0o200) === 0) {
+      // FlushFileBuffers requires a write-capable handle. This path is owned
+      // by the atomic operation, so make it writable only for the flush. If
+      // flushing fails, leave it writable so the caller can remove it.
+      await chmod(path, mode | 0o200)
+      restoreMode = mode
+    }
+  }
+  const handle = await open(path, process.platform === 'win32' ? 'r+' : 'r')
   try {
     await handle.sync()
   } finally {
     await handle.close()
+  }
+  if (restoreMode !== undefined) {
+    await chmod(path, restoreMode)
   }
 }
 

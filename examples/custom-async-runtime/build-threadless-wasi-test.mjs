@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, copyFile, readFile, rm } from 'node:fs/promises'
+import { copyFile, readFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -53,23 +53,10 @@ try {
     packageDirectory,
     'custom_async_runtime.wasm32-wasip1.wasm',
   )
-  let copied = false
-  for (const candidate of [
-    'custom_async_runtime.wasm32-wasi.debug.wasm',
-    'custom_async_runtime.wasm32-wasi.wasm',
-  ]) {
-    const candidatePath = join(outputDirectory, candidate)
-    try {
-      await access(candidatePath)
-      await copyFile(candidatePath, outputPath)
-      copied = true
-      break
-    } catch {}
-  }
-
-  if (!copied) {
-    throw new Error('threadless WASI build did not produce a wasm artifact')
-  }
+  await copyFile(
+    join(outputDirectory, 'custom_async_runtime.wasm32-wasip1.wasm'),
+    outputPath,
+  )
   const declarations = await readFile(
     join(outputDirectory, 'index.d.cts'),
     'utf8',

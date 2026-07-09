@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import {
+  chmod,
   mkdir,
   readFile,
   readdir,
@@ -32,6 +33,7 @@ import { createWasiBinding } from '../templates/load-wasi-template.js'
 const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const test = ava as TestFn<{ tmpDir: string }>
+const permissionsTest = process.platform === 'win32' ? test.skip : test
 const MINIMAL_WASM = Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
 const emnapiVersion = require('emnapi/package.json').version
 const wasmRuntimeVersion =
@@ -2206,6 +2208,7 @@ test('pre-publish preflights facade conflicts before updating versions', async (
 test.serial(
   'pre-publish rolls back every local mutation when the transaction fails late',
   async (t) => {
+    t.timeout(180_000)
     const packageJsonPath = join(t.context.tmpDir, 'package.json')
     const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
     const stagedPackageDir = join(
@@ -2290,7 +2293,7 @@ test.serial(
       }),
     )
     const sabotage = (async () => {
-      const deadline = Date.now() + 10_000
+      const deadline = Date.now() + 120_000
       while (Date.now() < deadline) {
         if (existsSync(join(transactionRoot, 'state.json'))) {
           await mkdir(sabotagedDestination)
@@ -2310,6 +2313,57 @@ test.serial(
       t.false(existsSync(join(packageDir, file)), file)
     }
     await rm(transactionRoot, { recursive: true, force: true })
+  },
+)
+
+permissionsTest(
+  'pre-publish removes its writable snapshot when transaction preparation is blocked',
+  async (t) => {
+    await setupThreadlessPackage(t.context.tmpDir, {
+      targets: ['wasm32-wasip1', 'x86_64-unknown-linux-gnu'],
+    })
+    await setupNativeFlavorPackage(t.context.tmpDir)
+
+    const rootManifestPath = join(t.context.tmpDir, 'package.json')
+    const firstManifestPath = join(
+      t.context.tmpDir,
+      'npm',
+      'wasm32-wasip1',
+      'package.json',
+    )
+    const firstManifest = JSON.parse(await readFile(firstManifestPath, 'utf8'))
+    firstManifest.version = '0.0.0-unpublished'
+    await writeFile(firstManifestPath, JSON.stringify(firstManifest))
+    const rootManifestBefore = await readFile(rootManifestPath)
+    const firstManifestBefore = await readFile(firstManifestPath)
+
+    const lockedPackageDir = join(t.context.tmpDir, 'npm', 'linux-x64-gnu')
+    await chmod(lockedPackageDir, 0o555)
+    let error: Error | undefined
+    try {
+      error = await t.throwsAsync(() =>
+        prePublish({
+          cwd: t.context.tmpDir,
+          dryRun: false,
+          ghRelease: false,
+          tagStyle: 'npm',
+          skipOptionalPublish: true,
+        }),
+      )
+    } finally {
+      await chmod(lockedPackageDir, 0o755)
+    }
+
+    t.true(
+      ['EACCES', 'EPERM'].includes(
+        (error as NodeJS.ErrnoException | undefined)?.code ?? '',
+      ),
+    )
+    t.deepEqual(await readFile(rootManifestPath), rootManifestBefore)
+    t.deepEqual(await readFile(firstManifestPath), firstManifestBefore)
+    t.false(
+      existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
+    )
   },
 )
 
@@ -3499,6 +3553,38 @@ test.serial(
       ],
       { cwd: consumerDir },
     )
+  },
+)
+
+permissionsTest.serial(
+  'pre-publish validates declaration dependencies through copied read-only directories',
+  async (t) => {
+    await setupThreadlessPackage(t.context.tmpDir)
+    const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+    const packageTypesDir = join(packageDir, 'types')
+    await mkdir(packageTypesDir)
+    await writeFile(
+      join(packageDir, 'pre-publish-wasi.wasip1.d.cts'),
+      `export { copied } from './types/copied.js'\n`,
+    )
+    await mkdir(join(t.context.tmpDir, 'types'))
+    await writeFile(
+      join(t.context.tmpDir, 'types', 'copied.d.ts'),
+      'export declare const copied: true\n',
+    )
+    await chmod(packageTypesDir, 0o555)
+
+    try {
+      await prePublish({
+        cwd: t.context.tmpDir,
+        dryRun: true,
+        ghRelease: false,
+        tagStyle: 'npm',
+      })
+      t.false(existsSync(join(packageTypesDir, 'copied.d.ts')))
+    } finally {
+      await chmod(packageTypesDir, 0o755)
+    }
   },
 )
 

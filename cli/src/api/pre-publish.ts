@@ -10,7 +10,16 @@ import {
   statSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { copyFile, cp, mkdtemp, readdir, rm, symlink } from 'node:fs/promises'
+import {
+  chmod,
+  copyFile,
+  cp,
+  lstat,
+  mkdtemp,
+  readdir,
+  rm,
+  symlink,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import {
   basename,
@@ -134,7 +143,7 @@ async function removePreparedSnapshot(
   primaryError?: unknown,
 ) {
   try {
-    await rm(snapshotRoot, { recursive: true, force: true })
+    await removeOwnedTemporaryTree(snapshotRoot)
   } catch (cleanupError) {
     if (primaryFailed) {
       throw new AggregateError(
@@ -150,6 +159,72 @@ async function removePreparedSnapshot(
   }
   if (primaryFailed) {
     throw primaryError
+  }
+}
+
+async function removeOwnedTemporaryTree(root: string) {
+  try {
+    await rm(root, { recursive: true, force: true })
+    return
+  } catch (initialError) {
+    if (
+      !['EACCES', 'EPERM'].includes(
+        (initialError as NodeJS.ErrnoException).code ?? '',
+      )
+    ) {
+      throw initialError
+    }
+    try {
+      await makeOwnedTemporaryDirectoriesWritable(root)
+      await rm(root, { recursive: true, force: true })
+      return
+    } catch (retryError) {
+      throw new AggregateError(
+        [initialError, retryError],
+        `Prepared snapshot could not be removed from ${root} after restoring directory permissions`,
+        { cause: initialError },
+      )
+    }
+  }
+}
+
+async function makeOwnedTemporaryDirectoriesWritable(root: string) {
+  let stats
+  try {
+    stats = await lstat(root)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`Prepared snapshot path is not a directory: ${root}`)
+  }
+
+  try {
+    await chmod(root, stats.mode | 0o700)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  let entries
+  try {
+    entries = await readdir(root, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      await makeOwnedTemporaryDirectoriesWritable(join(root, entry.name))
+    }
+  }
+}
+
+async function copyOwnedTemporaryPath(source: string, destination: string) {
+  await cp(source, destination, { recursive: true })
+  const stats = await lstat(destination)
+  if (stats.isDirectory()) {
+    await makeOwnedTemporaryDirectoriesWritable(destination)
   }
 }
 
@@ -2187,7 +2262,7 @@ async function validateRootReleasePlan(
   try {
     await stageRootReleasePlan(packageJsonPath, rootDir, stagedRootDir, plan)
   } finally {
-    await rm(stagingRoot, { recursive: true, force: true })
+    await removeOwnedTemporaryTree(stagingRoot)
   }
 }
 
@@ -2218,7 +2293,7 @@ async function stageRootReleasePlan(
       }
       const destination = join(stagedRootDir, file)
       await mkdirAsync(dirname(destination), { recursive: true })
-      await cp(source, destination, { recursive: true })
+      await copyOwnedTemporaryPath(source, destination)
     }
   }
   await materializeRootReleasePlan(stagedRootDir, plan)
@@ -2313,7 +2388,7 @@ async function validateReleasePackage({
   )
   const stagedPkgDir = join(stagingRoot, 'package')
   try {
-    await cp(pkgDir, stagedPkgDir, { recursive: true })
+    await copyOwnedTemporaryPath(pkgDir, stagedPkgDir)
     assertReleasePackageTree(stagedPkgDir)
     const validation = await validateReleasePackageContents({
       ...options,
@@ -2326,7 +2401,7 @@ async function validateReleasePackage({
       ...validation,
     }
   } finally {
-    await rm(stagingRoot, { recursive: true, force: true })
+    await removeOwnedTemporaryTree(stagingRoot)
   }
 }
 
@@ -2342,7 +2417,7 @@ async function stageReleasePackage(
     contextRoot,
     options.pkgDir,
   )
-  await cp(options.pkgDir, stagedPkgDir, { recursive: true })
+  await copyOwnedTemporaryPath(options.pkgDir, stagedPkgDir)
   assertReleasePackageTree(stagedPkgDir)
   const validation = await validateReleasePackageContents({
     ...options,

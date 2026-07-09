@@ -148,6 +148,19 @@ async function waitForTransactionCandidate(root: string) {
   throw new Error('Timed out waiting for transaction candidate creation')
 }
 
+async function waitForTransactionCandidateBackup(root: string, index = 0) {
+  const candidate = await waitForTransactionCandidate(root)
+  const backup = join(candidate, 'backups', String(index))
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    if (existsSync(backup)) {
+      return backup
+    }
+    await delay(1)
+  }
+  throw new Error('Timed out waiting for transaction backup creation')
+}
+
 function reconciliationLockOwner(
   key: string,
   overrides: Partial<{
@@ -333,6 +346,7 @@ async function installReconciliationReclaimGuard(
 const test = ava as TestFn<{
   tmpDir: string
 }>
+const windowsTest = process.platform === 'win32' ? test : test.skip
 
 test.beforeEach(async (t) => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'napi-rs-misc-spec-'))
@@ -397,6 +411,33 @@ test('copyFileAtomic replaces a file without exposing a partial destination', as
 
   t.is(await readFile(destination, 'utf8'), 'second')
 })
+
+windowsTest(
+  'copyFileAtomic flushes Windows files while preserving read-only modes',
+  async (t) => {
+    const source = join(t.context.tmpDir, 'source.bin')
+    const requestedModeDestination = join(
+      t.context.tmpDir,
+      'requested-mode.bin',
+    )
+    const inheritedModeDestination = join(
+      t.context.tmpDir,
+      'inherited-mode.bin',
+    )
+    await writeFile(source, 'replacement')
+
+    await copyFileAtomic(source, requestedModeDestination, 0o444)
+
+    t.is(await readFile(requestedModeDestination, 'utf8'), 'replacement')
+    t.is((await stat(requestedModeDestination)).mode & 0o200, 0)
+
+    await chmod(source, 0o444)
+    await copyFileAtomic(source, inheritedModeDestination)
+
+    t.is(await readFile(inheritedModeDestination, 'utf8'), 'replacement')
+    t.is((await stat(inheritedModeDestination)).mode & 0o200, 0)
+  },
+)
 
 test('atomic copies do not follow predictable temporary symlinks', async (t) => {
   const directory = join(t.context.tmpDir, 'atomic-symlink')
@@ -523,27 +564,19 @@ test('filesystem transactions preserve an external destination update made after
     writeFile(target, 'original target'),
   ])
 
-  const writes = []
+  const writes = [{ source, destination: target }]
   for (let index = 0; index < 128; index += 1) {
-    const destination = join(root, `leading-${index}.txt`)
+    const destination = join(root, `trailing-${index}.txt`)
     await writeFile(destination, `original ${index}`)
     writes.push({ source, destination })
   }
-  writes.push({ source, destination: target })
 
   const watcher = (async () => {
-    const candidate = await waitForTransactionCandidate(root)
-    const backupPath = join(candidate, 'backups', String(writes.length - 1))
-    const deadline = Date.now() + 30_000
-    while (Date.now() < deadline) {
-      if (existsSync(backupPath)) {
-        await writeFile(external, 'external destination update')
-        await rename(external, target)
-        return
-      }
-      await delay(1)
-    }
-    throw new Error('Timed out waiting for transaction backup publication')
+    // Backup 1 proves that target backup 0 is complete while later backups
+    // still keep the candidate open long enough for deterministic sabotage.
+    await waitForTransactionCandidateBackup(root, 1)
+    await writeFile(external, 'external destination update')
+    await rename(external, target)
   })()
 
   const error = (await t.throwsAsync(
@@ -1122,20 +1155,58 @@ crashRecoveryTest(
     )
     await writeFile(
       workerPath,
-      `import { join } from 'node:path'
+      `import { once } from 'node:events'
+import { join } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import { commitFileSystemTransaction } from ${JSON.stringify(
         new URL('../misc.ts', import.meta.url).href,
       )}
 
 const [root, source, count] = process.argv.slice(2)
-await commitFileSystemTransaction(
-  root,
-  Array.from({ length: Number(count) }, (_, index) => ({
-    source,
-    destination: join(root, \`\${index}.txt\`),
-  })),
-  [],
+const lastIndex = Number(count) - 1
+const watcher = new Worker(
+  \`
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
+const { parentPort, workerData } = require('node:worker_threads')
+const wait = new Int32Array(new SharedArrayBuffer(4))
+parentPort.postMessage('ready')
+while (true) {
+  try {
+    if (
+      readFileSync(join(workerData.root, '0.txt'), 'utf8') === 'replacement' &&
+      readFileSync(join(workerData.root, workerData.last + '.txt'), 'utf8') ===
+        'prior ' + workerData.last
+    ) {
+      process.kill(workerData.pid, 'SIGKILL')
+    }
+  } catch {}
+  Atomics.wait(wait, 0, 0, 1)
+}
+\`,
+  {
+    eval: true,
+    workerData: {
+      last: lastIndex,
+      pid: process.pid,
+      root,
+    },
+  },
 )
+await once(watcher, 'message')
+try {
+  await commitFileSystemTransaction(
+    root,
+    Array.from({ length: Number(count) }, (_, index) => ({
+      source,
+      destination: join(root, \`\${index}.txt\`),
+    })),
+    [],
+  )
+} finally {
+  await watcher.terminate()
+}
+throw new Error('Transaction completed before the crash observer saw a partial commit')
 `,
     )
 
@@ -1151,28 +1222,18 @@ await commitFileSystemTransaction(
       ],
       { cwd: process.cwd(), stdio: 'ignore' },
     )
-    const childClosed = new Promise<void>((resolveClosed, rejectClosed) => {
-      child.once('error', rejectClosed)
-      child.once('close', () => resolveClosed())
-    })
-    const deadline = Date.now() + 25_000
-    let killed = false
-    while (Date.now() < deadline && child.exitCode === null) {
-      if (
-        (await readFileIfExists(join(root, '0.txt'))) === 'replacement' &&
-        (await readFileIfExists(join(root, `${fileCount - 1}.txt`))) ===
-          `prior ${fileCount - 1}`
-      ) {
-        killed = child.kill('SIGKILL')
-        break
+    t.teardown(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
       }
-      await delay(2)
-    }
-    if (!killed && child.exitCode === null) {
-      child.kill('SIGKILL')
-    }
-    await childClosed
-    t.true(killed)
+    })
+    const childClosed = new Promise<NodeJS.Signals | null>(
+      (resolveClosed, rejectClosed) => {
+        child.once('error', rejectClosed)
+        child.once('close', (_code, signal) => resolveClosed(signal))
+      },
+    )
+    t.is(await childClosed, 'SIGKILL')
 
     const journalRoot = join(root, '.napi-rs-filesystem-transaction.swp')
     t.true(existsSync(journalRoot))
@@ -1362,6 +1423,67 @@ permissionsTest(
         chmod(lockedDirectory, 0o755),
         chmod(failureDirectory, 0o755),
       ])
+    }
+  },
+)
+
+permissionsTest(
+  'filesystem transactions wait for every replacement preparation before cleanup',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'preparation-cleanup')
+    const staging = join(t.context.tmpDir, 'preparation-cleanup-staging')
+    const lockedDirectory = join(root, 'locked')
+    const source = join(staging, 'replacement.txt')
+    const firstDestination = join(root, 'first.txt')
+    const blockedDestination = join(lockedDirectory, 'blocked.txt')
+    await Promise.all([
+      mkdir(root, { recursive: true }),
+      mkdir(lockedDirectory, { recursive: true }),
+      mkdir(staging, { recursive: true }),
+    ])
+    await writeFile(source, Buffer.alloc(8 * 1024 * 1024, 0x61))
+    await chmod(lockedDirectory, 0o555)
+
+    let preparedPath: string | undefined
+    try {
+      const failure = t.throwsAsync(
+        commitFileSystemTransaction(
+          root,
+          [
+            { source, destination: firstDestination },
+            { source, destination: blockedDestination },
+          ],
+          [],
+        ),
+      )
+      const deadline = Date.now() + 10_000
+      while (Date.now() < deadline) {
+        const entry = (await readdir(root)).find(
+          (name) =>
+            name.startsWith(`.${basename(firstDestination)}.`) &&
+            name.endsWith('.0.prepared.tmp'),
+        )
+        if (entry) {
+          preparedPath = join(root, entry)
+          break
+        }
+        await delay(1)
+      }
+      t.truthy(preparedPath)
+
+      const error = await failure
+      t.is((error as NodeJS.ErrnoException).code, 'EACCES')
+      t.false(existsSync(preparedPath!))
+      t.false(existsSync(join(root, transactionJournalName)))
+      t.false(
+        (await readdir(root)).some((entry) =>
+          entry.startsWith(
+            `${basename(transactionJournalName, extname(transactionJournalName))}.candidate.`,
+          ),
+        ),
+      )
+    } finally {
+      await chmod(lockedDirectory, 0o755)
     }
   },
 )
@@ -1706,20 +1828,9 @@ parentSwapTest(
     writes.push({ source, destination: escapedDestination })
 
     const watcher = (async () => {
-      const deadline = Date.now() + 10_000
-      while (Date.now() < deadline) {
-        if (
-          existsSync(
-            join(root, '.napi-rs-filesystem-transaction.swp', 'backups', '0'),
-          )
-        ) {
-          await rename(inside, originalInside)
-          await symlink(outside, inside, 'dir')
-          return
-        }
-        await delay(1)
-      }
-      throw new Error('Timed out waiting for transaction backup creation')
+      await waitForTransactionCandidateBackup(root)
+      await rename(inside, originalInside)
+      await symlink(outside, inside, 'dir')
     })()
 
     const error = (await t.throwsAsync(
@@ -1764,20 +1875,9 @@ test('filesystem transactions detect same-path parent directory replacement', as
   writes.push({ source, destination: replacedParentDestination })
 
   const watcher = (async () => {
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline) {
-      if (
-        existsSync(
-          join(root, '.napi-rs-filesystem-transaction.swp', 'backups', '0'),
-        )
-      ) {
-        await rename(inside, originalInside)
-        await rename(attacker, inside)
-        return
-      }
-      await delay(1)
-    }
-    throw new Error('Timed out waiting for transaction backup creation')
+    await waitForTransactionCandidateBackup(root)
+    await rename(inside, originalInside)
+    await rename(attacker, inside)
   })()
 
   const error = (await t.throwsAsync(
@@ -1830,21 +1930,10 @@ test('filesystem transactions never recursively remove a swapped directory', asy
   }
 
   const watcher = (async () => {
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline) {
-      if (
-        existsSync(
-          join(root, '.napi-rs-filesystem-transaction.swp', 'backups', '0'),
-        )
-      ) {
-        await rename(victim, originalVictim)
-        await mkdir(victim)
-        await writeFile(join(victim, 'sentinel.txt'), 'must survive')
-        return
-      }
-      await delay(1)
-    }
-    throw new Error('Timed out waiting for the victim backup')
+    await waitForTransactionCandidateBackup(root)
+    await rename(victim, originalVictim)
+    await mkdir(victim)
+    await writeFile(join(victim, 'sentinel.txt'), 'must survive')
   })()
 
   await t.throwsAsync(commitFileSystemTransaction(root, writes, []))
