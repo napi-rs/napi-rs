@@ -51,10 +51,7 @@ impl<const N: usize> CallbackInfo<N> {
       if required_argc > argc {
         return Err(Error::new(
           Status::InvalidArg,
-          format!(
-            "{} arguments required by received {}.",
-            required_argc, &argc
-          ),
+          format!("{} arguments required by received {}.", required_argc, argc),
         ));
       }
     }

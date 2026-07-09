@@ -4595,6 +4595,7 @@ fn try_runtime() -> Result<TokioRuntimeLease> {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 enum UserDefinedTokioRuntime {
   OneShot(Box<Mutex<Option<PreparedTokioRuntime>>>),
+  #[cfg(not(any(target_os = "aix", all(target_family = "wasm", tokio_unstable))))]
   Factory(Box<dyn Fn() -> Result<Runtime> + Send + Sync>),
 }
 
@@ -4622,6 +4623,7 @@ fn create_user_defined_runtime() -> Result<Option<PreparedTokioRuntime>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .take(),
     ),
+    #[cfg(not(any(target_os = "aix", all(target_family = "wasm", tokio_unstable))))]
     Some(UserDefinedTokioRuntime::Factory(factory)) => {
       factory().and_then(prepare_supplied_tokio_runtime).map(Some)
     }
@@ -4803,6 +4805,7 @@ pub fn try_create_custom_tokio_runtime(rt: Runtime) -> Result<()> {
       shutdown_rejected_supplied_tokio_runtime(runtime);
       Err(error)
     }
+    #[cfg(not(any(target_os = "aix", all(target_family = "wasm", tokio_unstable))))]
     Err((_, UserDefinedTokioRuntime::Factory(_))) => {
       unreachable!("a concrete runtime registration cannot become a factory")
     }
