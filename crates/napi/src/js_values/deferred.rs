@@ -853,6 +853,7 @@ struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
 
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   env: sys::napi_env,
+  raw_deferred: sys::napi_deferred,
   owner_thread: ThreadId,
   // Keep this field before `_handle_lease`: the handle must remain visible to
   // teardown until dropping its last TSFN Arc has completed.
@@ -873,6 +874,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
   fn clone(&self) -> Self {
     Self {
       env: self.env,
+      raw_deferred: self.raw_deferred,
       owner_thread: self.owner_thread,
       tsfn: Arc::clone(&self.tsfn),
       _handle_lease: DeferredTsfnHandleLease::new(Arc::clone(&self.tsfn.state)),
@@ -897,10 +899,12 @@ unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data> + Send> Sen
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
   pub(crate) fn new(env: &Env) -> Result<(Self, Object<'_>)> {
     ensure_finalize_cleanup_hook(env.0)?;
-    let (tsfn, promise) = js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
+    let (tsfn, raw_deferred, promise) =
+      js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
 
     let deferred = Self {
       env: env.0,
+      raw_deferred,
       owner_thread: thread::current().id(),
       _handle_lease: DeferredTsfnHandleLease::new(Arc::clone(&tsfn.state)),
       tsfn,
@@ -931,7 +935,14 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     not(feature = "noop")
   ))]
   pub(crate) fn reject_with_cleanup(self, error: Error, cleanup: impl FnOnce() + Send + 'static) {
-    self.call_tsfn(Err(error), Some(Box::new(cleanup)))
+    let cleanup = Some(Box::new(cleanup) as Box<dyn FnOnce() + Send>);
+    if self.owner_thread == thread::current().id()
+      && crate::tokio_runtime::runtime_env_is_disposing_on_owner_thread(self.env)
+    {
+      self.call_on_owner_thread(Err(error), cleanup);
+    } else {
+      self.call_tsfn(Err(error), cleanup);
+    }
   }
 
   /// Set a callback to run on the JavaScript owner thread after settlement.
@@ -967,19 +978,8 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     result: Result<Resolver>,
     rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
   ) {
-    if !self.settlement.try_claim() {
-      crate::bindgen_runtime::catch_unwind_safely(|| drop(result));
-      crate::bindgen_runtime::catch_unwind_safely(|| drop(rejection_cleanup));
+    let Some(data) = self.claim_settlement(result, rejection_cleanup) else {
       return;
-    }
-    let data = DeferredData {
-      tsfn: Arc::clone(&self.tsfn),
-      _payload_guard: DeferredTsfnPayloadGuard::new(Arc::clone(&self.tsfn.state)),
-      resolver: result,
-      rejection_cleanup,
-      #[cfg(feature = "deferred_trace")]
-      trace: self.trace,
-      finalize_callback: self.finalize_callback.clone(),
     };
 
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
@@ -1001,12 +1001,55 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       crate::bindgen_runtime::catch_unwind_safely(|| drop(data));
     }
   }
+
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    not(feature = "noop")
+  ))]
+  fn call_on_owner_thread(
+    self,
+    result: Result<Resolver>,
+    rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
+  ) {
+    let Some(data) = self.claim_settlement(result, rejection_cleanup) else {
+      return;
+    };
+    let data = Box::into_raw(Box::new(data));
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      napi_resolve_deferred_inner::<Data, Resolver>(
+        self.env,
+        self.raw_deferred.cast(),
+        data.cast(),
+      );
+    });
+  }
+
+  fn claim_settlement(
+    &self,
+    result: Result<Resolver>,
+    rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
+  ) -> Option<DeferredData<Data, Resolver>> {
+    if !self.settlement.try_claim() {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(result));
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(rejection_cleanup));
+      return None;
+    }
+    Some(DeferredData {
+      tsfn: Arc::clone(&self.tsfn),
+      _payload_guard: DeferredTsfnPayloadGuard::new(Arc::clone(&self.tsfn.state)),
+      resolver: result,
+      rejection_cleanup,
+      #[cfg(feature = "deferred_trace")]
+      trace: self.trace.clone(),
+      finalize_callback: self.finalize_callback.clone(),
+    })
+  }
 }
 
 fn js_deferred_new_raw(
   env: &Env,
   resolve_deferred: sys::napi_threadsafe_function_call_js,
-) -> Result<(Arc<DeferredTsfn>, Object<'_>)> {
+) -> Result<(Arc<DeferredTsfn>, sys::napi_deferred, Object<'_>)> {
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
   check_status!(
@@ -1058,7 +1101,7 @@ fn js_deferred_new_raw(
 
   let promise = Object::from_raw(env.0, raw_promise);
 
-  Ok((tsfn, promise))
+  Ok((tsfn, raw_deferred, promise))
 }
 
 extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
@@ -1327,6 +1370,7 @@ mod tests {
   ) -> TestDeferred {
     TestDeferred {
       env,
+      raw_deferred: ptr::null_mut(),
       owner_thread: thread::current().id(),
       tsfn: Arc::new(DeferredTsfn {
         state: Arc::clone(&state),

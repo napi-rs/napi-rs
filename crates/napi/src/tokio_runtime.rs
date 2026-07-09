@@ -3590,6 +3590,83 @@ fn runtime_env_is_open(tasks: &Option<Arc<EnvTasks>>) -> bool {
 
 #[cfg(all(
   not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+thread_local! {
+  static OWNER_THREAD_DISPOSAL_ENV: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+struct OwnerThreadDisposalGuard {
+  previous_env: usize,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+impl OwnerThreadDisposalGuard {
+  fn enter(env: sys::napi_env) -> Self {
+    let previous_env = OWNER_THREAD_DISPOSAL_ENV.with(|current| current.replace(env as usize));
+    Self { previous_env }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+impl Drop for OwnerThreadDisposalGuard {
+  fn drop(&mut self) {
+    OWNER_THREAD_DISPOSAL_ENV.with(|current| current.set(self.previous_env));
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+pub(crate) fn runtime_env_is_disposing_on_owner_thread(env: sys::napi_env) -> bool {
+  OWNER_THREAD_DISPOSAL_ENV.with(|current| current.get() == env as usize)
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  not(any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  ))
+))]
+pub(crate) fn runtime_env_is_disposing_on_owner_thread(_env: sys::napi_env) -> bool {
+  false
+}
+
+#[cfg(all(
+  not(feature = "noop"),
   any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 pub(crate) fn register_runtime_env_tasks(env: sys::napi_env) -> bool {
@@ -3631,6 +3708,30 @@ pub(crate) fn cancel_and_wait_runtime_env_tasks(env: sys::napi_env) {
     });
     // Continuing environment teardown could release native values still
     // borrowed by a live future.
+    std::process::abort();
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+pub(crate) fn cancel_and_wait_runtime_env_tasks_before_wasm_dispose(env: sys::napi_env) {
+  let _owner_thread_disposal = OwnerThreadDisposalGuard::enter(env);
+  let tasks = runtime_env_tasks(env);
+  if let Some(tasks) = tasks.as_ref() {
+    tasks.cancel_all(false);
+  }
+  if let Err(error) = (RuntimeEnvTaskCleanup { tasks }).wait() {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!("Failed to settle environment async tasks before WASI disposal: {error}");
+    });
+    // Destroying the environment now could discard deferred settlements or
+    // release native values still borrowed by a live future.
     std::process::abort();
   }
 }
@@ -10707,6 +10808,45 @@ mod tests {
     );
     assert!(cancellation.as_ref().unwrap().1.is_none());
     drop(cancellation);
+    cancel_runtime_env_tasks(env).wait().unwrap();
+  }
+
+  #[test]
+  fn wasm_dispose_settles_pending_tasks_before_closing_the_environment() {
+    let _guard = runtime_state_test_guard();
+
+    let env = 0x6789usize as sys::napi_env;
+    let env_id = env as usize;
+    assert!(register_runtime_env_tasks(env));
+    let cancellation = Arc::new(Mutex::new(None));
+    let cancellation_result = Arc::clone(&cancellation);
+    let mut task = env_async_task(env, std::future::pending::<()>(), move |env_open, error| {
+      let env = env_id as sys::napi_env;
+      *cancellation_result.lock().unwrap() = Some((
+        env_open,
+        runtime_env_is_disposing_on_owner_thread(env),
+        error,
+      ));
+    });
+    let submission = task.begin_submission();
+    assert!(submission.accept());
+    let mut task = Box::pin(task);
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert!(task.as_mut().poll(&mut context).is_pending());
+    cancel_and_wait_runtime_env_tasks_before_wasm_dispose(env);
+    assert!(task.as_mut().poll(&mut context).is_ready());
+    let cancellation = cancellation.lock().unwrap();
+    let (env_open, owner_thread_disposal, error) = cancellation
+      .as_ref()
+      .expect("pre-dispose cancellation must run");
+    assert!(*env_open);
+    assert!(*owner_thread_disposal);
+    assert!(error.is_none());
+    assert!(runtime_env_is_open(&runtime_env_tasks(env)));
+    drop(cancellation);
+    drop(task);
     cancel_runtime_env_tasks(env).wait().unwrap();
   }
 

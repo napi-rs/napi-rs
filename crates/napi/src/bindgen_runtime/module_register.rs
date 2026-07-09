@@ -650,12 +650,31 @@ pub fn register_class(
 }
 
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+static WASM_ENV: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  WASM_ENV.store(env as usize, Ordering::Release);
   unsafe { napi_register_module_v1(env, exports) }
+}
+
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_prepare_wasm_env_cleanup() {
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  {
+    let env = WASM_ENV.load(Ordering::Acquire) as sys::napi_env;
+    if !env.is_null() {
+      crate::tokio_runtime::cancel_and_wait_runtime_env_tasks_before_wasm_dispose(env);
+    }
+  }
 }
 
 #[cfg(not(feature = "noop"))]
