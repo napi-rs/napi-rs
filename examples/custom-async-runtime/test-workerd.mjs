@@ -27,6 +27,7 @@ const flavorPackageName = `${packageName}-wasm32-wasip1`
 const publicWasmSpecifier = `${packageName}/wasm.wasm`
 const rootFiles = ['index.cjs', 'index.d.cts', 'browser.js']
 const maxBuffer = 64 * 1024 * 1024
+const requestDeadlineMilliseconds = 15_000
 const tempDir = await mkdtemp(join(tmpdir(), 'napi-rs-workerd-'))
 let mf
 
@@ -44,6 +45,31 @@ async function run(command, arguments_, options = {}) {
 
 async function runNapi(arguments_) {
   await run(process.execPath, [napiCli, ...arguments_])
+}
+
+async function dispatchFetch(pathname) {
+  const controller = new AbortController()
+  let timeout
+  const deadline = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort()
+      reject(
+        new Error(
+          `workerd request ${pathname} exceeded ${requestDeadlineMilliseconds}ms`,
+        ),
+      )
+    }, requestDeadlineMilliseconds)
+  })
+  try {
+    return await Promise.race([
+      mf.dispatchFetch(`http://localhost${pathname}`, {
+        signal: controller.signal,
+      }),
+      deadline,
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 async function packPackage(sourceDir, destination) {
@@ -264,7 +290,7 @@ try {
     ],
   })
 
-  const res = await mf.dispatchFetch('http://localhost/')
+  const res = await dispatchFetch('/')
   if (res.status !== 200) {
     // Surface the workerd error page in CI logs before failing.
     assert.fail(`worker returned ${res.status}: ${await res.text()}`)
@@ -283,6 +309,27 @@ try {
   assert.ok(body.spawnCalls >= 4, `spawnCalls: ${body.spawnCalls}`)
   assert.equal(body.hasGlobalBuffer, false)
   assert.equal(body.hasNodeProcess, false)
+
+  const reloadResponse = await dispatchFetch('/dispose-reload')
+  if (reloadResponse.status !== 200) {
+    assert.fail(
+      `worker dispose/reload returned ${reloadResponse.status}: ${await reloadResponse.text()}`,
+    )
+  }
+  const reloadBody = await reloadResponse.json()
+  console.log('workerd dispose/reload result:', reloadBody)
+  assert.equal(reloadBody.cancellation.rejected, true)
+  assert.match(reloadBody.cancellation.reason, /cancel/i)
+  assert.equal(reloadBody.freshExports, true)
+  assert.equal(reloadBody.result, 46)
+  assert.ok(
+    reloadBody.spawnCallsBeforeDispose >= 5,
+    `spawnCallsBeforeDispose: ${reloadBody.spawnCallsBeforeDispose}`,
+  )
+  assert.ok(
+    reloadBody.spawnCallsAfterReload >= 1,
+    `spawnCallsAfterReload: ${reloadBody.spawnCallsAfterReload}`,
+  )
   console.log('workerd single-thread async runtime OK')
 } finally {
   try {

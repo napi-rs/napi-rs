@@ -754,6 +754,15 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('__emnapiContext.suppressDestroy()'))
   t.true(src.includes('__captureEmnapiAutoDestroyListener'))
   t.true(src.includes('__managedEmnapiContextDestroyers'))
+  t.true(src.includes('napi_prepare_wasm_env_cleanup'))
+  const prepareCleanupOffset = src.indexOf('__prepareEnvCleanup?.()')
+  const destroyContextOffset = src.indexOf(
+    '__emnapiContext.destroy()',
+    prepareCleanupOffset,
+  )
+  t.true(
+    prepareCleanupOffset > 0 && prepareCleanupOffset < destroyContextOffset,
+  )
   t.regex(
     src,
     /__managedCleanupProcess\.once\(\s*'beforeExit',\s*__destroyManagedEmnapiContextsBeforeExit,\s*\)/,
@@ -799,6 +808,139 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   )
   assertValidJS(t, src, 'deferred single-thread browser binding')
 })
+
+test.serial(
+  'deferred WASI binding prepares each instance before destroying its context',
+  async (t) => {
+    const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
+    const tmpDir = await mkdtemp(
+      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-dispose-order-'),
+    )
+
+    try {
+      const runtimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(runtimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(runtimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(runtimeDir, 'index.js'),
+        `export class WASI {}
+export async function instantiateNapiModule(module, options) {
+  if (!(module instanceof WebAssembly.Module)) {
+    throw new TypeError('Invalid wasm module')
+  }
+  const state = globalThis.__napiDisposeOrderState
+  const instanceId = ++state.instances
+  const contextId = options.context.id
+  const instance = {
+    exports: {
+      napi_prepare_wasm_env_cleanup() {
+        state.events.push('prepare:' + instanceId + ':' + contextId)
+      },
+    },
+  }
+  options.beforeInit({ instance, module })
+  return {
+    instance,
+    napiModule: { exports: { instanceId, contextId } },
+  }
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `export function createContext(options) {
+  if (options?.autoDestroy !== false) {
+    throw new Error('deferred loader must disable emnapi auto-destroy')
+  }
+  const state = globalThis.__napiDisposeOrderState
+  const id = ++state.contexts
+  return {
+    id,
+    feature: {},
+    suppressDestroy() {},
+    destroy() {
+      const expected = 'prepare:' + id + ':' + id
+      if (state.events.at(-1) !== expected) {
+        throw new Error('context destroyed before its instance was prepared')
+      }
+      state.events.push('destroy:' + id)
+    },
+  }
+}
+`,
+      )
+      await writeFile(join(tmpDir, 'deferred.mjs'), src)
+      await writeFile(
+        join(tmpDir, 'test.mjs'),
+        `import assert from 'node:assert/strict'
+
+globalThis.__napiDisposeOrderState = {
+  contexts: 0,
+  events: [],
+  instances: 0,
+}
+
+const { dispose, instantiate } = await import('./deferred.mjs')
+const module = new WebAssembly.Module(
+  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+)
+
+const first = await instantiate(module)
+assert.deepEqual(first, { instanceId: 1, contextId: 1 })
+await dispose()
+
+const second = await instantiate(module)
+assert.deepEqual(second, { instanceId: 2, contextId: 2 })
+await dispose()
+
+assert.deepEqual(globalThis.__napiDisposeOrderState.events, [
+  'prepare:1:1',
+  'destroy:1',
+  'prepare:2:2',
+  'destroy:2',
+])
+`,
+      )
+
+      await t.notThrowsAsync(() =>
+        execFileAsync(
+          process.execPath,
+          ['--unhandled-rejections=strict', join(tmpDir, 'test.mjs')],
+          { cwd: tmpDir, timeout: 10_000 },
+        ),
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
 
 test.serial(
   'eager WASI Node loaders invoke synchronous context cleanup at process exit',

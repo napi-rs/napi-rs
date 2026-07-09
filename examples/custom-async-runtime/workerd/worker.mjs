@@ -2,7 +2,7 @@
 // root package with its flavor package kept transitive, then bundles this file
 // from that isolated consumer.
 import wasmModule from '@examples/custom-async-runtime/wasm.wasm'
-import { instantiate } from '@examples/custom-async-runtime/workerd'
+import { dispose, instantiate } from '@examples/custom-async-runtime/workerd'
 
 // Instantiate lazily inside the handler, memoized across requests. Kicking it
 // off at top level fails on workerd with "Disallowed operation called within
@@ -11,10 +11,31 @@ import { instantiate } from '@examples/custom-async-runtime/workerd'
 let apiPromise
 
 export default {
-  async fetch() {
+  async fetch(request) {
     try {
       apiPromise ??= instantiate(wasmModule)
       const api = await apiPromise
+      if (new URL(request.url).pathname === '/dispose-reload') {
+        const pendingResult = api.asyncNever().then(
+          () => ({ rejected: false, reason: '' }),
+          (error) => ({
+            rejected: true,
+            reason: String((error && error.message) || error),
+          }),
+        )
+        const beforeDispose = api.getRuntimeMetrics()
+        await dispose()
+        const cancellation = await pendingResult
+        apiPromise = instantiate(wasmModule)
+        const reloadedApi = await apiPromise
+        return Response.json({
+          cancellation,
+          freshExports: reloadedApi !== api,
+          result: await reloadedApi.asyncDouble(23),
+          spawnCallsBeforeDispose: beforeDispose.spawnCalls,
+          spawnCallsAfterReload: reloadedApi.getRuntimeMetrics().spawnCalls,
+        })
+      }
       // Mirror test.mjs semantics: asyncDouble(v) === v * 2,
       // spawnFuture(v) === v + 1, blockOnValue(v) === v + 1,
       // asyncError() takes no arguments and rejects with
