@@ -10,6 +10,10 @@ const finalizerScriptPath = join(
   __dirname,
   'tokio-runtime-finalizer-lifecycle.js',
 )
+const setupRejectionScriptPath = join(
+  __dirname,
+  'tokio-runtime-setup-rejection.js',
+)
 const lifecycleTimeoutMilliseconds = 30_000
 
 test('Tokio shutdown rejects generated promises and releases their resources', async (t) => {
@@ -25,6 +29,38 @@ test('Tokio shutdown rejects generated promises and releases their resources', a
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error('child process did not exit after Tokio shutdown'))
+    }, lifecycleTimeoutMilliseconds)
+
+    child.once('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer)
+      if (code === 0 && signal === null) {
+        resolve()
+      } else {
+        reject(new Error(`child exited with code ${code} and signal ${signal}`))
+      }
+    })
+  })
+
+  await t.notThrowsAsync(run)
+})
+
+test('Tokio setup rejection destroys inputs under operation protection', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+
+  const child = spawn(process.execPath, [setupRejectionScriptPath], {
+    stdio: 'inherit',
+  })
+  const run = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill()
+      reject(new Error('child process did not finish Tokio setup rejection'))
     }, lifecycleTimeoutMilliseconds)
 
     child.once('error', (error) => {

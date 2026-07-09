@@ -5,12 +5,13 @@
   not(feature = "noop")
 ))]
 #[test]
-fn custom_tokio_runtime_requires_tokio_rt() {
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .build()
-    .expect("test runtime should build");
-  let error = napi::bindgen_prelude::try_create_custom_tokio_runtime(runtime)
-    .expect_err("a runtime that cannot be installed must not report success");
+fn custom_tokio_runtime_factory_requires_tokio_rt() {
+  let error = napi::bindgen_prelude::try_create_custom_tokio_runtime_factory(
+    || -> napi::Result<tokio::runtime::Runtime> {
+      panic!("an unsupported factory must not be invoked")
+    },
+  )
+  .expect_err("a runtime factory that cannot be installed must not report success");
 
   assert_eq!(error.status, napi::Status::InvalidArg);
   assert!(error.reason.contains("tokio_rt feature is not enabled"));
@@ -18,12 +19,11 @@ fn custom_tokio_runtime_requires_tokio_rt() {
 
 #[cfg(all(feature = "noop", feature = "async-runtime", feature = "tokio"))]
 #[test]
-fn custom_tokio_runtime_is_rejected_by_noop_builds() {
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .build()
-    .expect("test runtime should build");
-  let error = napi::bindgen_prelude::try_create_custom_tokio_runtime(runtime)
-    .expect_err("a noop build cannot install a runtime");
+fn custom_tokio_runtime_factory_is_rejected_by_noop_builds() {
+  let error = napi::bindgen_prelude::try_create_custom_tokio_runtime_factory(
+    || -> napi::Result<tokio::runtime::Runtime> { panic!("a noop factory must not be invoked") },
+  )
+  .expect_err("a noop build cannot install a runtime factory");
 
   assert_eq!(error.status, napi::Status::InvalidArg);
   assert!(error.reason.contains("noop build"));

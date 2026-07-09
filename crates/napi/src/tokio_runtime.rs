@@ -138,34 +138,11 @@ fn run_async_block_terminal_finalizer(finalizer: &Option<AsyncBlockTerminalFinal
   }
 }
 
-#[cfg(not(feature = "noop"))]
-struct OwnerThreadFinalizeCallbackGuard {
-  env: sys::napi_env,
-  callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
-}
-
-#[cfg(not(feature = "noop"))]
-impl OwnerThreadFinalizeCallbackGuard {
-  fn new(env: sys::napi_env, callback: Option<Box<dyn FnOnce(sys::napi_env)>>) -> Self {
-    Self { env, callback }
-  }
-
-  fn take(&mut self) -> Option<Box<dyn FnOnce(sys::napi_env)>> {
-    self.callback.take()
-  }
-}
-
-#[cfg(not(feature = "noop"))]
-impl Drop for OwnerThreadFinalizeCallbackGuard {
-  fn drop(&mut self) {
-    if let Some(callback) = self.callback.take() {
-      let env = self.env;
-      crate::bindgen_runtime::catch_unwind_safely(|| callback(env));
-    }
-  }
-}
-
-#[cfg(all(test, not(feature = "noop")))]
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 mod owner_thread_finalize_callback_tests {
   use std::{cell::Cell, rc::Rc};
 
@@ -176,11 +153,14 @@ mod owner_thread_finalize_callback_tests {
     let owner_env = 1usize as sys::napi_env;
     let called_with = Rc::new(Cell::new(None));
     let callback_called_with = Rc::clone(&called_with);
-    let callback = OwnerThreadFinalizeCallbackGuard::new(
+    let callback = OwnerThreadAsyncSetupCleanup::new(
       owner_env,
+      (),
+      (),
       Some(Box::new(move |env| {
         callback_called_with.set(Some(env as usize));
       })),
+      None,
     );
 
     drop(callback);
@@ -196,16 +176,19 @@ mod owner_thread_finalize_callback_tests {
     let called_with = Rc::new(Cell::new(None));
     let callback_calls = Rc::clone(&calls);
     let callback_called_with = Rc::clone(&called_with);
-    let mut callback = OwnerThreadFinalizeCallbackGuard::new(
+    let mut callback = OwnerThreadAsyncSetupCleanup::new(
       owner_env,
+      (),
+      (),
       Some(Box::new(move |env| {
         callback_calls.set(callback_calls.get() + 1);
         callback_called_with.set(Some(env as usize));
       })),
+      None,
     );
 
     callback
-      .take()
+      .take_finalize_callback()
       .expect("a provided finalize callback must remain present")(settlement_env);
     drop(callback);
 
@@ -944,8 +927,8 @@ impl Drop for AsyncRuntimeTask {
 }
 
 #[cfg(not(feature = "noop"))]
-fn drop_safely<T>(value: T) {
-  #[cfg(feature = "async-runtime")]
+pub(crate) fn drop_safely<T>(value: T) {
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
   let _operation = RuntimeOperationGuard::enter();
   crate::bindgen_runtime::catch_unwind_safely(|| drop(value));
 }
@@ -1546,13 +1529,40 @@ mod tokio_retirement_waiter_tests {
 mod tokio_future_cancellation_tests {
   use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc, Mutex,
+    mpsc, Arc, Mutex,
   };
   use std::task::Context;
+  use std::time::Duration;
 
   use super::*;
+  use futures::task::ArcWake;
 
   static ENV_TASKS_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+  struct RuntimeSubmissionDrainObserverGuard;
+
+  impl Drop for RuntimeSubmissionDrainObserverGuard {
+    fn drop(&mut self) {
+      RUNTIME_SUBMISSION_DRAIN_OBSERVER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    }
+  }
+
+  fn observe_runtime_submission_drain() -> (mpsc::Receiver<()>, RuntimeSubmissionDrainObserverGuard)
+  {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let mut observer = RUNTIME_SUBMISSION_DRAIN_OBSERVER
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(
+      observer.is_none(),
+      "runtime submission drain observer must be installed by only one test"
+    );
+    *observer = Some(entered_tx);
+    (entered_rx, RuntimeSubmissionDrainObserverGuard)
+  }
 
   struct DropFlag(Arc<AtomicBool>);
 
@@ -1697,6 +1707,183 @@ mod tokio_future_cancellation_tests {
     assert!(restarted_task.as_mut().poll(&mut context).is_ready());
     cleanup.wait().unwrap();
     assert!(restarted_dropped.load(Ordering::SeqCst));
+  }
+
+  struct BlockingAbortWake {
+    entered: Mutex<Option<mpsc::Sender<()>>>,
+    release: Mutex<mpsc::Receiver<()>>,
+  }
+
+  impl ArcWake for BlockingAbortWake {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+      if let Some(entered) = arc_self
+        .entered
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+      {
+        entered.send(()).unwrap();
+      }
+      arc_self
+        .release
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .recv()
+        .unwrap();
+    }
+  }
+
+  #[test]
+  fn pure_tokio_shutdown_serializes_handoff_and_cancellation() {
+    let _guard = ENV_TASKS_TEST_LOCK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    try_start_async_runtime().expect("Tokio must be running before the handoff race");
+
+    let (handoff_ready_tx, handoff_ready_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+    let (release_permit_tx, release_permit_rx) = mpsc::channel();
+    let runtime_user = std::thread::spawn(move || {
+      let (runtime_use, runtime) = try_runtime().expect("runtime use must be admitted");
+      handoff_ready_tx.send(()).unwrap();
+      spawn_rx.recv().unwrap();
+      drop(runtime.spawn(async {}));
+      spawned_tx.send(()).unwrap();
+      release_permit_rx.recv().unwrap();
+      drop(runtime_use);
+    });
+    handoff_ready_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("runtime use must pause before spawning");
+
+    let (drain_entered_rx, _drain_observer) = observe_runtime_submission_drain();
+    let (shutdown_result_tx, shutdown_result_rx) = mpsc::channel();
+    let first_shutdown_result_tx = shutdown_result_tx.clone();
+    let first_shutdown = std::thread::spawn(move || {
+      first_shutdown_result_tx
+        .send(try_shutdown_async_runtime())
+        .unwrap();
+    });
+    drain_entered_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("shutdown must enter the in-flight runtime submission drain");
+
+    let operation_error = try_block_on(async {})
+      .expect_err("new runtime work must reject after the admission gate closes");
+    assert!(
+      operation_error.reason.contains("not running"),
+      "{operation_error}"
+    );
+    let start_error = try_start_async_runtime()
+      .expect_err("explicit start must not report success while shutdown drains admission");
+    assert_eq!(start_error.status, crate::Status::WouldDeadlock);
+    assert!(
+      start_error
+        .reason
+        .contains("another runtime transition is in progress"),
+      "{start_error}"
+    );
+
+    let second_shutdown = std::thread::spawn(move || {
+      shutdown_result_tx
+        .send(try_shutdown_async_runtime())
+        .unwrap();
+    });
+    let contention_error = shutdown_result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("one shutdown contender must observe transition ownership")
+      .expect_err("the admitted handoff must keep the owning shutdown blocked");
+    assert_eq!(contention_error.status, crate::Status::WouldDeadlock);
+    assert!(
+      contention_error
+        .reason
+        .contains("another runtime transition is in progress"),
+      "{contention_error}"
+    );
+    assert!(
+      matches!(
+        shutdown_result_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+      ),
+      "the transition owner must wait for the admitted lease-to-spawn handoff"
+    );
+    spawn_tx.send(()).unwrap();
+    spawned_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("the admitted caller must finish spawning on its leased generation");
+    assert!(
+      matches!(
+        shutdown_result_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+      ),
+      "shutdown must remain blocked until the handoff permit is released"
+    );
+    release_permit_tx.send(()).unwrap();
+    runtime_user.join().unwrap();
+    shutdown_result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("shutdown must resume after the handoff")
+      .expect("handoff shutdown must succeed");
+    first_shutdown.join().unwrap();
+    second_shutdown.join().unwrap();
+    tokio_runtime_retirement_waiter()
+      .wait_for(Duration::from_secs(5))
+      .expect("the handoff generation must retire");
+
+    let env = 0x10ffusize as sys::napi_env;
+    assert!(register_runtime_env_tasks(env));
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    let registration =
+      register_env_task(env, abort_handle).expect("the abort handle must be registered");
+    let (wake_entered_tx, wake_entered_rx) = mpsc::channel();
+    let (release_wake_tx, release_wake_rx) = mpsc::channel();
+    let wake = Arc::new(BlockingAbortWake {
+      entered: Mutex::new(Some(wake_entered_tx)),
+      release: Mutex::new(release_wake_rx),
+    });
+    let mut future = Box::pin(Abortable::new(
+      std::future::pending::<()>(),
+      abort_registration,
+    ));
+    let waker = futures::task::waker(wake);
+    let mut context = Context::from_waker(&waker);
+    assert!(future.as_mut().poll(&mut context).is_pending());
+
+    let (stopped_shutdown_tx, stopped_shutdown_rx) = mpsc::channel();
+    let stopped_shutdown = std::thread::spawn(move || {
+      stopped_shutdown_tx
+        .send(try_shutdown_async_runtime())
+        .unwrap();
+    });
+    wake_entered_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("stopped-runtime shutdown must begin aborting environment work");
+    let error = try_start_async_runtime()
+      .expect_err("restart must not overlap stopped-runtime task cancellation");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
+    assert!(
+      error
+        .reason
+        .contains("another runtime transition is in progress"),
+      "{error}"
+    );
+
+    release_wake_tx.send(()).unwrap();
+    stopped_shutdown_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("stopped-runtime shutdown must finish after cancellation wakes")
+      .expect("stopped-runtime shutdown must succeed");
+    stopped_shutdown.join().unwrap();
+    assert!(future.as_mut().poll(&mut context).is_ready());
+    drop(registration);
+    cancel_runtime_env_tasks(env).wait().unwrap();
+
+    try_start_async_runtime().expect("runtime must restart after serialized cancellation");
+    try_shutdown_async_runtime().expect("restarted runtime must shut down");
+    tokio_runtime_retirement_waiter()
+      .wait_for(Duration::from_secs(5))
+      .expect("restarted runtime must retire");
   }
 }
 
@@ -1959,7 +2146,10 @@ static RUNTIME_LIFECYCLE: (Mutex<RuntimeLifecycle>, Condvar) = (
   Condvar::new(),
 );
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RuntimeSubmissionState {
   NeverStarted,
@@ -1967,13 +2157,19 @@ enum RuntimeSubmissionState {
   Closed,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 struct RuntimeSubmissions {
   state: RuntimeSubmissionState,
   in_flight: usize,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 static RUNTIME_SUBMISSIONS: (Mutex<RuntimeSubmissions>, Condvar) = (
   Mutex::new(RuntimeSubmissions {
     state: RuntimeSubmissionState::NeverStarted,
@@ -1982,9 +2178,25 @@ static RUNTIME_SUBMISSIONS: (Mutex<RuntimeSubmissions>, Condvar) = (
   Condvar::new(),
 );
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+static RUNTIME_SUBMISSION_DRAIN_OBSERVER: Mutex<Option<std::sync::mpsc::Sender<()>>> =
+  Mutex::new(None);
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 thread_local! {
   static RUNTIME_SUBMISSION_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+thread_local! {
   static RUNTIME_TRANSITION_DEPTH: Cell<usize> = const { Cell::new(0) };
   static RUNTIME_HOOK_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
@@ -2083,7 +2295,6 @@ fn ensure_explicit_runtime_transition_allowed() -> Result<()> {
       "Cannot transition the async runtime during N-API cleanup or finalization",
     ));
   }
-  #[cfg(feature = "async-runtime")]
   if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
     return Err(Error::new(
       crate::Status::GenericFailure,
@@ -2112,44 +2323,61 @@ fn runtime_finalizer_without_owner_error() -> Error {
   )
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-struct RuntimeOperationGuard;
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+pub(crate) struct RuntimeOperationGuard;
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 impl RuntimeOperationGuard {
-  fn enter() -> Self {
+  pub(crate) fn enter() -> Self {
     RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() + 1));
     Self
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 impl Drop for RuntimeOperationGuard {
   fn drop(&mut self) {
     RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() - 1));
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-/// Keeps a call into the custom backend from overlapping a lifecycle transition. Submission
-/// hooks hold it only while ownership is transferred; synchronous operations hold it until the
-/// future or entered callback and its guard have finished.
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+/// Keeps runtime use from overlapping a lifecycle transition. Submission hooks hold it only while
+/// ownership is transferred; synchronous operations hold it until the future or entered callback
+/// and its guard have finished.
 struct RuntimeUsePermit {
   _operation: RuntimeOperationGuard,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 impl RuntimeUsePermit {
   fn acquire() -> Option<Self> {
+    #[cfg(feature = "async-runtime")]
     let lifecycle = runtime_lifecycle();
     let mut submissions = RUNTIME_SUBMISSIONS
       .0
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if lifecycle.registration_error.is_some()
-      || submissions.state != RuntimeSubmissionState::Open
-      || lifecycle.state != RuntimeLifecycleState::Running
-    {
+    if submissions.state != RuntimeSubmissionState::Open {
+      return None;
+    }
+    #[cfg(feature = "async-runtime")]
+    if lifecycle.registration_error.is_some() || lifecycle.state != RuntimeLifecycleState::Running {
       return None;
     }
     submissions.in_flight += 1;
@@ -2158,6 +2386,7 @@ impl RuntimeUsePermit {
     })
   }
 
+  #[cfg(feature = "async-runtime")]
   fn acquire_synchronous() -> Option<Self> {
     let hook_local_transition =
       RUNTIME_HOOK_DEPTH.with(Cell::get) != 0 && RUNTIME_SUBMISSION_DEPTH.with(Cell::get) == 0;
@@ -2180,7 +2409,10 @@ impl RuntimeUsePermit {
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 impl Drop for RuntimeUsePermit {
   fn drop(&mut self) {
     let mut submissions = RUNTIME_SUBMISSIONS
@@ -2194,7 +2426,10 @@ impl Drop for RuntimeUsePermit {
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 fn open_runtime_submissions() {
   RUNTIME_SUBMISSIONS
     .0
@@ -2203,7 +2438,10 @@ fn open_runtime_submissions() {
     .state = RuntimeSubmissionState::Open;
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 fn close_runtime_submissions() -> Result<()> {
   if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
     return Err(Error::new(
@@ -2217,6 +2455,14 @@ fn close_runtime_submissions() -> Result<()> {
     .unwrap_or_else(std::sync::PoisonError::into_inner);
   submissions.state = RuntimeSubmissionState::Closed;
   while submissions.in_flight != 0 {
+    #[cfg(all(test, feature = "tokio_rt", not(feature = "async-runtime")))]
+    if let Some(observer) = RUNTIME_SUBMISSION_DRAIN_OBSERVER
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take()
+    {
+      let _ = observer.send(());
+    }
     submissions = RUNTIME_SUBMISSIONS
       .1
       .wait(submissions)
@@ -4461,6 +4707,7 @@ impl<F: Future> Future for TokioRuntimeGenerationFuture<F> {
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     // SAFETY: `future` is never moved after the wrapper is pinned.
     let this = unsafe { self.get_unchecked_mut() };
+    let _operation = RuntimeOperationGuard::enter();
     if this.register_worker {
       this.workers.register_current_thread();
     }
@@ -4533,6 +4780,13 @@ enum TokioRuntimeTransitionMode {
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TokioRuntimeAcquisitionMode {
+  RuntimeUse,
+  LifecycleStart,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn with_tokio_runtime_transition<T>(
   mode: TokioRuntimeTransitionMode,
   operation: impl FnOnce() -> Result<T>,
@@ -4581,15 +4835,31 @@ pub(crate) fn tokio_runtime_requires_module_retention() -> bool {
   feature = "tokio_rt",
   not(feature = "async-runtime")
 ))]
-fn runtime() -> TokioRuntimeLease {
+fn runtime() -> (RuntimeUsePermit, TokioRuntimeLease) {
   try_runtime().unwrap_or_else(|error| panic!("{error}"))
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-fn try_runtime() -> Result<TokioRuntimeLease> {
+fn try_runtime() -> Result<(RuntimeUsePermit, TokioRuntimeLease)> {
   #[cfg(feature = "async-runtime")]
-  let _selection = selected_runtime_for_use()?;
-  acquire_tokio_runtime(false)
+  {
+    acquire_tokio_runtime_for_use()
+  }
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    // Initial use may construct the first generation. Admission is acquired only
+    // after publication, then the lease is reacquired so it cannot name a
+    // generation detached by a racing shutdown.
+    drop(acquire_tokio_runtime(false)?);
+    let runtime_use = RuntimeUsePermit::acquire().ok_or_else(|| {
+      Error::new(
+        crate::Status::GenericFailure,
+        "Tokio runtime is not running",
+      )
+    })?;
+    let runtime = acquire_tokio_runtime(false)?;
+    Ok((runtime_use, runtime))
+  }
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -4773,15 +5043,15 @@ fn shutdown_rejected_supplied_tokio_runtime(runtime: PreparedTokioRuntime) {
 /// builder hooks cannot be retrofitted, so callers must retry after background retirement
 /// completes.
 ///
-/// Threaded WASI cannot retain an unloading module image, so externally built runtimes are
-/// rejected after synchronous retirement. Use [`try_create_custom_tokio_runtime`] to receive that
-/// error directly. This compatibility wrapper ignores duplicate configuration, preserving its
-/// established first-registration-wins behavior. The registration remains consumed after startup;
-/// shutdown and restart never reopen it for a replacement runtime. Other registration failures are
-/// recorded for the next addon environment load, where napi reports them as a JavaScript exception.
-/// AIX runtimes are rejected for the same unload-safety reason.
+/// Threaded WASI and AIX cannot retain an unloading module image, so externally built runtimes are
+/// rejected after synchronous retirement. The fallible by-value API is not exported on those
+/// targets because disposing a consumed Tokio runtime cannot guarantee a non-terminating return.
+/// This compatibility wrapper ignores duplicate configuration, preserving its established
+/// first-registration-wins behavior. The registration remains consumed after startup; shutdown and
+/// restart never reopen it for a replacement runtime. Other registration failures are recorded for
+/// the next addon environment load, where napi reports them as a JavaScript exception.
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  if let Err(error) = try_create_custom_tokio_runtime(rt) {
+  if let Err(error) = try_register_custom_tokio_runtime_by_value(rt) {
     if error.reason == DUPLICATE_TOKIO_RUNTIME_ERROR {
       return;
     }
@@ -4796,10 +5066,22 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
 /// Call this from module initialization before any Tokio-backed napi work starts. Only the first
 /// registration can succeed. Startup permanently consumes that registration, so later calls remain
 /// duplicates across shutdown and restart and return an error after safely initiating retirement
-/// of the rejected runtime. Threaded WASI rejects externally constructed runtimes because they may
-/// start threads before a Node-API environment owns cleanup; use the built-in runtime there.
-#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+/// of the rejected runtime.
+///
+/// This API is available only where rejecting its consumed [`Runtime`] can return without
+/// terminating the process. Use [`try_create_custom_tokio_runtime_factory`] for a fallible
+/// configuration API on AIX, threaded WASI, `noop`, or builds without `tokio_rt`.
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(any(target_os = "aix", all(target_family = "wasm", tokio_unstable)))
+))]
 pub fn try_create_custom_tokio_runtime(rt: Runtime) -> Result<()> {
+  try_register_custom_tokio_runtime_by_value(rt)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn try_register_custom_tokio_runtime_by_value(rt: Runtime) -> Result<()> {
   let rt = prepare_supplied_tokio_runtime(rt)?;
   match try_register_user_defined_tokio_runtime(UserDefinedTokioRuntime::OneShot(Box::new(
     Mutex::new(Some(rt)),
@@ -4898,9 +5180,10 @@ where
 ///
 /// Generated async work is owned by the registered [`AsyncRuntime`] backend in this build, so
 /// the supplied Tokio runtime is retired without being installed. Use
-/// [`try_create_custom_tokio_runtime`] to receive the resulting configuration error.
+/// [`try_create_custom_tokio_runtime_factory`] when configuration failure must be reported without
+/// consuming a runtime.
 pub fn create_custom_tokio_runtime(runtime: Runtime) {
-  let _ = try_create_custom_tokio_runtime(runtime);
+  let _ = try_register_custom_tokio_runtime_by_value(runtime);
 }
 
 #[cfg(all(
@@ -4909,10 +5192,7 @@ pub fn create_custom_tokio_runtime(runtime: Runtime) {
   feature = "tokio",
   not(feature = "tokio_rt")
 ))]
-/// Retire and reject a supplied Tokio runtime when the built-in `tokio_rt` executor is disabled.
-///
-/// This returns [`crate::Status::InvalidArg`] after the runtime has been safely retired.
-pub fn try_create_custom_tokio_runtime(runtime: Runtime) -> Result<()> {
+fn try_register_custom_tokio_runtime_by_value(runtime: Runtime) -> Result<()> {
   #[cfg(not(target_family = "wasm"))]
   {
     crate::bindgen_runtime::retain_current_module_for_unload_safety();
@@ -4966,14 +5246,11 @@ where
 
 #[cfg(all(feature = "noop", feature = "tokio"))]
 pub fn create_custom_tokio_runtime(runtime: Runtime) {
-  let _ = try_create_custom_tokio_runtime(runtime);
+  let _ = try_register_custom_tokio_runtime_by_value(runtime);
 }
 
 #[cfg(all(feature = "noop", feature = "tokio"))]
-/// Retire and reject a supplied Tokio runtime in a `noop` build.
-///
-/// This returns [`crate::Status::InvalidArg`] after the runtime has been safely retired.
-pub fn try_create_custom_tokio_runtime(runtime: Runtime) -> Result<()> {
+fn try_register_custom_tokio_runtime_by_value(runtime: Runtime) -> Result<()> {
   #[cfg(all(target_family = "wasm", tokio_unstable))]
   shutdown_supplied_tokio_runtime_without_retention(runtime);
   #[cfg(not(all(target_family = "wasm", tokio_unstable)))]
@@ -5225,9 +5502,7 @@ fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
   let _transition = RuntimeTransitionGuard::enter();
   let mut shutdown_failed = false;
   let result = (|| {
-    if selection == AsyncRuntimeSelection::Custom {
-      close_runtime_submissions()?;
-    }
+    close_runtime_submissions()?;
 
     #[cfg(feature = "tokio_rt")]
     match selection {
@@ -5252,9 +5527,9 @@ fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
         }
         return Err(error);
       }
-      open_runtime_submissions();
     }
 
+    open_runtime_submissions();
     Ok(())
   })();
   finish_runtime_transition(&result, shutdown_failed);
@@ -5333,9 +5608,7 @@ fn finish_selected_runtime_shutdown_with_retirement(
   let _transition = RuntimeTransitionGuard::enter();
   let mut publication = RuntimeLifecyclePublication::shutdown();
   let result: Result<()> = (|| {
-    if selection == AsyncRuntimeSelection::Custom {
-      close_runtime_submissions()?;
-    }
+    close_runtime_submissions()?;
     cancel_all_env_tasks();
     shutdown_runtime_backends(selection, call_custom_shutdown)
   })();
@@ -5391,18 +5664,18 @@ fn selected_runtime_for_use() -> Result<AsyncRuntimeSelection> {
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop"), feature = "tokio_rt"))]
-fn acquire_tokio_runtime_use() -> Result<Option<RuntimeUsePermit>> {
-  match selected_runtime_for_use()? {
-    AsyncRuntimeSelection::Custom => acquire_synchronous_runtime_use().map(Some),
-    AsyncRuntimeSelection::Tokio => Ok(None),
+fn acquire_tokio_runtime_for_use() -> Result<(RuntimeUsePermit, TokioRuntimeLease)> {
+  let selection = selected_runtime_for_use()?;
+  let allow_restart = selection == AsyncRuntimeSelection::Custom;
+  let runtime_use = match selection {
+    AsyncRuntimeSelection::Custom => acquire_synchronous_runtime_use()?,
+    AsyncRuntimeSelection::Tokio => acquire_runtime_use()?,
     AsyncRuntimeSelection::Undecided => unreachable!("runtime use requires a selected backend"),
-  }
-}
-
-#[cfg(all(feature = "async-runtime", not(feature = "noop"), feature = "tokio_rt"))]
-fn acquire_tokio_runtime_for_use() -> Result<(Option<RuntimeUsePermit>, TokioRuntimeLease)> {
-  let runtime_use = acquire_tokio_runtime_use()?;
-  let runtime = acquire_tokio_runtime(runtime_use.is_some())?;
+  };
+  // Selected Tokio startup is committed by `selected_runtime_for_use`. A selected
+  // custom backend may construct its compatibility Tokio peer here. In both cases
+  // admission prevents shutdown from detaching the generation before handoff.
+  let runtime = acquire_tokio_runtime(allow_restart)?;
   Ok((runtime_use, runtime))
 }
 
@@ -5414,7 +5687,7 @@ fn generated_futures_use_custom_runtime() -> Result<bool> {
 #[cfg(not(feature = "noop"))]
 /// Start the async runtime.
 ///
-/// With only `async-runtime`, this delegates to the registered [`AsyncRuntime`] backend's `start`
+/// With only `async-runtime`, this delegates to the registered `AsyncRuntime` backend's `start`
 /// and reports a clear error when no backend was registered. In a combined
 /// `async-runtime` + `tokio_rt` build, a timely custom registration selects and starts only that
 /// backend; the established Tokio compatibility helpers construct Tokio lazily on first use.
@@ -5573,7 +5846,13 @@ pub(crate) fn start_tokio_runtime() -> Result<()> {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub(crate) fn start_tokio_runtime_after_retirement() -> Result<()> {
   loop {
-    match acquire_tokio_runtime_with_transition(true, TokioRuntimeTransitionMode::Wait).map(drop) {
+    match acquire_tokio_runtime_with_transition(
+      true,
+      TokioRuntimeTransitionMode::Wait,
+      TokioRuntimeAcquisitionMode::LifecycleStart,
+    )
+    .map(drop)
+    {
       Ok(()) => return Ok(()),
       Err(error)
         if error.status == crate::Status::WouldDeadlock
@@ -5595,24 +5874,37 @@ pub(crate) fn start_tokio_runtime_after_retirement() -> Result<()> {
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn start_tokio_runtime_impl(allow_restart: bool) -> Result<()> {
-  acquire_tokio_runtime(allow_restart).map(drop)
+  acquire_tokio_runtime_with_transition(
+    allow_restart,
+    TokioRuntimeTransitionMode::NonBlocking,
+    TokioRuntimeAcquisitionMode::LifecycleStart,
+  )
+  .map(drop)
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
-  acquire_tokio_runtime_with_transition(allow_restart, TokioRuntimeTransitionMode::NonBlocking)
+  acquire_tokio_runtime_with_transition(
+    allow_restart,
+    TokioRuntimeTransitionMode::NonBlocking,
+    TokioRuntimeAcquisitionMode::RuntimeUse,
+  )
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn acquire_tokio_runtime_with_transition(
   allow_restart: bool,
   transition_mode: TokioRuntimeTransitionMode,
+  acquisition_mode: TokioRuntimeAcquisitionMode,
 ) -> Result<TokioRuntimeLease> {
   std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<TokioRuntimeLease> {
     if let Some(reason) = user_defined_tokio_runtime_registration_error() {
       return Err(Error::new(crate::Status::GenericFailure, reason));
     }
-    {
+    if acquisition_mode == TokioRuntimeAcquisitionMode::RuntimeUse {
+      // A runtime-use caller may already hold admission while shutdown owns the transition and
+      // waits for that handoff. Explicit lifecycle starts must serialize instead of reporting a
+      // generation whose admission gate has already closed.
       let state = TOKIO_RUNTIME_STATE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -5707,6 +5999,8 @@ fn acquire_tokio_runtime_with_transition(
         retirement: Arc::clone(&retirement),
       });
       state.lifecycle = TokioRuntimeLifecycle::Running;
+      #[cfg(not(feature = "async-runtime"))]
+      open_runtime_submissions();
       Ok(TokioRuntimeLease {
         runtime,
         retirement,
@@ -5735,22 +6029,37 @@ fn shutdown_tokio_runtime_with_transition(
     with_tokio_runtime_transition(
       transition_mode,
       || -> Result<Option<TokioRuntimeGeneration>> {
-        let mut state = TOKIO_RUNTIME_STATE
-          .lock()
-          .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match state.lifecycle {
-          TokioRuntimeLifecycle::Uninitialized => {
-            state.lifecycle = TokioRuntimeLifecycle::Stopped;
-            return Ok(None);
+        // Combined builds close and drain selected-runtime admission before
+        // entering the Tokio backend. A pure Tokio build constructs its first
+        // generation before admission, so an admitted caller never needs this
+        // transition lock to finish a handoff to the current generation.
+        #[cfg(not(feature = "async-runtime"))]
+        close_runtime_submissions()?;
+        let generation = {
+          let mut state = TOKIO_RUNTIME_STATE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+          match state.lifecycle {
+            TokioRuntimeLifecycle::Uninitialized => {
+              state.lifecycle = TokioRuntimeLifecycle::Stopped;
+              None
+            }
+            TokioRuntimeLifecycle::Stopped => None,
+            TokioRuntimeLifecycle::Running => {
+              let generation = state.generation.take();
+              if let Some(generation) = &generation {
+                state.retiring = Some(Arc::clone(&generation.retirement));
+              }
+              state.lifecycle = TokioRuntimeLifecycle::Stopped;
+              generation
+            }
           }
-          TokioRuntimeLifecycle::Stopped => return Ok(None),
-          TokioRuntimeLifecycle::Running => {}
-        }
-        let generation = state.generation.take();
-        if let Some(generation) = &generation {
-          state.retiring = Some(Arc::clone(&generation.retirement));
-        }
-        state.lifecycle = TokioRuntimeLifecycle::Stopped;
+        };
+        // In a pure Tokio build, keep transition serialization through
+        // cancellation. Otherwise a stopped/no-generation shutdown can race a
+        // restart and abort work registered by the newly published generation.
+        #[cfg(not(feature = "async-runtime"))]
+        cancel_all_env_tasks();
         Ok(generation)
       },
     )
@@ -5758,7 +6067,6 @@ fn shutdown_tokio_runtime_with_transition(
   .map_err(crate::bindgen_runtime::panic_to_error)
   .and_then(|result| result)?;
 
-  cancel_all_env_tasks();
   drop(rt);
   Ok(())
 }
@@ -6122,11 +6430,16 @@ where
   ))]
   {
     let mut fut = SafeDrop::new(fut);
-    #[cfg(feature = "async-runtime")]
-    let (_runtime_use, runtime) =
-      acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"));
-    #[cfg(not(feature = "async-runtime"))]
-    let runtime = runtime();
+    let (_runtime_use, runtime) = {
+      #[cfg(feature = "async-runtime")]
+      {
+        acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"))
+      }
+      #[cfg(not(feature = "async-runtime"))]
+      {
+        runtime()
+      }
+    };
     let retirement = runtime.retirement_signal();
     let generation = runtime.generation();
     let workers = runtime.worker_tracker();
@@ -6287,10 +6600,7 @@ pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
   #[cfg(feature = "tokio_rt")]
   {
     let mut fut = SafeDrop::new(fut);
-    #[cfg(feature = "async-runtime")]
-    let (_runtime_use, runtime) = acquire_tokio_runtime_for_use()?;
-    #[cfg(not(feature = "async-runtime"))]
-    let runtime = try_runtime()?;
+    let (_runtime_use, runtime) = try_runtime()?;
     let generation = runtime.generation();
     try_block_on_safely(fut.take(), |future| {
       let _generation = TokioRuntimeGenerationGuard::enter(generation);
@@ -6330,15 +6640,21 @@ where
   ))]
   {
     let mut func = SafeDrop::new(func);
-    #[cfg(feature = "async-runtime")]
-    let (_runtime_use, runtime) =
-      acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"));
-    #[cfg(not(feature = "async-runtime"))]
-    let runtime = runtime();
+    let (_runtime_use, runtime) = {
+      #[cfg(feature = "async-runtime")]
+      {
+        acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"))
+      }
+      #[cfg(not(feature = "async-runtime"))]
+      {
+        runtime()
+      }
+    };
     let retirement = runtime.retirement_signal();
     let generation = runtime.generation();
     let workers = runtime.worker_tracker();
     runtime.spawn_blocking(move || {
+      let _operation = RuntimeOperationGuard::enter();
       let _retirement = retirement;
       workers.register_current_thread();
       let _generation = TokioRuntimeGenerationGuard::enter(generation);
@@ -6427,10 +6743,7 @@ pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
   let mut f = SafeDrop::new(f);
   #[cfg(feature = "tokio_rt")]
   {
-    #[cfg(feature = "async-runtime")]
-    let (_runtime_use, runtime) = acquire_tokio_runtime_for_use()?;
-    #[cfg(not(feature = "async-runtime"))]
-    let runtime = try_runtime()?;
+    let (_runtime_use, runtime) = try_runtime()?;
     let runtime_guard = runtime.enter();
     let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
     call_with_runtime_guard(runtime_guard, f.take())
@@ -6523,7 +6836,7 @@ pub fn within_selected_async_runtime<F: FnOnce() -> Result<T>, T>(f: F) -> Resul
     }
     #[cfg(feature = "tokio_rt")]
     AsyncRuntimeSelection::Tokio => {
-      let runtime = try_runtime()?;
+      let (_runtime_use, runtime) = try_runtime()?;
       let runtime_guard = runtime.enter();
       let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
       call_fallible_with_runtime_guard(runtime_guard, f.take())
@@ -6538,7 +6851,7 @@ pub fn within_selected_async_runtime<F: FnOnce() -> Result<T>, T>(f: F) -> Resul
   let mut f = SafeDrop::new(f);
   #[cfg(feature = "tokio_rt")]
   {
-    let runtime = try_runtime()?;
+    let (_runtime_use, runtime) = try_runtime()?;
     let runtime_guard = runtime.enter();
     let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
     call_fallible_with_runtime_guard(runtime_guard, f.take())
@@ -6635,8 +6948,7 @@ fn execute_selected_async_future_with_terminal_finalizer<
       }
       Ok(false) => {}
       Err(error) => {
-        run_async_block_terminal_finalizer(&terminal_finalizer);
-        return reject_async_future_setup(env, fut, resolver, None, error);
+        return reject_async_future_setup(env, fut, resolver, None, terminal_finalizer, error);
       }
     }
   }
@@ -6670,10 +6982,12 @@ fn execute_selected_async_future_with_terminal_finalizer<
   Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
 >(
   _env: sys::napi_env,
-  _fut: Fut,
-  _resolver: Resolver,
+  fut: Fut,
+  resolver: Resolver,
   terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
 ) -> Result<sys::napi_value> {
+  crate::bindgen_runtime::catch_unwind_safely(|| drop(fut));
+  crate::bindgen_runtime::catch_unwind_safely(|| drop(resolver));
   if let Some(terminal_finalizer) = terminal_finalizer {
     terminal_finalizer.run();
   }
@@ -6682,24 +6996,19 @@ fn execute_selected_async_future_with_terminal_finalizer<
 
 #[cfg(all(
   not(feature = "noop"),
-  any(
-    feature = "async-runtime",
-    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
-  )
+  any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 struct OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   env: sys::napi_env,
   fut: Option<Fut>,
   resolver: Option<Resolver>,
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+  terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
 }
 
 #[cfg(all(
   not(feature = "noop"),
-  any(
-    feature = "async-runtime",
-    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
-  )
+  any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 impl<Fut, Resolver> OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   fn new(
@@ -6707,22 +7016,43 @@ impl<Fut, Resolver> OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
     fut: Fut,
     resolver: Resolver,
     finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+    terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
   ) -> Self {
     Self {
       env,
       fut: Some(fut),
       resolver: Some(resolver),
       finalize_callback,
+      terminal_finalizer,
     }
+  }
+
+  fn take_fut(&mut self) -> Fut {
+    self
+      .fut
+      .take()
+      .expect("async setup future is transferred exactly once")
+  }
+
+  fn take_resolver(&mut self) -> Resolver {
+    self
+      .resolver
+      .take()
+      .expect("async setup resolver is transferred exactly once")
+  }
+
+  fn take_finalize_callback(&mut self) -> Option<Box<dyn FnOnce(sys::napi_env)>> {
+    self.finalize_callback.take()
+  }
+
+  fn take_terminal_finalizer(&mut self) -> Option<AsyncBlockTerminalFinalizer> {
+    self.terminal_finalizer.take()
   }
 }
 
 #[cfg(all(
   not(feature = "noop"),
-  any(
-    feature = "async-runtime",
-    all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable))
-  )
+  any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 impl<Fut, Resolver> Drop for OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
   fn drop(&mut self) {
@@ -6736,6 +7066,7 @@ impl<Fut, Resolver> Drop for OwnerThreadAsyncSetupCleanup<Fut, Resolver> {
       let env = self.env;
       crate::bindgen_runtime::catch_unwind_safely(|| finalize_callback(env));
     }
+    run_async_block_terminal_finalizer(&self.terminal_finalizer);
   }
 }
 
@@ -6755,12 +7086,14 @@ fn reject_async_future_setup<
   fut: Fut,
   resolver: Resolver,
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+  terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
   error: Error,
 ) -> Result<sys::napi_value> {
   // This helper is called synchronously from the JavaScript owner thread before any scheduler
   // takes ownership. Reject directly so failed module-registration rollback does not depend on
   // environment task, resolver, or TSFN registries that have already been removed.
-  let _cleanup = OwnerThreadAsyncSetupCleanup::new(env, fut, resolver, finalize_callback);
+  let _cleanup =
+    OwnerThreadAsyncSetupCleanup::new(env, fut, resolver, finalize_callback, terminal_finalizer);
   let mut deferred = std::ptr::null_mut();
   let mut promise = std::ptr::null_mut();
   check_status!(
@@ -6788,18 +7121,22 @@ fn execute_custom_runtime_future<
 ) -> Result<sys::napi_value> {
   let raw_env = env;
   if !runtime_env_is_open(&runtime_env_tasks(raw_env)) {
-    run_async_block_terminal_finalizer(&terminal_finalizer);
     return reject_async_future_setup(
       raw_env,
       fut,
       resolver,
       None,
+      terminal_finalizer,
       async_runtime_env_unavailable_error(),
     );
   }
+  let mut setup_cleanup =
+    OwnerThreadAsyncSetupCleanup::new(raw_env, fut, resolver, None, terminal_finalizer);
   let env = Env::from_raw(env);
   let (deferred, promise) = JsDeferred::new(&env)?;
-  let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
+  let sendable_resolver = SendableResolver::new_for_env(raw_env, setup_cleanup.take_resolver());
+  let fut = setup_cleanup.take_fut();
+  let terminal_finalizer = setup_cleanup.take_terminal_finalizer();
   let cancellation_deferred = deferred.clone();
   let cancellation_resolver = sendable_resolver.clone_handle();
   let cancellation_terminal_finalizer = terminal_finalizer.clone();
@@ -6918,12 +7255,12 @@ fn execute_builtin_tokio_future<
   terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
   _require_selected_tokio: bool,
 ) -> Result<sys::napi_value> {
-  run_async_block_terminal_finalizer(&terminal_finalizer);
   reject_async_future_setup(
     env,
     fut,
     resolver,
     None,
+    terminal_finalizer,
     threadless_wasi_builtin_tokio_error(),
   )
 }
@@ -6948,40 +7285,32 @@ fn execute_builtin_tokio_future<
   require_selected_tokio: bool,
 ) -> Result<sys::napi_value> {
   let raw_env = env;
+  let mut setup_cleanup =
+    OwnerThreadAsyncSetupCleanup::new(raw_env, fut, resolver, None, terminal_finalizer);
   let env = Env::from_raw(env);
   let (deferred, promise) = JsDeferred::new(&env)?;
-  let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
-  #[cfg(feature = "async-runtime")]
-  let (_runtime_use, runtime) = match acquire_tokio_runtime_for_use() {
+  let sendable_resolver = SendableResolver::new_for_env(raw_env, setup_cleanup.take_resolver());
+  let (_runtime_use, runtime) = match try_runtime() {
     Ok(runtime) => runtime,
     Err(error) => {
+      let fut = setup_cleanup.take_fut();
+      let cleanup_terminal_finalizer = setup_cleanup.take_terminal_finalizer();
       deferred.reject_with_cleanup(error, move || {
-        drop_safely(fut);
-        let _ = sendable_resolver.discard();
+        {
+          let _operation = RuntimeOperationGuard::enter();
+          drop_safely(fut);
+          crate::bindgen_runtime::catch_unwind_safely(|| {
+            let _ = sendable_resolver.discard();
+          });
+        }
+        run_async_block_terminal_finalizer(&cleanup_terminal_finalizer);
       });
       return Ok(promise.0.value);
     }
   };
-  #[cfg(feature = "async-runtime")]
-  if require_selected_tokio {
-    debug_assert!(
-      _runtime_use.is_none(),
-      "selected Tokio work cannot acquire a custom-runtime permit"
-    );
-  }
-  #[cfg(not(feature = "async-runtime"))]
+  let fut = setup_cleanup.take_fut();
+  let terminal_finalizer = setup_cleanup.take_terminal_finalizer();
   let _ = require_selected_tokio;
-  #[cfg(not(feature = "async-runtime"))]
-  let runtime = match acquire_tokio_runtime(false) {
-    Ok(runtime) => runtime,
-    Err(error) => {
-      deferred.reject_with_cleanup(error, move || {
-        drop_safely(fut);
-        let _ = sendable_resolver.discard();
-      });
-      return Ok(promise.0.value);
-    }
-  };
   let inner = {
     let cancellation_env_tasks = runtime_env_tasks(raw_env);
     let cancellation_deferred = deferred.clone();
@@ -7074,7 +7403,7 @@ fn execute_selected_async_future_with_finalize_callback<
       }
       Ok(false) => {}
       Err(error) => {
-        return reject_async_future_setup(env, fut, resolver, finalize_callback, error);
+        return reject_async_future_setup(env, fut, resolver, finalize_callback, None, error);
       }
     }
   }
@@ -7141,14 +7470,17 @@ fn execute_custom_runtime_future_with_finalize_callback<
       fut,
       resolver,
       finalize_callback,
+      None,
       async_runtime_env_unavailable_error(),
     );
   }
+  let mut setup_cleanup =
+    OwnerThreadAsyncSetupCleanup::new(raw_env, fut, resolver, finalize_callback, None);
   let env = Env::from_raw(env);
-  let mut finalize_callback = OwnerThreadFinalizeCallbackGuard::new(raw_env, finalize_callback);
   let (mut deferred, promise) = JsDeferred::new(&env)?;
-  deferred.set_finalize_callback(finalize_callback.take());
-  let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
+  let sendable_resolver = SendableResolver::new_for_env(raw_env, setup_cleanup.take_resolver());
+  let fut = setup_cleanup.take_fut();
+  deferred.set_finalize_callback(setup_cleanup.take_finalize_callback());
   let cancellation_deferred = deferred.clone();
   let cancellation_resolver = sendable_resolver.clone_handle();
   let task = env_async_task(
@@ -7222,6 +7554,7 @@ fn execute_builtin_tokio_future_with_finalize_callback<
     fut,
     resolver,
     finalize_callback,
+    None,
     threadless_wasi_builtin_tokio_error(),
   )
 }
@@ -7245,34 +7578,22 @@ fn execute_builtin_tokio_future_with_finalize_callback<
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 ) -> Result<sys::napi_value> {
   let raw_env = env;
+  let mut setup_cleanup =
+    OwnerThreadAsyncSetupCleanup::new(raw_env, fut, resolver, finalize_callback, None);
   let env = Env::from_raw(env);
-  let mut finalize_callback = OwnerThreadFinalizeCallbackGuard::new(raw_env, finalize_callback);
   let (mut deferred, promise) = JsDeferred::new(&env)?;
-  deferred.set_finalize_callback(finalize_callback.take());
-  let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
-  #[cfg(feature = "async-runtime")]
-  let (_runtime_use, runtime) = match acquire_tokio_runtime_for_use() {
+  let sendable_resolver = SendableResolver::new_for_env(raw_env, setup_cleanup.take_resolver());
+  let fut = setup_cleanup.take_fut();
+  deferred.set_finalize_callback(setup_cleanup.take_finalize_callback());
+  let (_runtime_use, runtime) = match try_runtime() {
     Ok(runtime) => runtime,
     Err(error) => {
       deferred.reject_with_cleanup(error, move || {
+        let _operation = RuntimeOperationGuard::enter();
         drop_safely(fut);
-        let _ = sendable_resolver.discard();
-      });
-      return Ok(promise.0.value);
-    }
-  };
-  #[cfg(feature = "async-runtime")]
-  debug_assert!(
-    _runtime_use.is_none(),
-    "selected Tokio work cannot acquire a custom-runtime permit"
-  );
-  #[cfg(not(feature = "async-runtime"))]
-  let runtime = match acquire_tokio_runtime(false) {
-    Ok(runtime) => runtime,
-    Err(error) => {
-      deferred.reject_with_cleanup(error, move || {
-        drop_safely(fut);
-        let _ = sendable_resolver.discard();
+        crate::bindgen_runtime::catch_unwind_safely(|| {
+          let _ = sendable_resolver.discard();
+        });
       });
       return Ok(promise.0.value);
     }
@@ -7505,12 +7826,24 @@ impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
 
 #[cfg(all(test, not(feature = "noop")))]
 mod async_block_terminal_finalizer_tests {
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  use std::sync::atomic::AtomicBool;
   use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
   };
 
   use super::*;
+
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  struct DropFlag(Arc<AtomicBool>);
+
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  impl Drop for DropFlag {
+    fn drop(&mut self) {
+      self.0.store(true, Ordering::SeqCst);
+    }
+  }
 
   fn counted_finalizer() -> (AsyncBlockTerminalFinalizer, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -7585,12 +7918,102 @@ mod async_block_terminal_finalizer_tests {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
   }
 
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  #[test]
+  fn async_setup_cleanup_drops_inputs_before_terminal_finalizer() {
+    let future_dropped = Arc::new(AtomicBool::new(false));
+    let resolver_dropped = Arc::new(AtomicBool::new(false));
+    let finalizer_observed_order = Arc::new(AtomicBool::new(false));
+    let finalizer_future_dropped = Arc::clone(&future_dropped);
+    let finalizer_resolver_dropped = Arc::clone(&resolver_dropped);
+    let finalizer_observed_order_result = Arc::clone(&finalizer_observed_order);
+    let cleanup = OwnerThreadAsyncSetupCleanup::new(
+      std::ptr::null_mut(),
+      DropFlag(future_dropped),
+      DropFlag(resolver_dropped),
+      None,
+      Some(AsyncBlockTerminalFinalizer::new(move || {
+        finalizer_observed_order_result.store(
+          finalizer_future_dropped.load(Ordering::SeqCst)
+            && finalizer_resolver_dropped.load(Ordering::SeqCst),
+          Ordering::SeqCst,
+        );
+      })),
+    );
+
+    drop(cleanup);
+
+    assert!(finalizer_observed_order.load(Ordering::SeqCst));
+  }
+
   #[test]
   fn async_block_terminal_finalizer_contains_panics_after_claiming_callback() {
     let finalizer = AsyncBlockTerminalFinalizer::new(|| panic!("terminal finalizer panic"));
 
     finalizer.run();
     finalizer.run();
+  }
+}
+
+#[cfg(all(test, feature = "noop"))]
+mod noop_async_block_terminal_finalizer_tests {
+  use std::{
+    pin::Pin,
+    sync::{
+      atomic::{AtomicBool, Ordering},
+      Arc,
+    },
+    task::{Context, Poll},
+  };
+
+  use super::*;
+
+  struct DropFlag(Arc<AtomicBool>);
+
+  impl Future for DropFlag {
+    type Output = Result<()>;
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+      Poll::Pending
+    }
+  }
+
+  impl Drop for DropFlag {
+    fn drop(&mut self) {
+      self.0.store(true, Ordering::SeqCst);
+    }
+  }
+
+  #[test]
+  fn noop_async_block_finalizes_after_future_and_resolver_destruction() {
+    let future_dropped = Arc::new(AtomicBool::new(false));
+    let resolver_dropped = Arc::new(AtomicBool::new(false));
+    let finalizer_observed_order = Arc::new(AtomicBool::new(false));
+    let resolver_probe = DropFlag(Arc::clone(&resolver_dropped));
+    let finalizer_future_dropped = Arc::clone(&future_dropped);
+    let finalizer_resolver_dropped = Arc::clone(&resolver_dropped);
+    let finalizer_observed_order_result = Arc::clone(&finalizer_observed_order);
+
+    execute_selected_async_future_with_terminal_finalizer(
+      std::ptr::null_mut(),
+      DropFlag(Arc::clone(&future_dropped)),
+      move |_, ()| {
+        let _ = &resolver_probe;
+        Ok(std::ptr::null_mut())
+      },
+      Some(AsyncBlockTerminalFinalizer::new(move || {
+        finalizer_observed_order_result.store(
+          finalizer_future_dropped.load(Ordering::SeqCst)
+            && finalizer_resolver_dropped.load(Ordering::SeqCst),
+          Ordering::SeqCst,
+        );
+      })),
+    )
+    .unwrap();
+
+    assert!(future_dropped.load(Ordering::SeqCst));
+    assert!(resolver_dropped.load(Ordering::SeqCst));
+    assert!(finalizer_observed_order.load(Ordering::SeqCst));
   }
 }
 

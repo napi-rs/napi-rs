@@ -1143,6 +1143,133 @@ impl RuntimeAsyncIterator {
 }
 
 #[cfg(not(target_family = "wasm"))]
+fn runtime_transition_result(result: Result<()>) -> String {
+  match result {
+    Ok(()) => "Ok".to_owned(),
+    Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct AsyncIteratorAdmissionLifecycleFuture {
+  start_result_path: String,
+  value: Option<u32>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Future for AsyncIteratorAdmissionLifecycleFuture {
+  type Output = Result<Option<u32>>;
+
+  fn poll(mut self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+    Poll::Ready(Ok(self.value.take()))
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for AsyncIteratorAdmissionLifecycleFuture {
+  fn drop(&mut self) {
+    let result = runtime_transition_result(try_start_async_runtime());
+    let _ = std::fs::write(&self.start_result_path, result);
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(object)]
+pub struct AsyncIteratorAdmissionValue {
+  pub value: u32,
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(async_iterator)]
+pub struct AsyncIteratorAdmissionLifecycle {
+  start_result_path: String,
+  yielded: bool,
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+impl AsyncGenerator for AsyncIteratorAdmissionLifecycle {
+  type Yield = u32;
+  type Next = AsyncIteratorAdmissionValue;
+  type Return = ();
+
+  fn next(
+    &mut self,
+    value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let value = (!self.yielded).then_some(value.map_or(7, |value| value.value));
+    self.yielded = true;
+    AsyncIteratorAdmissionLifecycleFuture {
+      start_result_path: self.start_result_path.clone(),
+      value,
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+impl AsyncIteratorAdmissionLifecycle {
+  #[napi(constructor)]
+  pub fn new(start_result_path: String) -> Self {
+    Self {
+      start_result_path,
+      yielded: false,
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct SetupRejectionFuture {
+  _drop_probe: SetupRejectionDropProbe,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Future for SetupRejectionFuture {
+  type Output = Result<()>;
+
+  fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+    Poll::Pending
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct SetupRejectionDropProbe(Arc<AtomicBool>);
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for SetupRejectionDropProbe {
+  fn drop(&mut self) {
+    self.0.store(true, Ordering::Release);
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn stopped_async_block_cleanup_order(env: &Env, result_path: String) -> Result<AsyncBlock<()>> {
+  let future_dropped = Arc::new(AtomicBool::new(false));
+  let resolver_dropped = Arc::new(AtomicBool::new(false));
+  let finalizer_future_dropped = Arc::clone(&future_dropped);
+  let finalizer_resolver_dropped = Arc::clone(&resolver_dropped);
+  let resolver_probe = SetupRejectionDropProbe(resolver_dropped);
+  AsyncBlockBuilder::new(SetupRejectionFuture {
+    _drop_probe: SetupRejectionDropProbe(future_dropped),
+  })
+  .with_dispose(move |_| {
+    drop(resolver_probe);
+    Ok(())
+  })
+  .with_terminal_finalizer(move || {
+    let future_dropped = finalizer_future_dropped.load(Ordering::Acquire);
+    let resolver_dropped = finalizer_resolver_dropped.load(Ordering::Acquire);
+    let shutdown = runtime_transition_result(try_shutdown_async_runtime());
+    let _ = std::fs::write(
+      result_path,
+      format!("future={future_dropped}\nresolver={resolver_dropped}\nshutdown={shutdown}"),
+    );
+  })
+  .build(env)
+}
+
+#[cfg(not(target_family = "wasm"))]
 struct ShutdownOnUnpolledDrop {
   result_path: String,
 }
@@ -1416,7 +1543,23 @@ pub fn start_tokio_retirement_probe(
       return;
     }
 
-    let explicit_start_result = explicit_start_during_automatic_transition();
+    // Tokio blocking callbacks are runtime operations. Use a plain child thread
+    // so this probe still observes transition contention rather than same-call
+    // lifecycle reentry.
+    let lifecycle_results = thread::spawn(|| {
+      (
+        explicit_start_during_automatic_transition(),
+        explicit_shutdown_during_automatic_transition(),
+      )
+    })
+    .join();
+    let (explicit_start_result, explicit_shutdown_result) = match lifecycle_results {
+      Ok(results) => results,
+      Err(_) => (
+        "Panic\nexplicit lifecycle probe panicked".to_owned(),
+        "Panic\nexplicit lifecycle probe panicked".to_owned(),
+      ),
+    };
     if write_file(
       Path::new(&explicit_start_result_path),
       &explicit_start_result,
@@ -1426,7 +1569,6 @@ pub fn start_tokio_retirement_probe(
       return;
     }
 
-    let explicit_shutdown_result = explicit_shutdown_during_automatic_transition();
     if write_file(
       Path::new(&explicit_shutdown_result_path),
       &explicit_shutdown_result,

@@ -5,11 +5,15 @@
   not(feature = "noop")
 ))]
 
-use std::{sync::mpsc, time::Duration};
+use std::{
+  sync::mpsc,
+  time::{Duration, Instant},
+};
 
 use napi::bindgen_prelude::{
-  block_on, create_custom_tokio_runtime, spawn, tokio_runtime_retirement_waiter, try_block_on,
-  try_shutdown_async_runtime, try_start_async_runtime, try_within_runtime_if_available,
+  block_on, create_custom_tokio_runtime, spawn, spawn_blocking, tokio_runtime_retirement_waiter,
+  try_block_on, try_shutdown_async_runtime, try_start_async_runtime,
+  try_within_runtime_if_available,
 };
 
 struct WaitForRetirementOnDrop {
@@ -23,6 +27,26 @@ impl Drop for WaitForRetirementOnDrop {
       .send(tokio_runtime_retirement_waiter().wait())
       .unwrap();
   }
+}
+
+fn start_after_retirement() {
+  let deadline = Instant::now() + Duration::from_secs(5);
+  loop {
+    match try_start_async_runtime() {
+      Ok(()) => return,
+      Err(error) if error.status == napi::Status::WouldDeadlock && Instant::now() < deadline => {
+        std::thread::sleep(Duration::from_millis(10));
+      }
+      Err(error) => panic!("Tokio runtime did not become restartable: {error}"),
+    }
+  }
+}
+
+fn assert_runtime_operation_error(error: napi::Error) {
+  assert!(
+    error.reason.contains("inside an AsyncRuntime operation"),
+    "{error}"
+  );
 }
 
 #[test]
@@ -48,6 +72,78 @@ fn shutdown_before_first_use_requires_an_explicit_restart() {
   try_start_async_runtime().expect("an explicit start must restart Tokio");
   let handle = spawn(async {});
   block_on(async { handle.await.expect("restarted task must complete") });
+
+  assert_runtime_operation_error(
+    try_block_on(async { try_shutdown_async_runtime() })
+      .unwrap()
+      .expect_err("Tokio block_on work must not shut down its own runtime"),
+  );
+  assert_runtime_operation_error(
+    try_within_runtime_if_available(|| {
+      try_shutdown_async_runtime().expect_err("Tokio entry must not shut down its own guard")
+    })
+    .unwrap(),
+  );
+  let (poll_result_tx, poll_result_rx) = mpsc::channel();
+  let poll = spawn(async move {
+    poll_result_tx.send(try_shutdown_async_runtime()).unwrap();
+  });
+  try_block_on(async { poll.await.unwrap() }).unwrap();
+  assert_runtime_operation_error(
+    poll_result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("Tokio task poll must report its nested shutdown result")
+      .expect_err("Tokio task poll must not shut down its own runtime"),
+  );
+  assert_runtime_operation_error(
+    try_block_on(async { spawn_blocking(try_shutdown_async_runtime).await.unwrap() })
+      .unwrap()
+      .expect_err("Tokio blocking work must not shut down its own runtime"),
+  );
+
+  let (entered_tx, entered_rx) = mpsc::channel();
+  let (release_tx, release_rx) = mpsc::channel();
+  let runtime_use = std::thread::spawn(move || {
+    try_block_on(async move {
+      entered_tx.send(()).unwrap();
+      release_rx.recv().unwrap();
+    })
+  });
+  entered_rx
+    .recv_timeout(Duration::from_secs(5))
+    .expect("the synchronous Tokio use must start");
+  let (shutdown_tx, shutdown_rx) = mpsc::channel();
+  let first_shutdown_tx = shutdown_tx.clone();
+  let first_shutdown = std::thread::spawn(move || {
+    first_shutdown_tx
+      .send(try_shutdown_async_runtime())
+      .unwrap();
+  });
+  let second_shutdown = std::thread::spawn(move || {
+    shutdown_tx.send(try_shutdown_async_runtime()).unwrap();
+  });
+  let contention_error = shutdown_rx
+    .recv_timeout(Duration::from_secs(5))
+    .expect("one shutdown contender must observe transition ownership")
+    .expect_err("the admitted synchronous use must keep the transition owner blocked");
+  assert_eq!(contention_error.status, napi::Status::WouldDeadlock);
+  assert!(
+    contention_error.reason.contains("transition"),
+    "{contention_error}"
+  );
+  assert!(
+    matches!(shutdown_rx.try_recv(), Err(mpsc::TryRecvError::Empty)),
+    "shutdown must wait for admitted synchronous Tokio use"
+  );
+  release_tx.send(()).unwrap();
+  runtime_use.join().unwrap().unwrap();
+  shutdown_rx
+    .recv_timeout(Duration::from_secs(5))
+    .expect("shutdown must resume after synchronous Tokio use")
+    .unwrap();
+  first_shutdown.join().unwrap();
+  second_shutdown.join().unwrap();
+  start_after_retirement();
 
   let (result_tx, result_rx) = mpsc::channel();
   let (started_tx, started_rx) = mpsc::channel();

@@ -31,6 +31,7 @@ const crossTargetLifecycleExports = [
   'removeRemovableAsyncCleanupHook',
   'removeRemovableSyncCleanupHook',
   'setInstanceDataRuntimeLifecycleProbe',
+  'stoppedTokioAsyncBlockCleanupOrder',
   'syncCleanupHookCounts',
   'pendingAsyncBlockWithTerminalFinalizer',
   'shutdownAsyncRuntimeForTest',

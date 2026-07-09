@@ -937,6 +937,12 @@ jobs:
         run: yarn install --immutable --mode=skip-build
       - name: Build WASM runtime
         run: yarn workspace @napi-rs/wasm-runtime build
+      - name: Check threadless WASI Tokio API feature sets
+        run: |
+          cargo check -p napi --no-default-features --features napi4,tokio_rt --target wasm32-wasip1 --test runtime_api_compile
+          cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1 --test runtime_api_compile
+        env:
+          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1
       - name: Check non-noop runtime feature sets
         run: |
           cargo check -p napi --no-default-features --features napi4,async-runtime --target wasm32-wasip1-threads
@@ -1048,6 +1054,8 @@ jobs:
         run: cargo test -p napi --features async-runtime
       - name: Compile runtime helper API (tokio_rt)
         run: cargo test -p napi --features tokio_rt --test runtime_api_compile
+      - name: Test tokio_rt lifecycle (pure)
+        run: cargo test -p napi --no-default-features --features napi4,tokio_rt,dyn-symbols --lib --test tokio_runtime_lifecycle
       - name: Test async-runtime + tokio_rt (combined)
         run: cargo test -p napi --features async-runtime,tokio_rt
 

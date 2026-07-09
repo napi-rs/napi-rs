@@ -108,6 +108,20 @@ async function startRuntimeAfterRetirement(binding) {
   }
 }
 
+async function readFileEventually(path, description) {
+  const deadline = Date.now() + 5000
+  let lastError
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, 'utf8')
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+  throw new Error(`Timed out waiting for ${description}`, { cause: lastError })
+}
+
 const initial = binding.getRuntimeMetrics()
 
 assert.equal(binding.isWasm(), isWasi)
@@ -313,6 +327,45 @@ assert.deepEqual(
   ],
 )
 
+if (mode === 'native') {
+  const directory = await mkdtemp(
+    join(tmpdir(), 'napi-custom-runtime-iterator-admission-'),
+  )
+  try {
+    const startResultPath = join(directory, 'start')
+    const iterator = new binding.AsyncIteratorAdmissionLifecycle(
+      startResultPath,
+    )[Symbol.asyncIterator]()
+    let shutdownCompleted = false
+    const request = iterator.next({
+      get value() {
+        binding.shutdownRuntime()
+        shutdownCompleted = true
+        return 7
+      },
+    })
+
+    await assert.rejects(request, /cancel/i)
+    assert.equal(
+      shutdownCompleted,
+      true,
+      'async iterator argument conversion must remain lifecycle-callable',
+    )
+    assert.match(
+      await readFileEventually(
+        startResultPath,
+        'async iterator future-drop restart result',
+      ),
+      /GenericFailure[\s\S]*inside an AsyncRuntime operation/,
+    )
+    assert.throws(() => binding.runtimeContextAdd(1), /not running/i)
+    await startRuntimeAfterRetirement(binding)
+    assert.equal(await binding.asyncDouble(9), 18)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
 binding.rejectNextSpawn()
 await assert.rejects(
   binding.asyncDouble(1),
@@ -356,6 +409,26 @@ assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
 assert.throws(() => binding.runtimeContextAdd(1), /not running/i)
 assert.throws(() => binding.blockOnValue(1), /not running/i)
 await assertIteratorSetupRejects(binding, /not running/i, 'stopped')
+
+if (mode === 'native') {
+  const directory = await mkdtemp(
+    join(tmpdir(), 'napi-custom-runtime-stopped-async-block-'),
+  )
+  try {
+    const orderPath = join(directory, 'order')
+    let rejected
+    assert.doesNotThrow(() => {
+      rejected = binding.stoppedAsyncBlockCleanupOrder(orderPath)
+    })
+    await assert.rejects(rejected, /not running/i)
+    assert.equal(
+      await readFileEventually(orderPath, 'stopped async block cleanup order'),
+      'future=true\nresolver=true\nshutdown=Ok',
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}
 
 if (mode === 'native') {
   assert.ok(

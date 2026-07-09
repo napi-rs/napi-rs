@@ -6,7 +6,10 @@ use napi::tokio::fs;
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 use napi::JsDeferred;
 #[cfg(not(feature = "noop"))]
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{
+  atomic::{AtomicBool, AtomicU32, Ordering},
+  Arc,
+};
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 use std::{
   cell::{Cell, RefCell},
@@ -86,6 +89,55 @@ fn pending_async_block_with_terminal_finalizer(
   })
   .with_terminal_finalizer(move || {
     let _ = std::fs::write(result_path, b"finalized");
+  })
+  .build(env)
+}
+
+#[cfg(not(feature = "noop"))]
+struct AsyncBlockSetupDropProbe(Arc<AtomicBool>);
+
+#[cfg(not(feature = "noop"))]
+impl Drop for AsyncBlockSetupDropProbe {
+  fn drop(&mut self) {
+    self.0.store(true, Ordering::Release);
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi]
+fn stopped_tokio_async_block_cleanup_order(
+  env: &Env,
+  result_path: String,
+) -> Result<AsyncBlock<()>> {
+  let future_dropped = Arc::new(AtomicBool::new(false));
+  let resolver_dropped = Arc::new(AtomicBool::new(false));
+  let finalizer_future_dropped = Arc::clone(&future_dropped);
+  let finalizer_resolver_dropped = Arc::clone(&resolver_dropped);
+  let future_probe = AsyncBlockSetupDropProbe(future_dropped);
+  let resolver_probe = AsyncBlockSetupDropProbe(resolver_dropped);
+
+  AsyncBlockBuilder::new(async move {
+    let _future_probe = future_probe;
+    std::future::pending::<()>().await;
+    Ok(())
+  })
+  .with_dispose(move |_| {
+    drop(resolver_probe);
+    Ok(())
+  })
+  .with_terminal_finalizer(move || {
+    let shutdown = match try_shutdown_async_runtime() {
+      Ok(()) => "Ok".to_owned(),
+      Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+    };
+    let _ = std::fs::write(
+      result_path,
+      format!(
+        "future={}\nresolver={}\nshutdown={shutdown}",
+        finalizer_future_dropped.load(Ordering::Acquire),
+        finalizer_resolver_dropped.load(Ordering::Acquire)
+      ),
+    );
   })
   .build(env)
 }

@@ -900,7 +900,9 @@ fn spawn_async_iterator_request<T: ToNapiValue + Send + 'static>(
             closes_iterator: true,
           }),
         };
-      let _ = admission_sender.send(result);
+      if let Err(unsent) = admission_sender.send(result) {
+        crate::tokio_runtime::drop_safely(unsent);
+      }
       Ok(ptr::null_mut())
     }) as Box<dyn FnOnce(sys::napi_env, bool) -> crate::Result<sys::napi_value> + 'static>,
   );

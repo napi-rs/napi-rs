@@ -1,6 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+#[cfg(not(feature = "noop"))]
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+#[cfg(not(feature = "noop"))]
+use std::task::{Context, Poll};
 
 use napi::{bindgen_prelude::*, iterator::ScopedGenerator};
 
@@ -552,6 +556,77 @@ impl AsyncGeneratorSetupFailure {
 #[napi]
 pub async fn create_async_generator_setup_failure() -> AsyncGeneratorSetupFailure {
   AsyncGeneratorSetupFailure::new("none".to_owned())
+}
+
+#[cfg(not(feature = "noop"))]
+struct AsyncIteratorFailedSendFuture {
+  start_result_path: String,
+  value: Option<u32>,
+}
+
+#[cfg(not(feature = "noop"))]
+impl Future for AsyncIteratorFailedSendFuture {
+  type Output = Result<Option<u32>>;
+
+  fn poll(mut self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+    Poll::Ready(Ok(self.value.take()))
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for AsyncIteratorFailedSendFuture {
+  fn drop(&mut self) {
+    let result = match try_start_async_runtime() {
+      Ok(()) => "Ok".to_owned(),
+      Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+    };
+    let _ = std::fs::write(&self.start_result_path, result);
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi(object)]
+pub struct AsyncIteratorFailedSendValue {
+  pub value: u32,
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi(async_iterator)]
+pub struct AsyncIteratorFailedSendProbe {
+  start_result_path: String,
+  yielded: bool,
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi]
+impl AsyncGenerator for AsyncIteratorFailedSendProbe {
+  type Yield = u32;
+  type Next = AsyncIteratorFailedSendValue;
+  type Return = ();
+
+  fn next(
+    &mut self,
+    value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    let value = (!self.yielded).then_some(value.map_or(7, |value| value.value));
+    self.yielded = true;
+    AsyncIteratorFailedSendFuture {
+      start_result_path: self.start_result_path.clone(),
+      value,
+    }
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi]
+impl AsyncIteratorFailedSendProbe {
+  #[napi(constructor)]
+  pub fn new(start_result_path: String) -> Self {
+    Self {
+      start_result_path,
+      yielded: false,
+    }
+  }
 }
 
 struct AsyncIteratorAdmissionProbeState {
