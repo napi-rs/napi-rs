@@ -1404,7 +1404,6 @@ class Builder {
   }
 
   private setWasiEnv() {
-    const hasThreads = this.target.triple !== 'wasm32-wasip1'
     const hasThreads = wasiTargetHasThreads(this.target)
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
@@ -1457,17 +1456,6 @@ class Builder {
         'TARGET_RANLIB',
         join(WASI_SDK_PATH, 'bin', 'ranlib'),
       )
-      this.setEnvIfNotExists(
-        'TARGET_CFLAGS',
-        `--target=${wasiTarget} --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot${hasThreads ? ' -pthread' : ''} -mllvm -wasm-enable-sjlj`,
-      )
-      this.setEnvIfNotExists(
-        'TARGET_CXXFLAGS',
-        `--target=${wasiTarget} --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot${hasThreads ? ' -pthread' : ''} -mllvm -wasm-enable-sjlj`,
-      )
-      this.setEnvIfNotExists(
-        `TARGET_LDFLAGS`,
-        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=${wasiTarget}`,
       const { compileFlags, linkerFlags } = createWasiCompilerFlags(
         WASI_SDK_PATH,
         wasiTarget,
