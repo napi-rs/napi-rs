@@ -89,6 +89,99 @@ export async function findPureRuntimeBinding() {
   return fileURLToPath(new URL(bindings[0], directory))
 }
 
+function runPureRuntimeFailedStartRollback(bindingFile) {
+  const environment = { ...process.env }
+  for (const name of [
+    'NAPI_CUSTOM_RUNTIME_DROP_PROBE',
+    'NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE',
+    'NAPI_CUSTOM_RUNTIME_TEST_MISSING',
+  ]) {
+    delete environment[name]
+  }
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const bindingFile = ${JSON.stringify(bindingFile)}
+        const cacheKey = require.resolve(bindingFile)
+        process.env.NAPI_CUSTOM_RUNTIME_TEST_START_ERROR = '1'
+        let startError
+        try {
+          require(bindingFile)
+        } catch (error) {
+          startError = error
+        } finally {
+          delete process.env.NAPI_CUSTOM_RUNTIME_TEST_START_ERROR
+        }
+        if (!startError) {
+          throw new Error('pure addon load unexpectedly survived the injected start failure')
+        }
+        const errors = []
+        for (let current = startError; current; current = current.cause) {
+          errors.push(String(current))
+        }
+        if (!/injected custom runtime start error/i.test(errors.join('\\n'))) {
+          throw startError
+        }
+        if (require.cache[cacheKey] !== undefined) {
+          throw new Error('failed pure addon load remained in require.cache')
+        }
+
+        const binding = require(bindingFile)
+        const timeout = setTimeout(
+          () => {
+            console.error('timed out waiting for pure failed-start recovery')
+            process.exitCode = 1
+          },
+          5000,
+        )
+        ;(async () => {
+          const value = await binding.asyncDouble(21)
+          if (value !== 42) {
+            throw new Error(\`unexpected pure failed-start recovery result: \${value}\`)
+          }
+          const metrics = binding.getRuntimeMetrics()
+          if (metrics.tokioRuntimeEnabled !== false) {
+            throw new Error('pure failed-start recovery unexpectedly enabled Tokio')
+          }
+          if (
+            metrics.moduleInitCalls !== 1 ||
+            metrics.runtimeRegistrationCalls !== 1 ||
+            metrics.backendDropCalls !== 0 ||
+            metrics.startCalls !== 1 ||
+            metrics.shutdownCalls !== 1
+          ) {
+            throw new Error(
+              \`pure failed-start recovery has invalid metrics: \${JSON.stringify(metrics)}\`,
+            )
+          }
+          console.log('pure failed-start rollback recovered async submissions')
+        })().then(
+          () => clearTimeout(timeout),
+          (error) => {
+            clearTimeout(timeout)
+            console.error(error)
+            process.exitCode = 1
+          },
+        )
+      `,
+    ],
+    {
+      encoding: 'utf8',
+      env: environment,
+      timeout: timeoutMilliseconds,
+    },
+  )
+  assert.equal(result.error, undefined, result.error?.stack)
+  assert.equal(result.signal, null, `${result.stdout}\n${result.stderr}`)
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  assert.match(
+    result.stdout,
+    /pure failed-start rollback recovered async submissions/,
+  )
+}
+
 export async function runPureRuntimeReloadLifecycle(bindingFile) {
   assert.ok(
     isAbsolute(bindingFile),
@@ -197,6 +290,7 @@ export async function runPureRuntimeReloadLifecycle(bindingFile) {
     missingResult.stdout,
     /async iterators rejected without a backend/,
   )
+  runPureRuntimeFailedStartRollback(bindingFile)
 
   const directory = await mkdtemp(join(tmpdir(), 'napi-pure-runtime-reload-'))
   const dropMarker = join(directory, 'backend-dropped')

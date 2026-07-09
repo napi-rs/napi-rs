@@ -9,11 +9,12 @@ use std::{
   task::{Context, Poll},
 };
 
+#[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
+use std::thread;
 #[cfg(not(target_family = "wasm"))]
 use std::{
   path::Path,
   task::Waker,
-  thread,
   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -43,6 +44,16 @@ static BACKEND_IDENTITY: OnceLock<String> = OnceLock::new();
 #[cfg(not(target_family = "wasm"))]
 static EXTERNALLY_RETAINED_TASK_WAKER: Mutex<Option<Waker>> = Mutex::new(None);
 
+type BlockingWork = Box<dyn FnOnce() + Send + 'static>;
+
+#[cfg(not(target_family = "wasm"))]
+const BLOCKING_WORKER_COUNT: usize = 2;
+#[cfg(not(target_family = "wasm"))]
+const BLOCKING_QUEUE_CAPACITY: usize = 64;
+#[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
+const THREADLESS_WASI_BLOCKING_UNSUPPORTED: &str =
+  "custom async runtime blocking work is unsupported on threadless wasm32-wasip1";
+
 #[derive(Default)]
 struct SchedulerState {
   queue: VecDeque<Arc<Task>>,
@@ -67,10 +78,24 @@ impl SchedulerState {
   }
 }
 
+#[cfg(not(target_family = "wasm"))]
+#[derive(Default)]
+struct BlockingPoolState {
+  queue: VecDeque<BlockingWork>,
+  workers: Vec<thread::JoinHandle<()>>,
+  accepting: bool,
+  active: usize,
+  generation: usize,
+}
+
 #[derive(Default)]
 struct RuntimeState {
   scheduler: Mutex<SchedulerState>,
   scheduler_idle: Condvar,
+  #[cfg(not(target_family = "wasm"))]
+  blocking_pool: Mutex<BlockingPoolState>,
+  #[cfg(not(target_family = "wasm"))]
+  blocking_ready: Condvar,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
   defer_next_spawn_drain: AtomicBool,
@@ -158,6 +183,7 @@ impl RuntimeState {
     scheduler.task_refs.push(Arc::downgrade(&task));
     scheduler.tasks.insert(id, Arc::clone(&task));
     scheduler.queue.push_back(Arc::clone(&task));
+    Self::notify_block_on_waiters(&mut scheduler);
     Ok(task)
   }
 
@@ -182,7 +208,19 @@ impl RuntimeState {
       return false;
     }
     scheduler.queue.push_back(task);
+    Self::notify_block_on_waiters(&mut scheduler);
     true
+  }
+
+  fn notify_block_on_waiters(scheduler: &mut SchedulerState) {
+    scheduler
+      .block_on_refs
+      .retain(|waker| waker.strong_count() != 0);
+    for waiter in &scheduler.block_on_refs {
+      if let Some(waiter) = waiter.upgrade() {
+        waiter.notify();
+      }
+    }
   }
 
   fn drain(self: &Arc<Self>) {
@@ -308,6 +346,132 @@ impl RuntimeState {
         "custom async runtime shutdown found an externally retained task waker or block_on waker"
       );
       std::process::abort();
+    }
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  fn start_blocking_pool(self: &Arc<Self>) -> Result<()> {
+    let mut pool = lock(&self.blocking_pool);
+    if pool.accepting {
+      return Ok(());
+    }
+    if pool.active != 0 || !pool.queue.is_empty() || !pool.workers.is_empty() {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "custom async runtime cannot restart before its previous blocking worker generation is quiescent",
+      ));
+    }
+
+    pool.generation = pool.generation.wrapping_add(1);
+    let generation = pool.generation;
+    pool.accepting = true;
+    for index in 0..BLOCKING_WORKER_COUNT {
+      let state = Arc::clone(self);
+      match thread::Builder::new()
+        .name(format!("napi-custom-runtime-blocking-{generation}-{index}"))
+        .spawn(move || state.blocking_worker_loop())
+      {
+        Ok(worker) => pool.workers.push(worker),
+        Err(error) => {
+          pool.accepting = false;
+          let queued = std::mem::take(&mut pool.queue);
+          let workers = std::mem::take(&mut pool.workers);
+          self.blocking_ready.notify_all();
+          drop(pool);
+          drop(queued);
+          let mut worker_panicked = false;
+          for worker in workers {
+            worker_panicked |= worker.join().is_err();
+          }
+          let suffix = if worker_panicked {
+            "; a partially started blocking worker panicked during rollback"
+          } else {
+            ""
+          };
+          return Err(Error::new(
+            Status::GenericFailure,
+            format!("failed to start custom runtime blocking worker: {error}{suffix}"),
+          ));
+        }
+      }
+    }
+    Ok(())
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  fn submit_blocking_work(&self, work: BlockingWork) -> std::result::Result<(), BlockingWork> {
+    let mut pool = lock(&self.blocking_pool);
+    if !pool.accepting || pool.queue.len() >= BLOCKING_QUEUE_CAPACITY {
+      return Err(work);
+    }
+    pool.queue.push_back(work);
+    self.blocking_ready.notify_one();
+    Ok(())
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  fn blocking_worker_loop(self: Arc<Self>) {
+    loop {
+      let work = {
+        let mut pool = lock(&self.blocking_pool);
+        while pool.accepting && pool.queue.is_empty() {
+          pool = self
+            .blocking_ready
+            .wait(pool)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        if !pool.accepting {
+          return;
+        }
+        let work = pool
+          .queue
+          .pop_front()
+          .expect("an accepting blocking worker wakes only for queued work");
+        pool.active += 1;
+        work
+      };
+      let _active = BlockingWorkGuard {
+        runtime: Arc::clone(&self),
+      };
+      work();
+    }
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  fn finish_blocking_work(&self) {
+    let mut pool = lock(&self.blocking_pool);
+    pool.active -= 1;
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  fn shutdown_blocking_pool(&self) -> Result<()> {
+    let (queued, workers) = {
+      let mut pool = lock(&self.blocking_pool);
+      pool.accepting = false;
+      let queued = std::mem::take(&mut pool.queue);
+      let workers = std::mem::take(&mut pool.workers);
+      self.blocking_ready.notify_all();
+      (queued, workers)
+    };
+
+    drop(queued);
+    let mut worker_panicked = false;
+    for worker in workers {
+      worker_panicked |= worker.join().is_err();
+    }
+    let pool = lock(&self.blocking_pool);
+    debug_assert_eq!(pool.active, 0);
+    debug_assert!(pool.queue.is_empty());
+    debug_assert!(pool.workers.is_empty());
+    drop(pool);
+
+    if worker_panicked {
+      Err(Error::new(
+        Status::GenericFailure,
+        "custom async runtime blocking worker panicked",
+      ))
+    } else {
+      Ok(())
     }
   }
 
@@ -550,6 +714,18 @@ impl Drop for PollGuard {
   }
 }
 
+#[cfg(not(target_family = "wasm"))]
+struct BlockingWorkGuard {
+  runtime: Arc<RuntimeState>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for BlockingWorkGuard {
+  fn drop(&mut self) {
+    self.runtime.finish_blocking_work();
+  }
+}
+
 struct Task {
   id: usize,
   generation: usize,
@@ -624,11 +800,40 @@ impl ArcWake for Task {
 
 struct BlockOnWaker {
   notified: AtomicBool,
+  #[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
+  thread: thread::Thread,
+}
+
+impl BlockOnWaker {
+  fn prepare_poll(&self) {
+    self.notified.store(false, Ordering::Release);
+  }
+
+  fn notify(&self) {
+    self.notified.store(true, Ordering::Release);
+    #[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
+    self.thread.unpark();
+  }
+
+  fn wait(&self, runtime: &RuntimeState) -> bool {
+    #[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
+    {
+      while !self.notified.swap(false, Ordering::AcqRel) && !runtime.has_ready_tasks() {
+        thread::park();
+      }
+      true
+    }
+
+    #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
+    {
+      self.notified.swap(false, Ordering::AcqRel) || runtime.has_ready_tasks()
+    }
+  }
 }
 
 impl ArcWake for BlockOnWaker {
   fn wake_by_ref(waker: &Arc<Self>) {
-    waker.notified.store(true, Ordering::Release);
+    waker.notify();
   }
 }
 
@@ -657,8 +862,10 @@ impl Drop for TestRuntime {
 // SAFETY: accepted tasks are tracked by weak identity until shutdown. Shutdown
 // closes admission, drops every scheduler-owned future and queue reference,
 // waits for active drains and polls, and aborts if any task or block_on waker
-// identity still has an external strong reference. Backend-owned probe threads
-// are joined before a non-panicking shutdown returns.
+// identity still has an external strong reference. Native shutdown also drops
+// queued blocking work and joins every blocking worker before checking those
+// identities. Backend-owned probe threads are joined before a non-panicking
+// shutdown returns.
 unsafe impl AsyncRuntime for TestRuntime {
   fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
     if self.state.reject_next_spawn.swap(false, Ordering::AcqRel) {
@@ -682,25 +889,43 @@ unsafe impl AsyncRuntime for TestRuntime {
     Ok(())
   }
 
-  fn spawn_blocking(
-    &self,
-    work: Box<dyn FnOnce() + Send + 'static>,
-  ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
+  fn spawn_blocking(&self, work: BlockingWork) -> std::result::Result<(), BlockingWork> {
     if !self.state.accepting.load(Ordering::Acquire) {
       return Err(work);
     }
-    self
-      .state
-      .spawn_blocking_calls
-      .fetch_add(1, Ordering::Relaxed);
-    work();
-    Ok(())
+
+    #[cfg(not(target_family = "wasm"))]
+    {
+      self.state.submit_blocking_work(work)?;
+      self
+        .state
+        .spawn_blocking_calls
+        .fetch_add(1, Ordering::Relaxed);
+      Ok(())
+    }
+
+    #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
+    {
+      Err(work)
+    }
+
+    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+    {
+      work();
+      self
+        .state
+        .spawn_blocking_calls
+        .fetch_add(1, Ordering::Relaxed);
+      Ok(())
+    }
   }
 
   fn block_on(&self, mut future: Pin<&mut dyn Future<Output = ()>>) {
     self.state.block_on_calls.fetch_add(1, Ordering::Relaxed);
     let signal = Arc::new(BlockOnWaker {
-      notified: AtomicBool::new(true),
+      notified: AtomicBool::new(false),
+      #[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
+      thread: thread::current(),
     });
     {
       let mut scheduler = lock(&self.state.scheduler);
@@ -713,19 +938,15 @@ unsafe impl AsyncRuntime for TestRuntime {
     let mut context = Context::from_waker(&waker);
 
     loop {
-      signal.notified.store(false, Ordering::Release);
+      signal.prepare_poll();
       self.state.block_on_polls.fetch_add(1, Ordering::Relaxed);
       if future.as_mut().poll(&mut context).is_ready() {
         return;
       }
 
       self.state.drain();
-      while !signal.notified.swap(false, Ordering::AcqRel) {
-        if self.state.has_ready_tasks() {
-          self.state.drain();
-        } else {
-          std::hint::spin_loop();
-        }
+      if !signal.wait(&self.state) {
+        return;
       }
     }
   }
@@ -760,6 +981,8 @@ unsafe impl AsyncRuntime for TestRuntime {
       ));
     }
     self.state.start_scheduler()?;
+    #[cfg(not(target_family = "wasm"))]
+    self.state.start_blocking_pool()?;
     self.state.start_calls.fetch_add(1, Ordering::Relaxed);
     Ok(())
   }
@@ -769,17 +992,26 @@ unsafe impl AsyncRuntime for TestRuntime {
     #[cfg(not(target_family = "wasm"))]
     cancellation_order::mark_active_poll_shutdown_entered();
     #[cfg(not(target_family = "wasm"))]
-    self
+    let lifecycle_barrier = self
       .state
-      .wait_for_lifecycle_hook_barrier(LifecycleHook::Shutdown)?;
+      .wait_for_lifecycle_hook_barrier(LifecycleHook::Shutdown);
     let fail = self.state.fail_next_shutdown.swap(false, Ordering::AcqRel);
     let panic = self.state.panic_next_shutdown.swap(false, Ordering::AcqRel);
+    self.state.accepting.store(false, Ordering::Release);
+    #[cfg(not(target_family = "wasm"))]
+    let blocking_shutdown = self.state.shutdown_blocking_pool();
     self.state.shutdown_scheduler();
     if panic {
       panic!("injected custom runtime shutdown panic");
     }
     #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-    self.state.stop_shutdown_probe()?;
+    let probe_shutdown = self.state.stop_shutdown_probe();
+    #[cfg(not(target_family = "wasm"))]
+    lifecycle_barrier?;
+    #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+    probe_shutdown?;
+    #[cfg(not(target_family = "wasm"))]
+    blocking_shutdown?;
     if fail {
       return Err(Error::new(
         Status::GenericFailure,
@@ -1463,21 +1695,56 @@ pub fn block_on_value(value: u32) -> Result<u32> {
   })
 }
 
+fn blocking_work_error(error: impl std::fmt::Display) -> Error {
+  #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
+  let reason = format!("{THREADLESS_WASI_BLOCKING_UNSUPPORTED}: {error}");
+  #[cfg(not(all(target_family = "wasm", not(custom_runtime_wasi_threads))))]
+  let reason = format!("custom runtime blocking work failed: {error}");
+  Error::new(Status::GenericFailure, reason)
+}
+
 #[napi]
 pub fn spawn_blocking_value(value: u32) -> Result<u32> {
-  try_block_on_custom_runtime(spawn_blocking_on_custom_runtime(move || value + 1))?.map_err(
-    |error| {
-      Error::new(
-        Status::GenericFailure,
-        format!("custom runtime blocking work failed: {error}"),
+  try_block_on_custom_runtime(spawn_blocking_on_custom_runtime(move || value + 1))?
+    .map_err(blocking_work_error)
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(object)]
+pub struct BlockingThreadProbe {
+  #[napi(js_name = "ranOffCallerThread")]
+  pub ran_off_caller_thread: bool,
+  #[napi(js_name = "observedTimerRelease")]
+  pub observed_timer_release: bool,
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub async fn probe_blocking_thread(release_path: String) -> Result<BlockingThreadProbe> {
+  let caller_thread = thread::current().id();
+  let (ran_off_caller_thread, observed_timer_release) =
+    spawn_blocking_on_custom_runtime(move || {
+      (
+        thread::current().id() != caller_thread,
+        wait_for_file_timeout(Path::new(&release_path), Duration::from_secs(5)),
       )
-    },
-  )
+    })
+    .await
+    .map_err(blocking_work_error)?;
+  Ok(BlockingThreadProbe {
+    ran_off_caller_thread,
+    observed_timer_release,
+  })
 }
 
 #[cfg(not(target_family = "wasm"))]
 fn wait_for_file(path: &Path) -> bool {
-  let deadline = Instant::now() + Duration::from_secs(30);
+  wait_for_file_timeout(path, Duration::from_secs(30))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn wait_for_file_timeout(path: &Path, timeout: Duration) -> bool {
+  let deadline = Instant::now() + timeout;
   while !path.exists() {
     if Instant::now() >= deadline {
       return false;
@@ -1798,5 +2065,78 @@ mod tests {
     drain.join().unwrap();
     shutdown.join().unwrap();
     assert!(dropped.load(Ordering::SeqCst));
+  }
+
+  #[test]
+  fn blocking_pool_is_bounded_and_restartable() {
+    let runtime = Arc::new(RuntimeState::default());
+    runtime.start_blocking_pool().unwrap();
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let (started_tx, started_rx) = mpsc::channel();
+
+    for _ in 0..BLOCKING_WORKER_COUNT {
+      let started_tx = started_tx.clone();
+      let release = Arc::clone(&release);
+      assert!(runtime
+        .submit_blocking_work(Box::new(move || {
+          started_tx.send(()).unwrap();
+          let (released, ready) = &*release;
+          let mut released = lock(released);
+          while !*released {
+            released = ready
+              .wait(released)
+              .unwrap_or_else(std::sync::PoisonError::into_inner);
+          }
+        }))
+        .is_ok());
+    }
+    drop(started_tx);
+    for _ in 0..BLOCKING_WORKER_COUNT {
+      started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    let queued_runs = Arc::new(AtomicUsize::new(0));
+    for _ in 0..BLOCKING_QUEUE_CAPACITY {
+      let queued_runs = Arc::clone(&queued_runs);
+      assert!(runtime
+        .submit_blocking_work(Box::new(move || {
+          queued_runs.fetch_add(1, Ordering::SeqCst);
+        }))
+        .is_ok());
+    }
+    let rejected = runtime
+      .submit_blocking_work(Box::new(|| {}))
+      .expect_err("the bounded blocking queue must reject excess work");
+    drop(rejected);
+
+    let shutdown_runtime = Arc::clone(&runtime);
+    let (shutdown_tx, shutdown_rx) = mpsc::channel();
+    let shutdown = thread::spawn(move || {
+      shutdown_runtime.shutdown_blocking_pool().unwrap();
+      shutdown_tx.send(()).unwrap();
+    });
+    assert!(
+      shutdown_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "blocking pool shutdown returned while workers were still active"
+    );
+
+    let (released, ready) = &*release;
+    *lock(released) = true;
+    ready.notify_all();
+    shutdown_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("blocking pool shutdown did not join released workers");
+    shutdown.join().unwrap();
+    assert_eq!(queued_runs.load(Ordering::SeqCst), 0);
+
+    runtime.start_blocking_pool().unwrap();
+    let (ran_tx, ran_rx) = mpsc::channel();
+    assert!(runtime
+      .submit_blocking_work(Box::new(move || ran_tx.send(()).unwrap()))
+      .is_ok());
+    ran_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("restarted blocking worker did not run accepted work");
+    runtime.shutdown_blocking_pool().unwrap();
   }
 }

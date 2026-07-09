@@ -1,6 +1,7 @@
 use std::{env, path::Path, process::Command};
 
 fn main() {
+  println!("cargo:rustc-check-cfg=cfg(custom_runtime_wasi_threads)");
   if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("wasi") {
     setup_type_def_rebuilds();
     setup_wasi();
@@ -27,6 +28,9 @@ fn setup_type_def_rebuilds() {
 fn setup_wasi() {
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
   let has_threads = target == "wasm32-wasi" || target.ends_with("-threads");
+  if has_threads {
+    println!("cargo:rustc-cfg=custom_runtime_wasi_threads");
+  }
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
 
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");

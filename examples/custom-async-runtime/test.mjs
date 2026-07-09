@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
+import { writeFileSync } from 'node:fs'
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -142,12 +143,53 @@ assert.equal(afterBlockOn.blockOnCalls, initial.blockOnCalls + 1)
 assert.ok(afterBlockOn.blockOnPolls >= initial.blockOnPolls + 2)
 
 const beforeBlockingSpawn = binding.getRuntimeMetrics()
-assert.equal(binding.spawnBlockingValue(41), 42)
+if (isThreadlessWasi) {
+  assert.throws(
+    () => binding.spawnBlockingValue(41),
+    /blocking work is unsupported on threadless wasm32-wasip1/i,
+  )
+} else {
+  assert.equal(binding.spawnBlockingValue(41), 42)
+}
 const afterBlockingSpawn = binding.getRuntimeMetrics()
 assert.equal(
   afterBlockingSpawn.spawnBlockingCalls,
-  beforeBlockingSpawn.spawnBlockingCalls + 1,
+  beforeBlockingSpawn.spawnBlockingCalls + (isThreadlessWasi ? 0 : 1),
 )
+
+if (mode === 'native') {
+  const probeDirectory = await mkdtemp(
+    join(tmpdir(), 'napi-custom-runtime-blocking-thread-'),
+  )
+  const releasePath = join(probeDirectory, 'timer-fired')
+  const timerRelease = new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        writeFileSync(releasePath, 'released')
+        resolve()
+      } catch (error) {
+        reject(error)
+      }
+    }, 0)
+  })
+  try {
+    const probe = await binding.probeBlockingThread(releasePath)
+    await timerRelease
+    assert.equal(
+      probe.ranOffCallerThread,
+      true,
+      'native blocking work must run off the JavaScript thread',
+    )
+    assert.equal(
+      probe.observedTimerRelease,
+      true,
+      'native blocking work must not stall the JavaScript timer that releases it',
+    )
+  } finally {
+    await timerRelease.catch(() => {})
+    await rm(probeDirectory, { recursive: true, force: true })
+  }
+}
 
 const beforeAsync = binding.getRuntimeMetrics()
 assert.deepEqual(
@@ -479,6 +521,13 @@ await startRuntimeAfterRetirement(binding)
 const afterStart = binding.getRuntimeMetrics()
 assert.equal(afterStart.startCalls, beforeLifecycle.startCalls + 1)
 assert.equal(await binding.asyncDouble(21), 42)
+if (mode === 'native') {
+  assert.equal(
+    binding.spawnBlockingValue(21),
+    22,
+    'native blocking workers must restart with the runtime',
+  )
+}
 
 if (mode === 'native') {
   const restoredWorker = new Worker(
