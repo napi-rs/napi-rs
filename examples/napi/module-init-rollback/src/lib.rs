@@ -130,7 +130,10 @@ struct ModuleInitRuntime {
 }
 
 unsafe impl AsyncRuntime for ModuleInitRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
     let task = std::thread::spawn(move || futures::executor::block_on(task));
     self
       .tasks
@@ -140,8 +143,9 @@ unsafe impl AsyncRuntime for ModuleInitRuntime {
     Ok(())
   }
 
-  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
     futures::executor::block_on(future);
+    Ok(())
   }
 
   fn start(&self) -> Result<()> {

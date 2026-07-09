@@ -28,3 +28,4 @@ pub mod tsfn_thread_safety_3;
 pub mod tsfn_thread_safety_4;
 pub mod tsfn_thread_safety_5;
 pub mod tsfn_thread_safety_6;
+pub mod unsafe_api_migrations;

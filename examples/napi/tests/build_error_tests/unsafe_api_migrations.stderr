@@ -1,0 +1,23 @@
+error[E0133]: call to unsafe function `ArrayBuffer::<'env>::detach` is unsafe and requires unsafe function or block
+  --> tests/build_error_tests/unsafe_api_migrations.rs:24:11
+   |
+24 |   let _ = arraybuffer.detach();
+   |           ^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+
+error[E0133]: call to unsafe function `napi::Ref::<T>::get_value_mut` is unsafe and requires unsafe function or block
+  --> tests/build_error_tests/unsafe_api_migrations.rs:25:11
+   |
+25 |   let _ = reference.get_value_mut(env);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+
+error[E0133]: call to unsafe function `PromiseRaw::<'_, T>::new` is unsafe and requires unsafe function or block
+  --> tests/build_error_tests/unsafe_api_migrations.rs:26:33
+   |
+26 |   let _: PromiseRaw<'env, ()> = PromiseRaw::new(raw_env, raw_value);
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior

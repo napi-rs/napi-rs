@@ -10,8 +10,8 @@ use std::{
 };
 
 use napi::bindgen_prelude::{
-  try_register_async_runtime, AsyncGenerator, AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask,
-  External, Generator,
+  try_register_async_runtime, AsyncGenerator, AsyncRuntime, AsyncRuntimeGuard,
+  AsyncRuntimeRejection, AsyncRuntimeTask, External, Generator,
 };
 use napi_derive::napi;
 
@@ -27,7 +27,7 @@ struct PreviousDeriveRuntimeGuard;
 impl AsyncRuntimeGuard for PreviousDeriveRuntimeGuard {}
 
 unsafe impl AsyncRuntime for PreviousDeriveRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> Result<(), AsyncRuntimeTask> {
+  fn spawn(&self, task: AsyncRuntimeTask) -> Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
     let task = Arc::new(Mutex::new(Some(task)));
     let worker_task = Arc::clone(&task);
     match std::thread::Builder::new()
@@ -49,23 +49,28 @@ unsafe impl AsyncRuntime for PreviousDeriveRuntime {
           .push(thread);
         Ok(())
       }
-      Err(_) => Err(
+      Err(error) => Err(AsyncRuntimeRejection::new(
         task
           .lock()
           .unwrap_or_else(std::sync::PoisonError::into_inner)
           .take()
           .expect("a failed thread spawn must leave the task available"),
-      ),
+        napi::Error::new(
+          napi::Status::GenericFailure,
+          format!("failed to spawn the previous-derive runtime worker: {error}"),
+        ),
+      )),
     }
   }
 
-  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
     futures::executor::block_on(future);
+    Ok(())
   }
 
-  fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+  fn enter(&self) -> napi::Result<Box<dyn AsyncRuntimeGuard + '_>> {
     ENTER_COUNT.fetch_add(1, Ordering::SeqCst);
-    Box::new(PreviousDeriveRuntimeGuard)
+    Ok(Box::new(PreviousDeriveRuntimeGuard))
   }
 
   fn start(&self) -> napi::Result<()> {
@@ -87,8 +92,11 @@ unsafe impl AsyncRuntime for PreviousDeriveRuntime {
   fn spawn_blocking(
     &self,
     work: Box<dyn FnOnce() + Send + 'static>,
-  ) -> Result<(), Box<dyn FnOnce() + Send + 'static>> {
-    Err(work)
+  ) -> Result<(), AsyncRuntimeRejection<Box<dyn FnOnce() + Send + 'static>>> {
+    Err(AsyncRuntimeRejection::new(
+      work,
+      napi::Error::from_reason("PreviousDeriveRuntime does not support blocking work"),
+    ))
   }
 }
 

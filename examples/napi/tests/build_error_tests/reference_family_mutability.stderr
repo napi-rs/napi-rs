@@ -22,8 +22,14 @@ note: required by a bound in `assert_deref_mut`
 5 | fn assert_deref_mut<T: DerefMut>() {}
   |                        ^^^^^^^^ required by this bound in `assert_deref_mut`
 
-error[E0599]: no method named `get_mut` found for struct `WeakReference<T>` in the current scope
+error[E0599]: no method named `get` found for struct `WeakReference<T>` in the current scope
   --> tests/build_error_tests/reference_family_mutability.rs:12:23
    |
-12 |     let _ = reference.get_mut();
+12 |     let _ = reference.get();
+   |                       ^^^ method not found in `WeakReference<u32>`
+
+error[E0599]: no method named `get_mut` found for struct `WeakReference<T>` in the current scope
+  --> tests/build_error_tests/reference_family_mutability.rs:13:23
+   |
+13 |     let _ = reference.get_mut();
    |                       ^^^^^^^ method not found in `WeakReference<u32>`

@@ -13,7 +13,7 @@ use std::{
 use napi::bindgen_prelude::{
   spawn, spawn_on_custom_runtime, try_register_async_runtime, try_shutdown_async_runtime,
   try_start_async_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeGuard,
-  AsyncRuntimeTask,
+  AsyncRuntimeRejection, AsyncRuntimeTask,
 };
 
 #[derive(Default)]
@@ -43,9 +43,15 @@ impl Drop for TestRuntimeGuard {
 }
 
 unsafe impl AsyncRuntime for TestRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
     if !self.state.running.load(Ordering::SeqCst) {
-      return Err(task);
+      return Err(AsyncRuntimeRejection::new(
+        task,
+        napi::Error::from_reason("TestRuntime is not running"),
+      ));
     }
     self
       .state
@@ -56,15 +62,16 @@ unsafe impl AsyncRuntime for TestRuntime {
     Ok(())
   }
 
-  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
     futures::executor::block_on(future);
+    Ok(())
   }
 
-  fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+  fn enter(&self) -> napi::Result<Box<dyn AsyncRuntimeGuard + '_>> {
     self.state.enters.fetch_add(1, Ordering::SeqCst);
-    Box::new(TestRuntimeGuard {
+    Ok(Box::new(TestRuntimeGuard {
       state: Arc::clone(&self.state),
-    })
+    }))
   }
 
   fn start(&self) -> napi::Result<()> {

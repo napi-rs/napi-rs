@@ -25,8 +25,8 @@ use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
   register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
   try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, FnArgs, JsObjectValue, JsValue, Object,
-  PromiseRaw, Result, Status, Unknown,
+  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Env, Error, FnArgs, JsObjectValue,
+  JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
@@ -672,11 +672,19 @@ impl DuplicateProbeRuntime {
 
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 unsafe impl AsyncRuntime for DuplicateProbeRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-    Err(task)
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    Err(AsyncRuntimeRejection::new(
+      task,
+      Error::from_reason("duplicate probe runtime does not accept tasks"),
+    ))
   }
 
-  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+    Ok(())
+  }
 
   fn shutdown(&self) -> Result<()> {
     let Some(stopped_path) = lock(&self.stopped_path).take() else {
@@ -867,11 +875,22 @@ impl Drop for TestRuntime {
 // identities. Backend-owned probe threads are joined before a non-panicking
 // shutdown returns.
 unsafe impl AsyncRuntime for TestRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
     if self.state.reject_next_spawn.swap(false, Ordering::AcqRel) {
-      return Err(task);
+      return Err(AsyncRuntimeRejection::new(
+        task,
+        Error::new(Status::QueueFull, "custom runtime rejected the async task"),
+      ));
     }
-    let task = self.state.register_task(task)?;
+    let task = self.state.register_task(task).map_err(|task| {
+      AsyncRuntimeRejection::new(
+        task,
+        Error::new(Status::Cancelled, "custom runtime is not accepting tasks"),
+      )
+    })?;
     self.state.spawn_calls.fetch_add(1, Ordering::Relaxed);
     if !self
       .state
@@ -889,14 +908,31 @@ unsafe impl AsyncRuntime for TestRuntime {
     Ok(())
   }
 
-  fn spawn_blocking(&self, work: BlockingWork) -> std::result::Result<(), BlockingWork> {
+  fn spawn_blocking(
+    &self,
+    work: BlockingWork,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<BlockingWork>> {
     if !self.state.accepting.load(Ordering::Acquire) {
-      return Err(work);
+      return Err(AsyncRuntimeRejection::new(
+        work,
+        Error::new(
+          Status::Cancelled,
+          "custom runtime is not accepting blocking work",
+        ),
+      ));
     }
 
     #[cfg(not(target_family = "wasm"))]
     {
-      self.state.submit_blocking_work(work)?;
+      self.state.submit_blocking_work(work).map_err(|work| {
+        AsyncRuntimeRejection::new(
+          work,
+          Error::new(
+            Status::QueueFull,
+            "custom runtime blocking queue is full or stopped",
+          ),
+        )
+      })?;
       self
         .state
         .spawn_blocking_calls
@@ -906,7 +942,10 @@ unsafe impl AsyncRuntime for TestRuntime {
 
     #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
     {
-      Err(work)
+      Err(AsyncRuntimeRejection::new(
+        work,
+        Error::new(Status::GenericFailure, THREADLESS_WASI_BLOCKING_UNSUPPORTED),
+      ))
     }
 
     #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
@@ -920,7 +959,7 @@ unsafe impl AsyncRuntime for TestRuntime {
     }
   }
 
-  fn block_on(&self, mut future: Pin<&mut dyn Future<Output = ()>>) {
+  fn block_on(&self, mut future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
     self.state.block_on_calls.fetch_add(1, Ordering::Relaxed);
     let signal = Arc::new(BlockOnWaker {
       notified: AtomicBool::new(false),
@@ -941,22 +980,25 @@ unsafe impl AsyncRuntime for TestRuntime {
       signal.prepare_poll();
       self.state.block_on_polls.fetch_add(1, Ordering::Relaxed);
       if future.as_mut().poll(&mut context).is_ready() {
-        return;
+        return Ok(());
       }
 
       self.state.drain();
       if !signal.wait(&self.state) {
-        return;
+        return Err(Error::new(
+          Status::WouldDeadlock,
+          "custom runtime block_on cannot make progress without a wake",
+        ));
       }
     }
   }
 
-  fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+  fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
     self.state.enter_calls.fetch_add(1, Ordering::Relaxed);
     self.state.active_guards.fetch_add(1, Ordering::Relaxed);
-    Box::new(TestRuntimeGuard {
+    Ok(Box::new(TestRuntimeGuard {
       state: self.state.clone(),
-    })
+    }))
   }
 
   fn start(&self) -> Result<()> {

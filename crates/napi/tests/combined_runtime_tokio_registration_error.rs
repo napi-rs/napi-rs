@@ -11,7 +11,7 @@ use std::sync::{
 use napi::bindgen_prelude::create_custom_tokio_runtime_factory;
 
 #[test]
-fn infallible_tokio_factory_error_blocks_combined_custom_restart() {
+fn infallible_tokio_factory_error_is_scoped_to_tokio_compatibility_use() {
   support::start_custom_and_paired_tokio();
 
   let factory_called = Arc::new(AtomicBool::new(false));
@@ -24,12 +24,13 @@ fn infallible_tokio_factory_error_blocks_combined_custom_restart() {
 
   support::shutdown_and_wait();
   let error = support::restart_custom_and_paired_tokio()
-    .expect_err("the deferred Tokio registration error must block selected-runtime restart");
-  assert_eq!(error.status, napi::Status::GenericFailure);
+    .expect_err("the deferred Tokio registration error must reject the Tokio compatibility use");
+  assert_eq!(error.status, napi::Status::InvalidArg);
   support::assert_registration_error(&error);
   assert_eq!(
     support::starts(),
-    1,
-    "the custom async runtime must not restart after a deferred Tokio registration error"
+    2,
+    "a deferred Tokio registration error must not poison custom-runtime restart"
   );
+  support::shutdown_and_wait();
 }

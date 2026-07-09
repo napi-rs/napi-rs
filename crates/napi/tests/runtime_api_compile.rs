@@ -142,18 +142,36 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 
   use napi::bindgen_prelude::{
     block_on_custom_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
-    try_block_on_custom_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeTask,
-    JoinError, JoinHandle,
+    try_block_on_custom_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeGuard,
+    AsyncRuntimeRejection, AsyncRuntimeTask, JoinError, JoinHandle,
   };
 
   struct CompileRuntime;
 
   unsafe impl AsyncRuntime for CompileRuntime {
-    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-      Err(task)
+    fn spawn(
+      &self,
+      task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+      Err(AsyncRuntimeRejection::new(
+        task,
+        napi::Error::new(napi::Status::QueueFull, "compile-time rejection"),
+      ))
     }
 
-    fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+    fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
+      Err(napi::Error::new(
+        napi::Status::WouldDeadlock,
+        "compile-time block_on failure",
+      ))
+    }
+
+    fn enter(&self) -> napi::Result<Box<dyn AsyncRuntimeGuard + '_>> {
+      Err(napi::Error::new(
+        napi::Status::WouldDeadlock,
+        "compile-time enter failure",
+      ))
+    }
 
     fn shutdown(&self) -> napi::Result<()> {
       Ok(())
@@ -191,6 +209,15 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
   fn assert_rejection_error(error: JoinError) -> std::result::Result<napi::Error, JoinError> {
     error.try_into_rejection_error()
   }
+
+  let rejection = AsyncRuntimeRejection::new(
+    42_u8,
+    napi::Error::new(napi::Status::QueueFull, "compile-time rejection"),
+  );
+  assert_eq!(rejection.error().status, napi::Status::QueueFull);
+  let (work, error) = rejection.into_parts();
+  assert_eq!(work, 42);
+  assert_eq!(error.reason, "compile-time rejection");
 
   let _ = assert_spawn_signature as fn() -> JoinHandle<u8>;
   let _ = assert_spawn_blocking_signature as fn() -> JoinHandle<u8>;

@@ -209,6 +209,35 @@ pub trait AsyncRuntimeGuard {}
 #[cfg(feature = "async-runtime")]
 impl AsyncRuntimeGuard for () {}
 
+/// Work returned by an [`AsyncRuntime`] submission hook together with the reason it was rejected.
+///
+/// Construct this only when the backend did not accept ownership of the supplied work, and return
+/// the original work value unchanged. napi drops the returned work through its cancellation path
+/// and preserves the [`Error`] for generated promises and `JoinHandle` consumers.
+#[cfg(feature = "async-runtime")]
+pub struct AsyncRuntimeRejection<T> {
+  work: T,
+  error: Error,
+}
+
+#[cfg(feature = "async-runtime")]
+impl<T> AsyncRuntimeRejection<T> {
+  /// Create a rejection from the unaccepted work and a backend-specific diagnostic.
+  pub fn new(work: T, error: Error) -> Self {
+    Self { work, error }
+  }
+
+  /// Borrow the backend-specific rejection diagnostic.
+  pub fn error(&self) -> &Error {
+    &self.error
+  }
+
+  /// Recover the unaccepted work and backend-specific rejection diagnostic.
+  pub fn into_parts(self) -> (T, Error) {
+    (self.work, self.error)
+  }
+}
+
 #[cfg(all(feature = "async-runtime", feature = "noop"))]
 pub struct AsyncRuntimeTask {
   _private: (),
@@ -1967,23 +1996,27 @@ mod tokio_future_cancellation_tests {
 pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// Submit a task to run to completion in the background.
   ///
-  /// Return `Ok(())` only after taking ownership of the task. Return `Err(task)` when the
-  /// runtime is stopped, saturated, or otherwise unable to accept it. Dropping an accepted
-  /// task invokes its cancellation callback, so shutdown implementations may cancel queued
-  /// work by dropping it without leaving Rust joins or JavaScript promises pending forever.
-  /// Generated promises distinguish an immediate `Err(task)` submission rejection from a
-  /// task dropped later during runtime shutdown. Never forget an accepted task: retain it
-  /// until completion or drop it on cancellation.
+  /// Return `Ok(())` only after taking ownership of the task. Return
+  /// `Err(AsyncRuntimeRejection::new(task, error))` when the runtime is stopped, saturated, or
+  /// otherwise unable to accept it. The error is surfaced through generated promise rejection or a
+  /// `JoinError`. Dropping an accepted task invokes its cancellation callback, so shutdown
+  /// implementations may cancel queued work by dropping it without leaving Rust joins or
+  /// JavaScript promises pending forever. Generated promises distinguish an immediate submission
+  /// rejection from a task dropped later during runtime shutdown. Never forget an accepted task:
+  /// retain it until completion or drop it on cancellation.
   ///
   /// A backend may poll the task synchronously before this hook returns. The first poll commits
-  /// ownership and may run user work immediately; after that point returning `Err(task)` or
-  /// panicking cannot roll back effects that already occurred. On unwind-enabled builds, napi
-  /// already catches task panics. Poll the task directly and do not bypass its `Drop`
-  /// implementation. napi marks every poll as a runtime operation, so lifecycle calls made
-  /// recursively by task code return an error instead of waiting on the task itself. Terminal
-  /// cancellation callbacks and future destructors receive the same protection, including when
-  /// queued tasks are dropped unpolled on a runtime worker during shutdown.
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask>;
+  /// ownership and may run user work immediately; after that point returning the task in an
+  /// [`AsyncRuntimeRejection`] or panicking cannot roll back effects that already occurred. On
+  /// unwind-enabled builds, napi already catches task panics. Poll the task directly and do not
+  /// bypass its `Drop` implementation. napi marks every poll as a runtime operation, so lifecycle
+  /// calls made recursively by task code return an error instead of waiting on the task itself.
+  /// Terminal cancellation callbacks and future destructors receive the same protection, including
+  /// when queued tasks are dropped unpolled on a runtime worker during shutdown.
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>>;
 
   /// Block the current thread, fully driving the pinned future to completion before
   /// returning.
@@ -1993,12 +2026,15 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// [`block_on`] and `try_block_on` helpers delegate to the same backend; combined
   /// `async-runtime` + `tokio_rt` builds retain their established Tokio routing. napi stores the
   /// future's result through a side effect and verifies that it is present when this method
-  /// returns. The fallible wrappers report an early return as an error; infallible wrappers panic
-  /// on that error. napi holds the runtime lifecycle open until this method returns, so a
-  /// concurrent shutdown waits rather than tearing the backend down underneath it. Run the
-  /// future to completion rather than returning on the first pending poll. The borrowed future
-  /// must not be retained, moved to another thread, or accessed after this method returns.
-  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>);
+  /// returns. Return a backend-specific error if the drive cannot be started or completed. The
+  /// fallible wrappers preserve that error and also report an `Ok(())` return before completion as
+  /// an error; infallible wrappers panic on either failure. napi holds the runtime lifecycle open
+  /// until this method returns, so a concurrent shutdown waits rather than tearing the backend down
+  /// underneath it. Run the future to completion rather than returning on the first pending poll.
+  /// The borrowed future must not be retained, moved to another thread, or accessed after this
+  /// method returns. On either `Ok` or `Err`, the backend must stop accessing the borrowed future
+  /// before returning.
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()>;
 
   /// Enter the runtime context and return a guard that establishes it for the calling
   /// thread.
@@ -2007,12 +2043,13 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// selected. The hidden [`within_selected_async_runtime`] helper follows the same selection and
   /// [`within_runtime_if_available`] delegates here only in pure `async-runtime` builds; combined
   /// builds retain its established Tokio routing. The returned guard MUST keep the runtime context
-  /// active for the whole duration of the closure and tear it down on drop. The runtime lifecycle
-  /// remains open through guard destruction, so shutdown cannot overlap the entered context. The
-  /// default implementation returns a no-op guard, which is correct for backends that do not need
-  /// an ambient context.
-  fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
-    Box::new(())
+  /// active for the whole duration of the closure and tear it down on drop. Return a
+  /// backend-specific error if the context cannot be entered. The runtime lifecycle remains open
+  /// through guard destruction, so shutdown cannot overlap the entered context. The default
+  /// implementation returns a no-op guard, which is correct for backends that do not need an
+  /// ambient context.
+  fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
+    Ok(Box::new(()))
   }
 
   /// Start (or restart) the runtime.
@@ -2054,10 +2091,10 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// This backs `spawn_blocking_on_custom_runtime`. Return `Ok(())` once the work is
   /// accepted; the backend should run the closure exactly once on a thread where blocking is
   /// acceptable. Dropping accepted work, for example while shutting down, safely cancels the
-  /// caller's join handle. Return `Err(work)` to decline; the join handle completes as
-  /// rejected and napi does not create an unbounded fallback thread. Never forget accepted
-  /// work: run it exactly once or drop it during cancellation. The default implementation
-  /// declines.
+  /// caller's join handle. Return `Err(AsyncRuntimeRejection::new(work, error))` to decline; the
+  /// join handle completes as rejected with that diagnostic and napi does not create an unbounded
+  /// fallback thread. Never forget accepted work: run it exactly once or drop it during
+  /// cancellation. The default implementation declines with [`crate::Status::GenericFailure`].
   ///
   /// The backend may invoke the closure synchronously before this hook returns. Invocation commits
   /// ownership, so a later hook panic cannot replace the closure's result. On unwind-enabled
@@ -2070,8 +2107,14 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   fn spawn_blocking(
     &self,
     work: Box<dyn FnOnce() + Send + 'static>,
-  ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
-    Err(work)
+  ) -> std::result::Result<(), AsyncRuntimeRejection<Box<dyn FnOnce() + Send + 'static>>> {
+    Err(AsyncRuntimeRejection::new(
+      work,
+      Error::new(
+        crate::Status::GenericFailure,
+        "The AsyncRuntime backend does not support blocking work",
+      ),
+    ))
   }
 }
 
@@ -3697,14 +3740,6 @@ fn env_async_task<Completion: IntoAsyncRuntimeCompletion + Send + 'static>(
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-fn async_runtime_task_rejected_error() -> Error {
-  Error::new(
-    crate::Status::Cancelled,
-    "The AsyncRuntime backend rejected the task submission because it is stopped or saturated",
-  )
-}
-
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn async_runtime_env_unavailable_error() -> Error {
   Error::new(
     crate::Status::Cancelled,
@@ -3731,8 +3766,9 @@ fn submit_async_task(task: AsyncRuntimeTask) {
     Ok(Ok(())) => {
       let _ = submission.accept();
     }
-    Ok(Err(task)) => {
-      submission.reject(async_runtime_task_rejected_error());
+    Ok(Err(rejection)) => {
+      let (task, error) = rejection.into_parts();
+      submission.reject(error);
       drop(task);
     }
     Err(reason) => {
@@ -4873,14 +4909,16 @@ enum UserDefinedTokioRuntime {
 static USER_DEFINED_RT: OnceLock<UserDefinedTokioRuntime> = OnceLock::new();
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-static USER_DEFINED_RT_REGISTRATION_ERROR: Mutex<Option<String>> = Mutex::new(None);
+static USER_DEFINED_RT_REGISTRATION_ERROR: Mutex<Option<Error>> = Mutex::new(None);
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-fn user_defined_tokio_runtime_registration_error() -> Option<String> {
+fn user_defined_tokio_runtime_registration_error() -> Result<Option<Error>> {
   USER_DEFINED_RT_REGISTRATION_ERROR
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner)
-    .clone()
+    .as_ref()
+    .map(Error::try_clone)
+    .transpose()
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -5048,8 +5086,10 @@ fn shutdown_rejected_supplied_tokio_runtime(runtime: PreparedTokioRuntime) {
 /// targets because disposing a consumed Tokio runtime cannot guarantee a non-terminating return.
 /// This compatibility wrapper ignores duplicate configuration, preserving its established
 /// first-registration-wins behavior. The registration remains consumed after startup; shutdown and
-/// restart never reopen it for a replacement runtime. Other registration failures are recorded for
-/// the next addon environment load, where napi reports them as a JavaScript exception.
+/// restart never reopen it for a replacement runtime. Other registration failures are
+/// recorded and returned the next time built-in Tokio is selected or a Tokio compatibility helper
+/// is used. In a combined build, such a failure does not prevent a separately selected custom
+/// [`AsyncRuntime`] from starting or restarting.
 pub fn create_custom_tokio_runtime(rt: Runtime) {
   if let Err(error) = try_register_custom_tokio_runtime_by_value(rt) {
     if error.reason == DUPLICATE_TOKIO_RUNTIME_ERROR {
@@ -5057,7 +5097,7 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
     }
     *USER_DEFINED_RT_REGISTRATION_ERROR
       .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.reason);
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
   }
 }
 
@@ -5116,8 +5156,10 @@ fn try_register_custom_tokio_runtime_by_value(rt: Runtime) -> Result<()> {
 ///
 /// The first concrete runtime or factory registration permanently owns the custom Tokio slot.
 /// This compatibility wrapper ignores duplicate registration. Other registration failures are
-/// recorded for the next addon environment load; use [`try_create_custom_tokio_runtime_factory`]
-/// when the caller must observe them directly.
+/// recorded and returned the next time built-in Tokio is selected or a Tokio compatibility helper
+/// is used; they do not prevent a separately selected custom [`AsyncRuntime`] from restarting in a
+/// combined build. Use [`try_create_custom_tokio_runtime_factory`] when the caller must observe a
+/// registration failure directly.
 pub fn create_custom_tokio_runtime_factory<F, E>(factory: F)
 where
   F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
@@ -5129,7 +5171,7 @@ where
     }
     *USER_DEFINED_RT_REGISTRATION_ERROR
       .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.reason);
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
   }
 }
 
@@ -5426,9 +5468,7 @@ enum RuntimeStartReason {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
   #[cfg(feature = "tokio_rt")]
-  if let Some(reason) = user_defined_tokio_runtime_registration_error() {
-    return Err(Error::new(crate::Status::GenericFailure, reason));
-  }
+  let tokio_registration_error = user_defined_tokio_runtime_registration_error()?;
 
   let finalizer_env = if reason == RuntimeStartReason::Explicit {
     runtime_finalizer_env()
@@ -5457,6 +5497,12 @@ fn try_start_selected_runtime(reason: RuntimeStartReason) -> Result<()> {
       return Err(Error::new(crate::Status::GenericFailure, message.clone()));
     }
     let selection = select_runtime_for_use(&mut lifecycle)?;
+    #[cfg(feature = "tokio_rt")]
+    if selection == AsyncRuntimeSelection::Tokio {
+      if let Some(error) = tokio_registration_error {
+        return Err(error);
+      }
+    }
     if reason == RuntimeStartReason::Explicit {
       lifecycle.auto_start_enabled = true;
     } else if !lifecycle.auto_start_enabled {
@@ -5898,8 +5944,8 @@ fn acquire_tokio_runtime_with_transition(
   acquisition_mode: TokioRuntimeAcquisitionMode,
 ) -> Result<TokioRuntimeLease> {
   std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<TokioRuntimeLease> {
-    if let Some(reason) = user_defined_tokio_runtime_registration_error() {
-      return Err(Error::new(crate::Status::GenericFailure, reason));
+    if let Some(error) = user_defined_tokio_runtime_registration_error()? {
+      return Err(error);
     }
     if acquisition_mode == TokioRuntimeAcquisitionMode::RuntimeUse {
       // A runtime-use caller may already hold admission while shutdown owns the transition and
@@ -6281,6 +6327,18 @@ impl<T> JoinState<T> {
       crate::bindgen_runtime::catch_unwind_safely(|| waker.wake());
     }
   }
+
+  fn clear_consumer_waker(&self) {
+    let waker = self
+      .inner
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .waker
+      .take();
+    if let Some(waker) = waker {
+      drop_safely(waker);
+    }
+  }
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -6351,6 +6409,13 @@ impl<F, R: Send + 'static> Drop for BlockingWorkState<F, R> {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub struct JoinHandle<T> {
   state: Arc<JoinState<T>>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl<T> Drop for JoinHandle<T> {
+  fn drop(&mut self) {
+    self.state.clear_consumer_waker();
+  }
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -6508,8 +6573,9 @@ where
     Ok(Ok(())) => {
       let _ = submission.accept();
     }
-    Ok(Err(task)) => {
-      submission.reject(async_runtime_task_rejected_error());
+    Ok(Err(rejection)) => {
+      let (task, error) = rejection.into_parts();
+      submission.reject(error);
       drop(task);
     }
     Err(reason) => {
@@ -6533,9 +6599,9 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
 /// Run a future to completion on the registered [`AsyncRuntime`] backend.
 ///
 /// Unlike [`block_on`], this explicit helper always requires a registered custom backend. It
-/// panics when that backend is unavailable, stopped, transitioning, panics, or returns before the
-/// future completes. Exported N-API callbacks should prefer [`try_block_on_custom_runtime`] so the
-/// error can become a JavaScript exception.
+/// panics when that backend is unavailable, stopped, transitioning, returns an error, panics, or
+/// returns before the future completes. Exported N-API callbacks should prefer
+/// [`try_block_on_custom_runtime`] so the error can become a JavaScript exception.
 pub fn block_on_custom_runtime<F: Future>(fut: F) -> F::Output {
   try_block_on_custom_runtime(fut).unwrap_or_else(|error| panic!("{error}"))
 }
@@ -6543,7 +6609,7 @@ pub fn block_on_custom_runtime<F: Future>(fut: F) -> F::Output {
 #[cfg(not(feature = "noop"))]
 fn try_block_on_safely<F: Future>(
   fut: F,
-  block_on: impl FnOnce(Pin<&mut dyn Future<Output = ()>>),
+  block_on: impl FnOnce(Pin<&mut dyn Future<Output = ()>>) -> Result<()>,
 ) -> Result<F::Output> {
   let mut future = SafeDrop::new(Box::pin(fut));
   let mut output = SafeDrop::new(None);
@@ -6560,9 +6626,9 @@ fn try_block_on_safely<F: Future>(
         Poll::Pending => Poll::Pending,
       }
     }));
-    block_on(driver.as_mut());
+    block_on(driver.as_mut())
   }))
-  .map_err(crate::bindgen_runtime::panic_to_error)?;
+  .map_err(crate::bindgen_runtime::panic_to_error)??;
   output.take().ok_or_else(|| {
     Error::new(
       crate::Status::GenericFailure,
@@ -6576,7 +6642,8 @@ fn try_block_on_safely<F: Future>(
 ///
 /// This always delegates to [`AsyncRuntime::block_on`], including in combined
 /// `async-runtime` + `tokio_rt` builds. It rejects calls before startup, during lifecycle
-/// transitions, and after shutdown, and keeps shutdown from overlapping the synchronous drive.
+/// transitions, and after shutdown, preserves errors returned by the backend, and keeps shutdown
+/// from overlapping the synchronous drive.
 pub fn try_block_on_custom_runtime<F: Future>(fut: F) -> Result<F::Output> {
   let mut fut = SafeDrop::new(fut);
   let runtime = custom_async_runtime_for_use()?;
@@ -6587,11 +6654,11 @@ pub fn try_block_on_custom_runtime<F: Future>(fut: F) -> Result<F::Output> {
 #[cfg(not(feature = "noop"))]
 /// Fallible form of [`block_on`].
 ///
-/// This reports a missing backend or a backend that returned before polling the future to
-/// completion as a napi error. On unwind-enabled builds, it also converts a backend panic into a
-/// napi error; with `panic = "abort"`, that panic traps or aborts instead. When `async-runtime` is
-/// enabled it also rejects calls before startup, during lifecycle transitions, and after shutdown,
-/// and prevents shutdown from overlapping the synchronous drive.
+/// This reports a missing backend, a backend error, or a backend that returned before polling the
+/// future to completion as a napi error. On unwind-enabled builds, it also converts a backend panic
+/// into a napi error; with `panic = "abort"`, that panic traps or aborts instead. When
+/// `async-runtime` is enabled it also rejects calls before startup, during lifecycle transitions,
+/// and after shutdown, and prevents shutdown from overlapping the synchronous drive.
 pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
@@ -6605,6 +6672,7 @@ pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
     try_block_on_safely(fut.take(), |future| {
       let _generation = TokioRuntimeGenerationGuard::enter(generation);
       runtime.block_on(future);
+      Ok(())
     })
   }
 }
@@ -6709,8 +6777,9 @@ where
     Ok(Ok(())) => {
       let _ = submission.accept();
     }
-    Ok(Err(work)) => {
-      submission.reject(async_runtime_task_rejected_error());
+    Ok(Err(rejection)) => {
+      let (work, error) = rejection.into_parts();
+      submission.reject(error);
       drop(work);
     }
     Err(reason) => {
@@ -6739,6 +6808,9 @@ pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
 
 #[cfg(not(feature = "noop"))]
 /// Fallible form of [`within_runtime_if_available`].
+///
+/// In a pure `async-runtime` build, this preserves an error returned by
+/// [`AsyncRuntime::enter`]. Combined and Tokio-only builds use Tokio's infallible context guard.
 pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
   let mut f = SafeDrop::new(f);
   #[cfg(feature = "tokio_rt")]
@@ -6753,7 +6825,7 @@ pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
     let runtime = custom_async_runtime_for_use()?;
     let _runtime_use = acquire_synchronous_runtime_use()?;
     let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
-      .map_err(crate::bindgen_runtime::panic_to_error)?;
+      .map_err(crate::bindgen_runtime::panic_to_error)??;
     call_with_runtime_guard(runtime_guard, f.take())
   }
 }
@@ -6831,7 +6903,7 @@ pub fn within_selected_async_runtime<F: FnOnce() -> Result<T>, T>(f: F) -> Resul
       let runtime = custom_async_runtime()?;
       let _runtime_use = acquire_synchronous_runtime_use()?;
       let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
-        .map_err(crate::bindgen_runtime::panic_to_error)?;
+        .map_err(crate::bindgen_runtime::panic_to_error)??;
       call_fallible_with_runtime_guard(runtime_guard, f.take())
     }
     #[cfg(feature = "tokio_rt")]
@@ -8062,8 +8134,10 @@ mod tests {
   static DRIVE_SPAWN_BLOCKING_INLINE: AtomicBool = AtomicBool::new(false);
   static PANIC_AFTER_DRIVING_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
   static PANIC_ENTER: AtomicBool = AtomicBool::new(false);
+  static FAIL_ENTER: AtomicBool = AtomicBool::new(false);
   static PANIC_GUARD_DROP: AtomicBool = AtomicBool::new(false);
   static PANIC_BLOCK_ON: AtomicBool = AtomicBool::new(false);
+  static FAIL_BLOCK_ON: AtomicBool = AtomicBool::new(false);
   static PANIC_BLOCK_ON_AFTER_COMPLETION: AtomicBool = AtomicBool::new(false);
   static RETURN_BLOCK_ON_EARLY: AtomicBool = AtomicBool::new(false);
   static DROP_BLOCKING_WORK: AtomicBool = AtomicBool::new(false);
@@ -8130,8 +8204,10 @@ mod tests {
     DRIVE_SPAWN_BLOCKING_INLINE.store(false, Ordering::SeqCst);
     PANIC_AFTER_DRIVING_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
     PANIC_ENTER.store(false, Ordering::SeqCst);
+    FAIL_ENTER.store(false, Ordering::SeqCst);
     PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
     PANIC_BLOCK_ON.store(false, Ordering::SeqCst);
+    FAIL_BLOCK_ON.store(false, Ordering::SeqCst);
     PANIC_BLOCK_ON_AFTER_COMPLETION.store(false, Ordering::SeqCst);
     RETURN_BLOCK_ON_EARLY.store(false, Ordering::SeqCst);
     DROP_BLOCKING_WORK.store(false, Ordering::SeqCst);
@@ -8365,7 +8441,10 @@ mod tests {
   }
 
   unsafe impl AsyncRuntime for InlineRuntime {
-    fn spawn(&self, mut task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+    fn spawn(
+      &self,
+      mut task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
       if SHUTDOWN_DURING_SPAWN.load(Ordering::SeqCst) {
         let error = try_shutdown_async_runtime()
           .expect_err("shutdown from a submission hook must fail instead of deadlocking");
@@ -8399,7 +8478,13 @@ mod tests {
         panic!("backend spawn panic");
       }
       if DECLINE_SPAWN.load(Ordering::SeqCst) {
-        return Err(task);
+        return Err(AsyncRuntimeRejection::new(
+          task,
+          Error::new(
+            crate::Status::QueueFull,
+            "InlineRuntime rejected the async task",
+          ),
+        ));
       }
       if DROP_SPAWN_TASK.load(Ordering::SeqCst) {
         drop(task);
@@ -8496,32 +8581,42 @@ mod tests {
       Ok(())
     }
 
-    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
       BACKEND_BLOCK_ON_CALLS.fetch_add(1, Ordering::SeqCst);
       if PANIC_BLOCK_ON.load(Ordering::SeqCst) {
         panic!("backend block_on panic");
       }
+      if FAIL_BLOCK_ON.load(Ordering::SeqCst) {
+        return Err(Error::new(
+          crate::Status::InvalidArg,
+          "backend block_on error",
+        ));
+      }
       if RETURN_BLOCK_ON_EARLY.load(Ordering::SeqCst) {
-        return;
+        return Ok(());
       }
       futures::executor::block_on(future);
       if PANIC_BLOCK_ON_AFTER_COMPLETION.load(Ordering::SeqCst) {
         panic!("backend block_on panic after completion");
       }
+      Ok(())
     }
 
-    fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+    fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
       BACKEND_ENTER_CALLS.fetch_add(1, Ordering::SeqCst);
       if PANIC_ENTER.load(Ordering::SeqCst) {
         panic!("backend enter panic");
       }
-      Box::new(InlineRuntimeGuard)
+      if FAIL_ENTER.load(Ordering::SeqCst) {
+        return Err(Error::new(crate::Status::InvalidArg, "backend enter error"));
+      }
+      Ok(Box::new(InlineRuntimeGuard))
     }
 
     fn spawn_blocking(
       &self,
       work: Box<dyn FnOnce() + Send + 'static>,
-    ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
+    ) -> std::result::Result<(), AsyncRuntimeRejection<Box<dyn FnOnce() + Send + 'static>>> {
       if PANIC_AFTER_RETAINING_SPAWN_BLOCKING.load(Ordering::SeqCst) {
         let previous = QUEUED_BLOCKING
           .lock()
@@ -8537,7 +8632,13 @@ mod tests {
         panic!("backend spawn_blocking panic");
       }
       if DECLINE_SPAWN_BLOCKING.load(Ordering::SeqCst) {
-        return Err(work);
+        return Err(AsyncRuntimeRejection::new(
+          work,
+          Error::new(
+            crate::Status::QueueFull,
+            "InlineRuntime rejected the blocking work",
+          ),
+        ));
       }
       if DROP_BLOCKING_WORK.load(Ordering::SeqCst) {
         drop(work);
@@ -8891,8 +8992,8 @@ mod tests {
     assert!(!error.is_cancelled());
     assert!(!error.is_runtime_error());
     let rejection = error.into_rejection_error();
-    assert_eq!(rejection.status, crate::Status::Cancelled);
-    assert!(rejection.reason.contains("stopped or saturated"));
+    assert_eq!(rejection.status, crate::Status::QueueFull);
+    assert_eq!(rejection.reason, "InlineRuntime rejected the blocking work");
     assert_eq!(
       BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
       calls_before,
@@ -8946,8 +9047,8 @@ mod tests {
     assert!(!error.is_cancelled());
     assert!(!error.is_runtime_error());
     let rejection = error.into_rejection_error();
-    assert_eq!(rejection.status, crate::Status::Cancelled);
-    assert!(rejection.reason.contains("stopped or saturated"));
+    assert_eq!(rejection.status, crate::Status::QueueFull);
+    assert_eq!(rejection.reason, "InlineRuntime rejected the async task");
   }
 
   #[test]
@@ -8978,7 +9079,8 @@ mod tests {
     assert!(
       error
         .as_ref()
-        .is_some_and(|error| error.reason.contains("stopped or saturated")),
+        .is_some_and(|error| error.status == crate::Status::QueueFull
+          && error.reason == "InlineRuntime rejected the async task"),
       "backend rejection must survive the cancellation path"
     );
     drop(cancellation);
@@ -9649,6 +9751,32 @@ mod tests {
     PANIC_BLOCK_ON.store(false, Ordering::SeqCst);
 
     assert!(error.reason.contains("backend block_on panic"));
+  }
+
+  #[test]
+  fn block_on_backend_error_is_preserved() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    FAIL_BLOCK_ON.store(true, Ordering::SeqCst);
+    let error =
+      try_block_on(async { 42 }).expect_err("a backend block_on error must be returned directly");
+    FAIL_BLOCK_ON.store(false, Ordering::SeqCst);
+
+    assert_eq!(error.status, crate::Status::InvalidArg);
+    assert_eq!(error.reason, "backend block_on error");
+  }
+
+  #[test]
+  fn enter_backend_error_is_preserved() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    FAIL_ENTER.store(true, Ordering::SeqCst);
+    let error = within_selected_async_runtime(|| Ok::<_, Error>(42))
+      .expect_err("a backend enter error must be returned directly");
+    FAIL_ENTER.store(false, Ordering::SeqCst);
+
+    assert_eq!(error.status, crate::Status::InvalidArg);
+    assert_eq!(error.reason, "backend enter error");
   }
 
   #[test]
@@ -10590,6 +10718,23 @@ mod tests {
     }
   }
 
+  struct TrackingWaker {
+    wakes: Arc<AtomicUsize>,
+    drops: Arc<AtomicUsize>,
+  }
+
+  impl ArcWake for TrackingWaker {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+      arc_self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
+  impl Drop for TrackingWaker {
+    fn drop(&mut self) {
+      self.drops.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
   #[test]
   fn task_abort_contains_backend_waker_panics() {
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
@@ -10684,6 +10829,58 @@ mod tests {
     assert!(handle.as_mut().poll(&mut context).is_pending());
 
     drop(handle);
+  }
+
+  #[test]
+  fn dropping_a_pending_join_releases_only_its_consumer_waker() {
+    let state = Arc::new(JoinState::<u32>::new());
+    let mut handle = Box::pin(JoinHandle {
+      state: Arc::clone(&state),
+    });
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let waker_owner = Arc::new(TrackingWaker {
+      wakes: Arc::clone(&wakes),
+      drops: Arc::clone(&drops),
+    });
+    let waker = futures::task::waker(Arc::clone(&waker_owner));
+    drop(waker_owner);
+    {
+      let mut context = Context::from_waker(&waker);
+      assert!(handle.as_mut().poll(&mut context).is_pending());
+    }
+    drop(waker);
+    assert_eq!(
+      drops.load(Ordering::SeqCst),
+      0,
+      "the pending handle must own the remaining consumer waker"
+    );
+
+    drop(handle);
+
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    {
+      let inner = state
+        .inner
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(!inner.completed);
+      assert!(inner.result.is_none());
+      assert!(inner.waker.is_none());
+    }
+
+    state.complete(Ok(42));
+    assert_eq!(
+      wakes.load(Ordering::SeqCst),
+      0,
+      "completion after detachment must not wake the dropped consumer"
+    );
+    let inner = state
+      .inner
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(inner.completed);
+    assert!(inner.result.is_some());
   }
 
   #[test]
@@ -10809,7 +11006,10 @@ mod combined_feature_tests {
   }
 
   unsafe impl AsyncRuntime for CombinedRuntime {
-    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+    fn spawn(
+      &self,
+      task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
       std::thread::spawn(move || futures::executor::block_on(task));
       Ok(())
     }
@@ -10817,7 +11017,7 @@ mod combined_feature_tests {
     fn spawn_blocking(
       &self,
       work: Box<dyn FnOnce() + Send + 'static>,
-    ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
+    ) -> std::result::Result<(), AsyncRuntimeRejection<Box<dyn FnOnce() + Send + 'static>>> {
       std::thread::Builder::new()
         .name("combined-custom-runtime-blocking".to_owned())
         .spawn(work)
@@ -10825,14 +11025,15 @@ mod combined_feature_tests {
       Ok(())
     }
 
-    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
       CUSTOM_BLOCK_ON_CALLS.fetch_add(1, Ordering::SeqCst);
       futures::executor::block_on(future);
+      Ok(())
     }
 
-    fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+    fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
       CUSTOM_ENTER_CALLS.fetch_add(1, Ordering::SeqCst);
-      Box::new(CombinedRuntimeGuard)
+      Ok(Box::new(CombinedRuntimeGuard))
     }
 
     fn start(&self) -> Result<()> {

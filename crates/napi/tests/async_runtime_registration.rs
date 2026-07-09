@@ -20,7 +20,8 @@ use napi::bindgen_prelude::tokio_runtime_retirement_waiter;
 use napi::bindgen_prelude::{
   register_async_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
   try_block_on_custom_runtime, try_register_async_runtime, try_shutdown_async_runtime,
-  try_start_async_runtime, try_within_runtime_if_available, AsyncRuntime, AsyncRuntimeTask,
+  try_start_async_runtime, try_within_runtime_if_available, AsyncRuntime, AsyncRuntimeRejection,
+  AsyncRuntimeTask,
 };
 
 static PANIC_START: AtomicBool = AtomicBool::new(false);
@@ -34,11 +35,19 @@ static DUPLICATE_DROP_SHUTDOWN_RESULT: Mutex<Option<napi::Result<()>>> = Mutex::
 struct FirstRuntime;
 
 unsafe impl AsyncRuntime for FirstRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-    Err(task)
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    Err(AsyncRuntimeRejection::new(
+      task,
+      napi::Error::from_reason("FirstRuntime does not accept tasks"),
+    ))
   }
 
-  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
+    Ok(())
+  }
 
   fn start(&self) -> napi::Result<()> {
     if PANIC_START.load(Ordering::SeqCst) {
@@ -82,11 +91,19 @@ impl Drop for SecondRuntime {
 }
 
 unsafe impl AsyncRuntime for SecondRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-    Err(task)
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    Err(AsyncRuntimeRejection::new(
+      task,
+      napi::Error::from_reason("SecondRuntime does not accept tasks"),
+    ))
   }
 
-  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
+    Ok(())
+  }
 
   fn shutdown(&self) -> napi::Result<()> {
     Ok(())

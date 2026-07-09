@@ -9,6 +9,7 @@ fn main() {
   assert_deref_mut::<SharedReference<u32, u32>>();
 
   fn mutate_weak(mut reference: WeakReference<u32>) {
+    let _ = reference.get();
     let _ = reference.get_mut();
   }
 }

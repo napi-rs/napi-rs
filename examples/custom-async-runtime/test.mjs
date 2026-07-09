@@ -411,7 +411,11 @@ if (mode === 'native') {
 binding.rejectNextSpawn()
 await assert.rejects(
   binding.asyncDouble(1),
-  /backend rejected the task submission.*stopped or saturated/i,
+  (error) => {
+    assert.equal(error.code, 'QueueFull')
+    assert.equal(error.message, 'custom runtime rejected the async task')
+    return true
+  },
 )
 
 const beforeLifecycle = binding.getRuntimeMetrics()

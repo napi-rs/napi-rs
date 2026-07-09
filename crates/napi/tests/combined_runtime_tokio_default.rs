@@ -13,7 +13,7 @@ use std::{
 use napi::bindgen_prelude::{
   spawn, spawn_blocking, try_block_on, try_block_on_custom_runtime, try_register_async_runtime,
   try_shutdown_async_runtime, try_start_async_runtime, within_selected_async_runtime, AsyncRuntime,
-  AsyncRuntimeTask,
+  AsyncRuntimeRejection, AsyncRuntimeTask,
 };
 
 static REJECTED_RUNTIME_SHUT_DOWN: AtomicBool = AtomicBool::new(false);
@@ -21,11 +21,19 @@ static REJECTED_RUNTIME_SHUT_DOWN: AtomicBool = AtomicBool::new(false);
 struct RejectedRuntime;
 
 unsafe impl AsyncRuntime for RejectedRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-    Err(task)
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    Err(AsyncRuntimeRejection::new(
+      task,
+      napi::Error::from_reason("RejectedRuntime does not accept tasks"),
+    ))
   }
 
-  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+  fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
+    Ok(())
+  }
 
   fn shutdown(&self) -> napi::Result<()> {
     REJECTED_RUNTIME_SHUT_DOWN.store(true, Ordering::SeqCst);

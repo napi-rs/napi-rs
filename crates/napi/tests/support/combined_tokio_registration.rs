@@ -6,7 +6,8 @@ use std::{
 
 use napi::bindgen_prelude::{
   tokio_runtime_retirement_waiter, try_block_on, try_register_async_runtime,
-  try_shutdown_async_runtime, try_start_async_runtime, AsyncRuntime, AsyncRuntimeTask,
+  try_shutdown_async_runtime, try_start_async_runtime, AsyncRuntime, AsyncRuntimeRejection,
+  AsyncRuntimeTask,
 };
 
 static STARTS: AtomicUsize = AtomicUsize::new(0);
@@ -14,12 +15,19 @@ static STARTS: AtomicUsize = AtomicUsize::new(0);
 struct TestRuntime;
 
 unsafe impl AsyncRuntime for TestRuntime {
-  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-    Err(task)
+  fn spawn(
+    &self,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    Err(AsyncRuntimeRejection::new(
+      task,
+      napi::Error::from_reason("TestRuntime does not accept tasks"),
+    ))
   }
 
-  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
     futures::executor::block_on(future);
+    Ok(())
   }
 
   fn start(&self) -> napi::Result<()> {

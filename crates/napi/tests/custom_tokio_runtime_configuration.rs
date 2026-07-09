@@ -41,7 +41,7 @@ fn custom_async_runtime_is_retired_and_rejected_by_noop_builds() {
     },
   };
 
-  use napi::bindgen_prelude::{AsyncRuntime, AsyncRuntimeTask};
+  use napi::bindgen_prelude::{AsyncRuntime, AsyncRuntimeRejection, AsyncRuntimeTask};
 
   struct NoopRuntime {
     dropped: Arc<AtomicBool>,
@@ -55,11 +55,19 @@ fn custom_async_runtime_is_retired_and_rejected_by_noop_builds() {
   }
 
   unsafe impl AsyncRuntime for NoopRuntime {
-    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-      Err(task)
+    fn spawn(
+      &self,
+      task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+      Err(AsyncRuntimeRejection::new(
+        task,
+        napi::Error::from_reason("NoopRuntime does not accept tasks"),
+      ))
     }
 
-    fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+    fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) -> napi::Result<()> {
+      Ok(())
+    }
 
     fn shutdown(&self) -> napi::Result<()> {
       self.shut_down.store(true, Ordering::SeqCst);

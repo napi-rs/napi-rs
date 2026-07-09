@@ -70,17 +70,16 @@
 //! `Env::execute_tokio_future` method remain available only with `tokio_rt` and always use the
 //! built-in Tokio runtime.
 //!
-//! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
-//! `AsyncRuntime` submission hook, and
-//! `spawn_blocking_on_custom_runtime` completes its handle as rejected when the backend
-//! declines. Backends may synchronously drive a submitted task or blocking closure inside the
-//! corresponding hook; the first poll or invocation commits acceptance. napi does not create an
-//! unbounded fallback thread. Under the `noop` feature the explicit custom-runtime helpers are
-//! unavailable to callers. Explicit shutdown also closes synchronous custom-runtime block-on and
-//! entry until restart; shutdown waits for an entry already in progress to return and drop its
-//! runtime guard. Exported callbacks should use `try_block_on_custom_runtime` when they require
-//! custom routing and need a JavaScript exception instead of the compatibility wrapper's Rust
-//! panic.
+//! `spawn_on_custom_runtime` and `spawn_blocking_on_custom_runtime` return napi-owned joinable
+//! handles over the corresponding `AsyncRuntime` submission hooks. When a backend declines work,
+//! its `AsyncRuntimeRejection` error is preserved as the handle's rejection diagnostic. Backends
+//! may synchronously drive a submitted task or blocking closure inside the corresponding hook; the
+//! first poll or invocation commits acceptance. napi does not create an unbounded fallback thread.
+//! Under the `noop` feature the explicit custom-runtime helpers are unavailable to callers.
+//! Explicit shutdown also closes synchronous custom-runtime block-on and entry until restart;
+//! shutdown waits for an entry already in progress to return and drop its runtime guard. Exported
+//! callbacks should use `try_block_on_custom_runtime` when they require custom routing and need a
+//! JavaScript exception instead of the compatibility wrapper's Rust panic.
 //!
 //! ### Thread-safe function teardown
 //!

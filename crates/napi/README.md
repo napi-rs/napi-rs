@@ -132,6 +132,8 @@ Create threads and active scheduler resources in `AsyncRuntime::start`, not in t
 fully quiesce them in `AsyncRuntime::shutdown`. The backend is reused across worker and renderer
 reloads, and its `Drop` implementation is not guaranteed to run. The trait documentation defines
 the task ownership, cancellation, guard, panic, and native-image unload-safety requirements.
+Submission hooks return `AsyncRuntimeRejection::new(work, error)` when they decline ownership, and
+the fallible `block_on` / `enter` hooks return backend-specific errors directly.
 
 napi automatically starts the backend for the first live Node environment and shuts it down after
 the last environment exits. Embedders and tests can use `try_start_async_runtime` and
