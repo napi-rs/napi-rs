@@ -34,6 +34,7 @@ use napi::bindgen_prelude::{
   AsyncRuntimeGuard, AsyncRuntimeTask, Buffer, Env, Error, JsObjectValue, Object, PromiseRaw,
   Result, Status,
   AsyncRuntimeGuard, AsyncRuntimeTask, Buffer, Env, Error, JsObjectValue, JsValue, Object,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Buffer, Env, Error, FnArgs, JsObjectValue, JsValue, Object,
   PromiseRaw, Result, Status, Unknown,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
