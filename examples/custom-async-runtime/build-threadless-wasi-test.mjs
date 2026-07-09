@@ -70,6 +70,15 @@ try {
   if (!copied) {
     throw new Error('threadless WASI build did not produce a wasm artifact')
   }
+  const wasmModule = new WebAssembly.Module(await readFile(outputPath))
+  const wasmExports = WebAssembly.Module.exports(wasmModule).map(
+    ({ name }) => name,
+  )
+  if (!wasmExports.includes('napi_prepare_wasm_env_cleanup')) {
+    throw new Error(
+      'threadless WASI build did not export napi_prepare_wasm_env_cleanup',
+    )
+  }
   const declarations = await readFile(
     join(outputDirectory, 'index.d.cts'),
     'utf8',

@@ -559,6 +559,7 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
   const browserImportsMarker = `  overwriteImports(importObject) {
     importObject.env = {`
   const browserBeforeInitMarker = `  beforeInit({ instance }) {
+    __wrapEmnapiContextDestroy(instance)
     for (const name of Object.keys(instance.exports)) {`
 
   if (
@@ -707,6 +708,7 @@ ${browserScopeMarker}`,
   browserSource = browserSource.replace(
     browserBeforeInitMarker,
     `  beforeInit({ instance }) {
+    __wrapEmnapiContextDestroy(instance)
     __tsfnTestStatePointer =
       instance.exports.__napi_rs_test_tsfn_state_ptr()
     for (const name of Object.keys(instance.exports)) {`,

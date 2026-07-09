@@ -409,14 +409,11 @@ if (mode === 'native') {
 }
 
 binding.rejectNextSpawn()
-await assert.rejects(
-  binding.asyncDouble(1),
-  (error) => {
-    assert.equal(error.code, 'QueueFull')
-    assert.equal(error.message, 'custom runtime rejected the async task')
-    return true
-  },
-)
+await assert.rejects(binding.asyncDouble(1), (error) => {
+  assert.equal(error.code, 'QueueFull')
+  assert.equal(error.message, 'custom runtime rejected the async task')
+  return true
+})
 
 const beforeLifecycle = binding.getRuntimeMetrics()
 const cancelled = binding.asyncNever()
@@ -773,8 +770,10 @@ if (mode === 'native') {
 }
 
 if (disposeBinding) {
-  binding.shutdownRuntime()
-  await new Promise((resolve) => setImmediate(resolve))
-  await new Promise((resolve) => setImmediate(resolve))
+  const pending = assert.rejects(
+    binding.asyncNever(),
+    /Async task was cancelled because its runtime stopped/,
+  )
   await disposeBinding()
+  await pending
 }

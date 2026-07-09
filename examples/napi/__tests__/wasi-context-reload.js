@@ -10,7 +10,6 @@ const loaderPath = require.resolve('../example.wasi.cjs')
 const operationTimeout = 10_000
 const wasmRuntime = require('@napi-rs/wasm-runtime')
 const createContext = wasmRuntime.createContext
-const instantiateNapiModuleSync = wasmRuntime.instantiateNapiModuleSync
 
 async function waitForResult(path, description) {
   const deadline = Date.now() + operationTimeout
@@ -39,29 +38,19 @@ function withTimeout(promise, description) {
 function loadFresh() {
   delete require.cache[loaderPath]
   const contexts = []
-  const instances = []
   wasmRuntime.createContext = function captureWasiContext(...args) {
     const context = createContext.apply(this, args)
     contexts.push(context)
     return context
-  }
-  wasmRuntime.instantiateNapiModuleSync = function captureWasiInstance(
-    ...args
-  ) {
-    const result = instantiateNapiModuleSync.apply(this, args)
-    instances.push(result.instance)
-    return result
   }
   let binding
   try {
     binding = require(loaderPath)
   } finally {
     wasmRuntime.createContext = createContext
-    wasmRuntime.instantiateNapiModuleSync = instantiateNapiModuleSync
   }
   assert.equal(contexts.length, 1)
-  assert.equal(instances.length, 1)
-  return { binding, context: contexts[0], instance: instances[0] }
+  return { binding, context: contexts[0] }
 }
 
 const directory = await mkdtemp(join(tmpdir(), 'napi-wasi-context-reload-'))
@@ -73,18 +62,10 @@ let firstContext
 let replacementContext
 
 try {
-  const {
-    binding: first,
-    context: loadedFirstContext,
-    instance: firstInstance,
-  } = loadFresh()
+  const { binding: first, context: loadedFirstContext } = loadFresh()
   firstContext = loadedFirstContext
 
   assert.equal(typeof firstContext?.destroy, 'function')
-  assert.equal(
-    typeof firstInstance?.exports.napi_prepare_wasm_env_cleanup,
-    'function',
-  )
   assert.equal(
     Object.getOwnPropertySymbols(first).some(
       (symbol) => symbol.description === 'napi.rs.wasi.context',
@@ -105,13 +86,14 @@ try {
     await waitForResult(asyncStartedPath, 'pending async task start'),
     'started',
   )
-  firstInstance.exports.napi_prepare_wasm_env_cleanup()
+  firstContext.destroy()
   assert.equal(
     await waitForResult(asyncFinalizerPath, 'pending async finalizer'),
     'finalized',
   )
-  firstContext.destroy()
   await withTimeout(pendingRejection, 'pending async promise rejection')
+  firstContext.destroy()
+  firstContext = undefined
 
   assert.equal(await waitForResult(cleanupPath, 'sync cleanup result'), '0')
   assert.equal(

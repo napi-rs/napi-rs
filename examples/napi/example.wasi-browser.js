@@ -115,6 +115,29 @@ const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url).href
 const __emnapiContext = __emnapiCreateContext()
 __emnapiContext.feature.Buffer = Buffer
 
+let __emnapiContextDestroyWrapped = false
+let __emnapiWasmEnvCleanupPrepared = false
+
+function __wrapEmnapiContextDestroy(instance) {
+  if (__emnapiContextDestroyWrapped) {
+    return
+  }
+  const __destroyEmnapiContext = __emnapiContext.destroy
+  __emnapiContext.destroy = function() {
+    if (!__emnapiWasmEnvCleanupPrepared) {
+      const __prepareWasmEnvCleanup =
+        instance.exports.napi_prepare_wasm_env_cleanup
+      if (typeof __prepareWasmEnvCleanup === 'function') {
+        __prepareWasmEnvCleanup()
+      }
+      __emnapiWasmEnvCleanupPrepared = true
+    }
+    return Reflect.apply(__destroyEmnapiContext, this, arguments)
+  }
+  __emnapiContextDestroyWrapped = true
+}
+
+
 const __sharedMemory = new WebAssembly.Memory({
   initial: 16384,
   maximum: 65536,
@@ -270,6 +293,7 @@ const {
     return importObject
   },
   beforeInit({ instance }) {
+    __wrapEmnapiContextDestroy(instance)
     __tsfnTestStatePointer =
       instance.exports.__napi_rs_test_tsfn_state_ptr()
     for (const name of Object.keys(instance.exports)) {

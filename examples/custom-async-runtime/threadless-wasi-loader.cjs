@@ -16,10 +16,21 @@ const context = createContext({ autoDestroy: false })
 context.suppressDestroy()
 
 let disposed = false
+let cleanupPrepared = false
+let napiInstance
 function destroyContext() {
   if (disposed) return
+  if (!cleanupPrepared) {
+    const prepareWasmEnvCleanup =
+      napiInstance?.exports.napi_prepare_wasm_env_cleanup
+    if (typeof prepareWasmEnvCleanup === 'function') {
+      prepareWasmEnvCleanup()
+    }
+    cleanupPrepared = true
+  }
+  const result = context.destroy()
   disposed = true
-  return context.destroy()
+  return result
 }
 function destroyContextOnExit() {
   try {
@@ -35,7 +46,7 @@ const memory = new WebAssembly.Memory({
 
 let napiModule
 try {
-  ;({ napiModule } = instantiateNapiModuleSync(
+  ;({ instance: napiInstance, napiModule } = instantiateNapiModuleSync(
     fs.readFileSync(
       path.join(__dirname, 'custom_async_runtime.wasm32-wasip1.wasm'),
     ),

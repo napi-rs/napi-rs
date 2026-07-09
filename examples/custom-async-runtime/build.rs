@@ -49,6 +49,7 @@ fn setup_wasi() {
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
   println!("cargo:rustc-link-arg=--export=napi_register_wasm_v1");
+  println!("cargo:rustc-link-arg=--export=napi_prepare_wasm_env_cleanup");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {

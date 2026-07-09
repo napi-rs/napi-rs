@@ -107,7 +107,8 @@ test('createWasiBrowserBinding does not collide with an exported fetch binding',
 })
 
 test('WASI main loaders create an isolated context', (t) => {
-  const contexts: object[] = []
+  const contexts: Array<{ destroy(): void }> = []
+  const cleanupEvents: string[] = []
   const code = `${createWasiBinding('test', '@scope/test')}
 module.exports = __napiModule.exports
 `
@@ -137,18 +138,39 @@ module.exports = __napiModule.exports
         case '@napi-rs/wasm-runtime':
           return {
             createContext() {
-              const context = {}
+              const context = {
+                destroy() {
+                  cleanupEvents.push('destroy')
+                },
+              }
               contexts.push(context)
               return context
             },
             createOnMessage() {},
             instantiateNapiModuleSync(
               _wasm: Uint8Array,
-              options: { context: object },
+              options: {
+                context: object
+                beforeInit(input: {
+                  instance: {
+                    exports: {
+                      napi_prepare_wasm_env_cleanup(): void
+                    }
+                  }
+                }): void
+              },
             ) {
               t.is(options.context, contexts.at(-1)!)
+              const instance = {
+                exports: {
+                  napi_prepare_wasm_env_cleanup() {
+                    cleanupEvents.push('prepare')
+                  },
+                },
+              }
+              options.beforeInit({ instance })
               return {
-                instance: {},
+                instance,
                 module: {},
                 napiModule: {
                   exports: {
@@ -186,10 +208,225 @@ module.exports = __napiModule.exports
   t.not(firstContext, secondContext)
   t.is(first.add(1, 2), 3)
   t.is(second.add(2, 3), 5)
+  firstContext?.destroy()
+  firstContext?.destroy()
+  secondContext?.destroy()
+  secondContext?.destroy()
+  t.deepEqual(cleanupEvents, [
+    'prepare',
+    'destroy',
+    'destroy',
+    'prepare',
+    'destroy',
+    'destroy',
+  ])
 
   const browserCode = createWasiBrowserBinding('test')
   t.true(browserCode.includes('createContext as __emnapiCreateContext'))
   t.false(browserCode.includes('napi.rs.wasi.context'))
+  t.true(browserCode.includes('__wrapEmnapiContextDestroy(instance)'))
+  t.true(browserCode.includes('napi_prepare_wasm_env_cleanup'))
+})
+
+test('WASI context destroy retries failed preparation without repeating successful preparation', (t) => {
+  const cleanupEvents: string[] = []
+  let prepareAttempts = 0
+  let destroyAttempts = 0
+  const context = {
+    destroy() {
+      cleanupEvents.push('destroy')
+      destroyAttempts += 1
+      if (destroyAttempts === 1) {
+        throw new Error('destroy failed')
+      }
+    },
+  }
+  const code = `${createWasiBinding('test', '@scope/test')}
+module.exports = __emnapiContext
+`
+  const module: { exports: typeof context | object } = { exports: {} }
+  const require = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('test.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case 'node:worker_threads':
+        return { Worker: class {} }
+      case '@napi-rs/wasm-runtime':
+        return {
+          createContext: () => context,
+          createOnMessage: () => () => {},
+          instantiateNapiModuleSync(
+            _wasm: Uint8Array,
+            options: {
+              beforeInit(input: {
+                instance: { exports: Record<string, () => void> }
+              }): void
+            },
+          ) {
+            const instance = {
+              exports: {
+                napi_prepare_wasm_env_cleanup() {
+                  cleanupEvents.push('prepare')
+                  prepareAttempts += 1
+                  if (prepareAttempts === 1) {
+                    throw new Error('prepare failed')
+                  }
+                },
+              },
+            }
+            options.beforeInit({ instance })
+            return {
+              instance,
+              module: {},
+              napiModule: { exports: {} },
+            }
+          },
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+
+  new Function(
+    'require',
+    'module',
+    'process',
+    '__dirname',
+    'WebAssembly',
+    code,
+  )(require, module, { cwd: () => '/', env: {} }, '/fixture', {
+    Memory: class {},
+  })
+
+  const wrappedContext = module.exports as typeof context
+  t.throws(() => wrappedContext.destroy(), { message: 'prepare failed' })
+  t.deepEqual(cleanupEvents, ['prepare'])
+  t.throws(() => wrappedContext.destroy(), { message: 'destroy failed' })
+  t.deepEqual(cleanupEvents, ['prepare', 'prepare', 'destroy'])
+  t.notThrows(() => wrappedContext.destroy())
+  t.notThrows(() => wrappedContext.destroy())
+  t.deepEqual(cleanupEvents, [
+    'prepare',
+    'prepare',
+    'destroy',
+    'destroy',
+    'destroy',
+  ])
+})
+
+test('WASI node workers preserve valid arguments when removing invalid inherited arguments', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const workerExecArgvAttempts: string[][] = []
+
+  class Worker {
+    constructor(_filename: string, options: { execArgv?: string[] }) {
+      const execArgv = options.execArgv ?? []
+      workerExecArgvAttempts.push(execArgv)
+      if (
+        execArgv.includes('--title') ||
+        execArgv.includes('--stack-trace-limit=100')
+      ) {
+        const error = new Error(
+          'Initiated Worker with invalid execArgv flags: --title, --stack-trace-limit=100',
+        ) as Error & { code: string }
+        error.code = 'ERR_WORKER_INVALID_EXEC_ARGV'
+        throw error
+      }
+    }
+
+    unref() {}
+  }
+
+  const require = (specifier: string) => {
+    switch (specifier) {
+      case 'node:fs':
+        return {
+          existsSync: (path: string) => path.endsWith('test.wasm'),
+          readFileSync: () => new Uint8Array(),
+        }
+      case 'node:path':
+        return {
+          join: (...parts: string[]) => parts.join('/'),
+          parse: () => ({ root: '/' }),
+        }
+      case 'node:wasi':
+        return { WASI: class {} }
+      case 'node:worker_threads':
+        return { Worker }
+      case '@napi-rs/wasm-runtime':
+        return {
+          createContext: () => ({ destroy() {} }),
+          createOnMessage: () => () => {},
+          instantiateNapiModuleSync(
+            _wasm: Uint8Array,
+            options: {
+              beforeInit(input: {
+                instance: { exports: Record<string, () => void> }
+              }): void
+              onCreateWorker(): Worker
+            },
+          ) {
+            options.onCreateWorker()
+            const instance = { exports: {} }
+            options.beforeInit({ instance })
+            return {
+              instance,
+              module: {},
+              napiModule: { exports: {} },
+            }
+          },
+        }
+      default:
+        throw new Error(`Unexpected require: ${specifier}`)
+    }
+  }
+
+  new Function('require', 'process', '__dirname', 'WebAssembly', code)(
+    require,
+    {
+      cwd: () => '/',
+      env: {},
+      execArgv: [
+        '--trace-warnings',
+        '--input-type=module',
+        '--eval',
+        'evaluate()',
+        '-p',
+        'print()',
+        '--title',
+        'test-worker',
+        '--require',
+        './hook.cjs',
+        '--stack-trace-limit=100',
+        '--conditions=worker-test',
+      ],
+    },
+    '/fixture',
+    { Memory: class {} },
+  )
+
+  t.deepEqual(workerExecArgvAttempts, [
+    [
+      '--trace-warnings',
+      '--title',
+      'test-worker',
+      '--require',
+      './hook.cjs',
+      '--stack-trace-limit=100',
+      '--conditions=worker-test',
+    ],
+    ['--trace-warnings', '--require', './hook.cjs', '--conditions=worker-test'],
+  ])
 })
 
 const workerBindingCases: Array<{
