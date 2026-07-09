@@ -1,5 +1,6 @@
 [workspace]
 allow_dirty = true
+git_release_name = "{{ package }}-v{{ version }}"
 git_tag_name = "{{ package }}-v{{ version }}"
 release_always = false
 

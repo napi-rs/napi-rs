@@ -2,5 +2,6 @@
 # release-plz's staging copy omits the tracked, root-ignored previous-derive
 # Cargo.lock. CI separately requires a clean checkout before invoking it.
 allow_dirty = true
+git_release_name = "{{ package }}-v{{ version }}"
 git_tag_name = "{{ package }}-v{{ version }}"
 release_always = false
