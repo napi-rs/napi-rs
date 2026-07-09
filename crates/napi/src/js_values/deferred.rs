@@ -851,6 +851,56 @@ struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   finalize_callback: SharedFinalizeCallback,
 }
 
+enum DeferredCallData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
+  Owned(DeferredData<Data, Resolver>),
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    not(feature = "noop"),
+    any(
+      target_family = "wasm",
+      all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+    )
+  ))]
+  Runtime(RuntimeDeferredCallData<Data, Resolver>),
+}
+
+#[cfg(all(
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  not(feature = "noop"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+struct RuntimeDeferredCallData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
+  data: Arc<Mutex<Option<DeferredData<Data, Resolver>>>>,
+  _registration: crate::tokio_runtime::RuntimeEnvOwnerSettlementRegistration,
+  // Direct pre-disposal settlement can consume `data` before emnapi removes
+  // the already-queued TSFN item. Keep that queue item visible to teardown.
+  _queued_payload_guard: DeferredTsfnPayloadGuard,
+}
+
+impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> DeferredCallData<Data, Resolver> {
+  fn into_data(self) -> Option<DeferredData<Data, Resolver>> {
+    match self {
+      Self::Owned(data) => Some(data),
+      #[cfg(all(
+        any(feature = "tokio_rt", feature = "async-runtime"),
+        not(feature = "noop"),
+        any(
+          target_family = "wasm",
+          all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+        )
+      ))]
+      Self::Runtime(runtime) => runtime
+        .data
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take(),
+    }
+  }
+}
+
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   env: sys::napi_env,
   raw_deferred: sys::napi_deferred,
@@ -934,15 +984,97 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     any(feature = "tokio_rt", feature = "async-runtime"),
     not(feature = "noop")
   ))]
-  pub(crate) fn reject_with_cleanup(self, error: Error, cleanup: impl FnOnce() + Send + 'static) {
-    let cleanup = Some(Box::new(cleanup) as Box<dyn FnOnce() + Send>);
+  pub(crate) fn resolve_for_runtime(self, resolver: Resolver)
+  where
+    Data: 'static,
+    Resolver: Send + 'static,
+  {
+    self.call_runtime_tsfn(Ok(resolver), None)
+  }
+
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    not(feature = "noop")
+  ))]
+  pub(crate) fn reject_with_cleanup(self, error: Error, cleanup: impl FnOnce() + Send + 'static)
+  where
+    Data: 'static,
+    Resolver: Send + 'static,
+  {
+    self.call_runtime_tsfn(
+      Err(error),
+      Some(Box::new(cleanup) as Box<dyn FnOnce() + Send>),
+    )
+  }
+
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    not(feature = "noop")
+  ))]
+  fn call_runtime_tsfn(
+    self,
+    result: Result<Resolver>,
+    rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
+  ) where
+    Data: 'static,
+    Resolver: Send + 'static,
+  {
     if self.owner_thread == thread::current().id()
       && crate::tokio_runtime::runtime_env_is_disposing_on_owner_thread(self.env)
     {
-      self.call_on_owner_thread(Err(error), cleanup);
-    } else {
-      self.call_tsfn(Err(error), cleanup);
+      self.call_on_owner_thread(result, rejection_cleanup);
+      return;
     }
+    let Some(data) = self.claim_settlement(result, rejection_cleanup) else {
+      return;
+    };
+
+    #[cfg(any(
+      target_family = "wasm",
+      all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+    ))]
+    {
+      let shared_data = Arc::new(Mutex::new(Some(data)));
+      let owner_data = Arc::clone(&shared_data);
+      let env = self.env as usize;
+      let raw_deferred = self.raw_deferred as usize;
+      let action = Box::new(move || {
+        let data = owner_data
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner)
+          .take();
+        if let Some(data) = data {
+          call_deferred_on_owner_thread::<Data, Resolver>(
+            env as sys::napi_env,
+            raw_deferred as sys::napi_deferred,
+            data,
+          );
+        }
+      });
+      if let Some(registration) =
+        crate::tokio_runtime::register_runtime_env_owner_settlement(self.env, action)
+      {
+        let queued_payload_guard = DeferredTsfnPayloadGuard::new(Arc::clone(&self.tsfn.state));
+        self.call_tsfn_data(DeferredCallData::Runtime(RuntimeDeferredCallData {
+          data: shared_data,
+          _registration: registration,
+          _queued_payload_guard: queued_payload_guard,
+        }));
+        return;
+      }
+      let data = shared_data
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+        .expect("unregistered runtime settlement retains its deferred data");
+      self.call_tsfn_data(DeferredCallData::Owned(data));
+    }
+
+    #[cfg(not(any(
+      target_family = "wasm",
+      all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+    )))]
+    self.call_tsfn_data(DeferredCallData::Owned(data));
   }
 
   /// Set a callback to run on the JavaScript owner thread after settlement.
@@ -981,7 +1113,10 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     let Some(data) = self.claim_settlement(result, rejection_cleanup) else {
       return;
     };
+    self.call_tsfn_data(DeferredCallData::Owned(data));
+  }
 
+  fn call_tsfn_data(self, data: DeferredCallData<Data, Resolver>) {
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
     let data = Box::into_raw(Box::new(data));
     let status = self.tsfn.call(data.cast());
@@ -989,8 +1124,11 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       // Node did not take ownership, most commonly because the environment is closing.
       // Reclaim scheduler-owned data here. JS-thread-owned resolver closures are represented
       // by SendableResolver handles and are cleared by the per-environment cleanup hook.
-      let data = unsafe { Box::from_raw(data) };
-      close_finalize_callback_slot(&data.finalize_callback);
+      let data = *unsafe { Box::from_raw(data) };
+      let data = data.into_data();
+      if let Some(data) = data.as_ref() {
+        close_finalize_callback_slot(&data.finalize_callback);
+      }
       let retire_status = self
         .tsfn
         .state
@@ -1014,35 +1152,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     let Some(data) = self.claim_settlement(result, rejection_cleanup) else {
       return;
     };
-    let mut handle_scope = ptr::null_mut();
-    let open_scope_status = unsafe { sys::napi_open_handle_scope(self.env, &mut handle_scope) };
-    if open_scope_status != sys::Status::napi_ok {
-      crate::bindgen_runtime::catch_unwind_safely(|| {
-        eprintln!(
-          "Failed to open a handle scope for owner-thread deferred settlement: {}",
-          crate::Status::from(open_scope_status)
-        );
-      });
-      std::process::abort();
-    }
-    let data = Box::into_raw(Box::new(data));
-    crate::bindgen_runtime::catch_unwind_safely(|| {
-      napi_resolve_deferred_inner::<Data, Resolver>(
-        self.env,
-        self.raw_deferred.cast(),
-        data.cast(),
-      );
-    });
-    let close_scope_status = unsafe { sys::napi_close_handle_scope(self.env, handle_scope) };
-    if close_scope_status != sys::Status::napi_ok {
-      crate::bindgen_runtime::catch_unwind_safely(|| {
-        eprintln!(
-          "Failed to close the owner-thread deferred settlement handle scope: {}",
-          crate::Status::from(close_scope_status)
-        );
-      });
-      std::process::abort();
-    }
+    call_deferred_on_owner_thread::<Data, Resolver>(self.env, self.raw_deferred, data);
   }
 
   fn claim_settlement(
@@ -1125,6 +1235,41 @@ fn js_deferred_new_raw(
   Ok((tsfn, raw_deferred, promise))
 }
 
+#[cfg(all(
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  not(feature = "noop")
+))]
+fn call_deferred_on_owner_thread<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
+  env: sys::napi_env,
+  deferred: sys::napi_deferred,
+  data: DeferredData<Data, Resolver>,
+) {
+  let mut handle_scope = ptr::null_mut();
+  let open_scope_status = unsafe { sys::napi_open_handle_scope(env, &mut handle_scope) };
+  if open_scope_status != sys::Status::napi_ok {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!(
+        "Failed to open a handle scope for owner-thread deferred settlement: {}",
+        crate::Status::from(open_scope_status)
+      );
+    });
+    std::process::abort();
+  }
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    resolve_deferred_data_inner::<Data, Resolver>(env, deferred, data);
+  });
+  let close_scope_status = unsafe { sys::napi_close_handle_scope(env, handle_scope) };
+  if close_scope_status != sys::Status::napi_ok {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!(
+        "Failed to close the owner-thread deferred settlement handle scope: {}",
+        crate::Status::from(close_scope_status)
+      );
+    });
+    std::process::abort();
+  }
+}
+
 extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   env: sys::napi_env,
   _js_callback: sys::napi_value,
@@ -1141,8 +1286,18 @@ fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Resul
   context: *mut c_void,
   data: *mut c_void,
 ) {
-  let deferred = context.cast();
-  let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
+  let call_data: DeferredCallData<Data, Resolver> = *unsafe { Box::from_raw(data.cast()) };
+  let Some(deferred_data) = call_data.into_data() else {
+    return;
+  };
+  resolve_deferred_data_inner::<Data, Resolver>(env, context.cast(), deferred_data);
+}
+
+fn resolve_deferred_data_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
+  env: sys::napi_env,
+  deferred: sys::napi_deferred,
+  deferred_data: DeferredData<Data, Resolver>,
+) {
   if env.is_null() {
     // Node invokes TSFN callbacks with a null environment while aborting a closing
     // environment. The payload is Send and may be reclaimed here; JS-thread-owned resolver
@@ -1159,7 +1314,7 @@ fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Resul
     #[cfg(feature = "deferred_trace")]
     trace,
     finalize_callback,
-  } = *deferred_data;
+  } = deferred_data;
   let finalize_callback = close_and_take_finalize_callback(&finalize_callback);
   if resolver.is_err() {
     if let Some(rejection_cleanup) = rejection_cleanup {

@@ -82,8 +82,12 @@ fn shutdown_async_runtime_for_test() -> Result<()> {
 fn pending_async_block_with_terminal_finalizer(
   env: &Env,
   result_path: String,
+  started_path: Option<String>,
 ) -> Result<AsyncBlock<()>> {
-  AsyncBlockBuilder::new(async {
+  AsyncBlockBuilder::new(async move {
+    if let Some(started_path) = started_path {
+      let _ = std::fs::write(started_path, b"started");
+    }
     std::future::pending::<()>().await;
     Ok(())
   })

@@ -3074,7 +3074,27 @@ struct EnvTasks {
   next_id: AtomicUsize,
   entries: Mutex<HashMap<usize, EnvTaskEntry>>,
   quiescence: Condvar,
+  #[cfg(any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  ))]
+  next_owner_settlement_id: AtomicUsize,
+  #[cfg(any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  ))]
+  owner_settlements: Mutex<HashMap<usize, RuntimeEnvOwnerSettlementAction>>,
 }
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+type RuntimeEnvOwnerSettlementAction = Box<dyn FnOnce() + Send + 'static>;
 
 #[cfg(all(
   not(feature = "noop"),
@@ -3111,6 +3131,16 @@ impl EnvTasks {
       next_id: AtomicUsize::new(1),
       entries: Mutex::new(HashMap::new()),
       quiescence: Condvar::new(),
+      #[cfg(any(
+        target_family = "wasm",
+        all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+      ))]
+      next_owner_settlement_id: AtomicUsize::new(1),
+      #[cfg(any(
+        target_family = "wasm",
+        all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+      ))]
+      owner_settlements: Mutex::new(HashMap::new()),
     }
   }
 
@@ -3155,6 +3185,78 @@ impl EnvTasks {
     entries.remove(&id);
     if entries.is_empty() {
       self.quiescence.notify_all();
+    }
+  }
+
+  #[cfg(any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  ))]
+  fn register_owner_settlement(
+    self: &Arc<Self>,
+    action: RuntimeEnvOwnerSettlementAction,
+  ) -> Option<RuntimeEnvOwnerSettlementRegistration> {
+    if self.closed.load(Ordering::Acquire) {
+      return None;
+    }
+    let mut settlements = self
+      .owner_settlements
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if self.closed.load(Ordering::Acquire) {
+      return None;
+    }
+    let id = loop {
+      let id = self
+        .next_owner_settlement_id
+        .fetch_add(1, Ordering::Relaxed);
+      if id == 0 {
+        continue;
+      }
+      if let std::collections::hash_map::Entry::Vacant(entry) = settlements.entry(id) {
+        entry.insert(action);
+        break id;
+      }
+    };
+    Some(RuntimeEnvOwnerSettlementRegistration {
+      tasks: Arc::clone(self),
+      id: Some(id),
+    })
+  }
+
+  #[cfg(any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  ))]
+  fn remove_owner_settlement(&self, id: usize) {
+    self
+      .owner_settlements
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .remove(&id);
+  }
+
+  #[cfg(any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  ))]
+  fn run_owner_settlements(&self) {
+    loop {
+      let actions = {
+        let mut settlements = self
+          .owner_settlements
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::mem::take(&mut *settlements)
+          .into_values()
+          .collect::<Vec<_>>()
+      };
+      if actions.is_empty() {
+        return;
+      }
+      for action in actions {
+        crate::bindgen_runtime::catch_unwind_safely(action);
+      }
     }
   }
 
@@ -3446,6 +3548,35 @@ struct EnvTaskRegistration {
 
 #[cfg(all(
   not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+pub(crate) struct RuntimeEnvOwnerSettlementRegistration {
+  tasks: Arc<EnvTasks>,
+  id: Option<usize>,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+impl Drop for RuntimeEnvOwnerSettlementRegistration {
+  fn drop(&mut self) {
+    if let Some(id) = self.id.take() {
+      self.tasks.remove_owner_settlement(id);
+    }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
   any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 #[cfg_attr(not(feature = "async-runtime"), allow(dead_code))]
@@ -3576,6 +3707,21 @@ fn runtime_env_tasks(env: sys::napi_env) -> Option<Arc<EnvTasks>> {
     .unwrap_or_else(std::sync::PoisonError::into_inner)
     .get(&(env as usize))
     .cloned()
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt"),
+  any(
+    target_family = "wasm",
+    all(test, feature = "async-runtime", not(feature = "tokio_rt"))
+  )
+))]
+pub(crate) fn register_runtime_env_owner_settlement(
+  env: sys::napi_env,
+  action: RuntimeEnvOwnerSettlementAction,
+) -> Option<RuntimeEnvOwnerSettlementRegistration> {
+  runtime_env_tasks(env)?.register_owner_settlement(action)
 }
 
 #[cfg(all(
@@ -3726,13 +3872,23 @@ pub(crate) fn cancel_and_wait_runtime_env_tasks_before_wasm_dispose(env: sys::na
   if let Some(tasks) = tasks.as_ref() {
     tasks.cancel_all(false);
   }
-  if let Err(error) = (RuntimeEnvTaskCleanup { tasks }).wait() {
+  if let Err(error) = (RuntimeEnvTaskCleanup {
+    tasks: tasks.clone(),
+  })
+  .wait()
+  {
     crate::bindgen_runtime::catch_unwind_safely(|| {
       eprintln!("Failed to settle environment async tasks before WASI disposal: {error}");
     });
     // Destroying the environment now could discard deferred settlements or
     // release native values still borrowed by a live future.
     std::process::abort();
+  }
+  if let Some(tasks) = tasks {
+    // Runtime settlement is registered before the corresponding task can release
+    // its environment registration. Quiescence therefore closes the producer side
+    // before this owner-thread drain.
+    tasks.run_owner_settlements();
   }
 }
 
@@ -7318,7 +7474,7 @@ fn execute_custom_runtime_future<
     async move {
       let completion: AsyncRuntimeCompletion = match AssertUnwindSafe(fut).catch_unwind().await {
         Ok(Ok(v)) => Box::new(move || {
-          deferred.resolve(move |env| {
+          deferred.resolve_for_runtime(move |env| {
             let _terminal_finalizer = terminal_finalizer.map(AsyncBlockTerminalFinalizerGuard);
             sendable_resolver
               .resolve(env.raw(), v)
@@ -7507,7 +7663,7 @@ fn execute_builtin_tokio_future<
       let result = AssertUnwindSafe(fut).catch_unwind().await;
       settle_tokio_future(cancellation, move || match result {
         Ok(Ok(v)) => {
-          deferred.resolve(move |env| {
+          deferred.resolve_for_runtime(move |env| {
             let _terminal_finalizer = terminal_finalizer.map(AsyncBlockTerminalFinalizerGuard);
             sendable_resolver
               .resolve(env.raw(), v)
@@ -7661,7 +7817,7 @@ fn execute_custom_runtime_future_with_finalize_callback<
     async move {
       let completion: AsyncRuntimeCompletion = match AssertUnwindSafe(fut).catch_unwind().await {
         Ok(Ok(v)) => Box::new(move || {
-          deferred.resolve(move |env| {
+          deferred.resolve_for_runtime(move |env| {
             sendable_resolver
               .resolve(env.raw(), v)
               .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
@@ -7791,7 +7947,7 @@ fn execute_builtin_tokio_future_with_finalize_callback<
     async move {
       let result = AssertUnwindSafe(fut).catch_unwind().await;
       settle_tokio_future(cancellation, move || match result {
-        Ok(Ok(v)) => deferred.resolve(move |env| {
+        Ok(Ok(v)) => deferred.resolve_for_runtime(move |env| {
           sendable_resolver
             .resolve(env.raw(), v)
             .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
