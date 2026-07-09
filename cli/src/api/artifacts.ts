@@ -1,3 +1,5 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import {
   dirname,
   isAbsolute,
@@ -16,6 +18,7 @@ import {
 } from '../def/artifacts.js'
 import {
   AVAILABLE_TARGETS,
+  commitFileSystemTransaction,
   debugFactory,
   fileExists,
   getPackageReconciliationRoot,
@@ -29,7 +32,6 @@ import {
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   withFileSystemReconciliation,
-  writeFileAtomic,
 } from '../utils/index.js'
 import { WASI_ARTIFACT_METADATA_PREFIX } from './build.js'
 
@@ -254,7 +256,7 @@ async function collectArtifactsUnlocked(
     }
   }
 
-  await removeStaleManagedDestinations(
+  const staleManagedDestinations = await collectStaleManagedDestinations(
     packageRoot,
     npmDir,
     binaryName,
@@ -264,16 +266,71 @@ async function collectArtifactsUnlocked(
     protectedSourcePaths,
   )
 
-  await Promise.all(
-    [...pendingWrites].map(async ([destination, { content, source }]) => {
-      debug.info(
-        `Write [${colors.yellowBright(source)}] to [${colors.yellowBright(
-          destination,
-        )}]`,
-      )
-      await writeFileAtomic(destination, content)
-    }),
-  )
+  await commitArtifactReconciliation(pendingWrites, staleManagedDestinations)
+}
+
+async function commitArtifactReconciliation(
+  pendingWrites: Map<string, PendingWrite>,
+  staleManagedDestinations: string[],
+) {
+  const stagingRoot = await mkdtemp(join(tmpdir(), 'napi-rs-artifacts-stage-'))
+  try {
+    const writes = await Promise.all(
+      [...pendingWrites].map(
+        async ([destination, { content, source }], index) => {
+          const stagedSource = join(stagingRoot, String(index))
+          await writeFile(stagedSource, content)
+          debug.info(
+            `Write [${colors.yellowBright(source)}] to [${colors.yellowBright(
+              destination,
+            )}]`,
+          )
+          return { destination, source: stagedSource }
+        },
+      ),
+    )
+    const transactionPaths = [
+      ...writes.map(({ destination }) => destination),
+      ...staleManagedDestinations,
+    ]
+    if (transactionPaths.length === 0) {
+      return
+    }
+    await commitFileSystemTransaction(
+      commonPathAncestor(transactionPaths.map(dirname)),
+      writes,
+      staleManagedDestinations,
+    )
+  } finally {
+    await rm(stagingRoot, { force: true, recursive: true })
+  }
+}
+
+function commonPathAncestor(paths: Iterable<string>) {
+  const resolvedPaths = [...paths].map((path) => resolve(path))
+  if (resolvedPaths.length === 0) {
+    throw new Error('Cannot compute a common path for no artifact outputs')
+  }
+  let common = resolvedPaths[0]
+  for (const path of resolvedPaths.slice(1)) {
+    while (true) {
+      const relativePath = relative(common, path)
+      if (
+        relativePath === '' ||
+        (relativePath !== '..' &&
+          !relativePath.startsWith(`..${sep}`) &&
+          !isAbsolute(relativePath))
+      ) {
+        break
+      }
+      const parent = dirname(common)
+      if (parent === common) {
+        break
+      }
+      common = parent
+    }
+  }
+  return common
 }
 
 function artifactName(binaryName: string, target: Target) {
@@ -638,7 +695,7 @@ async function removeTargetDestinations(
   )
 }
 
-async function removeStaleManagedDestinations(
+async function collectStaleManagedDestinations(
   packageRoot: string,
   npmDir: string,
   binaryName: string,
@@ -715,11 +772,11 @@ async function removeStaleManagedDestinations(
     }
   }
 
-  await Promise.all(
-    stalePaths
-      .filter((path) => !protectedSourcePaths.has(resolve(path)))
-      .map(unlinkIfExists),
-  )
+  return [
+    ...new Set(
+      stalePaths.filter((path) => !protectedSourcePaths.has(resolve(path))),
+    ),
+  ]
 }
 
 function allManagedWasiFiles(binaryName: string, target: Target) {

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -11,6 +11,7 @@ import { WASI_ARTIFACT_METADATA_PREFIX } from '../build.js'
 const test = ava as TestFn<{
   tmpDir: string
 }>
+const permissionsTest = process.platform === 'win32' ? test.skip : test
 
 test.beforeEach(async (t) => {
   const timestamp = Date.now()
@@ -535,6 +536,164 @@ for (const layout of ['equal', 'below'] as const) {
     )
   })
 }
+
+permissionsTest(
+  'rolls back earlier artifact writes when a later destination write fails',
+  async (t) => {
+    const { tmpDir } = t.context
+    const binaryName = 'test-artifacts-write-rollback'
+    const targets = [
+      {
+        triple: 'x86_64-unknown-linux-gnu',
+        platformArchABI: 'linux-x64-gnu',
+      },
+      {
+        triple: 'aarch64-unknown-linux-gnu',
+        platformArchABI: 'linux-arm64-gnu',
+      },
+    ]
+    await writeFile(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: binaryName,
+        version: '1.0.0',
+        napi: {
+          binaryName,
+          targets: targets.map(({ triple }) => triple),
+        },
+      }),
+    )
+    const artifactsDir = join(tmpDir, 'artifacts')
+    await mkdir(artifactsDir)
+
+    const priorDestinations = new Map<string, string>()
+    for (const { platformArchABI } of targets) {
+      const artifactName = `${binaryName}.${platformArchABI}.node`
+      const targetDir = join(tmpDir, 'npm', platformArchABI)
+      await mkdir(targetDir, { recursive: true })
+      await writeFile(
+        join(artifactsDir, artifactName),
+        `replacement ${platformArchABI}`,
+      )
+      for (const destination of [
+        join(targetDir, artifactName),
+        join(tmpDir, artifactName),
+      ]) {
+        const prior = `prior ${destination}`
+        priorDestinations.set(destination, prior)
+        await writeFile(destination, prior)
+      }
+    }
+
+    const lockedTargetDir = join(tmpDir, 'npm', targets[1].platformArchABI)
+    await chmod(lockedTargetDir, 0o555)
+    let error: Error | undefined
+    try {
+      error = await t.throwsAsync(() => collectArtifacts({ cwd: tmpDir }))
+    } finally {
+      await chmod(lockedTargetDir, 0o755)
+    }
+    t.true(
+      ['EACCES', 'EPERM'].includes(
+        (error as NodeJS.ErrnoException | undefined)?.code ?? '',
+      ),
+    )
+
+    for (const [destination, prior] of priorDestinations) {
+      t.is(await readFile(destination, 'utf8'), prior, destination)
+    }
+  },
+)
+
+permissionsTest(
+  'rolls back artifact writes and earlier stale removals when a later removal fails',
+  async (t) => {
+    const { tmpDir } = t.context
+    const binaryName = 'test-artifacts-removal-rollback'
+    const rootEntry = join('dist', 'binding.cjs')
+    const [wasiDir] = await setupWasiProject(
+      tmpDir,
+      binaryName,
+      [
+        {
+          target: 'wasm32-wasip1',
+          platformArchABI: 'wasm32-wasip1',
+          loaderSuffix: 'wasip1',
+          hasThreads: false,
+          withDeferredLoader: true,
+        },
+      ],
+      rootEntry,
+    )
+    const buildOutputDir = join(tmpDir, 'build-output')
+    await mkdir(buildOutputDir)
+    for (const fileName of [
+      `${binaryName}.wasip1.cjs`,
+      `${binaryName}.wasip1.d.cts`,
+      `${binaryName}.wasip1-browser.js`,
+      `${binaryName}.wasip1-deferred.js`,
+      `${binaryName}.wasip1-deferred.d.ts`,
+      'browser.js',
+      rootEntry,
+    ]) {
+      const destination = join(buildOutputDir, fileName)
+      await mkdir(dirname(destination), { recursive: true })
+      await rename(join(tmpDir, fileName), destination)
+    }
+
+    const staleRootEntry = join('old', 'binding.cjs')
+    const staleRootPath = join(tmpDir, staleRootEntry)
+    await mkdir(dirname(staleRootPath), { recursive: true })
+    await writeFile(staleRootPath, 'prior stale root entry')
+    await writeFile(
+      join(tmpDir, `${binaryName}.wasip1.cjs`),
+      `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+        version: 2,
+        rootEntry,
+        managedRootEntries: [staleRootEntry],
+      })}\n`,
+    )
+
+    const artifactName = `${binaryName}.wasm32-wasip1.wasm`
+    const npmArtifact = join(wasiDir, artifactName)
+    const rootArtifact = join(tmpDir, artifactName)
+    const npmLoader = join(wasiDir, `${binaryName}.wasip1.cjs`)
+    const staleCrossFlavor = join(wasiDir, `${binaryName}.wasm32-wasi.wasm`)
+    await Promise.all([
+      writeFile(npmArtifact, 'prior npm artifact'),
+      writeFile(rootArtifact, 'prior root artifact'),
+      writeFile(npmLoader, 'prior npm loader'),
+      writeFile(staleCrossFlavor, 'prior stale cross-flavor artifact'),
+    ])
+
+    const lockedRootEntryDir = dirname(staleRootPath)
+    await chmod(lockedRootEntryDir, 0o555)
+    let error: Error | undefined
+    try {
+      error = await t.throwsAsync(() =>
+        collectArtifacts({ cwd: tmpDir, buildOutputDir }),
+      )
+    } finally {
+      await chmod(lockedRootEntryDir, 0o755)
+    }
+    t.true(
+      ['EACCES', 'EPERM'].includes(
+        (error as NodeJS.ErrnoException | undefined)?.code ?? '',
+      ),
+    )
+
+    t.is(await readFile(npmArtifact, 'utf8'), 'prior npm artifact')
+    t.is(await readFile(rootArtifact, 'utf8'), 'prior root artifact')
+    t.is(await readFile(npmLoader, 'utf8'), 'prior npm loader')
+    t.is(
+      await readFile(staleCrossFlavor, 'utf8'),
+      'prior stale cross-flavor artifact',
+    )
+    t.is(await readFile(staleRootPath, 'utf8'), 'prior stale root entry')
+    t.false(existsSync(join(tmpDir, 'browser.js')))
+    t.false(existsSync(join(tmpDir, rootEntry)))
+  },
+)
 
 test('removes a previously managed custom WASI root entry after it changes', async (t) => {
   const { tmpDir } = t.context
