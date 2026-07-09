@@ -11,9 +11,31 @@ fn versioned_async_runtime_codegen_contract_is_available() {
   fn assert_legacy_enter_signature() -> napi::Result<u8> {
     napi::bindgen_prelude::within_custom_runtime_if_available(|| Ok(42))
   }
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  fn assert_async_future_signature() -> napi::Result<napi::sys::napi_value> {
+    napi::__private::codegen_v1::execute_async_future_with_finalize_callback(
+      std::ptr::null_mut(),
+      async { Ok::<_, napi::Error>(42_u8) },
+      |_env, _value| Ok(std::ptr::null_mut()),
+      None,
+    )
+  }
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  fn assert_legacy_async_future_signature() -> napi::Result<napi::sys::napi_value> {
+    napi::bindgen_prelude::execute_tokio_future_with_finalize_callback(
+      std::ptr::null_mut(),
+      async { Ok::<_, napi::Error>(42_u8) },
+      |_env, _value| Ok(std::ptr::null_mut()),
+      None,
+    )
+  }
 
   let _ = assert_enter_signature as fn() -> napi::Result<u8>;
   let _ = assert_legacy_enter_signature as fn() -> napi::Result<u8>;
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  let _ = assert_async_future_signature as fn() -> napi::Result<napi::sys::napi_value>;
+  #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+  let _ = assert_legacy_async_future_signature as fn() -> napi::Result<napi::sys::napi_value>;
   assert_eq!(napi::__private::async_runtime_v1::CONTRACT_VERSION, 1);
   assert_eq!(napi::__private::codegen_v1::CONTRACT_VERSION, 1);
   #[cfg(any(

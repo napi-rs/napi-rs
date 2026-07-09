@@ -52,7 +52,10 @@
 //! `within_runtime_if_available` APIs remain Tokio-backed whenever `tokio_rt` is enabled.
 //! Selecting or activating a custom backend in a combined build does not construct Tokio; the
 //! first call to one of those compatibility APIs creates the Tokio runtime lazily, and later calls
-//! reuse that generation until shutdown.
+//! reuse that generation until shutdown. On threadless `wasm32-wasip1`, `spawn` and
+//! `spawn_blocking` panic immediately because the built-in current-thread Tokio runtime has no
+//! background driver and native blocking threads are unavailable; use a registered custom runtime
+//! or `wasm32-wasip1-threads`.
 //! `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
 //! `block_on_custom_runtime`, and `try_block_on_custom_runtime` explicitly require a registered
 //! custom backend. Current `napi-derive` v4 `#[napi(async_runtime)]` callbacks use the selected
@@ -69,7 +72,7 @@
 //!
 //! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
 //! `AsyncRuntime` submission hook, and
-//! `spawn_blocking_on_custom_runtime` completes its handle as cancelled when the backend
+//! `spawn_blocking_on_custom_runtime` completes its handle as rejected when the backend
 //! declines. Backends may synchronously drive a submitted task or blocking closure inside the
 //! corresponding hook; the first poll or invocation commits acceptance. napi does not create an
 //! unbounded fallback thread. Under the `noop` feature the explicit custom-runtime helpers are
@@ -322,6 +325,8 @@ pub mod __private {
       register_native_borrow, register_native_borrow_with_value, NativeBorrowBarrier,
       NativeBorrowScope,
     };
+    #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
+    pub use crate::tokio_runtime::execute_async_future_with_finalize_callback;
 
     #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
     pub use crate::bindgen_runtime::async_iterator::try_create_async_iterator as create_async_iterator;

@@ -329,7 +329,7 @@ impl TryToTokens for NapiFn {
         quote! { Ok::<#ret_type, napi::Error>(#receiver(#(#arg_names),*).await) }
       };
       quote! {
-        napi::bindgen_prelude::execute_tokio_future_with_finalize_callback(env, async move { #call }, move |env, #receiver_ret_name| {
+        napi::__private::codegen_v1::execute_async_future_with_finalize_callback(env, async move { #call }, move |env, #receiver_ret_name| {
           #ret
         }, Some(Box::new(move |env| {
           _napi_native_borrow_scope.release(env);

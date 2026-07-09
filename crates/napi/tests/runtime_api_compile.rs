@@ -143,7 +143,7 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
   use napi::bindgen_prelude::{
     block_on_custom_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
     try_block_on_custom_runtime, within_selected_async_runtime, AsyncRuntime, AsyncRuntimeTask,
-    JoinHandle,
+    JoinError, JoinHandle,
   };
 
   struct CompileRuntime;
@@ -184,12 +184,22 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
     napi::__private::codegen_v1::within_selected_async_runtime(|| Ok(42))
   }
 
+  fn assert_rejected_query(error: &JoinError) -> bool {
+    error.is_rejected()
+  }
+
+  fn assert_rejection_error(error: JoinError) -> std::result::Result<napi::Error, JoinError> {
+    error.try_into_rejection_error()
+  }
+
   let _ = assert_spawn_signature as fn() -> JoinHandle<u8>;
   let _ = assert_spawn_blocking_signature as fn() -> JoinHandle<u8>;
   let _ = assert_block_on_signature as fn() -> u8;
   let _ = assert_try_block_on_signature as fn() -> napi::Result<u8>;
   let _ = assert_enter_signature as fn() -> napi::Result<u8>;
   let _ = assert_codegen_enter_signature as fn() -> napi::Result<u8>;
+  let _ = assert_rejected_query as fn(&JoinError) -> bool;
+  let _ = assert_rejection_error as fn(JoinError) -> std::result::Result<napi::Error, JoinError>;
   assert_eq!(napi::__private::async_runtime_v1::CONTRACT_VERSION, 1);
   assert_eq!(napi::__private::codegen_v1::CONTRACT_VERSION, 1);
 

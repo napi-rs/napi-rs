@@ -461,10 +461,10 @@ fn run_after_future_drop_actions(after_drop: AsyncRuntimeAfterFutureDropBatch) {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn cancellation_after_future_drop(
   callback: AsyncRuntimeCancellation,
-  error: Option<Error>,
+  reason: AsyncRuntimeCancellationReason,
 ) -> AsyncRuntimeAfterFutureDrop {
   Box::new(move || {
-    crate::bindgen_runtime::catch_unwind_safely(|| callback(error));
+    crate::bindgen_runtime::catch_unwind_safely(|| callback(reason));
   })
 }
 
@@ -479,7 +479,9 @@ fn discard_cancellation_after_future_drop(
 fn run_task_completion(completion: AsyncRuntimeCompletion, cancellation: AsyncRuntimeCancellation) {
   if let Err(reason) = std::panic::catch_unwind(AssertUnwindSafe(completion)) {
     crate::bindgen_runtime::catch_unwind_safely(|| {
-      cancellation(Some(crate::bindgen_runtime::panic_to_error(reason)));
+      cancellation(AsyncRuntimeCancellationReason::Failed(
+        crate::bindgen_runtime::panic_to_error(reason),
+      ));
     });
   } else {
     drop_safely(cancellation);
@@ -504,11 +506,35 @@ fn drop_task_future_then(
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-type AsyncRuntimeCancellation = Box<dyn FnOnce(Option<Error>) + Send + 'static>;
+enum AsyncRuntimeCancellationReason {
+  Cancelled,
+  Rejected(Error),
+  Failed(Error),
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl AsyncRuntimeCancellationReason {
+  fn from_error(error: Option<Error>) -> Self {
+    match error {
+      Some(error) => Self::Failed(error),
+      None => Self::Cancelled,
+    }
+  }
+
+  fn into_error(self) -> Option<Error> {
+    match self {
+      Self::Cancelled => None,
+      Self::Rejected(error) | Self::Failed(error) => Some(error),
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+type AsyncRuntimeCancellation = Box<dyn FnOnce(AsyncRuntimeCancellationReason) + Send + 'static>;
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 struct DeferredAsyncRuntimeCancellation {
-  error: Option<Error>,
+  reason: AsyncRuntimeCancellationReason,
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -541,11 +567,11 @@ struct AsyncRuntimeSubmission {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 impl AsyncRuntimeSubmission {
-  fn new(cancellation: AsyncRuntimeCancellation) -> Self {
+  fn new_with_reason(cancellation: AsyncRuntimeCancellation) -> Self {
     Self::new_inner(cancellation, None)
   }
 
-  fn new_task(
+  fn new_task_with_reason(
     cancellation: AsyncRuntimeCancellation,
     future: &Arc<AsyncRuntimeTaskFutureSlot>,
   ) -> Self {
@@ -596,6 +622,7 @@ impl AsyncRuntimeSubmission {
   }
 
   fn claim_cancellation(&self, error: Option<Error>) -> Option<AsyncRuntimeAfterFutureDrop> {
+    let reason = AsyncRuntimeCancellationReason::from_error(error);
     let callback = {
       let mut inner = self
         .inner
@@ -604,18 +631,18 @@ impl AsyncRuntimeSubmission {
       match inner.state {
         AsyncRuntimeSubmissionState::Submitting => {
           if inner.deferred_cancellation.is_none() {
-            inner.deferred_cancellation = Some(DeferredAsyncRuntimeCancellation { error });
+            inner.deferred_cancellation = Some(DeferredAsyncRuntimeCancellation { reason });
           }
           None
         }
         AsyncRuntimeSubmissionState::Accepted | AsyncRuntimeSubmissionState::Started => {
           inner.state = AsyncRuntimeSubmissionState::Settled;
-          inner.cancellation.take().map(|callback| (callback, error))
+          inner.cancellation.take().map(|callback| (callback, reason))
         }
         AsyncRuntimeSubmissionState::Settled => None,
       }
     };
-    callback.map(|(callback, error)| cancellation_after_future_drop(callback, error))
+    callback.map(|(callback, reason)| cancellation_after_future_drop(callback, reason))
   }
 
   fn cancel(&self, error: Option<Error>) {
@@ -640,7 +667,7 @@ impl AsyncRuntimeSubmission {
               inner
                 .cancellation
                 .take()
-                .map(|callback| (callback, deferred.error)),
+                .map(|callback| (callback, deferred.reason)),
             )
           } else {
             inner.state = AsyncRuntimeSubmissionState::Accepted;
@@ -653,13 +680,21 @@ impl AsyncRuntimeSubmission {
         AsyncRuntimeSubmissionState::Settled => (false, None),
       }
     };
-    if let Some((callback, error)) = cancellation {
-      self.drop_task_future_then(cancellation_after_future_drop(callback, error));
+    if let Some((callback, reason)) = cancellation {
+      self.drop_task_future_then(cancellation_after_future_drop(callback, reason));
     }
     accepted
   }
 
   fn fail(&self, error: Error) {
+    self.fail_with_reason(AsyncRuntimeCancellationReason::Failed(error));
+  }
+
+  fn reject(&self, error: Error) {
+    self.fail_with_reason(AsyncRuntimeCancellationReason::Rejected(error));
+  }
+
+  fn fail_with_reason(&self, reason: AsyncRuntimeCancellationReason) {
     let cancellation = {
       let mut inner = self
         .inner
@@ -669,18 +704,15 @@ impl AsyncRuntimeSubmission {
         AsyncRuntimeSubmissionState::Submitting => {
           inner.state = AsyncRuntimeSubmissionState::Settled;
           inner.deferred_cancellation = None;
-          inner
-            .cancellation
-            .take()
-            .map(|callback| (callback, Some(error)))
+          inner.cancellation.take().map(|callback| (callback, reason))
         }
         AsyncRuntimeSubmissionState::Accepted
         | AsyncRuntimeSubmissionState::Started
         | AsyncRuntimeSubmissionState::Settled => None,
       }
     };
-    if let Some((callback, error)) = cancellation {
-      self.drop_task_future_then(cancellation_after_future_drop(callback, error));
+    if let Some((callback, reason)) = cancellation {
+      self.drop_task_future_then(cancellation_after_future_drop(callback, reason));
     }
   }
 
@@ -754,6 +786,15 @@ impl AsyncRuntimeTask {
     future: impl Future<Output = AsyncTaskOutcome> + Send + 'static,
     cancel: impl FnOnce(Option<Error>) + Send + 'static,
   ) -> Self {
+    Self::new_with_cancellation_reason(future, move |reason| {
+      cancel(reason.into_error());
+    })
+  }
+
+  fn new_with_cancellation_reason(
+    future: impl Future<Output = AsyncTaskOutcome> + Send + 'static,
+    cancel: impl FnOnce(AsyncRuntimeCancellationReason) + Send + 'static,
+  ) -> Self {
     Self {
       future: Arc::new(AsyncRuntimeTaskFutureSlot::new(future)),
       cancel: Some(Box::new(cancel)),
@@ -778,7 +819,10 @@ impl AsyncRuntimeTask {
       .cancel
       .take()
       .expect("task cancellation is present until submission begins");
-    let submission = Arc::new(AsyncRuntimeSubmission::new_task(cancellation, &self.future));
+    let submission = Arc::new(AsyncRuntimeSubmission::new_task_with_reason(
+      cancellation,
+      &self.future,
+    ));
     if let Some(registration) = &self.env_task_registration {
       registration.bind_submission(&submission);
     }
@@ -818,10 +862,9 @@ impl AsyncRuntimeTask {
     if let Some(submission) = self.submission.take() {
       submission.claim_cancellation(error)
     } else {
-      self
-        .cancel
-        .take()
-        .map(|cancel| cancellation_after_future_drop(cancel, error))
+      self.cancel.take().map(|cancel| {
+        cancellation_after_future_drop(cancel, AsyncRuntimeCancellationReason::from_error(error))
+      })
     }
   }
 }
@@ -1688,10 +1731,14 @@ mod tokio_future_cancellation_tests {
 /// `block_on_custom_runtime`, and `try_block_on_custom_runtime` helpers require a registered
 /// custom backend in every non-`noop` `async-runtime` build. napi manufactures its own joinable
 /// handle around
-/// [`spawn`](AsyncRuntime::spawn), while the blocking helper completes that handle as cancelled
-/// when the backend declines. The established free `spawn`, `spawn_blocking`, [`block_on`], and
+/// [`spawn`](AsyncRuntime::spawn), while both explicit spawn helpers report an immediate backend
+/// decline separately from cancellation after acceptance. The established free `spawn`,
+/// `spawn_blocking`, [`block_on`], and
 /// [`within_runtime_if_available`] names remain Tokio compatibility APIs whenever `tokio_rt` is
 /// enabled, so Cargo feature unification cannot silently change their signatures or routing.
+/// On threadless `wasm32-wasip1`, the Tokio `spawn` and `spawn_blocking` compatibility helpers
+/// panic immediately because that target has neither a background runtime driver nor native
+/// threads; use the explicit custom-runtime helpers instead.
 /// The hidden [`within_selected_async_runtime`] helper follows the generated-code selection and
 /// enters built-in Tokio when a combined build selected Tokio. With a selected custom backend,
 /// activation waits for any old Tokio generation to retire but does not construct a replacement.
@@ -1823,7 +1870,7 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// accepted; the backend should run the closure exactly once on a thread where blocking is
   /// acceptable. Dropping accepted work, for example while shutting down, safely cancels the
   /// caller's join handle. Return `Err(work)` to decline; the join handle completes as
-  /// cancelled and napi does not create an unbounded fallback thread. Never forget accepted
+  /// rejected and napi does not create an unbounded fallback thread. Never forget accepted
   /// work: run it exactly once or drop it during cancellation. The default implementation
   /// declines.
   ///
@@ -3441,7 +3488,7 @@ fn submit_async_task(task: AsyncRuntimeTask) {
       let _ = submission.accept();
     }
     Ok(Err(task)) => {
-      submission.fail(async_runtime_task_rejected_error());
+      submission.reject(async_runtime_task_rejected_error());
       drop(task);
     }
     Err(reason) => {
@@ -5426,11 +5473,12 @@ pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
 enum JoinErrorKind {
   Panic(SafeDrop<Box<dyn Any + Send + 'static>>),
   Cancelled,
+  Rejected(Error),
   Runtime(Error),
 }
 
-/// The error returned when joining a [`JoinHandle`] whose task panicked, was cancelled, or
-/// could not be submitted to the runtime.
+/// The error returned when joining a [`JoinHandle`] whose task panicked, was cancelled, was
+/// rejected by the backend, or could not be submitted to the runtime.
 ///
 /// This is napi's runtime-agnostic analogue of `tokio::task::JoinError`, produced by the
 /// explicit [`spawn_on_custom_runtime`]/[`spawn_blocking_on_custom_runtime`] helpers.
@@ -5453,9 +5501,23 @@ impl JoinError {
     }
   }
 
+  fn rejected(error: Error) -> Self {
+    Self {
+      kind: JoinErrorKind::Rejected(error),
+    }
+  }
+
   fn runtime(error: Error) -> Self {
     Self {
       kind: JoinErrorKind::Runtime(error),
+    }
+  }
+
+  fn from_cancellation_reason(reason: AsyncRuntimeCancellationReason) -> Self {
+    match reason {
+      AsyncRuntimeCancellationReason::Cancelled => Self::cancelled(),
+      AsyncRuntimeCancellationReason::Rejected(error) => Self::rejected(error),
+      AsyncRuntimeCancellationReason::Failed(error) => Self::runtime(error),
     }
   }
 
@@ -5464,10 +5526,14 @@ impl JoinError {
     matches!(self.kind, JoinErrorKind::Panic(_))
   }
 
-  /// Whether the backend declined or later dropped the work, or shutdown cancelled it after
-  /// submission. Lifecycle validation and submission-hook failures are runtime errors instead.
+  /// Whether accepted work was later dropped or shutdown cancelled it.
   pub fn is_cancelled(&self) -> bool {
     matches!(self.kind, JoinErrorKind::Cancelled)
+  }
+
+  /// Whether the backend immediately declined the submitted work.
+  pub fn is_rejected(&self) -> bool {
+    matches!(self.kind, JoinErrorKind::Rejected(_))
   }
 
   /// Whether the task could not be submitted because the runtime was unavailable or its
@@ -5487,6 +5553,21 @@ impl JoinError {
   pub fn try_into_panic(self) -> std::result::Result<Box<dyn Any + Send + 'static>, Self> {
     match self.kind {
       JoinErrorKind::Panic(mut payload) => Ok(payload.take()),
+      kind => Err(Self { kind }),
+    }
+  }
+
+  /// Consume the error, returning the backend-rejection diagnostic.
+  pub fn into_rejection_error(self) -> Error {
+    self
+      .try_into_rejection_error()
+      .expect("JoinError does not contain a backend rejection")
+  }
+
+  /// Consume the error, returning the diagnostic when the backend rejected the work.
+  pub fn try_into_rejection_error(self) -> std::result::Result<Error, Self> {
+    match self.kind {
+      JoinErrorKind::Rejected(error) => Ok(error),
       kind => Err(Self { kind }),
     }
   }
@@ -5513,6 +5594,9 @@ impl std::fmt::Debug for JoinError {
     match self.kind {
       JoinErrorKind::Panic(_) => f.write_str("JoinError::Panic(...)"),
       JoinErrorKind::Cancelled => f.write_str("JoinError::Cancelled"),
+      JoinErrorKind::Rejected(ref error) => {
+        f.debug_tuple("JoinError::Rejected").field(error).finish()
+      }
       JoinErrorKind::Runtime(ref error) => {
         f.debug_tuple("JoinError::Runtime").field(error).finish()
       }
@@ -5526,6 +5610,7 @@ impl std::fmt::Display for JoinError {
     match self.kind {
       JoinErrorKind::Panic(_) => f.write_str("task panicked"),
       JoinErrorKind::Cancelled => f.write_str("task was cancelled"),
+      JoinErrorKind::Rejected(ref error) => write!(f, "task submission was rejected: {error}"),
       JoinErrorKind::Runtime(ref error) => write!(f, "task submission failed: {error}"),
     }
   }
@@ -5535,7 +5620,7 @@ impl std::fmt::Display for JoinError {
 impl std::error::Error for JoinError {
   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
     match &self.kind {
-      JoinErrorKind::Runtime(error) => Some(error),
+      JoinErrorKind::Rejected(error) | JoinErrorKind::Runtime(error) => Some(error),
       JoinErrorKind::Panic(_) | JoinErrorKind::Cancelled => None,
     }
   }
@@ -5656,10 +5741,11 @@ impl<F, R: Send + 'static> Drop for BlockingWorkState<F, R> {
 /// Await it to join the task: it resolves to the task's output, or to a [`JoinError`]
 /// carrying the panic payload if the task panicked on an unwind-enabled build. With
 /// `panic = "abort"`, a panic cannot settle the handle. Unlike `tokio::task::JoinHandle` it is
-/// join-only — there is no `abort`; detach the task by dropping the handle. If the backend rejects
-/// or drops the task, the handle resolves with a cancellation error. A pre-submission lifecycle
-/// failure resolves it with a runtime error. On an unwind-enabled build, a panicking submission
-/// hook also resolves the handle with a runtime error preserving the panic diagnostic.
+/// join-only — there is no `abort`; detach the task by dropping the handle. Immediate backend
+/// rejection resolves with a rejection error, while dropping accepted work resolves with a
+/// cancellation error. A pre-submission lifecycle failure resolves with a runtime error. On an
+/// unwind-enabled build, a panicking submission hook also resolves the handle with a runtime error
+/// preserving the panic diagnostic.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub struct JoinHandle<T> {
   state: Arc<JoinState<T>>,
@@ -5724,32 +5810,46 @@ impl<T> Future for JoinHandle<T> {
 ///
 /// This remains Tokio-backed when `async-runtime` is also enabled. Use
 /// `spawn_on_custom_runtime` for the registered custom backend.
+///
+/// On threadless `wasm32-wasip1` this panics immediately because its current-thread Tokio runtime
+/// has no background driver. Use a registered custom runtime or a threaded WASI target.
 pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  let mut fut = SafeDrop::new(fut);
-  #[cfg(feature = "async-runtime")]
-  let (_runtime_use, runtime) =
-    acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"));
-  #[cfg(not(feature = "async-runtime"))]
-  let runtime = runtime();
-  let retirement = runtime.retirement_signal();
-  let generation = runtime.generation();
-  let workers = runtime.worker_tracker();
-  let register_worker = matches!(
-    runtime.handle().runtime_flavor(),
-    tokio::runtime::RuntimeFlavor::MultiThread
-  );
-  runtime.spawn(TokioRuntimeGenerationFuture::new(
-    async move {
-      let _retirement = retirement;
-      fut.take().await
-    },
-    generation,
-    workers,
-    register_worker,
-  ))
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  {
+    drop_safely(fut);
+    panic!("{}", threadless_wasi_builtin_tokio_error().reason);
+  }
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
+  {
+    let mut fut = SafeDrop::new(fut);
+    #[cfg(feature = "async-runtime")]
+    let (_runtime_use, runtime) =
+      acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"));
+    #[cfg(not(feature = "async-runtime"))]
+    let runtime = runtime();
+    let retirement = runtime.retirement_signal();
+    let generation = runtime.generation();
+    let workers = runtime.worker_tracker();
+    let register_worker = matches!(
+      runtime.handle().runtime_flavor(),
+      tokio::runtime::RuntimeFlavor::MultiThread
+    );
+    runtime.spawn(TokioRuntimeGenerationFuture::new(
+      async move {
+        let _retirement = retirement;
+        fut.take().await
+      },
+      generation,
+      workers,
+      register_worker,
+    ))
+  }
 }
 
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
@@ -5761,8 +5861,8 @@ where
 /// [`JoinError`] — is handed to the returned handle. With `panic = "abort"`, a panic traps or
 /// aborts before the handle can be settled. This name and routing are unchanged when `tokio_rt`
 /// is also enabled; the Tokio-backed compatibility helper remains `spawn`. Missing, stopped, or
-/// transitioning runtime states are reported as runtime errors, while a backend that declines or
-/// later drops accepted work reports cancellation.
+/// transitioning runtime states are reported as runtime errors, an immediate backend decline is
+/// reported as rejection, and accepted work dropped later reports cancellation.
 pub fn spawn_on_custom_runtime<F>(fut: F) -> JoinHandle<F::Output>
 where
   F: 'static + Send + Future,
@@ -5771,19 +5871,15 @@ where
   let state = Arc::new(JoinState::new());
   let task_state = state.clone();
   let cancellation_state = state.clone();
-  let mut task = AsyncRuntimeTask::new(
+  let mut task = AsyncRuntimeTask::new_with_cancellation_reason(
     async move {
       let result = AssertUnwindSafe(fut).catch_unwind().await;
       AsyncTaskOutcome::Completed(Box::new(move || {
         task_state.complete(result.map_err(JoinError::new_panic));
       }))
     },
-    move |error| {
-      cancellation_state.complete(Err(
-        error
-          .map(JoinError::runtime)
-          .unwrap_or_else(JoinError::cancelled),
-      ));
+    move |reason| {
+      cancellation_state.complete(Err(JoinError::from_cancellation_reason(reason)));
     },
   );
   let runtime = match custom_async_runtime_for_use() {
@@ -5806,7 +5902,7 @@ where
       let _ = submission.accept();
     }
     Ok(Err(task)) => {
-      let _ = submission.accept();
+      submission.reject(async_runtime_task_rejected_error());
       drop(task);
     }
     Err(reason) => {
@@ -5921,26 +6017,40 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
 ///
 /// This remains Tokio-backed when `async-runtime` is also enabled. Use
 /// `spawn_blocking_on_custom_runtime` for the registered custom backend.
+///
+/// On threadless `wasm32-wasip1` this panics immediately because native blocking threads are
+/// unavailable. Use a registered custom runtime or a threaded WASI target.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
-  let mut func = SafeDrop::new(func);
-  #[cfg(feature = "async-runtime")]
-  let (_runtime_use, runtime) =
-    acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"));
-  #[cfg(not(feature = "async-runtime"))]
-  let runtime = runtime();
-  let retirement = runtime.retirement_signal();
-  let generation = runtime.generation();
-  let workers = runtime.worker_tracker();
-  runtime.spawn_blocking(move || {
-    let _retirement = retirement;
-    workers.register_current_thread();
-    let _generation = TokioRuntimeGenerationGuard::enter(generation);
-    func.take()()
-  })
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  {
+    drop_safely(func);
+    panic!("{}", threadless_wasi_builtin_tokio_error().reason);
+  }
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
+  {
+    let mut func = SafeDrop::new(func);
+    #[cfg(feature = "async-runtime")]
+    let (_runtime_use, runtime) =
+      acquire_tokio_runtime_for_use().unwrap_or_else(|error| panic!("{error}"));
+    #[cfg(not(feature = "async-runtime"))]
+    let runtime = runtime();
+    let retirement = runtime.retirement_signal();
+    let generation = runtime.generation();
+    let workers = runtime.worker_tracker();
+    runtime.spawn_blocking(move || {
+      let _retirement = retirement;
+      workers.register_current_thread();
+      let _generation = TokioRuntimeGenerationGuard::enter(generation);
+      func.take()()
+    })
+  }
 }
 
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
@@ -5950,7 +6060,7 @@ where
 /// The closure — wrapped so that its output, or on an unwind-enabled build a caught panic payload
 /// as a [`JoinError`], is handed to the returned handle — is offered to the backend's
 /// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook. If the backend declines, the returned
-/// handle completes with a cancellation error. With `panic = "abort"`, a panic cannot settle the
+/// handle completes with a rejection error. With `panic = "abort"`, a panic cannot settle the
 /// handle. napi never creates an unbounded fallback thread, which keeps this API valid on
 /// threadless WebAssembly. This name and routing are unchanged when `tokio_rt` is also enabled;
 /// the Tokio-backed compatibility helper remains `spawn_blocking`. Missing, stopped, or
@@ -5962,13 +6072,11 @@ where
 {
   let state = Arc::new(JoinState::new());
   let cancellation_state = state.clone();
-  let submission = Arc::new(AsyncRuntimeSubmission::new(Box::new(move |error| {
-    cancellation_state.complete(Err(
-      error
-        .map(JoinError::runtime)
-        .unwrap_or_else(JoinError::cancelled),
-    ));
-  })));
+  let submission = Arc::new(AsyncRuntimeSubmission::new_with_reason(Box::new(
+    move |reason| {
+      cancellation_state.complete(Err(JoinError::from_cancellation_reason(reason)));
+    },
+  )));
   let work = BlockingWorkState::new(func, state.clone(), Arc::clone(&submission));
   let work: Box<dyn FnOnce() + Send + 'static> = Box::new(move || work.run());
   let runtime = match custom_async_runtime_for_use() {
@@ -5992,7 +6100,7 @@ where
       let _ = submission.accept();
     }
     Ok(Err(work)) => {
-      let _ = submission.accept();
+      submission.reject(async_runtime_task_rejected_error());
       drop(work);
     }
     Err(reason) => {
@@ -6686,6 +6794,23 @@ fn execute_selected_async_future_with_finalize_callback<
   }
 }
 
+/// Versioned selected-runtime entry point for current `napi-derive` output.
+#[doc(hidden)]
+#[cfg(not(feature = "noop"))]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn execute_async_future_with_finalize_callback<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<sys::napi_value> {
+  execute_selected_async_future_with_finalize_callback(env, fut, resolver, finalize_callback)
+}
+
 /// Compatibility entry point for `napi-derive` versions released before the versioned async-runtime
 /// code-generation contract.
 #[doc(hidden)]
@@ -6915,6 +7040,21 @@ fn execute_selected_async_future_with_finalize_callback<
   _finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 ) -> Result<sys::napi_value> {
   Ok(std::ptr::null_mut())
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn execute_async_future_with_finalize_callback<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<sys::napi_value> {
+  execute_selected_async_future_with_finalize_callback(env, fut, resolver, finalize_callback)
 }
 
 #[cfg(feature = "noop")]
@@ -8020,7 +8160,7 @@ mod tests {
   }
 
   #[test]
-  fn declined_spawn_blocking_completes_with_cancellation() {
+  fn declined_spawn_blocking_completes_with_rejection() {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
     let calls_before = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
@@ -8028,9 +8168,14 @@ mod tests {
 
     let handle = spawn_blocking(|| std::thread::current().name().map(str::to_owned));
     let error = futures::executor::block_on(handle)
-      .expect_err("work declined by the backend must be reported as cancelled");
+      .expect_err("work declined by the backend must be reported as rejected");
 
-    assert!(error.is_cancelled());
+    assert!(error.is_rejected());
+    assert!(!error.is_cancelled());
+    assert!(!error.is_runtime_error());
+    let rejection = error.into_rejection_error();
+    assert_eq!(rejection.status, crate::Status::Cancelled);
+    assert!(rejection.reason.contains("stopped or saturated"));
     assert_eq!(
       BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
       calls_before,
@@ -8071,7 +8216,7 @@ mod tests {
   }
 
   #[test]
-  fn rejected_spawn_completes_with_cancellation() {
+  fn rejected_spawn_completes_with_rejection() {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
     DECLINE_SPAWN.store(true, Ordering::SeqCst);
@@ -8080,7 +8225,12 @@ mod tests {
 
     let error = futures::executor::block_on(handle)
       .expect_err("a rejected task must complete its join handle");
-    assert!(error.is_cancelled());
+    assert!(error.is_rejected());
+    assert!(!error.is_cancelled());
+    assert!(!error.is_runtime_error());
+    let rejection = error.into_rejection_error();
+    assert_eq!(rejection.status, crate::Status::Cancelled);
+    assert!(rejection.reason.contains("stopped or saturated"));
   }
 
   #[test]
@@ -8913,9 +9063,9 @@ mod tests {
     DECLINE_SPAWN.store(false, Ordering::SeqCst);
 
     let handle = result.expect("dropping a rejected task must contain destructor panics");
-    let error = futures::executor::block_on(handle)
-      .expect_err("the rejected task must complete as cancelled");
-    assert!(error.is_cancelled());
+    let error =
+      futures::executor::block_on(handle).expect_err("the rejected task must complete as rejected");
+    assert!(error.is_rejected());
     assert_eq!(drops.load(Ordering::SeqCst), 1);
   }
 
