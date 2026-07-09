@@ -74,7 +74,8 @@ const fileSystemTransactionOwnerName = 'owner.json'
 const fileSystemTransactionStateName = 'state.json'
 const fileSystemTransactionKind = 'napi-rs-filesystem-transaction'
 const legacyFileSystemTransactionStateVersion = 1
-const fileSystemTransactionStateVersion = 2
+const previousFileSystemTransactionStateVersion = 2
+const fileSystemTransactionStateVersion = 3
 const fileSystemTransactionStateMaximumSize = 16 * 1024 * 1024
 const fileSystemTransactionMaximumEntries = 100_000
 const fileSystemTransactionCleanupTimeout = 5_000
@@ -204,6 +205,11 @@ interface FileSystemTransactionJournalFileState {
   mode: number
 }
 
+interface FileSystemTransactionFileIdentity {
+  dev: number
+  ino: number
+}
+
 interface FileSystemTransactionJournalEntry {
   backup?: string
   final?: FileSystemTransactionJournalFileState
@@ -217,10 +223,11 @@ interface FileSystemTransactionJournalEntry {
 
 interface FileSystemTransactionJournal {
   entries: FileSystemTransactionJournalEntry[]
-  phase: 'committed' | 'prepared'
+  phase: 'committed' | 'prepared' | 'preparing'
   token: string
   version:
     | typeof legacyFileSystemTransactionStateVersion
+    | typeof previousFileSystemTransactionStateVersion
     | typeof fileSystemTransactionStateVersion
 }
 
@@ -229,6 +236,7 @@ interface FileSystemTransactionJournalOwner {
   token: string
   version:
     | typeof legacyFileSystemTransactionStateVersion
+    | typeof previousFileSystemTransactionStateVersion
     | typeof fileSystemTransactionStateVersion
 }
 
@@ -579,6 +587,17 @@ export async function commitFileSystemTransaction(
   removals: string[],
 ) {
   const requestedTransactionRoot = resolve(root)
+  for (const path of [
+    ...writes.flatMap(({ destination, removeBeforeWrite }) =>
+      removeBeforeWrite ? [destination, removeBeforeWrite] : [destination],
+    ),
+    ...removals,
+  ]) {
+    assertFileSystemTransactionPathIsNotReserved(
+      requestedTransactionRoot,
+      resolveTransactionPath(requestedTransactionRoot, path),
+    )
+  }
   const capability = fileSystemReconciliationCapability.getStore()
   if (capability) {
     const transactionRoot = await canonicalizeReconciliationPath(
@@ -616,17 +635,6 @@ async function commitFileSystemTransactionUnlocked(
   writes: FileSystemTransactionWrite[],
   removals: string[],
 ) {
-  for (const path of [
-    ...writes.flatMap(({ destination, removeBeforeWrite }) =>
-      removeBeforeWrite ? [destination, removeBeforeWrite] : [destination],
-    ),
-    ...removals,
-  ]) {
-    assertFileSystemTransactionPathIsNotReserved(
-      requestedTransactionRoot,
-      resolveTransactionPath(requestedTransactionRoot, path),
-    )
-  }
   const transactionWrites = await Promise.all(
     writes.map(async (write) => {
       const destination = await resolveCanonicalTransactionPath(
@@ -799,12 +807,18 @@ async function commitFileSystemTransactionUnlocked(
   let committed = false
   let published = false
   let transactionError: unknown
-  const preparedArtifacts = new Map<
-    string,
-    FileSystemTransactionJournalFileState
-  >()
 
   try {
+    await writeFileAtomic(
+      join(candidateRoot, fileSystemTransactionOwnerName),
+      JSON.stringify({
+        kind: fileSystemTransactionKind,
+        token: transactionToken,
+        version: fileSystemTransactionStateVersion,
+      } satisfies FileSystemTransactionJournalOwner),
+      { mode: 0o644 },
+    )
+    await syncDirectory(transactionRoot)
     await Promise.all([mkdir(candidateBackupRoot), mkdir(candidateInputRoot)])
     const preparedWrites: PreparedFileSystemTransactionWrite[] = []
     const snapshots = new Map<
@@ -841,32 +855,175 @@ async function commitFileSystemTransactionUnlocked(
       })
     }
 
-    const preparations = preparedWrites.map(async (write, index) => {
+    for (let index = 0; index < preparedWrites.length; index++) {
+      const write = preparedWrites[index]
       const prepared = fileSystemTransactionArtifactPath(
         write.destination,
         transactionToken,
         index,
         'prepared',
       )
-      await assertTransactionParentUnchanged(
-        transactionRoot,
-        write.destination,
-        parentIdentities,
-      )
-      const state = await prepareFileSystemTransactionReplacement(
-        join(candidateInputRoot, basename(write.input)),
-        prepared,
-        write.final,
-        () =>
-          assertTransactionParentUnchanged(
-            transactionRoot,
-            write.destination,
-            parentIdentities,
-          ),
-      )
+      if ((await lstatIfExists(prepared)) !== undefined) {
+        throw new Error(
+          `Filesystem transaction artifact path already exists for ${write.destination}`,
+        )
+      }
       write.prepared = prepared
-      write.final = state
-      preparedArtifacts.set(prepared, state)
+    }
+
+    const artifactPaths = new Map<
+      string,
+      {
+        retired: string
+        rollbackRetired: string
+      }
+    >()
+    let artifactIndex = 0
+    for (const path of affected) {
+      const retired = fileSystemTransactionArtifactPath(
+        path,
+        transactionToken,
+        artifactIndex,
+        'retired',
+      )
+      const rollbackRetired = fileSystemTransactionArtifactPath(
+        path,
+        transactionToken,
+        artifactIndex,
+        'rollback',
+      )
+      artifactIndex += 1
+      if (
+        (await lstatIfExists(retired)) !== undefined ||
+        (await lstatIfExists(rollbackRetired)) !== undefined
+      ) {
+        throw new Error(
+          `Filesystem transaction artifact path already exists for ${path}`,
+        )
+      }
+      artifactPaths.set(path, { retired, rollbackRetired })
+    }
+
+    const journalParentForPath = (
+      path: string,
+    ): FileSystemTransactionJournalParent => {
+      const parentIdentity = parentIdentities.get(dirname(path))
+      if (!parentIdentity) {
+        throw new Error(
+          `Filesystem transaction parent metadata was not captured for ${path}`,
+        )
+      }
+      return {
+        canonicalParent: fileSystemTransactionRelativePath(
+          transactionRoot,
+          parentIdentity.canonicalParent,
+          'Transaction canonical parent',
+          true,
+        ),
+        dev: parentIdentity.dev,
+        identityPath: fileSystemTransactionRelativePath(
+          transactionRoot,
+          parentIdentity.identityPath,
+          'Transaction parent identity',
+          true,
+        ),
+        ino: parentIdentity.ino,
+      }
+    }
+
+    const preparingJournal: FileSystemTransactionJournal = {
+      entries: preparedWrites.map((write) => ({
+        final: write.final,
+        parent: journalParentForPath(write.destination),
+        path: fileSystemTransactionRelativePath(
+          transactionRoot,
+          write.destination,
+          'Transaction path',
+        ),
+        prepared: fileSystemTransactionRelativePath(
+          transactionRoot,
+          write.prepared!,
+          'Transaction prepared replacement',
+        ),
+      })),
+      phase: 'preparing',
+      token: transactionToken,
+      version: fileSystemTransactionStateVersion,
+    }
+    await writeFileSystemTransactionJournal(candidateRoot, preparingJournal)
+    journal = preparingJournal
+
+    // Release every prepared-file writer only after one atomic journal update
+    // records all created inodes. A crash before that checkpoint is ambiguous.
+    let preparedIdentityCount = 0
+    let preparedIdentityPublicationClosed = false
+    let resolvePreparedIdentityPublication!: () => void
+    let rejectPreparedIdentityPublication!: (reason?: unknown) => void
+    const preparedIdentityPublication = new Promise<void>((resolve, reject) => {
+      resolvePreparedIdentityPublication = resolve
+      rejectPreparedIdentityPublication = reject
+    })
+    void preparedIdentityPublication.catch(() => {})
+    const failPreparedIdentityPublication = (error: unknown) => {
+      if (!preparedIdentityPublicationClosed) {
+        preparedIdentityPublicationClosed = true
+        rejectPreparedIdentityPublication(error)
+      }
+    }
+    const recordPreparedIdentity = (
+      index: number,
+      identity: FileSystemTransactionFileIdentity,
+    ) => {
+      if (!preparedIdentityPublicationClosed) {
+        const entry = preparingJournal.entries[index]
+        if (!entry?.final) {
+          failPreparedIdentityPublication(
+            new Error(
+              `Filesystem transaction preparing metadata was not captured for ${preparedWrites[index]?.destination}`,
+            ),
+          )
+        } else {
+          entry.final = { ...entry.final, ...identity }
+          preparedIdentityCount += 1
+          if (preparedIdentityCount === preparedWrites.length) {
+            preparedIdentityPublicationClosed = true
+            void writeFileSystemTransactionJournal(
+              candidateRoot,
+              preparingJournal,
+            ).then(
+              resolvePreparedIdentityPublication,
+              rejectPreparedIdentityPublication,
+            )
+          }
+        }
+      }
+      return preparedIdentityPublication
+    }
+
+    const preparations = preparedWrites.map(async (write, index) => {
+      try {
+        await assertTransactionParentUnchanged(
+          transactionRoot,
+          write.destination,
+          parentIdentities,
+        )
+        const state = await prepareFileSystemTransactionReplacement(
+          join(candidateInputRoot, basename(write.input)),
+          write.prepared!,
+          write.final,
+          () =>
+            assertTransactionParentUnchanged(
+              transactionRoot,
+              write.destination,
+              parentIdentities,
+            ),
+          (identity) => recordPreparedIdentity(index, identity),
+        )
+        write.final = state
+      } catch (error) {
+        failPreparedIdentityPublication(error)
+        throw error
+      }
     })
     try {
       await Promise.all(preparations)
@@ -940,46 +1097,13 @@ async function commitFileSystemTransactionUnlocked(
           findReplacementAlias(write.destination) === aliasRoot,
       )
     }
-    const artifactPaths = new Map<
-      string,
-      {
-        retired: string
-        rollbackRetired: string
-      }
-    >()
-    let artifactIndex = 0
-    for (const path of affected) {
-      const retired = fileSystemTransactionArtifactPath(
-        path,
-        transactionToken,
-        artifactIndex,
-        'retired',
-      )
-      const rollbackRetired = fileSystemTransactionArtifactPath(
-        path,
-        transactionToken,
-        artifactIndex,
-        'rollback',
-      )
-      artifactIndex += 1
-      if (
-        (await lstatIfExists(retired)) !== undefined ||
-        (await lstatIfExists(rollbackRetired)) !== undefined
-      ) {
-        throw new Error(
-          `Filesystem transaction artifact path already exists for ${path}`,
-        )
-      }
-      artifactPaths.set(path, { retired, rollbackRetired })
-    }
-    journal = {
+    const preparedJournal: FileSystemTransactionJournal = {
       entries: [...affected].map((path) => {
         const originalStats = affectedStats.get(path)
         const backup = backupForPath(path)
         const finalWrite = finalWriteForPath(path)
         const artifacts = artifactPaths.get(path)
-        const parentIdentity = parentIdentities.get(dirname(path))
-        if (!parentIdentity || !artifacts) {
+        if (!artifacts) {
           throw new Error(
             `Filesystem transaction metadata was not captured for ${path}`,
           )
@@ -999,22 +1123,7 @@ async function commitFileSystemTransactionUnlocked(
             : undefined,
           final: finalWrite?.final,
           original: originalStats && backup ? backup.state : undefined,
-          parent: {
-            canonicalParent: fileSystemTransactionRelativePath(
-              transactionRoot,
-              parentIdentity.canonicalParent,
-              'Transaction canonical parent',
-              true,
-            ),
-            dev: parentIdentity.dev,
-            identityPath: fileSystemTransactionRelativePath(
-              transactionRoot,
-              parentIdentity.identityPath,
-              'Transaction parent identity',
-              true,
-            ),
-            ino: parentIdentity.ino,
-          },
+          parent: journalParentForPath(path),
           path: fileSystemTransactionRelativePath(
             transactionRoot,
             path,
@@ -1043,8 +1152,10 @@ async function commitFileSystemTransactionUnlocked(
       token: transactionToken,
       version: fileSystemTransactionStateVersion,
     }
+    await writeFileSystemTransactionJournal(candidateRoot, preparedJournal)
+    journal = preparedJournal
     const journalEntriesByPath = new Map(
-      journal.entries.map((entry) => [
+      preparedJournal.entries.map((entry) => [
         resolveFileSystemTransactionRelativePath(
           transactionRoot,
           entry.path,
@@ -1053,16 +1164,6 @@ async function commitFileSystemTransactionUnlocked(
         entry,
       ]),
     )
-    await writeFileAtomic(
-      join(candidateRoot, fileSystemTransactionOwnerName),
-      JSON.stringify({
-        kind: fileSystemTransactionKind,
-        token: transactionToken,
-        version: fileSystemTransactionStateVersion,
-      } satisfies FileSystemTransactionJournalOwner),
-      { mode: 0o644 },
-    )
-    await writeFileSystemTransactionJournal(candidateRoot, journal)
     await Promise.all([
       syncDirectory(candidateBackupRoot),
       syncDirectory(candidateInputRoot),
@@ -1200,7 +1301,12 @@ async function commitFileSystemTransactionUnlocked(
           candidateStats,
         )
       } else {
-        await cleanupPreparedFileSystemTransactionArtifacts(preparedArtifacts)
+        if (journal) {
+          await cleanupUnpublishedFileSystemTransactionArtifacts(
+            transactionRoot,
+            journal,
+          )
+        }
         await removeFileSystemTransactionCandidate(
           transactionRoot,
           candidateRoot,
@@ -3503,7 +3609,8 @@ function resolveTransactionPath(root: string, path: string) {
     relativePath === '' ||
     relativePath === '..' ||
     relativePath.startsWith(`..${sep}`) ||
-    relativePath.startsWith('../')
+    relativePath.startsWith('../') ||
+    isAbsolute(relativePath)
   ) {
     if (relativePath === '') {
       throw new Error(
@@ -3706,6 +3813,9 @@ async function snapshotFileSystemTransactionInput(
   destinationMode = 0o400,
   createDestinationParent = true,
   assertDestinationParentUnchanged?: () => Promise<void>,
+  recordDestinationIdentity?: (
+    identity: FileSystemTransactionFileIdentity,
+  ) => Promise<void>,
 ): Promise<FileSystemTransactionJournalFileState> {
   const initialPathStats = await lstatIfExists(source)
   if (!initialPathStats?.isFile()) {
@@ -3770,6 +3880,22 @@ async function snapshotFileSystemTransactionInput(
         )
       }
       await assertDestinationParentUnchanged?.()
+      if (recordDestinationIdentity) {
+        const destinationPathStats = await lstatIfExists(destination)
+        if (
+          destinationPathStats?.isFile() !== true ||
+          destinationPathStats.dev !== destinationStats.dev ||
+          destinationPathStats.ino !== destinationStats.ino
+        ) {
+          throw new Error(
+            `Filesystem transaction snapshot path changed before its identity was recorded: ${destination}`,
+          )
+        }
+        await recordDestinationIdentity({
+          dev: destinationStats.dev,
+          ino: destinationStats.ino,
+        })
+      }
       const hash = createHash('sha256')
       const buffer = Buffer.allocUnsafe(64 * 1024)
       let position = 0
@@ -4179,6 +4305,9 @@ async function prepareFileSystemTransactionReplacement(
   prepared: string,
   expected: FileSystemTransactionJournalFileState,
   assertParentUnchanged: () => Promise<void>,
+  recordPreparedIdentity: (
+    identity: FileSystemTransactionFileIdentity,
+  ) => Promise<void>,
 ): Promise<FileSystemTransactionJournalFileState> {
   await assertParentUnchanged()
   const sourceState = await snapshotFileSystemTransactionInput(
@@ -4189,6 +4318,7 @@ async function prepareFileSystemTransactionReplacement(
     expected.mode,
     false,
     assertParentUnchanged,
+    recordPreparedIdentity,
   )
   if (
     sourceState.hash !== expected.hash ||
@@ -4525,14 +4655,22 @@ function normalizeFileSystemTransactionJournal(
     typeof journal === 'object' && journal !== null
       ? (journal as { version?: unknown }).version
       : undefined
+  const phase =
+    typeof journal === 'object' && journal !== null
+      ? (journal as { phase?: unknown }).phase
+      : undefined
   if (
     typeof journal !== 'object' ||
     journal === null ||
     (version !== legacyFileSystemTransactionStateVersion &&
+      version !== previousFileSystemTransactionStateVersion &&
       version !== fileSystemTransactionStateVersion) ||
     version !== owner.version ||
-    ((journal as { phase?: unknown }).phase !== 'prepared' &&
-      (journal as { phase?: unknown }).phase !== 'committed') ||
+    (phase !== 'prepared' &&
+      phase !== 'committed' &&
+      !(
+        phase === 'preparing' && version === fileSystemTransactionStateVersion
+      )) ||
     (journal as { token?: unknown }).token !== owner.token ||
     !Array.isArray((journal as { entries?: unknown }).entries) ||
     (journal as { entries: unknown[] }).entries.length >
@@ -4543,6 +4681,11 @@ function normalizeFileSystemTransactionJournal(
     )
   }
   const normalizedVersion = version as FileSystemTransactionJournal['version']
+  const normalizedPhase = phase as FileSystemTransactionJournal['phase']
+  const usesIdentityArtifacts =
+    normalizedVersion === previousFileSystemTransactionStateVersion ||
+    normalizedVersion === fileSystemTransactionStateVersion
+  const isPreparing = normalizedPhase === 'preparing'
   const paths = new Set<string>()
   const entries = (journal as { entries: unknown[] }).entries.map(
     (entry): FileSystemTransactionJournalEntry => {
@@ -4586,7 +4729,8 @@ function normalizeFileSystemTransactionJournal(
       )
       const final = normalizeFileSystemTransactionFileState(candidate.final)
       if (
-        normalizedVersion === fileSystemTransactionStateVersion &&
+        usesIdentityArtifacts &&
+        !isPreparing &&
         original !== undefined &&
         (original.dev === undefined || original.ino === undefined)
       ) {
@@ -4595,12 +4739,18 @@ function normalizeFileSystemTransactionJournal(
         )
       }
       if (
-        normalizedVersion === fileSystemTransactionStateVersion &&
+        usesIdentityArtifacts &&
+        !isPreparing &&
         final !== undefined &&
         (final.dev === undefined || final.ino === undefined)
       ) {
         throw new Error(
           `Filesystem transaction journal omitted prepared file identity for ${path}`,
+        )
+      }
+      if (isPreparing && (original !== undefined || final === undefined)) {
+        throw new Error(
+          `Filesystem transaction journal has invalid preparing state for ${path}`,
         )
       }
       let backup: string | undefined
@@ -4626,6 +4776,16 @@ function normalizeFileSystemTransactionJournal(
       if ((original === undefined) !== (backup === undefined)) {
         throw new Error(
           `Filesystem transaction journal has inconsistent backup state for ${path}`,
+        )
+      }
+      if (
+        isPreparing &&
+        (backup !== undefined ||
+          candidate.retired !== undefined ||
+          candidate.rollbackRetired !== undefined)
+      ) {
+        throw new Error(
+          `Filesystem transaction journal has invalid preparing artifacts for ${path}`,
         )
       }
       const normalizeArtifact = (
@@ -4666,17 +4826,16 @@ function normalizeFileSystemTransactionJournal(
         }
         return value
       }
-      const prepared =
-        normalizedVersion === fileSystemTransactionStateVersion
-          ? normalizeArtifact(
-              candidate.prepared,
-              'Transaction prepared replacement',
-              final !== undefined,
-              'prepared',
-            )
-          : undefined
+      const prepared = usesIdentityArtifacts
+        ? normalizeArtifact(
+            candidate.prepared,
+            'Transaction prepared replacement',
+            isPreparing || final !== undefined,
+            'prepared',
+          )
+        : undefined
       const retired =
-        normalizedVersion === fileSystemTransactionStateVersion
+        usesIdentityArtifacts && !isPreparing
           ? normalizeArtifact(
               candidate.retired,
               'Transaction retirement path',
@@ -4685,7 +4844,7 @@ function normalizeFileSystemTransactionJournal(
             )
           : undefined
       const rollbackRetired =
-        normalizedVersion === fileSystemTransactionStateVersion
+        usesIdentityArtifacts && !isPreparing
           ? normalizeArtifact(
               candidate.rollbackRetired,
               'Transaction rollback retirement path',
@@ -4694,7 +4853,7 @@ function normalizeFileSystemTransactionJournal(
             )
           : undefined
       if (
-        normalizedVersion === fileSystemTransactionStateVersion &&
+        usesIdentityArtifacts &&
         (final === undefined) !== (prepared === undefined)
       ) {
         throw new Error(
@@ -4743,7 +4902,7 @@ function normalizeFileSystemTransactionJournal(
   )
   return {
     entries,
-    phase: (journal as FileSystemTransactionJournal).phase,
+    phase: normalizedPhase,
     token: owner.token,
     version: normalizedVersion,
   }
@@ -4770,6 +4929,8 @@ async function readFileSystemTransactionOwnerAt(journalRoot: string) {
     (owner as { kind?: unknown }).kind !== fileSystemTransactionKind ||
     ((owner as { version?: unknown }).version !==
       legacyFileSystemTransactionStateVersion &&
+      (owner as { version?: unknown }).version !==
+        previousFileSystemTransactionStateVersion &&
       (owner as { version?: unknown }).version !==
         fileSystemTransactionStateVersion) ||
     !isReconciliationLockToken((owner as { token?: unknown }).token)
@@ -5120,10 +5281,73 @@ async function recoverLegacyFileSystemTransaction(
   await removeFileSystemTransactionJournal(root, owner.token, journalStats)
 }
 
+async function cleanupPreparingFileSystemTransactionArtifacts(
+  root: string,
+  journal: FileSystemTransactionJournal,
+) {
+  const artifacts = new Map<
+    string,
+    {
+      entry: FileSystemTransactionJournalEntry
+      path: string
+      state: FileSystemTransactionJournalFileState
+    }
+  >()
+  for (const entry of journal.entries) {
+    const path = resolveFileSystemTransactionRelativePath(
+      root,
+      entry.prepared!,
+      'Transaction prepared replacement',
+    )
+    artifacts.set(fileSystemTransactionPlatformPathKey(path), {
+      entry,
+      path,
+      state: entry.final!,
+    })
+  }
+
+  for (const { entry, path, state } of artifacts.values()) {
+    await assertFileSystemTransactionJournalParentUnchanged(root, entry)
+    const current = await fileSystemTransactionFileStateIfExists(path)
+    if (current === undefined) {
+      continue
+    }
+    // The predeclared pathname is not ownership proof: another process may
+    // have created it after the transaction owner crashed.
+    if (
+      state.dev === undefined ||
+      state.ino === undefined ||
+      current.dev !== state.dev ||
+      current.ino !== state.ino
+    ) {
+      throw fileSystemTransactionConflictError(
+        path,
+        state.dev === undefined || state.ino === undefined
+          ? 'the preparing journal did not record ownership of the live artifact'
+          : 'a successor replaced the preparing transaction artifact before cleanup',
+      )
+    }
+    const cleanupRetired = atomicTemporaryPath(path)
+    await retireExactFileSystemTransactionPath(
+      path,
+      current,
+      cleanupRetired,
+      'during preparing transaction artifact cleanup',
+      () => assertFileSystemTransactionJournalParentUnchanged(root, entry),
+    )
+    await unlink(cleanupRetired)
+    await syncDirectory(dirname(path))
+  }
+}
+
 async function cleanupUnpublishedFileSystemTransactionArtifacts(
   root: string,
   journal: FileSystemTransactionJournal,
 ) {
+  if (journal.phase === 'preparing') {
+    await cleanupPreparingFileSystemTransactionArtifacts(root, journal)
+    return
+  }
   const preparedArtifacts = new Map<
     string,
     FileSystemTransactionJournalFileState
@@ -5240,7 +5464,7 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
         owner,
       )
       if (sibling.kind === 'candidate') {
-        if (journal.phase !== 'prepared') {
+        if (journal.phase !== 'preparing' && journal.phase !== 'prepared') {
           throw new Error(
             `Filesystem transaction candidate has an invalid ${journal.phase} phase: ${path}`,
           )
@@ -5303,17 +5527,24 @@ async function recoverFileSystemTransaction(root: string) {
   if (journal.version === legacyFileSystemTransactionStateVersion) {
     await recoverLegacyFileSystemTransaction(root, journal, owner, journalStats)
   } else {
-    if (journal.phase === 'prepared') {
-      const rollbackErrors = await rollbackFileSystemTransaction(root, journal)
-      if (rollbackErrors.length > 0) {
-        throw new AggregateError(
-          rollbackErrors,
-          `Failed to recover interrupted filesystem transaction at ${journalRoot}`,
-          { cause: rollbackErrors[0] },
+    if (journal.phase === 'preparing') {
+      await cleanupPreparingFileSystemTransactionArtifacts(root, journal)
+    } else {
+      if (journal.phase === 'prepared') {
+        const rollbackErrors = await rollbackFileSystemTransaction(
+          root,
+          journal,
         )
+        if (rollbackErrors.length > 0) {
+          throw new AggregateError(
+            rollbackErrors,
+            `Failed to recover interrupted filesystem transaction at ${journalRoot}`,
+            { cause: rollbackErrors[0] },
+          )
+        }
       }
+      await cleanupFileSystemTransactionArtifacts(root, journal)
     }
-    await cleanupFileSystemTransactionArtifacts(root, journal)
     await removeFileSystemTransactionJournal(root, owner.token, journalStats)
   }
   await scavengeFileSystemTransactionSiblings(root)

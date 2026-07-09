@@ -19,7 +19,16 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join } from 'node:path'
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  parse,
+  relative,
+  resolve,
+} from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -161,6 +170,19 @@ async function waitForTransactionCandidateBackup(root: string, index = 0) {
     await delay(1)
   }
   throw new Error('Timed out waiting for transaction backup creation')
+}
+
+async function writeFileSystemTransactionWorker(path: string) {
+  await writeFile(
+    path,
+    `import { commitFileSystemTransaction } from ${JSON.stringify(
+      new URL('../misc.ts', import.meta.url).href,
+    )}
+
+const [root, source, destination] = process.argv.slice(2)
+await commitFileSystemTransaction(root, [{ source, destination }], [])
+`,
+  )
 }
 
 function reconciliationLockOwner(
@@ -529,6 +551,46 @@ test('filesystem transactions reject reserved recovery paths before creating par
   t.false(existsSync(join(root, transactionJournalName)))
   t.false(existsSync(reservedParent))
 })
+
+windowsTest(
+  'filesystem transactions reject cross-volume paths before mutation',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'cross-volume-root')
+    const staging = join(t.context.tmpDir, 'cross-volume-staging')
+    const source = join(staging, 'source.txt')
+    const inRootParent = join(root, 'nested')
+    const rootDrive = parse(root).root
+    const otherDrive = rootDrive.toLowerCase().startsWith('z:')
+      ? 'Y:\\'
+      : 'Z:\\'
+    const crossVolumeDestination = join(
+      otherDrive,
+      'napi-rs-cross-volume-transaction',
+      'destination.txt',
+    )
+    await Promise.all([mkdir(root), mkdir(staging)])
+    await writeFile(source, 'replacement')
+    t.true(isAbsolute(relative(root, crossVolumeDestination)))
+
+    await t.throwsAsync(
+      commitFileSystemTransaction(
+        root,
+        [
+          {
+            source,
+            destination: join(inRootParent, 'destination.txt'),
+          },
+          { source, destination: crossVolumeDestination },
+        ],
+        [],
+      ),
+      { message: /Filesystem transaction path escapes/ },
+    )
+
+    t.false(existsSync(inRootParent))
+    t.false(existsSync(join(root, transactionJournalName)))
+  },
+)
 
 test('filesystem transactions publish transaction-owned source snapshots', async (t) => {
   const root = join(t.context.tmpDir, 'source-snapshot-root')
@@ -1248,6 +1310,225 @@ throw new Error('Transaction completed before the crash observer saw a partial c
   },
 )
 
+crashRecoveryTest(
+  'filesystem transactions preserve a process killed after owner publication',
+  async (t) => {
+    t.timeout(60_000)
+    const root = join(t.context.tmpDir, 'owner-publication-crash-root')
+    const staging = join(t.context.tmpDir, 'owner-publication-crash-staging')
+    const workerPath = join(
+      t.context.tmpDir,
+      'owner-publication-crash-worker.mjs',
+    )
+    const source = join(staging, 'large-source.bin')
+    const recoverySource = join(staging, 'recovery-source.txt')
+    const destination = join(root, 'destination.txt')
+    await Promise.all([
+      mkdir(root, { recursive: true }),
+      mkdir(staging, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(source, Buffer.alloc(64 * 1024 * 1024, 0x61)),
+      writeFile(recoverySource, 'recovered'),
+      writeFile(destination, 'prior destination'),
+      writeFileSystemTransactionWorker(workerPath),
+    ])
+
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        workerPath,
+        root,
+        source,
+        destination,
+      ],
+      { cwd: process.cwd(), stdio: 'ignore' },
+    )
+    t.teardown(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
+      }
+    })
+    const childClosed = once(child, 'close')
+    const candidateRoot = await waitForTransactionCandidate(root)
+    const ownerPath = join(candidateRoot, 'owner.json')
+    const statePath = join(candidateRoot, 'state.json')
+    const deadline = Date.now() + 30_000
+    while (true) {
+      if (existsSync(ownerPath) && !existsSync(statePath)) {
+        child.kill('SIGSTOP')
+        await delay(10)
+        if (existsSync(statePath)) {
+          child.kill('SIGKILL')
+          throw new Error(
+            'Transaction advanced past the owner-only crash window',
+          )
+        }
+        child.kill('SIGKILL')
+        break
+      }
+      if (existsSync(statePath)) {
+        child.kill('SIGKILL')
+        throw new Error('Transaction missed the owner-only crash window')
+      }
+      if (Date.now() >= deadline) {
+        child.kill('SIGKILL')
+        throw new Error('Timed out waiting for transaction owner publication')
+      }
+      await delay(1)
+    }
+    const [, signal] = await childClosed
+    t.is(signal, 'SIGKILL')
+    t.is(JSON.parse(await readFile(ownerPath, 'utf8')).version, 3)
+    t.false(existsSync(statePath))
+    t.is(await readFile(destination, 'utf8'), 'prior destination')
+
+    await withFileSystemReconciliation(root, async () => {})
+
+    t.true(existsSync(candidateRoot))
+    t.is(await readFile(destination, 'utf8'), 'prior destination')
+    await commitFileSystemTransaction(
+      root,
+      [{ source: recoverySource, destination }],
+      [],
+    )
+    t.is(await readFile(destination, 'utf8'), 'recovered')
+    t.true(existsSync(candidateRoot))
+  },
+)
+
+crashRecoveryTest(
+  'filesystem transactions recover a process killed during prepared artifact creation',
+  async (t) => {
+    t.timeout(60_000)
+    const root = join(t.context.tmpDir, 'preparing-artifact-crash-root')
+    const staging = join(t.context.tmpDir, 'preparing-artifact-crash-staging')
+    const workerPath = join(
+      t.context.tmpDir,
+      'preparing-artifact-crash-worker.mjs',
+    )
+    const sourceSize = 64 * 1024 * 1024
+    const source = join(staging, 'large-source.bin')
+    const recoverySource = join(staging, 'recovery-source.txt')
+    const destination = join(root, 'destination.txt')
+    await Promise.all([
+      mkdir(root, { recursive: true }),
+      mkdir(staging, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(source, Buffer.alloc(sourceSize, 0x62)),
+      writeFile(recoverySource, 'recovered'),
+      writeFile(destination, 'prior destination'),
+      writeFileSystemTransactionWorker(workerPath),
+    ])
+
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        workerPath,
+        root,
+        source,
+        destination,
+      ],
+      { cwd: process.cwd(), stdio: 'ignore' },
+    )
+    t.teardown(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
+      }
+    })
+    const childClosed = once(child, 'close')
+    const candidateRoot = await waitForTransactionCandidate(root)
+    const statePath = join(candidateRoot, 'state.json')
+    const deadline = Date.now() + 30_000
+    let preparedPath: string | undefined
+    while (true) {
+      const stateContent = await readFileIfExists(statePath)
+      if (stateContent !== undefined) {
+        const state = JSON.parse(stateContent) as {
+          entries: Array<{
+            final?: { dev?: number; ino?: number }
+            prepared?: string
+          }>
+          phase: string
+          version: number
+        }
+        if (state.phase === 'prepared') {
+          child.kill('SIGKILL')
+          throw new Error('Transaction missed the preparing crash window')
+        }
+        if (
+          state.phase === 'preparing' &&
+          state.entries[0]?.prepared &&
+          typeof state.entries[0].final?.dev === 'number' &&
+          typeof state.entries[0].final?.ino === 'number'
+        ) {
+          const candidatePreparedPath = resolve(root, state.entries[0].prepared)
+          try {
+            const preparedStats = await lstat(candidatePreparedPath)
+            if (preparedStats.isFile() && preparedStats.size < sourceSize) {
+              child.kill('SIGSTOP')
+              await delay(10)
+              const stoppedState = JSON.parse(
+                await readFile(statePath, 'utf8'),
+              ) as {
+                entries: Array<{ final?: { dev?: number; ino?: number } }>
+                phase: string
+                version: number
+              }
+              if (stoppedState.phase !== 'preparing') {
+                child.kill('SIGKILL')
+                throw new Error(
+                  'Transaction advanced past the preparing crash window',
+                )
+              }
+              t.is(stoppedState.version, 3)
+              t.is(typeof stoppedState.entries[0]?.final?.dev, 'number')
+              t.is(typeof stoppedState.entries[0]?.final?.ino, 'number')
+              preparedPath = candidatePreparedPath
+              child.kill('SIGKILL')
+              break
+            }
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw error
+            }
+          }
+        }
+      }
+      if (Date.now() >= deadline) {
+        child.kill('SIGKILL')
+        throw new Error(
+          'Timed out waiting for partial transaction artifact creation',
+        )
+      }
+      await delay(1)
+    }
+    const [, signal] = await childClosed
+    t.is(signal, 'SIGKILL')
+    t.truthy(preparedPath)
+    t.true(existsSync(preparedPath!))
+    t.true((await lstat(preparedPath!)).size < sourceSize)
+    t.is(await readFile(destination, 'utf8'), 'prior destination')
+
+    await withFileSystemReconciliation(root, async () => {})
+
+    t.false(existsSync(candidateRoot))
+    t.false(existsSync(preparedPath!))
+    t.is(await readFile(destination, 'utf8'), 'prior destination')
+    await commitFileSystemTransaction(
+      root,
+      [{ source: recoverySource, destination }],
+      [],
+    )
+    t.is(await readFile(destination, 'utf8'), 'recovered')
+  },
+)
+
 test('filesystem transactions ignore a crash residue created before candidate ownership', async (t) => {
   const root = join(t.context.tmpDir, 'pre-owner-crash-root')
   const staging = join(t.context.tmpDir, 'pre-owner-crash-staging')
@@ -1272,6 +1553,134 @@ test('filesystem transactions ignore a crash residue created before candidate ow
 
   t.is(await readFile(destination, 'utf8'), 'committed')
   t.is(await readFile(sentinel, 'utf8'), 'unpublished candidate')
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions preserve owner-only v2 candidates', async (t) => {
+  const root = join(t.context.tmpDir, 'v2-owner-only-candidate-root')
+  const staging = join(t.context.tmpDir, 'v2-owner-only-candidate-staging')
+  const token = '00000000-0000-4000-8000-000000000119'
+  const candidateRoot = transactionSiblingPath(root, 'candidate', token)
+  const sentinel = join(candidateRoot, 'sentinel.txt')
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([
+    mkdir(candidateRoot, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(candidateRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 2)),
+    ),
+    writeFile(sentinel, 'preserve legacy recovery state'),
+    writeFile(source, 'committed'),
+  ])
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.is(await readFile(sentinel, 'utf8'), 'preserve legacy recovery state')
+  t.true(existsSync(candidateRoot))
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions preserve owner-only v3 candidates', async (t) => {
+  const root = join(t.context.tmpDir, 'v3-owner-only-candidate-root')
+  const staging = join(t.context.tmpDir, 'v3-owner-only-candidate-staging')
+  const token = '00000000-0000-4000-8000-000000000120'
+  const candidateRoot = transactionSiblingPath(root, 'candidate', token)
+  const sentinel = join(candidateRoot, 'third-party-sentinel.txt')
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([
+    mkdir(candidateRoot, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await writeFile(
+    join(candidateRoot, 'owner.json'),
+    JSON.stringify(transactionOwner(token, 3)),
+  )
+  await Promise.all([
+    writeFile(sentinel, 'created after the transaction owner crashed'),
+    writeFile(source, 'committed'),
+  ])
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.is(
+    await readFile(sentinel, 'utf8'),
+    'created after the transaction owner crashed',
+  )
+  t.true(existsSync(candidateRoot))
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions preserve a successor created after preparing journal publication', async (t) => {
+  const root = join(t.context.tmpDir, 'preparing-successor-root')
+  const staging = join(t.context.tmpDir, 'preparing-successor-staging')
+  const token = '00000000-0000-4000-8000-000000000121'
+  const candidateRoot = transactionSiblingPath(root, 'candidate', token)
+  const abandonedDestination = join(root, 'abandoned.txt')
+  const prepared = transactionArtifactPath(
+    abandonedDestination,
+    token,
+    0,
+    'prepared',
+  )
+  const plannedSource = join(staging, 'planned.txt')
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([
+    mkdir(candidateRoot, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(plannedSource, 'planned transaction replacement'),
+    writeFile(source, 'committed'),
+  ])
+  const [plannedState, rootStats] = await Promise.all([
+    transactionFileState(plannedSource),
+    lstat(root),
+  ])
+  await writeFile(
+    join(candidateRoot, 'owner.json'),
+    JSON.stringify(transactionOwner(token, 3)),
+  )
+  await writeFile(
+    join(candidateRoot, 'state.json'),
+    JSON.stringify({
+      entries: [
+        {
+          final: {
+            hash: plannedState.hash,
+            mode: plannedState.mode,
+          },
+          parent: {
+            canonicalParent: '.',
+            dev: rootStats.dev,
+            identityPath: '.',
+            ino: rootStats.ino,
+          },
+          path: basename(abandonedDestination),
+          prepared: basename(prepared),
+        },
+      ],
+      phase: 'preparing',
+      token,
+      version: 3,
+    }),
+  )
+  await writeFile(prepared, 'third-party successor')
+  const successorState = await transactionFileState(prepared)
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.is(await readFile(prepared, 'utf8'), 'third-party successor')
+  t.deepEqual(await transactionFileState(prepared), successorState)
+  t.true(existsSync(candidateRoot))
   t.false(existsSync(join(root, transactionJournalName)))
 })
 

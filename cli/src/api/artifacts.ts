@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import {
   dirname,
@@ -28,12 +28,14 @@ import {
   resolvePackageReconciliationPaths,
   type Target,
   UniArchsByPlatform,
-  unlinkAsync,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   withFileSystemReconciliation,
 } from '../utils/index.js'
-import { WASI_ARTIFACT_METADATA_PREFIX } from './build.js'
+import {
+  createWasiBrowserEntry,
+  WASI_ARTIFACT_METADATA_PREFIX,
+} from './build.js'
 
 const debug = debugFactory('artifacts')
 
@@ -48,6 +50,7 @@ interface PendingWrite {
 }
 
 interface WasiArtifactMetadata {
+  exports?: string[]
   rootEntry: string | null
   managedRootEntries: string[]
 }
@@ -89,7 +92,7 @@ async function collectArtifactsUnlocked(
       options.configPath ? resolvePath(options.configPath) : undefined,
     )
   const npmDir = resolvedPaths.managedPaths[0]
-  const outputDir = resolvePath(options.outputDir)
+  const outputDir = await realpath(resolvePath(options.outputDir))
   const buildOutputDir = options.buildOutputDir
     ? resolvePath(options.buildOutputDir)
     : cwd
@@ -147,16 +150,13 @@ async function collectArtifactsUnlocked(
     (target) => !artifactsByIdentity.has(artifactName(binaryName, target)),
   )
   if (missingTargets.length > 0) {
-    await Promise.all(
-      missingTargets.map((target) =>
-        removeTargetDestinations(
-          packageRoot,
-          npmDir,
-          binaryName,
-          target,
-          protectedSourcePaths,
-        ),
-      ),
+    await removeTargetDestinations(
+      resolvedPaths.boundary,
+      packageRoot,
+      npmDir,
+      binaryName,
+      missingTargets,
+      protectedSourcePaths,
     )
     throw new Error(
       `Missing artifacts for configured targets: ${missingTargets
@@ -183,10 +183,11 @@ async function collectArtifactsUnlocked(
       )
     } catch (error) {
       await removeTargetDestinations(
+        resolvedPaths.boundary,
         packageRoot,
         npmDir,
         binaryName,
-        target,
+        [target],
         protectedSourcePaths,
       )
       throw error
@@ -215,14 +216,18 @@ async function collectArtifactsUnlocked(
       await addWasiBrowserEntry(
         pendingWrites,
         packageRoot,
+        packageName,
+        binaryName,
+        browserTarget,
         wasiSources.get(browserTarget.platformArchABI)!,
       )
     } catch (error) {
       await removeTargetDestinations(
+        resolvedPaths.boundary,
         packageRoot,
         npmDir,
         binaryName,
-        browserTarget,
+        [browserTarget],
         protectedSourcePaths,
       )
       throw error
@@ -390,8 +395,34 @@ async function findWasiArtifactSource(
 async function addWasiBrowserEntry(
   pendingWrites: Map<string, PendingWrite>,
   packageRoot: string,
+  packageName: string,
+  binaryName: string,
+  target: Target,
   source: WasiArtifactSource,
 ) {
+  const bindingSource = source.files.get(
+    `${binaryName}.${wasiLoaderSuffix(target.platformArchABI)}.cjs`,
+  )!
+  const metadata = parseWasiArtifactMetadata(
+    await readFileAsync(bindingSource, 'utf8'),
+    bindingSource,
+  )
+  if (metadata?.exports !== undefined) {
+    addPendingWrite(
+      pendingWrites,
+      join(packageRoot, 'browser.js'),
+      bindingSource,
+      Buffer.from(
+        createWasiBrowserEntry(
+          packageName,
+          target.platformArchABI,
+          metadata.exports,
+        ),
+      ),
+    )
+    return
+  }
+
   const browserSource = source.files.get('browser.js')
   if (!browserSource) {
     throw new Error(
@@ -580,7 +611,16 @@ function parseWasiArtifactMetadata(content: string, source: string) {
   ) {
     throw new Error(`Unsupported WASI artifact metadata in ${source}`)
   }
+  const exports = record.exports
+  if (
+    exports !== undefined &&
+    (!Array.isArray(exports) ||
+      !exports.every((entry) => typeof entry === 'string'))
+  ) {
+    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
+  }
   return {
+    exports: exports as string[] | undefined,
     rootEntry: record.rootEntry as string | null,
     managedRootEntries: [...new Set(managedRootEntries)],
   } satisfies WasiArtifactMetadata
@@ -650,11 +690,31 @@ function addPendingWrite(
 }
 
 async function removeTargetDestinations(
+  reconciliationRoot: string,
+  packageRoot: string,
+  npmDir: string,
+  binaryName: string,
+  targets: Target[],
+  protectedSourcePaths: Set<string>,
+) {
+  const paths = targets.flatMap((target) =>
+    targetDestinationPaths(packageRoot, npmDir, binaryName, target),
+  )
+  const removals = [
+    ...new Set(
+      paths.filter((path) => !protectedSourcePaths.has(resolve(path))),
+    ),
+  ]
+  if (removals.length > 0) {
+    await commitFileSystemTransaction(reconciliationRoot, [], removals)
+  }
+}
+
+function targetDestinationPaths(
   packageRoot: string,
   npmDir: string,
   binaryName: string,
   target: Target,
-  protectedSourcePaths: Set<string>,
 ) {
   const identity = artifactName(binaryName, target)
   const paths = [
@@ -671,11 +731,7 @@ async function removeTargetDestinations(
     }
     paths.push(join(packageRoot, `${binaryName}.wasm`))
   }
-  await Promise.all(
-    paths
-      .filter((path) => !protectedSourcePaths.has(resolve(path)))
-      .map(unlinkIfExists),
-  )
+  return paths
 }
 
 async function collectStaleManagedDestinations(
@@ -782,16 +838,6 @@ function allManagedWasiFilesForSuffix(
     'wasi-worker.mjs',
     'wasi-worker-browser.mjs',
   ]
-}
-
-async function unlinkIfExists(path: string) {
-  try {
-    await unlinkAsync(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error
-    }
-  }
 }
 
 async function collectManagedRootEntries(

@@ -1,6 +1,15 @@
-import { rm as rawRmAsync } from 'node:fs/promises'
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  rmdir,
+  writeFile,
+} from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const directBufferDependency = '^6.0.3'
@@ -10,28 +19,51 @@ import {
   type CreateNpmDirsOptions,
 } from '../def/create-npm-dirs.js'
 import {
+  commitFileSystemTransaction,
   createWasmModuleTypeDef,
   debugFactory,
   MINIMUM_WASI_NODE_VERSION,
+  parseTriple,
   readNapiConfig,
-  mkdirAsync as rawMkdirAsync,
   pick,
+  resolvePackageReconciliationPaths,
   restrictWasiNodeEngine,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
-  writeFileAsync as rawWriteFileAsync,
+  withFileSystemReconciliation,
+  type FileSystemTransactionWrite,
   type Target,
   type CommonPackageJsonFields,
 } from '../utils/index.js'
 
 const debug = debugFactory('create-npm-dirs')
-const MANAGED_WASI_PACKAGE_DIRS = ['wasm32-wasi', 'wasm32-wasip1']
+const MANAGED_WASI_PACKAGE_TARGETS = new Map([
+  ['wasm32-wasi', 'wasm32-wasip1-threads'],
+  ['wasm32-wasip1', 'wasm32-wasip1'],
+])
+const MANAGED_WASI_PACKAGE_DIRS = [...MANAGED_WASI_PACKAGE_TARGETS.keys()]
 
 export interface PackageMeta {
   'dist-tags': { [index: string]: string }
 }
 
 const WASM_RUNTIME_PACKAGE_NAME = '@napi-rs/wasm-runtime'
+
+interface PendingMetadataWrite {
+  content: string
+  destination: string
+}
+
+interface ManagedPackageDirectory {
+  name: string
+  path: string
+}
+
+interface OwnedWasiPackage {
+  binaryName: string
+  packageName: string
+  target: Target
+}
 
 async function getLatestWasmRuntimeVersion() {
   const npmRegistryBase =
@@ -77,34 +109,316 @@ async function getLatestWasmRuntimeVersion() {
   return latestVersion.trim()
 }
 
-export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
-  const options = applyDefaultCreateNpmDirsOptions(userOptions)
+function assertSafeManagedPathSegment(value: string, label: string) {
+  if (
+    value.length === 0 ||
+    value === '.' ||
+    value === '..' ||
+    value.includes('\0') ||
+    value.includes('/') ||
+    value.includes('\\') ||
+    isAbsolute(value) ||
+    basename(value) !== value
+  ) {
+    throw new Error(
+      `${label} must be a single filesystem path segment: ${value}`,
+    )
+  }
+}
 
-  async function mkdirAsync(dir: string) {
-    debug('Try to create dir: %i', dir)
-    if (options.dryRun) {
+async function lstatIfExists(path: string) {
+  try {
+    return await lstat(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return
     }
+    throw error
+  }
+}
 
-    await rawMkdirAsync(dir, {
-      recursive: true,
-    })
+async function assertSafeTargetDirectory(path: string) {
+  const stats = await lstatIfExists(path)
+  if (!stats) {
+    return
+  }
+  if (stats.isSymbolicLink()) {
+    throw new Error(
+      `npm target directory must not be a symbolic link or junction: ${path}`,
+    )
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`npm target path is not a directory: ${path}`)
+  }
+}
+
+async function resolveManagedPackageDirectories(
+  options: ReturnType<typeof applyDefaultCreateNpmDirsOptions>,
+  initialPaths: ReturnType<typeof resolvePackageReconciliationPaths>,
+  targets: Target[],
+) {
+  const directoryNames = [
+    ...new Set([
+      ...targets.map((target) => target.platformArchABI),
+      ...MANAGED_WASI_PACKAGE_DIRS,
+    ]),
+  ]
+  for (const directoryName of directoryNames) {
+    assertSafeManagedPathSegment(
+      directoryName,
+      `Target output identity ${directoryName}`,
+    )
   }
 
-  async function writeFileAsync(file: string, content: string) {
-    debug('Writing file %i', file)
+  const requestedNpmPath = resolve(options.cwd, options.npmDir)
+  const requestedTargetPaths = directoryNames.map((directoryName) =>
+    join(requestedNpmPath, directoryName),
+  )
+  await Promise.all(requestedTargetPaths.map(assertSafeTargetDirectory))
 
-    if (options.dryRun) {
-      debug(content)
-      return
+  const resolvedPaths = resolvePackageReconciliationPaths(
+    options.cwd,
+    options.packageJsonPath,
+    [options.npmDir, ...requestedTargetPaths],
+  )
+  if (resolvedPaths.boundary !== initialPaths.boundary) {
+    throw new Error(
+      `Managed npm target paths changed the reconciliation boundary from ${initialPaths.boundary} to ${resolvedPaths.boundary}`,
+    )
+  }
+
+  return new Map(
+    directoryNames.map((name, index) => [
+      name,
+      {
+        name,
+        path: resolvedPaths.managedPaths[index + 1],
+      } satisfies ManagedPackageDirectory,
+    ]),
+  )
+}
+
+function managedWasiGeneratedFiles(binaryName: string, packageDir: string) {
+  assertSafeManagedPathSegment(binaryName, 'Configured binary name')
+  const targetTriple = MANAGED_WASI_PACKAGE_TARGETS.get(packageDir)
+  if (!targetTriple) {
+    return new Set<string>()
+  }
+  const target = parseTriple(targetTriple)
+  const loaderSuffix = wasiLoaderSuffix(packageDir)
+  const files = new Set([
+    `${binaryName}.${packageDir}.wasm`,
+    `${binaryName}.${packageDir}.debug.wasm`,
+    `${binaryName}.${loaderSuffix}.cjs`,
+    `${binaryName}.${loaderSuffix}.d.cts`,
+    `${binaryName}.${loaderSuffix}-browser.js`,
+  ])
+  if (wasiTargetHasThreads(target)) {
+    files.add('wasi-worker.mjs')
+    files.add('wasi-worker-browser.mjs')
+  } else {
+    for (const file of [
+      `${binaryName}.${packageDir}.wasm.d.ts`,
+      `${binaryName}.${packageDir}.wasm.d.mts`,
+      `${binaryName}.${packageDir}.workerd.mjs`,
+      `${binaryName}.${packageDir}.workerd.d.mts`,
+      `${binaryName}.${loaderSuffix}-deferred.js`,
+      `${binaryName}.${loaderSuffix}-deferred.d.ts`,
+    ]) {
+      files.add(file)
     }
+  }
+  return files
+}
 
-    await rawWriteFileAsync(file, content)
+function asJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+async function inspectOwnedWasiPackage(
+  directory: ManagedPackageDirectory,
+): Promise<OwnedWasiPackage | undefined> {
+  const targetTriple = MANAGED_WASI_PACKAGE_TARGETS.get(directory.name)
+  if (!targetTriple) {
+    return
+  }
+  const manifestPath = join(directory.path, 'package.json')
+  const stats = await lstatIfExists(manifestPath)
+  if (!stats?.isFile()) {
+    return
   }
 
-  const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
-  const npmPath = resolve(options.cwd, options.npmDir)
+  let manifest: Record<string, unknown> | undefined
+  try {
+    manifest = asJsonRecord(JSON.parse(await readFile(manifestPath, 'utf8')))
+  } catch {
+    return
+  }
+  if (!manifest || typeof manifest.name !== 'string') {
+    return
+  }
 
+  const packageNameSuffix = `-${directory.name}`
+  if (
+    !manifest.name.endsWith(packageNameSuffix) ||
+    manifest.name.length === packageNameSuffix.length ||
+    typeof manifest.version !== 'string' ||
+    typeof manifest.main !== 'string' ||
+    !Array.isArray(manifest.files) ||
+    !manifest.files.every((file) => typeof file === 'string') ||
+    manifest.type !== 'module'
+  ) {
+    return
+  }
+
+  const loaderSuffix = wasiLoaderSuffix(directory.name)
+  const mainSuffix = `.${loaderSuffix}.cjs`
+  if (
+    !manifest.main.endsWith(mainSuffix) ||
+    manifest.main.length === mainSuffix.length
+  ) {
+    return
+  }
+  const binaryName = manifest.main.slice(0, -mainSuffix.length)
+  try {
+    assertSafeManagedPathSegment(binaryName, 'Managed WASI binary name')
+  } catch {
+    return
+  }
+
+  const target = parseTriple(targetTriple)
+  const requiredFiles = [
+    `${binaryName}.${directory.name}.wasm`,
+    `${binaryName}.${loaderSuffix}.cjs`,
+    `${binaryName}.${loaderSuffix}.d.cts`,
+    `${binaryName}.${loaderSuffix}-browser.js`,
+    ...(wasiTargetHasThreads(target)
+      ? ['wasi-worker.mjs', 'wasi-worker-browser.mjs']
+      : [
+          `${binaryName}.${loaderSuffix}-deferred.js`,
+          `${binaryName}.${loaderSuffix}-deferred.d.ts`,
+          `${binaryName}.${directory.name}.wasm.d.ts`,
+        ]),
+  ]
+  const files = new Set(manifest.files)
+  if (
+    manifest.types !== `${binaryName}.${loaderSuffix}.d.cts` ||
+    manifest.browser !== `${binaryName}.${loaderSuffix}-browser.js` ||
+    !requiredFiles.every((file) => files.has(file))
+  ) {
+    return
+  }
+
+  return {
+    binaryName,
+    packageName: manifest.name.slice(0, -packageNameSuffix.length),
+    target,
+  }
+}
+
+async function collectStaleWasiPackageRemovals(
+  directory: ManagedPackageDirectory,
+  binaryName: string,
+) {
+  let entries
+  try {
+    entries = await readdir(directory.path, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []
+    }
+    throw error
+  }
+  const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
+  const owner = await inspectOwnedWasiPackage(directory)
+  const generatedFiles = managedWasiGeneratedFiles(binaryName, directory.name)
+  if (owner) {
+    for (const file of managedWasiGeneratedFiles(
+      owner.binaryName,
+      directory.name,
+    )) {
+      generatedFiles.add(file)
+    }
+  }
+
+  const removals: string[] = []
+  for (const file of generatedFiles) {
+    const entry = entriesByName.get(file)
+    if (!entry) {
+      continue
+    }
+    if (!entry.isFile()) {
+      throw new Error(
+        `Managed WASI package file must be a regular file: ${join(directory.path, file)}`,
+      )
+    }
+    removals.push(join(directory.path, file))
+  }
+
+  if (owner) {
+    removals.push(join(directory.path, 'package.json'))
+    const readmePath = join(directory.path, 'README.md')
+    if (
+      entriesByName.get('README.md')?.isFile() &&
+      (await readFile(readmePath, 'utf8')) ===
+        readme(owner.packageName, owner.target)
+    ) {
+      removals.push(readmePath)
+    }
+  }
+  return removals
+}
+
+async function publishPackageMetadata(
+  reconciliationRoot: string,
+  pendingWrites: PendingMetadataWrite[],
+  removals: string[],
+) {
+  const stagingRoot = await mkdtemp(
+    join(tmpdir(), 'napi-rs-create-npm-dirs-stage-'),
+  )
+  try {
+    const writes: FileSystemTransactionWrite[] = []
+    for (const [index, pendingWrite] of pendingWrites.entries()) {
+      const source = join(stagingRoot, String(index))
+      await writeFile(source, pendingWrite.content)
+      writes.push({
+        destination: pendingWrite.destination,
+        source,
+      })
+    }
+    if (writes.length > 0 || removals.length > 0) {
+      await commitFileSystemTransaction(reconciliationRoot, writes, removals)
+    }
+  } finally {
+    await rm(stagingRoot, { force: true, recursive: true })
+  }
+}
+
+async function removeEmptyStalePackageDirectories(
+  directories: ManagedPackageDirectory[],
+) {
+  for (const directory of directories) {
+    try {
+      await rmdir(directory.path)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST') {
+        debug.warn(
+          `Failed to remove empty stale npm package directory ${directory.path}: ${String(error)}`,
+        )
+      }
+    }
+  }
+}
+
+async function createNpmDirsUnlocked(
+  options: ReturnType<typeof applyDefaultCreateNpmDirsOptions>,
+  initialPaths: ReturnType<typeof resolvePackageReconciliationPaths>,
+) {
+  const packageJsonPath = initialPaths.packageJsonPath
   debug(`Read content from [${options.configPath ?? packageJsonPath}]`)
 
   const { targets, binaryName, packageName, packageJson, wasm } =
@@ -112,28 +426,33 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       packageJsonPath,
       options.configPath ? resolve(options.cwd, options.configPath) : undefined,
     )
+  assertSafeManagedPathSegment(binaryName, 'Configured binary name')
+  const packageDirectories = await resolveManagedPackageDirectories(
+    options,
+    initialPaths,
+    targets,
+  )
   const configuredPackageDirs = new Set(
     targets.map((target) => target.platformArchABI),
   )
+  const staleWasiDirectories = MANAGED_WASI_PACKAGE_DIRS.filter(
+    (packageDir) => !configuredPackageDirs.has(packageDir),
+  ).map((packageDir) => packageDirectories.get(packageDir)!)
+  const staleWasiRemovals = (
+    await Promise.all(
+      staleWasiDirectories.map((directory) =>
+        collectStaleWasiPackageRemovals(directory, binaryName),
+      ),
+    )
+  ).flat()
   const wasmRuntimeVersion = targets.some((target) => target.arch === 'wasm32')
     ? await getLatestWasmRuntimeVersion()
     : undefined
-  if (!options.dryRun) {
-    await Promise.all(
-      MANAGED_WASI_PACKAGE_DIRS.filter(
-        (packageDir) => !configuredPackageDirs.has(packageDir),
-      ).map((packageDir) =>
-        rawRmAsync(join(npmPath, packageDir), {
-          recursive: true,
-          force: true,
-        }),
-      ),
-    )
-  }
+  const pendingWrites: PendingMetadataWrite[] = []
 
   for (const target of targets) {
-    const targetDir = join(npmPath, `${target.platformArchABI}`)
-    await mkdirAsync(targetDir)
+    const targetDir = packageDirectories.get(target.platformArchABI)!.path
+    debug('Plan npm package dir: %i', targetDir)
 
     const binaryFileName =
       target.arch === 'wasm32'
@@ -252,21 +571,59 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     }
 
     const targetPackageJson = join(targetDir, 'package.json')
-    await writeFileAsync(
-      targetPackageJson,
-      JSON.stringify(scopedPackageJson, null, 2) + '\n',
-    )
+    pendingWrites.push({
+      content: JSON.stringify(scopedPackageJson, null, 2) + '\n',
+      destination: targetPackageJson,
+    })
     if (wasmModuleTypeDef) {
-      await writeFileAsync(
-        join(targetDir, wasmModuleTypeDef),
-        createWasmModuleTypeDef(),
-      )
+      pendingWrites.push({
+        content: createWasmModuleTypeDef(),
+        destination: join(targetDir, wasmModuleTypeDef),
+      })
     }
     const targetReadme = join(targetDir, 'README.md')
-    await writeFileAsync(targetReadme, readme(packageName, target))
+    pendingWrites.push({
+      content: readme(packageName, target),
+      destination: targetReadme,
+    })
 
     debug.info(`${packageName} -${target.platformArchABI} created`)
   }
+
+  for (const { content, destination } of pendingWrites) {
+    debug('Writing file %i', destination)
+    if (options.dryRun) {
+      debug(content)
+    }
+  }
+  for (const removal of staleWasiRemovals) {
+    debug('Removing stale managed file %i', removal)
+  }
+  if (options.dryRun) {
+    return
+  }
+
+  await publishPackageMetadata(
+    initialPaths.boundary,
+    pendingWrites,
+    staleWasiRemovals,
+  )
+  await removeEmptyStalePackageDirectories(staleWasiDirectories)
+}
+
+export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
+  const options = applyDefaultCreateNpmDirsOptions(userOptions)
+  const resolvedPaths = resolvePackageReconciliationPaths(
+    options.cwd,
+    options.packageJsonPath,
+    [options.npmDir],
+  )
+  if (options.dryRun) {
+    return createNpmDirsUnlocked(options, resolvedPaths)
+  }
+  return withFileSystemReconciliation(resolvedPaths.boundary, () =>
+    createNpmDirsUnlocked(options, resolvedPaths),
+  )
 }
 
 function readme(packageName: string, target: Target) {

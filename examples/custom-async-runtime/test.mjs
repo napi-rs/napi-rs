@@ -36,11 +36,20 @@ const bindingFile = isManualThreadlessWasi
       ? './custom_async_runtime.wasi.cjs'
       : './index.cjs'
 const resolvedBindingFile = require.resolve(bindingFile)
+const declarationFile = isManualThreadlessWasi
+  ? process.env.NAPI_RS_TEST_THREADLESS_WASI_DECLARATION
+  : new URL('./index.d.cts', import.meta.url)
+
+if (isManualThreadlessWasi && !declarationFile) {
+  throw new Error(
+    'NAPI_RS_TEST_THREADLESS_WASI_DECLARATION is required for wasi-threadless',
+  )
+}
 
 if (isWasi) {
   const [source, declarations] = await Promise.all([
     readFile(new URL(bindingFile, import.meta.url), 'utf8'),
-    readFile(new URL('./index.d.cts', import.meta.url), 'utf8'),
+    readFile(declarationFile, 'utf8'),
   ])
   if (isThreadlessWasi) {
     assert.doesNotMatch(source, /node:worker_threads/)

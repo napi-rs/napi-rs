@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,11 +9,19 @@ import typeScript from 'typescript'
 
 import {
   formatGeneratedOutputs,
+  lifecycleOutputFiles,
+  mergeLifecycleDeclarations,
   mergeLifecycleLoaderExports,
   preserveLifecycleDeclarations,
   regenerateArtifacts,
 } from '../build.mjs'
 import { unsupportedWasiFunctions } from '../unsupported-wasi-exports.mjs'
+
+const generatedArtifactDirectory = join(import.meta.dirname, '..')
+
+function generatedExportNames(source: string, pattern: RegExp) {
+  return [...source.matchAll(pattern)].map((match) => match[1])
+}
 
 test('generated threadless outputs are finalized with repository formatting', async (t) => {
   const directory = await mkdtemp(
@@ -126,7 +135,6 @@ export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones
 })
 
 test('checked threaded artifacts retain the WASI export surface and portable stubs', async (t) => {
-  const directory = join(import.meta.dirname, '..')
   const [
     browserSource,
     nodeSource,
@@ -135,16 +143,25 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
     rootDeclarationSource,
     rootBrowserSource,
   ] = await Promise.all([
-    readFile(join(directory, 'example.wasi-browser.js'), 'utf8'),
-    readFile(join(directory, 'example.wasi.cjs'), 'utf8'),
-    readFile(join(directory, 'example.wasi.d.cts'), 'utf8'),
-    readFile(join(directory, 'index.cjs'), 'utf8'),
-    readFile(join(directory, 'index.d.cts'), 'utf8'),
-    readFile(join(directory, 'browser.js'), 'utf8'),
+    readFile(
+      join(generatedArtifactDirectory, 'example.wasi-browser.js'),
+      'utf8',
+    ),
+    readFile(join(generatedArtifactDirectory, 'example.wasi.cjs'), 'utf8'),
+    readFile(join(generatedArtifactDirectory, 'example.wasi.d.cts'), 'utf8'),
+    readFile(join(generatedArtifactDirectory, 'index.cjs'), 'utf8'),
+    readFile(join(generatedArtifactDirectory, 'index.d.cts'), 'utf8'),
+    readFile(join(generatedArtifactDirectory, 'browser.js'), 'utf8'),
   ])
   const [deferredSource, deferredDeclarationSource] = await Promise.all([
-    readFile(join(directory, 'example.wasip1-deferred.js'), 'utf8'),
-    readFile(join(directory, 'example.wasip1-deferred.d.ts'), 'utf8'),
+    readFile(
+      join(generatedArtifactDirectory, 'example.wasip1-deferred.js'),
+      'utf8',
+    ),
+    readFile(
+      join(generatedArtifactDirectory, 'example.wasip1-deferred.d.ts'),
+      'utf8',
+    ),
   ])
   const privateWasiTestExports = [
     'dropUnregisteredWeakTsfnForWasi',
@@ -193,6 +210,175 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
   t.regex(rootSource, /['"]wasm32-wasi['"]/)
   t.regex(rootSource, /['"]wasm32-wasip1['"]/)
   t.is(rootBrowserSource, "export * from '@examples/napi-wasm32-wasip1'\n")
+})
+
+test('checked WASI artifacts are a clean lifecycle regeneration', async (t) => {
+  const rootDeclarationSource = await readFile(
+    join(generatedArtifactDirectory, 'index.d.cts'),
+    'utf8',
+  )
+
+  for (const target of ['wasm32-wasip1', 'wasm32-wasip1-threads']) {
+    const outputs = lifecycleOutputFiles(target)
+    for (const output of outputs.loaders) {
+      const source = await readFile(
+        join(generatedArtifactDirectory, output.file),
+        'utf8',
+      )
+      t.is(mergeLifecycleLoaderExports(source, output), source, output.file)
+    }
+    for (const file of outputs.declarations.filter(
+      (file) => file !== 'index.d.cts',
+    )) {
+      const source = await readFile(
+        join(generatedArtifactDirectory, file),
+        'utf8',
+      )
+      t.is(
+        mergeLifecycleDeclarations(source, rootDeclarationSource),
+        source,
+        file,
+      )
+    }
+  }
+})
+
+test('checked generated WASI JavaScript has valid syntax', (t) => {
+  for (const file of [
+    'browser.js',
+    'index.cjs',
+    'example.wasi-browser.js',
+    'example.wasi.cjs',
+    'example.wasip1-browser.js',
+    'example.wasip1-deferred.js',
+    'example.wasip1.cjs',
+    'wasi-worker-browser.mjs',
+    'wasi-worker.mjs',
+  ]) {
+    const result = spawnSync(
+      process.execPath,
+      ['--check', join(generatedArtifactDirectory, file)],
+      { encoding: 'utf8' },
+    )
+    t.is(
+      result.status,
+      0,
+      `${file}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+    )
+  }
+})
+
+test('checked threaded browser artifact rolls workers back after context cleanup', async (t) => {
+  const source = await readFile(
+    join(generatedArtifactDirectory, 'example.wasi-browser.js'),
+    'utf8',
+  )
+  const contextCleanup = source.lastIndexOf('await __emnapiContext.destroy()')
+  const workerCleanup = source.lastIndexOf(
+    'await __terminateWasiInitializationWorkers()',
+  )
+
+  t.true(source.includes('const __wasiInitializationWorkers = new Set()'))
+  t.true(source.includes('__wasiInitializationWorkers.add(worker)'))
+  t.true(source.includes('__wasiInitializationWorkers.clear()'))
+  t.true(source.includes('__wasiInitializationWorkers.delete(__worker)'))
+  t.true(source.includes('Promise.resolve(__worker.terminate())'))
+  t.true(contextCleanup !== -1)
+  t.true(workerCleanup !== -1)
+  t.true(
+    contextCleanup < workerCleanup,
+    'context cleanup must quiesce runtime work before worker termination',
+  )
+})
+
+test('checked WASI loaders keep browser, Node, and unsupported declarations in parity', async (t) => {
+  const [rootSource, rootDeclarationSource, deferredSource] = await Promise.all(
+    [
+      readFile(join(generatedArtifactDirectory, 'index.cjs'), 'utf8'),
+      readFile(join(generatedArtifactDirectory, 'index.d.cts'), 'utf8'),
+      readFile(
+        join(generatedArtifactDirectory, 'example.wasip1-deferred.js'),
+        'utf8',
+      ),
+    ],
+  )
+
+  for (const suffix of ['wasi', 'wasip1']) {
+    const [nodeSource, browserSource, declarationSource] = await Promise.all([
+      readFile(
+        join(generatedArtifactDirectory, `example.${suffix}.cjs`),
+        'utf8',
+      ),
+      readFile(
+        join(generatedArtifactDirectory, `example.${suffix}-browser.js`),
+        'utf8',
+      ),
+      readFile(
+        join(generatedArtifactDirectory, `example.${suffix}.d.cts`),
+        'utf8',
+      ),
+    ])
+    const nodeExports = generatedExportNames(
+      nodeSource,
+      /^module\.exports\.([A-Za-z_$][\w$]*)\s*=/gm,
+    )
+    const browserExports = generatedExportNames(
+      browserSource,
+      /^export const ([A-Za-z_$][\w$]*)\s*=/gm,
+    ).filter((name) => !name.startsWith('__'))
+
+    t.is(
+      new Set(nodeExports).size,
+      nodeExports.length,
+      `${suffix} Node exports`,
+    )
+    t.is(
+      new Set(browserExports).size,
+      browserExports.length,
+      `${suffix} browser exports`,
+    )
+    t.deepEqual(
+      [...nodeExports].sort(),
+      [...browserExports].sort(),
+      `${suffix} loader exports`,
+    )
+
+    for (const name of unsupportedWasiFunctions) {
+      t.true(
+        new RegExp(
+          `module\\.exports\\.${name}\\s*=\\s*getWasiBindingExport\\(\\s*'${name}'\\s*,?\\s*\\)`,
+        ).test(nodeSource),
+        `${suffix} Node ${name}`,
+      )
+      t.true(
+        new RegExp(
+          `export const ${name}\\s*=\\s*getWasiBindingExport\\(\\s*'${name}'\\s*,?\\s*\\)`,
+        ).test(browserSource),
+        `${suffix} browser ${name}`,
+      )
+      t.regex(
+        declarationSource,
+        new RegExp(
+          `export declare function ${name}\\(\\s*\\.\\.\\.args:\\s*unknown\\[\\]\\s*\\):\\s*never`,
+        ),
+        `${suffix} declaration ${name}`,
+      )
+    }
+  }
+
+  for (const name of unsupportedWasiFunctions) {
+    t.true(
+      rootSource.includes(
+        `module.exports.${name} = getBindingExport('${name}')`,
+      ),
+      `root ${name}`,
+    )
+    t.true(
+      rootDeclarationSource.includes(`export declare function ${name}(`),
+      `root declaration ${name}`,
+    )
+    t.true(deferredSource.includes(`'${name}',`), `deferred ${name}`)
+  }
 })
 
 test('artifact regeneration isolates the native pass from Cargo target environment', async (t) => {

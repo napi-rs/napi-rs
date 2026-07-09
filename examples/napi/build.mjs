@@ -56,7 +56,7 @@ function unsupportedWasiDeclaration(name) {
   return `export declare function ${name}(...args: unknown[]): never`
 }
 
-function lifecycleOutputFiles(target) {
+export function lifecycleOutputFiles(target) {
   const loaderSuffix = target === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
   const wasiForwardedFunctions =
     loaderSuffix === 'wasi'

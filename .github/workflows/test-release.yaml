@@ -1126,7 +1126,8 @@ jobs:
         run: |
           yarn workspace @examples/napi test \
             __tests__/wasi-buffer-public-api.spec.ts \
-            __tests__/wasi-deferred-before-exit.spec.ts
+            __tests__/wasi-deferred-before-exit.spec.ts \
+            __tests__/wasi-deferred-dispose-failure.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface

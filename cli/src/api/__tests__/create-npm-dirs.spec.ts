@@ -1,21 +1,42 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync, realpathSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import ava, { type TestFn } from 'ava'
 
-import { createWasmModuleTypeDef } from '../../utils/index.js'
+import {
+  createWasmModuleTypeDef,
+  resolvePackageReconciliationPaths,
+  withFileSystemReconciliation,
+} from '../../utils/index.js'
 import { createWasiDeferredBindingTypeDef } from '../build.js'
 import { createNpmDirs } from '../create-npm-dirs.js'
 import { createWasiDeferredBrowserBinding } from '../templates/load-wasi-template.js'
 
 const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
+const transactionJournalName = '.napi-rs-filesystem-transaction.swp'
+
+function createNativeTargets(count: number, prefix: string) {
+  return Array.from({ length: count }, (_, index) => {
+    const abi = `${prefix}${index.toString().padStart(3, '0')}`
+    return {
+      platformArchABI: `linux-x64-${abi}`,
+      triple: `x86_64-unknown-linux-${abi}`,
+    }
+  })
+}
+
+async function readPackageVersion(path: string) {
+  return JSON.parse(await readFile(path, 'utf8')).version as string
+}
 
 function resolveNpmCliFrom(directory: string) {
   for (const candidate of [
@@ -67,6 +88,7 @@ const test = ava as TestFn<{
   packageJsonPath: string
   npmConfigRegistry?: string
 }>
+const crashRecoveryTest = process.platform === 'win32' ? test.skip : test.serial
 
 test.beforeEach(async (t) => {
   // Create a unique temp directory for tests
@@ -1138,44 +1160,461 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
   t.is(scopedPackageJson.dependencies['@emnapi/runtime'], emnapiVersion)
 })
 
-test('removes stale WASI package directories when their targets are removed', async (t) => {
-  const { tmpDir, packageJsonPath } = t.context
-  const npmDir = join(tmpDir, 'npm')
-  const staleThreadedDir = join(npmDir, 'wasm32-wasi')
-  const staleThreadlessDir = join(npmDir, 'wasm32-wasip1')
-  const unrelatedDir = join(npmDir, 'user-owned')
-  await Promise.all(
-    [staleThreadedDir, staleThreadlessDir, unrelatedDir].map((dir) =>
-      mkdir(dir, { recursive: true }),
-    ),
-  )
+test('rejects symlinked or junction npm target directories before mutation', async (t) => {
+  const projectDir = join(t.context.tmpDir, 'symlink-project')
+  const outsideDir = join(t.context.tmpDir, 'outside-target')
+  const npmDir = join(projectDir, 'npm')
+  const targetDir = join(npmDir, 'linux-x64-gnu')
+  const sentinel = join(outsideDir, 'sentinel.txt')
   await Promise.all([
-    writeFile(join(staleThreadedDir, 'package.json'), '{}'),
-    writeFile(join(staleThreadlessDir, 'package.json'), '{}'),
-    writeFile(join(unrelatedDir, 'marker'), 'preserve'),
+    mkdir(npmDir, { recursive: true }),
+    mkdir(outsideDir, { recursive: true }),
   ])
-  await writeFile(
-    packageJsonPath,
-    JSON.stringify({
+  await Promise.all([
+    writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'test-target-link',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'test-target-link',
+          targets: ['x86_64-unknown-linux-gnu'],
+        },
+      }),
+    ),
+    writeFile(sentinel, 'preserve'),
+  ])
+  await symlink(
+    outsideDir,
+    targetDir,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+
+  const error = await t.throwsAsync(() =>
+    createNpmDirs({
+      cwd: projectDir,
+      packageJsonPath: 'package.json',
+    }),
+  )
+
+  t.regex(error.message, /symbolic link or junction/)
+  t.is(await readFile(sentinel, 'utf8'), 'preserve')
+  t.false(existsSync(join(outsideDir, 'package.json')))
+  t.false(existsSync(join(outsideDir, 'README.md')))
+  t.false(existsSync(join(projectDir, transactionJournalName)))
+})
+
+test('rejects canonical npm output escapes before mutation', async (t) => {
+  const projectDir = join(t.context.tmpDir, 'escape-project')
+  const outsideDir = join(t.context.tmpDir, 'escape-output')
+  const sentinel = join(outsideDir, 'sentinel.txt')
+  await Promise.all([
+    mkdir(projectDir, { recursive: true }),
+    mkdir(outsideDir, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'test-output-escape',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'test-output-escape',
+          targets: ['x86_64-unknown-linux-gnu'],
+        },
+      }),
+    ),
+    writeFile(sentinel, 'preserve'),
+  ])
+
+  const error = await t.throwsAsync(() =>
+    createNpmDirs({
+      cwd: projectDir,
+      npmDir: '../escape-output',
+      packageJsonPath: 'package.json',
+    }),
+  )
+
+  t.regex(error.message, /Managed package paths must stay within/)
+  t.is(await readFile(sentinel, 'utf8'), 'preserve')
+  t.false(existsSync(join(outsideDir, 'linux-x64-gnu')))
+  t.false(existsSync(join(projectDir, transactionJournalName)))
+})
+
+test.serial(
+  'rejects path-like binary names before registry lookup or mutation',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'test-binary-name-escape',
+        version: '1.0.0',
+        napi: {
+          binaryName: '../escaped',
+          targets: ['wasm32-wasip1'],
+        },
+      }),
+    )
+
+    try {
+      const error = await t.throwsAsync(() =>
+        createNpmDirs({
+          cwd: tmpDir,
+          packageJsonPath: 'package.json',
+        }),
+      )
+      t.regex(error.message, /must be a single filesystem path segment/)
+      t.deepEqual(registryServer.requests, [])
+      t.false(existsSync(join(tmpDir, 'npm')))
+      t.false(existsSync(join(tmpDir, transactionJournalName)))
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'shares the workspace reconciliation boundary and reads config after overlap',
+  async (t) => {
+    const workspaceRoot = t.context.tmpDir
+    const packageRoot = join(workspaceRoot, 'packages', 'addon')
+    const packageJsonPath = join(packageRoot, 'package.json')
+    const npmDir = join(workspaceRoot, 'npm')
+    const packageJson = {
+      name: 'test-create-npm-dirs-overlap',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-create-npm-dirs-overlap',
+        targets: ['x86_64-unknown-linux-gnu'],
+      },
+    }
+    await mkdir(packageRoot, { recursive: true })
+    await Promise.all([
+      writeFile(
+        join(workspaceRoot, 'package.json'),
+        JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+      ),
+      writeFile(packageJsonPath, JSON.stringify(packageJson)),
+    ])
+    const paths = resolvePackageReconciliationPaths(
+      workspaceRoot,
+      join('packages', 'addon', 'package.json'),
+      ['npm'],
+    )
+    let releaseLock!: () => void
+    let markLockReady!: () => void
+    const lockRelease = new Promise<void>((resolveRelease) => {
+      releaseLock = resolveRelease
+    })
+    const lockReady = new Promise<void>((resolveReady) => {
+      markLockReady = resolveReady
+    })
+    const holder = withFileSystemReconciliation(paths.boundary, async () => {
+      markLockReady()
+      await lockRelease
+    })
+    await lockReady
+
+    let creationSettled = false
+    const creation = createNpmDirs({
+      cwd: workspaceRoot,
+      npmDir: 'npm',
+      packageJsonPath: join('packages', 'addon', 'package.json'),
+    }).finally(() => {
+      creationSettled = true
+    })
+    await delay(100)
+    const settledWhileLocked = creationSettled
+    const wroteWhileLocked = existsSync(
+      join(npmDir, 'linux-x64-gnu', 'package.json'),
+    )
+    packageJson.version = '2.0.0'
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
+    releaseLock()
+    await Promise.all([holder, creation])
+
+    t.false(settledWhileLocked)
+    t.false(wroteWhileLocked)
+    t.is(
+      await readPackageVersion(join(npmDir, 'linux-x64-gnu', 'package.json')),
+      '2.0.0',
+    )
+  },
+)
+
+test.serial(
+  'rolls back the complete metadata result when a late publication fails',
+  async (t) => {
+    t.timeout(120_000)
+    const { tmpDir, packageJsonPath } = t.context
+    const targets = createNativeTargets(128, 'rollback')
+    const packageJson = {
+      name: 'test-create-npm-dirs-rollback',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-create-npm-dirs-rollback',
+        targets: targets.map(({ triple }) => triple),
+      },
+    }
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
+    await createNpmDirs({ cwd: tmpDir })
+
+    const firstManifest = join(
+      tmpDir,
+      'npm',
+      targets[0].platformArchABI,
+      'package.json',
+    )
+    const sabotagedDestination = join(
+      tmpDir,
+      'npm',
+      targets.at(-1)!.platformArchABI,
+      'README.md',
+    )
+    await rm(sabotagedDestination)
+    packageJson.version = '2.0.0'
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+    const sabotage = (async () => {
+      const deadline = Date.now() + 60_000
+      while (Date.now() < deadline) {
+        try {
+          if ((await readPackageVersion(firstManifest)) === '2.0.0') {
+            await mkdir(sabotagedDestination)
+            return
+          }
+        } catch {}
+        await delay(1)
+      }
+      throw new Error('Timed out waiting for partial metadata publication')
+    })()
+    const failure = t.throwsAsync(() => createNpmDirs({ cwd: tmpDir }))
+    await Promise.all([failure, sabotage])
+    await rm(sabotagedDestination, { recursive: true })
+
+    const { boundary } = resolvePackageReconciliationPaths(
+      tmpDir,
+      'package.json',
+      ['npm'],
+    )
+    await withFileSystemReconciliation(boundary, async () => {})
+
+    const versions = await Promise.all(
+      targets.map(({ platformArchABI }) =>
+        readPackageVersion(
+          join(tmpDir, 'npm', platformArchABI, 'package.json'),
+        ),
+      ),
+    )
+    t.deepEqual([...new Set(versions)], ['1.0.0'])
+    t.false(existsSync(sabotagedDestination))
+    t.false(existsSync(join(tmpDir, transactionJournalName)))
+  },
+)
+
+crashRecoveryTest(
+  'recovers a process killed after partial metadata publication',
+  async (t) => {
+    t.timeout(180_000)
+    const { tmpDir, packageJsonPath } = t.context
+    const targets = createNativeTargets(160, 'crash')
+    const packageJson = {
+      name: 'test-create-npm-dirs-crash',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-create-npm-dirs-crash',
+        targets: targets.map(({ triple }) => triple),
+      },
+    }
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
+    await createNpmDirs({ cwd: tmpDir })
+
+    const firstManifest = join(
+      tmpDir,
+      'npm',
+      targets[0].platformArchABI,
+      'package.json',
+    )
+    const lastManifest = join(
+      tmpDir,
+      'npm',
+      targets.at(-1)!.platformArchABI,
+      'package.json',
+    )
+    packageJson.version = '2.0.0'
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+    const workerPath = join(tmpDir, 'create-npm-dirs-crash-worker.mjs')
+    const watcherSource = `
+const { readFileSync } = require('node:fs')
+const { parentPort, workerData } = require('node:worker_threads')
+const wait = new Int32Array(new SharedArrayBuffer(4))
+const version = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')).version
+  } catch {
+    return undefined
+  }
+}
+parentPort.postMessage('ready')
+while (true) {
+  if (
+    version(workerData.firstManifest) === '2.0.0' &&
+    version(workerData.lastManifest) === '1.0.0'
+  ) {
+    process.kill(workerData.pid, 'SIGKILL')
+  }
+  Atomics.wait(wait, 0, 0, 1)
+}
+`
+    await writeFile(
+      workerPath,
+      `import { once } from 'node:events'
+import { Worker } from 'node:worker_threads'
+import { createNpmDirs } from ${JSON.stringify(
+        new URL('../create-npm-dirs.ts', import.meta.url).href,
+      )}
+
+const [cwd, firstManifest, lastManifest] = process.argv.slice(2)
+const watcher = new Worker(${JSON.stringify(watcherSource)}, {
+  eval: true,
+  workerData: {
+    firstManifest,
+    lastManifest,
+    pid: process.pid,
+  },
+})
+await once(watcher, 'message')
+try {
+  await createNpmDirs({ cwd })
+} finally {
+  await watcher.terminate()
+}
+throw new Error('Metadata publication completed before the crash observer')
+`,
+    )
+
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        workerPath,
+        tmpDir,
+        firstManifest,
+        lastManifest,
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: ['ignore', 'ignore', 'inherit'],
+      },
+    )
+    t.teardown(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
+      }
+    })
+    const [code, signal] = await once(child, 'close')
+
+    t.is(code, null)
+    t.is(signal, 'SIGKILL')
+    t.is(await readPackageVersion(firstManifest), '2.0.0')
+    t.is(await readPackageVersion(lastManifest), '1.0.0')
+
+    await createNpmDirs({ cwd: tmpDir })
+
+    const versions = await Promise.all(
+      targets.map(({ platformArchABI }) =>
+        readPackageVersion(
+          join(tmpDir, 'npm', platformArchABI, 'package.json'),
+        ),
+      ),
+    )
+    t.deepEqual([...new Set(versions)], ['2.0.0'])
+    t.false(existsSync(join(tmpDir, transactionJournalName)))
+  },
+)
+
+test.serial(
+  'removes only proven generated WASI files and preserves unknown entries',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+    const npmDir = join(tmpDir, 'npm')
+    const staleThreadedDir = join(npmDir, 'wasm32-wasi')
+    const staleThreadlessDir = join(npmDir, 'wasm32-wasip1')
+    const unrelatedDir = join(npmDir, 'user-owned')
+    const packageJson = {
       name: 'test-removed-wasi-targets',
       version: '1.0.0',
       napi: {
         binaryName: 'test-removed-wasi-targets',
-        targets: ['x86_64-unknown-linux-gnu'],
+        targets: ['wasm32-wasip1-threads', 'wasm32-wasip1'],
       },
-    }),
-  )
+    }
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
 
-  await createNpmDirs({
-    cwd: tmpDir,
-    packageJsonPath: 'package.json',
-  })
+    try {
+      await createNpmDirs({ cwd: tmpDir })
+      const threadedManifest = JSON.parse(
+        await readFile(join(staleThreadedDir, 'package.json'), 'utf8'),
+      )
+      const threadlessManifest = JSON.parse(
+        await readFile(join(staleThreadlessDir, 'package.json'), 'utf8'),
+      )
+      await mkdir(unrelatedDir)
+      await Promise.all([
+        ...threadedManifest.files.map((file: string) =>
+          writeFile(join(staleThreadedDir, file), 'generated'),
+        ),
+        ...threadlessManifest.files.map((file: string) =>
+          writeFile(join(staleThreadlessDir, file), 'generated'),
+        ),
+        writeFile(join(staleThreadedDir, 'user-notes.txt'), 'preserve'),
+        writeFile(join(staleThreadlessDir, 'user-notes.txt'), 'preserve'),
+        writeFile(join(unrelatedDir, 'marker'), 'preserve'),
+      ])
+      await writeFile(
+        join(staleThreadlessDir, 'package.json'),
+        JSON.stringify({ userOwned: true }),
+      )
+      packageJson.napi.targets = ['x86_64-unknown-linux-gnu']
+      await writeFile(packageJsonPath, JSON.stringify(packageJson))
 
-  t.false(existsSync(staleThreadedDir))
-  t.false(existsSync(staleThreadlessDir))
-  t.true(existsSync(join(unrelatedDir, 'marker')))
-  t.true(existsSync(join(npmDir, 'linux-x64-gnu', 'package.json')))
-})
+      await createNpmDirs({ cwd: tmpDir })
+
+      t.true(existsSync(staleThreadedDir))
+      t.false(existsSync(join(staleThreadedDir, 'package.json')))
+      t.false(existsSync(join(staleThreadedDir, 'README.md')))
+      for (const file of threadedManifest.files) {
+        t.false(existsSync(join(staleThreadedDir, file)), file)
+      }
+      t.is(
+        await readFile(join(staleThreadedDir, 'user-notes.txt'), 'utf8'),
+        'preserve',
+      )
+
+      t.true(existsSync(staleThreadlessDir))
+      t.true(existsSync(join(staleThreadlessDir, 'package.json')))
+      t.true(existsSync(join(staleThreadlessDir, 'README.md')))
+      for (const file of threadlessManifest.files) {
+        t.false(existsSync(join(staleThreadlessDir, file)), file)
+      }
+      t.is(
+        await readFile(join(staleThreadlessDir, 'user-notes.txt'), 'utf8'),
+        'preserve',
+      )
+      t.true(existsSync(join(unrelatedDir, 'marker')))
+      t.true(existsSync(join(npmDir, 'linux-x64-gnu', 'package.json')))
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
 
 test.serial(
   'should reject an empty latest dist-tag when resolving wasm runtime metadata',

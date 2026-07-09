@@ -7,6 +7,7 @@ import {
   readFile,
   readlink,
   readdir,
+  rename as move,
   rm,
   symlink,
   writeFile,
@@ -22,6 +23,7 @@ import {
   createWasmModuleTypeDef,
   getPackageReconciliationRoot,
   readNapiConfig,
+  resolvePackageReconciliationPaths,
   withFileSystemReconciliation,
 } from '../../utils/index.js'
 import { prePublish } from '../pre-publish.js'
@@ -1605,7 +1607,10 @@ test('rename rejects a symlinked npm root that escapes the project', async (t) =
       cwd: projectPath,
       binaryName: 'renamed',
     }),
-    { message: /npm package root escapes project root/ },
+    {
+      message:
+        /Managed package paths must stay within the project or workspace boundary/,
+    },
   )
 
   t.deepEqual(await snapshotFiles(projectPath), projectBefore)
@@ -1688,6 +1693,66 @@ test('rename holds filesystem reconciliation across read, plan, and commit', asy
     JSON.parse(await readFile(packageJsonPath, 'utf8')).description,
     'written while reconciliation lock was held',
   )
+})
+
+test('rename holds the workspace boundary before reading a nested package', async (t) => {
+  const workspacePath = join(t.context.tmpDir, 'reconciled-workspace')
+  const packagePath = join(workspacePath, 'packages', 'addon')
+  const packageJsonPath = join(packagePath, 'package.json')
+  await mkdir(workspacePath, { recursive: true })
+  await writeFile(
+    join(workspacePath, 'package.json'),
+    `${JSON.stringify({ private: true, workspaces: ['packages/*'] }, null, 2)}\n`,
+  )
+  await createPackageIdentityFixture(
+    packagePath,
+    'fixture',
+    '@old-scope/original',
+  )
+  await move(join(packagePath, 'npm'), join(workspacePath, 'npm'))
+  const { boundary } = resolvePackageReconciliationPaths(
+    workspacePath,
+    'packages/addon/package.json',
+    ['npm'],
+  )
+
+  let releaseBlocker!: () => void
+  let markBlockerStarted!: () => void
+  const blockerStarted = new Promise<void>((resolve) => {
+    markBlockerStarted = resolve
+  })
+  const blockerRelease = new Promise<void>((resolve) => {
+    releaseBlocker = resolve
+  })
+  const blocker = withFileSystemReconciliation(boundary, async () => {
+    markBlockerStarted()
+    await blockerRelease
+    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+    packageJson.concurrentField = 'preserved'
+    await writeFile(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    )
+  })
+  await blockerStarted
+
+  let renameSettled = false
+  const pendingRename = renameProject({
+    cwd: workspacePath,
+    packageJsonPath: 'packages/addon/package.json',
+    npmDir: 'npm',
+    description: 'updated after the workspace lock',
+  }).finally(() => {
+    renameSettled = true
+  })
+  await delay(50)
+  t.false(renameSettled)
+
+  releaseBlocker()
+  await Promise.all([blocker, pendingRename])
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  t.is(packageJson.concurrentField, 'preserved')
+  t.is(packageJson.description, 'updated after the workspace lock')
 })
 
 test('package manifest rewriting updates script arguments but not arbitrary text', async (t) => {

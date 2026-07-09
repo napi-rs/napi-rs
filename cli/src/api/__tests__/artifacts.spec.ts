@@ -1,5 +1,13 @@
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -12,6 +20,7 @@ const test = ava as TestFn<{
   tmpDir: string
 }>
 const permissionsTest = process.platform === 'win32' ? test.skip : test
+const directorySymlinkType = process.platform === 'win32' ? 'junction' : 'dir'
 
 test.beforeEach(async (t) => {
   const timestamp = Date.now()
@@ -397,6 +406,71 @@ test('collects WASI loaders from target-specific artifact directories', async (t
   )
 })
 
+test('selects the threadless browser entry from dual-flavor metadata in one directory', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-shared-browser-source'
+  await setupWasiProject(tmpDir, binaryName, [
+    {
+      target: 'wasm32-wasip1',
+      platformArchABI: 'wasm32-wasip1',
+      loaderSuffix: 'wasip1',
+      hasThreads: false,
+      withDeferredLoader: true,
+    },
+    {
+      target: 'wasm32-wasip1-threads',
+      platformArchABI: 'wasm32-wasi',
+      loaderSuffix: 'wasi',
+      hasThreads: true,
+      withDeferredLoader: false,
+    },
+  ])
+  const buildOutputDir = join(tmpDir, 'build-output')
+  await mkdir(buildOutputDir)
+  for (const fileName of [
+    `${binaryName}.wasip1.cjs`,
+    `${binaryName}.wasip1.d.cts`,
+    `${binaryName}.wasip1-browser.js`,
+    `${binaryName}.wasip1-deferred.js`,
+    `${binaryName}.wasip1-deferred.d.ts`,
+    `${binaryName}.wasi.cjs`,
+    `${binaryName}.wasi.d.cts`,
+    `${binaryName}.wasi-browser.js`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+    'index.js',
+    'browser.js',
+  ]) {
+    await rename(join(tmpDir, fileName), join(buildOutputDir, fileName))
+  }
+  const metadata = (exports: string[]) =>
+    `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+      version: 2,
+      rootEntry: 'index.js',
+      exports,
+      managedRootEntries: ['browser.js', 'index.js'],
+    })}\n`
+  await writeFile(
+    join(buildOutputDir, `${binaryName}.wasip1.cjs`),
+    `${metadata(['threadlessOnly'])}// threadless loader`,
+  )
+  await writeFile(
+    join(buildOutputDir, `${binaryName}.wasi.cjs`),
+    `${metadata(['threadedOnly'])}// threaded loader`,
+  )
+  await writeFile(
+    join(buildOutputDir, 'browser.js'),
+    `export * from '${binaryName}-wasm32-wasi'\n`,
+  )
+
+  await collectArtifacts({ cwd: tmpDir, buildOutputDir })
+
+  t.is(
+    await readFile(join(tmpDir, 'browser.js'), 'utf8'),
+    `export * from '${binaryName}-wasm32-wasip1'\n`,
+  )
+})
+
 test('preserves a native root entry while selecting the WASI browser independently', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'test-artifacts-native-root'
@@ -537,6 +611,38 @@ for (const layout of ['equal', 'below'] as const) {
   })
 }
 
+test('does not treat npm outputs reached through an outputDir alias as fresh artifacts', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'test-artifacts-canonical-output-alias'
+  const platformArchABI = 'linux-x64-gnu'
+  const artifactName = `${binaryName}.${platformArchABI}.node`
+  const npmDir = join(tmpDir, 'npm')
+  const targetDir = join(npmDir, platformArchABI)
+  const outputDir = join(tmpDir, 'artifact-output-alias')
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: binaryName,
+      version: '1.0.0',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu'],
+      },
+    }),
+  )
+  await mkdir(targetDir, { recursive: true })
+  await writeFile(join(targetDir, artifactName), 'stale published artifact')
+  await symlink(npmDir, outputDir, directorySymlinkType)
+
+  const error = await t.throwsAsync(() =>
+    collectArtifacts({ cwd: tmpDir, outputDir, npmDir }),
+  )
+
+  t.regex(error.message, /Missing artifacts for configured targets/)
+  t.false(existsSync(join(targetDir, artifactName)))
+  t.false(existsSync(join(tmpDir, artifactName)))
+})
+
 permissionsTest(
   'rolls back earlier artifact writes when a later destination write fails',
   async (t) => {
@@ -602,6 +708,50 @@ permissionsTest(
     for (const [destination, prior] of priorDestinations) {
       t.is(await readFile(destination, 'utf8'), prior, destination)
     }
+  },
+)
+
+permissionsTest(
+  'rolls back missing-artifact cleanup when a later removal fails',
+  async (t) => {
+    const { tmpDir } = t.context
+    const binaryName = 'test-artifacts-missing-cleanup-rollback'
+    const platformArchABI = 'linux-x64-gnu'
+    const artifactName = `${binaryName}.${platformArchABI}.node`
+    const artifactsDir = join(tmpDir, 'artifacts')
+    const targetDir = join(tmpDir, 'npm', platformArchABI)
+    const rootArtifact = join(tmpDir, artifactName)
+    const npmArtifact = join(targetDir, artifactName)
+    await writeFile(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: binaryName,
+        version: '1.0.0',
+        napi: {
+          binaryName,
+          targets: ['x86_64-unknown-linux-gnu'],
+        },
+      }),
+    )
+    await mkdir(artifactsDir)
+    await mkdir(targetDir, { recursive: true })
+    await writeFile(rootArtifact, 'stale root artifact')
+    await writeFile(npmArtifact, 'stale npm artifact')
+
+    await chmod(targetDir, 0o555)
+    let error: Error | undefined
+    try {
+      error = await t.throwsAsync(() => collectArtifacts({ cwd: tmpDir }))
+    } finally {
+      await chmod(targetDir, 0o755)
+    }
+    t.true(
+      ['EACCES', 'EPERM'].includes(
+        (error as NodeJS.ErrnoException | undefined)?.code ?? '',
+      ),
+    )
+    t.is(await readFile(rootArtifact, 'utf8'), 'stale root artifact')
+    t.is(await readFile(npmArtifact, 'utf8'), 'stale npm artifact')
   },
 )
 
@@ -781,6 +931,52 @@ test('rejects a partial downloaded loader set instead of using stale local files
   t.true(error.message.includes(`${binaryName}.wasip1.d.cts`))
   t.false(existsSync(join(wasiDir, `${binaryName}.wasip1.cjs`)))
   t.false(existsSync(join(wasiDir, `${binaryName}.wasm32-wasip1.wasm`)))
+})
+
+test('rejects incomplete-artifact cleanup through a symlinked target directory', async (t) => {
+  const { tmpDir } = t.context
+  const projectDir = join(tmpDir, 'project')
+  const outsideDir = join(tmpDir, 'outside')
+  const binaryName = 'test-artifacts-incomplete-symlink-cleanup'
+  await mkdir(projectDir)
+  const [wasiDir] = await setupWasiProject(projectDir, binaryName, [
+    {
+      target: 'wasm32-wasip1',
+      platformArchABI: 'wasm32-wasip1',
+      loaderSuffix: 'wasip1',
+      hasThreads: false,
+      withDeferredLoader: true,
+    },
+  ])
+  const artifactName = `${binaryName}.wasm32-wasip1.wasm`
+  const artifactsDir = join(projectDir, 'artifacts')
+  const targetArtifactsDir = join(artifactsDir, 'bindings-wasm32-wasip1')
+  await mkdir(targetArtifactsDir)
+  await rename(
+    join(artifactsDir, artifactName),
+    join(targetArtifactsDir, artifactName),
+  )
+  await writeFile(
+    join(targetArtifactsDir, `${binaryName}.wasip1.cjs`),
+    '// incomplete downloaded loader',
+  )
+
+  await rm(wasiDir, { recursive: true })
+  await mkdir(outsideDir)
+  const outsideArtifact = join(outsideDir, artifactName)
+  const outsideLoader = join(outsideDir, `${binaryName}.wasip1.cjs`)
+  const rootArtifact = join(projectDir, artifactName)
+  await writeFile(outsideArtifact, 'outside stale artifact')
+  await writeFile(outsideLoader, 'outside stale loader')
+  await writeFile(rootArtifact, 'root stale artifact')
+  await symlink(outsideDir, wasiDir, directorySymlinkType)
+
+  const error = await t.throwsAsync(() => collectArtifacts({ cwd: projectDir }))
+
+  t.regex(error.message, /Filesystem transaction path escapes/)
+  t.is(await readFile(outsideArtifact, 'utf8'), 'outside stale artifact')
+  t.is(await readFile(outsideLoader, 'utf8'), 'outside stale loader')
+  t.is(await readFile(rootArtifact, 'utf8'), 'root stale artifact')
 })
 
 test('rejects duplicate configured WASI artifacts before copying', async (t) => {

@@ -19,9 +19,9 @@ import { isNil, omitBy, pick } from 'es-toolkit'
 import { applyDefaultRenameOptions, type RenameOptions } from '../def/rename.js'
 import {
   commitFileSystemTransaction,
-  getPackageReconciliationRoot,
   readConfig,
   readFileAsync,
+  resolvePackageReconciliationPaths,
   type Target,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
@@ -1575,11 +1575,12 @@ async function renameProjectUnlocked(userOptions: RenameOptions) {
 
 export async function renameProject(userOptions: RenameOptions) {
   const options = applyDefaultRenameOptions(userOptions)
-  const reconciliationRoot = getPackageReconciliationRoot(
+  const { boundary } = resolvePackageReconciliationPaths(
     options.cwd,
     options.packageJsonPath,
+    [options.npmDir],
   )
-  return withFileSystemReconciliation(reconciliationRoot, () =>
+  return withFileSystemReconciliation(boundary, () =>
     renameProjectUnlocked(options),
   )
 }
