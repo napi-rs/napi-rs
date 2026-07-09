@@ -1559,7 +1559,7 @@ fn decrement_runtime_module_count(env: sys::napi_env) {
   let tokio_shutdown_failed = false;
   let _was_last = decrement_runtime_module_count_with_last(env, || {
     #[cfg(feature = "tokio_rt")]
-    match crate::tokio_runtime::shutdown_tokio_runtime() {
+    match crate::tokio_runtime::shutdown_tokio_runtime_after_transition() {
       Ok(()) => {
         // Snapshot this generation while registration is still excluded. A
         // later environment may retire a different generation before we wait.

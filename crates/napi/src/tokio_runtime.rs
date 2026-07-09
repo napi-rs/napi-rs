@@ -12,8 +12,6 @@ use std::collections::HashSet;
   any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 use std::sync::Condvar;
-#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-use std::sync::RwLock;
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 use std::sync::Weak;
 #[cfg(not(feature = "noop"))]
@@ -3530,13 +3528,12 @@ struct PreparedTokioRuntime {
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-fn create_runtime(generation: usize) -> PreparedTokioRuntime {
-  // Check if we're supposed to use a user-defined runtime
-  if let Some(user_defined_rt) = take_user_defined_runtime() {
-    return user_defined_rt;
+fn create_runtime(generation: usize) -> Result<PreparedTokioRuntime> {
+  if let Some(user_defined_rt) = create_user_defined_runtime()? {
+    return Ok(user_defined_rt);
   }
-  // If no user-defined runtime was installed, or the one-shot registration was consumed by a
-  // previous generation, fall back to creating a default runtime.
+  // If no user-defined runtime was installed, or a legacy one-shot registration was consumed by
+  // a previous generation, fall back to creating a default runtime.
 
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
@@ -3553,11 +3550,11 @@ fn create_runtime(generation: usize) -> PreparedTokioRuntime {
       .build()
       .expect("Create tokio runtime failed");
     debug_assert_ne!(generation, 0);
-    PreparedTokioRuntime {
+    Ok(PreparedTokioRuntime {
       runtime,
       workers,
       may_spawn_untracked_threads: false,
-    }
+    })
   }
   #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
   {
@@ -3566,11 +3563,11 @@ fn create_runtime(generation: usize) -> PreparedTokioRuntime {
       .build()
       .expect("Create tokio runtime failed");
     debug_assert_ne!(generation, 0);
-    PreparedTokioRuntime {
+    Ok(PreparedTokioRuntime {
       runtime,
       workers: Arc::new(TokioRuntimeWorkerTracker::default()),
       may_spawn_untracked_threads: false,
-    }
+    })
   }
 }
 
@@ -4485,6 +4482,7 @@ struct TokioRuntimeState {
   lifecycle: TokioRuntimeLifecycle,
   generation: Option<TokioRuntimeGeneration>,
   retiring: Option<Arc<TokioRuntimeRetirementSignal>>,
+  registration_closed: bool,
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -4493,7 +4491,81 @@ static TOKIO_RUNTIME_STATE: std::sync::Mutex<TokioRuntimeState> =
     lifecycle: TokioRuntimeLifecycle::Uninitialized,
     generation: None,
     retiring: None,
+    registration_closed: false,
   });
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+static TOKIO_RUNTIME_TRANSITION: Mutex<()> = Mutex::new(());
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+thread_local! {
+  static TOKIO_RUNTIME_TRANSITION_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeTransitionGuard;
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl TokioRuntimeTransitionGuard {
+  fn enter() -> Result<Self> {
+    if TOKIO_RUNTIME_TRANSITION_ACTIVE.with(|active| active.replace(true)) {
+      return Err(Error::new(
+        crate::Status::WouldDeadlock,
+        "Cannot start, shut down, or configure Tokio recursively during a runtime transition",
+      ));
+    }
+    Ok(Self)
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl Drop for TokioRuntimeTransitionGuard {
+  fn drop(&mut self) {
+    TOKIO_RUNTIME_TRANSITION_ACTIVE.with(|active| active.set(false));
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[derive(Clone, Copy)]
+enum TokioRuntimeTransitionMode {
+  NonBlocking,
+  Wait,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn with_tokio_runtime_transition<T>(
+  mode: TokioRuntimeTransitionMode,
+  operation: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+  if TOKIO_RUNTIME_TRANSITION_ACTIVE.with(Cell::get) {
+    let reason = match mode {
+      TokioRuntimeTransitionMode::NonBlocking => {
+        "Cannot start, shut down, or configure Tokio recursively during a runtime transition"
+      }
+      TokioRuntimeTransitionMode::Wait => {
+        "A custom Tokio runtime factory must not wait for another environment to load or unload the same addon"
+      }
+    };
+    return Err(Error::new(crate::Status::WouldDeadlock, reason));
+  }
+  let _transition = match mode {
+    TokioRuntimeTransitionMode::NonBlocking => match TOKIO_RUNTIME_TRANSITION.try_lock() {
+      Ok(transition) => transition,
+      Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+      Err(std::sync::TryLockError::WouldBlock) => {
+        return Err(Error::new(
+          crate::Status::WouldDeadlock,
+          "Cannot start, shut down, or configure Tokio while another runtime transition is in progress",
+        ));
+      }
+    },
+    TokioRuntimeTransitionMode::Wait => TOKIO_RUNTIME_TRANSITION
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner),
+  };
+  let _active = TokioRuntimeTransitionGuard::enter()?;
+  operation()
+}
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static TOKIO_RUNTIME_REQUIRES_MODULE_RETENTION: AtomicBool = AtomicBool::new(false);
@@ -4522,30 +4594,70 @@ fn try_runtime() -> Result<TokioRuntimeLease> {
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 enum UserDefinedTokioRuntime {
-  Pending(PreparedTokioRuntime),
-  Consumed,
+  OneShot(Box<Mutex<Option<PreparedTokioRuntime>>>),
+  Factory(Box<dyn Fn() -> Result<Runtime> + Send + Sync>),
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-static USER_DEFINED_RT: OnceLock<RwLock<UserDefinedTokioRuntime>> = OnceLock::new();
+static USER_DEFINED_RT: OnceLock<UserDefinedTokioRuntime> = OnceLock::new();
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static USER_DEFINED_RT_REGISTRATION_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 const DUPLICATE_TOKIO_RUNTIME_ERROR: &str =
-  "create_custom_tokio_runtime was called more than once; the first registration permanently owns \
-   the custom Tokio runtime slot";
+  "A custom Tokio runtime or runtime factory was registered more than once; the first registration \
+   permanently owns the custom Tokio runtime slot";
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-fn take_user_defined_runtime() -> Option<PreparedTokioRuntime> {
-  let slot = USER_DEFINED_RT.get()?;
-  let mut slot = slot
-    .write()
+const LATE_TOKIO_RUNTIME_REGISTRATION_ERROR: &str =
+  "Cannot configure a custom Tokio runtime after the first runtime generation has started";
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn create_user_defined_runtime() -> Result<Option<PreparedTokioRuntime>> {
+  match USER_DEFINED_RT.get() {
+    Some(UserDefinedTokioRuntime::OneShot(runtime)) => Ok(
+      runtime
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take(),
+    ),
+    Some(UserDefinedTokioRuntime::Factory(factory)) => {
+      factory().and_then(prepare_supplied_tokio_runtime).map(Some)
+    }
+    None => Ok(None),
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn try_register_user_defined_tokio_runtime(
+  candidate: UserDefinedTokioRuntime,
+) -> std::result::Result<(), (Error, UserDefinedTokioRuntime)> {
+  if USER_DEFINED_RT.get().is_some() {
+    return Err((
+      Error::new(crate::Status::InvalidArg, DUPLICATE_TOKIO_RUNTIME_ERROR),
+      candidate,
+    ));
+  }
+  let state = TOKIO_RUNTIME_STATE
+    .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
-  match std::mem::replace(&mut *slot, UserDefinedTokioRuntime::Consumed) {
-    UserDefinedTokioRuntime::Pending(runtime) => Some(runtime),
-    UserDefinedTokioRuntime::Consumed => None,
+  if state.registration_closed {
+    return Err((
+      Error::new(
+        crate::Status::InvalidArg,
+        LATE_TOKIO_RUNTIME_REGISTRATION_ERROR,
+      ),
+      candidate,
+    ));
+  }
+
+  match USER_DEFINED_RT.set(candidate) {
+    Ok(()) => Ok(()),
+    Err(candidate) => Err((
+      Error::new(crate::Status::InvalidArg, DUPLICATE_TOKIO_RUNTIME_ERROR),
+      candidate,
+    )),
   }
 }
 
@@ -4679,26 +4791,89 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub fn try_create_custom_tokio_runtime(rt: Runtime) -> Result<()> {
   let rt = prepare_supplied_tokio_runtime(rt)?;
-  let rejected = match USER_DEFINED_RT.set(RwLock::new(UserDefinedTokioRuntime::Pending(rt))) {
-    Ok(()) => None,
-    Err(runtime) => {
-      let runtime = runtime
+  match try_register_user_defined_tokio_runtime(UserDefinedTokioRuntime::OneShot(Box::new(
+    Mutex::new(Some(rt)),
+  ))) {
+    Ok(()) => Ok(()),
+    Err((error, UserDefinedTokioRuntime::OneShot(runtime))) => {
+      let runtime = (*runtime)
         .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-      let UserDefinedTokioRuntime::Pending(runtime) = runtime else {
-        unreachable!("a newly prepared custom Tokio runtime cannot already be consumed")
-      };
-      Some(runtime)
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .expect("a newly prepared custom Tokio runtime cannot already be consumed");
+      shutdown_rejected_supplied_tokio_runtime(runtime);
+      Err(error)
     }
-  };
-  if let Some(runtime) = rejected {
-    shutdown_rejected_supplied_tokio_runtime(runtime);
+    Err((_, UserDefinedTokioRuntime::Factory(_))) => {
+      unreachable!("a concrete runtime registration cannot become a factory")
+    }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+/// Configure a fresh built-in Tokio runtime for every NAPI-RS lifecycle generation.
+///
+/// Use this from module initialization when the addon's Tokio configuration must survive worker
+/// teardown, Electron renderer reload, or an explicit shutdown/restart cycle. The factory is
+/// retained for the process lifetime and called once whenever napi needs a new Tokio generation.
+/// Factory calls are serialized with Tokio shutdown, but napi does not hold its runtime-state mutex
+/// while invoking user code. Concurrent or reentrant Tokio startup and shutdown calls made while
+/// the factory is running return [`crate::Status::WouldDeadlock`]. The factory must not
+/// synchronously wait for another environment to finish loading or unloading the same addon:
+/// internal environment activation and cleanup wait for runtime construction to finish.
+///
+/// The first concrete runtime or factory registration permanently owns the custom Tokio slot.
+/// This compatibility wrapper ignores duplicate registration. Other registration failures are
+/// recorded for the next addon environment load; use [`try_create_custom_tokio_runtime_factory`]
+/// when the caller must observe them directly.
+pub fn create_custom_tokio_runtime_factory<F, E>(factory: F)
+where
+  F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
+  E: Into<Error>,
+{
+  if let Err(error) = try_create_custom_tokio_runtime_factory(factory) {
+    if error.reason == DUPLICATE_TOKIO_RUNTIME_ERROR {
+      return;
+    }
+    *USER_DEFINED_RT_REGISTRATION_ERROR
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.reason);
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+/// Try to configure a fresh built-in Tokio runtime for every lifecycle generation.
+///
+/// The factory must be thread-safe because different Node environments may initiate lifecycle
+/// transitions from different threads, although construction itself is serialized. A factory
+/// failure aborts only that startup attempt; a later explicit or environment-driven start calls
+/// the same factory again. It must not synchronously wait for another environment to load or
+/// unload the same addon. On AIX and threaded WASI, custom Tokio runtimes are unsupported and the
+/// factory is rejected without being invoked.
+pub fn try_create_custom_tokio_runtime_factory<F, E>(factory: F) -> Result<()>
+where
+  F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
+  E: Into<Error>,
+{
+  #[cfg(any(target_os = "aix", all(target_family = "wasm", tokio_unstable)))]
+  {
+    let _ = factory;
     return Err(Error::new(
       crate::Status::InvalidArg,
-      DUPLICATE_TOKIO_RUNTIME_ERROR,
+      "Custom Tokio runtime factories are unsupported on this target; use napi's built-in runtime",
     ));
   }
-  Ok(())
+
+  #[cfg(not(any(target_os = "aix", all(target_family = "wasm", tokio_unstable))))]
+  {
+    let factory = UserDefinedTokioRuntime::Factory(Box::new(move || factory().map_err(Into::into)));
+    match try_register_user_defined_tokio_runtime(factory) {
+      Ok(()) => Ok(()),
+      Err((error, UserDefinedTokioRuntime::Factory(_))) => Err(error),
+      Err((_, UserDefinedTokioRuntime::OneShot(_))) => {
+        unreachable!("a factory registration cannot become a concrete runtime")
+      }
+    }
+  }
 }
 
 #[cfg(all(
@@ -4744,6 +4919,40 @@ pub fn try_create_custom_tokio_runtime(runtime: Runtime) -> Result<()> {
   ))
 }
 
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  feature = "tokio",
+  not(feature = "tokio_rt")
+))]
+/// Reject a custom Tokio factory when the built-in `tokio_rt` executor is disabled.
+pub fn create_custom_tokio_runtime_factory<F, E>(factory: F)
+where
+  F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
+  E: Into<Error>,
+{
+  let _ = try_create_custom_tokio_runtime_factory(factory);
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  feature = "tokio",
+  not(feature = "tokio_rt")
+))]
+/// Reject a custom Tokio factory when the built-in `tokio_rt` executor is disabled.
+pub fn try_create_custom_tokio_runtime_factory<F, E>(factory: F) -> Result<()>
+where
+  F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
+  E: Into<Error>,
+{
+  let _ = factory;
+  Err(Error::new(
+    crate::Status::InvalidArg,
+    "Cannot install a custom Tokio runtime factory because the tokio_rt feature is not enabled",
+  ))
+}
+
 #[cfg(all(feature = "noop", feature = "tokio"))]
 pub fn create_custom_tokio_runtime(runtime: Runtime) {
   let _ = try_create_custom_tokio_runtime(runtime);
@@ -4765,6 +4974,29 @@ pub fn try_create_custom_tokio_runtime(runtime: Runtime) -> Result<()> {
   Err(Error::new(
     crate::Status::InvalidArg,
     "Cannot install a custom Tokio runtime in a noop build",
+  ))
+}
+
+#[cfg(all(feature = "noop", feature = "tokio"))]
+pub fn create_custom_tokio_runtime_factory<F, E>(factory: F)
+where
+  F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
+  E: Into<Error>,
+{
+  let _ = try_create_custom_tokio_runtime_factory(factory);
+}
+
+#[cfg(all(feature = "noop", feature = "tokio"))]
+/// Reject a custom Tokio factory in a `noop` build without invoking it.
+pub fn try_create_custom_tokio_runtime_factory<F, E>(factory: F) -> Result<()>
+where
+  F: Fn() -> std::result::Result<Runtime, E> + Send + Sync + 'static,
+  E: Into<Error>,
+{
+  let _ = factory;
+  Err(Error::new(
+    crate::Status::InvalidArg,
+    "Cannot install a custom Tokio runtime factory in a noop build",
   ))
 }
 
@@ -5325,7 +5557,7 @@ pub(crate) fn start_tokio_runtime() -> Result<()> {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub(crate) fn start_tokio_runtime_after_retirement() -> Result<()> {
   loop {
-    match start_tokio_runtime_impl(true) {
+    match acquire_tokio_runtime_with_transition(true, TokioRuntimeTransitionMode::Wait).map(drop) {
       Ok(()) => return Ok(()),
       Err(error)
         if error.status == crate::Status::WouldDeadlock
@@ -5352,6 +5584,14 @@ fn start_tokio_runtime_impl(allow_restart: bool) -> Result<()> {
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
+  acquire_tokio_runtime_with_transition(allow_restart, TokioRuntimeTransitionMode::NonBlocking)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn acquire_tokio_runtime_with_transition(
+  allow_restart: bool,
+  transition_mode: TokioRuntimeTransitionMode,
+) -> Result<TokioRuntimeLease> {
   std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<TokioRuntimeLease> {
     if let Some(reason) = USER_DEFINED_RT_REGISTRATION_ERROR
       .lock()
@@ -5360,11 +5600,11 @@ fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
     {
       return Err(Error::new(crate::Status::GenericFailure, reason.clone()));
     }
-    let mut state = TOKIO_RUNTIME_STATE
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    match state.lifecycle {
-      TokioRuntimeLifecycle::Running => {
+    {
+      let state = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      if state.lifecycle == TokioRuntimeLifecycle::Running {
         let generation = state
           .generation
           .as_ref()
@@ -5374,64 +5614,91 @@ fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
           retirement: Arc::clone(&generation.retirement),
         });
       }
-      TokioRuntimeLifecycle::Stopped if !allow_restart => {
-        return Err(Error::new(
-          crate::Status::GenericFailure,
-          "Tokio runtime is stopped; call start_async_runtime before using it again",
-        ));
-      }
-      TokioRuntimeLifecycle::Uninitialized | TokioRuntimeLifecycle::Stopped => {}
     }
-    match state
-      .retiring
-      .as_ref()
-      .map(|retirement| retirement.status())
-    {
-      Some(TokioRuntimeRetirementStatus::Pending) => {
-        return Err(Error::new(
-          crate::Status::WouldDeadlock,
-          "Tokio runtime is still shutting down",
-        ));
+
+    with_tokio_runtime_transition(transition_mode, || {
+      let mut state = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      match state.lifecycle {
+        TokioRuntimeLifecycle::Running => {
+          let generation = state
+            .generation
+            .as_ref()
+            .expect("running Tokio lifecycle must own a generation");
+          return Ok(TokioRuntimeLease {
+            runtime: Arc::clone(&generation.runtime),
+            retirement: Arc::clone(&generation.retirement),
+          });
+        }
+        TokioRuntimeLifecycle::Stopped if !allow_restart => {
+          return Err(Error::new(
+            crate::Status::GenericFailure,
+            "Tokio runtime is stopped; call start_async_runtime before using it again",
+          ));
+        }
+        TokioRuntimeLifecycle::Uninitialized | TokioRuntimeLifecycle::Stopped => {}
       }
-      Some(TokioRuntimeRetirementStatus::Failed(reason)) => {
-        return Err(Error::new(
-          crate::Status::GenericFailure,
-          format!("Tokio runtime retirement failed: {reason}"),
-        ));
+      match state
+        .retiring
+        .as_ref()
+        .map(|retirement| retirement.status())
+      {
+        Some(TokioRuntimeRetirementStatus::Pending) => {
+          return Err(Error::new(
+            crate::Status::WouldDeadlock,
+            "Tokio runtime is still shutting down",
+          ));
+        }
+        Some(TokioRuntimeRetirementStatus::Failed(reason)) => {
+          return Err(Error::new(
+            crate::Status::GenericFailure,
+            format!("Tokio runtime retirement failed: {reason}"),
+          ));
+        }
+        Some(TokioRuntimeRetirementStatus::Complete) | None => {}
       }
-      Some(TokioRuntimeRetirementStatus::Complete) | None => {}
-    }
-    state.retiring = None;
-    let generation = NEXT_TOKIO_RUNTIME_GENERATION.fetch_add(1, Ordering::Relaxed);
-    #[cfg(not(target_family = "wasm"))]
-    crate::bindgen_runtime::retain_current_module_for_unload_safety();
-    let PreparedTokioRuntime {
-      runtime: rt,
-      workers,
-      may_spawn_untracked_threads,
-    } = create_runtime(generation);
-    // Pin before creating workers: Tokio task wakers may be cloned outside
-    // napi's ownership, and a constructor-time caller can create this
-    // generation before any Node environment owns a cleanup hook.
-    TOKIO_RUNTIME_REQUIRES_MODULE_RETENTION.store(true, Ordering::Release);
-    let retirement = Arc::new(TokioRuntimeRetirementSignal::new_with_worker_tracking(
-      generation,
-      Some(rt.handle().id()),
-      workers,
-      may_spawn_untracked_threads,
-    ));
-    let runtime = Arc::new(SharedTokioRuntime {
-      runtime: Some(rt),
-      retirement: Some(Arc::clone(&retirement)),
-    });
-    state.generation = Some(TokioRuntimeGeneration {
-      runtime: Arc::clone(&runtime),
-      retirement: Arc::clone(&retirement),
-    });
-    state.lifecycle = TokioRuntimeLifecycle::Running;
-    Ok(TokioRuntimeLease {
-      runtime,
-      retirement,
+      state.retiring = None;
+      let lifecycle = state.lifecycle;
+      state.registration_closed = true;
+      drop(state);
+
+      let generation = NEXT_TOKIO_RUNTIME_GENERATION.fetch_add(1, Ordering::Relaxed);
+      #[cfg(not(target_family = "wasm"))]
+      crate::bindgen_runtime::retain_current_module_for_unload_safety();
+      let PreparedTokioRuntime {
+        runtime: rt,
+        workers,
+        may_spawn_untracked_threads,
+      } = create_runtime(generation)?;
+      // Pin before creating workers: Tokio task wakers may be cloned outside
+      // napi's ownership, and a constructor-time caller can create this
+      // generation before any Node environment owns a cleanup hook.
+      TOKIO_RUNTIME_REQUIRES_MODULE_RETENTION.store(true, Ordering::Release);
+      let retirement = Arc::new(TokioRuntimeRetirementSignal::new_with_worker_tracking(
+        generation,
+        Some(rt.handle().id()),
+        workers,
+        may_spawn_untracked_threads,
+      ));
+      let runtime = Arc::new(SharedTokioRuntime {
+        runtime: Some(rt),
+        retirement: Some(Arc::clone(&retirement)),
+      });
+      let mut state = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      debug_assert!(state.lifecycle == lifecycle);
+      debug_assert!(state.generation.is_none());
+      state.generation = Some(TokioRuntimeGeneration {
+        runtime: Arc::clone(&runtime),
+        retirement: Arc::clone(&retirement),
+      });
+      state.lifecycle = TokioRuntimeLifecycle::Running;
+      Ok(TokioRuntimeLease {
+        runtime,
+        retirement,
+      })
     })
   }))
   .map_err(crate::bindgen_runtime::panic_to_error)
@@ -5440,27 +5707,42 @@ fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
-  let rt = std::panic::catch_unwind(AssertUnwindSafe(
-    || -> Result<Option<TokioRuntimeGeneration>> {
-      let mut state = TOKIO_RUNTIME_STATE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-      match state.lifecycle {
-        TokioRuntimeLifecycle::Uninitialized => {
-          state.lifecycle = TokioRuntimeLifecycle::Stopped;
-          return Ok(None);
+  shutdown_tokio_runtime_with_transition(TokioRuntimeTransitionMode::NonBlocking)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+pub(crate) fn shutdown_tokio_runtime_after_transition() -> Result<()> {
+  shutdown_tokio_runtime_with_transition(TokioRuntimeTransitionMode::Wait)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn shutdown_tokio_runtime_with_transition(
+  transition_mode: TokioRuntimeTransitionMode,
+) -> Result<()> {
+  let rt = std::panic::catch_unwind(AssertUnwindSafe(|| {
+    with_tokio_runtime_transition(
+      transition_mode,
+      || -> Result<Option<TokioRuntimeGeneration>> {
+        let mut state = TOKIO_RUNTIME_STATE
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match state.lifecycle {
+          TokioRuntimeLifecycle::Uninitialized => {
+            state.lifecycle = TokioRuntimeLifecycle::Stopped;
+            return Ok(None);
+          }
+          TokioRuntimeLifecycle::Stopped => return Ok(None),
+          TokioRuntimeLifecycle::Running => {}
         }
-        TokioRuntimeLifecycle::Stopped => return Ok(None),
-        TokioRuntimeLifecycle::Running => {}
-      }
-      let generation = state.generation.take();
-      if let Some(generation) = &generation {
-        state.retiring = Some(Arc::clone(&generation.retirement));
-      }
-      state.lifecycle = TokioRuntimeLifecycle::Stopped;
-      Ok(generation)
-    },
-  ))
+        let generation = state.generation.take();
+        if let Some(generation) = &generation {
+          state.retiring = Some(Arc::clone(&generation.retirement));
+        }
+        state.lifecycle = TokioRuntimeLifecycle::Stopped;
+        Ok(generation)
+      },
+    )
+  }))
   .map_err(crate::bindgen_runtime::panic_to_error)
   .and_then(|result| result)?;
 

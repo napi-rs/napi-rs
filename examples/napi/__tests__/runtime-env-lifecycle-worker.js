@@ -551,6 +551,7 @@ parentPort.on(
           parentPort.postMessage({
             type: 'verified',
             result,
+            runtimeFactoryCallCount: addon.tokioRuntimeFactoryCallCount(),
           })
           break
         }

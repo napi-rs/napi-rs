@@ -63,6 +63,7 @@ export const unsupportedWasiFunctions = [
   'takeTypedArrayAcrossDuplicateLoad',
   'throwErrorAcrossDuplicateLoad',
   'throwPromiseRejectionAcrossDuplicateLoad',
+  'tokioRuntimeFactoryCallCount',
   'tokioRuntimeLifecycleValue',
   'unrefThreadsafeFunctionForEnvOwnership',
   'verifyReferenceValuesRejectNativeThread',

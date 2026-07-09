@@ -13,7 +13,7 @@ use std::sync::{
 };
 
 #[cfg(not(target_family = "wasm"))]
-use napi::bindgen_prelude::create_custom_tokio_runtime;
+use napi::bindgen_prelude::create_custom_tokio_runtime_factory;
 use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
 pub use napi_shared::*;
 
@@ -33,46 +33,55 @@ static ALLOC: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
 #[cfg(not(target_family = "wasm"))]
 static TOKIO_ACTIVE_THREAD_COUNT: AtomicU32 = AtomicU32::new(0);
 #[cfg(not(target_family = "wasm"))]
+static TOKIO_RUNTIME_FACTORY_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
 static TOKIO_THREAD_STOP_BARRIER: Mutex<Option<(String, String, String)>> = Mutex::new(None);
 
 #[cfg(not(target_family = "wasm"))]
 #[napi_derive::module_init]
 fn init() {
-  let rt = tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .on_thread_start(|| {
-      TOKIO_ACTIVE_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
-      #[cfg(not(feature = "noop"))]
-      tokio_runtime_lifecycle::register_worker_tls_retirement_probe();
-      let thread = std::thread::current();
-      println!("tokio thread started {:?}", thread.name());
-    })
-    .on_thread_stop(|| {
-      let barrier = TOKIO_THREAD_STOP_BARRIER
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone();
-      if let Some((entered_path, release_path, completed_path)) = barrier {
-        if std::fs::write(entered_path, b"entered").is_ok() {
-          let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-          while !std::path::Path::new(&release_path).exists()
-            && std::time::Instant::now() < deadline
-          {
-            std::thread::sleep(std::time::Duration::from_millis(1));
+  create_custom_tokio_runtime_factory(|| {
+    TOKIO_RUNTIME_FACTORY_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+    tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .on_thread_start(|| {
+        TOKIO_ACTIVE_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
+        #[cfg(not(feature = "noop"))]
+        tokio_runtime_lifecycle::register_worker_tls_retirement_probe();
+        let thread = std::thread::current();
+        println!("tokio thread started {:?}", thread.name());
+      })
+      .on_thread_stop(|| {
+        let barrier = TOKIO_THREAD_STOP_BARRIER
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner)
+          .clone();
+        if let Some((entered_path, release_path, completed_path)) = barrier {
+          if std::fs::write(entered_path, b"entered").is_ok() {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !std::path::Path::new(&release_path).exists()
+              && std::time::Instant::now() < deadline
+            {
+              std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            if std::path::Path::new(&release_path).exists()
+              && TOKIO_ACTIVE_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst) == 1
+            {
+              let _ = std::fs::write(completed_path, b"completed");
+            }
+            return;
           }
-          if std::path::Path::new(&release_path).exists()
-            && TOKIO_ACTIVE_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst) == 1
-          {
-            let _ = std::fs::write(completed_path, b"completed");
-          }
-          return;
         }
-      }
-      TOKIO_ACTIVE_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
-    })
-    .build()
-    .unwrap();
-  create_custom_tokio_runtime(rt);
+        TOKIO_ACTIVE_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
+      })
+      .build()
+  });
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi]
+pub fn tokio_runtime_factory_call_count() -> u32 {
+  TOKIO_RUNTIME_FACTORY_CALL_COUNT.load(Ordering::SeqCst)
 }
 
 #[cfg(not(target_family = "wasm"))]

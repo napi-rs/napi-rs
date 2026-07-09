@@ -231,6 +231,10 @@ async function verifyRuntime(worker) {
     'verified',
   )
   assert.equal(verification.result, 4)
+  assert.ok(
+    verification.runtimeFactoryCallCount >= 2,
+    `replacement environment used only ${verification.runtimeFactoryCallCount} configured Tokio runtime generation(s)`,
+  )
 }
 
 async function assertWorkerFinalizers(

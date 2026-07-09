@@ -1740,6 +1740,8 @@ export declare function throwSyntaxError(error: string, code?: string | undefine
 
 export declare function toJsObj(): object
 
+export declare function tokioRuntimeFactoryCallCount(): number
+
 export declare function tokioRuntimeLifecycleValue(value: number): Promise<number>
 
 /**

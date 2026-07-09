@@ -225,8 +225,9 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 #[test]
 fn tokio_runtime_helper_signatures_remain_compatible() {
   use napi::bindgen_prelude::{
-    create_custom_tokio_runtime, spawn, spawn_blocking, tokio_runtime_retirement_waiter,
-    try_create_custom_tokio_runtime, TokioRuntimeRetirementWaiter,
+    create_custom_tokio_runtime, create_custom_tokio_runtime_factory, spawn, spawn_blocking,
+    tokio_runtime_retirement_waiter, try_create_custom_tokio_runtime,
+    try_create_custom_tokio_runtime_factory, TokioRuntimeRetirementWaiter,
   };
 
   fn assert_spawn_signature() -> tokio::task::JoinHandle<()> {
@@ -268,6 +269,10 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
   let _ = assert_retirement_cancel_signature as fn(&TokioRuntimeRetirementWaiter);
   let _ = create_custom_tokio_runtime as fn(tokio::runtime::Runtime);
   let _ = try_create_custom_tokio_runtime as fn(tokio::runtime::Runtime) -> napi::Result<()>;
+  let _ = create_custom_tokio_runtime_factory::<_, std::io::Error>
+    as fn(fn() -> std::io::Result<tokio::runtime::Runtime>);
+  let _ = try_create_custom_tokio_runtime_factory::<_, std::io::Error>
+    as fn(fn() -> std::io::Result<tokio::runtime::Runtime>) -> napi::Result<()>;
   let _ = assert_execute_tokio_future_signature
     as fn(napi::sys::napi_env) -> napi::Result<napi::sys::napi_value>;
   assert_waiter_traits::<TokioRuntimeRetirementWaiter>();
