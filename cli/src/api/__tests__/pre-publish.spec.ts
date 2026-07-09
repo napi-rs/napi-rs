@@ -2241,6 +2241,14 @@ test.serial(
       ),
     ])
 
+    const sabotagedDestination = join(
+      packageDir,
+      declarationDependencies.at(-1)!,
+    )
+    const transactionRoot = join(
+      t.context.tmpDir,
+      '.napi-rs-filesystem-transaction.swp',
+    )
     const transaction = t.throwsAsync(() =>
       commitPrePublishFileSystemTransaction({
         packageJsonPath,
@@ -2282,27 +2290,18 @@ test.serial(
       }),
     )
     const sabotage = (async () => {
-      const transactionRoot = join(
-        t.context.tmpDir,
-        '.napi-rs-filesystem-transaction.swp',
-      )
-      const firstDestination = join(packageDir, declarationDependencies[0])
-      const finalInput = join(
-        transactionRoot,
-        'inputs',
-        String(declarationDependencies.length + 2),
-      )
       const deadline = Date.now() + 10_000
       while (Date.now() < deadline) {
-        if (existsSync(firstDestination)) {
-          await rm(finalInput)
+        if (existsSync(join(transactionRoot, 'state.json'))) {
+          await mkdir(sabotagedDestination)
           return
         }
         await new Promise<void>((resolve) => setImmediate(resolve))
       }
-      throw new Error('Timed out waiting for the first transaction write')
+      throw new Error('Timed out waiting for transaction publication')
     })()
     await Promise.all([transaction, sabotage])
+    await rm(sabotagedDestination, { recursive: true })
 
     t.is(await readFile(packageJsonPath, 'utf8'), 'root manifest before')
     t.is(await readFile(flavorManifestPath, 'utf8'), 'flavor manifest before')
@@ -2310,11 +2309,209 @@ test.serial(
     for (const file of declarationDependencies) {
       t.false(existsSync(join(packageDir, file)), file)
     }
-    t.false(
-      existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
-    )
+    await rm(transactionRoot, { recursive: true, force: true })
   },
 )
+
+test('pre-publish rejects a symlinked release package without mutating its target', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+  const linkedPackageDir = join(t.context.tmpDir, 'linked-release-package')
+  await rename(packageDir, linkedPackageDir)
+  await symlink(linkedPackageDir, packageDir, 'junction')
+  const manifestPath = join(linkedPackageDir, 'package.json')
+  const manifestBefore = await readFile(manifestPath, 'utf8')
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  )
+
+  t.regex(error.message, /must not be a symbolic link/)
+  t.is(await readFile(manifestPath, 'utf8'), manifestBefore)
+})
+
+test('pre-publish rejects nested release-package symlinks without reading external content', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+  const externalPath = join(t.context.tmpDir, 'external-publish-content.js')
+  const nestedDir = join(packageDir, 'nested')
+  await mkdir(nestedDir)
+  await writeFile(externalPath, 'external content must stay private\n')
+  await symlink(externalPath, join(nestedDir, 'external.js'), 'file')
+  const manifestPath = join(packageDir, 'package.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  manifest.files.push('nested/external.js')
+  await writeFile(manifestPath, JSON.stringify(manifest))
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  )
+
+  t.regex(error.message, /must not contain symbolic links/)
+  t.is(
+    await readFile(externalPath, 'utf8'),
+    'external content must stay private\n',
+  )
+})
+
+test('pre-publish rejects release manifest paths that escape the package', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+  const externalPath = join(t.context.tmpDir, 'external-publish-content.js')
+  await writeFile(externalPath, 'external content must stay private\n')
+  const manifestPath = join(packageDir, 'package.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  manifest.files.push('../../external-publish-content.js')
+  await writeFile(manifestPath, JSON.stringify(manifest))
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  )
+
+  t.regex(error.message, /path escapes its package directory/)
+  t.is(
+    await readFile(externalPath, 'utf8'),
+    'external content must stay private\n',
+  )
+})
+
+test('pre-publish rejects escaped and aliased npm roots outside the project boundary', async (t) => {
+  const projectDir = join(t.context.tmpDir, 'project')
+  await mkdir(projectDir)
+  await setupThreadlessPackage(projectDir)
+  const externalNpmDir = join(t.context.tmpDir, 'external-npm')
+  await rename(join(projectDir, 'npm'), externalNpmDir)
+  await symlink(externalNpmDir, join(projectDir, 'npm-alias'), 'junction')
+  const flavorManifestPath = join(
+    externalNpmDir,
+    'wasm32-wasip1',
+    'package.json',
+  )
+  const manifestBefore = await readFile(flavorManifestPath, 'utf8')
+
+  for (const options of [
+    { cwd: projectDir, npmDir: '../external-npm' },
+    { cwd: projectDir, npmDir: 'npm-alias' },
+    {
+      cwd: t.context.tmpDir,
+      npmDir: 'external-npm',
+      packageJsonPath: 'project/package.json',
+    },
+  ]) {
+    const error = await t.throwsAsync(() =>
+      prePublish({
+        ...options,
+        dryRun: false,
+        ghRelease: false,
+        tagStyle: 'npm',
+        skipOptionalPublish: true,
+      }),
+    )
+    t.regex(error.message, /project or workspace boundary/)
+  }
+
+  t.is(await readFile(flavorManifestPath, 'utf8'), manifestBefore)
+  t.false(
+    existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
+  )
+})
+
+test('pre-publish does not discover workspace boundaries above cwd', async (t) => {
+  const projectDir = join(t.context.tmpDir, 'project')
+  const packageRoot = join(projectDir, 'packages', 'addon')
+  await mkdir(packageRoot, { recursive: true })
+  await writeFile(
+    join(t.context.tmpDir, 'package.json'),
+    JSON.stringify({ private: true, workspaces: ['project/packages/*'] }),
+  )
+  await setupThreadlessPackage(packageRoot)
+  const externalNpmDir = join(t.context.tmpDir, 'npm')
+  await rename(join(packageRoot, 'npm'), externalNpmDir)
+  const flavorManifestPath = join(
+    externalNpmDir,
+    'wasm32-wasip1',
+    'package.json',
+  )
+  const manifestBefore = await readFile(flavorManifestPath, 'utf8')
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: projectDir,
+      packageJsonPath: 'packages/addon/package.json',
+      npmDir: '../npm',
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  )
+
+  t.regex(error.message, /project or workspace boundary/)
+  t.is(await readFile(flavorManifestPath, 'utf8'), manifestBefore)
+  t.false(
+    existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
+  )
+})
+
+test('pre-publish contains a nested package and sibling npm directory in one transaction', async (t) => {
+  const packageRoot = join(t.context.tmpDir, 'packages', 'addon')
+  await mkdir(packageRoot, { recursive: true })
+  await writeFile(
+    join(t.context.tmpDir, 'package.json'),
+    JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+  )
+  await setupThreadlessPackage(packageRoot)
+  const npmDir = join(t.context.tmpDir, 'npm')
+  await rename(join(packageRoot, 'npm'), npmDir)
+  const flavorManifestPath = join(npmDir, 'wasm32-wasip1', 'package.json')
+  const flavorManifest = JSON.parse(await readFile(flavorManifestPath, 'utf8'))
+  flavorManifest.version = '0.0.0-unpublished'
+  await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+
+  await prePublish({
+    cwd: t.context.tmpDir,
+    packageJsonPath: 'packages/addon/package.json',
+    npmDir: 'npm',
+    dryRun: false,
+    ghRelease: false,
+    tagStyle: 'npm',
+    skipOptionalPublish: true,
+  })
+
+  const reconciledRoot = JSON.parse(
+    await readFile(join(packageRoot, 'package.json'), 'utf8'),
+  )
+  const reconciledFlavor = JSON.parse(
+    await readFile(flavorManifestPath, 'utf8'),
+  )
+  t.is(
+    reconciledRoot.optionalDependencies['pre-publish-wasi-wasm32-wasip1'],
+    '1.0.0',
+  )
+  t.is(reconciledFlavor.version, '1.0.0')
+  t.false(existsSync(join(packageRoot, '.napi-rs-filesystem-transaction.swp')))
+  t.false(
+    existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
+  )
+})
 
 test.serial(
   'pre-publish publishes the immutable prepared snapshot after lock release',
@@ -2346,6 +2543,7 @@ test.serial(
     const packageJsonPath = join(t.context.tmpDir, 'package.json')
     const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
     packageJson.packageManager = 'yarn@4.17.1'
+    packageJson.workspaces = ['packages/*']
     packageJson.napi.npmClient = `${shellArgument(
       process.execPath,
     )} ${shellArgument(publishClientPath)}`
@@ -2377,6 +2575,310 @@ test.serial(
     )
     const capturedCwd = await readFile(capturedCwdPath, 'utf8')
     t.not(capturedCwd, packageDir)
+    t.false(existsSync(capturedCwd))
+  },
+)
+
+test.serial(
+  'pre-publish registers staged flavor packages for Yarn 4 publication',
+  async (t) => {
+    const packageRoot = join(t.context.tmpDir, 'packages', 'addon')
+    await mkdir(packageRoot, { recursive: true })
+    await setupThreadlessPackage(packageRoot)
+    const npmDir = join(t.context.tmpDir, 'npm')
+    await rename(join(packageRoot, 'npm'), npmDir)
+    const flavorManifestPath = join(npmDir, 'wasm32-wasip1', 'package.json')
+    const flavorManifest = JSON.parse(
+      await readFile(flavorManifestPath, 'utf8'),
+    )
+    delete flavorManifest.dependencies
+    await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+
+    const { yarnCli, yarnVersion } = resolveYarnCli()
+    const capturedWorkspacePath = join(
+      t.context.tmpDir,
+      'captured-yarn-workspace.json',
+    )
+    const publishClientPath = join(t.context.tmpDir, 'yarn-publish-client.mjs')
+    await Promise.all([
+      writeFile(
+        join(t.context.tmpDir, 'package.json'),
+        JSON.stringify({
+          private: true,
+          packageManager: `yarn@${yarnVersion}`,
+          workspaces: ['packages/*', '!npm/**'],
+        }),
+      ),
+      writeFile(
+        join(t.context.tmpDir, '.yarnrc.yml'),
+        'nodeLinker: pnp\nenableGlobalCache: false\nenableNetwork: false\n',
+      ),
+      writeFile(join(t.context.tmpDir, 'yarn.lock'), ''),
+      writeFile(
+        publishClientPath,
+        [
+          `import { spawnSync } from 'node:child_process'`,
+          `import { readFileSync, writeFileSync } from 'node:fs'`,
+          `import { resolve } from 'node:path'`,
+          `const run = (args) => {`,
+          `  const result = spawnSync(process.execPath, [${JSON.stringify(
+            yarnCli,
+          )}, ...args], { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, COREPACK_ENABLE_PROJECT_SPEC: '0' } })`,
+          `  if (result.status !== 0) throw new Error(result.stderr || result.stdout)`,
+          `}`,
+          `run(['install', '--mode=skip-build', '--no-immutable'])`,
+          `run(['npm', 'publish', '--dry-run'])`,
+          `const workspace = JSON.parse(readFileSync(resolve(process.cwd(), '../..', 'package.json'), 'utf8'))`,
+          `if (!workspace.workspaces.includes('npm/wasm32-wasip1')) throw new Error('staged flavor package was not registered')`,
+          `writeFileSync(${JSON.stringify(capturedWorkspacePath)}, JSON.stringify(workspace))`,
+          '',
+        ].join('\n'),
+      ),
+    ])
+    const rootManifestPath = join(packageRoot, 'package.json')
+    const rootManifest = JSON.parse(await readFile(rootManifestPath, 'utf8'))
+    rootManifest.napi.npmClient = `${shellArgument(
+      process.execPath,
+    )} ${shellArgument(publishClientPath)}`
+    await writeFile(rootManifestPath, JSON.stringify(rootManifest))
+
+    await prePublish({
+      cwd: t.context.tmpDir,
+      packageJsonPath: 'packages/addon/package.json',
+      npmDir: 'npm',
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+    })
+
+    const sourceWorkspace = JSON.parse(
+      await readFile(join(t.context.tmpDir, 'package.json'), 'utf8'),
+    )
+    const capturedWorkspace = JSON.parse(
+      await readFile(capturedWorkspacePath, 'utf8'),
+    )
+    t.deepEqual(sourceWorkspace.workspaces, ['packages/*', '!npm/**'])
+    t.true(capturedWorkspace.workspaces.includes('packages/*'))
+    t.true(capturedWorkspace.workspaces.includes('npm/wasm32-wasip1'))
+    t.false(capturedWorkspace.workspaces.includes('!npm/**'))
+  },
+)
+
+test.serial(
+  'pre-publish preserves ancestor package-manager and lifecycle execution context',
+  async (t) => {
+    const packageRoot = join(t.context.tmpDir, 'packages', 'addon')
+    await mkdir(packageRoot, { recursive: true })
+    await setupThreadlessPackage(packageRoot)
+    const npmDir = join(t.context.tmpDir, 'npm')
+    await rename(join(packageRoot, 'npm'), npmDir)
+    const packageDir = join(npmDir, 'wasm32-wasip1')
+    const artifact = 'pre-publish-wasi.wasm32-wasip1.wasm'
+    const capturedPackageDir = join(t.context.tmpDir, 'captured-lifecycle')
+    const capturedCwdPath = join(t.context.tmpDir, 'captured-lifecycle-cwd.txt')
+    const publishClientPath = join(t.context.tmpDir, 'publish-client.mjs')
+    const npmCli = resolveNpmCli()
+
+    await Promise.all([
+      mkdir(join(t.context.tmpDir, '.yarn', 'plugins'), { recursive: true }),
+      mkdir(join(t.context.tmpDir, 'node_modules', 'context-dependency'), {
+        recursive: true,
+      }),
+      mkdir(join(t.context.tmpDir, 'scripts'), { recursive: true }),
+      mkdir(join(t.context.tmpDir, 'unrelated-build-output'), {
+        recursive: true,
+      }),
+    ])
+    await Promise.all([
+      writeFile(
+        join(t.context.tmpDir, 'package.json'),
+        JSON.stringify({
+          private: true,
+          packageManager: 'pnpm@11.10.0',
+          workspaces: ['packages/*'],
+        }),
+      ),
+      writeFile(
+        join(t.context.tmpDir, '.npmrc'),
+        'registry=https://registry.invalid.example/\n',
+      ),
+      writeFile(
+        join(t.context.tmpDir, '.yarnrc.yml'),
+        'nodeLinker: pnp\nplugins:\n  - path: .yarn/plugins/context.cjs\n',
+      ),
+      writeFile(
+        join(t.context.tmpDir, 'pnpm-workspace.yaml'),
+        "packages:\n  - 'packages/*'\n",
+      ),
+      writeFile(
+        join(t.context.tmpDir, '.pnp.cjs'),
+        'module.exports = { context: true }\n',
+      ),
+      writeFile(
+        join(t.context.tmpDir, '.pnpmfile.cjs'),
+        'module.exports = { hooks: {} }\n',
+      ),
+      writeFile(
+        join(t.context.tmpDir, '.yarn', 'plugins', 'context.cjs'),
+        'module.exports = { name: "context-plugin" }\n',
+      ),
+      writeFile(
+        join(
+          t.context.tmpDir,
+          'node_modules',
+          'context-dependency',
+          'package.json',
+        ),
+        JSON.stringify({
+          name: 'context-dependency',
+          version: '1.0.0',
+          main: 'index.cjs',
+        }),
+      ),
+      writeFile(
+        join(
+          t.context.tmpDir,
+          'node_modules',
+          'context-dependency',
+          'index.cjs',
+        ),
+        'module.exports = "resolved-from-ancestor-node-modules"\n',
+      ),
+      writeFile(
+        join(t.context.tmpDir, 'scripts', 'repository-prepack.cjs'),
+        [
+          `const { writeFileSync } = require('node:fs')`,
+          `const { join } = require('node:path')`,
+          `writeFileSync(join(process.cwd(), 'repository-hook.txt'), 'ran')`,
+          '',
+        ].join('\n'),
+      ),
+      writeFile(
+        join(t.context.tmpDir, 'scripts', 'source-context.txt'),
+        'source context\n',
+      ),
+      writeFile(
+        join(t.context.tmpDir, 'unrelated-build-output', 'large.bin'),
+        'must not be staged\n',
+      ),
+    ])
+    await symlink(
+      join(t.context.tmpDir, 'scripts'),
+      join(t.context.tmpDir, 'linked-scripts'),
+      'junction',
+    )
+
+    const contextCheckPath = join(packageDir, 'context-check.cjs')
+    await writeFile(
+      contextCheckPath,
+      [
+        `const { existsSync, lstatSync, readFileSync, writeFileSync } = require('node:fs')`,
+        `const { join, resolve } = require('node:path')`,
+        `const contextRoot = resolve(process.cwd(), '../..')`,
+        `const expected = new Map([`,
+        `  ['.npmrc', 'registry=https://registry.invalid.example/\\n'],`,
+        `  ['.yarnrc.yml', 'nodeLinker: pnp\\nplugins:\\n  - path: .yarn/plugins/context.cjs\\n'],`,
+        `  ['pnpm-workspace.yaml', "packages:\\n  - 'packages/*'\\n"],`,
+        `  ['.pnp.cjs', 'module.exports = { context: true }\\n'],`,
+        `  ['.pnpmfile.cjs', 'module.exports = { hooks: {} }\\n'],`,
+        `  ['.yarn/plugins/context.cjs', 'module.exports = { name: "context-plugin" }\\n'],`,
+        `])`,
+        `for (const [path, contents] of expected) {`,
+        `  if (readFileSync(join(contextRoot, path), 'utf8') !== contents) throw new Error('missing publication context: ' + path)`,
+        `}`,
+        `const workspace = JSON.parse(readFileSync(join(contextRoot, 'package.json'), 'utf8'))`,
+        `if (workspace.packageManager !== 'pnpm@11.10.0' || workspace.workspaces[0] !== 'packages/*') throw new Error('missing ancestor package manifest')`,
+        `if (existsSync(join(contextRoot, 'unrelated-build-output'))) throw new Error('unrelated workspace directory was staged')`,
+        `if (lstatSync(join(contextRoot, 'node_modules')).isSymbolicLink()) throw new Error('node_modules context was linked to the source checkout')`,
+        `if (require('context-dependency') !== 'resolved-from-ancestor-node-modules') throw new Error('ancestor node_modules did not resolve')`,
+        `writeFileSync(require.resolve('context-dependency'), 'module.exports = "mutated-dependency"\\n')`,
+        `writeFileSync(join(contextRoot, 'scripts', 'source-context.txt'), 'mutated-context')`,
+        `writeFileSync(join(contextRoot, 'linked-scripts', 'via-link.txt'), 'mutated-through-link')`,
+        `writeFileSync(join(process.cwd(), 'package.json'), JSON.stringify({ name: 'lifecycle-mutated', version: '9.9.9' }))`,
+        `writeFileSync(join(process.cwd(), ${JSON.stringify(artifact)}), 'lifecycle-mutated')`,
+        '',
+      ].join('\n'),
+    )
+    const flavorManifestPath = join(packageDir, 'package.json')
+    const flavorManifest = JSON.parse(
+      await readFile(flavorManifestPath, 'utf8'),
+    )
+    flavorManifest.scripts = {
+      prepack:
+        'node context-check.cjs && node ../../scripts/repository-prepack.cjs',
+    }
+    await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+
+    await writeFile(
+      publishClientPath,
+      [
+        `import { spawnSync } from 'node:child_process'`,
+        `import { cpSync, writeFileSync } from 'node:fs'`,
+        `const result = spawnSync(process.execPath, [${JSON.stringify(
+          npmCli,
+        )}, 'pack', '--dry-run', '--json'], { cwd: process.cwd(), encoding: 'utf8', env: process.env })`,
+        `if (result.status !== 0) throw new Error(result.stderr || result.stdout)`,
+        `writeFileSync(${JSON.stringify(capturedCwdPath)}, process.cwd())`,
+        `cpSync(process.cwd(), ${JSON.stringify(capturedPackageDir)}, { recursive: true })`,
+        '',
+      ].join('\n'),
+    )
+    const rootManifestPath = join(packageRoot, 'package.json')
+    const rootManifest = JSON.parse(await readFile(rootManifestPath, 'utf8'))
+    rootManifest.napi.npmClient = `${shellArgument(
+      process.execPath,
+    )} ${shellArgument(publishClientPath)}`
+    await writeFile(rootManifestPath, JSON.stringify(rootManifest))
+
+    await prePublish({
+      cwd: t.context.tmpDir,
+      packageJsonPath: 'packages/addon/package.json',
+      npmDir: 'npm',
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+    })
+
+    const sourceManifest = JSON.parse(
+      await readFile(flavorManifestPath, 'utf8'),
+    )
+    const capturedManifest = JSON.parse(
+      await readFile(join(capturedPackageDir, 'package.json'), 'utf8'),
+    )
+    t.is(sourceManifest.name, 'pre-publish-wasi-wasm32-wasip1')
+    t.is(sourceManifest.version, '1.0.0')
+    t.deepEqual(await readFile(join(packageDir, artifact)), MINIMAL_WASM)
+    t.is(capturedManifest.name, 'lifecycle-mutated')
+    t.is(
+      await readFile(join(capturedPackageDir, artifact), 'utf8'),
+      'lifecycle-mutated',
+    )
+    t.is(
+      await readFile(join(capturedPackageDir, 'repository-hook.txt'), 'utf8'),
+      'ran',
+    )
+    t.is(
+      await readFile(
+        join(
+          t.context.tmpDir,
+          'node_modules',
+          'context-dependency',
+          'index.cjs',
+        ),
+        'utf8',
+      ),
+      'module.exports = "resolved-from-ancestor-node-modules"\n',
+    )
+    t.is(
+      await readFile(
+        join(t.context.tmpDir, 'scripts', 'source-context.txt'),
+        'utf8',
+      ),
+      'source context\n',
+    )
+    t.false(existsSync(join(t.context.tmpDir, 'scripts', 'via-link.txt')))
+    const capturedCwd = await readFile(capturedCwdPath, 'utf8')
+    t.true(capturedCwd.endsWith(join('workspace', 'npm', 'wasm32-wasip1')))
     t.false(existsSync(capturedCwd))
   },
 )

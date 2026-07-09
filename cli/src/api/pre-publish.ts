@@ -1,10 +1,27 @@
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, readFileSync, statSync } from 'node:fs'
+import {
+  constants,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  readdirSync,
+  statSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
-import { cp, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, cp, mkdtemp, readdir, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, extname, join, relative, resolve, sep } from 'node:path'
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { Octokit } from '@octokit/rest'
@@ -48,14 +65,36 @@ const MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES = new Set(
 )
 const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
-const PACKAGE_MANAGER_CONTEXT_FILES = [
+const RECONCILIATION_STATE_PREFIXES = [
+  '.napi-rs-filesystem-reconciliation',
+  '.napi-rs-filesystem-transaction',
+]
+const PUBLICATION_CONTEXT_EXCLUDED_NAMES = new Set(['.git'])
+const PUBLICATION_CONTEXT_FILES = [
   '.npmrc',
+  '.pnp.cjs',
+  '.pnp.loader.mjs',
+  '.pnpmfile.cjs',
+  '.yarnrc',
   '.yarnrc.yml',
+  'bun.lock',
+  'bun.lockb',
+  'npm-shrinkwrap.json',
+  'package-lock.json',
+  'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
   'yarn.lock',
 ]
-const PACKAGE_MANAGER_CONTEXT_DIRECTORIES = ['.yarn/plugins', '.yarn/releases']
+const PUBLICATION_LIFECYCLE_SCRIPTS = [
+  'prepublish',
+  'prepare',
+  'prepublishOnly',
+  'prepack',
+  'postpack',
+  'publish',
+  'postpublish',
+]
 const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
 const directBufferDependency = '^6.0.3'
 const wasiRuntimeDependencies = [
@@ -85,6 +124,7 @@ interface PreparedPrePublish {
   packageName: string
   packageVersion: string
   releasePackages: PreparedReleasePackage[]
+  workspaceRoot?: string
 }
 
 async function removePreparedSnapshot(
@@ -119,168 +159,222 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   const options = applyDefaultPrePublishOptions(userOptions)
 
-  const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
-  const rootDir = getPackageReconciliationRoot(
+  const requestedPackageJsonPath = resolve(options.cwd, options.packageJsonPath)
+  const requestedRootDir = getPackageReconciliationRoot(
     options.cwd,
     options.packageJsonPath,
+  )
+  const requestedNpmDir = resolve(options.cwd, options.npmDir)
+  const {
+    boundary: reconciliationRoot,
+    npmDir,
+    packageJsonPath,
+    rootDir,
+  } = resolveManagedPrePublishPaths(
+    options.cwd,
+    requestedPackageJsonPath,
+    requestedRootDir,
+    requestedNpmDir,
   )
   let preparedSnapshotRoot: string | undefined
   let prepared: PreparedPrePublish
   try {
-    prepared = await withFileSystemReconciliation(rootDir, async () => {
-      const { packageJson, targets, packageName, binaryName, npmClient, wasm } =
-        await readNapiConfig(
+    prepared = await withFileSystemReconciliation(
+      reconciliationRoot,
+      async () => {
+        const {
+          packageJson,
+          targets,
+          packageName,
+          binaryName,
+          npmClient,
+          wasm,
+        } = await readNapiConfig(
           packageJsonPath,
           options.configPath
             ? resolve(options.cwd, options.configPath)
             : undefined,
         )
-      const threadlessWasiTarget = targets.find(
-        (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
-      )
+        const threadlessWasiTarget = targets.find(
+          (target) =>
+            target.platform === 'wasi' && !wasiTargetHasThreads(target),
+        )
 
-      if (!options.dryRun) {
-        preparedSnapshotRoot = await mkdtemp(
-          join(tmpdir(), 'napi-rs-pre-publish-stage-'),
-        )
-        await stagePackageManagerContext(
-          packageJsonPath,
-          rootDir,
-          preparedSnapshotRoot,
-        )
-      }
-      const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
-      for (const target of targets) {
-        const pkgDir = resolve(
-          options.cwd,
-          options.npmDir,
-          target.platformArchABI,
-        )
-        const validationOptions: ReleasePackageValidationOptions = {
-          pkgDir,
-          rootDir,
-          packageName,
-          binaryName,
-          target,
-          requireDirectBufferDependency:
-            wasm?.browser?.buffer === true &&
-            (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
-        }
-        releasePackagePlans.push(
-          preparedSnapshotRoot
-            ? await stageReleasePackage(
-                preparedSnapshotRoot,
-                packageJson.version,
-                validationOptions,
-              )
-            : await validateReleasePackage(validationOptions),
-        )
-      }
-      const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
-        packageJson,
-        rootDir,
-        resolve(options.cwd, options.npmDir),
-        packageName,
-      )
-      let reconciledPackageJson = rootFacadeReconciliation.packageJson
-      let rootFacade: ThreadlessWasiRootFacade | undefined
-      if (threadlessWasiTarget) {
-        rootFacade = planThreadlessWasiRootFacade({
-          packageJsonPath,
-          packageJson: reconciledPackageJson,
-          packageName,
-          binaryName,
-          target: threadlessWasiTarget,
-          npmDir: resolve(options.cwd, options.npmDir),
-          managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
-        })
-        const stagedThreadlessPackage = releasePackagePlans.find(
-          (plan) =>
-            plan.target.platformArchABI ===
-            threadlessWasiTarget.platformArchABI,
-        )?.stagedPkgDir
-        if (stagedThreadlessPackage) {
-          const stagedWasmSourcePath = join(
-            stagedThreadlessPackage,
-            `${binaryName}.${threadlessWasiTarget.platformArchABI}.wasm`,
+        let preparedWorkspaceRoot: string | undefined
+        if (!options.dryRun) {
+          preparedSnapshotRoot = await mkdtemp(
+            join(tmpdir(), 'napi-rs-pre-publish-stage-'),
           )
-          rootFacade = {
-            ...rootFacade,
-            marker: createThreadlessWasiRootFacadeMarker(
-              `${packageName}-${threadlessWasiTarget.platformArchABI}`,
-              readFileSync(stagedWasmSourcePath),
-            ),
-            wasmSourcePath: stagedWasmSourcePath,
-          }
+          preparedWorkspaceRoot = join(preparedSnapshotRoot, 'workspace')
         }
-        reconciledPackageJson = applyThreadlessWasiRootFacade(
-          reconciledPackageJson,
-          rootFacade,
+        const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
+        for (const target of targets) {
+          const pkgDir = join(npmDir, target.platformArchABI)
+          const validationOptions: ReleasePackageValidationOptions = {
+            pkgDir,
+            rootDir,
+            packageName,
+            binaryName,
+            target,
+            requireDirectBufferDependency:
+              wasm?.browser?.buffer === true &&
+              (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
+          }
+          releasePackagePlans.push(
+            preparedWorkspaceRoot
+              ? await stageReleasePackage(
+                  preparedWorkspaceRoot,
+                  reconciliationRoot,
+                  packageJson.version,
+                  validationOptions,
+                )
+              : await validateReleasePackage(validationOptions),
+          )
+        }
+        const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
+          packageJson,
+          rootDir,
+          npmDir,
+          packageName,
         )
-      }
-      const optionalDependencies = {
-        ...asRecord(packageJson.optionalDependencies),
-      }
-      const managedPackageNames = new Set([packageName])
-      for (const flavorPackage of rootFacadeReconciliation.managedFlavorPackages) {
-        for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
-          const ending = `-${suffix}`
-          if (flavorPackage.endsWith(ending)) {
-            managedPackageNames.add(flavorPackage.slice(0, -ending.length))
-          }
-        }
-      }
-      for (const managedPackageName of managedPackageNames) {
-        for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
-          delete optionalDependencies[`${managedPackageName}-${suffix}`]
-        }
-      }
-      for (const target of targets) {
-        optionalDependencies[`${packageName}-${target.platformArchABI}`] =
-          packageJson.version
-      }
-      const nodeEngine =
-        targets.length > 0 &&
-        targets.every((target) => target.platform === 'wasi')
-          ? restrictWasiNodeEngine(
-              packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
+        let reconciledPackageJson = rootFacadeReconciliation.packageJson
+        let rootFacade: ThreadlessWasiRootFacade | undefined
+        if (threadlessWasiTarget) {
+          rootFacade = planThreadlessWasiRootFacade({
+            packageJsonPath,
+            packageJson: reconciledPackageJson,
+            packageName,
+            binaryName,
+            target: threadlessWasiTarget,
+            npmDir,
+            managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+          })
+          const stagedThreadlessPackage = releasePackagePlans.find(
+            (plan) =>
+              plan.target.platformArchABI ===
+              threadlessWasiTarget.platformArchABI,
+          )?.stagedPkgDir
+          if (stagedThreadlessPackage) {
+            const stagedWasmSourcePath = join(
+              stagedThreadlessPackage,
+              `${binaryName}.${threadlessWasiTarget.platformArchABI}.wasm`,
             )
-          : undefined
-      const rootReleasePlan: RootReleaseMaterializationPlan = {
-        packageJson: reconciledPackageJson,
-        optionalDependencies,
-        nodeEngine,
-        facade: rootFacade,
-        staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
-      }
-      if (preparedSnapshotRoot) {
-        const stagedRootDir = join(preparedSnapshotRoot, 'root')
-        await stageRootReleasePlan(
-          packageJsonPath,
-          rootDir,
-          stagedRootDir,
-          rootReleasePlan,
-        )
-        await commitPrePublishFileSystemTransaction({
-          packageJsonPath,
-          releasePackagePlans,
-          rootDir,
-          rootReleasePlan,
-          stagedRootDir,
-        })
-      } else if (rootFacade) {
-        await validateRootReleasePlan(packageJsonPath, rootDir, rootReleasePlan)
-      }
+            rootFacade = {
+              ...rootFacade,
+              marker: createThreadlessWasiRootFacadeMarker(
+                `${packageName}-${threadlessWasiTarget.platformArchABI}`,
+                readFileSync(stagedWasmSourcePath),
+              ),
+              wasmSourcePath: stagedWasmSourcePath,
+            }
+          }
+          reconciledPackageJson = applyThreadlessWasiRootFacade(
+            reconciledPackageJson,
+            rootFacade,
+          )
+        }
+        const optionalDependencies = {
+          ...asRecord(packageJson.optionalDependencies),
+        }
+        const managedPackageNames = new Set([packageName])
+        for (const flavorPackage of rootFacadeReconciliation.managedFlavorPackages) {
+          for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+            const ending = `-${suffix}`
+            if (flavorPackage.endsWith(ending)) {
+              managedPackageNames.add(flavorPackage.slice(0, -ending.length))
+            }
+          }
+        }
+        for (const managedPackageName of managedPackageNames) {
+          for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+            delete optionalDependencies[`${managedPackageName}-${suffix}`]
+          }
+        }
+        for (const target of targets) {
+          optionalDependencies[`${packageName}-${target.platformArchABI}`] =
+            packageJson.version
+        }
+        const nodeEngine =
+          targets.length > 0 &&
+          targets.every((target) => target.platform === 'wasi')
+            ? restrictWasiNodeEngine(
+                packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
+              )
+            : undefined
+        const rootReleasePlan: RootReleaseMaterializationPlan = {
+          packageJson: reconciledPackageJson,
+          optionalDependencies,
+          nodeEngine,
+          facade: rootFacade,
+          staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+        }
+        if (preparedWorkspaceRoot) {
+          const stagedTransactionRoot = join(
+            preparedSnapshotRoot!,
+            'transaction-root',
+          )
+          const stagedRootDir = publicationContextPath(
+            preparedWorkspaceRoot,
+            reconciliationRoot,
+            rootDir,
+          )
+          await stageRootReleasePlan(
+            packageJsonPath,
+            rootDir,
+            stagedRootDir,
+            rootReleasePlan,
+          )
+          await mkdirAsync(stagedTransactionRoot, { recursive: true })
+          const stagedRootManifestPath = join(
+            stagedTransactionRoot,
+            'package.json',
+          )
+          await copyFile(
+            join(stagedRootDir, 'package.json'),
+            stagedRootManifestPath,
+            constants.COPYFILE_FICLONE,
+          )
+          if (releasePackagePlans.length > 0) {
+            await stagePublicationContext(
+              reconciliationRoot,
+              preparedWorkspaceRoot,
+              rootDir,
+              releasePackagePlans,
+            )
+            await registerPublicationWorkspaces(
+              reconciliationRoot,
+              preparedWorkspaceRoot,
+              releasePackagePlans.map(({ pkgDir }) => pkgDir),
+            )
+          }
+          await commitPrePublishFileSystemTransaction({
+            packageJsonPath,
+            transactionRoot: reconciliationRoot,
+            releasePackagePlans,
+            rootDir,
+            rootReleasePlan,
+            stagedRootManifestPath,
+            stagedRootDir,
+          })
+        } else if (rootFacade) {
+          await validateRootReleasePlan(
+            packageJsonPath,
+            rootDir,
+            rootReleasePlan,
+          )
+        }
 
-      return {
-        npmClient,
-        packageName,
-        packageVersion: packageJson.version,
-        releasePackages: releasePackagePlans.map((plan) =>
-          prepareReleasePackage(plan, binaryName),
-        ),
-      }
-    })
+        return {
+          npmClient,
+          packageName,
+          packageVersion: packageJson.version,
+          releasePackages: releasePackagePlans.map((plan) =>
+            prepareReleasePackage(plan, binaryName),
+          ),
+          workspaceRoot: preparedWorkspaceRoot,
+        }
+      },
+    )
   } catch (error) {
     if (preparedSnapshotRoot) {
       await removePreparedSnapshot(
@@ -293,7 +387,13 @@ export async function prePublish(userOptions: PrePublishOptions) {
     throw error
   }
 
-  const { npmClient, packageName, packageVersion, releasePackages } = prepared
+  const {
+    npmClient,
+    packageName,
+    packageVersion,
+    releasePackages,
+    workspaceRoot,
+  } = prepared
 
   async function createGhRelease(packageName: string, version: string) {
     if (!options.ghRelease) {
@@ -395,79 +495,113 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
     for (const releasePackage of releasePackages) {
       const { artifactPath, filename, packageDir } = releasePackage
+      let publicationPackageDir = packageDir
+      let publicationArtifactPath = artifactPath
+      let publicationExecutionRoot: string | undefined
+      let releaseFailed = false
+      let releaseError: unknown
 
-      if (!options.dryRun) {
-        if (!existsSync(artifactPath)) {
-          throw new Error(`Release artifact does not exist: ${artifactPath}`)
-        }
+      try {
+        if (!options.dryRun) {
+          if (!existsSync(artifactPath)) {
+            throw new Error(`Release artifact does not exist: ${artifactPath}`)
+          }
 
-        if (!options.skipOptionalPublish) {
-          try {
-            const output = execSync(`${npmClient} publish`, {
-              cwd: packageDir,
-              env: process.env,
-              stdio: 'pipe',
-            })
-            process.stdout.write(output)
-          } catch (e) {
-            if (
-              e instanceof Error &&
-              e.message.includes(
-                'You cannot publish over the previously published versions',
+          if (!options.skipOptionalPublish) {
+            if (!workspaceRoot) {
+              throw new Error(
+                'Prepared publication workspace is missing for a real publish',
               )
-            ) {
-              console.info(e.message)
-              debug.warn(`${packageDir} has been published, skipping`)
-            } else {
-              throw e
+            }
+            const publicationExecution =
+              await createPublicationExecutionPackage(workspaceRoot, packageDir)
+            publicationExecutionRoot = publicationExecution.root
+            publicationPackageDir = publicationExecution.packageDir
+            publicationArtifactPath = join(publicationPackageDir, filename)
+            try {
+              const output = execSync(`${npmClient} publish`, {
+                cwd: publicationPackageDir,
+                env: process.env,
+                stdio: 'pipe',
+              })
+              process.stdout.write(output)
+            } catch (e) {
+              if (
+                e instanceof Error &&
+                e.message.includes(
+                  'You cannot publish over the previously published versions',
+                )
+              ) {
+                console.info(e.message)
+                debug.warn(`${packageDir} has been published, skipping`)
+              } else {
+                throw e
+              }
+            }
+          }
+
+          if (options.ghRelease && repo && owner) {
+            debug.info(`Creating GitHub release ${pkgInfo.tag}`)
+            try {
+              const releaseId = options.ghReleaseId
+                ? Number(options.ghReleaseId)
+                : (
+                    await octokit!.repos.getReleaseByTag({
+                      repo: repo,
+                      owner: owner,
+                      tag: pkgInfo.tag,
+                    })
+                  ).data.id
+              const artifactStats = statSync(publicationArtifactPath)
+              const assetInfo = await octokit!.repos.uploadReleaseAsset({
+                owner: owner,
+                repo: repo,
+                name: filename,
+                release_id: releaseId,
+                mediaType: { format: 'raw' },
+                headers: {
+                  'content-length': artifactStats.size,
+                  'content-type': 'application/octet-stream',
+                },
+                // @ts-expect-error octokit types are wrong
+                data: await readFileAsync(publicationArtifactPath),
+              })
+              debug.info(`GitHub release created`)
+              debug.info(
+                `Download URL: %s`,
+                assetInfo.data.browser_download_url,
+              )
+            } catch (e) {
+              debug.error(
+                `Param: ${JSON.stringify(
+                  {
+                    owner,
+                    repo,
+                    tag: pkgInfo.tag,
+                    filename: publicationArtifactPath,
+                  },
+                  null,
+                  2,
+                )}`,
+              )
+              debug.error(e)
             }
           }
         }
-
-        if (options.ghRelease && repo && owner) {
-          debug.info(`Creating GitHub release ${pkgInfo.tag}`)
-          try {
-            const releaseId = options.ghReleaseId
-              ? Number(options.ghReleaseId)
-              : (
-                  await octokit!.repos.getReleaseByTag({
-                    repo: repo,
-                    owner: owner,
-                    tag: pkgInfo.tag,
-                  })
-                ).data.id
-            const artifactStats = statSync(artifactPath)
-            const assetInfo = await octokit!.repos.uploadReleaseAsset({
-              owner: owner,
-              repo: repo,
-              name: filename,
-              release_id: releaseId,
-              mediaType: { format: 'raw' },
-              headers: {
-                'content-length': artifactStats.size,
-                'content-type': 'application/octet-stream',
-              },
-              // @ts-expect-error octokit types are wrong
-              data: await readFileAsync(artifactPath),
-            })
-            debug.info(`GitHub release created`)
-            debug.info(`Download URL: %s`, assetInfo.data.browser_download_url)
-          } catch (e) {
-            debug.error(
-              `Param: ${JSON.stringify(
-                {
-                  owner,
-                  repo,
-                  tag: pkgInfo.tag,
-                  filename: artifactPath,
-                },
-                null,
-                2,
-              )}`,
-            )
-            debug.error(e)
-          }
-        }
+      } catch (error) {
+        releaseFailed = true
+        releaseError = error
+      }
+      if (publicationExecutionRoot) {
+        await removePreparedSnapshot(
+          publicationExecutionRoot,
+          'publication',
+          releaseFailed,
+          releaseError,
+        )
+      }
+      if (releaseFailed) {
+        throw releaseError
       }
     }
   } catch (error) {
@@ -1490,37 +1624,554 @@ interface RootReleaseMaterializationPlan {
   staleGeneratedFiles: string[]
 }
 
-async function stagePackageManagerContext(
+function pathIsWithin(root: string, path: string) {
+  const relativePath = relative(resolve(root), resolve(path))
+  return (
+    relativePath === '' ||
+    (!isAbsolute(relativePath) &&
+      relativePath !== '..' &&
+      !relativePath.startsWith(`..${sep}`))
+  )
+}
+
+function canonicalizeManagedPath(path: string) {
+  let current = resolve(path)
+  const missingSegments: string[] = []
+  while (true) {
+    try {
+      return join(realpathSync.native(current), ...missingSegments)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+      const parent = dirname(current)
+      if (parent === current) {
+        return join(current, ...missingSegments)
+      }
+      missingSegments.unshift(basename(current))
+      current = parent
+    }
+  }
+}
+
+function hasWorkspaceBoundaryMarker(directory: string) {
+  if (existsSync(join(directory, 'pnpm-workspace.yaml'))) {
+    return true
+  }
+  const manifestPath = join(directory, 'package.json')
+  if (!existsSync(manifestPath)) {
+    return false
+  }
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      workspaces?: unknown
+    }
+    return (
+      Array.isArray(manifest.workspaces) ||
+      (typeof manifest.workspaces === 'object' &&
+        manifest.workspaces !== null &&
+        Array.isArray((manifest.workspaces as { packages?: unknown }).packages))
+    )
+  } catch {
+    return false
+  }
+}
+
+function resolveManagedPrePublishPaths(
+  cwd: string,
   packageJsonPath: string,
   rootDir: string,
-  stagingRoot: string,
+  npmDir: string,
 ) {
-  const packageJson = JSON.parse(
-    await readFileAsync(packageJsonPath, 'utf8'),
-  ) as Record<string, unknown>
-  const workspacePackageJson: Record<string, unknown> = {
-    private: true,
-    workspaces: ['packages/*'],
+  const canonicalCwd = canonicalizeManagedPath(cwd)
+  const canonicalPackageJsonPath = canonicalizeManagedPath(packageJsonPath)
+  const canonicalRootDir = canonicalizeManagedPath(rootDir)
+  const canonicalNpmDir = canonicalizeManagedPath(npmDir)
+  if (!pathIsWithin(canonicalRootDir, canonicalPackageJsonPath)) {
+    throw new Error(
+      `Pre-publish package manifest escapes its package root: ${packageJsonPath}`,
+    )
   }
-  if (typeof packageJson.packageManager === 'string') {
-    workspacePackageJson.packageManager = packageJson.packageManager
-  }
-  await writeFileAtomic(
-    join(stagingRoot, 'package.json'),
-    JSON.stringify(workspacePackageJson, null, 2),
-  )
 
-  for (const path of [
-    ...PACKAGE_MANAGER_CONTEXT_FILES,
-    ...PACKAGE_MANAGER_CONTEXT_DIRECTORIES,
+  const packageRootAndCwdAreRelated =
+    pathIsWithin(canonicalRootDir, canonicalCwd) ||
+    pathIsWithin(canonicalCwd, canonicalRootDir)
+  if (!packageRootAndCwdAreRelated) {
+    throw new Error(
+      `Managed pre-publish paths must stay within the project or workspace boundary discovered from ${canonicalCwd}: ${canonicalRootDir}, ${canonicalNpmDir}`,
+    )
+  }
+
+  const discoveryBoundary = pathIsWithin(canonicalCwd, canonicalRootDir)
+    ? canonicalCwd
+    : canonicalRootDir
+  let candidate = canonicalRootDir
+  while (true) {
+    if (
+      hasWorkspaceBoundaryMarker(candidate) &&
+      pathIsWithin(candidate, canonicalNpmDir)
+    ) {
+      return {
+        boundary: candidate,
+        npmDir: canonicalNpmDir,
+        packageJsonPath: canonicalPackageJsonPath,
+        rootDir: canonicalRootDir,
+      }
+    }
+    if (candidate === discoveryBoundary) break
+    const parent = dirname(candidate)
+    if (parent === candidate || !pathIsWithin(discoveryBoundary, parent)) {
+      break
+    }
+    candidate = parent
+  }
+
+  if (
+    dirname(canonicalRootDir) !== canonicalRootDir &&
+    pathIsWithin(canonicalRootDir, canonicalNpmDir)
+  ) {
+    return {
+      boundary: canonicalRootDir,
+      npmDir: canonicalNpmDir,
+      packageJsonPath: canonicalPackageJsonPath,
+      rootDir: canonicalRootDir,
+    }
+  }
+  throw new Error(
+    `Managed pre-publish paths must stay within the project or workspace boundary discovered from ${canonicalCwd}: ${canonicalRootDir}, ${canonicalNpmDir}`,
+  )
+}
+
+function publicationContextPath(
+  workspaceRoot: string,
+  contextRoot: string,
+  sourcePath: string,
+) {
+  if (!pathIsWithin(contextRoot, sourcePath)) {
+    throw new Error(
+      `Publication context path is outside ${contextRoot}: ${sourcePath}`,
+    )
+  }
+  return join(workspaceRoot, relative(contextRoot, sourcePath))
+}
+
+async function stagePublicationContext(
+  contextRoot: string,
+  workspaceRoot: string,
+  rootDir: string,
+  releasePackagePlans: ReleasePackageMaterializationPlan[],
+) {
+  const canonicalContextRoot = realpathSync.native(contextRoot)
+  const protectedDirectories = releasePackagePlans.map(({ pkgDir }) =>
+    realpathSync.native(pkgDir),
+  )
+  const selection = await collectPublicationContextSelection(
+    canonicalContextRoot,
+    rootDir,
+    releasePackagePlans,
+  )
+  await materializePublicationContextDirectory(
+    canonicalContextRoot,
+    workspaceRoot,
+    protectedDirectories,
+    [
+      {
+        sourceRoot: canonicalContextRoot,
+        destinationRoot: workspaceRoot,
+      },
+    ],
+    selection,
+  )
+}
+
+interface PublicationPathMapping {
+  sourceRoot: string
+  destinationRoot: string
+}
+
+interface PublicationContextSelection {
+  files: Set<string>
+  recursiveDirectories: Set<string>
+}
+
+async function collectPublicationContextSelection(
+  contextRoot: string,
+  rootDir: string,
+  releasePackagePlans: ReleasePackageMaterializationPlan[],
+) {
+  const files = new Set<string>()
+  const recursiveDirectories = new Set<string>()
+  const structuralDirectories = new Set<string>()
+  for (const leaf of [
+    rootDir,
+    ...releasePackagePlans.map(({ pkgDir }) => pkgDir),
   ]) {
-    const source = join(rootDir, path)
-    if (!existsSync(source)) {
+    let current = resolve(leaf)
+    while (pathIsWithin(contextRoot, current)) {
+      structuralDirectories.add(current)
+      for (const name of PUBLICATION_CONTEXT_FILES) {
+        const path = join(current, name)
+        if (existsSync(path)) files.add(path)
+      }
+      if (current === contextRoot) break
+      current = dirname(current)
+    }
+  }
+
+  const yarnContext = join(contextRoot, '.yarn')
+  if (existsSync(yarnContext)) recursiveDirectories.add(yarnContext)
+
+  let hasLifecycleScripts = false
+  for (const plan of releasePackagePlans) {
+    if (!plan.stagedPkgDir) continue
+    const manifest = JSON.parse(
+      await readFileAsync(join(plan.stagedPkgDir, 'package.json'), 'utf8'),
+    ) as ReleasePackageManifest
+    const scripts = asRecord(manifest.scripts)
+    if (!scripts) continue
+    for (const script of publicationLifecycleScriptCommands(scripts)) {
+      hasLifecycleScripts = true
+      for (const reference of relativeLifecycleScriptPaths(script)) {
+        const path = resolve(plan.pkgDir, reference)
+        if (!pathIsWithin(contextRoot, path)) {
+          throw new Error(
+            `Release package lifecycle script path escapes ${contextRoot}: ${reference}`,
+          )
+        }
+        if (!existsSync(path) || pathIsWithin(plan.pkgDir, path)) continue
+        const stats = statSync(path)
+        if (stats.isDirectory()) {
+          recursiveDirectories.add(path)
+        } else if (stats.isFile()) {
+          files.add(path)
+          const parent = dirname(path)
+          if (parent !== contextRoot) recursiveDirectories.add(parent)
+        }
+      }
+    }
+  }
+  if (hasLifecycleScripts) {
+    for (const directory of structuralDirectories) {
+      const nodeModules = join(directory, 'node_modules')
+      if (existsSync(nodeModules)) recursiveDirectories.add(nodeModules)
+    }
+  }
+
+  for (const directory of structuralDirectories) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isSymbolicLink()) continue
+      const path = join(directory, entry.name)
+      let target: string
+      try {
+        target = realpathSync.native(path)
+      } catch {
+        continue
+      }
+      if (
+        [...recursiveDirectories].some((selectedDirectory) =>
+          pathIsWithin(selectedDirectory, target),
+        )
+      ) {
+        files.add(path)
+      }
+    }
+  }
+
+  return { files, recursiveDirectories }
+}
+
+function stagedPublicationWorkspacePatterns(
+  workspaces: unknown[],
+  releaseWorkspaces: string[],
+) {
+  // Yarn applies negative workspace patterns after positive matches regardless
+  // of order. The staged tree is already selectively materialized, so retain
+  // positive source patterns and add exact release package paths.
+  return [
+    ...new Set([
+      ...workspaces.filter(
+        (workspace) =>
+          typeof workspace !== 'string' || !workspace.startsWith('!'),
+      ),
+      ...releaseWorkspaces,
+    ]),
+  ]
+}
+
+function publicationLifecycleScriptCommands(scripts: Record<string, unknown>) {
+  const commands: string[] = []
+  const pending = [...PUBLICATION_LIFECYCLE_SCRIPTS]
+  const visited = new Set<string>()
+  while (pending.length > 0) {
+    const name = pending.shift()!
+    if (visited.has(name)) continue
+    visited.add(name)
+    const command = scripts[name]
+    if (typeof command !== 'string') continue
+    commands.push(command)
+    for (const referencedScript of lifecycleRunScriptReferences(command)) {
+      if (!visited.has(referencedScript)) pending.push(referencedScript)
+    }
+  }
+  return commands
+}
+
+function lifecycleRunScriptReferences(script: string) {
+  const references = new Set<string>()
+  const pattern =
+    /\b(?:npm|pnpm|bun)\s+run(?:-script)?\s+([^\s;&|]+)|\byarn\s+(?:run\s+)?([^\s;&|]+)/gu
+  for (const match of script.matchAll(pattern)) {
+    references.add(match[1] ?? match[2])
+  }
+  return references
+}
+
+function relativeLifecycleScriptPaths(script: string) {
+  const paths = new Set<string>()
+  const pattern = /(?:^|[\s"'`=,(])((?:\.\.?[\\/])[^ \t\r\n"'`;&|<>),]+)/gu
+  for (const match of script.matchAll(pattern)) {
+    paths.add(match[1])
+  }
+  return paths
+}
+
+function publicationContextEntryIsSelected(
+  path: string,
+  directory: boolean,
+  selection?: PublicationContextSelection,
+) {
+  if (!selection) return true
+  if (selection.files.has(path)) return true
+  if (
+    [...selection.recursiveDirectories].some((root) => pathIsWithin(root, path))
+  ) {
+    return true
+  }
+  if (!directory) return false
+  return (
+    [...selection.recursiveDirectories].some((root) =>
+      pathIsWithin(path, root),
+    ) || [...selection.files].some((file) => pathIsWithin(path, file))
+  )
+}
+
+async function materializePublicationContextDirectory(
+  sourceDir: string,
+  destinationDir: string,
+  protectedDirectories: string[],
+  mappings: PublicationPathMapping[],
+  selection?: PublicationContextSelection,
+) {
+  if (
+    protectedDirectories.some(
+      (protectedDirectory) => relative(protectedDirectory, sourceDir) === '',
+    )
+  ) {
+    return
+  }
+  await mkdirAsync(destinationDir, { recursive: true })
+  for (const entry of await readdir(sourceDir, { withFileTypes: true })) {
+    if (
+      PUBLICATION_CONTEXT_EXCLUDED_NAMES.has(entry.name) ||
+      RECONCILIATION_STATE_PREFIXES.some((prefix) =>
+        entry.name.startsWith(prefix),
+      )
+    ) {
       continue
     }
-    const destination = join(stagingRoot, path)
+    const source = join(sourceDir, entry.name)
+    const destination = join(destinationDir, entry.name)
+    if (
+      !publicationContextEntryIsSelected(source, entry.isDirectory(), selection)
+    ) {
+      continue
+    }
+    const protectedDescendant = protectedDirectories.some(
+      (protectedDirectory) =>
+        pathIsWithin(source, protectedDirectory) &&
+        relative(source, protectedDirectory) !== '',
+    )
+    if (existsSync(destination)) {
+      if (entry.isDirectory()) {
+        await materializePublicationContextDirectory(
+          source,
+          destination,
+          protectedDirectories,
+          mappings,
+          selection,
+        )
+      }
+      continue
+    }
+    if (protectedDescendant) {
+      await materializePublicationContextDirectory(
+        source,
+        destination,
+        protectedDirectories,
+        mappings,
+        selection,
+      )
+    } else if (entry.isDirectory()) {
+      await materializePublicationContextDirectory(
+        source,
+        destination,
+        protectedDirectories,
+        mappings,
+        selection,
+      )
+    } else if (entry.isSymbolicLink()) {
+      await materializePublicationContextSymlink(
+        source,
+        destination,
+        protectedDirectories,
+        mappings,
+      )
+    } else if (entry.isFile()) {
+      await copyFile(source, destination, constants.COPYFILE_FICLONE)
+    } else {
+      throw new Error(`Unsupported publication context entry: ${source}`)
+    }
+  }
+}
+
+async function materializePublicationContextSymlink(
+  source: string,
+  destination: string,
+  protectedDirectories: string[],
+  mappings: PublicationPathMapping[],
+) {
+  const canonicalTarget = realpathSync.native(source)
+  const targetStats = statSync(source)
+  const mapping = mappings
+    .filter(({ sourceRoot }) => pathIsWithin(sourceRoot, canonicalTarget))
+    .sort((left, right) => right.sourceRoot.length - left.sourceRoot.length)[0]
+  if (mapping) {
+    const mappedTarget = join(
+      mapping.destinationRoot,
+      relative(mapping.sourceRoot, canonicalTarget),
+    )
+    if (resolve(mappedTarget) === resolve(destination)) {
+      throw new Error(`Publication context contains a cyclic link: ${source}`)
+    }
     await mkdirAsync(dirname(destination), { recursive: true })
-    await cp(source, destination, { recursive: true })
+    const linkTarget =
+      process.platform === 'win32' && targetStats.isDirectory()
+        ? mappedTarget
+        : relative(dirname(destination), mappedTarget) || '.'
+    await symlink(
+      linkTarget,
+      destination,
+      targetStats.isDirectory() ? 'junction' : 'file',
+    )
+    return
+  }
+
+  if (
+    mappings.some(({ sourceRoot }) => pathIsWithin(canonicalTarget, sourceRoot))
+  ) {
+    throw new Error(
+      `Publication context link expands above its materialized root: ${source}`,
+    )
+  }
+  if (targetStats.isDirectory()) {
+    await materializePublicationContextDirectory(
+      canonicalTarget,
+      destination,
+      protectedDirectories,
+      [
+        ...mappings,
+        {
+          sourceRoot: canonicalTarget,
+          destinationRoot: destination,
+        },
+      ],
+      undefined,
+    )
+  } else if (targetStats.isFile()) {
+    await copyFile(canonicalTarget, destination, constants.COPYFILE_FICLONE)
+  } else {
+    throw new Error(`Unsupported publication context link target: ${source}`)
+  }
+}
+
+async function registerPublicationWorkspaces(
+  contextRoot: string,
+  workspaceRoot: string,
+  packageDirs: string[],
+) {
+  const manifestPath = join(workspaceRoot, 'package.json')
+  let manifest: Record<string, unknown> = { private: true }
+  if (existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(await readFileAsync(manifestPath, 'utf8'))
+    } catch (error) {
+      throw new Error(
+        `Failed to read staged workspace manifest ${manifestPath}`,
+        { cause: error },
+      )
+    }
+  }
+
+  const releaseWorkspaces = packageDirs.map((packageDir) =>
+    relative(contextRoot, packageDir).split(sep).join('/'),
+  )
+  const workspaces = manifest.workspaces
+  if (Array.isArray(workspaces)) {
+    manifest.workspaces = stagedPublicationWorkspacePatterns(
+      workspaces,
+      releaseWorkspaces,
+    )
+  } else if (
+    typeof workspaces === 'object' &&
+    workspaces !== null &&
+    Array.isArray((workspaces as { packages?: unknown }).packages)
+  ) {
+    manifest.workspaces = {
+      ...workspaces,
+      packages: stagedPublicationWorkspacePatterns(
+        (workspaces as { packages: unknown[] }).packages,
+        releaseWorkspaces,
+      ),
+    }
+  } else {
+    manifest.workspaces = releaseWorkspaces
+  }
+  await writeFileAtomic(manifestPath, JSON.stringify(manifest, null, 2))
+}
+
+async function createPublicationExecutionPackage(
+  workspaceRoot: string,
+  packageDir: string,
+) {
+  if (!pathIsWithin(workspaceRoot, packageDir)) {
+    throw new Error(
+      `Prepared release package is outside its publication workspace: ${packageDir}`,
+    )
+  }
+  const root = await mkdtemp(join(tmpdir(), 'napi-rs-pre-publish-execution-'))
+  const executionWorkspaceRoot = join(root, 'workspace')
+  try {
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot)
+    await materializePublicationContextDirectory(
+      canonicalWorkspaceRoot,
+      executionWorkspaceRoot,
+      [],
+      [
+        {
+          sourceRoot: canonicalWorkspaceRoot,
+          destinationRoot: executionWorkspaceRoot,
+        },
+      ],
+    )
+  } catch (error) {
+    await removePreparedSnapshot(root, 'preparation', true, error)
+  }
+  return {
+    packageDir: join(
+      executionWorkspaceRoot,
+      relative(workspaceRoot, packageDir),
+    ),
+    root,
   }
 }
 
@@ -1642,12 +2293,14 @@ interface ReleasePackageManifest {
   files?: unknown
   exports?: unknown
   dependencies?: unknown
+  scripts?: unknown
 }
 
 async function validateReleasePackage({
   pkgDir,
   ...options
 }: ReleasePackageValidationOptions): Promise<ReleasePackageMaterializationPlan> {
+  assertReleasePackageTree(pkgDir)
   const packageJsonPath = join(pkgDir, 'package.json')
   if (!existsSync(packageJsonPath)) {
     throw new Error(
@@ -1661,6 +2314,7 @@ async function validateReleasePackage({
   const stagedPkgDir = join(stagingRoot, 'package')
   try {
     await cp(pkgDir, stagedPkgDir, { recursive: true })
+    assertReleasePackageTree(stagedPkgDir)
     const validation = await validateReleasePackageContents({
       ...options,
       pkgDir: stagedPkgDir,
@@ -1677,16 +2331,19 @@ async function validateReleasePackage({
 }
 
 async function stageReleasePackage(
-  stagingRoot: string,
+  workspaceRoot: string,
+  contextRoot: string,
   packageVersion: string,
   options: ReleasePackageValidationOptions,
 ) {
-  const stagedPkgDir = join(
-    stagingRoot,
-    'packages',
-    options.target.platformArchABI,
+  assertReleasePackageTree(options.pkgDir)
+  const stagedPkgDir = publicationContextPath(
+    workspaceRoot,
+    contextRoot,
+    options.pkgDir,
   )
   await cp(options.pkgDir, stagedPkgDir, { recursive: true })
+  assertReleasePackageTree(stagedPkgDir)
   const validation = await validateReleasePackageContents({
     ...options,
     pkgDir: stagedPkgDir,
@@ -1721,12 +2378,57 @@ function prepareReleasePackage(
   }
 }
 
+function assertReleasePackageTree(pkgDir: string) {
+  let stats
+  try {
+    stats = lstatSync(pkgDir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Release package directory does not exist: ${pkgDir}`, {
+        cause: error,
+      })
+    }
+    throw error
+  }
+  if (stats.isSymbolicLink()) {
+    throw new Error(
+      `Release package directory must not be a symbolic link: ${pkgDir}`,
+    )
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`Release package path is not a directory: ${pkgDir}`)
+  }
+  const canonicalRoot = realpathSync.native(pkgDir)
+  const visit = (path: string) => {
+    const pathStats = lstatSync(path)
+    if (pathStats.isSymbolicLink()) {
+      throw new Error(
+        `Release package contents must not contain symbolic links: ${path}`,
+      )
+    }
+    const canonicalPath = realpathSync.native(path)
+    if (!pathIsWithin(canonicalRoot, canonicalPath)) {
+      throw new Error(
+        `Release package path escapes ${canonicalRoot}: ${canonicalPath}`,
+      )
+    }
+    if (pathStats.isDirectory()) {
+      for (const entry of readdirSync(path)) {
+        visit(join(path, entry))
+      }
+    }
+  }
+  visit(pkgDir)
+}
+
 interface CommitPrePublishFileSystemTransactionOptions {
   packageJsonPath: string
   releasePackagePlans: ReleasePackageMaterializationPlan[]
   rootDir: string
   rootReleasePlan: RootReleaseMaterializationPlan
+  stagedRootManifestPath?: string
   stagedRootDir: string
+  transactionRoot?: string
 }
 
 export async function commitPrePublishFileSystemTransaction({
@@ -1735,6 +2437,8 @@ export async function commitPrePublishFileSystemTransaction({
   rootDir,
   rootReleasePlan,
   stagedRootDir,
+  stagedRootManifestPath = join(stagedRootDir, 'package.json'),
+  transactionRoot = rootDir,
 }: CommitPrePublishFileSystemTransactionOptions) {
   const writes: FileSystemTransactionWrite[] = []
   for (const plan of releasePackagePlans) {
@@ -1765,14 +2469,14 @@ export async function commitPrePublishFileSystemTransaction({
   // rolled back if the final publication metadata cannot be committed.
   writes.push({
     destination: packageJsonPath,
-    source: join(stagedRootDir, 'package.json'),
+    source: stagedRootManifestPath,
   })
 
   const generatedFiles = new Set(rootReleasePlan.facade?.generatedFiles ?? [])
   const removals = rootReleasePlan.staleGeneratedFiles
     .filter((file) => !generatedFiles.has(file))
     .map((file) => join(rootDir, file))
-  await commitFileSystemTransaction(rootDir, writes, removals)
+  await commitFileSystemTransaction(transactionRoot, writes, removals)
 }
 
 async function validateReleasePackageContents({
@@ -1815,9 +2519,16 @@ async function validateReleasePackageContents({
     )
   }
   const packageFiles = [...new Set(packageJson.files)]
+  for (const file of packageFiles) {
+    resolveReleasePackageContentPath(pkgDir, file, expectedPackageName)
+  }
   const packagedRuntimeImports =
     target.arch === 'wasm32'
-      ? await releasePackageRuntimeImports(pkgDir, packageFiles)
+      ? await releasePackageRuntimeImports(
+          pkgDir,
+          expectedPackageName,
+          packageFiles,
+        )
       : new Set<string>()
   const packagedLoaderImportsBuffer = packagedRuntimeImports.has('buffer')
 
@@ -1831,8 +2542,12 @@ async function validateReleasePackageContents({
   )
 
   for (const file of packageFiles) {
-    const path = join(pkgDir, file)
-    if (!existsSync(path) || !statSync(path).isFile()) {
+    const path = resolveReleasePackageContentPath(
+      pkgDir,
+      file,
+      expectedPackageName,
+    )
+    if (!existsSync(path) || !lstatSync(path).isFile()) {
       throw new Error(
         `Release package ${expectedPackageName} is incomplete: missing ${file}`,
       )
@@ -1883,6 +2598,7 @@ async function validateReleasePackageContents({
 
 async function releasePackageRuntimeImports(
   pkgDir: string,
+  packageName: string,
   packageFiles: string[],
 ) {
   const runtimeImports = new Set<string>()
@@ -1890,8 +2606,8 @@ async function releasePackageRuntimeImports(
     if (!/\.(?:cjs|mjs|js)$/.test(file)) {
       continue
     }
-    const path = join(pkgDir, file)
-    if (!existsSync(path) || !statSync(path).isFile()) {
+    const path = resolveReleasePackageContentPath(pkgDir, file, packageName)
+    if (!existsSync(path) || !lstatSync(path).isFile()) {
       continue
     }
     const source = await readFileAsync(path, 'utf8')
@@ -1904,6 +2620,30 @@ async function releasePackageRuntimeImports(
     }
   }
   return runtimeImports
+}
+
+function resolveReleasePackageContentPath(
+  pkgDir: string,
+  file: string,
+  packageName: string,
+) {
+  const normalizedFile = file.replaceAll('\\', '/')
+  if (
+    normalizedFile.length === 0 ||
+    isAbsolute(file) ||
+    normalizedFile.split('/').some((segment) => segment === '..')
+  ) {
+    throw new Error(
+      `Release package ${packageName} path escapes its package directory: ${file}`,
+    )
+  }
+  const path = resolve(pkgDir, file)
+  if (!pathIsWithin(pkgDir, path)) {
+    throw new Error(
+      `Release package ${packageName} path escapes its package directory: ${file}`,
+    )
+  }
+  return path
 }
 
 function staticModuleSpecifiers(source: string, path: string) {
@@ -2222,6 +2962,7 @@ function resolveDeclarationDependency(
   declarationFile: string,
   specifier: string,
 ) {
+  const canonicalBaseDir = realpathSync.native(baseDir)
   const unresolved = resolve(dirname(join(baseDir, declarationFile)), specifier)
   const unresolvedRelative = relative(baseDir, unresolved)
   const nodeModulesDir = join(resolve(baseDir), 'node_modules')
@@ -2235,7 +2976,11 @@ function resolveDeclarationDependency(
   }
 
   for (const candidate of declarationDependencyCandidates(unresolved)) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) {
+    if (
+      existsSync(candidate) &&
+      lstatSync(candidate).isFile() &&
+      pathIsWithin(canonicalBaseDir, realpathSync.native(candidate))
+    ) {
       return relative(baseDir, candidate).split(sep).join('/')
     }
   }

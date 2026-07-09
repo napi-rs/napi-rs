@@ -1586,17 +1586,39 @@ test('browser WASI binding validates fetch before allocating runtime state', (t)
   t.true(src.includes('Failed to fetch WASI module'))
 })
 
-for (const { name, asyncInit } of [
-  { name: 'synchronous', asyncInit: false },
-  { name: 'asynchronous', asyncInit: true },
+for (const { name, asyncInit, threadMode, threads } of [
+  {
+    name: 'synchronous',
+    asyncInit: false,
+    threadMode: 'threadless',
+    threads: false,
+  },
+  {
+    name: 'synchronous',
+    asyncInit: false,
+    threadMode: 'threaded',
+    threads: true,
+  },
+  {
+    name: 'asynchronous',
+    asyncInit: true,
+    threadMode: 'threadless',
+    threads: false,
+  },
+  {
+    name: 'asynchronous',
+    asyncInit: true,
+    threadMode: 'threaded',
+    threads: true,
+  },
 ]) {
   test.serial(
-    `browser WASI binding rolls back contexts after ${name} initialization failures`,
+    `${threadMode} browser WASI binding rolls back contexts and workers after ${name} initialization failures`,
     async (t) => {
       const tmpDir = await mkdtemp(
         join(
           fileURLToPath(new URL('.', import.meta.url)),
-          `.tmp-browser-rollback-${asyncInit ? 'async' : 'sync'}-`,
+          `.tmp-browser-rollback-${threadMode}-${asyncInit ? 'async' : 'sync'}-`,
         ),
       )
       const browserBinding = createWasiBrowserBinding(
@@ -1607,7 +1629,7 @@ for (const { name, asyncInit } of [
         asyncInit,
         false,
         false,
-        false,
+        threads,
       )
 
       try {
@@ -1637,9 +1659,23 @@ for (const { name, asyncInit } of [
           join(runtimeDir, 'index.js'),
           `export class WASI {}
 
+export function createOnMessage() {
+  return () => {}
+}
+
 function failInitialization(options) {
   const state = globalThis.__browserWasiRollbackState
   state.contexts.push(options.context)
+  if (options.onCreateWorker) {
+    for (const type of ['thread', 'async-work']) {
+      state.nextWorkerType = type
+      options.onCreateWorker({
+        type,
+        name: type === 'thread' ? 'emnapi-pthread' : 'emnapi-async-worker',
+      })
+    }
+    state.nextWorkerType = undefined
+  }
   throw state.initializationError
 }
 
@@ -1665,14 +1701,26 @@ export async function instantiateNapiModule(_wasm, options) {
           join(emnapiRuntimeDir, 'index.js'),
           `export function createContext() {
   const state = globalThis.__browserWasiRollbackState
+  const attempt = state.attempt
   state.created += 1
   return {
     destroy() {
       state.destroyAttempts += 1
-      if (state.cleanupError) {
+      state.events.push('destroy:' + attempt)
+      if (state.cleanupMode === 'sync-failure') {
         throw state.cleanupError
       }
-      state.destroyed += 1
+      return new Promise((resolve, reject) => {
+        setImmediate(() => {
+          state.events.push('destroy-settled:' + attempt)
+          if (state.cleanupMode === 'async-failure') {
+            reject(state.cleanupError)
+            return
+          }
+          state.destroyed += 1
+          resolve()
+        })
+      })
     },
   }
 }
@@ -1689,14 +1737,69 @@ globalThis.fetch = async () => ({
 })
 
 const state = {
+  attempt: 0,
   contexts: [],
   created: 0,
   destroyAttempts: 0,
   destroyed: 0,
+  events: [],
+  workers: [],
+  nextWorkerType: undefined,
+  cleanupMode: undefined,
   cleanupError: undefined,
   initializationError: undefined,
+  threadTerminationError: undefined,
+  asyncWorkTerminationError: undefined,
 }
 globalThis.__browserWasiRollbackState = state
+
+globalThis.Worker = class Worker {
+  constructor(url, options) {
+    assert.equal(
+      url.href,
+      new URL('./wasi-worker-browser.mjs', import.meta.url).href,
+    )
+    assert.deepStrictEqual(options, { type: 'module' })
+    assert.ok(
+      state.nextWorkerType === 'thread' ||
+        state.nextWorkerType === 'async-work',
+    )
+    this.attempt = state.attempt
+    this.type = state.nextWorkerType
+    this.terminateCalls = 0
+    state.workers.push(this)
+    state.events.push('create:' + this.attempt + ':' + this.type)
+  }
+
+  terminate() {
+    this.terminateCalls += 1
+    state.events.push('terminate:' + this.attempt + ':' + this.type)
+    assert.equal(this.terminateCalls, 1)
+    if (this.type === 'thread') {
+      if (state.threadTerminationError) {
+        return new Promise((resolve, reject) => {
+          setImmediate(() => {
+            state.events.push(
+              'terminated:' + this.attempt + ':' + this.type,
+            )
+            reject(state.threadTerminationError)
+          })
+        })
+      }
+      state.events.push('terminated:' + this.attempt + ':' + this.type)
+      return
+    }
+    if (state.asyncWorkTerminationError) {
+      throw state.asyncWorkTerminationError
+    }
+    return new Promise((resolve, reject) => {
+      setImmediate(() => {
+        state.events.push('terminated:' + this.attempt + ':' + this.type)
+        resolve()
+      })
+    })
+  }
+}
 
 async function load(query) {
   try {
@@ -1707,46 +1810,106 @@ async function load(query) {
   assert.fail('browser WASI loader unexpectedly initialized')
 }
 
-const initializationError = Object.freeze(new Error('initialization failed'))
-state.initializationError = initializationError
-const observedInitializationError = await load('initialization')
-assert.strictEqual(observedInitializationError, initializationError)
-assert.strictEqual(
-  Object.prototype.hasOwnProperty.call(initializationError, 'cause'),
-  false,
-)
-assert.strictEqual(state.destroyAttempts, 1)
-assert.strictEqual(state.destroyed, 1)
+for (const cleanupMode of [
+  'async-success',
+  'sync-failure',
+  'async-failure',
+]) {
+  state.attempt += 1
+  state.cleanupMode = cleanupMode
+  const initializationError = Object.freeze(
+    new Error('initialization failed: ' + cleanupMode),
+  )
+  const cleanupError =
+    cleanupMode === 'async-success'
+      ? undefined
+      : Object.freeze(new Error('cleanup failed: ' + cleanupMode))
+  const threadTerminationError =
+    ${threads ? "cleanupMode === 'async-failure'" : 'false'}
+      ? Object.freeze(new Error('thread termination failed'))
+      : undefined
+  const asyncWorkTerminationError =
+    ${threads ? "cleanupMode === 'async-failure'" : 'false'}
+      ? Object.freeze(new Error('async-work termination failed'))
+      : undefined
+  state.initializationError = initializationError
+  state.cleanupError = cleanupError
+  state.threadTerminationError = threadTerminationError
+  state.asyncWorkTerminationError = asyncWorkTerminationError
 
-const cleanupInitializationError = Object.freeze(
-  new Error('initialization failed before cleanup'),
-)
-const cleanupError = Object.freeze(new Error('cleanup failed'))
-state.initializationError = cleanupInitializationError
-state.cleanupError = cleanupError
-const observedCleanupError = await load('cleanup')
-assert.ok(observedCleanupError instanceof AggregateError)
-assert.strictEqual(
-  observedCleanupError.message,
-  cleanupInitializationError.message,
-)
-assert.strictEqual(observedCleanupError.cause, cleanupInitializationError)
-assert.deepStrictEqual(observedCleanupError.errors, [
-  cleanupInitializationError,
-  cleanupError,
-])
-assert.strictEqual(
-  Object.prototype.hasOwnProperty.call(cleanupInitializationError, 'cause'),
-  false,
-)
-assert.strictEqual(
-  Object.prototype.hasOwnProperty.call(cleanupError, 'cause'),
-  false,
-)
-assert.strictEqual(state.created, 2)
-assert.strictEqual(state.contexts.length, 2)
-assert.strictEqual(state.destroyAttempts, 2)
+  const eventOffset = state.events.length
+  const workerOffset = state.workers.length
+  const observed = await load(cleanupMode)
+  const events = state.events.slice(eventOffset)
+  const workers = state.workers.slice(workerOffset)
+
+  assert.deepStrictEqual(workers.map((worker) => worker.type), ${
+    threads ? "['thread', 'async-work']" : '[]'
+  })
+  assert.ok(workers.every((worker) => worker.terminateCalls === 1))
+  const destroyIndex = events.indexOf('destroy:' + state.attempt)
+  const destroySettledIndex = events.indexOf(
+    'destroy-settled:' + state.attempt,
+  )
+  const firstTerminationIndex = events.findIndex((event) =>
+    event.startsWith('terminate:' + state.attempt + ':'),
+  )
+  assert.ok(destroyIndex >= 0)
+  if (cleanupMode === 'sync-failure') {
+    assert.equal(destroySettledIndex, -1)
+  } else {
+    assert.ok(destroySettledIndex > destroyIndex)
+  }
+  if (${threads}) {
+    assert.ok(firstTerminationIndex > destroyIndex)
+    if (cleanupMode !== 'sync-failure') {
+      assert.ok(firstTerminationIndex > destroySettledIndex)
+    }
+  } else {
+    assert.equal(firstTerminationIndex, -1)
+  }
+
+  if (cleanupMode === 'async-success') {
+    assert.strictEqual(observed, initializationError)
+  } else {
+    assert.ok(observed instanceof AggregateError)
+    assert.strictEqual(observed.message, initializationError.message)
+    assert.strictEqual(observed.cause, initializationError)
+    assert.deepStrictEqual(
+      observed.errors,
+      ${threads} && cleanupMode === 'async-failure'
+        ? [
+            initializationError,
+            cleanupError,
+            threadTerminationError,
+            asyncWorkTerminationError,
+          ]
+        : [initializationError, cleanupError],
+    )
+  }
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(initializationError, 'cause'),
+    false,
+  )
+  for (const error of [
+    cleanupError,
+    threadTerminationError,
+    asyncWorkTerminationError,
+  ]) {
+    if (error) {
+      assert.strictEqual(
+        Object.prototype.hasOwnProperty.call(error, 'cause'),
+        false,
+      )
+    }
+  }
+}
+assert.strictEqual(state.created, 3)
+assert.strictEqual(state.contexts.length, 3)
+assert.strictEqual(state.destroyAttempts, 3)
 assert.strictEqual(state.destroyed, 1)
+assert.strictEqual(state.workers.length, ${threads ? 6 : 0})
+assert.ok(state.workers.every((worker) => worker.terminateCalls === 1))
 process.stdout.write('rollback-ok\\n')
 `,
         )

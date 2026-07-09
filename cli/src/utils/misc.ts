@@ -17,6 +17,7 @@ import {
   link,
   open,
   readlink,
+  type FileHandle,
 } from 'node:fs/promises'
 import { constants, type Stats } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -66,7 +67,8 @@ const fileSystemTransactionRetiredMarker = '.retired.'
 const fileSystemTransactionOwnerName = 'owner.json'
 const fileSystemTransactionStateName = 'state.json'
 const fileSystemTransactionKind = 'napi-rs-filesystem-transaction'
-const fileSystemTransactionStateVersion = 1
+const legacyFileSystemTransactionStateVersion = 1
+const fileSystemTransactionStateVersion = 2
 const fileSystemTransactionStateMaximumSize = 16 * 1024 * 1024
 const fileSystemTransactionMaximumEntries = 100_000
 
@@ -74,6 +76,7 @@ interface ReconciliationLockOwner {
   candidate: string
   createdAt: number
   boot?: string | null
+  bootSession?: string | null
   incarnation?: string | null
   key: string
   kind: typeof reconciliationLockKind
@@ -88,6 +91,7 @@ interface ReconciliationReclaimOwner {
   candidate: string
   createdAt: number
   boot?: string | null
+  bootSession?: string | null
   incarnation?: string | null
   key: string
   kind: typeof reconciliationReclaimKind
@@ -103,6 +107,7 @@ interface ReconciliationLockState {
   ownerContent?: string
   owner?: ReconciliationLockOwner
   stale: boolean
+  unverifiableReason?: string
 }
 
 interface ReconciliationReclaimState {
@@ -110,6 +115,7 @@ interface ReconciliationReclaimState {
   ownerContent: string
   reclaimStats: Stats
   stale: boolean
+  unverifiableReason?: string
 }
 
 type ReconciliationMetadataOwner =
@@ -120,6 +126,7 @@ interface ReconciliationCandidateState {
   ownerContent: string
   stats: Stats
   stale: boolean
+  unverifiableReason?: string
 }
 
 interface ProcessIncarnationObservation {
@@ -129,8 +136,14 @@ interface ProcessIncarnationObservation {
 
 interface ProcessExecutionIdentity {
   boot: string | null
+  bootSession: string | null
   machine: string | null
   namespace: string | null
+}
+
+interface ProcessOwnerState {
+  stale: boolean
+  unverifiableReason?: string
 }
 
 interface ReconciliationLockDeadline {
@@ -176,7 +189,9 @@ interface FileSystemTransactionJournalParent {
 }
 
 interface FileSystemTransactionJournalFileState {
+  dev?: number
   hash: string
+  ino?: number
   mode: number
 }
 
@@ -186,19 +201,26 @@ interface FileSystemTransactionJournalEntry {
   original?: FileSystemTransactionJournalFileState
   parent: FileSystemTransactionJournalParent
   path: string
+  prepared?: string
+  retired?: string
+  rollbackRetired?: string
 }
 
 interface FileSystemTransactionJournal {
   entries: FileSystemTransactionJournalEntry[]
   phase: 'committed' | 'prepared'
   token: string
-  version: typeof fileSystemTransactionStateVersion
+  version:
+    | typeof legacyFileSystemTransactionStateVersion
+    | typeof fileSystemTransactionStateVersion
 }
 
 interface FileSystemTransactionJournalOwner {
   kind: typeof fileSystemTransactionKind
   token: string
-  version: typeof fileSystemTransactionStateVersion
+  version:
+    | typeof legacyFileSystemTransactionStateVersion
+    | typeof fileSystemTransactionStateVersion
 }
 
 interface FileSystemReconciliationCapability {
@@ -209,7 +231,13 @@ interface PreparedFileSystemTransactionWrite {
   destination: string
   final: FileSystemTransactionJournalFileState
   input: string
+  prepared?: string
   removeBeforeWrite?: string
+}
+
+interface OpenFileSystemTransactionIdentity {
+  handle: FileHandle
+  state: FileSystemTransactionJournalFileState
 }
 
 export interface FileSystemTransactionWrite {
@@ -422,23 +450,50 @@ async function commitFileSystemTransactionUnlocked(
   writes: FileSystemTransactionWrite[],
   removals: string[],
 ) {
+  for (const path of [
+    ...writes.flatMap(({ destination, removeBeforeWrite }) =>
+      removeBeforeWrite ? [destination, removeBeforeWrite] : [destination],
+    ),
+    ...removals,
+  ]) {
+    assertFileSystemTransactionPathIsNotReserved(
+      requestedTransactionRoot,
+      resolveTransactionPath(requestedTransactionRoot, path),
+    )
+  }
   const transactionWrites = await Promise.all(
-    writes.map(async (write) => ({
-      destination: await resolveCanonicalTransactionPath(
+    writes.map(async (write) => {
+      const destination = await resolveCanonicalTransactionPath(
         requestedTransactionRoot,
         transactionRoot,
         write.destination,
-      ),
-      mode: write.mode,
-      removeBeforeWrite: write.removeBeforeWrite
-        ? await resolveCanonicalTransactionPath(
-            requestedTransactionRoot,
-            transactionRoot,
-            write.removeBeforeWrite,
-          )
-        : undefined,
-      source: write.source,
-    })),
+      )
+      await mkdir(dirname(destination), { recursive: true })
+      const stableDestination = await resolveCanonicalTransactionPath(
+        requestedTransactionRoot,
+        transactionRoot,
+        write.destination,
+      )
+      if (
+        !pathsHaveEquivalentPlatformSpelling(destination, stableDestination)
+      ) {
+        throw new Error(
+          `Filesystem transaction destination parent changed while it was created: ${write.destination}`,
+        )
+      }
+      return {
+        destination: stableDestination,
+        mode: write.mode,
+        removeBeforeWrite: write.removeBeforeWrite
+          ? await resolveCanonicalTransactionPath(
+              requestedTransactionRoot,
+              transactionRoot,
+              write.removeBeforeWrite,
+            )
+          : undefined,
+        source: write.source,
+      }
+    }),
   )
   const destinationKeys = new Set<string>()
   for (const { destination } of transactionWrites) {
@@ -474,17 +529,7 @@ async function commitFileSystemTransactionUnlocked(
   ])
   const journalRoot = fileSystemTransactionJournalPath(transactionRoot)
   for (const path of affected) {
-    const journalRelative = relative(journalRoot, path)
-    if (
-      journalRelative === '' ||
-      (journalRelative !== '..' &&
-        !journalRelative.startsWith(`..${sep}`) &&
-        !isAbsolute(journalRelative))
-    ) {
-      throw new Error(
-        `Filesystem transaction path overlaps reserved recovery state: ${path}`,
-      )
-    }
+    assertFileSystemTransactionPathIsNotReserved(transactionRoot, path)
   }
   const affectedStats = new Map<string, Stats | undefined>()
   for (const path of affected) {
@@ -576,13 +621,22 @@ async function commitFileSystemTransactionUnlocked(
   const candidateBackupRoot = join(candidateRoot, 'backups')
   const candidateInputRoot = join(candidateRoot, 'inputs')
   const publishedBackupRoot = join(journalRoot, 'backups')
-  const publishedInputRoot = join(journalRoot, 'inputs')
-  const backups = new Map<string, { mode: number; path: string }>()
+  const backups = new Map<
+    string,
+    {
+      path: string
+      state: FileSystemTransactionJournalFileState
+    }
+  >()
   let preserveJournalRoot = false
   let journal: FileSystemTransactionJournal | undefined
   let committed = false
   let published = false
   let transactionError: unknown
+  const preparedArtifacts = new Map<
+    string,
+    FileSystemTransactionJournalFileState
+  >()
 
   try {
     await Promise.all([mkdir(candidateBackupRoot), mkdir(candidateInputRoot)])
@@ -600,11 +654,12 @@ async function commitFileSystemTransactionUnlocked(
       if (!snapshot) {
         const inputName = String(snapshots.size)
         const inputPath = join(candidateInputRoot, inputName)
+        const sourceState = await snapshotFileSystemTransactionInput(
+          write.source,
+          inputPath,
+        )
         snapshot = {
-          final: await snapshotFileSystemTransactionInput(
-            write.source,
-            inputPath,
-          ),
+          final: fileSystemTransactionFileContents(sourceState),
           input: join('inputs', inputName),
         }
         snapshots.set(write.source, snapshot)
@@ -619,6 +674,37 @@ async function commitFileSystemTransactionUnlocked(
         removeBeforeWrite: write.removeBeforeWrite,
       })
     }
+
+    await Promise.all(
+      preparedWrites.map(async (write, index) => {
+        const prepared = fileSystemTransactionArtifactPath(
+          write.destination,
+          transactionToken,
+          index,
+          'prepared',
+        )
+        await assertTransactionParentUnchanged(
+          transactionRoot,
+          write.destination,
+          parentIdentities,
+        )
+        const state = await prepareFileSystemTransactionReplacement(
+          join(candidateInputRoot, basename(write.input)),
+          prepared,
+          write.final,
+          () =>
+            assertTransactionParentUnchanged(
+              transactionRoot,
+              write.destination,
+              parentIdentities,
+            ),
+        )
+        write.prepared = prepared
+        write.final = state
+        preparedArtifacts.set(prepared, state)
+      }),
+    )
+
     const preparedWritesByDestination = new Map(
       preparedWrites.map((write) => [write.destination, write]),
     )
@@ -643,10 +729,15 @@ async function commitFileSystemTransactionUnlocked(
       const backupName = String(backupIndex++)
       const backup = join(candidateBackupRoot, backupName)
       const mode = stats.mode & 0o7777
-      await copyFileAtomic(path, backup, mode)
-      backups.set(path, {
+      const state = await snapshotFileSystemTransactionInput(
+        path,
+        backup,
         mode,
+        stats,
+      )
+      backups.set(path, {
         path: join(publishedBackupRoot, backupName),
+        state,
       })
     }
 
@@ -678,62 +769,119 @@ async function commitFileSystemTransactionUnlocked(
           findReplacementAlias(write.destination) === aliasRoot,
       )
     }
+    const artifactPaths = new Map<
+      string,
+      {
+        retired: string
+        rollbackRetired: string
+      }
+    >()
+    let artifactIndex = 0
+    for (const path of affected) {
+      const retired = fileSystemTransactionArtifactPath(
+        path,
+        transactionToken,
+        artifactIndex,
+        'retired',
+      )
+      const rollbackRetired = fileSystemTransactionArtifactPath(
+        path,
+        transactionToken,
+        artifactIndex,
+        'rollback',
+      )
+      artifactIndex += 1
+      if (
+        (await lstatIfExists(retired)) !== undefined ||
+        (await lstatIfExists(rollbackRetired)) !== undefined
+      ) {
+        throw new Error(
+          `Filesystem transaction artifact path already exists for ${path}`,
+        )
+      }
+      artifactPaths.set(path, { retired, rollbackRetired })
+    }
     journal = {
-      entries: await Promise.all(
-        [...affected].map(async (path) => {
-          const originalStats = affectedStats.get(path)
-          const backup = backupForPath(path)
-          const finalWrite = finalWriteForPath(path)
-          const parentIdentity = parentIdentities.get(dirname(path))
-          if (!parentIdentity) {
-            throw new Error(
-              `Filesystem transaction parent identity was not captured: ${dirname(path)}`,
-            )
-          }
-          return {
-            backup: backup
-              ? fileSystemTransactionRelativePath(
-                  transactionRoot,
-                  backup.path,
-                  'Transaction backup',
-                )
-              : undefined,
-            final: finalWrite ? finalWrite.final : undefined,
-            original:
-              originalStats && backup
-                ? await fileSystemTransactionFileState(
-                    join(candidateBackupRoot, basename(backup.path)),
-                    backup.mode,
-                  )
-                : undefined,
-            parent: {
-              canonicalParent: fileSystemTransactionRelativePath(
+      entries: [...affected].map((path) => {
+        const originalStats = affectedStats.get(path)
+        const backup = backupForPath(path)
+        const finalWrite = finalWriteForPath(path)
+        const artifacts = artifactPaths.get(path)
+        const parentIdentity = parentIdentities.get(dirname(path))
+        if (!parentIdentity || !artifacts) {
+          throw new Error(
+            `Filesystem transaction metadata was not captured for ${path}`,
+          )
+        }
+        if (finalWrite && !finalWrite.prepared) {
+          throw new Error(
+            `Filesystem transaction replacement was not prepared for ${path}`,
+          )
+        }
+        return {
+          backup: backup
+            ? fileSystemTransactionRelativePath(
                 transactionRoot,
-                parentIdentity.canonicalParent,
-                'Transaction canonical parent',
-                true,
-              ),
-              dev: parentIdentity.dev,
-              identityPath: fileSystemTransactionRelativePath(
-                transactionRoot,
-                parentIdentity.identityPath,
-                'Transaction parent identity',
-                true,
-              ),
-              ino: parentIdentity.ino,
-            },
-            path: fileSystemTransactionRelativePath(
+                backup.path,
+                'Transaction backup',
+              )
+            : undefined,
+          final: finalWrite?.final,
+          original: originalStats && backup ? backup.state : undefined,
+          parent: {
+            canonicalParent: fileSystemTransactionRelativePath(
               transactionRoot,
-              path,
-              'Transaction path',
+              parentIdentity.canonicalParent,
+              'Transaction canonical parent',
+              true,
             ),
-          }
-        }),
-      ),
+            dev: parentIdentity.dev,
+            identityPath: fileSystemTransactionRelativePath(
+              transactionRoot,
+              parentIdentity.identityPath,
+              'Transaction parent identity',
+              true,
+            ),
+            ino: parentIdentity.ino,
+          },
+          path: fileSystemTransactionRelativePath(
+            transactionRoot,
+            path,
+            'Transaction path',
+          ),
+          prepared: finalWrite
+            ? fileSystemTransactionRelativePath(
+                transactionRoot,
+                finalWrite.prepared!,
+                'Transaction prepared replacement',
+              )
+            : undefined,
+          retired: fileSystemTransactionRelativePath(
+            transactionRoot,
+            artifacts.retired,
+            'Transaction retirement path',
+          ),
+          rollbackRetired: fileSystemTransactionRelativePath(
+            transactionRoot,
+            artifacts.rollbackRetired,
+            'Transaction rollback retirement path',
+          ),
+        }
+      }),
       phase: 'prepared',
       token: transactionToken,
       version: fileSystemTransactionStateVersion,
     }
+    const journalEntriesByPath = new Map(
+      journal.entries.map((entry) => [
+        resolveFileSystemTransactionRelativePath(
+          transactionRoot,
+          entry.path,
+          'Transaction path',
+        ),
+        entry,
+      ]),
+    )
     await writeFileAtomic(
       join(candidateRoot, fileSystemTransactionOwnerName),
       JSON.stringify({
@@ -771,37 +919,77 @@ async function commitFileSystemTransactionUnlocked(
     }
 
     for (const path of preWriteRemovals) {
-      await assertTransactionParentUnchanged(
+      const entry = journalEntriesByPath.get(path)
+      if (!entry) {
+        throw new Error(`Filesystem transaction journal omitted path: ${path}`)
+      }
+      await removeFileSystemTransactionPath(
         transactionRoot,
         path,
         parentIdentities,
+        entry.original,
+        resolveFileSystemTransactionRelativePath(
+          transactionRoot,
+          entry.retired!,
+          'Transaction retirement path',
+        ),
+        'before pre-write removal',
       )
-      if (await unlinkFileIfExists(path)) {
-        await syncDirectory(dirname(path))
-      }
     }
-    for (const { destination, final, input } of preparedWrites) {
-      await assertTransactionParentUnchanged(
+    for (const write of preparedWrites) {
+      const { destination } = write
+      const entry = journalEntriesByPath.get(destination)
+      if (!entry || !entry.final || !entry.prepared || !entry.retired) {
+        throw new Error(
+          `Filesystem transaction journal omitted write destination: ${destination}`,
+        )
+      }
+      const expectedDestination =
+        write.removeBeforeWrite &&
+        replacementAliasParents.has(write.removeBeforeWrite) &&
+        replacementAliasParents.has(destination) &&
+        findReplacementAlias(write.removeBeforeWrite) ===
+          findReplacementAlias(destination)
+          ? undefined
+          : entry.original
+      await commitFileSystemTransactionReplacement(
         transactionRoot,
         destination,
         parentIdentities,
-      )
-      await copyFileAtomic(
-        join(publishedInputRoot, basename(input)),
-        destination,
-        final.mode,
+        expectedDestination,
+        resolveFileSystemTransactionRelativePath(
+          transactionRoot,
+          entry.prepared,
+          'Transaction prepared replacement',
+        ),
+        entry.final,
+        resolveFileSystemTransactionRelativePath(
+          transactionRoot,
+          entry.retired,
+          'Transaction retirement path',
+        ),
       )
     }
     for (const path of affected) {
       if (!writesByDestination.has(path) && !preWriteRemovals.has(path)) {
-        await assertTransactionParentUnchanged(
+        const entry = journalEntriesByPath.get(path)
+        if (!entry) {
+          throw new Error(
+            `Filesystem transaction journal omitted path: ${path}`,
+          )
+        }
+        await removeFileSystemTransactionPath(
           transactionRoot,
           path,
           parentIdentities,
+          entry.original,
+          resolveFileSystemTransactionRelativePath(
+            transactionRoot,
+            entry.retired!,
+            'Transaction retirement path',
+          ),
+          'before transaction removal',
         )
-        if (await unlinkFileIfExists(path)) {
-          await syncDirectory(dirname(path))
-        }
       }
     }
     journal = { ...journal, phase: 'committed' }
@@ -832,12 +1020,16 @@ async function commitFileSystemTransactionUnlocked(
   if (!preserveJournalRoot) {
     try {
       if (published) {
+        if (journal) {
+          await cleanupFileSystemTransactionArtifacts(transactionRoot, journal)
+        }
         await removeFileSystemTransactionJournal(
           transactionRoot,
           transactionToken,
           candidateStats,
         )
       } else {
+        await cleanupPreparedFileSystemTransactionArtifacts(preparedArtifacts)
         await removeFileSystemTransactionCandidate(
           transactionRoot,
           candidateRoot,
@@ -1256,6 +1448,7 @@ async function acquireReconciliationLock(
       candidate: reconciliationCandidateName(lockPath, token),
       createdAt: Date.now(),
       boot: executionIdentity.boot,
+      bootSession: executionIdentity.bootSession,
       incarnation,
       key,
       kind: reconciliationLockKind,
@@ -1280,6 +1473,15 @@ async function acquireReconciliationLock(
         throw error
       }
       const state = await inspectReconciliationLock(identity, lockPath)
+      if (state?.unverifiableReason) {
+        await waitForUnverifiableReconciliationLock(
+          identity,
+          lockPath,
+          state,
+          acquisitionDeadline,
+        )
+        continue
+      }
       if (
         state?.owner &&
         state.stale &&
@@ -1356,6 +1558,9 @@ async function createExclusiveReconciliationMetadata(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
         throw reconciliationMetadataExistsError(path)
+      }
+      if (isUnsupportedReconciliationHardLinkError(error)) {
+        throw reconciliationHardLinkRequiredError(path, error)
       }
       throw error
     }
@@ -1739,11 +1944,12 @@ async function inspectReconciliationLock(
       'contains unrecognized lock state',
     )
   }
+  const ownerState = await processOwnerState(owner)
   return {
     lockStats: metadata.stats,
     owner,
     ownerContent: metadata.content,
-    stale: await processOwnerIsStale(owner),
+    ...ownerState,
   }
 }
 
@@ -1766,6 +1972,7 @@ function isReconciliationLockOwner(
       reconciliationCandidateName(path, candidate.token) &&
     isValidProcessIncarnation(candidate.incarnation) &&
     isValidProcessIdentityPart(candidate.boot) &&
+    isValidProcessIdentityPart(candidate.bootSession) &&
     isValidProcessIdentityPart(candidate.machine) &&
     isValidProcessIdentityPart(candidate.namespace)
   )
@@ -1790,6 +1997,7 @@ function isReconciliationReclaimOwner(
       reconciliationCandidateName(path, candidate.token) &&
     isValidProcessIncarnation(candidate.incarnation) &&
     isValidProcessIdentityPart(candidate.boot) &&
+    isValidProcessIdentityPart(candidate.bootSession) &&
     isValidProcessIdentityPart(candidate.machine) &&
     isValidProcessIdentityPart(candidate.namespace)
   )
@@ -1822,6 +2030,7 @@ async function tryReclaimStaleReconciliationLock(
     candidate: reconciliationCandidateName(reclaimPath, token),
     createdAt: Date.now(),
     boot: executionIdentity.boot,
+    bootSession: executionIdentity.bootSession,
     incarnation,
     key: identity.key,
     kind: reconciliationReclaimKind,
@@ -1968,6 +2177,37 @@ function reconciliationLockStatesMatch(
   )
 }
 
+async function waitForUnverifiableReconciliationLock(
+  identity: ReconciliationLockIdentity,
+  lockPath: string,
+  expected: ReconciliationLockState,
+  acquisitionDeadline: ReconciliationLockDeadline,
+) {
+  const timeout = Math.min(
+    reconciliationLockCleanupTimeout,
+    Math.max(0, acquisitionDeadline.expiresAt - performance.now()),
+  )
+  const expiresAt = performance.now() + timeout
+  let current = expected
+  while (performance.now() < expiresAt) {
+    await delay(Math.max(0, Math.min(20, expiresAt - performance.now())))
+    const observed = await inspectReconciliationLock(identity, lockPath)
+    if (
+      !observed ||
+      !reconciliationLockStatesMatch(expected, observed) ||
+      !observed.unverifiableReason
+    ) {
+      return
+    }
+    current = observed
+  }
+  throw reconciliationOwnerCannotBeVerifiedError(
+    lockPath,
+    current.owner!,
+    `${current.unverifiableReason}; it did not release the state within ${timeout}ms`,
+  )
+}
+
 async function waitForReconciliationReclaim(
   identity: ReconciliationLockIdentity,
   acquisitionDeadline: ReconciliationLockDeadline,
@@ -1980,11 +2220,53 @@ async function waitForReconciliationReclaim(
       identity.key,
     )
     await assertReconciliationLockRootUnchanged(identity)
+    const state = await inspectReconciliationReclaim(identity)
+    if (state?.unverifiableReason) {
+      await waitForUnverifiableReconciliationReclaim(
+        identity,
+        state,
+        acquisitionDeadline,
+      )
+      continue
+    }
     await removeStaleReconciliationReclaim(identity)
     if (await pathExistsAsync(reclaimPath)) {
       await delayReconciliationLockRetry(acquisitionDeadline, identity.key)
     }
   }
+}
+
+async function waitForUnverifiableReconciliationReclaim(
+  identity: ReconciliationLockIdentity,
+  expected: ReconciliationReclaimState,
+  acquisitionDeadline: ReconciliationLockDeadline,
+) {
+  const reclaimPath = reconciliationReclaimPath(identity)
+  const timeout = Math.min(
+    reconciliationLockCleanupTimeout,
+    Math.max(0, acquisitionDeadline.expiresAt - performance.now()),
+  )
+  const expiresAt = performance.now() + timeout
+  let current = expected
+  while (performance.now() < expiresAt) {
+    await delay(Math.max(0, Math.min(20, expiresAt - performance.now())))
+    const observed = await inspectReconciliationReclaim(identity)
+    if (
+      !observed ||
+      observed.reclaimStats.dev !== expected.reclaimStats.dev ||
+      observed.reclaimStats.ino !== expected.reclaimStats.ino ||
+      observed.ownerContent !== expected.ownerContent ||
+      !observed.unverifiableReason
+    ) {
+      return
+    }
+    current = observed
+  }
+  throw reconciliationOwnerCannotBeVerifiedError(
+    reclaimPath,
+    current.owner,
+    `${current.unverifiableReason}; it did not release the state within ${timeout}ms`,
+  )
 }
 
 async function reconciliationReclaimIsOwnedBy(
@@ -2057,11 +2339,12 @@ async function inspectReconciliationReclaim(
       'contains unrecognized reclaim state',
     )
   }
+  const ownerState = await processOwnerState(owner)
   return {
     owner,
     ownerContent: metadata.content,
     reclaimStats: metadata.stats,
-    stale: await processOwnerIsStale(owner),
+    ...ownerState,
   }
 }
 
@@ -2070,11 +2353,25 @@ async function removeStaleReconciliationReclaim(
 ) {
   const reclaimPath = reconciliationReclaimPath(identity)
   const expectedState = await inspectReconciliationReclaim(identity)
+  if (expectedState?.unverifiableReason) {
+    throw reconciliationOwnerCannotBeVerifiedError(
+      reclaimPath,
+      expectedState.owner,
+      expectedState.unverifiableReason,
+    )
+  }
   if (!expectedState?.stale) {
     return false
   }
 
   const currentState = await inspectReconciliationReclaim(identity)
+  if (currentState?.unverifiableReason) {
+    throw reconciliationOwnerCannotBeVerifiedError(
+      reclaimPath,
+      currentState.owner,
+      currentState.unverifiableReason,
+    )
+  }
   if (
     !currentState ||
     !currentState.stale ||
@@ -2212,10 +2509,11 @@ async function inspectReconciliationCandidate(
   ) {
     return
   }
+  const ownerState = await processOwnerState(owner)
   return {
     owner,
     ownerContent: metadata.content,
-    stale: await processOwnerIsStale(owner),
+    ...ownerState,
     stats: metadata.stats,
   }
 }
@@ -2446,6 +2744,44 @@ function reconciliationMetadataExistsError(path: string) {
   return error
 }
 
+function isUnsupportedReconciliationHardLinkError(error: unknown) {
+  const code = (error as NodeJS.ErrnoException).code
+  return (
+    code === 'ENOTSUP' ||
+    code === 'EOPNOTSUPP' ||
+    code === 'ENOSYS' ||
+    code === 'EPERM'
+  )
+}
+
+function reconciliationHardLinkRequiredError(path: string, cause: unknown) {
+  // Publishing by hard link is the only Node filesystem operation that makes a
+  // complete fsynced candidate visible without replacing a successor. Writing
+  // the canonical path directly exposes partial JSON; rename() can clobber a
+  // lock published concurrently, so neither is a safe fallback.
+  const error = new Error(
+    `Filesystem reconciliation requires hard-link support in ${dirname(path)} to atomically publish complete lock state without replacing another owner`,
+    { cause },
+  ) as NodeJS.ErrnoException
+  error.code = 'ENOTSUP'
+  error.path = path
+  return error
+}
+
+function reconciliationOwnerCannotBeVerifiedError(
+  path: string,
+  owner: ReconciliationMetadataOwner,
+  reason: string,
+) {
+  const candidatePath = join(dirname(path), owner.candidate)
+  const error = new Error(
+    `Filesystem reconciliation state at ${path} cannot be safely reclaimed: ${reason}. Verify on the owner system that PID ${owner.pid} no longer uses this filesystem, then manually remove ${path} and, if it still exists, ${candidatePath}`,
+  ) as NodeJS.ErrnoException
+  error.code = 'ENOTRECOVERABLE'
+  error.path = path
+  return error
+}
+
 function reconciliationPathCollisionError(path: string, message: string) {
   const error = new Error(
     `Filesystem reconciliation reserved path ${path} ${message}`,
@@ -2524,49 +2860,106 @@ function processIncarnationFormat(incarnation: string) {
   }
 }
 
-async function processOwnerIsStale(owner: ReconciliationMetadataOwner) {
+// Reclamation is permitted only when execution identities are comparable and
+// prove a prior boot, a dead PID, or PID reuse. Legacy, foreign-machine, and
+// foreign-namespace states require explicit operator verification instead of a
+// local PID guess that can destroy a live shared-volume owner's lock.
+async function processOwnerState(
+  owner: ReconciliationMetadataOwner,
+): Promise<ProcessOwnerState> {
   if (
     typeof owner.machine !== 'string' ||
     typeof owner.boot !== 'string' ||
     typeof owner.namespace !== 'string'
   ) {
-    return false
+    return {
+      stale: false,
+      unverifiableReason:
+        'the owner predates complete machine, boot-session, and process-namespace identity metadata',
+    }
   }
   const current = await getCurrentProcessExecutionIdentity()
   if (
     current.machine === null ||
     current.boot === null ||
-    current.namespace === null ||
-    current.machine !== owner.machine
+    current.namespace === null
   ) {
-    return false
+    return {
+      stale: false,
+      unverifiableReason:
+        'the current system cannot determine a complete machine, boot-session, and process-namespace identity',
+    }
   }
-  if (current.boot !== owner.boot) {
-    return true
+  if (current.machine !== owner.machine) {
+    return {
+      stale: false,
+      unverifiableReason: `the owner machine identity (${owner.machine}) differs from this machine (${current.machine}), so this may be a live owner on a shared volume`,
+    }
+  }
+  if (!processBootIdentitiesMatch(current, owner)) {
+    return { stale: true }
   }
   if (current.namespace !== owner.namespace) {
-    return false
+    return {
+      stale: false,
+      unverifiableReason: `the owner process namespace (${owner.namespace}) differs from this process namespace (${current.namespace}), so local PID checks are not authoritative`,
+    }
   }
   if (!processExists(owner.pid)) {
-    return true
+    return { stale: true }
   }
-  // Legacy, unavailable, and newer unknown identity formats fall back to the
-  // live-PID check. Only a confirmed comparable mismatch permits reclamation.
-  if (typeof owner.incarnation !== 'string') {
-    return false
+  if (owner.incarnation === undefined) {
+    return {
+      stale: false,
+      unverifiableReason:
+        'the live owner has no process-incarnation identity, so PID reuse cannot be ruled out',
+    }
+  }
+  // A null observation means this platform could not capture an incarnation.
+  // Unknown newer formats remain live and block normally; only comparable
+  // identities can prove that a PID was reused.
+  if (owner.incarnation === null) {
+    return { stale: false }
   }
   const expectedFormat = processIncarnationFormat(owner.incarnation)
   if (expectedFormat === undefined) {
-    return false
+    return { stale: false }
   }
   const observedIncarnation = await observeProcessIncarnation(
     owner.pid,
     owner.incarnation,
   )
-  return (
-    observedIncarnation !== null &&
-    processIncarnationFormat(observedIncarnation) === expectedFormat &&
-    observedIncarnation !== owner.incarnation
+  return {
+    stale:
+      observedIncarnation !== null &&
+      processIncarnationFormat(observedIncarnation) === expectedFormat &&
+      observedIncarnation !== owner.incarnation,
+  }
+}
+
+function processBootIdentitiesMatch(
+  current: ProcessExecutionIdentity,
+  owner: ReconciliationMetadataOwner,
+) {
+  if (
+    typeof current.bootSession === 'string' &&
+    typeof owner.bootSession === 'string'
+  ) {
+    return current.bootSession === owner.bootSession
+  }
+  if (current.boot === owner.boot) {
+    return true
+  }
+  if (process.platform !== 'darwin') {
+    return false
+  }
+  const currentBoots = new Set(
+    [current.boot, current.bootSession].filter(
+      (value): value is string => typeof value === 'string',
+    ),
+  )
+  return [owner.boot, owner.bootSession].some(
+    (value) => typeof value === 'string' && currentBoots.has(value),
   )
 }
 
@@ -2646,6 +3039,7 @@ async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity>
     ])
     return {
       boot: bootId,
+      bootSession: null,
       machine: machineId
         ? `linux-machine:${machineId}:${productUuid ?? 'unknown'}`
         : null,
@@ -2687,6 +3081,7 @@ async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity>
     )?.[1]
     return {
       boot: boot !== null && /^\d+$/.test(boot) ? `windows-boot:${boot}` : null,
+      bootSession: null,
       machine: machineGuid
         ? `windows-machine:${machineGuid.toLowerCase()}`
         : null,
@@ -2694,23 +3089,37 @@ async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity>
     }
   }
   if (process.platform === 'darwin') {
-    const [machineOutput, bootOutput] = await Promise.all([
-      executeProcessIncarnationCommand('/usr/sbin/ioreg', [
-        '-rd1',
-        '-c',
-        'IOPlatformExpertDevice',
-      ]),
-      executeProcessIncarnationCommand('/usr/sbin/sysctl', [
-        '-n',
-        'kern.boottime',
-      ]),
-    ])
+    const [machineOutput, bootSessionOutput, bootTimeOutput] =
+      await Promise.all([
+        executeProcessIncarnationCommand('/usr/sbin/ioreg', [
+          '-rd1',
+          '-c',
+          'IOPlatformExpertDevice',
+        ]),
+        executeProcessIncarnationCommand('/usr/sbin/sysctl', [
+          '-n',
+          'kern.bootsessionuuid',
+        ]),
+        executeProcessIncarnationCommand('/usr/sbin/sysctl', [
+          '-n',
+          'kern.boottime',
+        ]),
+      ])
     const platformUuid = machineOutput?.match(
       /"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"/i,
     )?.[1]
-    const bootSeconds = bootOutput?.match(/\bsec\s*=\s*(\d+)/)?.[1]
+    const bootSessionUuid = bootSessionOutput?.match(
+      /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
+    )?.[0]
+    const bootSeconds = bootTimeOutput?.match(/\bsec\s*=\s*(\d+)/)?.[1]
     return {
+      // Keep the seconds encoding in `boot` so old binaries compare the same
+      // session safely. New binaries prefer the UUID and also recognize the
+      // UUID-only encoding emitted by the short-lived intermediate format.
       boot: bootSeconds ? `darwin-boot:${bootSeconds}` : null,
+      bootSession: bootSessionUuid
+        ? `darwin-boot:${bootSessionUuid.toLowerCase()}`
+        : null,
       machine: platformUuid
         ? `darwin-machine:${platformUuid.toLowerCase()}`
         : null,
@@ -2719,6 +3128,7 @@ async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity>
   }
   return {
     boot: null,
+    bootSession: null,
     machine: null,
     namespace: null,
   }
@@ -3073,7 +3483,27 @@ async function snapshotFileSystemTransactionInput(
   source: string,
   destination: string,
   mode?: number,
+  expectedStats?: Stats,
+  destinationMode = 0o400,
+  createDestinationParent = true,
+  assertDestinationParentUnchanged?: () => Promise<void>,
 ): Promise<FileSystemTransactionJournalFileState> {
+  const initialPathStats = await lstatIfExists(source)
+  if (!initialPathStats?.isFile()) {
+    throw new Error(
+      `Filesystem transaction source is not a regular file: ${source}`,
+    )
+  }
+  if (
+    expectedStats &&
+    (initialPathStats.dev !== expectedStats.dev ||
+      initialPathStats.ino !== expectedStats.ino)
+  ) {
+    throw fileSystemTransactionConflictError(
+      source,
+      'changed before it could be snapshotted',
+    )
+  }
   let sourceHandle
   try {
     sourceHandle = await open(
@@ -3081,93 +3511,164 @@ async function snapshotFileSystemTransactionInput(
       constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
     )
   } catch (error) {
-    throw new Error(`Failed to open transaction source ${source}`, {
-      cause: error,
-    })
+    throw fileSystemTransactionOperationError(
+      `Failed to open transaction source ${source}`,
+      error,
+    )
   }
   try {
     const sourceStats = await sourceHandle.stat()
-    if (!sourceStats.isFile()) {
+    if (
+      !sourceStats.isFile() ||
+      sourceStats.dev !== initialPathStats.dev ||
+      sourceStats.ino !== initialPathStats.ino
+    ) {
       throw new Error(
-        `Filesystem transaction source is not a regular file: ${source}`,
+        `Filesystem transaction source changed while it was opened: ${source}`,
       )
     }
     const finalMode = mode ?? sourceStats.mode & 0o7777
-    await mkdir(dirname(destination), { recursive: true })
-    while (true) {
-      const temporaryPath = atomicTemporaryPath(destination)
-      let destinationHandle
-      try {
-        destinationHandle = await open(temporaryPath, 'wx', 0o600)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-          continue
-        }
-        throw error
+    if (createDestinationParent) {
+      await mkdir(dirname(destination), { recursive: true })
+    }
+    await assertDestinationParentUnchanged?.()
+    let destinationHandle
+    try {
+      destinationHandle = await open(destination, 'wx', 0o600)
+    } catch (error) {
+      throw fileSystemTransactionOperationError(
+        `Failed to create transaction snapshot ${destination}`,
+        error,
+      )
+    }
+    let destinationStats: Stats | undefined
+    let committed = false
+    try {
+      destinationStats = await destinationHandle.stat()
+      if (!destinationStats.isFile()) {
+        throw new Error(
+          `Filesystem transaction snapshot is not a regular file: ${destination}`,
+        )
       }
-      let committed = false
-      try {
-        const hash = createHash('sha256')
-        const buffer = Buffer.allocUnsafe(64 * 1024)
-        let position = 0
-        while (true) {
-          const { bytesRead } = await sourceHandle.read(
+      await assertDestinationParentUnchanged?.()
+      const hash = createHash('sha256')
+      const buffer = Buffer.allocUnsafe(64 * 1024)
+      let position = 0
+      while (true) {
+        const { bytesRead } = await sourceHandle.read(
+          buffer,
+          0,
+          buffer.length,
+          position,
+        )
+        if (bytesRead === 0) {
+          break
+        }
+        hash.update(buffer.subarray(0, bytesRead))
+        let written = 0
+        while (written < bytesRead) {
+          const result = await destinationHandle.write(
             buffer,
-            0,
-            buffer.length,
-            position,
+            written,
+            bytesRead - written,
+            position + written,
           )
-          if (bytesRead === 0) {
-            break
-          }
-          hash.update(buffer.subarray(0, bytesRead))
-          let written = 0
-          while (written < bytesRead) {
-            const result = await destinationHandle.write(
-              buffer,
-              written,
-              bytesRead - written,
-              position + written,
-            )
-            written += result.bytesWritten
-          }
-          position += bytesRead
+          written += result.bytesWritten
         }
-        const finalSourceStats = await sourceHandle.stat()
-        if (
-          finalSourceStats.dev !== sourceStats.dev ||
-          finalSourceStats.ino !== sourceStats.ino ||
-          finalSourceStats.size !== sourceStats.size ||
-          finalSourceStats.size !== position ||
-          finalSourceStats.mode !== sourceStats.mode ||
-          finalSourceStats.mtimeMs !== sourceStats.mtimeMs ||
-          finalSourceStats.ctimeMs !== sourceStats.ctimeMs
+        position += bytesRead
+      }
+      const [finalSourceStats, finalPathStats] = await Promise.all([
+        sourceHandle.stat(),
+        lstatIfExists(source),
+      ])
+      if (
+        finalSourceStats.dev !== sourceStats.dev ||
+        finalSourceStats.ino !== sourceStats.ino ||
+        finalSourceStats.size !== sourceStats.size ||
+        finalSourceStats.size !== position ||
+        finalSourceStats.mode !== sourceStats.mode ||
+        finalSourceStats.mtimeMs !== sourceStats.mtimeMs ||
+        finalSourceStats.ctimeMs !== sourceStats.ctimeMs ||
+        finalPathStats?.isFile() !== true ||
+        finalPathStats.dev !== sourceStats.dev ||
+        finalPathStats.ino !== sourceStats.ino
+      ) {
+        throw new Error(
+          `Filesystem transaction source changed while it was snapshotted: ${source}`,
+        )
+      }
+      await applyFileSystemTransactionMode(destinationHandle, destinationMode)
+      await destinationHandle.sync()
+      const finalDestinationStats = await destinationHandle.stat()
+      if (
+        !finalDestinationStats.isFile() ||
+        finalDestinationStats.dev !== destinationStats.dev ||
+        finalDestinationStats.ino !== destinationStats.ino
+      ) {
+        throw new Error(
+          `Filesystem transaction snapshot changed while it was written: ${destination}`,
+        )
+      }
+      await assertDestinationParentUnchanged?.()
+      const finalDestinationPathStats = await lstatIfExists(destination)
+      if (
+        finalDestinationPathStats?.isFile() !== true ||
+        finalDestinationPathStats.dev !== destinationStats.dev ||
+        finalDestinationPathStats.ino !== destinationStats.ino
+      ) {
+        throw new Error(
+          `Filesystem transaction snapshot path changed while it was written: ${destination}`,
+        )
+      }
+      await destinationHandle.close()
+      await syncDirectory(dirname(destination))
+      committed = true
+      return {
+        dev: sourceStats.dev,
+        hash: hash.digest('hex'),
+        ino: sourceStats.ino,
+        mode: finalMode,
+      }
+    } finally {
+      await destinationHandle.close().catch(() => {})
+      if (!committed) {
+        const currentStats = await lstatIfExists(destination)
+        if (destinationStats === undefined) {
+          // open('wx') created this unpredictable transaction-owned pathname.
+          // There is no inode identity after a failed first fstat, so close the
+          // handle first and make the best cleanup Node's pathname API permits.
+          await unlinkFileIfExists(destination)
+        } else if (
+          currentStats?.isFile() === true &&
+          currentStats.dev === destinationStats.dev &&
+          currentStats.ino === destinationStats.ino
         ) {
-          throw new Error(
-            `Filesystem transaction source changed while it was snapshotted: ${source}`,
-          )
-        }
-        if (process.platform !== 'win32') {
-          await destinationHandle.chmod(0o400)
-        }
-        await destinationHandle.sync()
-        await destinationHandle.close()
-        await rename(temporaryPath, destination)
-        await syncDirectory(dirname(destination))
-        committed = true
-        return {
-          hash: hash.digest('hex'),
-          mode: finalMode,
-        }
-      } finally {
-        await destinationHandle.close().catch(() => {})
-        if (!committed) {
-          await unlinkFileIfExists(temporaryPath)
+          await unlinkFileIfExists(destination)
         }
       }
     }
   } finally {
     await sourceHandle.close()
+  }
+}
+
+async function applyFileSystemTransactionMode(
+  handle: FileHandle,
+  mode: number,
+) {
+  // Node exposes only the owner write bit on Windows. Preserve that meaningful
+  // read-only/writable distinction instead of silently ignoring requested mode.
+  await handle.chmod(
+    process.platform === 'win32' ? (mode & 0o200 ? 0o600 : 0o400) : mode,
+  )
+}
+
+function fileSystemTransactionFileContents(
+  state: FileSystemTransactionJournalFileState,
+): FileSystemTransactionJournalFileState {
+  return {
+    hash: state.hash,
+    mode: state.mode,
   }
 }
 
@@ -3214,23 +3715,119 @@ function resolveFileSystemTransactionRelativePath(
   return resolvedPath
 }
 
+function assertFileSystemTransactionPathIsNotReserved(
+  root: string,
+  path: string,
+) {
+  const relativePath = relative(root, path)
+  const firstSegment = relativePath.split(sep, 1)[0]
+  const journalBase = basename(
+    fileSystemTransactionJournalName,
+    extname(fileSystemTransactionJournalName),
+  )
+  const segmentKey = fileSystemTransactionPlatformPathKey(firstSegment)
+  const journalNameKey = fileSystemTransactionPlatformPathKey(
+    fileSystemTransactionJournalName,
+  )
+  const candidatePrefixKey = fileSystemTransactionPlatformPathKey(
+    `${journalBase}${fileSystemTransactionCandidateMarker}`,
+  )
+  const retiredPrefixKey = fileSystemTransactionPlatformPathKey(
+    `${journalBase}${fileSystemTransactionRetiredMarker}`,
+  )
+  const extensionKey = fileSystemTransactionPlatformPathKey(
+    extname(fileSystemTransactionJournalName),
+  )
+  const reserved =
+    segmentKey === journalNameKey ||
+    ((segmentKey.startsWith(candidatePrefixKey) ||
+      segmentKey.startsWith(retiredPrefixKey)) &&
+      segmentKey.endsWith(extensionKey))
+  if (reserved) {
+    throw new Error(
+      `Filesystem transaction path overlaps reserved recovery state: ${path}`,
+    )
+  }
+}
+
+function fileSystemTransactionArtifactPath(
+  path: string,
+  token: string,
+  index: number,
+  kind: 'prepared' | 'retired' | 'rollback',
+) {
+  return join(dirname(path), `.${basename(path)}.${token}.${index}.${kind}.tmp`)
+}
+
+function isOwnedFileSystemTransactionArtifactPath(
+  path: string,
+  artifact: string,
+  token: string,
+  kind: 'prepared' | 'retired' | 'rollback',
+) {
+  if (
+    !pathsHaveEquivalentPlatformSpelling(dirname(artifact), dirname(path)) ||
+    pathsHaveEquivalentPlatformSpelling(artifact, path)
+  ) {
+    return false
+  }
+  const artifactName = fileSystemTransactionPlatformPathKey(basename(artifact))
+  const prefix = fileSystemTransactionPlatformPathKey(
+    `.${basename(path)}.${token}.`,
+  )
+  const suffix = fileSystemTransactionPlatformPathKey(`.${kind}.tmp`)
+  if (
+    !artifactName.startsWith(prefix) ||
+    !artifactName.endsWith(suffix) ||
+    artifactName.length <= prefix.length + suffix.length
+  ) {
+    return false
+  }
+  return /^(?:0|[1-9]\d*)$/.test(
+    artifactName.slice(prefix.length, -suffix.length),
+  )
+}
+
 async function fileSystemTransactionFileState(
   path: string,
   mode?: number,
 ): Promise<FileSystemTransactionJournalFileState> {
+  const identity = await openFileSystemTransactionIdentity(path, mode)
+  try {
+    return identity.state
+  } finally {
+    await identity.handle.close()
+  }
+}
+
+async function openFileSystemTransactionIdentity(
+  path: string,
+  mode?: number,
+): Promise<OpenFileSystemTransactionIdentity> {
+  const pathStats = await lstat(path)
+  if (!pathStats.isFile()) {
+    throw new Error(
+      `Filesystem transaction path is not a regular file: ${path}`,
+    )
+  }
   let handle
   try {
     handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
   } catch (error) {
-    throw new Error(`Failed to open transaction file ${path}`, {
-      cause: error,
-    })
+    throw fileSystemTransactionOperationError(
+      `Failed to open transaction file ${path}`,
+      error,
+    )
   }
   try {
     const stats = await handle.stat()
-    if (!stats.isFile()) {
+    if (
+      !stats.isFile() ||
+      stats.dev !== pathStats.dev ||
+      stats.ino !== pathStats.ino
+    ) {
       throw new Error(
-        `Filesystem transaction path is not a regular file: ${path}`,
+        `Filesystem transaction path changed while it was opened: ${path}`,
       )
     }
     const hash = createHash('sha256')
@@ -3249,22 +3846,38 @@ async function fileSystemTransactionFileState(
       hash.update(buffer.subarray(0, bytesRead))
       position += bytesRead
     }
-    const finalStats = await handle.stat()
+    const [finalStats, finalPathStats] = await Promise.all([
+      handle.stat(),
+      lstatIfExists(path),
+    ])
     if (
       finalStats.dev !== stats.dev ||
       finalStats.ino !== stats.ino ||
-      finalStats.size !== position
+      finalStats.size !== stats.size ||
+      finalStats.size !== position ||
+      finalStats.mode !== stats.mode ||
+      finalStats.mtimeMs !== stats.mtimeMs ||
+      finalStats.ctimeMs !== stats.ctimeMs ||
+      finalPathStats?.isFile() !== true ||
+      finalPathStats.dev !== stats.dev ||
+      finalPathStats.ino !== stats.ino
     ) {
       throw new Error(
         `Filesystem transaction file changed while it was read: ${path}`,
       )
     }
     return {
-      hash: hash.digest('hex'),
-      mode: mode ?? stats.mode & 0o7777,
+      handle,
+      state: {
+        dev: stats.dev,
+        hash: hash.digest('hex'),
+        ino: stats.ino,
+        mode: mode ?? stats.mode & 0o7777,
+      },
     }
-  } finally {
+  } catch (error) {
     await handle.close()
+    throw error
   }
 }
 
@@ -3273,8 +3886,9 @@ async function fileSystemTransactionFileStateIfExists(path: string) {
     return await fileSystemTransactionFileState(path)
   } catch (error) {
     if (
+      (error as NodeJS.ErrnoException).code === 'ENOENT' ||
       (error as Error & { cause?: NodeJS.ErrnoException }).cause?.code ===
-      'ENOENT'
+        'ENOENT'
     ) {
       return
     }
@@ -3282,7 +3896,7 @@ async function fileSystemTransactionFileStateIfExists(path: string) {
   }
 }
 
-function fileSystemTransactionFileStatesMatch(
+function fileSystemTransactionFileContentsMatch(
   left: FileSystemTransactionJournalFileState | undefined,
   right: FileSystemTransactionJournalFileState | undefined,
 ) {
@@ -3290,7 +3904,296 @@ function fileSystemTransactionFileStatesMatch(
     ? right === undefined
     : right !== undefined &&
         left.hash === right.hash &&
-        left.mode === right.mode
+        fileSystemTransactionModesMatch(left.mode, right.mode)
+}
+
+function fileSystemTransactionModesMatch(left: number, right: number) {
+  return process.platform === 'win32'
+    ? (left & 0o200) === (right & 0o200)
+    : left === right
+}
+
+function fileSystemTransactionFileStatesExactlyMatch(
+  left: FileSystemTransactionJournalFileState | undefined,
+  right: FileSystemTransactionJournalFileState | undefined,
+) {
+  return left === undefined
+    ? right === undefined
+    : right !== undefined &&
+        left.dev !== undefined &&
+        left.ino !== undefined &&
+        right.dev !== undefined &&
+        right.ino !== undefined &&
+        left.dev === right.dev &&
+        left.ino === right.ino &&
+        fileSystemTransactionFileContentsMatch(left, right)
+}
+
+function fileSystemTransactionConflictError(
+  path: string,
+  message: string,
+  cause?: unknown,
+) {
+  const error = new Error(
+    `Filesystem transaction conflict at ${path}: ${message}; the transaction refused to overwrite or discard the unexpected entry`,
+    cause === undefined ? undefined : { cause },
+  ) as NodeJS.ErrnoException
+  error.code = 'ESTALE'
+  error.path = path
+  return error
+}
+
+function fileSystemTransactionOperationError(message: string, cause: unknown) {
+  const error = new Error(message, { cause }) as NodeJS.ErrnoException
+  if (cause && typeof cause === 'object') {
+    const fileSystemCause = cause as NodeJS.ErrnoException
+    error.code = fileSystemCause.code
+    error.errno = fileSystemCause.errno
+    error.path = fileSystemCause.path
+    error.syscall = fileSystemCause.syscall
+  }
+  return error
+}
+
+async function prepareFileSystemTransactionReplacement(
+  source: string,
+  prepared: string,
+  expected: FileSystemTransactionJournalFileState,
+  assertParentUnchanged: () => Promise<void>,
+): Promise<FileSystemTransactionJournalFileState> {
+  await assertParentUnchanged()
+  const sourceState = await snapshotFileSystemTransactionInput(
+    source,
+    prepared,
+    expected.mode,
+    undefined,
+    expected.mode,
+    false,
+    assertParentUnchanged,
+  )
+  if (
+    sourceState.hash !== expected.hash ||
+    !fileSystemTransactionModesMatch(sourceState.mode, expected.mode)
+  ) {
+    throw new Error(
+      `Filesystem transaction input changed before replacement preparation: ${source}`,
+    )
+  }
+  await assertParentUnchanged()
+  const state = await fileSystemTransactionFileState(prepared)
+  if (
+    state.hash !== expected.hash ||
+    !fileSystemTransactionModesMatch(state.mode, expected.mode)
+  ) {
+    throw new Error(
+      `Filesystem transaction replacement changed while it was prepared: ${prepared}`,
+    )
+  }
+  return state
+}
+
+async function assertFileSystemTransactionPathMatches(
+  path: string,
+  expected: FileSystemTransactionJournalFileState | undefined,
+  stage: string,
+) {
+  let current: FileSystemTransactionJournalFileState | undefined
+  try {
+    current = await fileSystemTransactionFileStateIfExists(path)
+  } catch (error) {
+    throw fileSystemTransactionConflictError(path, stage, error)
+  }
+  if (!fileSystemTransactionFileStatesExactlyMatch(current, expected)) {
+    throw fileSystemTransactionConflictError(path, stage)
+  }
+}
+
+async function restoreUnexpectedFileSystemTransactionRetirement(
+  retired: string,
+  destination: string,
+  assertParentUnchanged: () => Promise<void>,
+) {
+  await assertParentUnchanged()
+  try {
+    await link(retired, destination)
+    await syncDirectory(dirname(destination))
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      return false
+    }
+    throw fileSystemTransactionOperationError(
+      `Failed to restore unexpected transaction entry from ${retired} to ${destination}`,
+      error,
+    )
+  }
+}
+
+async function retireExactFileSystemTransactionPath(
+  path: string,
+  expected: FileSystemTransactionJournalFileState | undefined,
+  retired: string,
+  stage: string,
+  assertParentUnchanged: () => Promise<void>,
+) {
+  await assertParentUnchanged()
+  await assertFileSystemTransactionPathMatches(path, expected, stage)
+  if (expected === undefined) {
+    return
+  }
+  if ((await lstatIfExists(retired)) !== undefined) {
+    throw fileSystemTransactionConflictError(
+      retired,
+      `the retirement path was occupied ${stage}`,
+    )
+  }
+
+  const identity = await openFileSystemTransactionIdentity(path)
+  if (!fileSystemTransactionFileStatesExactlyMatch(identity.state, expected)) {
+    await identity.handle.close()
+    throw fileSystemTransactionConflictError(path, stage)
+  }
+  try {
+    await assertParentUnchanged()
+    await assertFileSystemTransactionPathMatches(path, expected, stage)
+    if ((await lstatIfExists(retired)) !== undefined) {
+      throw fileSystemTransactionConflictError(
+        retired,
+        `the retirement path was occupied ${stage}`,
+      )
+    }
+
+    // Node has no renameat2(RENAME_NOREPLACE) or directory-handle-relative
+    // mutation. The random predeclared retirement pathname and the post-rename
+    // inode check contain every race except this irreducible pathname interval.
+    await rename(path, retired)
+    await assertParentUnchanged()
+    const retiredState = await fileSystemTransactionFileStateIfExists(retired)
+    if (
+      !fileSystemTransactionFileStatesExactlyMatch(retiredState, identity.state)
+    ) {
+      const restored = await restoreUnexpectedFileSystemTransactionRetirement(
+        retired,
+        path,
+        assertParentUnchanged,
+      )
+      throw fileSystemTransactionConflictError(
+        path,
+        restored
+          ? `${stage}; an unexpected entry was retired and restored`
+          : `${stage}; an unexpected entry was preserved at ${retired} because a successor already occupies the destination`,
+      )
+    }
+    await syncDirectory(dirname(path))
+  } finally {
+    await identity.handle.close()
+  }
+}
+
+async function publishPreparedFileSystemTransactionReplacement(
+  destination: string,
+  expectedDestination: FileSystemTransactionJournalFileState | undefined,
+  prepared: string,
+  expectedPrepared: FileSystemTransactionJournalFileState,
+  retired: string,
+  assertParentUnchanged: () => Promise<void>,
+) {
+  if (expectedDestination !== undefined) {
+    await retireExactFileSystemTransactionPath(
+      destination,
+      expectedDestination,
+      retired,
+      'before replacement',
+      assertParentUnchanged,
+    )
+  } else {
+    await assertParentUnchanged()
+    await assertFileSystemTransactionPathMatches(
+      destination,
+      undefined,
+      'the destination changed before publication',
+    )
+  }
+
+  const identity = await openFileSystemTransactionIdentity(prepared)
+  if (
+    !fileSystemTransactionFileStatesExactlyMatch(
+      identity.state,
+      expectedPrepared,
+    )
+  ) {
+    await identity.handle.close()
+    throw fileSystemTransactionConflictError(
+      prepared,
+      'the transaction-owned prepared replacement changed before publication',
+    )
+  }
+  try {
+    await assertParentUnchanged()
+    try {
+      // link() is the no-replace publication primitive available in Node. The
+      // prepared pathname remains as an identity anchor until the transaction
+      // has committed or rolled back, preventing inode-number ABA.
+      await link(prepared, destination)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw fileSystemTransactionConflictError(
+          destination,
+          'a successor appeared before transaction publication',
+          error,
+        )
+      }
+      throw fileSystemTransactionOperationError(
+        `Failed to publish transaction replacement at ${destination}`,
+        error,
+      )
+    }
+    await assertParentUnchanged()
+    await syncDirectory(dirname(destination))
+    await assertFileSystemTransactionPathMatches(
+      destination,
+      identity.state,
+      'the published destination does not contain the transaction output',
+    )
+  } finally {
+    await identity.handle.close()
+  }
+}
+
+async function commitFileSystemTransactionReplacement(
+  root: string,
+  destination: string,
+  parentIdentities: Map<string, TransactionParentIdentity>,
+  expectedDestination: FileSystemTransactionJournalFileState | undefined,
+  prepared: string,
+  expectedPrepared: FileSystemTransactionJournalFileState,
+  retired: string,
+) {
+  await publishPreparedFileSystemTransactionReplacement(
+    destination,
+    expectedDestination,
+    prepared,
+    expectedPrepared,
+    retired,
+    () => assertTransactionParentUnchanged(root, destination, parentIdentities),
+  )
+}
+
+async function removeFileSystemTransactionPath(
+  root: string,
+  path: string,
+  parentIdentities: Map<string, TransactionParentIdentity>,
+  expected: FileSystemTransactionJournalFileState | undefined,
+  retired: string,
+  stage: string,
+) {
+  await retireExactFileSystemTransactionPath(
+    path,
+    expected,
+    retired,
+    stage,
+    () => assertTransactionParentUnchanged(root, path, parentIdentities),
+  )
 }
 
 async function writeFileSystemTransactionJournal(
@@ -3319,7 +4222,10 @@ async function readBoundedRegularFile(
   try {
     handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
   } catch (error) {
-    throw new Error(`Failed to open ${label} ${path}`, { cause: error })
+    throw fileSystemTransactionOperationError(
+      `Failed to open ${label} ${path}`,
+      error,
+    )
   }
   try {
     const stats = await handle.stat()
@@ -3358,17 +4264,37 @@ function normalizeFileSystemTransactionFileState(
   if (state === undefined) {
     return
   }
+  if (typeof state !== 'object' || state === null) {
+    throw new Error('Invalid file state in filesystem transaction journal')
+  }
+  const candidate = state as {
+    dev?: unknown
+    hash?: unknown
+    ino?: unknown
+    mode?: unknown
+  }
+  const hasDevice = candidate.dev !== undefined
+  const hasInode = candidate.ino !== undefined
   if (
-    typeof state !== 'object' ||
-    state === null ||
-    typeof (state as { hash?: unknown }).hash !== 'string' ||
-    !/^[0-9a-f]{64}$/.test((state as { hash: string }).hash) ||
-    !Number.isSafeInteger((state as { mode?: unknown }).mode) ||
-    ((state as { mode: number }).mode & ~0o7777) !== 0
+    typeof candidate.hash !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(candidate.hash) ||
+    !Number.isSafeInteger(candidate.mode) ||
+    ((candidate.mode as number) & ~0o7777) !== 0 ||
+    hasDevice !== hasInode ||
+    (hasDevice &&
+      (!Number.isSafeInteger(candidate.dev) ||
+        (candidate.dev as number) < 0 ||
+        !Number.isSafeInteger(candidate.ino) ||
+        (candidate.ino as number) < 0))
   ) {
     throw new Error('Invalid file state in filesystem transaction journal')
   }
-  return state as FileSystemTransactionJournalFileState
+  return {
+    dev: candidate.dev as number | undefined,
+    hash: candidate.hash,
+    ino: candidate.ino as number | undefined,
+    mode: candidate.mode as number,
+  }
 }
 
 function normalizeFileSystemTransactionJournal(
@@ -3376,11 +4302,16 @@ function normalizeFileSystemTransactionJournal(
   journal: unknown,
   owner: FileSystemTransactionJournalOwner,
 ): FileSystemTransactionJournal {
+  const version =
+    typeof journal === 'object' && journal !== null
+      ? (journal as { version?: unknown }).version
+      : undefined
   if (
     typeof journal !== 'object' ||
     journal === null ||
-    (journal as { version?: unknown }).version !==
-      fileSystemTransactionStateVersion ||
+    (version !== legacyFileSystemTransactionStateVersion &&
+      version !== fileSystemTransactionStateVersion) ||
+    version !== owner.version ||
     ((journal as { phase?: unknown }).phase !== 'prepared' &&
       (journal as { phase?: unknown }).phase !== 'committed') ||
     (journal as { token?: unknown }).token !== owner.token ||
@@ -3392,6 +4323,7 @@ function normalizeFileSystemTransactionJournal(
       `Invalid filesystem transaction journal at ${fileSystemTransactionJournalPath(root)}`,
     )
   }
+  const normalizedVersion = version as FileSystemTransactionJournal['version']
   const paths = new Set<string>()
   const entries = (journal as { entries: unknown[] }).entries.map(
     (entry): FileSystemTransactionJournalEntry => {
@@ -3415,6 +4347,9 @@ function normalizeFileSystemTransactionJournal(
           ino?: unknown
         }
         path: string
+        prepared?: unknown
+        retired?: unknown
+        rollbackRetired?: unknown
       }
       const path = resolveFileSystemTransactionRelativePath(
         root,
@@ -3431,6 +4366,24 @@ function normalizeFileSystemTransactionJournal(
         candidate.original,
       )
       const final = normalizeFileSystemTransactionFileState(candidate.final)
+      if (
+        normalizedVersion === fileSystemTransactionStateVersion &&
+        original !== undefined &&
+        (original.dev === undefined || original.ino === undefined)
+      ) {
+        throw new Error(
+          `Filesystem transaction journal omitted original file identity for ${path}`,
+        )
+      }
+      if (
+        normalizedVersion === fileSystemTransactionStateVersion &&
+        final !== undefined &&
+        (final.dev === undefined || final.ino === undefined)
+      ) {
+        throw new Error(
+          `Filesystem transaction journal omitted prepared file identity for ${path}`,
+        )
+      }
       let backup: string | undefined
       if (candidate.backup !== undefined) {
         if (typeof candidate.backup !== 'string') {
@@ -3454,6 +4407,79 @@ function normalizeFileSystemTransactionJournal(
       if ((original === undefined) !== (backup === undefined)) {
         throw new Error(
           `Filesystem transaction journal has inconsistent backup state for ${path}`,
+        )
+      }
+      const normalizeArtifact = (
+        value: unknown,
+        label: string,
+        required: boolean,
+        kind: 'prepared' | 'retired' | 'rollback',
+      ) => {
+        if (value === undefined) {
+          if (required) {
+            throw new Error(
+              `Filesystem transaction journal omitted ${label.toLowerCase()} for ${path}`,
+            )
+          }
+          return
+        }
+        if (typeof value !== 'string') {
+          throw new Error(
+            `Invalid ${label.toLowerCase()} in filesystem transaction journal for ${path}`,
+          )
+        }
+        const artifact = resolveFileSystemTransactionRelativePath(
+          root,
+          value,
+          label,
+        )
+        if (
+          !isOwnedFileSystemTransactionArtifactPath(
+            path,
+            artifact,
+            owner.token,
+            kind,
+          )
+        ) {
+          throw new Error(
+            `${label} is not a transaction-owned artifact for ${path}`,
+          )
+        }
+        return value
+      }
+      const prepared =
+        normalizedVersion === fileSystemTransactionStateVersion
+          ? normalizeArtifact(
+              candidate.prepared,
+              'Transaction prepared replacement',
+              final !== undefined,
+              'prepared',
+            )
+          : undefined
+      const retired =
+        normalizedVersion === fileSystemTransactionStateVersion
+          ? normalizeArtifact(
+              candidate.retired,
+              'Transaction retirement path',
+              true,
+              'retired',
+            )
+          : undefined
+      const rollbackRetired =
+        normalizedVersion === fileSystemTransactionStateVersion
+          ? normalizeArtifact(
+              candidate.rollbackRetired,
+              'Transaction rollback retirement path',
+              true,
+              'rollback',
+            )
+          : undefined
+      if (
+        normalizedVersion === fileSystemTransactionStateVersion &&
+        (final === undefined) !== (prepared === undefined)
+      ) {
+        throw new Error(
+          `Filesystem transaction journal has inconsistent prepared state for ${path}`,
         )
       }
       const parent = candidate.parent
@@ -3490,6 +4516,9 @@ function normalizeFileSystemTransactionJournal(
           ino: parent.ino as number,
         },
         path: candidate.path,
+        prepared,
+        retired,
+        rollbackRetired,
       }
     },
   )
@@ -3497,7 +4526,7 @@ function normalizeFileSystemTransactionJournal(
     entries,
     phase: (journal as FileSystemTransactionJournal).phase,
     token: owner.token,
-    version: fileSystemTransactionStateVersion,
+    version: normalizedVersion,
   }
 }
 
@@ -3520,8 +4549,10 @@ async function readFileSystemTransactionOwnerAt(journalRoot: string) {
     typeof owner !== 'object' ||
     owner === null ||
     (owner as { kind?: unknown }).kind !== fileSystemTransactionKind ||
-    (owner as { version?: unknown }).version !==
-      fileSystemTransactionStateVersion ||
+    ((owner as { version?: unknown }).version !==
+      legacyFileSystemTransactionStateVersion &&
+      (owner as { version?: unknown }).version !==
+        fileSystemTransactionStateVersion) ||
     !isReconciliationLockToken((owner as { token?: unknown }).token)
   ) {
     throw new Error(`Invalid filesystem transaction owner at ${path}`)
@@ -3612,42 +4643,253 @@ async function rollbackFileSystemTransaction(
     try {
       await assertFileSystemTransactionJournalParentUnchanged(root, entry)
       const current = await fileSystemTransactionFileStateIfExists(path)
-      if (fileSystemTransactionFileStatesMatch(current, entry.original)) {
+      if (
+        fileSystemTransactionFileStatesExactlyMatch(current, entry.original)
+      ) {
         continue
       }
-      if (!fileSystemTransactionFileStatesMatch(current, entry.final)) {
-        throw new Error(
-          `Filesystem transaction path changed outside the transaction: ${path}`,
-        )
-      }
-      if (entry.original) {
-        const backup = resolveFileSystemTransactionRelativePath(
+      const assertParentUnchanged = () =>
+        assertFileSystemTransactionJournalParentUnchanged(root, entry)
+      if (entry.final !== undefined) {
+        const rollbackRetired = resolveFileSystemTransactionRelativePath(
           root,
-          entry.backup!,
-          'Transaction backup',
+          entry.rollbackRetired!,
+          'Transaction rollback retirement path',
         )
-        const backupState = await fileSystemTransactionFileState(backup)
-        if (
-          !fileSystemTransactionFileStatesMatch(backupState, entry.original)
+        const rollbackRetiredState =
+          await fileSystemTransactionFileStateIfExists(rollbackRetired)
+        if (fileSystemTransactionFileStatesExactlyMatch(current, entry.final)) {
+          await assertFileSystemTransactionPathMatches(
+            resolveFileSystemTransactionRelativePath(
+              root,
+              entry.prepared!,
+              'Transaction prepared replacement',
+            ),
+            entry.final,
+            'the prepared identity anchor changed before rollback',
+          )
+          await retireExactFileSystemTransactionPath(
+            path,
+            entry.final,
+            rollbackRetired,
+            'the transaction output changed before rollback retirement',
+            assertParentUnchanged,
+          )
+        } else if (
+          current !== undefined ||
+          (rollbackRetiredState !== undefined &&
+            !fileSystemTransactionFileStatesExactlyMatch(
+              rollbackRetiredState,
+              entry.final,
+            ))
         ) {
-          throw new Error(
-            `Filesystem transaction backup changed before recovery: ${backup}`,
+          throw fileSystemTransactionConflictError(
+            path,
+            'the destination changed outside the transaction before rollback',
           )
         }
-        await copyFileAtomic(backup, path, entry.original.mode)
-      } else if (await unlinkFileIfExists(path)) {
-        await syncDirectory(dirname(path))
+      } else if (current !== undefined) {
+        throw fileSystemTransactionConflictError(
+          path,
+          'the destination changed outside the transaction before rollback',
+        )
+      }
+      if (entry.original !== undefined) {
+        const retired = resolveFileSystemTransactionRelativePath(
+          root,
+          entry.retired!,
+          'Transaction retirement path',
+        )
+        await publishFileSystemTransactionIdentityAnchor(
+          retired,
+          path,
+          entry.original,
+          assertParentUnchanged,
+        )
       }
     } catch (error) {
       errors.push(
-        new Error(
+        fileSystemTransactionOperationError(
           `Failed to roll back filesystem transaction path ${path}: ${errorMessage(error)}`,
-          { cause: error },
+          error,
         ),
       )
     }
   }
   return errors
+}
+
+async function publishFileSystemTransactionIdentityAnchor(
+  source: string,
+  destination: string,
+  expected: FileSystemTransactionJournalFileState,
+  assertParentUnchanged: () => Promise<void>,
+) {
+  const identity = await openFileSystemTransactionIdentity(source)
+  if (!fileSystemTransactionFileStatesExactlyMatch(identity.state, expected)) {
+    await identity.handle.close()
+    throw fileSystemTransactionConflictError(
+      source,
+      'the transaction identity anchor changed before restoration',
+    )
+  }
+  try {
+    await assertParentUnchanged()
+    try {
+      await link(source, destination)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw fileSystemTransactionConflictError(
+          destination,
+          'a successor appeared before transaction restoration',
+          error,
+        )
+      }
+      throw fileSystemTransactionOperationError(
+        `Failed to restore transaction identity anchor at ${destination}`,
+        error,
+      )
+    }
+    await assertParentUnchanged()
+    await syncDirectory(dirname(destination))
+    await assertFileSystemTransactionPathMatches(
+      destination,
+      identity.state,
+      'the restored destination does not contain the original transaction entry',
+    )
+  } finally {
+    await identity.handle.close()
+  }
+}
+
+async function cleanupPreparedFileSystemTransactionArtifacts(
+  preparedArtifacts: Map<string, FileSystemTransactionJournalFileState>,
+) {
+  for (const [path, expected] of preparedArtifacts) {
+    const current = await fileSystemTransactionFileStateIfExists(path)
+    if (current === undefined) {
+      continue
+    }
+    if (!fileSystemTransactionFileStatesExactlyMatch(current, expected)) {
+      throw fileSystemTransactionConflictError(
+        path,
+        'a prepared transaction artifact changed before cleanup',
+      )
+    }
+    await unlink(path)
+    await syncDirectory(dirname(path))
+  }
+}
+
+async function cleanupFileSystemTransactionArtifacts(
+  root: string,
+  journal: FileSystemTransactionJournal,
+) {
+  const artifacts = new Map<
+    string,
+    {
+      entry: FileSystemTransactionJournalEntry
+      path: string
+      state: FileSystemTransactionJournalFileState
+    }
+  >()
+  for (const entry of journal.entries) {
+    if (entry.prepared && entry.final) {
+      const path = resolveFileSystemTransactionRelativePath(
+        root,
+        entry.prepared,
+        'Transaction prepared replacement',
+      )
+      artifacts.set(fileSystemTransactionPlatformPathKey(path), {
+        entry,
+        path,
+        state: entry.final,
+      })
+    }
+    if (entry.retired && entry.original) {
+      const path = resolveFileSystemTransactionRelativePath(
+        root,
+        entry.retired,
+        'Transaction retirement path',
+      )
+      artifacts.set(fileSystemTransactionPlatformPathKey(path), {
+        entry,
+        path,
+        state: entry.original,
+      })
+    }
+    if (entry.rollbackRetired && entry.final) {
+      const path = resolveFileSystemTransactionRelativePath(
+        root,
+        entry.rollbackRetired,
+        'Transaction rollback retirement path',
+      )
+      artifacts.set(fileSystemTransactionPlatformPathKey(path), {
+        entry,
+        path,
+        state: entry.final,
+      })
+    }
+  }
+
+  for (const { entry, path, state } of artifacts.values()) {
+    const current = await fileSystemTransactionFileStateIfExists(path)
+    if (current === undefined) {
+      continue
+    }
+    if (!fileSystemTransactionFileStatesExactlyMatch(current, state)) {
+      throw fileSystemTransactionConflictError(
+        path,
+        'a retained transaction identity anchor changed before cleanup',
+      )
+    }
+    const cleanupRetired = atomicTemporaryPath(path)
+    await retireExactFileSystemTransactionPath(
+      path,
+      state,
+      cleanupRetired,
+      'during transaction artifact cleanup',
+      () => assertFileSystemTransactionJournalParentUnchanged(root, entry),
+    )
+    await unlink(cleanupRetired)
+    await syncDirectory(dirname(path))
+  }
+}
+
+async function recoverLegacyFileSystemTransaction(
+  root: string,
+  journal: FileSystemTransactionJournal,
+  owner: FileSystemTransactionJournalOwner,
+  journalStats: Stats,
+) {
+  if (journal.phase === 'committed') {
+    await removeFileSystemTransactionJournal(root, owner.token, journalStats)
+    return
+  }
+  for (const entry of journal.entries) {
+    await assertFileSystemTransactionJournalParentUnchanged(root, entry)
+    const path = resolveFileSystemTransactionRelativePath(
+      root,
+      entry.path,
+      'Transaction path',
+    )
+    const current = await fileSystemTransactionFileStateIfExists(path)
+    if (!fileSystemTransactionFileContentsMatch(current, entry.original)) {
+      const quarantined = await retireFileSystemTransactionState(
+        root,
+        fileSystemTransactionJournalPath(root),
+        journalStats,
+        owner.token,
+      )
+      const error = new Error(
+        `Legacy filesystem transaction journal v1 cannot prove ownership of ${path}. It was quarantined at ${quarantined} so future reconciliation is not permanently blocked; inspect the preserved backups before removing it`,
+      ) as NodeJS.ErrnoException
+      error.code = 'ENOTRECOVERABLE'
+      error.path = quarantined
+      throw error
+    }
+  }
+  await removeFileSystemTransactionJournal(root, owner.token, journalStats)
 }
 
 async function recoverFileSystemTransaction(root: string) {
@@ -3665,10 +4907,18 @@ async function recoverFileSystemTransaction(root: string) {
   const statePath = join(journalRoot, fileSystemTransactionStateName)
   const stateStats = await lstatIfExists(statePath)
   if (!stateStats) {
-    await removeFileSystemTransactionJournal(root, owner.token, journalStats)
-    return
+    const error = new Error(
+      `Filesystem transaction recovery state is incomplete because its journal is missing: ${statePath}`,
+    ) as NodeJS.ErrnoException
+    error.code = 'ENOTRECOVERABLE'
+    error.path = statePath
+    throw error
   }
   const journal = await readFileSystemTransactionJournal(root, owner)
+  if (journal.version === legacyFileSystemTransactionStateVersion) {
+    await recoverLegacyFileSystemTransaction(root, journal, owner, journalStats)
+    return
+  }
   if (journal.phase === 'prepared') {
     const rollbackErrors = await rollbackFileSystemTransaction(root, journal)
     if (rollbackErrors.length > 0) {
@@ -3679,6 +4929,7 @@ async function recoverFileSystemTransaction(root: string) {
       )
     }
   }
+  await cleanupFileSystemTransactionArtifacts(root, journal)
   await removeFileSystemTransactionJournal(root, owner.token, journalStats)
 }
 
@@ -3779,9 +5030,16 @@ async function removeFileSystemTransactionJournal(
 }
 
 function pathsHaveEquivalentPlatformSpelling(left: string, right: string) {
-  return process.platform === 'win32'
-    ? left.toLowerCase() === right.toLowerCase()
-    : left === right
+  return (
+    fileSystemTransactionPlatformPathKey(left) ===
+    fileSystemTransactionPlatformPathKey(right)
+  )
+}
+
+function fileSystemTransactionPlatformPathKey(path: string) {
+  const normalized =
+    process.platform === 'darwin' ? path.normalize('NFC') : path
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
 function atomicTemporaryPath(path: string) {
@@ -3802,6 +5060,9 @@ async function syncFile(path: string) {
 
 async function syncDirectory(path: string) {
   if (process.platform === 'win32') {
+    // Node cannot open and fsync Windows directories. File data is synced and
+    // the journal handles process termination, but this does not claim durable
+    // directory-entry ordering across sudden power loss on Windows.
     return
   }
   const handle = await open(path, constants.O_RDONLY)

@@ -80,11 +80,44 @@ function transactionSiblingPath(
   )
 }
 
-function transactionOwner(token: string) {
+function transactionArtifactPath(
+  destination: string,
+  token: string,
+  index: number,
+  kind: 'prepared' | 'retired' | 'rollback',
+) {
+  return join(
+    dirname(destination),
+    `.${basename(destination)}.${token}.${index}.${kind}.tmp`,
+  )
+}
+
+function transactionOwner(token: string, version = 1) {
   return {
     kind: 'napi-rs-filesystem-transaction',
     token,
-    version: 1,
+    version,
+  }
+}
+
+async function transactionFileState(path: string) {
+  const [content, stats] = await Promise.all([readFile(path), lstat(path)])
+  return {
+    dev: stats.dev,
+    hash: createHash('sha256').update(content).digest('hex'),
+    ino: stats.ino,
+    mode: stats.mode & 0o7777,
+  }
+}
+
+async function readFileIfExists(path: string) {
+  try {
+    return await readFile(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return
+    }
+    throw error
   }
 }
 
@@ -95,10 +128,31 @@ async function removeReconciliationLockState(key: string) {
   ])
 }
 
+async function waitForTransactionCandidate(root: string) {
+  const prefix = `${basename(
+    transactionJournalName,
+    extname(transactionJournalName),
+  )}.candidate.`
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    const name = (await readdir(root)).find(
+      (entry) =>
+        entry.startsWith(prefix) &&
+        entry.endsWith(extname(transactionJournalName)),
+    )
+    if (name) {
+      return join(root, name)
+    }
+    await delay(1)
+  }
+  throw new Error('Timed out waiting for transaction candidate creation')
+}
+
 function reconciliationLockOwner(
   key: string,
   overrides: Partial<{
     boot: string | null
+    bootSession: string | null
     createdAt: number
     incarnation: string | null
     machine: string | null
@@ -127,6 +181,7 @@ function reconciliationReclaimOwner(
   key: string,
   overrides: Partial<{
     boot: string | null
+    bootSession: string | null
     createdAt: number
     incarnation: string | null
     machine: string | null
@@ -187,6 +242,7 @@ async function currentProcessExecutionIdentity(root: string) {
   let identity:
     | {
         boot: unknown
+        bootSession: unknown
         machine: unknown
         namespace: unknown
       }
@@ -198,12 +254,15 @@ async function currentProcessExecutionIdentity(root: string) {
     >
     identity = {
       boot: owner.boot,
+      bootSession: owner.bootSession,
       machine: owner.machine,
       namespace: owner.namespace,
     }
   })
   if (
     typeof identity?.boot !== 'string' ||
+    (identity.bootSession !== null &&
+      typeof identity.bootSession !== 'string') ||
     typeof identity.machine !== 'string' ||
     typeof identity.namespace !== 'string'
   ) {
@@ -213,6 +272,7 @@ async function currentProcessExecutionIdentity(root: string) {
   }
   return identity as {
     boot: string
+    bootSession: string | null
     machine: string
     namespace: string
   }
@@ -234,6 +294,12 @@ async function installReconciliationReclaimGuard(
   key: string,
   incarnation: string,
 ) {
+  const lockOwner = JSON.parse(await readFile(lockPath, 'utf8')) as {
+    boot?: string | null
+    bootSession?: string | null
+    machine?: string | null
+    namespace?: string | null
+  }
   const deadline = Date.now() + 5_000
   while (Date.now() < deadline) {
     if (!existsSync(lockPath)) {
@@ -243,7 +309,15 @@ async function installReconciliationReclaimGuard(
     try {
       await writeFile(
         reclaimPath,
-        JSON.stringify(reconciliationReclaimOwner(key, { incarnation })),
+        JSON.stringify(
+          reconciliationReclaimOwner(key, {
+            boot: lockOwner.boot,
+            bootSession: lockOwner.bootSession,
+            incarnation,
+            machine: lockOwner.machine,
+            namespace: lockOwner.namespace,
+          }),
+        ),
         { flag: 'wx' },
       )
       return
@@ -392,6 +466,27 @@ test('filesystem transactions reject duplicate canonical destinations', async (t
   t.false(existsSync(join(root, transactionJournalName)))
 })
 
+test('filesystem transactions reject reserved recovery paths before creating parents', async (t) => {
+  const root = join(t.context.tmpDir, 'reserved-path-root')
+  const staging = join(t.context.tmpDir, 'reserved-path-staging')
+  const source = join(staging, 'source.txt')
+  const reservedParent = join(root, transactionJournalName, 'nested')
+  await Promise.all([mkdir(root), mkdir(staging)])
+  await writeFile(source, 'replacement')
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [{ source, destination: join(reservedParent, 'destination.txt') }],
+      [],
+    ),
+    { message: /overlaps reserved recovery state/ },
+  )
+
+  t.false(existsSync(join(root, transactionJournalName)))
+  t.false(existsSync(reservedParent))
+})
+
 test('filesystem transactions publish transaction-owned source snapshots', async (t) => {
   const root = join(t.context.tmpDir, 'source-snapshot-root')
   const first = join(root, 'first.txt')
@@ -414,6 +509,493 @@ test('filesystem transactions publish transaction-owned source snapshots', async
   t.is(await readFile(first, 'utf8'), 'second source')
   t.is(await readFile(second, 'utf8'), 'first source')
   t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions preserve an external destination update made after backup', async (t) => {
+  const root = join(t.context.tmpDir, 'transaction-commit-conflict')
+  const staging = join(t.context.tmpDir, 'transaction-commit-conflict-staging')
+  const source = join(staging, 'replacement.txt')
+  const target = join(root, 'target.txt')
+  const external = join(root, 'external.txt')
+  await Promise.all([mkdir(root), mkdir(staging)])
+  await Promise.all([
+    writeFile(source, 'transaction replacement'),
+    writeFile(target, 'original target'),
+  ])
+
+  const writes = []
+  for (let index = 0; index < 128; index += 1) {
+    const destination = join(root, `leading-${index}.txt`)
+    await writeFile(destination, `original ${index}`)
+    writes.push({ source, destination })
+  }
+  writes.push({ source, destination: target })
+
+  const watcher = (async () => {
+    const candidate = await waitForTransactionCandidate(root)
+    const backupPath = join(candidate, 'backups', String(writes.length - 1))
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      if (existsSync(backupPath)) {
+        await writeFile(external, 'external destination update')
+        await rename(external, target)
+        return
+      }
+      await delay(1)
+    }
+    throw new Error('Timed out waiting for transaction backup publication')
+  })()
+
+  const error = (await t.throwsAsync(
+    commitFileSystemTransaction(root, writes, []),
+  )) as AggregateError
+  await watcher
+
+  t.true(error instanceof AggregateError)
+  t.regex(error.message, /rollback was incomplete/)
+  t.regex(String(error), /recovery state is preserved/)
+  t.is(await readFile(target, 'utf8'), 'external destination update')
+  t.true(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transaction recovery preserves a same-content external inode replacement', async (t) => {
+  const root = join(t.context.tmpDir, 'transaction-rollback-conflict')
+  const journalRoot = join(root, transactionJournalName)
+  const backupRoot = join(journalRoot, 'backups')
+  const token = '00000000-0000-4000-8000-000000000113'
+  const destination = join(root, 'destination.txt')
+  const backup = join(backupRoot, '0')
+  const prepared = transactionArtifactPath(destination, token, 0, 'prepared')
+  const retired = transactionArtifactPath(destination, token, 0, 'retired')
+  const rollbackRetired = transactionArtifactPath(
+    destination,
+    token,
+    0,
+    'rollback',
+  )
+  await mkdir(backupRoot, { recursive: true })
+  await writeFile(destination, 'original content')
+  const original = await transactionFileState(destination)
+  await writeFile(backup, 'original content')
+  await rename(destination, retired)
+  await writeFile(prepared, 'transaction content')
+  const final = await transactionFileState(prepared)
+  await writeFile(destination, 'transaction content')
+  const external = await transactionFileState(destination)
+  const parent = await lstat(root)
+
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 2)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            backup: join(transactionJournalName, 'backups', '0'),
+            final,
+            original,
+            parent: {
+              canonicalParent: '.',
+              dev: parent.dev,
+              identityPath: '.',
+              ino: parent.ino,
+            },
+            path: basename(destination),
+            prepared: basename(prepared),
+            retired: basename(retired),
+            rollbackRetired: basename(rollbackRetired),
+          },
+        ],
+        phase: 'prepared',
+        token,
+        version: 2,
+      }),
+    ),
+  ])
+
+  const error = (await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+  )) as AggregateError
+
+  t.true(error instanceof AggregateError)
+  t.regex(error.message, /Failed to recover interrupted filesystem transaction/)
+  t.regex(String(error.errors[0]), /changed outside the transaction/)
+  t.is(await readFile(destination, 'utf8'), 'transaction content')
+  const preserved = await lstat(destination)
+  t.is(preserved.dev, external.dev)
+  t.is(preserved.ino, external.ino)
+  t.true(existsSync(journalRoot))
+})
+
+test('filesystem transaction recovery does not mistake original contents for the original inode', async (t) => {
+  const root = join(t.context.tmpDir, 'transaction-original-content-conflict')
+  const journalRoot = join(root, transactionJournalName)
+  const backupRoot = join(journalRoot, 'backups')
+  const token = '00000000-0000-4000-8000-000000000115'
+  const destination = join(root, 'destination.txt')
+  const backup = join(backupRoot, '0')
+  const prepared = transactionArtifactPath(destination, token, 0, 'prepared')
+  const retired = transactionArtifactPath(destination, token, 0, 'retired')
+  const rollbackRetired = transactionArtifactPath(
+    destination,
+    token,
+    0,
+    'rollback',
+  )
+  await mkdir(backupRoot, { recursive: true })
+  await writeFile(destination, 'original content')
+  const original = await transactionFileState(destination)
+  await writeFile(backup, 'original content')
+  await rename(destination, retired)
+  await writeFile(prepared, 'transaction content')
+  const final = await transactionFileState(prepared)
+  await writeFile(destination, 'original content')
+  const external = await transactionFileState(destination)
+  const parent = await lstat(root)
+
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 2)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            backup: join(transactionJournalName, 'backups', '0'),
+            final,
+            original,
+            parent: {
+              canonicalParent: '.',
+              dev: parent.dev,
+              identityPath: '.',
+              ino: parent.ino,
+            },
+            path: basename(destination),
+            prepared: basename(prepared),
+            retired: basename(retired),
+            rollbackRetired: basename(rollbackRetired),
+          },
+        ],
+        phase: 'prepared',
+        token,
+        version: 2,
+      }),
+    ),
+  ])
+
+  const error = (await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+  )) as AggregateError
+
+  t.true(error instanceof AggregateError)
+  t.regex(error.message, /Failed to recover interrupted filesystem transaction/)
+  t.regex(String(error.errors[0]), /changed outside the transaction/)
+  t.is(await readFile(destination, 'utf8'), 'original content')
+  const preserved = await lstat(destination)
+  t.is(preserved.dev, external.dev)
+  t.is(preserved.ino, external.ino)
+  t.true(existsSync(retired))
+  t.true(existsSync(journalRoot))
+})
+
+test('filesystem transaction recovery restores an original retired before publication', async (t) => {
+  const root = join(t.context.tmpDir, 'transaction-pre-publication-retirement')
+  const journalRoot = join(root, transactionJournalName)
+  const backupRoot = join(journalRoot, 'backups')
+  const token = '00000000-0000-4000-8000-000000000114'
+  const destination = join(root, 'destination.txt')
+  const backup = join(backupRoot, '0')
+  const prepared = transactionArtifactPath(destination, token, 0, 'prepared')
+  const retired = transactionArtifactPath(destination, token, 0, 'retired')
+  const rollbackRetired = transactionArtifactPath(
+    destination,
+    token,
+    0,
+    'rollback',
+  )
+  await mkdir(backupRoot, { recursive: true })
+  await writeFile(destination, 'original content')
+  const original = await transactionFileState(destination)
+  await writeFile(backup, 'original content')
+  await rename(destination, retired)
+  await writeFile(prepared, 'transaction content')
+  const final = await transactionFileState(prepared)
+  const parent = await lstat(root)
+
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 2)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            backup: join(transactionJournalName, 'backups', '0'),
+            final,
+            original,
+            parent: {
+              canonicalParent: '.',
+              dev: parent.dev,
+              identityPath: '.',
+              ino: parent.ino,
+            },
+            path: basename(destination),
+            prepared: basename(prepared),
+            retired: basename(retired),
+            rollbackRetired: basename(rollbackRetired),
+          },
+        ],
+        phase: 'prepared',
+        token,
+        version: 2,
+      }),
+    ),
+  ])
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.is(await readFile(destination, 'utf8'), 'original content')
+  const restored = await lstat(destination)
+  t.is(restored.dev, original.dev)
+  t.is(restored.ino, original.ino)
+  t.false(existsSync(journalRoot))
+  t.false(existsSync(prepared))
+  t.false(existsSync(retired))
+})
+
+test('filesystem transaction recovery removes an already-restored legacy v1 journal', async (t) => {
+  const root = join(t.context.tmpDir, 'legacy-v1-restored')
+  const journalRoot = join(root, transactionJournalName)
+  const backupRoot = join(journalRoot, 'backups')
+  const destination = join(root, 'destination.txt')
+  const backup = join(backupRoot, '0')
+  const token = '00000000-0000-4000-8000-000000000115'
+  await mkdir(backupRoot, { recursive: true })
+  await Promise.all([
+    writeFile(destination, 'original content'),
+    writeFile(backup, 'original content'),
+  ])
+  const original = await transactionFileState(destination)
+  const parent = await lstat(root)
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            backup: join(transactionJournalName, 'backups', '0'),
+            final: {
+              hash: createHash('sha256')
+                .update('transaction content')
+                .digest('hex'),
+              mode: original.mode,
+            },
+            original: { hash: original.hash, mode: original.mode },
+            parent: {
+              canonicalParent: '.',
+              dev: parent.dev,
+              identityPath: '.',
+              ino: parent.ino,
+            },
+            path: basename(destination),
+          },
+        ],
+        phase: 'prepared',
+        token,
+        version: 1,
+      }),
+    ),
+  ])
+
+  let entered = false
+  await withFileSystemReconciliation(root, async () => {
+    entered = true
+  })
+
+  t.true(entered)
+  t.is(await readFile(destination, 'utf8'), 'original content')
+  t.false(existsSync(journalRoot))
+})
+
+test('filesystem transaction recovery quarantines ambiguous legacy v1 journals without permanent poison', async (t) => {
+  const root = join(t.context.tmpDir, 'legacy-v1-ambiguous')
+  const journalRoot = join(root, transactionJournalName)
+  const backupRoot = join(journalRoot, 'backups')
+  const destination = join(root, 'destination.txt')
+  const backup = join(backupRoot, '0')
+  const token = '00000000-0000-4000-8000-000000000116'
+  await mkdir(backupRoot, { recursive: true })
+  await Promise.all([
+    writeFile(destination, 'transaction or external content'),
+    writeFile(backup, 'original content'),
+  ])
+  const parent = await lstat(root)
+  const originalMode = (await lstat(backup)).mode & 0o7777
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            backup: join(transactionJournalName, 'backups', '0'),
+            final: {
+              hash: createHash('sha256')
+                .update('transaction or external content')
+                .digest('hex'),
+              mode: originalMode,
+            },
+            original: {
+              hash: createHash('sha256')
+                .update('original content')
+                .digest('hex'),
+              mode: originalMode,
+            },
+            parent: {
+              canonicalParent: '.',
+              dev: parent.dev,
+              identityPath: '.',
+              ino: parent.ino,
+            },
+            path: basename(destination),
+          },
+        ],
+        phase: 'prepared',
+        token,
+        version: 1,
+      }),
+    ),
+  ])
+
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+    {
+      message:
+        /Legacy filesystem transaction journal v1 cannot prove ownership/,
+    },
+  )
+  t.is((error as NodeJS.ErrnoException).code, 'ENOTRECOVERABLE')
+  t.false(existsSync(journalRoot))
+  t.true(existsSync((error as NodeJS.ErrnoException).path!))
+  t.is(await readFile(destination, 'utf8'), 'transaction or external content')
+
+  let entered = false
+  await withFileSystemReconciliation(root, async () => {
+    entered = true
+  })
+  t.true(entered)
+})
+
+test('filesystem transaction recovery preserves unowned journal artifact paths', async (t) => {
+  const root = join(t.context.tmpDir, 'unowned-journal-artifact')
+  const journalRoot = join(root, transactionJournalName)
+  const token = '00000000-0000-4000-8000-000000000117'
+  const destination = join(root, 'destination.txt')
+  const userFile = join(root, 'user.txt')
+  await mkdir(journalRoot, { recursive: true })
+  await writeFile(userFile, 'user content')
+  const final = await transactionFileState(userFile)
+  const parent = await lstat(root)
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 2)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            final,
+            parent: {
+              canonicalParent: '.',
+              dev: parent.dev,
+              identityPath: '.',
+              ino: parent.ino,
+            },
+            path: basename(destination),
+            prepared: basename(userFile),
+            retired: basename(
+              transactionArtifactPath(destination, token, 0, 'retired'),
+            ),
+            rollbackRetired: basename(
+              transactionArtifactPath(destination, token, 0, 'rollback'),
+            ),
+          },
+        ],
+        phase: 'committed',
+        token,
+        version: 2,
+      }),
+    ),
+  ])
+
+  await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+    { message: /is not a transaction-owned artifact/ },
+  )
+
+  t.is(await readFile(userFile, 'utf8'), 'user content')
+  t.true(existsSync(journalRoot))
+})
+
+test('filesystem transaction recovery preserves an owner-only canonical journal', async (t) => {
+  const root = join(t.context.tmpDir, 'owner-only-journal')
+  const journalRoot = join(root, transactionJournalName)
+  const sentinel = join(journalRoot, 'sentinel.txt')
+  const token = '00000000-0000-4000-8000-000000000118'
+  await mkdir(journalRoot, { recursive: true })
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 2)),
+    ),
+    writeFile(sentinel, 'preserve me'),
+  ])
+
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+    { message: /recovery state is incomplete/ },
+  )
+
+  t.is((error as NodeJS.ErrnoException).code, 'ENOTRECOVERABLE')
+  t.is(
+    (error as NodeJS.ErrnoException).path,
+    join(await realpath(root), transactionJournalName, 'state.json'),
+  )
+  t.is(await readFile(sentinel, 'utf8'), 'preserve me')
+  t.true(existsSync(journalRoot))
+})
+
+test('filesystem transaction recovery preserves missing-owner error metadata', async (t) => {
+  const root = join(t.context.tmpDir, 'missing-journal-owner')
+  const journalRoot = join(root, transactionJournalName)
+  await mkdir(journalRoot, { recursive: true })
+
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+  )
+
+  t.is((error as NodeJS.ErrnoException).code, 'ENOENT')
+  t.is(
+    (error as NodeJS.ErrnoException).path,
+    join(await realpath(root), transactionJournalName, 'owner.json'),
+  )
+  t.true(existsSync(journalRoot))
 })
 
 test('filesystem transactions restore prior outputs after a commit failure', async (t) => {
@@ -520,7 +1102,9 @@ const crashRecoveryTest = process.platform === 'win32' ? test.skip : test
 crashRecoveryTest(
   'filesystem transactions recover a process killed after partial commit',
   async (t) => {
-    t.timeout(30_000)
+    // This exercises process-crash recovery. On Windows, Node cannot fsync
+    // directories, so the implementation makes no power-loss durability claim.
+    t.timeout(60_000)
     const root = join(t.context.tmpDir, 'transaction-crash-recovery')
     const staging = join(t.context.tmpDir, 'transaction-crash-staging')
     const workerPath = join(t.context.tmpDir, 'transaction-crash-worker.mjs')
@@ -571,12 +1155,12 @@ await commitFileSystemTransaction(
       child.once('error', rejectClosed)
       child.once('close', () => resolveClosed())
     })
-    const deadline = Date.now() + 20_000
+    const deadline = Date.now() + 25_000
     let killed = false
     while (Date.now() < deadline && child.exitCode === null) {
       if (
-        (await readFile(join(root, '0.txt'), 'utf8')) === 'replacement' &&
-        (await readFile(join(root, `${fileCount - 1}.txt`), 'utf8')) ===
+        (await readFileIfExists(join(root, '0.txt'))) === 'replacement' &&
+        (await readFileIfExists(join(root, `${fileCount - 1}.txt`))) ===
           `prior ${fileCount - 1}`
       ) {
         killed = child.kill('SIGKILL')
@@ -739,9 +1323,9 @@ permissionsTest(
 
     let watcherFinished = false
     const watcher = (async () => {
-      const deadline = Date.now() + 10_000
+      const deadline = Date.now() + 30_000
       while (Date.now() < deadline) {
-        if ((await readFile(locked, 'utf8')) === 'replacement') {
+        if ((await readFileIfExists(locked)) === 'replacement') {
           await Promise.all([
             chmod(lockedDirectory, 0o555),
             chmod(failureDirectory, 0o555),
@@ -869,6 +1453,63 @@ macOsNormalizationTest(
     )
 
     t.is(await readFile(decomposed, 'utf8'), 'replacement')
+  },
+)
+
+macOsNormalizationTest(
+  'filesystem transaction rollback restores macOS normalization aliases',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'normalization-rollback')
+    const staging = join(t.context.tmpDir, 'normalization-rollback-staging')
+    const composed = join(root, '\u00e9.txt')
+    const decomposed = join(root, 'e\u0301.txt')
+    const blocked = join(root, 'blocked.txt')
+    const external = join(root, 'external.txt')
+    const replacement = join(staging, 'replacement.txt')
+    await Promise.all([mkdir(root), mkdir(staging)])
+    await Promise.all([
+      writeFile(composed, 'prior'),
+      writeFile(replacement, 'replacement'),
+    ])
+    if (!existsSync(decomposed)) {
+      t.pass()
+      return
+    }
+
+    const watcher = (async () => {
+      const candidate = await waitForTransactionCandidate(root)
+      const backup = join(candidate, 'backups', '0')
+      const deadline = Date.now() + 30_000
+      while (Date.now() < deadline) {
+        if (existsSync(backup)) {
+          await writeFile(external, 'external successor')
+          await rename(external, blocked)
+          return
+        }
+        await delay(1)
+      }
+      throw new Error('Timed out waiting for normalization rollback backup')
+    })()
+
+    await t.throwsAsync(
+      commitFileSystemTransaction(
+        root,
+        [
+          {
+            source: replacement,
+            destination: decomposed,
+            removeBeforeWrite: composed,
+          },
+          { source: replacement, destination: blocked },
+        ],
+        [],
+      ),
+    )
+    await watcher
+
+    t.is(await readFile(composed, 'utf8'), 'prior')
+    t.is(await readFile(decomposed, 'utf8'), 'prior')
+    t.is(await readFile(blocked, 'utf8'), 'external successor')
   },
 )
 
@@ -1256,6 +1897,34 @@ test('filesystem transactions apply requested modes to writes and staged renames
   }
 })
 
+const windowsModeTest = process.platform === 'win32' ? test : test.skip
+
+windowsModeTest(
+  'filesystem transactions honor the Windows owner write-bit mode',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'windows-mode-root')
+    const staging = join(t.context.tmpDir, 'windows-mode-staging')
+    const source = join(staging, 'source.txt')
+    const destination = join(root, 'destination.txt')
+    await Promise.all([mkdir(root), mkdir(staging)])
+    await writeFile(source, 'replacement')
+
+    await commitFileSystemTransaction(
+      root,
+      [{ source, destination, mode: 0o444 }],
+      [],
+    )
+    t.is((await stat(destination)).mode & 0o200, 0)
+
+    await commitFileSystemTransaction(
+      root,
+      [{ source, destination, mode: 0o644 }],
+      [],
+    )
+    t.is((await stat(destination)).mode & 0o200, 0o200)
+  },
+)
+
 test('filesystem transactions serialize direct concurrent callers', async (t) => {
   const root = join(t.context.tmpDir, 'concurrent-transaction-root')
   const staging = join(t.context.tmpDir, 'concurrent-transaction-staging')
@@ -1552,6 +2221,73 @@ symlinkLoopTest(
   },
 )
 
+const darwinExecutionIdentityTest =
+  process.platform === 'darwin' ? test : test.skip
+
+darwinExecutionIdentityTest(
+  'filesystem reconciliation uses the Darwin boot-session UUID',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'darwin-execution-identity')
+    await mkdir(root)
+    const [executionIdentity, bootSession, bootTime, platform] =
+      await Promise.all([
+        currentProcessExecutionIdentity(root),
+        execFileAsync('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']),
+        execFileAsync('/usr/sbin/sysctl', ['-n', 'kern.boottime']),
+        execFileAsync('/usr/sbin/ioreg', [
+          '-rd1',
+          '-c',
+          'IOPlatformExpertDevice',
+        ]),
+      ])
+    const bootSessionUuid = bootSession.stdout.trim().toLowerCase()
+    const bootSeconds = bootTime.stdout.match(/\bsec\s*=\s*(\d+)/)?.[1]
+    const platformUuid = platform.stdout
+      .match(/"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"/i)?.[1]
+      ?.toLowerCase()
+
+    t.regex(bootSessionUuid, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/)
+    t.is(executionIdentity.boot, `darwin-boot:${bootSeconds}`)
+    t.is(executionIdentity.bootSession, `darwin-boot:${bootSessionUuid}`)
+    t.is(executionIdentity.machine, `darwin-machine:${platformUuid}`)
+  },
+)
+
+darwinExecutionIdentityTest(
+  'filesystem reconciliation accepts the intermediate Darwin UUID-only boot encoding',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'darwin-uuid-only-owner')
+    await mkdir(root)
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const [incarnation, executionIdentity] = await Promise.all([
+      currentProcessIncarnation(root),
+      currentProcessExecutionIdentity(root),
+    ])
+    await writeFile(
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          ...executionIdentity,
+          boot: executionIdentity.bootSession!,
+          bootSession: undefined,
+          incarnation,
+        }),
+      ),
+    )
+
+    let entered = false
+    const pending = withFileSystemReconciliation(root, async () => {
+      entered = true
+    })
+    await delay(100)
+    t.false(entered)
+    await removeReconciliationLockState(key)
+    await pending
+    t.true(entered)
+  },
+)
+
 test.serial(
   'filesystem reconciliation does not reclaim a lock owned by a live PID',
   async (t) => {
@@ -1561,10 +2297,18 @@ test.serial(
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
     const expiredAt = new Date(Date.now() - 24 * 60 * 60 * 1_000)
+    const [incarnation, executionIdentity] = await Promise.all([
+      currentProcessIncarnation(root),
+      currentProcessExecutionIdentity(root),
+    ])
     await writeFile(
       lockPath,
       JSON.stringify(
-        reconciliationLockOwner(key, { createdAt: expiredAt.getTime() }),
+        reconciliationLockOwner(key, {
+          ...executionIdentity,
+          createdAt: expiredAt.getTime(),
+          incarnation,
+        }),
       ),
     )
 
@@ -1585,7 +2329,7 @@ test.serial(
 )
 
 test.serial(
-  'filesystem reconciliation bounds acquisition when a live legacy owner cannot be reclaimed',
+  'filesystem reconciliation waits boundedly for a legacy owner without comparable execution identity',
   async (t) => {
     const root = join(t.context.tmpDir, 'bounded-live-pid')
     await mkdir(root, { recursive: true })
@@ -1607,7 +2351,9 @@ test.serial(
       configurable: true,
       value: () => {
         observations += 1
-        return observations < 3 ? initialNow : initialNow + 1_000_000
+        return observations < 6
+          ? initialNow
+          : initialNow + observations * 10_000
       },
     })
     try {
@@ -1615,10 +2361,11 @@ test.serial(
         withFileSystemReconciliation(root, async () => {}),
         {
           message:
-            /Timed out after \d+ms waiting for filesystem reconciliation lock/,
+            /cannot be safely reclaimed: the owner predates complete machine, boot-session, and process-namespace identity metadata; it did not release the state within 5000ms.*manually remove/,
         },
       )
-      t.is((error as NodeJS.ErrnoException).code, 'ETIMEDOUT')
+      t.is((error as NodeJS.ErrnoException).code, 'ENOTRECOVERABLE')
+      t.true(existsSync(lockPath))
     } finally {
       if (originalNow) {
         Object.defineProperty(performance, 'now', originalNow)
@@ -1656,14 +2403,20 @@ test.serial(
       configurable: true,
       value: () => {
         observations += 1
-        return observations < 3 ? initialNow : initialNow + 1_000_000
+        return observations < 6
+          ? initialNow
+          : initialNow + observations * 10_000
       },
     })
     try {
       const error = await t.throwsAsync(
         withFileSystemReconciliation(root, async () => {}),
+        {
+          message:
+            /cannot be safely reclaimed: the owner machine identity .* may be a live owner on a shared volume; it did not release the state within 5000ms.*manually remove/,
+        },
       )
-      t.is((error as NodeJS.ErrnoException).code, 'ETIMEDOUT')
+      t.is((error as NodeJS.ErrnoException).code, 'ENOTRECOVERABLE')
       t.true(existsSync(lockPath))
     } finally {
       if (originalNow) {
@@ -1673,6 +2426,38 @@ test.serial(
       }
       await removeReconciliationLockState(key)
     }
+  },
+)
+
+test.serial(
+  'filesystem reconciliation lets an unverifiable remote owner release during the bounded wait',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'remote-owner-release')
+    await mkdir(root)
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const executionIdentity = await currentProcessExecutionIdentity(root)
+    await writeFile(
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          ...executionIdentity,
+          machine: `${executionIdentity.machine}-remote`,
+          pid: 999_999_999,
+        }),
+      ),
+    )
+
+    let entered = false
+    const pending = withFileSystemReconciliation(root, async () => {
+      entered = true
+    })
+    await delay(50)
+    t.false(entered)
+    await rm(lockPath)
+    await pending
+
+    t.true(entered)
   },
 )
 
@@ -1690,6 +2475,9 @@ test.serial(
         reconciliationLockOwner(key, {
           ...executionIdentity,
           boot: `${executionIdentity.boot}-prior`,
+          bootSession: executionIdentity.bootSession
+            ? `${executionIdentity.bootSession}-prior`
+            : null,
         }),
       ),
     )

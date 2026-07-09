@@ -71,10 +71,41 @@ const __wasi = new __WASI({
       const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
         type: 'module',
       })
+      __wasiInitializationWorkers.add(worker)
 ${workerFsHandler}
 ${workerErrorHandler}
       return worker
     },
+`
+    : ''
+  const workerTracking = threads
+    ? `
+const __wasiInitializationWorkers = new Set()
+
+async function __terminateWasiInitializationWorkers() {
+  const __terminations = []
+  for (const __worker of __wasiInitializationWorkers) {
+    __wasiInitializationWorkers.delete(__worker)
+    try {
+      __terminations.push(
+        Promise.resolve(__worker.terminate()).then(
+          () => undefined,
+          (__cleanupError) => ({ error: __cleanupError }),
+        ),
+      )
+    } catch (__cleanupError) {
+      __terminations.push({ error: __cleanupError })
+    }
+  }
+  const __terminationResults = await Promise.all(__terminations)
+  const __cleanupErrors = []
+  for (const __terminationResult of __terminationResults) {
+    if (__terminationResult !== undefined) {
+      __cleanupErrors.push(__terminationResult.error)
+    }
+  }
+  return __cleanupErrors
+}
 `
     : ''
 
@@ -106,15 +137,16 @@ ${threads ? '  shared: true,\n' : ''}\
 })
 
 const __emnapiContext = __emnapiCreateContext()
+${workerTracking}
 
-function __createInitializationCleanupError(__error, __cleanupError) {
+function __createInitializationCleanupError(__error, __cleanupErrors) {
   let __message = 'WASI module initialization failed'
   try {
     if (__error && typeof __error.message === 'string') {
       __message = __error.message
     }
   } catch {}
-  const __errors = [__error, __cleanupError]
+  const __errors = [__error, ...__cleanupErrors]
   const __AggregateError = globalThis.AggregateError
   const __combinedError =
     typeof __AggregateError === 'function'
@@ -158,11 +190,17 @@ ${workerOption}\
       }
     },
   }))
+${threads ? '  __wasiInitializationWorkers.clear()\n' : ''}\
 } catch (__error) {
+  const __cleanupErrors = []
   try {
     await __emnapiContext.destroy()
   } catch (__cleanupError) {
-    throw __createInitializationCleanupError(__error, __cleanupError)
+    __cleanupErrors.push(__cleanupError)
+  }
+${threads ? '  __cleanupErrors.push(...await __terminateWasiInitializationWorkers())\n' : ''}\
+  if (__cleanupErrors.length > 0) {
+    throw __createInitializationCleanupError(__error, __cleanupErrors)
   }
   throw __error
 }
