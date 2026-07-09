@@ -1014,6 +1014,17 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     let Some(data) = self.claim_settlement(result, rejection_cleanup) else {
       return;
     };
+    let mut handle_scope = ptr::null_mut();
+    let open_scope_status = unsafe { sys::napi_open_handle_scope(self.env, &mut handle_scope) };
+    if open_scope_status != sys::Status::napi_ok {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!(
+          "Failed to open a handle scope for owner-thread deferred settlement: {}",
+          crate::Status::from(open_scope_status)
+        );
+      });
+      std::process::abort();
+    }
     let data = Box::into_raw(Box::new(data));
     crate::bindgen_runtime::catch_unwind_safely(|| {
       napi_resolve_deferred_inner::<Data, Resolver>(
@@ -1022,6 +1033,16 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
         data.cast(),
       );
     });
+    let close_scope_status = unsafe { sys::napi_close_handle_scope(self.env, handle_scope) };
+    if close_scope_status != sys::Status::napi_ok {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!(
+          "Failed to close the owner-thread deferred settlement handle scope: {}",
+          crate::Status::from(close_scope_status)
+        );
+      });
+      std::process::abort();
+    }
   }
 
   fn claim_settlement(
