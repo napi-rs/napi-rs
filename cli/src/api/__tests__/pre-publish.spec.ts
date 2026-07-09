@@ -20,9 +20,13 @@ import ava, { type TestFn } from 'ava'
 import {
   createWasmModuleTypeDef,
   MINIMUM_WASI_NODE_VERSION,
+  parseTriple,
 } from '../../utils/index.js'
 import { createWasiDeferredBindingTypeDef } from '../build.js'
-import { prePublish } from '../pre-publish.js'
+import {
+  commitPrePublishFileSystemTransaction,
+  prePublish,
+} from '../pre-publish.js'
 import { createWasiBinding } from '../templates/load-wasi-template.js'
 
 const require = createRequire(import.meta.url)
@@ -493,6 +497,13 @@ async function packWithNpm(npmCli: string, cwd: string, destination: string) {
 
 function fileDependency(from: string, path: string) {
   return `file:${relative(from, path).split(sep).join('/')}`
+}
+
+function shellArgument(value: string) {
+  if (process.platform === 'win32') {
+    return `"${value.replaceAll('"', '""')}"`
+  }
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`
 }
 
 async function createLocalPackage(
@@ -2191,6 +2202,184 @@ test('pre-publish preflights facade conflicts before updating versions', async (
     ),
   )
 })
+
+test.serial(
+  'pre-publish rolls back every local mutation when the transaction fails late',
+  async (t) => {
+    const packageJsonPath = join(t.context.tmpDir, 'package.json')
+    const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+    const stagedPackageDir = join(
+      t.context.tmpDir,
+      'staging',
+      'packages',
+      'wasm32-wasip1',
+    )
+    const stagedRootDir = join(t.context.tmpDir, 'staging', 'root')
+    const flavorManifestPath = join(packageDir, 'package.json')
+    const facadePath = join(t.context.tmpDir, 'generated-facade.mjs')
+    const declarationDependencies = Array.from(
+      { length: 128 },
+      (_, index) => `types/staged-${index}.d.ts`,
+    )
+    await Promise.all([
+      mkdir(packageDir, { recursive: true }),
+      mkdir(join(stagedPackageDir, 'types'), { recursive: true }),
+      mkdir(stagedRootDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(packageJsonPath, 'root manifest before'),
+      writeFile(flavorManifestPath, 'flavor manifest before'),
+      writeFile(facadePath, 'facade before'),
+      writeFile(
+        join(stagedPackageDir, 'package.json'),
+        'flavor manifest after',
+      ),
+      writeFile(join(stagedRootDir, 'generated-facade.mjs'), 'facade after'),
+      writeFile(join(stagedRootDir, 'package.json'), 'root manifest after'),
+      ...declarationDependencies.map((file) =>
+        writeFile(join(stagedPackageDir, file), 'new declaration'),
+      ),
+    ])
+
+    const transaction = t.throwsAsync(() =>
+      commitPrePublishFileSystemTransaction({
+        packageJsonPath,
+        releasePackagePlans: [
+          {
+            declarationDependencies,
+            packageFiles: [],
+            pkgDir: packageDir,
+            rootDir: t.context.tmpDir,
+            stagedPkgDir: stagedPackageDir,
+            target: parseTriple('wasm32-wasip1'),
+            updateManifest: true,
+          },
+        ],
+        rootDir: t.context.tmpDir,
+        rootReleasePlan: {
+          facade: {
+            exports: {},
+            files: {
+              wasmEntry: 'unused.wasm',
+              wasmTypeDef: 'unused.d.mts',
+              workerdEntry: 'unused.mjs',
+              workerdTypeDef: 'unused.d.mts',
+            },
+            forwardingModule: '',
+            generatedFiles: ['generated-facade.mjs'],
+            marker: '',
+            packageJsonUpdate: {},
+            wasmSourcePath: '',
+          },
+          optionalDependencies: {},
+          packageJson: {
+            name: 'pre-publish-transaction-rollback',
+            version: '1.0.0',
+          },
+          staleGeneratedFiles: [],
+        },
+        stagedRootDir,
+      }),
+    )
+    const sabotage = (async () => {
+      const transactionRoot = join(
+        t.context.tmpDir,
+        '.napi-rs-filesystem-transaction.swp',
+      )
+      const firstDestination = join(packageDir, declarationDependencies[0])
+      const finalInput = join(
+        transactionRoot,
+        'inputs',
+        String(declarationDependencies.length + 2),
+      )
+      const deadline = Date.now() + 10_000
+      while (Date.now() < deadline) {
+        if (existsSync(firstDestination)) {
+          await rm(finalInput)
+          return
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      throw new Error('Timed out waiting for the first transaction write')
+    })()
+    await Promise.all([transaction, sabotage])
+
+    t.is(await readFile(packageJsonPath, 'utf8'), 'root manifest before')
+    t.is(await readFile(flavorManifestPath, 'utf8'), 'flavor manifest before')
+    t.is(await readFile(facadePath, 'utf8'), 'facade before')
+    for (const file of declarationDependencies) {
+      t.false(existsSync(join(packageDir, file)), file)
+    }
+    t.false(
+      existsSync(join(t.context.tmpDir, '.napi-rs-filesystem-transaction.swp')),
+    )
+  },
+)
+
+test.serial(
+  'pre-publish publishes the immutable prepared snapshot after lock release',
+  async (t) => {
+    await setupThreadlessPackage(t.context.tmpDir)
+    const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+    const artifact = 'pre-publish-wasi.wasm32-wasip1.wasm'
+    const capturedPackageDir = join(t.context.tmpDir, 'captured-publish')
+    const capturedCwdPath = join(t.context.tmpDir, 'captured-cwd.txt')
+    const publishClientPath = join(t.context.tmpDir, 'publish-client.mjs')
+    await writeFile(
+      join(t.context.tmpDir, '.npmrc'),
+      'registry=https://registry.invalid.example/\n',
+    )
+    await writeFile(
+      publishClientPath,
+      [
+        `import { cpSync, readFileSync, writeFileSync } from 'node:fs'`,
+        `const workspace = JSON.parse(readFileSync('../../package.json', 'utf8'))`,
+        `if (workspace.packageManager !== 'yarn@4.17.1' || workspace.workspaces[0] !== 'packages/*') throw new Error('missing staged workspace context')`,
+        `if (readFileSync('../../.npmrc', 'utf8') !== 'registry=https://registry.invalid.example/\\n') throw new Error('missing staged npm config')`,
+        `writeFileSync(${JSON.stringify(join(packageDir, 'package.json'))}, JSON.stringify({ name: 'mutated-after-lock', version: '9.9.9' }))`,
+        `writeFileSync(${JSON.stringify(join(packageDir, artifact))}, 'mutated-after-lock')`,
+        `writeFileSync(${JSON.stringify(capturedCwdPath)}, process.cwd())`,
+        `cpSync(process.cwd(), ${JSON.stringify(capturedPackageDir)}, { recursive: true })`,
+        '',
+      ].join('\n'),
+    )
+    const packageJsonPath = join(t.context.tmpDir, 'package.json')
+    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+    packageJson.packageManager = 'yarn@4.17.1'
+    packageJson.napi.npmClient = `${shellArgument(
+      process.execPath,
+    )} ${shellArgument(publishClientPath)}`
+    await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+    await prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+    })
+
+    const capturedManifest = JSON.parse(
+      await readFile(join(capturedPackageDir, 'package.json'), 'utf8'),
+    )
+    t.is(capturedManifest.name, 'pre-publish-wasi-wasm32-wasip1')
+    t.is(capturedManifest.version, '1.0.0')
+    t.deepEqual(
+      await readFile(join(capturedPackageDir, artifact)),
+      MINIMAL_WASM,
+    )
+    t.deepEqual(
+      JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')),
+      { name: 'mutated-after-lock', version: '9.9.9' },
+    )
+    t.is(
+      await readFile(join(packageDir, artifact), 'utf8'),
+      'mutated-after-lock',
+    )
+    const capturedCwd = await readFile(capturedCwdPath, 'utf8')
+    t.not(capturedCwd, packageDir)
+    t.false(existsSync(capturedCwd))
+  },
+)
 
 test('pre-publish rejects root facades omitted by npm pack', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir, { rootFiles: null })

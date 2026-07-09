@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
@@ -15,11 +15,10 @@ import {
   rm,
   stat,
   symlink,
-  utimes,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -36,24 +35,128 @@ import {
 } from '../misc.js'
 
 const execFileAsync = promisify(execFile)
-const reconciliationLockRoot = join(
-  tmpdir(),
-  'napi-rs-filesystem-reconciliation',
-)
+const reconciliationLockName = '.napi-rs-filesystem-reconciliation'
+const reconciliationReclaimMarker = '.reclaim.'
+const reconciliationMetadataExtension = '.swp'
+const reconciliationLockKind = 'napi-rs-filesystem-reconciliation-lock'
+const reconciliationReclaimKind = 'napi-rs-filesystem-reconciliation-reclaim'
+const transactionJournalName = '.napi-rs-filesystem-transaction.swp'
 
 function reconciliationLockPath(key: string) {
   return join(
-    reconciliationLockRoot,
-    createHash('sha256').update(key).digest('hex'),
+    dirname(key),
+    `${reconciliationLockName}.${createHash('sha256')
+      .update(key)
+      .digest('hex')}${reconciliationMetadataExtension}`,
   )
+}
+
+function reconciliationReclaimPath(key: string) {
+  return join(
+    dirname(key),
+    `${reconciliationLockName}${reconciliationReclaimMarker}${createHash(
+      'sha256',
+    )
+      .update(key)
+      .digest('hex')}${reconciliationMetadataExtension}`,
+  )
+}
+
+function reconciliationCandidatePath(path: string, token: string) {
+  return join(
+    dirname(path),
+    `${basename(path, extname(path))}.candidate.${token}${reconciliationMetadataExtension}`,
+  )
+}
+
+function transactionSiblingPath(
+  root: string,
+  marker: 'candidate' | 'retired',
+  token: string,
+) {
+  return join(
+    root,
+    `${basename(transactionJournalName, extname(transactionJournalName))}.${marker}.${token}${extname(transactionJournalName)}`,
+  )
+}
+
+function transactionOwner(token: string) {
+  return {
+    kind: 'napi-rs-filesystem-transaction',
+    token,
+    version: 1,
+  }
+}
+
+async function removeReconciliationLockState(key: string) {
+  await Promise.all([
+    rm(reconciliationLockPath(key), { force: true, recursive: true }),
+    rm(reconciliationReclaimPath(key), { force: true, recursive: true }),
+  ])
+}
+
+function reconciliationLockOwner(
+  key: string,
+  overrides: Partial<{
+    boot: string | null
+    createdAt: number
+    incarnation: string | null
+    machine: string | null
+    namespace: string | null
+    pid: number
+    token: string
+  }> = {},
+) {
+  const token = overrides.token ?? '00000000-0000-4000-8000-000000000001'
+  return {
+    candidate: `${basename(
+      reconciliationLockPath(key),
+      reconciliationMetadataExtension,
+    )}.candidate.${token}${reconciliationMetadataExtension}`,
+    createdAt: Date.now(),
+    key,
+    kind: reconciliationLockKind,
+    pid: process.pid,
+    token,
+    version: 1,
+    ...overrides,
+  }
+}
+
+function reconciliationReclaimOwner(
+  key: string,
+  overrides: Partial<{
+    boot: string | null
+    createdAt: number
+    incarnation: string | null
+    machine: string | null
+    namespace: string | null
+    pid: number
+    token: string
+  }> = {},
+) {
+  const token = overrides.token ?? '00000000-0000-4000-8000-000000000008'
+  return {
+    candidate: `${basename(
+      reconciliationReclaimPath(key),
+      reconciliationMetadataExtension,
+    )}.candidate.${token}${reconciliationMetadataExtension}`,
+    createdAt: Date.now(),
+    key,
+    kind: reconciliationReclaimKind,
+    pid: process.pid,
+    token,
+    version: 1,
+    ...overrides,
+  }
 }
 
 async function currentProcessIncarnation(root: string) {
   const key = await realpath(root)
-  const ownerPath = join(reconciliationLockPath(key), 'owner.json')
+  const lockPath = reconciliationLockPath(key)
   let incarnation: unknown
   await withFileSystemReconciliation(root, async () => {
-    const owner = JSON.parse(await readFile(ownerPath, 'utf8')) as Record<
+    const owner = JSON.parse(await readFile(lockPath, 'utf8')) as Record<
       string,
       unknown
     >
@@ -78,6 +181,43 @@ async function currentProcessIncarnation(root: string) {
   return incarnation
 }
 
+async function currentProcessExecutionIdentity(root: string) {
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  let identity:
+    | {
+        boot: unknown
+        machine: unknown
+        namespace: unknown
+      }
+    | undefined
+  await withFileSystemReconciliation(root, async () => {
+    const owner = JSON.parse(await readFile(lockPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    identity = {
+      boot: owner.boot,
+      machine: owner.machine,
+      namespace: owner.namespace,
+    }
+  })
+  if (
+    typeof identity?.boot !== 'string' ||
+    typeof identity.machine !== 'string' ||
+    typeof identity.namespace !== 'string'
+  ) {
+    throw new Error(
+      `Process execution identity is unavailable on ${process.platform}: ${JSON.stringify(identity)}`,
+    )
+  }
+  return identity as {
+    boot: string
+    machine: string
+    namespace: string
+  }
+}
+
 function differentProcessIncarnation(incarnation: string) {
   return `${incarnation}0`
 }
@@ -89,20 +229,21 @@ function differentProcessIncarnationFormat(incarnation: string) {
 }
 
 async function installReconciliationReclaimGuard(
+  lockPath: string,
   reclaimPath: string,
+  key: string,
   incarnation: string,
 ) {
   const deadline = Date.now() + 5_000
   while (Date.now() < deadline) {
+    if (!existsSync(lockPath)) {
+      await delay(0)
+      continue
+    }
     try {
       await writeFile(
         reclaimPath,
-        JSON.stringify({
-          createdAt: Date.now(),
-          incarnation,
-          pid: process.pid,
-          token: '00000000-0000-4000-8000-000000000008',
-        }),
+        JSON.stringify(reconciliationReclaimOwner(key, { incarnation })),
         { flag: 'wx' },
       )
       return
@@ -120,8 +261,9 @@ const test = ava as TestFn<{
 }>
 
 test.beforeEach(async (t) => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'napi-rs-misc-spec-'))
   t.context = {
-    tmpDir: await mkdtemp(join(tmpdir(), 'napi-rs-misc-spec-')),
+    tmpDir,
   }
 })
 
@@ -207,6 +349,71 @@ test('atomic copies do not follow predictable temporary symlinks', async (t) => 
   t.is(await readFile(outside, 'utf8'), 'outside sentinel')
   t.is(await readFile(destination, 'utf8'), 'replacement')
   t.true((await lstat(destination)).isFile())
+})
+
+test('filesystem transactions reject duplicate canonical destinations', async (t) => {
+  const root = join(t.context.tmpDir, 'duplicate-destination-root')
+  const realParent = join(root, 'real')
+  const aliasParent = join(root, 'alias')
+  const staging = join(t.context.tmpDir, 'duplicate-destination-staging')
+  const firstSource = join(staging, 'first.txt')
+  const secondSource = join(staging, 'second.txt')
+  const destination = join(realParent, 'output.txt')
+  await Promise.all([
+    mkdir(realParent, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(firstSource, 'first'),
+    writeFile(secondSource, 'second'),
+  ])
+  await symlink(
+    realParent,
+    aliasParent,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+
+  await t.throwsAsync(
+    commitFileSystemTransaction(
+      root,
+      [
+        { source: firstSource, destination },
+        {
+          source: secondSource,
+          destination: join(aliasParent, 'output.txt'),
+        },
+      ],
+      [],
+    ),
+    { message: /Duplicate canonical filesystem transaction destination/ },
+  )
+
+  t.false(existsSync(destination))
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions publish transaction-owned source snapshots', async (t) => {
+  const root = join(t.context.tmpDir, 'source-snapshot-root')
+  const first = join(root, 'first.txt')
+  const second = join(root, 'second.txt')
+  await mkdir(root)
+  await Promise.all([
+    writeFile(first, 'first source'),
+    writeFile(second, 'second source'),
+  ])
+
+  await commitFileSystemTransaction(
+    root,
+    [
+      { source: first, destination: second },
+      { source: second, destination: first },
+    ],
+    [],
+  )
+
+  t.is(await readFile(first, 'utf8'), 'second source')
+  t.is(await readFile(second, 'utf8'), 'first source')
+  t.false(existsSync(join(root, transactionJournalName)))
 })
 
 test('filesystem transactions restore prior outputs after a commit failure', async (t) => {
@@ -308,6 +515,191 @@ test('filesystem transactions restore same-path replacements after a later failu
   }
 })
 
+const crashRecoveryTest = process.platform === 'win32' ? test.skip : test
+
+crashRecoveryTest(
+  'filesystem transactions recover a process killed after partial commit',
+  async (t) => {
+    t.timeout(30_000)
+    const root = join(t.context.tmpDir, 'transaction-crash-recovery')
+    const staging = join(t.context.tmpDir, 'transaction-crash-staging')
+    const workerPath = join(t.context.tmpDir, 'transaction-crash-worker.mjs')
+    const source = join(staging, 'replacement.txt')
+    const fileCount = 400
+    await Promise.all([
+      mkdir(root, { recursive: true }),
+      mkdir(staging, { recursive: true }),
+    ])
+    await writeFile(source, 'replacement')
+    await Promise.all(
+      Array.from({ length: fileCount }, (_, index) =>
+        writeFile(join(root, `${index}.txt`), `prior ${index}`),
+      ),
+    )
+    await writeFile(
+      workerPath,
+      `import { join } from 'node:path'
+import { commitFileSystemTransaction } from ${JSON.stringify(
+        new URL('../misc.ts', import.meta.url).href,
+      )}
+
+const [root, source, count] = process.argv.slice(2)
+await commitFileSystemTransaction(
+  root,
+  Array.from({ length: Number(count) }, (_, index) => ({
+    source,
+    destination: join(root, \`\${index}.txt\`),
+  })),
+  [],
+)
+`,
+    )
+
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        workerPath,
+        root,
+        source,
+        String(fileCount),
+      ],
+      { cwd: process.cwd(), stdio: 'ignore' },
+    )
+    const childClosed = new Promise<void>((resolveClosed, rejectClosed) => {
+      child.once('error', rejectClosed)
+      child.once('close', () => resolveClosed())
+    })
+    const deadline = Date.now() + 20_000
+    let killed = false
+    while (Date.now() < deadline && child.exitCode === null) {
+      if (
+        (await readFile(join(root, '0.txt'), 'utf8')) === 'replacement' &&
+        (await readFile(join(root, `${fileCount - 1}.txt`), 'utf8')) ===
+          `prior ${fileCount - 1}`
+      ) {
+        killed = child.kill('SIGKILL')
+        break
+      }
+      await delay(2)
+    }
+    if (!killed && child.exitCode === null) {
+      child.kill('SIGKILL')
+    }
+    await childClosed
+    t.true(killed)
+
+    const journalRoot = join(root, '.napi-rs-filesystem-transaction.swp')
+    t.true(existsSync(journalRoot))
+    await withFileSystemReconciliation(root, async () => {})
+
+    t.false(existsSync(journalRoot))
+    for (let index = 0; index < fileCount; index += 1) {
+      t.is(await readFile(join(root, `${index}.txt`), 'utf8'), `prior ${index}`)
+    }
+  },
+)
+
+test('filesystem transactions ignore a crash residue created before candidate ownership', async (t) => {
+  const root = join(t.context.tmpDir, 'pre-owner-crash-root')
+  const staging = join(t.context.tmpDir, 'pre-owner-crash-staging')
+  const candidateRoot = transactionSiblingPath(
+    root,
+    'candidate',
+    '00000000-0000-4000-8000-000000000101',
+  )
+  const sentinel = join(candidateRoot, 'pre-owner-sentinel.txt')
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([
+    mkdir(candidateRoot, { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(sentinel, 'unpublished candidate'),
+    writeFile(source, 'committed'),
+  ])
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.is(await readFile(sentinel, 'utf8'), 'unpublished candidate')
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions ignore a prepared candidate that crashed before publication', async (t) => {
+  const root = join(t.context.tmpDir, 'pre-publication-crash-root')
+  const staging = join(t.context.tmpDir, 'pre-publication-crash-staging')
+  const token = '00000000-0000-4000-8000-000000000102'
+  const candidateRoot = transactionSiblingPath(root, 'candidate', token)
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([
+    mkdir(join(candidateRoot, 'backups'), { recursive: true }),
+    mkdir(join(candidateRoot, 'inputs'), { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(candidateRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token)),
+    ),
+    writeFile(
+      join(candidateRoot, 'state.json'),
+      JSON.stringify({
+        entries: [],
+        phase: 'prepared',
+        token,
+        version: 1,
+      }),
+    ),
+    writeFile(source, 'committed'),
+  ])
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.true(existsSync(candidateRoot))
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions ignore cleanup state retired before a crash', async (t) => {
+  const root = join(t.context.tmpDir, 'retired-cleanup-crash-root')
+  const staging = join(t.context.tmpDir, 'retired-cleanup-crash-staging')
+  const token = '00000000-0000-4000-8000-000000000103'
+  const retiredRoot = transactionSiblingPath(root, 'retired', token)
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([
+    mkdir(join(retiredRoot, 'backups'), { recursive: true }),
+    mkdir(join(retiredRoot, 'inputs'), { recursive: true }),
+    mkdir(staging, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(
+      join(retiredRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token)),
+    ),
+    writeFile(
+      join(retiredRoot, 'state.json'),
+      JSON.stringify({
+        entries: [],
+        phase: 'committed',
+        token,
+        version: 1,
+      }),
+    ),
+    writeFile(source, 'committed'),
+  ])
+
+  await commitFileSystemTransaction(root, [{ source, destination }], [])
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.true(existsSync(retiredRoot))
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
 const permissionsTest = process.platform === 'win32' ? test.skip : test
 
 permissionsTest(
@@ -316,11 +708,13 @@ permissionsTest(
     const root = join(t.context.tmpDir, 'incomplete-rollback')
     const staging = join(t.context.tmpDir, 'incomplete-rollback-staging')
     const lockedDirectory = join(root, 'locked')
+    const failureDirectory = join(root, 'failure')
     const first = join(root, 'first.txt')
     const locked = join(lockedDirectory, 'locked.txt')
     const stagedReplacement = join(staging, 'replacement.txt')
     await Promise.all([
       mkdir(lockedDirectory, { recursive: true }),
+      mkdir(failureDirectory, { recursive: true }),
       mkdir(staging, { recursive: true }),
     ])
     await Promise.all([
@@ -339,8 +733,8 @@ permissionsTest(
       writes.push({ source: stagedReplacement, destination })
     }
     writes.push({
-      source: join(staging, 'missing.txt'),
-      destination: join(root, 'failure.txt'),
+      source: stagedReplacement,
+      destination: join(failureDirectory, 'failure.txt'),
     })
 
     let watcherFinished = false
@@ -348,7 +742,10 @@ permissionsTest(
       const deadline = Date.now() + 10_000
       while (Date.now() < deadline) {
         if ((await readFile(locked, 'utf8')) === 'replacement') {
-          await chmod(lockedDirectory, 0o555)
+          await Promise.all([
+            chmod(lockedDirectory, 0o555),
+            chmod(failureDirectory, 0o555),
+          ])
           watcherFinished = true
           return
         }
@@ -372,12 +769,15 @@ permissionsTest(
       t.is(await readFile(join(root, 'trailing-0.txt'), 'utf8'), 'prior 0')
 
       const backupRoot = error.message.match(
-        /backups are preserved at (.+)$/,
+        /recovery state is preserved at (.+)$/,
       )?.[1]
       t.truthy(backupRoot)
       t.true(existsSync(backupRoot!))
     } finally {
-      await chmod(lockedDirectory, 0o755)
+      await Promise.all([
+        chmod(lockedDirectory, 0o755),
+        chmod(failureDirectory, 0o755),
+      ])
     }
   },
 )
@@ -667,10 +1067,11 @@ parentSwapTest(
     const watcher = (async () => {
       const deadline = Date.now() + 10_000
       while (Date.now() < deadline) {
-        const backupRoot = (await readdir(root)).find((entry) =>
-          entry.startsWith('.napi-transaction-backup.'),
-        )
-        if (backupRoot) {
+        if (
+          existsSync(
+            join(root, '.napi-rs-filesystem-transaction.swp', 'backups', '0'),
+          )
+        ) {
           await rename(inside, originalInside)
           await symlink(outside, inside, 'dir')
           return
@@ -680,11 +1081,18 @@ parentSwapTest(
       throw new Error('Timed out waiting for transaction backup creation')
     })()
 
-    await t.throwsAsync(commitFileSystemTransaction(root, writes, []), {
-      message: /transaction parent changed/,
-    })
+    const error = (await t.throwsAsync(
+      commitFileSystemTransaction(root, writes, []),
+    )) as AggregateError
     await watcher
 
+    t.true(error instanceof AggregateError)
+    t.regex(error.message, /rollback was incomplete/)
+    t.true(
+      error.errors.some((cause) =>
+        /transaction parent changed/.test(String(cause)),
+      ),
+    )
     t.false(existsSync(join(outside, 'escaped.txt')))
     t.is(await readFile(join(root, 'existing-0.txt'), 'utf8'), 'prior 0')
     t.true((await lstat(inside)).isSymbolicLink())
@@ -717,10 +1125,11 @@ test('filesystem transactions detect same-path parent directory replacement', as
   const watcher = (async () => {
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
-      const backupRoot = (await readdir(root)).find((entry) =>
-        entry.startsWith('.napi-transaction-backup.'),
-      )
-      if (backupRoot) {
+      if (
+        existsSync(
+          join(root, '.napi-rs-filesystem-transaction.swp', 'backups', '0'),
+        )
+      ) {
         await rename(inside, originalInside)
         await rename(attacker, inside)
         return
@@ -730,11 +1139,18 @@ test('filesystem transactions detect same-path parent directory replacement', as
     throw new Error('Timed out waiting for transaction backup creation')
   })()
 
-  await t.throwsAsync(commitFileSystemTransaction(root, writes, []), {
-    message: /transaction parent identity changed/,
-  })
+  const error = (await t.throwsAsync(
+    commitFileSystemTransaction(root, writes, []),
+  )) as AggregateError
   await watcher
 
+  t.true(error instanceof AggregateError)
+  t.regex(error.message, /rollback was incomplete/)
+  t.true(
+    error.errors.some((cause) =>
+      /transaction parent identity changed/.test(String(cause)),
+    ),
+  )
   t.false(existsSync(replacedParentDestination))
   t.false(existsSync(join(originalInside, 'escaped.txt')))
   t.is(await readFile(join(root, 'identity-existing-0.txt'), 'utf8'), 'prior 0')
@@ -775,10 +1191,11 @@ test('filesystem transactions never recursively remove a swapped directory', asy
   const watcher = (async () => {
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
-      const backupRoot = (await readdir(root)).find((entry) =>
-        entry.startsWith('.napi-transaction-backup.'),
-      )
-      if (backupRoot && existsSync(join(root, backupRoot, 'victim.txt'))) {
+      if (
+        existsSync(
+          join(root, '.napi-rs-filesystem-transaction.swp', 'backups', '0'),
+        )
+      ) {
         await rename(victim, originalVictim)
         await mkdir(victim)
         await writeFile(join(victim, 'sentinel.txt'), 'must survive')
@@ -839,6 +1256,58 @@ test('filesystem transactions apply requested modes to writes and staged renames
   }
 })
 
+test('filesystem transactions serialize direct concurrent callers', async (t) => {
+  const root = join(t.context.tmpDir, 'concurrent-transaction-root')
+  const staging = join(t.context.tmpDir, 'concurrent-transaction-staging')
+  const firstSource = join(staging, 'first.txt')
+  const secondSource = join(staging, 'second.txt')
+  const fileCount = 64
+  await Promise.all([mkdir(root), mkdir(staging)])
+  await Promise.all([
+    writeFile(firstSource, 'first transaction'),
+    writeFile(secondSource, 'second transaction'),
+  ])
+  const writes = (source: string) =>
+    Array.from({ length: fileCount }, (_, index) => ({
+      source,
+      destination: join(root, `${index}.txt`),
+    }))
+
+  await Promise.all([
+    commitFileSystemTransaction(root, writes(firstSource), []),
+    commitFileSystemTransaction(root, writes(secondSource), []),
+  ])
+
+  const contents = new Set(
+    await Promise.all(
+      Array.from({ length: fileCount }, (_, index) =>
+        readFile(join(root, `${index}.txt`), 'utf8'),
+      ),
+    ),
+  )
+  t.is(contents.size, 1)
+  t.true(
+    contents.has('first transaction') || contents.has('second transaction'),
+  )
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
+test('filesystem transactions reuse an exact reconciliation capability', async (t) => {
+  const root = join(t.context.tmpDir, 'reentrant-transaction-root')
+  const staging = join(t.context.tmpDir, 'reentrant-transaction-staging')
+  const source = join(staging, 'source.txt')
+  const destination = join(root, 'destination.txt')
+  await Promise.all([mkdir(root), mkdir(staging)])
+  await writeFile(source, 'committed')
+
+  await withFileSystemReconciliation(root, () =>
+    commitFileSystemTransaction(root, [{ source, destination }], []),
+  )
+
+  t.is(await readFile(destination, 'utf8'), 'committed')
+  t.false(existsSync(join(root, transactionJournalName)))
+})
+
 test('filesystem reconciliation serializes operations for one output root', async (t) => {
   const events: string[] = []
   let releaseFirst!: () => void
@@ -873,6 +1342,195 @@ test('filesystem reconciliation serializes operations for one output root', asyn
   ])
 })
 
+test.serial(
+  'filesystem reconciliation stores readable lock state outside the package root',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'project-lock-state')
+    const workerPath = join(t.context.tmpDir, 'lock-state-worker.mjs')
+    const resultPath = join(t.context.tmpDir, 'lock-state.json')
+    await mkdir(root)
+    await writeFile(
+      workerPath,
+      `import { lstat, readFile, writeFile } from 'node:fs/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+        new URL('../misc.ts', import.meta.url).href,
+      )}
+
+if (process.platform !== 'win32') process.umask(0o077)
+const [root, resultPath, lockPath] = process.argv.slice(2)
+await withFileSystemReconciliation(root, async () => {
+  const lockStats = await lstat(lockPath)
+  const owner = JSON.parse(await readFile(lockPath, 'utf8'))
+  await writeFile(
+    resultPath,
+    JSON.stringify({
+      kind: owner.kind,
+      lockMode: lockStats.mode & 0o7777,
+      regularFile: lockStats.isFile(),
+    }),
+  )
+})
+`,
+    )
+
+    await execFileAsync(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        workerPath,
+        root,
+        resultPath,
+        reconciliationLockPath(await realpath(root)),
+      ],
+      { cwd: process.cwd() },
+    )
+
+    const result = JSON.parse(await readFile(resultPath, 'utf8')) as {
+      kind: string
+      lockMode: number
+      regularFile: boolean
+    }
+    t.true(result.regularFile)
+    t.is(result.kind, reconciliationLockKind)
+    if (process.platform !== 'win32') {
+      t.is(result.lockMode, 0o644)
+    }
+    const key = await realpath(root)
+    t.false(existsSync(reconciliationLockPath(key)))
+    t.false(existsSync(reconciliationReclaimPath(key)))
+  },
+)
+
+permissionsTest(
+  'filesystem reconciliation supports a writable root with a read-only parent',
+  async (t) => {
+    const parent = join(t.context.tmpDir, 'read-only-parent')
+    const root = join(parent, 'project')
+    await mkdir(root, { recursive: true })
+    await chmod(root, 0o777)
+    await chmod(parent, 0o555)
+    try {
+      let entered = false
+      await withFileSystemReconciliation(root, async () => {
+        entered = true
+      })
+      t.true(entered)
+      t.deepEqual(await readdir(root), [])
+    } finally {
+      await chmod(parent, 0o755)
+    }
+  },
+)
+
+test('filesystem reconciliation metadata is excluded from parent package tarballs', async (t) => {
+  const packageRoot = join(t.context.tmpDir, 'package')
+  const root = join(packageRoot, 'config')
+  await mkdir(root, { recursive: true })
+  await writeFile(
+    join(packageRoot, 'package.json'),
+    JSON.stringify({ name: 'reconciliation-pack-test', version: '1.0.0' }),
+  )
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  const candidatePath = reconciliationCandidatePath(
+    lockPath,
+    '00000000-0000-4000-8000-000000000011',
+  )
+  await writeFile(candidatePath, '{')
+
+  let packedFiles: Array<{ path: string }> = []
+  await withFileSystemReconciliation(root, async () => {
+    const { stdout } = await execFileAsync(
+      'npm',
+      ['pack', '--dry-run', '--json', '--ignore-scripts'],
+      { cwd: packageRoot },
+    )
+    packedFiles = (
+      JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>
+    )[0].files
+  })
+
+  t.false(
+    packedFiles.some((file) =>
+      file.path.includes('napi-rs-filesystem-reconciliation'),
+    ),
+  )
+  t.is(await readFile(candidatePath, 'utf8'), '{')
+})
+
+test('filesystem reconciliation rejects a missing reconciliation root', async (t) => {
+  const root = join(t.context.tmpDir, 'missing-project-root')
+  let entered = false
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
+      entered = true
+    }),
+  )
+  t.is((error as NodeJS.ErrnoException).code, 'ENOENT')
+  t.false(entered)
+})
+
+const transactionJournalSymlinkTest =
+  process.platform === 'win32' ? test.skip : test
+
+transactionJournalSymlinkTest(
+  'filesystem reconciliation does not follow a transaction journal symlink',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'journal-symlink-root')
+    const outside = join(t.context.tmpDir, 'journal-symlink-outside')
+    const sentinel = join(outside, 'sentinel.txt')
+    await Promise.all([mkdir(root), mkdir(outside)])
+    await writeFile(sentinel, 'outside')
+    await symlink(
+      outside,
+      join(root, '.napi-rs-filesystem-transaction.swp'),
+      'dir',
+    )
+
+    let entered = false
+    await t.throwsAsync(
+      withFileSystemReconciliation(root, async () => {
+        entered = true
+      }),
+      { message: /recovery state is not a directory/ },
+    )
+
+    t.false(entered)
+    t.is(await readFile(sentinel, 'utf8'), 'outside')
+  },
+)
+
+test('filesystem reconciliation rejects oversized transaction recovery state', async (t) => {
+  const root = join(t.context.tmpDir, 'oversized-journal-root')
+  const journalRoot = join(root, '.napi-rs-filesystem-transaction.swp')
+  const token = '00000000-0000-4000-8000-000000000012'
+  await mkdir(join(journalRoot, 'backups'), { recursive: true })
+  await writeFile(
+    join(journalRoot, 'owner.json'),
+    JSON.stringify({
+      kind: 'napi-rs-filesystem-transaction',
+      token,
+      version: 1,
+    }),
+  )
+  await writeFile(
+    join(journalRoot, 'state.json'),
+    Buffer.alloc(16 * 1024 * 1024 + 1, 0x20),
+  )
+
+  let entered = false
+  await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
+      entered = true
+    }),
+    { message: /journal exceeds/ },
+  )
+
+  t.false(entered)
+  t.is((await stat(join(journalRoot, 'state.json'))).size, 16 * 1024 * 1024 + 1)
+})
+
 const symlinkLoopTest = process.platform === 'win32' ? test.skip : test
 
 symlinkLoopTest(
@@ -895,29 +1553,20 @@ symlinkLoopTest(
 )
 
 test.serial(
-  'filesystem reconciliation does not reclaim an expired lease owned by a live PID',
+  'filesystem reconciliation does not reclaim a lock owned by a live PID',
   async (t) => {
     t.timeout(5_000)
     const root = join(t.context.tmpDir, 'expired-live-pid')
     await mkdir(root, { recursive: true })
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
-    const ownerPath = join(lockPath, 'owner.json')
-    const token = '00000000-0000-4000-8000-000000000001'
-    const leasePath = join(lockPath, `${token}.lease`)
     const expiredAt = new Date(Date.now() - 24 * 60 * 60 * 1_000)
-    await mkdir(lockPath, { recursive: true })
     await writeFile(
-      ownerPath,
-      JSON.stringify({
-        createdAt: expiredAt.getTime(),
-        key,
-        pid: process.pid,
-        token,
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, { createdAt: expiredAt.getTime() }),
+      ),
     )
-    await writeFile(leasePath, String(expiredAt.getTime()))
-    await utimes(leasePath, expiredAt, expiredAt)
 
     let completed = false
     const pending = withFileSystemReconciliation(root, async () => {
@@ -926,11 +1575,12 @@ test.serial(
 
     await delay(100)
     t.false(completed)
-    await rm(lockPath, { force: true, recursive: true })
+    await removeReconciliationLockState(key)
     await pending
 
     t.true(completed)
     t.false(existsSync(lockPath))
+    t.deepEqual(await readdir(root), [])
   },
 )
 
@@ -941,15 +1591,13 @@ test.serial(
     await mkdir(root, { recursive: true })
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
-    await mkdir(lockPath, { recursive: true })
     await writeFile(
-      join(lockPath, 'owner.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        key,
-        pid: process.pid,
-        token: '00000000-0000-4000-8000-000000000007',
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          token: '00000000-0000-4000-8000-000000000007',
+        }),
+      ),
     )
 
     const originalNow = Object.getOwnPropertyDescriptor(performance, 'now')
@@ -977,25 +1625,103 @@ test.serial(
       } else {
         Reflect.deleteProperty(performance, 'now')
       }
-      await rm(lockPath, { force: true, recursive: true })
+      await removeReconciliationLockState(key)
     }
   },
 )
 
 test.serial(
-  'filesystem reconciliation eventually cleans its failed owner after a reclaim guard disappears',
+  'filesystem reconciliation does not reclaim a dead PID from another machine',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'remote-machine-owner')
+    await mkdir(root)
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const executionIdentity = await currentProcessExecutionIdentity(root)
+    await writeFile(
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          ...executionIdentity,
+          machine: `${executionIdentity.machine}-remote`,
+          pid: 999_999_999,
+        }),
+      ),
+    )
+
+    const originalNow = Object.getOwnPropertyDescriptor(performance, 'now')
+    const initialNow = performance.now()
+    let observations = 0
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => {
+        observations += 1
+        return observations < 3 ? initialNow : initialNow + 1_000_000
+      },
+    })
+    try {
+      const error = await t.throwsAsync(
+        withFileSystemReconciliation(root, async () => {}),
+      )
+      t.is((error as NodeJS.ErrnoException).code, 'ETIMEDOUT')
+      t.true(existsSync(lockPath))
+    } finally {
+      if (originalNow) {
+        Object.defineProperty(performance, 'now', originalNow)
+      } else {
+        Reflect.deleteProperty(performance, 'now')
+      }
+      await removeReconciliationLockState(key)
+    }
+  },
+)
+
+test.serial(
+  'filesystem reconciliation reclaims an owner from a prior boot on the same machine',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'prior-boot-owner')
+    await mkdir(root)
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const executionIdentity = await currentProcessExecutionIdentity(root)
+    await writeFile(
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          ...executionIdentity,
+          boot: `${executionIdentity.boot}-prior`,
+        }),
+      ),
+    )
+
+    let entered = false
+    await withFileSystemReconciliation(root, async () => {
+      entered = true
+    })
+
+    t.true(entered)
+    t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation eventually cleans its owner after a blocked release',
   async (t) => {
     t.timeout(15_000)
     const root = join(t.context.tmpDir, 'eventual-owner-cleanup')
     await mkdir(root, { recursive: true })
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
-    const reclaimPath = join(lockPath, 'reclaim.json')
+    const reclaimPath = reconciliationReclaimPath(key)
     const incarnation = await currentProcessIncarnation(root)
-    const installGuard = installReconciliationReclaimGuard(
-      reclaimPath,
-      incarnation,
-    )
+    let releaseOperation!: () => void
+    let markOperationEntered!: () => void
+    const operationBlocked = new Promise<void>((resolve) => {
+      releaseOperation = resolve
+    })
+    const operationEntered = new Promise<void>((resolve) => {
+      markOperationEntered = resolve
+    })
 
     const originalNow = Object.getOwnPropertyDescriptor(performance, 'now')
     const initialNow = performance.now()
@@ -1011,19 +1737,25 @@ test.serial(
       },
     })
 
-    let operationEntered = false
     try {
       const pending = withFileSystemReconciliation(root, async () => {
-        operationEntered = true
+        markOperationEntered()
+        await operationBlocked
       })
-      await installGuard
+      await operationEntered
+      await installReconciliationReclaimGuard(
+        lockPath,
+        reclaimPath,
+        key,
+        incarnation,
+      )
       advanceClock = true
+      releaseOperation()
       const error = await t.throwsAsync(pending, {
         message:
-          /Timed out after 120000ms waiting for filesystem reconciliation lock/,
+          /Timed out after 5000ms waiting for filesystem reconciliation lock/,
       })
       t.is((error as NodeJS.ErrnoException).code, 'ETIMEDOUT')
-      t.false(operationEntered)
     } finally {
       if (originalNow) {
         Object.defineProperty(performance, 'now', originalNow)
@@ -1051,16 +1783,16 @@ test.serial(
     const lockPath = reconciliationLockPath(key)
     const token = '00000000-0000-4000-8000-000000000004'
     const incarnation = await currentProcessIncarnation(root)
-    await mkdir(lockPath, { recursive: true })
+    const executionIdentity = await currentProcessExecutionIdentity(root)
     await writeFile(
-      join(lockPath, 'owner.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        incarnation: differentProcessIncarnation(incarnation),
-        key,
-        pid: process.pid,
-        token,
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          incarnation: differentProcessIncarnation(incarnation),
+          ...executionIdentity,
+          token,
+        }),
+      ),
     )
 
     let completed = false
@@ -1070,6 +1802,7 @@ test.serial(
 
     t.true(completed)
     t.false(existsSync(lockPath))
+    t.deepEqual(await readdir(root), [])
   },
 )
 
@@ -1082,25 +1815,27 @@ test.serial(
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
     const incarnation = await currentProcessIncarnation(root)
-    await mkdir(lockPath, { recursive: true })
+    const executionIdentity = await currentProcessExecutionIdentity(root)
     await writeFile(
-      join(lockPath, 'owner.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        incarnation: null,
-        key,
-        pid: 999_999_999,
-        token: '00000000-0000-4000-8000-000000000005',
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          incarnation: null,
+          pid: 999_999_999,
+          ...executionIdentity,
+          token: '00000000-0000-4000-8000-000000000005',
+        }),
+      ),
     )
     await writeFile(
-      join(lockPath, 'reclaim.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        incarnation: differentProcessIncarnation(incarnation),
-        pid: process.pid,
-        token: '00000000-0000-4000-8000-000000000006',
-      }),
+      reconciliationReclaimPath(key),
+      JSON.stringify(
+        reconciliationReclaimOwner(key, {
+          incarnation: differentProcessIncarnation(incarnation),
+          ...executionIdentity,
+          token: '00000000-0000-4000-8000-000000000006',
+        }),
+      ),
     )
 
     let completed = false
@@ -1110,6 +1845,7 @@ test.serial(
 
     t.true(completed)
     t.false(existsSync(lockPath))
+    t.deepEqual(await readdir(root), [])
   },
 )
 
@@ -1122,16 +1858,16 @@ test.serial(
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
     const incarnation = await currentProcessIncarnation(root)
-    await mkdir(lockPath, { recursive: true })
+    const executionIdentity = await currentProcessExecutionIdentity(root)
     await writeFile(
-      join(lockPath, 'owner.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        incarnation: `future-v2:${incarnation}`,
-        key,
-        pid: process.pid,
-        token: '00000000-0000-4000-8000-000000000009',
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          incarnation: `future-v2:${incarnation}`,
+          ...executionIdentity,
+          token: '00000000-0000-4000-8000-000000000009',
+        }),
+      ),
     )
 
     let completed = false
@@ -1140,7 +1876,7 @@ test.serial(
     })
     await delay(100)
     t.false(completed)
-    await rm(lockPath, { force: true, recursive: true })
+    await removeReconciliationLockState(key)
     await pending
     t.true(completed)
   },
@@ -1155,16 +1891,16 @@ test.serial(
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
     const incarnation = await currentProcessIncarnation(root)
-    await mkdir(lockPath, { recursive: true })
+    const executionIdentity = await currentProcessExecutionIdentity(root)
     await writeFile(
-      join(lockPath, 'owner.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        incarnation: differentProcessIncarnationFormat(incarnation),
-        key,
-        pid: process.pid,
-        token: '00000000-0000-4000-8000-00000000000a',
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          incarnation: differentProcessIncarnationFormat(incarnation),
+          ...executionIdentity,
+          token: '00000000-0000-4000-8000-00000000000a',
+        }),
+      ),
     )
 
     let completed = false
@@ -1173,41 +1909,179 @@ test.serial(
     })
     await delay(100)
     t.false(completed)
-    await rm(lockPath, { force: true, recursive: true })
+    await removeReconciliationLockState(key)
     await pending
     t.true(completed)
   },
 )
 
-test.serial(
-  'filesystem reconciliation gives fresh malformed owner data an acquisition grace period',
-  async (t) => {
-    t.timeout(5_000)
-    const root = join(t.context.tmpDir, 'malformed-owner-grace')
-    await mkdir(root, { recursive: true })
-    const key = await realpath(root)
-    const lockPath = reconciliationLockPath(key)
-    await mkdir(lockPath, { recursive: true })
-    await writeFile(join(lockPath, 'owner.json'), '{')
+test('filesystem reconciliation preserves malformed canonical lock state', async (t) => {
+  const root = join(t.context.tmpDir, 'malformed-owner')
+  await mkdir(root, { recursive: true })
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  await writeFile(lockPath, '{')
 
-    let completed = false
-    const pending = withFileSystemReconciliation(root, async () => {
+  let completed = false
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
       completed = true
-    })
+    }),
+  )
 
-    await delay(100)
-    t.false(completed)
-    await rm(lockPath, { force: true, recursive: true })
-    await pending
+  t.is((error as NodeJS.ErrnoException).code, 'EEXIST')
+  t.false(completed)
+  t.is(await readFile(lockPath, 'utf8'), '{')
+})
 
-    t.true(completed)
-  },
-)
+test('filesystem reconciliation rejects oversized canonical lock state', async (t) => {
+  const root = join(t.context.tmpDir, 'oversized-owner')
+  await mkdir(root, { recursive: true })
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  await writeFile(lockPath, Buffer.alloc(64 * 1024 + 1, 0x20))
+
+  let completed = false
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
+      completed = true
+    }),
+  )
+
+  t.is((error as NodeJS.ErrnoException).code, 'EEXIST')
+  t.false(completed)
+  t.is((await stat(lockPath)).size, 64 * 1024 + 1)
+})
+
+test('filesystem reconciliation recovers a complete unpublished lock candidate', async (t) => {
+  const root = join(t.context.tmpDir, 'unpublished-lock-candidate')
+  await mkdir(root)
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  const token = '00000000-0000-4000-8000-00000000000b'
+  const executionIdentity = await currentProcessExecutionIdentity(root)
+  const candidatePath = reconciliationCandidatePath(lockPath, token)
+  await writeFile(
+    candidatePath,
+    JSON.stringify(
+      reconciliationLockOwner(key, {
+        pid: 999_999_999,
+        ...executionIdentity,
+        token,
+      }),
+    ),
+  )
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.false(existsSync(candidatePath))
+  t.false(existsSync(lockPath))
+  t.deepEqual(await readdir(root), [])
+})
+
+test('filesystem reconciliation recovers a published lock candidate after a crash', async (t) => {
+  const root = join(t.context.tmpDir, 'published-lock-candidate')
+  await mkdir(root)
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  const token = '00000000-0000-4000-8000-00000000000c'
+  const executionIdentity = await currentProcessExecutionIdentity(root)
+  const candidatePath = reconciliationCandidatePath(lockPath, token)
+  await writeFile(
+    candidatePath,
+    JSON.stringify(
+      reconciliationLockOwner(key, {
+        pid: 999_999_999,
+        ...executionIdentity,
+        token,
+      }),
+    ),
+  )
+  await link(candidatePath, lockPath)
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.false(existsSync(candidatePath))
+  t.false(existsSync(lockPath))
+  t.deepEqual(await readdir(root), [])
+})
+
+test('filesystem reconciliation recovers reclaim publication residues', async (t) => {
+  const root = join(t.context.tmpDir, 'reclaim-publication-candidates')
+  await mkdir(root)
+  const key = await realpath(root)
+  const reclaimPath = reconciliationReclaimPath(key)
+  const executionIdentity = await currentProcessExecutionIdentity(root)
+  const unpublishedToken = '00000000-0000-4000-8000-00000000000f'
+  const unpublishedCandidatePath = reconciliationCandidatePath(
+    reclaimPath,
+    unpublishedToken,
+  )
+  const publishedToken = '00000000-0000-4000-8000-000000000010'
+  const publishedCandidatePath = reconciliationCandidatePath(
+    reclaimPath,
+    publishedToken,
+  )
+  await writeFile(
+    unpublishedCandidatePath,
+    JSON.stringify(
+      reconciliationReclaimOwner(key, {
+        pid: 999_999_999,
+        ...executionIdentity,
+        token: unpublishedToken,
+      }),
+    ),
+  )
+  await writeFile(
+    publishedCandidatePath,
+    JSON.stringify(
+      reconciliationReclaimOwner(key, {
+        pid: 999_999_999,
+        ...executionIdentity,
+        token: publishedToken,
+      }),
+    ),
+  )
+  await link(publishedCandidatePath, reclaimPath)
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.false(existsSync(unpublishedCandidatePath))
+  t.false(existsSync(publishedCandidatePath))
+  t.false(existsSync(reclaimPath))
+  t.deepEqual(await readdir(root), [])
+})
+
+test('filesystem reconciliation preserves partial publication candidates', async (t) => {
+  const root = join(t.context.tmpDir, 'partial-publication-candidates')
+  await mkdir(root)
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  const reclaimPath = reconciliationReclaimPath(key)
+  const lockCandidatePath = reconciliationCandidatePath(
+    lockPath,
+    '00000000-0000-4000-8000-00000000000d',
+  )
+  const reclaimCandidatePath = reconciliationCandidatePath(
+    reclaimPath,
+    '00000000-0000-4000-8000-00000000000e',
+  )
+  await writeFile(lockCandidatePath, '{')
+  await writeFile(reclaimCandidatePath, 'user reclaim candidate')
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.is(await readFile(lockCandidatePath, 'utf8'), '{')
+  t.is(await readFile(reclaimCandidatePath, 'utf8'), 'user reclaim candidate')
+  t.false(existsSync(lockPath))
+  t.false(existsSync(reclaimPath))
+})
 
 test.serial(
   'filesystem reconciliation serializes contenders while reclaiming a dead owner',
   async (t) => {
-    t.timeout(30_000)
+    const contenderCount = process.platform === 'win32' ? 8 : 24
+    t.timeout(process.platform === 'win32' ? 120_000 : 30_000)
     const root = join(t.context.tmpDir, 'dead-owner-stress')
     const workerPath = join(t.context.tmpDir, 'dead-owner-worker.mjs')
     const criticalPath = join(t.context.tmpDir, 'dead-owner-critical')
@@ -1216,15 +2090,16 @@ test.serial(
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
     const token = '00000000-0000-4000-8000-000000000003'
-    await mkdir(lockPath, { recursive: true })
+    const executionIdentity = await currentProcessExecutionIdentity(root)
     await writeFile(
-      join(lockPath, 'owner.json'),
-      JSON.stringify({
-        createdAt: Date.now(),
-        key,
-        pid: 999_999_999,
-        token,
-      }),
+      lockPath,
+      JSON.stringify(
+        reconciliationLockOwner(key, {
+          pid: 999_999_999,
+          ...executionIdentity,
+          token,
+        }),
+      ),
     )
     await writeFile(
       workerPath,
@@ -1257,7 +2132,7 @@ await withFileSystemReconciliation(root, async () => {
     )
 
     await Promise.all(
-      Array.from({ length: 24 }, () =>
+      Array.from({ length: contenderCount }, () =>
         execFileAsync(
           process.execPath,
           [
@@ -1275,6 +2150,7 @@ await withFileSystemReconciliation(root, async () => {
 
     t.false(existsSync(overlapPath))
     t.false(existsSync(lockPath))
+    t.deepEqual(await readdir(root), [])
   },
 )
 
@@ -1285,28 +2161,287 @@ test.serial(
     await mkdir(root, { recursive: true })
     const key = await realpath(root)
     const lockPath = reconciliationLockPath(key)
-    const ownerPath = join(lockPath, 'owner.json')
     const replacementToken = '00000000-0000-4000-8000-000000000002'
-    const replacementLeasePath = join(lockPath, `${replacementToken}.lease`)
 
     await withFileSystemReconciliation(root, async () => {
       await writeFile(
-        ownerPath,
-        JSON.stringify({
-          createdAt: Date.now(),
-          key,
-          pid: process.pid,
-          token: replacementToken,
-        }),
+        lockPath,
+        JSON.stringify(
+          reconciliationLockOwner(key, { token: replacementToken }),
+        ),
       )
-      await writeFile(replacementLeasePath, String(Date.now()))
     })
 
     t.true(existsSync(lockPath))
-    t.is(JSON.parse(await readFile(ownerPath, 'utf8')).token, replacementToken)
-    await rm(lockPath, { force: true, recursive: true })
+    t.is(JSON.parse(await readFile(lockPath, 'utf8')).token, replacementToken)
+    await removeReconciliationLockState(key)
   },
 )
+
+test.serial(
+  'filesystem reconciliation releases ownership after wall clock rollback',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'clock-rollback-release')
+    await mkdir(root)
+    const key = await realpath(root)
+    const lockPath = reconciliationLockPath(key)
+    const originalNow = Object.getOwnPropertyDescriptor(Date, 'now')
+
+    try {
+      await withFileSystemReconciliation(root, async () => {
+        Object.defineProperty(Date, 'now', {
+          configurable: true,
+          value: () => 1,
+        })
+      })
+    } finally {
+      if (originalNow) {
+        Object.defineProperty(Date, 'now', originalNow)
+      }
+    }
+
+    t.false(existsSync(lockPath))
+  },
+)
+
+test.serial(
+  'filesystem reconciliation serializes a replacement root before reporting stale ownership',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'replace-anchor')
+    const movedRoot = join(t.context.tmpDir, 'replace-anchor-original')
+    const workerPath = join(t.context.tmpDir, 'replace-anchor-worker.mjs')
+    const resultPath = join(t.context.tmpDir, 'replace-anchor-result')
+    await mkdir(root)
+    await writeFile(
+      workerPath,
+      `import { writeFile } from 'node:fs/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+        new URL('../misc.ts', import.meta.url).href,
+      )}
+
+const [root, resultPath] = process.argv.slice(2)
+await withFileSystemReconciliation(root, async () => {
+  await writeFile(resultPath, 'entered')
+})
+`,
+    )
+
+    let contender: Promise<unknown> | undefined
+    const error = await t.throwsAsync(
+      withFileSystemReconciliation(root, async () => {
+        await rename(root, movedRoot)
+        await mkdir(root)
+        contender = execFileAsync(
+          process.execPath,
+          ['--import', '@oxc-node/core/register', workerPath, root, resultPath],
+          { cwd: process.cwd() },
+        )
+        await delay(200)
+        t.false(existsSync(resultPath))
+      }),
+    )
+
+    t.is((error as NodeJS.ErrnoException).code, 'ESTALE')
+    await contender
+    t.is(await readFile(resultPath, 'utf8'), 'entered')
+    t.false(existsSync(reconciliationLockPath(root)))
+  },
+)
+
+const reconciliationLockSymlinkTest =
+  process.platform === 'win32' ? test.serial.skip : test.serial
+
+reconciliationLockSymlinkTest(
+  'filesystem reconciliation does not follow a replacement anchor symlink',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'replace-anchor-symlink')
+    const movedRoot = join(t.context.tmpDir, 'replace-anchor-symlink-original')
+    const replacementRoot = join(
+      t.context.tmpDir,
+      'replace-anchor-symlink-target',
+    )
+    await Promise.all([mkdir(root), mkdir(replacementRoot)])
+
+    const error = await t.throwsAsync(
+      withFileSystemReconciliation(root, async () => {
+        await rename(root, movedRoot)
+        await symlink(replacementRoot, root, 'dir')
+      }),
+    )
+
+    t.is((error as NodeJS.ErrnoException).code, 'ESTALE')
+    t.true((await lstat(root)).isSymbolicLink())
+    t.false(existsSync(reconciliationLockPath(root)))
+    t.false(existsSync(reconciliationLockPath(movedRoot)))
+  },
+)
+
+reconciliationLockSymlinkTest(
+  'filesystem reconciliation serializes a retargeted writable alias',
+  async (t) => {
+    const firstRoot = join(t.context.tmpDir, 'alias-first-root')
+    const secondRoot = join(t.context.tmpDir, 'alias-second-root')
+    const aliasRoot = join(t.context.tmpDir, 'writable-alias')
+    const workerPath = join(t.context.tmpDir, 'alias-retarget-worker.mjs')
+    const resultPath = join(t.context.tmpDir, 'alias-retarget-result')
+    await Promise.all([mkdir(firstRoot), mkdir(secondRoot)])
+    await symlink(firstRoot, aliasRoot, 'dir')
+    await writeFile(
+      workerPath,
+      `import { writeFile } from 'node:fs/promises'
+import { withFileSystemReconciliation } from ${JSON.stringify(
+        new URL('../misc.ts', import.meta.url).href,
+      )}
+
+const [root, resultPath] = process.argv.slice(2)
+await withFileSystemReconciliation(root, async () => {
+  await writeFile(resultPath, 'entered')
+})
+`,
+    )
+
+    let contender: Promise<unknown> | undefined
+    const error = await t.throwsAsync(
+      withFileSystemReconciliation(aliasRoot, async () => {
+        await rm(aliasRoot)
+        await symlink(secondRoot, aliasRoot, 'dir')
+        contender = execFileAsync(
+          process.execPath,
+          [
+            '--import',
+            '@oxc-node/core/register',
+            workerPath,
+            aliasRoot,
+            resultPath,
+          ],
+          { cwd: process.cwd() },
+        )
+        await delay(200)
+        t.false(existsSync(resultPath))
+      }),
+    )
+
+    t.is((error as NodeJS.ErrnoException).code, 'ESTALE')
+    await contender
+    t.is(await readFile(resultPath, 'utf8'), 'entered')
+  },
+)
+
+reconciliationLockSymlinkTest(
+  'filesystem reconciliation does not follow a lock path symlink',
+  async (t) => {
+    const root = join(t.context.tmpDir, 'lock-symlink-root')
+    const target = join(t.context.tmpDir, 'lock-symlink-target')
+    await Promise.all([mkdir(root), mkdir(target)])
+    const lockPath = reconciliationLockPath(await realpath(root))
+    await symlink(target, lockPath, 'dir')
+
+    let entered = false
+    const error = await t.throwsAsync(
+      withFileSystemReconciliation(root, async () => {
+        entered = true
+      }),
+    )
+
+    t.is((error as NodeJS.ErrnoException).code, 'EEXIST')
+    t.false(entered)
+    t.true((await lstat(lockPath)).isSymbolicLink())
+    t.true((await lstat(target)).isDirectory())
+  },
+)
+
+test('filesystem reconciliation preserves a colliding lock-state file', async (t) => {
+  const root = join(t.context.tmpDir, 'lock-file-collision')
+  await mkdir(root)
+  const lockPath = reconciliationLockPath(await realpath(root))
+  const content = JSON.stringify({ user: 'content' })
+  await writeFile(lockPath, content)
+
+  let entered = false
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
+      entered = true
+    }),
+  )
+
+  t.is((error as NodeJS.ErrnoException).code, 'EEXIST')
+  t.false(entered)
+  t.is(await readFile(lockPath, 'utf8'), content)
+})
+
+test('filesystem reconciliation preserves a colliding lock-state directory', async (t) => {
+  const root = join(t.context.tmpDir, 'lock-directory-collision')
+  await mkdir(root)
+  const lockPath = reconciliationLockPath(await realpath(root))
+  const childPath = join(lockPath, 'user-file')
+  await mkdir(lockPath)
+  await writeFile(childPath, 'user content')
+
+  let entered = false
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
+      entered = true
+    }),
+  )
+
+  t.is((error as NodeJS.ErrnoException).code, 'EEXIST')
+  t.false(entered)
+  t.is(await readFile(childPath, 'utf8'), 'user content')
+})
+
+test('filesystem reconciliation preserves a colliding reclaim-state file', async (t) => {
+  const root = join(t.context.tmpDir, 'reclaim-file-collision')
+  await mkdir(root)
+  const key = await realpath(root)
+  const reclaimPath = reconciliationReclaimPath(key)
+  const content = JSON.stringify({ user: 'content' })
+  await writeFile(reclaimPath, content)
+
+  let entered = false
+  const error = await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {
+      entered = true
+    }),
+  )
+
+  t.is((error as NodeJS.ErrnoException).code, 'EEXIST')
+  t.false(entered)
+  t.is(await readFile(reclaimPath, 'utf8'), content)
+  t.false(existsSync(reconciliationLockPath(key)))
+})
+
+test('filesystem reconciliation leaves former sibling metadata names untouched', async (t) => {
+  const root = join(t.context.tmpDir, 'former-sibling-metadata')
+  await mkdir(root)
+  const key = await realpath(root)
+  const lockPath = reconciliationLockPath(key)
+  const formerOwnerPath = `${lockPath}.owner.json`
+  const formerLeasePath = `${lockPath}.lease`
+  await writeFile(formerOwnerPath, 'user owner content')
+  await writeFile(formerLeasePath, 'user lease content')
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.is(await readFile(formerOwnerPath, 'utf8'), 'user owner content')
+  t.is(await readFile(formerLeasePath, 'utf8'), 'user lease content')
+})
+
+test('filesystem reconciliation ignores stale-state residue paths', async (t) => {
+  const root = join(t.context.tmpDir, 'stale-state-residue')
+  await mkdir(root)
+  const key = await realpath(root)
+  const staleLockPath = `${reconciliationLockPath(key)}.stale.fixture`
+  const staleReclaimPath = `${reconciliationReclaimPath(key)}.stale.fixture`
+  const staleLockChild = join(staleLockPath, 'user-file')
+  await mkdir(staleLockPath)
+  await writeFile(staleLockChild, 'stale lock content')
+  await writeFile(staleReclaimPath, 'stale reclaim content')
+
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.is(await readFile(staleLockChild, 'utf8'), 'stale lock content')
+  t.is(await readFile(staleReclaimPath, 'utf8'), 'stale reclaim content')
+})
 
 test('package reconciliation identity ignores custom output directories', (t) => {
   t.is(
@@ -1319,25 +2454,31 @@ test('package reconciliation identity ignores custom output directories', (t) =>
 })
 
 test.serial(
-  'filesystem reconciliation serializes separate processes through canonical aliases',
+  'filesystem reconciliation serializes canonical aliases across distinct temporary roots',
   async (t) => {
     const realRoot = join(t.context.tmpDir, 'real-root')
     const aliasRoot = join(t.context.tmpDir, 'alias-root')
     const workerPath = join(t.context.tmpDir, 'worker.mjs')
-    const criticalPath = join(t.context.tmpDir, 'critical')
+    const outputRoot = join(realRoot, 'missing-output')
+    const criticalPath = join(outputRoot, 'critical')
     const logPath = join(t.context.tmpDir, 'events.log')
+    const temporaryRoots = Array.from({ length: 4 }, (_, index) =>
+      join(t.context.tmpDir, `worker-tmp-${index}`),
+    )
     await mkdir(realRoot, { recursive: true })
+    await Promise.all(temporaryRoots.map((root) => mkdir(root)))
     await symlink(realRoot, aliasRoot, 'dir')
     await writeFile(
       workerPath,
-      `import { appendFile, open, rm } from 'node:fs/promises'
+      `import { appendFile, mkdir, open, rm } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { withFileSystemReconciliation } from ${JSON.stringify(
         new URL('../misc.ts', import.meta.url).href,
       )}
 
-const [id, root, criticalPath, logPath] = process.argv.slice(2)
+const [id, root, outputRoot, criticalPath, logPath] = process.argv.slice(2)
 await withFileSystemReconciliation(root, async () => {
+  await mkdir(outputRoot, { recursive: true })
   let critical
   try {
     critical = await open(criticalPath, 'wx')
@@ -1352,6 +2493,7 @@ await withFileSystemReconciliation(root, async () => {
 `,
     )
 
+    t.false(existsSync(outputRoot))
     await Promise.all(
       [realRoot, aliasRoot, realRoot, aliasRoot].map((root, index) =>
         execFileAsync(
@@ -1362,10 +2504,19 @@ await withFileSystemReconciliation(root, async () => {
             workerPath,
             String(index),
             root,
+            outputRoot,
             criticalPath,
             logPath,
           ],
-          { cwd: process.cwd() },
+          {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              TEMP: temporaryRoots[index],
+              TMP: temporaryRoots[index],
+              TMPDIR: temporaryRoots[index],
+            },
+          },
         ),
       ),
     )
@@ -1375,6 +2526,11 @@ await withFileSystemReconciliation(root, async () => {
     for (let index = 0; index < events.length; index += 2) {
       const id = events[index].split(':')[0]
       t.deepEqual(events.slice(index, index + 2), [`${id}:start`, `${id}:end`])
+    }
+    t.true((await lstat(outputRoot)).isDirectory())
+    t.false(existsSync(reconciliationLockPath(await realpath(realRoot))))
+    for (const temporaryRoot of temporaryRoots) {
+      t.deepEqual(await readdir(temporaryRoot), [])
     }
   },
 )

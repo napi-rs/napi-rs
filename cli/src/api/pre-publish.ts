@@ -18,6 +18,7 @@ import {
   readFileAsync,
   readNapiConfig,
   collectRelativeDeclarationSpecifiers,
+  commitFileSystemTransaction,
   createWasmModuleTypeDef,
   copyFileAtomic,
   debugFactory,
@@ -32,10 +33,9 @@ import {
   AVAILABLE_TARGETS,
   parseTriple,
   type CommonPackageJsonFields,
+  type FileSystemTransactionWrite,
   type Target,
 } from '../utils/index.js'
-
-import { version } from './version.js'
 
 const debug = debugFactory('pre-publish')
 const THREADLESS_WASI_ROOT_SUBPATHS = new Set([
@@ -48,6 +48,14 @@ const MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES = new Set(
 )
 const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
+const PACKAGE_MANAGER_CONTEXT_FILES = [
+  '.npmrc',
+  '.yarnrc.yml',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'yarn.lock',
+]
+const PACKAGE_MANAGER_CONTEXT_DIRECTORIES = ['.yarn/plugins', '.yarn/releases']
 const WASI_ROOT_FACADE_MARKER_PREFIX = '// napi-rs-wasi-root-facade:'
 const directBufferDependency = '^6.0.3'
 const wasiRuntimeDependencies = [
@@ -66,6 +74,45 @@ interface PackageInfo {
   tag: string
 }
 
+interface PreparedReleasePackage {
+  artifactPath: string
+  filename: string
+  packageDir: string
+}
+
+interface PreparedPrePublish {
+  npmClient: string
+  packageName: string
+  packageVersion: string
+  releasePackages: PreparedReleasePackage[]
+}
+
+async function removePreparedSnapshot(
+  snapshotRoot: string,
+  phase: 'preparation' | 'publication',
+  primaryFailed: boolean,
+  primaryError?: unknown,
+) {
+  try {
+    await rm(snapshotRoot, { recursive: true, force: true })
+  } catch (cleanupError) {
+    if (primaryFailed) {
+      throw new AggregateError(
+        [primaryError, cleanupError],
+        `Pre-publish ${phase} failed and its prepared snapshot could not be removed from ${snapshotRoot}`,
+        { cause: primaryError },
+      )
+    }
+    debug.warn(
+      `Pre-publish ${phase} completed, but its prepared snapshot could not be removed from ${snapshotRoot}: ${String(cleanupError)}`,
+    )
+    return
+  }
+  if (primaryFailed) {
+    throw primaryError
+  }
+}
+
 export async function prePublish(userOptions: PrePublishOptions) {
   debug('Receive pre-publish options:')
   debug('  %O', userOptions)
@@ -77,27 +124,39 @@ export async function prePublish(userOptions: PrePublishOptions) {
     options.cwd,
     options.packageJsonPath,
   )
-  const prepared = await withFileSystemReconciliation(rootDir, async () => {
-    const { packageJson, targets, packageName, binaryName, npmClient, wasm } =
-      await readNapiConfig(
-        packageJsonPath,
-        options.configPath
-          ? resolve(options.cwd, options.configPath)
-          : undefined,
+  let preparedSnapshotRoot: string | undefined
+  let prepared: PreparedPrePublish
+  try {
+    prepared = await withFileSystemReconciliation(rootDir, async () => {
+      const { packageJson, targets, packageName, binaryName, npmClient, wasm } =
+        await readNapiConfig(
+          packageJsonPath,
+          options.configPath
+            ? resolve(options.cwd, options.configPath)
+            : undefined,
+        )
+      const threadlessWasiTarget = targets.find(
+        (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
       )
-    const threadlessWasiTarget = targets.find(
-      (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
-    )
 
-    const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
-    for (const target of targets) {
-      const pkgDir = resolve(
-        options.cwd,
-        options.npmDir,
-        target.platformArchABI,
-      )
-      releasePackagePlans.push(
-        await validateReleasePackage({
+      if (!options.dryRun) {
+        preparedSnapshotRoot = await mkdtemp(
+          join(tmpdir(), 'napi-rs-pre-publish-stage-'),
+        )
+        await stagePackageManagerContext(
+          packageJsonPath,
+          rootDir,
+          preparedSnapshotRoot,
+        )
+      }
+      const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
+      for (const target of targets) {
+        const pkgDir = resolve(
+          options.cwd,
+          options.npmDir,
+          target.platformArchABI,
+        )
+        const validationOptions: ReleasePackageValidationOptions = {
           pkgDir,
           rootDir,
           packageName,
@@ -106,82 +165,135 @@ export async function prePublish(userOptions: PrePublishOptions) {
           requireDirectBufferDependency:
             wasm?.browser?.buffer === true &&
             (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
-        }),
-      )
-    }
-    const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
-      packageJson,
-      rootDir,
-      resolve(options.cwd, options.npmDir),
-      packageName,
-    )
-    let reconciledPackageJson = rootFacadeReconciliation.packageJson
-    let rootFacade: ThreadlessWasiRootFacade | undefined
-    if (threadlessWasiTarget) {
-      rootFacade = planThreadlessWasiRootFacade({
-        packageJsonPath,
-        packageJson: reconciledPackageJson,
+        }
+        releasePackagePlans.push(
+          preparedSnapshotRoot
+            ? await stageReleasePackage(
+                preparedSnapshotRoot,
+                packageJson.version,
+                validationOptions,
+              )
+            : await validateReleasePackage(validationOptions),
+        )
+      }
+      const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
+        packageJson,
+        rootDir,
+        resolve(options.cwd, options.npmDir),
         packageName,
-        binaryName,
-        target: threadlessWasiTarget,
-        npmDir: resolve(options.cwd, options.npmDir),
-        managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
-      })
-      reconciledPackageJson = applyThreadlessWasiRootFacade(
-        reconciledPackageJson,
-        rootFacade,
       )
-    }
-    const optionalDependencies = {
-      ...asRecord(packageJson.optionalDependencies),
-    }
-    const managedPackageNames = new Set([packageName])
-    for (const flavorPackage of rootFacadeReconciliation.managedFlavorPackages) {
-      for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
-        const ending = `-${suffix}`
-        if (flavorPackage.endsWith(ending)) {
-          managedPackageNames.add(flavorPackage.slice(0, -ending.length))
+      let reconciledPackageJson = rootFacadeReconciliation.packageJson
+      let rootFacade: ThreadlessWasiRootFacade | undefined
+      if (threadlessWasiTarget) {
+        rootFacade = planThreadlessWasiRootFacade({
+          packageJsonPath,
+          packageJson: reconciledPackageJson,
+          packageName,
+          binaryName,
+          target: threadlessWasiTarget,
+          npmDir: resolve(options.cwd, options.npmDir),
+          managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+        })
+        const stagedThreadlessPackage = releasePackagePlans.find(
+          (plan) =>
+            plan.target.platformArchABI ===
+            threadlessWasiTarget.platformArchABI,
+        )?.stagedPkgDir
+        if (stagedThreadlessPackage) {
+          const stagedWasmSourcePath = join(
+            stagedThreadlessPackage,
+            `${binaryName}.${threadlessWasiTarget.platformArchABI}.wasm`,
+          )
+          rootFacade = {
+            ...rootFacade,
+            marker: createThreadlessWasiRootFacadeMarker(
+              `${packageName}-${threadlessWasiTarget.platformArchABI}`,
+              readFileSync(stagedWasmSourcePath),
+            ),
+            wasmSourcePath: stagedWasmSourcePath,
+          }
+        }
+        reconciledPackageJson = applyThreadlessWasiRootFacade(
+          reconciledPackageJson,
+          rootFacade,
+        )
+      }
+      const optionalDependencies = {
+        ...asRecord(packageJson.optionalDependencies),
+      }
+      const managedPackageNames = new Set([packageName])
+      for (const flavorPackage of rootFacadeReconciliation.managedFlavorPackages) {
+        for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+          const ending = `-${suffix}`
+          if (flavorPackage.endsWith(ending)) {
+            managedPackageNames.add(flavorPackage.slice(0, -ending.length))
+          }
         }
       }
-    }
-    for (const managedPackageName of managedPackageNames) {
-      for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
-        delete optionalDependencies[`${managedPackageName}-${suffix}`]
+      for (const managedPackageName of managedPackageNames) {
+        for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+          delete optionalDependencies[`${managedPackageName}-${suffix}`]
+        }
       }
-    }
-    for (const target of targets) {
-      optionalDependencies[`${packageName}-${target.platformArchABI}`] =
-        packageJson.version
-    }
-    const nodeEngine =
-      targets.length > 0 &&
-      targets.every((target) => target.platform === 'wasi')
-        ? restrictWasiNodeEngine(
-            packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
-          )
-        : undefined
-    const rootReleasePlan: RootReleaseMaterializationPlan = {
-      packageJson: reconciledPackageJson,
-      optionalDependencies,
-      nodeEngine,
-      facade: rootFacade,
-      staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
-    }
-    if (rootFacade) {
-      await validateRootReleasePlan(rootDir, rootReleasePlan)
-    }
-
-    if (!options.dryRun) {
-      for (const plan of releasePackagePlans) {
-        await materializeReleasePackagePlan(plan)
+      for (const target of targets) {
+        optionalDependencies[`${packageName}-${target.platformArchABI}`] =
+          packageJson.version
       }
-      await version(userOptions)
-      await materializeRootReleasePlan(rootDir, rootReleasePlan)
-    }
+      const nodeEngine =
+        targets.length > 0 &&
+        targets.every((target) => target.platform === 'wasi')
+          ? restrictWasiNodeEngine(
+              packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
+            )
+          : undefined
+      const rootReleasePlan: RootReleaseMaterializationPlan = {
+        packageJson: reconciledPackageJson,
+        optionalDependencies,
+        nodeEngine,
+        facade: rootFacade,
+        staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+      }
+      if (preparedSnapshotRoot) {
+        const stagedRootDir = join(preparedSnapshotRoot, 'root')
+        await stageRootReleasePlan(
+          packageJsonPath,
+          rootDir,
+          stagedRootDir,
+          rootReleasePlan,
+        )
+        await commitPrePublishFileSystemTransaction({
+          packageJsonPath,
+          releasePackagePlans,
+          rootDir,
+          rootReleasePlan,
+          stagedRootDir,
+        })
+      } else if (rootFacade) {
+        await validateRootReleasePlan(packageJsonPath, rootDir, rootReleasePlan)
+      }
 
-    return { binaryName, npmClient, packageJson, packageName, targets }
-  })
-  const { binaryName, npmClient, packageJson, packageName, targets } = prepared
+      return {
+        npmClient,
+        packageName,
+        packageVersion: packageJson.version,
+        releasePackages: releasePackagePlans.map((plan) =>
+          prepareReleasePackage(plan, binaryName),
+        ),
+      }
+    })
+  } catch (error) {
+    if (preparedSnapshotRoot) {
+      await removePreparedSnapshot(
+        preparedSnapshotRoot,
+        'preparation',
+        true,
+        error,
+      )
+    }
+    throw error
+  }
+
+  const { npmClient, packageName, packageVersion, releasePackages } = prepared
 
   async function createGhRelease(packageName: string, version: string) {
     if (!options.ghRelease) {
@@ -274,89 +386,104 @@ export async function prePublish(userOptions: PrePublishOptions) {
     return { owner, repo, pkgInfo, octokit }
   }
 
-  const { owner, repo, pkgInfo, octokit } = options.ghReleaseId
-    ? getRepoInfo(packageName, packageJson.version)
-    : await createGhRelease(packageName, packageJson.version)
+  let publicationFailed = false
+  let publicationError: unknown
+  try {
+    const { owner, repo, pkgInfo, octokit } = options.ghReleaseId
+      ? getRepoInfo(packageName, packageVersion)
+      : await createGhRelease(packageName, packageVersion)
 
-  for (const target of targets) {
-    const pkgDir = resolve(
-      options.cwd,
-      options.npmDir,
-      `${target.platformArchABI}`,
-    )
-    const ext =
-      target.platform === 'wasi' || target.platform === 'wasm' ? 'wasm' : 'node'
-    const filename = `${binaryName}.${target.platformArchABI}.${ext}`
-    const dstPath = join(pkgDir, filename)
+    for (const releasePackage of releasePackages) {
+      const { artifactPath, filename, packageDir } = releasePackage
 
-    if (!options.dryRun) {
-      if (!existsSync(dstPath)) {
-        throw new Error(`Release artifact does not exist: ${dstPath}`)
-      }
+      if (!options.dryRun) {
+        if (!existsSync(artifactPath)) {
+          throw new Error(`Release artifact does not exist: ${artifactPath}`)
+        }
 
-      if (!options.skipOptionalPublish) {
-        try {
-          const output = execSync(`${npmClient} publish`, {
-            cwd: pkgDir,
-            env: process.env,
-            stdio: 'pipe',
-          })
-          process.stdout.write(output)
-        } catch (e) {
-          if (
-            e instanceof Error &&
-            e.message.includes(
-              'You cannot publish over the previously published versions',
+        if (!options.skipOptionalPublish) {
+          try {
+            const output = execSync(`${npmClient} publish`, {
+              cwd: packageDir,
+              env: process.env,
+              stdio: 'pipe',
+            })
+            process.stdout.write(output)
+          } catch (e) {
+            if (
+              e instanceof Error &&
+              e.message.includes(
+                'You cannot publish over the previously published versions',
+              )
+            ) {
+              console.info(e.message)
+              debug.warn(`${packageDir} has been published, skipping`)
+            } else {
+              throw e
+            }
+          }
+        }
+
+        if (options.ghRelease && repo && owner) {
+          debug.info(`Creating GitHub release ${pkgInfo.tag}`)
+          try {
+            const releaseId = options.ghReleaseId
+              ? Number(options.ghReleaseId)
+              : (
+                  await octokit!.repos.getReleaseByTag({
+                    repo: repo,
+                    owner: owner,
+                    tag: pkgInfo.tag,
+                  })
+                ).data.id
+            const artifactStats = statSync(artifactPath)
+            const assetInfo = await octokit!.repos.uploadReleaseAsset({
+              owner: owner,
+              repo: repo,
+              name: filename,
+              release_id: releaseId,
+              mediaType: { format: 'raw' },
+              headers: {
+                'content-length': artifactStats.size,
+                'content-type': 'application/octet-stream',
+              },
+              // @ts-expect-error octokit types are wrong
+              data: await readFileAsync(artifactPath),
+            })
+            debug.info(`GitHub release created`)
+            debug.info(`Download URL: %s`, assetInfo.data.browser_download_url)
+          } catch (e) {
+            debug.error(
+              `Param: ${JSON.stringify(
+                {
+                  owner,
+                  repo,
+                  tag: pkgInfo.tag,
+                  filename: artifactPath,
+                },
+                null,
+                2,
+              )}`,
             )
-          ) {
-            console.info(e.message)
-            debug.warn(`${pkgDir} has been published, skipping`)
-          } else {
-            throw e
+            debug.error(e)
           }
         }
       }
-
-      if (options.ghRelease && repo && owner) {
-        debug.info(`Creating GitHub release ${pkgInfo.tag}`)
-        try {
-          const releaseId = options.ghReleaseId
-            ? Number(options.ghReleaseId)
-            : (
-                await octokit!.repos.getReleaseByTag({
-                  repo: repo,
-                  owner: owner,
-                  tag: pkgInfo.tag,
-                })
-              ).data.id
-          const dstFileStats = statSync(dstPath)
-          const assetInfo = await octokit!.repos.uploadReleaseAsset({
-            owner: owner,
-            repo: repo,
-            name: filename,
-            release_id: releaseId,
-            mediaType: { format: 'raw' },
-            headers: {
-              'content-length': dstFileStats.size,
-              'content-type': 'application/octet-stream',
-            },
-            // @ts-expect-error octokit types are wrong
-            data: await readFileAsync(dstPath),
-          })
-          debug.info(`GitHub release created`)
-          debug.info(`Download URL: %s`, assetInfo.data.browser_download_url)
-        } catch (e) {
-          debug.error(
-            `Param: ${JSON.stringify(
-              { owner, repo, tag: pkgInfo.tag, filename: dstPath },
-              null,
-              2,
-            )}`,
-          )
-          debug.error(e)
-        }
-      }
     }
+  } catch (error) {
+    publicationFailed = true
+    publicationError = error
+  }
+  if (preparedSnapshotRoot) {
+    await removePreparedSnapshot(
+      preparedSnapshotRoot,
+      'publication',
+      publicationFailed,
+      publicationError,
+    )
+  }
+  if (publicationFailed) {
+    throw publicationError
   }
 }
 
@@ -1363,7 +1490,42 @@ interface RootReleaseMaterializationPlan {
   staleGeneratedFiles: string[]
 }
 
+async function stagePackageManagerContext(
+  packageJsonPath: string,
+  rootDir: string,
+  stagingRoot: string,
+) {
+  const packageJson = JSON.parse(
+    await readFileAsync(packageJsonPath, 'utf8'),
+  ) as Record<string, unknown>
+  const workspacePackageJson: Record<string, unknown> = {
+    private: true,
+    workspaces: ['packages/*'],
+  }
+  if (typeof packageJson.packageManager === 'string') {
+    workspacePackageJson.packageManager = packageJson.packageManager
+  }
+  await writeFileAtomic(
+    join(stagingRoot, 'package.json'),
+    JSON.stringify(workspacePackageJson, null, 2),
+  )
+
+  for (const path of [
+    ...PACKAGE_MANAGER_CONTEXT_FILES,
+    ...PACKAGE_MANAGER_CONTEXT_DIRECTORIES,
+  ]) {
+    const source = join(rootDir, path)
+    if (!existsSync(source)) {
+      continue
+    }
+    const destination = join(stagingRoot, path)
+    await mkdirAsync(dirname(destination), { recursive: true })
+    await cp(source, destination, { recursive: true })
+  }
+}
+
 async function validateRootReleasePlan(
+  packageJsonPath: string,
   rootDir: string,
   plan: RootReleaseMaterializationPlan,
 ) {
@@ -1372,17 +1534,33 @@ async function validateRootReleasePlan(
   )
   const stagedRootDir = join(stagingRoot, 'package')
   try {
-    await mkdirAsync(stagedRootDir, { recursive: true })
+    await stageRootReleasePlan(packageJsonPath, rootDir, stagedRootDir, plan)
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true })
+  }
+}
+
+async function stageRootReleasePlan(
+  packageJsonPath: string,
+  rootDir: string,
+  stagedRootDir: string,
+  plan: RootReleaseMaterializationPlan,
+) {
+  await mkdirAsync(stagedRootDir, { recursive: true })
+  await cp(packageJsonPath, join(stagedRootDir, 'package.json'))
+  if (plan.facade) {
     const packedFiles = readNpmPackFiles(rootDir, 'root package')
     const referencedFiles = collectRootPackagePathReferences(plan.packageJson)
     for (const file of new Set([
       ...packedFiles,
       ...referencedFiles,
-      'package.json',
       '.npmignore',
       '.gitignore',
       '.npmrc',
     ])) {
+      if (file === 'package.json') {
+        continue
+      }
       const source = join(rootDir, file)
       if (!existsSync(source)) {
         continue
@@ -1391,14 +1569,13 @@ async function validateRootReleasePlan(
       await mkdirAsync(dirname(destination), { recursive: true })
       await cp(source, destination, { recursive: true })
     }
-
-    await materializeRootReleasePlan(stagedRootDir, plan)
+  }
+  await materializeRootReleasePlan(stagedRootDir, plan)
+  if (plan.facade) {
     validateRootFacadePacklist(stagedRootDir, [
-      ...(plan.facade?.generatedFiles ?? []),
+      ...plan.facade.generatedFiles,
       ...collectRootPackagePathReferences(plan.packageJson),
     ])
-  } finally {
-    await rm(stagingRoot, { recursive: true, force: true })
   }
 }
 
@@ -1445,8 +1622,10 @@ interface ReleasePackageValidationOptions {
 }
 
 interface ReleasePackageMaterializationPlan {
+  target: Target
   pkgDir: string
   rootDir: string
+  stagedPkgDir?: string
   packageFiles: string[]
   declarationDependencies: string[]
   updateManifest: boolean
@@ -1489,6 +1668,7 @@ async function validateReleasePackage({
     return {
       pkgDir,
       rootDir: options.rootDir,
+      target: options.target,
       ...validation,
     }
   } finally {
@@ -1496,23 +1676,103 @@ async function validateReleasePackage({
   }
 }
 
-async function materializeReleasePackagePlan(
-  plan: ReleasePackageMaterializationPlan,
+async function stageReleasePackage(
+  stagingRoot: string,
+  packageVersion: string,
+  options: ReleasePackageValidationOptions,
 ) {
-  for (const declarationFile of plan.declarationDependencies) {
-    const destination = join(plan.pkgDir, declarationFile)
-    await mkdirAsync(dirname(destination), { recursive: true })
-    await copyFileAtomic(join(plan.rootDir, declarationFile), destination)
+  const stagedPkgDir = join(
+    stagingRoot,
+    'packages',
+    options.target.platformArchABI,
+  )
+  await cp(options.pkgDir, stagedPkgDir, { recursive: true })
+  const validation = await validateReleasePackageContents({
+    ...options,
+    pkgDir: stagedPkgDir,
+  })
+  const packageJsonPath = join(stagedPkgDir, 'package.json')
+  const packageJson = JSON.parse(await readFileAsync(packageJsonPath, 'utf8'))
+  packageJson.version = packageVersion
+  await writeFileAtomic(packageJsonPath, JSON.stringify(packageJson, null, 2))
+  return {
+    pkgDir: options.pkgDir,
+    rootDir: options.rootDir,
+    stagedPkgDir,
+    target: options.target,
+    ...validation,
   }
-  if (plan.updateManifest) {
-    const packageJsonPath = join(plan.pkgDir, 'package.json')
-    const packageJson = JSON.parse(await readFileAsync(packageJsonPath, 'utf8'))
-    packageJson.files = plan.packageFiles
-    await writeFileAtomic(
-      packageJsonPath,
-      `${JSON.stringify(packageJson, null, 2)}\n`,
-    )
+}
+
+function prepareReleasePackage(
+  plan: ReleasePackageMaterializationPlan,
+  binaryName: string,
+): PreparedReleasePackage {
+  const packageDir = plan.stagedPkgDir ?? plan.pkgDir
+  const artifactExtension =
+    plan.target.platform === 'wasi' || plan.target.platform === 'wasm'
+      ? 'wasm'
+      : 'node'
+  const filename = `${binaryName}.${plan.target.platformArchABI}.${artifactExtension}`
+  return {
+    artifactPath: join(packageDir, filename),
+    filename,
+    packageDir,
   }
+}
+
+interface CommitPrePublishFileSystemTransactionOptions {
+  packageJsonPath: string
+  releasePackagePlans: ReleasePackageMaterializationPlan[]
+  rootDir: string
+  rootReleasePlan: RootReleaseMaterializationPlan
+  stagedRootDir: string
+}
+
+export async function commitPrePublishFileSystemTransaction({
+  packageJsonPath,
+  releasePackagePlans,
+  rootDir,
+  rootReleasePlan,
+  stagedRootDir,
+}: CommitPrePublishFileSystemTransactionOptions) {
+  const writes: FileSystemTransactionWrite[] = []
+  for (const plan of releasePackagePlans) {
+    if (!plan.stagedPkgDir) {
+      throw new Error(
+        `Release package ${plan.target.platformArchABI} was not staged`,
+      )
+    }
+    for (const declarationFile of plan.declarationDependencies) {
+      writes.push({
+        destination: join(plan.pkgDir, declarationFile),
+        source: join(plan.stagedPkgDir, declarationFile),
+      })
+    }
+    writes.push({
+      destination: join(plan.pkgDir, 'package.json'),
+      source: join(plan.stagedPkgDir, 'package.json'),
+    })
+  }
+
+  for (const generatedFile of rootReleasePlan.facade?.generatedFiles ?? []) {
+    writes.push({
+      destination: join(rootDir, generatedFile),
+      source: join(stagedRootDir, generatedFile),
+    })
+  }
+  // Keep the root manifest last so every package and facade mutation is
+  // rolled back if the final publication metadata cannot be committed.
+  writes.push({
+    destination: packageJsonPath,
+    source: join(stagedRootDir, 'package.json'),
+  })
+
+  const generatedFiles = new Set(rootReleasePlan.facade?.generatedFiles ?? [])
+  const removals = rootReleasePlan.staleGeneratedFiles
+    .filter((file) => !generatedFiles.has(file))
+    .map((file) => join(rootDir, file))
+  await commitFileSystemTransaction(rootDir, writes, removals)
 }
 
 async function validateReleasePackageContents({
