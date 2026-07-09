@@ -151,6 +151,15 @@ let __napiInstance
 let __wasiModule
 let __napiModule
 
+function __destroyEmnapiContext() {
+  const __prepareWasmEnvCleanup =
+    __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+  if (typeof __prepareWasmEnvCleanup === 'function') {
+    __prepareWasmEnvCleanup()
+  }
+  return __emnapiContext.destroy()
+}
+
 try {
   __emnapiContext.feature.Buffer = Buffer
 
@@ -172,6 +181,7 @@ try {
       return importObject
     },
     beforeInit({ instance }) {
+      __napiInstance = instance
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()
@@ -182,7 +192,7 @@ try {
 } catch (__error) {
   const __cleanupErrors = []
   try {
-    await __emnapiContext.destroy()
+    await __destroyEmnapiContext()
   } catch (__cleanupError) {
     __cleanupErrors.push(__cleanupError)
   }

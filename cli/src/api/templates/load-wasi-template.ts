@@ -1191,19 +1191,7 @@ function __terminateWasiInitializationWorkers(__error) {
     // terminate their emnapi workers.
 `
     : ''
-  const synchronousInitializationCleanup = threads
-    ? `  } else {
-    __terminateWasiInitializationWorkers(__error)
-    if (!__cleanupFailed) {
-      try {
-        __removeEmnapiContextCleanupListeners()
-      } catch (__cleanupError) {
-        __preserveCleanupError(__error, __cleanupError)
-      }
-    }
-  }
-`
-    : `  } else if (!__cleanupFailed) {
+  const synchronousInitializationCleanup = `  } else if (!__cleanupFailed) {
     try {
       __removeEmnapiContextCleanupListeners()
     } catch (__cleanupError) {
@@ -1334,6 +1322,7 @@ let __emnapiContextRegisteredForBeforeExit = false
 let __emnapiContextRegisteredForExit = false
 let __emnapiContextBeforeExitRegistrationRetryCount = 0
 let __emnapiContextBeforeExitRegistrationRetryScheduled = false
+${threads ? 'let __wasiInitializationError\n' : ''}\
 let __contextInitializationError
 let __contextInitializationFailed = false
 try {
@@ -1397,6 +1386,7 @@ function __destroyEmnapiContext() {
         __emnapiContextDestroying = false
         __emnapiContextDestroyed = true
         __emnapiContextDestroyPromise = undefined
+${threads ? '        __terminateWasiInitializationWorkers(__wasiInitializationError)\n' : ''}\
         return value
       },
       (error) => {
@@ -1415,6 +1405,7 @@ function __destroyEmnapiContext() {
   }
   __emnapiContextDestroying = false
   __emnapiContextDestroyed = true
+${threads ? '  __terminateWasiInitializationWorkers(__wasiInitializationError)\n' : ''}\
 }
 
 function __removeEmnapiContextBeforeExitListener() {
@@ -1743,6 +1734,7 @@ ${workerOption}\
   __handoffEmnapiContextCleanupToExit()
 ${threads ? '  __wasiInitializationWorkers.clear()\n' : ''}\
 } catch (__error) {
+${threads ? '  __wasiInitializationError = __error\n' : ''}\
   let __cleanupResult
   let __cleanupFailed = false
   try {
@@ -1760,7 +1752,6 @@ ${workerCleanupOrderComment}\
   if (__cleanupResult) {
     void __cleanupResult.then(
       () => {
-${threads ? '        __terminateWasiInitializationWorkers(__error)\n' : ''}\
         try {
           __removeEmnapiContextCleanupListeners()
         } catch (__cleanupError) {
@@ -1769,7 +1760,6 @@ ${threads ? '        __terminateWasiInitializationWorkers(__error)\n' : ''}\
       },
       (__cleanupError) => {
         __preserveCleanupError(__error, __cleanupError)
-${threads ? '        __terminateWasiInitializationWorkers(__error)\n' : ''}\
         try {
           __retainEmnapiContextCleanupListener()
         } catch (__listenerError) {

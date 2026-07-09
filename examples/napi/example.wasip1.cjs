@@ -58,6 +58,7 @@ function __captureEmnapiAutoDestroyListener() {
 
 const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
 let __emnapiContext
+let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroying = false
 let __emnapiContextDestroyPromise
@@ -94,6 +95,11 @@ function __destroyEmnapiContext() {
   __emnapiContextDestroying = true
   let __result
   try {
+    const __prepareWasmEnvCleanup =
+      __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+    if (typeof __prepareWasmEnvCleanup === 'function') {
+      __prepareWasmEnvCleanup()
+    }
     __result = __emnapiContext.destroy()
   } catch (error) {
     __emnapiContextDestroying = false
@@ -402,7 +408,6 @@ if (__contextInitializationFailed) {
 }
 
 let __wasmMemory
-let __napiInstance
 let __wasiModule
 let __napiModule
 
@@ -451,6 +456,7 @@ try {
       return importObject
     },
     beforeInit({ instance }) {
+      __napiInstance = instance
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()

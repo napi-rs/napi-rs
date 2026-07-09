@@ -9,7 +9,6 @@ const require = createRequire(import.meta.url)
 const loaderPath = require.resolve('../example.wasi.cjs')
 const operationTimeout = 10_000
 const wasmRuntime = require('@napi-rs/wasm-runtime')
-const createContext = wasmRuntime.createContext
 const instantiateNapiModuleSync = wasmRuntime.instantiateNapiModuleSync
 const emnapiRuntime = require('@emnapi/runtime')
 const createContext = emnapiRuntime.createContext
@@ -42,7 +41,6 @@ function loadFresh() {
   delete require.cache[loaderPath]
   const contexts = []
   const instances = []
-  wasmRuntime.createContext = function captureWasiContext(...args) {
   emnapiRuntime.createContext = function captureWasiContext(...args) {
     const context = createContext.apply(this, args)
     contexts.push(context)
@@ -59,13 +57,26 @@ function loadFresh() {
   try {
     binding = require(loaderPath)
   } finally {
-    wasmRuntime.createContext = createContext
     wasmRuntime.instantiateNapiModuleSync = instantiateNapiModuleSync
     emnapiRuntime.createContext = createContext
   }
   assert.equal(contexts.length, 1)
   assert.equal(instances.length, 1)
   return { binding, context: contexts[0], instance: instances[0] }
+}
+
+function generatedExitCleanupListeners() {
+  return process
+    .rawListeners('exit')
+    .filter(
+      (listener) =>
+        listener.name === '__destroyEmnapiContextAtExit' ||
+        listener.listener?.name === '__destroyEmnapiContextAtExit',
+    )
+}
+
+function invokeExitCleanup(listener) {
+  Reflect.apply(listener, process, [0])
 }
 
 const directory = await mkdtemp(join(tmpdir(), 'napi-wasi-context-reload-'))
@@ -109,13 +120,15 @@ try {
     await waitForResult(asyncStartedPath, 'pending async task start'),
     'started',
   )
-  firstInstance.exports.napi_prepare_wasm_env_cleanup()
+  const firstExitListeners = generatedExitCleanupListeners()
+  assert.equal(firstExitListeners.length, 1)
+  invokeExitCleanup(firstExitListeners[0])
   assert.equal(
     await waitForResult(asyncFinalizerPath, 'pending async finalizer'),
     'finalized',
   )
-  firstContext.destroy()
   await withTimeout(pendingRejection, 'pending async promise rejection')
+  assert.equal(generatedExitCleanupListeners().length, 0)
 
   assert.equal(await waitForResult(cleanupPath, 'sync cleanup result'), '0')
   assert.equal(
@@ -130,9 +143,14 @@ try {
   assert.equal(typeof replacementContext?.destroy, 'function')
   assert.notEqual(replacementContext, firstContext)
   assert.equal(replacement.add(2, 3), 5)
+  const replacementExitListeners = generatedExitCleanupListeners()
+  assert.equal(replacementExitListeners.length, 1)
+  invokeExitCleanup(replacementExitListeners[0])
+  assert.equal(generatedExitCleanupListeners().length, 0)
 } finally {
-  firstContext?.destroy()
-  replacementContext?.destroy()
+  for (const listener of generatedExitCleanupListeners()) {
+    invokeExitCleanup(listener)
+  }
   delete require.cache[loaderPath]
   await rm(directory, { recursive: true, force: true })
 }

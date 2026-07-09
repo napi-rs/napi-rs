@@ -1406,7 +1406,7 @@ export declare function passSetWithHasherToJs(): Set<string>
 
 export declare function pathParent(path: string): string | null
 
-export declare function pendingAsyncBlockWithTerminalFinalizer(resultPath: string): Promise<undefined>
+export declare function pendingAsyncBlockWithTerminalFinalizer(resultPath: string, startedPath?: string | undefined | null): Promise<undefined>
 
 export interface Pet {
   name: string

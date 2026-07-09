@@ -181,6 +181,15 @@ let __wasiModule
 let __napiModule
 let __tsfnTestStatePointer
 
+function __destroyEmnapiContext() {
+  const __prepareWasmEnvCleanup =
+    __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+  if (typeof __prepareWasmEnvCleanup === 'function') {
+    __prepareWasmEnvCleanup()
+  }
+  return __emnapiContext.destroy()
+}
+
 try {
   __emnapiContext.feature.Buffer = Buffer
 
@@ -330,6 +339,7 @@ try {
       return importObject
     },
     beforeInit({ instance }) {
+      __napiInstance = instance
       __tsfnTestStatePointer = instance.exports.__napi_rs_test_tsfn_state_ptr()
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
@@ -342,7 +352,7 @@ try {
 } catch (__error) {
   const __cleanupErrors = []
   try {
-    await __emnapiContext.destroy()
+    await __destroyEmnapiContext()
   } catch (__cleanupError) {
     __cleanupErrors.push(__cleanupError)
   }

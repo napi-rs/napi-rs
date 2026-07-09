@@ -120,6 +120,7 @@ function __captureEmnapiAutoDestroyListener() {
 
 const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
 let __emnapiContext
+let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroying = false
 let __emnapiContextDestroyPromise
@@ -127,6 +128,7 @@ let __emnapiContextRegisteredForBeforeExit = false
 let __emnapiContextRegisteredForExit = false
 let __emnapiContextBeforeExitRegistrationRetryCount = 0
 let __emnapiContextBeforeExitRegistrationRetryScheduled = false
+let __wasiInitializationError
 let __contextInitializationError
 let __contextInitializationFailed = false
 try {
@@ -156,6 +158,11 @@ function __destroyEmnapiContext() {
   __emnapiContextDestroying = true
   let __result
   try {
+    const __prepareWasmEnvCleanup =
+      __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+    if (typeof __prepareWasmEnvCleanup === 'function') {
+      __prepareWasmEnvCleanup()
+    }
     __result = __emnapiContext.destroy()
   } catch (error) {
     __emnapiContextDestroying = false
@@ -185,6 +192,7 @@ function __destroyEmnapiContext() {
         __emnapiContextDestroying = false
         __emnapiContextDestroyed = true
         __emnapiContextDestroyPromise = undefined
+        __terminateWasiInitializationWorkers(__wasiInitializationError)
         return value
       },
       (error) => {
@@ -203,6 +211,7 @@ function __destroyEmnapiContext() {
   }
   __emnapiContextDestroying = false
   __emnapiContextDestroyed = true
+  __terminateWasiInitializationWorkers(__wasiInitializationError)
 }
 
 function __removeEmnapiContextBeforeExitListener() {
@@ -464,7 +473,6 @@ if (__contextInitializationFailed) {
 }
 
 let __sharedMemory
-let __napiInstance
 let __wasiModule
 let __napiModule
 
@@ -554,6 +562,7 @@ try {
       return importObject
     },
     beforeInit({ instance }) {
+      __napiInstance = instance
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()
@@ -570,6 +579,7 @@ try {
   __handoffEmnapiContextCleanupToExit()
   __wasiInitializationWorkers.clear()
 } catch (__error) {
+  __wasiInitializationError = __error
   let __cleanupResult
   let __cleanupFailed = false
   try {
@@ -588,7 +598,6 @@ try {
   if (__cleanupResult) {
     void __cleanupResult.then(
       () => {
-        __terminateWasiInitializationWorkers(__error)
         try {
           __removeEmnapiContextCleanupListeners()
         } catch (__cleanupError) {
@@ -597,7 +606,6 @@ try {
       },
       (__cleanupError) => {
         __preserveCleanupError(__error, __cleanupError)
-        __terminateWasiInitializationWorkers(__error)
         try {
           __retainEmnapiContextCleanupListener()
         } catch (__listenerError) {
@@ -605,14 +613,11 @@ try {
         }
       },
     )
-  } else {
-    __terminateWasiInitializationWorkers(__error)
-    if (!__cleanupFailed) {
-      try {
-        __removeEmnapiContextCleanupListeners()
-      } catch (__cleanupError) {
-        __preserveCleanupError(__error, __cleanupError)
-      }
+  } else if (!__cleanupFailed) {
+    try {
+      __removeEmnapiContextCleanupListeners()
+    } catch (__cleanupError) {
+      __preserveCleanupError(__error, __cleanupError)
     }
   }
   throw __error

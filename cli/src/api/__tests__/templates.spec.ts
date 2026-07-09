@@ -476,6 +476,7 @@ test.serial(
       const cleanupError = new Error(`cleanup failed: ${mode}`)
       const queuedMicrotasks: Array<() => void> = []
       const workers: Worker[] = []
+      let failCleanup = mode !== 'async-success'
 
       class Worker {
         terminateCalls = 0
@@ -543,13 +544,13 @@ test.serial(
                 suppressDestroy() {},
                 destroy() {
                   events.push('destroy')
-                  if (mode === 'sync-failure') {
+                  if (failCleanup && mode === 'sync-failure') {
                     throw cleanupError
                   }
                   return new Promise<void>((resolve, reject) => {
                     setImmediate(() => {
                       events.push('destroy-settled')
-                      if (mode === 'async-failure') {
+                      if (failCleanup && mode === 'async-failure') {
                         reject(cleanupError)
                       } else {
                         resolve()
@@ -592,7 +593,7 @@ test.serial(
 
       t.is(observed, initializationError)
       if (mode === 'sync-failure') {
-        t.deepEqual(events, ['prepare', 'destroy', 'terminate'])
+        t.deepEqual(events, ['prepare', 'destroy'])
       } else {
         t.deepEqual(events, ['prepare', 'destroy'])
         await new Promise<void>((resolve) => {
@@ -601,20 +602,39 @@ test.serial(
         await new Promise<void>((resolve) => {
           setImmediate(resolve)
         })
-        t.deepEqual(events, [
+        t.deepEqual(
+          events,
+          mode === 'async-success'
+            ? ['prepare', 'destroy', 'destroy-settled', 'terminate']
+            : ['prepare', 'destroy', 'destroy-settled'],
+        )
+      }
+      if (mode === 'async-success') {
+        t.is(workers[0]?.terminateCalls, 1)
+        t.is(initializationError.cause, undefined)
+        t.is(processMock.rawListeners('beforeExit').length, 0)
+      } else {
+        t.is(workers[0]?.terminateCalls, 0)
+        t.is(initializationError.cause, cleanupError)
+        const retryListeners = processMock.rawListeners('beforeExit')
+        t.is(retryListeners.length, 1)
+        failCleanup = false
+        const retryEventOffset = events.length
+        Reflect.apply(retryListeners[0], processMock, [])
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve)
+        })
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve)
+        })
+        t.deepEqual(events.slice(retryEventOffset), [
           'prepare',
           'destroy',
           'destroy-settled',
           'terminate',
         ])
-      }
-      t.is(workers[0]?.terminateCalls, 1)
-      if (mode === 'async-success') {
-        t.is(initializationError.cause, undefined)
+        t.is(workers[0]?.terminateCalls, 1)
         t.is(processMock.rawListeners('beforeExit').length, 0)
-      } else {
-        t.is(initializationError.cause, cleanupError)
-        t.is(processMock.rawListeners('beforeExit').length, 1)
       }
       t.is(processMock.rawListeners('exit').length, 0)
       t.is(queuedMicrotasks.length, 0)

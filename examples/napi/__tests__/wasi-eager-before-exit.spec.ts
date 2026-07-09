@@ -51,6 +51,26 @@ test.skipIf(!isWasi)(
   },
 )
 
+test.skipIf(!isWasi || wasiLoaderSuffix !== 'wasi')(
+  'threaded eager WASI rollback settles pending runtime work and retries cleanup',
+  (t) => {
+    const result = spawnSync(
+      process.execPath,
+      [join(__dirname, 'wasi-eager-runtime-rollback.js')],
+      {
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 30_000,
+      },
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /eager runtime rollback passed/)
+  },
+)
+
 for (const fault of [
   'exit-registration',
   'before-exit-removal',
