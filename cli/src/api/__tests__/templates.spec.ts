@@ -367,6 +367,13 @@ test.serial(
               _wasm: Uint8Array,
               options: {
                 context: { id: number }
+                beforeInit(input: {
+                  instance: {
+                    exports: {
+                      napi_prepare_wasm_env_cleanup(): void
+                    }
+                  }
+                }): void
                 onCreateWorker(): Worker
               },
             ) {
@@ -374,6 +381,14 @@ test.serial(
               options.onCreateWorker()
               options.onCreateWorker()
               options.onCreateWorker()
+              const instance = {
+                exports: {
+                  napi_prepare_wasm_env_cleanup() {
+                    events.push(`prepare:${activeContext}`)
+                  },
+                },
+              }
+              options.beforeInit({ instance })
               throw initializationError
             },
           }
@@ -422,7 +437,8 @@ test.serial(
       }
 
       t.is(observed, initializationError)
-      t.deepEqual(events.slice(eventOffset, eventOffset + 4), [
+      t.deepEqual(events.slice(eventOffset, eventOffset + 5), [
+        `prepare:${attempt}`,
         `destroy:${attempt}`,
         `terminate:${attempt}:${workerOffset + 1}`,
         `terminate:${attempt}:${workerOffset + 2}`,
@@ -498,9 +514,26 @@ test.serial(
               createOnMessage: () => () => {},
               instantiateNapiModuleSync(
                 _wasm: Uint8Array,
-                options: { onCreateWorker(): Worker },
+                options: {
+                  beforeInit(input: {
+                    instance: {
+                      exports: {
+                        napi_prepare_wasm_env_cleanup(): void
+                      }
+                    }
+                  }): void
+                  onCreateWorker(): Worker
+                },
               ) {
                 options.onCreateWorker()
+                const instance = {
+                  exports: {
+                    napi_prepare_wasm_env_cleanup() {
+                      events.push('prepare')
+                    },
+                  },
+                }
+                options.beforeInit({ instance })
                 throw initializationError
               },
             }
@@ -559,16 +592,21 @@ test.serial(
 
       t.is(observed, initializationError)
       if (mode === 'sync-failure') {
-        t.deepEqual(events, ['destroy', 'terminate'])
+        t.deepEqual(events, ['prepare', 'destroy', 'terminate'])
       } else {
-        t.deepEqual(events, ['destroy'])
+        t.deepEqual(events, ['prepare', 'destroy'])
         await new Promise<void>((resolve) => {
           setImmediate(resolve)
         })
         await new Promise<void>((resolve) => {
           setImmediate(resolve)
         })
-        t.deepEqual(events, ['destroy', 'destroy-settled', 'terminate'])
+        t.deepEqual(events, [
+          'prepare',
+          'destroy',
+          'destroy-settled',
+          'terminate',
+        ])
       }
       t.is(workers[0]?.terminateCalls, 1)
       if (mode === 'async-success') {
@@ -996,9 +1034,17 @@ module.exports = __napiModule.exports
       await writeFile(
         join(runtimeDir, 'index.cjs'),
         `module.exports = {
-  instantiateNapiModuleSync() {
+  instantiateNapiModuleSync(_wasm, options) {
+    const instance = {
+      exports: {
+        napi_prepare_wasm_env_cleanup() {
+          process.stdout.write('terminal-prepare\\n')
+        },
+      },
+    }
+    options.beforeInit({ instance })
     return {
-      instance: {},
+      instance,
       module: {},
       napiModule: { exports: {} },
     }
@@ -1045,7 +1091,7 @@ process.exit(0)
         ['--unhandled-rejections=strict', join(tmpDir, 'exit.cjs')],
         { cwd: tmpDir, timeout: 2_000 },
       )
-      t.is(result.stdout, 'terminal-cleanup\n')
+      t.is(result.stdout, 'terminal-prepare\nterminal-cleanup\n')
     } finally {
       await rm(tmpDir, { recursive: true, force: true })
     }
@@ -1808,6 +1854,14 @@ export function createOnMessage() {
 function failInitialization(options) {
   const state = globalThis.__browserWasiRollbackState
   state.contexts.push(options.context)
+  const attempt = state.attempt
+  const instance = {
+    exports: {
+      napi_prepare_wasm_env_cleanup() {
+        state.events.push('prepare:' + attempt)
+      },
+    },
+  }
   if (options.onCreateWorker) {
     for (const type of ['thread', 'async-work']) {
       state.nextWorkerType = type
@@ -1818,6 +1872,7 @@ function failInitialization(options) {
     }
     state.nextWorkerType = undefined
   }
+  options.beforeInit({ instance })
   throw state.initializationError
 }
 
@@ -1989,6 +2044,7 @@ for (const cleanupMode of [
     threads ? "['thread', 'async-work']" : '[]'
   })
   assert.ok(workers.every((worker) => worker.terminateCalls === 1))
+  const prepareIndex = events.indexOf('prepare:' + state.attempt)
   const destroyIndex = events.indexOf('destroy:' + state.attempt)
   const destroySettledIndex = events.indexOf(
     'destroy-settled:' + state.attempt,
@@ -1996,7 +2052,8 @@ for (const cleanupMode of [
   const firstTerminationIndex = events.findIndex((event) =>
     event.startsWith('terminate:' + state.attempt + ':'),
   )
-  assert.ok(destroyIndex >= 0)
+  assert.ok(prepareIndex >= 0)
+  assert.ok(destroyIndex > prepareIndex)
   if (cleanupMode === 'sync-failure') {
     assert.equal(destroySettledIndex, -1)
   } else {
@@ -3381,13 +3438,21 @@ module.exports = __napiModule.exports
       await writeFile(
         join(runtimeDir, 'index.cjs'),
         `module.exports = {
-  instantiateNapiModuleSync() {
+  instantiateNapiModuleSync(_wasm, options) {
     const state = globalThis.__cjsRollbackState
+    const instance = {
+      exports: {
+        napi_prepare_wasm_env_cleanup() {
+          state.prepared.push(state.contexts)
+        },
+      },
+    }
+    options.beforeInit({ instance })
     if (state.initializationError) {
       throw state.initializationError
     }
     return {
-      instance: {},
+      instance,
       module: {},
       napiModule: { exports: {} },
     }
@@ -3448,6 +3513,7 @@ const state = {
   contexts: 0,
   destroyAttempts: [],
   destroyed: [],
+  prepared: [],
   cleanupError: undefined,
   destroyThenGetterError: undefined,
   initializationError: undefined,
@@ -3579,6 +3645,7 @@ assert.deepStrictEqual(
   [1, 1, 2, 3, 3, 4, 4, 5, 6],
 )
 assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4, 5, 6])
+assert.deepStrictEqual(state.prepared, [6])
 process.stdout.write('rollback-ok\\n')
 `,
       )

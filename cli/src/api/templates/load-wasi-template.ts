@@ -163,6 +163,15 @@ let __napiInstance
 let __wasiModule
 let __napiModule
 
+function __destroyEmnapiContext() {
+  const __prepareWasmEnvCleanup =
+    __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+  if (typeof __prepareWasmEnvCleanup === 'function') {
+    __prepareWasmEnvCleanup()
+  }
+  return __emnapiContext.destroy()
+}
+
 try {
 ${emnapiInjectBuffer}  ;({
     instance: __napiInstance,
@@ -183,6 +192,7 @@ ${workerOption}\
       return importObject
     },
     beforeInit({ instance }) {
+      __napiInstance = instance
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()
@@ -194,7 +204,7 @@ ${threads ? '  __wasiInitializationWorkers.clear()\n' : ''}\
 } catch (__error) {
   const __cleanupErrors = []
   try {
-    await __emnapiContext.destroy()
+    await __destroyEmnapiContext()
   } catch (__cleanupError) {
     __cleanupErrors.push(__cleanupError)
   }
@@ -1316,6 +1326,7 @@ function __captureEmnapiAutoDestroyListener() {
 
 const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
 let __emnapiContext
+let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroying = false
 let __emnapiContextDestroyPromise
@@ -1352,6 +1363,11 @@ function __destroyEmnapiContext() {
   __emnapiContextDestroying = true
   let __result
   try {
+    const __prepareWasmEnvCleanup =
+      __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+    if (typeof __prepareWasmEnvCleanup === 'function') {
+      __prepareWasmEnvCleanup()
+    }
     __result = __emnapiContext.destroy()
   } catch (error) {
     __emnapiContextDestroying = false
@@ -1660,7 +1676,6 @@ if (__contextInitializationFailed) {
 }
 
 let ${memoryName}
-let __napiInstance
 let __wasiModule
 let __napiModule
 
@@ -1711,6 +1726,7 @@ ${workerOption}\
       return importObject
     },
     beforeInit({ instance }) {
+      __napiInstance = instance
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()
