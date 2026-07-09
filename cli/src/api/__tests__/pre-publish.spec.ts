@@ -39,7 +39,9 @@ const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const test = ava as TestFn<{ tmpDir: string }>
 const permissionsTest = process.platform === 'win32' ? test.skip : test
-const fifoTest = process.platform === 'win32' ? test.skip : test
+const serialPermissionsTest =
+  process.platform === 'win32' ? test.serial.skip : test.serial
+const fifoTest = process.platform === 'win32' ? test.serial.skip : test.serial
 const MINIMAL_WASM = Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
 const emnapiVersion = require('emnapi/package.json').version
 const wasmRuntimeVersion =
@@ -2596,7 +2598,7 @@ test('pre-publish contains a nested package and sibling npm directory in one tra
   )
 })
 
-fifoTest.serial(
+fifoTest(
   'artifact collection and pre-publish share the nested workspace reconciliation boundary',
   async (t) => {
     const workspaceRoot = t.context.tmpDir
@@ -3716,7 +3718,7 @@ test.serial(
   },
 )
 
-permissionsTest.serial(
+serialPermissionsTest(
   'pre-publish validates declaration dependencies through copied read-only directories',
   async (t) => {
     await setupThreadlessPackage(t.context.tmpDir)

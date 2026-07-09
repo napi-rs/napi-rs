@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import {
   chmod,
   mkdir,
@@ -21,6 +21,10 @@ const test = ava as TestFn<{
 }>
 const permissionsTest = process.platform === 'win32' ? test.skip : test
 const directorySymlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+
+function canonicalPath(path: string) {
+  return realpathSync.native(path)
+}
 
 test.beforeEach(async (t) => {
   const timestamp = Date.now()
@@ -312,7 +316,7 @@ for (const missingRootEntry of ['index.js', 'browser.js']) {
         buildOutputDir: 'build-output',
       }),
     )
-    t.true(error.message.includes(buildOutputDir))
+    t.true(error.message.includes(canonicalPath(buildOutputDir)))
     t.true(
       error.message.includes(`missing required root entry ${missingRootEntry}`),
     )
@@ -1002,8 +1006,14 @@ test('rejects duplicate configured WASI artifacts before copying', async (t) => 
     /Multiple artifacts found for binary artifact identities/,
   )
   t.true(error.message.includes(artifactName))
-  t.true(error.message.includes(join(tmpDir, 'artifacts', artifactName)))
-  t.true(error.message.includes(join(duplicateDir, artifactName)))
+  t.true(
+    error.message.includes(
+      canonicalPath(join(tmpDir, 'artifacts', artifactName)),
+    ),
+  )
+  t.true(
+    error.message.includes(canonicalPath(join(duplicateDir, artifactName))),
+  )
   t.regex(error.message, /exactly one build.*narrow --output-dir/)
   t.false(existsSync(join(wasiDir, artifactName)))
 })
@@ -1041,9 +1051,13 @@ test('rejects duplicate native artifacts before copying', async (t) => {
     /Multiple artifacts found for binary artifact identities/,
   )
   t.true(error.message.includes(artifactName))
+  const canonicalFirstArtifact = canonicalPath(firstArtifact)
+  const canonicalSecondArtifact = canonicalPath(secondArtifact)
+  t.true(error.message.includes(canonicalFirstArtifact))
+  t.true(error.message.includes(canonicalSecondArtifact))
   t.true(
-    error.message.indexOf(firstArtifact) <
-      error.message.indexOf(secondArtifact),
+    error.message.indexOf(canonicalFirstArtifact) <
+      error.message.indexOf(canonicalSecondArtifact),
   )
   t.regex(error.message, /exactly one build.*narrow --output-dir/)
   t.false(existsSync(join(distDir, artifactName)))

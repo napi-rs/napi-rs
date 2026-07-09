@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import {
   chmod,
   link,
@@ -21,6 +21,7 @@ import {
 import { tmpdir } from 'node:os'
 import {
   basename,
+  delimiter,
   dirname,
   extname,
   isAbsolute,
@@ -53,6 +54,50 @@ const reconciliationMetadataExtension = '.swp'
 const reconciliationLockKind = 'napi-rs-filesystem-reconciliation-lock'
 const reconciliationReclaimKind = 'napi-rs-filesystem-reconciliation-reclaim'
 const transactionJournalName = '.napi-rs-filesystem-transaction.swp'
+
+function resolveNpmCliFrom(directory: string) {
+  for (const candidate of [
+    join(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(directory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ]) {
+    if (existsSync(candidate)) {
+      return realpathSync(candidate)
+    }
+  }
+}
+
+function resolveNpmCli() {
+  const bundledNpmCli = resolveNpmCliFrom(dirname(process.execPath))
+  if (bundledNpmCli) {
+    return bundledNpmCli
+  }
+
+  const npmLauncher = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  for (const pathEntry of (process.env.PATH ?? '').split(delimiter)) {
+    if (!pathEntry) {
+      continue
+    }
+
+    const launcherPath = join(pathEntry, npmLauncher)
+    if (!existsSync(launcherPath)) {
+      continue
+    }
+
+    const resolvedLauncherPath = realpathSync(launcherPath)
+    if (resolvedLauncherPath.endsWith('npm-cli.js')) {
+      return resolvedLauncherPath
+    }
+
+    const npmCli =
+      resolveNpmCliFrom(dirname(resolvedLauncherPath)) ??
+      resolveNpmCliFrom(dirname(launcherPath))
+    if (npmCli) {
+      return npmCli
+    }
+  }
+
+  throw new Error(`Could not resolve ${npmLauncher} from PATH`)
+}
 
 function reconciliationLockPath(key: string) {
   return join(
@@ -2938,8 +2983,8 @@ test('filesystem reconciliation metadata is excluded from parent package tarball
   let packedFiles: Array<{ path: string }> = []
   await withFileSystemReconciliation(root, async () => {
     const { stdout } = await execFileAsync(
-      'npm',
-      ['pack', '--dry-run', '--json', '--ignore-scripts'],
+      process.execPath,
+      [resolveNpmCli(), 'pack', '--dry-run', '--json', '--ignore-scripts'],
       { cwd: packageRoot },
     )
     packedFiles = (
