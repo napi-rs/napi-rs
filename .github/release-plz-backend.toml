@@ -1,0 +1,9 @@
+[workspace]
+allow_dirty = true
+git_tag_name = "{{ package }}-v{{ version }}"
+release = false
+release_always = false
+
+[[package]]
+name = "napi-derive-backend"
+release = true

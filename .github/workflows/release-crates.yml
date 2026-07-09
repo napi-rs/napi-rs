@@ -5,16 +5,57 @@ permissions:
   contents: write
 
 on:
+  pull_request:
+    paths:
+      - '.github/RELEASING.md'
+      - '.github/release-plz-*.toml'
+      - '.github/release-coordination.mjs'
+      - '.github/release-coordination.test.mjs'
+      - '.github/workflows/release-crates.yml'
+      - 'crates/backend/**'
+      - 'crates/build/**'
+      - 'crates/macro/**'
+      - 'crates/napi/**'
+      - 'crates/sys/**'
+      - 'package.json'
+      - 'release-plz.toml'
   push:
     branches:
       - main
 
 jobs:
+  release-readiness:
+    name: Release readiness
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
+        with:
+          tool: cargo-semver-checks@0.48.0
+      - name: Check coordinated release metadata
+        run: node .github/release-coordination.mjs check --require-clean
+      - name: Test coordinated release order
+        run: node --test .github/release-coordination.test.mjs
+      - name: Check Rust API semver
+        run: node .github/release-coordination.mjs check-semver
+
   # Release unpublished packages.
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'napi-rs' }}
+    needs: release-readiness
+    if: ${{ github.event_name == 'push' && github.repository_owner == 'napi-rs' }}
+    concurrency:
+      group: release-plz-release
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
@@ -25,21 +66,30 @@ jobs:
           fetch-depth: 0
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
-        id: auth
-      - name: Run release-plz
-        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
-        with:
-          command: release
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@30b5ca8b54e1dcffd9548bc87ede1531310fdc67 # v1.20.0
+      - name: Install release-plz
+        run: >-
+          cargo binstall release-plz@0.3.159 --force
+          --strategies=crate-meta-data,compile --no-confirm
+      - name: Configure git user
+        uses: release-plz/git-config@59144859caf016f8b817a2ac9b051578729173c4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        id: auth
+      - name: Run coordinated release
+        run: node .github/release-coordination.mjs publish
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'napi-rs' }}
+    needs: release-readiness
+    if: ${{ github.event_name == 'push' && github.repository_owner == 'napi-rs' }}
     permissions:
       contents: write
       pull-requests: write
@@ -57,5 +107,6 @@ jobs:
         uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
         with:
           command: release-pr
+          config: release-plz.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

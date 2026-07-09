@@ -25,6 +25,7 @@
     "build:bench": "yarn workspace bench build",
     "build:memory": "yarn workspace memory-testing build",
     "build:test": "lerna run build --stream --concurrency 1 --scope=\"@examples/*\"",
+    "check:release-coordination": "node .github/release-coordination.mjs check",
     "format": "run-p format:prettier format:rs format:toml",
     "format:prettier": "prettier . -w",
     "format:rs": "cargo fmt",
@@ -36,6 +37,7 @@
     "test:electron": "electron examples/napi/electron.cjs",
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
+    "test:release-coordination": "node --test .github/release-coordination.test.mjs",
     "postinstall": "husky install",
     "prepare": "husky"
   },

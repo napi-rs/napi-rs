@@ -141,7 +141,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "napi"
-version = "3.10.3"
+version = "4.0.0"
 dependencies = [
  "bitflags",
  "ctor",
