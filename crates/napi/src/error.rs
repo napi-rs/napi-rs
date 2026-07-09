@@ -14,8 +14,6 @@ use serde_json::Error as SerdeJSONError;
 
 #[cfg(target_family = "wasm")]
 use crate::bindgen_runtime::JsObjectValue;
-#[cfg(feature = "napi4")]
-use crate::check_status;
 use crate::ValueType;
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, JsValue, Status, Unknown};
 
@@ -27,6 +25,107 @@ const ERROR_VALUE_KEY: &CStr = c"[[ErrorValue]]";
 type ErrorRefHandle = std::sync::Arc<ErrorRef>;
 #[cfg(not(feature = "napi4"))]
 type ErrorRefHandle = std::rc::Rc<ErrorRef>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PendingExceptionState {
+  None,
+  Cleared(sys::napi_value),
+  Unavailable(sys::napi_status),
+}
+
+fn take_pending_exception_with(
+  check: impl FnOnce() -> std::result::Result<bool, sys::napi_status>,
+  clear: impl FnOnce() -> std::result::Result<sys::napi_value, sys::napi_status>,
+) -> PendingExceptionState {
+  match check() {
+    Ok(false) => PendingExceptionState::None,
+    Ok(true) => match clear() {
+      Ok(exception) if !exception.is_null() => PendingExceptionState::Cleared(exception),
+      Ok(_) => PendingExceptionState::Unavailable(sys::Status::napi_generic_failure),
+      Err(status) => PendingExceptionState::Unavailable(status),
+    },
+    Err(status) => PendingExceptionState::Unavailable(status),
+  }
+}
+
+pub(crate) fn take_pending_exception(env: sys::napi_env) -> PendingExceptionState {
+  take_pending_exception_with(
+    || {
+      let mut is_pending = false;
+      let status = unsafe { sys::napi_is_exception_pending(env, &mut is_pending) };
+      (status == sys::Status::napi_ok)
+        .then_some(is_pending)
+        .ok_or(status)
+    },
+    || {
+      let mut exception = ptr::null_mut();
+      let status = unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) };
+      (status == sys::Status::napi_ok)
+        .then_some(exception)
+        .ok_or(status)
+    },
+  )
+}
+
+pub(crate) enum ErrorCaptureResult {
+  Captured(Error),
+  Failed(Error),
+  EnvironmentUnavailable(sys::napi_status),
+}
+
+pub(crate) enum CheckedErrorValue {
+  Value(sys::napi_value),
+  Exception(sys::napi_value),
+  Failed(sys::napi_status),
+  EnvironmentUnavailable,
+}
+
+enum CheckedReferencedValue {
+  Value(sys::napi_value),
+  Missing,
+  Exception(sys::napi_value),
+  Failed(sys::napi_status),
+  EnvironmentUnavailable,
+}
+
+struct ErrorCaptureFailure {
+  status: sys::napi_status,
+  reason: &'static str,
+  environment_unavailable: Option<sys::napi_status>,
+}
+
+impl ErrorCaptureFailure {
+  fn from_napi_failure(env: sys::napi_env, status: sys::napi_status, reason: &'static str) -> Self {
+    let environment_unavailable = match take_pending_exception(env) {
+      PendingExceptionState::None | PendingExceptionState::Cleared(_) => None,
+      PendingExceptionState::Unavailable(status) => Some(status),
+    };
+    Self {
+      status,
+      reason,
+      environment_unavailable,
+    }
+  }
+
+  fn environment_unavailable(status: sys::napi_status, reason: &'static str) -> Self {
+    Self {
+      status,
+      reason,
+      environment_unavailable: Some(status),
+    }
+  }
+
+  fn into_error(self) -> Error {
+    Error::new(Status::from(self.status), self.reason)
+  }
+
+  fn into_transport_error(self) -> Error {
+    Error::new(
+      Status::GenericFailure,
+      format!("{}: {}", self.reason, Status::from(self.status)),
+    )
+  }
+}
 
 /// Represent `JsError`.
 /// Return this Error in `js_function`, **napi-rs** will throw it as `JsError` for you.
@@ -164,14 +263,39 @@ impl Error {
   /// `Promise` and async-generator rejection paths, where JavaScript permits any
   /// value and requires its identity to be preserved in the originating env.
   pub fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
+    Self::try_from_unknown_without_coercion_inner(value, false)
+      .unwrap_or_else(ErrorCaptureFailure::into_error)
+  }
+
+  pub(crate) fn capture_unknown_with_status_and_diagnostics(
+    value: Unknown<'_>,
+    status: Status,
+  ) -> ErrorCaptureResult {
+    match Self::try_from_unknown_without_coercion_inner(value, true) {
+      Ok(mut error) => {
+        error.status = status;
+        ErrorCaptureResult::Captured(error)
+      }
+      Err(failure) => match failure.environment_unavailable {
+        Some(status) => ErrorCaptureResult::EnvironmentUnavailable(status),
+        None => ErrorCaptureResult::Failed(failure.into_transport_error()),
+      },
+    }
+  }
+
+  fn try_from_unknown_without_coercion_inner(
+    value: Unknown<'_>,
+    include_diagnostics: bool,
+  ) -> std::result::Result<Self, ErrorCaptureFailure> {
     let env = value.0.env;
     let mut holder = ptr::null_mut();
     let status = unsafe { sys::napi_create_object(env, &mut holder) };
     if status != sys::Status::napi_ok {
-      return Self::new(
-        Status::from(status),
-        "Create Error value holder failed".to_owned(),
-      );
+      return Err(ErrorCaptureFailure::from_napi_failure(
+        env,
+        status,
+        "Create Error value holder failed",
+      ));
     }
     let properties = [sys::napi_property_descriptor {
       utf8name: ERROR_VALUE_KEY.as_ptr().cast(),
@@ -186,84 +310,191 @@ impl Error {
     let status =
       unsafe { sys::napi_define_properties(env, holder, properties.len(), properties.as_ptr()) };
     if status != sys::Status::napi_ok {
-      return Self::new(
-        Status::from(status),
-        "Store Error value in holder failed".to_owned(),
-      );
+      return Err(ErrorCaptureFailure::from_napi_failure(
+        env,
+        status,
+        "Store Error value in holder failed",
+      ));
     }
     let mut reference = ptr::null_mut();
     let status = unsafe { sys::napi_create_reference(env, holder, 1, &mut reference) };
     if status != sys::Status::napi_ok {
-      return Self::new(
-        Status::from(status),
-        "Create Error value holder reference failed".to_owned(),
-      );
+      return Err(ErrorCaptureFailure::from_napi_failure(
+        env,
+        status,
+        "Create Error value holder reference failed",
+      ));
     }
-    Self {
+    let maybe_ref = Some(ErrorRefHandle::new(ErrorRef::new_indirect(reference, env)));
+    let (reason, cause) = if include_diagnostics {
+      match owned_error_diagnostics_without_coercion(value) {
+        Ok(diagnostics) => diagnostics,
+        Err(status) => {
+          // The environment cannot prove whether a pending exception remains.
+          // Avoid any release call in that unknown state; env teardown owns the
+          // leaked reference.
+          std::mem::forget(maybe_ref);
+          return Err(ErrorCaptureFailure::environment_unavailable(
+            status,
+            "Capture Error diagnostics failed",
+          ));
+        }
+      }
+    } else {
+      match owned_error_message_without_coercion(value) {
+        Ok(reason) => (reason, None),
+        Err(status) => {
+          std::mem::forget(maybe_ref);
+          return Err(ErrorCaptureFailure::environment_unavailable(
+            status,
+            "Capture Error message failed",
+          ));
+        }
+      }
+    };
+    Ok(Self {
       status: Status::GenericFailure,
-      reason: owned_error_message_without_coercion(value),
-      cause: None,
-      maybe_ref: Some(ErrorRefHandle::new(ErrorRef::new_indirect(reference, env))),
-    }
+      reason,
+      cause,
+      maybe_ref,
+    })
   }
 }
 
-fn owned_error_message_without_coercion(value: Unknown<'_>) -> String {
+fn recover_from_napi_failure(env: sys::napi_env) -> std::result::Result<(), sys::napi_status> {
+  match take_pending_exception(env) {
+    PendingExceptionState::None | PendingExceptionState::Cleared(_) => Ok(()),
+    PendingExceptionState::Unavailable(status) => Err(status),
+  }
+}
+
+fn owned_error_message_without_coercion(
+  value: Unknown<'_>,
+) -> std::result::Result<String, sys::napi_status> {
+  if !is_error_without_coercion(value)? {
+    return Ok(String::new());
+  }
+
+  Ok(
+    owned_named_string_property_without_coercion(value, c"message")?
+      .unwrap_or_else(|| "JavaScript Error".to_owned()),
+  )
+}
+
+fn owned_error_diagnostics_without_coercion(
+  value: Unknown<'_>,
+) -> std::result::Result<(String, Option<Box<Error>>), sys::napi_status> {
+  if !is_error_without_coercion(value)? {
+    return Ok((String::new(), None));
+  }
+
+  let message = owned_named_string_property_without_coercion(value, c"message")?;
+  let stack = owned_named_string_property_without_coercion(value, c"stack")?;
+  let reason = stack
+    .filter(|stack| !stack.is_empty())
+    .or(message)
+    .unwrap_or_else(|| "JavaScript Error".to_owned());
+  let cause = owned_error_cause_without_coercion(value)?;
+  Ok((reason, cause))
+}
+
+fn is_error_without_coercion(value: Unknown<'_>) -> std::result::Result<bool, sys::napi_status> {
   let env = value.0.env;
   let mut is_error = false;
   let status = unsafe { sys::napi_is_error(env, value.0.value, &mut is_error) };
   if status != sys::Status::napi_ok {
-    clear_pending_exception_from_status(env, status);
-    return String::new();
+    recover_from_napi_failure(env)?;
+    return Ok(false);
   }
-  if !is_error {
-    return String::new();
-  }
+  Ok(is_error)
+}
 
-  let mut message = ptr::null_mut();
-  let status = unsafe {
-    sys::napi_get_named_property(env, value.0.value, c"message".as_ptr().cast(), &mut message)
-  };
+fn owned_named_string_property_without_coercion(
+  value: Unknown<'_>,
+  key: &CStr,
+) -> std::result::Result<Option<String>, sys::napi_status> {
+  let env = value.0.env;
+  let mut property = ptr::null_mut();
+  let status =
+    unsafe { sys::napi_get_named_property(env, value.0.value, key.as_ptr(), &mut property) };
   if status != sys::Status::napi_ok {
-    clear_pending_exception_from_status(env, status);
-    return "JavaScript Error".to_owned();
+    recover_from_napi_failure(env)?;
+    return Ok(None);
   }
+  owned_string_without_coercion(env, property)
+}
 
+fn owned_string_without_coercion(
+  env: sys::napi_env,
+  value: sys::napi_value,
+) -> std::result::Result<Option<String>, sys::napi_status> {
   let mut value_type = -1;
-  if unsafe { sys::napi_typeof(env, message, &mut value_type) } != sys::Status::napi_ok
-    || value_type != sys::ValueType::napi_string
-  {
-    return "JavaScript Error".to_owned();
+  let status = unsafe { sys::napi_typeof(env, value, &mut value_type) };
+  if status != sys::Status::napi_ok {
+    recover_from_napi_failure(env)?;
+    return Ok(None);
+  }
+  if value_type != sys::ValueType::napi_string {
+    return Ok(None);
   }
 
   let mut length = 0;
-  if unsafe { sys::napi_get_value_string_utf8(env, message, ptr::null_mut(), 0, &mut length) }
-    != sys::Status::napi_ok
-  {
-    return "JavaScript Error".to_owned();
+  let status =
+    unsafe { sys::napi_get_value_string_utf8(env, value, ptr::null_mut(), 0, &mut length) };
+  if status != sys::Status::napi_ok {
+    recover_from_napi_failure(env)?;
+    return Ok(None);
   }
   let mut bytes = vec![0; length + 1];
   let mut written = 0;
-  if unsafe {
+  let status = unsafe {
     sys::napi_get_value_string_utf8(
       env,
-      message,
+      value,
       bytes.as_mut_ptr().cast(),
       bytes.len(),
       &mut written,
     )
-  } != sys::Status::napi_ok
-  {
-    return "JavaScript Error".to_owned();
+  };
+  if status != sys::Status::napi_ok {
+    recover_from_napi_failure(env)?;
+    return Ok(None);
   }
   bytes.truncate(written);
-  String::from_utf8(bytes).unwrap_or_else(|_| "JavaScript Error".to_owned())
+  Ok(String::from_utf8(bytes).ok())
 }
 
-fn clear_pending_exception_from_status(env: sys::napi_env, status: sys::napi_status) {
-  if status == sys::Status::napi_pending_exception {
-    let mut exception = ptr::null_mut();
-    let _ = unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) };
+fn owned_error_cause_without_coercion(
+  value: Unknown<'_>,
+) -> std::result::Result<Option<Box<Error>>, sys::napi_status> {
+  let env = value.0.env;
+  let mut raw_cause = ptr::null_mut();
+  let status =
+    unsafe { sys::napi_get_named_property(env, value.0.value, c"cause".as_ptr(), &mut raw_cause) };
+  if status != sys::Status::napi_ok {
+    recover_from_napi_failure(env)?;
+    return Ok(None);
+  }
+
+  let mut value_type = -1;
+  let status = unsafe { sys::napi_typeof(env, raw_cause, &mut value_type) };
+  if status != sys::Status::napi_ok {
+    recover_from_napi_failure(env)?;
+    return Ok(None);
+  }
+  if value_type == sys::ValueType::napi_undefined || value_type == sys::ValueType::napi_null {
+    return Ok(None);
+  }
+
+  match Error::try_from_unknown_without_coercion_inner(
+    unsafe { Unknown::from_raw_unchecked(env, raw_cause) },
+    false,
+  ) {
+    Ok(error) => Ok(Some(Box::new(error))),
+    Err(failure) => match failure.environment_unavailable {
+      Some(status) => Err(status),
+      None => Ok(None),
+    },
   }
 }
 
@@ -443,6 +674,168 @@ impl<S: AsRef<str>> Error<S> {
       reason: "".to_owned(),
       cause: None,
       maybe_ref: None,
+    }
+  }
+
+  pub(crate) fn forget_reference_handles(&mut self) {
+    if let Some(error_ref) = self.maybe_ref.take() {
+      std::mem::forget(error_ref);
+    }
+    if let Some(cause) = self.cause.as_mut() {
+      cause.forget_reference_handles();
+    }
+  }
+
+  unsafe fn checked_referenced_value(&mut self, env: sys::napi_env) -> CheckedReferencedValue {
+    let Some(error_ref) = self.maybe_ref.as_ref() else {
+      return CheckedReferencedValue::Missing;
+    };
+    if error_ref.env != env || error_ref.owner_thread != std::thread::current().id() {
+      return CheckedReferencedValue::Missing;
+    }
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = &error_ref.custom_gc {
+      if !handle.can_access_from_current_thread(env) {
+        return CheckedReferencedValue::Missing;
+      }
+    }
+
+    let indirect = error_ref.indirect;
+    let reference = error_ref.raw;
+    let mut result = ptr::null_mut();
+    let status = unsafe { sys::napi_get_reference_value(env, reference, &mut result) };
+    if status != sys::Status::napi_ok {
+      return self.checked_reference_failure(env, status);
+    }
+    if indirect {
+      let status = unsafe {
+        sys::napi_get_named_property(env, result, ERROR_VALUE_KEY.as_ptr().cast(), &mut result)
+      };
+      if status != sys::Status::napi_ok {
+        return self.checked_reference_failure(env, status);
+      }
+    }
+    CheckedReferencedValue::Value(result)
+  }
+
+  fn checked_reference_failure(
+    &mut self,
+    env: sys::napi_env,
+    status: sys::napi_status,
+  ) -> CheckedReferencedValue {
+    match take_pending_exception(env) {
+      PendingExceptionState::None => CheckedReferencedValue::Failed(status),
+      PendingExceptionState::Cleared(exception) => CheckedReferencedValue::Exception(exception),
+      PendingExceptionState::Unavailable(_) => {
+        self.forget_reference_handles();
+        CheckedReferencedValue::EnvironmentUnavailable
+      }
+    }
+  }
+
+  pub(crate) unsafe fn into_checked_js_error_value(
+    mut self,
+    env: sys::napi_env,
+  ) -> CheckedErrorValue {
+    match unsafe { self.checked_referenced_value(env) } {
+      CheckedReferencedValue::Value(value) => {
+        let mut is_error = false;
+        let status = unsafe { sys::napi_is_error(env, value, &mut is_error) };
+        if status == sys::Status::napi_ok {
+          if is_error {
+            return CheckedErrorValue::Value(value);
+          }
+        } else {
+          return self.checked_napi_failure(env, status);
+        }
+      }
+      CheckedReferencedValue::Missing => {}
+      CheckedReferencedValue::Exception(exception) => {
+        return CheckedErrorValue::Exception(exception);
+      }
+      CheckedReferencedValue::Failed(status) => {
+        return CheckedErrorValue::Failed(status);
+      }
+      CheckedReferencedValue::EnvironmentUnavailable => {
+        return CheckedErrorValue::EnvironmentUnavailable;
+      }
+    }
+    unsafe { self.build_checked_js_error_value(env) }
+  }
+
+  unsafe fn into_checked_napi_value(mut self, env: sys::napi_env) -> CheckedErrorValue {
+    match unsafe { self.checked_referenced_value(env) } {
+      CheckedReferencedValue::Value(value) => CheckedErrorValue::Value(value),
+      CheckedReferencedValue::Missing => unsafe { self.build_checked_js_error_value(env) },
+      CheckedReferencedValue::Exception(exception) => CheckedErrorValue::Exception(exception),
+      CheckedReferencedValue::Failed(status) => CheckedErrorValue::Failed(status),
+      CheckedReferencedValue::EnvironmentUnavailable => CheckedErrorValue::EnvironmentUnavailable,
+    }
+  }
+
+  unsafe fn build_checked_js_error_value(&mut self, env: sys::napi_env) -> CheckedErrorValue {
+    let mut error_code = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_string_utf8(
+        env,
+        self.status.as_ref().as_ptr().cast(),
+        self.status.as_ref().len() as isize,
+        &mut error_code,
+      )
+    };
+    if status != sys::Status::napi_ok {
+      return self.checked_napi_failure(env, status);
+    }
+
+    let mut reason = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_string_utf8(
+        env,
+        self.reason.as_ptr().cast(),
+        self.reason.len() as isize,
+        &mut reason,
+      )
+    };
+    if status != sys::Status::napi_ok {
+      return self.checked_napi_failure(env, status);
+    }
+
+    let mut error_value = ptr::null_mut();
+    let status = unsafe { sys::napi_create_error(env, error_code, reason, &mut error_value) };
+    if status != sys::Status::napi_ok {
+      return self.checked_napi_failure(env, status);
+    }
+
+    if let Some(cause) = self.cause.take() {
+      let cause = match unsafe { cause.into_checked_napi_value(env) } {
+        CheckedErrorValue::Value(cause) => cause,
+        CheckedErrorValue::EnvironmentUnavailable => {
+          self.forget_reference_handles();
+          return CheckedErrorValue::EnvironmentUnavailable;
+        }
+        result => return result,
+      };
+      let status =
+        unsafe { sys::napi_set_named_property(env, error_value, c"cause".as_ptr(), cause) };
+      if status != sys::Status::napi_ok {
+        return self.checked_napi_failure(env, status);
+      }
+    }
+    CheckedErrorValue::Value(error_value)
+  }
+
+  fn checked_napi_failure(
+    &mut self,
+    env: sys::napi_env,
+    status: sys::napi_status,
+  ) -> CheckedErrorValue {
+    match take_pending_exception(env) {
+      PendingExceptionState::None => CheckedErrorValue::Failed(status),
+      PendingExceptionState::Cleared(exception) => CheckedErrorValue::Exception(exception),
+      PendingExceptionState::Unavailable(_) => {
+        self.forget_reference_handles();
+        CheckedErrorValue::EnvironmentUnavailable
+      }
     }
   }
 }
@@ -661,39 +1054,6 @@ pub struct JsRangeError<S: AsRef<str> = Status>(Error<S>);
 
 #[cfg(feature = "napi9")]
 pub struct JsSyntaxError<S: AsRef<str> = Status>(Error<S>);
-
-#[cfg(feature = "napi4")]
-pub(crate) fn get_error_message_and_stack_trace(
-  env: sys::napi_env,
-  err: sys::napi_value,
-) -> Result<String> {
-  use crate::bindgen_runtime::FromNapiValue;
-
-  let mut error_string = ptr::null_mut();
-  check_status!(
-    unsafe { sys::napi_coerce_to_string(env, err, &mut error_string) },
-    "Get error message failed"
-  )?;
-  let mut result = unsafe { String::from_napi_value(env, error_string) }?;
-
-  let mut stack_trace = ptr::null_mut();
-  check_status!(
-    unsafe { sys::napi_get_named_property(env, err, c"stack".as_ptr().cast(), &mut stack_trace) },
-    "Get stack trace failed"
-  )?;
-  let mut stack_type = -1;
-  check_status!(
-    unsafe { sys::napi_typeof(env, stack_trace, &mut stack_type) },
-    "Get stack trace type failed"
-  )?;
-  if stack_type == sys::ValueType::napi_string {
-    let stack_trace = unsafe { String::from_napi_value(env, stack_trace) }?;
-    result.push('\n');
-    result.push_str(&stack_trace);
-  }
-
-  Ok(result)
-}
 
 macro_rules! impl_object_methods {
   ($js_value:ident, $kind:expr) => {
@@ -980,5 +1340,82 @@ pub(crate) fn extract_error_cause(value: Unknown<'_>) -> Result<Option<Box<Error
   match cause.get_type()? {
     ValueType::Undefined | ValueType::Null => Ok(None),
     _ => Ok(Some(Box::new(cause.into()))),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::{
+    cell::Cell,
+    ptr::{self, NonNull},
+  };
+
+  use super::{take_pending_exception_with, ErrorCaptureFailure, PendingExceptionState, Status};
+  use crate::sys;
+
+  #[test]
+  fn pending_exception_probe_skips_clear_when_none_is_pending() {
+    let clear_called = Cell::new(false);
+    let state = take_pending_exception_with(
+      || Ok(false),
+      || {
+        clear_called.set(true);
+        Ok(ptr::null_mut())
+      },
+    );
+
+    assert_eq!(state, PendingExceptionState::None);
+    assert!(!clear_called.get());
+  }
+
+  #[test]
+  fn pending_exception_probe_clears_hidden_exception_independent_of_call_status() {
+    let exception: sys::napi_value = NonNull::<u8>::dangling().as_ptr().cast();
+    let state = take_pending_exception_with(|| Ok(true), || Ok(exception));
+
+    assert_eq!(state, PendingExceptionState::Cleared(exception));
+  }
+
+  #[test]
+  fn pending_exception_probe_stops_when_state_check_fails() {
+    let clear_called = Cell::new(false);
+    let state = take_pending_exception_with(
+      || Err(sys::Status::napi_closing),
+      || {
+        clear_called.set(true);
+        Ok(ptr::null_mut())
+      },
+    );
+
+    assert_eq!(
+      state,
+      PendingExceptionState::Unavailable(sys::Status::napi_closing)
+    );
+    assert!(!clear_called.get());
+  }
+
+  #[test]
+  fn pending_exception_probe_rejects_failed_or_null_clear_results() {
+    assert_eq!(
+      take_pending_exception_with(|| Ok(true), || Err(sys::Status::napi_generic_failure)),
+      PendingExceptionState::Unavailable(sys::Status::napi_generic_failure)
+    );
+    assert_eq!(
+      take_pending_exception_with(|| Ok(true), || Ok(ptr::null_mut())),
+      PendingExceptionState::Unavailable(sys::Status::napi_generic_failure)
+    );
+  }
+
+  #[test]
+  fn capture_failure_is_not_mislabeled_as_the_original_pending_exception() {
+    let error = ErrorCaptureFailure {
+      status: sys::Status::napi_pending_exception,
+      reason: "Create Error value holder failed",
+      environment_unavailable: None,
+    }
+    .into_transport_error();
+
+    assert_eq!(error.status, Status::GenericFailure);
+    assert!(error.reason.contains("PendingException"));
   }
 }

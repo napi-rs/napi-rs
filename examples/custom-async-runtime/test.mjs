@@ -14,29 +14,48 @@ import {
 } from './pure-runtime-lifecycle.mjs'
 
 const mode = process.argv[2] ?? 'native'
-assert.ok(mode === 'native' || mode === 'wasi', `Unknown test mode: ${mode}`)
+assert.ok(
+  mode === 'native' ||
+    mode === 'wasi' ||
+    mode === 'wasi-threads' ||
+    mode === 'wasi-threadless',
+  `Unknown test mode: ${mode}`,
+)
 
 const require = createRequire(import.meta.url)
-const bindingFile =
-  mode === 'wasi' ? './custom_async_runtime.wasi.cjs' : './index.cjs'
+const isThreadlessWasi = mode === 'wasi-threadless'
+const isThreadedWasi = mode === 'wasi' || mode === 'wasi-threads'
+const isWasi = isThreadlessWasi || isThreadedWasi
+const bindingFile = isThreadlessWasi
+  ? './threadless-wasi-loader.cjs'
+  : isThreadedWasi
+    ? './custom_async_runtime.wasi.cjs'
+    : './index.cjs'
 
-if (mode === 'wasi') {
-  const [source, declarations] = await Promise.all([
-    readFile(
-      new URL('./custom_async_runtime.wasi.cjs', import.meta.url),
+if (isWasi) {
+  const source = await readFile(new URL(bindingFile, import.meta.url), 'utf8')
+  if (isThreadlessWasi) {
+    assert.doesNotMatch(source, /node:worker_threads/)
+    assert.doesNotMatch(source, /\bWorker\b/)
+    assert.doesNotMatch(source, /SharedArrayBuffer/)
+    assert.match(source, /asyncWorkPoolSize:\s*0/)
+  } else {
+    assert.match(source, /node:worker_threads/)
+    assert.match(source, /\bWorker\b/)
+    assert.match(source, /shared:\s*true/)
+    assert.match(source, /onCreateWorker/)
+    const declarations = await readFile(
+      new URL('./index.d.cts', import.meta.url),
       'utf8',
-    ),
-    readFile(new URL('./index.d.cts', import.meta.url), 'utf8'),
-  ])
-  assert.match(source, /node:worker_threads/)
-  assert.match(source, /\bWorker\b/)
-  assert.match(source, /shared:\s*true/)
-  assert.match(source, /onCreateWorker/)
+    )
+    assert.doesNotMatch(declarations, /retainTaskWaker/)
+  }
   assert.doesNotMatch(source, /retainTaskWaker/)
-  assert.doesNotMatch(declarations, /retainTaskWaker/)
 }
 
-const binding = require(bindingFile)
+const loadedBinding = require(bindingFile)
+const binding = isThreadlessWasi ? loadedBinding.binding : loadedBinding
+const disposeBinding = isThreadlessWasi ? loadedBinding.dispose : undefined
 const nativeBindingFile =
   mode === 'native'
     ? Object.keys(require.cache).find(
@@ -91,8 +110,8 @@ async function startRuntimeAfterRetirement(binding) {
 
 const initial = binding.getRuntimeMetrics()
 
-assert.equal(binding.isWasm(), mode === 'wasi')
-assert.equal(initial.tokioRuntimeEnabled, true)
+assert.equal(binding.isWasm(), isWasi)
+assert.equal(initial.tokioRuntimeEnabled, !isThreadlessWasi)
 assert.ok(initial.startCalls >= 1)
 assert.equal(initial.activeGuards, 0)
 
@@ -123,6 +142,133 @@ assert.deepEqual(
 )
 assert.equal(await binding.spawnFuture(41), 42)
 await assert.rejects(binding.asyncError(), /custom runtime async error/)
+
+async function captureTsfnThrownValue(thrown) {
+  return binding
+    .tsfnThrowFromJsCatchRecover(() => {
+      throw thrown
+    })
+    .then(
+      () => ({ rejected: false }),
+      (value) => ({ rejected: true, value }),
+    )
+}
+
+for (const thrown of [
+  42,
+  'primitive throw',
+  true,
+  null,
+  undefined,
+  42n,
+  Symbol('primitive throw'),
+]) {
+  const result = await captureTsfnThrownValue(thrown)
+  assert.equal(result.rejected, true)
+  assert.strictEqual(result.value, thrown)
+}
+
+const nonErrorReads = {
+  message: 0,
+  stack: 0,
+  cause: 0,
+  coercion: 0,
+}
+const nonErrorThrownValue = Object.freeze(
+  Object.defineProperties(
+    {},
+    {
+      message: {
+        get() {
+          nonErrorReads.message++
+          throw new Error('non-Error message must not be read')
+        },
+      },
+      stack: {
+        get() {
+          nonErrorReads.stack++
+          throw new Error('non-Error stack must not be read')
+        },
+      },
+      cause: {
+        get() {
+          nonErrorReads.cause++
+          throw new Error('non-Error cause must not be read')
+        },
+      },
+      [Symbol.toPrimitive]: {
+        value() {
+          nonErrorReads.coercion++
+          throw new Error('non-Error throw must not be coerced')
+        },
+      },
+    },
+  ),
+)
+const nonErrorResult = await captureTsfnThrownValue(nonErrorThrownValue)
+assert.equal(nonErrorResult.rejected, true)
+assert.strictEqual(nonErrorResult.value, nonErrorThrownValue)
+assert.deepEqual(nonErrorReads, {
+  message: 0,
+  stack: 0,
+  cause: 0,
+  coercion: 0,
+})
+
+const hostileError = new Error('hostile diagnostics')
+const diagnosticReads = {
+  message: 0,
+  stack: 0,
+  cause: 0,
+}
+Object.defineProperties(hostileError, {
+  message: {
+    configurable: true,
+    get() {
+      diagnosticReads.message++
+      throw new Error('hostile message getter')
+    },
+  },
+  stack: {
+    configurable: true,
+    get() {
+      diagnosticReads.stack++
+      throw new Error('hostile stack getter')
+    },
+  },
+  cause: {
+    configurable: true,
+    get() {
+      diagnosticReads.cause++
+      throw new Error('hostile cause getter')
+    },
+  },
+})
+const hostileResult = await captureTsfnThrownValue(hostileError)
+assert.equal(hostileResult.rejected, true)
+assert.strictEqual(hostileResult.value, hostileError)
+assert.deepEqual(diagnosticReads, {
+  message: 1,
+  stack: 1,
+  cause: 1,
+})
+
+const cause = Object.freeze({ kind: 'retained cause' })
+const errorWithCause = new Error('error with cause', { cause })
+const causeResult = await captureTsfnThrownValue(errorWithCause)
+assert.equal(causeResult.rejected, true)
+assert.strictEqual(causeResult.value, errorWithCause)
+assert.strictEqual(causeResult.value.cause, cause)
+
+const recovery = Object.freeze({ recovered: true })
+const recoveryResult = await captureTsfnThrownValue(recovery)
+assert.equal(recoveryResult.rejected, true)
+assert.strictEqual(recoveryResult.value, recovery)
+
+await binding.tsfnThrowFromJsCatchDrop(() => {
+  throw new Error('drop retained TSFN exception')
+})
+await new Promise((resolve) => setImmediate(resolve))
 
 if (mode === 'native') {
   await assert.rejects(binding.asyncPanic(), /custom runtime async panic/)
@@ -498,4 +644,11 @@ if (mode === 'native') {
   assert.equal(pureBuild.status, 0, `${pureBuild.stdout}\n${pureBuild.stderr}`)
 
   await runPureRuntimeReloadLifecycle(await findPureRuntimeBinding())
+}
+
+if (disposeBinding) {
+  binding.shutdownRuntime()
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+  await disposeBinding()
 }

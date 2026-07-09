@@ -335,6 +335,13 @@ import {
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
 
+const { tsfnCalleeHandledErrorValue } = nativeAddon as typeof nativeAddon & {
+  tsfnCalleeHandledErrorValue(
+    value: unknown,
+    callback: (error: unknown) => void,
+  ): void
+}
+
 import { test } from './test.framework.js'
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
@@ -2215,8 +2222,6 @@ test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction
         throw new Error(arg)
       }),
     {
-      // on wasm targets the thrown error object is not referenced; JS receives
-      // a recreated error whose message contains the message and stack trace
       message: process.env.WASI_TEST ? /foo/ : 'foo',
     },
   )
@@ -2234,8 +2239,21 @@ test('call_async_catch on CalleeHandled=true ThreadsafeFunction propagates throw
   )
 })
 
+test('callee-handled TSFN error argument preserves Error identity', async (t) => {
+  const cause = Object.freeze({ kind: 'callee-handled cause' })
+  const thrown = new Error('callee-handled error', { cause })
+  const received = new Promise<unknown>((resolve) => {
+    tsfnCalleeHandledErrorValue(thrown, (error) => resolve(error))
+  })
+
+  const error = await received
+  t.is(error, thrown)
+  t.is((error as Error).cause, cause)
+})
+
 test('call_async_catch preserves original JS exception object', async (t) => {
-  const thrown = new Error('foo')
+  const cause = Object.freeze({ kind: 'original cause' })
+  const thrown = new Error('foo', { cause })
   // @ts-expect-error custom property on Error
   thrown.code = 'E_FOO'
   const err = await t.throwsAsync(() =>
@@ -2243,18 +2261,150 @@ test('call_async_catch preserves original JS exception object', async (t) => {
       throw thrown
     }),
   )
-  if (process.env.WASI_TEST) {
-    // On wasm targets the thrown error object is not referenced (the error may
-    // be dropped on another thread), so JS receives a recreated error that only
-    // carries the message and stack trace.
-    t.true(err?.message.includes('foo'))
-  } else {
-    // The Rust side propagates the original napi::Error; its maybe_raw reference
-    // round-trips back through ToNapiValue for Error, so JS receives the exact
-    // same Error instance that was thrown, with custom properties intact.
-    // @ts-expect-error reading custom property on Error
-    t.is(err?.code, 'E_FOO')
-    t.is(err?.message, 'foo')
+  // The Rust side clones and propagates the original napi::Error. Its retained
+  // reference round-trips through ToNapiValue, including on threaded WASI.
+  t.is(err, thrown)
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_FOO')
+  t.is(err?.message, 'foo')
+  t.is(err?.cause, cause)
+})
+
+test('call_async_catch preserves primitive thrown values', async (t) => {
+  for (const thrown of [
+    42,
+    'primitive throw',
+    true,
+    null,
+    undefined,
+    42n,
+    Symbol('primitive throw'),
+  ]) {
+    const result = await tsfnThrowFromJsCatchRecover(() => {
+      throw thrown
+    }).then(
+      () => ({ rejected: false as const }),
+      (value: unknown) => ({ rejected: true as const, value }),
+    )
+    t.true(result.rejected)
+    if (result.rejected) {
+      t.is(result.value, thrown)
+    }
+  }
+})
+
+test('call_async_catch ignores hostile Error diagnostics', async (t) => {
+  const nonErrorReads = {
+    message: 0,
+    stack: 0,
+    cause: 0,
+    coercion: 0,
+  }
+  const nonErrorThrownValue = Object.freeze(
+    Object.defineProperties(
+      {},
+      {
+        message: {
+          get() {
+            nonErrorReads.message++
+            throw new Error('non-Error message must not be read')
+          },
+        },
+        stack: {
+          get() {
+            nonErrorReads.stack++
+            throw new Error('non-Error stack must not be read')
+          },
+        },
+        cause: {
+          get() {
+            nonErrorReads.cause++
+            throw new Error('non-Error cause must not be read')
+          },
+        },
+        [Symbol.toPrimitive]: {
+          value() {
+            nonErrorReads.coercion++
+            throw new Error('non-Error throw must not be coerced')
+          },
+        },
+      },
+    ),
+  )
+  const nonErrorResult = await tsfnThrowFromJsCatchRecover(() => {
+    throw nonErrorThrownValue
+  }).then(
+    () => ({ rejected: false as const }),
+    (value: unknown) => ({ rejected: true as const, value }),
+  )
+  t.true(nonErrorResult.rejected)
+  if (nonErrorResult.rejected) {
+    t.is(nonErrorResult.value, nonErrorThrownValue)
+  }
+  t.deepEqual(nonErrorReads, {
+    message: 0,
+    stack: 0,
+    cause: 0,
+    coercion: 0,
+  })
+
+  const thrown = new Error('hostile diagnostics')
+  const reads = {
+    message: 0,
+    stack: 0,
+    cause: 0,
+  }
+  Object.defineProperties(thrown, {
+    message: {
+      configurable: true,
+      get() {
+        reads.message++
+        throw new Error('hostile message getter')
+      },
+    },
+    stack: {
+      configurable: true,
+      get() {
+        reads.stack++
+        throw new Error('hostile stack getter')
+      },
+    },
+    cause: {
+      configurable: true,
+      get() {
+        reads.cause++
+        throw new Error('hostile cause getter')
+      },
+    },
+  })
+
+  const result = await tsfnThrowFromJsCatchRecover(() => {
+    throw thrown
+  }).then(
+    () => ({ rejected: false as const }),
+    (value: unknown) => ({ rejected: true as const, value }),
+  )
+
+  t.true(result.rejected)
+  if (result.rejected) {
+    t.is(result.value, thrown)
+  }
+  t.deepEqual(reads, {
+    message: 1,
+    stack: 1,
+    cause: 1,
+  })
+
+  const recovery = Object.freeze({ recovered: true })
+  const recoveryResult = await tsfnThrowFromJsCatchRecover(() => {
+    throw recovery
+  }).then(
+    () => ({ rejected: false as const }),
+    (value: unknown) => ({ rejected: true as const, value }),
+  )
+  t.true(recoveryResult.rejected)
+  if (recoveryResult.rejected) {
+    t.is(recoveryResult.value, recovery)
   }
 })
 

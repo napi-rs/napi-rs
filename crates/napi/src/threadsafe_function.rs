@@ -13,10 +13,12 @@ use std::thread::ThreadId;
 
 use futures::channel::oneshot::{channel, Receiver};
 
+use crate::error::{
+  take_pending_exception, CheckedErrorValue, ErrorCaptureResult, PendingExceptionState,
+};
 use crate::{
   bindgen_runtime::{FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue},
-  check_status, extract_error_cause, get_error_message_and_stack_trace, sys, Env, Error, JsError,
-  Result, Status,
+  check_status, sys, Env, Error, Result, Status,
 };
 
 #[cfg(target_family = "wasm")]
@@ -1796,13 +1798,9 @@ impl<
   /// errors as `Err(napi::Error)` instead of crashing the host process.
   ///
   /// The returned `Err` carries `status == Status::PendingException` when it
-  /// originated from a JS throw. The original JS exception object is preserved
-  /// via `error.maybe_raw` (a `napi_ref`); callers that need to inspect the
-  /// typed JS value can recover it via:
-  ///
-  /// ```ignore
-  /// let js_value: Unknown = JsError::from(err).into_unknown(env);
-  /// ```
+  /// originated from a JS throw. When surfaced again on the owning JavaScript
+  /// environment, the original thrown value is preserved exactly, including
+  /// primitive values.
   pub async fn call_async_catch(&self, value: T) -> Result<Return>
   where
     Return: Send,
@@ -1949,11 +1947,15 @@ unsafe extern "C" fn call_js_cb<
     }
     crate::bindgen_runtime::catch_unwind_safely(|| {
       let error = crate::bindgen_runtime::panic_to_error(reason);
-      unsafe {
-        sys::napi_fatal_exception(raw_env, JsError::from(error).into_value(raw_env));
-      }
+      handle_call_js_cb_status(fatal_threadsafe_error(raw_env, error), raw_env);
     });
   }
+}
+
+#[derive(Clone, Copy)]
+enum CallJsCbStatus {
+  Status(sys::napi_status),
+  EnvironmentUnavailable,
 }
 
 unsafe fn call_js_cb_inner<
@@ -1993,9 +1995,6 @@ unsafe fn call_js_cb_inner<
 
   let callback: &mut R = unsafe { Box::leak(Box::from_raw(context.cast())) };
 
-  let mut recv = ptr::null_mut();
-  unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
-
   let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
     val.and_then(|v| {
       (callback)(ThreadsafeCallContext {
@@ -2015,167 +2014,202 @@ unsafe fn call_js_cb_inner<
   // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
   // Check if the Result is okay, if so, pass a null as the first (error) argument automatically.
   // If the Result is an error, pass that as the first argument.
-  let status = match ret {
+  let call_status = match ret {
     Ok((values, call_variant, callback)) => {
-      let args: Vec<sys::napi_value> = if CalleeHandled {
-        let mut js_null = ptr::null_mut();
-        unsafe { sys::napi_get_null(raw_env, &mut js_null) };
-        core::iter::once(js_null).chain(values).collect()
-      } else {
-        values
-      };
-      let mut return_value = ptr::null_mut();
-      #[allow(unused_mut)]
-      let mut status = sys::napi_call_function(
-        raw_env,
-        recv,
-        js_callback,
-        args.len(),
-        args.as_ptr(),
-        &mut return_value,
-      );
-      if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
-        // throw Error in JavaScript callback
-        let callback_arg = if status == sys::Status::napi_pending_exception {
-          let mut exception = ptr::null_mut();
-          unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
-          let raw_status = status;
-          // Referencing the exception object is not allowed on wasm targets: the
-          // returned `Error` is sent to the calling thread, and un-referencing it
-          // there crashes because the reference belongs to the JS thread's env.
-          // The message and stack trace are still captured in `reason` below.
-          // See the `From<Unknown> for Error` impls in `error.rs` (#2975).
-          #[cfg(target_family = "wasm")]
-          let maybe_ref = {
-            status = sys::Status::napi_ok;
-            None
-          };
-          #[cfg(not(target_family = "wasm"))]
-          let maybe_ref = {
-            let mut error_reference = ptr::null_mut();
-            status =
-              unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
-            // Only own a reference when creation actually succeeded; on failure
-            // `error_reference` stays null, so keep `maybe_ref: None` (the message
-            // and stack are still captured in `reason` below) rather than wrapping
-            // a null ref that `ErrorRef::drop` would blindly release — mirrors the
-            // early guard in `From<Unknown> for Error`. `call_js_cb` runs on the
-            // env's JS thread, so `ErrorRef::new` captures the owning env's
-            // custom-GC handle for the (typically off-thread) release.
-            if status == sys::Status::napi_ok {
-              Some(std::sync::Arc::new(crate::error::ErrorRef::new(
-                error_reference,
-                raw_env,
-              )))
-            } else {
-              None
-            }
-          };
-
-          get_error_message_and_stack_trace(raw_env, exception).and_then(|reason| {
-            Err(Error {
-              maybe_ref,
-              // SAFETY: `raw_env` and `exception` are valid pointers obtained from
-              // `napi_get_and_clear_last_exception` above, which guarantees they are
-              // non-null and live for the duration of this callback.
-              cause: extract_error_cause(unsafe {
-                Unknown::from_raw_unchecked(raw_env, exception)
-              })
-              .unwrap_or(None),
-              status: Status::from(raw_status),
-              reason,
-            })
-          })
-        } else if status == sys::Status::napi_ok {
-          unsafe { Return::from_napi_value(raw_env, return_value) }
+      let mut recv = ptr::null_mut();
+      let mut status = unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
+      let mut environment_unavailable = false;
+      let mut args = Vec::new();
+      if status == sys::Status::napi_ok {
+        if CalleeHandled {
+          let mut js_null = ptr::null_mut();
+          status = unsafe { sys::napi_get_null(raw_env, &mut js_null) };
+          if status == sys::Status::napi_ok {
+            args = core::iter::once(js_null).chain(values).collect();
+          }
         } else {
-          Err(Error::new(
-            Status::from(status),
-            "Call JavaScript callback failed in threadsafe function",
-          ))
-        };
-        let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-          callback(callback_arg, Env::from_raw(raw_env))
-        }))
-        .map_err(crate::bindgen_runtime::panic_to_error)
-        .and_then(|result| result);
-        if let Err(err) = callback_result {
-          unsafe { sys::napi_fatal_exception(raw_env, JsError::from(err).into_value(raw_env)) };
+          args = values;
         }
       }
-      status
+      let mut return_value = ptr::null_mut();
+      if status == sys::Status::napi_ok {
+        status = sys::napi_call_function(
+          raw_env,
+          recv,
+          js_callback,
+          args.len(),
+          args.as_ptr(),
+          &mut return_value,
+        );
+      }
+      if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
+        let mut callback_arg = if status == sys::Status::napi_ok {
+          Some(unsafe { Return::from_napi_value(raw_env, return_value) })
+        } else {
+          Some(Err(Error::new(
+            Status::from(status),
+            "Call JavaScript callback failed in threadsafe function",
+          )))
+        };
+
+        // Node-API permits some non-pending failure statuses to coexist with a
+        // pending exception. Inspect the env independently before invoking the
+        // Rust return callback, which may make further N-API calls.
+        match take_pending_exception(raw_env) {
+          PendingExceptionState::None => {
+            if status == sys::Status::napi_pending_exception {
+              // During environment teardown Node can report
+              // `napi_pending_exception` after the host has already consumed
+              // the exception. Drop the return callback so its waiter observes
+              // cancellation; there is no exception value that can be captured.
+              callback_arg = None;
+            }
+            status = sys::Status::napi_ok;
+          }
+          PendingExceptionState::Cleared(exception) => {
+            callback_arg = match Error::capture_unknown_with_status_and_diagnostics(
+              // SAFETY: the exception was just cleared from `raw_env` and is
+              // live for this callback.
+              unsafe { Unknown::from_raw_unchecked(raw_env, exception) },
+              Status::PendingException,
+            ) {
+              ErrorCaptureResult::Captured(error) | ErrorCaptureResult::Failed(error) => {
+                status = sys::Status::napi_ok;
+                Some(Err(error))
+              }
+              ErrorCaptureResult::EnvironmentUnavailable(unavailable_status) => {
+                status = unavailable_status;
+                environment_unavailable = true;
+                None
+              }
+            };
+          }
+          PendingExceptionState::Unavailable(unavailable_status) => {
+            status = unavailable_status;
+            environment_unavailable = true;
+            callback_arg = None;
+          }
+        }
+
+        if let Some(callback_arg) = callback_arg {
+          match invoke_threadsafe_return_callback(raw_env, callback, callback_arg) {
+            CallJsCbStatus::Status(callback_status) => status = callback_status,
+            CallJsCbStatus::EnvironmentUnavailable => environment_unavailable = true,
+          }
+        }
+      }
+      if environment_unavailable {
+        CallJsCbStatus::EnvironmentUnavailable
+      } else {
+        CallJsCbStatus::Status(status)
+      }
     }
-    Err(e) if !CalleeHandled => unsafe {
-      sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env))
-    },
-    Err(e) => unsafe {
-      sys::napi_call_function(
-        raw_env,
-        recv,
-        js_callback,
-        1,
-        [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-        ptr::null_mut(),
-      )
+    Err(e) if !CalleeHandled => fatal_threadsafe_error(raw_env, e),
+    Err(e) => match threadsafe_error_value(raw_env, e) {
+      Ok(error_value) => {
+        let mut recv = ptr::null_mut();
+        let recv_status = unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
+        if recv_status != sys::Status::napi_ok {
+          CallJsCbStatus::Status(recv_status)
+        } else {
+          CallJsCbStatus::Status(unsafe {
+            sys::napi_call_function(
+              raw_env,
+              recv,
+              js_callback,
+              1,
+              [error_value].as_mut_ptr(),
+              ptr::null_mut(),
+            )
+          })
+        }
+      }
+      Err(status) => status,
     },
   };
-  handle_call_js_cb_status(status, raw_env);
+  handle_call_js_cb_status(call_status, raw_env);
   drop(payload_guard);
 }
 
-fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
-  if status == sys::Status::napi_ok {
-    return;
+fn invoke_threadsafe_return_callback<Return>(
+  raw_env: sys::napi_env,
+  callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()> + Send>,
+  callback_arg: Result<Return>,
+) -> CallJsCbStatus {
+  let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    callback(callback_arg, Env::from_raw(raw_env))
+  }))
+  .map_err(crate::bindgen_runtime::panic_to_error)
+  .and_then(|result| result);
+  match callback_result {
+    Ok(()) => CallJsCbStatus::Status(sys::Status::napi_ok),
+    Err(error) => fatal_threadsafe_error(raw_env, error),
   }
-  if status == sys::Status::napi_pending_exception {
-    let mut error_result = ptr::null_mut();
-    if unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut error_result) }
-      != sys::Status::napi_ok
-    {
-      return;
-    }
+}
 
-    // When shutting down, napi_fatal_exception sometimes returns another exception
-    unsafe { sys::napi_fatal_exception(raw_env, error_result) };
-  } else {
-    // During environment shutdown (e.g. Ctrl+C in a worker thread), any NAPI call
-    // can fail. Bail out gracefully instead of panicking if we can't construct the
-    // error object — there's nothing useful we can do in a half-torn-down env.
-    let error_code: Status = status.into();
-    let mut error_code_value = ptr::null_mut();
-    if unsafe {
-      sys::napi_create_string_utf8(
-        raw_env,
-        error_code.as_ref().as_ptr().cast(),
-        error_code.as_ref().len() as isize,
-        &mut error_code_value,
-      )
-    } != sys::Status::napi_ok
-    {
+fn threadsafe_error_value<S: AsRef<str>>(
+  raw_env: sys::napi_env,
+  mut error: Error<S>,
+) -> std::result::Result<sys::napi_value, CallJsCbStatus> {
+  match take_pending_exception(raw_env) {
+    PendingExceptionState::Cleared(exception) => return Ok(exception),
+    PendingExceptionState::Unavailable(_) => {
+      error.forget_reference_handles();
+      return Err(CallJsCbStatus::EnvironmentUnavailable);
+    }
+    PendingExceptionState::None => {}
+  }
+
+  match unsafe { error.into_checked_js_error_value(raw_env) } {
+    CheckedErrorValue::Value(value) | CheckedErrorValue::Exception(value) => Ok(value),
+    CheckedErrorValue::Failed(status) => Err(CallJsCbStatus::Status(status)),
+    CheckedErrorValue::EnvironmentUnavailable => Err(CallJsCbStatus::EnvironmentUnavailable),
+  }
+}
+
+fn fatal_threadsafe_error<S: AsRef<str>>(
+  raw_env: sys::napi_env,
+  error: Error<S>,
+) -> CallJsCbStatus {
+  match threadsafe_error_value(raw_env, error) {
+    Ok(error_value) => {
+      CallJsCbStatus::Status(unsafe { sys::napi_fatal_exception(raw_env, error_value) })
+    }
+    Err(status) => status,
+  }
+}
+
+fn handle_call_js_cb_status(call_status: CallJsCbStatus, raw_env: sys::napi_env) {
+  let CallJsCbStatus::Status(status) = call_status else {
+    return;
+  };
+
+  match take_pending_exception(raw_env) {
+    PendingExceptionState::Cleared(exception) => {
+      // When shutting down, napi_fatal_exception sometimes returns another exception.
+      unsafe { sys::napi_fatal_exception(raw_env, exception) };
       return;
     }
-    const ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
-    let mut error_msg_value = ptr::null_mut();
-    if unsafe {
-      sys::napi_create_string_utf8(
-        raw_env,
-        ERROR_MSG.as_ptr().cast(),
-        ERROR_MSG.len() as isize,
-        &mut error_msg_value,
-      )
-    } != sys::Status::napi_ok
-    {
+    PendingExceptionState::Unavailable(_) => return,
+    PendingExceptionState::None => {}
+  }
+
+  if status != sys::Status::napi_ok {
+    let fatal_status = fatal_threadsafe_error(
+      raw_env,
+      Error::new(
+        Status::from(status),
+        "Call JavaScript callback failed in threadsafe function",
+      ),
+    );
+    let CallJsCbStatus::Status(fatal_status) = fatal_status else {
       return;
+    };
+    if fatal_status != sys::Status::napi_ok {
+      if let PendingExceptionState::Cleared(exception) = take_pending_exception(raw_env) {
+        unsafe { sys::napi_fatal_exception(raw_env, exception) };
+      }
     }
-    let mut error_value = ptr::null_mut();
-    if unsafe {
-      sys::napi_create_error(raw_env, error_code_value, error_msg_value, &mut error_value)
-    } != sys::Status::napi_ok
-    {
-      return;
-    }
-    // When shutting down, napi_fatal_exception sometimes returns another exception
-    unsafe { sys::napi_fatal_exception(raw_env, error_value) };
   }
 }
 

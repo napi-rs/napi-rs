@@ -24,13 +24,14 @@ use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
   register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
   try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, JsValue, Object, PromiseRaw,
-  Result, Status, Unknown,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, FnArgs, JsObjectValue, JsValue, Object,
+  PromiseRaw, Result, Status, Unknown,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
 use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
 #[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::{AsyncBlock, AsyncBlockBuilder};
+use napi::threadsafe_function::ThreadsafeFunction;
 use napi_derive::napi;
 
 #[cfg(not(target_family = "wasm"))]
@@ -1028,6 +1029,44 @@ pub async fn async_error() -> Result<()> {
     Status::GenericFailure,
     "custom runtime async error",
   ))
+}
+
+#[napi]
+pub async fn tsfn_throw_from_js_catch_recover(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
+) -> Result<()> {
+  match tsfn.call_async_catch(("trigger".to_owned(),).into()).await {
+    Ok(()) => Err(Error::new(
+      Status::GenericFailure,
+      "expected JavaScript callback to throw",
+    )),
+    Err(error) if error.status == Status::PendingException => {
+      Err(error.try_clone().unwrap_or_else(|clone_error| clone_error))
+    }
+    Err(error) => Err(Error::new(
+      Status::GenericFailure,
+      format!("expected PendingException, got {:?}", error.status),
+    )),
+  }
+}
+
+#[napi]
+pub async fn tsfn_throw_from_js_catch_drop(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
+) -> Result<()> {
+  match tsfn.call_async_catch(("trigger".to_owned(),).into()).await {
+    Ok(()) => Err(Error::new(
+      Status::GenericFailure,
+      "expected JavaScript callback to throw",
+    )),
+    Err(error) if error.status == Status::PendingException => {
+      let cloned = error.try_clone()?;
+      drop(error);
+      drop(cloned);
+      Ok(())
+    }
+    Err(error) => Err(error),
+  }
 }
 
 #[napi]

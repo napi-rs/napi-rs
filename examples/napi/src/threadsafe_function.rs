@@ -1542,6 +1542,23 @@ pub async fn tsfn_throw_from_js_catch_handled(
   tsfn.call_async_catch(Ok(("foo".to_string(),).into())).await
 }
 
+#[napi(skip_typescript)]
+pub fn tsfn_callee_handled_error_value(
+  value: Unknown,
+  tsfn: ThreadsafeFunction<(), (), ()>,
+) -> napi::Result<()> {
+  match tsfn.call(
+    Err(Error::from_unknown_without_coercion(value)),
+    ThreadsafeFunctionCallMode::NonBlocking,
+  ) {
+    Status::Ok => Ok(()),
+    status => Err(Error::new(
+      status,
+      "Call callee-handled threadsafe function failed",
+    )),
+  }
+}
+
 #[napi]
 pub async fn tsfn_throw_from_js_catch_recover(
   tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
@@ -1559,11 +1576,10 @@ pub async fn tsfn_throw_from_js_catch_recover(
           format!("expected PendingException, got {:?}", err.status),
         ));
       }
-      // Propagate the Err. Because err.maybe_raw holds a napi_ref to the
-      // original JS exception object, `ToNapiValue for Error` recovers that
-      // exact object on the way back to JS — so the JS test will see the
-      // original error instance with all custom properties (e.g. `code`).
-      Err(err)
+      // Clone before propagating to match consumers that retain a terminal
+      // error and replay it later. The clone shares the original JS exception
+      // reference, so `ToNapiValue for Error` must recover that exact object.
+      Err(err.try_clone().unwrap_or_else(|clone_error| clone_error))
     }
   }
 }

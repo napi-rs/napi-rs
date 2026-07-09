@@ -8,7 +8,9 @@
     "build": "node build.mjs",
     "build:pure": "node build.mjs --pure-only",
     "test": "node test.mjs native",
-    "test:pure": "node build.mjs --pure-only && node pure-runtime-lifecycle.mjs"
+    "test:pure": "node build.mjs --pure-only && node pure-runtime-lifecycle.mjs",
+    "test:wasi": "node build-threadless-wasi-test.mjs && node test.mjs wasi-threadless",
+    "test:wasi-threads": "node build.mjs --target wasm32-wasip1-threads --profile wasi && node test.mjs wasi-threads"
   },
   "napi": {
     "binaryName": "custom_async_runtime",
