@@ -552,15 +552,15 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
     new URL('example.wasi-browser.js', import.meta.url),
   )
   let browserSource = await readFile(browserPath, 'utf8')
-  const browserScopeMarker = `const {
-  instance: __napiInstance,`
-  const browserWorkerReuseMarker = `  asyncWorkPoolSize: 4,
-  wasi: __wasi,`
-  const browserImportsMarker = `  overwriteImports(importObject) {
-    importObject.env = {`
-  const browserBeforeInitMarker = `  beforeInit({ instance }) {
-    __wrapEmnapiContextDestroy(instance)
-    for (const name of Object.keys(instance.exports)) {`
+  const browserScopeMarker = `let __wasiModule
+let __napiModule`
+  const browserWorkerReuseMarker = `    asyncWorkPoolSize: 4,
+    wasi: __wasi,`
+  const browserImportsMarker = `    overwriteImports(importObject) {
+      importObject.env = {`
+  const browserBeforeInitMarker = `    beforeInit({ instance }) {
+      __napiInstance = instance
+      for (const name of Object.keys(instance.exports)) {`
 
   if (
     !browserSource.includes(browserScopeMarker) ||
@@ -579,13 +579,13 @@ ${browserScopeMarker}`,
   )
   browserSource = browserSource.replace(
     browserWorkerReuseMarker,
-    `  asyncWorkPoolSize: 4,
-  reuseWorker: true,
-  wasi: __wasi,`,
+    `    asyncWorkPoolSize: 4,
+    reuseWorker: true,
+    wasi: __wasi,`,
   )
   browserSource = browserSource.replace(
     browserImportsMarker,
-    `  overwriteImports(importObject) {
+    `    overwriteImports(importObject) {
     const TSFN_TEST_COUNTER_COUNT = 35
     const TSFN_SCENARIO_INDEX = 0
     const TSFN_CLEANUP_TRACKING_ARMED_INDEX = 22
@@ -707,8 +707,8 @@ ${browserScopeMarker}`,
   )
   browserSource = browserSource.replace(
     browserBeforeInitMarker,
-    `  beforeInit({ instance }) {
-    __wrapEmnapiContextDestroy(instance)
+    `    beforeInit({ instance }) {
+    __napiInstance = instance
     __tsfnTestStatePointer =
       instance.exports.__napi_rs_test_tsfn_state_ptr()
     for (const name of Object.keys(instance.exports)) {`,

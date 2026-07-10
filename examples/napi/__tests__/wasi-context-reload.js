@@ -6,10 +6,12 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
 const require = createRequire(import.meta.url)
+const entryPath = require.resolve('../index.cjs')
 const loaderPath = require.resolve('../example.wasi.cjs')
 const operationTimeout = 10_000
-const wasmRuntime = require('@napi-rs/wasm-runtime')
-const createContext = wasmRuntime.createContext
+const wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
+
+process.env.NAPI_RS_FORCE_WASI = 'error'
 
 async function waitForResult(path, description) {
   const deadline = Date.now() + operationTimeout
@@ -35,22 +37,23 @@ function withTimeout(promise, description) {
   return Promise.race([promise, expired]).finally(() => clearTimeout(timeout))
 }
 
-function loadFresh() {
+function clearLoaderCache() {
+  delete require.cache[entryPath]
   delete require.cache[loaderPath]
-  const contexts = []
-  wasmRuntime.createContext = function captureWasiContext(...args) {
-    const context = createContext.apply(this, args)
-    contexts.push(context)
-    return context
-  }
-  let binding
-  try {
-    binding = require(loaderPath)
-  } finally {
-    wasmRuntime.createContext = createContext
-  }
-  assert.equal(contexts.length, 1)
-  return { binding, context: contexts[0] }
+}
+
+function loadFresh() {
+  clearLoaderCache()
+  return require(entryPath)
+}
+
+function getDispose(binding) {
+  const descriptor = Object.getOwnPropertyDescriptor(binding, wasiDisposeSymbol)
+  assert.equal(typeof descriptor?.value, 'function')
+  assert.equal(descriptor.enumerable, false)
+  assert.equal(descriptor.configurable, false)
+  assert.equal(descriptor.writable, false)
+  return descriptor.value
 }
 
 const directory = await mkdtemp(join(tmpdir(), 'napi-wasi-context-reload-'))
@@ -58,59 +61,65 @@ const cleanupPath = join(directory, 'cleanup')
 const asyncCleanupPath = join(directory, 'async-cleanup')
 const asyncStartedPath = join(directory, 'async-started')
 const asyncFinalizerPath = join(directory, 'async-finalized')
-let firstContext
-let replacementContext
+let first
+let replacement
 
 try {
-  const { binding: first, context: loadedFirstContext } = loadFresh()
-  firstContext = loadedFirstContext
+  first = loadFresh()
+  const disposeFirst = getDispose(first)
 
-  assert.equal(typeof firstContext?.destroy, 'function')
-  assert.equal(
-    Object.getOwnPropertySymbols(first).some(
-      (symbol) => symbol.description === 'napi.rs.wasi.context',
-    ),
-    false,
-  )
   assert.equal(first.add(1, 2), 3)
+  process.emit('beforeExit', 0)
+  assert.equal(first.add(2, 3), 5)
 
   first.registerEnvCleanupRuntimeLifecycleProbes(cleanupPath, asyncCleanupPath)
-  const pendingRejection = assert.rejects(
-    first.pendingAsyncBlockWithTerminalFinalizer(
-      asyncFinalizerPath,
-      asyncStartedPath,
-    ),
-    /Async task was cancelled because its runtime stopped/,
-  )
+  let pendingSettled = false
+  const pendingRejection = assert
+    .rejects(
+      first.pendingAsyncBlockWithTerminalFinalizer(
+        asyncFinalizerPath,
+        asyncStartedPath,
+      ),
+      /Async task was cancelled because its runtime stopped/,
+    )
+    .then(() => {
+      pendingSettled = true
+    })
   assert.equal(
     await waitForResult(asyncStartedPath, 'pending async task start'),
     'started',
   )
-  firstContext.destroy()
+
+  const firstDisposal = disposeFirst()
+  assert.strictEqual(disposeFirst(), firstDisposal)
+  await withTimeout(firstDisposal, 'public WASI disposal')
+  assert.equal(pendingSettled, true)
+  await withTimeout(pendingRejection, 'pending async promise rejection')
+  assert.strictEqual(disposeFirst(), firstDisposal)
   assert.equal(
     await waitForResult(asyncFinalizerPath, 'pending async finalizer'),
     'finalized',
   )
-  await withTimeout(pendingRejection, 'pending async promise rejection')
-  firstContext.destroy()
-  firstContext = undefined
-
   assert.equal(await waitForResult(cleanupPath, 'sync cleanup result'), '0')
   assert.equal(
     await waitForResult(asyncCleanupPath, 'async cleanup result'),
     '0',
   )
 
-  const { binding: replacement, context: loadedReplacementContext } =
-    loadFresh()
-  replacementContext = loadedReplacementContext
-
-  assert.equal(typeof replacementContext?.destroy, 'function')
-  assert.notEqual(replacementContext, firstContext)
-  assert.equal(replacement.add(2, 3), 5)
+  replacement = loadFresh()
+  const disposeReplacement = getDispose(replacement)
+  assert.notStrictEqual(replacement, first)
+  assert.equal(replacement.add(3, 4), 7)
+  const replacementDisposal = disposeReplacement()
+  assert.strictEqual(disposeReplacement(), replacementDisposal)
+  await withTimeout(replacementDisposal, 'replacement WASI disposal')
+  assert.strictEqual(disposeReplacement(), replacementDisposal)
 } finally {
-  firstContext?.destroy()
-  replacementContext?.destroy()
-  delete require.cache[loaderPath]
+  const disposals = [first, replacement]
+    .map((binding) => binding?.[wasiDisposeSymbol])
+    .filter((dispose) => typeof dispose === 'function')
+    .map((dispose) => dispose().catch(() => {}))
+  await Promise.all(disposals)
+  clearLoaderCache()
   await rm(directory, { recursive: true, force: true })
 }

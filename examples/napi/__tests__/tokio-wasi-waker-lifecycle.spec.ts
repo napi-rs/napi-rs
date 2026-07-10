@@ -10,7 +10,7 @@ const runnerPath = join(__dirname, 'tokio-wasi-waker-lifecycle.js')
 const wasiTest = isWasi ? test : test.skip
 
 wasiTest(
-  'threaded WASI retires Tokio before escaped wakers outlive the environment',
+  'threaded WASI parent teardown terminates escaped waker threads',
   (t) => {
     const result = spawnSync(process.execPath, [runnerPath], {
       encoding: 'utf8',

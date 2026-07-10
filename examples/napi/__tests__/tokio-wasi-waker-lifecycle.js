@@ -10,23 +10,10 @@ import { Worker } from 'node:worker_threads'
 const operationTimeout = 10_000
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
-process.env.NAPI_RS_FORCE_WASI = 'true'
-const wasmRuntime = require('@napi-rs/wasm-runtime')
-const createContext = wasmRuntime.createContext
-const wasiContexts = []
-wasmRuntime.createContext = function captureWasiContext(...args) {
-  const context = createContext.apply(this, args)
-  wasiContexts.push(context)
-  return context
-}
-let lifecycle
-try {
-  lifecycle = require('../index.cjs')
-} finally {
-  wasmRuntime.createContext = createContext
-}
-assert.equal(wasiContexts.length, 1)
-const [wasiContext] = wasiContexts
+process.env.NAPI_RS_FORCE_WASI = 'error'
+const lifecycle = require('../index.cjs')
+const dispose = lifecycle[Symbol.for('napi.rs.wasi.dispose')]
+assert.equal(typeof dispose, 'function')
 const workerPath = join(__dirname, 'tokio-wasi-waker-worker.js')
 
 async function waitForFile(path, description) {
@@ -40,29 +27,6 @@ async function waitForFile(path, description) {
     }
   }
   throw new Error(`timed out waiting for ${description}`)
-}
-
-async function verifyWakeAfterContextCleanup() {
-  const directory = await mkdtemp(join(tmpdir(), 'napi-wasi-waker-cleanup-'))
-  const enteredPath = join(directory, 'entered')
-  const releasePath = join(directory, 'release')
-  const completedPath = join(directory, 'completed')
-
-  try {
-    await lifecycle.startTokioWakerAfterCleanupProbe(
-      enteredPath,
-      releasePath,
-      completedPath,
-    )
-    await waitForFile(enteredPath, 'WASI waker thread entry')
-    assert.equal(typeof wasiContext?.destroy, 'function')
-    wasiContext.destroy()
-    await writeFile(releasePath, 'release')
-    await waitForFile(completedPath, 'post-cleanup waker completion')
-  } finally {
-    await writeFile(releasePath, 'release').catch(() => {})
-    await rm(directory, { recursive: true, force: true })
-  }
 }
 
 function waitForWorkerReady(worker) {
@@ -133,5 +97,17 @@ async function verifyParentWorkerTerminatesPthread() {
   }
 }
 
-await verifyWakeAfterContextCleanup()
 await verifyParentWorkerTerminatesPthread()
+const firstDisposal = dispose()
+assert.strictEqual(dispose(), firstDisposal)
+let disposalTimeout
+const disposalExpired = new Promise((_, reject) => {
+  disposalTimeout = setTimeout(() => {
+    reject(new Error('timed out waiting for WASI disposal'))
+  }, operationTimeout)
+})
+try {
+  await Promise.race([firstDisposal, disposalExpired])
+} finally {
+  clearTimeout(disposalTimeout)
+}

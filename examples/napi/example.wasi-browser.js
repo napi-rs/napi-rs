@@ -112,31 +112,18 @@ const __wasi = new __WASI({
 })
 
 const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url).href
-const __emnapiContext = __emnapiCreateContext()
-__emnapiContext.feature.Buffer = Buffer
-
-let __emnapiContextDestroyWrapped = false
-let __emnapiWasmEnvCleanupPrepared = false
-
-function __wrapEmnapiContextDestroy(instance) {
-  if (__emnapiContextDestroyWrapped) {
-    return
-  }
-  const __destroyEmnapiContext = __emnapiContext.destroy
-  __emnapiContext.destroy = function() {
-    if (!__emnapiWasmEnvCleanupPrepared) {
-      const __prepareWasmEnvCleanup =
-        instance.exports.napi_prepare_wasm_env_cleanup
-      if (typeof __prepareWasmEnvCleanup === 'function') {
-        __prepareWasmEnvCleanup()
-      }
-      __emnapiWasmEnvCleanupPrepared = true
-    }
-    return Reflect.apply(__destroyEmnapiContext, this, arguments)
-  }
-  __emnapiContextDestroyWrapped = true
+const __wasmResponse = await globalThis.fetch(__wasmUrl)
+if (!__wasmResponse.ok) {
+  throw new Error(
+    'Failed to fetch WASI module ' +
+      __wasmUrl +
+      ': ' +
+      __wasmResponse.status +
+      ' ' +
+      (__wasmResponse.statusText || 'Unknown Status'),
+  )
 }
-
+const __wasmFile = await __wasmResponse.arrayBuffer()
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: 16384,
@@ -144,29 +131,286 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const __wasmFile = await globalThis.fetch(__wasmUrl).then((res) => res.arrayBuffer())
+let __emnapiContext
+
+const __wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
+const __wasiWorkers = new Set()
+let __napiInstance
+let __emnapiContextDestroyed = false
+let __emnapiContextDestroyPromise
+let __emnapiWasmEnvCleanupPrepared = false
+let __wasiDisposed = false
+let __wasiDisposePromise
+let __completeWasiDisposal = function() {}
+
+function __isThenable(value) {
+  return (
+    value !== null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    typeof value.then === 'function'
+  )
+}
+
+function __createCleanupError(errors, message) {
+  if (errors.length === 1) {
+    return errors[0]
+  }
+  if (typeof AggregateError === 'function') {
+    return new AggregateError(errors, message)
+  }
+  const error = new Error(message)
+  error.errors = errors
+  return error
+}
+
+function __attachCleanupErrors(error, cleanupErrors) {
+  if (cleanupErrors.length === 0) {
+    return error
+  }
+  const cleanupError = __createCleanupError(
+    cleanupErrors,
+    'WASI binding cleanup failed',
+  )
+  try {
+    if (
+      error &&
+      (typeof error === 'object' || typeof error === 'function')
+    ) {
+      if (error.cause === undefined) {
+        error.cause = cleanupError
+        if (error.cause === cleanupError) {
+          return error
+        }
+      }
+      if (Array.isArray(error.cleanupErrors)) {
+        error.cleanupErrors.push(cleanupError)
+        return error
+      } else {
+        const attachedCleanupErrors = [cleanupError]
+        error.cleanupErrors = attachedCleanupErrors
+        if (error.cleanupErrors === attachedCleanupErrors) {
+          return error
+        }
+      }
+    }
+  } catch {}
+  const aggregate = __createCleanupError(
+    [error, cleanupError],
+    'WASI binding initialization and cleanup failed',
+  )
+  try {
+    aggregate.cause = error
+  } catch {}
+  return aggregate
+}
+
+function __prepareWasmEnvCleanup() {
+  if (__emnapiWasmEnvCleanupPrepared) {
+    return
+  }
+  const prepare = __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+  if (typeof prepare === 'function') {
+    prepare()
+  }
+  __emnapiWasmEnvCleanupPrepared = true
+}
+
+function __destroyEmnapiContext() {
+  if (__emnapiContextDestroyed || __emnapiContext === undefined) {
+    __emnapiContextDestroyed = true
+    return
+  }
+  if (__emnapiContextDestroyPromise) {
+    return __emnapiContextDestroyPromise
+  }
+
+  __prepareWasmEnvCleanup()
+  const result = __emnapiContext.destroy()
+  if (!__isThenable(result)) {
+    __emnapiContextDestroyed = true
+    return
+  }
+
+  const destroyPromise = Promise.resolve(result).then(
+    (value) => {
+      __emnapiContextDestroyed = true
+      return value
+    },
+    (error) => {
+      __emnapiContextDestroyPromise = undefined
+      throw error
+    },
+  )
+  __emnapiContextDestroyPromise = destroyPromise
+  return destroyPromise
+}
+
+function __terminateWasiWorkers() {
+  const cleanupErrors = []
+  const pending = []
+
+  for (const worker of __wasiWorkers) {
+    let result
+    try {
+      result = worker.terminate()
+    } catch (error) {
+      cleanupErrors.push(error)
+      continue
+    }
+    if (__isThenable(result)) {
+      pending.push(
+        Promise.resolve(result).then(
+          () => {
+            __wasiWorkers.delete(worker)
+          },
+          (error) => {
+            cleanupErrors.push(error)
+          },
+        ),
+      )
+    } else {
+      __wasiWorkers.delete(worker)
+    }
+  }
+
+  const finish = () => {
+    if (cleanupErrors.length > 0) {
+      throw __createCleanupError(
+        cleanupErrors,
+        'Failed to terminate WASI workers',
+      )
+    }
+  }
+  return pending.length > 0 ? Promise.all(pending).then(finish) : finish()
+}
+
+function __finishWasiDisposal() {
+  const workerResult = __terminateWasiWorkers()
+  if (__isThenable(workerResult)) {
+    return Promise.resolve(workerResult).then(__completeWasiDisposal)
+  }
+  return __completeWasiDisposal()
+}
+
+function __startWasiDisposal() {
+  const destroyResult = __destroyEmnapiContext()
+  if (__isThenable(destroyResult)) {
+    return Promise.resolve(destroyResult).then(__finishWasiDisposal)
+  }
+  return __finishWasiDisposal()
+}
+
+/**
+ * Disposes this generated WASI binding.
+ *
+ * Access this function with:
+ * binding[Symbol.for('napi.rs.wasi.dispose')]()
+ */
+function __disposeWasiBinding() {
+  if (__wasiDisposePromise) {
+    return __wasiDisposePromise
+  }
+  if (__wasiDisposed) {
+    return Promise.resolve()
+  }
+
+  let result
+  try {
+    result = __startWasiDisposal()
+  } catch (error) {
+    result = Promise.reject(error)
+  }
+  const disposePromise = Promise.resolve(result).then(
+    (value) => {
+      __wasiDisposed = true
+      return value
+    },
+    (error) => {
+      __wasiDisposePromise = undefined
+      throw error
+    },
+  )
+  __wasiDisposePromise = disposePromise
+  return disposePromise
+}
+
+function __publishWasiDispose(exports) {
+  Object.defineProperty(exports, __wasiDisposeSymbol, {
+    configurable: false,
+    enumerable: false,
+    value: __disposeWasiBinding,
+    writable: false,
+  })
+}
+
+function __finishWasiInitializationRollback(error, cleanupErrors) {
+  let workerResult
+  try {
+    workerResult = __terminateWasiWorkers()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+    return __attachCleanupErrors(error, cleanupErrors)
+  }
+  if (__isThenable(workerResult)) {
+    return Promise.resolve(workerResult)
+      .catch((cleanupError) => {
+        cleanupErrors.push(cleanupError)
+      })
+      .then(() => __attachCleanupErrors(error, cleanupErrors))
+  }
+  return __attachCleanupErrors(error, cleanupErrors)
+}
+
+function __rollbackWasiInitialization(error) {
+  const cleanupErrors = []
+  let destroyResult
+  try {
+    destroyResult = __destroyEmnapiContext()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+    return __finishWasiInitializationRollback(error, cleanupErrors)
+  }
+  if (__isThenable(destroyResult)) {
+    return Promise.resolve(destroyResult)
+      .catch((cleanupError) => {
+        cleanupErrors.push(cleanupError)
+      })
+      .then(() =>
+        __finishWasiInitializationRollback(error, cleanupErrors),
+      )
+  }
+  return __finishWasiInitializationRollback(error, cleanupErrors)
+}
 
 let __tsfnTestStatePointer
 
-const {
-  instance: __napiInstance,
-  module: __wasiModule,
-  napiModule: __napiModule,
-} = __emnapiInstantiateNapiModuleSync(__wasmFile, {
-  context: __emnapiContext,
-  asyncWorkPoolSize: 4,
-  reuseWorker: true,
-  wasi: __wasi,
-  onCreateWorker() {
-    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
-      type: 'module',
-    })
+let __wasiModule
+let __napiModule
+
+try {
+  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  __emnapiContext.suppressDestroy()
+  __emnapiContext.feature.Buffer = Buffer
+  ;({
+    instance: __napiInstance,
+    module: __wasiModule,
+    napiModule: __napiModule,
+  } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
+    context: __emnapiContext,
+    asyncWorkPoolSize: 4,
+    reuseWorker: true,
+    wasi: __wasi,
+    onCreateWorker() {
+      const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
+        type: 'module',
+      })
+      __wasiWorkers.add(worker)
     worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))
 
 
-    return worker
-  },
-  overwriteImports(importObject) {
+      return worker
+    },
+    overwriteImports(importObject) {
     const TSFN_TEST_COUNTER_COUNT = 35
     const TSFN_SCENARIO_INDEX = 0
     const TSFN_CLEANUP_TRACKING_ARMED_INDEX = 22
@@ -285,24 +529,28 @@ const {
     }
 
     importObject.env = {
-      ...importObject.env,
-      ...importObject.napi,
-      ...importObject.emnapi,
-      memory: __sharedMemory,
-    }
-    return importObject
-  },
-  beforeInit({ instance }) {
-    __wrapEmnapiContextDestroy(instance)
+        ...importObject.env,
+        ...importObject.napi,
+        ...importObject.emnapi,
+        memory: __sharedMemory,
+      }
+      return importObject
+    },
+    beforeInit({ instance }) {
+    __napiInstance = instance
     __tsfnTestStatePointer =
       instance.exports.__napi_rs_test_tsfn_state_ptr()
     for (const name of Object.keys(instance.exports)) {
-      if (name.startsWith('__napi_register__')) {
-        instance.exports[name]()
+        if (name.startsWith('__napi_register__')) {
+          instance.exports[name]()
+        }
       }
-    }
-  },
-})
+    },
+  }))
+  __publishWasiDispose(__napiModule.exports)
+} catch (error) {
+  throw await __rollbackWasiInitialization(error)
+}
 export default __napiModule.exports
 export const AlignedZst = __napiModule.exports.AlignedZst
 export const Animal = __napiModule.exports.Animal
