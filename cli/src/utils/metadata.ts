@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { dirname, resolve } from 'node:path'
 
 export type CrateTargetKind =
   | 'bin'
@@ -28,7 +29,7 @@ export interface Crate {
   manifest_path: string
   dependencies: Array<{
     name: string
-    source: string
+    source: string | null
     req: string
     kind: string | null
     rename: string | null
@@ -40,24 +41,148 @@ export interface Crate {
   }>
 }
 
+export interface CargoResolveNode {
+  id: string
+  dependencies: string[]
+  deps: Array<{
+    name: string
+    pkg: string
+    dep_kinds: Array<{
+      kind: string | null
+      target: string | null
+    }>
+  }>
+  features: string[]
+}
+
 export interface CargoWorkspaceMetadata {
   version: number
   packages: Crate[]
   workspace_members: string[]
   target_directory: string
   workspace_root: string
+  resolve: {
+    root: string | null
+    nodes: CargoResolveNode[]
+  } | null
 }
 
-export async function parseMetadata(manifestPath: string) {
+interface ParseMetadataOptions {
+  allFeatures?: boolean
+  cargoOptions?: string[]
+  cwd?: string
+  featurePackage?: string
+  features?: string[]
+  filterPlatform?: string
+  noDefaultFeatures?: boolean
+}
+
+export function createCargoMetadataInvocation(
+  manifestPath: string,
+  options: ParseMetadataOptions = {},
+) {
+  const globalArgs: string[] = []
+  const metadataArgs = [
+    'metadata',
+    '--manifest-path',
+    manifestPath,
+    '--format-version',
+    '1',
+  ]
+  const features = [
+    ...new Set(
+      (options.features ?? []).flatMap((feature) =>
+        feature.split(/[,\s]+/).filter(Boolean),
+      ),
+    ),
+  ]
+  let allFeatures = options.allFeatures === true
+  let noDefaultFeatures = options.noDefaultFeatures === true
+  const cargoOptions = options.cargoOptions ?? []
+  for (let index = 0; index < cargoOptions.length; index += 1) {
+    const option = cargoOptions[index]
+    if (option === '--config' || option === '-Z') {
+      const value = cargoOptions[index + 1]
+      if (value !== undefined) {
+        globalArgs.push(option, value)
+        index += 1
+      }
+    } else if (option.startsWith('--config=') || option.startsWith('-Z')) {
+      globalArgs.push(option)
+    } else if (option === '--features' || option === '-F') {
+      const value = cargoOptions[index + 1]
+      if (value !== undefined) {
+        features.push(...value.split(/[,\s]+/).filter(Boolean))
+        index += 1
+      }
+    } else if (option.startsWith('--features=') || option.startsWith('-F=')) {
+      features.push(
+        ...option
+          .slice(option.indexOf('=') + 1)
+          .split(/[,\s]+/)
+          .filter(Boolean),
+      )
+    } else if (option.startsWith('-F') && option.length > 2) {
+      features.push(
+        ...option
+          .slice(2)
+          .split(/[,\s]+/)
+          .filter(Boolean),
+      )
+    } else if (option === '--all-features') {
+      allFeatures = true
+    } else if (option === '--no-default-features') {
+      noDefaultFeatures = true
+    } else if (
+      option === '--locked' ||
+      option === '--offline' ||
+      option === '--frozen'
+    ) {
+      metadataArgs.push(option)
+    }
+  }
+  const selectedFeatures = [
+    ...new Set(
+      features.map((feature) =>
+        options.featurePackage && !feature.includes('/')
+          ? `${options.featurePackage}/${feature}`
+          : feature,
+      ),
+    ),
+  ].sort()
+  if (selectedFeatures.length > 0) {
+    metadataArgs.push('--features', selectedFeatures.join(','))
+  }
+  if (allFeatures) {
+    metadataArgs.push('--all-features')
+  }
+  if (noDefaultFeatures) {
+    metadataArgs.push('--no-default-features')
+  }
+  if (options.filterPlatform) {
+    metadataArgs.push('--filter-platform', options.filterPlatform)
+  }
+
+  return {
+    command: process.env.CARGO ?? 'cargo',
+    args: [...globalArgs, ...metadataArgs],
+    cwd: resolve(options.cwd ?? dirname(manifestPath)),
+  }
+}
+
+export async function parseMetadata(
+  manifestPath: string,
+  options: ParseMetadataOptions = {},
+) {
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`No crate found in manifest: ${manifestPath}`)
   }
 
-  const childProcess = spawn(
-    'cargo',
-    ['metadata', '--manifest-path', manifestPath, '--format-version', '1'],
-    { stdio: 'pipe' },
-  )
+  const invocation = createCargoMetadataInvocation(manifestPath, options)
+  const childProcess = spawn(invocation.command, invocation.args, {
+    cwd: invocation.cwd,
+    stdio: 'pipe',
+  })
 
   let stdout = ''
   let stderr = ''

@@ -34,7 +34,7 @@ export abstract class BaseArtifactsCommand extends Command {
 
   buildOutputDir?: string = Option.String('--build-output-dir', {
     description:
-      'Path to the build output dir, only needed when targets contains `wasm32-wasi-*`',
+      'Path to the build output dir, only needed when targets contain a WASI target',
   })
 
   getOptions() {
@@ -82,7 +82,7 @@ export interface ArtifactsOptions {
    */
   npmDir?: string
   /**
-   * Path to the build output dir, only needed when targets contains `wasm32-wasi-*`
+   * Path to the build output dir, only needed when targets contain a WASI target
    */
   buildOutputDir?: string
 }

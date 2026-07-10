@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>NAPI-RS WASI public surface test</title>
+<script type="module">
+  globalThis.__napiPublicSurfaceTest = import('./test.mjs').then(({ run }) =>
+    run(),
+  )
+</script>

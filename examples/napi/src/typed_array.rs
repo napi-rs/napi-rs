@@ -13,11 +13,64 @@ fn get_buffer_slice(env: &Env) -> Result<BufferSlice<'_>> {
   BufferSlice::from_data(env, String::from("Hello world").as_bytes().to_vec())
 }
 
-#[napi]
+#[napi(ts_args_type = "buf: Buffer", ts_return_type = "Buffer")]
 fn append_buffer(buf: Buffer) -> Buffer {
   let mut buf = Vec::<u8>::from(buf);
   buf.push(b'!');
   buf.into()
+}
+
+#[napi(object)]
+pub struct BufferOverrideObject {
+  #[napi(ts_type = "Buffer")]
+  pub value: Buffer,
+}
+
+#[napi(
+  ts_generic_types = "T extends Buffer",
+  ts_args_type = "value: T",
+  ts_return_type = "T"
+)]
+fn buffer_generic_constraint(value: Buffer) -> Buffer {
+  value
+}
+
+#[napi(
+  ts_generic_types = "Buffer",
+  ts_args_type = "value: Buffer",
+  ts_return_type = "Buffer"
+)]
+fn buffer_generic_shadow(value: Buffer) -> Buffer {
+  value
+}
+
+#[napi(
+  ts_generic_types = "T extends Record<string, unknown>",
+  ts_args_type = r#"value: {
+    Buffer(): "line\nnext"
+    mapped: { [Buffer in keyof T]: T[Buffer] }
+    external: Buffer
+  }, external: Buffer"#,
+  ts_return_type = r#""line\nnext" | `template\n${Buffer extends Uint8Array ? "buffer" : "other"}`"#
+)]
+fn buffer_complex_override(_value: Object, _external: Buffer) -> String {
+  "line\nnext".to_owned()
+}
+
+#[napi(
+  ts_args_type = "{ Buffer }: { Buffer: string }, value: Buffer",
+  ts_return_type = "Buffer"
+)]
+fn buffer_destructure_binding(_value: Object, value: Buffer) -> Buffer {
+  value
+}
+
+#[napi(ts_type = "(Buffer: unknown): asserts Buffer is string")]
+fn buffer_assertion_target(_value: Unknown) {}
+
+#[napi(ts_args_type = "Buffer: unknown", ts_return_type = "typeof Buffer")]
+fn buffer_value_binding(value: Unknown) -> Unknown {
+  value
 }
 
 #[napi]

@@ -26,6 +26,11 @@ use napi::bindgen_prelude::{
   register_async_runtime, shutdown_async_runtime, start_async_runtime, AsyncGenerator,
   AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error,
   FnArgs, JsObjectValue, JsValue, Object, PromiseRaw, Result, Status, Unknown,
+  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
+  try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
+  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Env, Error, FnArgs, JoinError,
+  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error, FnArgs,
+  JsObjectValue, JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi_derive::napi;

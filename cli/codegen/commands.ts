@@ -350,7 +350,7 @@ const ARTIFACTS_OPTIONS: CommandSchema = {
       name: 'buildOutputDir',
       type: 'string',
       description:
-        'Path to the build output dir, only needed when targets contains `wasm32-wasi-*`',
+        'Path to the build output dir, only needed when targets contain a WASI target',
     },
   ],
 }

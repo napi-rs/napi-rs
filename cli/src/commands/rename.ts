@@ -6,14 +6,19 @@ import { BaseRenameCommand } from '../def/rename.js'
 export class RenameCommand extends BaseRenameCommand {
   async execute() {
     const options = this.getOptions()
-    if (!options.name) {
+    const hasExplicitRename = [
+      options.name,
+      options.binaryName,
+      options.packageName,
+      options.repository,
+      options.description,
+    ].some((value) => value !== undefined)
+    if (!hasExplicitRename) {
       const name = await input({
         message: `Enter the new package name in the package.json`,
         required: true,
       })
       options.name = name
-    }
-    if (!options.binaryName) {
       const binaryName = await input({
         message: `Enter the new binary name`,
         required: true,
