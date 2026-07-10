@@ -8,9 +8,12 @@
   "scripts": {
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
+    "build": "node build.mjs",
+    "regenerate": "node build.mjs --regenerate-all",
     "test": "ava reset-cache && cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.js",
     "test:leak": "oxnode --expose-gc ./memory-test.ts",
-    "test-js": "ava reset-cache && ava"
+    "test-js": "ava reset-cache && ava",
+    "test:wasi-public-surfaces": "node ./wasi-public-surface/test.mjs"
   },
   "napi": {
     "binaryName": "example",
@@ -24,10 +27,13 @@
     "dtsHeader": "type MaybePromise<T> = T | Promise<T>",
     "dtsHeaderFile": "./dts-header.d.ts",
     "targets": [
+      "wasm32-wasip1",
       "wasm32-wasip1-threads"
     ]
   },
   "devDependencies": {
+    "@emnapi/core-stock": "npm:@emnapi/core@1.11.2",
+    "@emnapi/runtime-stock": "npm:@emnapi/runtime@1.11.2",
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
@@ -43,7 +49,9 @@
     "core-js": "^3.49.0",
     "cross-env": "10.1.0",
     "electron": "^43.0.0",
+    "esbuild": "^0.28.1",
     "lodash": "^4.18.1",
+    "miniflare": "^4.20260630.0",
     "playwright": "^1.60.0",
     "rxjs": "^7.8.2",
     "sinon": "^22.0.0",

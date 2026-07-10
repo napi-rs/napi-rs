@@ -1,11 +1,139 @@
+import { wasiLoaderSuffix } from '../../utils/index.js'
+
+function resolveWasiFlavors(wasiFlavors?: string[]): string[] {
+  return wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
+}
+
+/**
+ * Generate the WASI fallback `require` chain for `binding.cjs`/`binding.js`.
+ *
+ * Local candidates are tried before installed package fallbacks. Within each
+ * group, candidates retain the declared flavor order (threaded flavors are
+ * expected first), and the chain stops at the FIRST successfully loaded
+ * binding.
+ */
+function createWasiFallbackChain(
+  localName: string,
+  pkgName: string,
+  flavors: string[],
+  packageVersion?: string,
+  localWasiName = `./${localName}`,
+): string {
+  const candidates = [
+    ...flavors.map((flavor) => ({
+      flavor,
+      specifier: `${localWasiName}.${wasiLoaderSuffix(flavor)}.cjs`,
+      isPackage: false,
+      localArtifacts: [
+        `${localWasiName}.${flavor}.debug.wasm`,
+        `${localWasiName}.${flavor}.wasm`,
+      ],
+    })),
+    ...flavors.map((flavor) => ({
+      flavor,
+      specifier: `${pkgName}-${flavor}`,
+      isPackage: true,
+      localArtifacts: undefined,
+    })),
+  ]
+  const chain = candidates
+    .map(
+      ({
+        flavor,
+        specifier,
+        isPackage,
+        localArtifacts,
+      }) => `  if (!wasiBindingLoaded && (!__napiWasiFlavorRequested || __napiWasiFlavor === ${JSON.stringify(flavor)})) {
+    let candidateError = null
+    let candidateFailed = false
+    try {
+      candidateError = __napiWasiResolveCandidate('${specifier}', ${isPackage}, ${JSON.stringify(localArtifacts)})
+      candidateFailed = candidateError !== null
+      if (!candidateFailed) {${
+        isPackage && packageVersion
+          ? `
+        if (process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          const bindingPackageVersion = require('${specifier}/package.json').version
+          if (bindingPackageVersion !== '${packageVersion}') {
+            throw new Error(\`WASI binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+          }
+        }`
+          : ''
+      }
+        wasiBinding = require('${specifier}')
+        nativeBinding = wasiBinding
+        wasiBindingLoaded = true
+      }
+    } catch (err) {
+      candidateError = err
+      candidateFailed = true
+    }
+    if (candidateFailed) {
+      wasiBindingErrors.push(candidateError)
+      loadErrors.push(candidateError)
+    }
+  }`,
+    )
+    .join('\n')
+  return `  const __napiWasiResolveCandidate = (specifier, isPackage, localArtifacts) => {
+    try {
+      require.resolve(specifier)
+    } catch (resolveError) {
+      if (!resolveError || resolveError.code !== 'MODULE_NOT_FOUND') {
+        throw resolveError
+      }
+      if (isPackage) {
+        try {
+          require.resolve(specifier + '/package.json')
+        } catch (packageError) {
+          if (packageError && packageError.code === 'MODULE_NOT_FOUND') {
+            return resolveError
+          }
+          // An exports restriction proves the package exists even when its
+          // package.json is not public. Preserve the root resolution failure.
+          throw resolveError
+        }
+        // The package exists but its main/export target is broken.
+        throw resolveError
+      }
+      return resolveError
+    }
+    if (localArtifacts) {
+      let artifactError = null
+      for (let i = 0; i < localArtifacts.length; i++) {
+        try {
+          require.resolve(localArtifacts[i])
+          return null
+        } catch (resolveError) {
+          if (!resolveError || resolveError.code !== 'MODULE_NOT_FOUND') {
+            throw resolveError
+          }
+          artifactError = resolveError
+        }
+      }
+      return artifactError
+    }
+    return null
+  }
+${chain}`
+}
+
 export function createCjsBinding(
   localName: string,
   pkgName: string,
   idents: string[],
   packageVersion?: string,
+  wasiFlavors?: string[],
+  localWasiName?: string,
 ): string {
   return `${bindingHeader}
-${createCommonBinding(localName, pkgName, packageVersion)}
+${createCommonBinding(
+  localName,
+  pkgName,
+  packageVersion,
+  wasiFlavors,
+  localWasiName,
+)}
 module.exports = nativeBinding
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
@@ -18,15 +146,27 @@ export function createEsmBinding(
   pkgName: string,
   idents: string[],
   packageVersion?: string,
+  wasiFlavors?: string[],
+  localWasiName?: string,
 ): string {
+  const exportsCode =
+    idents.length > 0
+      ? `const { ${idents.join(', ')} } = nativeBinding
+${idents.map((ident) => `export { ${ident} }`).join('\n')}`
+      : 'export default nativeBinding'
   return `${bindingHeader}
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const __dirname = new URL('.', import.meta.url).pathname
 
-${createCommonBinding(localName, pkgName, packageVersion)}
-const { ${idents.join(', ')} } = nativeBinding
-${idents.map((ident) => `export { ${ident} }`).join('\n')}
+${createCommonBinding(
+  localName,
+  pkgName,
+  packageVersion,
+  wasiFlavors,
+  localWasiName,
+)}
+${exportsCode}
 `
 }
 
@@ -40,6 +180,8 @@ function createCommonBinding(
   localName: string,
   pkgName: string,
   packageVersion?: string,
+  wasiFlavors?: string[],
+  localWasiName?: string,
 ): string {
   function requireTuple(tuple: string, identSize = 8) {
     const identLow = ' '.repeat(identSize - 2)
@@ -68,6 +210,8 @@ ${identLow}} catch (e) {
 ${ident}loadErrors.push(e)
 ${identLow}}${versionCheck}`
   }
+
+  const flavors = resolveWasiFlavors(wasiFlavors)
 
   return `const { readFileSync } = require('fs')
 let nativeBinding = null
@@ -266,6 +410,60 @@ if (!nativeBinding || forceWasi) {
   if (process.env.NAPI_RS_FORCE_WASI === 'error' && !wasiBinding) {
     const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
     error.cause = wasiBindingError
+//
+// NAPI_RS_WASI_FLAVOR selects one exact generated flavor and implies strict
+// WASI loading. It never crosses into another flavor or falls back to native.
+const __napiWasiFlavors = ${JSON.stringify(flavors)}
+const __napiWasiFlavor = process.env.NAPI_RS_WASI_FLAVOR
+const __napiWasiFlavorRequested =
+  typeof __napiWasiFlavor === 'string' && __napiWasiFlavor.length > 0
+if (
+  __napiWasiFlavorRequested &&
+  __napiWasiFlavors.indexOf(__napiWasiFlavor) === -1
+) {
+  throw new Error(
+    'Unsupported WASI flavor "' +
+      __napiWasiFlavor +
+      '". Available flavors: ' +
+      __napiWasiFlavors.join(', '),
+  )
+}
+const forceWasiError = process.env.NAPI_RS_FORCE_WASI === 'error'
+const forceWasi =
+  process.env.NAPI_RS_FORCE_WASI === 'true' ||
+  forceWasiError ||
+  __napiWasiFlavorRequested
+
+if (!forceWasi) {
+  nativeBinding = requireNative()
+}
+
+if (!nativeBinding || forceWasi) {
+  let wasiBinding = null
+  let wasiBindingLoaded = false
+  const wasiBindingErrors = []
+${createWasiFallbackChain(
+  localName,
+  pkgName,
+  flavors,
+  packageVersion,
+  localWasiName,
+)}
+  if (
+    !wasiBindingLoaded &&
+    forceWasi &&
+    !forceWasiError &&
+    !__napiWasiFlavorRequested
+  ) {
+    nativeBinding = requireNative()
+  }
+  if ((forceWasiError || __napiWasiFlavorRequested) && !wasiBindingLoaded) {
+    const error = new Error(
+      __napiWasiFlavorRequested
+        ? 'WASI binding for flavor "' + __napiWasiFlavor + '" not found'
+        : 'WASI binding not found and NAPI_RS_FORCE_WASI is set to error',
+    )
+    error.cause = createLoadErrorChain(wasiBindingErrors)
     throw error
   }
 }

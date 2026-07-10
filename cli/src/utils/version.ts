@@ -1,3 +1,5 @@
+import { Comparator, Range, minVersion, subset } from 'semver'
+
 export enum NapiVersion {
   Napi1 = 1,
   Napi2,
@@ -30,6 +32,8 @@ const NAPI_VERSION_MATRIX = new Map<NapiVersion, string>([
 export const SUPPORTED_NAPI_VERSIONS = Object.values(NapiVersion).filter(
   (v): v is NapiVersion => typeof v === 'number',
 )
+
+export const MINIMUM_WASI_NODE_VERSION = '>=14.18.0'
 
 interface NodeVersion {
   major: number
@@ -81,4 +85,86 @@ function toEngineRequirement(versions: NodeVersion[]): string {
 
 export function napiEngineRequirement(napiVersion: NapiVersion): string {
   return toEngineRequirement(requiredNodeVersions(napiVersion))
+}
+
+export function restrictWasiNodeEngine(nodeRange: string) {
+  try {
+    if (subset(nodeRange, MINIMUM_WASI_NODE_VERSION)) {
+      return nodeRange
+    }
+
+    if (subset(MINIMUM_WASI_NODE_VERSION, nodeRange)) {
+      return MINIMUM_WASI_NODE_VERSION
+    }
+
+    const minimumComparator = new Comparator(MINIMUM_WASI_NODE_VERSION)
+    const restrictedRangeSets = new Range(nodeRange).set
+      .map((comparators) =>
+        normalizeComparatorSet([...comparators, minimumComparator]),
+      )
+      .filter(
+        (candidate): candidate is string =>
+          candidate !== undefined && minVersion(candidate) !== null,
+      )
+
+    if (restrictedRangeSets.length > 0) {
+      return restrictedRangeSets.join(' || ')
+    }
+  } catch {
+    // Fall back to the supported WASI floor for malformed ranges.
+  }
+
+  return MINIMUM_WASI_NODE_VERSION
+}
+
+function normalizeComparatorSet(comparators: Comparator[]) {
+  const exactMatch = comparators.find(({ operator }) => operator === '')
+  if (exactMatch) {
+    return comparators.every((comparator) => comparator.test(exactMatch.semver))
+      ? exactMatch.value
+      : undefined
+  }
+
+  let lowerBound: Comparator | undefined
+  let upperBound: Comparator | undefined
+
+  for (const rawComparator of comparators) {
+    const comparator = stabilizePrereleaseComparator(rawComparator)
+    if (comparator.operator === '>' || comparator.operator === '>=') {
+      if (
+        !lowerBound ||
+        comparator.semver.compare(lowerBound.semver) > 0 ||
+        (comparator.semver.compare(lowerBound.semver) === 0 &&
+          comparator.operator === '>')
+      ) {
+        lowerBound = comparator
+      }
+    } else if (comparator.operator === '<' || comparator.operator === '<=') {
+      if (
+        !upperBound ||
+        comparator.semver.compare(upperBound.semver) < 0 ||
+        (comparator.semver.compare(upperBound.semver) === 0 &&
+          comparator.operator === '<')
+      ) {
+        upperBound = comparator
+      }
+    }
+  }
+
+  return [lowerBound?.value, upperBound?.value].filter(Boolean).join(' ')
+}
+
+function stabilizePrereleaseComparator(comparator: Comparator) {
+  if (comparator.semver.prerelease.length === 0) {
+    return comparator
+  }
+
+  const stableVersion = `${comparator.semver.major}.${comparator.semver.minor}.${comparator.semver.patch}`
+  if (comparator.operator === '>' || comparator.operator === '>=') {
+    return new Comparator(`>=${stableVersion}`)
+  }
+  if (comparator.operator === '<' || comparator.operator === '<=') {
+    return new Comparator(`<${stableVersion}-0`)
+  }
+  return comparator
 }

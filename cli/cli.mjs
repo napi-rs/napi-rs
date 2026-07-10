@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 
-import { execSync } from 'node:child_process'
-import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
 
-execSync(
-  `node --import @oxc-node/core/register ${resolve(
-    fileURLToPath(import.meta.url),
-    '../src/cli.ts',
-  )} ${process.argv.slice(2).join(' ')}`,
-  {
-    stdio: 'inherit',
-  },
-)
+const isSourceCheckout = existsSync(new URL('../Cargo.toml', import.meta.url))
+
+if (isSourceCheckout) {
+  await import('@oxc-node/core/register')
+  await import('./src/cli.ts')
+} else {
+  await import('./dist/cli.js')
+}

@@ -93,6 +93,8 @@
   "packageManager": "yarn@4.17.1",
   "resolutions": {
     "node-inspect-extracted": "patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch",
-    "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch"
+    "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch",
+    "@examples/napi/@emnapi/runtime": "patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch",
+    "@examples/napi/@emnapi/core": "patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch"
   }
 }

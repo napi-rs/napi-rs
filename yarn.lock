@@ -176,6 +176,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@emnapi/core-stock@npm:@emnapi/core@1.11.2, @emnapi/core@npm:1.11.2, @emnapi/core@npm:^1.1.0":
+  version: 1.11.2
+  resolution: "@emnapi/core@npm:1.11.2"
+  dependencies:
+    "@emnapi/wasi-threads": "npm:1.2.2"
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/424ca1607f498e524eb58db1095e6cc2082986edfd84a74b116d4e2c6e43b5e9d557ea7f0d7b9adf7f6d5023e25ac2ed6bd08caf0043d3d8602598d79579c2cd
+  languageName: node
+  linkType: hard
+
 "@emnapi/core@npm:1.11.1":
   version: 1.11.1
   resolution: "@emnapi/core@npm:1.11.1"
@@ -183,16 +193,6 @@ __metadata:
     "@emnapi/wasi-threads": "npm:1.2.2"
     tslib: "npm:^2.4.0"
   checksum: 10c0/2c6defdac2d1d26090384655d7d6c9614fa553853b1760597686749e9375dc2aa0dae80a2615b81c254600f5d531d07d8466cde0d331a8caae64b93f3ca5937e
-  languageName: node
-  linkType: hard
-
-"@emnapi/core@npm:1.11.2, @emnapi/core@npm:^1.1.0":
-  version: 1.11.2
-  resolution: "@emnapi/core@npm:1.11.2"
-  dependencies:
-    "@emnapi/wasi-threads": "npm:1.2.2"
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/424ca1607f498e524eb58db1095e6cc2082986edfd84a74b116d4e2c6e43b5e9d557ea7f0d7b9adf7f6d5023e25ac2ed6bd08caf0043d3d8602598d79579c2cd
   languageName: node
   linkType: hard
 
@@ -226,21 +226,31 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@emnapi/core@patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch":
+  version: 1.11.2
+  resolution: "@emnapi/core@patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch::version=1.11.2&hash=11573d"
+  dependencies:
+    "@emnapi/wasi-threads": "npm:1.2.2"
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/83c2dbd15febc89b324f911288967b354f6df7acda216c08176163524bbca1eec227318718879ed854b52464432f54bff6985c92a500b9419e59cc79b08b6eff
+  languageName: node
+  linkType: hard
+
+"@emnapi/runtime-stock@npm:@emnapi/runtime@1.11.2, @emnapi/runtime@npm:1.11.2, @emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.11.0, @emnapi/runtime@npm:^1.7.0":
+  version: 1.11.2
+  resolution: "@emnapi/runtime@npm:1.11.2"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/d8d500059fe9c0864571c79ce29439c1b6fb44d7ec4ac865a2aaaa7469194e5d91ebdc820cabd37c3d373478b725a8b60771733e4743cfef41fc86d9a1f2eab0
+  languageName: node
+  linkType: hard
+
 "@emnapi/runtime@npm:1.11.1":
   version: 1.11.1
   resolution: "@emnapi/runtime@npm:1.11.1"
   dependencies:
     tslib: "npm:^2.4.0"
   checksum: 10c0/04332fb62076afc440aa23316c04bec42f584ca8b074e5507d08e2b33a47cbe0493b1aadb8f3c1057b64ae1e17f5bde1a7bc37f7facc9d0bc25c18197cbd366f
-  languageName: node
-  linkType: hard
-
-"@emnapi/runtime@npm:1.11.2, @emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.11.0, @emnapi/runtime@npm:^1.7.0":
-  version: 1.11.2
-  resolution: "@emnapi/runtime@npm:1.11.2"
-  dependencies:
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/d8d500059fe9c0864571c79ce29439c1b6fb44d7ec4ac865a2aaaa7469194e5d91ebdc820cabd37c3d373478b725a8b60771733e4743cfef41fc86d9a1f2eab0
   languageName: node
   linkType: hard
 
@@ -268,6 +278,15 @@ __metadata:
   dependencies:
     tslib: "npm:^2.4.0"
   checksum: 10c0/ab2f78e7703195e3583d8f9acca43fbbcfb0195c815bc669daa726a3e9038eeabb266605e48511ec4d105fa62f47508043051f6c3df1dcbb7cfdc6944a4ba9ba
+  languageName: node
+  linkType: hard
+
+"@emnapi/runtime@patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch":
+  version: 1.11.2
+  resolution: "@emnapi/runtime@patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch::version=1.11.2&hash=68d5f0"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/500e49d5e93543aef5b9d846fef5e0cf6a2bb5ae199e7c9d502adc41c6ad3cb0f08a3300ae98dec3e7521e416ca99fd12363f7f744b8d40b444680d3778874bb
   languageName: node
   linkType: hard
 
@@ -528,7 +547,9 @@ __metadata:
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
     "@emnapi/core": "npm:1.11.2"
+    "@emnapi/core-stock": "npm:@emnapi/core@1.11.2"
     "@emnapi/runtime": "npm:1.11.2"
+    "@emnapi/runtime-stock": "npm:@emnapi/runtime@1.11.2"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -544,7 +565,9 @@ __metadata:
     core-js: "npm:^3.49.0"
     cross-env: "npm:10.1.0"
     electron: "npm:^43.0.0"
+    esbuild: "npm:^0.28.1"
     lodash: "npm:^4.18.1"
+    miniflare: "npm:^4.20260630.0"
     playwright: "npm:^1.60.0"
     rxjs: "npm:^7.8.2"
     sinon: "npm:^22.0.0"
@@ -1743,6 +1766,7 @@ __metadata:
     tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
     typescript: "npm:^6.0.3"
+    typescript-legacy: "npm:typescript@4.9.5"
   peerDependencies:
     "@emnapi/runtime": ^1.7.1
   peerDependenciesMeta:
@@ -14046,6 +14070,16 @@ __metadata:
   version: 0.0.6
   resolution: "typedarray@npm:0.0.6"
   checksum: 10c0/6005cb31df50eef8b1f3c780eb71a17925f3038a100d82f9406ac2ad1de5eb59f8e6decbdc145b3a1f8e5836e17b0c0002fb698b9fe2516b8f9f9ff602d36412
+  languageName: node
+  linkType: hard
+
+"typescript-legacy@npm:typescript@4.9.5":
+  version: 4.9.5
+  resolution: "typescript@npm:4.9.5"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10c0/5f6cad2e728a8a063521328e612d7876e12f0d8a8390d3b3aaa452a6a65e24e9ac8ea22beb72a924fd96ea0a49ea63bb4e251fb922b12eedfb7f7a26475e5c56
   languageName: node
   linkType: hard
 

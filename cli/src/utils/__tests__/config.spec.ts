@@ -1,4 +1,4 @@
-import { unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -78,4 +78,27 @@ test('should be able to read config from napi.json', async (t) => {
   const { packageJson, configPath } = t.context
   const config = await readNapiConfig(packageJson, configPath)
   t.snapshot(config)
+})
+
+test('should reject target aliases that overwrite the same artifact set', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-rs-config-alias-'))
+  const packageJson = join(dir, 'package.json')
+  await writeFile(
+    packageJson,
+    JSON.stringify({
+      name: 'alias-collision',
+      version: '1.0.0',
+      napi: {
+        targets: ['wasm32-wasi-preview1-threads', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+  try {
+    await t.throwsAsync(() => readNapiConfig(packageJson), {
+      message:
+        /produce the same wasm32-wasi artifact set\. Choose one target spelling\./,
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

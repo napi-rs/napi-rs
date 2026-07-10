@@ -13,6 +13,9 @@ mod r#type;
 
 use syn::{PathSegment, Type, TypePath, TypeSlice};
 
+const BUFFER_TYPE_IMPORT_SENTINEL: &str = "\0napi-rs-buffer-type-import\0";
+const BUFFER_TYPE_IMPORT_MARKER_BASE: &str = "__NAPI_RS_TYPE_IMPORT_BUFFER__";
+
 #[derive(Default, Debug)]
 pub struct TypeDef {
   pub kind: String,
@@ -226,6 +229,23 @@ impl Display for JSDoc {
 
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    let uses_buffer_type = self.def.contains(BUFFER_TYPE_IMPORT_SENTINEL);
+    let marker = if uses_buffer_type {
+      let mut marker = BUFFER_TYPE_IMPORT_MARKER_BASE.to_owned();
+      let mut suffix = 1;
+      while self.def.contains(&marker) {
+        marker = format!("{BUFFER_TYPE_IMPORT_MARKER_BASE}_{suffix}");
+        suffix += 1;
+      }
+      marker
+    } else {
+      String::new()
+    };
+    let def = if uses_buffer_type {
+      self.def.replace(BUFFER_TYPE_IMPORT_SENTINEL, "Buffer")
+    } else {
+      self.def.clone()
+    };
     let js_mod = if let Some(js_mod) = &self.js_mod {
       format!(", \"js_mod\": \"{js_mod}\"")
     } else {
@@ -236,16 +256,29 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
+    let imported_types = if uses_buffer_type {
+      format!(
+        r#", "def_with_type_import_markers": "{}", "type_imports": [{{"marker": "{}", "name": "Buffer", "module": "buffer"}}]"#,
+        escape_json(&self.def.replace(BUFFER_TYPE_IMPORT_SENTINEL, &marker)),
+        marker,
+      )
+    } else {
+      String::new()
+    };
 
     write!(
       f,
       r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
       self.kind,
       self.name,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}}}"#,
+      escape_json(&self.kind),
+      escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
-      escape_json(&self.def),
+      escape_json(&def),
       original_name,
       js_mod,
+      imported_types,
     )
   }
 }
@@ -319,9 +352,9 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
 
     // Buffer types
     map.extend([
-      ("JsBuffer", ("Buffer", false, false)),
-      ("BufferSlice", ("Buffer", false, false)),
-      ("Buffer", ("Buffer", false, false)),
+      ("JsBuffer", (BUFFER_TYPE_IMPORT_SENTINEL, false, false)),
+      ("BufferSlice", (BUFFER_TYPE_IMPORT_SENTINEL, false, false)),
+      ("Buffer", (BUFFER_TYPE_IMPORT_SENTINEL, false, false)),
     ]);
 
     // Error and Result types (note: Result is a union type)
@@ -776,12 +809,12 @@ fn handle_type_path(
     } else if rust_ty == "FnArgs" {
       is_passthrough_type = true;
       Some(args.first().unwrap().to_owned())
-    } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
-      handle_known_type(&rust_ty, known_ty, args, is_return_ty)
     } else if let Some(t) = crate::typegen::r#struct::CLASS_STRUCTS
       .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
     {
       Some((t, false))
+    } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
+      handle_known_type(&rust_ty, known_ty, args, is_return_ty)
     } else if rust_ty == TSFN_RUST_TY {
       handle_threadsafe_function_type(&args)
     } else {
@@ -886,6 +919,119 @@ pub fn ty_to_ts_type(
 #[cfg(test)]
 mod tests {
   use super::{escape_json, format_js_property_name};
+  use super::{
+    escape_json, format_js_property_name, ty_to_ts_type, JSDoc, TypeDef,
+    BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
+  };
+
+  #[test]
+  fn type_def_display_escapes_all_json_fields() {
+    let type_def = TypeDef {
+      kind: "impl".to_owned(),
+      name: "Quoted\"Name\\Line".to_owned(),
+      original_name: Some("Original\nName".to_owned()),
+      def: "method(): \"value\"".to_owned(),
+      js_mod: Some("namespace\\\"name".to_owned()),
+      js_doc: JSDoc::new(["A \"quoted\" doc"]),
+    };
+
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+
+    assert_eq!(parsed["kind"].as_str(), Some(type_def.kind.as_str()));
+    assert_eq!(parsed["name"].as_str(), Some(type_def.name.as_str()));
+    assert_eq!(
+      parsed["original_name"].as_str(),
+      type_def.original_name.as_deref()
+    );
+    assert_eq!(parsed["def"].as_str(), Some(type_def.def.as_str()));
+    assert_eq!(parsed["js_mod"].as_str(), type_def.js_mod.as_deref());
+    assert_eq!(
+      parsed["js_doc"].as_str(),
+      Some(type_def.js_doc.to_string().as_str())
+    );
+  }
+
+  #[test]
+  fn type_def_display_preserves_imported_type_provenance() {
+    let type_def = TypeDef {
+      kind: "fn".to_owned(),
+      name: "bufferPassThrough".to_owned(),
+      def: format!(
+        "function bufferPassThrough(value: {BUFFER_TYPE_IMPORT_SENTINEL}): {BUFFER_TYPE_IMPORT_SENTINEL}"
+      ),
+      ..Default::default()
+    };
+
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+
+    assert_eq!(
+      parsed["def"].as_str(),
+      Some("function bufferPassThrough(value: Buffer): Buffer")
+    );
+    assert_eq!(
+      parsed["def_with_type_import_markers"].as_str(),
+      Some(
+        "function bufferPassThrough(value: __NAPI_RS_TYPE_IMPORT_BUFFER__): __NAPI_RS_TYPE_IMPORT_BUFFER__"
+      )
+    );
+    assert_eq!(
+      parsed["type_imports"][0]["marker"].as_str(),
+      Some(BUFFER_TYPE_IMPORT_MARKER_BASE)
+    );
+    assert_eq!(parsed["type_imports"][0]["name"].as_str(), Some("Buffer"));
+    assert_eq!(parsed["type_imports"][0]["module"].as_str(), Some("buffer"));
+  }
+
+  #[test]
+  fn type_def_display_chooses_a_structurally_unique_import_marker() {
+    let type_def = TypeDef {
+      kind: "fn".to_owned(),
+      name: "bufferCollision".to_owned(),
+      def: format!(
+        "function bufferCollision(value: {BUFFER_TYPE_IMPORT_SENTINEL}, collision: {BUFFER_TYPE_IMPORT_MARKER_BASE}): {BUFFER_TYPE_IMPORT_SENTINEL}"
+      ),
+      ..Default::default()
+    };
+
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+
+    assert_eq!(
+      parsed["def"].as_str(),
+      Some(
+        "function bufferCollision(value: Buffer, collision: __NAPI_RS_TYPE_IMPORT_BUFFER__): Buffer"
+      )
+    );
+    assert_eq!(
+      parsed["type_imports"][0]["marker"].as_str(),
+      Some("__NAPI_RS_TYPE_IMPORT_BUFFER___1")
+    );
+    assert_eq!(
+      parsed["def_with_type_import_markers"].as_str(),
+      Some(
+        "function bufferCollision(value: __NAPI_RS_TYPE_IMPORT_BUFFER___1, collision: __NAPI_RS_TYPE_IMPORT_BUFFER__): __NAPI_RS_TYPE_IMPORT_BUFFER___1"
+      )
+    );
+  }
+
+  #[test]
+  fn user_class_named_buffer_precedes_the_builtin_buffer_mapping() {
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes
+        .borrow_mut()
+        .insert("Buffer".to_owned(), "UserBuffer".to_owned());
+    });
+    let ty = syn::parse_str("Buffer").expect("Buffer must parse as a Rust type");
+    assert_eq!(
+      ty_to_ts_type(&ty, false, false, false),
+      ("UserBuffer".to_owned(), false)
+    );
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes.borrow_mut().clear();
+    });
+  }
 
   #[test]
   fn test_escape_json_escaped_quotes() {
