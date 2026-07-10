@@ -46,6 +46,12 @@ test('sets a requested Node-API feature and replaces the template default', asyn
   t.false('default-features' in napiDependency)
 })
 
+test('sets the supported Node-API 10 feature', async (t) => {
+  const napiDependency = await rewriteNapiDependency(t, '"3.0.0"', 10)
+
+  t.deepEqual(napiDependency.features, ['napi10'])
+})
+
 test('disables napi4 defaults for lower Node-API versions while retaining dynamic symbol loading', async (t) => {
   const napiDependency = await rewriteNapiDependency(t, '"3.0.0"', 3)
 
@@ -64,7 +70,7 @@ test('preserves an explicitly disabled default feature configuration', async (t)
   t.deepEqual(napiDependency.features, ['napi2', 'serde-json'])
 })
 
-for (const invalidVersion of [0, 10, 1.5]) {
+for (const invalidVersion of [0, 11, 1.5]) {
   test(`rejects invalid Node-API version ${invalidVersion}`, async (t) => {
     const error = await t.throwsAsync(
       newProject({

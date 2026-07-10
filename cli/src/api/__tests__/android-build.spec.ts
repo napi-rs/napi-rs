@@ -76,3 +76,38 @@ test.serial(
     }
   },
 )
+
+test.serial(
+  'skips host Android NDK setup when building with cross',
+  async (t) => {
+    const { projectDir } = t.context
+    const originalCargo = process.env.CARGO
+    const originalNdkHome = process.env.ANDROID_NDK_LATEST_HOME
+    const cargoPath = join(projectDir, 'cross-must-be-spawned')
+    process.env.CARGO = cargoPath
+    delete process.env.ANDROID_NDK_LATEST_HOME
+    try {
+      const { task } = await buildProject({
+        cwd: projectDir,
+        target: 'aarch64-linux-android',
+        bin: 'android-build',
+        useCross: true,
+      })
+      const error = await t.throwsAsync(task)
+
+      t.is((error!.cause as NodeJS.ErrnoException).path, cargoPath)
+      t.notRegex(error!.message, /ANDROID_NDK_LATEST_HOME/)
+    } finally {
+      if (originalCargo === undefined) {
+        delete process.env.CARGO
+      } else {
+        process.env.CARGO = originalCargo
+      }
+      if (originalNdkHome === undefined) {
+        delete process.env.ANDROID_NDK_LATEST_HOME
+      } else {
+        process.env.ANDROID_NDK_LATEST_HOME = originalNdkHome
+      }
+    }
+  },
+)

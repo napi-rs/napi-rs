@@ -747,8 +747,8 @@ class Builder {
   }
 
   private setAndroidEnv() {
-    // skip cross compile setup if host is android
-    if (process.platform === 'android') {
+    // Native Android hosts and `cross` provide their own Android toolchains.
+    if (process.platform === 'android' || this.options.useCross) {
       return
     }
 
