@@ -740,18 +740,18 @@ class Builder {
   }
 
   private setAndroidEnv() {
-    const { ANDROID_NDK_LATEST_HOME } = process.env
-    if (!ANDROID_NDK_LATEST_HOME) {
-      debug.warn(
-        `${colors.red(
-          'ANDROID_NDK_LATEST_HOME',
-        )} environment variable is missing`,
-      )
-    }
-
     // skip cross compile setup if host is android
     if (process.platform === 'android') {
       return
+    }
+
+    const { ANDROID_NDK_LATEST_HOME } = process.env
+    if (!ANDROID_NDK_LATEST_HOME) {
+      throw new Error(
+        `${colors.red(
+          'ANDROID_NDK_LATEST_HOME',
+        )} environment variable is required when building an Android target from a non-Android host`,
+      )
     }
 
     const targetArch = this.target.arch === 'arm' ? 'armv7a' : 'aarch64'
