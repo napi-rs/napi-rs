@@ -438,6 +438,9 @@ class Builder {
   }
 
   get cdyLibName() {
+    if (this.options.bin) {
+      return
+    }
     return this.crate.targets.find((t) => t.crate_types.includes('cdylib'))
       ?.name
   }
@@ -461,7 +464,11 @@ class Builder {
       validateNapiCrossSupport(this.target.triple)
     }
 
-    if (!this.cdyLibName) {
+    if (this.options.bin) {
+      debug.warn(
+        `Building Cargo binary target ${this.binName}; the result will be an executable, not a Node.js addon.`,
+      )
+    } else if (!this.cdyLibName) {
       const warning =
         'Missing `crate-type = ["cdylib"]` in [lib] config. The build result will not be available as node addon.'
 
@@ -1313,18 +1320,14 @@ export async function generateTypeDef(
 
   if (!options.noDtsHeader) {
     const dtsHeader = options.dtsHeader ?? options.configDtsHeader
-    // `dtsHeaderFile` in config > `dtsHeader` in cli flag > `dtsHeader` in config
-    if (options.configDtsHeaderFile) {
+    const dtsHeaderFile = options.dtsHeaderFile ?? options.configDtsHeaderFile
+    // An explicit API header file takes precedence over the config file;
+    // either file takes precedence over inline header text.
+    if (dtsHeaderFile) {
       try {
-        header = await readFileAsync(
-          join(options.cwd, options.configDtsHeaderFile),
-          'utf-8',
-        )
+        header = await readFileAsync(join(options.cwd, dtsHeaderFile), 'utf-8')
       } catch (e) {
-        debug.warn(
-          `Failed to read dts header file ${options.configDtsHeaderFile}`,
-          e,
-        )
+        debug.warn(`Failed to read dts header file ${dtsHeaderFile}`, e)
       }
     } else if (dtsHeader) {
       header = dtsHeader

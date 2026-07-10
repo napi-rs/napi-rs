@@ -87,27 +87,18 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
 
   const wasiTarget = targets.find((t) => t.platform === 'wasi')
   if (wasiTarget) {
+    const buildOutputDir = options.buildOutputDir
+      ? resolve(options.cwd, options.buildOutputDir)
+      : options.cwd
     const wasiDir = join(
       options.cwd,
       options.npmDir,
       wasiTarget.platformArchABI,
     )
-    const cjsFile = join(
-      options.buildOutputDir ?? options.cwd,
-      `${binaryName}.wasi.cjs`,
-    )
-    const workerFile = join(
-      options.buildOutputDir ?? options.cwd,
-      `wasi-worker.mjs`,
-    )
-    const browserEntry = join(
-      options.buildOutputDir ?? options.cwd,
-      `${binaryName}.wasi-browser.js`,
-    )
-    const browserWorkerFile = join(
-      options.buildOutputDir ?? options.cwd,
-      `wasi-worker-browser.mjs`,
-    )
+    const cjsFile = join(buildOutputDir, `${binaryName}.wasi.cjs`)
+    const workerFile = join(buildOutputDir, `wasi-worker.mjs`)
+    const browserEntry = join(buildOutputDir, `${binaryName}.wasi-browser.js`)
+    const browserWorkerFile = join(buildOutputDir, `wasi-worker-browser.mjs`)
     debug.info(
       `Move wasi binding file [${colors.yellowBright(
         cjsFile,
