@@ -25,11 +25,11 @@ use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
   register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
   try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Env, Error, FnArgs, JsObjectValue,
-  JsValue, Object, PromiseRaw, Result, Status, Unknown,
+  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Env, Error, FnArgs, JoinError,
+  JsObjectValue, JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
+use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime};
 #[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::{AsyncBlock, AsyncBlockBuilder};
 use napi::threadsafe_function::ThreadsafeFunction;
@@ -67,6 +67,36 @@ struct SchedulerState {
   active_polls: usize,
 }
 
+struct SchedulerQuiescence {
+  task_refs: Vec<Weak<Task>>,
+  block_on_refs: Vec<Weak<BlockOnWaker>>,
+}
+
+impl SchedulerQuiescence {
+  fn validate_retained_wakers(self) {
+    // Every scheduler-owned strong reference is gone at this point. An
+    // upgrade can therefore only come from a reference retained outside the
+    // scheduler, including a cloned task Waker whose vtable lives in this
+    // addon image. Returning would let Node unload code that the reference can
+    // still invoke, so the unsafe AsyncRuntime contract requires failing
+    // closed.
+    let retained_task_waker = self
+      .task_refs
+      .into_iter()
+      .any(|task| task.upgrade().is_some());
+    let retained_block_on_waker = self
+      .block_on_refs
+      .into_iter()
+      .any(|waker| waker.upgrade().is_some());
+    if retained_task_waker || retained_block_on_waker {
+      eprintln!(
+        "custom async runtime shutdown found an externally retained task waker or block_on waker"
+      );
+      std::process::abort();
+    }
+  }
+}
+
 impl SchedulerState {
   fn reserve_task_id(&mut self) -> usize {
     loop {
@@ -98,6 +128,7 @@ struct RuntimeState {
   blocking_ready: Condvar,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
+  reject_next_blocking_spawn: AtomicBool,
   defer_next_spawn_drain: AtomicBool,
   defer_next_task_wake: AtomicBool,
   fail_next_shutdown: AtomicBool,
@@ -302,7 +333,7 @@ impl RuntimeState {
     }
   }
 
-  fn shutdown_scheduler(&self) {
+  fn quiesce_scheduler(&self) -> SchedulerQuiescence {
     self.accepting.store(false, Ordering::Release);
     let (tasks, queued, task_refs, block_on_refs) = {
       let mut scheduler = lock(&self.scheduler);
@@ -331,22 +362,15 @@ impl RuntimeState {
     drop(scheduler);
     drop(tasks);
 
-    // Every scheduler-owned strong reference is gone at this point. An
-    // upgrade can therefore only come from a reference retained outside the
-    // scheduler, including a cloned task Waker whose vtable lives in this
-    // addon image. Returning would let Node unload code that the reference can
-    // still invoke, so the unsafe AsyncRuntime contract requires failing
-    // closed.
-    let retained_task_waker = task_refs.into_iter().any(|task| task.upgrade().is_some());
-    let retained_block_on_waker = block_on_refs
-      .into_iter()
-      .any(|waker| waker.upgrade().is_some());
-    if retained_task_waker || retained_block_on_waker {
-      eprintln!(
-        "custom async runtime shutdown found an externally retained task waker or block_on waker"
-      );
-      std::process::abort();
+    SchedulerQuiescence {
+      task_refs,
+      block_on_refs,
     }
+  }
+
+  #[cfg(test)]
+  fn shutdown_scheduler(&self) {
+    self.quiesce_scheduler().validate_retained_wakers();
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -912,6 +936,19 @@ unsafe impl AsyncRuntime for TestRuntime {
     &self,
     work: BlockingWork,
   ) -> std::result::Result<(), AsyncRuntimeRejection<BlockingWork>> {
+    if self
+      .state
+      .reject_next_blocking_spawn
+      .swap(false, Ordering::AcqRel)
+    {
+      return Err(AsyncRuntimeRejection::new(
+        work,
+        Error::new(
+          Status::QueueFull,
+          "custom runtime rejected the blocking task",
+        ),
+      ));
+    }
     if !self.state.accepting.load(Ordering::Acquire) {
       return Err(AsyncRuntimeRejection::new(
         work,
@@ -1040,9 +1077,10 @@ unsafe impl AsyncRuntime for TestRuntime {
     let fail = self.state.fail_next_shutdown.swap(false, Ordering::AcqRel);
     let panic = self.state.panic_next_shutdown.swap(false, Ordering::AcqRel);
     self.state.accepting.store(false, Ordering::Release);
+    let scheduler_quiescence = self.state.quiesce_scheduler();
     #[cfg(not(target_family = "wasm"))]
     let blocking_shutdown = self.state.shutdown_blocking_pool();
-    self.state.shutdown_scheduler();
+    scheduler_quiescence.validate_retained_wakers();
     if panic {
       panic!("injected custom runtime shutdown panic");
     }
@@ -1598,6 +1636,13 @@ pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
 }
 
+#[napi]
+pub fn reject_next_blocking_spawn() {
+  state()
+    .reject_next_blocking_spawn
+    .store(true, Ordering::Release);
+}
+
 #[cfg(not(target_family = "wasm"))]
 #[napi]
 pub fn defer_next_spawn_drain() {
@@ -1737,12 +1782,19 @@ pub fn block_on_value(value: u32) -> Result<u32> {
   })
 }
 
-fn blocking_work_error(error: impl std::fmt::Display) -> Error {
-  #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
-  let reason = format!("{THREADLESS_WASI_BLOCKING_UNSUPPORTED}: {error}");
-  #[cfg(not(all(target_family = "wasm", not(custom_runtime_wasi_threads))))]
-  let reason = format!("custom runtime blocking work failed: {error}");
-  Error::new(Status::GenericFailure, reason)
+fn blocking_work_error(error: JoinError) -> Error {
+  let error = match error.try_into_rejection_error() {
+    Ok(error) => return error,
+    Err(error) => error,
+  };
+  let error = match error.try_into_runtime_error() {
+    Ok(error) => return error,
+    Err(error) => error,
+  };
+  Error::new(
+    Status::GenericFailure,
+    format!("custom runtime blocking work failed: {error}"),
+  )
 }
 
 #[napi]
@@ -2107,6 +2159,68 @@ mod tests {
     drain.join().unwrap();
     shutdown.join().unwrap();
     assert!(dropped.load(Ordering::SeqCst));
+  }
+
+  struct NotifyOnDropFuture(Option<mpsc::Sender<()>>);
+
+  impl Future for NotifyOnDropFuture {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+      Poll::Pending
+    }
+  }
+
+  impl Drop for NotifyOnDropFuture {
+    fn drop(&mut self) {
+      if let Some(dropped) = self.0.take() {
+        let _ = dropped.send(());
+      }
+    }
+  }
+
+  #[test]
+  fn shutdown_cancels_scheduler_before_joining_blocking_workers() {
+    let runtime = Arc::new(RuntimeState::default());
+    runtime.start_scheduler().unwrap();
+    runtime.start_blocking_pool().unwrap();
+
+    let (future_dropped_tx, future_dropped_rx) = mpsc::channel();
+    drop(schedule_test_future(
+      &runtime,
+      NotifyOnDropFuture(Some(future_dropped_tx)),
+    ));
+
+    let (blocking_started_tx, blocking_started_rx) = mpsc::channel();
+    let (observed_cancellation_tx, observed_cancellation_rx) = mpsc::channel();
+    assert!(runtime
+      .submit_blocking_work(Box::new(move || {
+        blocking_started_tx.send(()).unwrap();
+        observed_cancellation_tx
+          .send(
+            future_dropped_rx
+              .recv_timeout(Duration::from_secs(1))
+              .is_ok(),
+          )
+          .unwrap();
+      }))
+      .is_ok());
+    blocking_started_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("blocking worker did not start");
+
+    TestRuntime {
+      state: Arc::clone(&runtime),
+    }
+    .shutdown()
+    .unwrap();
+
+    assert!(
+      observed_cancellation_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("blocking worker did not report scheduler cancellation"),
+      "blocking workers must observe scheduler cancellation before shutdown joins them"
+    );
   }
 
   #[test]

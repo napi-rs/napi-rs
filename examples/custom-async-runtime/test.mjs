@@ -143,6 +143,15 @@ assert.equal(afterBlockOn.blockOnCalls, initial.blockOnCalls + 1)
 assert.ok(afterBlockOn.blockOnPolls >= initial.blockOnPolls + 2)
 
 const beforeBlockingSpawn = binding.getRuntimeMetrics()
+binding.rejectNextBlockingSpawn()
+assert.throws(
+  () => binding.spawnBlockingValue(41),
+  (error) => {
+    assert.equal(error.code, 'QueueFull')
+    assert.equal(error.message, 'custom runtime rejected the blocking task')
+    return true
+  },
+)
 if (isThreadlessWasi) {
   assert.throws(
     () => binding.spawnBlockingValue(41),
