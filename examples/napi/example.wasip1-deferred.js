@@ -103,39 +103,6 @@ async function __normalizeModuleForEmnapi(__module) {
   )
 }
 
-function __captureEmnapiAutoDestroyListener(__process) {
-  if (
-    !__process ||
-    typeof __process.prependListener !== 'function' ||
-    typeof __process.removeListener !== 'function'
-  ) {
-    return
-  }
-  let __autoDestroyListener
-  const __captureListener = (__event, __listener) => {
-    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
-      __autoDestroyListener = __listener
-    }
-  }
-  try {
-    // Run before existing newListener hooks so a hook that registers its own
-    // beforeExit listener cannot be mistaken for emnapi's registration.
-    __process.prependListener('newListener', __captureListener)
-  } catch {
-    return
-  }
-  return () => {
-    try {
-      __process.removeListener('newListener', __captureListener)
-    } catch {}
-    if (__autoDestroyListener !== undefined) {
-      try {
-        __process.removeListener('beforeExit', __autoDestroyListener)
-      } catch {}
-    }
-  }
-}
-
 function __attachCleanupError(__error, __cleanupError) {
   try {
     if (
@@ -370,23 +337,15 @@ function __registerManagedEmnapiContext(__process, __destroy) {
 async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
-  const __finishAutoDestroyCapture =
-    __captureEmnapiAutoDestroyListener(__process)
   let __emnapiContext
   let __contextInitializationError
   let __contextInitializationFailed = false
   try {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
-    // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
-    // contract that keeps this context alive until our explicit cleanup runs.
     __emnapiContext.suppressDestroy()
   } catch (error) {
     __contextInitializationError = error
     __contextInitializationFailed = true
-  } finally {
-    // Remove only the exact legacy callback captured above. suppressDestroy()
-    // remains the safety net if listener removal is unavailable or fails.
-    __finishAutoDestroyCapture?.()
   }
   if (__emnapiContext === undefined) {
     throw __contextInitializationError
@@ -590,7 +549,7 @@ async function __createInstance(
       __onManagedDestroyer(__destroyBeforeExit)
       await __registerCleanup(__destroyBeforeExit)
     }
-    __emnapiContext.feature.Buffer = Buffer
+    __emnapiContext.features.Buffer = Buffer
     let __napiModule
     ;({ instance: __napiInstance, napiModule: __napiModule } =
       await __emnapiInstantiateNapiModule(__emnapiModule, {

@@ -176,16 +176,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core-stock@npm:@emnapi/core@1.11.2, @emnapi/core@npm:1.11.2, @emnapi/core@npm:^1.1.0":
-  version: 1.11.2
-  resolution: "@emnapi/core@npm:1.11.2"
-  dependencies:
-    "@emnapi/wasi-threads": "npm:1.2.2"
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/424ca1607f498e524eb58db1095e6cc2082986edfd84a74b116d4e2c6e43b5e9d557ea7f0d7b9adf7f6d5023e25ac2ed6bd08caf0043d3d8602598d79579c2cd
-  languageName: node
-  linkType: hard
-
 "@emnapi/core@npm:1.11.1":
   version: 1.11.1
   resolution: "@emnapi/core@npm:1.11.1"
@@ -226,22 +216,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch":
+"@emnapi/core@npm:^1.1.0":
   version: 1.11.2
-  resolution: "@emnapi/core@patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch::version=1.11.2&hash=11573d"
+  resolution: "@emnapi/core@npm:1.11.2"
   dependencies:
     "@emnapi/wasi-threads": "npm:1.2.2"
     tslib: "npm:^2.4.0"
-  checksum: 10c0/83c2dbd15febc89b324f911288967b354f6df7acda216c08176163524bbca1eec227318718879ed854b52464432f54bff6985c92a500b9419e59cc79b08b6eff
-  languageName: node
-  linkType: hard
-
-"@emnapi/runtime-stock@npm:@emnapi/runtime@1.11.2, @emnapi/runtime@npm:1.11.2, @emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.11.0, @emnapi/runtime@npm:^1.7.0":
-  version: 1.11.2
-  resolution: "@emnapi/runtime@npm:1.11.2"
-  dependencies:
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/d8d500059fe9c0864571c79ce29439c1b6fb44d7ec4ac865a2aaaa7469194e5d91ebdc820cabd37c3d373478b725a8b60771733e4743cfef41fc86d9a1f2eab0
+  checksum: 10c0/424ca1607f498e524eb58db1095e6cc2082986edfd84a74b116d4e2c6e43b5e9d557ea7f0d7b9adf7f6d5023e25ac2ed6bd08caf0043d3d8602598d79579c2cd
   languageName: node
   linkType: hard
 
@@ -281,12 +262,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch":
+"@emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.7.0":
   version: 1.11.2
-  resolution: "@emnapi/runtime@patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch::version=1.11.2&hash=68d5f0"
+  resolution: "@emnapi/runtime@npm:1.11.2"
   dependencies:
     tslib: "npm:^2.4.0"
-  checksum: 10c0/500e49d5e93543aef5b9d846fef5e0cf6a2bb5ae199e7c9d502adc41c6ad3cb0f08a3300ae98dec3e7521e416ca99fd12363f7f744b8d40b444680d3778874bb
+  checksum: 10c0/d8d500059fe9c0864571c79ce29439c1b6fb44d7ec4ac865a2aaaa7469194e5d91ebdc820cabd37c3d373478b725a8b60771733e4743cfef41fc86d9a1f2eab0
   languageName: node
   linkType: hard
 
@@ -546,10 +527,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
-    "@emnapi/core": "npm:1.11.2"
-    "@emnapi/core-stock": "npm:@emnapi/core@1.11.2"
-    "@emnapi/runtime": "npm:1.11.2"
-    "@emnapi/runtime-stock": "npm:@emnapi/runtime@1.11.2"
+    "@emnapi/core": "npm:2.0.0-alpha.2"
+    "@emnapi/runtime": "npm:2.0.0-alpha.2"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -1739,7 +1718,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/runtime": "npm:^1.11.0"
+    "@emnapi/runtime": "npm:2.0.0-alpha.2"
     "@inquirer/prompts": "npm:^8.5.2"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
     "@napi-rs/wasm-tools": "npm:^1.0.1"
@@ -1753,7 +1732,7 @@ __metadata:
     ava: "npm:^8.0.1"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    emnapi: "npm:^1.11.1"
+    emnapi: "npm:2.0.0-alpha.2"
     empathic: "npm:^2.0.1"
     env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.47.0"
@@ -1768,7 +1747,7 @@ __metadata:
     typescript: "npm:^6.0.3"
     typescript-legacy: "npm:typescript@4.9.5"
   peerDependencies:
-    "@emnapi/runtime": ^1.7.1
+    "@emnapi/runtime": 2.0.0-alpha.2
   peerDependenciesMeta:
     "@emnapi/runtime":
       optional: true
@@ -2217,8 +2196,8 @@ __metadata:
     rollup-plugin-polyfill-node: "npm:^0.13.0"
     tslib: "npm:^2.8.1"
   peerDependencies:
-    "@emnapi/core": ^1.7.1
-    "@emnapi/runtime": ^1.7.1
+    "@emnapi/core": ^2.0.0-alpha.2
+    "@emnapi/runtime": ^2.0.0-alpha.2
   languageName: unknown
   linkType: soft
 
@@ -7202,15 +7181,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:^1.11.1":
-  version: 1.11.2
-  resolution: "emnapi@npm:1.11.2"
+"emnapi@npm:2.0.0-alpha.2":
+  version: 2.0.0-alpha.2
+  resolution: "emnapi@npm:2.0.0-alpha.2"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10c0/4cdb0eb1f4905f8d176b22dd1b10e3f1ded78048f7dae554230a0af81ddb6935b6698e8d5930c4285b49296ed73d22dcfce4b5540b51bcfcb8e77db44be052bc
+  checksum: 10c0/26485972e39c60992b2ce4fbd93f4e11a275dd1a6841df1e9b86d93302b1877d3e105473011a0552edbba4ae7c48c9e5de2de71c1c09a19fe9cb916134c68f50
   languageName: node
   linkType: hard
 

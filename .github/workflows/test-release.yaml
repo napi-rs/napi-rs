@@ -889,7 +889,7 @@ jobs:
       - name: Test lifecycle public surface
         run: |
           yarn workspace @examples/napi test \
-            __tests__/stock-emnapi-lifecycle.spec.ts \
+            __tests__/published-emnapi-v2-lifecycle.spec.ts \
             __tests__/wasi-eager-before-exit.spec.ts
         env:
           WASI_TEST: 'true'

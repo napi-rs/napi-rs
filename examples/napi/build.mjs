@@ -898,10 +898,10 @@ ${browserScopeMarker}`,
   browserSource = browserSource.replace(
     browserBeforeInitMarker,
     `    beforeInit({ instance }) {
-    __napiInstance = instance
-    __tsfnTestStatePointer =
-      instance.exports.__napi_rs_test_tsfn_state_ptr()
-    for (const name of Object.keys(instance.exports)) {`,
+      __napiInstance = instance
+      __tsfnTestStatePointer =
+        instance.exports.__napi_rs_test_tsfn_state_ptr()
+      for (const name of Object.keys(instance.exports)) {`,
   )
   const browserPrettierConfig = await resolveConfig(browserPath)
   await writeFile(

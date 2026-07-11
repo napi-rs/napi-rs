@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 
 import { Context } from '@emnapi/runtime'
 
-const require = createRequire(import.meta.url)
 const wasmBytes = await readFile(
   new URL('../example.wasm32-wasip1.wasm', import.meta.url),
 )
@@ -408,84 +406,6 @@ try {
       suppressDestroyHook = undefined
       destroyHook = undefined
       await deferred.dispose().catch(() => {})
-    }
-  }
-
-  {
-    const initialBeforeExitListeners = new Set(
-      process.rawListeners('beforeExit'),
-    )
-    const eagerPath = require.resolve('../example.wasip1.cjs')
-    const { Context: EagerContext } = require('@emnapi/runtime')
-    const originalEagerDestroy = EagerContext.prototype.destroy
-    const originalEagerSuppressDestroy = EagerContext.prototype.suppressDestroy
-    const suppressionError = new Error(
-      'intentional eager suppressDestroy failure',
-    )
-    const registrationError = new Error(
-      'intentional eager beforeExit registration failure',
-    )
-    const rollbackError = new Error(
-      'intentional eager suppressDestroy rollback failure',
-    )
-    let registrationFailures = 0
-    let destroyAttempts = 0
-    function failEagerBeforeExitRegistrationTwice(event, listener) {
-      if (
-        event !== 'beforeExit' ||
-        listener.name !== '__destroyEmnapiContextBeforeExit'
-      ) {
-        return
-      }
-      registrationFailures += 1
-      if (registrationFailures === 2) {
-        process.removeListener(
-          'newListener',
-          failEagerBeforeExitRegistrationTwice,
-        )
-      }
-      throw registrationError
-    }
-    EagerContext.prototype.suppressDestroy =
-      function failEagerSuppressDestroy() {
-        throw suppressionError
-      }
-    EagerContext.prototype.destroy = function eagerSuppressionRollback() {
-      destroyAttempts += 1
-      if (destroyAttempts === 1) {
-        throw rollbackError
-      }
-      return Reflect.apply(originalEagerDestroy, this, [])
-    }
-    process.on('newListener', failEagerBeforeExitRegistrationTwice)
-    delete require.cache[eagerPath]
-    try {
-      assert.throws(
-        () => require(eagerPath),
-        (error) => {
-          assert.strictEqual(error, suppressionError)
-          assert.strictEqual(error.cause, registrationError)
-          assert.strictEqual(error.cause.cause, rollbackError)
-          return true
-        },
-      )
-      await new Promise((resolve) => setImmediate(resolve))
-      const ownedBeforeExitListeners = process
-        .rawListeners('beforeExit')
-        .filter((listener) => !initialBeforeExitListeners.has(listener))
-      assert.equal(registrationFailures, 2)
-      assert.equal(ownedBeforeExitListeners.length, 1)
-      ownedBeforeExitListeners[0](0)
-      await new Promise((resolve) => setImmediate(resolve))
-      assert.equal(destroyAttempts, 2)
-    } finally {
-      delete require.cache[eagerPath]
-      process.removeListener(
-        'newListener',
-        failEagerBeforeExitRegistrationTwice,
-      )
-      EagerContext.prototype.destroy = originalEagerDestroy
-      EagerContext.prototype.suppressDestroy = originalEagerSuppressDestroy
     }
   }
 

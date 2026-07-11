@@ -1418,13 +1418,26 @@ class Builder {
     const hasThreads = wasiTargetHasThreads(this.target)
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
-    this.envs.EMNAPI_LINK_DIR = emnapi
     const emnapiVersion = require('emnapi/package.json').version
+    const emnapiArchive = join(
+      emnapi,
+      hasThreads ? 'libemnapi-napi-rs-mt.a' : 'libemnapi.a',
+    )
+    if (!existsSync(emnapiArchive)) {
+      throw new Error(
+        `emnapi@${emnapiVersion} is missing the ${wasiTarget} archive required by napi-rs at ${emnapiArchive}. Install emnapi v2 with support for this target.`,
+      )
+    }
+    this.envs.EMNAPI_LINK_DIR = emnapi
     const projectRequire = createRequire(
       resolve(this.options.cwd, 'package.json'),
     )
-    const emnapiCoreVersion = projectRequire('@emnapi/core').version
-    const emnapiRuntimeVersion = projectRequire('@emnapi/runtime').version
+    const emnapiCoreVersion = projectRequire(
+      '@emnapi/core/package.json',
+    ).version
+    const emnapiRuntimeVersion = projectRequire(
+      '@emnapi/runtime/package.json',
+    ).version
 
     if (
       emnapiVersion !== emnapiCoreVersion ||

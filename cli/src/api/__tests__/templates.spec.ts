@@ -61,17 +61,6 @@ test('createWasiBrowserBinding with errorEvent and fs', (t) => {
   )
 })
 
-test('threaded browser worker cleanup keeps promise inputs homogeneous', (t) => {
-  const browser = createWasiBrowserBinding('test-wasi')
-
-  t.true(
-    browser.includes(
-      '__terminations.push(Promise.resolve({ error: __cleanupError }))',
-    ),
-  )
-  t.false(browser.includes('__terminations.push({ error: __cleanupError })'))
-})
-
 test('single-thread WASI bindings do not require workers or shared memory', (t) => {
   const browser = createWasiBrowserBinding(
     'test-wasi',
@@ -231,7 +220,7 @@ test('threaded WASI node workers sanitize inherited source execArgv', (t) => {
   ])
 })
 
-test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => {
+test('threaded WASI node workers preserve valid arguments when removing invalid inherited arguments', (t) => {
   const code = createWasiBinding('test', '@scope/test', 1, 2)
   const workerExecArgvAttempts: string[][] = []
 
@@ -244,10 +233,13 @@ test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => 
     ) {
       const execArgv = options.execArgv ?? []
       workerExecArgvAttempts.push(execArgv)
-      if (execArgv.includes('--title=test-worker')) {
-        const error = new Error('invalid worker arguments') as Error & {
-          code: string
-        }
+      if (
+        execArgv.includes('--title') ||
+        execArgv.includes('--stack-trace-limit=100')
+      ) {
+        const error = new Error(
+          'Initiated Worker with invalid execArgv flags: --title, --stack-trace-limit=100',
+        ) as Error & { code: string }
         error.code = 'ERR_WORKER_INVALID_EXEC_ARGV'
         throw error
       }
@@ -301,7 +293,20 @@ test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => 
   const processMock = {
     cwd: () => '/',
     env: {},
-    execArgv: ['--title=test-worker', '--require', './hook.cjs'],
+    execArgv: [
+      '--trace-warnings',
+      '--input-type=module',
+      '--eval',
+      'evaluate()',
+      '-p',
+      'print()',
+      '--title',
+      'test-worker',
+      '--require',
+      './hook.cjs',
+      '--stack-trace-limit=100',
+      '--conditions=worker-test',
+    ],
     once() {},
     rawListeners() {
       return []
@@ -316,8 +321,16 @@ test('threaded WASI node workers retry without Worker-invalid execArgv', (t) => 
   )
 
   t.deepEqual(workerExecArgvAttempts, [
-    ['--title=test-worker', '--require', './hook.cjs'],
-    [],
+    [
+      '--trace-warnings',
+      '--title',
+      'test-worker',
+      '--require',
+      './hook.cjs',
+      '--stack-trace-limit=100',
+      '--conditions=worker-test',
+    ],
+    ['--trace-warnings', '--require', './hook.cjs', '--conditions=worker-test'],
   ])
 })
 
@@ -461,6 +474,7 @@ test.serial(
         `terminate:${attempt}:${workerOffset + 3}`,
       ])
       await Promise.all(terminationPromises.slice(terminationOffset))
+      await new Promise<void>((resolve) => setImmediate(resolve))
       t.is(liveWorkers.size, 0)
       t.true(
         workers
@@ -609,7 +623,7 @@ test.serial(
 
       t.is(observed, initializationError)
       if (mode === 'sync-failure') {
-        t.deepEqual(events, ['prepare', 'destroy'])
+        t.deepEqual(events, ['prepare', 'destroy', 'terminate'])
       } else {
         t.deepEqual(events, ['prepare', 'destroy'])
         await new Promise<void>((resolve) => {
@@ -622,36 +636,19 @@ test.serial(
           events,
           mode === 'async-success'
             ? ['prepare', 'destroy', 'destroy-settled', 'terminate']
-            : ['prepare', 'destroy', 'destroy-settled'],
+            : ['prepare', 'destroy', 'destroy-settled', 'terminate'],
         )
       }
+      t.is(workers[0]?.terminateCalls, 1)
       if (mode === 'async-success') {
-        t.is(workers[0]?.terminateCalls, 1)
         t.is(initializationError.cause, undefined)
-        t.is(processMock.rawListeners('beforeExit').length, 0)
       } else {
-        t.is(workers[0]?.terminateCalls, 0)
+        if (mode === 'sync-failure') {
+          await new Promise<void>((resolve) => setImmediate(resolve))
+        }
         t.is(initializationError.cause, cleanupError)
-        const retryListeners = processMock.rawListeners('beforeExit')
-        t.is(retryListeners.length, 1)
-        failCleanup = false
-        const retryEventOffset = events.length
-        Reflect.apply(retryListeners[0], processMock, [])
-        await new Promise<void>((resolve) => {
-          setImmediate(resolve)
-        })
-        await new Promise<void>((resolve) => {
-          setImmediate(resolve)
-        })
-        t.deepEqual(events.slice(retryEventOffset), [
-          'prepare',
-          'destroy',
-          'destroy-settled',
-          'terminate',
-        ])
-        t.is(workers[0]?.terminateCalls, 1)
-        t.is(processMock.rawListeners('beforeExit').length, 0)
       }
+      t.is(processMock.rawListeners('beforeExit').length, 0)
       t.is(processMock.rawListeners('exit').length, 0)
       t.is(queuedMicrotasks.length, 0)
     }
@@ -826,7 +823,7 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('asyncWorkPoolSize: 0'))
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
   t.true(src.includes('__emnapiContext.suppressDestroy()'))
-  t.true(src.includes('__captureEmnapiAutoDestroyListener'))
+  t.false(src.includes('__captureEmnapiAutoDestroyListener'))
   t.true(src.includes('__managedEmnapiContextDestroyers'))
   t.true(src.includes('napi_prepare_wasm_env_cleanup'))
   const prepareCleanupOffset = src.indexOf('__prepareEnvCleanup?.()')
@@ -846,9 +843,9 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.false(src.includes("__process.rawListeners('beforeExit')"))
   t.false(src.includes('__removeAddedBeforeExitListeners'))
   t.false(src.includes("import { Buffer } from 'buffer'"))
-  t.false(src.includes('__emnapiContext.feature.Buffer = Buffer'))
+  t.false(src.includes('__emnapiContext.features.Buffer = Buffer'))
   t.true(bufferedSrc.includes("import { Buffer } from 'buffer'"))
-  t.true(bufferedSrc.includes('__emnapiContext.feature.Buffer = Buffer'))
+  t.true(bufferedSrc.includes('__emnapiContext.features.Buffer = Buffer'))
   t.false(
     src.includes(
       "__process.once('beforeExit', __destroyManagedEmnapiContexts)",
@@ -1035,10 +1032,8 @@ module.exports = __napiModule.exports
       2,
     )
 
-    t.true(nodeSrc.includes('beforeExit'))
-    t.true(
-      nodeSrc.includes("process.once('exit', __destroyEmnapiContextAtExit)"),
-    )
+    t.true(nodeSrc.includes("process.once('exit', __disposeWasiBindingAtExit)"))
+    t.false(nodeSrc.includes("process.once('beforeExit'"))
     t.false(/\.once\(\s*['"]exit['"]/.test(deferredSrc))
 
     const tmpDir = await mkdtemp(
@@ -1134,658 +1129,6 @@ process.exit(0)
   },
 )
 
-function executeEagerWasiCleanupHandoffFault(
-  fault: 'exit-registration' | 'before-exit-removal' | 'handoff-rollback',
-) {
-  const code = createWasiBinding(
-    'binding',
-    'cleanup-handoff-never-published',
-    1,
-    2,
-    false,
-    'wasm32-wasip1',
-  )
-  const handoffError = new Error(fault)
-  const rollbackError = new Error('exit rollback failed')
-  const cleanupError = new Error('cleanup failed')
-  const events: string[] = []
-  const queuedMicrotasks: Array<() => void> = []
-  const processMock = Object.assign(new EventEmitter(), {
-    cwd: () => '/',
-    env: {},
-  })
-  const once = processMock.once.bind(processMock)
-  processMock.once = (
-    event: string,
-    listener: (...args: unknown[]) => void,
-  ) => {
-    if (listener.name.startsWith('__destroyEmnapiContext')) {
-      events.push(`once:${event}:${listener.name}`)
-    }
-    if (
-      fault === 'exit-registration' &&
-      event === 'exit' &&
-      listener.name === '__destroyEmnapiContextAtExit'
-    ) {
-      throw handoffError
-    }
-    return once(event, listener)
-  }
-  const removeListener = processMock.removeListener.bind(processMock)
-  processMock.removeListener = (
-    event: string,
-    listener: (...args: unknown[]) => void,
-  ) => {
-    if (listener.name.startsWith('__destroyEmnapiContext')) {
-      events.push(`remove:${event}:${listener.name}`)
-    }
-    if (
-      (fault === 'before-exit-removal' || fault === 'handoff-rollback') &&
-      event === 'beforeExit' &&
-      listener.name === '__destroyEmnapiContextBeforeExit'
-    ) {
-      throw handoffError
-    }
-    if (
-      fault === 'handoff-rollback' &&
-      event === 'exit' &&
-      listener.name === '__destroyEmnapiContextAtExit'
-    ) {
-      throw rollbackError
-    }
-    return removeListener(event, listener)
-  }
-  const mockRequire = (specifier: string) => {
-    switch (specifier) {
-      case 'node:fs':
-        return {
-          existsSync: (path: string) => path.endsWith('/binding.wasm'),
-          readFileSync: () => new Uint8Array(),
-        }
-      case 'node:path':
-        return {
-          join: (...parts: string[]) => parts.join('/'),
-          parse: () => ({ root: '/' }),
-        }
-      case 'node:wasi':
-        return { WASI: class {} }
-      case '@napi-rs/wasm-runtime':
-        return {
-          instantiateNapiModuleSync() {
-            return {
-              instance: {},
-              module: {},
-              napiModule: { exports: {} },
-            }
-          },
-        }
-      case '@emnapi/runtime':
-        return {
-          createContext: () => ({
-            suppressDestroy() {},
-            destroy() {
-              throw cleanupError
-            },
-          }),
-        }
-      default:
-        throw new Error(`Unexpected require: ${specifier}`)
-    }
-  }
-
-  let observedError
-  try {
-    new Function('require', 'process', '__dirname', 'queueMicrotask', code)(
-      mockRequire,
-      processMock,
-      '/fixture',
-      (callback: () => void) => queuedMicrotasks.push(callback),
-    )
-  } catch (error) {
-    observedError = error
-  }
-
-  return {
-    cleanupError,
-    events,
-    handoffError,
-    observedError,
-    processMock,
-    queuedMicrotasks,
-    rollbackError,
-  }
-}
-
-test('eager WASI cleanup keeps beforeExit ownership when exit registration fails', (t) => {
-  const result = executeEagerWasiCleanupHandoffFault('exit-registration')
-
-  t.is(result.observedError, result.handoffError)
-  t.is(result.handoffError.cause, result.cleanupError)
-  t.deepEqual(result.events, [
-    'once:beforeExit:__destroyEmnapiContextBeforeExit',
-    'once:exit:__destroyEmnapiContextAtExit',
-  ])
-  t.is(result.processMock.rawListeners('beforeExit').length, 1)
-  t.is(result.processMock.rawListeners('exit').length, 0)
-  t.is(result.queuedMicrotasks.length, 0)
-})
-
-test('eager WASI cleanup rolls exit ownership back when beforeExit removal fails', (t) => {
-  const result = executeEagerWasiCleanupHandoffFault('before-exit-removal')
-
-  t.is(result.observedError, result.handoffError)
-  t.is(result.handoffError.cause, result.cleanupError)
-  t.deepEqual(result.events, [
-    'once:beforeExit:__destroyEmnapiContextBeforeExit',
-    'once:exit:__destroyEmnapiContextAtExit',
-    'remove:beforeExit:__destroyEmnapiContextBeforeExit',
-    'remove:exit:__destroyEmnapiContextAtExit',
-  ])
-  t.is(result.processMock.rawListeners('beforeExit').length, 1)
-  t.is(result.processMock.rawListeners('exit').length, 0)
-  t.is(result.queuedMicrotasks.length, 0)
-})
-
-test('eager WASI cleanup preserves both owners when handoff rollback fails', (t) => {
-  const result = executeEagerWasiCleanupHandoffFault('handoff-rollback')
-
-  t.true(result.observedError instanceof AggregateError)
-  if (!(result.observedError instanceof AggregateError)) {
-    return
-  }
-  t.deepEqual(result.observedError.errors, [
-    result.handoffError,
-    result.rollbackError,
-  ])
-  t.is(result.observedError.cause, result.handoffError)
-  t.deepEqual(result.events, [
-    'once:beforeExit:__destroyEmnapiContextBeforeExit',
-    'once:exit:__destroyEmnapiContextAtExit',
-    'remove:beforeExit:__destroyEmnapiContextBeforeExit',
-    'remove:exit:__destroyEmnapiContextAtExit',
-  ])
-  t.is(result.processMock.rawListeners('beforeExit').length, 1)
-  t.is(result.processMock.rawListeners('exit').length, 1)
-  t.is(result.queuedMicrotasks.length, 1)
-  t.is(
-    t.throws(() => result.queuedMicrotasks[0]()),
-    result.cleanupError,
-  )
-})
-
-test('eager WASI cleanup aggregates removal failures without losing ownership state', (t) => {
-  const code = `${createWasiBinding(
-    'binding',
-    'cleanup-removal-never-published',
-    1,
-    2,
-    false,
-    'wasm32-wasip1',
-  )}
-__registerEmnapiContextBeforeExit()
-return {
-  remove: __removeEmnapiContextCleanupListeners,
-  hasBeforeExit: () => __emnapiContextRegisteredForBeforeExit,
-  hasExit: () => __emnapiContextRegisteredForExit,
-}
-`
-  const processMock = Object.assign(new EventEmitter(), {
-    cwd: () => '/',
-    env: {},
-  })
-  const mockRequire = (specifier: string) => {
-    switch (specifier) {
-      case 'node:fs':
-        return {
-          existsSync: (path: string) => path.endsWith('/binding.wasm'),
-          readFileSync: () => new Uint8Array(),
-        }
-      case 'node:path':
-        return {
-          join: (...parts: string[]) => parts.join('/'),
-          parse: () => ({ root: '/' }),
-        }
-      case 'node:wasi':
-        return { WASI: class {} }
-      case '@napi-rs/wasm-runtime':
-        return {
-          instantiateNapiModuleSync() {
-            return {
-              instance: {},
-              module: {},
-              napiModule: { exports: {} },
-            }
-          },
-        }
-      case '@emnapi/runtime':
-        return {
-          createContext: () => ({
-            destroy() {},
-            suppressDestroy() {},
-          }),
-        }
-      default:
-        throw new Error(`Unexpected require: ${specifier}`)
-    }
-  }
-  const lifecycle = new Function('require', 'process', '__dirname', code)(
-    mockRequire,
-    processMock,
-    '/fixture',
-  ) as {
-    remove(): void
-    hasBeforeExit(): boolean
-    hasExit(): boolean
-  }
-  const beforeExitRemovalError = new Error('beforeExit removal failed')
-  const exitRemovalError = new Error('exit removal failed')
-  const removeListener = processMock.removeListener.bind(processMock)
-  processMock.removeListener = (
-    event: string,
-    listener: (...args: unknown[]) => void,
-  ) => {
-    if (
-      event === 'beforeExit' &&
-      listener.name === '__destroyEmnapiContextBeforeExit'
-    ) {
-      throw beforeExitRemovalError
-    }
-    if (event === 'exit' && listener.name === '__destroyEmnapiContextAtExit') {
-      throw exitRemovalError
-    }
-    return removeListener(event, listener)
-  }
-
-  const error = t.throws(() => lifecycle.remove())
-  t.true(error instanceof AggregateError)
-  if (error instanceof AggregateError) {
-    t.deepEqual(error.errors, [beforeExitRemovalError, exitRemovalError])
-  }
-  t.true(lifecycle.hasBeforeExit())
-  t.true(lifecycle.hasExit())
-  t.is(processMock.rawListeners('beforeExit').length, 1)
-  t.is(processMock.rawListeners('exit').length, 1)
-
-  processMock.removeListener = removeListener
-  lifecycle.remove()
-  t.false(lifecycle.hasBeforeExit())
-  t.false(lifecycle.hasExit())
-  t.is(processMock.rawListeners('beforeExit').length, 0)
-  t.is(processMock.rawListeners('exit').length, 0)
-})
-
-test('eager WASI cleanup surfaces asynchronous listener removal failure when the primary cause is occupied', async (t) => {
-  const code = createWasiBinding(
-    'binding',
-    'cleanup-removal-never-published',
-    1,
-    2,
-    false,
-    'wasm32-wasip1',
-  )
-  const existingCause = new Error('existing primary cause')
-  const primaryError = new Error('initialization failed', {
-    cause: existingCause,
-  })
-  const removalError = new Error('beforeExit removal failed')
-  const queuedMicrotasks: Array<() => void> = []
-  const processMock = Object.assign(new EventEmitter(), {
-    cwd: () => '/',
-    env: {},
-  })
-  const removeListener = processMock.removeListener.bind(processMock)
-  processMock.removeListener = (
-    event: string,
-    listener: (...args: unknown[]) => void,
-  ) => {
-    if (
-      event === 'beforeExit' &&
-      listener.name === '__destroyEmnapiContextBeforeExit'
-    ) {
-      throw removalError
-    }
-    return removeListener(event, listener)
-  }
-  const mockRequire = (specifier: string) => {
-    switch (specifier) {
-      case 'node:fs':
-        return {
-          existsSync: (path: string) => path.endsWith('/binding.wasm'),
-          readFileSync: () => new Uint8Array(),
-        }
-      case 'node:path':
-        return {
-          join: (...parts: string[]) => parts.join('/'),
-          parse: () => ({ root: '/' }),
-        }
-      case 'node:wasi':
-        return { WASI: class {} }
-      case '@napi-rs/wasm-runtime':
-        return {
-          instantiateNapiModuleSync() {
-            throw primaryError
-          },
-        }
-      case '@emnapi/runtime':
-        return {
-          createContext: () => ({
-            destroy: () => Promise.resolve(),
-            suppressDestroy() {},
-          }),
-        }
-      default:
-        throw new Error(`Unexpected require: ${specifier}`)
-    }
-  }
-
-  const error = t.throws(() =>
-    new Function('require', 'process', '__dirname', 'queueMicrotask', code)(
-      mockRequire,
-      processMock,
-      '/fixture',
-      (callback: () => void) => queuedMicrotasks.push(callback),
-    ),
-  )
-  t.is(error, primaryError)
-
-  await new Promise((resolve) => setImmediate(resolve))
-
-  t.is(primaryError.cause, existingCause)
-  t.is(queuedMicrotasks.length, 1)
-  t.is(
-    t.throws(() => queuedMicrotasks[0]()),
-    removalError,
-  )
-  t.is(processMock.rawListeners('beforeExit').length, 1)
-  t.is(processMock.rawListeners('exit').length, 0)
-})
-
-test.serial(
-  'successful eager WASI contexts stay live while deferred rollback cleanup retries on beforeExit',
-  async (t) => {
-    const nodeSrc = `${createWasiBinding(
-      'binding',
-      'before-exit-retry-never-published',
-      1,
-      2,
-      false,
-      'wasm32-wasip1',
-    )}
-module.exports = __napiModule.exports
-`
-    const deferredSrc = createWasiDeferredBrowserBinding(
-      'custom_async_runtime',
-      1,
-      2,
-    )
-    const tmpDir = await mkdtemp(
-      join(
-        fileURLToPath(new URL('.', import.meta.url)),
-        '.tmp-before-exit-retry-',
-      ),
-    )
-
-    try {
-      const runtimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@napi-rs',
-        'wasm-runtime',
-      )
-      const emnapiRuntimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@emnapi',
-        'runtime',
-      )
-      await mkdir(runtimeDir, { recursive: true })
-      await mkdir(emnapiRuntimeDir, { recursive: true })
-      await writeFile(
-        join(runtimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@napi-rs/wasm-runtime',
-          exports: {
-            '.': {
-              import: './index.mjs',
-              require: './index.cjs',
-            },
-          },
-        }),
-      )
-      await writeFile(
-        join(runtimeDir, 'index.cjs'),
-        `module.exports = {
-  instantiateNapiModuleSync() {
-    const state = globalThis.__beforeExitRetryState
-    if (state?.initializationError !== undefined) {
-      throw state.initializationError
-    }
-    return {
-      instance: {},
-      module: {},
-      napiModule: { exports: {} },
-    }
-  },
-}
-`,
-      )
-      await writeFile(
-        join(runtimeDir, 'index.mjs'),
-        `export class WASI {}
-export async function instantiateNapiModule() {
-  const state = globalThis.__beforeExitRetryState
-  if (state?.initializationError) {
-    throw state.initializationError
-  }
-  return { napiModule: { exports: {} } }
-}
-`,
-      )
-      const emnapiContext = `function createContext(options) {
-  if (options?.autoDestroy !== false) {
-    throw new Error('generated loader must disable emnapi auto-destroy')
-  }
-  return {
-    suppressDestroy() {},
-    destroy() {
-      const state = globalThis.__beforeExitRetryState
-      state.attempts += 1
-      if (state.attempts === 1) {
-        const error = new Error(state.errorMessage)
-        if (state.async) {
-          return Promise.reject(error)
-        }
-        throw error
-      }
-      state.destroyed += 1
-      if (state.async) {
-        return Promise.resolve()
-      }
-    },
-  }
-}
-`
-      await writeFile(
-        join(emnapiRuntimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@emnapi/runtime',
-          exports: {
-            '.': {
-              import: './index.mjs',
-              require: './index.cjs',
-            },
-          },
-        }),
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'index.cjs'),
-        `${emnapiContext}
-module.exports = { createContext }
-`,
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'index.mjs'),
-        `${emnapiContext}
-export { createContext }
-`,
-      )
-      await writeFile(join(tmpDir, 'binding.cjs'), nodeSrc)
-      await writeFile(join(tmpDir, 'binding.wasm'), '')
-      await writeFile(join(tmpDir, 'deferred.mjs'), deferredSrc)
-      await writeFile(
-        join(tmpDir, 'retry.cjs'),
-        `globalThis.__beforeExitRetryState = {
-  async: false,
-  attempts: 0,
-  caught: 0,
-  destroyed: 0,
-  errorMessage: 'ordinary cleanup failed',
-  unexpected: [],
-}
-const state = globalThis.__beforeExitRetryState
-process.on('uncaughtException', (error) => {
-  if (error?.message === state.errorMessage) {
-    state.caught += 1
-  } else {
-    state.unexpected.push(String(error?.stack || error))
-  }
-  setImmediate(() => {})
-})
-require('./binding.cjs')
-process.once('exit', () => {
-  if (
-    state.attempts !== 1 ||
-    state.destroyed !== 0 ||
-    state.caught !== 0 ||
-    state.unexpected.length !== 0
-  ) {
-    process.stderr.write('ordinary terminal state: ' + JSON.stringify(state) + '\\n')
-    process.exitCode = 1
-    return
-  }
-  process.stdout.write('ordinary-terminal-attempt-ok\\n')
-})
-`,
-      )
-      await writeFile(
-        join(tmpDir, 'retry-primitive.cjs'),
-        `globalThis.__beforeExitRetryState = {
-  async: true,
-  attempts: 0,
-  caught: 0,
-  destroyed: 0,
-  errorMessage: 'primitive cleanup failed',
-  initializationError: 17,
-  unexpected: [],
-}
-const state = globalThis.__beforeExitRetryState
-process.on('uncaughtException', (error) => {
-  if (error?.message === state.errorMessage) {
-    state.caught += 1
-  } else {
-    state.unexpected.push(String(error?.stack || error))
-  }
-  setImmediate(() => {})
-})
-let initializationError
-try {
-  require('./binding.cjs')
-} catch (error) {
-  initializationError = error
-}
-process.once('exit', () => {
-  if (
-    initializationError !== state.initializationError ||
-    state.attempts !== 2 ||
-    state.destroyed !== 1 ||
-    state.caught !== 1 ||
-    state.unexpected.length !== 0
-  ) {
-    process.stderr.write('primitive retry state: ' + JSON.stringify({
-      ...state,
-      initializationError,
-    }) + '\\n')
-    process.exitCode = 1
-    return
-  }
-  process.stdout.write('primitive-cleanup-observable\\n')
-})
-`,
-      )
-      await writeFile(
-        join(tmpDir, 'retry.mjs'),
-        `globalThis.__beforeExitRetryState = {
-  async: true,
-  attempts: 0,
-  caught: 0,
-  destroyed: 0,
-  errorMessage: 'deferred cleanup failed',
-  initializationError: new Error('deferred initialization failed'),
-  unexpected: [],
-}
-const state = globalThis.__beforeExitRetryState
-process.on('uncaughtException', (error) => {
-  if (error?.message === state.errorMessage) {
-    state.caught += 1
-  } else {
-    state.unexpected.push(String(error?.stack || error))
-  }
-  setImmediate(() => {})
-})
-process.once('exit', () => {
-  if (
-    state.attempts !== 2 ||
-    state.destroyed !== 1 ||
-    state.caught !== 0 ||
-    state.unexpected.length !== 0
-  ) {
-    process.stderr.write('deferred retry state: ' + JSON.stringify(state) + '\\n')
-    process.exitCode = 1
-    return
-  }
-  process.stdout.write('deferred-retry-ok\\n')
-})
-const { instantiate } = await import('./deferred.mjs')
-const module = new WebAssembly.Module(
-  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
-)
-try {
-  await instantiate(module)
-  throw new Error('deferred initialization unexpectedly succeeded')
-} catch (error) {
-  if (
-    error !== state.initializationError ||
-    error.cause?.message !== state.errorMessage
-  ) {
-    throw error
-  }
-}
-`,
-      )
-
-      const results = await Promise.all(
-        ['retry.cjs', 'retry-primitive.cjs', 'retry.mjs'].map((entry) =>
-          execFileAsync(
-            process.execPath,
-            ['--unhandled-rejections=strict', join(tmpDir, entry)],
-            { cwd: tmpDir, timeout: 10_000 },
-          ),
-        ),
-      )
-      t.deepEqual(
-        results.map((result) => result.stdout),
-        [
-          'ordinary-terminal-attempt-ok\n',
-          'primitive-cleanup-observable\n',
-          'deferred-retry-ok\n',
-        ],
-      )
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true })
-    }
-  },
-)
-
 test('browser WASI binding validates fetch before allocating runtime state', (t) => {
   const src = createWasiBrowserBinding(
     'custom_async_runtime',
@@ -1799,7 +1142,9 @@ test('browser WASI binding validates fetch before allocating runtime state', (t)
   )
   const fetchOffset = src.indexOf('await globalThis.fetch(__wasmUrl)')
   const responseCheckOffset = src.indexOf('if (!__wasmResponse.ok)')
-  const contextOffset = src.indexOf('__emnapiCreateContext()')
+  const contextOffset = src.indexOf(
+    '__emnapiCreateContext({ autoDestroy: false })',
+  )
   const memoryOffset = src.indexOf('new WebAssembly.Memory')
 
   t.true(fetchOffset > 0)
@@ -1937,6 +1282,7 @@ export async function instantiateNapiModule(_wasm, options) {
   const attempt = state.attempt
   state.created += 1
   return {
+    suppressDestroy() {},
     destroy() {
       state.destroyAttempts += 1
       state.events.push('destroy:' + attempt)
@@ -2108,19 +1454,33 @@ for (const cleanupMode of [
     assert.strictEqual(observed, initializationError)
   } else {
     assert.ok(observed instanceof AggregateError)
-    assert.strictEqual(observed.message, initializationError.message)
-    assert.strictEqual(observed.cause, initializationError)
-    assert.deepStrictEqual(
-      observed.errors,
-      ${threads} && cleanupMode === 'async-failure'
-        ? [
-            initializationError,
-            cleanupError,
-            threadTerminationError,
-            asyncWorkTerminationError,
-          ]
-        : [initializationError, cleanupError],
+    assert.strictEqual(
+      observed.message,
+      'WASI binding initialization and cleanup failed',
     )
+    assert.strictEqual(observed.cause, initializationError)
+    assert.strictEqual(observed.errors[0], initializationError)
+    if (${threads} && cleanupMode === 'async-failure') {
+      const cleanupAggregate = observed.errors[1]
+      assert.ok(cleanupAggregate instanceof AggregateError)
+      assert.strictEqual(cleanupAggregate.message, 'WASI binding cleanup failed')
+      assert.strictEqual(cleanupAggregate.errors[0], cleanupError)
+      const workerAggregate = cleanupAggregate.errors[1]
+      assert.ok(workerAggregate instanceof AggregateError)
+      assert.strictEqual(
+        workerAggregate.message,
+        'Failed to terminate WASI workers',
+      )
+      assert.deepStrictEqual(workerAggregate.errors, [
+        asyncWorkTerminationError,
+        threadTerminationError,
+      ])
+    } else {
+      assert.deepStrictEqual(observed.errors, [
+        initializationError,
+        cleanupError,
+      ])
+    }
   }
   assert.strictEqual(
     Object.prototype.hasOwnProperty.call(initializationError, 'cause'),
@@ -2238,15 +1598,14 @@ export async function instantiateNapiModule() {
   }
   const state = globalThis.__napiDeferredBufferState
   const id = ++state.contexts
-  process.once('beforeExit', () => {})
-  const feature = {}
-  Object.defineProperty(feature, 'Buffer', {
+  const features = {}
+  Object.defineProperty(features, 'Buffer', {
     set() {
       throw state.injectionError
     },
   })
   return {
-    feature,
+    features,
     suppressDestroy() {},
     destroy() {
       state.destroyAttempts.push(id)
@@ -3105,600 +2464,6 @@ nodeProcess.stdout.write('independent-reentrant-dispose-ok\\n')
 )
 
 test.serial(
-  'WASI loaders preserve newListener-owned beforeExit listeners and retained eager exports when work resumes',
-  async (t) => {
-    const tmpDir = await mkdtemp(
-      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-before-exit-'),
-    )
-    const nodeBinding = `${createWasiBinding(
-      'binding',
-      'before-exit-test',
-      1,
-      2,
-      false,
-      'wasm32-wasip1',
-    )}
-module.exports = __napiModule.exports
-`
-    const deferredBinding = createWasiDeferredBrowserBinding('binding', 1, 2)
-
-    try {
-      const wasmRuntimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@napi-rs',
-        'wasm-runtime',
-      )
-      const emnapiRuntimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@emnapi',
-        'runtime',
-      )
-      await mkdir(wasmRuntimeDir, { recursive: true })
-      await mkdir(emnapiRuntimeDir, { recursive: true })
-      await writeFile(
-        join(wasmRuntimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@napi-rs/wasm-runtime',
-          type: 'module',
-          exports: {
-            import: './index.mjs',
-            require: './index.cjs',
-          },
-        }),
-      )
-      const contextFactory = `
-function createContext(options) {
-  if (options?.autoDestroy !== false) {
-    throw new Error('generated loader must disable emnapi auto-destroy')
-  }
-  const context = {
-    id: globalThis.__beforeExitTestContexts.length + 1,
-    destroyed: false,
-    destroyPromise: undefined,
-    suppressed: false,
-    suppressDestroy() {
-      this.suppressed = true
-    },
-    destroy() {
-      if (this.id === 1) {
-        if (!this.destroyed) {
-          this.destroyed = true
-          globalThis.__beforeExitTestDestroyed++
-        }
-        return
-      }
-      if (!this.destroyPromise) {
-        this.destroyPromise = new Promise((resolve) => {
-          setTimeout(resolve, 30)
-        }).then(() => {
-          if (!this.destroyed) {
-            this.destroyed = true
-            globalThis.__beforeExitTestDestroyed++
-          }
-        })
-      }
-      return this.destroyPromise
-    },
-  }
-  globalThis.__beforeExitTestContexts.push(context)
-  // Emulate emnapi 1.11.x ignoring autoDestroy.
-  process.once('beforeExit', () => {
-    if (!context.suppressed) {
-      context.destroy()
-    }
-  })
-  return context
-}
-`
-      await writeFile(
-        join(wasmRuntimeDir, 'index.cjs'),
-        `${contextFactory}
-module.exports = {
-  createContext,
-  instantiateNapiModuleSync(_module, options) {
-    return {
-      napiModule: {
-        exports: {
-          ping() {
-            if (options.context.destroyed) throw new Error('context destroyed')
-            return 'ordinary'
-          },
-        },
-      },
-    }
-  },
-}
-`,
-      )
-      await writeFile(
-        join(wasmRuntimeDir, 'index.mjs'),
-        `export class WASI {}
-export async function instantiateNapiModule(_module, options) {
-  return {
-    napiModule: {
-      exports: {
-        ping() {
-          if (options.context.destroyed) throw new Error('context destroyed')
-          return 'deferred'
-        },
-      },
-    },
-  }
-}
-`,
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@emnapi/runtime',
-          type: 'module',
-          exports: './index.js',
-        }),
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'index.js'),
-        `${contextFactory}
-export { createContext }
-`,
-      )
-      await writeFile(join(tmpDir, 'binding.cjs'), nodeBinding)
-      await writeFile(join(tmpDir, 'binding.wasm'), '')
-      await writeFile(join(tmpDir, 'deferred.mjs'), deferredBinding)
-      await writeFile(
-        join(tmpDir, 'test.mjs'),
-        `import { createRequire } from 'node:module'
-
-globalThis.__beforeExitTestContexts = []
-globalThis.__beforeExitTestDestroyed = 0
-globalThis.__unrelatedBeforeExitRuns = 0
-const initialBeforeExitListeners = process.rawListeners('beforeExit').length
-const unrelatedBeforeExitListeners = []
-let addingUnrelatedBeforeExitListener = false
-const addUnrelatedBeforeExitListener = (event) => {
-  if (event !== 'beforeExit' || addingUnrelatedBeforeExitListener) {
-    return
-  }
-  addingUnrelatedBeforeExitListener = true
-  const listener = () => {
-    globalThis.__unrelatedBeforeExitRuns++
-  }
-  unrelatedBeforeExitListeners.push(listener)
-  process.once('beforeExit', listener)
-  addingUnrelatedBeforeExitListener = false
-}
-process.on('newListener', addUnrelatedBeforeExitListener)
-const require = createRequire(import.meta.url)
-const ordinary = require('./binding.cjs')
-const deferred = await import('./deferred.mjs')
-const module = new WebAssembly.Module(
-  new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
-)
-const singleton = await deferred.instantiate(module)
-const independent = await deferred.createInstance(module)
-process.removeListener('newListener', addUnrelatedBeforeExitListener)
-
-const retainedBeforeExitListeners = process.rawListeners('beforeExit')
-if (
-  retainedBeforeExitListeners.length !==
-  initialBeforeExitListeners + unrelatedBeforeExitListeners.length + 1
-) {
-  throw new Error('generated beforeExit listener count is incorrect')
-}
-if (unrelatedBeforeExitListeners.length !== 5) {
-  throw new Error('newListener hook did not observe every emnapi registration')
-}
-for (const listener of unrelatedBeforeExitListeners) {
-  if (
-    !retainedBeforeExitListeners.some(
-      (retained) => retained === listener || retained.listener === listener,
-    )
-  ) {
-    throw new Error('generated loader removed an unrelated beforeExit listener')
-  }
-}
-if (globalThis.__beforeExitTestContexts.length !== 3) {
-  throw new Error('unexpected context count')
-}
-if (globalThis.__beforeExitTestContexts.some((context) => !context.suppressed)) {
-  throw new Error('generated loader did not suppress emnapi auto-destroy')
-}
-if (
-  ordinary.ping() !== 'ordinary' ||
-  singleton.ping() !== 'deferred' ||
-  independent.exports.ping() !== 'deferred'
-) {
-  throw new Error('binding returned an unexpected initial value')
-}
-
-const waitForDestroyed = async (expected) => {
-  const deadline = Date.now() + 5000
-  while (
-    globalThis.__beforeExitTestDestroyed !== expected &&
-    Date.now() < deadline
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
-  if (globalThis.__beforeExitTestDestroyed !== expected) {
-    throw new Error(
-      \`timed out waiting for \${expected} destroyed contexts; observed \${globalThis.__beforeExitTestDestroyed}\`,
-    )
-  }
-}
-
-process.once('beforeExit', () => {
-  setTimeout(() => {
-    void (async () => {
-      let overlappingError
-      try {
-        await deferred.instantiate(module)
-      } catch (error) {
-        overlappingError = error
-      }
-      if (overlappingError?.code !== 'ERR_NAPI_WASI_LIFECYCLE_REENTRY') {
-        throw new Error('overlapping instantiate did not reject lifecycle reentry')
-      }
-
-      await waitForDestroyed(1)
-      const replacementSingleton = await deferred.instantiate(module)
-      if (!globalThis.__beforeExitTestContexts[1].destroyed) {
-        throw new Error('first beforeExit pass did not destroy the singleton')
-      }
-      if (globalThis.__beforeExitTestContexts[2].destroyed) {
-        throw new Error('first beforeExit pass destroyed an independent context')
-      }
-
-      const replacementIndependent = await deferred.createInstance(module)
-      if (replacementSingleton === singleton) {
-        throw new Error('automatic disposal retained the destroyed singleton')
-      }
-      if (
-        ordinary.ping() !== 'ordinary' ||
-        independent.exports.ping() !== 'deferred' ||
-        replacementSingleton.ping() !== 'deferred' ||
-        replacementIndependent.exports.ping() !== 'deferred'
-      ) {
-        throw new Error('retained or replacement contexts were not usable')
-      }
-      if (globalThis.__beforeExitTestContexts.length !== 5) {
-        throw new Error('replacement contexts were not created')
-      }
-
-      process.once('beforeExit', () => {
-        void (async () => {
-          await waitForDestroyed(2)
-          if (!globalThis.__beforeExitTestContexts[3].destroyed) {
-            throw new Error(
-              'second beforeExit pass did not destroy the replacement singleton',
-            )
-          }
-          if (
-            globalThis.__beforeExitTestContexts[2].destroyed ||
-            globalThis.__beforeExitTestContexts[4].destroyed
-          ) {
-            throw new Error('beforeExit destroyed an independent context')
-          }
-          if (
-            independent.exports.ping() !== 'deferred' ||
-            replacementIndependent.exports.ping() !== 'deferred'
-          ) {
-            throw new Error('independent exports were unusable after beforeExit')
-          }
-          await Promise.all([
-            independent.dispose(),
-            replacementIndependent.dispose(),
-          ])
-          await waitForDestroyed(4)
-          if (globalThis.__beforeExitTestContexts[0].destroyed) {
-            throw new Error('eager context was destroyed while exports remain cached')
-          }
-          process.stdout.write('cleaned\\n')
-        })().catch((error) => {
-          setImmediate(() => {
-            throw error
-          })
-        })
-      })
-      process.stdout.write('resumed\\n')
-    })().catch((error) => {
-      setImmediate(() => {
-        throw error
-      })
-    })
-  })
-})
-process.once('exit', () => {
-  if (
-    globalThis.__unrelatedBeforeExitRuns !== 5 ||
-    globalThis.__beforeExitTestDestroyed !== 5 ||
-    globalThis.__beforeExitTestContexts.some((context) => !context.destroyed)
-  ) {
-    throw new Error('terminal lifecycle state was incorrect')
-  }
-})
-`,
-      )
-
-      const result = await execFileAsync(
-        process.execPath,
-        ['--unhandled-rejections=strict', join(tmpDir, 'test.mjs')],
-        { cwd: tmpDir, timeout: 10_000 },
-      )
-      t.is(result.stdout, 'resumed\ncleaned\n')
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true })
-    }
-  },
-)
-
-test.serial(
-  'Node WASI binding rolls back contexts after initialization failures',
-  async (t) => {
-    const tmpDir = await mkdtemp(
-      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-cjs-rollback-'),
-    )
-    const nodeBinding = `${createWasiBinding(
-      'binding',
-      'rollback-fixture-never-published',
-      1,
-      2,
-      false,
-      'wasm32-wasip1',
-    )}
-module.exports = __napiModule.exports
-`
-
-    try {
-      const runtimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@napi-rs',
-        'wasm-runtime',
-      )
-      const emnapiRuntimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@emnapi',
-        'runtime',
-      )
-      await mkdir(runtimeDir, { recursive: true })
-      await mkdir(emnapiRuntimeDir, { recursive: true })
-      await writeFile(
-        join(runtimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@napi-rs/wasm-runtime',
-          main: './index.cjs',
-        }),
-      )
-      await writeFile(
-        join(runtimeDir, 'index.cjs'),
-        `module.exports = {
-  instantiateNapiModuleSync(_wasm, options) {
-    const state = globalThis.__cjsRollbackState
-    const instance = {
-      exports: {
-        napi_prepare_wasm_env_cleanup() {
-          state.prepared.push(state.contexts)
-        },
-      },
-    }
-    options.beforeInit({ instance })
-    if (state.initializationError) {
-      throw state.initializationError
-    }
-    return {
-      instance,
-      module: {},
-      napiModule: { exports: {} },
-    }
-  },
-}
-`,
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@emnapi/runtime',
-          main: './index.cjs',
-        }),
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'index.cjs'),
-        `module.exports = {
-  createContext(options) {
-    if (!options || options.autoDestroy !== false) {
-      throw new Error('generated loader must disable emnapi auto-destroy')
-    }
-    const state = globalThis.__cjsRollbackState
-    const id = ++state.contexts
-    return {
-      suppressDestroy() {},
-      destroy() {
-        state.destroyAttempts.push(id)
-        if (state.cleanupError) {
-          throw state.cleanupError
-        }
-        if (state.destroyThenGetterError) {
-          const error = state.destroyThenGetterError
-          state.destroyThenGetterError = undefined
-          return Object.defineProperty({}, 'then', {
-            get() {
-              throw error
-            },
-          })
-        }
-        state.destroyed.push(id)
-      },
-    }
-  },
-}
-`,
-      )
-      await writeFile(join(tmpDir, 'binding.cjs'), nodeBinding)
-      await writeFile(
-        join(tmpDir, 'test.cjs'),
-        `const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const path = require('node:path')
-
-const bindingPath = path.join(__dirname, 'binding.cjs')
-const wasmPath = path.join(__dirname, 'binding.wasm')
-const initialBeforeExitListeners = new Set(process.rawListeners('beforeExit'))
-const state = {
-  contexts: 0,
-  destroyAttempts: [],
-  destroyed: [],
-  prepared: [],
-  cleanupError: undefined,
-  destroyThenGetterError: undefined,
-  initializationError: undefined,
-}
-globalThis.__cjsRollbackState = state
-
-function ownedBeforeExitListeners() {
-  return process
-    .rawListeners('beforeExit')
-    .filter((listener) => !initialBeforeExitListeners.has(listener))
-}
-
-function load() {
-  delete require.cache[bindingPath]
-  return require(bindingPath)
-}
-
-function expectPrimaryError(expected, expectedOwnedListeners = 0) {
-  let observed
-  try {
-    load()
-  } catch (error) {
-    observed = error
-  }
-  assert.strictEqual(observed, expected)
-  assert.strictEqual(
-    ownedBeforeExitListeners().length,
-    expectedOwnedListeners,
-  )
-  return observed
-}
-
-const registrationError = new Error('beforeExit registration failed')
-const registrationCleanupError = new Error('registration cleanup failed')
-state.cleanupError = registrationCleanupError
-function throwOnceOnBeforeExit(event) {
-  if (event === 'beforeExit') {
-    process.removeListener('newListener', throwOnceOnBeforeExit)
-    throw registrationError
-  }
-}
-process.on('newListener', throwOnceOnBeforeExit)
-try {
-  const observedRegistrationError = expectPrimaryError(registrationError, 1)
-  assert.strictEqual(observedRegistrationError.cause, registrationCleanupError)
-} finally {
-  process.removeListener('newListener', throwOnceOnBeforeExit)
-}
-const registrationRetryListeners = ownedBeforeExitListeners()
-assert.strictEqual(registrationRetryListeners.length, 1)
-state.cleanupError = undefined
-registrationRetryListeners[0]()
-assert.strictEqual(ownedBeforeExitListeners().length, 0)
-assert.deepStrictEqual(state.destroyAttempts, [1, 1])
-assert.deepStrictEqual(state.destroyed, [1])
-
-const OriginalMemory = WebAssembly.Memory
-const memoryError = new Error('memory allocation failed')
-WebAssembly.Memory = class {
-  constructor() {
-    throw memoryError
-  }
-}
-try {
-  expectPrimaryError(memoryError)
-} finally {
-  WebAssembly.Memory = OriginalMemory
-}
-
-const cleanupError = new Error('cleanup failed')
-state.cleanupError = cleanupError
-let resolutionError
-try {
-  load()
-} catch (error) {
-  resolutionError = error
-}
-assert.strictEqual(resolutionError.code, 'MODULE_NOT_FOUND')
-assert.strictEqual(resolutionError.cause, cleanupError)
-const retainedBeforeExitListeners = ownedBeforeExitListeners()
-assert.strictEqual(retainedBeforeExitListeners.length, 1)
-assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3])
-assert.deepStrictEqual(state.destroyed, [1, 2])
-state.cleanupError = undefined
-retainedBeforeExitListeners[0]()
-assert.strictEqual(ownedBeforeExitListeners().length, 0)
-assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3])
-assert.deepStrictEqual(state.destroyed, [1, 2, 3])
-
-const destroyThenGetterError = new Error('destroy then getter failed')
-state.destroyThenGetterError = destroyThenGetterError
-let observedHostileThenError
-try {
-  load()
-} catch (error) {
-  observedHostileThenError = error
-}
-assert.strictEqual(observedHostileThenError.code, 'MODULE_NOT_FOUND')
-assert.strictEqual(observedHostileThenError.cause, destroyThenGetterError)
-const hostileThenRetryListeners = ownedBeforeExitListeners()
-assert.strictEqual(hostileThenRetryListeners.length, 1)
-hostileThenRetryListeners[0]()
-assert.strictEqual(ownedBeforeExitListeners().length, 0)
-assert.deepStrictEqual(state.destroyAttempts, [1, 1, 2, 3, 3, 4, 4])
-assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4])
-
-fs.writeFileSync(wasmPath, '')
-const originalReadFileSync = fs.readFileSync
-const readError = new Error('wasm read failed')
-fs.readFileSync = function(filename, ...args) {
-  if (filename === wasmPath) {
-    throw readError
-  }
-  return originalReadFileSync.call(this, filename, ...args)
-}
-try {
-  expectPrimaryError(readError)
-} finally {
-  fs.readFileSync = originalReadFileSync
-}
-
-const initializationError = new Error('emnapi initialization failed')
-state.initializationError = initializationError
-expectPrimaryError(initializationError)
-
-assert.strictEqual(state.contexts, 6)
-assert.deepStrictEqual(
-  state.destroyAttempts,
-  [1, 1, 2, 3, 3, 4, 4, 5, 6],
-)
-assert.deepStrictEqual(state.destroyed, [1, 2, 3, 4, 5, 6])
-assert.deepStrictEqual(state.prepared, [6])
-process.stdout.write('rollback-ok\\n')
-`,
-      )
-
-      const result = await execFileAsync(
-        process.execPath,
-        ['--unhandled-rejections=strict', join(tmpDir, 'test.cjs')],
-        { cwd: tmpDir, timeout: 10_000 },
-      )
-      t.is(result.stdout, 'rollback-ok\n')
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true })
-    }
-  },
-)
-
-test.serial(
   'WASI fallback isolates async rollback and removes cleanup listeners',
   async (t) => {
     const tmpDir = await mkdtemp(
@@ -3836,7 +2601,6 @@ module.exports = __napiModule.exports
 const path = require('node:path')
 
 async function main() {
-const initialBeforeExitListeners = new Set(process.rawListeners('beforeExit'))
 const state = {
   contexts: 0,
   destroyed: [],
@@ -3846,22 +2610,12 @@ const state = {
 }
 globalThis.__fallbackLifecycleState = state
 
-const ownedBeforeExitListeners = () =>
-  process
-    .rawListeners('beforeExit')
-    .filter((listener) => !initialBeforeExitListeners.has(listener))
 const waitFor = async (condition) => {
   const deadline = Date.now() + 5000
   while (!condition() && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
   assert.ok(condition(), 'timed out waiting for lifecycle state')
-}
-const runOwnedBeforeExitPass = async () => {
-  for (const listener of ownedBeforeExitListeners()) {
-    listener(0)
-  }
-  await new Promise((resolve) => setImmediate(resolve))
 }
 const load = (name) => {
   const entry = path.join(__dirname, name + '.cjs')
@@ -3872,10 +2626,9 @@ const load = (name) => {
 process.env.NAPI_RS_FORCE_WASI = 'true'
 const success = load('success')
 assert.strictEqual(success.runtime, 'fallback-2')
-assert.strictEqual(ownedBeforeExitListeners().length, 1)
 await waitFor(() => state.destroyed.includes(1))
-assert.strictEqual(ownedBeforeExitListeners().length, 0)
 assert.deepStrictEqual(state.destroyAttempts, { 1: 1 })
+assert.strictEqual(process.rawListeners('beforeExit').length, 0)
 
 state.rejectFirstCleanupForId = 3
 const retry = load('retry')
@@ -3883,12 +2636,12 @@ assert.strictEqual(retry.runtime, 'fallback-4')
 await waitFor(() => state.destroyAttempts[3] === 1)
 await new Promise((resolve) => setTimeout(resolve, 30))
 assert.deepStrictEqual(state.destroyAttempts, { 1: 1, 3: 1 })
-assert.strictEqual(ownedBeforeExitListeners().length, 1)
+assert.strictEqual(process.rawListeners('beforeExit').length, 0)
 
-await runOwnedBeforeExitPass()
+assert.strictEqual(load('retry'), retry)
 await waitFor(() => state.destroyed.includes(3))
 assert.deepStrictEqual(state.destroyAttempts, { 1: 1, 3: 2 })
-assert.strictEqual(ownedBeforeExitListeners().length, 0)
+assert.strictEqual(process.rawListeners('beforeExit').length, 0)
 process.stdout.write('fallback-cleanup-ok\\n')
 }
 
@@ -4013,15 +2766,6 @@ export async function instantiateNapiModule(module, options) {
         `export function createContext(options) {
   const state = globalThis.__napiDeferredTestState
   state.contextOptions.push(options)
-  // @emnapi/runtime 1.11.x ignores autoDestroy and installs this anonymous
-  // listener. The generated loader must replace it with owned cleanup.
-  if (
-    typeof process === 'object' &&
-    process !== null &&
-    typeof process.once === 'function'
-  ) {
-    process.once('beforeExit', () => {})
-  }
   if (state.contextError) {
     throw state.contextError
   }
@@ -4574,95 +3318,6 @@ export async function instantiateNapiModule(module, options) {
   },
 )
 
-test.serial(
-  'deferred WASI binding owns lifecycle with the installed emnapi runtime',
-  async (t) => {
-    const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
-    const tmpDir = await mkdtemp(
-      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-emnapi-'),
-    )
-    const initialBeforeExitListeners = new Set(
-      process.rawListeners('beforeExit'),
-    )
-
-    try {
-      const runtimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@napi-rs',
-        'wasm-runtime',
-      )
-      const emnapiRuntimeDir = join(
-        tmpDir,
-        'node_modules',
-        '@emnapi',
-        'runtime',
-      )
-      await mkdir(runtimeDir, { recursive: true })
-      await mkdir(emnapiRuntimeDir, { recursive: true })
-      await writeFile(
-        join(runtimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@napi-rs/wasm-runtime',
-          type: 'module',
-          exports: './index.js',
-        }),
-      )
-      await writeFile(
-        join(runtimeDir, 'index.js'),
-        `export class WASI {}
-export async function instantiateNapiModule(module) {
-  if (!(module instanceof WebAssembly.Module)) {
-    throw new TypeError('Invalid wasm module')
-  }
-  return { napiModule: { exports: {} } }
-}
-`,
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'package.json'),
-        JSON.stringify({
-          name: '@emnapi/runtime',
-          type: 'module',
-          exports: './index.js',
-        }),
-      )
-      await writeFile(
-        join(emnapiRuntimeDir, 'index.js'),
-        `export { createContext } from ${JSON.stringify(import.meta.resolve('@emnapi/runtime'))}
-`,
-      )
-
-      const loaderPath = join(tmpDir, 'deferred.mjs')
-      await writeFile(loaderPath, src)
-      const { createInstance } = await import(pathToFileURL(loaderPath).href)
-      const module = new WebAssembly.Module(
-        new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
-      )
-      const countOwnedBeforeExitListeners = () =>
-        process
-          .rawListeners('beforeExit')
-          .filter((listener) => !initialBeforeExitListeners.has(listener))
-          .length
-      const instances = await Promise.all(
-        Array.from({ length: 20 }, () => createInstance(module)),
-      )
-      t.is(countOwnedBeforeExitListeners(), 0)
-      for (const instance of instances) {
-        instance.dispose()
-      }
-      t.is(countOwnedBeforeExitListeners(), 0)
-    } finally {
-      for (const listener of process.rawListeners('beforeExit')) {
-        if (!initialBeforeExitListeners.has(listener)) {
-          process.removeListener('beforeExit', listener)
-        }
-      }
-      await rm(tmpDir, { recursive: true, force: true })
-    }
-  },
-)
-
 test('createWasiBrowserWorkerBinding default', (t) => {
   t.snapshot(createWasiBrowserWorkerBinding(false, false))
 })
@@ -4800,22 +3455,6 @@ module.exports = __napiModule.exports
           return { Worker }
         case '@napi-rs/wasm-runtime':
           return {
-            createContext(options: { autoDestroy?: boolean }) {
-              t.false(options.autoDestroy)
-              const id = ++contextCount
-              processMock.once('beforeExit', function emnapiAutoDestroy() {
-                cleanupEvents.push(`auto-destroy:${id}`)
-              })
-              const context = {
-                suppressDestroy() {
-                  cleanupEvents.push(`suppress:${id}`)
-                },
-                destroy() {
-                  cleanupEvents.push(`destroy:${id}`)
-                },
-              }
-              return context
-            },
             createOnMessage: () => () => {},
             instantiateNapiModuleSync(
               _wasm: Uint8Array,
@@ -4853,10 +3492,17 @@ module.exports = __napiModule.exports
           }
         case '@emnapi/runtime':
           return {
-            createContext() {
-              const context = { suppressDestroy() {} }
-              contexts.push(context)
-              return context
+            createContext(options: { autoDestroy?: boolean }) {
+              t.false(options.autoDestroy)
+              const id = ++contextCount
+              return {
+                suppressDestroy() {
+                  cleanupEvents.push(`suppress:${id}`)
+                },
+                destroy() {
+                  cleanupEvents.push(`destroy:${id}`)
+                },
+              }
             },
           }
         default:
@@ -4874,23 +3520,6 @@ module.exports = __napiModule.exports
     )(require, module, processMock, '/fixture', {
       Memory: class {},
     })
-    )(
-      require,
-      module,
-      {
-        cwd: () => '/',
-        env: {},
-        once() {},
-        rawListeners() {
-          return []
-        },
-        removeListener() {},
-      },
-      '/fixture',
-      {
-        Memory: class {},
-      },
-    )
     return module.exports as {
       add: (left: number, right: number) => number
       [wasiDisposeSymbol]: () => Promise<void>
@@ -4937,7 +3566,7 @@ module.exports = __napiModule.exports
     ),
   )
   t.false(browserCode.includes('napi.rs.wasi.context'))
-  t.true(browserCode.includes('__wrapEmnapiContextDestroy(instance)'))
+  t.false(browserCode.includes('__wrapEmnapiContextDestroy(instance)'))
   t.true(browserCode.includes('napi_prepare_wasm_env_cleanup'))
 })
 
@@ -4994,7 +3623,6 @@ module.exports = __napiModule.exports
           return { Worker }
         case '@napi-rs/wasm-runtime':
           return {
-            createContext: () => context,
             createOnMessage: () => () => {},
             instantiateNapiModuleSync(
               _wasm: Uint8Array,
@@ -5025,6 +3653,8 @@ module.exports = __napiModule.exports
               }
             },
           }
+        case '@emnapi/runtime':
+          return { createContext: () => context }
         default:
           throw new Error(`Unexpected require: ${specifier}`)
       }
@@ -5128,18 +3758,6 @@ test.serial(
           return { Worker }
         case '@napi-rs/wasm-runtime':
           return {
-            createContext: () => ({
-              suppressDestroy() {},
-              destroy() {
-                cleanupEvents.push('destroy')
-                return new Promise<void>((resolve) => {
-                  setImmediate(() => {
-                    cleanupEvents.push('destroyed')
-                    resolve()
-                  })
-                })
-              },
-            }),
             createOnMessage: () => () => {},
             instantiateNapiModuleSync(
               _wasm: Uint8Array,
@@ -5162,6 +3780,21 @@ test.serial(
               options.beforeInit({ instance })
               throw initializationError
             },
+          }
+        case '@emnapi/runtime':
+          return {
+            createContext: () => ({
+              suppressDestroy() {},
+              destroy() {
+                cleanupEvents.push('destroy')
+                return new Promise<void>((resolve) => {
+                  setImmediate(() => {
+                    cleanupEvents.push('destroyed')
+                    resolve()
+                  })
+                })
+              },
+            }),
           }
         default:
           throw new Error(`Unexpected require: ${specifier}`)
@@ -5230,20 +3863,6 @@ module.exports = __napiModule.exports
           return { Worker: class {} }
         case '@napi-rs/wasm-runtime':
           return {
-            createContext() {
-              const id = ++contextCount
-              return {
-                suppressDestroy() {},
-                destroy() {
-                  cleanupEvents.push(`destroy:${id}`)
-                  if (id === 1) {
-                    return new Promise<void>((resolve) => {
-                      resolveFirstDestroy = resolve
-                    })
-                  }
-                },
-              }
-            },
             createOnMessage: () => () => {},
             instantiateNapiModuleSync(
               _wasm: Uint8Array,
@@ -5272,6 +3891,23 @@ module.exports = __napiModule.exports
                   exports: {
                     add: (left: number, right: number) => left + right,
                   },
+                },
+              }
+            },
+          }
+        case '@emnapi/runtime':
+          return {
+            createContext() {
+              const id = ++contextCount
+              return {
+                suppressDestroy() {},
+                destroy() {
+                  cleanupEvents.push(`destroy:${id}`)
+                  if (id === 1) {
+                    return new Promise<void>((resolve) => {
+                      resolveFirstDestroy = resolve
+                    })
+                  }
                 },
               }
             },
@@ -5364,12 +4000,6 @@ test('WASI node initialization preserves and aggregates cleanup failures', (t) =
         return { Worker }
       case '@napi-rs/wasm-runtime':
         return {
-          createContext: () => ({
-            suppressDestroy() {},
-            destroy() {
-              throw destroyError
-            },
-          }),
           createOnMessage: () => () => {},
           instantiateNapiModuleSync(
             _wasm: Uint8Array,
@@ -5379,6 +4009,15 @@ test('WASI node initialization preserves and aggregates cleanup failures', (t) =
             options.onCreateWorker()
             throw initializationError
           },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({
+            suppressDestroy() {},
+            destroy() {
+              throw destroyError
+            },
+          }),
         }
       default:
         throw new Error(`Unexpected require: ${specifier}`)
@@ -5432,16 +4071,19 @@ test('WASI node initialization aggregates cleanup failures for frozen primary er
         return { Worker: class {} }
       case '@napi-rs/wasm-runtime':
         return {
+          createOnMessage: () => () => {},
+          instantiateNapiModuleSync() {
+            throw initializationError
+          },
+        }
+      case '@emnapi/runtime':
+        return {
           createContext: () => ({
             suppressDestroy() {},
             destroy() {
               throw cleanupError
             },
           }),
-          createOnMessage: () => () => {},
-          instantiateNapiModuleSync() {
-            throw initializationError
-          },
         }
       default:
         throw new Error(`Unexpected require: ${specifier}`)
@@ -5481,11 +4123,14 @@ test.serial(
         .replace(
           /import \{[\s\S]*?\} from '@napi-rs\/wasm-runtime'/,
           `const {
-  createContext: __emnapiCreateContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
   ${asyncInit ? 'instantiateNapiModule: __emnapiInstantiateNapiModule' : 'instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync'},
   WASI: __WASI,
 } = globalThis.${runtimeKey}`,
+        )
+        .replace(
+          "import { createContext as __emnapiCreateContext } from '@emnapi/runtime'",
+          `const { createContext: __emnapiCreateContext } = globalThis.${runtimeKey}`,
         )
         .replace(
           "const __wasmUrl = new URL('./test.wasm', import.meta.url).href",
@@ -5629,10 +4274,6 @@ test('WASI node workers preserve valid arguments when removing invalid inherited
         return { Worker }
       case '@napi-rs/wasm-runtime':
         return {
-          createContext: () => ({
-            suppressDestroy() {},
-            destroy() {},
-          }),
           createOnMessage: () => () => {},
           instantiateNapiModuleSync(
             _wasm: Uint8Array,
@@ -5652,6 +4293,13 @@ test('WASI node workers preserve valid arguments when removing invalid inherited
               napiModule: { exports: {} },
             }
           },
+        }
+      case '@emnapi/runtime':
+        return {
+          createContext: () => ({
+            suppressDestroy() {},
+            destroy() {},
+          }),
         }
       default:
         throw new Error(`Unexpected require: ${specifier}`)

@@ -7,6 +7,12 @@ the threadless runtime. The historical `wasm32-wasi` and
 package and artifact identity. Configuring more than one alias for the same
 artifact set is an error.
 
+WASI packages use emnapi v2, whose runtime is ESM-only. The generated
+CommonJS entry therefore supports Node.js `^20.19.0`, `^22.13.0`, and
+`>=23.5.0`, where `require()` can load ESM without an experimental warning.
+Browser and workerd entries use ESM directly, but share the same package
+engine contract.
+
 ## Selecting a WASI flavor in Node.js
 
 The root Node.js entry prefers a native addon. When native loading is

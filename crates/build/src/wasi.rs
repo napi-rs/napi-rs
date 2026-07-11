@@ -8,6 +8,14 @@ fn wasi_sysroot_lib_dir(wasi_sdk_path: &Path, wasi_target: &str) -> PathBuf {
     .join(wasi_target)
 }
 
+fn emnapi_link_library(has_threads: bool) -> &'static str {
+  if has_threads {
+    "emnapi-napi-rs-mt"
+  } else {
+    "emnapi"
+  }
+}
+
 pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
@@ -21,22 +29,22 @@ pub fn setup() {
   println!("cargo:rerun-if-env-changed=TARGET");
   println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
   println!("cargo:rustc-link-search={link_dir}");
-  println!(
-    "cargo:rustc-link-lib=static={}",
-    if has_threads {
-      "emnapi-basic-mt"
-    } else {
-      "emnapi-basic"
-    }
+  let emnapi_library = emnapi_link_library(has_threads);
+  let emnapi_archive = Path::new(&link_dir).join(format!("lib{emnapi_library}.a"));
+  assert!(
+    emnapi_archive.is_file(),
+    "emnapi archive for {target} is missing at {}. Install emnapi v2 with support for the {target} archive",
+    emnapi_archive.display()
   );
+  println!("cargo:rustc-link-lib=static={emnapi_library}");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
   println!("cargo:rustc-link-arg=--export=napi_register_wasm_v1");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {
-    println!("cargo:rustc-link-arg=--export=emnapi_async_worker_create");
-    println!("cargo:rustc-link-arg=--export=emnapi_async_worker_init");
+    println!("cargo:rustc-link-arg=--export-if-defined=emnapi_async_worker_create");
+    println!("cargo:rustc-link-arg=--export-if-defined=emnapi_async_worker_init");
   }
   println!("cargo:rustc-link-arg=--export-if-defined=emnapi_thread_crashed");
   println!("cargo:rustc-link-arg=--import-memory");
@@ -133,5 +141,11 @@ mod tests {
       path,
       Path::new("/toolchains/WASI SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads")
     );
+  }
+
+  #[test]
+  fn selects_v2_emnapi_archives_by_threading_model() {
+    assert_eq!(emnapi_link_library(false), "emnapi");
+    assert_eq!(emnapi_link_library(true), "emnapi-napi-rs-mt");
   }
 }
