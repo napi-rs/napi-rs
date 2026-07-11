@@ -18,8 +18,8 @@ assert.ok(
   `unsupported WASI loader suffix: ${loaderSuffix}`,
 )
 
-function packageRoot(specifier) {
-  let current = dirname(require.resolve(specifier))
+function packageRoot(specifier, resolver = require) {
+  let current = dirname(resolver.resolve(specifier))
   while (!existsSync(join(current, 'package.json'))) {
     const parent = dirname(current)
     assert.notEqual(
@@ -32,9 +32,9 @@ function packageRoot(specifier) {
   return current
 }
 
-async function copyPackage(specifier, destination) {
+async function copyPackage(specifier, destination, resolver = require) {
   await mkdir(dirname(destination), { recursive: true })
-  await cp(packageRoot(specifier), destination, { recursive: true })
+  await cp(packageRoot(specifier, resolver), destination, { recursive: true })
 }
 
 async function runIsolatedLifecycle(directory) {
@@ -42,34 +42,63 @@ async function runIsolatedLifecycle(directory) {
   const loaderPath = join(directory, loaderName)
   const isolatedRequire = createRequire(loaderPath)
   const resolvedLoaderPath = isolatedRequire.resolve(loaderPath)
+  const emnapiCoreRequire = createRequire(
+    isolatedRequire.resolve('@emnapi/core'),
+  )
   const emnapiRuntime = isolatedRequire('@emnapi/runtime')
-  const originalCreateContext = emnapiRuntime.createContext
+  const { Context } = emnapiRuntime
+  const originalSuppressDestroy = Context.prototype.suppressDestroy
+  const originalDestroy = Context.prototype.destroy
   const initialBeforeExitListeners = new Set(process.rawListeners('beforeExit'))
   const initialExitListeners = new Set(process.rawListeners('exit'))
+  const contexts = new Set()
   let destroyCalls = 0
+  let suppressDestroyCalls = 0
 
-  assert.equal(isolatedRequire('@emnapi/runtime').version, '1.11.2')
-  assert.equal(isolatedRequire('@emnapi/core').version, '1.11.2')
+  const runtimeVersion = emnapiRuntime.version
+  const coreVersion = isolatedRequire('@emnapi/core').version
+  const wasiThreadsVersion = JSON.parse(
+    await readFile(
+      join(
+        packageRoot('@emnapi/wasi-threads', emnapiCoreRequire),
+        'package.json',
+      ),
+      'utf8',
+    ),
+  ).version
+  assert.match(runtimeVersion, /^2\./)
+  assert.equal(coreVersion, runtimeVersion)
+  assert.match(wasiThreadsVersion, /^2\./)
+
+  Context.prototype.suppressDestroy = function capturedSuppressDestroy(
+    ...suppressArgs
+  ) {
+    contexts.add(this)
+    suppressDestroyCalls += 1
+    return Reflect.apply(originalSuppressDestroy, this, suppressArgs)
+  }
+  Context.prototype.destroy = function capturedDestroy(...destroyArgs) {
+    if (contexts.has(this)) {
+      destroyCalls += 1
+    }
+    return Reflect.apply(originalDestroy, this, destroyArgs)
+  }
+
+  function restoreContextPrototype() {
+    Context.prototype.suppressDestroy = originalSuppressDestroy
+    Context.prototype.destroy = originalDestroy
+  }
 
   function load() {
-    const contexts = []
-    emnapiRuntime.createContext = function captureContext(...args) {
-      const context = Reflect.apply(originalCreateContext, this, args)
-      const originalDestroy = context.destroy
-      context.destroy = function capturedDestroy(...destroyArgs) {
-        destroyCalls += 1
-        return Reflect.apply(originalDestroy, this, destroyArgs)
-      }
-      contexts.push(context)
-      return context
-    }
     let binding
     try {
       binding = isolatedRequire(resolvedLoaderPath)
-    } finally {
-      emnapiRuntime.createContext = originalCreateContext
+    } catch (error) {
+      restoreContextPrototype()
+      throw error
     }
-    assert.equal(contexts.length, 1)
+    assert.equal(contexts.size, 1)
+    assert.equal(suppressDestroyCalls, 1)
     return binding
   }
 
@@ -79,12 +108,10 @@ async function runIsolatedLifecycle(directory) {
     join(directory, 'cleanup'),
     join(directory, 'async-cleanup'),
   )
-  assert.equal(
-    process
-      .rawListeners('beforeExit')
-      .filter((listener) => !initialBeforeExitListeners.has(listener)).length,
-    0,
-  )
+  const addedBeforeExitListeners = process
+    .rawListeners('beforeExit')
+    .filter((listener) => !initialBeforeExitListeners.has(listener))
+  assert.equal(addedBeforeExitListeners.length, 0)
   assert.equal(
     process
       .rawListeners('exit')
@@ -105,46 +132,43 @@ async function runIsolatedLifecycle(directory) {
   }
   process.on('beforeExit', resumeWork)
   process.once('exit', () => {
-    assert.equal(completedCycles, 3)
-    assert.equal(destroyCalls, 1)
-    process.stdout.write(`stock emnapi lifecycle passed: ${loaderSuffix}\n`)
+    try {
+      assert.equal(completedCycles, 3)
+      assert.equal(destroyCalls, 1)
+      process.stdout.write(
+        `published emnapi v2 lifecycle passed: ${loaderSuffix}\n`,
+      )
+    } finally {
+      restoreContextPrototype()
+    }
   })
 }
 
 if (childMode) {
   await runIsolatedLifecycle(process.argv[4])
 } else {
-  const directory = await mkdtemp(join(tmpdir(), 'napi-stock-emnapi-'))
+  const directory = await mkdtemp(join(tmpdir(), 'napi-emnapi-v2-'))
   const loaderName = `example.${loaderSuffix}.cjs`
   const wasmFlavor = loaderSuffix === 'wasi' ? 'wasm32-wasi' : 'wasm32-wasip1'
   const wasmName = `example.${wasmFlavor}.wasm`
+  const emnapiCoreRequire = createRequire(require.resolve('@emnapi/core'))
 
   try {
-    assert.notEqual(
-      packageRoot('@emnapi/core-stock'),
-      packageRoot('@emnapi/core'),
-      'stock @emnapi/core must bypass the workspace patch',
-    )
-    assert.notEqual(
-      packageRoot('@emnapi/runtime-stock'),
-      packageRoot('@emnapi/runtime'),
-      'stock @emnapi/runtime must bypass the workspace patch',
-    )
-
     await Promise.all([
       cp(join(exampleDirectory, loaderName), join(directory, loaderName)),
       cp(join(exampleDirectory, wasmName), join(directory, wasmName)),
       copyPackage(
-        '@emnapi/core-stock',
+        '@emnapi/core',
         join(directory, 'node_modules', '@emnapi', 'core'),
       ),
       copyPackage(
-        '@emnapi/runtime-stock',
+        '@emnapi/runtime',
         join(directory, 'node_modules', '@emnapi', 'runtime'),
       ),
       copyPackage(
         '@emnapi/wasi-threads',
         join(directory, 'node_modules', '@emnapi', 'wasi-threads'),
+        emnapiCoreRequire,
       ),
       copyPackage(
         '@napi-rs/wasm-runtime',
@@ -182,10 +206,10 @@ if (childMode) {
     assert.equal(result.error, undefined, result.error?.stack)
     assert.equal(result.signal, null, output)
     assert.equal(result.status, 0, output)
-    assert.match(result.stdout, /stock emnapi lifecycle passed/)
+    assert.match(result.stdout, /published emnapi v2 lifecycle passed/)
+    process.stdout.write(result.stdout)
     assert.equal(await readFile(join(directory, 'cleanup'), 'utf8'), '0')
     assert.equal(await readFile(join(directory, 'async-cleanup'), 'utf8'), '0')
-    process.stdout.write(result.stdout)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

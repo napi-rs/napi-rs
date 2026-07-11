@@ -7,7 +7,6 @@
   "types": "./index.d.ts",
   "scripts": {
     "browser": "vite",
-    "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "build": "node build.mjs",
     "regenerate": "node build.mjs --regenerate-all",
     "test": "ava reset-cache && cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.js",
@@ -32,8 +31,6 @@
     ]
   },
   "devDependencies": {
-    "@emnapi/core-stock": "npm:@emnapi/core@1.11.2",
-    "@emnapi/runtime-stock": "npm:@emnapi/runtime@1.11.2",
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
@@ -77,7 +74,7 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "1.11.2",
-    "@emnapi/runtime": "1.11.2"
+    "@emnapi/core": "2.0.0-alpha.2",
+    "@emnapi/runtime": "2.0.0-alpha.2"
   }
 }

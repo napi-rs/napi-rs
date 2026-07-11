@@ -689,12 +689,12 @@ test('pre-publish preserves root engines for mixed native and WASI targets', asy
 
 test('pre-publish preserves stricter WASI-only root engine ranges', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir, {
-    rootEngines: { node: '>=18', npm: '>=9' },
+    rootEngines: { node: '>=24', npm: '>=9' },
   })
 
   const packageJson = await materializePrePublish(t.context.tmpDir)
 
-  t.deepEqual(packageJson.engines, { node: '>=18', npm: '>=9' })
+  t.deepEqual(packageJson.engines, { node: '>=24', npm: '>=9' })
 })
 
 test('pre-publish requires module type for WASI packages', async (t) => {
