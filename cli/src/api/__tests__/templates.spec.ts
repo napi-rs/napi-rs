@@ -528,6 +528,133 @@ test.serial(
   },
 )
 
+test.serial(
+  'WASI node loader blocks reinitialization until asynchronous rollback completes',
+  async (t) => {
+    const initializationError = new Error('initialization failed')
+    const cleanupEvents: string[] = []
+    let contextCount = 0
+    let instantiateCount = 0
+    let resolveFirstDestroy: (() => void) | undefined
+    const code = `${createWasiBinding('test', '@scope/test')}
+module.exports = __napiModule.exports
+`
+    const require = (specifier: string) => {
+      switch (specifier) {
+        case 'node:fs':
+          return {
+            existsSync: (path: string) => path.endsWith('test.wasm'),
+            readFileSync: () => new Uint8Array(),
+          }
+        case 'node:path':
+          return {
+            join: (...parts: string[]) => parts.join('/'),
+            parse: () => ({ root: '/' }),
+          }
+        case 'node:wasi':
+          return { WASI: class {} }
+        case 'node:worker_threads':
+          return { Worker: class {} }
+        case '@napi-rs/wasm-runtime':
+          return {
+            createContext() {
+              const id = ++contextCount
+              return {
+                suppressDestroy() {},
+                destroy() {
+                  cleanupEvents.push(`destroy:${id}`)
+                  if (id === 1) {
+                    return new Promise<void>((resolve) => {
+                      resolveFirstDestroy = resolve
+                    })
+                  }
+                },
+              }
+            },
+            createOnMessage: () => () => {},
+            instantiateNapiModuleSync(
+              _wasm: Uint8Array,
+              options: {
+                beforeInit(input: {
+                  instance: { exports: Record<string, () => void> }
+                }): void
+              },
+            ) {
+              instantiateCount += 1
+              const instance = {
+                exports: {
+                  napi_prepare_wasm_env_cleanup() {
+                    cleanupEvents.push(`prepare:${contextCount}`)
+                  },
+                },
+              }
+              options.beforeInit({ instance })
+              if (instantiateCount === 1) {
+                throw initializationError
+              }
+              return {
+                instance,
+                module: {},
+                napiModule: {
+                  exports: {
+                    add: (left: number, right: number) => left + right,
+                  },
+                },
+              }
+            },
+          }
+        default:
+          throw new Error(`Unexpected require: ${specifier}`)
+      }
+    }
+    const processMock = Object.assign(new EventEmitter(), {
+      cwd: () => '/',
+      env: {},
+      execArgv: [],
+    })
+    const load = () => {
+      const module: { exports: Record<PropertyKey, unknown> } = { exports: {} }
+      new Function(
+        'require',
+        'module',
+        'process',
+        '__dirname',
+        '__filename',
+        'WebAssembly',
+        code,
+      )(require, module, processMock, '/fixture', '/fixture/test.wasi.cjs', {
+        Memory: class {},
+      })
+      return module.exports as {
+        add(left: number, right: number): number
+        [wasiDisposeSymbol](): Promise<void>
+      }
+    }
+
+    t.is(t.throws(load), initializationError)
+    t.is(t.throws(load), initializationError)
+    t.is(contextCount, 1)
+    t.is(instantiateCount, 1)
+    t.deepEqual(cleanupEvents, ['prepare:1', 'destroy:1'])
+
+    t.truthy(resolveFirstDestroy)
+    resolveFirstDestroy?.()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    const binding = load()
+    t.is(contextCount, 2)
+    t.is(instantiateCount, 2)
+    t.is(binding.add(1, 2), 3)
+    await binding[wasiDisposeSymbol]()
+    t.deepEqual(cleanupEvents, [
+      'prepare:1',
+      'destroy:1',
+      'prepare:2',
+      'destroy:2',
+    ])
+  },
+)
+
 test('WASI node initialization preserves and aggregates cleanup failures', (t) => {
   const initializationError = new Error('initialization failed')
   const destroyError = new Error('destroy failed')

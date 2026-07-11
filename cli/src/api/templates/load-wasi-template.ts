@@ -1,4 +1,5 @@
 const WASI_DISPOSE_SYMBOL = 'napi.rs.wasi.dispose'
+const WASI_ROLLBACK_REGISTRY_SYMBOL = 'napi.rs.wasi.rollback.registry.v1'
 
 const emnapiContextLifecycle = `
 const __wasiDisposeSymbol = Symbol.for('${WASI_DISPOSE_SYMBOL}')
@@ -182,23 +183,33 @@ function __disposeWasiBinding() {
     return Promise.resolve()
   }
 
+  let resolveDispose
+  let rejectDispose
+  const disposePromise = new Promise((resolve, reject) => {
+    resolveDispose = resolve
+    rejectDispose = reject
+  })
+  __wasiDisposePromise = disposePromise
+
   let result
   try {
     result = __startWasiDisposal()
   } catch (error) {
-    result = Promise.reject(error)
+    __wasiDisposePromise = undefined
+    rejectDispose(error)
+    return disposePromise
   }
-  const disposePromise = Promise.resolve(result).then(
+
+  Promise.resolve(result).then(
     (value) => {
       __wasiDisposed = true
-      return value
+      resolveDispose(value)
     },
     (error) => {
       __wasiDisposePromise = undefined
-      throw error
+      rejectDispose(error)
     },
   )
-  __wasiDisposePromise = disposePromise
   return disposePromise
 }
 
@@ -211,43 +222,41 @@ function __publishWasiDispose(exports) {
   })
 }
 
-function __finishWasiInitializationRollback(error, cleanupErrors) {
+function __finishWasiInitializationRollback(cleanupErrors) {
   let workerResult
   try {
     workerResult = __terminateWasiWorkers()
   } catch (cleanupError) {
     cleanupErrors.push(cleanupError)
-    return __attachCleanupErrors(error, cleanupErrors)
+    return cleanupErrors
   }
   if (__isThenable(workerResult)) {
     return Promise.resolve(workerResult)
       .catch((cleanupError) => {
         cleanupErrors.push(cleanupError)
       })
-      .then(() => __attachCleanupErrors(error, cleanupErrors))
+      .then(() => cleanupErrors)
   }
-  return __attachCleanupErrors(error, cleanupErrors)
+  return cleanupErrors
 }
 
-function __rollbackWasiInitialization(error) {
+function __rollbackWasiInitialization() {
   const cleanupErrors = []
   let destroyResult
   try {
     destroyResult = __destroyEmnapiContext()
   } catch (cleanupError) {
     cleanupErrors.push(cleanupError)
-    return __finishWasiInitializationRollback(error, cleanupErrors)
+    return __finishWasiInitializationRollback(cleanupErrors)
   }
   if (__isThenable(destroyResult)) {
     return Promise.resolve(destroyResult)
       .catch((cleanupError) => {
         cleanupErrors.push(cleanupError)
       })
-      .then(() =>
-        __finishWasiInitializationRollback(error, cleanupErrors),
-      )
+      .then(() => __finishWasiInitializationRollback(cleanupErrors))
   }
-  return __finishWasiInitializationRollback(error, cleanupErrors)
+  return __finishWasiInitializationRollback(cleanupErrors)
 }
 `
 
@@ -381,7 +390,8 @@ ${workerErrorHandler}
   }))
   __publishWasiDispose(__napiModule.exports)
 } catch (error) {
-  throw await __rollbackWasiInitialization(error)
+  const cleanupErrors = await __rollbackWasiInitialization()
+  throw __attachCleanupErrors(error, cleanupErrors)
 }
 `
 }
@@ -558,6 +568,93 @@ if (__nodeFs.existsSync(__wasmDebugFilePath)) {
 const __wasmFile = __nodeFs.readFileSync(__wasmFilePath)
 let __emnapiContext
 ${emnapiContextLifecycle}
+const __wasiRollbackRegistrySymbol = Symbol.for('${WASI_ROLLBACK_REGISTRY_SYMBOL}')
+const __wasiRollbackRegistryKey =
+  typeof __filename === 'string' ? __filename : __wasmFilePath
+
+function __getWasiRollbackRegistry() {
+  const existing = process[__wasiRollbackRegistrySymbol]
+  if (existing !== undefined) {
+    if (!(existing instanceof Map)) {
+      throw new TypeError(
+        'The process-wide NAPI-RS WASI rollback registry is invalid',
+      )
+    }
+    return existing
+  }
+  const registry = new Map()
+  Object.defineProperty(process, __wasiRollbackRegistrySymbol, {
+    configurable: false,
+    enumerable: false,
+    value: registry,
+    writable: false,
+  })
+  return registry
+}
+
+const __wasiRollbackRegistry = __getWasiRollbackRegistry()
+
+function __completeWasiInitializationRollback(record, cleanupErrors) {
+  try {
+    if (cleanupErrors.length === 0) {
+      if (
+        __wasiRollbackRegistry.get(__wasiRollbackRegistryKey) === record
+      ) {
+        __wasiRollbackRegistry.delete(__wasiRollbackRegistryKey)
+      }
+      return
+    }
+    record.error = __attachCleanupErrors(record.error, cleanupErrors)
+  } catch (cleanupError) {
+    try {
+      record.error = __createCleanupError(
+        [record.error, cleanupError],
+        'WASI binding initialization and cleanup failed',
+      )
+    } catch {}
+  } finally {
+    record.active = false
+    record.promise = undefined
+  }
+}
+
+function __runWasiInitializationRollback(record) {
+  if (record.active) {
+    return
+  }
+  record.active = true
+
+  let rollbackResult
+  try {
+    rollbackResult = record.rollback()
+  } catch (cleanupError) {
+    __completeWasiInitializationRollback(record, [cleanupError])
+    return
+  }
+
+  if (!__isThenable(rollbackResult)) {
+    __completeWasiInitializationRollback(record, rollbackResult)
+    return
+  }
+
+  record.promise = Promise.resolve(rollbackResult).then(
+    (cleanupErrors) => {
+      __completeWasiInitializationRollback(record, cleanupErrors)
+    },
+    (cleanupError) => {
+      __completeWasiInitializationRollback(record, [cleanupError])
+    },
+  )
+}
+
+const __pendingWasiRollback = __wasiRollbackRegistry.get(
+  __wasiRollbackRegistryKey,
+)
+if (__pendingWasiRollback !== undefined) {
+  __runWasiInitializationRollback(__pendingWasiRollback)
+  throw __pendingWasiRollback.error
+}
+
 let __wasiModule
 let __napiModule
 let __wasiExitListenerRegistered = false
@@ -672,18 +769,14 @@ try {
   __publishWasiDispose(__napiModule.exports)
   __registerWasiExitListener()
 } catch (error) {
-  let rollbackResult
-  try {
-    rollbackResult = __rollbackWasiInitialization(error)
-  } catch (cleanupError) {
-    throw __attachCleanupErrors(error, [cleanupError])
+  const rollback = {
+    active: false,
+    error,
+    promise: undefined,
+    rollback: __rollbackWasiInitialization,
   }
-  if (__isThenable(rollbackResult)) {
-    void Promise.resolve(rollbackResult).catch((cleanupError) => {
-      __attachCleanupErrors(error, [cleanupError])
-    })
-    throw error
-  }
-  throw rollbackResult
+  __wasiRollbackRegistry.set(__wasiRollbackRegistryKey, rollback)
+  __runWasiInitializationRollback(rollback)
+  throw rollback.error
 }
 `
