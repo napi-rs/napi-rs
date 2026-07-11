@@ -7,7 +7,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=23.5.0 || ^22.13.0 || ^20.17.0"
+    "node": ">= 16"
   },
   "bin": {
     "napi": "./dist/cli.js",
