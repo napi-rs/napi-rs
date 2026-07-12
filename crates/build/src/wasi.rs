@@ -1,4 +1,42 @@
-use std::{env, path::Path};
+use std::{
+  env,
+  ffi::OsStr,
+  path::{Path, PathBuf},
+  process::Command,
+};
+
+fn rustc_sysroot(rustc: &OsStr) -> Result<PathBuf, String> {
+  let output = Command::new(rustc)
+    .args(["--print", "sysroot"])
+    .output()
+    .map_err(|err| format!("failed to execute {}: {err}", rustc.to_string_lossy()))?;
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    return Err(format!(
+      "{} --print sysroot exited with {}: {}",
+      rustc.to_string_lossy(),
+      output.status,
+      stderr.trim()
+    ));
+  }
+  let stdout = String::from_utf8(output.stdout)
+    .map_err(|err| format!("rustc returned a non-UTF-8 sysroot: {err}"))?;
+  let sysroot = stdout.trim();
+  if sysroot.is_empty() {
+    return Err("rustc returned an empty sysroot".to_owned());
+  }
+  Ok(PathBuf::from(sysroot))
+}
+
+fn reactor_crt_path(sysroot: &Path, target: &str) -> PathBuf {
+  sysroot
+    .join("lib")
+    .join("rustlib")
+    .join(target)
+    .join("lib")
+    .join("self-contained")
+    .join("crt1-reactor.o")
+}
 
 fn wasi_sysroot_lib_dir(wasi_sdk_path: &Path, wasi_target: &str) -> PathBuf {
   wasi_sdk_path
@@ -9,6 +47,13 @@ fn wasi_sysroot_lib_dir(wasi_sdk_path: &Path, wasi_target: &str) -> PathBuf {
 }
 
 fn emnapi_link_library(has_threads: bool) -> &'static str {
+  // The `napi-rs` archive variants reference `napi_*` symbols through the
+  // default `env` wasm import module, matching the plain `extern "C"`
+  // declarations in `crates/sys` (only `napi_add_env_cleanup_hook` and
+  // `napi_remove_env_cleanup_hook` use the `napi` import module, see
+  // `crates/napi/src/lib.rs`). The plain `libemnapi(-mt).a` archives use the
+  // `napi` import module for every `napi_*` reference and do not link against
+  // the Rust objects.
   if has_threads {
     "emnapi-napi-rs-mt"
   } else {
@@ -39,7 +84,16 @@ pub fn setup() {
   println!("cargo:rustc-link-lib=static={emnapi_library}");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
+  // `@emnapi/core` v2 creates and destroys the native environment through
+  // these archive-defined exports during `napiModule.init()`; without them
+  // loading fails at runtime with `_emnapi_create_env is not a function`.
+  println!("cargo:rustc-link-arg=--export=emnapi_create_env");
+  println!("cargo:rustc-link-arg=--export=emnapi_delete_env");
   println!("cargo:rustc-link-arg=--export=napi_register_wasm_v1");
+  // The minimal async-runtime SPI base does not define
+  // `napi_prepare_wasm_env_cleanup`; keep the export conditional so builds
+  // work both before and after the full lifecycle surface lands.
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_prepare_wasm_env_cleanup");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {
@@ -54,31 +108,6 @@ pub fn setup() {
   // 64000000 bytes = 64MiB
   println!("cargo:rustc-link-arg=-zstack-size=64000000");
   println!("cargo:rustc-link-arg=--no-check-features");
-  let rustc_path = env::var("RUSTC").expect("RUSTC must be set by Cargo");
-  let target = env::var("TARGET").expect("TARGET must be set by Cargo");
-  let crt_reactor_path = Path::new(&rustc_path)
-    .parent()
-    .and_then(|p| p.parent())
-    .map_or_else(
-      || Path::new("").to_path_buf(),
-      |p| {
-        p.join("lib")
-          .join("rustlib")
-          .join(target)
-          .join("lib")
-          .join("self-contained")
-          .join("crt1-reactor.o")
-      },
-    );
-  if crt_reactor_path.exists() {
-    println!("cargo:rustc-link-arg={}", crt_reactor_path.display());
-    println!("cargo:rustc-link-arg=--export=_initialize");
-  } else {
-    println!(
-      "cargo:warning=crt1-reactor.o not found at {}, the multi-threaded runtime may not be initialized correctly",
-      crt_reactor_path.display()
-    );
-  }
 
   let rustc = env::var_os("RUSTC").expect("RUSTC must be set by Cargo");
   let sysroot = rustc_sysroot(&rustc).unwrap_or_else(|error| {
