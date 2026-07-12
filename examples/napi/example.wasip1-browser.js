@@ -1,4 +1,6 @@
 import {
+  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin as __emnapiTSFNPlugin,
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -397,6 +399,7 @@ try {
   } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
     context: __emnapiContext,
     asyncWorkPoolSize: 0,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,
     overwriteImports(importObject) {
       importObject.env = {

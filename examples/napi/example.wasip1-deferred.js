@@ -1,4 +1,6 @@
 import {
+  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin as __emnapiTSFNPlugin,
   instantiateNapiModule as __emnapiInstantiateNapiModule,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -101,6 +103,39 @@ async function __normalizeModuleForEmnapi(__module) {
     'This host cannot normalize a cross-realm WebAssembly.Module; ' +
       'provide structuredClone or MessageChannel support.',
   )
+}
+
+function __captureEmnapiAutoDestroyListener(__process) {
+  if (
+    !__process ||
+    typeof __process.prependListener !== 'function' ||
+    typeof __process.removeListener !== 'function'
+  ) {
+    return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
+  }
+  try {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    __process.prependListener('newListener', __captureListener)
+  } catch {
+    return
+  }
+  return () => {
+    try {
+      __process.removeListener('newListener', __captureListener)
+    } catch {}
+    if (__autoDestroyListener !== undefined) {
+      try {
+        __process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
+  }
 }
 
 function __attachCleanupError(__error, __cleanupError) {
@@ -337,15 +372,25 @@ function __registerManagedEmnapiContext(__process, __destroy) {
 async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
+  const __finishAutoDestroyCapture =
+    __captureEmnapiAutoDestroyListener(__process)
   let __emnapiContext
   let __contextInitializationError
   let __contextInitializationFailed = false
   try {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    // emnapi 2.x still registers an unconditional process.once('beforeExit')
+    // auto-destroy listener on Node hosts, and suppressDestroy() only
+    // neutralizes its callback without removing it. This loader must stay
+    // side-effect free per instance, so the listener is captured and removed;
+    // suppressDestroy() remains the safety net when removal is unavailable.
     __emnapiContext.suppressDestroy()
   } catch (error) {
     __contextInitializationError = error
     __contextInitializationFailed = true
+  } finally {
+    // Remove only the exact emnapi callback captured above.
+    __finishAutoDestroyCapture?.()
   }
   if (__emnapiContext === undefined) {
     throw __contextInitializationError
@@ -555,6 +600,7 @@ async function __createInstance(
       await __emnapiInstantiateNapiModule(__emnapiModule, {
         context: __emnapiContext,
         asyncWorkPoolSize: 0,
+        plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
         wasi: __wasi,
         overwriteImports(importObject) {
           importObject.env = {

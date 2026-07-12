@@ -9,6 +9,8 @@ const __nodePath = require('node:path')
 const { WASI: __nodeWASI } = require('node:wasi')
 
 const {
+  emnapiAsyncWorkPlugin: __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin: __emnapiTSFNPlugin,
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
@@ -431,9 +433,52 @@ function __registerWasiExitListener() {
 
 __completeWasiDisposal = __removeWasiExitListener
 
+function __captureEmnapiAutoDestroyListener() {
+  if (
+    typeof process.prependListener !== 'function' ||
+    typeof process.removeListener !== 'function'
+  ) {
+    return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
+  }
+  try {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    process.prependListener('newListener', __captureListener)
+  } catch {
+    return
+  }
+  return () => {
+    try {
+      process.removeListener('newListener', __captureListener)
+    } catch {}
+    if (__autoDestroyListener !== undefined) {
+      try {
+        process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
+  }
+}
+
 try {
-  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
-  __emnapiContext.suppressDestroy()
+  const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
+  try {
+    __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    // emnapi 2.x still registers an unconditional once-listener for
+    // beforeExit that auto-destroys the context, and suppressDestroy() only
+    // neutralizes its callback without removing it. This loader owns cleanup
+    // through its 'exit' listener, so emnapi's listener is captured and
+    // removed; suppressDestroy() remains the safety net when removal fails.
+    __emnapiContext.suppressDestroy()
+  } finally {
+    // Remove only the exact emnapi callback captured above.
+    __finishAutoDestroyCapture?.()
+  }
 
   ;({
     instance: __napiInstance,
@@ -442,6 +487,7 @@ try {
   } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
     context: __emnapiContext,
     asyncWorkPoolSize: 0,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,
     overwriteImports(importObject) {
       importObject.env = {
