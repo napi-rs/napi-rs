@@ -695,12 +695,25 @@ struct WorkerTlsDropProbe {
   action: Option<WorkerTlsDropAction>,
 }
 
+// LOADER-LOCK RULE for every probe action below: TLS destructors run at
+// thread exit -- on Windows inside `LdrShutdownThread`, which HOLDS the
+// process loader lock while walking TLS callbacks. Any cross-thread wait
+// here (condvar, channel recv, barrier, joining a thread) therefore freezes
+// every other `thread::spawn` and thread-exit in the process -- and, with
+// RUST_BACKTRACE=1, even panic reporting (dbghelp loads DLLs under the same
+// lock). A previous `Wait { entered, release }` action parked the FIRST
+// exiting worker's destructor on a condvar; the SECOND worker then could not
+// even enter its destructor (loader lock), the release condition (both
+// entered) became unsatisfiable, and the whole test suite went silent until
+// the CI step timeout (Windows x64 jobs, runs 29195160953 / 86662331487).
+// Destructor actions may only RECORD (atomic stores, non-blocking sends);
+// ordering invariants are asserted from OUTSIDE, after `shutdown()` returns.
 #[cfg(all(test, not(target_family = "wasm")))]
 enum WorkerTlsDropAction {
-  Wait {
-    entered: std::sync::mpsc::Sender<()>,
-    release: Arc<(Mutex<bool>, Condvar)>,
-  },
+  /// Record-only: bump the shared counter so the harness can assert -- the
+  /// instant `shutdown()` returns -- that every worker TLS destructor had
+  /// already completed (the join barrier includes destructor completion).
+  Record { completed: Arc<AtomicUsize> },
   ReenterLifecycle {
     controller: Arc<RuntimeController>,
     completed: std::sync::mpsc::Sender<(Result<(), String>, Result<(), String>)>,
@@ -715,18 +728,13 @@ impl Drop for WorkerTlsDropProbe {
       .take()
       .expect("worker TLS drop probe action already consumed")
     {
-      WorkerTlsDropAction::Wait { entered, release } => {
-        let _ = entered.send(());
-        let (released, changed) = &*release;
-        let mut released = released
-          .lock()
-          .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while !*released {
-          released = changed
-            .wait(released)
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
+      WorkerTlsDropAction::Record { completed } => {
+        completed.fetch_add(1, Ordering::SeqCst);
       }
+      // Both lifecycle re-entries FAIL FAST from a stopping-generation worker
+      // (short state-mutex acquisitions, no cross-thread wait), and the send
+      // is non-blocking -- loader-lock safe. The owning test additionally
+      // isolates itself in a watchdogged subprocess.
       WorkerTlsDropAction::ReenterLifecycle {
         controller,
         completed,
@@ -23846,6 +23854,22 @@ mod tests {
   #[cfg(not(target_family = "wasm"))]
   #[test]
   fn multi_thread_shutdown_waits_for_worker_tls_destructors() {
+    // Invariant: `shutdown()`'s worker retirement is a JOIN barrier that
+    // includes worker TLS-destructor completion -- `wait_for_all_workers`
+    // joins the OS threads, and an OS thread only becomes joinable after its
+    // TLS destructors ran. Proven by RECORDING (an atomic bump) from each
+    // worker's destructor and sampling the counter on the shutdown thread at
+    // the very instant `shutdown()` returns: a barrier that excluded the
+    // destructors would race that sample and fail loudly.
+    //
+    // The destructor must never do more than record. The previous shape
+    // parked it on a condvar until the harness released it -- on Windows TLS
+    // destructors run under the process loader lock, so the first parked
+    // worker blocked the second from even ENTERING its destructor, the
+    // release condition (both entered) became unsatisfiable, and the parked
+    // destructor froze every thread spawn/exit in the process: the
+    // whole-suite silent CI wedge (see the LOADER-LOCK RULE at
+    // `WorkerTlsDropAction`).
     use std::sync::mpsc;
 
     let controller = Arc::new(multi_thread_controller("lifecycle-worker-tls", 2, 1));
@@ -23854,15 +23878,13 @@ mod tests {
       panic!("configured MultiThread backend must create a Rayon executor");
     };
     let worker_count = executor.pool.current_num_threads();
-    let (entered_tx, entered_rx) = mpsc::channel();
-    let release = Arc::new((Mutex::new(false), Condvar::new()));
-    let probe_release = Arc::clone(&release);
+    let completed = Arc::new(AtomicUsize::new(0));
+    let probe_completed = Arc::clone(&completed);
     executor.pool.broadcast(move |_| {
       WORKER_TLS_DROP_PROBE.with(|slot| {
         let previous = slot.borrow_mut().replace(WorkerTlsDropProbe {
-          action: Some(WorkerTlsDropAction::Wait {
-            entered: entered_tx.clone(),
-            release: Arc::clone(&probe_release),
+          action: Some(WorkerTlsDropAction::Record {
+            completed: Arc::clone(&probe_completed),
           }),
         });
         assert!(
@@ -23873,37 +23895,36 @@ mod tests {
     });
     drop(backend);
 
+    assert_eq!(
+      completed.load(Ordering::SeqCst),
+      0,
+      "no worker TLS destructor may run before shutdown retires the workers"
+    );
+
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
     let shutdown_controller = Arc::clone(&controller);
+    let sample_completed = Arc::clone(&completed);
     let shutdown = std::thread::spawn(move || {
-      shutdown_tx.send(shutdown_controller.shutdown()).unwrap();
+      let result = shutdown_controller.shutdown();
+      // Sample on the SAME thread, before any further synchronization could
+      // mask a barrier gap: at this instant every destructor must already
+      // have recorded itself.
+      let seen_at_return = sample_completed.load(Ordering::SeqCst);
+      shutdown_tx.send((result, seen_at_return)).unwrap();
     });
-    for _ in 0..worker_count {
-      entered_rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("every worker TLS destructor must begin during physical retirement");
-    }
-    let early_shutdown = shutdown_rx.recv_timeout(Duration::from_millis(200)).ok();
-    let shutdown_returned_early = early_shutdown.is_some();
-
-    {
-      let (released, changed) = &*release;
-      *released
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
-      changed.notify_all();
-    }
-    let shutdown_result = early_shutdown.unwrap_or_else(|| {
-      shutdown_rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("shutdown must finish after worker TLS destructors return")
-    });
+    let (shutdown_result, seen_at_return) = shutdown_rx
+      .recv_timeout(Duration::from_secs(10))
+      .expect("shutdown must finish once worker TLS destructors have run");
     shutdown_result.unwrap();
-    shutdown.join().unwrap();
-
-    assert!(
-      !shutdown_returned_early,
-      "shutdown must not publish Stopped while worker TLS destructors are still running"
+    assert_eq!(
+      seen_at_return, worker_count,
+      "every worker TLS destructor must have completed before shutdown() returned: \
+       the worker-join barrier must include TLS-destructor completion"
+    );
+    join_within(
+      "the shutdown thread exits after teardown",
+      shutdown,
+      Duration::from_secs(30),
     );
   }
 
@@ -26412,6 +26433,11 @@ mod tests {
         });
         executor.block_on(future.as_mut());
       }
+      // Clear the hook slot BEFORE any assert can panic: a hook left
+      // installed captures an executor Arc, and dropping the last executor
+      // Arc from a TLS destructor at thread exit is loader-lock hostile on
+      // Windows (see the LOADER-LOCK RULE at `WorkerTlsDropAction`).
+      DEADLINE_EXPIRY_TEST_HOOK.with(|slot| drop(slot.borrow_mut().take()));
       assert_eq!(
         output,
         Some(5),
@@ -28842,6 +28868,12 @@ mod tests {
         });
         executor.block_on(future.as_mut());
       }
+      // Clear the hook slot BEFORE any assert can panic: this hook captures
+      // an executor Arc and THIS executor's timekeeper is live (a timer was
+      // polled), so a leftover hook dropped by a TLS destructor would join
+      // the timekeeper under the Windows loader lock (see the LOADER-LOCK
+      // RULE at `WorkerTlsDropAction`).
+      DEADLINE_VERDICT_TEST_HOOK.with(|slot| drop(slot.borrow_mut().take()));
       assert_eq!(
         output,
         Some(23),
