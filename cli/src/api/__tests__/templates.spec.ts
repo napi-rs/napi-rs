@@ -823,7 +823,11 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('asyncWorkPoolSize: 0'))
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
   t.true(src.includes('__emnapiContext.suppressDestroy()'))
-  t.false(src.includes('__captureEmnapiAutoDestroyListener'))
+  // emnapi 2.x still registers an unconditional process.once('beforeExit')
+  // auto-destroy listener on Node hosts, so each context creation must
+  // capture and remove it: the loader may not leave process-level listeners.
+  t.true(src.includes('__captureEmnapiAutoDestroyListener(__process)'))
+  t.true(src.includes('__finishAutoDestroyCapture?.()'))
   t.true(src.includes('__managedEmnapiContextDestroyers'))
   t.true(src.includes('napi_prepare_wasm_env_cleanup'))
   const prepareCleanupOffset = src.indexOf('__prepareEnvCleanup?.()')
@@ -914,6 +918,8 @@ test.serial(
       await writeFile(
         join(runtimeDir, 'index.js'),
         `export class WASI {}
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule(module, options) {
   if (!(module instanceof WebAssembly.Module)) {
     throw new TypeError('Invalid wasm module')
@@ -1227,6 +1233,10 @@ for (const { name, asyncInit, threadMode, threads } of [
         await writeFile(
           join(runtimeDir, 'index.js'),
           `export class WASI {}
+
+export function emnapiAsyncWorkPlugin() {}
+
+export function emnapiTSFNPlugin() {}
 
 export function createOnMessage() {
   return () => {}
@@ -1576,6 +1586,8 @@ test.serial(
       await writeFile(
         join(runtimeDir, 'index.js'),
         `export class WASI {}
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule() {
   globalThis.__napiDeferredBufferState.instantiations += 1
   return { napiModule: { exports: {} } }
@@ -1798,6 +1810,8 @@ test.serial(
       await writeFile(
         join(runtimeDir, 'index.js'),
         `export class WASI {}
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule() {
   const state = globalThis.__napiDeferredRaceState
   state.initializationStarted = true
@@ -1932,6 +1946,8 @@ test.serial(
       await writeFile(
         join(runtimeDir, 'index.js'),
         `export class WASI {}
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule() {
   const state = globalThis.__napiDeferredFailureState
   state.initializationStarted = true
@@ -2102,6 +2118,8 @@ test.serial(
       await writeFile(
         join(runtimeDir, 'index.js'),
         `export class WASI {}
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule() {
   const state = globalThis.__napiRegistrationRetryState
   if (state.initializeSuccessfully) {
@@ -2722,6 +2740,8 @@ test.serial(
     this.options = options
   }
 }
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule(module, options) {
   const state = globalThis.__napiDeferredTestState
   if (!(module instanceof WebAssembly.Module)) {

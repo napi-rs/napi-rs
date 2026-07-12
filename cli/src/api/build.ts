@@ -1421,6 +1421,7 @@ class Builder {
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
     const emnapiVersion = require('emnapi/package.json').version
+    // Keep this in sync with `emnapi_link_library` in `crates/build/src/wasi.rs`.
     const emnapiArchive = join(
       emnapi,
       hasThreads ? 'libemnapi-napi-rs-mt.a' : 'libemnapi.a',

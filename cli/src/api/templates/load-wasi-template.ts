@@ -329,6 +329,16 @@ const __wasi = new __WASI({
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
   const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
 `
+  // Single-threaded builds link an emnapi archive without the C async-work
+  // and threadsafe-function implementations (unconditional
+  // `napi_generic_failure` stubs without threads), so the JavaScript
+  // implementations must be provided through the emnapi plugins.
+  const emnapiPluginImport = threads
+    ? ''
+    : `  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin as __emnapiTSFNPlugin,\n`
+  const emnapiPluginOption = threads
+    ? ''
+    : `    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],\n`
   const workerOption = threads
     ? `    onCreateWorker() {
       const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
@@ -345,6 +355,7 @@ ${workerErrorHandler}
   return `import {
   createOnMessage as __wasmCreateOnMessageForFsProxy,
   getDefaultContext as __emnapiGetDefaultContext,
+${emnapiPluginImport}\
 ${workerRuntimeImport}\
   ${emnapiInstantiateImport},
   WASI as __WASI,
@@ -405,6 +416,7 @@ try {
   } = ${emnapiInstantiateCall}(__wasmFile, {
     context: __emnapiContext,
 ${asyncWorkPoolOption}\
+${emnapiPluginOption}\
     wasi: __wasi,
 ${workerOption}\
   overwriteImports(importObject) {
@@ -469,6 +481,8 @@ export const createWasiDeferredBrowserBinding = (
     ? '    __emnapiContext.features.Buffer = Buffer\n'
     : ''
   return `import {
+  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin as __emnapiTSFNPlugin,
   instantiateNapiModule as __emnapiInstantiateNapiModule,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -571,6 +585,39 @@ async function __normalizeModuleForEmnapi(__module) {
     'This host cannot normalize a cross-realm WebAssembly.Module; ' +
       'provide structuredClone or MessageChannel support.',
   )
+}
+
+function __captureEmnapiAutoDestroyListener(__process) {
+  if (
+    !__process ||
+    typeof __process.prependListener !== 'function' ||
+    typeof __process.removeListener !== 'function'
+  ) {
+    return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
+  }
+  try {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    __process.prependListener('newListener', __captureListener)
+  } catch {
+    return
+  }
+  return () => {
+    try {
+      __process.removeListener('newListener', __captureListener)
+    } catch {}
+    if (__autoDestroyListener !== undefined) {
+      try {
+        __process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
+  }
 }
 
 function __attachCleanupError(__error, __cleanupError) {
@@ -807,15 +854,25 @@ function __registerManagedEmnapiContext(__process, __destroy) {
 async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
+  const __finishAutoDestroyCapture =
+    __captureEmnapiAutoDestroyListener(__process)
   let __emnapiContext
   let __contextInitializationError
   let __contextInitializationFailed = false
   try {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    // emnapi 2.x still registers an unconditional process.once('beforeExit')
+    // auto-destroy listener on Node hosts, and suppressDestroy() only
+    // neutralizes its callback without removing it. This loader must stay
+    // side-effect free per instance, so the listener is captured and removed;
+    // suppressDestroy() remains the safety net when removal is unavailable.
     __emnapiContext.suppressDestroy()
   } catch (error) {
     __contextInitializationError = error
     __contextInitializationFailed = true
+  } finally {
+    // Remove only the exact emnapi callback captured above.
+    __finishAutoDestroyCapture?.()
   }
   if (__emnapiContext === undefined) {
     throw __contextInitializationError
@@ -1027,6 +1084,7 @@ ${emnapiInjectBuffer}\
     } = await __emnapiInstantiateNapiModule(__emnapiModule, {
       context: __emnapiContext,
       asyncWorkPoolSize: 0,
+      plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
       wasi: __wasi,
       overwriteImports(importObject) {
         importObject.env = {
@@ -1425,7 +1483,15 @@ function __createWasiWorker(filename) {
     reuseWorker: true,
 `
     : `    asyncWorkPoolSize: 0,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
 `
+  // Single-threaded builds link an emnapi archive without the C async-work
+  // and threadsafe-function implementations (unconditional
+  // `napi_generic_failure` stubs without threads), so the JavaScript
+  // implementations must be provided through the emnapi plugins.
+  const emnapiPluginRequire = threads
+    ? ''
+    : `  emnapiAsyncWorkPlugin: __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin: __emnapiTSFNPlugin,\n`
   const workerOption = threads
     ? `    onCreateWorker() {
       const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
@@ -1479,6 +1545,7 @@ const {
 ${workerImports}\
 
 const {
+${emnapiPluginRequire}\
 ${workerRuntimeImport}\
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
@@ -2159,9 +2226,52 @@ function __registerWasiExitListener() {
 
 __completeWasiDisposal = __removeWasiExitListener
 
+function __captureEmnapiAutoDestroyListener() {
+  if (
+    typeof process.prependListener !== 'function' ||
+    typeof process.removeListener !== 'function'
+  ) {
+    return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
+  }
+  try {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    process.prependListener('newListener', __captureListener)
+  } catch {
+    return
+  }
+  return () => {
+    try {
+      process.removeListener('newListener', __captureListener)
+    } catch {}
+    if (__autoDestroyListener !== undefined) {
+      try {
+        process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
+  }
+}
+
 try {
-  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
-  __emnapiContext.suppressDestroy()
+  const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
+  try {
+    __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    // emnapi 2.x still registers an unconditional once-listener for
+    // beforeExit that auto-destroys the context, and suppressDestroy() only
+    // neutralizes its callback without removing it. This loader owns cleanup
+    // through its 'exit' listener, so emnapi's listener is captured and
+    // removed; suppressDestroy() remains the safety net when removal fails.
+    __emnapiContext.suppressDestroy()
+  } finally {
+    // Remove only the exact emnapi callback captured above.
+    __finishAutoDestroyCapture?.()
+  }
 
   ;({
     instance: __napiInstance,

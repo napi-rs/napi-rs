@@ -812,6 +812,8 @@ test.serial(
       await writeFile(
         join(wasmRuntimeDir, 'index.js'),
         `export class WASI {}
+export function emnapiAsyncWorkPlugin() {}
+export function emnapiTSFNPlugin() {}
 export async function instantiateNapiModule(module) {
   if (!(module instanceof WebAssembly.Module)) {
     throw new TypeError('Invalid wasm module')
