@@ -963,6 +963,40 @@ jobs:
       - name: Test examples/napi threadless public surfaces
         run: yarn workspace @examples/napi test:wasi-public-surfaces
 
+  # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
+  # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`
+  # JavaScript hosts. Browser and workerd lanes are intentionally out of
+  # scope here; the custom-async-runtime jobs cover those loader flavors.
+  test-shared-async-runtime-wasi:
+    runs-on: ubuntu-latest
+    name: Test shared async runtime on wasm32-wasip1
+    timeout-minutes: 10
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      # TEMPORARY until emnapi publishes complete wasip1 archives, see
+      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
+      - name: Install vendored emnapi archives
+        run: node vendor/emnapi/install.mjs
+      - name: Build
+        run: |
+          yarn workspace @napi-rs/wasm-runtime build
+          yarn workspace @examples/shared-async-runtime build:wasi
+      - name: Test
+        run: yarn workspace @examples/shared-async-runtime test:wasi
+
   test-node-wasi:
     runs-on: ubuntu-latest
     name: Test node wasi target
@@ -1097,6 +1131,7 @@ jobs:
       - test-freebsd
       - napi-async-runtime
       - test-custom-async-runtime-wasi
+      - test-shared-async-runtime-wasi
       - test-node-wasi
       - test-latest-bun
     steps:
