@@ -92,22 +92,22 @@
       ]
     },
     "wasm32-wasip1-threads/libemnapi-napi-rs-mt.a": {
-      "integrity": "sha512-kJjnts/LYfWWSHpT4UKcp9gbCnrBFXZ8H9DhuG249Q6rw503Puij1XVS+4OixKTAoxSczZX+oABgx3+dy5+KLA==",
+      "integrity": "sha512-osHdwKmuitC341iFpxcJX5/Wu1uJ7E0BXpfvIFIZ2/tdUQa2BZh92HkiC74Av09LBg8cCRdoaicL8S7/9t6Y/g==",
       "members": [
         "js_native_api.c.obj",
         "node_api.c.obj",
         "async_cleanup_hook.c.obj",
         "async_context.c.obj",
         "wasi_wait.c.obj",
-        "async_work.c.obj",
-        "threadsafe_function.c.obj",
         "uv-common.c.obj",
         "threadpool.c.obj",
         "loop.c.obj",
         "posix-hrtime.c.obj",
         "thread.c.obj",
         "async.c.obj",
-        "core.c.obj"
+        "core.c.obj",
+        "async_worker_create.c.obj",
+        "async_worker_init.S.obj"
       ]
     }
   }

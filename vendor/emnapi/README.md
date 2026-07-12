@@ -21,19 +21,36 @@ entries together with this directory.
 ## What is vendored
 
 Two static archives, built from the C sources shipped **inside the published
-npm package itself** (`node_modules/emnapi/src`, source list of the `emnapi`
-target in `node_modules/emnapi/emnapi.gyp`) via `vendor/emnapi/build.mjs`:
+npm package itself** (`node_modules/emnapi/src`, source list of the
+`emnapi_basic` target in `node_modules/emnapi/emnapi.gyp`) via
+`vendor/emnapi/build.mjs`:
 
 | Archive                                        | Why                                                                    |
 | ---------------------------------------------- | ---------------------------------------------------------------------- |
 | `wasm32-wasip1/libemnapi.a`                    | Missing from the published package (non-threaded WASI is unsupported). |
 | `wasm32-wasip1-threads/libemnapi-napi-rs-mt.a` | Published build references the env cleanup hooks via the wrong module. |
 
-The non-threaded archive deliberately omits `async_work.c` and
-`threadsafe_function.c`: without threads their C implementations are
-unconditional `napi_generic_failure` stubs, so the generated loaders provide
-the JavaScript implementations through `@emnapi/core/plugins` instead (the
-emnapi v1 `libemnapi-basic.a` model).
+**Both** archives deliberately omit `async_work.c` and
+`threadsafe_function.c` (the extra sources of the full `emnapi` gyp target),
+so `napi_call_threadsafe_function` & co. stay wasm **imports** that the
+generated loaders resolve with the JavaScript implementations from
+`@emnapi/core/plugins` — the emnapi v1 `libemnapi-basic(-mt).a` model that
+upstream napi-rs `main` links (`emnapi-basic-mt`):
+
+- without threads the C implementations are unconditional
+  `napi_generic_failure` stubs;
+- with threads the linker would extract the C implementations (the Rust side
+  references `napi_create_threadsafe_function` etc.), silently shadowing the
+  `@emnapi/core` v2 threaded TSFN protocol (`plugins/threadsafe-function.js`,
+  its `NapiTSFNOffset32` struct layout and tsfn-send worker messaging) that
+  the loaders and the browser TSFN instrumentation
+  (`examples/napi/wasi-worker-browser.mjs`) are written against.
+
+The threaded archive additionally contains
+`src/thread/async_worker_create.c` + `src/thread/async_worker_init.S` (the
+`emnapi_basic` gyp target's `wasm_threads` condition): the bootstrap for the
+async-worker pthreads the JS `asyncWork` plugin spawns, exported by
+`crates/build/src/wasi.rs` via `--export-if-defined`.
 
 `vendor/emnapi/install.mjs` verifies and copies the archives into
 `node_modules/emnapi/lib`. It runs from the repository `postinstall` hook and
@@ -93,17 +110,22 @@ command.
 
 A prerelease > `2.0.0-alpha.2` whose package ships:
 
-1. `lib/wasm32-wasip1/libemnapi.a` — the `emnapi` gyp target compiled with
-   `--target=wasm32-wasip1` (no threads), `napi_*` references through the
-   default `env` import module **except** `napi_add_env_cleanup_hook` and
-   `napi_remove_env_cleanup_hook`, which must use
-   `__attribute__((__import_module__("napi")))`; without `async_work.c` and
-   `threadsafe_function.c` (their non-threads C implementations are
-   `napi_generic_failure` stubs — the JavaScript plugin implementations must
-   be resolvable as imports instead), or alternatively with working
-   single-threaded C implementations.
+1. `lib/wasm32-wasip1/libemnapi.a` — the `emnapi_basic` gyp target compiled
+   with `--target=wasm32-wasip1` (no threads), `napi_*` references through
+   the default `env` import module **except** `napi_add_env_cleanup_hook`
+   and `napi_remove_env_cleanup_hook`, which must use
+   `__attribute__((__import_module__("napi")))`. It must NOT contain
+   `async_work.c` / `threadsafe_function.c` — the JavaScript plugin
+   implementations from `@emnapi/core/plugins` must be resolvable as
+   imports.
 2. `lib/wasm32-wasip1-threads/libemnapi-napi-rs-mt.a` — same convention,
-   compiled with `--target=wasm32-wasip1-threads -pthread`.
+   compiled with `--target=wasm32-wasip1-threads -pthread`, plus the
+   `emnapi_basic` thread sources `src/thread/async_worker_create.c` and
+   `src/thread/async_worker_init.S` (like the published v1
+   `libemnapi-basic-napi-rs-mt.a`). It must also NOT contain `async_work.c`
+   / `threadsafe_function.c`: the C implementations would be extracted by
+   the linker and silently replace the `@emnapi/core` v2 plugin TSFN /
+   async-work protocol the loaders provide.
 
 Then:
 

@@ -745,6 +745,7 @@ const TSFN_MAX_QUEUE_SIZE_OFFSET = 152
   const browserScopeMarker = `let __wasiModule
 let __napiModule`
   const browserWorkerReuseMarker = `    asyncWorkPoolSize: 4,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,`
   const browserImportsMarker = `    overwriteImports(importObject) {
       importObject.env = {`
@@ -771,6 +772,7 @@ ${browserScopeMarker}`,
     browserWorkerReuseMarker,
     `    asyncWorkPoolSize: 4,
     reuseWorker: true,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,`,
   )
   browserSource = browserSource.replace(
