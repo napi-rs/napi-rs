@@ -33,6 +33,8 @@ impl TryToTokens for NapiFn {
 
     let ArgConversions {
       arg_conversions,
+      this_conversions,
+      receiver_conversion,
       args: arg_names,
       refs,
       mut_ref_spans,
@@ -59,6 +61,8 @@ impl TryToTokens for NapiFn {
           #tracing_debug
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
           #(#arg_conversions)*
+          #(#this_conversions)*
+          #receiver_conversion
           let #receiver_ret_name = {
             #receiver(#(#arg_names),*)
           };
@@ -136,6 +140,8 @@ impl TryToTokens for NapiFn {
         );
         let __wrapped_env = napi::bindgen_prelude::Env::from(env);
         #(#arg_conversions)*
+        #(#this_conversions)*
+        #receiver_conversion
         #native_call
       };
 
@@ -272,6 +278,8 @@ impl TryToTokens for NapiFn {
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
           #build_ref_container
           #(#arg_conversions)*
+          #(#this_conversions)*
+          #receiver_conversion
           #native_call
         })
     };
@@ -344,45 +352,52 @@ impl TryToTokens for NapiFn {
 impl NapiFn {
   fn gen_arg_conversions(&self) -> BindgenResult<ArgConversions> {
     let mut arg_conversions = vec![];
+    let mut this_conversions = vec![];
     let mut args = vec![];
     let mut refs = vec![];
     let mut mut_ref_spans = vec![];
+    let mut receiver_conversion = quote! {};
 
     // fetch this
     if let Some(parent) = &self.parent {
       match self.fn_self {
         Some(FnSelf::Ref) => {
           refs.push(make_ref(quote! { cb.this() }));
-          arg_conversions.push(quote! {
+          this_conversions.push(quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
-            let this: &#parent = Box::leak(Box::from_raw(this_ptr));
           });
+          receiver_conversion = quote! {
+            let this: &#parent = Box::leak(Box::from_raw(this_ptr));
+          };
         }
         Some(FnSelf::MutRef) => {
           refs.push(make_ref(quote! { cb.this() }));
-          arg_conversions.push(quote! {
+          this_conversions.push(quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
-            let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
           });
+          receiver_conversion = quote! {
+            let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
+          };
         }
         _ => {}
       };
     }
 
     let mut skipped_arg_count = 0;
-    for (i, arg) in self.args.iter().enumerate() {
-      let i = i - skipped_arg_count;
+    for (rust_arg_index, arg) in self.args.iter().enumerate() {
+      let i = rust_arg_index - skipped_arg_count;
       let ident = Ident::new(&format!("arg{i}"), Span::call_site());
+      let injected_ident = Ident::new(&format!("__napi_arg_{rust_arg_index}"), Span::call_site());
 
       match &arg.kind {
-        NapiFnArgKind::PatType(path) => {
-          if &path.ty.to_token_stream().to_string() == "Env" {
+        NapiFnArgKind::PatType(pat_type) => {
+          if &pat_type.ty.to_token_stream().to_string() == "Env" {
             args.push(quote! { __wrapped_env });
             skipped_arg_count += 1;
           } else {
             let is_in_class = self.parent.is_some();
             // get `f64` in `foo: f64`
-            if let syn::Type::Path(path) = path.ty.as_ref() {
+            if let syn::Type::Path(path) = pat_type.ty.as_ref() {
               // get `Reference` in `napi::bindgen_prelude::Reference`
               if let Some(p) = path.path.segments.last() {
                 if p.ident == "Reference" {
@@ -400,9 +415,11 @@ impl NapiFn {
                     {
                       if let Some(p) = path.path.segments.first() {
                         if p.ident == *self.parent.as_ref().unwrap() {
-                          args.push(quote! {
-                            napi::bindgen_prelude::Reference::from_value_ptr(this_ptr.cast(), env)?
+                          this_conversions.push(quote! {
+                            let #injected_ident =
+                              napi::bindgen_prelude::Reference::<#path>::from_value_ptr(this_ptr.cast(), env)?;
                           });
+                          args.push(quote! { #injected_ident });
                           skipped_arg_count += 1;
                           continue;
                         }
@@ -434,13 +451,11 @@ impl NapiFn {
                               primitive_type
                             );
                           }
-                          args.push(
-                            quote! {
-                              {
-                                <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())?.into()
-                              }
-                            },
-                          );
+                          this_conversions.push(quote! {
+                            let #injected_ident =
+                              <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())?;
+                          });
+                          args.push(quote! { #injected_ident.into() });
                           skipped_arg_count += 1;
                           continue;
                         }
@@ -459,11 +474,14 @@ impl NapiFn {
                             refs.push(make_ref(quote! { cb.this() }));
                             let token = if mutability.is_some() {
                               mut_ref_spans.push(generic_type.span());
-                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this())?.into() }
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this())? }
                             } else {
-                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this())?.into() }
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this())? }
                             };
-                            args.push(token);
+                            this_conversions.push(quote! {
+                              let #injected_ident = #token;
+                            });
+                            args.push(quote! { #injected_ident.into() });
                             skipped_arg_count += 1;
                             continue;
                           }
@@ -472,15 +490,19 @@ impl NapiFn {
                     }
                   }
                   refs.push(make_ref(quote! { cb.this() }));
-                  args.push(quote! { <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())? });
+                  this_conversions.push(quote! {
+                    let #injected_ident =
+                      <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())?;
+                  });
+                  args.push(quote! { #injected_ident });
                   skipped_arg_count += 1;
                   continue;
                 }
               }
             }
-            let (arg_conversion, arg_type) = self.gen_ty_arg_conversion(&ident, i, path)?;
+            let (arg_conversion, arg_type) = self.gen_ty_arg_conversion(&ident, i, pat_type)?;
             if NapiArgType::MutRef == arg_type {
-              mut_ref_spans.push(path.ty.span());
+              mut_ref_spans.push(pat_type.ty.span());
             }
             if arg_type.is_ref() {
               refs.push(make_ref(quote! { cb.get_arg(#i) }));
@@ -503,6 +525,8 @@ impl NapiFn {
 
     Ok(ArgConversions {
       arg_conversions,
+      this_conversions,
+      receiver_conversion,
       args,
       refs,
       mut_ref_spans,
@@ -991,6 +1015,8 @@ fn make_ref(input: TokenStream) -> TokenStream {
 struct ArgConversions {
   pub args: Vec<TokenStream>,
   pub arg_conversions: Vec<TokenStream>,
+  pub this_conversions: Vec<TokenStream>,
+  pub receiver_conversion: TokenStream,
   pub refs: Vec<TokenStream>,
   pub mut_ref_spans: Vec<Span>,
   pub unsafe_: bool,
