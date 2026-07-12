@@ -12,6 +12,7 @@
     "memory-testing",
     "examples/custom-async-runtime",
     "examples/napi",
+    "examples/shared-async-runtime",
     "examples/napi-compat-mode",
     "examples/binary"
   ],
