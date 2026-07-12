@@ -738,6 +738,29 @@ test('mutable receiver is borrowed after reentrant input conversion', (t) => {
     t.truthy(setter)
     setter!.call(target, values)
   })
+
+  let getterRan = false
+  const target = createReentrantBorrowOrderTestTarget(ReentrantBorrowOrderTest)
+  Object.defineProperty(target, '0', {
+    enumerable: true,
+    get() {
+      getterRan = true
+      detachReentrantBorrowOrderTestTarget(target)
+      return 1
+    },
+  })
+
+  let error: unknown
+  try {
+    ReentrantBorrowOrderTest.prototype.replaceValuesFromThis.call(target)
+  } catch (caught) {
+    error = caught
+  } finally {
+    t.is(cleanupReentrantBorrowOrderTestTargets(), 1)
+  }
+
+  t.true(getterRan)
+  t.truthy(error, 'receiver must be unwrapped after injected input conversion')
 })
 
 test('class with js_name', (t) => {

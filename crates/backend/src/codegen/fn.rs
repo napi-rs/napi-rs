@@ -34,6 +34,8 @@ impl TryToTokens for NapiFn {
     let ArgConversions {
       arg_conversions,
       this_conversions,
+      receiver_unwrap,
+      receiver_dependent_conversions,
       receiver_conversion,
       args: arg_names,
       refs,
@@ -62,6 +64,8 @@ impl TryToTokens for NapiFn {
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
           #(#arg_conversions)*
           #(#this_conversions)*
+          #receiver_unwrap
+          #(#receiver_dependent_conversions)*
           #receiver_conversion
           let #receiver_ret_name = {
             #receiver(#(#arg_names),*)
@@ -141,6 +145,8 @@ impl TryToTokens for NapiFn {
         let __wrapped_env = napi::bindgen_prelude::Env::from(env);
         #(#arg_conversions)*
         #(#this_conversions)*
+        #receiver_unwrap
+        #(#receiver_dependent_conversions)*
         #receiver_conversion
         #native_call
       };
@@ -276,9 +282,11 @@ impl TryToTokens for NapiFn {
     let function_call_inner = quote! {
       napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None, #use_after_async).and_then(|#[allow(unused_mut)] mut cb| {
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
-          #build_ref_container
           #(#arg_conversions)*
           #(#this_conversions)*
+          #receiver_unwrap
+          #(#receiver_dependent_conversions)*
+          #build_ref_container
           #receiver_conversion
           #native_call
         })
@@ -353,28 +361,29 @@ impl NapiFn {
   fn gen_arg_conversions(&self) -> BindgenResult<ArgConversions> {
     let mut arg_conversions = vec![];
     let mut this_conversions = vec![];
+    let mut receiver_unwrap = quote! {};
+    let mut receiver_dependent_conversions = vec![];
     let mut args = vec![];
     let mut refs = vec![];
     let mut mut_ref_spans = vec![];
     let mut receiver_conversion = quote! {};
-
     // fetch this
     if let Some(parent) = &self.parent {
       match self.fn_self {
         Some(FnSelf::Ref) => {
           refs.push(make_ref(quote! { cb.this() }));
-          this_conversions.push(quote! {
+          receiver_unwrap = quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
-          });
+          };
           receiver_conversion = quote! {
             let this: &#parent = Box::leak(Box::from_raw(this_ptr));
           };
         }
         Some(FnSelf::MutRef) => {
           refs.push(make_ref(quote! { cb.this() }));
-          this_conversions.push(quote! {
+          receiver_unwrap = quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
-          });
+          };
           receiver_conversion = quote! {
             let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
           };
@@ -415,7 +424,7 @@ impl NapiFn {
                     {
                       if let Some(p) = path.path.segments.first() {
                         if p.ident == *self.parent.as_ref().unwrap() {
-                          this_conversions.push(quote! {
+                          receiver_dependent_conversions.push(quote! {
                             let #injected_ident =
                               napi::bindgen_prelude::Reference::<#path>::from_value_ptr(this_ptr.cast(), env)?;
                           });
@@ -526,6 +535,8 @@ impl NapiFn {
     Ok(ArgConversions {
       arg_conversions,
       this_conversions,
+      receiver_unwrap,
+      receiver_dependent_conversions,
       receiver_conversion,
       args,
       refs,
@@ -1016,6 +1027,8 @@ struct ArgConversions {
   pub args: Vec<TokenStream>,
   pub arg_conversions: Vec<TokenStream>,
   pub this_conversions: Vec<TokenStream>,
+  pub receiver_unwrap: TokenStream,
+  pub receiver_dependent_conversions: Vec<TokenStream>,
   pub receiver_conversion: TokenStream,
   pub refs: Vec<TokenStream>,
   pub mut_ref_spans: Vec<Span>,

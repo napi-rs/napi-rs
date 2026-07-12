@@ -3,7 +3,7 @@ use std::{cell::RefCell, ffi::c_void, ptr};
 use napi::{
   bindgen_prelude::{
     Buffer, ClassInstance, FromNapiValue, Function, JavaScriptClassExt, JsObjectValue, JsValue,
-    Object, ObjectFinalize, This, Uint8Array, Unknown,
+    Object, ObjectFinalize, This, TypeName, Uint8Array, Unknown, ValidateNapiValue, ValueType,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -590,6 +590,30 @@ thread_local! {
     const { RefCell::new(Vec::new()) };
 }
 
+pub struct ReentrantThisValue(u32);
+
+impl TypeName for ReentrantThisValue {
+  fn type_name() -> &'static str {
+    "Object"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for ReentrantThisValue {}
+
+impl FromNapiValue for ReentrantThisValue {
+  unsafe fn from_napi_value(
+    env: napi::sys::napi_env,
+    napi_val: napi::sys::napi_value,
+  ) -> Result<Self> {
+    let object = unsafe { Object::from_napi_value(env, napi_val)? };
+    Ok(Self(object.get_element(0)?))
+  }
+}
+
 /// Regression fixture for issue #3378. `Vec` conversion reads JavaScript array
 /// elements, so an indexed getter can synchronously reenter before conversion
 /// has finished.
@@ -609,6 +633,11 @@ impl ReentrantBorrowOrderTest {
   pub fn replace_values(&mut self, values: Vec<u32>) {
     self.values = values;
   }
+
+  #[napi]
+  pub fn replace_values_from_this(&mut self, value: This<ReentrantThisValue>) {
+    self.values = vec![value.object.0];
+  }
 }
 
 /// Create a class-branded object whose wrap can be removed without touching
@@ -616,7 +645,7 @@ impl ReentrantBorrowOrderTest {
 #[napi]
 pub fn create_reentrant_borrow_order_test_target<'env>(
   env: &'env Env,
-  constructor: Function<'env>,
+  #[napi(ts_arg_type = "new (...args: any[]) => unknown")] constructor: Function<'env>,
 ) -> Result<Object<'env>> {
   // The generated constructor skips its normal native allocation while this
   // flag is set. This gives the fixture a receiver with the class's V8 brand,

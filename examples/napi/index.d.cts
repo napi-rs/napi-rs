@@ -372,6 +372,7 @@ export declare class ReentrantBorrowOrderTest {
   values: Array<number>
   constructor()
   replaceValues(values: Array<number>): void
+  replaceValuesFromThis(this: ReentrantThisValue): void
 }
 
 export declare class Selector {
@@ -716,7 +717,7 @@ export declare function createReadableStreamWithObject(): ReadableStream<StreamI
  * Create a class-branded object whose wrap can be removed without touching
  * the generated class instance's reference/finalizer bookkeeping.
  */
-export declare function createReentrantBorrowOrderTestTarget(constructor: (arg?: unknown) => unknown): object
+export declare function createReentrantBorrowOrderTestTarget(constructor: new (...args: any[]) => unknown): object
 
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
