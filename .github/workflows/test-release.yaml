@@ -849,6 +849,47 @@ jobs:
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn workspace @examples/napi test-js -s
 
+  napi-async-runtime:
+    runs-on: ubuntu-latest
+    name: Test napi-async-runtime shared scheduler (cargo)
+    timeout-minutes: 15
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1,wasm32-wasip1-threads
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: napi-async-runtime-cargo-cache
+      - name: Check napi-async-runtime is tokio-free
+        run: |
+          if cargo tree -p napi-async-runtime -e normal --prefix none | grep -E '^tokio v'; then
+            echo 'tokio leaked into the shared async runtime crate' >&2
+            exit 1
+          fi
+          if cargo tree -p napi-async-runtime --no-default-features -e normal --prefix none | grep -E '^tokio v'; then
+            echo 'tokio leaked into the napi-free scheduler build' >&2
+            exit 1
+          fi
+      - name: Test napi-async-runtime (default features)
+        run: cargo test -p napi-async-runtime
+      - name: Test napi-async-runtime (scheduler only)
+        run: cargo test -p napi-async-runtime --no-default-features
+      - name: Check napi-async-runtime on the WASI targets
+        run: |
+          cargo check -p napi-async-runtime --target wasm32-wasip1
+          cargo check -p napi-async-runtime --target wasm32-wasip1-threads
+          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1
+          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1-threads
+      - name: Test the shared-async-runtime example (native)
+        run: cargo test -p napi-shared-async-runtime-example
+
   test-custom-async-runtime-wasi:
     runs-on: ubuntu-latest
     name: Test custom async runtime on wasm32-wasip1
@@ -1054,6 +1095,7 @@ jobs:
       - build_binary_crate
       - check-all-features
       - test-freebsd
+      - napi-async-runtime
       - test-custom-async-runtime-wasi
       - test-node-wasi
       - test-latest-bun
