@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "./crates/async-runtime",
   "./crates/backend",
   "./crates/build",
   "./crates/macro",
