@@ -273,21 +273,68 @@ test('checked threaded browser artifact rolls workers back after context cleanup
     join(generatedArtifactDirectory, 'example.wasi-browser.js'),
     'utf8',
   )
-  const contextCleanup = source.lastIndexOf('await __destroyEmnapiContext()')
-  const workerCleanup = source.lastIndexOf(
-    'await __terminateWasiInitializationWorkers()',
+  // The loader emits its lifecycle helpers at the top level, so each function
+  // ends at the first unindented closing brace after its declaration.
+  const functionSource = (name: string) => {
+    const start = source.indexOf(`function ${name}(`)
+    t.true(start !== -1, `missing function ${name}`)
+    const end = source.indexOf('\n}', start)
+    t.true(end !== -1, `unterminated function ${name}`)
+    return source.slice(start, end + 2)
+  }
+
+  // Workers created during initialization are tracked for rollback.
+  t.true(source.includes('const __wasiWorkers = new Set()'))
+  t.true(source.includes('__wasiWorkers.add(worker)'))
+
+  // Termination untracks each worker and observes asynchronous terminate().
+  const terminateSource = functionSource('__terminateWasiWorkers')
+  t.true(terminateSource.includes('result = worker.terminate()'))
+  t.true(terminateSource.includes('__wasiWorkers.delete(worker)'))
+
+  // A failed initialization rolls back through the serialized cleanup path.
+  t.true(
+    source.includes(
+      'const cleanupErrors = await __rollbackWasiInitialization()',
+    ),
   )
 
-  t.true(source.includes('const __wasiInitializationWorkers = new Set()'))
-  t.true(source.includes('__wasiInitializationWorkers.add(worker)'))
-  t.true(source.includes('__wasiInitializationWorkers.clear()'))
-  t.true(source.includes('__wasiInitializationWorkers.delete(__worker)'))
-  t.true(source.includes('Promise.resolve(__worker.terminate())'))
+  // Rollback destroys the emnapi context before the worker-termination
+  // continuation runs, and an asynchronous destroy is awaited first.
+  const rollbackSource = functionSource('__rollbackWasiInitialization')
+  const contextCleanup = rollbackSource.indexOf('__destroyEmnapiContext()')
+  const workerCleanup = rollbackSource.indexOf(
+    '__finishWasiInitializationRollback(',
+  )
   t.true(contextCleanup !== -1)
   t.true(workerCleanup !== -1)
   t.true(
     contextCleanup < workerCleanup,
     'context cleanup must quiesce runtime work before worker termination',
+  )
+  t.regex(
+    rollbackSource,
+    /Promise\.resolve\(destroyResult\)\s*\.catch\([\s\S]+?\)\s*\.then\(\(\) => __finishWasiInitializationRollback\(cleanupErrors\)\)/,
+    'asynchronous context destruction must settle before terminating workers',
+  )
+  const finishRollbackSource = functionSource(
+    '__finishWasiInitializationRollback',
+  )
+  t.true(finishRollbackSource.includes('__terminateWasiWorkers()'))
+
+  // Explicit disposal keeps the same ordering: context first, workers second.
+  const startDisposalSource = functionSource('__startWasiDisposal')
+  const disposalContextCleanup = startDisposalSource.indexOf(
+    '__destroyEmnapiContext()',
+  )
+  const disposalWorkerCleanup = startDisposalSource.indexOf(
+    '__finishWasiDisposal',
+  )
+  t.true(disposalContextCleanup !== -1)
+  t.true(disposalWorkerCleanup !== -1)
+  t.true(disposalContextCleanup < disposalWorkerCleanup)
+  t.true(
+    functionSource('__finishWasiDisposal').includes('__terminateWasiWorkers()'),
   )
 })
 
