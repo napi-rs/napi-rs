@@ -29,11 +29,24 @@
 //
 // Usage: WASI_SDK_PATH=/opt/wasi-sdk node vendor/emnapi/build.mjs
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import {
+  collectSourceHashes,
+  hashFile,
+  listArchiveMembers,
+} from './integrity.mjs'
 
 const require = createRequire(import.meta.url)
 const vendorDir = dirname(fileURLToPath(import.meta.url))
@@ -175,3 +188,32 @@ buildArchive({
   threads: true,
   archiveName: 'libemnapi-napi-rs-mt.a',
 })
+
+// Record the provenance manifest: hashes of every npm-shipped file that can
+// influence the archives, plus hashes and member lists of the archives
+// themselves. `install.mjs` re-verifies all of it before every use.
+const wasiSdkVersionFile = join(wasiSdkPath, 'VERSION')
+const manifest = {
+  emnapiVersion,
+  wasiSdk: existsSync(wasiSdkVersionFile)
+    ? readFileSync(wasiSdkVersionFile, 'utf8').trim().split('\n')
+    : 'unknown',
+  sources: collectSourceHashes(emnapiRoot),
+  archives: Object.fromEntries(
+    [
+      ['wasm32-wasip1/libemnapi.a', null],
+      ['wasm32-wasip1-threads/libemnapi-napi-rs-mt.a', null],
+    ].map(([archive]) => {
+      const path = join(vendorDir, archive)
+      return [
+        archive,
+        { integrity: hashFile(path), members: listArchiveMembers(path) },
+      ]
+    }),
+  ),
+}
+writeFileSync(
+  join(vendorDir, 'manifest.json'),
+  `${JSON.stringify(manifest, null, 2)}\n`,
+)
+console.info(`Wrote ${join(vendorDir, 'manifest.json')}`)
