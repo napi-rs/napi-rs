@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.3...napi-v3.10.4) - 2026-07-12
+
+### Fixed
+
+- *(cli)* align build and project configuration ([#3387](https://github.com/napi-rs/napi-rs/pull/3387))
+
+### Other
+
+- *(readme)* point sponsors image at napi.rs/sponsors.svg ([#3379](https://github.com/napi-rs/napi-rs/pull/3379))
+
 ## [3.10.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.2...napi-v3.10.3) - 2026-07-04
 
 ### Fixed
