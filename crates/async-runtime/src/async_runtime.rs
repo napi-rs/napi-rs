@@ -26046,9 +26046,19 @@ mod tests {
     // Progress is injected by advancing the very counter the reset reads --
     // the exact seam, isolated from wake delivery (production advances it via
     // real runnable polls).
+    //
+    // Deadline/cadence ratio: the reset is only exercised when at least one
+    // tick lands inside EVERY armed window, so the window must dwarf the
+    // injector thread's worst-case scheduling stall. On starved CI hosts
+    // (GitHub macOS runners: ~3 heavily oversubscribed cores) a 30ms sleep
+    // can overshoot past a 60ms window, leaving one window with zero
+    // progress -- which IS a deadline fire by design. Ticks every ~25ms
+    // against a 1s window tolerate a ~975ms stall while the park is still
+    // held across multiple full windows, so the repeated RE-ARM (not merely
+    // the first arm) is what keeps the park alive.
     use std::sync::mpsc;
 
-    let deadline = Duration::from_millis(60);
+    let deadline = Duration::from_millis(1000);
     let metrics = Arc::new(RuntimeMetrics::default());
     let executor = Arc::new(CurrentThreadExecutor::with_detection(
       Arc::clone(&metrics),
@@ -26070,15 +26080,19 @@ mod tests {
       let _ = done_tx.send(());
     });
 
-    // Hold the park across several full deadline windows, each containing an
-    // injected progress tick, then deliver the (legitimately late) wake.
-    for _ in 0..8 {
-      std::thread::sleep(Duration::from_millis(30));
+    // Hold the park across several full deadline windows, every one
+    // containing many injected progress ticks, then deliver the (legitimately
+    // late) wake. The loop is elapsed-based so an oversleeping iteration
+    // extends the hold (more windows) instead of thinning the tick supply,
+    // and the final tick lands at most one iteration before the wake.
+    let hold_until = Instant::now() + deadline * 5 / 2;
+    while Instant::now() < hold_until {
+      std::thread::sleep(Duration::from_millis(25));
       metrics.runnable_polls.fetch_add(1, Ordering::Relaxed);
     }
     value_tx.send(9).unwrap();
 
-    match done_rx.recv_timeout(Duration::from_secs(10)) {
+    match done_rx.recv_timeout(Duration::from_secs(30)) {
       Ok(()) => runner.join().unwrap(),
       Err(error) => panic!(
         "a CT park with ongoing runtime progress fired its deadline or lost its wake ({error})"
@@ -26151,11 +26165,20 @@ mod tests {
     // cooperative driver (real pool thread, real DriverParker park); the test
     // injects progress ticks across several full deadline windows, then
     // delivers the late wake.
+    //
+    // Deadline/cadence ratio: one tick must land inside EVERY armed window,
+    // so the window must dwarf the injector thread's worst-case scheduling
+    // stall -- on starved CI hosts (GitHub macOS runners: ~3 heavily
+    // oversubscribed cores) a 30ms sleep can overshoot past a 60ms window,
+    // and a full window with zero progress IS a deadline fire by design.
+    // Ticks every ~25ms against a 1s window tolerate a ~975ms stall while
+    // still holding the park across multiple full windows, proving the
+    // repeated RE-ARM rather than a single lucky first window.
     use std::sync::mpsc;
 
     let (done_tx, done_rx) = mpsc::channel();
     let runner = std::thread::spawn(move || {
-      let deadline = Duration::from_millis(60);
+      let deadline = Duration::from_millis(1000);
       let metrics = Arc::new(RuntimeMetrics::default());
       let options = RuntimeOptions {
         flavor: RuntimeFlavor::MultiThread,
@@ -26187,9 +26210,13 @@ mod tests {
       });
 
       // Outlive the armed deadline several times over, with every window
-      // containing an injected progress tick (the counter the reset reads).
-      for _ in 0..8 {
-        std::thread::sleep(Duration::from_millis(30));
+      // containing many injected progress ticks (the counter the reset
+      // reads). Elapsed-based so an oversleeping iteration extends the hold
+      // instead of thinning the tick supply, and the final tick lands at
+      // most one iteration before the late wake below.
+      let hold_until = Instant::now() + deadline * 5 / 2;
+      while Instant::now() < hold_until {
+        std::thread::sleep(Duration::from_millis(25));
         metrics.runnable_polls.fetch_add(1, Ordering::Relaxed);
       }
       assert!(
@@ -26205,7 +26232,7 @@ mod tests {
       let _ = done_tx.send(());
     });
 
-    match done_rx.recv_timeout(Duration::from_secs(15)) {
+    match done_rx.recv_timeout(Duration::from_secs(30)) {
       Ok(()) => runner.join().unwrap(),
       Err(error) => panic!(
         "an MT cooperative park with ongoing executor progress fired its deadline or lost its wake ({error})"
@@ -29714,7 +29741,13 @@ mod tests {
     let starved = ManualStubDriver::new();
     registry.register(Arc::clone(&starved) as Arc<dyn TimerDriver>);
 
-    let deadline = Instant::now() + Duration::from_millis(60);
+    // The whole pre-fire phase (four polls plus a registration-thread round
+    // trip) must finish while the wall clock is still BEFORE this shared
+    // deadline: a past-due `Sleep` completes inline at poll
+    // (`Instant::now() >= deadline`) and bypasses the repoll machinery under
+    // test. 2s dwarfs the phase's worst observed CI overhead (tens of ms on
+    // a starved GitHub macOS runner) without dragging the fire wait out.
+    let deadline = Instant::now() + Duration::from_secs(2);
     let mut first = make_sleep(&backend, &registry, deadline);
     let mut second = make_sleep(&backend, &registry, deadline);
     let first_wake = Arc::new(ReentrantTimerRegistrationWake {
@@ -29752,8 +29785,11 @@ mod tests {
       let id = registration_registry.register(registration_driver as Arc<dyn TimerDriver>);
       registered_tx.send(id).unwrap();
     });
+    // Hang detector only (the regression it pins is a PERMANENT deadlock:
+    // `register` re-entering the repoll callback), so the bound is generous
+    // rather than a latency assertion a starved runner could trip.
     registered_rx
-      .recv_timeout(Duration::from_secs(1))
+      .recv_timeout(Duration::from_secs(10))
       .expect("late driver registration or repoll callback re-entry deadlocked");
     registration.join().unwrap();
 
@@ -29766,6 +29802,15 @@ mod tests {
       "registration requests bounded re-polls instead of invoking driver callbacks inline"
     );
 
+    // Both sleeps must still be PENDING when they re-arm on the late driver;
+    // see the deadline-margin note above. Fail with a diagnosis instead of a
+    // misleading Pending-assert failure if a pathological stall consumed the
+    // whole margin anyway.
+    assert!(
+      Instant::now() < deadline,
+      "test overhead consumed the entire pre-fire deadline margin before the repoll phase; \
+       this runner is starved beyond the margin this test budgets for"
+    );
     assert!(Pin::new(&mut first).poll(&mut first_cx).is_pending());
     assert!(Pin::new(&mut second).poll(&mut second_cx).is_pending());
     let responsive_ids = responsive
@@ -29808,11 +29853,22 @@ mod tests {
       "late registration must not duplicate pending state"
     );
 
-    std::thread::sleep(Duration::from_millis(140));
-    assert!(
-      first_wake.wakes.load(Ordering::SeqCst) >= 2 && second_wake.wakes.load(Ordering::SeqCst) >= 2,
-      "the late responsive host must fire both timers while the original host remains starved"
-    );
+    // Event-based fire wait instead of a fixed sleep: the starved host has
+    // NO fire path by construction (ManualStubDriver only records), so the
+    // second wake per sleep can only come from the late responsive host --
+    // "while the original host remains starved" is structural, not a
+    // wall-clock race. The bound is purely a hang detector, generous enough
+    // for a starved runner to schedule the stub's two fire threads.
+    let fire_bound = Instant::now() + Duration::from_secs(30);
+    while first_wake.wakes.load(Ordering::SeqCst) < 2
+      || second_wake.wakes.load(Ordering::SeqCst) < 2
+    {
+      assert!(
+        Instant::now() < fire_bound,
+        "the late responsive host must fire both timers while the original host remains starved"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
     assert!(Pin::new(&mut first).poll(&mut first_cx).is_ready());
     assert!(Pin::new(&mut second).poll(&mut second_cx).is_ready());
 
