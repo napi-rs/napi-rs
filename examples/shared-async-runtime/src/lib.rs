@@ -26,6 +26,25 @@ pub async fn sleep_then_add(a: u32, b: u32, sleep_ms: u32) -> u32 {
   a + b
 }
 
+/// Race two shared-runtime sleeps and report the winner (`0` = short,
+/// `1` = long). The losing sleep future is dropped before its deadline,
+/// which drives the timer relay's cancel path end-to-end: the native side
+/// must call the JS timer host's `cancel` callback for the abandoned relay.
+#[napi]
+pub async fn race_sleeps(short_ms: u32, long_ms: u32) -> u32 {
+  let now = Instant::now();
+  let short = std::pin::pin!(napi_async_runtime::sleep_until(
+    now + Duration::from_millis(u64::from(short_ms))
+  ));
+  let long = std::pin::pin!(napi_async_runtime::sleep_until(
+    now + Duration::from_millis(u64::from(long_ms))
+  ));
+  match futures::future::select(short, long).await {
+    futures::future::Either::Left(((), _abandoned_long)) => 0,
+    futures::future::Either::Right(((), _abandoned_short)) => 1,
+  }
+}
+
 #[napi]
 pub async fn blocking_sum(input: Vec<u32>) -> napi::Result<u32> {
   napi_async_runtime::spawn_blocking(move || input.iter().copied().map(u64::from).sum::<u64>())
