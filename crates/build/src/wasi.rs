@@ -54,6 +54,12 @@ fn emnapi_link_library(has_threads: bool) -> &'static str {
   // `crates/napi/src/lib.rs`). The plain `libemnapi(-mt).a` archives use the
   // `napi` import module for every `napi_*` reference and do not link against
   // the Rust objects.
+  //
+  // Both archives follow the "basic" emnapi model (see
+  // vendor/emnapi/build.mjs): no C `async_work.c` / `threadsafe_function.c`
+  // implementations, so async work and thread-safe functions stay wasm
+  // imports resolved by the `@emnapi/core/plugins` JavaScript implementations
+  // that every generated loader wires up.
   if has_threads {
     "emnapi-napi-rs-mt"
   } else {

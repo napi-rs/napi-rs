@@ -4143,6 +4143,8 @@ test.serial(
         .replace(
           /import \{[\s\S]*?\} from '@napi-rs\/wasm-runtime'/,
           `const {
+  emnapiAsyncWorkPlugin: __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin: __emnapiTSFNPlugin,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
   ${asyncInit ? 'instantiateNapiModule: __emnapiInstantiateNapiModule' : 'instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync'},
   WASI: __WASI,
@@ -4206,6 +4208,8 @@ test.serial(
             },
           }),
           createOnMessage: () => () => {},
+          emnapiAsyncWorkPlugin: () => {},
+          emnapiTSFNPlugin: () => {},
           instantiateNapiModule: instantiate,
           instantiateNapiModuleSync: instantiate,
           WASI: class {},

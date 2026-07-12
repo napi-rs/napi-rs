@@ -1,4 +1,6 @@
 import {
+  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin as __emnapiTSFNPlugin,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
   getDefaultContext as __emnapiGetDefaultContext,
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
@@ -492,6 +494,7 @@ try {
     context: __emnapiContext,
     asyncWorkPoolSize: 4,
     reuseWorker: true,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,
     onCreateWorker() {
       const worker = new Worker(

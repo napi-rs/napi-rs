@@ -15,7 +15,9 @@
 //
 // The archives are compiled from the C sources that the published npm package
 // itself ships (`node_modules/emnapi/src`), with the source list of the
-// `emnapi` target in `node_modules/emnapi/emnapi.gyp`, using these
+// `emnapi_basic` target in `node_modules/emnapi/emnapi.gyp` (async work and
+// thread-safe functions come from the `@emnapi/core/plugins` JavaScript
+// implementations in both threading modes, see `sources` below), using these
 // conventions:
 //
 //   - `-DNAPI_EXTERN=` (empty): plain `napi_*` references resolve through the
@@ -71,17 +73,30 @@ if (!wasiSdkPath) {
 const clang = join(wasiSdkPath, 'bin', 'clang')
 const llvmAr = join(wasiSdkPath, 'bin', 'llvm-ar')
 
-// Source list of the `emnapi` target in `node_modules/emnapi/emnapi.gyp`,
-// which is also the member list of the published
-// `lib/wasm32-wasip1-threads/libemnapi-napi-rs-mt.a`.
+// Source list of the `emnapi_basic` target in
+// `node_modules/emnapi/emnapi.gyp`. napi-rs uses the *basic* archive model
+// for BOTH threading modes (upstream main links emnapi v1's
+// `libemnapi-basic-mt.a`): the C implementations of async work and
+// thread-safe functions (`src/async_work.c`, `src/threadsafe_function.c` —
+// the extra sources of the full `emnapi` gyp target) must stay OUT of the
+// archive so that `napi_call_threadsafe_function` & co. remain wasm imports
+// resolved by the JavaScript implementations from `@emnapi/core/plugins`
+// (`asyncWork`, `tsfn`), which every generated loader wires up.
+//
+//   - Without threads the C implementations are unconditional
+//     `napi_generic_failure` stubs anyway (see `#if EMNAPI_HAVE_THREADS`).
+//   - With threads the C implementations would be extracted by the linker
+//     (the Rust side references `napi_create_threadsafe_function` etc.),
+//     silently shadowing the JS plugins with an in-wasm implementation the
+//     plugins never see. The `@emnapi/core` v2 threaded TSFN protocol
+//     (`plugins/threadsafe-function.js`, tsfn-send worker messaging, the
+//     NapiTSFNOffset32 struct) expects to own these entry points.
 const sources = [
   'src/js_native_api.c',
   'src/node_api.c',
   'src/async_cleanup_hook.c',
   'src/async_context.c',
   'src/wasi_wait.c',
-  'src/async_work.c',
-  'src/threadsafe_function.c',
   'src/uv/uv-common.c',
   'src/uv/threadpool.c',
   'src/uv/unix/loop.c',
@@ -91,23 +106,15 @@ const sources = [
   'src/uv/unix/core.c',
 ]
 
-// In a build without threads the C implementations of async work and
-// thread-safe functions are unconditional `napi_generic_failure` stubs (see
-// `#if EMNAPI_HAVE_THREADS` in the sources). They must stay out of the
-// archive so that the wasm imports the JavaScript implementations from
-// `@emnapi/core/plugins` (`asyncWork`, `tsfn`) instead — the emnapi v1
-// `libemnapi-basic.a` model.
-const threadOnlySources = new Set([
-  'src/async_work.c',
-  'src/threadsafe_function.c',
-])
+// Extra sources of the `emnapi_basic` gyp target when `wasm_threads != 0`:
+// the bootstrap for the async-worker pthreads that the JS `asyncWork` plugin
+// spawns. `crates/build/src/wasi.rs` exports `emnapi_async_worker_create` /
+// `emnapi_async_worker_init` via `--export-if-defined` for exactly these.
+const threadSources = ['src/thread/async_worker_create.c', 'src/thread/async_worker_init.S']
 
 // Sources that reference the env cleanup hooks and therefore need the
 // `napi` import module re-declarations.
-const needsNapiCleanupHooks = new Set([
-  'src/async_cleanup_hook.c',
-  'src/threadsafe_function.c',
-])
+const needsNapiCleanupHooks = new Set(['src/async_cleanup_hook.c'])
 
 const napiCleanupHookRedeclarations = `
 __attribute__((__import_module__("napi")))
@@ -124,10 +131,7 @@ function buildArchive({ target, threads, archiveName }) {
   const workDir = mkdtempSync(join(tmpdir(), 'emnapi-vendor-'))
   const objects = []
   try {
-    for (const source of sources) {
-      if (!threads && threadOnlySources.has(source)) {
-        continue
-      }
+    for (const source of threads ? [...sources, ...threadSources] : sources) {
       const objectName = `${source.split('/').pop()}.obj`
       const objectPath = join(workDir, objectName)
       let inputPath = join(emnapiRoot, source)

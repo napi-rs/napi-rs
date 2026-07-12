@@ -329,16 +329,14 @@ const __wasi = new __WASI({
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
   const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
 `
-  // Single-threaded builds link an emnapi archive without the C async-work
-  // and threadsafe-function implementations (unconditional
-  // `napi_generic_failure` stubs without threads), so the JavaScript
-  // implementations must be provided through the emnapi plugins.
-  const emnapiPluginImport = threads
-    ? ''
-    : `  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin as __emnapiTSFNPlugin,\n`
-  const emnapiPluginOption = threads
-    ? ''
-    : `    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],\n`
+  // Every build links a "basic" emnapi archive without the C async-work and
+  // threadsafe-function implementations (see vendor/emnapi/build.mjs), so the
+  // JavaScript implementations must be provided through the emnapi plugins in
+  // both threading modes. Without threads the C code would be unconditional
+  // `napi_generic_failure` stubs; with threads it would shadow the
+  // `@emnapi/core` threaded TSFN/async-work protocol the plugins implement.
+  const emnapiPluginImport = `  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin as __emnapiTSFNPlugin,\n`
+  const emnapiPluginOption = `    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],\n`
   const workerOption = threads
     ? `    onCreateWorker() {
       const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
@@ -1481,17 +1479,18 @@ function __createWasiWorker(filename) {
       }
     })(),
     reuseWorker: true,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
 `
     : `    asyncWorkPoolSize: 0,
     plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
 `
-  // Single-threaded builds link an emnapi archive without the C async-work
-  // and threadsafe-function implementations (unconditional
-  // `napi_generic_failure` stubs without threads), so the JavaScript
-  // implementations must be provided through the emnapi plugins.
-  const emnapiPluginRequire = threads
-    ? ''
-    : `  emnapiAsyncWorkPlugin: __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin: __emnapiTSFNPlugin,\n`
+  // Every build links a "basic" emnapi archive without the C async-work and
+  // threadsafe-function implementations (see vendor/emnapi/build.mjs), so the
+  // JavaScript implementations must be provided through the emnapi plugins in
+  // both threading modes. Without threads the C code would be unconditional
+  // `napi_generic_failure` stubs; with threads it would shadow the
+  // `@emnapi/core` threaded TSFN/async-work protocol the plugins implement.
+  const emnapiPluginRequire = `  emnapiAsyncWorkPlugin: __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin: __emnapiTSFNPlugin,\n`
   const workerOption = threads
     ? `    onCreateWorker() {
       const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
