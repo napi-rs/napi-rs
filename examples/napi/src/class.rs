@@ -635,7 +635,10 @@ impl ReentrantBorrowOrderTest {
   }
 
   #[napi]
-  pub fn replace_values_from_this(&mut self, value: This<ReentrantThisValue>) {
+  pub fn replace_values_from_this(
+    &mut self,
+    #[napi(ts_arg_type = "object")] value: This<ReentrantThisValue>,
+  ) {
     self.values = vec![value.object.0];
   }
 }

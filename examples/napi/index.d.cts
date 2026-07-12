@@ -372,7 +372,7 @@ export declare class ReentrantBorrowOrderTest {
   values: Array<number>
   constructor()
   replaceValues(values: Array<number>): void
-  replaceValuesFromThis(this: ReentrantThisValue): void
+  replaceValuesFromThis(this: object): void
 }
 
 export declare class Selector {
