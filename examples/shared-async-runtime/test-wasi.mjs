@@ -152,13 +152,18 @@ test('dropping a pending sleep drives the timer-host cancel path', async () => {
   assert.ok(Number.isInteger(registration.low))
 
   const relays = new Map()
-  let scheduleCalls = 0
-  let cancelCalls = 0
+  // Both live hosts receive BOTH arms of the race, and normal completion of
+  // the winning 30ms sleep cancels its redundant arm on whichever host lost
+  // the event-loop race. An aggregate cancel count could therefore pass on
+  // that short-timer cancellation alone, so record every schedule's delay and
+  // every cancelled relay id to assert on the 5s relay specifically.
+  const schedules = []
+  const cancelledRelayIds = new Set()
   binding.registerTimerHost(
     registration.high,
     registration.low,
     (relayId, ms) => {
-      scheduleCalls += 1
+      schedules.push({ relayId, ms })
       return new Promise((resolve) => {
         relays.set(relayId, {
           resolve,
@@ -170,7 +175,7 @@ test('dropping a pending sleep drives the timer-host cancel path', async () => {
       })
     },
     (relayId) => {
-      cancelCalls += 1
+      cancelledRelayIds.add(relayId)
       const relay = relays.get(relayId)
       if (relay) {
         relays.delete(relayId)
@@ -198,16 +203,37 @@ test('dropping a pending sleep drives the timer-host cancel path', async () => {
       elapsed < 4_000,
       `the abandoned 5s sleep must not delay the race (took ${elapsed}ms)`,
     )
-    assert.ok(scheduleCalls >= 1, 'the instrumented host must see schedules')
+    assert.ok(schedules.length >= 1, 'the instrumented host must see schedules')
 
-    // Cancel delivery is asynchronous; wait for it.
+    // The adapter relays the full remaining delay in one schedule call (no
+    // chunking), so the losing sleep is the one relay scheduled with ~5000ms.
+    // Schedule and cancel delivery are both asynchronous; wait bounded for
+    // each. The deadline stays far below 5000ms so a relay that merely FIRES
+    // at its full 5s deadline can never masquerade as a cancellation.
     const deadline = Date.now() + 2_000
-    while (cancelCalls === 0 && Date.now() < deadline) {
+    const findLongRelay = () => schedules.find(({ ms }) => ms > 4_000)
+    while (findLongRelay() === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    const longRelay = findLongRelay()
+    assert.ok(
+      longRelay !== undefined,
+      `the 5s losing sleep must be scheduled on this host (saw delays: ${schedules
+        .map(({ ms }) => ms)
+        .join(', ')})`,
+    )
+    while (
+      !cancelledRelayIds.has(longRelay.relayId) &&
+      Date.now() < deadline
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     assert.ok(
-      cancelCalls >= 1,
-      'dropping the losing sleep must cancel its relay on this host',
+      cancelledRelayIds.has(longRelay.relayId),
+      `dropping the losing sleep must cancel relay ${longRelay.relayId} (its \
+~5000ms arm) on this host; cancelled relay ids: [${[...cancelledRelayIds].join(
+        ', ',
+      )}]`,
     )
   } finally {
     binding.unregisterTimerHost(registration.high, registration.low)
