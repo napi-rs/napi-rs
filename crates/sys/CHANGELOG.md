@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.3](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.2.2...napi-sys-v3.2.3) - 2026-07-12
+
+### Fixed
+
+- *(sys)* fall back to libnode.dll for symbol loading on MSVC targets ([#3384](https://github.com/napi-rs/napi-rs/pull/3384))
+
 ## [3.2.2](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.2.1...napi-sys-v3.2.2) - 2026-06-10
 
 ### Fixed

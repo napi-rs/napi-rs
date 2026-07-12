@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.1...napi-derive-backend-v5.1.2) - 2026-07-12
+
+### Fixed
+
+- *(derive)* defer receiver borrow until argument conversion ([#3392](https://github.com/napi-rs/napi-rs/pull/3392))
+
 ## [5.1.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.0...napi-derive-backend-v5.1.1) - 2026-07-03
 
 ### Other
