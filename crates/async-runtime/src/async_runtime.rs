@@ -15494,6 +15494,27 @@ mod tests {
     }
   }
 
+  /// Bounded join for harness threads that already signalled completion of
+  /// their assertions: everything left on the thread is teardown (executor
+  /// drop -- rayon pool release, `TimerHeap::drop`'s timekeeper join -- plus
+  /// TLS destructors). An unbounded `join()` there turns a teardown wedge
+  /// into a silent libtest-worker hang for the full CI step timeout (observed
+  /// on Windows in run 29195160953: several park-deadline-family tests never
+  /// completed while every in-test assertion had already passed). Fail loudly
+  /// and NAME the awaited phase instead.
+  #[cfg(not(target_family = "wasm"))]
+  fn join_within(what: &str, handle: std::thread::JoinHandle<()>, timeout: Duration) {
+    let deadline = std::time::Instant::now() + timeout;
+    while !handle.is_finished() {
+      assert!(
+        std::time::Instant::now() < deadline,
+        "thread wedged past its {timeout:?} bound while: {what}"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    handle.join().unwrap();
+  }
+
   #[cfg(not(target_family = "wasm"))]
   fn run_claim_with_deadlock_gate_assertion<T: Send + 'static>(
     executor: &Arc<MultiThreadExecutor>,
@@ -26028,11 +26049,18 @@ mod tests {
         .expect("typed payload");
       assert_eq!(diagnostic.kind, BlockOnDeadlockKind::CurrentThreadDeadline);
       assert_eq!(diagnostic.park_deadline, Some(Duration::from_millis(50)));
+      // Teardown inside the bounded window: a wedged executor drop must fail
+      // the recv below loudly, not hang the final join silently.
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the CT deadline-fire runner exits after teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => panic!("native CurrentThread park deadline did not fire ({error})"),
     }
   }
@@ -26077,6 +26105,8 @@ mod tests {
         executor.block_on(future.as_mut());
       }
       assert_eq!(output, Some(9));
+      // Teardown inside the bounded window (see `join_within`).
+      drop(executor);
       let _ = done_tx.send(());
     });
 
@@ -26093,7 +26123,11 @@ mod tests {
     value_tx.send(9).unwrap();
 
     match done_rx.recv_timeout(Duration::from_secs(30)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the CT deadline-reset runner exits after teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => panic!(
         "a CT park with ongoing runtime progress fired its deadline or lost its wake ({error})"
       ),
@@ -26147,11 +26181,17 @@ mod tests {
         0,
         "the firing driver must deregister itself before panicking"
       );
+      // Teardown inside the bounded window (see `join_within`).
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the MT deadline-fire runner exits after executor teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => panic!("MT cooperative park deadline did not fire ({error})"),
     }
   }
@@ -26229,11 +26269,17 @@ mod tests {
         completed.load(Ordering::SeqCst),
         "the late wake must complete the parked driver"
       );
+      // Teardown inside the bounded window (see `join_within`).
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(30)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the MT deadline-reset runner exits after executor teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => panic!(
         "an MT cooperative park with ongoing executor progress fired its deadline or lost its wake ({error})"
       ),
@@ -26283,11 +26329,20 @@ mod tests {
         "the park must genuinely have outlived the 40ms deadline many times over"
       );
       waker_thread.join().unwrap();
+      // Teardown inside the bounded window: this test was one of the silent
+      // wedges on the Windows CI runners -- every assertion above had
+      // passed, so the hang lived in the unbounded residue (executor drop /
+      // thread teardown). Keep that phase inside the loud bounds.
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the exempt foreign-park runner exits after executor teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => {
         panic!("the exempt foreign-thread whole-build park fired or lost its wake ({error})")
       }
@@ -26372,11 +26427,17 @@ mod tests {
         after, 0,
         "the racing wake_one must have popped the parker (wake DELIVERED)"
       );
+      // Teardown inside the bounded window (see `join_within`).
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the expiry-edge-wake runner exits after executor teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => panic!(
         "a wake delivered at the deadline-expiry edge was reported as a deadlock or lost ({error})"
       ),
@@ -26973,8 +27034,20 @@ mod tests {
     let shutdown_result = shutdown_result_rx
       .recv_timeout(Duration::from_secs(5))
       .expect("shutdown must finish after the verdict gate reopens");
-    driver.join().unwrap();
-    shutdown.join().unwrap();
+    // Both threads have sent their results; what remains is teardown (and on
+    // the shutdown thread, the controller's `wait_for_all_workers` already
+    // completed inside `shutdown()`). This test was one of the silent wedges
+    // on the Windows CI runners -- bound the residue loudly.
+    join_within(
+      "the gated cooperative driver exits after teardown",
+      driver,
+      Duration::from_secs(30),
+    );
+    join_within(
+      "the shutdown thread exits after teardown",
+      shutdown,
+      Duration::from_secs(30),
+    );
 
     assert!(
       lifecycle_is_stopping,
@@ -28682,11 +28755,21 @@ mod tests {
       // by run_runnable's catch_unwind), so the task would never complete and
       // the bounded harness below would report the failure.
       futures::executor::block_on(task);
+      // Teardown inside the bounded window: this test was one of the silent
+      // wedges on the Windows CI runners with every assertion already
+      // passed. Its teardown includes `TimerHeap::drop`'s timekeeper JOIN
+      // (a timer was polled, so the timekeeper thread is live) -- exactly
+      // the kind of phase that must fail loudly rather than hang.
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the timer-vs-deadline runner exits after executor (and timekeeper) teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => {
         panic!("the deadline-armed timer wait neither completed nor failed cleanly ({error})")
       }
@@ -28765,11 +28848,18 @@ mod tests {
         "the edge-registered timer must have fired and released the gate"
       );
       executor.active_drainers.store(0, Ordering::SeqCst);
+      // Teardown inside the bounded window; includes the timekeeper join
+      // (a timer was polled). See `join_within`.
+      drop(executor);
       let _ = done_tx.send(());
     });
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
-      Ok(()) => runner.join().unwrap(),
+      Ok(()) => join_within(
+        "the timer-verdict-edge runner exits after executor (and timekeeper) teardown",
+        runner,
+        Duration::from_secs(30),
+      ),
       Err(error) => panic!(
         "a timer registered between the queued-work re-check and the verdict was reported as a deadlock or its fire was lost ({error})"
       ),
