@@ -333,6 +333,17 @@ test('checked threaded browser artifact rolls workers back after context cleanup
   t.true(disposalContextCleanup !== -1)
   t.true(disposalWorkerCleanup !== -1)
   t.true(disposalContextCleanup < disposalWorkerCleanup)
+  // Ordering alone is not enough: an asynchronous context destruction must be
+  // chained ahead of the worker-termination continuation, not merely started
+  // first. A destroy rejection intentionally skips worker termination — the
+  // binding stays alive for a disposal retry (executable counterpart:
+  // wasi-deferred-dispose-failure spec; the Node loader lifecycle specs
+  // execute the same emnapiContextLifecycle template block).
+  t.regex(
+    startDisposalSource,
+    /Promise\.resolve\(destroyResult\)\.then\(__finishWasiDisposal\)/,
+    'asynchronous context destruction must settle before terminating workers on disposal',
+  )
   t.true(
     functionSource('__finishWasiDisposal').includes('__terminateWasiWorkers()'),
   )
