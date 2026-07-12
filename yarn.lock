@@ -226,6 +226,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@emnapi/core@patch:@emnapi/core@npm%3A2.0.0-alpha.2#~/.yarn/patches/@emnapi-core-npm-2.0.0-alpha.2-94faa58689.patch":
+  version: 2.0.0-alpha.2
+  resolution: "@emnapi/core@patch:@emnapi/core@npm%3A2.0.0-alpha.2#~/.yarn/patches/@emnapi-core-npm-2.0.0-alpha.2-94faa58689.patch::version=2.0.0-alpha.2&hash=617889"
+  dependencies:
+    "@emnapi/wasi-threads": "npm:2.0.0"
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/3f3bb8ec3fc648cedf1b5ef37c4e4aab1b4656a1bc3a7252bdb62bfb979d715515186f6139ecb131cda7e59ce2d88190e58369531ec8a7dda8eb8ad648a57924
+  languageName: node
+  linkType: hard
+
 "@emnapi/runtime@npm:1.11.1":
   version: 1.11.1
   resolution: "@emnapi/runtime@npm:1.11.1"
