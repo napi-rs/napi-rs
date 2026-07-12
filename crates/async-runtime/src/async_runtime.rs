@@ -16654,7 +16654,7 @@ mod tests {
     let timer_scheduler = Arc::clone(&executor);
     let (timer_runnable, timer_task) = async_task::spawn(
       async move {
-        heap_sleep(&timer_exec, Instant::now() + Duration::from_mins(2)).await;
+        heap_sleep(&timer_exec, Instant::now() + Duration::from_secs(120)).await;
       },
       move |runnable| timer_scheduler.schedule(runnable),
     );
@@ -25296,7 +25296,7 @@ mod tests {
     let RuntimeExecutor::MultiThread(executor) = &backend.executor else {
       panic!("configured MultiThread backend must create a Rayon executor");
     };
-    let mut sleep = heap_sleep(executor, Instant::now() + Duration::from_mins(1));
+    let mut sleep = heap_sleep(executor, Instant::now() + Duration::from_secs(60));
     let waker = Waker::from(Arc::new(PanicWake));
     let mut cx = Context::from_waker(&waker);
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
@@ -27630,7 +27630,7 @@ mod tests {
       });
       registration_executor.register_timer(
         1,
-        Instant::now() + Duration::from_mins(1),
+        Instant::now() + Duration::from_secs(60),
         futures::task::noop_waker(),
         &Arc::new(AtomicBool::new(false)),
       );
@@ -27763,7 +27763,7 @@ mod tests {
         insert_timer_for_fire_admission_test(
           &executor,
           1,
-          Instant::now() + Duration::from_mins(1),
+          Instant::now() + Duration::from_secs(60),
           waker,
           Arc::clone(&fired),
         );
@@ -27866,7 +27866,7 @@ mod tests {
       let sched = Arc::clone(&executor);
       let (sleep_runnable, sleep_task) = async_task::spawn(
         async move {
-          heap_sleep(&sleep_exec, Instant::now() + Duration::from_mins(1)).await;
+          heap_sleep(&sleep_exec, Instant::now() + Duration::from_secs(60)).await;
           sleep_flag.store(true, Ordering::SeqCst);
         },
         move |r| sched.schedule(r),
@@ -27928,7 +27928,7 @@ mod tests {
       "constructing a runtime without timers must not create an extra OS thread"
     );
 
-    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_mins(1));
+    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_secs(60));
     assert!(
       executor.timers.thread.lock().unwrap().is_none(),
       "an unpolled sleep has not registered a deadline"
@@ -27970,7 +27970,7 @@ mod tests {
     const TIMERS: u64 = 4096;
 
     let executor = multi_thread_executor(1, None, "timer-indexed-cancel");
-    let base = Instant::now() + Duration::from_hours(1);
+    let base = Instant::now() + Duration::from_secs(3600);
     for id in 0..TIMERS {
       executor.register_timer(
         id,
@@ -28020,7 +28020,7 @@ mod tests {
     let waker = Waker::from(Arc::clone(&wake_count));
     let baseline_waker_refs = Arc::strong_count(&wake_count);
     let mut cx = Context::from_waker(&waker);
-    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_mins(1));
+    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_secs(60));
 
     let failure = catch_unwind(AssertUnwindSafe(|| Pin::new(&mut sleep).poll(&mut cx)));
     assert!(
@@ -28095,7 +28095,7 @@ mod tests {
     let executor = multi_thread_executor(2, None, "timer-rayon-capacity");
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
-    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_mins(1));
+    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_secs(60));
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
     wait_until("the dedicated timer thread to park", || {
       executor
@@ -28312,7 +28312,7 @@ mod tests {
       let sched = Arc::clone(&executor);
       let (long_runnable, long_task) = async_task::spawn(
         async move {
-          heap_sleep(&long_exec, Instant::now() + Duration::from_mins(1)).await;
+          heap_sleep(&long_exec, Instant::now() + Duration::from_secs(60)).await;
           long_flag.store(true, Ordering::SeqCst);
         },
         move |r| sched.schedule(r),
@@ -28396,7 +28396,7 @@ mod tests {
     let executor = multi_thread_executor(2, None, "timer-cancel-retire");
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
-    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_mins(1));
+    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_secs(60));
 
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
     wait_until(
@@ -28452,7 +28452,7 @@ mod tests {
     let (done_tx, done_rx) = mpsc::channel();
     let runner = std::thread::spawn(move || {
       let executor = multi_thread_executor(1, None, "timer-waker-drop-lock");
-      let deadline = Instant::now() + Duration::from_mins(2);
+      let deadline = Instant::now() + Duration::from_secs(120);
       let mut other = heap_sleep(&executor, deadline);
       let noop = futures::task::noop_waker();
       let mut noop_cx = Context::from_waker(&noop);
@@ -28567,7 +28567,7 @@ mod tests {
         &executor
           .upgrade()
           .expect("the initial executor must be live"),
-        Instant::now() + Duration::from_mins(2),
+        Instant::now() + Duration::from_secs(120),
       );
       drop(backend);
 
@@ -28579,7 +28579,7 @@ mod tests {
           let executor = block_exec
             .upgrade()
             .expect("the runtime must remain live while blocking");
-          let sleep = heap_sleep(&executor, Instant::now() + Duration::from_mins(2));
+          let sleep = heap_sleep(&executor, Instant::now() + Duration::from_secs(120));
           drop(executor);
           parked_tx.send(()).unwrap();
           sleep.await;
@@ -29189,7 +29189,11 @@ mod tests {
         driver
       })
       .collect::<Vec<_>>();
-    let mut sleep = make_sleep(&backend, &registry, Instant::now() + Duration::from_mins(1));
+    let mut sleep = make_sleep(
+      &backend,
+      &registry,
+      Instant::now() + Duration::from_secs(60),
+    );
     let mut cx = Context::from_waker(Waker::noop());
 
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
@@ -29249,7 +29253,7 @@ mod tests {
       RuntimeBackend::from_executor(RuntimeExecutor::CurrentThread(Arc::clone(&executor)));
     let healthy = ManualStubDriver::new();
     let registry = registry_with(Arc::clone(&healthy) as Arc<dyn TimerDriver>);
-    let deadline = Instant::now() + Duration::from_mins(1);
+    let deadline = Instant::now() + Duration::from_secs(60);
     let mut sleep = make_sleep(&backend, &registry, deadline);
     let mut cx = Context::from_waker(Waker::noop());
 
@@ -29319,7 +29323,11 @@ mod tests {
       *earlier.later.lock().unwrap() = Some(later_id);
       drop(later);
 
-      let mut sleep = make_sleep(&backend, &registry, Instant::now() + Duration::from_mins(1));
+      let mut sleep = make_sleep(
+        &backend,
+        &registry,
+        Instant::now() + Duration::from_secs(60),
+      );
       let mut cx = Context::from_waker(Waker::noop());
       let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = Pin::new(&mut sleep).poll(&mut cx);
@@ -29389,7 +29397,11 @@ mod tests {
       let registry = Arc::new(TimerDriverRegistry::default());
       let hostile_id = registry.register(Arc::clone(&hostile) as Arc<dyn TimerDriver>);
       registry.register(Arc::clone(&healthy) as Arc<dyn TimerDriver>);
-      let mut sleep = make_sleep(&backend, &registry, Instant::now() + Duration::from_mins(1));
+      let mut sleep = make_sleep(
+        &backend,
+        &registry,
+        Instant::now() + Duration::from_secs(60),
+      );
       let mut cx = Context::from_waker(Waker::noop());
 
       assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
@@ -29448,7 +29460,11 @@ mod tests {
       });
 
       let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut sleep = make_sleep(&backend, &registry, Instant::now() + Duration::from_mins(1));
+        let mut sleep = make_sleep(
+          &backend,
+          &registry,
+          Instant::now() + Duration::from_secs(60),
+        );
         let waker = test_hostile_waker(Arc::clone(&state));
         let mut cx = Context::from_waker(&waker);
         let _ = Pin::new(&mut sleep).poll(&mut cx);
@@ -29503,7 +29519,11 @@ mod tests {
         drop_panics: AtomicUsize::new(0),
         panic_on_clone: None,
       });
-      let mut sleep = make_sleep(&backend, &registry, Instant::now() + Duration::from_mins(1));
+      let mut sleep = make_sleep(
+        &backend,
+        &registry,
+        Instant::now() + Duration::from_secs(60),
+      );
       let waker = test_hostile_waker(Arc::clone(&state));
       let mut cx = Context::from_waker(&waker);
 
@@ -29566,7 +29586,7 @@ mod tests {
     let a = ManualStubDriver::new();
     let b = ManualStubDriver::new();
     let registry = registry_with(Arc::clone(&a) as Arc<dyn TimerDriver>);
-    let deadline = Instant::now() + Duration::from_mins(1);
+    let deadline = Instant::now() + Duration::from_secs(60);
 
     let (timer_id, b_id) = {
       let mut sleep = std::pin::pin!(make_sleep(&backend, &registry, deadline));
@@ -29827,7 +29847,7 @@ mod tests {
     let mut sleep = std::pin::pin!(make_sleep(
       &backend,
       &registry,
-      Instant::now() + Duration::from_mins(1)
+      Instant::now() + Duration::from_secs(60)
     ));
     let mut cx = Context::from_waker(Waker::noop());
     assert!(sleep.as_mut().poll(&mut cx).is_pending());
@@ -29867,7 +29887,7 @@ mod tests {
     let mut sleep = std::pin::pin!(make_sleep(
       &backend,
       &registry,
-      Instant::now() + Duration::from_mins(1)
+      Instant::now() + Duration::from_secs(60)
     ));
 
     // Arm on A with an observable waker.
@@ -29948,7 +29968,7 @@ mod tests {
     let drivers = Arc::new(TimerDriverRegistry::default());
     let driver = ManualStubDriver::new();
     drivers.register(Arc::clone(&driver) as Arc<dyn TimerDriver>);
-    let mut sleep = make_sleep(&backend, &drivers, Instant::now() + Duration::from_mins(1));
+    let mut sleep = make_sleep(&backend, &drivers, Instant::now() + Duration::from_secs(60));
     let mut cx = Context::from_waker(Waker::noop());
 
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
@@ -29974,7 +29994,11 @@ mod tests {
     let drivers = Arc::new(TimerDriverRegistry::default());
     let driver = ManualStubDriver::new();
     drivers.register(Arc::clone(&driver) as Arc<dyn TimerDriver>);
-    let sleep = make_sleep(&backend, &drivers, Instant::now() + Duration::from_mins(2));
+    let sleep = make_sleep(
+      &backend,
+      &drivers,
+      Instant::now() + Duration::from_secs(120),
+    );
     drop(backend);
 
     let (polled_tx, polled_rx) = mpsc::channel();
@@ -30097,7 +30121,7 @@ mod tests {
       let _unpolled = make_sleep(
         &backend,
         &registry_with(driver),
-        Instant::now() + Duration::from_mins(1),
+        Instant::now() + Duration::from_secs(60),
       );
 
       let payload = catch_unwind(AssertUnwindSafe(|| {
