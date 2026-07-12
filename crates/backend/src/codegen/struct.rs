@@ -935,13 +935,13 @@ impl NapiStruct {
               value: napi::bindgen_prelude::sys::napi_value
             ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
               #setter_tracing_debug
+              let val = unsafe {
+                <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, value)?
+              };
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
               let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
-              let val = unsafe {
-                <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, value)?
-              };
               obj.#field_ident = val;
               unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }
             }

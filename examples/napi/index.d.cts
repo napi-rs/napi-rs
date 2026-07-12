@@ -363,6 +363,18 @@ export declare class Reader {
   read(): Buffer
 }
 
+/**
+ * Regression fixture for issue #3378. `Vec` conversion reads JavaScript array
+ * elements, so an indexed getter can synchronously reenter before conversion
+ * has finished.
+ */
+export declare class ReentrantBorrowOrderTest {
+  values: Array<number>
+  constructor()
+  replaceValues(values: Array<number>): void
+  replaceValuesFromThis(this: object): void
+}
+
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>
@@ -580,6 +592,8 @@ export declare function chronoUtcDateToMillis(input: Date): number
  */
 export declare function churnGlobalHandles(value: unknown, count: number): void
 
+export declare function cleanupReentrantBorrowOrderTestTargets(): number
+
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
   noDocumentAll?: boolean
@@ -699,6 +713,12 @@ export declare function createReadableStreamFromClass(readableStreamClass: typeo
  */
 export declare function createReadableStreamWithObject(): ReadableStream<StreamItem>
 
+/**
+ * Create a class-branded object whose wrap can be removed without touching
+ * the generated class instance's reference/finalizer bookkeeping.
+ */
+export declare function createReentrantBorrowOrderTestTarget(constructor: new (...args: any[]) => unknown): object
+
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export declare function createRejectedPromise(message: string): Promise<number>
@@ -777,6 +797,14 @@ class DynamicRustClass {
 }
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
+
+/**
+ * Detach the native value without constructing a second Rust receiver during
+ * reentry. Cleanup is deliberately deferred until the outer native call has
+ * returned or thrown, because the old code generation keeps using the cached
+ * pointer after input conversion.
+ */
+export declare function detachReentrantBorrowOrderTestTarget(target: unknown): void
 
 /**
  * Counts the chunks read from a stream, swallowing (dropping) any read error.

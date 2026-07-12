@@ -1,7 +1,9 @@
+use std::{cell::RefCell, ffi::c_void, ptr};
+
 use napi::{
   bindgen_prelude::{
-    Buffer, ClassInstance, Function, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize,
-    This, Uint8Array, Unknown,
+    Buffer, ClassInstance, FromNapiValue, Function, JavaScriptClassExt, JsObjectValue, JsValue,
+    Object, ObjectFinalize, This, TypeName, Uint8Array, Unknown, ValidateNapiValue, ValueType,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -581,6 +583,154 @@ impl ThingList {
   pub fn thing() -> Thing {
     Thing
   }
+}
+
+thread_local! {
+  static DETACHED_REENTRANT_BORROW_ORDER_TARGETS: RefCell<Vec<*mut ReentrantBorrowOrderTest>> =
+    const { RefCell::new(Vec::new()) };
+}
+
+pub struct ReentrantThisValue(u32);
+
+impl TypeName for ReentrantThisValue {
+  fn type_name() -> &'static str {
+    "Object"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for ReentrantThisValue {}
+
+impl FromNapiValue for ReentrantThisValue {
+  unsafe fn from_napi_value(
+    env: napi::sys::napi_env,
+    napi_val: napi::sys::napi_value,
+  ) -> Result<Self> {
+    let object = unsafe { Object::from_napi_value(env, napi_val)? };
+    Ok(Self(object.get_element(0)?))
+  }
+}
+
+/// Regression fixture for issue #3378. `Vec` conversion reads JavaScript array
+/// elements, so an indexed getter can synchronously reenter before conversion
+/// has finished.
+#[napi]
+pub struct ReentrantBorrowOrderTest {
+  pub values: Vec<u32>,
+}
+
+#[napi]
+impl ReentrantBorrowOrderTest {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self { values: Vec::new() }
+  }
+
+  #[napi]
+  pub fn replace_values(&mut self, values: Vec<u32>) {
+    self.values = values;
+  }
+
+  #[napi]
+  pub fn replace_values_from_this(
+    &mut self,
+    #[napi(ts_arg_type = "object")] value: This<ReentrantThisValue>,
+  ) {
+    self.values = vec![value.object.0];
+  }
+}
+
+/// Create a class-branded object whose wrap can be removed without touching
+/// the generated class instance's reference/finalizer bookkeeping.
+#[napi]
+pub fn create_reentrant_borrow_order_test_target<'env>(
+  env: &'env Env,
+  #[napi(ts_arg_type = "new (...args: any[]) => unknown")] constructor: Function<'env>,
+) -> Result<Object<'env>> {
+  // The generated constructor skips its normal native allocation while this
+  // flag is set. This gives the fixture a receiver with the class's V8 brand,
+  // while keeping ownership of the manually-installed wrap local to the test.
+  let mut instance = ptr::null_mut();
+  napi::__private::___CALL_FROM_FACTORY.with(|flag| flag.set(true));
+  let construct_status = unsafe {
+    napi::sys::napi_new_instance(
+      env.raw(),
+      constructor.raw(),
+      0,
+      ptr::null_mut(),
+      &mut instance,
+    )
+  };
+  napi::__private::___CALL_FROM_FACTORY.with(|flag| flag.set(false));
+  napi::check_status!(
+    construct_status,
+    "Failed to construct reentrant test class instance"
+  )?;
+
+  let target = unsafe { Object::from_napi_value(env.raw(), instance)? };
+  let native = Box::into_raw(Box::new(ReentrantBorrowOrderTest::new()));
+  let status = unsafe {
+    napi::sys::napi_wrap(
+      env.raw(),
+      target.raw(),
+      native.cast(),
+      None,
+      ptr::null_mut(),
+      ptr::null_mut(),
+    )
+  };
+
+  if status != napi::sys::Status::napi_ok {
+    // SAFETY: `napi_wrap` failed, so JavaScript did not take ownership.
+    unsafe { drop(Box::from_raw(native)) };
+    napi::check_status!(status, "Failed to wrap reentrant borrow-order test target")?;
+  }
+
+  Ok(target)
+}
+
+/// Detach the native value without constructing a second Rust receiver during
+/// reentry. Cleanup is deliberately deferred until the outer native call has
+/// returned or thrown, because the old code generation keeps using the cached
+/// pointer after input conversion.
+#[napi]
+pub fn detach_reentrant_borrow_order_test_target(env: Env, target: Unknown) -> Result<()> {
+  let mut detached = ptr::null_mut::<c_void>();
+  napi::check_status!(
+    unsafe { napi::sys::napi_remove_wrap(env.raw(), target.raw(), &mut detached) },
+    "Failed to detach receiver during reentrant conversion"
+  )?;
+
+  if detached.is_null() {
+    return Err(napi::Error::from_reason(
+      "Reentrant receiver did not contain a native value",
+    ));
+  }
+
+  DETACHED_REENTRANT_BORROW_ORDER_TARGETS.with(|targets| {
+    targets
+      .borrow_mut()
+      .push(detached.cast::<ReentrantBorrowOrderTest>());
+  });
+  Ok(())
+}
+
+#[napi]
+pub fn cleanup_reentrant_borrow_order_test_targets() -> u32 {
+  DETACHED_REENTRANT_BORROW_ORDER_TARGETS.with(|targets| {
+    let mut targets = targets.borrow_mut();
+    let count = targets.len() as u32;
+    for target in targets.drain(..) {
+      // SAFETY: every pointer comes from one successful `napi_remove_wrap`,
+      // which transfers ownership and disables the generated finalizer. The
+      // JS test calls this only after its outer native call has completed.
+      unsafe { drop(Box::from_raw(target)) };
+    }
+    count
+  })
 }
 
 #[napi(

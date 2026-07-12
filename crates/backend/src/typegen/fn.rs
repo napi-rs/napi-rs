@@ -245,6 +245,7 @@ impl NapiFn {
                   {
                     if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
                       let (ts_type, _) = ty_to_ts_type(ty, false, false, false);
+                      let ts_type = arg.use_overridden_type_or(|| ts_type);
                       return Some(FnArg {
                         arg: "this".to_owned(),
                         ts_type,
@@ -254,7 +255,7 @@ impl NapiFn {
                   } else {
                     return Some(FnArg {
                       arg: "this".to_owned(),
-                      ts_type: "this".to_owned(),
+                      ts_type: arg.use_overridden_type_or(|| "this".to_owned()),
                       is_optional: false,
                     });
                   }

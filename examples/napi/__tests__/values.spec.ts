@@ -313,6 +313,10 @@ import {
   withAbortSignalHandle,
   createI32ArrayFromExternal,
   optionalCallbackTypes,
+  ReentrantBorrowOrderTest,
+  createReentrantBorrowOrderTestTarget,
+  cleanupReentrantBorrowOrderTestTargets,
+  detachReentrantBorrowOrderTestTarget,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -690,6 +694,73 @@ test('class', (t) => {
             })(),
     )
   }
+})
+
+test('mutable receiver is borrowed after reentrant input conversion', (t) => {
+  const exercise = (
+    label: string,
+    invoke: (target: object, values: number[]) => void,
+  ) => {
+    const target = createReentrantBorrowOrderTestTarget(
+      ReentrantBorrowOrderTest,
+    )
+    let getterRan = false
+    const values = Object.defineProperty([], '0', {
+      enumerable: true,
+      get() {
+        getterRan = true
+        detachReentrantBorrowOrderTestTarget(target)
+        return 1
+      },
+    }) as number[]
+
+    let error: unknown
+    try {
+      invoke(target, values)
+    } catch (caught) {
+      error = caught
+    } finally {
+      t.is(cleanupReentrantBorrowOrderTestTargets(), 1)
+    }
+
+    t.true(getterRan)
+    t.truthy(error, `${label} must unwrap its receiver after input conversion`)
+  }
+
+  exercise('mutable method', (target, values) => {
+    ReentrantBorrowOrderTest.prototype.replaceValues.call(target, values)
+  })
+  exercise('mutable public field setter', (target, values) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      ReentrantBorrowOrderTest.prototype,
+      'values',
+    )?.set
+    t.truthy(setter)
+    setter!.call(target, values)
+  })
+
+  let getterRan = false
+  const target = createReentrantBorrowOrderTestTarget(ReentrantBorrowOrderTest)
+  Object.defineProperty(target, '0', {
+    enumerable: true,
+    get() {
+      getterRan = true
+      detachReentrantBorrowOrderTestTarget(target)
+      return 1
+    },
+  })
+
+  let error: unknown
+  try {
+    ReentrantBorrowOrderTest.prototype.replaceValuesFromThis.call(target)
+  } catch (caught) {
+    error = caught
+  } finally {
+    t.is(cleanupReentrantBorrowOrderTestTargets(), 1)
+  }
+
+  t.true(getterRan)
+  t.truthy(error, 'receiver must be unwrapped after injected input conversion')
 })
 
 test('class with js_name', (t) => {
