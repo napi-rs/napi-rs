@@ -1724,6 +1724,12 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@napi-rs/async-runtime@workspace:async-runtime":
+  version: 0.0.0-use.local
+  resolution: "@napi-rs/async-runtime@workspace:async-runtime"
+  languageName: unknown
+  linkType: soft
+
 "@napi-rs/cli@workspace:*, @napi-rs/cli@workspace:cli":
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
