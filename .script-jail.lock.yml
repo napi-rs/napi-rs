@@ -2,15 +2,24 @@ schema_version: 1
 manager: yarn
 manager_lockfile_sha256: ""
 node_version: 24.15.0
-generated_at: 2026-06-22T09:33:00.458Z
+generated_at: 2026-07-12T07:44:14.459Z
 packages:
   napi-rs@0.0.0:
     lifecycle:
       postinstall:
         external_reads:
           - $REPO
+          - $REPO/vendor
+          - $REPO/vendor/emnapi
+          - $REPO/vendor/emnapi/install.mjs
+          - $REPO/vendor/emnapi/integrity.mjs
+          - $REPO/vendor/emnapi/manifest.json
+          - $REPO/vendor/emnapi/wasm32-wasip1-threads/libemnapi-napi-rs-mt.a
+          - $REPO/vendor/emnapi/wasm32-wasip1/libemnapi.a
           - $TMPDIR/<hash>/husky
-        escaped_writes: []
+        escaped_writes:
+          - <CROSS_PACKAGE> $NODE_MODULES/emnapi/lib/wasm32-wasip1-threads/libemnapi-napi-rs-mt.a
+          - <CROSS_PACKAGE> $NODE_MODULES/emnapi/lib/wasm32-wasip1/libemnapi.a
         env_read:
           - BERRY_BIN_FOLDER
           - COREPACK_ENABLE_DOWNLOAD_PROMPT
@@ -44,6 +53,7 @@ packages:
         spawn_attempts:
           - husky install
           - node $NODE_MODULES/husky/bin.js install
+          - node vendor/emnapi/install.mjs
         spawn_blocked:
           - <ENOENT> git config core.hooksPath .husky/_
         dlopen_attempts: []
