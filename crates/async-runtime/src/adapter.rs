@@ -3362,7 +3362,9 @@ mod tests {
       let shutdown_thread = std::thread::spawn(move || {
         shutdown_tx.send(shutdown()).unwrap();
       });
-      let stopping_deadline = Instant::now() + Duration::from_secs(2);
+      // Hang detector: the freshly spawned shutdown thread must get CPU and
+      // publish the stopping lifecycle -- generous for starved CI runners.
+      let stopping_deadline = Instant::now() + Duration::from_secs(10);
       loop {
         match try_spawn_detached(async {}) {
           Ok(()) => {

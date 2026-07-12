@@ -14772,7 +14772,7 @@ mod tests {
     });
     assert_eq!(
       selection_rx
-        .recv_timeout(Duration::from_secs(1))
+        .recv_timeout(Duration::from_secs(10))
         .expect("is_live re-entry deadlocked"),
       Some(fallback_id)
     );
@@ -14793,7 +14793,7 @@ mod tests {
       drop_tx.send(()).unwrap();
     });
     drop_rx
-      .recv_timeout(Duration::from_secs(1))
+      .recv_timeout(Duration::from_secs(10))
       .expect("driver destructor re-entry deadlocked");
     drop_thread.join().unwrap();
     assert!(
@@ -15489,10 +15489,12 @@ mod tests {
 
   /// Spin (yielding) until `condition` holds, failing loudly on timeout.
   /// Used to observe executor-internal states (e.g. "both drivers are
-  /// registered as parked") without sleeps.
+  /// registered as parked") without sleeps. The bound is a HANG detector,
+  /// not a latency assertion: starved CI runners can stall fresh threads for
+  /// hundreds of milliseconds, so it is deliberately generous.
   #[cfg(not(target_family = "wasm"))]
   fn wait_until(what: &str, condition: impl Fn() -> bool) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while !condition() {
       assert!(
         std::time::Instant::now() < deadline,
@@ -27898,8 +27900,11 @@ mod tests {
       }
     };
 
+    // Hang detector on a guaranteed event that needs a freshly spawned
+    // thread (timekeeper / fire thread) to get CPU -- generous for starved
+    // CI runners.
     entered_rx
-      .recv_timeout(Duration::from_secs(2))
+      .recv_timeout(Duration::from_secs(10))
       .unwrap_or_else(|error| panic!("{path:?} timer waker was not invoked: {error}"));
     assert!(
       executor.next_timer_deadline().is_none(),
@@ -27915,7 +27920,7 @@ mod tests {
 
     release_tx.send(()).unwrap();
     scheduled_rx
-      .recv_timeout(Duration::from_secs(2))
+      .recv_timeout(Duration::from_secs(10))
       .unwrap_or_else(|error| panic!("{path:?} timer wake did not publish its runnable: {error}"));
     if let Some(fire_thread) = fire_thread {
       fire_thread.join().unwrap();
@@ -28083,7 +28088,9 @@ mod tests {
       completed_tx.send(()).unwrap();
     });
 
-    completed_rx.recv_timeout(Duration::from_secs(2)).expect(
+    // Hang detector on a freshly spawned thread getting CPU -- generous for
+    // starved CI runners (a real regression blocks forever on the held lock).
+    completed_rx.recv_timeout(Duration::from_secs(10)).expect(
       "ensure_started consulted or joined the timer handle before observing the closed heap",
     );
     drop(handle_guard);
@@ -28315,7 +28322,9 @@ mod tests {
       started_tx.send(()).unwrap();
       blocker_release.wait();
     });
-    started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    // Hang detector (the closure start needs a worker to get CPU) --
+    // generous for starved CI runners.
+    started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
 
     wait_until(
       "the timer waker to fire while the Rayon worker is blocked",
@@ -28492,7 +28501,11 @@ mod tests {
     let waker = Waker::from(Arc::clone(&wake_count));
     let mut cx = Context::from_waker(&waker);
 
-    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_millis(60));
+    // The deadline's pre-poll budget is one statement; 250ms dwarfs it on a
+    // starved runner (a past-due Sleep would resolve inline instead of
+    // registering, failing the assert below for the wrong reason).
+    let deadline = Instant::now() + Duration::from_millis(250);
+    let mut sleep = heap_sleep(&executor, deadline);
     assert!(
       Pin::new(&mut sleep).poll(&mut cx).is_pending(),
       "must register, not resolve"
@@ -28506,8 +28519,13 @@ mod tests {
       executor.next_timer_deadline().is_none(),
       "cancel-on-drop must retire the heap registration"
     );
-    // Outlive the would-be deadline: the cancelled timer must not wake.
-    std::thread::sleep(Duration::from_millis(140));
+    // Outlive the would-be deadline (event-exact, not a fixed sleep): the
+    // cancelled timer must not wake. The negative assert is structural once
+    // the heap is empty; waiting until the wall clock is genuinely past the
+    // deadline keeps the ghost-fire probe honest.
+    while Instant::now() < deadline + Duration::from_millis(25) {
+      std::thread::sleep(Duration::from_millis(10));
+    }
     executor.fire_due_timers();
     assert_eq!(
       wake_count.0.load(Ordering::SeqCst),
@@ -28601,8 +28619,10 @@ mod tests {
       executor.shutdown_timers();
       done_tx.send(()).unwrap();
     });
+    // Hang detector on a freshly spawned runner thread -- generous for
+    // starved CI runners (a real regression deadlocks forever).
     done_rx
-      .recv_timeout(Duration::from_secs(2))
+      .recv_timeout(Duration::from_secs(10))
       .expect("RawWaker destruction re-entered cancellation while the heap lock was held");
     runner.join().unwrap();
   }
@@ -28666,8 +28686,10 @@ mod tests {
     // heap waker owns the final direct executor Arc and releases it from the
     // timer thread while `TimerHeap::drop` still owns that thread's handle.
     drop(executor);
+    // Hang detector: the fire needs the (already spawned) timer thread to
+    // reach its 80ms deadline -- generous for starved CI runners.
     completed_rx
-      .recv_timeout(Duration::from_secs(2))
+      .recv_timeout(Duration::from_secs(10))
       .expect("dropping the final executor Arc on the timer thread attempted to join itself");
   }
 
@@ -29019,7 +29041,7 @@ mod tests {
     });
     assert_eq!(
       selection_rx
-        .recv_timeout(Duration::from_secs(1))
+        .recv_timeout(Duration::from_secs(10))
         .expect("is_live re-entry deadlocked"),
       Some(fallback_id)
     );
@@ -29039,7 +29061,7 @@ mod tests {
       drop_tx.send(()).unwrap();
     });
     drop_rx
-      .recv_timeout(Duration::from_secs(1))
+      .recv_timeout(Duration::from_secs(10))
       .expect("driver destructor re-entry deadlocked");
     drop_thread.join().unwrap();
     assert!(
@@ -29805,7 +29827,11 @@ mod tests {
     let wake_count = Arc::new(CountingWake(AtomicUsize::new(0)));
     let waker = Waker::from(Arc::clone(&wake_count));
     let mut cx = Context::from_waker(&waker);
-    let deadline = Instant::now() + Duration::from_millis(60);
+    // This deadline's pre-fire budget covers only `make_sleep` plus the very
+    // next poll (a past-due Sleep completes inline and would bypass the
+    // racing-arm machinery under test); 500ms dwarfs those two statements on
+    // a starved runner without dragging the fire wait out.
+    let deadline = Instant::now() + Duration::from_millis(500);
     let mut sleep = make_sleep(&backend, &registry, deadline);
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
 
@@ -29822,11 +29848,22 @@ mod tests {
       "every live host must receive the same timer identity and absolute deadline"
     );
 
-    std::thread::sleep(Duration::from_millis(140));
-    assert!(
-      wake_count.0.load(Ordering::SeqCst) != 0,
-      "the responsive host must wake a sleep whose newest host is live but starved"
-    );
+    // Event-based fire wait (this was a fixed 140ms sleep, which required
+    // the responsive stub's freshly spawned fire thread to get CPU inside
+    // ~80ms on a starved CI host). The wait is structurally sound: the
+    // starved ManualStubDriver has NO fire path (it only records), so the
+    // one-and-only wake can come from the responsive host -- the bound is a
+    // pure hang detector.
+    let fire_bound = Instant::now() + Duration::from_secs(30);
+    while wake_count.0.load(Ordering::SeqCst) == 0 {
+      assert!(
+        Instant::now() < fire_bound,
+        "the responsive host must wake a sleep whose newest host is live but starved"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    // The stub fires at (or after) the shared absolute deadline, so the wall
+    // clock is past `deadline` here and the poll completes.
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_ready());
     assert_eq!(
       starved.cancels.lock().unwrap().as_slice(),
@@ -30334,10 +30371,21 @@ mod tests {
     let (done_tx, done_rx) = mpsc::channel();
     let runner = std::thread::spawn(move || {
       let metrics = Arc::new(RuntimeMetrics::default());
+      // Deadline/grace ratio: the armed park deadline doubles as the
+      // `has_live_wait` GRACE -- once the host timer is past due by more
+      // than one deadline window without firing, the veto stops holding BY
+      // DESIGN (that is the frozen-JS-loop signature). With a 30ms window
+      // the stub host's freshly spawned fire thread had to get CPU within
+      // ~230ms of test start or the verdict fired -- the starved-CI failure.
+      // A 2s window keeps the invariant identical (a LIVE host-timer wait
+      // with zero progress must not be declared dead) while tolerating
+      // multi-second scheduling stalls of the fire thread: the veto holds
+      // until deadline+2s, and the expiry checks land on 2s boundaries, so
+      // the fire has >4s before a verdict could stick.
       let executor = Arc::new(CurrentThreadExecutor::with_detection(
         metrics,
         false,
-        Some(Duration::from_millis(30)),
+        Some(Duration::from_secs(2)),
       ));
       let backend =
         RuntimeBackend::from_executor(RuntimeExecutor::CurrentThread(Arc::clone(&executor)));
@@ -30357,7 +30405,7 @@ mod tests {
       let _ = done_tx.send(());
     });
 
-    match done_rx.recv_timeout(Duration::from_secs(10)) {
+    match done_rx.recv_timeout(Duration::from_secs(30)) {
       Ok(()) => runner.join().unwrap(),
       Err(error) => {
         panic!("a CT park waiting out a live host timer fired the armed deadline or hung ({error})")
