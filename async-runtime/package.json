@@ -1,0 +1,49 @@
+{
+  "name": "@napi-rs/async-runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "JavaScript host protocol for napi-rs bindings built with the shared async runtime",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=23.5.0"
+  },
+  "homepage": "https://napi.rs/",
+  "author": {
+    "name": "LongYinan",
+    "url": "https://github.com/Brooooooklyn"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/napi-rs/napi-rs.git",
+    "directory": "async-runtime"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "files": [
+    "binding-mismatch-error.cjs",
+    "current-thread-hosts.cjs",
+    "index.cjs",
+    "index.d.ts",
+    "index.js",
+    "workerd-task-host.cjs",
+    "workerd-timer-host.cjs"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Brooooooklyn"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    }
+  }
+}
