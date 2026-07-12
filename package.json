@@ -62,7 +62,7 @@
       "taplo format"
     ],
     "*.rs": [
-      "cargo fmt --"
+      "node ./.github/format-staged-rust.mjs"
     ]
   },
   "devDependencies": {
