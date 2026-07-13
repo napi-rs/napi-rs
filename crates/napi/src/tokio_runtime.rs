@@ -377,14 +377,44 @@ struct AsyncRuntimeRegistry {
   backend: OnceLock<Box<dyn AsyncRuntime>>,
   /// Registration-window and lifecycle state. Every check-then-act transition (the duplicate
   /// check, window check, and publication in [`Self::try_register`]; the backend read and
-  /// freeze in [`Self::commit_selection`] and [`Self::activate`]) runs under this single lock,
-  /// so the transitions are linearized: a freeze can no longer slip between registration's
-  /// checks and its publication, and a commit cannot interleave with a late registration.
+  /// freeze in [`Self::commit_selection`] and [`Self::activate`]; every
+  /// [`RegistryState::phase`] transition) runs under this single lock, so the transitions are
+  /// linearized: a freeze can no longer slip between registration's checks and its
+  /// publication, and a commit cannot interleave with a late registration.
   /// Backend hooks (`start`/`spawn`/`shutdown`) are never called while the lock is held.
   state: Mutex<RegistryState>,
+  /// Serializes the backend's lifecycle hooks: the start-with-rollback sequence
+  /// ([`Self::run_claimed_start`]) and the teardown `shutdown` ([`Self::deactivate`]) run under
+  /// this lock, so a teardown waits out an in-flight start and never reports quiescence while
+  /// `start` may still be creating backend resources.
+  ///
+  /// Lock ordering: `lifecycle` before `state`, NEVER the reverse (a thread holding `state`
+  /// must not acquire `lifecycle`). Dispatch (`backend.spawn`) happens outside both locks.
+  /// Holding `lifecycle` across the hooks cannot deadlock because the [`AsyncRuntime`]
+  /// contract forbids `start`/`shutdown` from re-entering napi's runtime registration or
+  /// lifecycle functions.
+  lifecycle: Mutex<()>,
   /// A duplicate/late registration error recorded by the infallible [`register_async_runtime`];
   /// surfaced by every later runtime-backed call.
   deferred_registration_error: Mutex<Option<&'static str>>,
+}
+
+/// Lifecycle phase of the selected custom backend for the current zero-to-live environment
+/// cycle. Transitions happen under the registry's `state` lock; the `Starting → Started/Idle`
+/// completion additionally runs under the `lifecycle` lock.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LifecyclePhase {
+  /// No start-with-rollback sequence ran for this cycle, the last one was rolled back, or a
+  /// teardown completed. The next dispatch or activation claims a fresh start.
+  Idle,
+  /// A dispatch or activation claimed the start; its start-with-rollback sequence has not
+  /// completed yet. Further dispatches proceed without waiting — submissions may arrive before
+  /// `start` completes, which the [`AsyncRuntime::spawn`] contract requires backends to
+  /// tolerate.
+  Starting,
+  /// The start-with-rollback sequence completed successfully for this cycle.
+  Started,
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -392,10 +422,10 @@ struct RegistryState {
   /// Once `true`, the registration window is closed: either an environment began activation or
   /// a runtime-backed operation committed a backend choice.
   selection_frozen: bool,
-  /// `true` once the selected custom backend received its `start()` for the current
-  /// zero-to-live environment cycle — whether that start succeeded or was rolled back.
-  /// [`AsyncRuntimeRegistry::deactivate`] clears it, so restart cycles start the backend again.
-  started: bool,
+  /// Where the selected custom backend stands in the current zero-to-live environment cycle.
+  /// [`AsyncRuntimeRegistry::deactivate`] resets it to [`LifecyclePhase::Idle`], so restart
+  /// cycles start the backend again.
+  phase: LifecyclePhase,
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -405,8 +435,9 @@ impl AsyncRuntimeRegistry {
       backend: OnceLock::new(),
       state: Mutex::new(RegistryState {
         selection_frozen: false,
-        started: false,
+        phase: LifecyclePhase::Idle,
       }),
+      lifecycle: Mutex::new(()),
       deferred_registration_error: Mutex::new(None),
     }
   }
@@ -415,6 +446,16 @@ impl AsyncRuntimeRegistry {
     // The lock only ever guards plain flag reads/writes, so a poisoned guard (impossible in
     // practice: no code below can panic while holding it) is still consistent to reuse.
     self.state.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  fn lock_lifecycle(&self) -> MutexGuard<'_, ()> {
+    // The guarded data is `()` and the hooks that run under this lock are unwind-contained
+    // (`start_backend_with_rollback` catches, `deactivate` aborts), so a poisoned guard is
+    // still consistent to reuse.
+    self
+      .lifecycle
+      .lock()
+      .unwrap_or_else(PoisonError::into_inner)
   }
 
   /// First-writer-wins registration. On rejection the backend is handed back to the caller for
@@ -471,54 +512,90 @@ impl AsyncRuntimeRegistry {
   /// Module-export hooks (`#[napi(module_exports)]` and the compat callbacks) run with a live
   /// `Env` before `start_async_runtime`, so a runtime-backed call (for example
   /// [`crate::Env::spawn_future`]) can dispatch to the backend before environment activation.
-  /// The start-with-rollback sequence runs exactly once per zero-to-live cycle: the `started`
-  /// flag flips under the state lock, while the `start` hook itself runs outside it.
+  /// The start-with-rollback sequence runs at most once per zero-to-live cycle: the
+  /// `Idle → Starting` claim happens under the state lock, and the claim is completed under
+  /// the lifecycle lock in [`Self::run_claimed_start`]. A dispatch that observes an in-flight
+  /// `Starting` proceeds without waiting; spawning before `start` completes is
+  /// contract-legal (see [`AsyncRuntime::spawn`]).
   fn ensure_started(&self, backend: &dyn AsyncRuntime) {
     {
       let mut state = self.lock_state();
-      if state.started {
-        return;
+      match state.phase {
+        LifecyclePhase::Starting | LifecyclePhase::Started => return,
+        LifecyclePhase::Idle => state.phase = LifecyclePhase::Starting,
       }
-      state.started = true;
     }
-    start_backend_with_rollback(backend);
+    self.run_claimed_start(backend);
+  }
+
+  /// Complete a claimed `Idle → Starting` transition: under the lifecycle lock, re-validate
+  /// the claim and run the start-with-rollback sequence, then record the outcome
+  /// (`Started` on success, back to `Idle` on rollback, so a later cycle can try again).
+  ///
+  /// The claim is re-validated because it can be revoked between the claim and this call: a
+  /// concurrently completing teardown resets the phase to `Idle` after its `shutdown`
+  /// returned ([`Self::deactivate`]). Starting after that would create backend resources the
+  /// already-returned environment cleanup can never stop — Node may have unloaded the addon
+  /// image. A revoked claimant therefore skips the start; its dispatch proceeds against the
+  /// stopped backend, which rejects the submission. The claim may also have been fulfilled by
+  /// another claimant queued on the lifecycle lock (phase already `Started`); skipping is
+  /// equally correct then.
+  fn run_claimed_start(&self, backend: &dyn AsyncRuntime) {
+    let _lifecycle = self.lock_lifecycle();
+    if self.lock_state().phase != LifecyclePhase::Starting {
+      return;
+    }
+    let phase = if start_backend_with_rollback(backend) {
+      LifecyclePhase::Started
+    } else {
+      LifecyclePhase::Idle
+    };
+    self.lock_state().phase = phase;
   }
 
   /// First-env-activation hook: close the registration window and start the custom backend if
-  /// one is selected and not already started (by an earlier activation without an intervening
-  /// [`Self::deactivate`], or by a pre-activation dispatch through [`Self::ensure_started`]).
-  /// Returns `true` when a custom backend owns the runtime lifecycle.
+  /// one is selected and not already starting or started (by an earlier activation without an
+  /// intervening [`Self::deactivate`], or by a pre-activation dispatch through
+  /// [`Self::ensure_started`]). Returns `true` when a custom backend owns the runtime
+  /// lifecycle.
   fn activate(&self) -> bool {
     let backend = {
       let mut state = self.lock_state();
       state.selection_frozen = true;
-      match self.backend.get() {
-        Some(backend) if !state.started => {
-          state.started = true;
-          backend
-        }
-        Some(_) => return true,
-        None => return false,
+      let Some(backend) = self.backend.get() else {
+        return false;
+      };
+      match state.phase {
+        LifecyclePhase::Starting | LifecyclePhase::Started => return true,
+        LifecyclePhase::Idle => state.phase = LifecyclePhase::Starting,
       }
+      backend
     };
-    start_backend_with_rollback(backend.as_ref());
+    self.run_claimed_start(backend.as_ref());
     true
   }
 
   /// Last-env-teardown hook. Returns `true` when a custom backend owned the lifecycle.
+  ///
+  /// Takes the lifecycle lock first, so an in-flight start-with-rollback sequence completes
+  /// (and, on this teardown's `shutdown`, is fully quiesced) before this returns — teardown
+  /// never reports quiescence while `start` may still be creating backend resources. Resetting
+  /// the phase to `Idle` only after `shutdown` returned also revokes any start claim made
+  /// before this teardown completed (see [`Self::run_claimed_start`]), so a dispatch racing
+  /// the teardown cannot start the backend afterwards — it spawns into the stopped backend and
+  /// gets rejected instead. The next dispatch or activation begins a new cycle and starts the
+  /// backend again.
   fn deactivate(&self) -> bool {
     let Some(backend) = self.backend.get() else {
       return false;
     };
+    let _lifecycle = self.lock_lifecycle();
     if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
       // Same rationale as the `start` rollback: quiescence is only guaranteed when `shutdown`
       // returns, and this runs at last-env teardown right before Node may unload the image.
       std::process::abort();
     }
-    // Clear the start gate only after `shutdown` returned, so a dispatch racing this teardown
-    // cannot `start()` the backend mid-shutdown (it spawns into the stopped backend and gets
-    // rejected instead). The next dispatch or activation starts the backend again.
-    self.lock_state().started = false;
+    self.lock_state().phase = LifecyclePhase::Idle;
     true
   }
 }
@@ -527,15 +604,17 @@ impl AsyncRuntimeRegistry {
 /// If the rollback `shutdown` itself unwinds, the process aborts (like
 /// [`retire_rejected_async_runtime`]): the safety contract only guarantees quiescence when
 /// `shutdown` *returns*, so an unwinding rollback leaves the backend unprovably live while Node
-/// may unload the addon image.
+/// may unload the addon image. Returns `true` when `start` succeeded, `false` when it was
+/// rolled back.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-fn start_backend_with_rollback(backend: &dyn AsyncRuntime) {
+fn start_backend_with_rollback(backend: &dyn AsyncRuntime) -> bool {
   match catch_unwind(AssertUnwindSafe(|| backend.start())) {
-    Ok(Ok(())) => {}
+    Ok(Ok(())) => true,
     Ok(Err(_)) | Err(_) => {
       if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
         std::process::abort();
       }
+      false
     }
   }
 }
@@ -1136,12 +1215,19 @@ impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
 
 #[cfg(all(test, feature = "async-runtime", not(feature = "noop")))]
 mod spi_tests {
-  use std::sync::{
-    atomic::{AtomicUsize, Ordering as AtomicOrdering},
-    Arc, Mutex,
+  use std::{
+    sync::{
+      atomic::{AtomicBool as TestAtomicBool, AtomicUsize, Ordering as AtomicOrdering},
+      mpsc, Arc, Mutex,
+    },
+    time::Duration,
   };
 
   use super::*;
+
+  const BACKEND_STOPPED_ERROR: &str = "mock backend is stopped";
+  /// Hang protection only — the tests below never rely on timing for their assertions.
+  const HANG_PROTECTION: Duration = Duration::from_secs(30);
 
   /// Observations shared between a test and its mock backend, surviving backend retirement.
   #[derive(Default)]
@@ -1151,6 +1237,8 @@ mod spi_tests {
     spawn_calls: AtomicUsize,
     /// Spawns observed while the backend had never received a `start()`.
     spawns_before_start: AtomicUsize,
+    /// `true` between a successful `start()` and the next `shutdown()`.
+    running: TestAtomicBool,
   }
 
   struct MockRuntime {
@@ -1186,6 +1274,13 @@ mod spi_tests {
           .fetch_add(1, AtomicOrdering::SeqCst);
       }
       self.probe.spawn_calls.fetch_add(1, AtomicOrdering::SeqCst);
+      if !self.probe.running.load(AtomicOrdering::SeqCst) {
+        // A conforming stopped backend stops accepting work (see `AsyncRuntime::shutdown`).
+        return Err(AsyncRuntimeRejection::new(
+          task,
+          Error::new(crate::Status::GenericFailure, BACKEND_STOPPED_ERROR),
+        ));
+      }
       futures::executor::block_on(task);
       Ok(())
     }
@@ -1200,10 +1295,12 @@ mod spi_tests {
       if self.fail_start {
         return Err(Error::new(crate::Status::GenericFailure, "start failed"));
       }
+      self.probe.running.store(true, AtomicOrdering::SeqCst);
       Ok(())
     }
 
     fn shutdown(&self) -> Result<()> {
+      self.probe.running.store(false, AtomicOrdering::SeqCst);
       self
         .probe
         .shutdown_calls
@@ -1431,6 +1528,148 @@ mod spi_tests {
     assert!(registry.deactivate());
     assert!(registry.activate());
     assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 2);
+  }
+
+  #[test]
+  fn deactivate_waits_out_inflight_start() {
+    /// A backend whose `start()` blocks until the test driver releases it, logging every
+    /// lifecycle event in order.
+    struct GatedStartRuntime {
+      events: Arc<Mutex<Vec<&'static str>>>,
+      start_entered: mpsc::Sender<()>,
+      release_start: Mutex<mpsc::Receiver<()>>,
+    }
+
+    unsafe impl AsyncRuntime for GatedStartRuntime {
+      fn spawn(
+        &self,
+        task: AsyncRuntimeTask,
+      ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+        futures::executor::block_on(task);
+        Ok(())
+      }
+
+      fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+        futures::executor::block_on(future);
+        Ok(())
+      }
+
+      fn start(&self) -> Result<()> {
+        self.events.lock().unwrap().push("start:enter");
+        self
+          .start_entered
+          .send(())
+          .expect("test driver dropped the start-entered channel");
+        self
+          .release_start
+          .lock()
+          .unwrap()
+          .recv_timeout(HANG_PROTECTION)
+          .expect("test driver never released the gated start");
+        self.events.lock().unwrap().push("start:exit");
+        Ok(())
+      }
+
+      fn shutdown(&self) -> Result<()> {
+        self.events.lock().unwrap().push("shutdown");
+        Ok(())
+      }
+    }
+
+    let events: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let (start_entered_tx, start_entered_rx) = mpsc::channel();
+    let (release_start_tx, release_start_rx) = mpsc::channel();
+    let (deactivate_called_tx, deactivate_called_rx) = mpsc::channel();
+
+    let registry = AsyncRuntimeRegistry::new();
+    assert!(registry
+      .try_register(Box::new(GatedStartRuntime {
+        events: events.clone(),
+        start_entered: start_entered_tx,
+        release_start: Mutex::new(release_start_rx),
+      }))
+      .is_ok());
+
+    std::thread::scope(|scope| {
+      let starter = scope.spawn(|| assert!(registry.activate()));
+      // Once `start` signals, the starter holds the lifecycle lock with `start` in flight.
+      start_entered_rx
+        .recv_timeout(HANG_PROTECTION)
+        .expect("start was never entered");
+
+      let stopper = scope.spawn(|| {
+        deactivate_called_tx
+          .send(())
+          .expect("test driver dropped the deactivate-called channel");
+        assert!(registry.deactivate());
+        events.lock().unwrap().push("deactivate:returned");
+      });
+      // Wait until the teardown is underway, then let the gated start finish. `deactivate`
+      // must wait out the in-flight start: it may run `shutdown` (and return) only after
+      // `start` completed.
+      deactivate_called_rx
+        .recv_timeout(HANG_PROTECTION)
+        .expect("deactivate was never called");
+      release_start_tx
+        .send(())
+        .expect("the gated start is no longer waiting for its release");
+
+      starter.join().expect("starter thread panicked");
+      stopper.join().expect("stopper thread panicked");
+    });
+
+    assert_eq!(
+      *events.lock().unwrap(),
+      [
+        "start:enter",
+        "start:exit",
+        "shutdown",
+        "deactivate:returned"
+      ]
+    );
+  }
+
+  #[test]
+  fn completed_teardown_revokes_pending_start_claim() {
+    let registry = AsyncRuntimeRegistry::new();
+    let probe = Arc::new(BackendProbe::default());
+    assert!(registry
+      .try_register(Box::new(MockRuntime::new(&probe)))
+      .is_ok());
+
+    // A dispatch claimed the start (`Idle → Starting`) but has not taken the lifecycle lock
+    // yet …
+    registry.lock_state().phase = LifecyclePhase::Starting;
+    // … when a teardown runs to completion: `shutdown` returns and the claim is revoked.
+    assert!(registry.deactivate());
+    assert_eq!(probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+
+    // The claimant resumes. It must NOT start the backend now: `shutdown` already reported
+    // quiescence to the (possibly last) environment cleanup, so a start here would create
+    // backend resources nobody can stop before Node unloads the image.
+    let backend = registry
+      .commit_selection(cfg!(feature = "tokio_rt"))
+      .expect("custom backend must stay selected");
+    registry.run_claimed_start(backend);
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 0);
+
+    // The claimant's dispatch then spawns into the stopped backend and gets rejected; the
+    // promise settles through the cancellation diagnostic instead.
+    let (fired, message, callback) = recording_cancel_callback();
+    let rejection = backend
+      .spawn(AsyncRuntimeTask::new(Box::pin(async {}), callback))
+      .expect_err("a stopped conforming backend must reject the spawn");
+    let (task, error) = rejection.into_parts();
+    task.reject_with(error);
+    assert_eq!(fired.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(
+      message.lock().unwrap().as_deref(),
+      Some(BACKEND_STOPPED_ERROR)
+    );
+
+    // A fresh claim afterwards begins a new cycle and starts the backend again.
+    registry.ensure_started(backend);
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 1);
   }
 
   #[test]
