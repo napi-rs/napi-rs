@@ -551,6 +551,17 @@ impl AsyncRuntimeRegistry {
       return;
     }
     let phase = if start_backend_with_rollback(backend) {
+      // The combined-build refill lives HERE rather than only in `ensure_started`, so that
+      // "successful start ⇒ both halves live" is an invariant of every claim path: a
+      // dispatch-driven self-heal after an explicit `shutdown_async_runtime` restores the
+      // drained Tokio peer together with the custom backend (otherwise
+      // `within_runtime_if_available` and friends panic on the empty slot until a NEW env
+      // registers), and the env-activation claim reaches here too — its caller
+      // (`start_async_runtime`) refills again, which is harmless because the refill is
+      // guarded and idempotent. Runs before `Started` is published, so a dispatch that
+      // observes `Started` (the `ensure_started` fast path) always finds the slot refilled.
+      #[cfg(feature = "tokio_rt")]
+      refill_drained_tokio_runtime();
       LifecyclePhase::Started
     } else {
       LifecyclePhase::Idle
@@ -802,6 +813,23 @@ static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
   RwLock::new(Some(create_runtime()))
 });
 
+/// Refill the built-in Tokio runtime's slot after a combined-build drain: when a custom
+/// backend owns the runtime lifecycle, `shutdown_async_runtime` takes a lazily-created
+/// runtime out of `RT`, and every Tokio compatibility helper (`spawn`, `block_on`,
+/// `spawn_blocking`, `within_runtime_if_available`) panics on the empty slot until it is
+/// refilled. Gated on `RT_CONSTRUCTED` so this never forces a first `LazyLock` construction,
+/// preserving the "selecting a custom backend never constructs Tokio" promise.
+#[cfg(all(feature = "async-runtime", feature = "tokio_rt", not(feature = "noop")))]
+fn refill_drained_tokio_runtime() {
+  if RT_CONSTRUCTED.load(Ordering::SeqCst) {
+    if let Ok(mut rt) = RT.write() {
+      if rt.is_none() {
+        *rt = Some(create_runtime());
+      }
+    }
+  }
+}
+
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
@@ -855,17 +883,12 @@ pub fn start_async_runtime() {
     // `within_runtime_if_available`) stay Tokio-backed and may have constructed the built-in
     // runtime lazily; a previous `shutdown_async_runtime` then drained it. Refill it on
     // re-activation (worker restart, Electron renderer reload) — otherwise every later helper
-    // call panics on the drained slot forever. Gated on `RT_CONSTRUCTED` so this never forces
-    // a first construction, preserving the "selecting a custom backend never constructs
-    // Tokio" promise.
+    // call panics on the drained slot until the next dispatch-driven self-heal.
+    // `run_claimed_start` already refills on any successful start, but `activate` can return
+    // with the phase already `Starting`/`Started` without running it; the direct call keeps
+    // the guarantee that the helpers work as soon as this function returns.
     #[cfg(feature = "tokio_rt")]
-    if RT_CONSTRUCTED.load(Ordering::SeqCst) {
-      if let Ok(mut rt) = RT.write() {
-        if rt.is_none() {
-          *rt = Some(create_runtime());
-        }
-      }
-    }
+    refill_drained_tokio_runtime();
     return;
   }
   #[cfg(feature = "tokio_rt")]
@@ -885,8 +908,12 @@ pub fn start_async_runtime() {
 /// compatibility helper constructed lazily is also drained, on a best-effort basis: a helper's
 /// very first Tokio construction racing this teardown can leave the built-in runtime running,
 /// the same teardown-race window the plain `tokio_rt` path has (whose background shutdown never
-/// waits for Tokio quiescence either). Otherwise the built-in Tokio runtime is shut down in the
-/// background.
+/// waits for Tokio quiescence either). The drained pair is restored together: the next
+/// [`start_async_runtime`] *or* the next runtime-backed dispatch (which self-heals the idle
+/// custom backend) refills the drained Tokio runtime alongside the backend restart. Tokio
+/// compatibility helpers called after this shutdown but before either of those still panic on
+/// the empty slot, exactly as they do after a `tokio_rt`-only shutdown. Otherwise the built-in
+/// Tokio runtime is shut down in the background.
 pub fn shutdown_async_runtime() {
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.deactivate() {
@@ -1906,6 +1933,28 @@ mod spi_tests {
       second_rx
         .recv_timeout(HANG_PROTECTION)
         .expect("a spawn after re-activation must run instead of panicking");
+
+      // Reproduced field failure: after an explicit shutdown drains both halves, the next
+      // runtime-backed dispatch — NOT a new env registration — self-heals the idle custom
+      // backend through `ensure_started`. The heal must restore the drained Tokio peer too,
+      // or the very next Tokio compatibility helper call aborts on the empty slot
+      // ("Access tokio runtime failed in within_runtime_if_available").
+      shutdown_async_runtime();
+      assert_eq!(first_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 2);
+
+      // Mimic the dispatch path (`execute_future_impl`): commit the selection, then
+      // self-heal the backend before its first task of the new cycle.
+      let backend = ASYNC_RUNTIME_REGISTRY
+        .commit_selection(cfg!(feature = "tokio_rt"))
+        .expect("custom backend must stay selected");
+      ASYNC_RUNTIME_REGISTRY.ensure_started(backend);
+      assert_eq!(first_probe.start_calls.load(AtomicOrdering::SeqCst), 3);
+
+      // The healed state is coherent: the helper runs its closure inside a live Tokio
+      // runtime context instead of panicking on the drained slot.
+      assert!(within_runtime_if_available(|| {
+        tokio::runtime::Handle::try_current().is_ok()
+      }));
     }
   }
 }
