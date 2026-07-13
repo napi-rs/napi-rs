@@ -833,8 +833,11 @@ pub fn start_async_runtime() {
 /// When a custom [`AsyncRuntime`] backend has been registered, this calls the backend's
 /// [`AsyncRuntime::shutdown`] hook — the backend's sole resource-release and quiescence hook.
 /// In combined `async-runtime` + `tokio_rt` builds a built-in Tokio runtime that a Tokio
-/// compatibility helper constructed lazily is drained as well. Otherwise the built-in Tokio
-/// runtime is shut down in the background.
+/// compatibility helper constructed lazily is also drained, on a best-effort basis: a helper's
+/// very first Tokio construction racing this teardown can leave the built-in runtime running,
+/// the same teardown-race window the plain `tokio_rt` path has (whose background shutdown never
+/// waits for Tokio quiescence either). Otherwise the built-in Tokio runtime is shut down in the
+/// background.
 pub fn shutdown_async_runtime() {
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.deactivate() {
