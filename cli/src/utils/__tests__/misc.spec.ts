@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
-import { existsSync, realpathSync, type BigIntStats } from 'node:fs'
+import { existsSync, realpathSync, type BigIntStats, type Stats } from 'node:fs'
 import {
   chmod,
   link,
@@ -40,6 +40,7 @@ import {
   commitFileSystemTransaction,
   copyFileAtomic,
   createProcessExecutionIdentityGetter,
+  failedSnapshotLeftoverCleanupAction,
   fileSystemTransactionStateMatches,
   getPackageReconciliationRoot,
   getPackageReconciliationRoots,
@@ -1320,6 +1321,33 @@ test('transaction state match refuses a Number-colliding successor directory', (
       isDirectory: () => true,
       isSymbolicLink: () => true,
     } as unknown as BigIntStats),
+  )
+})
+
+test('failed-snapshot cleanup preserves a leftover whose identity fstat failed', (t) => {
+  const definedStats = { isFile: () => true } as unknown as Stats
+
+  // Regression guard: the second (bigint) identity fstat on the exclusively
+  // created 'wx' handle was hoisted to run unconditionally, so a rare failure of
+  // that fstat AFTER the first fstat succeeded left `destinationStats` defined but
+  // `destinationIdentity` undefined. The cleanup must PRESERVE such a leftover
+  // (leave it for the sibling scavenger) because its ownership cannot be proven —
+  // never unconditionally unlink a possibly non-owned file.
+  t.is(failedSnapshotLeftoverCleanupAction(definedStats, undefined), 'preserve')
+
+  // The first fstat never succeeded: no identity exists at all, so the
+  // unpredictable transaction-owned pathname is best-effort unlinked.
+  t.is(failedSnapshotLeftoverCleanupAction(undefined, undefined), 'unlink')
+  t.is(
+    failedSnapshotLeftoverCleanupAction(undefined, { dev: '0', ino: '1' }),
+    'unlink',
+  )
+
+  // Both observations exist: the owned-branch behavior is unchanged — re-read the
+  // pathname and unlink only on an exact identity match.
+  t.is(
+    failedSnapshotLeftoverCleanupAction(definedStats, { dev: '0', ino: '1' }),
+    'verify-identity',
   )
 })
 
