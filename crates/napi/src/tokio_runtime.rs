@@ -1,12 +1,9 @@
 #[cfg(not(feature = "noop"))]
 use std::sync::OnceLock;
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-use std::sync::{
-  atomic::{AtomicBool, Ordering},
-  Mutex,
-};
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 use std::sync::{LazyLock, RwLock};
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::{future::Future, marker::PhantomData};
 #[cfg(feature = "async-runtime")]
 use std::{
@@ -345,12 +342,23 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 struct AsyncRuntimeRegistry {
   backend: OnceLock<Box<dyn AsyncRuntime>>,
-  /// Once `true`, the registration window is closed: either an environment began activation or
-  /// a runtime-backed operation committed a backend choice.
-  selection_frozen: AtomicBool,
+  /// Registration-window and lifecycle state. Every check-then-act transition (duplicate check
+  /// + window check + publication in [`Self::try_register`], backend read + freeze in
+  /// [`Self::commit_selection`] and [`Self::activate`]) runs under this single lock, so the
+  /// transitions are linearized: a freeze can no longer slip between registration's checks and
+  /// its publication, and a commit cannot interleave with a late registration. Backend hooks
+  /// (`start`/`spawn`/`shutdown`) are never called while the lock is held.
+  state: Mutex<RegistryState>,
   /// A duplicate/late registration error recorded by the infallible [`register_async_runtime`];
   /// surfaced by every later runtime-backed call.
   deferred_registration_error: Mutex<Option<&'static str>>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct RegistryState {
+  /// Once `true`, the registration window is closed: either an environment began activation or
+  /// a runtime-backed operation committed a backend choice.
+  selection_frozen: bool,
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -358,9 +366,17 @@ impl AsyncRuntimeRegistry {
   const fn new() -> Self {
     Self {
       backend: OnceLock::new(),
-      selection_frozen: AtomicBool::new(false),
+      state: Mutex::new(RegistryState {
+        selection_frozen: false,
+      }),
       deferred_registration_error: Mutex::new(None),
     }
+  }
+
+  fn lock_state(&self) -> MutexGuard<'_, RegistryState> {
+    // The lock only ever guards plain flag reads/writes, so a poisoned guard (impossible in
+    // practice: no code below can panic while holding it) is still consistent to reuse.
+    self.state.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
   /// First-writer-wins registration. On rejection the backend is handed back to the caller for
@@ -369,22 +385,17 @@ impl AsyncRuntimeRegistry {
     &self,
     runtime: Box<dyn AsyncRuntime>,
   ) -> std::result::Result<(), (&'static str, Box<dyn AsyncRuntime>)> {
+    let state = self.lock_state();
     if self.backend.get().is_some() {
       return Err((DUPLICATE_RUNTIME_ERROR, runtime));
     }
-    if self.selection_frozen.load(Ordering::SeqCst) {
+    if state.selection_frozen {
       return Err((LATE_RUNTIME_REGISTRATION_ERROR, runtime));
     }
-    let mut candidate = Some(runtime);
-    self.backend.get_or_init(|| {
-      candidate
-        .take()
-        .expect("candidate backend is present until publication")
-    });
-    match candidate {
-      None => Ok(()),
-      // Lost the race against a concurrent registration.
-      Some(rejected) => Err((DUPLICATE_RUNTIME_ERROR, rejected)),
+    match self.backend.set(runtime) {
+      Ok(()) => Ok(()),
+      // Unreachable while every publication goes through the state lock; kept for robustness.
+      Err(rejected) => Err((DUPLICATE_RUNTIME_ERROR, rejected)),
     }
   }
 
@@ -409,9 +420,10 @@ impl AsyncRuntimeRegistry {
   /// (combined builds): taking the fallback also commits a choice and closes the registration
   /// window. In pure `async-runtime` builds a missing backend leaves the selection undecided.
   fn commit_selection(&self, fallback_commits: bool) -> Option<&dyn AsyncRuntime> {
+    let mut state = self.lock_state();
     let backend = self.backend.get().map(|backend| backend.as_ref());
     if backend.is_some() || fallback_commits {
-      self.selection_frozen.store(true, Ordering::SeqCst);
+      state.selection_frozen = true;
     }
     backend
   }
@@ -419,9 +431,13 @@ impl AsyncRuntimeRegistry {
   /// First-env-activation hook: close the registration window and start the custom backend if
   /// one is selected. Returns `true` when a custom backend owns the runtime lifecycle.
   fn activate(&self) -> bool {
-    self.selection_frozen.store(true, Ordering::SeqCst);
-    let Some(backend) = self.backend.get() else {
-      return false;
+    let backend = {
+      let mut state = self.lock_state();
+      state.selection_frozen = true;
+      match self.backend.get() {
+        Some(backend) => backend,
+        None => return false,
+      }
     };
     match catch_unwind(AssertUnwindSafe(|| backend.start())) {
       Ok(Ok(())) => {}
