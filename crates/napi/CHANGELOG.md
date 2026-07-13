@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.4...napi-v3.10.5) - 2026-07-13
+
+### Fixed
+
+- *(napi)* release FunctionRef off the JS thread via the custom-GC TSFN ([#3394](https://github.com/napi-rs/napi-rs/pull/3394))
+
 ## [3.10.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.3...napi-v3.10.4) - 2026-07-12
 
 ### Fixed
