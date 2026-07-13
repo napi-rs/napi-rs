@@ -4,7 +4,10 @@
 use std::any::{type_name, TypeId};
 use std::convert::TryInto;
 use std::ffi::CString;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[cfg(all(
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
 use std::future::Future;
 #[cfg(feature = "compat-mode")]
 use std::mem;
@@ -24,7 +27,10 @@ use crate::bindgen_runtime::u128_with_sign_to_napi_value;
 use crate::bindgen_runtime::FinalizeContext;
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::FunctionCallContext;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[cfg(all(
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
 use crate::bindgen_runtime::PromiseRaw;
 use crate::bindgen_runtime::{
   FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
@@ -1155,7 +1161,11 @@ impl Env {
     ThreadsafeFunction::<T, Unknown, V>::create(self.0, func.0.value, callback)
   }
 
-  #[cfg(all(feature = "tokio_rt", feature = "napi4", feature = "compat-mode"))]
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4",
+    feature = "compat-mode"
+  ))]
   #[deprecated(since = "3.0.0", note = "Please use `Env::spawn_future` instead")]
   pub fn execute_tokio_future<
     T: 'static + Send,
@@ -1176,7 +1186,10 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })
   }
 
-  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
   /// Spawn a future, return a JavaScript Promise which takes the result of the future
   pub fn spawn_future<
     T: 'static + Send + ToNapiValue,
@@ -1194,7 +1207,10 @@ impl Env {
     Ok(PromiseRaw::new(self.0, promise))
   }
 
-  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
   /// Spawn a future with a callback
   /// So you can access the `Env` and resolved value after the future completed
   pub fn spawn_future_with_callback<
