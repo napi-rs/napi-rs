@@ -427,7 +427,12 @@ impl AsyncRuntimeRegistry {
       Ok(Ok(())) => {}
       // A failed or panicking `start` is rolled back through `shutdown`.
       Ok(Err(_)) | Err(_) => {
-        let _ = catch_unwind(AssertUnwindSafe(|| backend.shutdown()));
+        if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
+          // The safety contract only guarantees quiescence when `shutdown` *returns*; an
+          // unwinding rollback leaves the backend unprovably live while Node may unload the
+          // addon image, so abort like `retire_rejected_async_runtime` does.
+          std::process::abort();
+        }
       }
     }
     true
@@ -438,7 +443,11 @@ impl AsyncRuntimeRegistry {
     let Some(backend) = self.backend.get() else {
       return false;
     };
-    let _ = catch_unwind(AssertUnwindSafe(|| backend.shutdown()));
+    if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
+      // Same rationale as the `start` rollback: quiescence is only guaranteed when `shutdown`
+      // returns, and this runs at last-env teardown right before Node may unload the image.
+      std::process::abort();
+    }
     true
   }
 }
