@@ -1,0 +1,40 @@
+{
+  "name": "@examples/custom-async-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./index.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test.mjs native",
+    "test:wasi": "node build-threadless-wasi-test.mjs",
+    "test:wasi-threads": "node build.mjs --target wasm32-wasip1-threads --profile wasi && node test.mjs wasi-threads",
+    "test:browser": "vitest run",
+    "test:workerd": "node test-workerd.mjs"
+  },
+  "napi": {
+    "binaryName": "custom_async_runtime",
+    "wasm": {
+      "browser": {
+        "buffer": true
+      }
+    },
+    "targets": [
+      "wasm32-wasip1"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
+    "@napi-rs/wasm-runtime": "workspace:*",
+    "@vitest/browser-playwright": "^4.1.9",
+    "esbuild": "^0.28.1",
+    "miniflare": "^4.20260630.0",
+    "playwright": "^1.61.1",
+    "vite": "^8.1.2",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@emnapi/core": "2.0.0-alpha.2",
+    "@emnapi/runtime": "2.0.0-alpha.2"
+  }
+}

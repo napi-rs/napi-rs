@@ -9,6 +9,7 @@
     "wasm-runtime",
     "triples",
     "memory-testing",
+    "examples/custom-async-runtime",
     "examples/napi",
     "examples/napi-compat-mode",
     "examples/binary"
@@ -29,7 +30,7 @@
     "format:rs": "cargo fmt",
     "format:toml": "taplo format",
     "lint": "oxlint --import-plugin --ignore-path=./.oxlintignore --deny-warnings -c oxlint.json",
-    "test": "yarn workspaces foreach -j 1 -A --exclude \"{cli,napi-rs}\" run test",
+    "test": "yarn workspaces foreach -j 1 -A --exclude \"{cli,napi-rs,@examples/custom-async-runtime}\" run test",
     "test:bun": "bun test examples/napi/__tests__/values.spec.ts",
     "test:cli": "yarn workspace @napi-rs/cli test",
     "test:electron": "electron examples/napi/electron.cjs",

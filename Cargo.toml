@@ -9,6 +9,7 @@ members = [
   "./examples/napi",
   "./examples/napi-shared",
   "./examples/napi-compat-mode",
+  "./examples/custom-async-runtime",
   "./examples/binary",
   "./bench",
   "./memory-testing",
