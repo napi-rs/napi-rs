@@ -1,3 +1,5 @@
+#[cfg(all(feature = "async-runtime", feature = "tokio_rt", not(feature = "noop")))]
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(feature = "noop"))]
 use std::sync::OnceLock;
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
@@ -373,12 +375,12 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 struct AsyncRuntimeRegistry {
   backend: OnceLock<Box<dyn AsyncRuntime>>,
-  /// Registration-window and lifecycle state. Every check-then-act transition (duplicate check
-  /// + window check + publication in [`Self::try_register`], backend read + freeze in
-  /// [`Self::commit_selection`] and [`Self::activate`]) runs under this single lock, so the
-  /// transitions are linearized: a freeze can no longer slip between registration's checks and
-  /// its publication, and a commit cannot interleave with a late registration. Backend hooks
-  /// (`start`/`spawn`/`shutdown`) are never called while the lock is held.
+  /// Registration-window and lifecycle state. Every check-then-act transition (the duplicate
+  /// check, window check, and publication in [`Self::try_register`]; the backend read and
+  /// freeze in [`Self::commit_selection`] and [`Self::activate`]) runs under this single lock,
+  /// so the transitions are linearized: a freeze can no longer slip between registration's
+  /// checks and its publication, and a commit cannot interleave with a late registration.
+  /// Backend hooks (`start`/`spawn`/`shutdown`) are never called while the lock is held.
   state: Mutex<RegistryState>,
   /// A duplicate/late registration error recorded by the infallible [`register_async_runtime`];
   /// surfaced by every later runtime-backed call.
@@ -657,9 +659,20 @@ fn create_runtime() -> Runtime {
   }
 }
 
+/// Whether `RT`'s construction has been observed (set at the top of its initializer, so a
+/// `true` here means dereferencing `RT` either finds the runtime or blocks on an in-flight
+/// construction — it can never trigger a fresh one). Lets the combined-build shutdown path
+/// drain a lazily-created runtime without forcing `RT`'s construction. (`LazyLock::get` would
+/// express this directly, but it is stable only since Rust 1.89 and MSRV is 1.88.)
+#[cfg(all(feature = "async-runtime", feature = "tokio_rt", not(feature = "noop")))]
+static RT_CONSTRUCTED: AtomicBool = AtomicBool::new(false);
+
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
-static RT: LazyLock<RwLock<Option<Runtime>>> =
-  LazyLock::new(|| RwLock::new(Some(create_runtime())));
+static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
+  #[cfg(feature = "async-runtime")]
+  RT_CONSTRUCTED.store(true, Ordering::SeqCst);
+  RwLock::new(Some(create_runtime()))
+});
 
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
@@ -734,12 +747,14 @@ pub fn shutdown_async_runtime() {
     // The custom backend owns the runtime lifecycle, but the Tokio compatibility helpers
     // (`spawn`, `block_on`, `spawn_blocking`, `within_runtime_if_available`) stay Tokio-backed
     // in combined builds and may have constructed the built-in runtime lazily AFTER the
-    // backend was selected. Drain it too — via `LazyLock::get`, never forcing construction,
-    // preserving the "selecting a custom backend never constructs Tokio" promise.
+    // backend was selected. Drain it too — gated on `RT_CONSTRUCTED` so this never forces a
+    // construction, preserving the "selecting a custom backend never constructs Tokio"
+    // promise.
     #[cfg(feature = "tokio_rt")]
-    if let Some(rt) = LazyLock::get(&RT)
-      .and_then(|lock| lock.write().ok())
-      .and_then(|mut rt| rt.take())
+    if let Some(rt) = RT_CONSTRUCTED
+      .load(Ordering::SeqCst)
+      .then(|| RT.write().ok().and_then(|mut rt| rt.take()))
+      .flatten()
     {
       rt.shutdown_background();
     }
