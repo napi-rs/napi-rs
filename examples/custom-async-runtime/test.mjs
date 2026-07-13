@@ -74,20 +74,6 @@ const nativeBindingFile =
       )
     : undefined
 
-async function readFileEventually(path, description) {
-  const deadline = Date.now() + 5000
-  let lastError
-  while (Date.now() < deadline) {
-    try {
-      return await readFile(path, 'utf8')
-    } catch (error) {
-      lastError = error
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
-  }
-  throw new Error(`Timed out waiting for ${description}`, { cause: lastError })
-}
-
 const initial = binding.getRuntimeMetrics()
 
 assert.equal(binding.isWasm(), isWasi)
