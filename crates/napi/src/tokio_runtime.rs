@@ -76,6 +76,19 @@ impl<T> AsyncRuntimeRejection<T> {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 type AsyncRuntimeTaskCancelCallback = Box<dyn FnOnce(Error) + Send + 'static>;
 
+/// Invoke a task's cancellation callback with panic containment.
+///
+/// Cancellation rejections are best-effort: during environment teardown the promise machinery
+/// may already be closing, and the rejection path can then panic (a debug assertion on
+/// `napi_closing` from `napi_call_threadsafe_function`). This regularly runs inside
+/// [`AsyncRuntimeTask`]'s `Drop` on a backend worker thread — possibly while that thread is
+/// already unwinding, where a second panic aborts the process. Contain the panic and drop the
+/// rejection instead of unwinding into backend code.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn invoke_cancel_callback(on_cancel: AsyncRuntimeTaskCancelCallback, error: Error) {
+  let _ = catch_unwind(AssertUnwindSafe(move || on_cancel(error)));
+}
+
 /// An opaque unit of work napi submits to a custom [`AsyncRuntime`] backend.
 ///
 /// There is no public constructor: tasks are built only inside napi (wrapping the future behind
@@ -114,7 +127,7 @@ impl AsyncRuntimeTask {
   /// callback is disarmed, so the subsequent drop is a no-op.
   fn reject_with(mut self, error: Error) {
     if let Some(on_cancel) = self.on_cancel.take() {
-      on_cancel(error);
+      invoke_cancel_callback(on_cancel, error);
     }
   }
 }
@@ -140,7 +153,7 @@ impl Future for AsyncRuntimeTask {
         // A panicking future settles its promise as rejected rather than aborting the
         // backend's worker thread. Exactly-once is guaranteed by taking the callback.
         if let Some(on_cancel) = this.on_cancel.take() {
-          on_cancel(async_task_panic_error(panic_payload));
+          invoke_cancel_callback(on_cancel, async_task_panic_error(panic_payload));
         }
         Poll::Ready(())
       }
@@ -154,10 +167,10 @@ impl Drop for AsyncRuntimeTask {
     // Dropping an accepted task before completion (backend shutdown, queue teardown, …)
     // cancels it: the callback fires exactly once and rejects the associated promise.
     if let Some(on_cancel) = self.on_cancel.take() {
-      on_cancel(Error::new(
-        crate::Status::GenericFailure,
-        TASK_CANCELLED_ERROR,
-      ));
+      invoke_cancel_callback(
+        on_cancel,
+        Error::new(crate::Status::GenericFailure, TASK_CANCELLED_ERROR),
+      );
     }
   }
 }
