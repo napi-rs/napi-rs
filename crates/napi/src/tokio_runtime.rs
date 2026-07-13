@@ -1111,6 +1111,8 @@ fn execute_future_impl<
     )
   ))]
   let deferred_for_panic = deferred.clone();
+  #[cfg(all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable)))]
+  let deferred_for_threadless = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
   let inner = async move {
@@ -1179,9 +1181,20 @@ fn execute_future_impl<
 
     #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
     {
-      std::thread::spawn(|| {
-        block_on(inner);
-      });
+      // Plain `wasm32-wasip1` has no threads and builds `panic = "abort"`, so the old
+      // `std::thread::spawn(|| block_on(inner))` fallback would trap: the unsupported thread
+      // spawn makes its internal `.expect` panic, which aborts to an `unreachable` wasm trap
+      // surfaced to JS as `RuntimeError: unreachable`, poisoning the whole instance. Instead
+      // drop the future without running it and reject the deferred with a friendly diagnostic,
+      // matching the old fat base's behavior. A registered custom `AsyncRuntime` backend
+      // (async-runtime builds) is selected above and returns before reaching here, and
+      // `wasm32-wasip1-threads` compiles with `tokio_unstable`, taking the spawn path instead —
+      // so this branch is only the genuinely threadless built-in Tokio case.
+      drop(inner);
+      deferred_for_threadless.reject(Error::new(
+        crate::Status::GenericFailure,
+        "Built-in Tokio async tasks require a threaded WASI target. Use wasm32-wasip1-threads, or enable async-runtime and register a custom AsyncRuntime backend for wasm32-wasip1.",
+      ));
     }
 
     Ok(promise_value)
