@@ -1,0 +1,23 @@
+[package]
+edition = "2021"
+name = "napi-custom-async-runtime-example"
+publish = false
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+async-runtime = ["napi/async-runtime"]
+default = ["async-runtime", "tokio-rt"]
+tokio-rt = ["napi/tokio_rt"]
+
+[dependencies]
+futures = "0.3"
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi4",
+] }
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
+
+[build-dependencies]
+napi-build = { path = "../../crates/build" }
