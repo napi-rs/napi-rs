@@ -101,6 +101,10 @@ fn invoke_cancel_callback(on_cancel: AsyncRuntimeTaskCancelCallback, error: Erro
 ///   rejecting the associated JavaScript promise instead of leaving it pending,
 /// - or hand it back untouched in an [`AsyncRuntimeRejection`] when declining the submission.
 ///
+/// Dropping a task destroys its captured promise/resolver state on the dropping thread —
+/// exactly as the built-in Tokio path does for `Err`-completing futures and for futures dropped
+/// at shutdown, so the hazard is not specific to custom backends.
+///
 /// The first poll commits ownership and may run user code immediately. napi wraps every poll in
 /// `catch_unwind` on unwind-enabled builds, so a panicking future settles its promise as rejected
 /// instead of tearing down the backend's worker; do not add another panic-containment layer.
@@ -259,8 +263,16 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// otherwise unable to accept it. The error is surfaced through the generated promise
   /// rejection. Dropping an accepted task invokes its cancellation callback, so shutdown
   /// implementations may cancel queued work by dropping it without leaving JavaScript promises
-  /// pending forever. Never forget an accepted task: retain it until completion or drop it on
-  /// cancellation.
+  /// pending forever; cleanup-driven cancellation rejections are best-effort and are dropped
+  /// when the promise machinery is already closing. Never forget an accepted task: retain it
+  /// until completion or drop it on cancellation.
+  ///
+  /// Submissions can arrive before the first [`start`](AsyncRuntime::start) of an environment
+  /// cycle completes, or after a `start` that failed: module-init and module-export hooks may
+  /// invoke runtime-backed APIs during first-env registration (napi runs the
+  /// start-with-rollback sequence before its first dispatch, but a `start` failure does not
+  /// gate dispatch). A dormant or not-ready backend must decline such work with an
+  /// [`AsyncRuntimeRejection`] or accept it and defer execution.
   ///
   /// A backend may poll the task synchronously before this hook returns. The first poll commits
   /// ownership and may run user work immediately; after that point returning the task in an
@@ -296,10 +308,11 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
 
   /// Start (or restart) the runtime.
   ///
-  /// napi calls this when the first live Node environment for the addon starts. Worker
-  /// isolates and Electron renderer reloads can take the live environment count from zero
-  /// to one repeatedly, so this may run more than once over the backend's lifetime.
-  /// Implement it idempotently. Return success only after the backend can accept tasks. Do not
+  /// napi calls this when the first live Node environment for the addon starts, or earlier
+  /// when a module-init or module-export hook triggers the first runtime-backed dispatch of
+  /// the cycle. Worker isolates and Electron renderer reloads can take the live environment
+  /// count from zero to one repeatedly, so this may run more than once over the backend's
+  /// lifetime. Implement it idempotently. Return success only after the backend can accept tasks. Do not
   /// call napi's runtime registration or lifecycle functions recursively from this hook. If this
   /// returns an error, or panics on an unwind-enabled build, napi calls
   /// [`shutdown`](AsyncRuntime::shutdown) to roll back resources created by the partial start.
@@ -311,11 +324,16 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
 
   /// Shut the runtime down.
   ///
-  /// napi installs cleanup ownership for every Node environment, on native and wasm hosts, and
-  /// calls this after the last live environment exits. An explicit `shutdown_async_runtime` call
-  /// can also invoke this while environments remain live. Stop accepting work before returning
+  /// napi installs its environment-cleanup ownership once per addon image — on the **first**
+  /// Node environment that loads the addon — and calls this hook when that accounting observes
+  /// the last live environment exit. In processes with additional environments (for example
+  /// `worker_threads`) or with environment re-creation, the automatic call is therefore not
+  /// guaranteed to fire; embedders can call `shutdown_async_runtime` explicitly, including
+  /// while environments remain live. Stop accepting work before returning
   /// and drop queued [`AsyncRuntimeTask`] values and queued
   /// [`spawn_blocking`](AsyncRuntime::spawn_blocking) closures so their promises are cancelled.
+  /// Those cancellation-driven promise rejections are best-effort: when the promise machinery
+  /// is already closing during environment teardown, napi drops the rejection.
   /// Return `Ok(())` only after backend-owned worker threads, running tasks, and running
   /// blocking closures have fully quiesced: Node may unload a worker's addon image as soon as
   /// its environment cleanup returns. Do not wait for JavaScript callbacks triggered by
@@ -541,8 +559,11 @@ fn retire_rejected_async_runtime(runtime: Box<dyn AsyncRuntime>) {
 /// Register the custom [`AsyncRuntime`] backend for this linked addon image.
 ///
 /// Call this once from `#[module_init]`. That hook is a library constructor and runs before napi
-/// owns a Node-API environment, so registration only publishes a dormant backend. Runtime-backed
-/// APIs become available after environment activation calls [`AsyncRuntime::start`].
+/// owns a Node-API environment, so registration only publishes a dormant backend; napi calls
+/// [`AsyncRuntime::start`] before the backend's first dispatch — normally during environment
+/// activation, or earlier when a module-init or module-export hook invokes a runtime-backed API
+/// during first-env registration. A `start` failure does not gate dispatch, so a backend that is
+/// not ready must decline submissions via [`AsyncRuntimeRejection`] or accept and defer them.
 ///
 /// Registration is once per linked addon image and first-writer-wins. `#[module_init]` runs as a
 /// library constructor where panicking would abort the process before Node can see an exception,
