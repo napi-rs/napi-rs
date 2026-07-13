@@ -801,7 +801,22 @@ pub fn create_custom_tokio_runtime(_: Runtime) {}
 pub fn start_async_runtime() {
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.activate() {
-    // A custom backend owns the runtime lifecycle; do not construct Tokio.
+    // A custom backend owns the runtime lifecycle; do not construct Tokio. But in combined
+    // builds the Tokio compatibility helpers (`spawn`, `block_on`, `spawn_blocking`,
+    // `within_runtime_if_available`) stay Tokio-backed and may have constructed the built-in
+    // runtime lazily; a previous `shutdown_async_runtime` then drained it. Refill it on
+    // re-activation (worker restart, Electron renderer reload) — otherwise every later helper
+    // call panics on the drained slot forever. Gated on `RT_CONSTRUCTED` so this never forces
+    // a first construction, preserving the "selecting a custom backend never constructs
+    // Tokio" promise.
+    #[cfg(feature = "tokio_rt")]
+    if RT_CONSTRUCTED.load(Ordering::SeqCst) {
+      if let Ok(mut rt) = RT.write() {
+        if rt.is_none() {
+          *rt = Some(create_runtime());
+        }
+      }
+    }
     return;
   }
   #[cfg(feature = "tokio_rt")]
@@ -1690,8 +1705,10 @@ mod spi_tests {
     assert_eq!(probe.shutdown_calls.load(AtomicOrdering::SeqCst), 2);
   }
 
-  /// The only test touching the process-global registry: exercises the public
-  /// `register_async_runtime` / `try_register_async_runtime` wiring end to end.
+  /// The only test touching the process-global registry (and, in combined builds, the global
+  /// Tokio compatibility runtime): exercises the public `register_async_runtime` /
+  /// `try_register_async_runtime` wiring end to end, then a full
+  /// `start_async_runtime` / `shutdown_async_runtime` re-activation cycle.
   #[test]
   fn public_registration_flow_is_first_writer_wins() {
     let first_probe = Arc::new(BackendProbe::default());
@@ -1706,5 +1723,49 @@ mod spi_tests {
     assert_eq!(error.reason, DUPLICATE_RUNTIME_ERROR);
     // The rejected duplicate was retired through its own shutdown.
     assert_eq!(second_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+
+    // Combined builds: the Tokio compatibility helpers must survive a full environment
+    // recreation cycle (shutdown + start) even though the custom backend owns the runtime
+    // lifecycle — the drained built-in runtime has to be refilled on re-activation.
+    #[cfg(all(
+      feature = "tokio_rt",
+      any(
+        all(target_family = "wasm", tokio_unstable),
+        not(target_family = "wasm")
+      )
+    ))]
+    {
+      start_async_runtime();
+      assert_eq!(first_probe.start_calls.load(AtomicOrdering::SeqCst), 1);
+
+      // A Tokio compatibility helper constructs the built-in runtime lazily, after the
+      // custom backend was selected and started.
+      let (first_tx, first_rx) = mpsc::channel();
+      spawn(async move {
+        first_tx.send(()).expect("deliver the first task signal");
+      });
+      first_rx
+        .recv_timeout(HANG_PROTECTION)
+        .expect("the first spawned task must run");
+
+      // Last-env teardown: the backend shuts down and the lazily-created Tokio runtime is
+      // drained as well.
+      shutdown_async_runtime();
+      assert_eq!(first_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+
+      // Environment recreation (worker restart, Electron renderer reload): re-activation
+      // must refill the drained Tokio runtime, so the helpers keep working instead of
+      // panicking on the empty slot forever.
+      start_async_runtime();
+      assert_eq!(first_probe.start_calls.load(AtomicOrdering::SeqCst), 2);
+
+      let (second_tx, second_rx) = mpsc::channel();
+      spawn(async move {
+        second_tx.send(()).expect("deliver the second task signal");
+      });
+      second_rx
+        .recv_timeout(HANG_PROTECTION)
+        .expect("a spawn after re-activation must run instead of panicking");
+    }
   }
 }
