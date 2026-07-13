@@ -359,6 +359,10 @@ struct RegistryState {
   /// Once `true`, the registration window is closed: either an environment began activation or
   /// a runtime-backed operation committed a backend choice.
   selection_frozen: bool,
+  /// `true` once the selected custom backend received its `start()` for the current
+  /// zero-to-live environment cycle — whether that start succeeded or was rolled back.
+  /// [`AsyncRuntimeRegistry::deactivate`] clears it, so restart cycles start the backend again.
+  started: bool,
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -368,6 +372,7 @@ impl AsyncRuntimeRegistry {
       backend: OnceLock::new(),
       state: Mutex::new(RegistryState {
         selection_frozen: false,
+        started: false,
       }),
       deferred_registration_error: Mutex::new(None),
     }
@@ -428,29 +433,42 @@ impl AsyncRuntimeRegistry {
     backend
   }
 
+  /// Make sure the selected backend received its `start()` before a dispatch.
+  ///
+  /// Module-export hooks (`#[napi(module_exports)]` and the compat callbacks) run with a live
+  /// `Env` before `start_async_runtime`, so a runtime-backed call (for example
+  /// [`crate::Env::spawn_future`]) can dispatch to the backend before environment activation.
+  /// The start-with-rollback sequence runs exactly once per zero-to-live cycle: the `started`
+  /// flag flips under the state lock, while the `start` hook itself runs outside it.
+  fn ensure_started(&self, backend: &dyn AsyncRuntime) {
+    {
+      let mut state = self.lock_state();
+      if state.started {
+        return;
+      }
+      state.started = true;
+    }
+    start_backend_with_rollback(backend);
+  }
+
   /// First-env-activation hook: close the registration window and start the custom backend if
-  /// one is selected. Returns `true` when a custom backend owns the runtime lifecycle.
+  /// one is selected and not already started (by an earlier activation without an intervening
+  /// [`Self::deactivate`], or by a pre-activation dispatch through [`Self::ensure_started`]).
+  /// Returns `true` when a custom backend owns the runtime lifecycle.
   fn activate(&self) -> bool {
     let backend = {
       let mut state = self.lock_state();
       state.selection_frozen = true;
       match self.backend.get() {
-        Some(backend) => backend,
+        Some(backend) if !state.started => {
+          state.started = true;
+          backend
+        }
+        Some(_) => return true,
         None => return false,
       }
     };
-    match catch_unwind(AssertUnwindSafe(|| backend.start())) {
-      Ok(Ok(())) => {}
-      // A failed or panicking `start` is rolled back through `shutdown`.
-      Ok(Err(_)) | Err(_) => {
-        if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
-          // The safety contract only guarantees quiescence when `shutdown` *returns*; an
-          // unwinding rollback leaves the backend unprovably live while Node may unload the
-          // addon image, so abort like `retire_rejected_async_runtime` does.
-          std::process::abort();
-        }
-      }
-    }
+    start_backend_with_rollback(backend.as_ref());
     true
   }
 
@@ -464,7 +482,28 @@ impl AsyncRuntimeRegistry {
       // returns, and this runs at last-env teardown right before Node may unload the image.
       std::process::abort();
     }
+    // Clear the start gate only after `shutdown` returned, so a dispatch racing this teardown
+    // cannot `start()` the backend mid-shutdown (it spawns into the stopped backend and gets
+    // rejected instead). The next dispatch or activation starts the backend again.
+    self.lock_state().started = false;
     true
+  }
+}
+
+/// Run a backend's `start` hook; a failed or panicking start is rolled back through `shutdown`.
+/// If the rollback `shutdown` itself unwinds, the process aborts (like
+/// [`retire_rejected_async_runtime`]): the safety contract only guarantees quiescence when
+/// `shutdown` *returns*, so an unwinding rollback leaves the backend unprovably live while Node
+/// may unload the addon image.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn start_backend_with_rollback(backend: &dyn AsyncRuntime) {
+  match catch_unwind(AssertUnwindSafe(|| backend.start())) {
+    Ok(Ok(())) => {}
+    Ok(Err(_)) | Err(_) => {
+      if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
+        std::process::abort();
+      }
+    }
   }
 }
 
@@ -851,6 +890,9 @@ fn execute_future_impl<
 
   #[cfg(feature = "async-runtime")]
   if let Some(backend) = ASYNC_RUNTIME_REGISTRY.commit_selection(cfg!(feature = "tokio_rt")) {
+    // Module-export hooks can dispatch here before `start_async_runtime` runs; make sure the
+    // backend received its `start()` before its first task.
+    ASYNC_RUNTIME_REGISTRY.ensure_started(backend);
     let task = AsyncRuntimeTask::new(
       Box::pin(inner),
       Box::new(move |error| deferred_for_cancel.reject(error)),
@@ -1043,6 +1085,9 @@ mod spi_tests {
   struct BackendProbe {
     start_calls: AtomicUsize,
     shutdown_calls: AtomicUsize,
+    spawn_calls: AtomicUsize,
+    /// Spawns observed while the backend had never received a `start()`.
+    spawns_before_start: AtomicUsize,
   }
 
   struct MockRuntime {
@@ -1071,6 +1116,13 @@ mod spi_tests {
       &self,
       task: AsyncRuntimeTask,
     ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+      if self.probe.start_calls.load(AtomicOrdering::SeqCst) == 0 {
+        self
+          .probe
+          .spawns_before_start
+          .fetch_add(1, AtomicOrdering::SeqCst);
+      }
+      self.probe.spawn_calls.fetch_add(1, AtomicOrdering::SeqCst);
       futures::executor::block_on(task);
       Ok(())
     }
@@ -1280,6 +1332,42 @@ mod spi_tests {
       message.lock().unwrap().as_deref(),
       Some("boom in async task")
     );
+  }
+
+  #[test]
+  fn pre_activation_dispatch_starts_backend_before_first_spawn() {
+    let registry = AsyncRuntimeRegistry::new();
+    let probe = Arc::new(BackendProbe::default());
+    assert!(registry
+      .try_register(Box::new(MockRuntime::new(&probe)))
+      .is_ok());
+
+    // Module-export hooks run with a live Env BEFORE `start_async_runtime`, so a runtime-backed
+    // call (`Env::spawn_future`) dispatches before `activate`. The dispatch path
+    // (`execute_future_impl`) commits the selection, then must run the start-with-rollback
+    // sequence before handing the backend its first task.
+    let backend = registry
+      .commit_selection(cfg!(feature = "tokio_rt"))
+      .expect("custom backend must be selected");
+    registry.ensure_started(backend);
+    let (_fired, _message, callback) = recording_cancel_callback();
+    assert!(backend
+      .spawn(AsyncRuntimeTask::new(Box::pin(async {}), callback))
+      .is_ok());
+
+    // The backend never observed a spawn without a preceding start …
+    assert_eq!(probe.spawn_calls.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(probe.spawns_before_start.load(AtomicOrdering::SeqCst), 0);
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 1);
+
+    // … the later first-env activation does not start it a second time …
+    assert!(registry.activate());
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 1);
+
+    // … and a full teardown/reactivation cycle starts it again.
+    assert!(registry.deactivate());
+    assert!(registry.activate());
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 2);
   }
 
   #[test]
