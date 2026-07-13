@@ -1236,7 +1236,7 @@ async function commitFileSystemTransactionUnlocked(
     await rename(candidateRoot, journalRoot)
     published = true
     await syncDirectory(transactionRoot)
-    const publishedStats = await lstatIfExists(journalRoot)
+    const publishedStats = await lstatIfExists(journalRoot, { bigint: true })
     if (!fileSystemTransactionStateMatches(candidateStats, publishedStats)) {
       throw new Error(
         `Filesystem transaction recovery state changed during publication: ${journalRoot}`,
@@ -3919,7 +3919,7 @@ async function createFileSystemTransactionCandidate(root: string) {
       }
       throw error
     }
-    const stats = await lstat(path)
+    const stats = await lstat(path, { bigint: true })
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
       throw new Error(
         `Filesystem transaction candidate is not a directory: ${path}`,
@@ -5474,7 +5474,7 @@ async function recoverLegacyFileSystemTransaction(
   root: string,
   journal: FileSystemTransactionJournal,
   owner: FileSystemTransactionJournalOwner,
-  journalStats: Stats,
+  journalStats: BigIntStats,
 ) {
   if (journal.phase === 'committed') {
     await removeFileSystemTransactionJournal(root, owner.token, journalStats)
@@ -5658,7 +5658,7 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
     }
     const path = join(root, entry.name)
     try {
-      const stats = await lstatIfExists(path)
+      const stats = await lstatIfExists(path, { bigint: true })
       if (
         !entry.isDirectory() ||
         entry.isSymbolicLink() ||
@@ -5727,7 +5727,7 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
 
 async function recoverFileSystemTransaction(root: string) {
   const journalRoot = fileSystemTransactionJournalPath(root)
-  const journalStats = await lstatIfExists(journalRoot)
+  const journalStats = await lstatIfExists(journalRoot, { bigint: true })
   if (!journalStats) {
     await scavengeFileSystemTransactionSiblings(root)
     return
@@ -5775,25 +5775,25 @@ async function recoverFileSystemTransaction(root: string) {
   await scavengeFileSystemTransactionSiblings(root)
 }
 
-function fileSystemTransactionStateMatches(
-  left: Stats,
-  right: Stats | undefined,
+export function fileSystemTransactionStateMatches(
+  left: BigIntStats,
+  right: BigIntStats | undefined,
 ) {
   return (
     right?.isDirectory() === true &&
     !right.isSymbolicLink() &&
-    left.dev === right.dev &&
-    left.ino === right.ino
+    String(left.dev) === String(right.dev) &&
+    String(left.ino) === String(right.ino)
   )
 }
 
 async function retireFileSystemTransactionState(
   root: string,
   path: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   expectedToken?: string,
 ) {
-  const currentStats = await lstatIfExists(path)
+  const currentStats = await lstatIfExists(path, { bigint: true })
   if (!fileSystemTransactionStateMatches(expectedStats, currentStats)) {
     throw new Error(`Filesystem transaction recovery state changed: ${path}`)
   }
@@ -5826,7 +5826,7 @@ async function retireFileSystemTransactionState(
   }
   await syncDirectory(root)
 
-  const retiredStats = await lstatIfExists(retiredPath)
+  const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
   if (!fileSystemTransactionStateMatches(expectedStats, retiredStats)) {
     throw new Error(
       `Filesystem transaction recovery state changed while it was retired: ${retiredPath}`,
@@ -5888,7 +5888,7 @@ async function removeFileSystemTransactionStateTree(path: string) {
 async function removeFileSystemTransactionCandidate(
   root: string,
   candidateRoot: string,
-  candidateStats: Stats,
+  candidateStats: BigIntStats,
 ) {
   const retiredPath = await retireFileSystemTransactionState(
     root,
@@ -5902,7 +5902,7 @@ async function removeFileSystemTransactionCandidate(
 async function removeFileSystemTransactionJournal(
   root: string,
   token: string,
-  journalStats: Stats,
+  journalStats: BigIntStats,
 ) {
   const journalRoot = fileSystemTransactionJournalPath(root)
   const retiredPath = await retireFileSystemTransactionState(

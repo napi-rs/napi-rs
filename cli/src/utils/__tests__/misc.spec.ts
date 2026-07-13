@@ -40,6 +40,7 @@ import {
   commitFileSystemTransaction,
   copyFileAtomic,
   createProcessExecutionIdentityGetter,
+  fileSystemTransactionStateMatches,
   getPackageReconciliationRoot,
   getPackageReconciliationRoots,
   resolvePackageReconciliationPaths,
@@ -1256,6 +1257,70 @@ test('transaction cleanup guard preserves a Number-colliding successor inode', (
   )
   // A vanished pathname owns nothing.
   t.false(snapshotLeftoverIsTransactionOwned(undefined, ownedIdentity))
+})
+
+test('transaction state match refuses a Number-colliding successor directory', (t) => {
+  // The retire + recursive-rm path compares directory identity on exact decimal
+  // strings from a bigint stat. Two distinct 64-bit inodes past 2 ** 53 (2 ** 53
+  // and 2 ** 53 + 1) collapse onto the single JS double 9007199254740992, so a
+  // lossy Number compare (the reverted code) would accept a successor directory
+  // that replaced the retirement path and recursively delete its whole tree. The
+  // bigint/string compare must report no match, so the tree is never renamed or
+  // removed.
+  const dirStats = (dev: bigint, ino: bigint): BigIntStats =>
+    ({
+      dev,
+      ino,
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    }) as unknown as BigIntStats
+
+  const expected = dirStats(0n, 9007199254740992n) // ino = 2 ** 53
+
+  // Sanity: the two inodes are indistinguishable once narrowed to a JS double,
+  // which is exactly why the match must not fall back to a Number compare.
+  t.is(Number(9007199254740993n), Number(9007199254740992n))
+
+  // A Number-colliding successor directory is NOT the retired state: the caller
+  // performs no rename and no recursive rm.
+  t.false(
+    fileSystemTransactionStateMatches(
+      expected,
+      dirStats(0n, 9007199254740993n),
+    ),
+  )
+  // A Number-colliding volume serial (dev) is likewise refused.
+  t.false(
+    fileSystemTransactionStateMatches(
+      dirStats(18014398509481984n, 9007199254740992n), // dev = 2 ** 54
+      dirStats(18014398509481985n, 9007199254740992n), // dev = 2 ** 54 + 1
+    ),
+  )
+  // The genuinely identical directory still matches, so recovery keeps working.
+  t.true(
+    fileSystemTransactionStateMatches(
+      expected,
+      dirStats(0n, 9007199254740992n),
+    ),
+  )
+  // A vanished, non-directory, or symlink successor never matches.
+  t.false(fileSystemTransactionStateMatches(expected, undefined))
+  t.false(
+    fileSystemTransactionStateMatches(expected, {
+      dev: 0n,
+      ino: 9007199254740992n,
+      isDirectory: () => false,
+      isSymbolicLink: () => false,
+    } as unknown as BigIntStats),
+  )
+  t.false(
+    fileSystemTransactionStateMatches(expected, {
+      dev: 0n,
+      ino: 9007199254740992n,
+      isDirectory: () => true,
+      isSymbolicLink: () => true,
+    } as unknown as BigIntStats),
+  )
 })
 
 test('filesystem transaction recovery preserves an owner-only canonical journal', async (t) => {
