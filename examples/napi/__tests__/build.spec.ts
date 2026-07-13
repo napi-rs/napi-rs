@@ -69,12 +69,27 @@ test('checked WASI artifacts keep the deferred and flavor contracts', async (t) 
   ])
 
   t.false(declarationSource.includes('undici-types'))
-  t.true(rootDeclarationSource.includes('export declare function fetch('))
+  // The minimal SPI base does not merge natively-gated exports (like `fetch`)
+  // into WASI outputs. The checked-in roots come from the native pass (which
+  // `regenerateArtifacts` restores), so they keep `fetch` and re-export the
+  // threadless flavor from `browser.js`. In the WASI CI job (`WASI_TEST`) the
+  // wasm32-wasip1-threads build has just overwritten the root outputs, so the
+  // export is absent and `browser.js` re-exports the threaded flavor.
+  const rootsAreThreadedWasi = Boolean(process.env.WASI_TEST)
+  t.is(
+    rootDeclarationSource.includes('export declare function fetch('),
+    !rootsAreThreadedWasi,
+  )
   t.true(deferredDeclarationSource.includes('dispose(): Promise<void>'))
   t.false(deferredDeclarationSource.includes('dispose(): void | Promise<void>'))
   t.regex(rootSource, /['"]wasm32-wasi['"]/)
   t.regex(rootSource, /['"]wasm32-wasip1['"]/)
-  t.is(rootBrowserSource, "export * from '@examples/napi-wasm32-wasip1'\n")
+  t.is(
+    rootBrowserSource,
+    rootsAreThreadedWasi
+      ? "export * from '@examples/napi-wasm32-wasi'\n"
+      : "export * from '@examples/napi-wasm32-wasip1'\n",
+  )
   t.truthy(deferredSource)
 })
 
