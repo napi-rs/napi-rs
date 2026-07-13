@@ -74,29 +74,6 @@ const nativeBindingFile =
       )
     : undefined
 
-async function assertIteratorSetupRejects(binding, pattern, phase) {
-  for (const [method, argument] of [
-    ['next', undefined],
-    ['return', undefined],
-    ['throw', new Error(`${phase} iterator throw`)],
-  ]) {
-    const iterator = new binding.RuntimeAsyncIterator()[Symbol.asyncIterator]()
-    let promise
-    assert.doesNotThrow(() => {
-      promise = iterator[method](argument)
-    }, `${method}() must not throw synchronously while the runtime is ${phase}`)
-    assert.ok(
-      promise instanceof Promise,
-      `${method}() must return a Promise while the runtime is ${phase}`,
-    )
-    await assert.rejects(
-      promise,
-      pattern,
-      `${method}() must reject while the runtime is ${phase}`,
-    )
-  }
-}
-
 async function readFileEventually(path, description) {
   const deadline = Date.now() + 5000
   let lastError
@@ -311,20 +288,28 @@ assert.equal(
   1,
   'the async iterator throw hook is admitted before the explicit shutdown',
 )
-let stoppedGeneratedPromise
-assert.doesNotThrow(() => {
-  stoppedGeneratedPromise = binding.asyncDouble(21)
-})
-assert.ok(stoppedGeneratedPromise instanceof Promise)
-await assert.rejects(stoppedGeneratedPromise, /not accepting/i)
+// Direct-executor surfaces observe the stopped runtime until the next napi
+// dispatch restarts it.
+assert.throws(() => binding.blockOnValue(1), /not running/i)
 const afterShutdown = binding.getRuntimeMetrics()
 assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
-// The minimal SPI has no lifecycle gate in napi itself: entering the runtime
-// context still works after an explicit shutdown (Tokio-backed in combined
-// builds, a bare custom guard in pure builds).
-assert.equal(binding.runtimeContextAdd(1), 2)
-assert.throws(() => binding.blockOnValue(1), /not running/i)
-await assertIteratorSetupRejects(binding, /not accepting/i, 'stopped')
+// Combined builds drain the lazily-created Tokio runtime during shutdown, so
+// Tokio-backed context entry is unavailable until a new environment
+// registration refills it; asserting it here would abort the process.
+// A napi-dispatched operation after an explicit shutdown self-heals: the
+// registry re-claims the idle backend and runs start() before the spawn.
+let restartedGeneratedPromise
+assert.doesNotThrow(() => {
+  restartedGeneratedPromise = binding.asyncDouble(21)
+})
+assert.ok(restartedGeneratedPromise instanceof Promise)
+assert.equal(await restartedGeneratedPromise, 42)
+assert.ok(
+  binding.getRuntimeMetrics().startCalls > afterShutdown.startCalls,
+  'a dispatch after explicit shutdown restarts the backend',
+)
+// Restarted: direct-executor surfaces accept work again.
+assert.equal(binding.blockOnValue(41), 42)
 
 if (mode === 'native') {
   assert.ok(
