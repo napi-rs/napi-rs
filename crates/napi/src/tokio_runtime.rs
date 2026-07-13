@@ -88,7 +88,9 @@ type AsyncRuntimeTaskCancelCallback = Box<dyn FnOnce(Error) + Send + 'static>;
 /// rejection instead of unwinding into backend code.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn invoke_cancel_callback(on_cancel: AsyncRuntimeTaskCancelCallback, error: Error) {
-  let _ = catch_unwind(AssertUnwindSafe(move || on_cancel(error)));
+  if let Err(payload) = catch_unwind(AssertUnwindSafe(move || on_cancel(error))) {
+    drop_contained(payload);
+  }
 }
 
 /// An opaque unit of work napi submits to a custom [`AsyncRuntime`] backend.
@@ -205,6 +207,9 @@ fn async_task_panic_error(panic_payload: Box<dyn std::any::Any + Send>) -> Error
   } else {
     "Panic in async function".to_owned()
   };
+  // This runs outside poll's `catch_unwind`; a payload whose own `Drop` panics must not
+  // unwind into the backend executor.
+  drop_contained(panic_payload);
   Error::new(crate::Status::GenericFailure, reason)
 }
 
