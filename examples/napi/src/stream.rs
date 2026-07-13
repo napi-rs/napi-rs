@@ -83,6 +83,27 @@ pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<'_, BufferSlic
   ReadableStream::create_with_stream_bytes(env, ReceiverStream::new(rx))
 }
 
+/// Regression guard for the off-thread `FunctionRef` drop.
+///
+/// A `create_with_stream_bytes` output whose pull future REJECTS (the underlying
+/// stream yields an `Err` item, or the output is cancelled while a pull is parked)
+/// drops the pull resolver — which owns the controller's `enqueue`/`close`
+/// `FunctionRef`s — on a Tokio worker thread rather than the JS thread. A
+/// `FunctionRef` holds a thread-affine `napi_ref`; deleting it off the JS thread
+/// mutates V8's `GlobalHandles` concurrently with the JS thread and corrupts the
+/// heap, surfacing later as a SIGSEGV/SIGBUS inside V8/napi. This emits one `Ok`
+/// chunk then a terminal `Err`, so JS can loop it and assert the process stays
+/// alive (see the matching test in `__tests__/values.spec.ts`).
+#[napi]
+pub fn create_erroring_readable_stream(env: &Env) -> Result<ReadableStream<'_, BufferSlice<'_>>> {
+  let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>>>(4);
+  std::thread::spawn(move || {
+    let _ = tx.blocking_send(Ok(b"partial".to_vec()));
+    let _ = tx.blocking_send(Err(Error::new(Status::GenericFailure, "boom")));
+  });
+  ReadableStream::create_with_stream_bytes(env, ReceiverStream::new(rx))
+}
+
 /// Nested metadata for demonstrating object streaming with complex types
 #[napi(object)]
 #[derive(Default)]
