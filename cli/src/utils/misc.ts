@@ -4007,6 +4007,26 @@ async function snapshotFileSystemTransactionInput(
         `Filesystem transaction source changed while it was opened: ${source}`,
       )
     }
+    if (expectedStats) {
+      // Re-bind the exact 64-bit identity to the descriptor we just opened. The
+      // pre-open preflight validated the pathname, but `open` pins whatever inode
+      // is at the path *now*; a Number-colliding successor swapped into the
+      // pre-open window would still pass the lossy Number gate above (two distinct
+      // inodes past 2 ** 53 share one JS double). Compare the pinned fd's exact
+      // bigint dev/ino against the caller's expected identity so such a swap is
+      // raised as a conflict instead of being snapshotted and recorded as the
+      // original.
+      const openedIdentityStats = await sourceHandle.stat({ bigint: true })
+      if (
+        openedIdentityStats.dev !== expectedStats.dev ||
+        openedIdentityStats.ino !== expectedStats.ino
+      ) {
+        throw fileSystemTransactionConflictError(
+          source,
+          'changed before it could be snapshotted',
+        )
+      }
+    }
     const finalMode = mode ?? sourceStats.mode & 0o7777
     if (createDestinationParent) {
       await mkdir(dirname(destination), { recursive: true })
