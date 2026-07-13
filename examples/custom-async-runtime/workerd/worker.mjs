@@ -16,20 +16,30 @@ export default {
       apiPromise ??= instantiate(wasmModule)
       const api = await apiPromise
       if (new URL(request.url).pathname === '/dispose-reload') {
-        const pendingResult = api.asyncNever().then(
-          () => ({ rejected: false, reason: '' }),
-          (error) => ({
-            rejected: true,
-            reason: String((error && error.message) || error),
-          }),
+        // The minimal SPI base ships no env-cleanup preparation hook, so
+        // disposal does NOT settle still-pending napi promises (napi-side
+        // follow-up). The handler settles its in-flight work BEFORE
+        // disposing and never awaits anything dispose could strand.
+        const settledBeforeDispose = await api.asyncDouble(11)
+        // Best-effort coverage for work left pending across dispose: fire a
+        // never-settling call, record whether it ever settles, and keep it
+        // out of the response path.
+        let strandedState = 'pending'
+        api.asyncNever().then(
+          () => {
+            strandedState = 'resolved'
+          },
+          () => {
+            strandedState = 'rejected'
+          },
         )
         const beforeDispose = api.getRuntimeMetrics()
         await dispose()
-        const cancellation = await pendingResult
         apiPromise = instantiate(wasmModule)
         const reloadedApi = await apiPromise
         return Response.json({
-          cancellation,
+          settledBeforeDispose,
+          strandedState,
           freshExports: reloadedApi !== api,
           result: await reloadedApi.asyncDouble(23),
           spawnCallsBeforeDispose: beforeDispose.spawnCalls,
