@@ -25,14 +25,8 @@ use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
   register_async_runtime, shutdown_async_runtime, start_async_runtime, AsyncGenerator,
   AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error,
-  FnArgs, JsObjectValue, JsValue, Object, PromiseRaw, Result, Status, Unknown,
-  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
-  try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Env, Error, FnArgs, JoinError,
-  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error, FnArgs,
-  JsObjectValue, JsValue, Object, PromiseRaw, Result, Status, Unknown,
+  JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
-use napi::threadsafe_function::ThreadsafeFunction;
 use napi_derive::napi;
 
 static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
@@ -368,7 +362,10 @@ impl RuntimeState {
     self: &Arc<Self>,
     work: BlockingWork,
   ) -> std::result::Result<(), AsyncRuntimeRejection<BlockingWork>> {
-    if self.reject_next_blocking_spawn.swap(false, Ordering::AcqRel) {
+    if self
+      .reject_next_blocking_spawn
+      .swap(false, Ordering::AcqRel)
+    {
       return Err(AsyncRuntimeRejection::new(
         work,
         Error::new(
@@ -1097,11 +1094,13 @@ fn init() {
   });
 }
 
-struct WrappedExports;
-
 #[napi(module_exports)]
-pub fn preserve_exports_wrap_slot(mut exports: Object) -> Result<()> {
-  exports.wrap(WrappedExports, None)
+pub fn module_exports_hook(_exports: Object) -> Result<()> {
+  // NOTE: the old SPI branch wrapped a marker value here to prove that napi
+  // leaves the exports wrap slot to the addon. The minimal SPI base still
+  // owns that slot for its wasm env-cleanup bookkeeping, so wrapping the
+  // exports object would fail module registration on WASI targets.
+  Ok(())
 }
 
 #[napi(object)]
@@ -1203,44 +1202,6 @@ pub async fn async_error() -> Result<()> {
     Status::GenericFailure,
     "custom runtime async error",
   ))
-}
-
-#[napi]
-pub async fn tsfn_throw_from_js_catch_recover(
-  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
-) -> Result<()> {
-  match tsfn.call_async_catch(("trigger".to_owned(),).into()).await {
-    Ok(()) => Err(Error::new(
-      Status::GenericFailure,
-      "expected JavaScript callback to throw",
-    )),
-    Err(error) if error.status == Status::PendingException => {
-      Err(error.try_clone().unwrap_or_else(|clone_error| clone_error))
-    }
-    Err(error) => Err(Error::new(
-      Status::GenericFailure,
-      format!("expected PendingException, got {:?}", error.status),
-    )),
-  }
-}
-
-#[napi]
-pub async fn tsfn_throw_from_js_catch_drop(
-  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
-) -> Result<()> {
-  match tsfn.call_async_catch(("trigger".to_owned(),).into()).await {
-    Ok(()) => Err(Error::new(
-      Status::GenericFailure,
-      "expected JavaScript callback to throw",
-    )),
-    Err(error) if error.status == Status::PendingException => {
-      let cloned = error.try_clone()?;
-      drop(error);
-      drop(cloned);
-      Ok(())
-    }
-    Err(error) => Err(error),
-  }
 }
 
 #[napi]

@@ -11,10 +11,6 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
-import { createWasiBrowserBinding } from '../templates/load-wasi-template.js'
-import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
-
-const test = ava
 import {
   createWasiBinding,
   createWasiBrowserBinding,

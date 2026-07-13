@@ -21,11 +21,11 @@ impl ToTypeDef for NapiStruct {
     let mut js_doc = JSDoc::new(&self.comments);
     if self.is_generator {
       let generator_doc =[
-"This type extends JavaScript's `Iterator`, and so has the iterator helper",
-"methods. It may extend the upcoming TypeScript `Iterator` class in the future.",
+"This type implements JavaScript's iterable iterator protocol.",
+"On runtimes with `Iterator` helpers, its prototype also inherits those helpers.",
 "",
 "@see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods",
-"@see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods", ];
+"@see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols", ];
       js_doc.add_block(generator_doc)
     }
     if self.is_async_generator {
@@ -80,7 +80,12 @@ impl ToTypeDef for NapiImpl {
         "void".to_owned()
       };
       let return_type = if let Some(ref ty) = self.iterator_return_type {
-        ty_to_ts_type(ty, false, false, false).0
+        let ty = ty_to_ts_type(ty, false, false, false).0;
+        if ty == "undefined" {
+          "void".to_owned()
+        } else {
+          ty
+        }
       } else {
         "void".to_owned()
       };
@@ -89,10 +94,8 @@ impl ToTypeDef for NapiImpl {
         name: self.js_name.to_owned(),
         original_name: None,
         def: format!(
-          "Iterator<{}, {}, {}>",
-          ty_to_ts_type(output_type, false, true, false).0,
-          return_type,
-          next_type,
+          "Iterator<{yield_type}, {return_type}, {next_type}>",
+          yield_type = ty_to_ts_type(output_type, false, true, false).0,
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
@@ -101,17 +104,21 @@ impl ToTypeDef for NapiImpl {
       let yield_type = ty_to_ts_type(output_type, false, true, false).0;
       let next_type = if let Some(ref ty) = self.async_iterator_next_type {
         let ty_str = ty_to_ts_type(ty, false, false, false).0;
-        // Make TNext accept undefined so `for await...of` works (it calls next() with no args)
         if ty_str == "void" || ty_str == "undefined" {
           "undefined".to_owned()
         } else {
-          format!("{} | undefined", ty_str)
+          ty_str
         }
       } else {
         "undefined".to_owned()
       };
       let return_type = if let Some(ref ty) = self.async_iterator_return_type {
-        ty_to_ts_type(ty, false, false, false).0
+        let ty = ty_to_ts_type(ty, false, false, false).0;
+        if ty == "undefined" {
+          "void".to_owned()
+        } else {
+          ty
+        }
       } else {
         "void".to_owned()
       };

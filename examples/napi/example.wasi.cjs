@@ -1,4 +1,4 @@
-// napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["AlignedZst","Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","Asset","JsAsset","Assets","JsAssets","AsyncComplexTypeGenerator","AsyncDataSource","AsyncFib","AsyncGeneratorSetupFailure","AsyncIteratorAdmissionProbe","AsyncIteratorConstructor","AsyncIteratorFailedSendProbe","AsyncIteratorIntoInstance","AsyncReentrantGenerator","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","ComplexTypeGenerator","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","Dog","Fib","Fib2","Fib3","Fib4","GeneratorLifecycleProbe","GetterSetterWithClosures","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","PackageJsonReader","Reader","ReentrantGenerator","Selector","SyncIteratorIntoInstance","Thing","ThingList","UseNullableClass","WeakReferenceGcHolder","WeakReferenceGcTarget","Width","acceptArraybuffer","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","add","ALIAS","AliasedEnum","appendBuffer","appendToOsString","apply0","apply1","arrayBufferCopyFrom","arrayBufferFromData","arrayBufferFromExternal","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncCleanupHookCounts","asyncMultiTwo","asyncPartialReferenceSetupProbe","asyncPlus100","asyncReduceBuffer","asyncReferenceSetupProbe","asyncResolveArray","asyncTaskArraybuffer","asyncTaskFinally","asyncTaskOptionalReturn","asyncTaskReadFile","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","borrowAlignedZstPair","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createAsyncGeneratorSetupFailure","createAsyncIteratorIntoInstance","createAsyncReferenceSetupProbe","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createClassWithLifetimeFromRust","createDelayedCounterPair","createDetachableExternalArraybuffer","createDirectClassReferenceCallback","createEmptyTypedArraySlices","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createFunction","createGeneratorLifecycleProbe","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createRuntimeLifecycleExternalLatin1Probe","createRuntimeLifecycleExternalProbe","createRuntimeLifecycleExternalUtf16Probe","createRuntimeLifecycleFinalizer","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createSyncIteratorIntoInstance","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","DEFAULT_COST","defineClass","derefUint8Array","detachableExternalArraybufferFinalizeCount","detachArraybufferWithAlias","drainStreamCount","dropClonedErrorsOnTwoThreads","dropErrorFromValueOffThread","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","Empty","enumToI32","errorMessageContainsNullByte","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","fnReceivedAliased","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getEmptyBuffer","getEmptyTypedArray","getExternal","getGlobal","getIndexMapping","getIndexMappingWithHasher","getJsExternal","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoUtf8","joinPath","jsErrorCallback","Kind","KindInValidate","listObjKeys","mapOption","mergeTupleArray","mutateAnimalPair","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","mutateUint16ArrayForSync","objectGetNamedPropertyShouldPerformTypecheck","objectWithCApis","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","pendingAsyncBlockWithTerminalFinalizer","plusOne","promiseInEither","promiseRawCallbackDropCount","promiseRawCatchCallbackDropProbe","promiseRawCatchCallbackPanic","promiseRawFinallyCallbackDropProbe","promiseRawFinallyCallbackPanic","promiseRawReturnClassInstance","promiseRawThenCallbackDropProbe","promiseRawThenCallbackPanic","readAnimalPair","readAnimalWithReentrantProbe","readFile","readFileAsync","readMutateAnimalPair","readPackageJson","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","referenceAsCallback","referenceWithTupleArg","registerEnvCleanupRuntimeLifecycleProbes","registerModuleFinalizerProbes","registerRemovableAsyncCleanupHook","registerRemovableSyncCleanupHook","registerSelfDroppingAsyncCleanupHook","registerSelfRemovingSyncCleanupHook","removeRemovableAsyncCleanupHook","removeRemovableSyncCleanupHook","resetPromiseRawCallbackDropCount","resetWeakReferenceGcTargetFinalizeCount","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","roundtripStr","runScript","setInstanceDataRuntimeLifecycleProbe","setNullByteProperty","setSymbolInObj","shorterEscapableScope","shorterScope","shutdownAsyncRuntimeForTest","shutdownRuntime","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashTypedArrayInThreadLocal","Status","StatusInValidate","stoppedTokioAsyncBlockCleanupOrder","StringEnum","sumBtreeMapping","sumBufferSliceFromCopy","sumBufferSliceFromData","sumBufferSliceFromExternal","sumIndexMapping","sumMapping","sumNums","syncCleanupHookCounts","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeRoundtrip","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionRustPanic","threadsafeFunctionRustPanicCalleeHandled","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint16ArrayCopyFrom","uint8ArrayFromData","uint8ArrayFromExternal","uint8ClampedArrayCopyFrom","untypedTypedArrayBackingBytes","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","weakReferenceGcTargetFinalizeCount","withAbortController","withAbortSignalHandle","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","duplicateClassNameAlpha","duplicateClassNameBeta","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
+// napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","Asset","JsAsset","Assets","JsAssets","AsyncDataSource","AsyncFib","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","Dog","Fib","Fib2","Fib3","Fib4","GetterSetterWithClosures","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","PackageJsonReader","Reader","ReentrantBorrowOrderTest","Selector","Thing","ThingList","UseNullableClass","Width","acceptArraybuffer","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","add","ALIAS","AliasedEnum","appendBuffer","appendToOsString","apply0","apply1","arrayBufferFromData","arrayBufferFromExternal","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncMultiTwo","asyncPlus100","asyncReduceBuffer","asyncResolveArray","asyncTaskArraybuffer","asyncTaskFinally","asyncTaskOptionalReturn","asyncTaskReadFile","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","cleanupReentrantBorrowOrderTestTargets","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createFunction","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReentrantBorrowOrderTestTarget","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","DEFAULT_COST","defineClass","derefUint8Array","detachReentrantBorrowOrderTestTarget","drainStreamCount","dropClonedErrorsOnTwoThreads","dropErrorFromValueOffThread","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","Empty","enumToI32","errorMessageContainsNullByte","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","fnReceivedAliased","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getEmptyBuffer","getEmptyTypedArray","getExternal","getGlobal","getIndexMapping","getIndexMappingWithHasher","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoUtf8","joinPath","jsErrorCallback","Kind","KindInValidate","listObjKeys","mapOption","mergeTupleArray","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","objectGetNamedPropertyShouldPerformTypecheck","objectWithCApis","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","plusOne","promiseInEither","promiseRawReturnClassInstance","readFile","readFileAsync","readPackageJson","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","referenceAsCallback","referenceWithTupleArg","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","roundtripStr","runScript","setNullByteProperty","setSymbolInObj","shorterEscapableScope","shorterScope","shutdownRuntime","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashTypedArrayInThreadLocal","Status","StatusInValidate","StringEnum","sumBtreeMapping","sumIndexMapping","sumMapping","sumNums","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeRoundtrip","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint8ArrayFromData","uint8ArrayFromExternal","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","withAbortController","withAbortSignalHandle","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
 /* eslint-disable */
 /* prettier-ignore */
 
@@ -652,102 +652,7 @@ try {
   __runWasiInitializationRollback(rollback)
   throw rollback.error
 }
-const unsupportedWasiFunctions = new Set([
-  'abandonDeferredClones',
-  'armTokioBlockingTlsRetirementProbe',
-  'armTokioWorkerTlsRetirementProbe',
-  'assignClassInstanceAcrossDuplicateLoad',
-  'assignClassInstanceFromLaterTurn',
-  'assignClampedSliceAcrossDuplicateLoad',
-  'assignTypedArraySliceAcrossDuplicateLoad',
-  'cancelAsyncWorkLifecycle',
-  'configureTokioThreadStopFileBarrier',
-  'convertClampedSliceAcrossDuplicateLoad',
-  'convertTypedArraySliceAcrossDuplicateLoad',
-  'copyExternalTokenAlias',
-  'createExternalPublicBorrowProbe',
-  'createExternalRefProvenanceProbe',
-  'createExternalTokenGcProbe',
-  'createMutableTypedArrayForOwnershipTest',
-  'createPanickingAsyncWork',
-  'createQueuedAsyncWorkLifecycle',
-  'createResolvePanickingAsyncWork',
-  'createRunningAsyncWorkLifecycle',
-  'deferredFinalizeCallbackCount',
-  'disposeAsyncWorkLifecycle',
-  'disposeThreadsafeFunctionForEnvOwnership',
-  'externalTokenGcProbeFinalizeCount',
-  'fetch',
-  'inspectExternalRefAcrossDuplicateLoad',
-  'inspectExternalTokenGcProbe',
-  'mutableTypedArrayFinalizeCount',
-  'panickingAsyncWorkFinallyCount',
-  'prepareTsfnBlockingCallRegression',
-  'prepareTsfnTeardownRegression',
-  'referThreadsafeFunctionForEnvOwnership',
-  'registerDeferredCleanupOrderProbe',
-  'registerLateDeferredFinalizeCallback',
-  'releaseAsyncWorkLifecycle',
-  'resolvePanickingAsyncWorkFinallyCount',
-  'restartTokioRuntimeAfterRetirement',
-  'returnTypedArraySliceMutAcrossDuplicateLoad',
-  'returnTypedArraySliceRefAcrossDuplicateLoad',
-  'settleDeferredBeforeFinalizeRegistration',
-  'settleDeferredClone',
-  'stashBufferAcrossDuplicateLoad',
-  'stashClassInstanceForLaterTurn',
-  'stashErrorAcrossDuplicateLoad',
-  'stashExternalRefAcrossDuplicateLoad',
-  'stashExternalRefForTeardown',
-  'stashPromiseRejectionAcrossDuplicateLoad',
-  'stashThreadsafeFunctionForEnvOwnership',
-  'stashTypedArrayAcrossDuplicateLoad',
-  'stashTypedArraySlicesAcrossDuplicateLoad',
-  'startDeferredTeardownRace',
-  'startReferencedTsfnFinalizerLivenessWorker',
-  'startWeakTsfnFinalizerLivenessWorker',
-  'takeAdditionalBorrowedValueAcrossDuplicateLoad',
-  'takeBorrowedValueAcrossDuplicateLoad',
-  'takeBufferAcrossDuplicateLoad',
-  'takeBufferSliceIntoBufferAcrossDuplicateLoad',
-  'takeBufferSliceRefAcrossDuplicateLoad',
-  'takeClassInstanceFromLaterTurn',
-  'takeExternalRefAcrossDuplicateLoad',
-  'takeReferenceValueAcrossDuplicateLoad',
-  'takeTypedArrayAcrossDuplicateLoad',
-  'throwErrorAcrossDuplicateLoad',
-  'throwPromiseRejectionAcrossDuplicateLoad',
-  'tokioRuntimeFactoryCallCount',
-  'tokioRuntimeLifecycleValue',
-  'unrefThreadsafeFunctionForEnvOwnership',
-  'verifyReferenceValuesRejectNativeThread',
-  'verifyThreadsafeFunctionOwnerEnv',
-  'verifyTypedArraySlicesSameEnv',
-  'waitForTokioRuntimeRetirement',
-  'withAdditionalBorrowedValuesAcrossDuplicateLoad',
-  'withBorrowedValuesAcrossDuplicateLoad',
-  'withReferenceValuesAcrossDuplicateLoad',
-])
-
-function getWasiBindingExport(name) {
-  const value = __napiModule.exports[name]
-  if (
-    value !== undefined ||
-    !unsupportedWasiFunctions.has(name)
-  ) {
-    return value
-  }
-  return function unsupportedWasiFunction() {
-    const error = new Error(
-      `The "${name}" export is not supported by this WASI binding`,
-    )
-    error.code = 'NAPI_RS_UNSUPPORTED_WASI_EXPORT'
-    throw error
-  }
-}
-
 module.exports = __napiModule.exports
-module.exports.AlignedZst = __napiModule.exports.AlignedZst
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither
@@ -757,15 +662,8 @@ module.exports.Asset = __napiModule.exports.Asset
 module.exports.JsAsset = __napiModule.exports.JsAsset
 module.exports.Assets = __napiModule.exports.Assets
 module.exports.JsAssets = __napiModule.exports.JsAssets
-module.exports.AsyncComplexTypeGenerator = __napiModule.exports.AsyncComplexTypeGenerator
 module.exports.AsyncDataSource = __napiModule.exports.AsyncDataSource
 module.exports.AsyncFib = __napiModule.exports.AsyncFib
-module.exports.AsyncGeneratorSetupFailure = __napiModule.exports.AsyncGeneratorSetupFailure
-module.exports.AsyncIteratorAdmissionProbe = __napiModule.exports.AsyncIteratorAdmissionProbe
-module.exports.AsyncIteratorConstructor = __napiModule.exports.AsyncIteratorConstructor
-module.exports.AsyncIteratorFailedSendProbe = __napiModule.exports.AsyncIteratorFailedSendProbe
-module.exports.AsyncIteratorIntoInstance = __napiModule.exports.AsyncIteratorIntoInstance
-module.exports.AsyncReentrantGenerator = __napiModule.exports.AsyncReentrantGenerator
 module.exports.AsyncThrowClass = __napiModule.exports.AsyncThrowClass
 module.exports.Bird = __napiModule.exports.Bird
 module.exports.Blake2BHasher = __napiModule.exports.Blake2BHasher
@@ -778,7 +676,6 @@ module.exports.ClassInArray = __napiModule.exports.ClassInArray
 module.exports.ClassReturnInPromise = __napiModule.exports.ClassReturnInPromise
 module.exports.ClassWithFactory = __napiModule.exports.ClassWithFactory
 module.exports.ClassWithLifetime = __napiModule.exports.ClassWithLifetime
-module.exports.ComplexTypeGenerator = __napiModule.exports.ComplexTypeGenerator
 module.exports.Context = __napiModule.exports.Context
 module.exports.CounterRepro = __napiModule.exports.CounterRepro
 module.exports.CreateStringClass = __napiModule.exports.CreateStringClass
@@ -795,7 +692,6 @@ module.exports.Fib = __napiModule.exports.Fib
 module.exports.Fib2 = __napiModule.exports.Fib2
 module.exports.Fib3 = __napiModule.exports.Fib3
 module.exports.Fib4 = __napiModule.exports.Fib4
-module.exports.GeneratorLifecycleProbe = __napiModule.exports.GeneratorLifecycleProbe
 module.exports.GetterSetterWithClosures = __napiModule.exports.GetterSetterWithClosures
 module.exports.JsClassForEither = __napiModule.exports.JsClassForEither
 module.exports.JSOnlyMethodsClass = __napiModule.exports.JSOnlyMethodsClass
@@ -810,19 +706,14 @@ module.exports.NotWritableClass = __napiModule.exports.NotWritableClass
 module.exports.Optional = __napiModule.exports.Optional
 module.exports.PackageJsonReader = __napiModule.exports.PackageJsonReader
 module.exports.Reader = __napiModule.exports.Reader
-module.exports.ReentrantGenerator = __napiModule.exports.ReentrantGenerator
+module.exports.ReentrantBorrowOrderTest = __napiModule.exports.ReentrantBorrowOrderTest
 module.exports.Selector = __napiModule.exports.Selector
-module.exports.SyncIteratorIntoInstance = __napiModule.exports.SyncIteratorIntoInstance
 module.exports.Thing = __napiModule.exports.Thing
 module.exports.ThingList = __napiModule.exports.ThingList
 module.exports.TypeTagA = __napiModule.exports.TypeTagA
 module.exports.TypeTagB = __napiModule.exports.TypeTagB
 module.exports.UseNullableClass = __napiModule.exports.UseNullableClass
-module.exports.WeakReferenceGcHolder = __napiModule.exports.WeakReferenceGcHolder
-module.exports.WeakReferenceGcTarget = __napiModule.exports.WeakReferenceGcTarget
 module.exports.Width = __napiModule.exports.Width
-module.exports.abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')
-module.exports.abortBoundedTsfnFromOwnerAgent = __napiModule.exports.abortBoundedTsfnFromOwnerAgent
 module.exports.acceptArraybuffer = __napiModule.exports.acceptArraybuffer
 module.exports.acceptSlice = __napiModule.exports.acceptSlice
 module.exports.acceptStream = __napiModule.exports.acceptStream
@@ -840,25 +731,15 @@ module.exports.appendBuffer = __napiModule.exports.appendBuffer
 module.exports.appendToOsString = __napiModule.exports.appendToOsString
 module.exports.apply0 = __napiModule.exports.apply0
 module.exports.apply1 = __napiModule.exports.apply1
-module.exports.armTokioBlockingTlsRetirementProbe = getWasiBindingExport('armTokioBlockingTlsRetirementProbe')
-module.exports.armTokioWorkerTlsRetirementProbe = getWasiBindingExport('armTokioWorkerTlsRetirementProbe')
-module.exports.arrayBufferCopyFrom = __napiModule.exports.arrayBufferCopyFrom
 module.exports.arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 module.exports.arrayBufferFromExternal = __napiModule.exports.arrayBufferFromExternal
 module.exports.arrayBufferLenAsync = __napiModule.exports.arrayBufferLenAsync
 module.exports.arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
 module.exports.arrayParams = __napiModule.exports.arrayParams
-module.exports.assignClampedSliceAcrossDuplicateLoad = getWasiBindingExport('assignClampedSliceAcrossDuplicateLoad')
-module.exports.assignClassInstanceAcrossDuplicateLoad = getWasiBindingExport('assignClassInstanceAcrossDuplicateLoad')
-module.exports.assignClassInstanceFromLaterTurn = getWasiBindingExport('assignClassInstanceFromLaterTurn')
-module.exports.assignTypedArraySliceAcrossDuplicateLoad = getWasiBindingExport('assignTypedArraySliceAcrossDuplicateLoad')
 module.exports.asyncBufferToArray = __napiModule.exports.asyncBufferToArray
-module.exports.asyncCleanupHookCounts = __napiModule.exports.asyncCleanupHookCounts
 module.exports.asyncMultiTwo = __napiModule.exports.asyncMultiTwo
-module.exports.asyncPartialReferenceSetupProbe = __napiModule.exports.asyncPartialReferenceSetupProbe
 module.exports.asyncPlus100 = __napiModule.exports.asyncPlus100
 module.exports.asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
-module.exports.asyncReferenceSetupProbe = __napiModule.exports.asyncReferenceSetupProbe
 module.exports.asyncResolveArray = __napiModule.exports.asyncResolveArray
 module.exports.asyncTaskArraybuffer = __napiModule.exports.asyncTaskArraybuffer
 module.exports.asyncTaskFinally = __napiModule.exports.asyncTaskFinally
@@ -870,8 +751,6 @@ module.exports.bigintAdd = __napiModule.exports.bigintAdd
 module.exports.bigintFromI128 = __napiModule.exports.bigintFromI128
 module.exports.bigintFromI64 = __napiModule.exports.bigintFromI64
 module.exports.bigintGetU64AsString = __napiModule.exports.bigintGetU64AsString
-module.exports.borrowAlignedZstPair = __napiModule.exports.borrowAlignedZstPair
-module.exports.boundedTsfnOwnerAbortState = __napiModule.exports.boundedTsfnOwnerAbortState
 module.exports.btreeSetToJs = __napiModule.exports.btreeSetToJs
 module.exports.btreeSetToRust = __napiModule.exports.btreeSetToRust
 module.exports.bufferAssertionTarget = __napiModule.exports.bufferAssertionTarget
@@ -903,7 +782,6 @@ module.exports.callThenOnPromise = __napiModule.exports.callThenOnPromise
 module.exports.callThreadsafeFunction = __napiModule.exports.callThreadsafeFunction
 module.exports.callWithNestedFunctionArg = __napiModule.exports.callWithNestedFunctionArg
 module.exports.callWithTupleArg = __napiModule.exports.callWithTupleArg
-module.exports.cancelAsyncWorkLifecycle = getWasiBindingExport('cancelAsyncWorkLifecycle')
 module.exports.captureErrorInCallback = __napiModule.exports.captureErrorInCallback
 module.exports.chronoDateAdd1Minute = __napiModule.exports.chronoDateAdd1Minute
 module.exports.chronoDateFixtureReturn1 = __napiModule.exports.chronoDateFixtureReturn1
@@ -917,28 +795,17 @@ module.exports.chronoNativeDateTimeReturn = __napiModule.exports.chronoNativeDat
 module.exports.chronoUtcDateReturn = __napiModule.exports.chronoUtcDateReturn
 module.exports.chronoUtcDateToMillis = __napiModule.exports.chronoUtcDateToMillis
 module.exports.churnGlobalHandles = __napiModule.exports.churnGlobalHandles
+module.exports.cleanupReentrantBorrowOrderTestTargets = __napiModule.exports.cleanupReentrantBorrowOrderTestTargets
 module.exports.compressSync = __napiModule.exports.compressSync
 module.exports.concatLatin1 = __napiModule.exports.concatLatin1
 module.exports.concatStr = __napiModule.exports.concatStr
 module.exports.concatUtf16 = __napiModule.exports.concatUtf16
-module.exports.configureTokioThreadStopFileBarrier = getWasiBindingExport('configureTokioThreadStopFileBarrier')
 module.exports.contains = __napiModule.exports.contains
-module.exports.convertClampedSliceAcrossDuplicateLoad = getWasiBindingExport('convertClampedSliceAcrossDuplicateLoad')
-module.exports.convertTypedArraySliceAcrossDuplicateLoad = getWasiBindingExport('convertTypedArraySliceAcrossDuplicateLoad')
 module.exports.convertU32Array = __napiModule.exports.convertU32Array
-module.exports.copyExternalTokenAlias = getWasiBindingExport('copyExternalTokenAlias')
 module.exports.createArraybuffer = __napiModule.exports.createArraybuffer
-module.exports.createAsyncGeneratorSetupFailure = __napiModule.exports.createAsyncGeneratorSetupFailure
-module.exports.createAsyncIteratorIntoInstance = __napiModule.exports.createAsyncIteratorIntoInstance
-module.exports.createAsyncReferenceSetupProbe = __napiModule.exports.createAsyncReferenceSetupProbe
 module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
-module.exports.createClassWithLifetimeFromRust = __napiModule.exports.createClassWithLifetimeFromRust
-module.exports.createDelayedCounterPair = __napiModule.exports.createDelayedCounterPair
-module.exports.createDetachableExternalArraybuffer = __napiModule.exports.createDetachableExternalArraybuffer
-module.exports.createDirectClassReferenceCallback = __napiModule.exports.createDirectClassReferenceCallback
-module.exports.createEmptyTypedArraySlices = __napiModule.exports.createEmptyTypedArraySlices
 module.exports.createErroringReadableStream = __napiModule.exports.createErroringReadableStream
 module.exports.createExternal = __napiModule.exports.createExternal
 module.exports.createExternalBufferSlice = __napiModule.exports.createExternalBufferSlice
@@ -948,43 +815,30 @@ module.exports.createExternalLatin1Long = __napiModule.exports.createExternalLat
 module.exports.createExternalLatin1Short = __napiModule.exports.createExternalLatin1Short
 module.exports.createExternalLatin1String = __napiModule.exports.createExternalLatin1String
 module.exports.createExternalLatin1WithLatin1Chars = __napiModule.exports.createExternalLatin1WithLatin1Chars
-module.exports.createExternalPublicBorrowProbe = getWasiBindingExport('createExternalPublicBorrowProbe')
 module.exports.createExternalRef = __napiModule.exports.createExternalRef
-module.exports.createExternalRefProvenanceProbe = getWasiBindingExport('createExternalRefProvenanceProbe')
 module.exports.createExternalString = __napiModule.exports.createExternalString
-module.exports.createExternalTokenGcProbe = getWasiBindingExport('createExternalTokenGcProbe')
 module.exports.createExternalTypedArray = __napiModule.exports.createExternalTypedArray
 module.exports.createExternalUtf16String = __napiModule.exports.createExternalUtf16String
 module.exports.createFunction = __napiModule.exports.createFunction
-module.exports.createGeneratorLifecycleProbe = __napiModule.exports.createGeneratorLifecycleProbe
 module.exports.createI32ArrayFromExternal = __napiModule.exports.createI32ArrayFromExternal
-module.exports.createMutableTypedArrayForOwnershipTest = getWasiBindingExport('createMutableTypedArrayForOwnershipTest')
 module.exports.createNotUseNullableStruct = __napiModule.exports.createNotUseNullableStruct
 module.exports.createObj = __napiModule.exports.createObj
 module.exports.createObjectRef = __napiModule.exports.createObjectRef
 module.exports.createObjectWithClassField = __napiModule.exports.createObjectWithClassField
 module.exports.createObjWithProperty = __napiModule.exports.createObjWithProperty
 module.exports.createOptionalExternal = __napiModule.exports.createOptionalExternal
-module.exports.createPanickingAsyncWork = getWasiBindingExport('createPanickingAsyncWork')
-module.exports.createQueuedAsyncWorkLifecycle = getWasiBindingExport('createQueuedAsyncWorkLifecycle')
 module.exports.createReadableStream = __napiModule.exports.createReadableStream
 module.exports.createReadableStreamFromClass = __napiModule.exports.createReadableStreamFromClass
 module.exports.createReadableStreamWithObject = __napiModule.exports.createReadableStreamWithObject
+module.exports.createReentrantBorrowOrderTestTarget = __napiModule.exports.createReentrantBorrowOrderTestTarget
 module.exports.createReferenceOnFunction = __napiModule.exports.createReferenceOnFunction
 module.exports.createRejectedPromise = __napiModule.exports.createRejectedPromise
 module.exports.createResolvedPromise = __napiModule.exports.createResolvedPromise
-module.exports.createResolvePanickingAsyncWork = getWasiBindingExport('createResolvePanickingAsyncWork')
-module.exports.createRunningAsyncWorkLifecycle = getWasiBindingExport('createRunningAsyncWorkLifecycle')
-module.exports.createRuntimeLifecycleExternalLatin1Probe = __napiModule.exports.createRuntimeLifecycleExternalLatin1Probe
-module.exports.createRuntimeLifecycleExternalProbe = __napiModule.exports.createRuntimeLifecycleExternalProbe
-module.exports.createRuntimeLifecycleExternalUtf16Probe = __napiModule.exports.createRuntimeLifecycleExternalUtf16Probe
-module.exports.createRuntimeLifecycleFinalizer = __napiModule.exports.createRuntimeLifecycleFinalizer
 module.exports.createStaticLatin1String = __napiModule.exports.createStaticLatin1String
 module.exports.createStaticUtf16String = __napiModule.exports.createStaticUtf16String
 module.exports.createSymbol = __napiModule.exports.createSymbol
 module.exports.createSymbolFor = __napiModule.exports.createSymbolFor
 module.exports.createSymbolRef = __napiModule.exports.createSymbolRef
-module.exports.createSyncIteratorIntoInstance = __napiModule.exports.createSyncIteratorIntoInstance
 module.exports.createUint8ClampedArrayFromData = __napiModule.exports.createUint8ClampedArrayFromData
 module.exports.createUint8ClampedArrayFromExternal = __napiModule.exports.createUint8ClampedArrayFromExternal
 module.exports.createUseNullableStruct = __napiModule.exports.createUseNullableStruct
@@ -995,13 +849,9 @@ module.exports.customStatusCode = __napiModule.exports.customStatusCode
 module.exports.CustomStringEnum = __napiModule.exports.CustomStringEnum
 module.exports.dateToNumber = __napiModule.exports.dateToNumber
 module.exports.DEFAULT_COST = __napiModule.exports.DEFAULT_COST
-module.exports.deferredFinalizeCallbackCount = getWasiBindingExport('deferredFinalizeCallbackCount')
 module.exports.defineClass = __napiModule.exports.defineClass
 module.exports.derefUint8Array = __napiModule.exports.derefUint8Array
-module.exports.detachableExternalArraybufferFinalizeCount = __napiModule.exports.detachableExternalArraybufferFinalizeCount
-module.exports.detachArraybufferWithAlias = __napiModule.exports.detachArraybufferWithAlias
-module.exports.disposeAsyncWorkLifecycle = getWasiBindingExport('disposeAsyncWorkLifecycle')
-module.exports.disposeThreadsafeFunctionForEnvOwnership = getWasiBindingExport('disposeThreadsafeFunctionForEnvOwnership')
+module.exports.detachReentrantBorrowOrderTestTarget = __napiModule.exports.detachReentrantBorrowOrderTestTarget
 module.exports.drainStreamCount = __napiModule.exports.drainStreamCount
 module.exports.dropClonedErrorsOnTwoThreads = __napiModule.exports.dropClonedErrorsOnTwoThreads
 module.exports.dropErrorFromValueOffThread = __napiModule.exports.dropErrorFromValueOffThread
@@ -1019,12 +869,9 @@ module.exports.enumToI32 = __napiModule.exports.enumToI32
 module.exports.errorMessageContainsNullByte = __napiModule.exports.errorMessageContainsNullByte
 module.exports.esmResolve = __napiModule.exports.esmResolve
 module.exports.extendsJavascriptError = __napiModule.exports.extendsJavascriptError
-module.exports.externalTokenGcProbeFinalizeCount = getWasiBindingExport('externalTokenGcProbeFinalizeCount')
 module.exports.f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 module.exports.f64ArrayToArray = __napiModule.exports.f64ArrayToArray
-module.exports.fetch = getWasiBindingExport('fetch')
 module.exports.fibonacci = __napiModule.exports.fibonacci
-module.exports.finishBoundedTsfnOwnerAbort = __napiModule.exports.finishBoundedTsfnOwnerAbort
 module.exports.fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
 module.exports.getBigintJsonValue = __napiModule.exports.getBigintJsonValue
@@ -1039,7 +886,6 @@ module.exports.getExternal = __napiModule.exports.getExternal
 module.exports.getGlobal = __napiModule.exports.getGlobal
 module.exports.getIndexMapping = __napiModule.exports.getIndexMapping
 module.exports.getIndexMappingWithHasher = __napiModule.exports.getIndexMappingWithHasher
-module.exports.getJsExternal = __napiModule.exports.getJsExternal
 module.exports.getMapping = __napiModule.exports.getMapping
 module.exports.getMappingWithHasher = __napiModule.exports.getMappingWithHasher
 module.exports.getModuleFileName = __napiModule.exports.getModuleFileName
@@ -1063,8 +909,6 @@ module.exports.i8ArrayToArray = __napiModule.exports.i8ArrayToArray
 module.exports.indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 module.exports.indexSetToJs = __napiModule.exports.indexSetToJs
 module.exports.indexSetToRust = __napiModule.exports.indexSetToRust
-module.exports.inspectExternalRefAcrossDuplicateLoad = getWasiBindingExport('inspectExternalRefAcrossDuplicateLoad')
-module.exports.inspectExternalTokenGcProbe = getWasiBindingExport('inspectExternalTokenGcProbe')
 module.exports.intoUtf8 = __napiModule.exports.intoUtf8
 module.exports.joinPath = __napiModule.exports.joinPath
 module.exports.jsErrorCallback = __napiModule.exports.jsErrorCallback
@@ -1074,13 +918,10 @@ module.exports.listObjKeys = __napiModule.exports.listObjKeys
 module.exports.makeTypeTagA = __napiModule.exports.makeTypeTagA
 module.exports.mapOption = __napiModule.exports.mapOption
 module.exports.mergeTupleArray = __napiModule.exports.mergeTupleArray
-module.exports.mutableTypedArrayFinalizeCount = getWasiBindingExport('mutableTypedArrayFinalizeCount')
-module.exports.mutateAnimalPair = __napiModule.exports.mutateAnimalPair
 module.exports.mutateArraybuffer = __napiModule.exports.mutateArraybuffer
 module.exports.mutateExternal = __napiModule.exports.mutateExternal
 module.exports.mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal
 module.exports.mutateTypedArray = __napiModule.exports.mutateTypedArray
-module.exports.mutateUint16ArrayForSync = __napiModule.exports.mutateUint16ArrayForSync
 module.exports.objectGetNamedPropertyShouldPerformTypecheck = __napiModule.exports.objectGetNamedPropertyShouldPerformTypecheck
 module.exports.objectWithCApis = __napiModule.exports.objectWithCApis
 module.exports.optionalCallbackTypes = __napiModule.exports.optionalCallbackTypes
@@ -1093,30 +934,15 @@ module.exports.overrideIndividualArgOnFunctionWithCbArg = __napiModule.exports.o
 module.exports.overrideWholeFunctionType = __napiModule.exports.overrideWholeFunctionType
 module.exports.panic = __napiModule.exports.panic
 module.exports.panicInAsync = __napiModule.exports.panicInAsync
-module.exports.panickingAsyncWorkFinallyCount = getWasiBindingExport('panickingAsyncWorkFinallyCount')
 module.exports.passSetToJs = __napiModule.exports.passSetToJs
 module.exports.passSetToRust = __napiModule.exports.passSetToRust
 module.exports.passSetWithHasherToJs = __napiModule.exports.passSetWithHasherToJs
 module.exports.pathParent = __napiModule.exports.pathParent
-module.exports.pendingAsyncBlockWithTerminalFinalizer = __napiModule.exports.pendingAsyncBlockWithTerminalFinalizer
 module.exports.plusOne = __napiModule.exports.plusOne
-module.exports.prepareBoundedTsfnOwnerAbort = __napiModule.exports.prepareBoundedTsfnOwnerAbort
-module.exports.prepareTsfnBlockingCallRegression = getWasiBindingExport('prepareTsfnBlockingCallRegression')
-module.exports.prepareTsfnTeardownRegression = getWasiBindingExport('prepareTsfnTeardownRegression')
 module.exports.promiseInEither = __napiModule.exports.promiseInEither
-module.exports.promiseRawCallbackDropCount = __napiModule.exports.promiseRawCallbackDropCount
-module.exports.promiseRawCatchCallbackDropProbe = __napiModule.exports.promiseRawCatchCallbackDropProbe
-module.exports.promiseRawCatchCallbackPanic = __napiModule.exports.promiseRawCatchCallbackPanic
-module.exports.promiseRawFinallyCallbackDropProbe = __napiModule.exports.promiseRawFinallyCallbackDropProbe
-module.exports.promiseRawFinallyCallbackPanic = __napiModule.exports.promiseRawFinallyCallbackPanic
 module.exports.promiseRawReturnClassInstance = __napiModule.exports.promiseRawReturnClassInstance
-module.exports.promiseRawThenCallbackDropProbe = __napiModule.exports.promiseRawThenCallbackDropProbe
-module.exports.promiseRawThenCallbackPanic = __napiModule.exports.promiseRawThenCallbackPanic
-module.exports.readAnimalPair = __napiModule.exports.readAnimalPair
-module.exports.readAnimalWithReentrantProbe = __napiModule.exports.readAnimalWithReentrantProbe
 module.exports.readFile = __napiModule.exports.readFile
 module.exports.readFileAsync = __napiModule.exports.readFileAsync
-module.exports.readMutateAnimalPair = __napiModule.exports.readMutateAnimalPair
 module.exports.readPackageJson = __napiModule.exports.readPackageJson
 module.exports.receiveAllOptionalObject = __napiModule.exports.receiveAllOptionalObject
 module.exports.receiveBindingVitePluginMeta = __napiModule.exports.receiveBindingVitePluginMeta
@@ -1130,83 +956,34 @@ module.exports.receiveStrictObject = __napiModule.exports.receiveStrictObject
 module.exports.receiveString = __napiModule.exports.receiveString
 module.exports.referenceAsCallback = __napiModule.exports.referenceAsCallback
 module.exports.referenceWithTupleArg = __napiModule.exports.referenceWithTupleArg
-module.exports.referThreadsafeFunctionForEnvOwnership = getWasiBindingExport('referThreadsafeFunctionForEnvOwnership')
-module.exports.registerDeferredCleanupOrderProbe = getWasiBindingExport('registerDeferredCleanupOrderProbe')
-module.exports.registerEnvCleanupRuntimeLifecycleProbes = __napiModule.exports.registerEnvCleanupRuntimeLifecycleProbes
-module.exports.registerLateDeferredFinalizeCallback = getWasiBindingExport('registerLateDeferredFinalizeCallback')
-module.exports.registerModuleFinalizerProbes = __napiModule.exports.registerModuleFinalizerProbes
-module.exports.registerRemovableAsyncCleanupHook = __napiModule.exports.registerRemovableAsyncCleanupHook
-module.exports.registerRemovableSyncCleanupHook = __napiModule.exports.registerRemovableSyncCleanupHook
-module.exports.registerSelfDroppingAsyncCleanupHook = __napiModule.exports.registerSelfDroppingAsyncCleanupHook
-module.exports.registerSelfRemovingSyncCleanupHook = __napiModule.exports.registerSelfRemovingSyncCleanupHook
-module.exports.releaseAsyncWorkLifecycle = getWasiBindingExport('releaseAsyncWorkLifecycle')
-module.exports.releaseBoundedTsfnNativeWait = __napiModule.exports.releaseBoundedTsfnNativeWait
-module.exports.removeRemovableAsyncCleanupHook = __napiModule.exports.removeRemovableAsyncCleanupHook
-module.exports.removeRemovableSyncCleanupHook = __napiModule.exports.removeRemovableSyncCleanupHook
-module.exports.resetPromiseRawCallbackDropCount = __napiModule.exports.resetPromiseRawCallbackDropCount
-module.exports.resetWeakReferenceGcTargetFinalizeCount = __napiModule.exports.resetWeakReferenceGcTargetFinalizeCount
-module.exports.resolvePanickingAsyncWorkFinallyCount = getWasiBindingExport('resolvePanickingAsyncWorkFinallyCount')
-module.exports.restartTokioRuntimeAfterRetirement = getWasiBindingExport('restartTokioRuntimeAfterRetirement')
 module.exports.returnCString = __napiModule.exports.returnCString
 module.exports.returnEither = __napiModule.exports.returnEither
 module.exports.returnEitherClass = __napiModule.exports.returnEitherClass
 module.exports.returnFromSharedCrate = __napiModule.exports.returnFromSharedCrate
 module.exports.returnNull = __napiModule.exports.returnNull
 module.exports.returnObjectOnlyToJs = __napiModule.exports.returnObjectOnlyToJs
-module.exports.returnTypedArraySliceMutAcrossDuplicateLoad = getWasiBindingExport('returnTypedArraySliceMutAcrossDuplicateLoad')
-module.exports.returnTypedArraySliceRefAcrossDuplicateLoad = getWasiBindingExport('returnTypedArraySliceRefAcrossDuplicateLoad')
 module.exports.returnUndefined = __napiModule.exports.returnUndefined
 module.exports.returnUndefinedIfInvalid = __napiModule.exports.returnUndefinedIfInvalid
 module.exports.returnUndefinedIfInvalidPromise = __napiModule.exports.returnUndefinedIfInvalidPromise
 module.exports.roundtripStr = __napiModule.exports.roundtripStr
 module.exports.runScript = __napiModule.exports.runScript
-module.exports.setInstanceDataRuntimeLifecycleProbe = __napiModule.exports.setInstanceDataRuntimeLifecycleProbe
 module.exports.setNullByteProperty = __napiModule.exports.setNullByteProperty
 module.exports.setSymbolInObj = __napiModule.exports.setSymbolInObj
-module.exports.settleDeferredBeforeFinalizeRegistration = getWasiBindingExport('settleDeferredBeforeFinalizeRegistration')
-module.exports.settleDeferredClone = getWasiBindingExport('settleDeferredClone')
 module.exports.shorterEscapableScope = __napiModule.exports.shorterEscapableScope
 module.exports.shorterScope = __napiModule.exports.shorterScope
-module.exports.shutdownAsyncRuntimeForTest = __napiModule.exports.shutdownAsyncRuntimeForTest
 module.exports.shutdownRuntime = __napiModule.exports.shutdownRuntime
 module.exports.spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 module.exports.spawnThreadInThread = __napiModule.exports.spawnThreadInThread
-module.exports.startDeferredTeardownRace = getWasiBindingExport('startDeferredTeardownRace')
-module.exports.startReferencedTsfnFinalizerLivenessWorker = getWasiBindingExport('startReferencedTsfnFinalizerLivenessWorker')
-module.exports.startWeakTsfnFinalizerLivenessWorker = getWasiBindingExport('startWeakTsfnFinalizerLivenessWorker')
-module.exports.stashBufferAcrossDuplicateLoad = getWasiBindingExport('stashBufferAcrossDuplicateLoad')
 module.exports.stashBufferInThreadLocal = __napiModule.exports.stashBufferInThreadLocal
-module.exports.stashClassInstanceForLaterTurn = getWasiBindingExport('stashClassInstanceForLaterTurn')
-module.exports.stashErrorAcrossDuplicateLoad = getWasiBindingExport('stashErrorAcrossDuplicateLoad')
 module.exports.stashErrorInThreadLocal = __napiModule.exports.stashErrorInThreadLocal
-module.exports.stashExternalRefAcrossDuplicateLoad = getWasiBindingExport('stashExternalRefAcrossDuplicateLoad')
-module.exports.stashExternalRefForTeardown = getWasiBindingExport('stashExternalRefForTeardown')
-module.exports.stashPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('stashPromiseRejectionAcrossDuplicateLoad')
-module.exports.stashThreadsafeFunctionForEnvOwnership = getWasiBindingExport('stashThreadsafeFunctionForEnvOwnership')
-module.exports.stashTypedArrayAcrossDuplicateLoad = getWasiBindingExport('stashTypedArrayAcrossDuplicateLoad')
 module.exports.stashTypedArrayInThreadLocal = __napiModule.exports.stashTypedArrayInThreadLocal
-module.exports.stashTypedArraySlicesAcrossDuplicateLoad = getWasiBindingExport('stashTypedArraySlicesAcrossDuplicateLoad')
 module.exports.Status = __napiModule.exports.Status
 module.exports.StatusInValidate = __napiModule.exports.StatusInValidate
-module.exports.stoppedTokioAsyncBlockCleanupOrder = __napiModule.exports.stoppedTokioAsyncBlockCleanupOrder
 module.exports.StringEnum = __napiModule.exports.StringEnum
 module.exports.sumBtreeMapping = __napiModule.exports.sumBtreeMapping
-module.exports.sumBufferSliceFromCopy = __napiModule.exports.sumBufferSliceFromCopy
-module.exports.sumBufferSliceFromData = __napiModule.exports.sumBufferSliceFromData
-module.exports.sumBufferSliceFromExternal = __napiModule.exports.sumBufferSliceFromExternal
 module.exports.sumIndexMapping = __napiModule.exports.sumIndexMapping
 module.exports.sumMapping = __napiModule.exports.sumMapping
 module.exports.sumNums = __napiModule.exports.sumNums
-module.exports.syncCleanupHookCounts = __napiModule.exports.syncCleanupHookCounts
-module.exports.takeAdditionalBorrowedValueAcrossDuplicateLoad = getWasiBindingExport('takeAdditionalBorrowedValueAcrossDuplicateLoad')
-module.exports.takeBorrowedValueAcrossDuplicateLoad = getWasiBindingExport('takeBorrowedValueAcrossDuplicateLoad')
-module.exports.takeBufferAcrossDuplicateLoad = getWasiBindingExport('takeBufferAcrossDuplicateLoad')
-module.exports.takeBufferSliceIntoBufferAcrossDuplicateLoad = getWasiBindingExport('takeBufferSliceIntoBufferAcrossDuplicateLoad')
-module.exports.takeBufferSliceRefAcrossDuplicateLoad = getWasiBindingExport('takeBufferSliceRefAcrossDuplicateLoad')
-module.exports.takeClassInstanceFromLaterTurn = getWasiBindingExport('takeClassInstanceFromLaterTurn')
-module.exports.takeExternalRefAcrossDuplicateLoad = getWasiBindingExport('takeExternalRefAcrossDuplicateLoad')
-module.exports.takeReferenceValueAcrossDuplicateLoad = getWasiBindingExport('takeReferenceValueAcrossDuplicateLoad')
-module.exports.takeTypedArrayAcrossDuplicateLoad = getWasiBindingExport('takeTypedArrayAcrossDuplicateLoad')
 module.exports.testEscapedQuotesInComments = __napiModule.exports.testEscapedQuotesInComments
 module.exports.testLatin1Methods = __napiModule.exports.testLatin1Methods
 module.exports.testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
@@ -1217,20 +994,14 @@ module.exports.threadsafeFunctionBuildThrowErrorWithStatus = __napiModule.export
 module.exports.threadsafeFunctionClosureCapture = __napiModule.exports.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
 module.exports.threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
-module.exports.threadsafeFunctionRustPanic = __napiModule.exports.threadsafeFunctionRustPanic
-module.exports.threadsafeFunctionRustPanicCalleeHandled = __napiModule.exports.threadsafeFunctionRustPanicCalleeHandled
 module.exports.threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunctionThrowError
 module.exports.threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
 module.exports.throwAsyncError = __napiModule.exports.throwAsyncError
 module.exports.throwDetachedPendingException = __napiModule.exports.throwDetachedPendingException
 module.exports.throwError = __napiModule.exports.throwError
-module.exports.throwErrorAcrossDuplicateLoad = getWasiBindingExport('throwErrorAcrossDuplicateLoad')
 module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause
-module.exports.throwPromiseRejectionAcrossDuplicateLoad = getWasiBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
-module.exports.tokioRuntimeFactoryCallCount = getWasiBindingExport('tokioRuntimeFactoryCallCount')
-module.exports.tokioRuntimeLifecycleValue = getWasiBindingExport('tokioRuntimeLifecycleValue')
 module.exports.tryCloneErrorCauseOffThread = __napiModule.exports.tryCloneErrorCauseOffThread
 module.exports.tryCloneErrorCauseTransitiveOffThread = __napiModule.exports.tryCloneErrorCauseTransitiveOffThread
 module.exports.tryCloneErrorOffThread = __napiModule.exports.tryCloneErrorOffThread
@@ -1253,12 +1024,8 @@ module.exports.u32ArrayToArray = __napiModule.exports.u32ArrayToArray
 module.exports.u64ArrayToArray = __napiModule.exports.u64ArrayToArray
 module.exports.u8ArrayToArray = __napiModule.exports.u8ArrayToArray
 module.exports.uInit8ArrayFromString = __napiModule.exports.uInit8ArrayFromString
-module.exports.uint16ArrayCopyFrom = __napiModule.exports.uint16ArrayCopyFrom
 module.exports.uint8ArrayFromData = __napiModule.exports.uint8ArrayFromData
 module.exports.uint8ArrayFromExternal = __napiModule.exports.uint8ArrayFromExternal
-module.exports.uint8ClampedArrayCopyFrom = __napiModule.exports.uint8ClampedArrayCopyFrom
-module.exports.unrefThreadsafeFunctionForEnvOwnership = getWasiBindingExport('unrefThreadsafeFunctionForEnvOwnership')
-module.exports.untypedTypedArrayBackingBytes = __napiModule.exports.untypedTypedArrayBackingBytes
 module.exports.validateArray = __napiModule.exports.validateArray
 module.exports.validateBigint = __napiModule.exports.validateBigint
 module.exports.validateBoolean = __napiModule.exports.validateBoolean
@@ -1283,21 +1050,11 @@ module.exports.validateTypedArray = __napiModule.exports.validateTypedArray
 module.exports.validateTypedArraySlice = __napiModule.exports.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = __napiModule.exports.validateUint8ClampedSlice
 module.exports.validateUndefined = __napiModule.exports.validateUndefined
-module.exports.verifyReferenceValuesRejectNativeThread = getWasiBindingExport('verifyReferenceValuesRejectNativeThread')
-module.exports.verifyThreadsafeFunctionOwnerEnv = getWasiBindingExport('verifyThreadsafeFunctionOwnerEnv')
-module.exports.verifyTypedArraySlicesSameEnv = getWasiBindingExport('verifyTypedArraySlicesSameEnv')
-module.exports.waitForTokioRuntimeRetirement = getWasiBindingExport('waitForTokioRuntimeRetirement')
-module.exports.weakReferenceGcTargetFinalizeCount = __napiModule.exports.weakReferenceGcTargetFinalizeCount
 module.exports.withAbortController = __napiModule.exports.withAbortController
 module.exports.withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
-module.exports.withAdditionalBorrowedValuesAcrossDuplicateLoad = getWasiBindingExport('withAdditionalBorrowedValuesAcrossDuplicateLoad')
-module.exports.withBorrowedValuesAcrossDuplicateLoad = getWasiBindingExport('withBorrowedValuesAcrossDuplicateLoad')
 module.exports.withinAsyncRuntimeIfAvailable = __napiModule.exports.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = __napiModule.exports.withoutAbortController
-module.exports.withReferenceValuesAcrossDuplicateLoad = getWasiBindingExport('withReferenceValuesAcrossDuplicateLoad')
 module.exports.xxh64Alias = __napiModule.exports.xxh64Alias
-module.exports.duplicateClassNameAlpha = __napiModule.exports.duplicateClassNameAlpha
-module.exports.duplicateClassNameBeta = __napiModule.exports.duplicateClassNameBeta
 module.exports.xxh2 = __napiModule.exports.xxh2
 module.exports.xxh3 = __napiModule.exports.xxh3
 module.exports.ComplexClass = __napiModule.exports.ComplexClass

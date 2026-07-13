@@ -623,14 +623,6 @@ async function __createInstance(
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }
-    for (const name of unsupportedWasiFunctions) {
-      if (__napiModule.exports[name] === undefined) {
-        __napiModule.exports[name] = getDeferredWasiBindingExport(
-          __napiModule.exports,
-          name,
-        )
-      }
-    }
     return {
       exports: __napiModule.exports,
       async dispose() {
@@ -679,97 +671,6 @@ async function __createInstance(
  * Create an independent instance. Call dispose() when the instance is no
  * longer needed so emnapi cleanup hooks run deterministically.
  */
-const unsupportedWasiFunctions = new Set([
-  'abandonDeferredClones',
-  'armTokioBlockingTlsRetirementProbe',
-  'armTokioWorkerTlsRetirementProbe',
-  'assignClassInstanceAcrossDuplicateLoad',
-  'assignClassInstanceFromLaterTurn',
-  'assignClampedSliceAcrossDuplicateLoad',
-  'assignTypedArraySliceAcrossDuplicateLoad',
-  'cancelAsyncWorkLifecycle',
-  'configureTokioThreadStopFileBarrier',
-  'convertClampedSliceAcrossDuplicateLoad',
-  'convertTypedArraySliceAcrossDuplicateLoad',
-  'copyExternalTokenAlias',
-  'createExternalPublicBorrowProbe',
-  'createExternalRefProvenanceProbe',
-  'createExternalTokenGcProbe',
-  'createMutableTypedArrayForOwnershipTest',
-  'createPanickingAsyncWork',
-  'createQueuedAsyncWorkLifecycle',
-  'createResolvePanickingAsyncWork',
-  'createRunningAsyncWorkLifecycle',
-  'deferredFinalizeCallbackCount',
-  'disposeAsyncWorkLifecycle',
-  'disposeThreadsafeFunctionForEnvOwnership',
-  'externalTokenGcProbeFinalizeCount',
-  'fetch',
-  'inspectExternalRefAcrossDuplicateLoad',
-  'inspectExternalTokenGcProbe',
-  'mutableTypedArrayFinalizeCount',
-  'panickingAsyncWorkFinallyCount',
-  'prepareTsfnBlockingCallRegression',
-  'prepareTsfnTeardownRegression',
-  'referThreadsafeFunctionForEnvOwnership',
-  'registerDeferredCleanupOrderProbe',
-  'registerLateDeferredFinalizeCallback',
-  'releaseAsyncWorkLifecycle',
-  'resolvePanickingAsyncWorkFinallyCount',
-  'restartTokioRuntimeAfterRetirement',
-  'returnTypedArraySliceMutAcrossDuplicateLoad',
-  'returnTypedArraySliceRefAcrossDuplicateLoad',
-  'settleDeferredBeforeFinalizeRegistration',
-  'settleDeferredClone',
-  'stashBufferAcrossDuplicateLoad',
-  'stashClassInstanceForLaterTurn',
-  'stashErrorAcrossDuplicateLoad',
-  'stashExternalRefAcrossDuplicateLoad',
-  'stashExternalRefForTeardown',
-  'stashPromiseRejectionAcrossDuplicateLoad',
-  'stashThreadsafeFunctionForEnvOwnership',
-  'stashTypedArrayAcrossDuplicateLoad',
-  'stashTypedArraySlicesAcrossDuplicateLoad',
-  'startDeferredTeardownRace',
-  'startReferencedTsfnFinalizerLivenessWorker',
-  'startWeakTsfnFinalizerLivenessWorker',
-  'takeAdditionalBorrowedValueAcrossDuplicateLoad',
-  'takeBorrowedValueAcrossDuplicateLoad',
-  'takeBufferAcrossDuplicateLoad',
-  'takeBufferSliceIntoBufferAcrossDuplicateLoad',
-  'takeBufferSliceRefAcrossDuplicateLoad',
-  'takeClassInstanceFromLaterTurn',
-  'takeExternalRefAcrossDuplicateLoad',
-  'takeReferenceValueAcrossDuplicateLoad',
-  'takeTypedArrayAcrossDuplicateLoad',
-  'throwErrorAcrossDuplicateLoad',
-  'throwPromiseRejectionAcrossDuplicateLoad',
-  'tokioRuntimeFactoryCallCount',
-  'tokioRuntimeLifecycleValue',
-  'unrefThreadsafeFunctionForEnvOwnership',
-  'verifyReferenceValuesRejectNativeThread',
-  'verifyThreadsafeFunctionOwnerEnv',
-  'verifyTypedArraySlicesSameEnv',
-  'waitForTokioRuntimeRetirement',
-  'withAdditionalBorrowedValuesAcrossDuplicateLoad',
-  'withBorrowedValuesAcrossDuplicateLoad',
-  'withReferenceValuesAcrossDuplicateLoad',
-])
-
-function getDeferredWasiBindingExport(binding, name) {
-  const value = binding[name]
-  if (value !== undefined || !unsupportedWasiFunctions.has(name)) {
-    return value
-  }
-  return function unsupportedWasiFunction() {
-    const error = new Error(
-      `The "${name}" export is not supported by this WASI binding`,
-    )
-    error.code = 'NAPI_RS_UNSUPPORTED_WASI_EXPORT'
-    throw error
-  }
-}
-
 export async function createInstance(__wasmInput) {
   return __createInstance(__wasmInput)
 }

@@ -247,12 +247,12 @@ impl Display for TypeDef {
       self.def.clone()
     };
     let js_mod = if let Some(js_mod) = &self.js_mod {
-      format!(", \"js_mod\": \"{js_mod}\"")
+      format!(", \"js_mod\": \"{}\"", escape_json(js_mod))
     } else {
       "".to_string()
     };
     let original_name = if let Some(original_name) = &self.original_name {
-      format!(", \"original_name\": \"{original_name}\"")
+      format!(", \"original_name\": \"{}\"", escape_json(original_name))
     } else {
       "".to_string()
     };
@@ -268,9 +268,6 @@ impl Display for TypeDef {
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
-      self.kind,
-      self.name,
       r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
@@ -918,7 +915,6 @@ pub fn ty_to_ts_type(
 
 #[cfg(test)]
 mod tests {
-  use super::{escape_json, format_js_property_name};
   use super::{
     escape_json, format_js_property_name, ty_to_ts_type, JSDoc, TypeDef,
     BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,

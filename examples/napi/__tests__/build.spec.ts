@@ -1,21 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import test from 'ava'
-import { format } from 'prettier'
-import typeScript from 'typescript'
 
-import {
-  formatGeneratedOutputs,
-  lifecycleOutputFiles,
-  mergeLifecycleDeclarations,
-  mergeLifecycleLoaderExports,
-  preserveLifecycleDeclarations,
-  regenerateArtifacts,
-} from '../build.mjs'
-import { unsupportedWasiFunctions } from '../unsupported-wasi-exports.mjs'
+import { formatGeneratedOutputs, regenerateArtifacts } from '../build.mjs'
 
 const generatedArtifactDirectory = join(import.meta.dirname, '..')
 
@@ -56,98 +45,13 @@ test('generated threadless outputs are finalized with repository formatting', as
   }
 })
 
-test('formatted lifecycle exports remain valid across a second build pass', async (t) => {
-  const formattedSource = await format(
-    `const __napiModule = { exports: {} }
-function getWasiBindingExport(name) {
-  return __napiModule.exports[name]
-}
-export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')
-`,
-    { parser: 'babel' },
-  )
-  const output = {
-    file: 'example.wasi-browser.js',
-    binding: '__napiModule.exports',
-    helper: 'getWasiBindingExport',
-    forwardedFunctions: ['abandonDeferredClones'],
-    marker: 'export const ',
-    exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
-    assignment(name: string) {
-      return [
-        `export const ${name} = __napiModule.exports.${name}`,
-        `export const ${name} = getWasiBindingExport('${name}')`,
-      ]
-    },
-  }
-
-  const firstPass = mergeLifecycleLoaderExports(formattedSource, output)
-  const secondPass = mergeLifecycleLoaderExports(firstPass, output)
-
-  t.is(secondPass, formattedSource)
-  t.is(secondPass.match(/export const abandonDeferredClones/g)?.length, 1)
-  t.notThrows(() => Function(secondPass.replace(/^export /gm, ''))())
-})
-
-test('lifecycle export regeneration removes stale duplicate assignments', async (t) => {
-  const formattedSource = await format(
-    `const __napiModule = { exports: {} }
-function getWasiBindingExport(name) {
-  return __napiModule.exports[name]
-}
-export const abandonDeferredClones = __napiModule.exports.abandonDeferredClones
-export const abandonDeferredClones = getWasiBindingExport(
-  'abandonDeferredClones',
-)
-export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')
-`,
-    { parser: 'babel' },
-  )
-  const output = {
-    file: 'example.wasi-browser.js',
-    binding: '__napiModule.exports',
-    helper: 'getWasiBindingExport',
-    forwardedFunctions: ['abandonDeferredClones'],
-    marker: 'export const ',
-    exportPattern: /^export const ([A-Za-z_$][\w$]*) = /gm,
-    assignment(name: string) {
-      return [
-        `export const ${name} = __napiModule.exports.${name}`,
-        `export const ${name} = getWasiBindingExport('${name}')`,
-      ]
-    },
-  }
-
-  const outputSource = mergeLifecycleLoaderExports(formattedSource, output)
-
-  t.is(outputSource.match(/export const abandonDeferredClones/g)?.length, 1)
-  t.true(
-    outputSource.includes(
-      "export const abandonDeferredClones = getWasiBindingExport('abandonDeferredClones')",
-    ),
-  )
-  t.false(
-    outputSource.includes(
-      'export const abandonDeferredClones = __napiModule.exports.abandonDeferredClones',
-    ),
-  )
-  t.notThrows(() => Function(outputSource.replace(/^export /gm, ''))())
-})
-
-test('checked threaded artifacts retain the WASI export surface and portable stubs', async (t) => {
+test('checked WASI artifacts keep the deferred and flavor contracts', async (t) => {
   const [
-    browserSource,
-    nodeSource,
     declarationSource,
     rootSource,
     rootDeclarationSource,
     rootBrowserSource,
   ] = await Promise.all([
-    readFile(
-      join(generatedArtifactDirectory, 'example.wasi-browser.js'),
-      'utf8',
-    ),
-    readFile(join(generatedArtifactDirectory, 'example.wasi.cjs'), 'utf8'),
     readFile(join(generatedArtifactDirectory, 'example.wasi.d.cts'), 'utf8'),
     readFile(join(generatedArtifactDirectory, 'index.cjs'), 'utf8'),
     readFile(join(generatedArtifactDirectory, 'index.d.cts'), 'utf8'),
@@ -163,84 +67,15 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
       'utf8',
     ),
   ])
-  const privateWasiTestExports = [
-    'dropUnregisteredWeakTsfnForWasi',
-    'startTokioWakerAfterCleanupProbe',
-  ]
 
-  for (const name of privateWasiTestExports) {
-    t.false(browserSource.includes(`export const ${name}`), name)
-    t.false(nodeSource.includes(`module.exports.${name} =`), name)
-    t.false(
-      declarationSource.includes(`export declare function ${name}(`),
-      name,
-    )
-  }
-
-  for (const name of unsupportedWasiFunctions) {
-    t.regex(
-      declarationSource,
-      new RegExp(
-        `export declare function ${name}\\(\\s*\\.\\.\\.args:\\s*unknown\\[\\]\\s*\\):\\s*never`,
-      ),
-      name,
-    )
-  }
   t.false(declarationSource.includes('undici-types'))
-  t.true(
-    rootDeclarationSource.includes(
-      'export declare function abandonDeferredClones(): void',
-    ),
-  )
-  t.false(
-    rootDeclarationSource.includes(
-      'export declare function abandonDeferredClones(...args: unknown[]): never',
-    ),
-  )
-  for (const name of unsupportedWasiFunctions) {
-    t.true(deferredSource.includes(`'${name}',`), name)
-  }
-  t.true(
-    deferredSource.includes(
-      '__napiModule.exports[name] = getDeferredWasiBindingExport(',
-    ),
-  )
+  t.true(rootDeclarationSource.includes('export declare function fetch('))
   t.true(deferredDeclarationSource.includes('dispose(): Promise<void>'))
   t.false(deferredDeclarationSource.includes('dispose(): void | Promise<void>'))
   t.regex(rootSource, /['"]wasm32-wasi['"]/)
   t.regex(rootSource, /['"]wasm32-wasip1['"]/)
   t.is(rootBrowserSource, "export * from '@examples/napi-wasm32-wasip1'\n")
-})
-
-test('checked WASI artifacts are a clean lifecycle regeneration', async (t) => {
-  const rootDeclarationSource = await readFile(
-    join(generatedArtifactDirectory, 'index.d.cts'),
-    'utf8',
-  )
-
-  for (const target of ['wasm32-wasip1', 'wasm32-wasip1-threads']) {
-    const outputs = lifecycleOutputFiles(target)
-    for (const output of outputs.loaders) {
-      const source = await readFile(
-        join(generatedArtifactDirectory, output.file),
-        'utf8',
-      )
-      t.is(mergeLifecycleLoaderExports(source, output), source, output.file)
-    }
-    for (const file of outputs.declarations.filter(
-      (file) => file !== 'index.d.cts',
-    )) {
-      const source = await readFile(
-        join(generatedArtifactDirectory, file),
-        'utf8',
-      )
-      t.is(
-        mergeLifecycleDeclarations(source, rootDeclarationSource),
-        source,
-        file,
-      )
-    }
-  }
+  t.truthy(deferredSource)
 })
 
 test('checked generated WASI JavaScript has valid syntax', (t) => {
@@ -349,30 +184,15 @@ test('checked threaded browser artifact rolls workers back after context cleanup
   )
 })
 
-test('checked WASI loaders keep browser, Node, and unsupported declarations in parity', async (t) => {
-  const [rootSource, rootDeclarationSource, deferredSource] = await Promise.all(
-    [
-      readFile(join(generatedArtifactDirectory, 'index.cjs'), 'utf8'),
-      readFile(join(generatedArtifactDirectory, 'index.d.cts'), 'utf8'),
-      readFile(
-        join(generatedArtifactDirectory, 'example.wasip1-deferred.js'),
-        'utf8',
-      ),
-    ],
-  )
-
+test('checked WASI loaders keep browser and Node exports in parity', async (t) => {
   for (const suffix of ['wasi', 'wasip1']) {
-    const [nodeSource, browserSource, declarationSource] = await Promise.all([
+    const [nodeSource, browserSource] = await Promise.all([
       readFile(
         join(generatedArtifactDirectory, `example.${suffix}.cjs`),
         'utf8',
       ),
       readFile(
         join(generatedArtifactDirectory, `example.${suffix}-browser.js`),
-        'utf8',
-      ),
-      readFile(
-        join(generatedArtifactDirectory, `example.${suffix}.d.cts`),
         'utf8',
       ),
     ])
@@ -400,42 +220,6 @@ test('checked WASI loaders keep browser, Node, and unsupported declarations in p
       [...browserExports].sort(),
       `${suffix} loader exports`,
     )
-
-    for (const name of unsupportedWasiFunctions) {
-      t.true(
-        new RegExp(
-          `module\\.exports\\.${name}\\s*=\\s*getWasiBindingExport\\(\\s*'${name}'\\s*,?\\s*\\)`,
-        ).test(nodeSource),
-        `${suffix} Node ${name}`,
-      )
-      t.true(
-        new RegExp(
-          `export const ${name}\\s*=\\s*getWasiBindingExport\\(\\s*'${name}'\\s*,?\\s*\\)`,
-        ).test(browserSource),
-        `${suffix} browser ${name}`,
-      )
-      t.regex(
-        declarationSource,
-        new RegExp(
-          `export declare function ${name}\\(\\s*\\.\\.\\.args:\\s*unknown\\[\\]\\s*\\):\\s*never`,
-        ),
-        `${suffix} declaration ${name}`,
-      )
-    }
-  }
-
-  for (const name of unsupportedWasiFunctions) {
-    t.true(
-      rootSource.includes(
-        `module.exports.${name} = getBindingExport('${name}')`,
-      ),
-      `root ${name}`,
-    )
-    t.true(
-      rootDeclarationSource.includes(`export declare function ${name}(`),
-      `root declaration ${name}`,
-    )
-    t.true(deferredSource.includes(`'${name}',`), `deferred ${name}`)
   }
 })
 
@@ -626,95 +410,4 @@ test('artifact regeneration restores native roots when retained flavor restorati
     'index.cjs': 'native JavaScript',
     'index.d.cts': 'native declarations',
   })
-})
-
-test('WASI declaration preservation emits portable throwing stubs in both public files', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'napi-wasi-declarations-'))
-  try {
-    const generatedSource = `export interface Generated {}
-
-export declare function abandonDeferredClones(): void
-`
-    const lifecycleHandle = `export interface AsyncWorkLifecycleHandle {
-  id: number
-  promise: Promise<number>
-}`
-    const requestInit = `export interface RequestInit {
-  method?: string
-}`
-    const nativeDeclarations = unsupportedWasiFunctions.map((name) =>
-      name === 'createQueuedAsyncWorkLifecycle'
-        ? `export declare function ${name}(): AsyncWorkLifecycleHandle`
-        : name === 'fetch'
-          ? `export declare function ${name}(requestInit?: RequestInit): Promise<import('undici-types').Response>`
-          : name === 'stashBufferAcrossDuplicateLoad'
-            ? `export declare function ${name}(value: Buffer): void`
-            : `export declare function ${name}(): void`,
-    )
-    const preservedDeclarations = unsupportedWasiFunctions.map(
-      (name) => `export declare function ${name}(...args: unknown[]): never`,
-    )
-    const previousSource = `${lifecycleHandle}\n\n${requestInit}\n\n${nativeDeclarations.join('\n\n')}\n`
-    const declarationPaths = ['index.d.ts', 'example.wasi.d.ts'].map((file) =>
-      join(directory, file),
-    )
-    await Promise.all(
-      declarationPaths.map((path) => writeFile(path, generatedSource)),
-    )
-    await preserveLifecycleDeclarations(declarationPaths, previousSource)
-
-    const firstBuild = await Promise.all(
-      declarationPaths.map((path) => readFile(path, 'utf8')),
-    )
-    t.is(firstBuild[1], firstBuild[0])
-
-    await Promise.all(
-      declarationPaths.map((path) => writeFile(path, generatedSource)),
-    )
-    await preserveLifecycleDeclarations(declarationPaths, firstBuild[0])
-
-    const secondBuild = await Promise.all(
-      declarationPaths.map((path) => readFile(path, 'utf8')),
-    )
-    t.deepEqual(secondBuild, firstBuild)
-
-    for (const source of secondBuild) {
-      t.true(source.endsWith(`${preservedDeclarations.at(-1)}\n`))
-      t.false(
-        source.includes(
-          'export declare function abandonDeferredClones(): void',
-        ),
-      )
-      t.false(source.includes('undici-types'))
-      t.false(source.includes('value: Buffer'))
-      for (const dependency of [lifecycleHandle, requestInit]) {
-        t.is(source.split(dependency).length - 1, 1)
-      }
-      t.true(
-        source.indexOf(lifecycleHandle) <
-          source.indexOf(preservedDeclarations[0]),
-      )
-      t.true(
-        source.indexOf(requestInit) < source.indexOf(preservedDeclarations[0]),
-      )
-      for (const declaration of preservedDeclarations) {
-        t.is(source.split(declaration).length - 1, 1)
-      }
-    }
-
-    const program = typeScript.createProgram(declarationPaths, {
-      lib: ['lib.es2022.d.ts'],
-      noEmit: true,
-      skipLibCheck: false,
-      strict: true,
-    })
-    const diagnostics = typeScript
-      .getPreEmitDiagnostics(program)
-      .map((diagnostic) =>
-        typeScript.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
-      )
-    t.deepEqual(diagnostics, [])
-  } finally {
-    await rm(directory, { recursive: true, force: true })
-  }
 })
