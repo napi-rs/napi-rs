@@ -1003,3 +1003,293 @@ impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
     Ok(val.inner)
   }
 }
+
+#[cfg(all(test, feature = "async-runtime", not(feature = "noop")))]
+mod spi_tests {
+  use std::sync::{
+    atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    Arc, Mutex,
+  };
+
+  use super::*;
+
+  /// Observations shared between a test and its mock backend, surviving backend retirement.
+  #[derive(Default)]
+  struct BackendProbe {
+    start_calls: AtomicUsize,
+    shutdown_calls: AtomicUsize,
+  }
+
+  struct MockRuntime {
+    probe: Arc<BackendProbe>,
+    fail_start: bool,
+  }
+
+  impl MockRuntime {
+    fn new(probe: &Arc<BackendProbe>) -> Self {
+      Self {
+        probe: probe.clone(),
+        fail_start: false,
+      }
+    }
+
+    fn failing_start(probe: &Arc<BackendProbe>) -> Self {
+      Self {
+        probe: probe.clone(),
+        fail_start: true,
+      }
+    }
+  }
+
+  unsafe impl AsyncRuntime for MockRuntime {
+    fn spawn(
+      &self,
+      task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+      futures::executor::block_on(task);
+      Ok(())
+    }
+
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+      futures::executor::block_on(future);
+      Ok(())
+    }
+
+    fn start(&self) -> Result<()> {
+      self.probe.start_calls.fetch_add(1, AtomicOrdering::SeqCst);
+      if self.fail_start {
+        return Err(Error::new(crate::Status::GenericFailure, "start failed"));
+      }
+      Ok(())
+    }
+
+    fn shutdown(&self) -> Result<()> {
+      self
+        .probe
+        .shutdown_calls
+        .fetch_add(1, AtomicOrdering::SeqCst);
+      Ok(())
+    }
+  }
+
+  /// A cancellation callback recording how often it fired and with which error message.
+  fn recording_cancel_callback() -> (
+    Arc<AtomicUsize>,
+    Arc<Mutex<Option<String>>>,
+    AsyncRuntimeTaskCancelCallback,
+  ) {
+    let fired = Arc::new(AtomicUsize::new(0));
+    let message = Arc::new(Mutex::new(None));
+    let fired_in_callback = fired.clone();
+    let message_in_callback = message.clone();
+    let callback: AsyncRuntimeTaskCancelCallback = Box::new(move |error: Error| {
+      fired_in_callback.fetch_add(1, AtomicOrdering::SeqCst);
+      *message_in_callback.lock().unwrap() = Some(error.reason.to_string());
+    });
+    (fired, message, callback)
+  }
+
+  #[test]
+  fn duplicate_registration_defers_error_and_retires_backend() {
+    let registry = AsyncRuntimeRegistry::new();
+    let first_probe = Arc::new(BackendProbe::default());
+    let second_probe = Arc::new(BackendProbe::default());
+
+    assert!(registry
+      .try_register(Box::new(MockRuntime::new(&first_probe)))
+      .is_ok());
+
+    let (reason, rejected) = registry
+      .try_register(Box::new(MockRuntime::new(&second_probe)))
+      .expect_err("second registration must be rejected");
+    assert_eq!(reason, DUPLICATE_RUNTIME_ERROR);
+
+    // The rejected backend is retired through its own shutdown, never bare-dropped.
+    retire_rejected_async_runtime(rejected);
+    assert_eq!(second_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+    // The first backend stays selected and untouched.
+    assert!(registry.commit_selection(false).is_some());
+    assert_eq!(first_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 0);
+
+    // The infallible wrapper records the error for later runtime-backed calls to surface.
+    registry.record_registration_error(reason);
+    assert_eq!(
+      registry.deferred_registration_error(),
+      Some(DUPLICATE_RUNTIME_ERROR)
+    );
+  }
+
+  #[test]
+  fn late_registration_after_env_activation_rejected() {
+    let registry = AsyncRuntimeRegistry::new();
+    // First env activation with no backend registered: freezes the (empty) selection.
+    assert!(!registry.activate());
+
+    let probe = Arc::new(BackendProbe::default());
+    let (reason, _rejected) = registry
+      .try_register(Box::new(MockRuntime::new(&probe)))
+      .expect_err("registration after env activation must be rejected");
+    assert_eq!(reason, LATE_RUNTIME_REGISTRATION_ERROR);
+  }
+
+  #[test]
+  fn tokio_fallback_selection_commits_and_closes_registration() {
+    let registry = AsyncRuntimeRegistry::new();
+    // A runtime-backed operation in a combined build takes the Tokio fallback: that commits
+    // a backend choice and closes the registration window.
+    assert!(registry.commit_selection(true).is_none());
+
+    let probe = Arc::new(BackendProbe::default());
+    let (reason, _rejected) = registry
+      .try_register(Box::new(MockRuntime::new(&probe)))
+      .expect_err("registration after a committed fallback choice must be rejected");
+    assert_eq!(reason, LATE_RUNTIME_REGISTRATION_ERROR);
+  }
+
+  #[test]
+  fn missing_backend_does_not_freeze_selection() {
+    let registry = AsyncRuntimeRegistry::new();
+    // A runtime-backed operation in a pure build with no backend errors but does NOT commit:
+    assert!(registry.commit_selection(false).is_none());
+
+    // …so a later registration still succeeds.
+    let probe = Arc::new(BackendProbe::default());
+    assert!(registry
+      .try_register(Box::new(MockRuntime::new(&probe)))
+      .is_ok());
+    assert!(registry.commit_selection(false).is_some());
+  }
+
+  #[test]
+  fn task_drop_fires_cancellation_exactly_once() {
+    let (fired, message, callback) = recording_cancel_callback();
+    let task = AsyncRuntimeTask::new(Box::pin(async {}), callback);
+    drop(task);
+    assert_eq!(fired.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(
+      message.lock().unwrap().as_deref(),
+      Some(TASK_CANCELLED_ERROR)
+    );
+  }
+
+  #[test]
+  fn task_completion_disarms_cancellation() {
+    let (fired, _message, callback) = recording_cancel_callback();
+    let task = AsyncRuntimeTask::new(Box::pin(async {}), callback);
+    // Polling to completion consumes and then drops the task…
+    futures::executor::block_on(task);
+    // …without firing the cancellation callback.
+    assert_eq!(fired.load(AtomicOrdering::SeqCst), 0);
+  }
+
+  #[test]
+  fn rejection_returns_task_untouched() {
+    let (fired, message, callback) = recording_cancel_callback();
+    let task = AsyncRuntimeTask::new(Box::pin(async {}), callback);
+
+    let rejection = AsyncRuntimeRejection::new(
+      task,
+      Error::new(crate::Status::GenericFailure, "queue is full"),
+    );
+    assert_eq!(rejection.error().reason, "queue is full");
+
+    // napi recovers the task and settles its promise with the diagnostic; the cancellation
+    // path still fires exactly once and the subsequent drop is a no-op.
+    let (task, error) = rejection.into_parts();
+    assert_eq!(fired.load(AtomicOrdering::SeqCst), 0);
+    task.reject_with(error);
+    assert_eq!(fired.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(message.lock().unwrap().as_deref(), Some("queue is full"));
+  }
+
+  #[test]
+  fn spawn_blocking_default_declines_with_work_returned() {
+    struct SpawnOnlyRuntime;
+    unsafe impl AsyncRuntime for SpawnOnlyRuntime {
+      fn spawn(
+        &self,
+        task: AsyncRuntimeTask,
+      ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+        futures::executor::block_on(task);
+        Ok(())
+      }
+      fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+        futures::executor::block_on(future);
+        Ok(())
+      }
+      fn shutdown(&self) -> Result<()> {
+        Ok(())
+      }
+    }
+
+    let ran = Arc::new(AtomicUsize::new(0));
+    let ran_in_work = ran.clone();
+    let rejection = SpawnOnlyRuntime
+      .spawn_blocking(Box::new(move || {
+        ran_in_work.fetch_add(1, AtomicOrdering::SeqCst);
+      }))
+      .expect_err("the default spawn_blocking implementation must decline");
+    assert_eq!(rejection.error().status, crate::Status::GenericFailure);
+
+    // The closure comes back untouched and still runnable.
+    let (work, _error) = rejection.into_parts();
+    assert_eq!(ran.load(AtomicOrdering::SeqCst), 0);
+    work();
+    assert_eq!(ran.load(AtomicOrdering::SeqCst), 1);
+  }
+
+  #[test]
+  fn panic_in_task_fires_cancellation_with_panic_message() {
+    let (fired, message, callback) = recording_cancel_callback();
+    let task = AsyncRuntimeTask::new(
+      Box::pin(async {
+        panic!("boom in async task");
+      }),
+      callback,
+    );
+    // The per-poll catch_unwind converts the panic into the cancellation/rejection path
+    // instead of unwinding into (and aborting) the backend's executor.
+    futures::executor::block_on(task);
+    assert_eq!(fired.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(
+      message.lock().unwrap().as_deref(),
+      Some("boom in async task")
+    );
+  }
+
+  #[test]
+  fn start_error_triggers_shutdown_rollback() {
+    let registry = AsyncRuntimeRegistry::new();
+    let probe = Arc::new(BackendProbe::default());
+    assert!(registry
+      .try_register(Box::new(MockRuntime::failing_start(&probe)))
+      .is_ok());
+
+    // A failing `start` is rolled back through `shutdown`.
+    assert!(registry.activate());
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+
+    // Env teardown still routes to the backend's shutdown hook.
+    assert!(registry.deactivate());
+    assert_eq!(probe.shutdown_calls.load(AtomicOrdering::SeqCst), 2);
+  }
+
+  /// The only test touching the process-global registry: exercises the public
+  /// `register_async_runtime` / `try_register_async_runtime` wiring end to end.
+  #[test]
+  fn public_registration_flow_is_first_writer_wins() {
+    let first_probe = Arc::new(BackendProbe::default());
+    let second_probe = Arc::new(BackendProbe::default());
+
+    register_async_runtime(MockRuntime::new(&first_probe));
+    assert_eq!(first_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 0);
+
+    let error = try_register_async_runtime(MockRuntime::new(&second_probe))
+      .expect_err("duplicate registration must error");
+    assert_eq!(error.status, crate::Status::GenericFailure);
+    assert_eq!(error.reason, DUPLICATE_RUNTIME_ERROR);
+    // The rejected duplicate was retired through its own shutdown.
+    assert_eq!(second_probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+  }
+}

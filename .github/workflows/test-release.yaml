@@ -127,6 +127,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test
+              cargo test -p napi --features tokio_rt,async-runtime
             toolchain: stable
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
