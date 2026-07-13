@@ -872,6 +872,15 @@ jobs:
       # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
       - name: Install vendored emnapi archives
         run: node vendor/emnapi/install.mjs
+      # The example workspace is excluded from the root `yarn test`, so this
+      # job is the only CI gate for the native lane (duplicate-registration,
+      # start-error, worker-reload, and termination-loop scenarios). Run it
+      # before the WASI builds below overwrite the shared root artifacts.
+      - name: Build and test native
+        working-directory: examples/custom-async-runtime
+        run: |
+          node build.mjs
+          node test.mjs native
       - name: Build
         run: |
           yarn workspace @napi-rs/wasm-runtime build
