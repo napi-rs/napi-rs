@@ -732,6 +732,7 @@ module.exports.createArraybuffer = nativeBinding.createArraybuffer
 module.exports.createBigInt = nativeBinding.createBigInt
 module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = nativeBinding.createBufferSliceFromCopiedData
+module.exports.createErroringReadableStream = nativeBinding.createErroringReadableStream
 module.exports.createExternal = nativeBinding.createExternal
 module.exports.createExternalBufferSlice = nativeBinding.createExternalBufferSlice
 module.exports.createExternalLatin1CustomFinalize = nativeBinding.createExternalLatin1CustomFinalize

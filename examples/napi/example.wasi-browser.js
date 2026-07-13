@@ -209,6 +209,7 @@ export const createArraybuffer = __napiModule.exports.createArraybuffer
 export const createBigInt = __napiModule.exports.createBigInt
 export const createBigIntI64 = __napiModule.exports.createBigIntI64
 export const createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
+export const createErroringReadableStream = __napiModule.exports.createErroringReadableStream
 export const createExternal = __napiModule.exports.createExternal
 export const createExternalBufferSlice = __napiModule.exports.createExternalBufferSlice
 export const createExternalLatin1CustomFinalize = __napiModule.exports.createExternalLatin1CustomFinalize

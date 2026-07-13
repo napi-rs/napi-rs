@@ -253,6 +253,7 @@ module.exports.createArraybuffer = __napiModule.exports.createArraybuffer
 module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
+module.exports.createErroringReadableStream = __napiModule.exports.createErroringReadableStream
 module.exports.createExternal = __napiModule.exports.createExternal
 module.exports.createExternalBufferSlice = __napiModule.exports.createExternalBufferSlice
 module.exports.createExternalLatin1CustomFinalize = __napiModule.exports.createExternalLatin1CustomFinalize

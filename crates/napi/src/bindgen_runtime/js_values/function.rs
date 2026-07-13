@@ -181,6 +181,8 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
     Ok(FunctionRef {
       inner: reference,
       env: self.env,
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
@@ -456,6 +458,16 @@ impl<
 pub struct FunctionRef<Args: JsValuesTupleIntoVec, Return> {
   pub(crate) inner: sys::napi_ref,
   pub(crate) env: sys::napi_env,
+  // The owning env's custom-GC handle, captured on the owning JS thread when
+  // `inner` is created. A `napi_ref` is thread-affine, so `napi_delete_reference`
+  // must run on the owning JS thread; releasing it elsewhere mutates V8's
+  // `GlobalHandles` concurrently with the JS thread and corrupts the heap. When
+  // the last drop happens off-thread (e.g. a rejected/cancelled `ReadableStream`
+  // pull future dropping its resolver — which owns the `enqueue`/`close`
+  // `FunctionRef`s — on a Tokio worker), the release is routed back through this
+  // TSFN instead, exactly like `Buffer`/`TypedArray`/`Error` refs.
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc: Option<std::sync::Arc<crate::bindgen_prelude::CustomGcHandle>>,
   _args: std::marker::PhantomData<Args>,
   _return: std::marker::PhantomData<Return>,
 }
@@ -482,6 +494,43 @@ impl<Args: JsValuesTupleIntoVec, Return> FunctionRef<Args, Return> {
 
 impl<Args: JsValuesTupleIntoVec, Return> Drop for FunctionRef<Args, Return> {
   fn drop(&mut self) {
+    // Release on the owning JS thread directly, or route through the env's
+    // custom-GC TSFN when this last drop lands on another thread — otherwise
+    // `napi_delete_reference` mutates V8's `GlobalHandles` off-thread and
+    // corrupts the heap (surfaces later as a SIGSEGV/SIGBUS inside V8/napi).
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = self.custom_gc.take() {
+      let env = self.env;
+      let inner = self.inner;
+      // Read-lock held across the call so the custom-GC TSFN can't be finalized
+      // mid-call (same protocol as ArrayBuffer/TypedArray/Error drops).
+      handle.with_read_aborted(|aborted| {
+        if aborted {
+          // Owning env is gone and V8 has already invalidated the reference —
+          // releasing it now would be a use-after-free. Leaking is safe: env
+          // teardown reclaimed the handle's storage.
+          return;
+        }
+        if crate::bindgen_prelude::current_thread_owns_custom_gc(&handle) {
+          let status = unsafe { sys::napi_delete_reference(env, inner) };
+          debug_assert_eq!(status, sys::Status::napi_ok, "Drop FunctionRef failed");
+        } else {
+          // Dropped off the owning JS thread. Route the release through the env's
+          // custom-GC TSFN (unref-to-0 + delete on the JS thread), exactly like
+          // Buffer/TypedArray/Error drops.
+          let status =
+            unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), inner.cast(), 1) };
+          assert!(
+            status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+            "Call custom GC in FunctionRef::drop failed {}",
+            Status::from(status)
+          );
+        }
+      });
+      return;
+    }
+    // No custom-GC handle captured (pre-napi4 / noop build, or the ref was created
+    // before module registration): previous behavior, correct on the owning thread.
     let status = unsafe { sys::napi_delete_reference(self.env, self.inner) };
     debug_assert_eq!(status, sys::Status::napi_ok, "Drop FunctionRef failed");
   }
@@ -507,6 +556,8 @@ impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for FunctionRef<Args, Ret
     Ok(FunctionRef {
       inner: reference,
       env,
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
