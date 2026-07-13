@@ -280,8 +280,9 @@ assert.throws(() => binding.blockOnValue(1), /not running/i)
 const afterShutdown = binding.getRuntimeMetrics()
 assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
 // Combined builds drain the lazily-created Tokio runtime during shutdown, so
-// Tokio-backed context entry is unavailable until a new environment
-// registration refills it; asserting it here would abort the process.
+// Tokio-backed context entry is unavailable until the next environment
+// registration or dispatch-driven self-heal refills it; asserting it here —
+// after shutdown but before any dispatch — would abort the process.
 // A napi-dispatched operation after an explicit shutdown self-heals: the
 // registry re-claims the idle backend and runs start() before the spawn.
 let restartedGeneratedPromise
@@ -296,6 +297,9 @@ assert.ok(
 )
 // Restarted: direct-executor surfaces accept work again.
 assert.equal(binding.blockOnValue(41), 42)
+// The dispatch-driven self-heal restores the drained Tokio peer as well:
+// a successful start leaves both halves live.
+assert.equal(binding.runtimeContextAdd(1), 2)
 
 if (mode === 'native') {
   assert.ok(
@@ -305,6 +309,11 @@ if (mode === 'native') {
   // On the minimal SPI every environment registration calls
   // start_async_runtime, so loading the addon in a new worker restarts the
   // explicitly stopped backend instead of observing a sticky shutdown.
+  // Stop the backend again first: the self-heal above already grew
+  // startCalls, so this scenario must be measured against a snapshot taken
+  // immediately before the worker spawns.
+  binding.shutdownRuntime()
+  const beforeWorkerRestart = binding.getRuntimeMetrics()
   const worker = new Worker(
     `
       const { parentPort } = require('node:worker_threads')
@@ -321,14 +330,18 @@ if (mode === 'native') {
   assert.equal(result.value, 42)
   await worker.terminate()
   assert.ok(
-    binding.getRuntimeMetrics().startCalls > afterShutdown.startCalls,
+    binding.getRuntimeMetrics().startCalls > beforeWorkerRestart.startCalls,
     'a new worker environment must restart the runtime on the minimal SPI',
   )
 }
 
+// Stop the backend again so the explicit start below is what restarts it,
+// measured against a snapshot taken immediately before the call.
+binding.shutdownRuntime()
+const beforeExplicitStart = binding.getRuntimeMetrics()
 binding.startRuntime()
 const afterStart = binding.getRuntimeMetrics()
-assert.ok(afterStart.startCalls > afterShutdown.startCalls)
+assert.ok(afterStart.startCalls > beforeExplicitStart.startCalls)
 assert.equal(await binding.asyncDouble(21), 42)
 if (mode === 'native') {
   assert.equal(
