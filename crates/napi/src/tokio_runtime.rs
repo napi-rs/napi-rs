@@ -691,10 +691,24 @@ pub fn start_async_runtime() {
 ///
 /// When a custom [`AsyncRuntime`] backend has been registered, this calls the backend's
 /// [`AsyncRuntime::shutdown`] hook — the backend's sole resource-release and quiescence hook.
-/// Otherwise the built-in Tokio runtime is shut down in the background.
+/// In combined `async-runtime` + `tokio_rt` builds a built-in Tokio runtime that a Tokio
+/// compatibility helper constructed lazily is drained as well. Otherwise the built-in Tokio
+/// runtime is shut down in the background.
 pub fn shutdown_async_runtime() {
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.deactivate() {
+    // The custom backend owns the runtime lifecycle, but the Tokio compatibility helpers
+    // (`spawn`, `block_on`, `spawn_blocking`, `within_runtime_if_available`) stay Tokio-backed
+    // in combined builds and may have constructed the built-in runtime lazily AFTER the
+    // backend was selected. Drain it too — via `LazyLock::get`, never forcing construction,
+    // preserving the "selecting a custom backend never constructs Tokio" promise.
+    #[cfg(feature = "tokio_rt")]
+    if let Some(rt) = LazyLock::get(&RT)
+      .and_then(|lock| lock.write().ok())
+      .and_then(|mut rt| rt.take())
+    {
+      rt.shutdown_background();
+    }
     return;
   }
   #[cfg(feature = "tokio_rt")]
