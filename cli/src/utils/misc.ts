@@ -3949,6 +3949,36 @@ export function snapshotLeftoverIsTransactionOwned(
   )
 }
 
+/**
+ * Decides how the failed-snapshot cleanup `finally` must treat the leftover at a
+ * transaction-owned destination pathname, from the two identity observations
+ * captured on the exclusively created ('wx') handle:
+ *
+ * - `'unlink'` — the first fstat never succeeded (`destinationStats` undefined),
+ *   so no inode identity exists at all; the pathname is transaction-owned and
+ *   unpredictable, so best-effort unlink it.
+ * - `'preserve'` — the first fstat succeeded but the bigint identity fstat failed
+ *   (`destinationIdentity` undefined), so the leftover's ownership cannot be
+ *   proven. Never destroy a file we cannot prove we created; leave it for the
+ *   sibling scavenger. Without this fail-closed case a rare second-fstat failure
+ *   (after a successful first fstat) would unconditionally unlink a possibly
+ *   non-owned successor.
+ * - `'verify-identity'` — both observations exist, so the caller re-reads the
+ *   pathname and unlinks only when it still resolves to the exact owned inode.
+ */
+export function failedSnapshotLeftoverCleanupAction(
+  destinationStats: Stats | undefined,
+  destinationIdentity: FileSystemTransactionFileIdentity | undefined,
+): 'unlink' | 'preserve' | 'verify-identity' {
+  if (destinationStats === undefined) {
+    return 'unlink'
+  }
+  if (destinationIdentity === undefined) {
+    return 'preserve'
+  }
+  return 'verify-identity'
+}
+
 async function snapshotFileSystemTransactionInput(
   source: string,
   destination: string,
@@ -4158,20 +4188,31 @@ async function snapshotFileSystemTransactionInput(
     } finally {
       await destinationHandle.close().catch(() => {})
       if (!committed) {
-        if (
-          destinationStats === undefined ||
-          destinationIdentity === undefined
-        ) {
+        const cleanup = failedSnapshotLeftoverCleanupAction(
+          destinationStats,
+          destinationIdentity,
+        )
+        if (cleanup === 'unlink') {
           // open('wx') created this unpredictable transaction-owned pathname.
           // There is no inode identity after a failed first fstat, so close the
           // handle first and make the best cleanup Node's pathname API permits.
           await unlinkFileIfExists(destination)
-        } else {
+        } else if (
+          cleanup === 'verify-identity' &&
+          destinationIdentity !== undefined
+        ) {
           // Only unlink when the pathname still resolves to the exact inode this
           // transaction created. The identity match is on decimal-string dev/ino
           // (see snapshotLeftoverIsTransactionOwned), never lossy Number fields,
           // so a Number-colliding successor past 2 ** 53 is preserved, not
           // destroyed.
+          //
+          // Known limitation: identity-check-then-unlink is a two-syscall pathname race.
+          // A successor swapped in between the lstat and the unlink is deleted regardless
+          // of dev/ino; exact string identity narrows precision false-matches but cannot
+          // close the between-syscall window. A structural fix (retire-by-rename to a
+          // unique path + post-rename revalidation, per retireFileSystemTransactionState)
+          // is tracked as a follow-up.
           const currentStats = await lstatIfExists(destination, {
             bigint: true,
           })
@@ -4184,6 +4225,10 @@ async function snapshotFileSystemTransactionInput(
             await unlinkFileIfExists(destination)
           }
         }
+        // cleanup === 'preserve': the first fstat succeeded but the bigint
+        // identity fstat failed, so ownership cannot be proven — leave the
+        // leftover for the sibling scavenger rather than delete a possibly
+        // non-owned file.
       }
     }
   } finally {
