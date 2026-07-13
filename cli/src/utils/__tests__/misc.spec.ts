@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, type BigIntStats } from 'node:fs'
 import {
   chmod,
   link,
@@ -43,6 +43,7 @@ import {
   getPackageReconciliationRoot,
   getPackageReconciliationRoots,
   resolvePackageReconciliationPaths,
+  snapshotLeftoverIsTransactionOwned,
   updatePackageJson,
   withFileSystemReconciliation,
   writeFileAtomic,
@@ -1216,6 +1217,45 @@ test('filesystem transaction recovery does not false-match a 64-bit identity aga
 
   t.true(existsSync(journalRoot))
   t.true(existsSync(prepared))
+})
+
+test('transaction cleanup guard preserves a Number-colliding successor inode', (t) => {
+  // Windows NTFS inodes past 2 ** 53 collapse onto a single JS double: the inode
+  // this transaction created (2 ** 53) and a successor that later replaced the
+  // pathname (2 ** 53 + 1) both read back as the Number 9007199254740992. The
+  // failed-snapshot cleanup guard compares exact decimal-string identity, so it
+  // must refuse to unlink a successor it never owned. A lossy Number compare (the
+  // reverted code) would treat the two inodes as equal and destroy the successor.
+  const bigIntStats = (dev: bigint, ino: bigint): BigIntStats =>
+    ({ dev, ino, isFile: () => true }) as unknown as BigIntStats
+
+  const ownedIdentity = { dev: '0', ino: '9007199254740992' } // ino = 2 ** 53
+
+  // A successor inode that is distinct in 64 bits yet shares the same double must
+  // be preserved: the guard reports it is not the transaction-owned artifact.
+  t.false(
+    snapshotLeftoverIsTransactionOwned(
+      bigIntStats(0n, 9007199254740993n), // ino = 2 ** 53 + 1
+      ownedIdentity,
+    ),
+  )
+  // A Number-colliding volume serial (dev) is likewise refused.
+  t.false(
+    snapshotLeftoverIsTransactionOwned(
+      bigIntStats(18014398509481985n, 9007199254740992n), // dev = 2 ** 54 + 1
+      { dev: '18014398509481984', ino: '9007199254740992' },
+    ),
+  )
+  // The transaction's own inode is still adopted, so ordinary cleanup keeps
+  // working after the fix.
+  t.true(
+    snapshotLeftoverIsTransactionOwned(
+      bigIntStats(0n, 9007199254740992n),
+      ownedIdentity,
+    ),
+  )
+  // A vanished pathname owns nothing.
+  t.false(snapshotLeftoverIsTransactionOwned(undefined, ownedIdentity))
 })
 
 test('filesystem transaction recovery preserves an owner-only canonical journal', async (t) => {
