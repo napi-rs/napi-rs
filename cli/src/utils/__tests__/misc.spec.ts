@@ -1097,6 +1097,127 @@ test('filesystem transaction recovery preserves unowned journal artifact paths',
   t.true(existsSync(journalRoot))
 })
 
+test('filesystem transaction recovery accepts 64-bit file identity beyond the safe-integer range', async (t) => {
+  // Windows NTFS file references (ino) and volume serials (dev) routinely
+  // exceed Number.MAX_SAFE_INTEGER. The journal persists them as exact decimal
+  // strings; the previous Number.isSafeInteger validation rejected such a
+  // journal outright, which is the flaky Windows recovery failure this fixes.
+  const root = join(t.context.tmpDir, 'large-identity-accept')
+  const journalRoot = join(root, transactionJournalName)
+  const token = '00000000-0000-4000-8000-000000000201'
+  const destination = join(root, 'destination.txt')
+  const largeIno = '9007199254740993' // 2 ** 53 + 1, unrepresentable as a double
+  const largeDev = '18014398509481985' // 2 ** 54 + 1
+  const hash = createHash('sha256').update('identity anchor').digest('hex')
+  await mkdir(journalRoot, { recursive: true })
+  await writeFile(destination, 'published content')
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 3)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            final: { dev: largeDev, hash, ino: largeIno, mode: 0o600 },
+            parent: {
+              canonicalParent: '.',
+              dev: largeDev,
+              identityPath: '.',
+              ino: largeIno,
+            },
+            path: basename(destination),
+            prepared: basename(
+              transactionArtifactPath(destination, token, 0, 'prepared'),
+            ),
+            retired: basename(
+              transactionArtifactPath(destination, token, 0, 'retired'),
+            ),
+            rollbackRetired: basename(
+              transactionArtifactPath(destination, token, 0, 'rollback'),
+            ),
+          },
+        ],
+        phase: 'committed',
+        token,
+        version: 3,
+      }),
+    ),
+  ])
+
+  // The referenced artifact paths are absent, so recovery simply retires the
+  // journal. That only happens if the >2^53 identity round-trips through the
+  // normalize step instead of throwing "Invalid file state".
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.false(existsSync(journalRoot))
+  t.is(await readFile(destination, 'utf8'), 'published content')
+})
+
+test('filesystem transaction recovery does not false-match a 64-bit identity against a smaller inode', async (t) => {
+  const root = join(t.context.tmpDir, 'large-identity-mismatch')
+  const journalRoot = join(root, transactionJournalName)
+  const token = '00000000-0000-4000-8000-000000000202'
+  const destination = join(root, 'destination.txt')
+  const prepared = transactionArtifactPath(destination, token, 0, 'prepared')
+  const largeIno = '9007199254740993' // 2 ** 53 + 1
+  const largeDev = '18014398509481985' // 2 ** 54 + 1
+  const hash = createHash('sha256').update('identity anchor').digest('hex')
+  await mkdir(journalRoot, { recursive: true })
+  await Promise.all([
+    writeFile(destination, 'published content'),
+    writeFile(prepared, 'prepared replacement'),
+  ])
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 3)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            final: { dev: largeDev, hash, ino: largeIno, mode: 0o600 },
+            parent: {
+              canonicalParent: '.',
+              dev: largeDev,
+              identityPath: '.',
+              ino: largeIno,
+            },
+            path: basename(destination),
+            prepared: basename(prepared),
+            retired: basename(
+              transactionArtifactPath(destination, token, 0, 'retired'),
+            ),
+            rollbackRetired: basename(
+              transactionArtifactPath(destination, token, 0, 'rollback'),
+            ),
+          },
+        ],
+        phase: 'committed',
+        token,
+        version: 3,
+      }),
+    ),
+  ])
+
+  // The real prepared artifact has a normal (small) inode. Recovery must accept
+  // the >2^53 journal identity, then correctly refuse to match it against the
+  // smaller live inode instead of a lossy false match.
+  await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+    {
+      message: /a retained transaction identity anchor changed before cleanup/,
+    },
+  )
+
+  t.true(existsSync(journalRoot))
+  t.true(existsSync(prepared))
+})
+
 test('filesystem transaction recovery preserves an owner-only canonical journal', async (t) => {
   const root = join(t.context.tmpDir, 'owner-only-journal')
   const journalRoot = join(root, transactionJournalName)
@@ -1498,7 +1619,7 @@ crashRecoveryTest(
       if (stateContent !== undefined) {
         const state = JSON.parse(stateContent) as {
           entries: Array<{
-            final?: { dev?: number; ino?: number }
+            final?: { dev?: string; ino?: string }
             prepared?: string
           }>
           phase: string
@@ -1511,8 +1632,8 @@ crashRecoveryTest(
         if (
           state.phase === 'preparing' &&
           state.entries[0]?.prepared &&
-          typeof state.entries[0].final?.dev === 'number' &&
-          typeof state.entries[0].final?.ino === 'number'
+          typeof state.entries[0].final?.dev === 'string' &&
+          typeof state.entries[0].final?.ino === 'string'
         ) {
           const candidatePreparedPath = resolve(root, state.entries[0].prepared)
           try {
@@ -1523,7 +1644,7 @@ crashRecoveryTest(
               const stoppedState = JSON.parse(
                 await readFile(statePath, 'utf8'),
               ) as {
-                entries: Array<{ final?: { dev?: number; ino?: number } }>
+                entries: Array<{ final?: { dev?: string; ino?: string } }>
                 phase: string
                 version: number
               }
@@ -1534,8 +1655,8 @@ crashRecoveryTest(
                 )
               }
               t.is(stoppedState.version, 3)
-              t.is(typeof stoppedState.entries[0]?.final?.dev, 'number')
-              t.is(typeof stoppedState.entries[0]?.final?.ino, 'number')
+              t.is(typeof stoppedState.entries[0]?.final?.dev, 'string')
+              t.is(typeof stoppedState.entries[0]?.final?.ino, 'string')
               preparedPath = candidatePreparedPath
               child.kill('SIGKILL')
               break

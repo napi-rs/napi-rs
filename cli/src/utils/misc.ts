@@ -24,6 +24,7 @@ import {
   existsSync,
   readFileSync,
   realpathSync,
+  type BigIntStats,
   type Stats,
 } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -185,28 +186,31 @@ let linuxBootId: string | undefined
 
 interface TransactionParentIdentity {
   canonicalParent: string
-  dev: number
+  // 64-bit filesystem identifiers are captured from a bigint stat() and stored
+  // as decimal strings so values above Number.MAX_SAFE_INTEGER (common for
+  // Windows NTFS file references and volume serials) round-trip losslessly.
+  dev: string
   identityPath: string
-  ino: number
+  ino: string
 }
 
 interface FileSystemTransactionJournalParent {
   canonicalParent: string
-  dev: number
+  dev: string
   identityPath: string
-  ino: number
+  ino: string
 }
 
 interface FileSystemTransactionJournalFileState {
-  dev?: number
+  dev?: string
   hash: string
-  ino?: number
+  ino?: string
   mode: number
 }
 
 interface FileSystemTransactionFileIdentity {
-  dev: number
-  ino: number
+  dev: string
+  ino: string
 }
 
 interface FileSystemTransactionJournalEntry {
@@ -1430,9 +1434,16 @@ async function pathsReferToSameDirectoryEntry(
   )
 }
 
-async function lstatIfExists(path: string) {
+async function lstatIfExists(path: string): Promise<Stats | undefined>
+async function lstatIfExists(
+  path: string,
+  options: { bigint: true },
+): Promise<BigIntStats | undefined>
+async function lstatIfExists(path: string, options?: { bigint: true }) {
   try {
-    return await lstat(path)
+    return options?.bigint
+      ? await lstat(path, { bigint: true })
+      : await lstat(path)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return
@@ -3754,7 +3765,7 @@ async function captureTransactionParentIdentity(
   resolveTransactionPath(root, join(canonicalParent, '.napi-parent-check'))
 
   let identityPath = canonicalParent
-  let identityStats = await lstatIfExists(identityPath)
+  let identityStats = await lstatIfExists(identityPath, { bigint: true })
   while (!identityStats) {
     const next = dirname(identityPath)
     if (next === identityPath) {
@@ -3763,7 +3774,7 @@ async function captureTransactionParentIdentity(
       )
     }
     identityPath = next
-    identityStats = await lstatIfExists(identityPath)
+    identityStats = await lstatIfExists(identityPath, { bigint: true })
   }
   if (!identityStats.isDirectory()) {
     throw new Error(
@@ -3772,9 +3783,9 @@ async function captureTransactionParentIdentity(
   }
   return {
     canonicalParent,
-    dev: identityStats.dev,
+    dev: String(identityStats.dev),
     identityPath,
-    ino: identityStats.ino,
+    ino: String(identityStats.ino),
   }
 }
 
@@ -3801,11 +3812,13 @@ async function assertTransactionParentUnchanged(
       `Filesystem transaction parent changed from ${expected.canonicalParent} to ${canonicalParent}`,
     )
   }
-  const identityStats = await lstatIfExists(expected.identityPath)
+  const identityStats = await lstatIfExists(expected.identityPath, {
+    bigint: true,
+  })
   if (
     !identityStats?.isDirectory() ||
-    identityStats.dev !== expected.dev ||
-    identityStats.ino !== expected.ino
+    String(identityStats.dev) !== expected.dev ||
+    String(identityStats.ino) !== expected.ino
   ) {
     throw new Error(
       `Filesystem transaction parent identity changed: ${expected.identityPath}`,
@@ -4000,9 +4013,12 @@ async function snapshotFileSystemTransactionInput(
             `Filesystem transaction snapshot path changed before its identity was recorded: ${destination}`,
           )
         }
+        const destinationIdentityStats = await destinationHandle.stat({
+          bigint: true,
+        })
         await recordDestinationIdentity({
-          dev: destinationStats.dev,
-          ino: destinationStats.ino,
+          dev: String(destinationIdentityStats.dev),
+          ino: String(destinationIdentityStats.ino),
         })
       }
       const hash = createHash('sha256')
@@ -4077,10 +4093,11 @@ async function snapshotFileSystemTransactionInput(
       await destinationHandle.close()
       await syncDirectory(dirname(destination))
       committed = true
+      const sourceIdentityStats = await sourceHandle.stat({ bigint: true })
       return {
-        dev: sourceStats.dev,
+        dev: String(sourceIdentityStats.dev),
         hash: hash.digest('hex'),
-        ino: sourceStats.ino,
+        ino: String(sourceIdentityStats.ino),
         mode: finalMode,
       }
     } finally {
@@ -4275,6 +4292,10 @@ async function openFileSystemTransactionIdentity(
   }
   try {
     const stats = await handle.stat()
+    // Capture 64-bit dev/ino from a bigint stat of the same open handle so the
+    // recorded identity is exact even when it exceeds Number.MAX_SAFE_INTEGER.
+    // The open descriptor pins the inode, so this matches the verified `stats`.
+    const identityStats = await handle.stat({ bigint: true })
     if (
       !stats.isFile() ||
       stats.dev !== pathStats.dev ||
@@ -4323,9 +4344,9 @@ async function openFileSystemTransactionIdentity(
     return {
       handle,
       state: {
-        dev: stats.dev,
+        dev: String(identityStats.dev),
         hash: hash.digest('hex'),
-        ino: stats.ino,
+        ino: String(identityStats.ino),
         mode: mode ?? stats.mode & 0o7777,
       },
     }
@@ -4716,6 +4737,25 @@ async function readBoundedRegularFile(
   }
 }
 
+// Filesystem identity components (dev/ino) are persisted as decimal strings so
+// 64-bit values above Number.MAX_SAFE_INTEGER survive the journal round-trip
+// exactly. Older journals recorded them as JSON numbers; those are still
+// accepted as long as they are exact (safe, non-negative integers) and are
+// canonicalised to the same decimal-string form. Imprecise numbers (values a
+// double cannot represent, e.g. large Windows inodes) are rejected instead of
+// being allowed to false-match a different inode.
+function normalizeFileSystemTransactionIdentityComponent(
+  value: unknown,
+): string | undefined {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return String(BigInt(value))
+  }
+  return undefined
+}
+
 function normalizeFileSystemTransactionFileState(
   state: unknown,
 ): FileSystemTransactionJournalFileState | undefined {
@@ -4733,24 +4773,26 @@ function normalizeFileSystemTransactionFileState(
   }
   const hasDevice = candidate.dev !== undefined
   const hasInode = candidate.ino !== undefined
+  const dev = hasDevice
+    ? normalizeFileSystemTransactionIdentityComponent(candidate.dev)
+    : undefined
+  const ino = hasInode
+    ? normalizeFileSystemTransactionIdentityComponent(candidate.ino)
+    : undefined
   if (
     typeof candidate.hash !== 'string' ||
     !/^[0-9a-f]{64}$/.test(candidate.hash) ||
     !Number.isSafeInteger(candidate.mode) ||
     ((candidate.mode as number) & ~0o7777) !== 0 ||
     hasDevice !== hasInode ||
-    (hasDevice &&
-      (!Number.isSafeInteger(candidate.dev) ||
-        (candidate.dev as number) < 0 ||
-        !Number.isSafeInteger(candidate.ino) ||
-        (candidate.ino as number) < 0))
+    (hasDevice && (dev === undefined || ino === undefined))
   ) {
     throw new Error('Invalid file state in filesystem transaction journal')
   }
   return {
-    dev: candidate.dev as number | undefined,
+    dev,
     hash: candidate.hash,
-    ino: candidate.ino as number | undefined,
+    ino,
     mode: candidate.mode as number,
   }
 }
@@ -4970,11 +5012,17 @@ function normalizeFileSystemTransactionJournal(
         )
       }
       const parent = candidate.parent
+      const parentDev = normalizeFileSystemTransactionIdentityComponent(
+        parent.dev,
+      )
+      const parentIno = normalizeFileSystemTransactionIdentityComponent(
+        parent.ino,
+      )
       if (
         typeof parent.canonicalParent !== 'string' ||
         typeof parent.identityPath !== 'string' ||
-        !Number.isSafeInteger(parent.dev) ||
-        !Number.isSafeInteger(parent.ino)
+        parentDev === undefined ||
+        parentIno === undefined
       ) {
         throw new Error(
           `Invalid parent identity in filesystem transaction journal for ${path}`,
@@ -4998,9 +5046,9 @@ function normalizeFileSystemTransactionJournal(
         original,
         parent: {
           canonicalParent: parent.canonicalParent,
-          dev: parent.dev as number,
+          dev: parentDev,
           identityPath: parent.identityPath,
-          ino: parent.ino as number,
+          ino: parentIno,
         },
         path: candidate.path,
         prepared,
@@ -5115,11 +5163,11 @@ async function assertFileSystemTransactionJournalParentUnchanged(
     'Transaction parent identity',
     true,
   )
-  const identityStats = await lstatIfExists(identityPath)
+  const identityStats = await lstatIfExists(identityPath, { bigint: true })
   if (
     !identityStats?.isDirectory() ||
-    identityStats.dev !== entry.parent.dev ||
-    identityStats.ino !== entry.parent.ino
+    String(identityStats.dev) !== entry.parent.dev ||
+    String(identityStats.ino) !== entry.parent.ino
   ) {
     throw new Error(
       `Filesystem transaction parent identity changed: ${identityPath}`,
