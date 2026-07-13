@@ -33,7 +33,7 @@ import {
   type NapiConfig,
   parseMetadata,
   parseTriple,
-  processTypeDef,
+  processTypeDefs,
   readFileAsync,
   readNapiConfig,
   rebaseDeclarationSpecifiers,
@@ -1411,12 +1411,6 @@ class Builder {
   }
 
   private setWasiEnv() {
-    const emnapi = join(
-      require.resolve('emnapi'),
-      '..',
-      'lib',
-      'wasm32-wasip1-threads',
-    )
     const hasThreads = wasiTargetHasThreads(this.target)
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
@@ -1483,17 +1477,6 @@ class Builder {
         'TARGET_RANLIB',
         join(WASI_SDK_PATH, 'bin', 'ranlib'),
       )
-      this.setEnvIfNotExists(
-        'TARGET_CFLAGS',
-        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
-      )
-      this.setEnvIfNotExists(
-        'TARGET_CXXFLAGS',
-        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
-      )
-      this.setEnvIfNotExists(
-        `TARGET_LDFLAGS`,
-        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasip1-threads`,
       const { compileFlags, linkerFlags } = createWasiCompilerFlags(
         WASI_SDK_PATH,
         wasiTarget,
@@ -2493,18 +2476,13 @@ export async function generateTypeDef(
     )
   }
 
-  const processedTypeDefs = await Promise.all(
-    typeDefFiles.map((file) =>
-      processTypeDef(
-        join(options.typeDefDir, file.name),
-        constEnum,
-        runtimeStringEnum,
-      ),
-    ),
+  const processedTypeDefs = await processTypeDefs(
+    typeDefFiles.map((file) => join(options.typeDefDir, file.name)),
+    constEnum,
+    runtimeStringEnum,
+    header,
   )
 
-  dts = processedTypeDefs.map(({ dts }) => dts).join('')
-  exports = processedTypeDefs.flatMap(({ exports }) => exports)
   dts = processedTypeDefs.dts
   exports = processedTypeDefs.exports
   const dtsWithTypeImportMarkers = processedTypeDefs.dtsWithTypeImportMarkers

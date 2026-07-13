@@ -4,8 +4,9 @@ import { join } from 'path'
 import { fileURLToPath } from 'url'
 
 import test from 'ava'
+import typeScript from 'typescript'
+import legacyTypeScript from 'typescript-legacy'
 
-import { correctStringIdent, processTypeDef } from '../typegen.js'
 import { generateTypeDef } from '../../api/build.js'
 import {
   appendTypeImports,
@@ -109,6 +110,181 @@ const flagFixture = join(
   '__fixtures__',
   'runtime_string_enum_flag',
 )
+
+const namespaceIteratorFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'namespace_iterator',
+)
+
+const reservedGlobalThisFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'reserved_global_this',
+)
+
+const reservedGlobalThisNamespaceFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'reserved_global_this_namespace',
+)
+
+const reservedNamespacedGlobalThisFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'reserved_namespaced_global_this',
+)
+
+test('keeps same-named namespace classes isolated and iterators portable', async (t) => {
+  const { dts } = await processTypeDef(namespaceIteratorFixture, true)
+
+  t.true(
+    dts.includes(
+      'interface IteratorObject<T, TReturn = unknown, TNext = unknown>\n' +
+        '    extends globalThis.Iterator<T, TReturn, TNext>',
+    ),
+  )
+  t.false(dts.includes('class PortableIterator extends Iterator'))
+  t.true(
+    dts.includes(
+      '[globalThis.Symbol.iterator](): this\n' +
+        '  next(...[value]: [] | [Record<string, number>]): globalThis.IteratorResult<[number, number], ([string, number]) | undefined>\n' +
+        '  return(...[value]: [] | [[string, number]]): globalThis.IteratorResult<[number, number], ([string, number]) | undefined>\n' +
+        '  throw(exception?: unknown): globalThis.IteratorResult<[number, number], ([string, number]) | undefined>',
+    ),
+  )
+  t.true(
+    dts.includes(
+      "export interface PortableIterator extends globalThis.Omit<globalThis.IteratorObject<[number, number], ([string, number]) | undefined, Record<string, number>>, 'next' | 'return' | 'throw'> {}",
+    ),
+  )
+  t.true(
+    dts.includes(
+      'globalThis.IteratorResult<number, (() => number) | undefined>',
+    ),
+  )
+  t.false(
+    dts.includes('globalThis.IteratorResult<number, () => number | undefined>'),
+  )
+  t.true(dts.includes('export declare class __NapiRsAsyncGenerator'))
+  t.false(dts.includes('type __NapiRsAsyncGenerator<'))
+  t.true(
+    dts.includes(
+      'interface __NapiRsAsyncGenerator_1<TOwner, T, TReturn, TNext>',
+    ),
+  )
+  t.false(dts.includes('extends globalThis.AsyncGenerator<'))
+  t.false(dts.includes('Symbol.asyncDispose'))
+  t.false(dts.includes('export interface __NapiRsAsyncGenerator_1'))
+  t.true(
+    dts.includes(
+      '[globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator_1<PortableAsyncIterator, [number, number], [string, number], Record<string, number>>',
+    ),
+  )
+  t.true(dts.includes('class DerivedClass extends BaseClass'))
+  t.is(dts.match(/alphaMethod/g)?.length, 1)
+  t.is(dts.match(/betaMethod/g)?.length, 1)
+  t.regex(
+    dts,
+    /namespace alpha \{\n  export class SharedClass \{\n    alphaMethod\(\): void\n  \}/,
+  )
+  t.regex(
+    dts,
+    /namespace beta \{\n  export class SharedClass \{\n    betaMethod\(\): void\n  \}/,
+  )
+})
+
+test('rejects the unqualifiable globalThis export name', async (t) => {
+  await t.throwsAsync(processTypeDef(reservedGlobalThisFixture, true), {
+    message: /export name `globalThis` is reserved/,
+  })
+})
+
+test('rejects globalThis as a namespace export name', async (t) => {
+  await t.throwsAsync(
+    processTypeDef(reservedGlobalThisNamespaceFixture, true),
+    {
+      message: /export name `globalThis` is reserved/,
+    },
+  )
+})
+
+test('rejects globalThis declarations inside namespaces', async (t) => {
+  await t.throwsAsync(
+    processTypeDef(reservedNamespacedGlobalThisFixture, true),
+    {
+      message: /export name `globalThis` is reserved/,
+    },
+  )
+})
+
+test('allocates one async generator helper after combining declaration fragments', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-typegen-fragments-'))
+  const asyncIteratorPath = join(directory, 'async-iterator')
+  const collisionPath = join(directory, 'collision')
+
+  try {
+    await Promise.all([
+      writeFile(
+        asyncIteratorPath,
+        [
+          '{"kind":"struct","name":"FragmentAsyncIterator","def":"constructor()","original_name":"FragmentAsyncIterator"}',
+          '{"kind":"impl","name":"FragmentAsyncIterator","def":"[Symbol.asyncIterator](): AsyncGenerator<number, string, void>"}',
+        ].join('\n'),
+      ),
+      writeFile(
+        collisionPath,
+        '{"kind":"struct","name":"__NapiRsAsyncGenerator","def":"constructor()","original_name":"__NapiRsAsyncGenerator"}',
+      ),
+    ])
+
+    const { dts } = await processTypeDefs(
+      [asyncIteratorPath, collisionPath],
+      true,
+    )
+
+    t.is(dts.match(/declare global \{/g)?.length, 1)
+    t.true(
+      dts.includes(
+        'interface __NapiRsAsyncGenerator_1<TOwner, T, TReturn, TNext>',
+      ),
+    )
+    t.true(
+      dts.includes(
+        '[globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator_1<FragmentAsyncIterator, number, string, void>',
+      ),
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('generated iterators compile on legacy TypeScript and expose current helpers', async (t) => {
+  const { dts } = await processTypeDef(namespaceIteratorFixture, true)
+  const legacyDiagnostics = await compileIteratorConsumer(
+    legacyTypeScript as unknown as typeof typeScript,
+    dts,
+    ['lib.es2022.d.ts'],
+    false,
+  )
+  t.deepEqual(legacyDiagnostics, [])
+
+  const currentDiagnostics = await compileIteratorConsumer(
+    typeScript,
+    dts,
+    [
+      'lib.es2022.d.ts',
+      'lib.es2025.iterator.d.ts',
+      'lib.esnext.disposable.d.ts',
+    ],
+    true,
+  )
+  t.deepEqual(currentDiagnostics, [])
+})
 
 test('should process type def with noConstEnum and runtimeStringEnum correctly', async (t) => {
   const { dts } = await processTypeDef(flagFixture, false, true)

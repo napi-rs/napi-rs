@@ -734,7 +734,7 @@ pub fn cleanup_reentrant_borrow_order_test_targets() -> u32 {
 }
 
 #[napi(
-  ts_return_type = r#"typeof DynamicRustClass\n\nclass DynamicRustClass {
+  ts_return_type = r#"typeof DynamicRustClass\n\ndeclare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }"#

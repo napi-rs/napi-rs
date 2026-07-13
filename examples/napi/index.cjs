@@ -745,102 +745,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const unsupportedWasiFunctions = new Set([
-  'abandonDeferredClones',
-  'armTokioBlockingTlsRetirementProbe',
-  'armTokioWorkerTlsRetirementProbe',
-  'assignClassInstanceAcrossDuplicateLoad',
-  'assignClassInstanceFromLaterTurn',
-  'assignClampedSliceAcrossDuplicateLoad',
-  'assignTypedArraySliceAcrossDuplicateLoad',
-  'cancelAsyncWorkLifecycle',
-  'configureTokioThreadStopFileBarrier',
-  'convertClampedSliceAcrossDuplicateLoad',
-  'convertTypedArraySliceAcrossDuplicateLoad',
-  'copyExternalTokenAlias',
-  'createExternalPublicBorrowProbe',
-  'createExternalRefProvenanceProbe',
-  'createExternalTokenGcProbe',
-  'createMutableTypedArrayForOwnershipTest',
-  'createPanickingAsyncWork',
-  'createQueuedAsyncWorkLifecycle',
-  'createResolvePanickingAsyncWork',
-  'createRunningAsyncWorkLifecycle',
-  'deferredFinalizeCallbackCount',
-  'disposeAsyncWorkLifecycle',
-  'disposeThreadsafeFunctionForEnvOwnership',
-  'externalTokenGcProbeFinalizeCount',
-  'fetch',
-  'inspectExternalRefAcrossDuplicateLoad',
-  'inspectExternalTokenGcProbe',
-  'mutableTypedArrayFinalizeCount',
-  'panickingAsyncWorkFinallyCount',
-  'prepareTsfnBlockingCallRegression',
-  'prepareTsfnTeardownRegression',
-  'referThreadsafeFunctionForEnvOwnership',
-  'registerDeferredCleanupOrderProbe',
-  'registerLateDeferredFinalizeCallback',
-  'releaseAsyncWorkLifecycle',
-  'resolvePanickingAsyncWorkFinallyCount',
-  'restartTokioRuntimeAfterRetirement',
-  'returnTypedArraySliceMutAcrossDuplicateLoad',
-  'returnTypedArraySliceRefAcrossDuplicateLoad',
-  'settleDeferredBeforeFinalizeRegistration',
-  'settleDeferredClone',
-  'stashBufferAcrossDuplicateLoad',
-  'stashClassInstanceForLaterTurn',
-  'stashErrorAcrossDuplicateLoad',
-  'stashExternalRefAcrossDuplicateLoad',
-  'stashExternalRefForTeardown',
-  'stashPromiseRejectionAcrossDuplicateLoad',
-  'stashThreadsafeFunctionForEnvOwnership',
-  'stashTypedArrayAcrossDuplicateLoad',
-  'stashTypedArraySlicesAcrossDuplicateLoad',
-  'startDeferredTeardownRace',
-  'startReferencedTsfnFinalizerLivenessWorker',
-  'startWeakTsfnFinalizerLivenessWorker',
-  'takeAdditionalBorrowedValueAcrossDuplicateLoad',
-  'takeBorrowedValueAcrossDuplicateLoad',
-  'takeBufferAcrossDuplicateLoad',
-  'takeBufferSliceIntoBufferAcrossDuplicateLoad',
-  'takeBufferSliceRefAcrossDuplicateLoad',
-  'takeClassInstanceFromLaterTurn',
-  'takeExternalRefAcrossDuplicateLoad',
-  'takeReferenceValueAcrossDuplicateLoad',
-  'takeTypedArrayAcrossDuplicateLoad',
-  'throwErrorAcrossDuplicateLoad',
-  'throwPromiseRejectionAcrossDuplicateLoad',
-  'tokioRuntimeFactoryCallCount',
-  'tokioRuntimeLifecycleValue',
-  'unrefThreadsafeFunctionForEnvOwnership',
-  'verifyReferenceValuesRejectNativeThread',
-  'verifyThreadsafeFunctionOwnerEnv',
-  'verifyTypedArraySlicesSameEnv',
-  'waitForTokioRuntimeRetirement',
-  'withAdditionalBorrowedValuesAcrossDuplicateLoad',
-  'withBorrowedValuesAcrossDuplicateLoad',
-  'withReferenceValuesAcrossDuplicateLoad',
-])
-
-function getBindingExport(name) {
-  const value = nativeBinding[name]
-  if (
-    value !== undefined ||
-    !unsupportedWasiFunctions.has(name)
-  ) {
-    return value
-  }
-  return function unsupportedWasiFunction() {
-    const error = new Error(
-      `The "${name}" export is not supported by this WASI binding`,
-    )
-    error.code = 'NAPI_RS_UNSUPPORTED_WASI_EXPORT'
-    throw error
-  }
-}
-
 module.exports = nativeBinding
-module.exports.AlignedZst = nativeBinding.AlignedZst
 module.exports.Animal = nativeBinding.Animal
 module.exports.AnimalWithDefaultConstructor = nativeBinding.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = nativeBinding.AnotherClassForEither
@@ -850,15 +755,8 @@ module.exports.Asset = nativeBinding.Asset
 module.exports.JsAsset = nativeBinding.JsAsset
 module.exports.Assets = nativeBinding.Assets
 module.exports.JsAssets = nativeBinding.JsAssets
-module.exports.AsyncComplexTypeGenerator = nativeBinding.AsyncComplexTypeGenerator
 module.exports.AsyncDataSource = nativeBinding.AsyncDataSource
 module.exports.AsyncFib = nativeBinding.AsyncFib
-module.exports.AsyncGeneratorSetupFailure = nativeBinding.AsyncGeneratorSetupFailure
-module.exports.AsyncIteratorAdmissionProbe = nativeBinding.AsyncIteratorAdmissionProbe
-module.exports.AsyncIteratorConstructor = nativeBinding.AsyncIteratorConstructor
-module.exports.AsyncIteratorFailedSendProbe = nativeBinding.AsyncIteratorFailedSendProbe
-module.exports.AsyncIteratorIntoInstance = nativeBinding.AsyncIteratorIntoInstance
-module.exports.AsyncReentrantGenerator = nativeBinding.AsyncReentrantGenerator
 module.exports.AsyncThrowClass = nativeBinding.AsyncThrowClass
 module.exports.Bird = nativeBinding.Bird
 module.exports.Blake2BHasher = nativeBinding.Blake2BHasher
@@ -871,7 +769,6 @@ module.exports.ClassInArray = nativeBinding.ClassInArray
 module.exports.ClassReturnInPromise = nativeBinding.ClassReturnInPromise
 module.exports.ClassWithFactory = nativeBinding.ClassWithFactory
 module.exports.ClassWithLifetime = nativeBinding.ClassWithLifetime
-module.exports.ComplexTypeGenerator = nativeBinding.ComplexTypeGenerator
 module.exports.Context = nativeBinding.Context
 module.exports.CounterRepro = nativeBinding.CounterRepro
 module.exports.CreateStringClass = nativeBinding.CreateStringClass
@@ -888,7 +785,6 @@ module.exports.Fib = nativeBinding.Fib
 module.exports.Fib2 = nativeBinding.Fib2
 module.exports.Fib3 = nativeBinding.Fib3
 module.exports.Fib4 = nativeBinding.Fib4
-module.exports.GeneratorLifecycleProbe = nativeBinding.GeneratorLifecycleProbe
 module.exports.GetterSetterWithClosures = nativeBinding.GetterSetterWithClosures
 module.exports.JsClassForEither = nativeBinding.JsClassForEither
 module.exports.JSOnlyMethodsClass = nativeBinding.JSOnlyMethodsClass
@@ -903,16 +799,12 @@ module.exports.NotWritableClass = nativeBinding.NotWritableClass
 module.exports.Optional = nativeBinding.Optional
 module.exports.PackageJsonReader = nativeBinding.PackageJsonReader
 module.exports.Reader = nativeBinding.Reader
-module.exports.ReentrantGenerator = nativeBinding.ReentrantGenerator
+module.exports.ReentrantBorrowOrderTest = nativeBinding.ReentrantBorrowOrderTest
 module.exports.Selector = nativeBinding.Selector
-module.exports.SyncIteratorIntoInstance = nativeBinding.SyncIteratorIntoInstance
 module.exports.Thing = nativeBinding.Thing
 module.exports.ThingList = nativeBinding.ThingList
 module.exports.UseNullableClass = nativeBinding.UseNullableClass
-module.exports.WeakReferenceGcHolder = nativeBinding.WeakReferenceGcHolder
-module.exports.WeakReferenceGcTarget = nativeBinding.WeakReferenceGcTarget
 module.exports.Width = nativeBinding.Width
-module.exports.abandonDeferredClones = getBindingExport('abandonDeferredClones')
 module.exports.acceptArraybuffer = nativeBinding.acceptArraybuffer
 module.exports.acceptSlice = nativeBinding.acceptSlice
 module.exports.acceptStream = nativeBinding.acceptStream
@@ -930,25 +822,15 @@ module.exports.appendBuffer = nativeBinding.appendBuffer
 module.exports.appendToOsString = nativeBinding.appendToOsString
 module.exports.apply0 = nativeBinding.apply0
 module.exports.apply1 = nativeBinding.apply1
-module.exports.armTokioBlockingTlsRetirementProbe = getBindingExport('armTokioBlockingTlsRetirementProbe')
-module.exports.armTokioWorkerTlsRetirementProbe = getBindingExport('armTokioWorkerTlsRetirementProbe')
-module.exports.arrayBufferCopyFrom = nativeBinding.arrayBufferCopyFrom
 module.exports.arrayBufferFromData = nativeBinding.arrayBufferFromData
 module.exports.arrayBufferFromExternal = nativeBinding.arrayBufferFromExternal
 module.exports.arrayBufferLenAsync = nativeBinding.arrayBufferLenAsync
 module.exports.arrayBufferPassThrough = nativeBinding.arrayBufferPassThrough
 module.exports.arrayParams = nativeBinding.arrayParams
-module.exports.assignClampedSliceAcrossDuplicateLoad = getBindingExport('assignClampedSliceAcrossDuplicateLoad')
-module.exports.assignClassInstanceAcrossDuplicateLoad = getBindingExport('assignClassInstanceAcrossDuplicateLoad')
-module.exports.assignClassInstanceFromLaterTurn = getBindingExport('assignClassInstanceFromLaterTurn')
-module.exports.assignTypedArraySliceAcrossDuplicateLoad = getBindingExport('assignTypedArraySliceAcrossDuplicateLoad')
 module.exports.asyncBufferToArray = nativeBinding.asyncBufferToArray
-module.exports.asyncCleanupHookCounts = nativeBinding.asyncCleanupHookCounts
 module.exports.asyncMultiTwo = nativeBinding.asyncMultiTwo
-module.exports.asyncPartialReferenceSetupProbe = nativeBinding.asyncPartialReferenceSetupProbe
 module.exports.asyncPlus100 = nativeBinding.asyncPlus100
 module.exports.asyncReduceBuffer = nativeBinding.asyncReduceBuffer
-module.exports.asyncReferenceSetupProbe = nativeBinding.asyncReferenceSetupProbe
 module.exports.asyncResolveArray = nativeBinding.asyncResolveArray
 module.exports.asyncTaskArraybuffer = nativeBinding.asyncTaskArraybuffer
 module.exports.asyncTaskFinally = nativeBinding.asyncTaskFinally
@@ -960,7 +842,6 @@ module.exports.bigintAdd = nativeBinding.bigintAdd
 module.exports.bigintFromI128 = nativeBinding.bigintFromI128
 module.exports.bigintFromI64 = nativeBinding.bigintFromI64
 module.exports.bigintGetU64AsString = nativeBinding.bigintGetU64AsString
-module.exports.borrowAlignedZstPair = nativeBinding.borrowAlignedZstPair
 module.exports.btreeSetToJs = nativeBinding.btreeSetToJs
 module.exports.btreeSetToRust = nativeBinding.btreeSetToRust
 module.exports.bufferAssertionTarget = nativeBinding.bufferAssertionTarget
@@ -992,7 +873,6 @@ module.exports.callThenOnPromise = nativeBinding.callThenOnPromise
 module.exports.callThreadsafeFunction = nativeBinding.callThreadsafeFunction
 module.exports.callWithNestedFunctionArg = nativeBinding.callWithNestedFunctionArg
 module.exports.callWithTupleArg = nativeBinding.callWithTupleArg
-module.exports.cancelAsyncWorkLifecycle = getBindingExport('cancelAsyncWorkLifecycle')
 module.exports.captureErrorInCallback = nativeBinding.captureErrorInCallback
 module.exports.chronoDateAdd1Minute = nativeBinding.chronoDateAdd1Minute
 module.exports.chronoDateFixtureReturn1 = nativeBinding.chronoDateFixtureReturn1
@@ -1006,28 +886,17 @@ module.exports.chronoNativeDateTimeReturn = nativeBinding.chronoNativeDateTimeRe
 module.exports.chronoUtcDateReturn = nativeBinding.chronoUtcDateReturn
 module.exports.chronoUtcDateToMillis = nativeBinding.chronoUtcDateToMillis
 module.exports.churnGlobalHandles = nativeBinding.churnGlobalHandles
+module.exports.cleanupReentrantBorrowOrderTestTargets = nativeBinding.cleanupReentrantBorrowOrderTestTargets
 module.exports.compressSync = nativeBinding.compressSync
 module.exports.concatLatin1 = nativeBinding.concatLatin1
 module.exports.concatStr = nativeBinding.concatStr
 module.exports.concatUtf16 = nativeBinding.concatUtf16
-module.exports.configureTokioThreadStopFileBarrier = getBindingExport('configureTokioThreadStopFileBarrier')
 module.exports.contains = nativeBinding.contains
-module.exports.convertClampedSliceAcrossDuplicateLoad = getBindingExport('convertClampedSliceAcrossDuplicateLoad')
-module.exports.convertTypedArraySliceAcrossDuplicateLoad = getBindingExport('convertTypedArraySliceAcrossDuplicateLoad')
 module.exports.convertU32Array = nativeBinding.convertU32Array
-module.exports.copyExternalTokenAlias = getBindingExport('copyExternalTokenAlias')
 module.exports.createArraybuffer = nativeBinding.createArraybuffer
-module.exports.createAsyncGeneratorSetupFailure = nativeBinding.createAsyncGeneratorSetupFailure
-module.exports.createAsyncIteratorIntoInstance = nativeBinding.createAsyncIteratorIntoInstance
-module.exports.createAsyncReferenceSetupProbe = nativeBinding.createAsyncReferenceSetupProbe
 module.exports.createBigInt = nativeBinding.createBigInt
 module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = nativeBinding.createBufferSliceFromCopiedData
-module.exports.createClassWithLifetimeFromRust = nativeBinding.createClassWithLifetimeFromRust
-module.exports.createDelayedCounterPair = nativeBinding.createDelayedCounterPair
-module.exports.createDetachableExternalArraybuffer = nativeBinding.createDetachableExternalArraybuffer
-module.exports.createDirectClassReferenceCallback = nativeBinding.createDirectClassReferenceCallback
-module.exports.createEmptyTypedArraySlices = nativeBinding.createEmptyTypedArraySlices
 module.exports.createErroringReadableStream = nativeBinding.createErroringReadableStream
 module.exports.createExternal = nativeBinding.createExternal
 module.exports.createExternalBufferSlice = nativeBinding.createExternalBufferSlice
@@ -1037,43 +906,30 @@ module.exports.createExternalLatin1Long = nativeBinding.createExternalLatin1Long
 module.exports.createExternalLatin1Short = nativeBinding.createExternalLatin1Short
 module.exports.createExternalLatin1String = nativeBinding.createExternalLatin1String
 module.exports.createExternalLatin1WithLatin1Chars = nativeBinding.createExternalLatin1WithLatin1Chars
-module.exports.createExternalPublicBorrowProbe = getBindingExport('createExternalPublicBorrowProbe')
 module.exports.createExternalRef = nativeBinding.createExternalRef
-module.exports.createExternalRefProvenanceProbe = getBindingExport('createExternalRefProvenanceProbe')
 module.exports.createExternalString = nativeBinding.createExternalString
-module.exports.createExternalTokenGcProbe = getBindingExport('createExternalTokenGcProbe')
 module.exports.createExternalTypedArray = nativeBinding.createExternalTypedArray
 module.exports.createExternalUtf16String = nativeBinding.createExternalUtf16String
 module.exports.createFunction = nativeBinding.createFunction
-module.exports.createGeneratorLifecycleProbe = nativeBinding.createGeneratorLifecycleProbe
 module.exports.createI32ArrayFromExternal = nativeBinding.createI32ArrayFromExternal
-module.exports.createMutableTypedArrayForOwnershipTest = getBindingExport('createMutableTypedArrayForOwnershipTest')
 module.exports.createNotUseNullableStruct = nativeBinding.createNotUseNullableStruct
 module.exports.createObj = nativeBinding.createObj
 module.exports.createObjectRef = nativeBinding.createObjectRef
 module.exports.createObjectWithClassField = nativeBinding.createObjectWithClassField
 module.exports.createObjWithProperty = nativeBinding.createObjWithProperty
 module.exports.createOptionalExternal = nativeBinding.createOptionalExternal
-module.exports.createPanickingAsyncWork = getBindingExport('createPanickingAsyncWork')
-module.exports.createQueuedAsyncWorkLifecycle = getBindingExport('createQueuedAsyncWorkLifecycle')
 module.exports.createReadableStream = nativeBinding.createReadableStream
 module.exports.createReadableStreamFromClass = nativeBinding.createReadableStreamFromClass
 module.exports.createReadableStreamWithObject = nativeBinding.createReadableStreamWithObject
+module.exports.createReentrantBorrowOrderTestTarget = nativeBinding.createReentrantBorrowOrderTestTarget
 module.exports.createReferenceOnFunction = nativeBinding.createReferenceOnFunction
 module.exports.createRejectedPromise = nativeBinding.createRejectedPromise
 module.exports.createResolvedPromise = nativeBinding.createResolvedPromise
-module.exports.createResolvePanickingAsyncWork = getBindingExport('createResolvePanickingAsyncWork')
-module.exports.createRunningAsyncWorkLifecycle = getBindingExport('createRunningAsyncWorkLifecycle')
-module.exports.createRuntimeLifecycleExternalLatin1Probe = nativeBinding.createRuntimeLifecycleExternalLatin1Probe
-module.exports.createRuntimeLifecycleExternalProbe = nativeBinding.createRuntimeLifecycleExternalProbe
-module.exports.createRuntimeLifecycleExternalUtf16Probe = nativeBinding.createRuntimeLifecycleExternalUtf16Probe
-module.exports.createRuntimeLifecycleFinalizer = nativeBinding.createRuntimeLifecycleFinalizer
 module.exports.createStaticLatin1String = nativeBinding.createStaticLatin1String
 module.exports.createStaticUtf16String = nativeBinding.createStaticUtf16String
 module.exports.createSymbol = nativeBinding.createSymbol
 module.exports.createSymbolFor = nativeBinding.createSymbolFor
 module.exports.createSymbolRef = nativeBinding.createSymbolRef
-module.exports.createSyncIteratorIntoInstance = nativeBinding.createSyncIteratorIntoInstance
 module.exports.createUint8ClampedArrayFromData = nativeBinding.createUint8ClampedArrayFromData
 module.exports.createUint8ClampedArrayFromExternal = nativeBinding.createUint8ClampedArrayFromExternal
 module.exports.createUseNullableStruct = nativeBinding.createUseNullableStruct
@@ -1084,13 +940,9 @@ module.exports.customStatusCode = nativeBinding.customStatusCode
 module.exports.CustomStringEnum = nativeBinding.CustomStringEnum
 module.exports.dateToNumber = nativeBinding.dateToNumber
 module.exports.DEFAULT_COST = nativeBinding.DEFAULT_COST
-module.exports.deferredFinalizeCallbackCount = getBindingExport('deferredFinalizeCallbackCount')
 module.exports.defineClass = nativeBinding.defineClass
 module.exports.derefUint8Array = nativeBinding.derefUint8Array
-module.exports.detachableExternalArraybufferFinalizeCount = nativeBinding.detachableExternalArraybufferFinalizeCount
-module.exports.detachArraybufferWithAlias = nativeBinding.detachArraybufferWithAlias
-module.exports.disposeAsyncWorkLifecycle = getBindingExport('disposeAsyncWorkLifecycle')
-module.exports.disposeThreadsafeFunctionForEnvOwnership = getBindingExport('disposeThreadsafeFunctionForEnvOwnership')
+module.exports.detachReentrantBorrowOrderTestTarget = nativeBinding.detachReentrantBorrowOrderTestTarget
 module.exports.drainStreamCount = nativeBinding.drainStreamCount
 module.exports.dropClonedErrorsOnTwoThreads = nativeBinding.dropClonedErrorsOnTwoThreads
 module.exports.dropErrorFromValueOffThread = nativeBinding.dropErrorFromValueOffThread
@@ -1108,10 +960,9 @@ module.exports.enumToI32 = nativeBinding.enumToI32
 module.exports.errorMessageContainsNullByte = nativeBinding.errorMessageContainsNullByte
 module.exports.esmResolve = nativeBinding.esmResolve
 module.exports.extendsJavascriptError = nativeBinding.extendsJavascriptError
-module.exports.externalTokenGcProbeFinalizeCount = getBindingExport('externalTokenGcProbeFinalizeCount')
 module.exports.f32ArrayToArray = nativeBinding.f32ArrayToArray
 module.exports.f64ArrayToArray = nativeBinding.f64ArrayToArray
-module.exports.fetch = getBindingExport('fetch')
+module.exports.fetch = nativeBinding.fetch
 module.exports.fibonacci = nativeBinding.fibonacci
 module.exports.fnReceivedAliased = nativeBinding.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = nativeBinding.generateFunctionAndCallIt
@@ -1127,7 +978,6 @@ module.exports.getExternal = nativeBinding.getExternal
 module.exports.getGlobal = nativeBinding.getGlobal
 module.exports.getIndexMapping = nativeBinding.getIndexMapping
 module.exports.getIndexMappingWithHasher = nativeBinding.getIndexMappingWithHasher
-module.exports.getJsExternal = nativeBinding.getJsExternal
 module.exports.getMapping = nativeBinding.getMapping
 module.exports.getMappingWithHasher = nativeBinding.getMappingWithHasher
 module.exports.getModuleFileName = nativeBinding.getModuleFileName
@@ -1151,8 +1001,6 @@ module.exports.i8ArrayToArray = nativeBinding.i8ArrayToArray
 module.exports.indexmapPassthrough = nativeBinding.indexmapPassthrough
 module.exports.indexSetToJs = nativeBinding.indexSetToJs
 module.exports.indexSetToRust = nativeBinding.indexSetToRust
-module.exports.inspectExternalRefAcrossDuplicateLoad = getBindingExport('inspectExternalRefAcrossDuplicateLoad')
-module.exports.inspectExternalTokenGcProbe = getBindingExport('inspectExternalTokenGcProbe')
 module.exports.intoUtf8 = nativeBinding.intoUtf8
 module.exports.joinPath = nativeBinding.joinPath
 module.exports.jsErrorCallback = nativeBinding.jsErrorCallback
@@ -1161,13 +1009,10 @@ module.exports.KindInValidate = nativeBinding.KindInValidate
 module.exports.listObjKeys = nativeBinding.listObjKeys
 module.exports.mapOption = nativeBinding.mapOption
 module.exports.mergeTupleArray = nativeBinding.mergeTupleArray
-module.exports.mutableTypedArrayFinalizeCount = getBindingExport('mutableTypedArrayFinalizeCount')
-module.exports.mutateAnimalPair = nativeBinding.mutateAnimalPair
 module.exports.mutateArraybuffer = nativeBinding.mutateArraybuffer
 module.exports.mutateExternal = nativeBinding.mutateExternal
 module.exports.mutateOptionalExternal = nativeBinding.mutateOptionalExternal
 module.exports.mutateTypedArray = nativeBinding.mutateTypedArray
-module.exports.mutateUint16ArrayForSync = nativeBinding.mutateUint16ArrayForSync
 module.exports.objectGetNamedPropertyShouldPerformTypecheck = nativeBinding.objectGetNamedPropertyShouldPerformTypecheck
 module.exports.objectWithCApis = nativeBinding.objectWithCApis
 module.exports.optionalCallbackTypes = nativeBinding.optionalCallbackTypes
@@ -1180,29 +1025,15 @@ module.exports.overrideIndividualArgOnFunctionWithCbArg = nativeBinding.override
 module.exports.overrideWholeFunctionType = nativeBinding.overrideWholeFunctionType
 module.exports.panic = nativeBinding.panic
 module.exports.panicInAsync = nativeBinding.panicInAsync
-module.exports.panickingAsyncWorkFinallyCount = getBindingExport('panickingAsyncWorkFinallyCount')
 module.exports.passSetToJs = nativeBinding.passSetToJs
 module.exports.passSetToRust = nativeBinding.passSetToRust
 module.exports.passSetWithHasherToJs = nativeBinding.passSetWithHasherToJs
 module.exports.pathParent = nativeBinding.pathParent
-module.exports.pendingAsyncBlockWithTerminalFinalizer = nativeBinding.pendingAsyncBlockWithTerminalFinalizer
 module.exports.plusOne = nativeBinding.plusOne
-module.exports.prepareTsfnBlockingCallRegression = getBindingExport('prepareTsfnBlockingCallRegression')
-module.exports.prepareTsfnTeardownRegression = getBindingExport('prepareTsfnTeardownRegression')
 module.exports.promiseInEither = nativeBinding.promiseInEither
-module.exports.promiseRawCallbackDropCount = nativeBinding.promiseRawCallbackDropCount
-module.exports.promiseRawCatchCallbackDropProbe = nativeBinding.promiseRawCatchCallbackDropProbe
-module.exports.promiseRawCatchCallbackPanic = nativeBinding.promiseRawCatchCallbackPanic
-module.exports.promiseRawFinallyCallbackDropProbe = nativeBinding.promiseRawFinallyCallbackDropProbe
-module.exports.promiseRawFinallyCallbackPanic = nativeBinding.promiseRawFinallyCallbackPanic
 module.exports.promiseRawReturnClassInstance = nativeBinding.promiseRawReturnClassInstance
-module.exports.promiseRawThenCallbackDropProbe = nativeBinding.promiseRawThenCallbackDropProbe
-module.exports.promiseRawThenCallbackPanic = nativeBinding.promiseRawThenCallbackPanic
-module.exports.readAnimalPair = nativeBinding.readAnimalPair
-module.exports.readAnimalWithReentrantProbe = nativeBinding.readAnimalWithReentrantProbe
 module.exports.readFile = nativeBinding.readFile
 module.exports.readFileAsync = nativeBinding.readFileAsync
-module.exports.readMutateAnimalPair = nativeBinding.readMutateAnimalPair
 module.exports.readPackageJson = nativeBinding.readPackageJson
 module.exports.receiveAllOptionalObject = nativeBinding.receiveAllOptionalObject
 module.exports.receiveBindingVitePluginMeta = nativeBinding.receiveBindingVitePluginMeta
@@ -1216,82 +1047,34 @@ module.exports.receiveStrictObject = nativeBinding.receiveStrictObject
 module.exports.receiveString = nativeBinding.receiveString
 module.exports.referenceAsCallback = nativeBinding.referenceAsCallback
 module.exports.referenceWithTupleArg = nativeBinding.referenceWithTupleArg
-module.exports.referThreadsafeFunctionForEnvOwnership = getBindingExport('referThreadsafeFunctionForEnvOwnership')
-module.exports.registerDeferredCleanupOrderProbe = getBindingExport('registerDeferredCleanupOrderProbe')
-module.exports.registerEnvCleanupRuntimeLifecycleProbes = nativeBinding.registerEnvCleanupRuntimeLifecycleProbes
-module.exports.registerLateDeferredFinalizeCallback = getBindingExport('registerLateDeferredFinalizeCallback')
-module.exports.registerModuleFinalizerProbes = nativeBinding.registerModuleFinalizerProbes
-module.exports.registerRemovableAsyncCleanupHook = nativeBinding.registerRemovableAsyncCleanupHook
-module.exports.registerRemovableSyncCleanupHook = nativeBinding.registerRemovableSyncCleanupHook
-module.exports.registerSelfDroppingAsyncCleanupHook = nativeBinding.registerSelfDroppingAsyncCleanupHook
-module.exports.registerSelfRemovingSyncCleanupHook = nativeBinding.registerSelfRemovingSyncCleanupHook
-module.exports.releaseAsyncWorkLifecycle = getBindingExport('releaseAsyncWorkLifecycle')
-module.exports.removeRemovableAsyncCleanupHook = nativeBinding.removeRemovableAsyncCleanupHook
-module.exports.removeRemovableSyncCleanupHook = nativeBinding.removeRemovableSyncCleanupHook
-module.exports.resetPromiseRawCallbackDropCount = nativeBinding.resetPromiseRawCallbackDropCount
-module.exports.resetWeakReferenceGcTargetFinalizeCount = nativeBinding.resetWeakReferenceGcTargetFinalizeCount
-module.exports.resolvePanickingAsyncWorkFinallyCount = getBindingExport('resolvePanickingAsyncWorkFinallyCount')
-module.exports.restartTokioRuntimeAfterRetirement = getBindingExport('restartTokioRuntimeAfterRetirement')
 module.exports.returnCString = nativeBinding.returnCString
 module.exports.returnEither = nativeBinding.returnEither
 module.exports.returnEitherClass = nativeBinding.returnEitherClass
 module.exports.returnFromSharedCrate = nativeBinding.returnFromSharedCrate
 module.exports.returnNull = nativeBinding.returnNull
 module.exports.returnObjectOnlyToJs = nativeBinding.returnObjectOnlyToJs
-module.exports.returnTypedArraySliceMutAcrossDuplicateLoad = getBindingExport('returnTypedArraySliceMutAcrossDuplicateLoad')
-module.exports.returnTypedArraySliceRefAcrossDuplicateLoad = getBindingExport('returnTypedArraySliceRefAcrossDuplicateLoad')
 module.exports.returnUndefined = nativeBinding.returnUndefined
 module.exports.returnUndefinedIfInvalid = nativeBinding.returnUndefinedIfInvalid
 module.exports.returnUndefinedIfInvalidPromise = nativeBinding.returnUndefinedIfInvalidPromise
 module.exports.roundtripStr = nativeBinding.roundtripStr
 module.exports.runScript = nativeBinding.runScript
-module.exports.setInstanceDataRuntimeLifecycleProbe = nativeBinding.setInstanceDataRuntimeLifecycleProbe
 module.exports.setNullByteProperty = nativeBinding.setNullByteProperty
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
-module.exports.settleDeferredBeforeFinalizeRegistration = getBindingExport('settleDeferredBeforeFinalizeRegistration')
-module.exports.settleDeferredClone = getBindingExport('settleDeferredClone')
 module.exports.shorterEscapableScope = nativeBinding.shorterEscapableScope
 module.exports.shorterScope = nativeBinding.shorterScope
-module.exports.shutdownAsyncRuntimeForTest = nativeBinding.shutdownAsyncRuntimeForTest
 module.exports.shutdownRuntime = nativeBinding.shutdownRuntime
 module.exports.spawnFutureLifetime = nativeBinding.spawnFutureLifetime
 module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread
-module.exports.startDeferredTeardownRace = getBindingExport('startDeferredTeardownRace')
-module.exports.startReferencedTsfnFinalizerLivenessWorker = getBindingExport('startReferencedTsfnFinalizerLivenessWorker')
-module.exports.startWeakTsfnFinalizerLivenessWorker = getBindingExport('startWeakTsfnFinalizerLivenessWorker')
-module.exports.stashBufferAcrossDuplicateLoad = getBindingExport('stashBufferAcrossDuplicateLoad')
 module.exports.stashBufferInThreadLocal = nativeBinding.stashBufferInThreadLocal
-module.exports.stashClassInstanceForLaterTurn = getBindingExport('stashClassInstanceForLaterTurn')
-module.exports.stashErrorAcrossDuplicateLoad = getBindingExport('stashErrorAcrossDuplicateLoad')
 module.exports.stashErrorInThreadLocal = nativeBinding.stashErrorInThreadLocal
-module.exports.stashExternalRefAcrossDuplicateLoad = getBindingExport('stashExternalRefAcrossDuplicateLoad')
-module.exports.stashExternalRefForTeardown = getBindingExport('stashExternalRefForTeardown')
-module.exports.stashPromiseRejectionAcrossDuplicateLoad = getBindingExport('stashPromiseRejectionAcrossDuplicateLoad')
-module.exports.stashThreadsafeFunctionForEnvOwnership = getBindingExport('stashThreadsafeFunctionForEnvOwnership')
-module.exports.stashTypedArrayAcrossDuplicateLoad = getBindingExport('stashTypedArrayAcrossDuplicateLoad')
 module.exports.stashTypedArrayInThreadLocal = nativeBinding.stashTypedArrayInThreadLocal
-module.exports.stashTypedArraySlicesAcrossDuplicateLoad = getBindingExport('stashTypedArraySlicesAcrossDuplicateLoad')
 module.exports.Status = nativeBinding.Status
 module.exports.StatusInValidate = nativeBinding.StatusInValidate
-module.exports.stoppedTokioAsyncBlockCleanupOrder = nativeBinding.stoppedTokioAsyncBlockCleanupOrder
 module.exports.StringEnum = nativeBinding.StringEnum
 module.exports.sumBtreeMapping = nativeBinding.sumBtreeMapping
-module.exports.sumBufferSliceFromCopy = nativeBinding.sumBufferSliceFromCopy
-module.exports.sumBufferSliceFromData = nativeBinding.sumBufferSliceFromData
-module.exports.sumBufferSliceFromExternal = nativeBinding.sumBufferSliceFromExternal
 module.exports.sumIndexMapping = nativeBinding.sumIndexMapping
 module.exports.sumMapping = nativeBinding.sumMapping
 module.exports.sumNums = nativeBinding.sumNums
-module.exports.syncCleanupHookCounts = nativeBinding.syncCleanupHookCounts
-module.exports.takeAdditionalBorrowedValueAcrossDuplicateLoad = getBindingExport('takeAdditionalBorrowedValueAcrossDuplicateLoad')
-module.exports.takeBorrowedValueAcrossDuplicateLoad = getBindingExport('takeBorrowedValueAcrossDuplicateLoad')
-module.exports.takeBufferAcrossDuplicateLoad = getBindingExport('takeBufferAcrossDuplicateLoad')
-module.exports.takeBufferSliceIntoBufferAcrossDuplicateLoad = getBindingExport('takeBufferSliceIntoBufferAcrossDuplicateLoad')
-module.exports.takeBufferSliceRefAcrossDuplicateLoad = getBindingExport('takeBufferSliceRefAcrossDuplicateLoad')
-module.exports.takeClassInstanceFromLaterTurn = getBindingExport('takeClassInstanceFromLaterTurn')
-module.exports.takeExternalRefAcrossDuplicateLoad = getBindingExport('takeExternalRefAcrossDuplicateLoad')
-module.exports.takeReferenceValueAcrossDuplicateLoad = getBindingExport('takeReferenceValueAcrossDuplicateLoad')
-module.exports.takeTypedArrayAcrossDuplicateLoad = getBindingExport('takeTypedArrayAcrossDuplicateLoad')
 module.exports.testEscapedQuotesInComments = nativeBinding.testEscapedQuotesInComments
 module.exports.testLatin1Methods = nativeBinding.testLatin1Methods
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
@@ -1302,20 +1085,14 @@ module.exports.threadsafeFunctionBuildThrowErrorWithStatus = nativeBinding.threa
 module.exports.threadsafeFunctionClosureCapture = nativeBinding.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = nativeBinding.threadsafeFunctionFatalMode
 module.exports.threadsafeFunctionFatalModeError = nativeBinding.threadsafeFunctionFatalModeError
-module.exports.threadsafeFunctionRustPanic = nativeBinding.threadsafeFunctionRustPanic
-module.exports.threadsafeFunctionRustPanicCalleeHandled = nativeBinding.threadsafeFunctionRustPanicCalleeHandled
 module.exports.threadsafeFunctionThrowError = nativeBinding.threadsafeFunctionThrowError
 module.exports.threadsafeFunctionThrowErrorWithStatus = nativeBinding.threadsafeFunctionThrowErrorWithStatus
 module.exports.throwAsyncError = nativeBinding.throwAsyncError
 module.exports.throwDetachedPendingException = nativeBinding.throwDetachedPendingException
 module.exports.throwError = nativeBinding.throwError
-module.exports.throwErrorAcrossDuplicateLoad = getBindingExport('throwErrorAcrossDuplicateLoad')
 module.exports.throwErrorWithCause = nativeBinding.throwErrorWithCause
-module.exports.throwPromiseRejectionAcrossDuplicateLoad = getBindingExport('throwPromiseRejectionAcrossDuplicateLoad')
 module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
 module.exports.toJsObj = nativeBinding.toJsObj
-module.exports.tokioRuntimeFactoryCallCount = getBindingExport('tokioRuntimeFactoryCallCount')
-module.exports.tokioRuntimeLifecycleValue = getBindingExport('tokioRuntimeLifecycleValue')
 module.exports.tryCloneErrorCauseOffThread = nativeBinding.tryCloneErrorCauseOffThread
 module.exports.tryCloneErrorCauseTransitiveOffThread = nativeBinding.tryCloneErrorCauseTransitiveOffThread
 module.exports.tryCloneErrorOffThread = nativeBinding.tryCloneErrorOffThread
@@ -1338,12 +1115,8 @@ module.exports.u32ArrayToArray = nativeBinding.u32ArrayToArray
 module.exports.u64ArrayToArray = nativeBinding.u64ArrayToArray
 module.exports.u8ArrayToArray = nativeBinding.u8ArrayToArray
 module.exports.uInit8ArrayFromString = nativeBinding.uInit8ArrayFromString
-module.exports.uint16ArrayCopyFrom = nativeBinding.uint16ArrayCopyFrom
 module.exports.uint8ArrayFromData = nativeBinding.uint8ArrayFromData
 module.exports.uint8ArrayFromExternal = nativeBinding.uint8ArrayFromExternal
-module.exports.uint8ClampedArrayCopyFrom = nativeBinding.uint8ClampedArrayCopyFrom
-module.exports.unrefThreadsafeFunctionForEnvOwnership = getBindingExport('unrefThreadsafeFunctionForEnvOwnership')
-module.exports.untypedTypedArrayBackingBytes = nativeBinding.untypedTypedArrayBackingBytes
 module.exports.validateArray = nativeBinding.validateArray
 module.exports.validateBigint = nativeBinding.validateBigint
 module.exports.validateBoolean = nativeBinding.validateBoolean
@@ -1368,21 +1141,11 @@ module.exports.validateTypedArray = nativeBinding.validateTypedArray
 module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = nativeBinding.validateUint8ClampedSlice
 module.exports.validateUndefined = nativeBinding.validateUndefined
-module.exports.verifyReferenceValuesRejectNativeThread = getBindingExport('verifyReferenceValuesRejectNativeThread')
-module.exports.verifyThreadsafeFunctionOwnerEnv = getBindingExport('verifyThreadsafeFunctionOwnerEnv')
-module.exports.verifyTypedArraySlicesSameEnv = getBindingExport('verifyTypedArraySlicesSameEnv')
-module.exports.waitForTokioRuntimeRetirement = getBindingExport('waitForTokioRuntimeRetirement')
-module.exports.weakReferenceGcTargetFinalizeCount = nativeBinding.weakReferenceGcTargetFinalizeCount
 module.exports.withAbortController = nativeBinding.withAbortController
 module.exports.withAbortSignalHandle = nativeBinding.withAbortSignalHandle
-module.exports.withAdditionalBorrowedValuesAcrossDuplicateLoad = getBindingExport('withAdditionalBorrowedValuesAcrossDuplicateLoad')
-module.exports.withBorrowedValuesAcrossDuplicateLoad = getBindingExport('withBorrowedValuesAcrossDuplicateLoad')
 module.exports.withinAsyncRuntimeIfAvailable = nativeBinding.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = nativeBinding.withoutAbortController
-module.exports.withReferenceValuesAcrossDuplicateLoad = getBindingExport('withReferenceValuesAcrossDuplicateLoad')
 module.exports.xxh64Alias = nativeBinding.xxh64Alias
-module.exports.duplicateClassNameAlpha = nativeBinding.duplicateClassNameAlpha
-module.exports.duplicateClassNameBeta = nativeBinding.duplicateClassNameBeta
 module.exports.xxh2 = nativeBinding.xxh2
 module.exports.xxh3 = nativeBinding.xxh3
 module.exports.ComplexClass = nativeBinding.ComplexClass

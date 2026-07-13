@@ -20,9 +20,6 @@ yarn napi build
 `@napi-rs/cli` supports Node.js `^20.17.0`, `^22.13.0`, and `>=23.5.0`.
 Earlier Node.js releases are no longer supported by the CLI runtime.
 
-See [WASI targets and loaders](./docs/wasi.md) for threaded, threadless,
-browser, and workerd packaging behavior.
-
 ## Commands
 
 | Command         | desc                                                           | docs                                                |
@@ -35,6 +32,31 @@ browser, and workerd packaging behavior.
 | universalize    | Combile built binaries into one universal binary               | [./docs/universalize.md](./docs/universalize.md)    |
 | version         | Update version in created npm packages by `create-npm-dirs`    | [./docs/version.md](./docs/version.md)              |
 | pre-publish     | Update package.json and copy addons into per platform packages | [./docs/pre-publish.md](./docs/pre-publish.md)      |
+
+## Disposing generated WASI bindings
+
+Generated WASI bindings expose deterministic cleanup through a non-enumerable
+symbol on the binding object:
+
+```js
+const binding = require('<package>')
+const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+
+if (dispose) {
+  await dispose()
+}
+```
+
+The symbol is present only when the loaded binding is WASI. Browser WASI
+loaders expose it on their default export. Disposal first settles or cancels
+pending napi-rs runtime promises, then destroys the emnapi context, and finally
+terminates the workers owned by that binding. Concurrent calls share one
+promise, successful disposal is idempotent, and a failed cleanup phase can be
+retried by calling the same function again. Do not call addon exports after
+disposal completes.
+
+See [WASI targets and loaders](./docs/wasi.md) for threaded, threadless,
+browser, and workerd packaging behavior.
 
 ### Debug mode
 

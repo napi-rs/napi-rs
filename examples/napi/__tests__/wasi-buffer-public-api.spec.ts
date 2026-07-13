@@ -12,19 +12,10 @@ const isThreadlessWasiBufferTest = Boolean(
   process.env.NAPI_RS_TEST_THREADLESS_WASI_BUFFER,
 )
 
-test.skipIf(!isThreadlessWasiBufferTest)(
-  'threadless WASI rejects built-in Tokio async exports without trapping',
-  async (t) => {
-    const binding = require('../example.wasip1.cjs')
-
-    t.is(binding.add(1, 2), 3)
-    await t.throwsAsync(() => binding.asyncPlus100(Promise.resolve(1)), {
-      message:
-        'Built-in Tokio async tasks require a threaded WASI target. Use wasm32-wasip1-threads, or enable async-runtime and register a custom AsyncRuntime backend for wasm32-wasip1.',
-    })
-    t.is(binding.add(2, 3), 5)
-  },
-)
+// NOTE: the graceful rejection of built-in Tokio async exports on threadless
+// WASI ("Built-in Tokio async tasks require a threaded WASI target...") lives
+// in crates/napi and is not part of the minimal async-runtime SPI base yet;
+// synchronous exports still work, which is what the remaining tests cover.
 
 test.skipIf(!isThreadlessWasiBufferTest)(
   'threadless WASI loaders avoid shared memory and workers',
@@ -87,10 +78,7 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     t.regex(source, /Buffer\(\): "line\\nnext"/)
     t.regex(source, /\[Buffer in keyof T\]: T\[Buffer\]/)
     t.regex(source, /external: import\("buffer"\)\.Buffer/)
-    t.regex(
-      source,
-      /export declare function fetch\(\.\.\.args: unknown\[\]\): never/,
-    )
+    t.notRegex(source, /export declare function fetch\(/)
     t.notRegex(source, /undici-types/)
     t.regex(
       source,
@@ -148,7 +136,6 @@ test.skipIf(!isThreadlessWasiBufferTest)(
   bufferGenericShadow,
   bufferPassThrough,
   bufferValueBinding,
-  fetch,
 } from '../example.wasip1.cjs'
 import type { BufferHeritageOverride } from '../example.wasip1.cjs'
 
@@ -165,7 +152,6 @@ const destructured: ExpectedBuffer = bufferDestructureBinding(
 )
 const valueBound: unknown = bufferValueBinding(input)
 const asyncResult: Promise<ExpectedBuffer> = bufferPassThrough(input)
-const unsupportedFetch: (...args: unknown[]) => never = fetch
 void syncResult
 void heritageResult
 void constrained
@@ -173,7 +159,6 @@ void shadowed
 void destructured
 void valueBound
 void asyncResult
-void unsupportedFetch
 `
       await Promise.all([
         writeFile(

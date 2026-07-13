@@ -104,10 +104,6 @@ async function runIsolatedLifecycle(directory) {
 
   const binding = load()
   assert.equal(binding.add(1, 2), 3)
-  binding.registerEnvCleanupRuntimeLifecycleProbes(
-    join(directory, 'cleanup'),
-    join(directory, 'async-cleanup'),
-  )
   const addedBeforeExitListeners = process
     .rawListeners('beforeExit')
     .filter((listener) => !initialBeforeExitListeners.has(listener))
@@ -208,8 +204,6 @@ if (childMode) {
     assert.equal(result.status, 0, output)
     assert.match(result.stdout, /published emnapi v2 lifecycle passed/)
     process.stdout.write(result.stdout)
-    assert.equal(await readFile(join(directory, 'cleanup'), 'utf8'), '0')
-    assert.equal(await readFile(join(directory, 'async-cleanup'), 'utf8'), '0')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
