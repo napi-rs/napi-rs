@@ -590,13 +590,36 @@ impl AsyncRuntimeRegistry {
       return false;
     };
     let _lifecycle = self.lock_lifecycle();
-    if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
-      // Same rationale as the `start` rollback: quiescence is only guaranteed when `shutdown`
-      // returns, and this runs at last-env teardown right before Node may unload the image.
-      std::process::abort();
+    match catch_unwind(AssertUnwindSafe(|| backend.shutdown())) {
+      // A `shutdown` that returned has delivered quiescence even when it reports an error;
+      // dispose of that error with `Drop`-panic containment so nothing unwinds past here.
+      Ok(shutdown_result) => drop_contained(shutdown_result),
+      Err(payload) => {
+        // Same rationale as the `start` rollback: quiescence is only guaranteed when
+        // `shutdown` returns, and this runs at last-env teardown right before Node may unload
+        // the image. Nothing may drop before the abort — a panicking payload `Drop` would
+        // unwind first and could dodge the mandated abort under a caller's `catch_unwind` —
+        // so the payload is leaked instead.
+        std::mem::forget(payload);
+        std::process::abort();
+      }
     }
     self.lock_state().phase = LifecyclePhase::Idle;
     true
+  }
+}
+
+/// Dispose of a value recovered from a backend hook — a caught panic payload or a returned
+/// [`Error`] — without letting a panicking `Drop` escape containment. A panic payload is
+/// arbitrary user data, and an [`Error`] can own a JS reference whose release asserts; if the
+/// drop panics, the second payload is leaked (`mem::forget`) rather than allowed to unwind out
+/// of the lifecycle and dispatch paths that promised containment.
+#[cfg(feature = "async-runtime")]
+fn drop_contained<T>(value: T) {
+  if let Err(second_payload) = catch_unwind(AssertUnwindSafe(move || drop(value))) {
+    // Leak rather than unwind again: an unwind here would escape into extern "C" frames or
+    // dodge a mandated abort.
+    std::mem::forget(second_payload);
   }
 }
 
@@ -605,18 +628,31 @@ impl AsyncRuntimeRegistry {
 /// [`retire_rejected_async_runtime`]): the safety contract only guarantees quiescence when
 /// `shutdown` *returns*, so an unwinding rollback leaves the backend unprovably live while Node
 /// may unload the addon image. Returns `true` when `start` succeeded, `false` when it was
-/// rolled back.
+/// rolled back. Whatever the failed `start` returned or threw is disposed of through
+/// [`drop_contained`], so a panicking payload `Drop` cannot unwind out and skip the caller's
+/// `Starting → Idle` phase bookkeeping.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn start_backend_with_rollback(backend: &dyn AsyncRuntime) -> bool {
   match catch_unwind(AssertUnwindSafe(|| backend.start())) {
-    Ok(Ok(())) => true,
-    Ok(Err(_)) | Err(_) => {
-      if catch_unwind(AssertUnwindSafe(|| backend.shutdown())).is_err() {
-        std::process::abort();
-      }
-      false
+    Ok(Ok(())) => return true,
+    // Bind and dispose of the failure value BEFORE the rollback: left unbound in the match
+    // scrutinee, the caught panic payload would drop only after this function computed its
+    // value — a panicking payload `Drop` would then unwind out, skip the caller's phase write
+    // (phase stuck `Starting`), and escape into the extern "C" registration path despite the
+    // documented rollback.
+    Ok(Err(start_error)) => drop_contained(start_error),
+    Err(payload) => drop_contained(payload),
+  }
+  match catch_unwind(AssertUnwindSafe(|| backend.shutdown())) {
+    Ok(shutdown_result) => drop_contained(shutdown_result),
+    Err(payload) => {
+      // Nothing may drop before the mandated abort (see [`AsyncRuntimeRegistry::deactivate`]):
+      // leak the payload instead.
+      std::mem::forget(payload);
+      std::process::abort();
     }
   }
+  false
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -628,11 +664,19 @@ static ASYNC_RUNTIME_REGISTRY: AsyncRuntimeRegistry = AsyncRuntimeRegistry::new(
 /// aborts, because a half-torn-down backend cannot be proven quiescent.
 #[cfg(feature = "async-runtime")]
 fn retire_rejected_async_runtime(runtime: Box<dyn AsyncRuntime>) {
-  if catch_unwind(AssertUnwindSafe(|| runtime.shutdown())).is_err() {
-    std::mem::forget(runtime);
-    std::process::abort();
+  match catch_unwind(AssertUnwindSafe(|| runtime.shutdown())) {
+    Ok(shutdown_result) => drop_contained(shutdown_result),
+    Err(payload) => {
+      // Nothing may drop before the mandated abort: a panicking payload `Drop` would unwind
+      // first and could dodge it under a caller's `catch_unwind`. Leak both the payload and
+      // the half-torn-down backend.
+      std::mem::forget(payload);
+      std::mem::forget(runtime);
+      std::process::abort();
+    }
   }
-  if catch_unwind(AssertUnwindSafe(move || drop(runtime))).is_err() {
+  if let Err(payload) = catch_unwind(AssertUnwindSafe(move || drop(runtime))) {
+    std::mem::forget(payload);
     std::process::abort();
   }
 }
@@ -1067,8 +1111,9 @@ fn execute_future_impl<
       }
       // The hook panicked. The task's `Drop` during unwinding already fired the
       // cancellation path unless the future had settled first (first poll commits
-      // ownership), so there is nothing left to settle here.
-      Err(_) => {}
+      // ownership), so there is nothing left to settle here — only the payload to dispose
+      // of without letting a panicking payload `Drop` unwind into the extern "C" trampoline.
+      Err(payload) => drop_contained(payload),
     }
     return Ok(promise_value);
   }
@@ -1706,6 +1751,93 @@ mod spi_tests {
     // Env teardown still routes to the backend's shutdown hook.
     assert!(registry.deactivate());
     assert_eq!(probe.shutdown_calls.load(AtomicOrdering::SeqCst), 2);
+  }
+
+  #[test]
+  fn panicking_payload_drop_from_start_is_contained() {
+    /// A panic payload whose own `Drop` panics, recording that it ran.
+    struct PanickingDropPayload {
+      drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for PanickingDropPayload {
+      fn drop(&mut self) {
+        self.drops.fetch_add(1, AtomicOrdering::SeqCst);
+        panic!("panic payload drop");
+      }
+    }
+
+    /// Panics with the payload above on its first `start()`; starts normally afterwards.
+    struct PanicOnFirstStartRuntime {
+      probe: Arc<BackendProbe>,
+      payload_drops: Arc<AtomicUsize>,
+    }
+
+    unsafe impl AsyncRuntime for PanicOnFirstStartRuntime {
+      fn spawn(
+        &self,
+        task: AsyncRuntimeTask,
+      ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+        futures::executor::block_on(task);
+        Ok(())
+      }
+
+      fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+        futures::executor::block_on(future);
+        Ok(())
+      }
+
+      fn start(&self) -> Result<()> {
+        if self.probe.start_calls.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+          std::panic::panic_any(PanickingDropPayload {
+            drops: self.payload_drops.clone(),
+          });
+        }
+        self.probe.running.store(true, AtomicOrdering::SeqCst);
+        Ok(())
+      }
+
+      fn shutdown(&self) -> Result<()> {
+        self.probe.running.store(false, AtomicOrdering::SeqCst);
+        self
+          .probe
+          .shutdown_calls
+          .fetch_add(1, AtomicOrdering::SeqCst);
+        Ok(())
+      }
+    }
+
+    let registry = AsyncRuntimeRegistry::new();
+    let probe = Arc::new(BackendProbe::default());
+    let payload_drops = Arc::new(AtomicUsize::new(0));
+    assert!(registry
+      .try_register(Box::new(PanicOnFirstStartRuntime {
+        probe: probe.clone(),
+        payload_drops: payload_drops.clone(),
+      }))
+      .is_ok());
+
+    // First activation: `start` panics with a payload whose own `Drop` panics. The activate
+    // path must contain both panics instead of unwinding out (in production the unwind would
+    // escape into extern "C" `napi_register_module_v1` and abort despite the documented
+    // rollback).
+    let activated = catch_unwind(AssertUnwindSafe(|| registry.activate()))
+      .expect("a panicking payload Drop must not unwind out of the activate path");
+    assert!(activated);
+
+    // The payload was dropped inside the containment (not leaked wholesale): its panicking
+    // `Drop` ran exactly once and the second panic was swallowed.
+    assert_eq!(payload_drops.load(AtomicOrdering::SeqCst), 1);
+    // The panicking start was rolled back through `shutdown` …
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(probe.shutdown_calls.load(AtomicOrdering::SeqCst), 1);
+    // … and the rollback was recorded: the phase is back to `Idle`, not stuck `Starting`.
+    assert!(registry.lock_state().phase == LifecyclePhase::Idle);
+
+    // The registry stays restartable: a fresh cycle claims and runs the start again.
+    assert!(registry.activate());
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 2);
+    assert!(probe.running.load(AtomicOrdering::SeqCst));
   }
 
   /// The only test touching the process-global registry (and, in combined builds, the global
