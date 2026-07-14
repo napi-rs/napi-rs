@@ -13,7 +13,7 @@ mod bigint;
 mod boolean;
 mod buffer;
 mod class;
-#[cfg(all(feature = "chrono_date", feature = "napi5"))]
+#[cfg(feature = "napi5")]
 mod date;
 mod either;
 mod external;

@@ -1,4 +1,7 @@
-use std::str::FromStr;
+use std::{
+  str::FromStr,
+  time::{SystemTime, UNIX_EPOCH},
+};
 
 use chrono::{Duration, FixedOffset, Local, TimeZone, Utc};
 use napi::bindgen_prelude::*;
@@ -26,6 +29,14 @@ fn chrono_date_with_timezone_to_millis(input: chrono::DateTime<FixedOffset>) -> 
 #[napi]
 fn chrono_date_add_1_minute(input: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
   Duration::try_minutes(1).map(|d| input + d).unwrap()
+}
+
+#[napi]
+fn system_time_to_millis(input: SystemTime) -> f64 {
+  input
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as f64)
+    .unwrap_or_else(|err| -(err.duration().as_millis() as f64))
 }
 
 #[napi(object)]
@@ -89,4 +100,16 @@ pub fn chrono_date_fixture_return2() -> chrono::DateTime<FixedOffset> {
     .with_ymd_and_hms(2024, 2, 7, 18, 28, 18)
     .single()
     .unwrap()
+}
+
+#[napi]
+pub fn system_time_return() -> SystemTime {
+  // 2016-12-23T12:25:59.325 as a POSIX timestamp
+  UNIX_EPOCH + std::time::Duration::from_millis(1482495959325)
+}
+
+#[napi]
+pub fn system_time_return_negative() -> SystemTime {
+  // 1969-12-31T23:59:59.000, i.e. one second before the UNIX epoch
+  UNIX_EPOCH - std::time::Duration::from_secs(1)
 }
