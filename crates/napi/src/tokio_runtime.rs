@@ -542,15 +542,29 @@ impl AsyncRuntimeRegistry {
   /// 2. A panicking `enter()` hook is contained like every other custom-backend hook: the
   ///    generated sync trampoline only wraps the body in `catch_unwind` when the user opts into
   ///    `#[napi(catch_unwind)]`, so an uncontained `enter()` panic would unwind across the
-  ///    `extern "C"` boundary and abort the process.
+  ///    `extern "C"` boundary and abort the process. Containment also extends to what `enter()`
+  ///    returns: a backend `Error` (whose `Drop` can panic when it owns a JS reference) and the
+  ///    guard (whose `Drop` runs after `f`, possibly while `f` is unwinding) are both disposed
+  ///    through [`drop_contained`].
   ///
   /// With no backend registered, `f` runs directly (no selection is frozen).
-  #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt"), not(feature = "noop")))]
+  #[cfg(all(
+    feature = "async-runtime",
+    not(feature = "tokio_rt"),
+    not(feature = "noop")
+  ))]
   fn within_runtime<F: FnOnce() -> T, T>(&self, f: F) -> T {
     if let Some(backend) = self.commit_selection(false) {
       self.ensure_started(backend);
       let _guard = match catch_unwind(AssertUnwindSafe(|| backend.enter())) {
-        Ok(result) => result.ok(),
+        // Hold the guard in a `ContainedGuard` so its own `Drop` (after `f`) is contained too.
+        Ok(Ok(guard)) => Some(ContainedGuard(Some(guard))),
+        // Dispose the returned error through `drop_contained` rather than letting `result.ok()`
+        // drop it uncontained (a JS-reference-owning `Error` can panic on drop).
+        Ok(Err(error)) => {
+          drop_contained(error);
+          None
+        }
         Err(payload) => {
           drop_contained(payload);
           None
@@ -664,6 +678,30 @@ fn drop_contained<T>(value: T) {
     // Leak rather than unwind again: an unwind here would escape into extern "C" frames or
     // dodge a mandated abort.
     std::mem::forget(second_payload);
+  }
+}
+
+/// Wraps a backend-provided [`AsyncRuntimeGuard`] so its `Drop` is disposed through
+/// [`drop_contained`]. A panicking guard teardown — including one that fires while `f()` is
+/// already unwinding, which would otherwise double-panic and abort — is contained instead of
+/// crossing the sync `extern "C"` trampoline. Used only on the pure `async-runtime` sync path.
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "tokio_rt"),
+  not(feature = "noop")
+))]
+struct ContainedGuard<'a>(Option<Box<dyn AsyncRuntimeGuard + 'a>>);
+
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "tokio_rt"),
+  not(feature = "noop")
+))]
+impl Drop for ContainedGuard<'_> {
+  fn drop(&mut self) {
+    if let Some(guard) = self.0.take() {
+      drop_contained(guard);
+    }
   }
 }
 
@@ -1553,6 +1591,122 @@ mod spi_tests {
       probe.start_calls.load(AtomicOrdering::SeqCst),
       1,
       "the backend is still started before the (panicking) enter()"
+    );
+  }
+
+  /// A guard whose `Drop` panics. The sync path drops it *after* the wrapped closure — on a normal
+  /// return or while the closure is unwinding — so `ContainedGuard` must route it through
+  /// `drop_contained`. Counts its own drops so a test can prove the destructor actually ran.
+  #[cfg(not(feature = "tokio_rt"))]
+  struct PanicOnDropGuard {
+    dropped: Arc<AtomicUsize>,
+  }
+
+  #[cfg(not(feature = "tokio_rt"))]
+  impl AsyncRuntimeGuard for PanicOnDropGuard {}
+
+  #[cfg(not(feature = "tokio_rt"))]
+  impl Drop for PanicOnDropGuard {
+    fn drop(&mut self) {
+      self.dropped.fetch_add(1, AtomicOrdering::SeqCst);
+      panic!("guard drop panic");
+    }
+  }
+
+  /// A backend whose `enter()` succeeds but hands back a guard that panics on drop.
+  #[cfg(not(feature = "tokio_rt"))]
+  struct GuardDropPanicRuntime {
+    guard_dropped: Arc<AtomicUsize>,
+  }
+
+  #[cfg(not(feature = "tokio_rt"))]
+  unsafe impl AsyncRuntime for GuardDropPanicRuntime {
+    fn spawn(
+      &self,
+      task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+      futures::executor::block_on(task);
+      Ok(())
+    }
+
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+      futures::executor::block_on(future);
+      Ok(())
+    }
+
+    fn start(&self) -> Result<()> {
+      Ok(())
+    }
+
+    fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
+      Ok(Box::new(PanicOnDropGuard {
+        dropped: self.guard_dropped.clone(),
+      }))
+    }
+
+    fn shutdown(&self) -> Result<()> {
+      Ok(())
+    }
+  }
+
+  /// Registers a backend whose `enter()` returns a guard that panics on drop; returns the counter
+  /// the guard bumps when its destructor runs.
+  #[cfg(not(feature = "tokio_rt"))]
+  fn register_guard_drop_panic_backend(registry: &AsyncRuntimeRegistry) -> Arc<AtomicUsize> {
+    let guard_dropped = Arc::new(AtomicUsize::new(0));
+    assert!(registry
+      .try_register(Box::new(GuardDropPanicRuntime {
+        guard_dropped: guard_dropped.clone(),
+      }))
+      .is_ok());
+    guard_dropped
+  }
+
+  /// After a normally-returning closure, a successful `enter()`'s guard is dropped by
+  /// `ContainedGuard`; a panicking guard destructor is contained rather than unwinding across the
+  /// sync `extern "C"` trampoline, and the closure's value still flows out. (Fails cleanly — as a
+  /// propagating panic, not an abort — if the guard is dropped uncontained.)
+  #[cfg(not(feature = "tokio_rt"))]
+  #[test]
+  fn within_runtime_contains_panicking_guard_drop() {
+    let registry = AsyncRuntimeRegistry::new();
+    let guard_dropped = register_guard_drop_panic_backend(&registry);
+
+    let value = registry.within_runtime(|| 7);
+
+    assert_eq!(
+      value, 7,
+      "the closure's return value must flow out unaffected"
+    );
+    assert_eq!(
+      guard_dropped.load(AtomicOrdering::SeqCst),
+      1,
+      "the panicking guard destructor must run (and be contained)"
+    );
+  }
+
+  /// The guard drops *while the closure is unwinding*: without `ContainedGuard`, a guard destructor
+  /// panicking during that unwind is a second panic in flight and aborts the process (uncatchable).
+  /// With it, only the closure's own panic escapes — caught here — and the guard panic is contained.
+  /// This test aborting the whole binary is the failure signal; surviving with `is_err()` is the pass.
+  #[cfg(not(feature = "tokio_rt"))]
+  #[test]
+  fn within_runtime_contains_guard_drop_panic_during_closure_unwind() {
+    let registry = AsyncRuntimeRegistry::new();
+    let guard_dropped = register_guard_drop_panic_backend(&registry);
+
+    let escaped = catch_unwind(AssertUnwindSafe(|| {
+      registry.within_runtime(|| panic!("closure panic"));
+    }));
+
+    assert!(
+      escaped.is_err(),
+      "the closure's own panic must still propagate (only the guard panic is contained)"
+    );
+    assert_eq!(
+      guard_dropped.load(AtomicOrdering::SeqCst),
+      1,
+      "the guard destructor ran during the unwind and was contained (no double-panic abort)"
     );
   }
 
