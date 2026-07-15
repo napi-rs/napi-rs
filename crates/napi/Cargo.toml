@@ -22,6 +22,9 @@ independent = true
 
 [features]
 async = ["tokio_rt"]
+# Pluggable async runtime SPI (`AsyncRuntime` + `register_async_runtime`).
+# Deliberately does NOT pull in tokio: a pure `async-runtime` build is tokio-free.
+async-runtime = ["napi4"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
 compat-mode = []

@@ -124,7 +124,7 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 /// env — so a shared `null` arg would abort on the second load. A distinct cookie per
 /// registration keeps the pairs unique; `thread_cleanup` ignores the value.
 #[cfg(all(
-  feature = "tokio_rt",
+  any(feature = "tokio_rt", feature = "async-runtime"),
   not(target_family = "wasm"),
   not(feature = "noop")
 ))]
@@ -579,7 +579,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     // NOTE: `create_custom_gc(env)` is intentionally NOT called here. It now runs
     // earlier in `register` (before any module-init callback) so a value captured
     // during a hook gets a real per-env handle instead of `None` (#3357).
-    #[cfg(feature = "tokio_rt")]
+    #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
     {
       crate::tokio_runtime::start_async_runtime();
       #[cfg(not(target_family = "wasm"))]
@@ -608,7 +608,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
     }
   }
 
-  #[cfg(all(feature = "tokio_rt", feature = "napi4", target_family = "wasm"))]
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4",
+    target_family = "wasm"
+  ))]
   check_status_or_throw!(
     env,
     unsafe {
@@ -718,7 +722,10 @@ fn create_custom_gc(env: sys::napi_env) {
 
 #[cfg(all(
   not(feature = "noop"),
-  all(feature = "tokio_rt", feature = "napi4"),
+  all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ),
   not(target_family = "wasm")
 ))]
 unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
@@ -729,7 +736,10 @@ unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
 
 #[cfg(all(
   not(feature = "noop"),
-  all(feature = "tokio_rt", feature = "napi4"),
+  all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ),
   target_family = "wasm"
 ))]
 unsafe extern "C" fn thread_cleanup(
