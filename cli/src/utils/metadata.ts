@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 
 export type CrateTargetKind =
   | 'bin'
@@ -20,6 +22,7 @@ export interface CrateTarget {
 export interface Crate {
   id: string
   name: string
+  source: string | null
   src_path: string
   version: string
   edition: string
@@ -48,7 +51,189 @@ export interface CargoWorkspaceMetadata {
   workspace_root: string
 }
 
-export async function parseMetadata(manifestPath: string) {
+interface ManifestFingerprint {
+  hash: string
+}
+
+interface CachedMetadata {
+  metadata: CargoWorkspaceMetadata
+  manifestFingerprints: Map<string, ManifestFingerprint>
+}
+
+interface MetadataCacheEntry {
+  value?: CachedMetadata
+  promise?: Promise<CargoWorkspaceMetadata>
+}
+
+const metadataCache = new Map<string, MetadataCacheEntry>()
+
+function getManifestFingerprint(manifestPath: string) {
+  try {
+    const hash = createHash('sha256')
+      .update(fs.readFileSync(manifestPath))
+      .digest('hex')
+
+    return { hash }
+  } catch {
+    return null
+  }
+}
+
+function isFingerprintEqual(
+  left: ManifestFingerprint,
+  right: ManifestFingerprint,
+) {
+  return left.hash === right.hash
+}
+
+function isWorkspaceManifest(content: string) {
+  return /^\s*\[workspace\]\s*$/m.test(content)
+}
+
+function findWorkspaceRoot(
+  manifestPath: string,
+  metadata?: CargoWorkspaceMetadata,
+) {
+  if (metadata) {
+    return resolve(metadata.workspace_root)
+  }
+
+  let currentDir = dirname(manifestPath)
+
+  while (true) {
+    const candidateManifestPath = join(currentDir, 'Cargo.toml')
+    try {
+      if (
+        fs.existsSync(candidateManifestPath) &&
+        isWorkspaceManifest(fs.readFileSync(candidateManifestPath, 'utf8'))
+      ) {
+        return currentDir
+      }
+    } catch {
+      // Ignore unreadable manifests and continue walking up.
+    }
+
+    const parentDir = dirname(currentDir)
+    if (parentDir === currentDir) {
+      return dirname(manifestPath)
+    }
+    currentDir = parentDir
+  }
+}
+
+function collectWorkspaceManifestPaths(workspaceRoot: string) {
+  const trackedManifestPaths = new Set<string>()
+  const pendingDirs = [workspaceRoot]
+
+  while (pendingDirs.length > 0) {
+    const currentDir = pendingDirs.pop()
+    if (!currentDir) {
+      continue
+    }
+
+    let dirEntries: fs.Dirent[]
+    try {
+      dirEntries = fs.readdirSync(currentDir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    dirEntries.forEach((dirEntry) => {
+      if (dirEntry.isDirectory()) {
+        if (
+          dirEntry.name === '.git' ||
+          dirEntry.name === 'node_modules' ||
+          dirEntry.name === 'target'
+        ) {
+          return
+        }
+
+        pendingDirs.push(join(currentDir, dirEntry.name))
+        return
+      }
+
+      if (dirEntry.isFile() && dirEntry.name === 'Cargo.toml') {
+        trackedManifestPaths.add(resolve(join(currentDir, dirEntry.name)))
+      }
+    })
+  }
+
+  return trackedManifestPaths
+}
+
+function collectManifestFingerprints(
+  manifestPath: string,
+  metadata?: CargoWorkspaceMetadata,
+) {
+  const workspaceRoot = findWorkspaceRoot(manifestPath, metadata)
+  const trackedManifestPaths = collectWorkspaceManifestPaths(workspaceRoot)
+
+  trackedManifestPaths.add(manifestPath)
+  trackedManifestPaths.add(resolve(join(workspaceRoot, 'Cargo.toml')))
+
+  if (metadata) {
+    metadata.packages.forEach((pkg) => {
+      if (pkg.source !== null) {
+        return
+      }
+
+      trackedManifestPaths.add(resolve(pkg.manifest_path))
+    })
+  }
+
+  const manifestFingerprints = new Map<string, ManifestFingerprint>()
+  for (const trackedManifestPath of trackedManifestPaths) {
+    const fingerprint = getManifestFingerprint(trackedManifestPath)
+    if (!fingerprint) {
+      return undefined
+    }
+
+    manifestFingerprints.set(trackedManifestPath, fingerprint)
+  }
+
+  return manifestFingerprints
+}
+
+function isManifestFingerprintSubsetEqual(
+  left: Map<string, ManifestFingerprint>,
+  right: Map<string, ManifestFingerprint>,
+) {
+  for (const [manifestPath, fingerprint] of left) {
+    const rightFingerprint = right.get(manifestPath)
+    if (
+      !rightFingerprint ||
+      !isFingerprintEqual(fingerprint, rightFingerprint)
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function isCacheValid(cachedMetadata: CachedMetadata) {
+  if (cachedMetadata.manifestFingerprints.size === 0) {
+    return false
+  }
+
+  for (const [
+    manifestPath,
+    fingerprint,
+  ] of cachedMetadata.manifestFingerprints) {
+    const currentFingerprint = getManifestFingerprint(manifestPath)
+
+    if (
+      !currentFingerprint ||
+      !isFingerprintEqual(currentFingerprint, fingerprint)
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+async function loadMetadata(manifestPath: string) {
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`No crate found in manifest: ${manifestPath}`)
   }
@@ -98,4 +283,54 @@ export async function parseMetadata(manifestPath: string) {
   } catch (e) {
     throw new Error('Failed to parse cargo metadata JSON', { cause: e })
   }
+}
+
+export async function parseMetadata(manifestPath: string) {
+  const resolvedManifestPath = resolve(manifestPath)
+  const cachedEntry = metadataCache.get(resolvedManifestPath)
+
+  if (cachedEntry?.value && isCacheValid(cachedEntry.value)) {
+    return cachedEntry.value.metadata
+  }
+
+  if (cachedEntry?.promise) {
+    return cachedEntry.promise
+  }
+
+  const preLoadFingerprints = collectManifestFingerprints(resolvedManifestPath)
+  const promise = loadMetadata(resolvedManifestPath)
+    .then((metadata) => {
+      const postLoadFingerprints = collectManifestFingerprints(
+        resolvedManifestPath,
+        metadata,
+      )
+
+      if (
+        preLoadFingerprints &&
+        postLoadFingerprints &&
+        isManifestFingerprintSubsetEqual(
+          preLoadFingerprints,
+          postLoadFingerprints,
+        )
+      ) {
+        metadataCache.set(resolvedManifestPath, {
+          value: {
+            metadata,
+            manifestFingerprints: postLoadFingerprints,
+          },
+        })
+      } else {
+        metadataCache.delete(resolvedManifestPath)
+      }
+
+      return metadata
+    })
+    .catch((error) => {
+      metadataCache.delete(resolvedManifestPath)
+      throw error
+    })
+
+  metadataCache.set(resolvedManifestPath, { promise })
+
+  return promise
 }
