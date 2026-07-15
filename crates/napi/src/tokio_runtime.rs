@@ -533,6 +533,34 @@ impl AsyncRuntimeRegistry {
     self.run_claimed_start(backend);
   }
 
+  /// Run `f` inside the registered backend's context — the pure `async-runtime` sync path behind
+  /// [`within_runtime_if_available`]. Mirrors the async dispatch path in `execute_future_impl`:
+  ///
+  /// 1. `ensure_started` before entering, because a sync `#[napi(async_runtime)]` wrapper can
+  ///    reach here from a module-export hook before `start_async_runtime` runs, or after an
+  ///    explicit `shutdown_async_runtime` while the env stays live (the backend is then dormant).
+  /// 2. A panicking `enter()` hook is contained like every other custom-backend hook: the
+  ///    generated sync trampoline only wraps the body in `catch_unwind` when the user opts into
+  ///    `#[napi(catch_unwind)]`, so an uncontained `enter()` panic would unwind across the
+  ///    `extern "C"` boundary and abort the process.
+  ///
+  /// With no backend registered, `f` runs directly (no selection is frozen).
+  #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt"), not(feature = "noop")))]
+  fn within_runtime<F: FnOnce() -> T, T>(&self, f: F) -> T {
+    if let Some(backend) = self.commit_selection(false) {
+      self.ensure_started(backend);
+      let _guard = match catch_unwind(AssertUnwindSafe(|| backend.enter())) {
+        Ok(result) => result.ok(),
+        Err(payload) => {
+          drop_contained(payload);
+          None
+        }
+      };
+      return f();
+    }
+    f()
+  }
+
   /// Complete a claimed `Idle → Starting` transition: under the lifecycle lock, re-validate
   /// the claim and run the start-with-rollback sequence, then record the outcome
   /// (`Started` on success, back to `Idle` on rollback, so a later cycle can try again).
@@ -889,6 +917,9 @@ pub fn start_async_runtime() {
     // the guarantee that the helpers work as soon as this function returns.
     #[cfg(feature = "tokio_rt")]
     refill_drained_tokio_runtime();
+    // The return only exists to skip the built-in Tokio (re)construction below, which is
+    // `tokio_rt`-only; in a pure `async-runtime` build there is nothing to skip.
+    #[cfg(feature = "tokio_rt")]
     return;
   }
   #[cfg(feature = "tokio_rt")]
@@ -931,6 +962,9 @@ pub fn shutdown_async_runtime() {
     {
       rt.shutdown_background();
     }
+    // The return only exists to skip the built-in Tokio teardown below, which is
+    // `tokio_rt`-only; in a pure `async-runtime` build there is nothing to skip.
+    #[cfg(feature = "tokio_rt")]
     return;
   }
   #[cfg(feature = "tokio_rt")]
@@ -1019,11 +1053,7 @@ pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
 /// the provided closure. When no backend is registered, or entering the context fails, the
 /// closure is called directly.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  if let Some(backend) = ASYNC_RUNTIME_REGISTRY.commit_selection(false) {
-    let _guard = backend.enter().ok();
-    return f();
-  }
-  f()
+  ASYNC_RUNTIME_REGISTRY.within_runtime(f)
 }
 
 #[cfg(feature = "noop")]
@@ -1432,6 +1462,98 @@ mod spi_tests {
       *message_in_callback.lock().unwrap() = Some(error.reason.to_string());
     });
     (fired, message, callback)
+  }
+
+  /// A backend whose `enter()` hook panics, to prove the sync `within_runtime` path contains it.
+  #[cfg(not(feature = "tokio_rt"))]
+  struct PanicOnEnterRuntime {
+    probe: Arc<BackendProbe>,
+  }
+
+  #[cfg(not(feature = "tokio_rt"))]
+  unsafe impl AsyncRuntime for PanicOnEnterRuntime {
+    fn spawn(
+      &self,
+      task: AsyncRuntimeTask,
+    ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+      futures::executor::block_on(task);
+      Ok(())
+    }
+
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+      futures::executor::block_on(future);
+      Ok(())
+    }
+
+    fn start(&self) -> Result<()> {
+      self.probe.start_calls.fetch_add(1, AtomicOrdering::SeqCst);
+      self.probe.running.store(true, AtomicOrdering::SeqCst);
+      Ok(())
+    }
+
+    fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
+      panic!("enter hook panic");
+    }
+
+    fn shutdown(&self) -> Result<()> {
+      self.probe.running.store(false, AtomicOrdering::SeqCst);
+      self
+        .probe
+        .shutdown_calls
+        .fetch_add(1, AtomicOrdering::SeqCst);
+      Ok(())
+    }
+  }
+
+  /// The sync `within_runtime` path (pure `async-runtime`) starts a dormant backend before
+  /// entering it, mirroring the async dispatch path — a backend that builds its ambient context
+  /// in `start()` must not be `enter()`ed while it has never been started.
+  #[cfg(not(feature = "tokio_rt"))]
+  #[test]
+  fn within_runtime_starts_dormant_backend_before_enter() {
+    let registry = AsyncRuntimeRegistry::new();
+    let probe = Arc::new(BackendProbe::default());
+    assert!(registry
+      .try_register(Box::new(MockRuntime::new(&probe)))
+      .is_ok());
+    // Registered but never activated/started.
+    assert_eq!(probe.start_calls.load(AtomicOrdering::SeqCst), 0);
+
+    let ran = registry.within_runtime(|| true);
+
+    assert!(ran, "the wrapped closure must run");
+    assert_eq!(
+      probe.start_calls.load(AtomicOrdering::SeqCst),
+      1,
+      "within_runtime must start the backend before entering its context"
+    );
+  }
+
+  /// A panicking `enter()` hook is contained on the sync path: the closure still runs and the
+  /// process does not abort across the `extern \"C\"` trampoline (this test surviving is the
+  /// assertion). Matches the containment the async `spawn` path already provides.
+  #[cfg(not(feature = "tokio_rt"))]
+  #[test]
+  fn within_runtime_contains_panicking_enter_hook() {
+    let registry = AsyncRuntimeRegistry::new();
+    let probe = Arc::new(BackendProbe::default());
+    assert!(registry
+      .try_register(Box::new(PanicOnEnterRuntime {
+        probe: probe.clone()
+      }))
+      .is_ok());
+
+    let ran = registry.within_runtime(|| true);
+
+    assert!(
+      ran,
+      "the wrapped closure must still run after a contained enter() panic"
+    );
+    assert_eq!(
+      probe.start_calls.load(AtomicOrdering::SeqCst),
+      1,
+      "the backend is still started before the (panicking) enter()"
+    );
   }
 
   #[test]
