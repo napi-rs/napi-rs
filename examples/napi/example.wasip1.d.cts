@@ -720,6 +720,21 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): import("buffer").Buffer
 
+/**
+ * Regression guard for the off-thread `FunctionRef` drop.
+ *
+ * A `create_with_stream_bytes` output whose pull future REJECTS (the underlying
+ * stream yields an `Err` item, or the output is cancelled while a pull is parked)
+ * drops the pull resolver — which owns the controller's `enqueue`/`close`
+ * `FunctionRef`s — on a Tokio worker thread rather than the JS thread. A
+ * `FunctionRef` holds a thread-affine `napi_ref`; deleting it off the JS thread
+ * mutates V8's `GlobalHandles` concurrently with the JS thread and corrupts the
+ * heap, surfacing later as a SIGSEGV/SIGBUS inside V8/napi. This emits one `Ok`
+ * chunk then a terminal `Err`, so JS can loop it and assert the process stays
+ * alive (see the matching test in `__tests__/values.spec.ts`).
+ */
+export declare function createErroringReadableStream(): ReadableStream<import("buffer").Buffer>
+
 export declare function createExternal(size: number): ExternalObject<number>
 
 export declare function createExternalBufferSlice(): import("buffer").Buffer
