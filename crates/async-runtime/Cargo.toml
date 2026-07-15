@@ -21,14 +21,14 @@ rustc-hash = "2"
 
 [dependencies.napi]
 path = "../napi"
-version = "4.0.0"
+version = "3"
 default-features = false
 features = ["napi4", "async-runtime"]
 optional = true
 
 [dependencies.napi-derive]
 path = "../macro"
-version = "4.0.0"
+version = "3"
 default-features = false
 features = ["type-def"]
 optional = true
@@ -40,6 +40,6 @@ rayon = "1.12"
 # The in-crate test binaries are plain executables rather than Node-loaded
 # cdylibs; `dyn-symbols` resolves Node-API symbols at runtime so those
 # binaries can link. Shipped builds keep the minimal feature set above.
-napi = { path = "../napi", version = "4.0.0", default-features = false, features = [
+napi = { path = "../napi", version = "3", default-features = false, features = [
   "dyn-symbols",
 ] }
