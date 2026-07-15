@@ -118,12 +118,17 @@ static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(De
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
+/// Monotonic, never-dereferenced cookie handed to each `thread_cleanup` env-cleanup-hook
+/// registration. The same addon can be (re)loaded into the *same* env (see `unload.spec.js`),
+/// and Node's `napi_add_env_cleanup_hook` asserts every `(fn, arg)` pair is unique within an
+/// env — so a shared `null` arg would abort on the second load. A distinct cookie per
+/// registration keeps the pairs unique; `thread_cleanup` ignores the value.
 #[cfg(all(
   feature = "tokio_rt",
   not(target_family = "wasm"),
   not(feature = "noop")
 ))]
-static ENV_CLEANUP_HOOK_ADDED: RwLock<bool> = RwLock::new(false);
+static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
 }
@@ -579,16 +584,26 @@ pub unsafe extern "C" fn napi_register_module_v1(
       crate::tokio_runtime::start_async_runtime();
       #[cfg(not(target_family = "wasm"))]
       {
-        let mut env_cleanup_hook_added = ENV_CLEANUP_HOOK_ADDED.write().unwrap();
-        if !*env_cleanup_hook_added {
-          check_status_or_throw!(
-            env,
-            unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
-            "Failed to add env cleanup hook"
-          );
-          *env_cleanup_hook_added = true;
-          drop(env_cleanup_hook_added);
-        }
+        // Register a cleanup hook for EVERY registration, not just the first one.
+        // `MODULE_COUNT` is incremented on every `napi_register_module_v1` call and
+        // `thread_cleanup` decrements it once per env teardown, shutting the shared
+        // async runtime down only when the count reaches zero (the last live env).
+        // A process-wide one-shot gate used to install the hook for the first
+        // registration only, so additional or recreated envs (`worker_threads`,
+        // Electron renderer reload) bumped the count with no matching cleanup hook:
+        // the count never returned to zero and `shutdown_async_runtime` was never
+        // called, leaking backend threads/tasks that outlived the addon image.
+        //
+        // Each registration gets a distinct cookie so repeated loads of the same
+        // addon into one env (`unload.spec.js`) don't collide on Node's unique
+        // `(fn, arg)` assertion; the cookie is opaque and never dereferenced.
+        let cleanup_cookie =
+          ENV_CLEANUP_HOOK_COOKIE.fetch_add(1, Ordering::Relaxed) as *mut std::ffi::c_void;
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_cookie) },
+          "Failed to add env cleanup hook"
+        );
       }
     }
   }
