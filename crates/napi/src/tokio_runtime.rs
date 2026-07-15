@@ -1000,6 +1000,20 @@ pub fn shutdown_async_runtime() {
     {
       rt.shutdown_background();
     }
+    // Also drain a user-supplied runtime that `create_custom_tokio_runtime` parked in
+    // `USER_DEFINED_RT` but no Tokio helper ever forced into `RT` (so `RT_CONSTRUCTED` is
+    // false and the drain above was a no-op). Unlike the `tokio_rt`-only fall-through below,
+    // this early-return path is reached without ever constructing `RT`, so that runtime's
+    // worker threads would otherwise outlive the env. Idempotent: once `RT` was built,
+    // `create_runtime` already took `USER_DEFINED_RT`, so this is `None`; and like the drain
+    // above it never forces `RT`, preserving the "never constructs Tokio" promise.
+    #[cfg(feature = "tokio_rt")]
+    if let Some(user_rt) = USER_DEFINED_RT
+      .get()
+      .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
+    {
+      user_rt.shutdown_background();
+    }
     // The return only exists to skip the built-in Tokio teardown below, which is
     // `tokio_rt`-only; in a pure `async-runtime` build there is nothing to skip.
     #[cfg(feature = "tokio_rt")]
