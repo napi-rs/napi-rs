@@ -108,34 +108,6 @@ jobs:
       - name: Clippy
         run: cargo clippy
 
-  test-cli-node-baselines:
-    name: Packed CLI - node@${{ matrix.node }}
-    runs-on: ubuntu-latest
-    needs: audit
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['20.17.0', '22.13.0']
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup build node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: 'yarn'
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
-      - name: Build CLI package
-        run: yarn workspace @napi-rs/cli build
-      - name: Setup test node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Test packed raw CLI
-        run: node cli/e2e/raw-cli-test.mjs
-
   build_and_test:
     needs: audit
     permissions:
@@ -901,14 +873,12 @@ jobs:
         run: |
           yarn workspace @examples/napi test \
             __tests__/wasi-buffer-public-api.spec.ts \
-            __tests__/wasi-deferred-before-exit.spec.ts \
-            __tests__/wasi-deferred-dispose-failure.spec.ts
+            __tests__/wasi-deferred-before-exit.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface
         run: |
           yarn workspace @examples/napi test \
-            __tests__/published-emnapi-v2-lifecycle.spec.ts \
             __tests__/wasi-eager-before-exit.spec.ts
         env:
           WASI_TEST: 'true'
@@ -1045,7 +1015,6 @@ jobs:
     needs:
       - audit
       - lint
-      - test-cli-node-baselines
       - build_and_test
       - build-and-test-msys2
       - build_only

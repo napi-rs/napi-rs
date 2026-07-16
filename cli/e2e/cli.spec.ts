@@ -15,8 +15,6 @@ const test = ava as TestFn<{
   context: string
 }>
 
-const serial = test.serial
-const packedCliTimeout = process.platform === 'win32' ? 10 * 60_000 : 5 * 60_000
 const rootDir = join(fileURLToPath(import.meta.url), '..', '..', '..')
 const rootDirPosix = posixJoin(
   fileURLToPath(import.meta.url, {
@@ -27,15 +25,16 @@ const rootDirPosix = posixJoin(
   '..',
 )
 
-test.before(async (t) => {
-  t.timeout(packedCliTimeout)
+test.before(async () => {
+  await execAsync(`yarn workspace @napi-rs/cli build`, {
+    cwd: rootDir,
+  })
   await execAsync(`npm pack`, {
     cwd: join(rootDir, 'cli'),
   })
 })
 
 test.beforeEach(async (t) => {
-  t.timeout(packedCliTimeout)
   const random = Math.random().toString(36).slice(2)
   t.context.context = join(tmpdir(), 'napi-rs-cli-e2e', random)
   await mkdir(t.context.context, { recursive: true })
@@ -46,12 +45,10 @@ test.beforeEach(async (t) => {
 })
 
 test.afterEach(async (t) => {
-  t.timeout(packedCliTimeout)
   await rm(t.context.context, { recursive: true, force: true })
 })
 
-serial('should print help', async (t) => {
-  t.timeout(packedCliTimeout)
+test('should print help', async (t) => {
   const bin = join(t.context.context, 'node_modules', '.bin')
   await execAsync(`${bin}/napi --help`)
   await execAsync(`${bin}/napi build --help`)
@@ -64,8 +61,7 @@ serial('should print help', async (t) => {
   t.pass()
 })
 
-serial('should be able to build a project', async (t) => {
-  t.timeout(packedCliTimeout)
+test('should be able to build a project', async (t) => {
   const { context } = t.context
   await writeCargoToml(context)
   await writePackageJson(context, {})
@@ -80,8 +76,7 @@ serial('should be able to build a project', async (t) => {
   t.truthy(existsSync(join(context, 'index.node')))
 })
 
-serial('should exit non-zero when pipe command fails', async (t) => {
-  t.timeout(packedCliTimeout)
+test('should exit non-zero when pipe command fails', async (t) => {
   const { context } = t.context
   await writeCargoToml(context)
   await writePackageJson(context, {})
@@ -103,8 +98,7 @@ serial('should exit non-zero when pipe command fails', async (t) => {
   t.regex(stderr, /Failed to pipe output file/)
 })
 
-serial('should throw error when duplicate targets are provided', async (t) => {
-  t.timeout(packedCliTimeout)
+test('should throw error when duplicate targets are provided', async (t) => {
   const { context } = t.context
   await writeCargoToml(context)
   await writePackageJson(context, {
