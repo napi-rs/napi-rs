@@ -6,7 +6,13 @@ import { parentPort, Worker } from "node:worker_threads";
 
 const require = createRequire(import.meta.url);
 
-const { instantiateNapiModuleSync, MessageHandler, getDefaultContext } = require("@napi-rs/wasm-runtime");
+const {
+  instantiateNapiModuleSync,
+  MessageHandler,
+  getDefaultContext,
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+} = require("@napi-rs/wasm-runtime");
 
 if (parentPort) {
   parentPort.on("message", (data) => {
@@ -46,6 +52,11 @@ const handler = new MessageHandler({
       childThread: true,
       wasi,
       context: emnapiContext,
+      // The wasm links a "basic" emnapi archive (no C async-work /
+      // threadsafe-function implementations), so every thread that
+      // instantiates it must provide the JavaScript implementations
+      // through the emnapi plugins.
+      plugins: [emnapiAsyncWorkPlugin, emnapiTSFNPlugin],
       overwriteImports(importObject) {
         importObject.env = {
           ...importObject.env,
@@ -68,11 +79,24 @@ export const createWasiBrowserWorkerBinding = (
   errorEvent: boolean,
 ) => {
   const fsImport = fs
-    ? `import { instantiateNapiModuleSync, MessageHandler, WASI, createFsProxy } from '@napi-rs/wasm-runtime'
+    ? `import {
+  instantiateNapiModuleSync,
+  MessageHandler,
+  WASI,
+  createFsProxy,
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+} from '@napi-rs/wasm-runtime'
 import { memfsExported as __memfsExported } from '@napi-rs/wasm-runtime/fs'
 
 const fs = createFsProxy(__memfsExported)`
-    : `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'`
+    : `import {
+  instantiateNapiModuleSync,
+  MessageHandler,
+  WASI,
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+} from '@napi-rs/wasm-runtime'`
   const errorOutputsAppend = errorEvent
     ? `\n        errorOutputs.push([...arguments])`
     : ''
@@ -118,6 +142,11 @@ const handler = new MessageHandler({
     return instantiateNapiModuleSync(wasmModule, {
       childThread: true,
       wasi,
+      // The wasm links a "basic" emnapi archive (no C async-work /
+      // threadsafe-function implementations), so every thread that
+      // instantiates it must provide the JavaScript implementations
+      // through the emnapi plugins.
+      plugins: [emnapiAsyncWorkPlugin, emnapiTSFNPlugin],
       overwriteImports(importObject) {
         importObject.env = {
           ...importObject.env,

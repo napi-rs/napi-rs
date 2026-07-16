@@ -409,6 +409,8 @@ function resolvePnpmCli() {
     process.platform === 'win32'
       ? ['pnpm.cmd', 'corepack.cmd']
       : ['pnpm', 'corepack']
+      ? ['corepack.cmd', 'pnpm.cmd']
+      : ['corepack', 'pnpm']
 
   for (const pathEntry of (process.env.PATH ?? '').split(delimiter)) {
     for (const launcher of launchers) {
@@ -449,6 +451,40 @@ function resolvePnpmCli() {
   }
 
   throw new Error('Could not resolve the pnpm Corepack entrypoint from PATH')
+}
+
+function resolveCorepackCli() {
+  const corepackCli = join(dirname(resolvePnpmCli()), 'corepack.js')
+  if (!existsSync(corepackCli)) {
+    throw new Error('Could not resolve the Corepack CLI next to pnpm')
+  }
+  return corepackCli
+}
+
+function readPnpmPackageManager(packageJson: Record<string, any>) {
+  const packageManager = packageJson.packageManager
+  const match =
+    typeof packageManager === 'string'
+      ? packageManager.match(
+          /^pnpm@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.+)?$/,
+        )
+      : null
+  if (!match) {
+    throw new Error('The pnpm fixture must declare an exact packageManager')
+  }
+  const version = match[1]
+  const engine = packageJson.devEngines?.packageManager
+  if (
+    engine !== undefined &&
+    (engine?.name !== 'pnpm' ||
+      (engine.version !== version &&
+        engine.version !== packageManager.slice('pnpm@'.length)))
+  ) {
+    throw new Error(
+      'packageManager and devEngines.packageManager must describe the same pnpm version',
+    )
+  }
+  return { packageManager, version }
 }
 
 function resolveYarnCli() {
@@ -656,11 +692,13 @@ test('pre-publish preserves root engines for mixed native and WASI targets', asy
 test('pre-publish preserves stricter WASI-only root engine ranges', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir, {
     rootEngines: { node: '>=18', npm: '>=9' },
+    rootEngines: { node: '>=24', npm: '>=9' },
   })
 
   const packageJson = await materializePrePublish(t.context.tmpDir)
 
   t.deepEqual(packageJson.engines, { node: '>=18', npm: '>=9' })
+  t.deepEqual(packageJson.engines, { node: '>=24', npm: '>=9' })
 })
 
 test('pre-publish requires module type for WASI packages', async (t) => {
@@ -3309,6 +3347,24 @@ test.serial(
         },
       }),
     )
+    const consumerManifest = {
+      name: 'root-only-consumer',
+      private: true,
+      type: 'module',
+      packageManager: 'pnpm@11.10.0',
+      dependencies: {
+        'pre-publish-wasi': fileDependency(consumerDir, rootTarball),
+      },
+    }
+    const pnpm = readPnpmPackageManager(consumerManifest)
+    await writeFile(
+      join(consumerDir, 'package.json'),
+      JSON.stringify(consumerManifest),
+    )
+    const writtenConsumerManifest = JSON.parse(
+      await readFile(join(consumerDir, 'package.json'), 'utf8'),
+    )
+    t.is(writtenConsumerManifest.packageManager, pnpm.packageManager)
     const localDependencies = await Promise.all([
       createLocalPackage(
         t.context.tmpDir,
@@ -3331,6 +3387,25 @@ test.serial(
       process.execPath,
       [
         pnpmCli,
+    const pnpmEnv = {
+      ...process.env,
+      COREPACK_ENABLE_PROJECT_SPEC: '1',
+    }
+    const corepackCli = resolveCorepackCli()
+    const { stdout: pnpmVersion } = await execFileAsync(
+      process.execPath,
+      [corepackCli, pnpm.packageManager, '--version'],
+      {
+        cwd: consumerDir,
+        env: pnpmEnv,
+      },
+    )
+    t.is(pnpmVersion.trim(), pnpm.version)
+    await execFileAsync(
+      process.execPath,
+      [
+        corepackCli,
+        pnpm.packageManager,
         'install',
         '--ignore-scripts',
         '--offline',
@@ -3339,6 +3414,7 @@ test.serial(
       {
         cwd: consumerDir,
         env: { ...process.env, COREPACK_ENABLE_PROJECT_SPEC: '0' },
+        env: pnpmEnv,
       },
     )
 

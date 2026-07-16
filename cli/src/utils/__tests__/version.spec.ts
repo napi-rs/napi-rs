@@ -17,6 +17,7 @@ test('should intersect every compatible branch in a node engine range', (t) => {
     restrictWasiNodeEngine('>=12 <16 || >=18'),
     '>=14.18.0 <16.0.0-0 || >=18.0.0',
   )
+  t.is(restrictWasiNodeEngine('>=12 <16 || >=18'), MINIMUM_WASI_NODE_VERSION)
 })
 
 test('should not admit prereleases excluded by the WASI node floor', (t) => {
@@ -24,10 +25,21 @@ test('should not admit prereleases excluded by the WASI node floor', (t) => {
     ['>=14.18.0-rc.1 <15 || >=20.0.0-rc.1', '>=14.18.0 <15.0.0-0 || >=20.0.0'],
     ['>=18.0.0-rc.1', '>=18.0.0'],
     ['<20.0.0-rc.1', '>=14.18.0 <20.0.0-0'],
+    ['>=20.19.0-rc.1 <21', '>=20.19.0 <21.0.0-0'],
+    ['>=22.13.0-rc.1 <23', '>=22.13.0 <23.0.0-0'],
+    ['>=23.5.0-rc.1', '>=23.5.0'],
   ]) {
     const restricted = restrictWasiNodeEngine(source)
     t.is(restricted, expected)
     t.true(subset(restricted, source))
     t.true(subset(restricted, MINIMUM_WASI_NODE_VERSION))
   }
+})
+
+test('should exclude unsupported Node release lines', (t) => {
+  t.is(restrictWasiNodeEngine('>=21 <22'), MINIMUM_WASI_NODE_VERSION)
+  t.is(
+    restrictWasiNodeEngine('>=20.0.0 <23'),
+    '>=20.19.0 <21.0.0-0 || >=22.13.0 <23.0.0-0',
+  )
 })

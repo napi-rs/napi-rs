@@ -10,6 +10,7 @@ export enum NapiVersion {
   Napi7,
   Napi8,
   Napi9,
+  Napi10,
 }
 
 /// because node support new napi version in some minor version updates, so we might meet such situation:
@@ -25,6 +26,7 @@ const NAPI_VERSION_MATRIX = new Map<NapiVersion, string>([
   [NapiVersion.Napi7, '10.23.0 | 12.19.0 | 14.12.0 | 15.0.0'],
   [NapiVersion.Napi8, '12.22.0 | 14.17.0 | 15.12.0 | 16.0.0'],
   [NapiVersion.Napi9, '18.17.0 | 20.3.0 | 21.1.0'],
+  [NapiVersion.Napi10, '22.14.0 | 23.6.0'],
 ])
 
 export const SUPPORTED_NAPI_VERSIONS = Object.values(NapiVersion).filter(
@@ -32,6 +34,9 @@ export const SUPPORTED_NAPI_VERSIONS = Object.values(NapiVersion).filter(
 )
 
 export const MINIMUM_WASI_NODE_VERSION = '>=14.18.0'
+// emnapi v2 is ESM-only. These are the Node.js lines where require(esm) is
+// enabled by default without an experimental warning.
+export const MINIMUM_WASI_NODE_VERSION = '^20.19.0 || ^22.13.0 || >=23.5.0'
 
 interface NodeVersion {
   major: number
@@ -99,6 +104,12 @@ export function restrictWasiNodeEngine(nodeRange: string) {
     const restrictedRangeSets = new Range(nodeRange).set
       .map((comparators) =>
         normalizeComparatorSet([...comparators, minimumComparator]),
+    const supportedRangeSets = new Range(MINIMUM_WASI_NODE_VERSION).set
+    const restrictedRangeSets = new Range(nodeRange).set
+      .flatMap((comparators) =>
+        supportedRangeSets.map((supportedComparators) =>
+          normalizeComparatorSet([...comparators, ...supportedComparators]),
+        ),
       )
       .filter(
         (candidate): candidate is string =>

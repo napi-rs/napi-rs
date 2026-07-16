@@ -16,6 +16,11 @@ import {
   regenerateArtifacts,
 } from '../build.mjs'
 import { unsupportedWasiFunctions } from '../unsupported-wasi-exports.mjs'
+import { join } from 'node:path'
+
+import test from 'ava'
+
+import { formatGeneratedOutputs, regenerateArtifacts } from '../build.mjs'
 
 const generatedArtifactDirectory = join(import.meta.dirname, '..')
 
@@ -138,6 +143,8 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
   const [
     browserSource,
     nodeSource,
+test('checked WASI artifacts keep the deferred and flavor contracts', async (t) => {
+  const [
     declarationSource,
     rootSource,
     rootDeclarationSource,
@@ -204,6 +211,18 @@ test('checked threaded artifacts retain the WASI export surface and portable stu
     deferredSource.includes(
       '__napiModule.exports[name] = getDeferredWasiBindingExport(',
     ),
+
+  t.false(declarationSource.includes('undici-types'))
+  // The minimal SPI base does not merge natively-gated exports (like `fetch`)
+  // into WASI outputs. The checked-in roots come from the native pass (which
+  // `regenerateArtifacts` restores), so they keep `fetch` and re-export the
+  // threadless flavor from `browser.js`. In the WASI CI job (`WASI_TEST`) the
+  // wasm32-wasip1-threads build has just overwritten the root outputs, so the
+  // export is absent and `browser.js` re-exports the threaded flavor.
+  const rootsAreThreadedWasi = Boolean(process.env.WASI_TEST)
+  t.is(
+    rootDeclarationSource.includes('export declare function fetch('),
+    !rootsAreThreadedWasi,
   )
   t.true(deferredDeclarationSource.includes('dispose(): Promise<void>'))
   t.false(deferredDeclarationSource.includes('dispose(): void | Promise<void>'))
@@ -241,6 +260,13 @@ test('checked WASI artifacts are a clean lifecycle regeneration', async (t) => {
       )
     }
   }
+  t.is(
+    rootBrowserSource,
+    rootsAreThreadedWasi
+      ? "export * from '@examples/napi-wasm32-wasi'\n"
+      : "export * from '@examples/napi-wasm32-wasip1'\n",
+  )
+  t.truthy(deferredSource)
 })
 
 test('checked generated WASI JavaScript has valid syntax', (t) => {
@@ -283,6 +309,39 @@ test('checked threaded browser artifact rolls workers back after context cleanup
   t.true(source.includes('__wasiInitializationWorkers.clear()'))
   t.true(source.includes('__wasiInitializationWorkers.delete(__worker)'))
   t.true(source.includes('Promise.resolve(__worker.terminate())'))
+  // The loader emits its lifecycle helpers at the top level, so each function
+  // ends at the first unindented closing brace after its declaration.
+  const functionSource = (name: string) => {
+    const start = source.indexOf(`function ${name}(`)
+    t.true(start !== -1, `missing function ${name}`)
+    const end = source.indexOf('\n}', start)
+    t.true(end !== -1, `unterminated function ${name}`)
+    return source.slice(start, end + 2)
+  }
+
+  // Workers created during initialization are tracked for rollback.
+  t.true(source.includes('const __wasiWorkers = new Set()'))
+  t.true(source.includes('__wasiWorkers.add(worker)'))
+
+  // Termination untracks each worker and observes asynchronous terminate().
+  const terminateSource = functionSource('__terminateWasiWorkers')
+  t.true(terminateSource.includes('result = worker.terminate()'))
+  t.true(terminateSource.includes('__wasiWorkers.delete(worker)'))
+
+  // A failed initialization rolls back through the serialized cleanup path.
+  t.true(
+    source.includes(
+      'const cleanupErrors = await __rollbackWasiInitialization()',
+    ),
+  )
+
+  // Rollback destroys the emnapi context before the worker-termination
+  // continuation runs, and an asynchronous destroy is awaited first.
+  const rollbackSource = functionSource('__rollbackWasiInitialization')
+  const contextCleanup = rollbackSource.indexOf('__destroyEmnapiContext()')
+  const workerCleanup = rollbackSource.indexOf(
+    '__finishWasiInitializationRollback(',
+  )
   t.true(contextCleanup !== -1)
   t.true(workerCleanup !== -1)
   t.true(
@@ -305,6 +364,46 @@ test('checked WASI loaders keep browser, Node, and unsupported declarations in p
 
   for (const suffix of ['wasi', 'wasip1']) {
     const [nodeSource, browserSource, declarationSource] = await Promise.all([
+  t.regex(
+    rollbackSource,
+    /Promise\.resolve\(destroyResult\)\s*\.catch\([\s\S]+?\)\s*\.then\(\(\) => __finishWasiInitializationRollback\(cleanupErrors\)\)/,
+    'asynchronous context destruction must settle before terminating workers',
+  )
+  const finishRollbackSource = functionSource(
+    '__finishWasiInitializationRollback',
+  )
+  t.true(finishRollbackSource.includes('__terminateWasiWorkers()'))
+
+  // Explicit disposal keeps the same ordering: context first, workers second.
+  const startDisposalSource = functionSource('__startWasiDisposal')
+  const disposalContextCleanup = startDisposalSource.indexOf(
+    '__destroyEmnapiContext()',
+  )
+  const disposalWorkerCleanup = startDisposalSource.indexOf(
+    '__finishWasiDisposal',
+  )
+  t.true(disposalContextCleanup !== -1)
+  t.true(disposalWorkerCleanup !== -1)
+  t.true(disposalContextCleanup < disposalWorkerCleanup)
+  // Ordering alone is not enough: an asynchronous context destruction must be
+  // chained ahead of the worker-termination continuation, not merely started
+  // first. A destroy rejection intentionally skips worker termination — the
+  // binding stays alive for a disposal retry (executable counterpart:
+  // wasi-deferred-dispose-failure spec; the Node loader lifecycle specs
+  // execute the same emnapiContextLifecycle template block).
+  t.regex(
+    startDisposalSource,
+    /Promise\.resolve\(destroyResult\)\.then\(__finishWasiDisposal\)/,
+    'asynchronous context destruction must settle before terminating workers on disposal',
+  )
+  t.true(
+    functionSource('__finishWasiDisposal').includes('__terminateWasiWorkers()'),
+  )
+})
+
+test('checked WASI loaders keep browser and Node exports in parity', async (t) => {
+  for (const suffix of ['wasi', 'wasip1']) {
+    const [nodeSource, browserSource] = await Promise.all([
       readFile(
         join(generatedArtifactDirectory, `example.${suffix}.cjs`),
         'utf8',

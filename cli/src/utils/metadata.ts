@@ -165,6 +165,12 @@ export function createCargoMetadataInvocation(
 
   return {
     command: process.env.CARGO ?? 'cargo',
+    // Deliberately NOT `process.env.CARGO ?? 'cargo'`: `$CARGO` only overrides
+    // the cargo/cross binary spawned for the actual build (see the Builder in
+    // api/build.ts) — tests poison `$CARGO` with a nonexistent path to assert
+    // no real build is spawned, and `cross metadata` is not a thing either.
+    // Metadata always comes from the host `cargo`.
+    command: 'cargo',
     args: [...globalArgs, ...metadataArgs],
     cwd: resolve(options.cwd ?? dirname(manifestPath)),
   }

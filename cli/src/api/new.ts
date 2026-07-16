@@ -26,6 +26,7 @@ import {
 } from '../utils/index.js'
 import {
   napiEngineRequirement,
+  SUPPORTED_NAPI_VERSIONS,
   restrictWasiNodeEngine,
 } from '../utils/version.js'
 import { renameProject } from './rename.js'
@@ -430,6 +431,52 @@ async function updateCargoTomlTypeDef(
   await fs.writeFile(filePath, stringifyToml(cargoToml))
 }
 
+export async function updateCargoTomlNodeApiVersion(
+  filePath: string,
+  minNodeApiVersion: number,
+): Promise<void> {
+  const content = await fs.readFile(filePath, 'utf-8')
+  const cargoToml = parseToml(content) as Record<string, any>
+  const dependencies = cargoToml.dependencies
+
+  if (!dependencies || !dependencies.napi) {
+    return
+  }
+
+  const napiDependency = dependencies.napi
+  const dependencyConfig =
+    typeof napiDependency === 'string'
+      ? { version: napiDependency }
+      : { ...napiDependency }
+  const usedDefaultFeatures = dependencyConfig['default-features'] !== false
+  const existingFeatures: string[] = Array.isArray(dependencyConfig.features)
+    ? dependencyConfig.features.filter(
+        (feature: unknown): feature is string => typeof feature === 'string',
+      )
+    : []
+
+  dependencyConfig.features = [
+    `napi${minNodeApiVersion}`,
+    ...existingFeatures.filter((feature) => !/^napi\d+$/.test(feature)),
+  ]
+
+  // napi's default features include napi4. Disable them for lower requested
+  // levels, while retaining the default dynamic Node-API symbol loading mode.
+  if (minNodeApiVersion < 4) {
+    dependencyConfig['default-features'] = false
+    if (
+      usedDefaultFeatures &&
+      !dependencyConfig.features.includes('dyn-symbols')
+    ) {
+      dependencyConfig.features.push('dyn-symbols')
+    }
+  }
+
+  dependencies.napi = dependencyConfig
+
+  await fs.writeFile(filePath, stringifyToml(cargoToml))
+}
+
 async function filterTargetsInGithubActions(
   filePath: string,
   enabledTargets: string[],
@@ -645,6 +692,17 @@ async function filterTargetsInGithubActions(
 
 function processOptions(options: RawNewOptions) {
   debug('Processing options...')
+  const minNodeApiVersion = options.minNodeApiVersion ?? 4
+  if (
+    !Number.isInteger(minNodeApiVersion) ||
+    !SUPPORTED_NAPI_VERSIONS.some((version) => version === minNodeApiVersion)
+  ) {
+    throw new RangeError(
+      `Unsupported Node-API version ${minNodeApiVersion}. Expected one of: ${SUPPORTED_NAPI_VERSIONS.join(', ')}`,
+    )
+  }
+  options.minNodeApiVersion = minNodeApiVersion
+
   if (!options.path) {
     throw new Error('Please provide the path as the argument')
   }
@@ -732,6 +790,10 @@ export async function newProject(userOptions: RawNewOptions) {
       const cargoTomlPath = path.join(options.path, 'Cargo.toml')
       if (existsSync(cargoTomlPath)) {
         await updateCargoTomlTypeDef(cargoTomlPath, options.enableTypeDef)
+        await updateCargoTomlNodeApiVersion(
+          cargoTomlPath,
+          options.minNodeApiVersion,
+        )
       }
 
       // Filter targets in package.json

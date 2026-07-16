@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, type BigIntStats, type Stats } from 'node:fs'
 import {
   chmod,
   link,
@@ -42,6 +43,13 @@ import {
   getPackageReconciliationRoot,
   getPackageReconciliationRoots,
   resolvePackageReconciliationPaths,
+  createProcessExecutionIdentityGetter,
+  failedSnapshotLeftoverCleanupAction,
+  fileSystemTransactionStateMatches,
+  getPackageReconciliationRoot,
+  getPackageReconciliationRoots,
+  resolvePackageReconciliationPaths,
+  snapshotLeftoverIsTransactionOwned,
   updatePackageJson,
   withFileSystemReconciliation,
   writeFileAtomic,
@@ -1096,6 +1104,257 @@ test('filesystem transaction recovery preserves unowned journal artifact paths',
   t.true(existsSync(journalRoot))
 })
 
+test('filesystem transaction recovery accepts 64-bit file identity beyond the safe-integer range', async (t) => {
+  // Windows NTFS file references (ino) and volume serials (dev) routinely
+  // exceed Number.MAX_SAFE_INTEGER. The journal persists them as exact decimal
+  // strings; the previous Number.isSafeInteger validation rejected such a
+  // journal outright, which is the flaky Windows recovery failure this fixes.
+  const root = join(t.context.tmpDir, 'large-identity-accept')
+  const journalRoot = join(root, transactionJournalName)
+  const token = '00000000-0000-4000-8000-000000000201'
+  const destination = join(root, 'destination.txt')
+  const largeIno = '9007199254740993' // 2 ** 53 + 1, unrepresentable as a double
+  const largeDev = '18014398509481985' // 2 ** 54 + 1
+  const hash = createHash('sha256').update('identity anchor').digest('hex')
+  await mkdir(journalRoot, { recursive: true })
+  await writeFile(destination, 'published content')
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 3)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            final: { dev: largeDev, hash, ino: largeIno, mode: 0o600 },
+            parent: {
+              canonicalParent: '.',
+              dev: largeDev,
+              identityPath: '.',
+              ino: largeIno,
+            },
+            path: basename(destination),
+            prepared: basename(
+              transactionArtifactPath(destination, token, 0, 'prepared'),
+            ),
+            retired: basename(
+              transactionArtifactPath(destination, token, 0, 'retired'),
+            ),
+            rollbackRetired: basename(
+              transactionArtifactPath(destination, token, 0, 'rollback'),
+            ),
+          },
+        ],
+        phase: 'committed',
+        token,
+        version: 3,
+      }),
+    ),
+  ])
+
+  // The referenced artifact paths are absent, so recovery simply retires the
+  // journal. That only happens if the >2^53 identity round-trips through the
+  // normalize step instead of throwing "Invalid file state".
+  await withFileSystemReconciliation(root, async () => {})
+
+  t.false(existsSync(journalRoot))
+  t.is(await readFile(destination, 'utf8'), 'published content')
+})
+
+test('filesystem transaction recovery does not false-match a 64-bit identity against a smaller inode', async (t) => {
+  const root = join(t.context.tmpDir, 'large-identity-mismatch')
+  const journalRoot = join(root, transactionJournalName)
+  const token = '00000000-0000-4000-8000-000000000202'
+  const destination = join(root, 'destination.txt')
+  const prepared = transactionArtifactPath(destination, token, 0, 'prepared')
+  const largeIno = '9007199254740993' // 2 ** 53 + 1
+  const largeDev = '18014398509481985' // 2 ** 54 + 1
+  const hash = createHash('sha256').update('identity anchor').digest('hex')
+  await mkdir(journalRoot, { recursive: true })
+  await Promise.all([
+    writeFile(destination, 'published content'),
+    writeFile(prepared, 'prepared replacement'),
+  ])
+  await Promise.all([
+    writeFile(
+      join(journalRoot, 'owner.json'),
+      JSON.stringify(transactionOwner(token, 3)),
+    ),
+    writeFile(
+      join(journalRoot, 'state.json'),
+      JSON.stringify({
+        entries: [
+          {
+            final: { dev: largeDev, hash, ino: largeIno, mode: 0o600 },
+            parent: {
+              canonicalParent: '.',
+              dev: largeDev,
+              identityPath: '.',
+              ino: largeIno,
+            },
+            path: basename(destination),
+            prepared: basename(prepared),
+            retired: basename(
+              transactionArtifactPath(destination, token, 0, 'retired'),
+            ),
+            rollbackRetired: basename(
+              transactionArtifactPath(destination, token, 0, 'rollback'),
+            ),
+          },
+        ],
+        phase: 'committed',
+        token,
+        version: 3,
+      }),
+    ),
+  ])
+
+  // The real prepared artifact has a normal (small) inode. Recovery must accept
+  // the >2^53 journal identity, then correctly refuse to match it against the
+  // smaller live inode instead of a lossy false match.
+  await t.throwsAsync(
+    withFileSystemReconciliation(root, async () => {}),
+    {
+      message: /a retained transaction identity anchor changed before cleanup/,
+    },
+  )
+
+  t.true(existsSync(journalRoot))
+  t.true(existsSync(prepared))
+})
+
+test('transaction cleanup guard preserves a Number-colliding successor inode', (t) => {
+  // Windows NTFS inodes past 2 ** 53 collapse onto a single JS double: the inode
+  // this transaction created (2 ** 53) and a successor that later replaced the
+  // pathname (2 ** 53 + 1) both read back as the Number 9007199254740992. The
+  // failed-snapshot cleanup guard compares exact decimal-string identity, so it
+  // must refuse to unlink a successor it never owned. A lossy Number compare (the
+  // reverted code) would treat the two inodes as equal and destroy the successor.
+  const bigIntStats = (dev: bigint, ino: bigint): BigIntStats =>
+    ({ dev, ino, isFile: () => true }) as unknown as BigIntStats
+
+  const ownedIdentity = { dev: '0', ino: '9007199254740992' } // ino = 2 ** 53
+
+  // A successor inode that is distinct in 64 bits yet shares the same double must
+  // be preserved: the guard reports it is not the transaction-owned artifact.
+  t.false(
+    snapshotLeftoverIsTransactionOwned(
+      bigIntStats(0n, 9007199254740993n), // ino = 2 ** 53 + 1
+      ownedIdentity,
+    ),
+  )
+  // A Number-colliding volume serial (dev) is likewise refused.
+  t.false(
+    snapshotLeftoverIsTransactionOwned(
+      bigIntStats(18014398509481985n, 9007199254740992n), // dev = 2 ** 54 + 1
+      { dev: '18014398509481984', ino: '9007199254740992' },
+    ),
+  )
+  // The transaction's own inode is still adopted, so ordinary cleanup keeps
+  // working after the fix.
+  t.true(
+    snapshotLeftoverIsTransactionOwned(
+      bigIntStats(0n, 9007199254740992n),
+      ownedIdentity,
+    ),
+  )
+  // A vanished pathname owns nothing.
+  t.false(snapshotLeftoverIsTransactionOwned(undefined, ownedIdentity))
+})
+
+test('transaction state match refuses a Number-colliding successor directory', (t) => {
+  // The retire + recursive-rm path compares directory identity on exact decimal
+  // strings from a bigint stat. Two distinct 64-bit inodes past 2 ** 53 (2 ** 53
+  // and 2 ** 53 + 1) collapse onto the single JS double 9007199254740992, so a
+  // lossy Number compare (the reverted code) would accept a successor directory
+  // that replaced the retirement path and recursively delete its whole tree. The
+  // bigint/string compare must report no match, so the tree is never renamed or
+  // removed.
+  const dirStats = (dev: bigint, ino: bigint): BigIntStats =>
+    ({
+      dev,
+      ino,
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    }) as unknown as BigIntStats
+
+  const expected = dirStats(0n, 9007199254740992n) // ino = 2 ** 53
+
+  // Sanity: the two inodes are indistinguishable once narrowed to a JS double,
+  // which is exactly why the match must not fall back to a Number compare.
+  t.is(Number(9007199254740993n), Number(9007199254740992n))
+
+  // A Number-colliding successor directory is NOT the retired state: the caller
+  // performs no rename and no recursive rm.
+  t.false(
+    fileSystemTransactionStateMatches(
+      expected,
+      dirStats(0n, 9007199254740993n),
+    ),
+  )
+  // A Number-colliding volume serial (dev) is likewise refused.
+  t.false(
+    fileSystemTransactionStateMatches(
+      dirStats(18014398509481984n, 9007199254740992n), // dev = 2 ** 54
+      dirStats(18014398509481985n, 9007199254740992n), // dev = 2 ** 54 + 1
+    ),
+  )
+  // The genuinely identical directory still matches, so recovery keeps working.
+  t.true(
+    fileSystemTransactionStateMatches(
+      expected,
+      dirStats(0n, 9007199254740992n),
+    ),
+  )
+  // A vanished, non-directory, or symlink successor never matches.
+  t.false(fileSystemTransactionStateMatches(expected, undefined))
+  t.false(
+    fileSystemTransactionStateMatches(expected, {
+      dev: 0n,
+      ino: 9007199254740992n,
+      isDirectory: () => false,
+      isSymbolicLink: () => false,
+    } as unknown as BigIntStats),
+  )
+  t.false(
+    fileSystemTransactionStateMatches(expected, {
+      dev: 0n,
+      ino: 9007199254740992n,
+      isDirectory: () => true,
+      isSymbolicLink: () => true,
+    } as unknown as BigIntStats),
+  )
+})
+
+test('failed-snapshot cleanup preserves a leftover whose identity fstat failed', (t) => {
+  const definedStats = { isFile: () => true } as unknown as Stats
+
+  // Regression guard: the second (bigint) identity fstat on the exclusively
+  // created 'wx' handle was hoisted to run unconditionally, so a rare failure of
+  // that fstat AFTER the first fstat succeeded left `destinationStats` defined but
+  // `destinationIdentity` undefined. The cleanup must PRESERVE such a leftover
+  // (leave it for the sibling scavenger) because its ownership cannot be proven —
+  // never unconditionally unlink a possibly non-owned file.
+  t.is(failedSnapshotLeftoverCleanupAction(definedStats, undefined), 'preserve')
+
+  // The first fstat never succeeded: no identity exists at all, so the
+  // unpredictable transaction-owned pathname is best-effort unlinked.
+  t.is(failedSnapshotLeftoverCleanupAction(undefined, undefined), 'unlink')
+  t.is(
+    failedSnapshotLeftoverCleanupAction(undefined, { dev: '0', ino: '1' }),
+    'unlink',
+  )
+
+  // Both observations exist: the owned-branch behavior is unchanged — re-read the
+  // pathname and unlink only on an exact identity match.
+  t.is(
+    failedSnapshotLeftoverCleanupAction(definedStats, { dev: '0', ino: '1' }),
+    'verify-identity',
+  )
+})
+
 test('filesystem transaction recovery preserves an owner-only canonical journal', async (t) => {
   const root = join(t.context.tmpDir, 'owner-only-journal')
   const journalRoot = join(root, transactionJournalName)
@@ -1498,6 +1757,7 @@ crashRecoveryTest(
         const state = JSON.parse(stateContent) as {
           entries: Array<{
             final?: { dev?: number; ino?: number }
+            final?: { dev?: string; ino?: string }
             prepared?: string
           }>
           phase: string
@@ -1512,6 +1772,8 @@ crashRecoveryTest(
           state.entries[0]?.prepared &&
           typeof state.entries[0].final?.dev === 'number' &&
           typeof state.entries[0].final?.ino === 'number'
+          typeof state.entries[0].final?.dev === 'string' &&
+          typeof state.entries[0].final?.ino === 'string'
         ) {
           const candidatePreparedPath = resolve(root, state.entries[0].prepared)
           try {
@@ -1523,6 +1785,7 @@ crashRecoveryTest(
                 await readFile(statePath, 'utf8'),
               ) as {
                 entries: Array<{ final?: { dev?: number; ino?: number } }>
+                entries: Array<{ final?: { dev?: string; ino?: string } }>
                 phase: string
                 version: number
               }
@@ -1535,6 +1798,8 @@ crashRecoveryTest(
               t.is(stoppedState.version, 3)
               t.is(typeof stoppedState.entries[0]?.final?.dev, 'number')
               t.is(typeof stoppedState.entries[0]?.final?.ino, 'number')
+              t.is(typeof stoppedState.entries[0]?.final?.dev, 'string')
+              t.is(typeof stoppedState.entries[0]?.final?.ino, 'string')
               preparedPath = candidatePreparedPath
               child.kill('SIGKILL')
               break
@@ -3095,6 +3360,139 @@ symlinkLoopTest(
 
 const darwinExecutionIdentityTest =
   process.platform === 'darwin' ? test : test.skip
+
+test('process execution identity retries incomplete observations without tight probing', async (t) => {
+  const incomplete = {
+    boot: null,
+    bootSession: null,
+    machine: null,
+    namespace: 'windows-global',
+  }
+  const complete = {
+    boot: 'windows-boot:1',
+    bootSession: null,
+    machine: 'windows-machine:1',
+    namespace: 'windows-global',
+  }
+  let now = 0
+  let probes = 0
+  const getExecutionIdentity = createProcessExecutionIdentityGetter(
+    async () => {
+      probes += 1
+      return probes < 3 ? incomplete : complete
+    },
+    2_000,
+    () => now,
+  )
+
+  const first = getExecutionIdentity()
+  const sharedFirst = getExecutionIdentity()
+  t.is(sharedFirst, first)
+  t.deepEqual(await first, incomplete)
+  t.is(probes, 1)
+
+  now = 1_999
+  t.deepEqual(await getExecutionIdentity(), incomplete)
+  t.is(probes, 1)
+
+  now = 2_000
+  const second = getExecutionIdentity()
+  const sharedSecond = getExecutionIdentity()
+  t.is(sharedSecond, second)
+  t.deepEqual(await second, incomplete)
+  t.is(probes, 2)
+
+  now = 3_999
+  t.deepEqual(await getExecutionIdentity(), incomplete)
+  t.is(probes, 2)
+
+  now = 4_000
+  t.deepEqual(await getExecutionIdentity(), complete)
+  t.is(probes, 3)
+
+  now = Number.MAX_SAFE_INTEGER
+  t.deepEqual(await getExecutionIdentity(), complete)
+  t.is(probes, 3)
+})
+
+test('process execution identity merges complementary incomplete observations', async (t) => {
+  const observations = [
+    {
+      boot: 'darwin-boot:1',
+      bootSession: 'darwin-boot:session-1',
+      machine: null,
+      namespace: 'darwin-global',
+    },
+    {
+      boot: null,
+      bootSession: null,
+      machine: 'darwin-machine:1',
+      namespace: 'darwin-global',
+    },
+  ]
+  let now = 0
+  let probes = 0
+  const getExecutionIdentity = createProcessExecutionIdentityGetter(
+    async () => observations[probes++]!,
+    2_000,
+    () => now,
+  )
+
+  t.deepEqual(await getExecutionIdentity(), observations[0])
+  now = 2_000
+  t.deepEqual(await getExecutionIdentity(), {
+    boot: 'darwin-boot:1',
+    bootSession: 'darwin-boot:session-1',
+    machine: 'darwin-machine:1',
+    namespace: 'darwin-global',
+  })
+
+  now = Number.MAX_SAFE_INTEGER
+  t.deepEqual(await getExecutionIdentity(), {
+    boot: 'darwin-boot:1',
+    bootSession: 'darwin-boot:session-1',
+    machine: 'darwin-machine:1',
+    namespace: 'darwin-global',
+  })
+  t.is(probes, 2)
+})
+
+test('process execution identity throttles a failed reprobe after an incomplete observation', async (t) => {
+  const incomplete = {
+    boot: null,
+    bootSession: null,
+    machine: 'windows-machine:1',
+    namespace: 'windows-global',
+  }
+  let now = 0
+  let probes = 0
+  const getExecutionIdentity = createProcessExecutionIdentityGetter(
+    async () => {
+      probes += 1
+      if (probes === 2) {
+        throw new Error('transient probe failure')
+      }
+      return incomplete
+    },
+    2_000,
+    () => now,
+  )
+
+  t.deepEqual(await getExecutionIdentity(), incomplete)
+  now = 2_000
+  await t.throwsAsync(getExecutionIdentity(), {
+    message: 'transient probe failure',
+  })
+  t.is(probes, 2)
+
+  now = 3_999
+  t.deepEqual(await getExecutionIdentity(), incomplete)
+  t.is(probes, 2)
+
+  now = 4_000
+  t.deepEqual(await getExecutionIdentity(), incomplete)
+  t.is(probes, 3)
+})
 
 darwinExecutionIdentityTest(
   'filesystem reconciliation uses the Darwin boot-session UUID',

@@ -4,6 +4,7 @@
   "private": true,
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "workspaces": [
+    "async-runtime",
     "bench",
     "cli",
     "wasm-runtime",
@@ -11,6 +12,7 @@
     "memory-testing",
     "examples/custom-async-runtime",
     "examples/napi",
+    "examples/shared-async-runtime",
     "examples/napi-compat-mode",
     "examples/binary"
   ],
@@ -38,7 +40,7 @@
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
     "test:release-coordination": "node --test .github/release-coordination.test.mjs",
-    "postinstall": "husky install",
+    "postinstall": "husky install && node vendor/emnapi/install.mjs",
     "prepare": "husky"
   },
   "bugs": {
@@ -63,7 +65,7 @@
       "taplo format"
     ],
     "*.rs": [
-      "cargo fmt --"
+      "node ./.github/format-staged-rust.mjs"
     ]
   },
   "devDependencies": {
@@ -96,9 +98,7 @@
   "resolutions": {
     "node-inspect-extracted": "patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch",
     "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch",
-    "@examples/custom-async-runtime/@emnapi/runtime": "patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch",
-    "@examples/napi/@emnapi/runtime": "patch:@emnapi/runtime@npm%3A1.11.2#~/.yarn/patches/@emnapi-runtime-npm-1.11.2-4a2ff8a630.patch",
-    "@examples/custom-async-runtime/@emnapi/core": "patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch",
-    "@examples/napi/@emnapi/core": "patch:@emnapi/core@npm%3A1.11.2#~/.yarn/patches/@emnapi-core-npm-1.11.2-dfc4db3246.patch"
+    "@emnapi/core@npm:2.0.0-alpha.2": "patch:@emnapi/core@npm%3A2.0.0-alpha.2#~/.yarn/patches/@emnapi-core-npm-2.0.0-alpha.2-94faa58689.patch",
+    "@emnapi/core@npm:^2.0.0-alpha.2": "patch:@emnapi/core@npm%3A2.0.0-alpha.2#~/.yarn/patches/@emnapi-core-npm-2.0.0-alpha.2-94faa58689.patch"
   }
 }

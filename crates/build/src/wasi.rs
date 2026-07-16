@@ -46,6 +46,27 @@ fn wasi_sysroot_lib_dir(wasi_sdk_path: &Path, wasi_target: &str) -> PathBuf {
     .join(wasi_target)
 }
 
+fn emnapi_link_library(has_threads: bool) -> &'static str {
+  // The `napi-rs` archive variants reference `napi_*` symbols through the
+  // default `env` wasm import module, matching the plain `extern "C"`
+  // declarations in `crates/sys` (only `napi_add_env_cleanup_hook` and
+  // `napi_remove_env_cleanup_hook` use the `napi` import module, see
+  // `crates/napi/src/lib.rs`). The plain `libemnapi(-mt).a` archives use the
+  // `napi` import module for every `napi_*` reference and do not link against
+  // the Rust objects.
+  //
+  // Both archives follow the "basic" emnapi model (see
+  // vendor/emnapi/build.mjs): no C `async_work.c` / `threadsafe_function.c`
+  // implementations, so async work and thread-safe functions stay wasm
+  // imports resolved by the `@emnapi/core/plugins` JavaScript implementations
+  // that every generated loader wires up.
+  if has_threads {
+    "emnapi-napi-rs-mt"
+  } else {
+    "emnapi"
+  }
+}
+
 pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
@@ -59,23 +80,31 @@ pub fn setup() {
   println!("cargo:rerun-if-env-changed=TARGET");
   println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
   println!("cargo:rustc-link-search={link_dir}");
-  println!(
-    "cargo:rustc-link-lib=static={}",
-    if has_threads {
-      "emnapi-basic-mt"
-    } else {
-      "emnapi-basic"
-    }
+  let emnapi_library = emnapi_link_library(has_threads);
+  let emnapi_archive = Path::new(&link_dir).join(format!("lib{emnapi_library}.a"));
+  assert!(
+    emnapi_archive.is_file(),
+    "emnapi archive for {target} is missing at {}. Install emnapi v2 with support for the {target} archive",
+    emnapi_archive.display()
   );
+  println!("cargo:rustc-link-lib=static={emnapi_library}");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
+  // `@emnapi/core` v2 creates and destroys the native environment through
+  // these archive-defined exports during `napiModule.init()`; without them
+  // loading fails at runtime with `_emnapi_create_env is not a function`.
+  println!("cargo:rustc-link-arg=--export=emnapi_create_env");
+  println!("cargo:rustc-link-arg=--export=emnapi_delete_env");
   println!("cargo:rustc-link-arg=--export=napi_register_wasm_v1");
-  println!("cargo:rustc-link-arg=--export=napi_prepare_wasm_env_cleanup");
+  // The minimal async-runtime SPI base does not define
+  // `napi_prepare_wasm_env_cleanup`; keep the export conditional so builds
+  // work both before and after the full lifecycle surface lands.
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_prepare_wasm_env_cleanup");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {
-    println!("cargo:rustc-link-arg=--export=emnapi_async_worker_create");
-    println!("cargo:rustc-link-arg=--export=emnapi_async_worker_init");
+    println!("cargo:rustc-link-arg=--export-if-defined=emnapi_async_worker_create");
+    println!("cargo:rustc-link-arg=--export-if-defined=emnapi_async_worker_init");
   }
   println!("cargo:rustc-link-arg=--export-if-defined=emnapi_thread_crashed");
   println!("cargo:rustc-link-arg=--import-memory");
@@ -147,5 +176,11 @@ mod tests {
       path,
       Path::new("/toolchains/WASI SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads")
     );
+  }
+
+  #[test]
+  fn selects_v2_emnapi_archives_by_threading_model() {
+    assert_eq!(emnapi_link_library(false), "emnapi");
+    assert_eq!(emnapi_link_library(true), "emnapi-napi-rs-mt");
   }
 }

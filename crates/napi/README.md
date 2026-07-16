@@ -187,16 +187,16 @@ fn main() {
 
 So far, the `napi` build script has only been tested on `macOS` `Linux` `Windows x64 MSVC` and `FreeBSD`.
 
-Install the `@napi-rs/cli` to help you build your `Rust` codes and copy `Dynamic lib` file to `.node` file in case you can `require` it in your program.
+Install `@napi-rs/cli` as a local development dependency to build the Rust crate and copy its dynamic library to a loadable `.node` file.
 
 ```js
 {
-  "package": "awesome-package",
+  "name": "awesome-package",
   "devDependencies": {
-    "@napi-rs/cli": "^1.0.0"
+    "@napi-rs/cli": "^3.0.0"
   },
   "napi": {
-    "name": "jarvis" // <----------- Config the name of native addon, or the napi command will use the name of `Cargo.toml` for the binary file name.
+    "binaryName": "jarvis"
   },
   "scripts": {
     "build": "napi build --release",

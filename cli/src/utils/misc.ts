@@ -24,6 +24,7 @@ import {
   existsSync,
   readFileSync,
   realpathSync,
+  type BigIntStats,
   type Stats,
 } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -66,6 +67,8 @@ const reconciliationLockCleanupTimeout = 5_000
 const reconciliationLockCleanupRetryInterval = 250
 const reconciliationMetadataMaximumSize = 64 * 1024
 const processIncarnationCommandTimeout = 2_000
+const incompleteProcessExecutionIdentityCacheDuration =
+  processIncarnationCommandTimeout
 const processIncarnationObservationCacheDuration = 1_000
 const fileSystemTransactionJournalName = '.napi-rs-filesystem-transaction.swp'
 const fileSystemTransactionCandidateMarker = '.candidate.'
@@ -131,6 +134,7 @@ interface ReconciliationReclaimState {
 type ReconciliationMetadataOwner =
   | ReconciliationLockOwner
   | ReconciliationReclaimOwner
+  ReconciliationLockOwner | ReconciliationReclaimOwner
 
 interface ReconciliationCandidateState {
   owner: ReconciliationMetadataOwner
@@ -191,6 +195,12 @@ interface TransactionParentIdentity {
   dev: number
   identityPath: string
   ino: number
+  // 64-bit filesystem identifiers are captured from a bigint stat() and stored
+  // as decimal strings so values above Number.MAX_SAFE_INTEGER (common for
+  // Windows NTFS file references and volume serials) round-trip losslessly.
+  dev: string
+  identityPath: string
+  ino: string
 }
 
 interface FileSystemTransactionJournalParent {
@@ -204,12 +214,23 @@ interface FileSystemTransactionJournalFileState {
   dev?: number
   hash: string
   ino?: number
+  dev: string
+  identityPath: string
+  ino: string
+}
+
+interface FileSystemTransactionJournalFileState {
+  dev?: string
+  hash: string
+  ino?: string
   mode: number
 }
 
 interface FileSystemTransactionFileIdentity {
   dev: number
   ino: number
+  dev: string
+  ino: string
 }
 
 interface FileSystemTransactionJournalEntry {
@@ -764,6 +785,11 @@ async function commitFileSystemTransactionUnlocked(
   const affectedStats = new Map<string, Stats | undefined>()
   for (const path of affected) {
     const stats = await lstatIfExists(path)
+  // Capture 64-bit identity so the source preflight below can detect an inode
+  // replacement even when dev/ino exceed Number.MAX_SAFE_INTEGER on Windows.
+  const affectedStats = new Map<string, BigIntStats | undefined>()
+  for (const path of affected) {
+    const stats = await lstatIfExists(path, { bigint: true })
     if (stats && !stats.isFile()) {
       throw new Error(
         `Filesystem transaction path is not a regular file: ${path}`,
@@ -1113,6 +1139,7 @@ async function commitFileSystemTransactionUnlocked(
       const backupName = String(backupIndex++)
       const backup = join(candidateBackupRoot, backupName)
       const mode = stats.mode & 0o7777
+      const mode = Number(stats.mode & 0o7777n)
       const state = await snapshotFileSystemTransactionInput(
         path,
         backup,
@@ -1234,6 +1261,7 @@ async function commitFileSystemTransactionUnlocked(
     published = true
     await syncDirectory(transactionRoot)
     const publishedStats = await lstatIfExists(journalRoot)
+    const publishedStats = await lstatIfExists(journalRoot, { bigint: true })
     if (!fileSystemTransactionStateMatches(candidateStats, publishedStats)) {
       throw new Error(
         `Filesystem transaction recovery state changed during publication: ${journalRoot}`,
@@ -1396,6 +1424,8 @@ async function pathsReferToSameDirectoryEntry(
   right: string,
   leftStats: Stats,
   rightStats: Stats,
+  leftStats: BigIntStats,
+  rightStats: BigIntStats,
 ) {
   const resolvedLeft = resolve(left)
   const resolvedRight = resolve(right)
@@ -1436,6 +1466,16 @@ async function pathsReferToSameDirectoryEntry(
 async function lstatIfExists(path: string) {
   try {
     return await lstat(path)
+async function lstatIfExists(path: string): Promise<Stats | undefined>
+async function lstatIfExists(
+  path: string,
+  options: { bigint: true },
+): Promise<BigIntStats | undefined>
+async function lstatIfExists(path: string, options?: { bigint: true }) {
+  try {
+    return options?.bigint
+      ? await lstat(path, { bigint: true })
+      : await lstat(path)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return
@@ -3359,6 +3399,88 @@ function getCurrentProcessExecutionIdentity() {
   return probe
 }
 
+export function createProcessExecutionIdentityGetter(
+  readIdentity: () => Promise<ProcessExecutionIdentity>,
+  incompleteCacheDuration: number,
+  now: () => number = () => performance.now(),
+) {
+  // Complete host identity is stable for this process. A missing component can
+  // be a transient command timeout, so retain it only long enough to rate-limit
+  // owner-state polling before probing again.
+  let observation:
+    | {
+        identity: ProcessExecutionIdentity
+        retryAt: number
+      }
+    | undefined
+  let activeProbe: Promise<ProcessExecutionIdentity> | undefined
+
+  return function getProcessExecutionIdentity() {
+    if (
+      observation !== undefined &&
+      isCompleteProcessExecutionIdentity(observation.identity)
+    ) {
+      return Promise.resolve(observation.identity)
+    }
+    if (activeProbe !== undefined) {
+      return activeProbe
+    }
+    if (observation !== undefined && now() < observation.retryAt) {
+      return Promise.resolve(observation.identity)
+    }
+
+    const probe = readIdentity().then((identity) => {
+      const previousIdentity = observation?.identity
+      const mergedIdentity = {
+        boot: identity.boot ?? previousIdentity?.boot ?? null,
+        bootSession:
+          identity.bootSession ?? previousIdentity?.bootSession ?? null,
+        machine: identity.machine ?? previousIdentity?.machine ?? null,
+        namespace: identity.namespace ?? previousIdentity?.namespace ?? null,
+      }
+      observation = {
+        identity: mergedIdentity,
+        retryAt: isCompleteProcessExecutionIdentity(mergedIdentity)
+          ? Number.POSITIVE_INFINITY
+          : now() + incompleteCacheDuration,
+      }
+      return mergedIdentity
+    })
+    activeProbe = probe
+    void probe.then(
+      () => {
+        if (activeProbe === probe) {
+          activeProbe = undefined
+        }
+      },
+      () => {
+        if (observation !== undefined) {
+          observation.retryAt = now() + incompleteCacheDuration
+        }
+        if (activeProbe === probe) {
+          activeProbe = undefined
+        }
+      },
+    )
+    return probe
+  }
+}
+
+function isCompleteProcessExecutionIdentity(
+  identity: ProcessExecutionIdentity,
+) {
+  return (
+    identity.boot !== null &&
+    identity.machine !== null &&
+    identity.namespace !== null
+  )
+}
+
+const getCurrentProcessExecutionIdentity = createProcessExecutionIdentityGetter(
+  readProcessExecutionIdentity,
+  incompleteProcessExecutionIdentityCacheDuration,
+)
+
 async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity> {
   if (process.platform === 'linux') {
     const [bootId, machineId, productUuid, pidNamespace] = await Promise.all([
@@ -3702,6 +3824,7 @@ async function captureTransactionParentIdentity(
 
   let identityPath = canonicalParent
   let identityStats = await lstatIfExists(identityPath)
+  let identityStats = await lstatIfExists(identityPath, { bigint: true })
   while (!identityStats) {
     const next = dirname(identityPath)
     if (next === identityPath) {
@@ -3711,6 +3834,7 @@ async function captureTransactionParentIdentity(
     }
     identityPath = next
     identityStats = await lstatIfExists(identityPath)
+    identityStats = await lstatIfExists(identityPath, { bigint: true })
   }
   if (!identityStats.isDirectory()) {
     throw new Error(
@@ -3722,6 +3846,9 @@ async function captureTransactionParentIdentity(
     dev: identityStats.dev,
     identityPath,
     ino: identityStats.ino,
+    dev: String(identityStats.dev),
+    identityPath,
+    ino: String(identityStats.ino),
   }
 }
 
@@ -3753,6 +3880,13 @@ async function assertTransactionParentUnchanged(
     !identityStats?.isDirectory() ||
     identityStats.dev !== expected.dev ||
     identityStats.ino !== expected.ino
+  const identityStats = await lstatIfExists(expected.identityPath, {
+    bigint: true,
+  })
+  if (
+    !identityStats?.isDirectory() ||
+    String(identityStats.dev) !== expected.dev ||
+    String(identityStats.ino) !== expected.ino
   ) {
     throw new Error(
       `Filesystem transaction parent identity changed: ${expected.identityPath}`,
@@ -3852,6 +3986,7 @@ async function createFileSystemTransactionCandidate(root: string) {
       throw error
     }
     const stats = await lstat(path)
+    const stats = await lstat(path, { bigint: true })
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
       throw new Error(
         `Filesystem transaction candidate is not a directory: ${path}`,
@@ -3861,11 +3996,62 @@ async function createFileSystemTransactionCandidate(root: string) {
   }
 }
 
+/**
+ * True when the file currently at a failed snapshot's destination pathname is
+ * the exact inode this transaction created with `open(..., 'wx')`, so the
+ * cleanup guard may safely unlink it. Identity is compared on the exact decimal
+ * strings captured from a bigint stat, never the lossy Number dev/ino fields:
+ * on Windows two distinct NTFS inodes past 2 ** 53 collapse onto a single JS
+ * double, so a Number match would let the guard delete a successor file that
+ * replaced our pathname and that the transaction never owned.
+ */
+export function snapshotLeftoverIsTransactionOwned(
+  currentStats: BigIntStats | undefined,
+  identity: FileSystemTransactionFileIdentity,
+): boolean {
+  return (
+    currentStats?.isFile() === true &&
+    String(currentStats.dev) === identity.dev &&
+    String(currentStats.ino) === identity.ino
+  )
+}
+
+/**
+ * Decides how the failed-snapshot cleanup `finally` must treat the leftover at a
+ * transaction-owned destination pathname, from the two identity observations
+ * captured on the exclusively created ('wx') handle:
+ *
+ * - `'unlink'` — the first fstat never succeeded (`destinationStats` undefined),
+ *   so no inode identity exists at all; the pathname is transaction-owned and
+ *   unpredictable, so best-effort unlink it.
+ * - `'preserve'` — the first fstat succeeded but the bigint identity fstat failed
+ *   (`destinationIdentity` undefined), so the leftover's ownership cannot be
+ *   proven. Never destroy a file we cannot prove we created; leave it for the
+ *   sibling scavenger. Without this fail-closed case a rare second-fstat failure
+ *   (after a successful first fstat) would unconditionally unlink a possibly
+ *   non-owned successor.
+ * - `'verify-identity'` — both observations exist, so the caller re-reads the
+ *   pathname and unlinks only when it still resolves to the exact owned inode.
+ */
+export function failedSnapshotLeftoverCleanupAction(
+  destinationStats: Stats | undefined,
+  destinationIdentity: FileSystemTransactionFileIdentity | undefined,
+): 'unlink' | 'preserve' | 'verify-identity' {
+  if (destinationStats === undefined) {
+    return 'unlink'
+  }
+  if (destinationIdentity === undefined) {
+    return 'preserve'
+  }
+  return 'verify-identity'
+}
+
 async function snapshotFileSystemTransactionInput(
   source: string,
   destination: string,
   mode?: number,
   expectedStats?: Stats,
+  expectedStats?: BigIntStats,
   destinationMode = 0o400,
   createDestinationParent = true,
   assertDestinationParentUnchanged?: () => Promise<void>,
@@ -3888,6 +4074,22 @@ async function snapshotFileSystemTransactionInput(
       source,
       'changed before it could be snapshotted',
     )
+  if (expectedStats) {
+    // Compare exact 64-bit identity, never the lossy Number dev/ino: a
+    // Number-colliding external replacement of the source (two distinct inodes
+    // past 2 ** 53 sharing one double) must be detected as a conflict rather than
+    // silently adopted and snapshotted as if it were the expected file.
+    const sourceIdentityStats = await lstatIfExists(source, { bigint: true })
+    if (
+      sourceIdentityStats?.isFile() !== true ||
+      sourceIdentityStats.dev !== expectedStats.dev ||
+      sourceIdentityStats.ino !== expectedStats.ino
+    ) {
+      throw fileSystemTransactionConflictError(
+        source,
+        'changed before it could be snapshotted',
+      )
+    }
   }
   let sourceHandle
   try {
@@ -3912,6 +4114,26 @@ async function snapshotFileSystemTransactionInput(
         `Filesystem transaction source changed while it was opened: ${source}`,
       )
     }
+    if (expectedStats) {
+      // Re-bind the exact 64-bit identity to the descriptor we just opened. The
+      // pre-open preflight validated the pathname, but `open` pins whatever inode
+      // is at the path *now*; a Number-colliding successor swapped into the
+      // pre-open window would still pass the lossy Number gate above (two distinct
+      // inodes past 2 ** 53 share one JS double). Compare the pinned fd's exact
+      // bigint dev/ino against the caller's expected identity so such a swap is
+      // raised as a conflict instead of being snapshotted and recorded as the
+      // original.
+      const openedIdentityStats = await sourceHandle.stat({ bigint: true })
+      if (
+        openedIdentityStats.dev !== expectedStats.dev ||
+        openedIdentityStats.ino !== expectedStats.ino
+      ) {
+        throw fileSystemTransactionConflictError(
+          source,
+          'changed before it could be snapshotted',
+        )
+      }
+    }
     const finalMode = mode ?? sourceStats.mode & 0o7777
     if (createDestinationParent) {
       await mkdir(dirname(destination), { recursive: true })
@@ -3927,6 +4149,7 @@ async function snapshotFileSystemTransactionInput(
       )
     }
     let destinationStats: Stats | undefined
+    let destinationIdentity: FileSystemTransactionFileIdentity | undefined
     let committed = false
     try {
       destinationStats = await destinationHandle.stat()
@@ -3934,6 +4157,17 @@ async function snapshotFileSystemTransactionInput(
         throw new Error(
           `Filesystem transaction snapshot is not a regular file: ${destination}`,
         )
+      }
+      // Capture the exact 64-bit identity of the transaction-owned inode from the
+      // open handle once. The open descriptor pins the inode, so this is the
+      // authoritative identity both for the recorded journal entry and for the
+      // failed-snapshot cleanup guard that must not unlink a colliding successor.
+      const destinationIdentityStats = await destinationHandle.stat({
+        bigint: true,
+      })
+      destinationIdentity = {
+        dev: String(destinationIdentityStats.dev),
+        ino: String(destinationIdentityStats.ino),
       }
       await assertDestinationParentUnchanged?.()
       if (recordDestinationIdentity) {
@@ -3951,6 +4185,7 @@ async function snapshotFileSystemTransactionInput(
           dev: destinationStats.dev,
           ino: destinationStats.ino,
         })
+        await recordDestinationIdentity(destinationIdentity)
       }
       const hash = createHash('sha256')
       const buffer = Buffer.allocUnsafe(64 * 1024)
@@ -4028,6 +4263,11 @@ async function snapshotFileSystemTransactionInput(
         dev: sourceStats.dev,
         hash: hash.digest('hex'),
         ino: sourceStats.ino,
+      const sourceIdentityStats = await sourceHandle.stat({ bigint: true })
+      return {
+        dev: String(sourceIdentityStats.dev),
+        hash: hash.digest('hex'),
+        ino: String(sourceIdentityStats.ino),
         mode: finalMode,
       }
     } finally {
@@ -4035,6 +4275,11 @@ async function snapshotFileSystemTransactionInput(
       if (!committed) {
         const currentStats = await lstatIfExists(destination)
         if (destinationStats === undefined) {
+        const cleanup = failedSnapshotLeftoverCleanupAction(
+          destinationStats,
+          destinationIdentity,
+        )
+        if (cleanup === 'unlink') {
           // open('wx') created this unpredictable transaction-owned pathname.
           // There is no inode identity after a failed first fstat, so close the
           // handle first and make the best cleanup Node's pathname API permits.
@@ -4046,6 +4291,37 @@ async function snapshotFileSystemTransactionInput(
         ) {
           await unlinkFileIfExists(destination)
         }
+          cleanup === 'verify-identity' &&
+          destinationIdentity !== undefined
+        ) {
+          // Only unlink when the pathname still resolves to the exact inode this
+          // transaction created. The identity match is on decimal-string dev/ino
+          // (see snapshotLeftoverIsTransactionOwned), never lossy Number fields,
+          // so a Number-colliding successor past 2 ** 53 is preserved, not
+          // destroyed.
+          //
+          // Known limitation: identity-check-then-unlink is a two-syscall pathname race.
+          // A successor swapped in between the lstat and the unlink is deleted regardless
+          // of dev/ino; exact string identity narrows precision false-matches but cannot
+          // close the between-syscall window. A structural fix (retire-by-rename to a
+          // unique path + post-rename revalidation, per retireFileSystemTransactionState)
+          // is tracked as a follow-up.
+          const currentStats = await lstatIfExists(destination, {
+            bigint: true,
+          })
+          if (
+            snapshotLeftoverIsTransactionOwned(
+              currentStats,
+              destinationIdentity,
+            )
+          ) {
+            await unlinkFileIfExists(destination)
+          }
+        }
+        // cleanup === 'preserve': the first fstat succeeded but the bigint
+        // identity fstat failed, so ownership cannot be proven — leave the
+        // leftover for the sibling scavenger rather than delete a possibly
+        // non-owned file.
       }
     }
   } finally {
@@ -4222,6 +4498,10 @@ async function openFileSystemTransactionIdentity(
   }
   try {
     const stats = await handle.stat()
+    // Capture 64-bit dev/ino from a bigint stat of the same open handle so the
+    // recorded identity is exact even when it exceeds Number.MAX_SAFE_INTEGER.
+    // The open descriptor pins the inode, so this matches the verified `stats`.
+    const identityStats = await handle.stat({ bigint: true })
     if (
       !stats.isFile() ||
       stats.dev !== pathStats.dev ||
@@ -4273,6 +4553,9 @@ async function openFileSystemTransactionIdentity(
         dev: stats.dev,
         hash: hash.digest('hex'),
         ino: stats.ino,
+        dev: String(identityStats.dev),
+        hash: hash.digest('hex'),
+        ino: String(identityStats.ino),
         mode: mode ?? stats.mode & 0o7777,
       },
     }
@@ -4663,6 +4946,25 @@ async function readBoundedRegularFile(
   }
 }
 
+// Filesystem identity components (dev/ino) are persisted as decimal strings so
+// 64-bit values above Number.MAX_SAFE_INTEGER survive the journal round-trip
+// exactly. Older journals recorded them as JSON numbers; those are still
+// accepted as long as they are exact (safe, non-negative integers) and are
+// canonicalised to the same decimal-string form. Imprecise numbers (values a
+// double cannot represent, e.g. large Windows inodes) are rejected instead of
+// being allowed to false-match a different inode.
+function normalizeFileSystemTransactionIdentityComponent(
+  value: unknown,
+): string | undefined {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return String(BigInt(value))
+  }
+  return undefined
+}
+
 function normalizeFileSystemTransactionFileState(
   state: unknown,
 ): FileSystemTransactionJournalFileState | undefined {
@@ -4680,6 +4982,12 @@ function normalizeFileSystemTransactionFileState(
   }
   const hasDevice = candidate.dev !== undefined
   const hasInode = candidate.ino !== undefined
+  const dev = hasDevice
+    ? normalizeFileSystemTransactionIdentityComponent(candidate.dev)
+    : undefined
+  const ino = hasInode
+    ? normalizeFileSystemTransactionIdentityComponent(candidate.ino)
+    : undefined
   if (
     typeof candidate.hash !== 'string' ||
     !/^[0-9a-f]{64}$/.test(candidate.hash) ||
@@ -4691,6 +4999,7 @@ function normalizeFileSystemTransactionFileState(
         (candidate.dev as number) < 0 ||
         !Number.isSafeInteger(candidate.ino) ||
         (candidate.ino as number) < 0))
+    (hasDevice && (dev === undefined || ino === undefined))
   ) {
     throw new Error('Invalid file state in filesystem transaction journal')
   }
@@ -4698,6 +5007,9 @@ function normalizeFileSystemTransactionFileState(
     dev: candidate.dev as number | undefined,
     hash: candidate.hash,
     ino: candidate.ino as number | undefined,
+    dev,
+    hash: candidate.hash,
+    ino,
     mode: candidate.mode as number,
   }
 }
@@ -4922,6 +5234,17 @@ function normalizeFileSystemTransactionJournal(
         typeof parent.identityPath !== 'string' ||
         !Number.isSafeInteger(parent.dev) ||
         !Number.isSafeInteger(parent.ino)
+      const parentDev = normalizeFileSystemTransactionIdentityComponent(
+        parent.dev,
+      )
+      const parentIno = normalizeFileSystemTransactionIdentityComponent(
+        parent.ino,
+      )
+      if (
+        typeof parent.canonicalParent !== 'string' ||
+        typeof parent.identityPath !== 'string' ||
+        parentDev === undefined ||
+        parentIno === undefined
       ) {
         throw new Error(
           `Invalid parent identity in filesystem transaction journal for ${path}`,
@@ -4948,6 +5271,9 @@ function normalizeFileSystemTransactionJournal(
           dev: parent.dev as number,
           identityPath: parent.identityPath,
           ino: parent.ino as number,
+          dev: parentDev,
+          identityPath: parent.identityPath,
+          ino: parentIno,
         },
         path: candidate.path,
         prepared,
@@ -5067,6 +5393,11 @@ async function assertFileSystemTransactionJournalParentUnchanged(
     !identityStats?.isDirectory() ||
     identityStats.dev !== entry.parent.dev ||
     identityStats.ino !== entry.parent.ino
+  const identityStats = await lstatIfExists(identityPath, { bigint: true })
+  if (
+    !identityStats?.isDirectory() ||
+    String(identityStats.dev) !== entry.parent.dev ||
+    String(identityStats.ino) !== entry.parent.ino
   ) {
     throw new Error(
       `Filesystem transaction parent identity changed: ${identityPath}`,
@@ -5306,6 +5637,7 @@ async function recoverLegacyFileSystemTransaction(
   journal: FileSystemTransactionJournal,
   owner: FileSystemTransactionJournalOwner,
   journalStats: Stats,
+  journalStats: BigIntStats,
 ) {
   if (journal.phase === 'committed') {
     await removeFileSystemTransactionJournal(root, owner.token, journalStats)
@@ -5490,6 +5822,7 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
     const path = join(root, entry.name)
     try {
       const stats = await lstatIfExists(path)
+      const stats = await lstatIfExists(path, { bigint: true })
       if (
         !entry.isDirectory() ||
         entry.isSymbolicLink() ||
@@ -5559,6 +5892,7 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
 async function recoverFileSystemTransaction(root: string) {
   const journalRoot = fileSystemTransactionJournalPath(root)
   const journalStats = await lstatIfExists(journalRoot)
+  const journalStats = await lstatIfExists(journalRoot, { bigint: true })
   if (!journalStats) {
     await scavengeFileSystemTransactionSiblings(root)
     return
@@ -5609,12 +5943,17 @@ async function recoverFileSystemTransaction(root: string) {
 function fileSystemTransactionStateMatches(
   left: Stats,
   right: Stats | undefined,
+export function fileSystemTransactionStateMatches(
+  left: BigIntStats,
+  right: BigIntStats | undefined,
 ) {
   return (
     right?.isDirectory() === true &&
     !right.isSymbolicLink() &&
     left.dev === right.dev &&
     left.ino === right.ino
+    String(left.dev) === String(right.dev) &&
+    String(left.ino) === String(right.ino)
   )
 }
 
@@ -5625,6 +5964,10 @@ async function retireFileSystemTransactionState(
   expectedToken?: string,
 ) {
   const currentStats = await lstatIfExists(path)
+  expectedStats: BigIntStats,
+  expectedToken?: string,
+) {
+  const currentStats = await lstatIfExists(path, { bigint: true })
   if (!fileSystemTransactionStateMatches(expectedStats, currentStats)) {
     throw new Error(`Filesystem transaction recovery state changed: ${path}`)
   }
@@ -5658,6 +6001,7 @@ async function retireFileSystemTransactionState(
   await syncDirectory(root)
 
   const retiredStats = await lstatIfExists(retiredPath)
+  const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
   if (!fileSystemTransactionStateMatches(expectedStats, retiredStats)) {
     throw new Error(
       `Filesystem transaction recovery state changed while it was retired: ${retiredPath}`,
@@ -5720,6 +6064,7 @@ async function removeFileSystemTransactionCandidate(
   root: string,
   candidateRoot: string,
   candidateStats: Stats,
+  candidateStats: BigIntStats,
 ) {
   const retiredPath = await retireFileSystemTransactionState(
     root,
@@ -5734,6 +6079,7 @@ async function removeFileSystemTransactionJournal(
   root: string,
   token: string,
   journalStats: Stats,
+  journalStats: BigIntStats,
 ) {
   const journalRoot = fileSystemTransactionJournalPath(root)
   const retiredPath = await retireFileSystemTransactionState(

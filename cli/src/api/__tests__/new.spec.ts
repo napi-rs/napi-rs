@@ -55,6 +55,8 @@ function resolvePnpmCli() {
     process.platform === 'win32'
       ? ['pnpm.cmd', 'corepack.cmd']
       : ['pnpm', 'corepack']
+      ? ['corepack.cmd', 'pnpm.cmd']
+      : ['corepack', 'pnpm']
 
   for (const pathEntry of (process.env.PATH ?? '').split(delimiter)) {
     for (const launcher of launchers) {
@@ -97,6 +99,40 @@ function resolvePnpmCli() {
   throw new Error('Could not resolve the pnpm Corepack entrypoint from PATH')
 }
 
+function resolveCorepackCli() {
+  const corepackCli = join(dirname(resolvePnpmCli()), 'corepack.js')
+  if (!existsSync(corepackCli)) {
+    throw new Error('Could not resolve the Corepack CLI next to pnpm')
+  }
+  return corepackCli
+}
+
+function readPnpmPackageManager(packageJson: Record<string, any>) {
+  const packageManager = packageJson.packageManager
+  const match =
+    typeof packageManager === 'string'
+      ? packageManager.match(
+          /^pnpm@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.+)?$/,
+        )
+      : null
+  if (!match) {
+    throw new Error('The pnpm fixture must declare an exact packageManager')
+  }
+  const version = match[1]
+  const engine = packageJson.devEngines?.packageManager
+  if (
+    engine !== undefined &&
+    (engine?.name !== 'pnpm' ||
+      (engine.version !== version &&
+        engine.version !== packageManager.slice('pnpm@'.length)))
+  ) {
+    throw new Error(
+      'packageManager and devEngines.packageManager must describe the same pnpm version',
+    )
+  }
+  return { packageManager, version }
+}
+
 async function installAndRunGeneratedBuild(
   projectPath: string,
   packageManager: 'yarn' | 'pnpm',
@@ -134,11 +170,14 @@ require('node:fs').writeFileSync(process.env.NAPI_NEW_TEST_MARKER, JSON.stringif
   packageJson.scripts = {
     build: packageJson.scripts.build,
   }
+  const pnpm =
+    packageManager === 'pnpm' ? readPnpmPackageManager(packageJson) : undefined
   await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
 
   const env = {
     ...process.env,
     COREPACK_ENABLE_PROJECT_SPEC: '0',
+    COREPACK_ENABLE_PROJECT_SPEC: '1',
     NAPI_NEW_TEST_MARKER: markerPath,
   }
   let executable: string
@@ -157,6 +196,21 @@ require('node:fs').writeFileSync(process.env.NAPI_NEW_TEST_MARKER, JSON.stringif
   } else {
     executable = process.execPath
     baseArgs = [resolvePnpmCli()]
+    if (!pnpm) {
+      throw new Error('Could not resolve the pnpm package manager contract')
+    }
+    executable = process.execPath
+    baseArgs = [resolveCorepackCli(), pnpm.packageManager]
+    const { stdout } = await execFileAsync(
+      executable,
+      [...baseArgs, '--version'],
+      { cwd: projectPath, env },
+    )
+    if (stdout.trim() !== pnpm.version) {
+      throw new Error(
+        `Corepack selected pnpm ${stdout.trim()} instead of ${pnpm.version}`,
+      )
+    }
     await execFileAsync(
       executable,
       [...baseArgs, 'install', '--ignore-scripts', '--offline'],

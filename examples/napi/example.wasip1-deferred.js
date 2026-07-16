@@ -1,4 +1,6 @@
 import {
+  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin as __emnapiTSFNPlugin,
   instantiateNapiModule as __emnapiInstantiateNapiModule,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -379,6 +381,11 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
     // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
     // contract that keeps this context alive until our explicit cleanup runs.
+    // emnapi 2.x still registers an unconditional process.once('beforeExit')
+    // auto-destroy listener on Node hosts, and suppressDestroy() only
+    // neutralizes its callback without removing it. This loader must stay
+    // side-effect free per instance, so the listener is captured and removed;
+    // suppressDestroy() remains the safety net when removal is unavailable.
     __emnapiContext.suppressDestroy()
   } catch (error) {
     __contextInitializationError = error
@@ -386,6 +393,7 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   } finally {
     // Remove only the exact legacy callback captured above. suppressDestroy()
     // remains the safety net if listener removal is unavailable or fails.
+    // Remove only the exact emnapi callback captured above.
     __finishAutoDestroyCapture?.()
   }
   if (__emnapiContext === undefined) {
@@ -591,11 +599,13 @@ async function __createInstance(
       await __registerCleanup(__destroyBeforeExit)
     }
     __emnapiContext.feature.Buffer = Buffer
+    __emnapiContext.features.Buffer = Buffer
     let __napiModule
     ;({ instance: __napiInstance, napiModule: __napiModule } =
       await __emnapiInstantiateNapiModule(__emnapiModule, {
         context: __emnapiContext,
         asyncWorkPoolSize: 0,
+        plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
         wasi: __wasi,
         overwriteImports(importObject) {
           importObject.env = {

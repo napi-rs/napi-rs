@@ -25,6 +25,10 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     t.is(binding.add(2, 3), 5)
   },
 )
+// NOTE: the graceful rejection of built-in Tokio async exports on threadless
+// WASI ("Built-in Tokio async tasks require a threaded WASI target...") lives
+// in crates/napi and is not part of the minimal async-runtime SPI base yet;
+// synchronous exports still work, which is what the remaining tests cover.
 
 test.skipIf(!isThreadlessWasiBufferTest)(
   'threadless WASI loaders avoid shared memory and workers',
@@ -91,6 +95,7 @@ test.skipIf(!isThreadlessWasiBufferTest)(
       source,
       /export declare function fetch\(\.\.\.args: unknown\[\]\): never/,
     )
+    t.notRegex(source, /export declare function fetch\(/)
     t.notRegex(source, /undici-types/)
     t.regex(
       source,

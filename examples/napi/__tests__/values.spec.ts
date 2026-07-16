@@ -287,6 +287,7 @@ import {
   createReadableStream,
   createReadableStreamWithObject,
   createReadableStreamFromClass,
+  createErroringReadableStream,
   spawnThreadInThread,
   esmResolve,
   mergeTupleArray,
@@ -331,6 +332,10 @@ import {
   withAbortSignalHandle,
   createI32ArrayFromExternal,
   optionalCallbackTypes,
+  ReentrantBorrowOrderTest,
+  createReentrantBorrowOrderTestTarget,
+  cleanupReentrantBorrowOrderTestTargets,
+  detachReentrantBorrowOrderTestTarget,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -750,6 +755,73 @@ test('class', (t) => {
             })(),
     )
   }
+})
+
+test('mutable receiver is borrowed after reentrant input conversion', (t) => {
+  const exercise = (
+    label: string,
+    invoke: (target: object, values: number[]) => void,
+  ) => {
+    const target = createReentrantBorrowOrderTestTarget(
+      ReentrantBorrowOrderTest,
+    )
+    let getterRan = false
+    const values = Object.defineProperty([], '0', {
+      enumerable: true,
+      get() {
+        getterRan = true
+        detachReentrantBorrowOrderTestTarget(target)
+        return 1
+      },
+    }) as number[]
+
+    let error: unknown
+    try {
+      invoke(target, values)
+    } catch (caught) {
+      error = caught
+    } finally {
+      t.is(cleanupReentrantBorrowOrderTestTargets(), 1)
+    }
+
+    t.true(getterRan)
+    t.truthy(error, `${label} must unwrap its receiver after input conversion`)
+  }
+
+  exercise('mutable method', (target, values) => {
+    ReentrantBorrowOrderTest.prototype.replaceValues.call(target, values)
+  })
+  exercise('mutable public field setter', (target, values) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      ReentrantBorrowOrderTest.prototype,
+      'values',
+    )?.set
+    t.truthy(setter)
+    setter!.call(target, values)
+  })
+
+  let getterRan = false
+  const target = createReentrantBorrowOrderTestTarget(ReentrantBorrowOrderTest)
+  Object.defineProperty(target, '0', {
+    enumerable: true,
+    get() {
+      getterRan = true
+      detachReentrantBorrowOrderTestTarget(target)
+      return 1
+    },
+  })
+
+  let error: unknown
+  try {
+    ReentrantBorrowOrderTest.prototype.replaceValuesFromThis.call(target)
+  } catch (caught) {
+    error = caught
+  } finally {
+    t.is(cleanupReentrantBorrowOrderTestTargets(), 1)
+  }
+
+  t.true(getterRan)
+  t.truthy(error, 'receiver must be unwrapped after injected input conversion')
 })
 
 test('class with js_name', (t) => {
@@ -2750,6 +2822,44 @@ test('create readable stream from channel', async (t) => {
     chunksFromClass.push(chunk)
   }
   t.is(Buffer.concat(chunksFromClass).toString('utf-8'), 'hello'.repeat(100))
+})
+
+test('an erroring output ReadableStream rejects without corrupting the heap', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass('Skip when WASI: create_with_stream_bytes is native (tokio) only')
+    return
+  }
+  // Regression guard for the off-thread `FunctionRef` drop. When a
+  // `create_with_stream_bytes` output rejects, napi drops the pull resolver — which
+  // owns the controller's `enqueue`/`close` `FunctionRef`s — on a Tokio worker
+  // thread. Before the fix, `FunctionRef::drop` deleted those thread-affine
+  // `napi_ref`s off the JS thread, corrupting V8's handle table; the process then
+  // crashed (SIGSEGV/SIGBUS) once the JS thread next touched the damaged heap.
+  // Rejects are fanned out concurrently and interleaved with allocation churn so the
+  // corruption reliably surfaces; a clean run survives every round and each stream
+  // rejects.
+  const drain = async () => {
+    const reader = createErroringReadableStream().getReader()
+    for (;;) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+  }
+  for (let round = 0; round < 60; round++) {
+    await Promise.all(
+      Array.from({ length: 32 }, () =>
+        drain().then(
+          () => t.fail('erroring stream should reject'),
+          () => {
+            // churn the JS heap so a corrupted V8 handle slot is reused and faults
+            for (let k = 0; k < 200; k++)
+              void { a: k, b: `s${k}`.repeat(4), c: [k] }
+          },
+        ),
+      ),
+    )
+  }
+  t.pass()
 })
 
 test('create readable stream from channel with object', async (t) => {

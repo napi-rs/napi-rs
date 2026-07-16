@@ -5,6 +5,9 @@ import { createRequire } from 'node:module'
 import { Context } from '@emnapi/runtime'
 
 const require = createRequire(import.meta.url)
+
+import { Context } from '@emnapi/runtime'
+
 const wasmBytes = await readFile(
   new URL('../example.wasm32-wasip1.wasm', import.meta.url),
 )

@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version.workspace = true
-version = "3.10.3"
+version = "3.10.5"
 publish = false
 
 [lib]
@@ -49,6 +49,8 @@ independent = true
 
 [features]
 async = ["tokio_rt"]
+# Pluggable async runtime SPI (`AsyncRuntime` + `register_async_runtime`).
+# Deliberately does NOT pull in tokio: a pure `async-runtime` build is tokio-free.
 async-runtime = ["napi4"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
@@ -113,7 +115,7 @@ version = "1"
 
 [dependencies.napi-sys]
 path = "../sys"
-version = "3.2.2"
+version = "3.2.3"
 default-features = false
 
 [dependencies.encoding_rs]

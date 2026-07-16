@@ -1,0 +1,27 @@
+[package]
+edition = "2024"
+name = "napi-shared-async-runtime-example"
+publish = false
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+futures = "0.3"
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi4",
+  "async-runtime",
+] }
+napi-async-runtime = { path = "../../crates/async-runtime" }
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
+
+[dev-dependencies]
+# The in-crate test binary is a plain executable rather than a Node-loaded
+# cdylib; `dyn-symbols` resolves Node-API symbols at runtime so it can link.
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "dyn-symbols",
+] }
+
+[build-dependencies]
+napi-build = { path = "../../crates/build" }

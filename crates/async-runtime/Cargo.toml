@@ -1,0 +1,45 @@
+[package]
+authors = ["LongYinan <lynweklm@gmail.com>"]
+description = "Shared pluggable async runtime for napi-rs addons: a tokio-free async/CPU/blocking scheduler plus an optional napi AsyncRuntime SPI adapter"
+edition = "2024"
+keywords = ["NodeJS", "Node", "async", "runtime", "NAPI"]
+license = "MIT"
+name = "napi-async-runtime"
+readme = "README.md"
+repository = "https://github.com/napi-rs/napi-rs"
+rust-version.workspace = true
+version = "0.1.0"
+
+[features]
+default = ["napi"]
+napi = ["dep:napi", "dep:napi-derive"]
+
+[dependencies]
+async-task = "4.7.1"
+futures = "0.3"
+rustc-hash = "2"
+
+[dependencies.napi]
+path = "../napi"
+version = "3"
+default-features = false
+features = ["napi4", "async-runtime"]
+optional = true
+
+[dependencies.napi-derive]
+path = "../macro"
+version = "3"
+default-features = false
+features = ["type-def"]
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+rayon = "1.12"
+
+[dev-dependencies]
+# The in-crate test binaries are plain executables rather than Node-loaded
+# cdylibs; `dyn-symbols` resolves Node-API symbols at runtime so those
+# binaries can link. Shipped builds keep the minimal feature set above.
+napi = { path = "../napi", version = "3", default-features = false, features = [
+  "dyn-symbols",
+] }

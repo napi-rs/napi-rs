@@ -1,0 +1,18 @@
+# build artifacts and generated loaders — the wasi test lane rebuilds the
+# threadless (wasm32-wasip1) flavor from source before running
+*.node
+*.wasm
+browser.js
+shared_async_runtime.wasip1-browser.js
+shared_async_runtime.wasip1.cjs
+shared_async_runtime.wasip1.d.cts
+*.wasip1-deferred.js
+*.wasip1-deferred.d.ts
+shared_async_runtime.wasi-browser.js
+shared_async_runtime.wasi.cjs
+shared_async_runtime.wasi.d.cts
+index.cjs
+index.d.cts
+index.js
+wasi-worker-browser.mjs
+wasi-worker.mjs

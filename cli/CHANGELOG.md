@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.7.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.2...@napi-rs/cli@3.7.3) (2026-07-12)
+
+### Bug Fixes
+
+- **cli:** align build and project configuration ([#3387](https://github.com/napi-rs/napi-rs/issues/3387)) ([aa49714](https://github.com/napi-rs/napi-rs/commit/aa49714ed8a5619d65407ceb4ad9e79a1ee5b332))
+- **cli:** validate cross-compilation flags upfront and document them accurately ([#3381](https://github.com/napi-rs/napi-rs/issues/3381)) ([b015713](https://github.com/napi-rs/napi-rs/commit/b0157131dc4086debffd321db318eb2c6c905401))
+- de-flake Windows CI (ava import-from-project EPERM race + cli e2e timeout) ([#3372](https://github.com/napi-rs/napi-rs/issues/3372)) ([745cd85](https://github.com/napi-rs/napi-rs/commit/745cd8561f9be2781cc04c8ba4564c8f436792c1))
+
 ## [3.7.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.1...@napi-rs/cli@3.7.2) (2026-06-14)
 
 ### Bug Fixes

@@ -1,4 +1,6 @@
 import {
+  emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin as __emnapiTSFNPlugin,
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -162,6 +164,270 @@ function __destroyEmnapiContext() {
 
 try {
   __emnapiContext.feature.Buffer = Buffer
+let __emnapiContext
+
+const __wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
+const __wasiWorkers = new Set()
+let __napiInstance
+let __emnapiContextDestroyed = false
+let __emnapiContextDestroyPromise
+let __emnapiWasmEnvCleanupPrepared = false
+let __wasiDisposed = false
+let __wasiDisposePromise
+let __completeWasiDisposal = function () {}
+
+function __isThenable(value) {
+  return (
+    value !== null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    typeof value.then === 'function'
+  )
+}
+
+function __createCleanupError(errors, message) {
+  if (errors.length === 1) {
+    return errors[0]
+  }
+  const __AggregateError = globalThis.AggregateError
+  if (typeof __AggregateError === 'function') {
+    return new __AggregateError(errors, message)
+  }
+  const error = new Error(message)
+  error.errors = errors
+  return error
+}
+
+function __attachCleanupErrors(error, cleanupErrors) {
+  if (cleanupErrors.length === 0) {
+    return error
+  }
+  const cleanupError = __createCleanupError(
+    cleanupErrors,
+    'WASI binding cleanup failed',
+  )
+  try {
+    if (error && (typeof error === 'object' || typeof error === 'function')) {
+      if (error.cause === undefined) {
+        error.cause = cleanupError
+        if (error.cause === cleanupError) {
+          return error
+        }
+      }
+      if (Array.isArray(error.cleanupErrors)) {
+        error.cleanupErrors.push(cleanupError)
+        return error
+      } else {
+        const attachedCleanupErrors = [cleanupError]
+        error.cleanupErrors = attachedCleanupErrors
+        if (error.cleanupErrors === attachedCleanupErrors) {
+          return error
+        }
+      }
+    }
+  } catch {}
+  const aggregate = __createCleanupError(
+    [error, cleanupError],
+    'WASI binding initialization and cleanup failed',
+  )
+  try {
+    aggregate.cause = error
+  } catch {}
+  return aggregate
+}
+
+function __prepareWasmEnvCleanup() {
+  if (__emnapiWasmEnvCleanupPrepared) {
+    return
+  }
+  const prepare = __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
+  if (typeof prepare === 'function') {
+    prepare()
+  }
+  __emnapiWasmEnvCleanupPrepared = true
+}
+
+function __destroyEmnapiContext() {
+  if (__emnapiContextDestroyed || __emnapiContext === undefined) {
+    __emnapiContextDestroyed = true
+    return
+  }
+  if (__emnapiContextDestroyPromise) {
+    return __emnapiContextDestroyPromise
+  }
+
+  __prepareWasmEnvCleanup()
+  const result = __emnapiContext.destroy()
+  if (!__isThenable(result)) {
+    __emnapiContextDestroyed = true
+    return
+  }
+
+  const destroyPromise = Promise.resolve(result).then(
+    (value) => {
+      __emnapiContextDestroyed = true
+      return value
+    },
+    (error) => {
+      __emnapiContextDestroyPromise = undefined
+      throw error
+    },
+  )
+  __emnapiContextDestroyPromise = destroyPromise
+  return destroyPromise
+}
+
+function __terminateWasiWorkers() {
+  const cleanupErrors = []
+  const pending = []
+
+  for (const worker of __wasiWorkers) {
+    let result
+    try {
+      result = worker.terminate()
+    } catch (error) {
+      cleanupErrors.push(error)
+      continue
+    }
+    if (__isThenable(result)) {
+      pending.push(
+        Promise.resolve(result).then(
+          () => {
+            __wasiWorkers.delete(worker)
+          },
+          (error) => {
+            cleanupErrors.push(error)
+          },
+        ),
+      )
+    } else {
+      __wasiWorkers.delete(worker)
+    }
+  }
+
+  const finish = () => {
+    if (cleanupErrors.length > 0) {
+      throw __createCleanupError(
+        cleanupErrors,
+        'Failed to terminate WASI workers',
+      )
+    }
+  }
+  return pending.length > 0 ? Promise.all(pending).then(finish) : finish()
+}
+
+function __finishWasiDisposal() {
+  const workerResult = __terminateWasiWorkers()
+  if (__isThenable(workerResult)) {
+    return Promise.resolve(workerResult).then(__completeWasiDisposal)
+  }
+  return __completeWasiDisposal()
+}
+
+function __startWasiDisposal() {
+  const destroyResult = __destroyEmnapiContext()
+  if (__isThenable(destroyResult)) {
+    return Promise.resolve(destroyResult).then(__finishWasiDisposal)
+  }
+  return __finishWasiDisposal()
+}
+
+/**
+ * Disposes this generated WASI binding.
+ *
+ * Access this function with:
+ * binding[Symbol.for('napi.rs.wasi.dispose')]()
+ */
+function __disposeWasiBinding() {
+  if (__wasiDisposePromise) {
+    return __wasiDisposePromise
+  }
+  if (__wasiDisposed) {
+    return Promise.resolve()
+  }
+
+  let resolveDispose
+  let rejectDispose
+  const disposePromise = new Promise((resolve, reject) => {
+    resolveDispose = resolve
+    rejectDispose = reject
+  })
+  __wasiDisposePromise = disposePromise
+
+  let result
+  try {
+    result = __startWasiDisposal()
+  } catch (error) {
+    __wasiDisposePromise = undefined
+    rejectDispose(error)
+    return disposePromise
+  }
+
+  Promise.resolve(result).then(
+    (value) => {
+      __wasiDisposed = true
+      resolveDispose(value)
+    },
+    (error) => {
+      __wasiDisposePromise = undefined
+      rejectDispose(error)
+    },
+  )
+  return disposePromise
+}
+
+function __publishWasiDispose(exports) {
+  Object.defineProperty(exports, __wasiDisposeSymbol, {
+    configurable: false,
+    enumerable: false,
+    value: __disposeWasiBinding,
+    writable: false,
+  })
+}
+
+function __finishWasiInitializationRollback(cleanupErrors) {
+  let workerResult
+  try {
+    workerResult = __terminateWasiWorkers()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+    return cleanupErrors
+  }
+  if (__isThenable(workerResult)) {
+    return Promise.resolve(workerResult)
+      .catch((cleanupError) => {
+        cleanupErrors.push(cleanupError)
+      })
+      .then(() => cleanupErrors)
+  }
+  return cleanupErrors
+}
+
+function __rollbackWasiInitialization() {
+  const cleanupErrors = []
+  let destroyResult
+  try {
+    destroyResult = __destroyEmnapiContext()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+    return __finishWasiInitializationRollback(cleanupErrors)
+  }
+  if (__isThenable(destroyResult)) {
+    return Promise.resolve(destroyResult)
+      .catch((cleanupError) => {
+        cleanupErrors.push(cleanupError)
+      })
+      .then(() => __finishWasiInitializationRollback(cleanupErrors))
+  }
+  return __finishWasiInitializationRollback(cleanupErrors)
+}
+
+let __wasiModule
+let __napiModule
+
+try {
+  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  __emnapiContext.suppressDestroy()
+  __emnapiContext.features.Buffer = Buffer
 
   ;({
     instance: __napiInstance,
@@ -170,6 +436,7 @@ try {
   } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
     context: __emnapiContext,
     asyncWorkPoolSize: 0,
+    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,
     overwriteImports(importObject) {
       importObject.env = {
@@ -203,6 +470,12 @@ try {
 }
 export default __napiModule.exports
 export const AlignedZst = __napiModule.exports.AlignedZst
+  __publishWasiDispose(__napiModule.exports)
+} catch (error) {
+  const cleanupErrors = await __rollbackWasiInitialization()
+  throw __attachCleanupErrors(error, cleanupErrors)
+}
+export default __napiModule.exports
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor =
   __napiModule.exports.AnimalWithDefaultConstructor
@@ -229,6 +502,8 @@ export const AsyncIteratorIntoInstance =
   __napiModule.exports.AsyncIteratorIntoInstance
 export const AsyncReentrantGenerator =
   __napiModule.exports.AsyncReentrantGenerator
+export const AsyncDataSource = __napiModule.exports.AsyncDataSource
+export const AsyncFib = __napiModule.exports.AsyncFib
 export const AsyncThrowClass = __napiModule.exports.AsyncThrowClass
 export const Bird = __napiModule.exports.Bird
 export const Blake2BHasher = __napiModule.exports.Blake2BHasher
@@ -290,6 +565,13 @@ export const Width = __napiModule.exports.Width
 export const abandonDeferredClones = getWasiBindingExport(
   'abandonDeferredClones',
 )
+export const ReentrantBorrowOrderTest =
+  __napiModule.exports.ReentrantBorrowOrderTest
+export const Selector = __napiModule.exports.Selector
+export const Thing = __napiModule.exports.Thing
+export const ThingList = __napiModule.exports.ThingList
+export const UseNullableClass = __napiModule.exports.UseNullableClass
+export const Width = __napiModule.exports.Width
 export const acceptArraybuffer = __napiModule.exports.acceptArraybuffer
 export const acceptSlice = __napiModule.exports.acceptSlice
 export const acceptStream = __napiModule.exports.acceptStream
@@ -350,6 +632,10 @@ export const asyncPlus100 = __napiModule.exports.asyncPlus100
 export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
 export const asyncReferenceSetupProbe =
   __napiModule.exports.asyncReferenceSetupProbe
+export const asyncBufferToArray = __napiModule.exports.asyncBufferToArray
+export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
+export const asyncPlus100 = __napiModule.exports.asyncPlus100
+export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
 export const asyncResolveArray = __napiModule.exports.asyncResolveArray
 export const asyncTaskArraybuffer = __napiModule.exports.asyncTaskArraybuffer
 export const asyncTaskFinally = __napiModule.exports.asyncTaskFinally
@@ -428,6 +714,8 @@ export const chronoNativeDateTimeReturn =
 export const chronoUtcDateReturn = __napiModule.exports.chronoUtcDateReturn
 export const chronoUtcDateToMillis = __napiModule.exports.chronoUtcDateToMillis
 export const churnGlobalHandles = __napiModule.exports.churnGlobalHandles
+export const cleanupReentrantBorrowOrderTestTargets =
+  __napiModule.exports.cleanupReentrantBorrowOrderTestTargets
 export const compressSync = __napiModule.exports.compressSync
 export const concatLatin1 = __napiModule.exports.concatLatin1
 export const concatStr = __napiModule.exports.concatStr
@@ -453,6 +741,9 @@ export const createAsyncIteratorIntoInstance =
   __napiModule.exports.createAsyncIteratorIntoInstance
 export const createAsyncReferenceSetupProbe =
   __napiModule.exports.createAsyncReferenceSetupProbe
+export const contains = __napiModule.exports.contains
+export const convertU32Array = __napiModule.exports.convertU32Array
+export const createArraybuffer = __napiModule.exports.createArraybuffer
 export const createBigInt = __napiModule.exports.createBigInt
 export const createBigIntI64 = __napiModule.exports.createBigIntI64
 export const createBufferSliceFromCopiedData =
@@ -467,6 +758,8 @@ export const createDirectClassReferenceCallback =
   __napiModule.exports.createDirectClassReferenceCallback
 export const createEmptyTypedArraySlices =
   __napiModule.exports.createEmptyTypedArraySlices
+export const createErroringReadableStream =
+  __napiModule.exports.createErroringReadableStream
 export const createExternal = __napiModule.exports.createExternal
 export const createExternalBufferSlice =
   __napiModule.exports.createExternalBufferSlice
@@ -493,6 +786,8 @@ export const createExternalString = __napiModule.exports.createExternalString
 export const createExternalTokenGcProbe = getWasiBindingExport(
   'createExternalTokenGcProbe',
 )
+export const createExternalRef = __napiModule.exports.createExternalRef
+export const createExternalString = __napiModule.exports.createExternalString
 export const createExternalTypedArray =
   __napiModule.exports.createExternalTypedArray
 export const createExternalUtf16String =
@@ -505,6 +800,8 @@ export const createI32ArrayFromExternal =
 export const createMutableTypedArrayForOwnershipTest = getWasiBindingExport(
   'createMutableTypedArrayForOwnershipTest',
 )
+export const createI32ArrayFromExternal =
+  __napiModule.exports.createI32ArrayFromExternal
 export const createNotUseNullableStruct =
   __napiModule.exports.createNotUseNullableStruct
 export const createObj = __napiModule.exports.createObj
@@ -525,6 +822,8 @@ export const createReadableStreamFromClass =
   __napiModule.exports.createReadableStreamFromClass
 export const createReadableStreamWithObject =
   __napiModule.exports.createReadableStreamWithObject
+export const createReentrantBorrowOrderTestTarget =
+  __napiModule.exports.createReentrantBorrowOrderTestTarget
 export const createReferenceOnFunction =
   __napiModule.exports.createReferenceOnFunction
 export const createRejectedPromise = __napiModule.exports.createRejectedPromise
@@ -582,6 +881,10 @@ export const disposeAsyncWorkLifecycle = getWasiBindingExport(
 export const disposeThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
   'disposeThreadsafeFunctionForEnvOwnership',
 )
+export const defineClass = __napiModule.exports.defineClass
+export const derefUint8Array = __napiModule.exports.derefUint8Array
+export const detachReentrantBorrowOrderTestTarget =
+  __napiModule.exports.detachReentrantBorrowOrderTestTarget
 export const drainStreamCount = __napiModule.exports.drainStreamCount
 export const dropClonedErrorsOnTwoThreads =
   __napiModule.exports.dropClonedErrorsOnTwoThreads
@@ -610,6 +913,8 @@ export const externalTokenGcProbeFinalizeCount = getWasiBindingExport(
 export const f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 export const fetch = getWasiBindingExport('fetch')
+export const f32ArrayToArray = __napiModule.exports.f32ArrayToArray
+export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 export const fibonacci = __napiModule.exports.fibonacci
 export const fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 export const generateFunctionAndCallIt =
@@ -731,6 +1036,12 @@ export const readAnimalWithReentrantProbe =
 export const readFile = __napiModule.exports.readFile
 export const readFileAsync = __napiModule.exports.readFileAsync
 export const readMutateAnimalPair = __napiModule.exports.readMutateAnimalPair
+export const plusOne = __napiModule.exports.plusOne
+export const promiseInEither = __napiModule.exports.promiseInEither
+export const promiseRawReturnClassInstance =
+  __napiModule.exports.promiseRawReturnClassInstance
+export const readFile = __napiModule.exports.readFile
+export const readFileAsync = __napiModule.exports.readFileAsync
 export const readPackageJson = __napiModule.exports.readPackageJson
 export const receiveAllOptionalObject =
   __napiModule.exports.receiveAllOptionalObject
@@ -905,6 +1216,26 @@ export const takeReferenceValueAcrossDuplicateLoad = getWasiBindingExport(
 export const takeTypedArrayAcrossDuplicateLoad = getWasiBindingExport(
   'takeTypedArrayAcrossDuplicateLoad',
 )
+export const setNullByteProperty = __napiModule.exports.setNullByteProperty
+export const setSymbolInObj = __napiModule.exports.setSymbolInObj
+export const shorterEscapableScope = __napiModule.exports.shorterEscapableScope
+export const shorterScope = __napiModule.exports.shorterScope
+export const shutdownRuntime = __napiModule.exports.shutdownRuntime
+export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
+export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
+export const stashBufferInThreadLocal =
+  __napiModule.exports.stashBufferInThreadLocal
+export const stashErrorInThreadLocal =
+  __napiModule.exports.stashErrorInThreadLocal
+export const stashTypedArrayInThreadLocal =
+  __napiModule.exports.stashTypedArrayInThreadLocal
+export const Status = __napiModule.exports.Status
+export const StatusInValidate = __napiModule.exports.StatusInValidate
+export const StringEnum = __napiModule.exports.StringEnum
+export const sumBtreeMapping = __napiModule.exports.sumBtreeMapping
+export const sumIndexMapping = __napiModule.exports.sumIndexMapping
+export const sumMapping = __napiModule.exports.sumMapping
+export const sumNums = __napiModule.exports.sumNums
 export const testEscapedQuotesInComments =
   __napiModule.exports.testEscapedQuotesInComments
 export const testLatin1Methods = __napiModule.exports.testLatin1Methods
@@ -948,6 +1279,9 @@ export const tokioRuntimeFactoryCallCount = getWasiBindingExport(
 export const tokioRuntimeLifecycleValue = getWasiBindingExport(
   'tokioRuntimeLifecycleValue',
 )
+export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
+export const throwSyntaxError = __napiModule.exports.throwSyntaxError
+export const toJsObj = __napiModule.exports.toJsObj
 export const tryCloneErrorCauseOffThread =
   __napiModule.exports.tryCloneErrorCauseOffThread
 export const tryCloneErrorCauseTransitiveOffThread =
@@ -990,6 +1324,9 @@ export const unrefThreadsafeFunctionForEnvOwnership = getWasiBindingExport(
 )
 export const untypedTypedArrayBackingBytes =
   __napiModule.exports.untypedTypedArrayBackingBytes
+export const uint8ArrayFromData = __napiModule.exports.uint8ArrayFromData
+export const uint8ArrayFromExternal =
+  __napiModule.exports.uint8ArrayFromExternal
 export const validateArray = __napiModule.exports.validateArray
 export const validateBigint = __napiModule.exports.validateBigint
 export const validateBoolean = __napiModule.exports.validateBoolean
@@ -1039,6 +1376,8 @@ export const withAdditionalBorrowedValuesAcrossDuplicateLoad =
 export const withBorrowedValuesAcrossDuplicateLoad = getWasiBindingExport(
   'withBorrowedValuesAcrossDuplicateLoad',
 )
+export const withAbortController = __napiModule.exports.withAbortController
+export const withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
 export const withinAsyncRuntimeIfAvailable =
   __napiModule.exports.withinAsyncRuntimeIfAvailable
 export const withoutAbortController =
@@ -1051,6 +1390,7 @@ export const duplicateClassNameAlpha =
   __napiModule.exports.duplicateClassNameAlpha
 export const duplicateClassNameBeta =
   __napiModule.exports.duplicateClassNameBeta
+export const xxh64Alias = __napiModule.exports.xxh64Alias
 export const xxh2 = __napiModule.exports.xxh2
 export const xxh3 = __napiModule.exports.xxh3
 export const ComplexClass = __napiModule.exports.ComplexClass

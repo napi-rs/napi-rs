@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -178,6 +178,8 @@ jobs:
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               cargo test
+              cargo test -p napi --features tokio_rt,async-runtime
+              cargo test -p napi --features async-runtime
             toolchain: stable
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -237,7 +239,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: 'yarn'
@@ -281,6 +283,12 @@ jobs:
           yarn config set supportedArchitectures.cpu --json '["current", "x64", "ia32", "wasm32"]'
           yarn install --mode=skip-build --immutable
 
+      # TEMPORARY until emnapi publishes complete wasip1 archives, see
+      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
+      - name: Install vendored emnapi archives
+        shell: bash
+        run: node vendor/emnapi/install.mjs
+
       - name: Check build
         run: cargo check --target ${{ matrix.settings.target }} --all --bins --examples --tests -vvv
 
@@ -291,7 +299,7 @@ jobs:
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
           node-version: 22
@@ -406,7 +414,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -460,7 +468,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -527,7 +535,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -639,7 +647,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -700,7 +708,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'yarn'
@@ -750,7 +758,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -848,7 +856,7 @@ jobs:
         with:
           repo: rust-cross/cargo-zigbuild
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -1087,6 +1095,47 @@ jobs:
       - name: Test async-runtime + tokio_rt (combined)
         run: cargo test -p napi --features async-runtime,tokio_rt
 
+  napi-async-runtime:
+    runs-on: ubuntu-latest
+    name: Test napi-async-runtime shared scheduler (cargo)
+    timeout-minutes: 15
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1,wasm32-wasip1-threads
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: napi-async-runtime-cargo-cache
+      - name: Check napi-async-runtime is tokio-free
+        run: |
+          if cargo tree -p napi-async-runtime -e normal --prefix none | grep -E '^tokio v'; then
+            echo 'tokio leaked into the shared async runtime crate' >&2
+            exit 1
+          fi
+          if cargo tree -p napi-async-runtime --no-default-features -e normal --prefix none | grep -E '^tokio v'; then
+            echo 'tokio leaked into the napi-free scheduler build' >&2
+            exit 1
+          fi
+      - name: Test napi-async-runtime (default features)
+        run: cargo test -p napi-async-runtime
+      - name: Test napi-async-runtime (scheduler only)
+        run: cargo test -p napi-async-runtime --no-default-features
+      - name: Check napi-async-runtime on the WASI targets
+        run: |
+          cargo check -p napi-async-runtime --target wasm32-wasip1
+          cargo check -p napi-async-runtime --target wasm32-wasip1-threads
+          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1
+          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1-threads
+      - name: Test the shared-async-runtime example (native)
+        run: cargo test -p napi-shared-async-runtime-example
+
   test-custom-async-runtime-wasi:
     runs-on: ubuntu-latest
     name: Test custom async runtime on wasm32-wasip1
@@ -1106,6 +1155,10 @@ jobs:
           targets: wasm32-wasip1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
+      # TEMPORARY until emnapi publishes complete wasip1 archives, see
+      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
+      - name: Install vendored emnapi archives
+        run: node vendor/emnapi/install.mjs
       - name: Build
         run: |
           yarn workspace @napi-rs/wasm-runtime build
@@ -1135,6 +1188,7 @@ jobs:
           yarn workspace @examples/napi test \
             __tests__/lifecycle-public-surface.spec.ts \
             __tests__/stock-emnapi-lifecycle.spec.ts \
+            __tests__/published-emnapi-v2-lifecycle.spec.ts \
             __tests__/wasi-eager-before-exit.spec.ts
         env:
           WASI_TEST: 'true'
@@ -1148,6 +1202,40 @@ jobs:
       - name: Test examples/napi threadless public surfaces
         run: yarn workspace @examples/napi test:wasi-public-surfaces
 
+  # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
+  # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`
+  # JavaScript hosts. Browser and workerd lanes are intentionally out of
+  # scope here; the custom-async-runtime jobs cover those loader flavors.
+  test-shared-async-runtime-wasi:
+    runs-on: ubuntu-latest
+    name: Test shared async runtime on wasm32-wasip1
+    timeout-minutes: 10
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      # TEMPORARY until emnapi publishes complete wasip1 archives, see
+      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
+      - name: Install vendored emnapi archives
+        run: node vendor/emnapi/install.mjs
+      - name: Build
+        run: |
+          yarn workspace @napi-rs/wasm-runtime build
+          yarn workspace @examples/shared-async-runtime build:wasi
+      - name: Test
+        run: yarn workspace @examples/shared-async-runtime test:wasi
+
   test-node-wasi:
     runs-on: ubuntu-latest
     name: Test node wasi target
@@ -1156,7 +1244,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -1168,6 +1256,10 @@ jobs:
           targets: wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
+      # TEMPORARY until emnapi publishes complete wasip1 archives, see
+      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
+      - name: Install vendored emnapi archives
+        run: node vendor/emnapi/install.mjs
       - name: Check non-noop combined runtime and all features
         run: |
           cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1-threads
@@ -1206,7 +1298,7 @@ jobs:
         with:
           bun-version: latest
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -1245,7 +1337,7 @@ jobs:
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -1285,6 +1377,8 @@ jobs:
       - check-unix-runtime-module-retention
       - test-async-runtime-spi
       - test-custom-async-runtime-wasi
+      - napi-async-runtime
+      - test-shared-async-runtime-wasi
       - test-node-wasi
       - test-latest-bun
     steps:
