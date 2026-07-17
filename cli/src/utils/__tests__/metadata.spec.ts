@@ -1,10 +1,17 @@
 import { unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
 
-import { parseMetadata } from '../metadata.js'
+import { getNapiDeriveDependentCrates, parseMetadata } from '../metadata.js'
+
+const FIXTURE_WORKSPACE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '__fixtures__',
+  'optional-napi-derive',
+)
 
 test('should surface child process startup errors', async (t) => {
   const manifestPath = join(
@@ -25,4 +32,38 @@ test('should surface child process startup errors', async (t) => {
     process.env.PATH = originalPath
     await unlink(manifestPath)
   }
+})
+
+test('should exclude crates whose optional napi-derive dependency is disabled', async (t) => {
+  const metadata = await parseMetadata(
+    join(FIXTURE_WORKSPACE, 'main-crate', 'Cargo.toml'),
+  )
+  const dependentCrates = getNapiDeriveDependentCrates(metadata).map(
+    (crate) => crate.name,
+  )
+  t.deepEqual(dependentCrates, ['main-crate'])
+})
+
+test('should include crates whose optional napi-derive dependency is enabled via build features', async (t) => {
+  const metadata = await parseMetadata(
+    join(FIXTURE_WORKSPACE, 'with-optional-derive', 'Cargo.toml'),
+    {
+      features: ['node'],
+    },
+  )
+  const dependentCrates = getNapiDeriveDependentCrates(metadata).map(
+    (crate) => crate.name,
+  )
+  t.true(dependentCrates.includes('with-optional-derive'))
+})
+
+test('should fall back to declared dependencies when the resolve graph is unavailable', async (t) => {
+  const metadata = await parseMetadata(
+    join(FIXTURE_WORKSPACE, 'main-crate', 'Cargo.toml'),
+  )
+  metadata.resolve = null
+  const dependentCrates = getNapiDeriveDependentCrates(metadata)
+    .map((crate) => crate.name)
+    .sort()
+  t.deepEqual(dependentCrates, ['main-crate', 'with-optional-derive'])
 })

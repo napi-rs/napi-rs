@@ -1,0 +1,5 @@
+# Stand-in for the real `napi-derive` so `cargo metadata` resolves offline.
+[package]
+name = "napi-derive"
+version = "0.0.0"
+edition = "2021"
