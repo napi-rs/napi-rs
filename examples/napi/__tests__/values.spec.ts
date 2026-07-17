@@ -314,6 +314,9 @@ import {
   withAbortSignalHandle,
   createI32ArrayFromExternal,
   optionalCallbackTypes,
+  systemTimeToMillis,
+  systemTimeReturn,
+  systemTimeReturnNegative,
   ReentrantBorrowOrderTest,
   createReentrantBorrowOrderTestTarget,
   cleanupReentrantBorrowOrderTestTargets,
@@ -2305,6 +2308,36 @@ Napi5Test('Date from chrono::NativeDateTime test', (t) => {
   const fixture = chronoNativeDateTimeReturn()
   t.true(fixture instanceof Date)
   t.is(fixture?.toISOString(), '2016-12-23T15:25:59.325Z')
+})
+
+Napi5Test('Date to SystemTime test', (t) => {
+  const fixture = new Date()
+  t.is(systemTimeToMillis(fixture), fixture.valueOf())
+})
+
+Napi5Test('NaN Date to SystemTime test', (t) => {
+  const fixture = new Date(NaN)
+  t.throws(() => systemTimeToMillis(fixture), {
+    code: 'DateExpected',
+    message: 'Date cannot be represented as rust type `SystemTime`',
+  })
+})
+
+Napi5Test('Date from SystemTime test', (t) => {
+  const fixture = systemTimeReturn()
+  t.true(fixture instanceof Date)
+  t.is(fixture?.toISOString(), '2016-12-23T12:25:59.325Z')
+})
+
+Napi5Test('Pre-epoch Date to SystemTime test', (t) => {
+  const fixture = new Date(-1000)
+  t.is(systemTimeToMillis(fixture), -1000)
+})
+
+Napi5Test('Pre-epoch Date from SystemTime test', (t) => {
+  const fixture = systemTimeReturnNegative()
+  t.true(fixture instanceof Date)
+  t.is(fixture?.toISOString(), '1969-12-31T23:59:59.000Z')
 })
 
 const Napi9Test = Number(process.versions.napi) >= 9 ? test : test.skip
