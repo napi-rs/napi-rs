@@ -1137,9 +1137,34 @@ impl Env {
   where
     T: 'static,
   {
-    check_status!(unsafe {
-      sys::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook.0 as *mut _)
-    })
+    #[cfg(not(target_family = "wasm"))]
+    {
+      check_status!(unsafe {
+        sys::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook.0 as *mut _)
+      })
+    }
+
+    // Mirror `add_env_cleanup_hook`: on wasm the cleanup hooks resolve through
+    // the `napi` wasm import module (`#[link(wasm_import_module = "napi")]` in
+    // `lib.rs`), which is also where the emnapi archives bind their own
+    // references. Going through `sys` here would emit an `env`-module import
+    // for the same symbol instead, so removal would target a different
+    // implementation than the one registration went through and the hook would
+    // still fire at env teardown.
+    #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+    {
+      check_status!(unsafe {
+        crate::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook.0 as *mut _)
+      })
+    }
+
+    #[cfg(all(target_family = "wasm", feature = "noop"))]
+    {
+      // `noop` builds register nothing (`add_env_cleanup_hook` skips the call
+      // too), so just drop the hook.
+      let _ = (hook.0, cleanup_env::<T>);
+      Ok(())
+    }
   }
 
   #[cfg(all(feature = "napi4", feature = "compat-mode"))]

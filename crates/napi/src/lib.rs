@@ -99,6 +99,11 @@ extern "C" {
     fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
     arg: *mut core::ffi::c_void,
   ) -> sys::napi_status;
+  fn napi_remove_env_cleanup_hook(
+    env: sys::napi_env,
+    fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
+    arg: *mut core::ffi::c_void,
+  ) -> sys::napi_status;
 }
 
 #[cfg(feature = "napi8")]
