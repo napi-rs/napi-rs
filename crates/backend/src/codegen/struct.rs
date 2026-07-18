@@ -29,22 +29,96 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
   quote! {}
 }
 
-/// FNV-1a-128 hash of `s`, split into `(lower, upper)` u64 halves.
+/// FNV-1a-128 hash over a *list* of components, split into `(lower, upper)`
+/// u64 halves.
 ///
 /// Used to derive a per-class 128-bit type tag at macro-expansion time from a
-/// stable identity string (crate name + crate version + module + class
-/// `js_name`; see [`gen_napi_value_map_impl`]). The identity — not the bare
-/// `js_name` — is what makes the tag unforgeable across namespaces and across
-/// separately-compiled addons loaded in one process.
-fn fnv1a_128(s: &str) -> (u64, u64) {
+/// structured identity (manifest dir + crate name + crate version + module +
+/// class `js_name`; see [`gen_napi_value_map_impl`]). The identity — not the
+/// bare `js_name` — is what makes the tag unforgeable across namespaces and
+/// across separately-compiled addons loaded in one process.
+///
+/// Each component is hashed as its **little-endian u64 length prefix followed
+/// by its bytes**, so component boundaries are unambiguous. A plain
+/// delimiter-join (e.g. `a::b` + `c` vs `a` + `b::c`) is *not* injective —
+/// both serialize to the same bytes and would collide. Length-prefixing makes
+/// `["a::b", "c"]` and `["a", "b::c"]` hash to different values, so two
+/// distinct classes can never share a tag (which would enable the very
+/// blind-cast this feature exists to prevent).
+fn fnv1a_128_fields(fields: &[&str]) -> (u64, u64) {
   // FNV offset basis (128-bit)
   let mut hash: u128 = 0x6c62272e07bb014262b821756295c58d;
-  for b in s.as_bytes() {
-    hash ^= *b as u128;
-    // FNV prime (128-bit)
-    hash = hash.wrapping_mul(0x0000000001000000000000000000013B);
+  for f in fields {
+    // Length prefix (delimits this component from the next unambiguously).
+    for b in (f.len() as u64).to_le_bytes() {
+      hash ^= b as u128;
+      // FNV prime (128-bit)
+      hash = hash.wrapping_mul(0x0000000001000000000000000000013B);
+    }
+    for b in f.as_bytes() {
+      hash ^= *b as u128;
+      hash = hash.wrapping_mul(0x0000000001000000000000000000013B);
+    }
   }
   (hash as u64, (hash >> 64) as u64)
+}
+
+/// Encode `js_mod` presence unambiguously so `None` (no `#[napi(js_name = ..)]`
+/// module) and `Some("")` map to *distinct* bytes: `None` -> `"n"`,
+/// `Some(m)` -> `"s{m}"`. The leading tag byte means the empty-module case can
+/// never collide with the "no module" case, which a bare `unwrap_or_default()`
+/// would silently conflate into `""`.
+fn encode_js_mod(js_mod: Option<&str>) -> String {
+  match js_mod {
+    Some(m) => format!("s{m}"),
+    None => "n".to_string(),
+  }
+}
+
+#[cfg(test)]
+mod type_tag_identity_tests {
+  use super::{encode_js_mod, fnv1a_128_fields};
+
+  /// Length-prefixing makes component boundaries unambiguous: a delimiter-join
+  /// would serialize both of these to the same `a::b::c` bytes and collide,
+  /// letting two distinct classes share a tag.
+  #[test]
+  fn component_boundaries_are_injective() {
+    assert_ne!(
+      fnv1a_128_fields(&["a::b", "c"]),
+      fnv1a_128_fields(&["a", "b::c"]),
+    );
+  }
+
+  /// `None` (no module) and `Some("")` (empty module) must not collapse to the
+  /// same bytes — a bare `unwrap_or_default()` would conflate them.
+  #[test]
+  fn none_and_empty_module_differ() {
+    assert_ne!(encode_js_mod(None), encode_js_mod(Some("")));
+    assert_ne!(
+      fnv1a_128_fields(&[encode_js_mod(None).as_str()]),
+      fnv1a_128_fields(&[encode_js_mod(Some("")).as_str()]),
+    );
+  }
+
+  /// A non-empty module must also stay distinct from the `None` sentinel.
+  #[test]
+  fn none_and_named_module_differ() {
+    assert_ne!(encode_js_mod(None), encode_js_mod(Some("n")));
+    assert_ne!(
+      fnv1a_128_fields(&[encode_js_mod(None).as_str()]),
+      fnv1a_128_fields(&[encode_js_mod(Some("n")).as_str()]),
+    );
+  }
+
+  /// The hash is deterministic: identical inputs → identical output.
+  #[test]
+  fn deterministic() {
+    assert_eq!(
+      fnv1a_128_fields(&["/src/pkg", "pkg", "1.0.0", "n", "Foo"]),
+      fnv1a_128_fields(&["/src/pkg", "pkg", "1.0.0", "n", "Foo"]),
+    );
+  }
 }
 
 // Generate trait implementations for given Struct.
@@ -56,22 +130,44 @@ fn gen_napi_value_map_impl(
   has_lifetime: bool,
 ) -> TokenStream {
   let name_str = name.to_string();
-  // Scope the per-class type tag to (crate, version, module, class) so it is
-  // unique per Rust class within any process. Hashing the bare `js_name` would
-  // collide for two classes sharing a name in different namespaces, or in two
-  // separately-compiled addons loaded in the same process — a collision would
-  // let an instance of one pass the other's tag check and be blind-cast to the
-  // wrong Rust type. `CARGO_PKG_NAME` / `CARGO_PKG_VERSION` are read with
+  // Scope the per-class type tag to (manifest_dir, crate, version, module,
+  // class) so it is unique per Rust class within any process. Hashing the bare
+  // `js_name` would collide for two classes sharing a name in different
+  // namespaces, or in two separately-compiled addons loaded in the same
+  // process — a collision would let an instance of one pass the other's tag
+  // check and be blind-cast to the wrong Rust type.
+  //
+  // `CARGO_MANIFEST_DIR` / `CARGO_PKG_NAME` / `CARGO_PKG_VERSION` are read with
   // `std::env::var` (NOT `env!`): at proc-macro expansion time these resolve to
   // the *consumer* crate's values, whereas `env!` would bake in this backend
-  // crate's own identity. The tag only needs per-process uniqueness (stamp and
-  // check share the same generated const in the same binary), so cross-build
-  // stability is not required.
+  // crate's own identity. `CARGO_MANIFEST_DIR` (the consumer crate's source
+  // tree) distinguishes two addons built from forks — or differing feature
+  // sets in separate checkouts — that happen to share identical
+  // name+version manifest metadata; the same source built twice resolves to
+  // the same dir, so it is stable within a build. The tag only needs
+  // per-process uniqueness (stamp and check share the same generated const in
+  // the same binary), so cross-machine stability is not required.
+  //
+  // The components are hashed with `fnv1a_128_fields` (length-prefixed per
+  // component) rather than delimiter-joined, so component boundaries are
+  // unambiguous and distinct classes can never serialize to the same bytes.
+  //
+  // We deliberately do NOT hard-"fail closed" when an env var is empty: the
+  // injective length-prefixed encoding plus `manifest_dir` already guarantee
+  // distinct *within-process* types get distinct tags (manifest_dir + module +
+  // js_name stay distinct regardless of pkg name/version). An empty pkg only
+  // reduces cross-addon entropy — it never collapses two distinct local types.
+  let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
   let pkg_name = std::env::var("CARGO_PKG_NAME").unwrap_or_default();
   let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
-  let module = js_mod.unwrap_or_default();
-  let type_tag_identity = format!("{pkg_name}@{pkg_version}::{module}::{js_name}");
-  let (type_tag_lower, type_tag_upper) = fnv1a_128(&type_tag_identity);
+  let module = encode_js_mod(js_mod);
+  let (type_tag_lower, type_tag_upper) = fnv1a_128_fields(&[
+    manifest_dir.as_str(),
+    pkg_name.as_str(),
+    pkg_version.as_str(),
+    module.as_str(),
+    js_name,
+  ]);
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
