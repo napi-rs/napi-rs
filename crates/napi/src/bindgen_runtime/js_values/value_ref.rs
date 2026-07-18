@@ -8,7 +8,7 @@ use std::sync::{Arc, Weak};
 use nohash_hasher::NoHashHasher;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, PersistedPerInstanceHashMap, ToNapiValue},
+  bindgen_runtime::{FromNapiValue, PersistedPerInstanceHashMap, ToNapiValue, TypeTag},
   check_status, Env, Error, Result, Status,
 };
 
@@ -119,7 +119,7 @@ impl<T: 'static> ToNapiValue for Reference<T> {
   }
 }
 
-impl<T: 'static> FromNapiValue for Reference<T> {
+impl<T: 'static + TypeTag> FromNapiValue for Reference<T> {
   unsafe fn from_napi_value(
     env: crate::sys::napi_env,
     napi_val: crate::sys::napi_value,
@@ -130,6 +130,18 @@ impl<T: 'static> FromNapiValue for Reference<T> {
       "Unwrap value [{}] from class Reference failed",
       std::any::type_name::<T>(),
     )?;
+
+    // Reject a wrong-class / prototype-spoofed object before adopting it as a
+    // `Reference<T>` (no-op on builds without the `napi8` feature).
+    unsafe {
+      crate::bindgen_runtime::validate_type_tag(
+        env,
+        napi_val,
+        &T::TYPE_TAG,
+        std::any::type_name::<T>(),
+      )?
+    };
+
     unsafe { Reference::from_value_ptr(value.cast(), env) }
   }
 }

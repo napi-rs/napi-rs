@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr};
 
-use super::TypeName;
+use super::{TypeName, TypeTag};
 use crate::{check_status, sys, Error, JsError, Result, Status};
 
 #[doc(hidden)]
@@ -46,7 +46,7 @@ impl<const N: usize> ClassAccessorCallbackInfo<N> {
   #[inline]
   pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
   where
-    T: TypeName,
+    T: TypeName + TypeTag,
   {
     unsafe { class_accessor_unwrap_this::<T>(self.env, self.this) }
   }
@@ -59,7 +59,7 @@ pub unsafe fn class_accessor_unwrap_this<T>(
   this: sys::napi_value,
 ) -> Result<*mut T>
 where
-  T: TypeName,
+  T: TypeName + TypeTag,
 {
   let mut wrapped_val: *mut c_void = ptr::null_mut();
 
@@ -68,6 +68,10 @@ where
     "Failed to unwrap exclusive reference of `{}` type from napi value",
     T::type_name(),
   )?;
+
+  // Reject a spoofed field-accessor receiver before the blind cast (no-op on
+  // builds without the `napi8` feature).
+  unsafe { super::validate_type_tag(env, this, &T::TYPE_TAG, T::type_name())? };
 
   Ok(wrapped_val.cast())
 }

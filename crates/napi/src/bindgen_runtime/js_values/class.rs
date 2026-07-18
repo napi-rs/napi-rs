@@ -7,7 +7,7 @@ use std::ptr;
 use crate::{
   bindgen_runtime::{
     raw_finalize_unchecked, FromNapiValue, JsObjectValue, Object, ObjectFinalize, Reference,
-    Result, TypeName, ValidateNapiValue,
+    Result, TypeName, TypeTag, ValidateNapiValue,
   },
   check_status, sys, Env, JsValue, Property, PropertyAttributes, Value, ValueType,
 };
@@ -64,7 +64,7 @@ pub struct ClassInstance<'env, T: 'env> {
   _phantom: &'env PhantomData<()>,
 }
 
-impl<'env, T: 'env> JsValue<'env> for ClassInstance<'env, T> {
+impl<'env, T: 'env + TypeTag> JsValue<'env> for ClassInstance<'env, T> {
   fn value(&self) -> Value {
     Value {
       env: self.env,
@@ -74,7 +74,7 @@ impl<'env, T: 'env> JsValue<'env> for ClassInstance<'env, T> {
   }
 }
 
-impl<'env, T: 'env> JsObjectValue<'env> for ClassInstance<'env, T> {}
+impl<'env, T: 'env + TypeTag> JsObjectValue<'env> for ClassInstance<'env, T> {}
 
 impl<'env, T: 'env> ClassInstance<'env, T> {
   #[doc(hidden)]
@@ -138,6 +138,7 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
   ) -> Result<ClassInstance<'this, T>>
   where
     'this: 'env,
+    T: TypeTag,
     U: FromNapiValue + JsValue<'this>,
   {
     let property = Property::new()
@@ -192,7 +193,7 @@ where
   }
 }
 
-impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
+impl<'env, T: 'env + TypeTag> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut value = ptr::null_mut();
     check_status!(
@@ -200,6 +201,13 @@ impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
       "Unwrap value [{}] from class failed",
       type_name::<T>(),
     )?;
+
+    // Reject a wrong-class / prototype-spoofed object before the blind cast
+    // (no-op on builds without the `napi8` feature).
+    unsafe {
+      crate::bindgen_runtime::validate_type_tag(env, napi_val, &T::TYPE_TAG, type_name::<T>())?;
+    }
+
     let value = unsafe { Box::from_raw(value as *mut T) };
     Ok(Self {
       value: napi_val,
@@ -240,7 +248,7 @@ pub trait JavaScriptClassExt: Sized {
 ///
 /// create instance of class
 #[doc(hidden)]
-pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
+pub unsafe fn new_instance<T: 'static + ObjectFinalize + TypeTag>(
   env: sys::napi_env,
   wrapped_value: *mut std::ffi::c_void,
   ctor_ref: sys::napi_ref,
@@ -280,6 +288,13 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
     "Failed to wrap native object of class `{}`",
     type_name::<T>(),
   )?;
+
+  // Stamp the freshly-wrapped object with this class's unforgeable type tag
+  // (no-op on builds without the `napi8` feature).
+  unsafe {
+    crate::bindgen_runtime::tag_object(env, result, &T::TYPE_TAG)?;
+  }
+
   Reference::<T>::add_ref(
     env,
     wrapped_value,

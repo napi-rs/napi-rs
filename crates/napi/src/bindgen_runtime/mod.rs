@@ -7,6 +7,7 @@ pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
+pub use type_tag::*;
 
 use super::sys;
 use crate::{Error, JsError, Result, Status};
@@ -22,6 +23,7 @@ mod error;
 pub mod iterator;
 mod js_values;
 mod module_register;
+mod type_tag;
 
 pub trait ObjectFinalize: Sized {
   #[allow(unused)]

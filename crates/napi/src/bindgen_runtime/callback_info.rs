@@ -84,7 +84,7 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
+  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + TypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -119,6 +119,12 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
     };
 
+    // Stamp the freshly-wrapped object with this class's unforgeable type tag
+    // (no-op on builds without the `napi8` feature).
+    unsafe {
+      tag_object(self.env, this, &T::TYPE_TAG)?;
+    }
+
     Reference::<T>::add_ref(
       self.env,
       value_ref.cast(),
@@ -127,7 +133,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok((this, value_ref))
   }
 
-  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
+  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + TypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -140,7 +146,7 @@ impl<const N: usize> CallbackInfo<N> {
   pub fn construct_generator<
     'a,
     const IsEmptyStructHint: bool,
-    T: ScopedGenerator<'a> + ObjectFinalize + 'static,
+    T: ScopedGenerator<'a> + ObjectFinalize + TypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -151,7 +157,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  pub fn factory<T: ObjectFinalize + 'static>(
+  pub fn factory<T: ObjectFinalize + TypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -159,7 +165,7 @@ impl<const N: usize> CallbackInfo<N> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + 'static>(
+  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + TypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -172,7 +178,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn construct_async_generator<
     const IsEmptyStructHint: bool,
-    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + 'static,
+    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + TypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -185,7 +191,7 @@ impl<const N: usize> CallbackInfo<N> {
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn async_generator_factory<
-    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + 'static,
+    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + TypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -196,7 +202,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  fn _factory<T: ObjectFinalize + 'static>(
+  fn _factory<T: ObjectFinalize + TypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -255,6 +261,12 @@ impl<const N: usize> CallbackInfo<N> {
       js_name,
     )?;
 
+    // Stamp the freshly-wrapped object with this class's unforgeable type tag
+    // (no-op on builds without the `napi8` feature).
+    unsafe {
+      tag_object(self.env, instance, &T::TYPE_TAG)?;
+    }
+
     Reference::<T>::add_ref(
       self.env,
       value_ref.cast(),
@@ -265,14 +277,14 @@ impl<const N: usize> CallbackInfo<N> {
 
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
   where
-    T: FromNapiMutRef + TypeName,
+    T: FromNapiMutRef + TypeName + TypeTag,
   {
     unsafe { self.unwrap_raw::<T>() }.map(|raw| Box::leak(unsafe { Box::from_raw(raw) }))
   }
 
   pub fn unwrap_borrow<T>(&mut self) -> Result<&'static T>
   where
-    T: FromNapiRef + TypeName,
+    T: FromNapiRef + TypeName + TypeTag,
   {
     unsafe { self.unwrap_raw::<T>() }
       .map(|raw| Box::leak(unsafe { Box::from_raw(raw) }) as &'static T)
@@ -282,7 +294,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[inline]
   pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
   where
-    T: TypeName,
+    T: TypeName + TypeTag,
   {
     let mut wrapped_val: *mut c_void = std::ptr::null_mut();
 
@@ -292,6 +304,10 @@ impl<const N: usize> CallbackInfo<N> {
         "Failed to unwrap exclusive reference of `{}` type from napi value",
         T::type_name(),
       )?;
+
+      // Reject a spoofed receiver (`method.call(wrongThis)`) before the blind
+      // cast (no-op on builds without the `napi8` feature).
+      validate_type_tag(self.env, self.this, &T::TYPE_TAG, T::type_name())?;
 
       Ok(wrapped_val.cast())
     }
