@@ -55,15 +55,17 @@ fn emnapi_link_library(has_threads: bool) -> &'static str {
   // `napi` import module for every `napi_*` reference and do not link against
   // the Rust objects.
   //
-  // Both archives follow the "basic" emnapi model (see
-  // vendor/emnapi/build.mjs): no C `async_work.c` / `threadsafe_function.c`
-  // implementations, so async work and thread-safe functions stay wasm
-  // imports resolved by the `@emnapi/core/plugins` JavaScript implementations
-  // that every generated loader wires up.
+  // The threaded archive (`emnapi-napi-rs-mt`) ships the FULL emnapi
+  // composition: the C `async_work.c` / `threadsafe_function.c`
+  // implementations backed by the uv threadpool, matching emscripten's
+  // `emnapi-mt`. The non-threaded archive (`emnapi-basic-napi-rs`) follows
+  // the "basic" model: async work and thread-safe functions stay wasm
+  // imports resolved by the `@emnapi/core/plugins` JavaScript
+  // implementations that every generated loader wires up.
   if has_threads {
     "emnapi-napi-rs-mt"
   } else {
-    "emnapi"
+    "emnapi-basic-napi-rs"
   }
 }
 
@@ -180,7 +182,7 @@ mod tests {
 
   #[test]
   fn selects_v2_emnapi_archives_by_threading_model() {
-    assert_eq!(emnapi_link_library(false), "emnapi");
+    assert_eq!(emnapi_link_library(false), "emnapi-basic-napi-rs");
     assert_eq!(emnapi_link_library(true), "emnapi-napi-rs-mt");
   }
 }

@@ -1418,7 +1418,7 @@ class Builder {
     // Keep this in sync with `emnapi_link_library` in `crates/build/src/wasi.rs`.
     const emnapiArchive = join(
       emnapi,
-      hasThreads ? 'libemnapi-napi-rs-mt.a' : 'libemnapi.a',
+      hasThreads ? 'libemnapi-napi-rs-mt.a' : 'libemnapi-basic-napi-rs.a',
     )
     if (!existsSync(emnapiArchive)) {
       throw new Error(
