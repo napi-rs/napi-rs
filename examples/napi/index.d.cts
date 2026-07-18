@@ -1184,6 +1184,13 @@ export interface PropertyNameValidTest {
   with123Numbers: string
 }
 
+/**
+ * Non-strict, so the `&AlphaCollision` argument is resolved purely by the type
+ * tag (no `instanceof`): passing a same-js_name `BetaCollision` must be rejected
+ * by the tag, and an actual `AlphaCollision` must round-trip.
+ */
+export declare function readAlphaCollision(client: CollisionClient): number
+
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
@@ -1548,6 +1555,27 @@ export declare function withinAsyncRuntimeIfAvailable(): void
 export declare function withoutAbortController(a: number, b: number): Promise<number>
 
 export declare function xxh64Alias(input: Buffer): bigint
+
+export declare namespace tag_collision_alpha {
+  /** Namespace `tag_collision_alpha`, js_name `CollisionClient`. */
+  export class CollisionClient {
+    value: number
+  }
+  export type AlphaCollision = CollisionClient
+}
+
+export declare namespace tag_collision_beta {
+  /**
+   * Namespace `tag_collision_beta`, js_name `CollisionClient` (same js_name as
+   * `AlphaCollision`, different namespace).
+   */
+  export class CollisionClient {
+    value: number
+    constructor(value: number)
+    constructor(value: number)
+  }
+  export type BetaCollision = CollisionClient
+}
 
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number

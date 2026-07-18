@@ -31,9 +31,11 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
 
 /// FNV-1a-128 hash of `s`, split into `(lower, upper)` u64 halves.
 ///
-/// Used to derive a stable, per-class 128-bit type tag at macro-expansion time
-/// from the class `js_name` (the globally-unique registry key). Stable across
-/// builds/rustc and collision-negligible, so distinct classes get distinct tags.
+/// Used to derive a per-class 128-bit type tag at macro-expansion time from a
+/// stable identity string (crate name + crate version + module + class
+/// `js_name`; see [`gen_napi_value_map_impl`]). The identity — not the bare
+/// `js_name` — is what makes the tag unforgeable across namespaces and across
+/// separately-compiled addons loaded in one process.
 fn fnv1a_128(s: &str) -> (u64, u64) {
   // FNV offset basis (128-bit)
   let mut hash: u128 = 0x6c62272e07bb014262b821756295c58d;
@@ -49,11 +51,27 @@ fn fnv1a_128(s: &str) -> (u64, u64) {
 fn gen_napi_value_map_impl(
   name: &Ident,
   js_name: &str,
+  js_mod: Option<&str>,
   to_napi_val_impl: TokenStream,
   has_lifetime: bool,
 ) -> TokenStream {
   let name_str = name.to_string();
-  let (type_tag_lower, type_tag_upper) = fnv1a_128(js_name);
+  // Scope the per-class type tag to (crate, version, module, class) so it is
+  // unique per Rust class within any process. Hashing the bare `js_name` would
+  // collide for two classes sharing a name in different namespaces, or in two
+  // separately-compiled addons loaded in the same process — a collision would
+  // let an instance of one pass the other's tag check and be blind-cast to the
+  // wrong Rust type. `CARGO_PKG_NAME` / `CARGO_PKG_VERSION` are read with
+  // `std::env::var` (NOT `env!`): at proc-macro expansion time these resolve to
+  // the *consumer* crate's values, whereas `env!` would bake in this backend
+  // crate's own identity. The tag only needs per-process uniqueness (stamp and
+  // check share the same generated const in the same binary), so cross-build
+  // stability is not required.
+  let pkg_name = std::env::var("CARGO_PKG_NAME").unwrap_or_default();
+  let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+  let module = js_mod.unwrap_or_default();
+  let type_tag_identity = format!("{pkg_name}@{pkg_version}::{module}::{js_name}");
+  let (type_tag_lower, type_tag_upper) = fnv1a_128(&type_tag_identity);
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
@@ -394,12 +412,14 @@ impl NapiStruct {
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
         &self.js_name,
+        self.js_mod.as_deref(),
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
         self.has_lifetime,
       ),
       NapiStructKind::Class(class) => gen_napi_value_map_impl(
         &self.name,
         &self.js_name,
+        self.js_mod.as_deref(),
         self.gen_to_napi_value_ctor_impl(class),
         self.has_lifetime,
       ),
