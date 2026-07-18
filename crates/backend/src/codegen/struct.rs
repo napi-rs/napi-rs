@@ -29,13 +29,31 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
   quote! {}
 }
 
+/// FNV-1a-128 hash of `s`, split into `(lower, upper)` u64 halves.
+///
+/// Used to derive a stable, per-class 128-bit type tag at macro-expansion time
+/// from the class `js_name` (the globally-unique registry key). Stable across
+/// builds/rustc and collision-negligible, so distinct classes get distinct tags.
+fn fnv1a_128(s: &str) -> (u64, u64) {
+  // FNV offset basis (128-bit)
+  let mut hash: u128 = 0x6c62272e07bb014262b821756295c58d;
+  for b in s.as_bytes() {
+    hash ^= *b as u128;
+    // FNV prime (128-bit)
+    hash = hash.wrapping_mul(0x0000000001000000000000000000013B);
+  }
+  (hash as u64, (hash >> 64) as u64)
+}
+
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(
   name: &Ident,
+  js_name: &str,
   to_napi_val_impl: TokenStream,
   has_lifetime: bool,
 ) -> TokenStream {
   let name_str = name.to_string();
+  let (type_tag_lower, type_tag_upper) = fnv1a_128(js_name);
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
@@ -110,6 +128,15 @@ fn gen_napi_value_map_impl(
     #to_napi_val_impl
 
     #[automatically_derived]
+    impl napi::bindgen_prelude::TypeTag for #name {
+      const TYPE_TAG: napi::bindgen_prelude::sys::napi_type_tag =
+        napi::bindgen_prelude::sys::napi_type_tag {
+          lower: #type_tag_lower,
+          upper: #type_tag_upper,
+        };
+    }
+
+    #[automatically_derived]
     impl napi::bindgen_prelude::FromNapiRef for #name {
       unsafe fn from_napi_ref(
         env: napi::bindgen_prelude::sys::napi_env,
@@ -120,6 +147,18 @@ fn gen_napi_value_map_impl(
         napi::bindgen_prelude::check_status!(
           napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
           "Failed to recover `{}` type from napi value",
+          #name_str,
+        )?;
+
+        // Reject a wrong-class / prototype-spoofed `&T` argument before the
+        // blind cast. `validate_type_tag` is a no-op on builds without the
+        // `napi8` feature (the gate lives inside napi, since this code expands
+        // in the consumer crate where `cfg(feature = "napi8")` would not see
+        // napi's features).
+        napi::bindgen_prelude::validate_type_tag(
+          env,
+          napi_val,
+          &<#name as napi::bindgen_prelude::TypeTag>::TYPE_TAG,
           #name_str,
         )?;
 
@@ -138,6 +177,18 @@ fn gen_napi_value_map_impl(
         napi::bindgen_prelude::check_status!(
           napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
           "Failed to recover `{}` type from napi value",
+          #name_str,
+        )?;
+
+        // Reject a wrong-class / prototype-spoofed `&mut T` argument before the
+        // blind cast. `validate_type_tag` is a no-op on builds without the
+        // `napi8` feature (the gate lives inside napi, since this code expands
+        // in the consumer crate where `cfg(feature = "napi8")` would not see
+        // napi's features).
+        napi::bindgen_prelude::validate_type_tag(
+          env,
+          napi_val,
+          &<#name as napi::bindgen_prelude::TypeTag>::TYPE_TAG,
           #name_str,
         )?;
 
@@ -342,11 +393,13 @@ impl NapiStruct {
       NapiStructKind::Transparent(transparent) => self.gen_napi_value_transparent_impl(transparent),
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
+        &self.js_name,
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
         self.has_lifetime,
       ),
       NapiStructKind::Class(class) => gen_napi_value_map_impl(
         &self.name,
+        &self.js_name,
         self.gen_to_napi_value_ctor_impl(class),
         self.has_lifetime,
       ),
