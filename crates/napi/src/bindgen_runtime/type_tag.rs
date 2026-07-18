@@ -87,15 +87,28 @@ impl<T> MaybeTypeTag for T {}
 ///
 /// # Note on gating
 ///
-/// This helper is defined **unconditionally** with a `napi8`-gated body (a
-/// no-op that returns `Ok(())` on builds without `napi8`). It is deliberately
-/// *not* `#[cfg(feature = "napi8")]`, because it is also invoked from
+/// This helper is defined **unconditionally** with a body gated to
+/// `all(feature = "napi8", not(target_family = "wasm"))` (a no-op that returns
+/// `Ok(())` on every other build). It is deliberately *not* plain
+/// `#[cfg(feature = "napi8")]`, because it is also invoked from
 /// derive-generated code that expands in the consumer crate, where a
 /// `#[cfg(feature = "napi8")]` attribute would resolve against the *consumer*
 /// crate's features (which typically do not include a `napi8` feature) rather
 /// than napi's. Gating happens here, inside the napi crate, where the feature
 /// is visible.
-#[cfg(feature = "napi8")]
+///
+/// # Note on wasm
+///
+/// Tagging is a **no-op on wasm**. The anchor address is a process-global
+/// identity only on native targets; on wasm it is an instance-local
+/// linear-memory offset, so two instances of the same addon would map their
+/// anchor statics at identical offsets and receive identical tags, defeating
+/// cross-instance uniqueness. Additionally, Node-API type-tag support on
+/// wasm/emnapi is host-dependent (the `napi_type_tag_object` extern may be
+/// unresolved). So on wasm the binding keeps its pre-tag behavior (blind cast,
+/// or `instanceof` under `strict`) — no worse than before this feature, and no
+/// unresolved-symbol risk.
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
 pub unsafe fn tag_object(
   env: sys::napi_env,
   obj: sys::napi_value,
@@ -107,13 +120,14 @@ pub unsafe fn tag_object(
   )
 }
 
-/// No-op fallback for builds without the `napi8` feature. See the `napi8`
-/// variant for why this is defined unconditionally.
+/// No-op fallback for builds without `napi8`, and for **all** wasm builds (see
+/// the "Note on wasm" on the real variant for the wasm rationale). Defined
+/// unconditionally for the same reason as the real variant.
 ///
 /// # Safety
 ///
 /// Always safe; the arguments are ignored.
-#[cfg(not(feature = "napi8"))]
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 #[inline(always)]
 pub unsafe fn tag_object(
   _env: sys::napi_env,
@@ -133,13 +147,24 @@ pub unsafe fn tag_object(
 ///
 /// # Note on gating
 ///
-/// Defined unconditionally with a `napi8`-gated body for the same reason as
+/// Defined unconditionally with a body gated to
+/// `all(feature = "napi8", not(target_family = "wasm"))` for the same reason as
 /// [`tag_object`]: it is invoked from derive-generated code (param `&T` /
 /// `&mut T` checks) that expands in the consumer crate, so the feature gate
 /// must live inside napi. On builds without `napi8` this is a no-op that
 /// returns `Ok(())`, preserving today's behavior (blind cast, or `instanceof`
 /// under `strict`).
-#[cfg(feature = "napi8")]
+///
+/// # Note on wasm
+///
+/// The check is a **no-op on wasm** for the same reasons stamping is (see
+/// [`tag_object`]): the anchor address is a process-global identity only on
+/// native targets — on wasm it is an instance-local linear-memory offset, not
+/// unique across instances — and Node-API type-tag support on wasm/emnapi is
+/// host-dependent (the `napi_check_object_type_tag` extern may be unresolved).
+/// On wasm the binding keeps its pre-tag behavior (blind cast, or `instanceof`
+/// under `strict`).
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
 pub unsafe fn validate_type_tag(
   env: sys::napi_env,
   obj: sys::napi_value,
@@ -161,13 +186,14 @@ pub unsafe fn validate_type_tag(
   }
 }
 
-/// No-op fallback for builds without the `napi8` feature. See the `napi8`
-/// variant for why this is defined unconditionally.
+/// No-op fallback for builds without `napi8`, and for **all** wasm builds (see
+/// the "Note on wasm" on the real variant for the wasm rationale). Defined
+/// unconditionally for the same reason as the real variant.
 ///
 /// # Safety
 ///
 /// Always safe; the arguments are ignored.
-#[cfg(not(feature = "napi8"))]
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 #[inline(always)]
 pub unsafe fn validate_type_tag(
   _env: sys::napi_env,
@@ -180,6 +206,12 @@ pub unsafe fn validate_type_tag(
 
 #[cfg(test)]
 mod tests {
+  // NOTE: object tagging/checking is a **native-only** guarantee. These tests
+  // cover the pure address→tag arithmetic ([`type_tag_from_anchor`]), which is
+  // unconditional. The actual N-API stamp/check ([`tag_object`] /
+  // [`validate_type_tag`]) is a no-op on wasm, because the anchor address is an
+  // instance-local linear-memory offset there (not process-globally unique) and
+  // Node-API type-tag support on wasm/emnapi is host-dependent.
   use super::type_tag_from_anchor;
 
   /// Distinct anchor addresses get distinct tags. The encoding is injective in
