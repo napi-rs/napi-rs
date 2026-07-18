@@ -9,6 +9,16 @@ import {
   readAlphaCollision,
 } from '../index.cjs'
 
+// Object type tags are a NATIVE-only guarantee. On wasm, `tag_object` /
+// `validate_type_tag` are no-ops (see
+// crates/napi/src/bindgen_runtime/type_tag.rs): the per-class anchor address is
+// an instance-local linear-memory offset there, not a process-global identity,
+// and Node-API type-tag support on wasm/emnapi is host-dependent. So a
+// wrong-class / receiver-spoof / prototype-spoof / same-js_name-collision
+// argument is NOT rejected on wasm. The four rejection tests below are therefore
+// native-only; the positive round-trip tests run everywhere.
+const napi8NativeOnlyTest = process.env.WASI_TEST ? test.skip : test
+
 // 1. Normal usage still works: construct via `new` (W1), via factory (W2), via
 //    a by-value return (W3); call `&self` methods and a method taking a
 //    `&OtherClass` param. All succeed and round-trip.
@@ -34,19 +44,22 @@ test('normal usage still works across all construction paths', (t) => {
 
 // 2. Wrong-class arg throws: a method wanting `&TypeTagB` given a wrapped
 //    `TypeTagA` (`as unknown as TypeTagB`) -> catchable Error, no crash.
-test('wrong-class argument throws instead of a type-confused cast', (t) => {
-  const a = new TypeTagA(1)
-  const notB = new TypeTagA(99)
+napi8NativeOnlyTest(
+  'wrong-class argument throws instead of a type-confused cast',
+  (t) => {
+    const a = new TypeTagA(1)
+    const notB = new TypeTagA(99)
 
-  const err = t.throws(() => a.addOther(notB as unknown as TypeTagB))
-  t.truthy(err)
-  t.regex(String((err as Error).message), /not an instance of class/)
+    const err = t.throws(() => a.addOther(notB as unknown as TypeTagB))
+    t.truthy(err)
+    t.regex(String((err as Error).message), /not an instance of class/)
 
-  // `&mut` param path is guarded too.
-  const errMut = t.throws(() => a.bumpOther(notB as unknown as TypeTagB))
-  t.truthy(errMut)
-  t.regex(String((errMut as Error).message), /not an instance of class/)
-})
+    // `&mut` param path is guarded too.
+    const errMut = t.throws(() => a.bumpOther(notB as unknown as TypeTagB))
+    t.truthy(errMut)
+    t.regex(String((errMut as Error).message), /not an instance of class/)
+  },
+)
 
 // 3. Receiver spoof throws: `TypeTagA.prototype.getValue.call(wrongThis)` ->
 //    catchable Error, never a type-confused cast / crash.
@@ -58,43 +71,49 @@ test('wrong-class argument throws instead of a type-confused cast', (t) => {
 //    callback runs; the `unwrap_raw` tag check we added sits behind that as
 //    defense-in-depth (it becomes decisive if a receiver ever reaches the
 //    callback with a mismatched wrap). Either way: a catchable Error, no UB.
-test('receiver spoof via .call(wrongThis) throws a catchable error', (t) => {
-  const b = new TypeTagB(2)
+napi8NativeOnlyTest(
+  'receiver spoof via .call(wrongThis) throws a catchable error',
+  (t) => {
+    const b = new TypeTagB(2)
 
-  const err = t.throws(() => TypeTagA.prototype.getValue.call(b))
-  t.truthy(err)
+    const err = t.throws(() => TypeTagA.prototype.getValue.call(b))
+    t.truthy(err)
 
-  // a plain, never-wrapped object re-parented onto TypeTagA.prototype is also
-  // rejected -- still a catchable Error, never a crash.
-  const spoof = {}
-  Object.setPrototypeOf(spoof, TypeTagA.prototype)
-  t.true(spoof instanceof TypeTagA) // instanceof fooled
-  t.truthy(t.throws(() => TypeTagA.prototype.getValue.call(spoof)))
-})
+    // a plain, never-wrapped object re-parented onto TypeTagA.prototype is also
+    // rejected -- still a catchable Error, never a crash.
+    const spoof = {}
+    Object.setPrototypeOf(spoof, TypeTagA.prototype)
+    t.true(spoof instanceof TypeTagA) // instanceof fooled
+    t.truthy(t.throws(() => TypeTagA.prototype.getValue.call(spoof)))
+  },
+)
 
 // 4. Prototype spoof throws: an object that passes `instanceof TypeTagB` but
 //    is not a real TypeTagB is rejected as a `&TypeTagB` argument. `instanceof`
 //    (and thus `#[napi(strict)]`) would PASS; the unforgeable tag must still
 //    reject it. We use a real wrapped TypeTagA re-parented onto TypeTagB.prototype
 //    so `napi_unwrap` succeeds and only the tag distinguishes it.
-test('prototype-spoofed argument is rejected by the tag (instanceof would pass)', (t) => {
-  const a = new TypeTagA(1)
+napi8NativeOnlyTest(
+  'prototype-spoofed argument is rejected by the tag (instanceof would pass)',
+  (t) => {
+    const a = new TypeTagA(1)
 
-  const fakeB = new TypeTagA(50)
-  Object.setPrototypeOf(fakeB, TypeTagB.prototype)
-  t.true(fakeB instanceof TypeTagB) // instanceof fooled
+    const fakeB = new TypeTagA(50)
+    Object.setPrototypeOf(fakeB, TypeTagB.prototype)
+    t.true(fakeB instanceof TypeTagB) // instanceof fooled
 
-  const err = t.throws(() => a.addOther(fakeB as unknown as TypeTagB))
-  t.truthy(err)
-  t.regex(String((err as Error).message), /not an instance of class/)
+    const err = t.throws(() => a.addOther(fakeB as unknown as TypeTagB))
+    t.truthy(err)
+    t.regex(String((err as Error).message), /not an instance of class/)
 
-  // A never-wrapped plain object re-parented onto TypeTagB.prototype is rejected
-  // too (catchable Error, no crash).
-  const spoofB = {}
-  Object.setPrototypeOf(spoofB, TypeTagB.prototype)
-  t.true(spoofB instanceof TypeTagB)
-  t.truthy(t.throws(() => a.addOther(spoofB as unknown as TypeTagB)))
-})
+    // A never-wrapped plain object re-parented onto TypeTagB.prototype is rejected
+    // too (catchable Error, no crash).
+    const spoofB = {}
+    Object.setPrototypeOf(spoofB, TypeTagB.prototype)
+    t.true(spoofB instanceof TypeTagB)
+    t.truthy(t.throws(() => a.addOther(spoofB as unknown as TypeTagB)))
+  },
+)
 
 // F1. Two classes sharing the SAME js_name ("CollisionClient") in DIFFERENT
 //    namespaces must get DISTINCT type tags. Hashing the bare js_name would make
@@ -105,23 +124,26 @@ test('prototype-spoofed argument is rejected by the tag (instanceof would pass)'
 //    non-strict, so its `&AlphaCollision` arg is resolved purely by the tag (no
 //    instanceof) -- isolating the tag as the decisive check.
 type CollisionCtor = new (value: number) => { value: number }
-test('same-js_name classes in different namespaces get distinct type tags', (t) => {
-  const AlphaClient =
-    tag_collision_alpha.CollisionClient as unknown as CollisionCtor
-  const BetaClient =
-    tag_collision_beta.CollisionClient as unknown as CollisionCtor
+napi8NativeOnlyTest(
+  'same-js_name classes in different namespaces get distinct type tags',
+  (t) => {
+    const AlphaClient =
+      tag_collision_alpha.CollisionClient as unknown as CollisionCtor
+    const BetaClient =
+      tag_collision_beta.CollisionClient as unknown as CollisionCtor
 
-  // positive: an actual AlphaCollision round-trips.
-  const alpha = new AlphaClient(5)
-  t.is(readAlphaCollision(alpha as never), 5)
+    // positive: an actual AlphaCollision round-trips.
+    const alpha = new AlphaClient(5)
+    t.is(readAlphaCollision(alpha as never), 5)
 
-  // negative: a BetaCollision (same js_name, different namespace) is rejected by
-  // the now-distinct tag -- pre-fix its tag would collide with AlphaCollision's.
-  const beta = new BetaClient(9)
-  const err = t.throws(() => readAlphaCollision(beta as never))
-  t.truthy(err)
-  t.regex(String((err as Error).message), /not an instance of class/)
-})
+    // negative: a BetaCollision (same js_name, different namespace) is rejected by
+    // the now-distinct tag -- pre-fix its tag would collide with AlphaCollision's.
+    const beta = new BetaClient(9)
+    const err = t.throws(() => readAlphaCollision(beta as never))
+    t.truthy(err)
+    t.regex(String((err as Error).message), /not an instance of class/)
+  },
+)
 
 // 5. Subclassing still works: `class Sub extends TypeTagA {}`; `new Sub()`;
 //    call a TypeTagA method -> OK (super() stamped with TypeTagA's tag).
