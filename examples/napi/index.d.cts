@@ -392,6 +392,30 @@ export declare class ThingList {
   get thing(): Thing
 }
 
+/** Constructed via `new` (W1), `#[napi(factory)]` (W2) and by-value return (W3). */
+export declare class TypeTagA {
+  value: number
+  constructor(value: number)
+  /** Factory constructor -> stamp site W2 (`_factory`). */
+  static fromValue(value: number): TypeTagA
+  /** `&self` receiver -> receiver tag check in `unwrap_raw`. */
+  getValue(): number
+  /** Takes a `&TypeTagB` param -> param tag check in generated `from_napi_ref`. */
+  addOther(other: TypeTagB): number
+  /**
+   * Takes a `&mut TypeTagB` param -> param tag check in generated
+   * `from_napi_mut_ref`.
+   */
+  bumpOther(other: TypeTagB): number
+}
+
+/** The "other" class, only ever passed as a `&TypeTagB` / `&mut TypeTagB` arg. */
+export declare class TypeTagB {
+  value: number
+  constructor(value: number)
+  getValue(): number
+}
+
 export declare class UseNullableClass {
   requiredNumberField: number
   requiredStringField: string
@@ -1012,6 +1036,9 @@ export interface LocalDates {
   start: Date
   end?: Date
 }
+
+/** By-value return -> stamp site W3 (`new_instance`). */
+export declare function makeTypeTagA(value: number): TypeTagA
 
 export declare function mapOption(val?: number | undefined | null): number | null
 
