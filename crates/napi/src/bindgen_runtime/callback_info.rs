@@ -128,9 +128,10 @@ impl<const N: usize> CallbackInfo<N> {
     // Stamp the object's type tag AFTER `add_ref` has adopted the Arc + napi_ref
     // into `REFERENCE_MAP`, so a tag failure cannot leak them: the object is
     // fully registered and GC reclaims value_ref + object_ref + Arc.
-    // Compiled only under `napi8`: without it there is no tag to stamp, and the
-    // `T: MaybeTypeTag` bound does not provide `T::type_tag()`.
-    #[cfg(feature = "napi8")]
+    // Compiled only on napi8 NATIVE targets: elsewhere there is no tag to stamp,
+    // and the `T: MaybeTypeTag` bound provides `T::type_tag()` only there (it is
+    // vacuous without napi8 and on all wasm targets).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
     unsafe {
       tag_object(self.env, this, &T::type_tag())?;
     }
@@ -273,8 +274,9 @@ impl<const N: usize> CallbackInfo<N> {
     );
 
     // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
-    // napi_ref (see `_construct`). Compiled only under `napi8`.
-    #[cfg(feature = "napi8")]
+    // napi_ref (see `_construct`). Compiled only on napi8 NATIVE targets (the
+    // `T: MaybeTypeTag` bound provides `T::type_tag()` only there).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
     unsafe {
       tag_object(self.env, instance, &T::type_tag())?;
     }
@@ -313,10 +315,10 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
 
       // Reject a spoofed receiver (`method.call(wrongThis)`) before the blind
-      // cast. Compiled only under `napi8` (the `T: MaybeTypeTag` bound provides
-      // `T::type_tag()` only then; without it the receiver cast is unchecked as
-      // before the tag feature).
-      #[cfg(feature = "napi8")]
+      // cast. Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag` bound
+      // provides `T::type_tag()` only there; elsewhere the receiver cast is
+      // unchecked as before the tag feature).
+      #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
       validate_type_tag(self.env, self.this, &T::type_tag(), T::type_name())?;
 
       Ok(wrapped_val.cast())

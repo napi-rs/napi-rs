@@ -53,29 +53,34 @@ pub fn type_tag_from_anchor(anchor: usize) -> sys::napi_type_tag {
 /// `new_instance`, `CallbackInfo`/`ClassAccessorCallbackInfo` helpers) in place
 /// of a bare `T: TypeTag` bound.
 ///
-/// Its meaning is cfg-split exactly once:
+/// Its meaning is cfg-split exactly once, on the same **napi8-native** predicate
+/// that gates the real [`tag_object`] / [`validate_type_tag`] bodies:
 ///
-/// * Under `napi8` it is a supertrait alias for [`TypeTag`], so a `T:
-///   MaybeTypeTag` bound implies `T: TypeTag` and the (napi8-only) tag calls in
-///   those generic bodies can name `T::type_tag()`.
-/// * Without `napi8` it is a vacuous blanket bound satisfied by every `T`, so the
-///   runtime generics do **not** narrow the public API — their signatures stay
-///   byte-identical to the pre-tag versions, and generic-over-class-`T` consumer
-///   code keeps compiling without any tag bound.
+/// * On **napi8 native** targets it is a supertrait alias for [`TypeTag`], so a
+///   `T: MaybeTypeTag` bound implies `T: TypeTag` and the (napi8-native-only)
+///   tag calls in those generic bodies can name `T::type_tag()`.
+/// * Without `napi8`, **and on all wasm targets**, it is a vacuous blanket bound
+///   satisfied by every `T`, so the runtime generics do **not** narrow the
+///   public API — their signatures stay byte-identical to the pre-tag versions,
+///   and generic-over-class-`T` consumer code keeps compiling without any tag
+///   bound. This is consistent with tagging being a **no-op on wasm** (see
+///   [`tag_object`]): the anchor address is a process-global identity only on
+///   native targets, so wasm / manual class wrappers must not be narrowed.
 ///
-/// The blanket impl over `T: TypeTag` (napi8) / over all `T` (otherwise) is a
-/// separate trait from `TypeTag`, so it never conflicts with the
-/// derive-generated `impl TypeTag for #name`.
-#[cfg(feature = "napi8")]
+/// The blanket impl over `T: TypeTag` (napi8 native) / over all `T` (otherwise,
+/// including every wasm target) is a separate trait from `TypeTag`, so it never
+/// conflicts with the derive-generated `impl TypeTag for #name`.
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
 pub trait MaybeTypeTag: TypeTag {}
-#[cfg(feature = "napi8")]
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
 impl<T: TypeTag> MaybeTypeTag for T {}
 
-/// See the `napi8` variant above. Without `napi8` this is a vacuous marker
-/// implemented for every `T`, so it never narrows a public signature.
-#[cfg(not(feature = "napi8"))]
+/// See the napi8-native variant above. Without `napi8`, and on **all** wasm
+/// targets, this is a vacuous marker implemented for every `T`, so it never
+/// narrows a public signature.
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 pub trait MaybeTypeTag {}
-#[cfg(not(feature = "napi8"))]
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 impl<T> MaybeTypeTag for T {}
 
 /// Stamp `obj` with the class type tag `tag` (right after `napi_wrap`).

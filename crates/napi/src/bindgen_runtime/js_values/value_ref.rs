@@ -132,9 +132,10 @@ impl<T: 'static + MaybeTypeTag> FromNapiValue for Reference<T> {
     )?;
 
     // Reject a wrong-class / prototype-spoofed object before adopting it as a
-    // `Reference<T>`. Compiled only under `napi8` (the `T: MaybeTypeTag` bound
-    // provides `T::type_tag()` only then; without it this is the pre-tag path).
-    #[cfg(feature = "napi8")]
+    // `Reference<T>`. Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag`
+    // bound provides `T::type_tag()` only there; elsewhere this is the pre-tag
+    // path).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
     unsafe {
       crate::bindgen_runtime::validate_type_tag(
         env,

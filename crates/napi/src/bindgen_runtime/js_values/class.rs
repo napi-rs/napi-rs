@@ -203,9 +203,9 @@ impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
     )?;
 
     // Reject a wrong-class / prototype-spoofed object before the blind cast.
-    // Compiled only under `napi8` (the `T: MaybeTypeTag` bound provides
-    // `T::type_tag()` only then; without it this is the pre-tag unchecked cast).
-    #[cfg(feature = "napi8")]
+    // Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag` bound provides
+    // `T::type_tag()` only there; elsewhere this is the pre-tag unchecked cast).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
     unsafe {
       crate::bindgen_runtime::validate_type_tag(env, napi_val, &T::type_tag(), type_name::<T>())?;
     }
@@ -298,8 +298,9 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
   );
 
   // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
-  // napi_ref (see `CallbackInfo::_construct`). Compiled only under `napi8`.
-  #[cfg(feature = "napi8")]
+  // napi_ref (see `CallbackInfo::_construct`). Compiled only on napi8 NATIVE
+  // targets (the `T: MaybeTypeTag` bound provides `T::type_tag()` only there).
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
   unsafe {
     crate::bindgen_runtime::tag_object(env, result, &T::type_tag())?;
   }
