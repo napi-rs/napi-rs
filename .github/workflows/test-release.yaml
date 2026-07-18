@@ -283,12 +283,6 @@ jobs:
           yarn config set supportedArchitectures.cpu --json '["current", "x64", "ia32", "wasm32"]'
           yarn install --mode=skip-build --immutable
 
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        shell: bash
-        run: node vendor/emnapi/install.mjs
-
       - name: Check build
         run: cargo check --target ${{ matrix.settings.target }} --all --bins --examples --tests -vvv
 
@@ -1155,10 +1149,6 @@ jobs:
           targets: wasm32-wasip1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        run: node vendor/emnapi/install.mjs
       - name: Build
         run: |
           yarn workspace @napi-rs/wasm-runtime build
@@ -1256,10 +1246,6 @@ jobs:
           targets: wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        run: node vendor/emnapi/install.mjs
       - name: Check non-noop combined runtime and all features
         run: |
           cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1-threads
