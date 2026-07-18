@@ -232,12 +232,6 @@ jobs:
           yarn config set supportedArchitectures.cpu --json '["current", "x64", "ia32", "wasm32"]'
           yarn install --mode=skip-build --immutable
 
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        shell: bash
-        run: node vendor/emnapi/install.mjs
-
       - name: Check build
         run: cargo check --target ${{ matrix.settings.target }} --all --bins --examples --tests -vvv
 
@@ -840,10 +834,6 @@ jobs:
           targets: wasm32-wasip1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        run: node vendor/emnapi/install.mjs
       # The example workspace is excluded from the root `yarn test`, so this
       # job is the only CI gate for the native lane (duplicate-registration,
       # start-error, worker-reload, and termination-loop scenarios). Run it
@@ -912,10 +902,6 @@ jobs:
           targets: wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        run: node vendor/emnapi/install.mjs
       - name: Check
         run: cargo check -p napi --all-features --target wasm32-wasip1-threads
         env:

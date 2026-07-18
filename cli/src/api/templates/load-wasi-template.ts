@@ -330,7 +330,7 @@ const __wasi = new __WASI({
   const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
 `
   // Every build links a "basic" emnapi archive without the C async-work and
-  // threadsafe-function implementations (see vendor/emnapi/build.mjs), so the
+  // threadsafe-function implementations (the `emnapi-napi-rs(-mt)` archives shipped by the emnapi package), so the
   // JavaScript implementations must be provided through the emnapi plugins in
   // both threading modes. Without threads the C code would be unconditional
   // `napi_generic_failure` stubs; with threads it would shadow the
@@ -1446,7 +1446,7 @@ function __createWasiWorker(filename) {
     plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
 `
   // Every build links a "basic" emnapi archive without the C async-work and
-  // threadsafe-function implementations (see vendor/emnapi/build.mjs), so the
+  // threadsafe-function implementations (the `emnapi-napi-rs(-mt)` archives shipped by the emnapi package), so the
   // JavaScript implementations must be provided through the emnapi plugins in
   // both threading modes. Without threads the C code would be unconditional
   // `napi_generic_failure` stubs; with threads it would shadow the
