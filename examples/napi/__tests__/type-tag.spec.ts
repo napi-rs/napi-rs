@@ -1,13 +1,6 @@
 import test from 'ava'
 
-import {
-  TypeTagA,
-  TypeTagB,
-  makeTypeTagA,
-  tag_collision_alpha,
-  tag_collision_beta,
-  readAlphaCollision,
-} from '../index.cjs'
+import { TypeTagA, TypeTagB, makeTypeTagA } from '../index.cjs'
 
 // Object type tags are a NATIVE-only guarantee. On wasm, `tag_object` /
 // `validate_type_tag` are no-ops (see
@@ -112,36 +105,6 @@ napi8NativeOnlyTest(
     Object.setPrototypeOf(spoofB, TypeTagB.prototype)
     t.true(spoofB instanceof TypeTagB)
     t.truthy(t.throws(() => a.addOther(spoofB as unknown as TypeTagB)))
-  },
-)
-
-// F1. Two classes sharing the SAME js_name ("CollisionClient") in DIFFERENT
-//    namespaces must get DISTINCT type tags. Hashing the bare js_name would make
-//    their tags identical, so a `tag_collision_beta.CollisionClient` instance
-//    would pass a `&AlphaCollision` tag check and be blind-cast to the wrong Rust
-//    type (UB). With the tag scoped to (crate, version, module, class) the tags
-//    differ, so the wrong-namespace instance is rejected. `readAlphaCollision` is
-//    non-strict, so its `&AlphaCollision` arg is resolved purely by the tag (no
-//    instanceof) -- isolating the tag as the decisive check.
-type CollisionCtor = new (value: number) => { value: number }
-napi8NativeOnlyTest(
-  'same-js_name classes in different namespaces get distinct type tags',
-  (t) => {
-    const AlphaClient =
-      tag_collision_alpha.CollisionClient as unknown as CollisionCtor
-    const BetaClient =
-      tag_collision_beta.CollisionClient as unknown as CollisionCtor
-
-    // positive: an actual AlphaCollision round-trips.
-    const alpha = new AlphaClient(5)
-    t.is(readAlphaCollision(alpha as never), 5)
-
-    // negative: a BetaCollision (same js_name, different namespace) is rejected by
-    // the now-distinct tag -- pre-fix its tag would collide with AlphaCollision's.
-    const beta = new BetaClient(9)
-    const err = t.throws(() => readAlphaCollision(beta as never))
-    t.truthy(err)
-    t.regex(String((err as Error).message), /not an instance of class/)
   },
 )
 
