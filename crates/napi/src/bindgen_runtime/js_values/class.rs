@@ -291,17 +291,18 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
     type_name::<T>(),
   )?;
 
-  // Stamp the freshly-wrapped object with this class's unforgeable type tag.
-  // Compiled only under `napi8` (see `CallbackInfo::_construct`).
-  #[cfg(feature = "napi8")]
-  unsafe {
-    crate::bindgen_runtime::tag_object(env, result, &T::TYPE_TAG)?;
-  }
-
   Reference::<T>::add_ref(
     env,
     wrapped_value,
     (wrapped_value, object_ref, finalize_callbacks_ptr),
   );
+
+  // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
+  // napi_ref (see `CallbackInfo::_construct`). Compiled only under `napi8`.
+  #[cfg(feature = "napi8")]
+  unsafe {
+    crate::bindgen_runtime::tag_object(env, result, &T::TYPE_TAG)?;
+  }
+
   Ok(result)
 }

@@ -119,7 +119,15 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
     };
 
-    // Stamp the freshly-wrapped object with this class's unforgeable type tag.
+    Reference::<T>::add_ref(
+      self.env,
+      value_ref.cast(),
+      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
+    );
+
+    // Stamp the object's type tag AFTER `add_ref` has adopted the Arc + napi_ref
+    // into `REFERENCE_MAP`, so a tag failure cannot leak them: the object is
+    // fully registered and GC reclaims value_ref + object_ref + Arc.
     // Compiled only under `napi8`: without it there is no tag to stamp, and the
     // `T: MaybeTypeTag` bound does not provide `T::TYPE_TAG`.
     #[cfg(feature = "napi8")]
@@ -127,11 +135,6 @@ impl<const N: usize> CallbackInfo<N> {
       tag_object(self.env, this, &T::TYPE_TAG)?;
     }
 
-    Reference::<T>::add_ref(
-      self.env,
-      value_ref.cast(),
-      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
-    );
     Ok((this, value_ref))
   }
 
@@ -263,18 +266,19 @@ impl<const N: usize> CallbackInfo<N> {
       js_name,
     )?;
 
-    // Stamp the freshly-wrapped object with this class's unforgeable type tag.
-    // Compiled only under `napi8` (see `_construct`).
-    #[cfg(feature = "napi8")]
-    unsafe {
-      tag_object(self.env, instance, &T::TYPE_TAG)?;
-    }
-
     Reference::<T>::add_ref(
       self.env,
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
     );
+
+    // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
+    // napi_ref (see `_construct`). Compiled only under `napi8`.
+    #[cfg(feature = "napi8")]
+    unsafe {
+      tag_object(self.env, instance, &T::TYPE_TAG)?;
+    }
+
     Ok((instance, value_ref))
   }
 
