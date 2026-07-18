@@ -36,22 +36,14 @@ fn gen_napi_value_map_impl(
   has_lifetime: bool,
 ) -> TokenStream {
   let name_str = name.to_string();
-  // The per-class type tag is derived from `std::any::TypeId`, rustc's
-  // canonical guaranteed-unique-per-type identity. Two *distinct* Rust classes
-  // therefore get distinct tags even when they share every string field
-  // (`js_name`/namespace/crate/version) — the collision the earlier
-  // string-based identity could not rule out. napi already bounds every class
-  // type to `'static`, so `TypeId::of::<T>()` is always valid here.
-  //
-  // `#tag_ty` names the class type for `TypeId::of`. A lifetime class expands
-  // to `#name<'static>` (sound: wrapped classes are `'static`) so the turbofish
-  // type-checks; a non-lifetime class is just `#name`. Note `#tag_ty` is
-  // computed BEFORE `name` is shadowed below, so it uses the bare identifier.
-  let tag_ty = if has_lifetime {
-    quote! { #name<'static> }
-  } else {
-    quote! { #name }
-  };
+  // The per-class type tag is derived from the address of a per-class static
+  // (see the `impl TypeTag` body below). That address is process-unique by
+  // construction — distinct classes have distinct anchor statics, and
+  // separately-loaded addons map their statics at distinct process addresses —
+  // and is used injectively, so two *distinct* Rust classes always get distinct
+  // tags even when they share every string field (`js_name`/namespace/crate/
+  // version). The body does not name the class type, so no `'static`/lifetime
+  // form of `#name` is needed for the tag.
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
@@ -128,11 +120,13 @@ fn gen_napi_value_map_impl(
     #[automatically_derived]
     impl napi::bindgen_prelude::TypeTag for #name {
       fn type_tag() -> napi::bindgen_prelude::sys::napi_type_tag {
-        static CACHE: std::sync::OnceLock<napi::bindgen_prelude::sys::napi_type_tag> =
-          std::sync::OnceLock::new();
-        *CACHE.get_or_init(|| napi::bindgen_prelude::type_tag_from_type_id(
-          std::any::TypeId::of::<#tag_ty>()
-        ))
+        // A per-class static with interior mutability → placed in writable data,
+        // so the linker never merges it with another class's anchor (identical-
+        // constant folding only applies to read-only data). Its address is
+        // stable for the process lifetime and unique to THIS class in THIS
+        // loaded module, and `type_tag_from_anchor` uses it injectively.
+        static ANCHOR: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+        napi::bindgen_prelude::type_tag_from_anchor(&ANCHOR as *const _ as usize)
       }
     }
 

@@ -22,10 +22,10 @@ pub struct MyObject {
 // Two DISTINCT Rust classes that deliberately share the SAME `js_name` AND the
 // SAME namespace. Under the previous string-based identity (manifest_dir + crate
 // + version + module + js_name) all five fields are identical, so both would
-// hash to the SAME type tag — a blind-cast collision. Deriving the tag from
-// `TypeId` gives each a distinct tag (they are distinct Rust types). Module
-// registration is never triggered under `cargo test`, so the duplicate
-// js_name+namespace is harmless here.
+// hash to the SAME type tag — a blind-cast collision. Deriving the tag from the
+// address of a per-class anchor static gives each a distinct tag (each class has
+// its own anchor at a distinct address). Module registration is never triggered
+// under `cargo test`, so the duplicate js_name+namespace is harmless here.
 #[napi(namespace = "dup_tag", js_name = "SameName")]
 pub struct SameNameOne {
   pub value: i32,
