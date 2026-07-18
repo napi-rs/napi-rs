@@ -1477,6 +1477,13 @@ impl Env {
     T::deserialize(&mut de)
   }
 
+  /// Parse JSON bytes directly into a JS value using a streaming tokenizer.
+  /// No intermediate serde_json::Value — constructs JS values directly via napi C API.
+  #[cfg(feature = "serde-json")]
+  pub fn parse_json<'env>(&'env self, json: &[u8]) -> Result<crate::Unknown<'env>> {
+    crate::js_values::json_stream::parse_json(self, json)
+  }
+
   /// This API represents the invocation of the Strict Equality algorithm as defined in [Section 7.2.14](https://tc39.es/ecma262/#sec-strict-equality-comparison) of the ECMAScript Language Specification.
   pub fn strict_equals<'env, A: JsValue<'env>, B: JsValue<'env>>(
     &self,
