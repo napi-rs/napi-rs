@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr};
 
-use super::{TypeName, TypeTag};
+use super::{MaybeTypeTag, TypeName};
 use crate::{check_status, sys, Error, JsError, Result, Status};
 
 #[doc(hidden)]
@@ -46,7 +46,7 @@ impl<const N: usize> ClassAccessorCallbackInfo<N> {
   #[inline]
   pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
   where
-    T: TypeName + TypeTag,
+    T: TypeName + MaybeTypeTag,
   {
     unsafe { class_accessor_unwrap_this::<T>(self.env, self.this) }
   }
@@ -59,7 +59,7 @@ pub unsafe fn class_accessor_unwrap_this<T>(
   this: sys::napi_value,
 ) -> Result<*mut T>
 where
-  T: TypeName + TypeTag,
+  T: TypeName + MaybeTypeTag,
 {
   let mut wrapped_val: *mut c_void = ptr::null_mut();
 
@@ -69,9 +69,13 @@ where
     T::type_name(),
   )?;
 
-  // Reject a spoofed field-accessor receiver before the blind cast (no-op on
-  // builds without the `napi8` feature).
-  unsafe { super::validate_type_tag(env, this, &T::TYPE_TAG, T::type_name())? };
+  // Reject a spoofed field-accessor receiver before the blind cast. Compiled
+  // only under `napi8` (the `T: MaybeTypeTag` bound provides `T::TYPE_TAG` only
+  // then; without it this is the pre-tag unchecked cast).
+  #[cfg(feature = "napi8")]
+  unsafe {
+    super::validate_type_tag(env, this, &T::TYPE_TAG, T::type_name())?
+  };
 
   Ok(wrapped_val.cast())
 }

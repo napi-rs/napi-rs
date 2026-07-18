@@ -84,7 +84,7 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + TypeTag + 'static>(
+  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -119,8 +119,10 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
     };
 
-    // Stamp the freshly-wrapped object with this class's unforgeable type tag
-    // (no-op on builds without the `napi8` feature).
+    // Stamp the freshly-wrapped object with this class's unforgeable type tag.
+    // Compiled only under `napi8`: without it there is no tag to stamp, and the
+    // `T: MaybeTypeTag` bound does not provide `T::TYPE_TAG`.
+    #[cfg(feature = "napi8")]
     unsafe {
       tag_object(self.env, this, &T::TYPE_TAG)?;
     }
@@ -133,7 +135,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok((this, value_ref))
   }
 
-  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + TypeTag + 'static>(
+  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -146,7 +148,7 @@ impl<const N: usize> CallbackInfo<N> {
   pub fn construct_generator<
     'a,
     const IsEmptyStructHint: bool,
-    T: ScopedGenerator<'a> + ObjectFinalize + TypeTag + 'static,
+    T: ScopedGenerator<'a> + ObjectFinalize + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -157,7 +159,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  pub fn factory<T: ObjectFinalize + TypeTag + 'static>(
+  pub fn factory<T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -165,7 +167,7 @@ impl<const N: usize> CallbackInfo<N> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + TypeTag + 'static>(
+  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -178,7 +180,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn construct_async_generator<
     const IsEmptyStructHint: bool,
-    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + TypeTag + 'static,
+    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -191,7 +193,7 @@ impl<const N: usize> CallbackInfo<N> {
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn async_generator_factory<
-    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + TypeTag + 'static,
+    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -202,7 +204,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  fn _factory<T: ObjectFinalize + TypeTag + 'static>(
+  fn _factory<T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -261,8 +263,9 @@ impl<const N: usize> CallbackInfo<N> {
       js_name,
     )?;
 
-    // Stamp the freshly-wrapped object with this class's unforgeable type tag
-    // (no-op on builds without the `napi8` feature).
+    // Stamp the freshly-wrapped object with this class's unforgeable type tag.
+    // Compiled only under `napi8` (see `_construct`).
+    #[cfg(feature = "napi8")]
     unsafe {
       tag_object(self.env, instance, &T::TYPE_TAG)?;
     }
@@ -277,14 +280,14 @@ impl<const N: usize> CallbackInfo<N> {
 
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
   where
-    T: FromNapiMutRef + TypeName + TypeTag,
+    T: FromNapiMutRef + TypeName + MaybeTypeTag,
   {
     unsafe { self.unwrap_raw::<T>() }.map(|raw| Box::leak(unsafe { Box::from_raw(raw) }))
   }
 
   pub fn unwrap_borrow<T>(&mut self) -> Result<&'static T>
   where
-    T: FromNapiRef + TypeName + TypeTag,
+    T: FromNapiRef + TypeName + MaybeTypeTag,
   {
     unsafe { self.unwrap_raw::<T>() }
       .map(|raw| Box::leak(unsafe { Box::from_raw(raw) }) as &'static T)
@@ -294,7 +297,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[inline]
   pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
   where
-    T: TypeName + TypeTag,
+    T: TypeName + MaybeTypeTag,
   {
     let mut wrapped_val: *mut c_void = std::ptr::null_mut();
 
@@ -306,7 +309,10 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
 
       // Reject a spoofed receiver (`method.call(wrongThis)`) before the blind
-      // cast (no-op on builds without the `napi8` feature).
+      // cast. Compiled only under `napi8` (the `T: MaybeTypeTag` bound provides
+      // `T::TYPE_TAG` only then; without it the receiver cast is unchecked as
+      // before the tag feature).
+      #[cfg(feature = "napi8")]
       validate_type_tag(self.env, self.this, &T::TYPE_TAG, T::type_name())?;
 
       Ok(wrapped_val.cast())

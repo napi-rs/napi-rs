@@ -8,7 +8,7 @@ use std::sync::{Arc, Weak};
 use nohash_hasher::NoHashHasher;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, PersistedPerInstanceHashMap, ToNapiValue, TypeTag},
+  bindgen_runtime::{FromNapiValue, MaybeTypeTag, PersistedPerInstanceHashMap, ToNapiValue},
   check_status, Env, Error, Result, Status,
 };
 
@@ -119,7 +119,7 @@ impl<T: 'static> ToNapiValue for Reference<T> {
   }
 }
 
-impl<T: 'static + TypeTag> FromNapiValue for Reference<T> {
+impl<T: 'static + MaybeTypeTag> FromNapiValue for Reference<T> {
   unsafe fn from_napi_value(
     env: crate::sys::napi_env,
     napi_val: crate::sys::napi_value,
@@ -132,7 +132,9 @@ impl<T: 'static + TypeTag> FromNapiValue for Reference<T> {
     )?;
 
     // Reject a wrong-class / prototype-spoofed object before adopting it as a
-    // `Reference<T>` (no-op on builds without the `napi8` feature).
+    // `Reference<T>`. Compiled only under `napi8` (the `T: MaybeTypeTag` bound
+    // provides `T::TYPE_TAG` only then; without it this is the pre-tag path).
+    #[cfg(feature = "napi8")]
     unsafe {
       crate::bindgen_runtime::validate_type_tag(
         env,

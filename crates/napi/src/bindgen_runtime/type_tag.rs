@@ -18,6 +18,35 @@ pub trait TypeTag {
   const TYPE_TAG: sys::napi_type_tag;
 }
 
+/// Marker bound used by the runtime generics (`ClassInstance<T>`, `Reference<T>`,
+/// `new_instance`, `CallbackInfo`/`ClassAccessorCallbackInfo` helpers) in place
+/// of a bare `T: TypeTag` bound.
+///
+/// Its meaning is cfg-split exactly once:
+///
+/// * Under `napi8` it is a supertrait alias for [`TypeTag`], so a `T:
+///   MaybeTypeTag` bound implies `T: TypeTag` and the (napi8-only) tag calls in
+///   those generic bodies can name `T::TYPE_TAG`.
+/// * Without `napi8` it is a vacuous blanket bound satisfied by every `T`, so the
+///   runtime generics do **not** narrow the public API — their signatures stay
+///   byte-identical to the pre-tag versions, and generic-over-class-`T` consumer
+///   code keeps compiling without any tag bound.
+///
+/// The blanket impl over `T: TypeTag` (napi8) / over all `T` (otherwise) is a
+/// separate trait from `TypeTag`, so it never conflicts with the
+/// derive-generated `impl TypeTag for #name`.
+#[cfg(feature = "napi8")]
+pub trait MaybeTypeTag: TypeTag {}
+#[cfg(feature = "napi8")]
+impl<T: TypeTag> MaybeTypeTag for T {}
+
+/// See the `napi8` variant above. Without `napi8` this is a vacuous marker
+/// implemented for every `T`, so it never narrows a public signature.
+#[cfg(not(feature = "napi8"))]
+pub trait MaybeTypeTag {}
+#[cfg(not(feature = "napi8"))]
+impl<T> MaybeTypeTag for T {}
+
 /// Stamp `obj` with the class type tag `tag` (right after `napi_wrap`).
 ///
 /// # Safety
