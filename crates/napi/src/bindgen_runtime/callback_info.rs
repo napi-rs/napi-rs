@@ -129,10 +129,10 @@ impl<const N: usize> CallbackInfo<N> {
     // into `REFERENCE_MAP`, so a tag failure cannot leak them: the object is
     // fully registered and GC reclaims value_ref + object_ref + Arc.
     // Compiled only under `napi8`: without it there is no tag to stamp, and the
-    // `T: MaybeTypeTag` bound does not provide `T::TYPE_TAG`.
+    // `T: MaybeTypeTag` bound does not provide `T::type_tag()`.
     #[cfg(feature = "napi8")]
     unsafe {
-      tag_object(self.env, this, &T::TYPE_TAG)?;
+      tag_object(self.env, this, &T::type_tag())?;
     }
 
     Ok((this, value_ref))
@@ -276,7 +276,7 @@ impl<const N: usize> CallbackInfo<N> {
     // napi_ref (see `_construct`). Compiled only under `napi8`.
     #[cfg(feature = "napi8")]
     unsafe {
-      tag_object(self.env, instance, &T::TYPE_TAG)?;
+      tag_object(self.env, instance, &T::type_tag())?;
     }
 
     Ok((instance, value_ref))
@@ -314,10 +314,10 @@ impl<const N: usize> CallbackInfo<N> {
 
       // Reject a spoofed receiver (`method.call(wrongThis)`) before the blind
       // cast. Compiled only under `napi8` (the `T: MaybeTypeTag` bound provides
-      // `T::TYPE_TAG` only then; without it the receiver cast is unchecked as
+      // `T::type_tag()` only then; without it the receiver cast is unchecked as
       // before the tag feature).
       #[cfg(feature = "napi8")]
-      validate_type_tag(self.env, self.this, &T::TYPE_TAG, T::type_name())?;
+      validate_type_tag(self.env, self.this, &T::type_tag(), T::type_name())?;
 
       Ok(wrapped_val.cast())
     }

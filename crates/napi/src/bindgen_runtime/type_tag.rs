@@ -3,10 +3,14 @@ use crate::sys;
 /// Unforgeable per-class identity for `#[napi]` classes.
 ///
 /// Every `#[napi]` struct that becomes a JS class gets a derive-generated
-/// `impl TypeTag`, whose `TYPE_TAG` is a stable 128-bit value computed at
-/// macro-expansion time (FNV-1a-128 of the class `js_name`). The tag is stamped
-/// onto each instance's JS object right after `napi_wrap` and verified before
-/// every blind pointer cast, so a wrong-class / prototype-spoofed /
+/// `impl TypeTag`, whose [`type_tag`](TypeTag::type_tag) returns a stable
+/// 128-bit value derived from the class's [`std::any::TypeId`] — rustc's
+/// canonical, guaranteed-unique-per-type identity (distinct across modules,
+/// addons, forks, and feature variants via the crate SVH). Two *distinct* Rust
+/// classes therefore can never share a tag except by a (negligible) hash
+/// collision, even when they share the same `js_name` and namespace. The tag is
+/// stamped onto each instance's JS object right after `napi_wrap` and verified
+/// before every blind pointer cast, so a wrong-class / prototype-spoofed /
 /// `method.call(wrongThis)` object is rejected instead of causing a
 /// type-confused cast.
 ///
@@ -15,7 +19,39 @@ use crate::sys;
 /// The actual stamping/checking is performed by [`tag_object`] /
 /// [`validate_type_tag`], which only do real work under the `napi8` feature.
 pub trait TypeTag {
-  const TYPE_TAG: sys::napi_type_tag;
+  /// Returns this class's stable per-type tag. The derive caches the computed
+  /// value in a `OnceLock`, so repeated calls within a process return the same
+  /// tag.
+  fn type_tag() -> sys::napi_type_tag;
+}
+
+/// Derive a 128-bit [`sys::napi_type_tag`] from a [`core::any::TypeId`].
+///
+/// `TypeId` is rustc's canonical, guaranteed-unique-per-type identity, so two
+/// distinct Rust types map to distinct tags except for a (negligible) hash
+/// collision. `DefaultHasher::new()` is fixed-seed (deterministic), so the same
+/// `TypeId` always maps to the same tag within a process — which is all the tag
+/// needs, since a given instance is stamped and checked in the same binary. Two
+/// hashes over the same id with distinct salt bytes give the two 64-bit halves.
+///
+/// Defined **unconditionally** (pure hashing, no `napi8` dependency) so the
+/// derive-generated `type_tag()` compiles in every build.
+pub fn type_tag_from_type_id(id: core::any::TypeId) -> sys::napi_type_tag {
+  use core::hash::{Hash, Hasher};
+  use std::collections::hash_map::DefaultHasher;
+
+  let mut lo = DefaultHasher::new();
+  id.hash(&mut lo);
+  0xA5u8.hash(&mut lo);
+
+  let mut hi = DefaultHasher::new();
+  id.hash(&mut hi);
+  0x5Au8.hash(&mut hi);
+
+  sys::napi_type_tag {
+    lower: lo.finish(),
+    upper: hi.finish(),
+  }
 }
 
 /// Marker bound used by the runtime generics (`ClassInstance<T>`, `Reference<T>`,
@@ -26,7 +62,7 @@ pub trait TypeTag {
 ///
 /// * Under `napi8` it is a supertrait alias for [`TypeTag`], so a `T:
 ///   MaybeTypeTag` bound implies `T: TypeTag` and the (napi8-only) tag calls in
-///   those generic bodies can name `T::TYPE_TAG`.
+///   those generic bodies can name `T::type_tag()`.
 /// * Without `napi8` it is a vacuous blanket bound satisfied by every `T`, so the
 ///   runtime generics do **not** narrow the public API — their signatures stay
 ///   byte-identical to the pre-tag versions, and generic-over-class-`T` consumer
@@ -145,4 +181,40 @@ pub unsafe fn validate_type_tag(
   _class_name: &str,
 ) -> crate::Result<()> {
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::type_tag_from_type_id;
+  use core::any::TypeId;
+
+  struct A;
+  struct B;
+
+  /// Distinct Rust types get distinct tags — even two types that would share
+  /// every string field (js_name/namespace/crate/version) under the old
+  /// string-based identity. This is the exact collision the TypeId switch fixes.
+  #[test]
+  fn distinct_type_ids_get_distinct_tags() {
+    assert_ne!(
+      type_tag_from_type_id(TypeId::of::<A>()),
+      type_tag_from_type_id(TypeId::of::<B>()),
+      "distinct types must map to distinct tags",
+    );
+    assert_ne!(
+      type_tag_from_type_id(TypeId::of::<u32>()),
+      type_tag_from_type_id(TypeId::of::<i32>()),
+    );
+  }
+
+  /// `DefaultHasher::new()` is fixed-seed, so the same TypeId always maps to the
+  /// same tag within a process (required: stamp and check happen in one binary).
+  #[test]
+  fn deterministic() {
+    assert_eq!(
+      type_tag_from_type_id(TypeId::of::<A>()),
+      type_tag_from_type_id(TypeId::of::<A>()),
+      "same type must map to the same tag on repeat",
+    );
+  }
 }

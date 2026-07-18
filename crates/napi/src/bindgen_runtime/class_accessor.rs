@@ -70,11 +70,11 @@ where
   )?;
 
   // Reject a spoofed field-accessor receiver before the blind cast. Compiled
-  // only under `napi8` (the `T: MaybeTypeTag` bound provides `T::TYPE_TAG` only
-  // then; without it this is the pre-tag unchecked cast).
+  // only under `napi8` (the `T: MaybeTypeTag` bound provides `T::type_tag()`
+  // only then; without it this is the pre-tag unchecked cast).
   #[cfg(feature = "napi8")]
   unsafe {
-    super::validate_type_tag(env, this, &T::TYPE_TAG, T::type_name())?
+    super::validate_type_tag(env, this, &T::type_tag(), T::type_name())?
   };
 
   Ok(wrapped_val.cast())

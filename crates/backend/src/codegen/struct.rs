@@ -29,145 +29,29 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
   quote! {}
 }
 
-/// FNV-1a-128 hash over a *list* of components, split into `(lower, upper)`
-/// u64 halves.
-///
-/// Used to derive a per-class 128-bit type tag at macro-expansion time from a
-/// structured identity (manifest dir + crate name + crate version + module +
-/// class `js_name`; see [`gen_napi_value_map_impl`]). The identity — not the
-/// bare `js_name` — is what makes the tag unforgeable across namespaces and
-/// across separately-compiled addons loaded in one process.
-///
-/// Each component is hashed as its **little-endian u64 length prefix followed
-/// by its bytes**, so component boundaries are unambiguous. A plain
-/// delimiter-join (e.g. `a::b` + `c` vs `a` + `b::c`) is *not* injective —
-/// both serialize to the same bytes and would collide. Length-prefixing makes
-/// `["a::b", "c"]` and `["a", "b::c"]` hash to different values, so two
-/// distinct classes can never share a tag (which would enable the very
-/// blind-cast this feature exists to prevent).
-fn fnv1a_128_fields(fields: &[&str]) -> (u64, u64) {
-  // FNV offset basis (128-bit)
-  let mut hash: u128 = 0x6c62272e07bb014262b821756295c58d;
-  for f in fields {
-    // Length prefix (delimits this component from the next unambiguously).
-    for b in (f.len() as u64).to_le_bytes() {
-      hash ^= b as u128;
-      // FNV prime (128-bit)
-      hash = hash.wrapping_mul(0x0000000001000000000000000000013B);
-    }
-    for b in f.as_bytes() {
-      hash ^= *b as u128;
-      hash = hash.wrapping_mul(0x0000000001000000000000000000013B);
-    }
-  }
-  (hash as u64, (hash >> 64) as u64)
-}
-
-/// Encode `js_mod` presence unambiguously so `None` (no `#[napi(js_name = ..)]`
-/// module) and `Some("")` map to *distinct* bytes: `None` -> `"n"`,
-/// `Some(m)` -> `"s{m}"`. The leading tag byte means the empty-module case can
-/// never collide with the "no module" case, which a bare `unwrap_or_default()`
-/// would silently conflate into `""`.
-fn encode_js_mod(js_mod: Option<&str>) -> String {
-  match js_mod {
-    Some(m) => format!("s{m}"),
-    None => "n".to_string(),
-  }
-}
-
-#[cfg(test)]
-mod type_tag_identity_tests {
-  use super::{encode_js_mod, fnv1a_128_fields};
-
-  /// Length-prefixing makes component boundaries unambiguous: a delimiter-join
-  /// would serialize both of these to the same `a::b::c` bytes and collide,
-  /// letting two distinct classes share a tag.
-  #[test]
-  fn component_boundaries_are_injective() {
-    assert_ne!(
-      fnv1a_128_fields(&["a::b", "c"]),
-      fnv1a_128_fields(&["a", "b::c"]),
-    );
-  }
-
-  /// `None` (no module) and `Some("")` (empty module) must not collapse to the
-  /// same bytes — a bare `unwrap_or_default()` would conflate them.
-  #[test]
-  fn none_and_empty_module_differ() {
-    assert_ne!(encode_js_mod(None), encode_js_mod(Some("")));
-    assert_ne!(
-      fnv1a_128_fields(&[encode_js_mod(None).as_str()]),
-      fnv1a_128_fields(&[encode_js_mod(Some("")).as_str()]),
-    );
-  }
-
-  /// A non-empty module must also stay distinct from the `None` sentinel.
-  #[test]
-  fn none_and_named_module_differ() {
-    assert_ne!(encode_js_mod(None), encode_js_mod(Some("n")));
-    assert_ne!(
-      fnv1a_128_fields(&[encode_js_mod(None).as_str()]),
-      fnv1a_128_fields(&[encode_js_mod(Some("n")).as_str()]),
-    );
-  }
-
-  /// The hash is deterministic: identical inputs → identical output.
-  #[test]
-  fn deterministic() {
-    assert_eq!(
-      fnv1a_128_fields(&["/src/pkg", "pkg", "1.0.0", "n", "Foo"]),
-      fnv1a_128_fields(&["/src/pkg", "pkg", "1.0.0", "n", "Foo"]),
-    );
-  }
-}
-
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(
   name: &Ident,
-  js_name: &str,
-  js_mod: Option<&str>,
   to_napi_val_impl: TokenStream,
   has_lifetime: bool,
 ) -> TokenStream {
   let name_str = name.to_string();
-  // Scope the per-class type tag to (manifest_dir, crate, version, module,
-  // class) so it is unique per Rust class within any process. Hashing the bare
-  // `js_name` would collide for two classes sharing a name in different
-  // namespaces, or in two separately-compiled addons loaded in the same
-  // process — a collision would let an instance of one pass the other's tag
-  // check and be blind-cast to the wrong Rust type.
+  // The per-class type tag is derived from `std::any::TypeId`, rustc's
+  // canonical guaranteed-unique-per-type identity. Two *distinct* Rust classes
+  // therefore get distinct tags even when they share every string field
+  // (`js_name`/namespace/crate/version) — the collision the earlier
+  // string-based identity could not rule out. napi already bounds every class
+  // type to `'static`, so `TypeId::of::<T>()` is always valid here.
   //
-  // `CARGO_MANIFEST_DIR` / `CARGO_PKG_NAME` / `CARGO_PKG_VERSION` are read with
-  // `std::env::var` (NOT `env!`): at proc-macro expansion time these resolve to
-  // the *consumer* crate's values, whereas `env!` would bake in this backend
-  // crate's own identity. `CARGO_MANIFEST_DIR` (the consumer crate's source
-  // tree) distinguishes two addons built from forks — or differing feature
-  // sets in separate checkouts — that happen to share identical
-  // name+version manifest metadata; the same source built twice resolves to
-  // the same dir, so it is stable within a build. The tag only needs
-  // per-process uniqueness (stamp and check share the same generated const in
-  // the same binary), so cross-machine stability is not required.
-  //
-  // The components are hashed with `fnv1a_128_fields` (length-prefixed per
-  // component) rather than delimiter-joined, so component boundaries are
-  // unambiguous and distinct classes can never serialize to the same bytes.
-  //
-  // We deliberately do NOT hard-"fail closed" when an env var is empty: the
-  // injective length-prefixed encoding plus `manifest_dir` already guarantee
-  // distinct *within-process* types get distinct tags (manifest_dir + module +
-  // js_name stay distinct regardless of pkg name/version). An empty pkg only
-  // reduces cross-addon entropy — it never collapses two distinct local types.
-  let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-  let pkg_name = std::env::var("CARGO_PKG_NAME").unwrap_or_default();
-  let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
-  let module = encode_js_mod(js_mod);
-  let (type_tag_lower, type_tag_upper) = fnv1a_128_fields(&[
-    manifest_dir.as_str(),
-    pkg_name.as_str(),
-    pkg_version.as_str(),
-    module.as_str(),
-    js_name,
-  ]);
+  // `#tag_ty` names the class type for `TypeId::of`. A lifetime class expands
+  // to `#name<'static>` (sound: wrapped classes are `'static`) so the turbofish
+  // type-checks; a non-lifetime class is just `#name`. Note `#tag_ty` is
+  // computed BEFORE `name` is shadowed below, so it uses the bare identifier.
+  let tag_ty = if has_lifetime {
+    quote! { #name<'static> }
+  } else {
+    quote! { #name }
+  };
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
@@ -243,11 +127,13 @@ fn gen_napi_value_map_impl(
 
     #[automatically_derived]
     impl napi::bindgen_prelude::TypeTag for #name {
-      const TYPE_TAG: napi::bindgen_prelude::sys::napi_type_tag =
-        napi::bindgen_prelude::sys::napi_type_tag {
-          lower: #type_tag_lower,
-          upper: #type_tag_upper,
-        };
+      fn type_tag() -> napi::bindgen_prelude::sys::napi_type_tag {
+        static CACHE: std::sync::OnceLock<napi::bindgen_prelude::sys::napi_type_tag> =
+          std::sync::OnceLock::new();
+        *CACHE.get_or_init(|| napi::bindgen_prelude::type_tag_from_type_id(
+          std::any::TypeId::of::<#tag_ty>()
+        ))
+      }
     }
 
     #[automatically_derived]
@@ -272,7 +158,7 @@ fn gen_napi_value_map_impl(
         napi::bindgen_prelude::validate_type_tag(
           env,
           napi_val,
-          &<#name as napi::bindgen_prelude::TypeTag>::TYPE_TAG,
+          &<#name as napi::bindgen_prelude::TypeTag>::type_tag(),
           #name_str,
         )?;
 
@@ -302,7 +188,7 @@ fn gen_napi_value_map_impl(
         napi::bindgen_prelude::validate_type_tag(
           env,
           napi_val,
-          &<#name as napi::bindgen_prelude::TypeTag>::TYPE_TAG,
+          &<#name as napi::bindgen_prelude::TypeTag>::type_tag(),
           #name_str,
         )?;
 
@@ -507,15 +393,11 @@ impl NapiStruct {
       NapiStructKind::Transparent(transparent) => self.gen_napi_value_transparent_impl(transparent),
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
-        &self.js_name,
-        self.js_mod.as_deref(),
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
         self.has_lifetime,
       ),
       NapiStructKind::Class(class) => gen_napi_value_map_impl(
         &self.name,
-        &self.js_name,
-        self.js_mod.as_deref(),
         self.gen_to_napi_value_ctor_impl(class),
         self.has_lifetime,
       ),
