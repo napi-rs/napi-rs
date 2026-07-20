@@ -61,9 +61,10 @@ napi8NativeOnlyTest(
 //    instance methods carry a V8 signature bound to the *constructing* template
 //    (a `setPrototypeOf` swap does not fool it). So for an unrelated wrapped
 //    class, V8 rejects the receiver ("Illegal invocation") before the native
-//    callback runs; the `unwrap_raw` tag check we added sits behind that as
-//    defense-in-depth (it becomes decisive if a receiver ever reaches the
-//    callback with a mismatched wrap). Either way: a catchable Error, no UB.
+//    callback runs. Because that V8 signature is the sole receiver guard, the
+//    redundant `unwrap_raw` receiver tag check has been removed (the hottest
+//    per-method path); the error here comes from V8, so we assert only that a
+//    catchable Error is thrown, not its message text.
 napi8NativeOnlyTest(
   'receiver spoof via .call(wrongThis) throws a catchable error',
   (t) => {
