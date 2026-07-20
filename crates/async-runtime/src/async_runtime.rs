@@ -194,12 +194,36 @@ pub const PARK_DEADLINE_ENV: &str = "NAPI_RUNTIME_PARK_DEADLINE_MS";
 /// `sched_yield` rounds and a full steal sweep on EVERY worker that was woken)
 /// is what makes system CPU scale with the worker count under wave-shaped
 /// loads. `0` disables lingering (legacy exit-and-respawn on every empty
-/// queue); a non-numeric value keeps the built-in default.
+/// queue); a non-numeric value keeps the built-in default. A frame's TOTAL
+/// lingering residence is additionally capped at
+/// [`DRAIN_LINGER_FRAME_FACTOR`] times this budget so periodic sub-budget
+/// work cannot pin a rayon worker inside one drain frame forever.
 pub const DRAIN_LINGER_ENV: &str = "NAPI_RUNTIME_DRAIN_LINGER_US";
 
 /// Default drainer idle-linger budget (µs) when [`DRAIN_LINGER_ENV`] is unset.
 #[cfg(not(target_family = "wasm"))]
 const DEFAULT_DRAIN_LINGER_MICROS: u64 = 500;
+
+/// Bound on a single drain frame's TOTAL lingering residence, as a multiple
+/// of the per-episode idle budget (default 16 x 500us = 8ms). The per-episode
+/// deadline alone does NOT bound how long a drain frame occupies its rayon
+/// worker: every executed work unit re-arms it, so periodic sub-budget work
+/// (e.g. a timer publishing one short task every <500us) would keep the frame
+/// resident FOREVER -- and a raw rayon job spawned onto the pool (which only
+/// a worker that returned to rayon's scheduler can run) would starve behind
+/// it indefinitely. Once cumulative residence past the frame's FIRST idle
+/// observation reaches this bound, the drainer exits through the unchanged
+/// `finish_draining` path even though more sub-budget work may be arriving;
+/// the exit-and-respawn through rayon's queue is exactly the interleaving
+/// point that lets pending raw rayon work (par_iter splits, `pool.spawn`
+/// jobs) take the worker before the re-armed FIFO drain.
+#[cfg(not(target_family = "wasm"))]
+const DRAIN_LINGER_FRAME_FACTOR: u32 = 16;
+
+/// Ceiling on the frame residence bound so an absurd [`DRAIN_LINGER_ENV`]
+/// value cannot arm a deadline beyond the platform's representable range.
+#[cfg(not(target_family = "wasm"))]
+const MAX_DRAIN_LINGER_FRAME_RESIDENCE: Duration = Duration::from_secs(60);
 
 /// True on builds where no second thread can EVER deliver a wake to a parked
 /// `block_on`: every wasm build except the threaded WASI target (i.e. the
@@ -5116,6 +5140,12 @@ impl MultiThreadExecutor {
     // so a lingering drainer occupies its pool slot for at most
     // `linger_budget` past the last work unit it executed.
     let mut idle_deadline: Option<Instant> = None;
+    // Absolute residence deadline of the WHOLE frame, armed on the frame's
+    // FIRST idle observation and -- unlike `idle_deadline` -- never reset by
+    // executed work. Without it, periodic sub-budget work re-arms the episode
+    // deadline forever and this frame never returns its rayon worker; see
+    // [`DRAIN_LINGER_FRAME_FACTOR`].
+    let mut frame_deadline: Option<Instant> = None;
 
     'frame: loop {
       let mut runnable_streak = 0usize;
@@ -5160,7 +5190,18 @@ impl MultiThreadExecutor {
           break 'frame;
         }
         let now = Instant::now();
-        let deadline = *idle_deadline.get_or_insert_with(|| now + budget);
+        // FRAME RESIDENCE BOUND: exiting here (or via the min-capped park
+        // below) funnels through the UNCHANGED finish_draining path, whose
+        // re-check re-arms a FIFO drain via ensure_drainer/spawn_fifo when
+        // work remains -- that re-entry through rayon's queue is exactly the
+        // interleaving point that lets pending raw rayon work run.
+        let frame = *frame_deadline.get_or_insert_with(|| {
+          now
+            + budget
+              .saturating_mul(DRAIN_LINGER_FRAME_FACTOR)
+              .min(MAX_DRAIN_LINGER_FRAME_RESIDENCE)
+        });
+        let deadline = (*idle_deadline.get_or_insert_with(|| now + budget)).min(frame);
         if now >= deadline {
           break 'frame;
         }
@@ -15711,6 +15752,140 @@ mod tests {
       Err(error) => panic!(
         "MultiThread block_on deadlocked ({error}): pool workers parked waiting on pool-scheduled work"
       ),
+    }
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn lingering_drainer_periodic_work_does_not_starve_rayon_jobs() {
+    // Idle-linger residence bound (adversarial rayon-starvation shape).
+    //
+    // W=2 pool. Worker B runs a blocking closure that spawns a raw rayon job
+    // R onto the SAME pool (it lands in worker B's rayon deque) and then
+    // cooperatively block_on's R's completion -- so worker B never returns to
+    // rayon's scheduler. Worker A's drain frame runs the queues empty and
+    // lingers on its own parker. A producer then publishes one trivial
+    // runnable every ~200us (< the 500us idle budget), stopping only after R
+    // ran. Every wake pops the MOST recently registered parker -- the
+    // lingering drainer, which re-registers on top after each task -- and
+    // every executed task clears the idle deadline, so without a bound on the
+    // frame's TOTAL lingering residence worker A never exits its drain frame,
+    // never returns its thread to rayon, and R (which only an idle rayon
+    // worker can steal) starves indefinitely: producer never stops, worker B
+    // never unparks. The frame residence bound must force the drainer out
+    // through `finish_draining` (exit-and-respawn through rayon's queue is
+    // exactly the interleaving point that lets R run), well inside the
+    // watchdog below.
+    use std::sync::mpsc;
+
+    for round in 0..3 {
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let options = RuntimeOptions {
+        flavor: RuntimeFlavor::MultiThread,
+        worker_threads: 2,
+        max_blocking_tasks: 1,
+        thread_name_prefix: format!("linger-starve-{round}"),
+        park_deadline: None,
+      };
+      let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
+
+      let r_done = Arc::new(AtomicBool::new(false));
+      let give_up = Arc::new(AtomicBool::new(false));
+      let (done_tx, done_rx) = mpsc::channel::<Duration>();
+
+      // T1 pins worker A until the cooperative driver (worker B, inside the
+      // blocking closure's re-entrant block_on) has parked. Worker A's drain
+      // frame then observes empty queues and starts lingering AFTER the
+      // cooperative driver registered, making the lingering drainer the
+      // most-recently-registered (i.e. wake-preferred) parker.
+      let t1_executor = Arc::clone(&executor);
+      let t1_started = Arc::new(AtomicBool::new(false));
+      let t1_started_setter = Arc::clone(&t1_started);
+      let t1_body = async move {
+        t1_started_setter.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while t1_executor.parked_drivers.count.load(Ordering::SeqCst) == 0 {
+          if Instant::now() >= deadline {
+            // Give the worker back; the watchdog below reports the failure.
+            return;
+          }
+          std::hint::spin_loop();
+        }
+      };
+      let t1_scheduler = Arc::clone(&executor);
+      let (t1_runnable, t1_task) = async_task::spawn(t1_body, move |r| t1_scheduler.schedule(r));
+      executor.schedule(t1_runnable);
+      wait_until("the worker-pinning task to start", || {
+        t1_started.load(Ordering::SeqCst)
+      });
+
+      // The blocking closure on worker B: spawn R, then block_on its result.
+      let blocking_executor = Arc::clone(&executor);
+      let r_done_setter = Arc::clone(&r_done);
+      let started = Instant::now();
+      let handle = executor.schedule_blocking(move || {
+        let (r_tx, r_rx) = oneshot::channel::<()>();
+        blocking_executor.pool.spawn(move || {
+          r_done_setter.store(true, Ordering::SeqCst);
+          let _ = r_tx.send(());
+        });
+        let mut wait_for_r = std::pin::pin!(async move {
+          let _ = r_rx.await;
+        });
+        blocking_executor.block_on(wait_for_r.as_mut());
+        let _ = done_tx.send(started.elapsed());
+      });
+
+      // Wait until both the cooperative driver and the lingering drainer are
+      // registered; if the linger expired first (R already ran), that round
+      // completed without ever reaching the adversarial interleaving.
+      let arm_deadline = Instant::now() + Duration::from_secs(15);
+      while executor.parked_drivers.count.load(Ordering::SeqCst) != 2
+        && !r_done.load(Ordering::SeqCst)
+      {
+        assert!(
+          Instant::now() < arm_deadline,
+          "timed out arming the linger-starvation interleaving"
+        );
+        std::thread::yield_now();
+      }
+
+      // Producer: one trivial runnable every ~200us (spin-paced, so cadence
+      // stays far below the 500us idle budget), until R completed.
+      let producer_executor = Arc::clone(&executor);
+      let producer_r_done = Arc::clone(&r_done);
+      let producer_give_up = Arc::clone(&give_up);
+      let producer = std::thread::spawn(move || {
+        let cadence = Duration::from_micros(200);
+        let mut next_tick = Instant::now();
+        while !producer_r_done.load(Ordering::SeqCst)
+          && !producer_give_up.load(Ordering::SeqCst)
+        {
+          let scheduler = Arc::clone(&producer_executor);
+          let (runnable, task) = async_task::spawn(async {}, move |r| scheduler.schedule(r));
+          producer_executor.schedule(runnable);
+          task.detach();
+          next_tick += cadence;
+          while Instant::now() < next_tick {
+            std::hint::spin_loop();
+          }
+        }
+      });
+
+      let outcome = done_rx.recv_timeout(Duration::from_secs(5));
+      give_up.store(true, Ordering::SeqCst);
+      producer.join().unwrap();
+      match outcome {
+        Ok(elapsed) => {
+          futures::executor::block_on(handle).expect("blocking closure join");
+          drop(t1_task);
+          eprintln!("round {round}: completed in {elapsed:?}");
+        }
+        Err(error) => panic!(
+          "round {round}: lingering drainer starved the rayon job for 5s ({error}): \
+           sub-budget periodic work must not keep a drain frame resident forever"
+        ),
+      }
     }
   }
 
