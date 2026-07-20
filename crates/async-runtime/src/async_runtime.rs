@@ -17,6 +17,7 @@ use std::{
   time::{Duration, Instant},
 };
 
+use arc_swap::ArcSwapOption;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
@@ -34,6 +35,8 @@ use futures::channel::oneshot;
 use rayon::max_num_threads;
 #[cfg(not(target_family = "wasm"))]
 use rayon::{ThreadPool, ThreadPoolBuilder};
+#[cfg(not(target_family = "wasm"))]
+use crossbeam_deque::{Injector, Steal};
 
 /// Stable scheduler identities are equality capabilities. Exhaustion must fail
 /// before reuse can authorize a stale handle or collide in an indexed queue.
@@ -4469,7 +4472,13 @@ struct MultiThreadExecutor {
   // executor can never authorize an over-cap escape on a replacement.
   id: u64,
   pool: ThreadPool,
-  queue: Mutex<VecDeque<Runnable>>,
+  // Lock-free MPMC injector replacing the former `Mutex<VecDeque<Runnable>>`.
+  // Invariant: every push goes through `push_to_queue_and_wake` and every
+  // emptiness check through `has_queued_runnable` -- their paired SeqCst fences
+  // restore the removed mutex's synchronizes-with edge (full lost-wakeup proof
+  // at `push_to_queue_and_wake`). A raw `injector.push`/`is_empty` at a new site
+  // silently breaks the pairing.
+  injector: Injector<Runnable>,
   blocking_queue: Mutex<BlockingQueue>,
   active_drainers: AtomicUsize,
   active_blocking: AtomicUsize,
@@ -4596,7 +4605,7 @@ impl MultiThreadExecutor {
       stop,
       id,
       pool,
-      queue: Mutex::new(VecDeque::new()),
+      injector: Injector::new(),
       blocking_queue: Mutex::new(BlockingQueue {
         closed: false,
         head: None,
@@ -4714,11 +4723,16 @@ impl MultiThreadExecutor {
   /// displaced/flushed slot runnables, whose `runnable_scheduled` accounting
   /// already happened at their original schedule).
   fn push_to_queue_and_wake(self: &Arc<Self>, runnable: Runnable) {
-    self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .push_back(runnable);
+    self.injector.push(runnable);
+    // The former queue mutex provided the synchronizes-with edge the
+    // lost-wakeup proof depends on (see `wake_one`). With a lock-free injector
+    // that edge is gone, so restore it explicitly: a SeqCst fence between the
+    // push and BOTH wake mechanisms (`wake_one`'s SeqCst `count` load and
+    // `ensure_drainer`'s `active_drainers` load), mirrored by the SeqCst fence
+    // in `has_queued_runnable` before the waiter/drainer re-check. This is the
+    // Dekker ordering rayon-core's injector+sleep protocol uses; without both
+    // fences a worker can park next to stealable work.
+    std::sync::atomic::fence(Ordering::SeqCst);
     self.wake_for_new_work();
   }
 
@@ -4917,11 +4931,7 @@ impl MultiThreadExecutor {
     // executor code with its slot occupied, so the exit-then-respawn window
     // below cannot hide slot work from `ensure_drainer`.
     self.active_drainers.fetch_sub(1, Ordering::AcqRel);
-    let has_runnable = !self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .is_empty();
+    let has_runnable = self.has_queued_runnable();
     let has_blocking = self.active_blocking.load(Ordering::Acquire) < self.max_blocking
       && !self
         .blocking_queue
@@ -5042,13 +5052,22 @@ impl MultiThreadExecutor {
     }
   }
 
+  /// Lock-free single-item steal from the shared injector, retrying the
+  /// transient `Steal::Retry` contention state. Replaces the former
+  /// `queue.lock().pop_front()`; `Injector` preserves FIFO order.
+  fn steal_one(&self) -> Option<Runnable> {
+    loop {
+      match self.injector.steal() {
+        Steal::Success(runnable) => return Some(runnable),
+        Steal::Empty => return None,
+        Steal::Retry => continue,
+      }
+    }
+  }
+
   fn claim_fifo_runnable(&self) -> RunnableClaim {
     let stop_publication = self.stop.runnable_claim_guard();
-    let runnable = self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .pop_front();
+    let runnable = self.steal_one();
     let stopping = stop_publication.is_stopping();
     drop(stop_publication);
     Self::runnable_claim(stopping, runnable)
@@ -5056,13 +5075,7 @@ impl MultiThreadExecutor {
 
   fn claim_runnable(&self) -> RunnableClaim {
     let stop_publication = self.stop.runnable_claim_guard();
-    let runnable = self.pop_lifo_slot().or_else(|| {
-      self
-        .queue
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .pop_front()
-    });
+    let runnable = self.pop_lifo_slot().or_else(|| self.steal_one());
     let stopping = stop_publication.is_stopping();
     drop(stop_publication);
     Self::runnable_claim(stopping, runnable)
@@ -5635,11 +5648,14 @@ impl MultiThreadExecutor {
   }
 
   fn has_queued_runnable(&self) -> bool {
-    !self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .is_empty()
+    // Waiter-side mirror of the `push_to_queue_and_wake` fence: a parking
+    // driver (pre-park re-check) and the drainer-exit re-check in
+    // `finish_draining` must not observe the injector empty when a racing push
+    // is already visible to a wake. This SeqCst fence pairs with the post-push
+    // fence so the Dekker ordering holds without the former queue mutex. Only
+    // on park/quiesce decision paths, never the per-task hot path.
+    std::sync::atomic::fence(Ordering::SeqCst);
+    !self.injector.is_empty()
   }
 
   /// Pop the next queued blocking job FIFO within the cap. Any blocking-capable
@@ -9490,6 +9506,12 @@ struct RuntimeController {
   state: Mutex<RuntimeState>,
   lifecycle_changed: Condvar,
   metrics: Arc<RuntimeMetrics>,
+  // Lock-free mirror of `state.lifecycle`'s backend, read by `fast_register`
+  // without the `state` lock. Invariant: store `Some(b)` on every transition
+  // INTO `Running(b)` and `None` on every transition OUT -- exactly 3 sites
+  // today (lazy-create, start, shutdown). Any new Running-boundary write MUST
+  // mirror here, or `fast_register` routes work onto a superseded backend.
+  current_backend: ArcSwapOption<RuntimeBackend>,
 }
 
 struct RejectedSubmissionGuard<'a> {
@@ -9524,6 +9546,7 @@ impl RuntimeController {
       }),
       lifecycle_changed: Condvar::new(),
       metrics: Arc::new(RuntimeMetrics::default()),
+      current_backend: ArcSwapOption::empty(),
     }
   }
 
@@ -9616,6 +9639,7 @@ impl RuntimeController {
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
     state.lifecycle = RuntimeLifecycle::Running(backend.clone());
+    self.current_backend.store(Some(Arc::new(backend.clone())));
     Ok(backend)
   }
 
@@ -9644,6 +9668,31 @@ impl RuntimeController {
     generation
   }
 
+  /// Lock-free spawn fast path. Returns Some((backend, registration)) when the
+  /// runtime is Running, the caller's generation is current, and registration
+  /// succeeds -- all without taking the outer `state` lock. Returns None (fall
+  /// to the locked slow path) for any miss: no current backend, retired
+  /// generation, or a closed generation. Staleness is safe: see the safety
+  /// invariant -- try_register_* re-checks `closed`, and wait_until_idle already
+  /// gates on any registration that slips in during shutdown.
+  #[inline]
+  fn fast_register<R>(
+    &self,
+    register: impl FnOnce(&Arc<GenerationWork>) -> Option<R>,
+  ) -> Option<(Arc<RuntimeBackend>, R)> {
+    let guard = self.current_backend.load();
+    let backend = guard.as_ref()?; // None => Initial/Stopping/Stopped => slow path
+    if let Some(active) = active_runtime_generation() {
+      if active != backend.generation() {
+        return None; // retired generation => slow path yields exact error
+      }
+    }
+    let registration = register(&backend.work)?; // closed => None => slow path rejects
+    // Hand back the already-loaded Arc (one refcount bump) rather than deep-
+    // cloning `RuntimeBackend`'s two inner Arcs; both callers only borrow it.
+    Some((Arc::clone(backend), registration))
+  }
+
   fn try_spawn_tracked<F, T>(
     &self,
     future: F,
@@ -9654,6 +9703,17 @@ impl RuntimeController {
   {
     #[cfg(test)]
     run_before_runtime_submission_lock_test_hook();
+
+    if let Some((backend, registration)) = self.fast_register(|w| w.try_register_async()) {
+      #[cfg(test)]
+      run_after_async_work_registration_test_hook();
+      return Ok(spawn_registered(
+        &backend,
+        Arc::clone(&self.metrics),
+        future,
+        registration,
+      ));
+    }
 
     let (backend, registration) = {
       let mut state = self
@@ -9745,6 +9805,12 @@ impl RuntimeController {
   {
     #[cfg(test)]
     run_before_runtime_submission_lock_test_hook();
+
+    if let Some((backend, registration)) = self.fast_register(|w| w.try_register_work()) {
+      #[cfg(test)]
+      run_after_blocking_work_registration_test_hook();
+      return Ok(backend.spawn_registered_blocking(function, registration, &self.metrics));
+    }
 
     let (backend, registration) = {
       let mut state = self
@@ -9932,6 +9998,7 @@ impl RuntimeController {
       }
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
+    self.current_backend.store(Some(Arc::new(backend.clone())));
     state.lifecycle = RuntimeLifecycle::Running(backend);
     Ok(())
   }
@@ -10097,6 +10164,7 @@ impl RuntimeController {
             else {
               unreachable!();
             };
+            self.current_backend.store(None);
             // Release before aborting tasks or running any user destruction.
             // Neither path may retain the publication mutex across scheduler
             // admission, lifecycle reentry, or a panic boundary.

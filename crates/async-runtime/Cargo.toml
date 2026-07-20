@@ -15,6 +15,7 @@ default = ["napi"]
 napi = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
+arc-swap = "1"
 async-task = "4.7.1"
 futures = "0.3"
 rustc-hash = "2"
@@ -35,6 +36,7 @@ optional = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = "1.12"
+crossbeam-deque = "0.8"
 
 [dev-dependencies]
 # The in-crate test binaries are plain executables rather than Node-loaded
