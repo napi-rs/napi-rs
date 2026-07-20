@@ -4482,7 +4482,14 @@ struct MultiThreadExecutor {
   blocking_queue: Mutex<BlockingQueue>,
   active_drainers: AtomicUsize,
   active_blocking: AtomicUsize,
-  scheduler_idle_lock: Mutex<()>,
+  // Guards the idle-waiter count. `finish_draining` runs once per drain batch
+  // -- i.e. per task whenever the drainer catches the producer -- and used to
+  // call `notify_all` unconditionally. On Linux `Condvar::notify_all` issues a
+  // `futex_wake_all` SYSCALL even with an empty waiter set, and the only waiter
+  // site in this crate (`wait_until_scheduler_idle`) is reachable only from
+  // shutdown/restart. Counting waiters under this same mutex lets the steady
+  // state skip the syscall entirely.
+  scheduler_idle_lock: Mutex<usize>,
   scheduler_idle: Condvar,
   worker_lifecycle: Arc<WorkerLifecycle>,
   // Registry of pool workers currently parked inside a re-entrant cooperative
@@ -4614,7 +4621,7 @@ impl MultiThreadExecutor {
       }),
       active_drainers: AtomicUsize::new(0),
       active_blocking: AtomicUsize::new(0),
-      scheduler_idle_lock: Mutex::new(()),
+      scheduler_idle_lock: Mutex::new(0),
       scheduler_idle: Condvar::new(),
       worker_lifecycle,
       parked_drivers: ParkedDrivers::default(),
@@ -4941,11 +4948,18 @@ impl MultiThreadExecutor {
     if has_runnable || has_blocking {
       self.ensure_drainer();
     }
-    let _idle = self
+    // The lock is still taken unconditionally: it is the release edge that
+    // publishes the `active_drainers` decrement above to a waiter that is about
+    // to evaluate the predicate. Only the wake is now conditional, and the
+    // waiter count is read under the very mutex the waiter must hold to
+    // register, so a waiter is never missed. See `wait_until_scheduler_idle`.
+    let idle = self
       .scheduler_idle_lock
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    self.scheduler_idle.notify_all();
+    if *idle > 0 {
+      self.scheduler_idle.notify_all();
+    }
   }
 
   fn block_on(self: &Arc<Self>, future: Pin<&mut dyn Future<Output = ()>>) -> BlockOnOutcome {
@@ -8863,12 +8877,19 @@ impl MultiThreadExecutor {
       .scheduler_idle_lock
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Register BEFORE the first predicate evaluation and stay registered for
+    // the whole wait. `finish_draining` reads this count under the same mutex,
+    // so any drainer that retires after this increment is published either
+    // sees `> 0` and wakes us, or had already decremented `active_drainers`
+    // before we read the predicate -- in which case we never sleep.
+    *idle += 1;
     while self.active_drainers.load(Ordering::Acquire) != 0 {
       idle = self
         .scheduler_idle
         .wait(idle)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
+    *idle -= 1;
   }
 }
 
