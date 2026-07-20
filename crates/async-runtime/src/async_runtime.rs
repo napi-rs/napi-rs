@@ -4799,6 +4799,19 @@ struct MultiThreadExecutor {
   active_blocking_owners: ActiveBlockingOwners,
   #[cfg(test)]
   owner_lending_attempts: AtomicUsize,
+  // Linger-lifecycle observability for tests (see the idle-linger block in
+  // `drain`): counts every linger-parker REGISTRATION into `parked_drivers`
+  // and every idle-budget EXPIRY exit (the deadline-elapsed `break` paths,
+  // counted AFTER the parker is deregistered, so `expiries` rising implies
+  // the linger parker has permanently left the registry for that episode).
+  // Tests that must observe a lingering drainer's full register->expire
+  // lifecycle wait on these instead of sampling the non-monotonic registry
+  // count, which is transiently at its settled value BEFORE the linger
+  // parker registers.
+  #[cfg(test)]
+  drain_linger_registrations: AtomicUsize,
+  #[cfg(test)]
+  drain_linger_expiries: AtomicUsize,
   max_drainers: usize,
   max_blocking: usize,
   // Deadline-based deadlock detection for COOPERATIVE driver parks ONLY. The
@@ -4929,6 +4942,10 @@ impl MultiThreadExecutor {
       active_blocking_owners: ActiveBlockingOwners::default(),
       #[cfg(test)]
       owner_lending_attempts: AtomicUsize::new(0),
+      #[cfg(test)]
+      drain_linger_registrations: AtomicUsize::new(0),
+      #[cfg(test)]
+      drain_linger_expiries: AtomicUsize::new(0),
       max_drainers: pool_threads,
       max_blocking: options.max_blocking_tasks,
       park_deadline: options.park_deadline,
@@ -5252,6 +5269,14 @@ impl MultiThreadExecutor {
         });
         let deadline = (*idle_deadline.get_or_insert_with(|| now + budget)).min(frame);
         if now >= deadline {
+          // Deadline EXPIRY observed at the top: either a wake consumed the
+          // rest of the episode's idle budget, or the frame residence bound
+          // elapsed while work kept re-arming the episode deadline. Either
+          // way this frame's lingering is over, and the linger parker of the
+          // previous episode -- if one registered -- was already deregistered
+          // after its park.
+          #[cfg(test)]
+          self.drain_linger_expiries.fetch_add(1, Ordering::SeqCst);
           break 'frame;
         }
         let state = match &linger {
@@ -5261,6 +5286,10 @@ impl MultiThreadExecutor {
         self
           .parked_drivers
           .register_with_role(&state.parker, true, None);
+        #[cfg(test)]
+        self
+          .drain_linger_registrations
+          .fetch_add(1, Ordering::SeqCst);
         if self.has_queued_work_for_role(true) {
           self.parked_drivers.deregister(&state.parker);
           continue 'frame;
@@ -5278,6 +5307,12 @@ impl MultiThreadExecutor {
         if woken || state.parker.consume_permit() || self.has_queued_work_for_role(true) {
           continue 'frame;
         }
+        // Idle-budget EXPIRY: the park timed out with no wake, no permit and
+        // no queued work. Counted AFTER the deregister above, so a test
+        // observing `drain_linger_expiries` rise knows the linger parker has
+        // permanently left the registry for this idle episode.
+        #[cfg(test)]
+        self.drain_linger_expiries.fetch_add(1, Ordering::SeqCst);
         break 'frame;
       }
       // Budget exhausted: yield this worker back to rayon exactly as before
@@ -17254,15 +17289,34 @@ mod tests {
         !t2_done.load(Ordering::SeqCst),
         "D2 must still be parked: its future was never completed"
       );
-      // D1's drain frame LINGERS in the registry for its idle budget after T1
-      // retires (see `drain`'s idle linger), so the registry can transiently
-      // hold the lingering drainer alongside D2. Wait for it to expire: the
-      // settled registry must contain EXACTLY the untargeted driver (a
-      // misrouted wake would leave D1 registered and settle at 2, tripping
-      // the bounded wait; D1's completion was already proven via `t1_done`).
-      wait_until("exactly the untargeted driver to remain parked", || {
-        executor.parked_drivers.count.load(Ordering::SeqCst) == 1
+      // D1's drain frame LINGERS after T1 retires (see `drain`'s idle
+      // linger): its linger parker joins the registry alongside D2 for the
+      // idle budget. The registry count is NON-MONOTONIC here -- it reads 1
+      // in the window between the cooperative parker's wake-deregistration
+      // and the drain frame's linger registration, then 2 while lingering,
+      // then 1 again after expiry -- so a `count == 1` wait can return
+      // during the transient window and prove nothing about the linger.
+      // Observe the lifecycle itself instead, via the test counters that
+      // `drain` maintains: the linger parker must REGISTER, and its idle
+      // budget must EXPIRE (`drain_linger_expiries` is incremented only
+      // after the expiry path deregistered the parker, and no further work
+      // exists to start another episode), after which the registry has
+      // deterministically settled: EXACTLY the untargeted driver D2 remains
+      // (a misrouted wake would have left D1 cooperatively parked instead,
+      // already excluded by the `t1_done` wait above, and a linger parker
+      // stranded in the registry would read 2 here).
+      wait_until(
+        "the retiring drain frame registered its linger parker",
+        || executor.drain_linger_registrations.load(Ordering::SeqCst) >= 1,
+      );
+      wait_until("the lingering drainer's idle budget expired", || {
+        executor.drain_linger_expiries.load(Ordering::SeqCst) >= 1
       });
+      assert_eq!(
+        executor.parked_drivers.count.load(Ordering::SeqCst),
+        1,
+        "exactly the untargeted driver must remain parked after the linger expired"
+      );
       assert!(
         !t2_done.load(Ordering::SeqCst),
         "D2 must still be parked after the lingering drainer expired"
