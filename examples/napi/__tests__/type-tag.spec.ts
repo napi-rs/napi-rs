@@ -65,14 +65,15 @@ napi8NativeOnlyTest(
 // 3. Receiver spoof throws: `TypeTagA.prototype.getValue.call(wrongThis)` ->
 //    catchable Error, never a type-confused cast / crash.
 //
-//    Note on layering: napi-rs registers classes with `napi_define_class`, whose
-//    instance methods carry a V8 signature bound to the *constructing* template
-//    (a `setPrototypeOf` swap does not fool it). So for an unrelated wrapped
-//    class, V8 rejects the receiver ("Illegal invocation") before the native
-//    callback runs. Because that V8 signature is the sole receiver guard, the
-//    redundant `unwrap_raw` receiver tag check has been removed (the hottest
-//    per-method path); the error here comes from V8, so we assert only that a
-//    catchable Error is thrown, not its message text.
+//    Note on layering: two guards cover this. On Node, `napi_define_class` gives
+//    each instance method a V8 signature bound to the *constructing* template (a
+//    `setPrototypeOf` swap does not fool it), so V8 rejects a wrong receiver with
+//    "Illegal invocation" before the native callback even runs. That signature is
+//    NOT enforced by every Node-API runtime, though -- on Bun the callback DOES
+//    run with the wrong receiver, so `unwrap_raw`'s own receiver tag check is the
+//    portable guard (rejecting with "not an instance of class"). Since the thrown
+//    message differs by runtime, we assert only that a catchable Error is thrown,
+//    not its text.
 napi8NativeOnlyTest(
   'receiver spoof via .call(wrongThis) throws a catchable error',
   (t) => {

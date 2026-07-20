@@ -314,14 +314,20 @@ impl<const N: usize> CallbackInfo<N> {
         T::type_name(),
       )?;
 
-      // No receiver tag check here: napi-rs registers class methods via
-      // `napi_define_class`, whose instance methods carry a V8 FunctionTemplate
-      // signature bound to the constructing template. So a spoofed receiver
-      // (`ClassA.prototype.method.call(new ClassB())`) is rejected by V8 with
-      // "Illegal invocation" BEFORE this native callback runs — making a tag
-      // check on `self.this` redundant on the hottest per-method path. The
-      // V8-unguarded surfaces (field accessors, `&T`/`&mut T` params,
-      // `ClassInstance`/`Reference` conversions) keep their own tag checks.
+      // Reject a spoofed receiver (`ClassA.prototype.method.call(new ClassB())`)
+      // before the blind cast below. On Node this wrong receiver is *also*
+      // rejected by the V8 FunctionTemplate signature that `napi_define_class`
+      // installs on instance methods ("Illegal invocation", before the callback
+      // runs) — but that signature is NOT enforced by every supported Node-API
+      // runtime: Bun (exercised by CI's `test-latest-bun` job) invokes the
+      // callback with a wrong-class receiver where Node throws. Without this tag
+      // check `napi_unwrap` hands back the other class's pointer and the cast
+      // below is type-confused (UB). Compiled only on napi8 NATIVE targets (the
+      // `T: MaybeTypeTag` bound provides `T::type_tag()` only there; elsewhere
+      // this is the pre-tag unchecked cast).
+      #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+      validate_type_tag(self.env, self.this, &T::type_tag(), T::type_name())?;
+
       Ok(wrapped_val.cast())
     }
   }
