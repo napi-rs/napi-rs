@@ -16,6 +16,7 @@ import {
   DEFAULT_TYPE_DEF_HEADER,
   fileExists,
   getSystemDefaultTarget,
+  getNapiDeriveDependentCrates,
   getTargetLinker,
   mkdirAsync,
   type NapiConfig,
@@ -79,7 +80,11 @@ export async function buildProject(rawOptions: BuildOptions) {
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
-  const metadata = await parseMetadata(manifestPath)
+  const metadata = await parseMetadata(manifestPath, {
+    features: options.features,
+    allFeatures: options.allFeatures,
+    noDefaultFeatures: options.noDefaultFeatures,
+  })
 
   const crate = metadata.packages.find((p) => {
     // package with given name
@@ -734,11 +739,8 @@ class Builder {
 
   private setForceBuildEnvs(typeDefTmpFolder: string) {
     // dynamically check all napi-rs deps and set `NAPI_FORCE_BUILD_{uppercase(snake_case(name))} = timestamp`
-    this.metadata.packages.forEach((crate) => {
-      if (
-        crate.dependencies.some((d) => d.name === 'napi-derive') &&
-        !existsSync(join(typeDefTmpFolder, crate.name))
-      ) {
+    getNapiDeriveDependentCrates(this.metadata).forEach((crate) => {
+      if (!existsSync(join(typeDefTmpFolder, crate.name))) {
         this.envs[
           `NAPI_FORCE_BUILD_${crate.name.replace(/-/g, '_').toUpperCase()}`
         ] = Date.now().toString()
