@@ -1063,13 +1063,23 @@ struct TaskDependencyState {
   next_sequence: u64,
   unowned_sequences: VecDeque<u64>,
   owner_sequences: FxHashMap<BlockingOwnerToken, VecDeque<u64>>,
-  job_sequences: FxHashMap<BlockingJobId, FxHashSet<u64>>,
+  // NOTE: there is deliberately no `job_sequences` index. It used to be a
+  // `FxHashMap<BlockingJobId, FxHashSet<u64>>` costing TWO heap allocations
+  // per blocking dispatch (the map's table plus an inner set that almost
+  // always held exactly one sequence). Its only job was to let a dropped
+  // blocking `JoinHandle` find the entry it had published, and the handle can
+  // simply remember the `sequence` `append` gave it: `current` is positionally
+  // indexed by sequence via `entry_in`, so the handle retires its own entry in
+  // O(1) with no map, no hash, and no scan. `next_sequence` never rewinds, so
+  // a remembered sequence can never alias a later entry.
   waiter: Option<Waker>,
 }
 
 #[cfg(not(target_family = "wasm"))]
 impl TaskDependencyState {
-  fn append(&mut self, publication: DependencyPublication) {
+  /// Publish `publication` and return the sequence it was filed under, so the
+  /// publisher can retire exactly this entry later in O(1).
+  fn append(&mut self, publication: DependencyPublication) -> u64 {
     let sequence = self.next_sequence;
     self.next_sequence = self
       .next_sequence
@@ -1083,15 +1093,11 @@ impl TaskDependencyState {
         .push_back(sequence),
       None => self.unowned_sequences.push_back(sequence),
     }
-    self
-      .job_sequences
-      .entry(publication.dependency.job)
-      .or_default()
-      .insert(sequence);
     self.current.push_back(TaskDependencyEntry {
       sequence,
       publication,
     });
+    sequence
   }
 
   fn entry_in(
@@ -1137,18 +1143,11 @@ impl TaskDependencyState {
         }
       }
     }
-    if let Some(sequences) = self.job_sequences.get_mut(&dependency.job) {
-      sequences.remove(&sequence);
-      if sequences.is_empty() {
-        self.job_sequences.remove(&dependency.job);
-      }
-    }
   }
 
   fn clear_indexes(&mut self) {
     self.unowned_sequences.clear();
     self.owner_sequences.clear();
-    self.job_sequences.clear();
   }
 }
 
@@ -1226,22 +1225,30 @@ impl TaskDependency {
     self.notify_waiter(waiter);
   }
 
-  fn clear_if_dependency(&self, dependency: BlockingDependency) {
+  /// Retire the single entry filed under `sequence`, in O(1).
+  ///
+  /// This replaces a job-id lookup through a `job_sequences` index. `current`
+  /// is positionally indexed by sequence, so the publisher that remembers the
+  /// sequence `append` returned can cancel exactly its own entry without a
+  /// map and without a scan. `entry_in` re-checks `entry.sequence == sequence`
+  /// after the positional lookup and `next_sequence` never rewinds, so a
+  /// sequence whose entry has already been drained (`begin_poll`) or pruned
+  /// resolves to `None` rather than aliasing a later entry.
+  fn retire(&self, sequence: u64) {
     let waiter = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-      let mut removed = false;
-      if let Some(sequences) = state.job_sequences.remove(&dependency.job) {
-        for sequence in sequences {
-          if let Some(current) = state.entry_mut(sequence) {
-            current.publication.cancel();
-            removed = true;
-          }
+      let cancelled = match state.entry_mut(sequence) {
+        Some(current) => {
+          self.note_entry_visit();
+          current.publication.cancel();
+          true
         }
-      }
-      if removed {
+        None => false,
+      };
+      if cancelled {
         self.prune_stale_prefix(&mut state);
         state.waiter.take()
       } else {
@@ -1284,17 +1291,11 @@ impl TaskDependency {
             return None;
           }
           current.publication.cancel();
-          Some((current.sequence, current.publication.dependency.job))
+          Some(current.sequence)
         })
         .collect::<Vec<_>>();
-      for (sequence, job) in &removed {
-        if let Some(sequences) = state.job_sequences.get_mut(job) {
-          sequences.remove(sequence);
-          if sequences.is_empty() {
-            state.job_sequences.remove(job);
-          }
-        }
-      }
+      // No `job_sequences` index to maintain; the cancelled entries stay in
+      // `current` until `prune_stale_prefix` retires them, exactly as before.
       if removed.is_empty() {
         None
       } else {
@@ -1305,31 +1306,50 @@ impl TaskDependency {
     self.notify_waiter(waiter);
   }
 
-  fn set_owned(&self, dependency: BlockingDependency) {
+  /// Publish an owned dependency and return the sequence it was filed under,
+  /// so the caller can [`retire`](Self::retire) exactly this entry in O(1).
+  fn set_owned(&self, dependency: BlockingDependency) -> u64 {
     let publication = DependencyPublication::owned(BlockingDependency {
       owner: dependency.owner.or(self.owner_hint),
       ..dependency
     });
-    self.set_entry(publication);
+    self.set_entry(publication)
+  }
+
+  /// Whether `sequence` still resolves to a LIVE entry in this state.
+  ///
+  /// A publisher uses this to decide whether its earlier publication still
+  /// stands. `false` means the entry was drained by `begin_poll`, pruned, or
+  /// cancelled (by a lending claim, say), so a fresh publication is needed.
+  fn holds_live(&self, sequence: u64) -> bool {
+    let state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    TaskDependencyState::entry_in(&state.current, sequence).is_some_and(|entry| {
+      self.note_entry_visit();
+      entry.publication.is_live()
+    })
   }
 
   fn set_borrowed(&self, publication: &DependencyPublication) {
-    self.set_entry(publication.derived(self.owner_hint));
+    let _sequence = self.set_entry(publication.derived(self.owner_hint));
   }
 
-  fn set_entry(&self, publication: DependencyPublication) {
-    let waiter = {
+  fn set_entry(&self, publication: DependencyPublication) -> u64 {
+    let (sequence, waiter) = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       // Owned publications and propagated publications both create a fresh
       // local liveness link, so identity cannot already exist in this state.
-      state.append(publication);
+      let sequence = state.append(publication);
       self.has_current.store(true, Ordering::Release);
-      state.waiter.take()
+      (sequence, state.waiter.take())
     };
     self.notify_waiter(waiter);
+    sequence
   }
 
   fn note_entry_visit(&self) {
@@ -1668,8 +1688,184 @@ impl BlockOnDependencyGuard {
   }
 }
 
+/// A dependency this handle published, remembered well enough to retire it in
+/// O(1).
+///
+/// The sequence alone is not enough: sequences are allocated per
+/// `TaskDependency`, so applying one to a different state would cancel an
+/// unrelated entry. The state's identity therefore travels with it, as a
+/// `Weak` rather than a raw pointer so a freed state cannot be impersonated by
+/// a later allocation reusing its address -- a `Weak` keeps the allocation
+/// itself reserved, so the pointer stays unique even after the state is gone.
+///
+/// It is deliberately NOT a strong `Arc`: a handle can be polled under many
+/// frames over its life, and holding each one alive to remember it would retain
+/// one dead `TaskDependency`, with its deque and index maps, per frame the
+/// handle has ever seen.
 #[cfg(not(target_family = "wasm"))]
-fn record_blocking_dependency(dependency: BlockingDependency) {
+struct PublishedBlockingDependency {
+  state: Weak<TaskDependency>,
+  sequence: u64,
+}
+
+/// Every publication a blocking handle has made, one per dependency frame it
+/// has been polled under.
+///
+/// A handle publishes once per Pending poll into whichever frame is on top of
+/// `CURRENT_DEPENDENCY_STACK`. Re-polling under a frame it has already
+/// published into supersedes that frame's entry, so the common case is exactly
+/// one publication and `rest` never allocates.
+///
+/// Retiring EVERY publication is load-bearing. Dropping a blocking handle
+/// detaches rather than dequeues, so any entry left live keeps a job that
+/// nobody awaits selectable for owner-lane lending -- and `select_for_owner`
+/// picks the LOWEST live sequence, so a forgotten entry outranks dependencies
+/// published after it. Lending then runs the detached job inline in the owner's
+/// single lane, which deadlocks if that job waits on the dependency it
+/// displaced. The job-id index this replaces cancelled every entry for the job
+/// in the frame it was called on, so nothing was forgotten; a handle that
+/// remembered only its newest publication would forget both a repeat poll in
+/// one frame and a poll under a nested frame.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Default)]
+struct PublishedBlockingDependencies {
+  first: Option<PublishedBlockingDependency>,
+  rest: Vec<PublishedBlockingDependency>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl PublishedBlockingDependency {
+  /// Whether this publication is still worth remembering.
+  ///
+  /// A token stops standing when its frame is gone -- a dropped
+  /// `TaskDependency` already cancelled every entry it held -- or when the
+  /// frame no longer holds the entry as live, because its `begin_poll` drained
+  /// `current`, `prune_stale_prefix` retired it, or a lending claim took it.
+  ///
+  /// Absence from this thread's dependency stack deliberately does NOT count.
+  /// It would bound this list more tightly, but it is not sound: a `JoinHandle`
+  /// is `Send + Unpin`, so a safe adapter can serialise one behind a mutex and
+  /// poll it from several tasks, and then a frame parked on another thread can
+  /// still be awaiting a handle that is being polled here. Retiring on local
+  /// absence would take that frame's publication away while it still needs it
+  /// for owner-lane lending.
+  fn still_stands(&self) -> bool {
+    self
+      .state
+      .upgrade()
+      .is_some_and(|state| state.holds_live(self.sequence))
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl PublishedBlockingDependencies {
+  /// Forget publications whose frame is gone.
+  ///
+  /// A dropped `TaskDependency` cancels every entry it holds, so an expired
+  /// token has nothing left to retire. Discarding it here is what keeps this
+  /// list at the handle's currently-live frame count rather than the total
+  /// number of frames it has ever been polled under: without it, a pending
+  /// handle carried through a sequence of completed tasks would accumulate one
+  /// token per task and the lookup below would grow with it.
+  /// Forget publications that no longer stand.
+  ///
+  /// A token is obsolete once its frame is gone -- a dropped `TaskDependency`
+  /// cancels every entry it holds, so there is nothing left to retire -- or
+  /// once that frame no longer holds the entry, because its `begin_poll`
+  /// drained `current`. Dropping both kinds keeps this list at the handle's
+  /// currently-live frame count rather than the number of frames it has ever
+  /// been polled under.
+  ///
+  /// Testing the second condition costs a lock, so it is confined to the
+  /// multi-frame path: a handle polled under a single frame -- the
+  /// overwhelmingly common case -- reuses its one token and never reaches it.
+  /// Without that condition a handle carried through many tasks whose
+  /// `JoinHandle`s are still held would keep one token per task, since those
+  /// handles keep the states alive, and both this walk and detach would grow
+  /// with that count.
+  fn prune(&mut self) {
+    if self.rest.is_empty() {
+      if self
+        .first
+        .as_ref()
+        .is_some_and(|first| first.state.strong_count() == 0)
+      {
+        self.first = None;
+      }
+      return;
+    }
+    self.rest.retain(PublishedBlockingDependency::still_stands);
+    if self
+      .first
+      .as_ref()
+      .is_some_and(|first| !first.still_stands())
+    {
+      self.first = self.rest.pop();
+    }
+  }
+
+  fn publish(&mut self, state: Arc<TaskDependency>, dependency: BlockingDependency) {
+    self.prune();
+    let target = Arc::as_ptr(&state);
+    if let Some(existing) = self
+      .first
+      .iter_mut()
+      .chain(self.rest.iter_mut())
+      .find(|published| std::ptr::eq(published.state.as_ptr(), target))
+    {
+      // The entry this handle already published into this frame still says the
+      // frame depends on this job, so a repeat Pending poll must LEAVE IT
+      // ALONE. Publishing again would append at the tail, and
+      // `select_for_owner` picks the LOWEST live sequence, so re-polling a
+      // handle would push its own dependency behind ones published after it.
+      // In an H1 -> H2 -> H1 poll pass that reorders H1 behind H2, and if H2
+      // waits on H1 the owner lane lends H2 inline while H1 stays queued
+      // forever. Keeping the original sequence preserves the publication order
+      // the job index produced, and skips a `DependencyClaim`/`DependencyLink`
+      // pair per repeat poll.
+      if state.holds_live(existing.sequence) {
+        return;
+      }
+      // The entry was drained, pruned or claimed, so it no longer stands and
+      // this frame needs a fresh one. Reusing the token keeps the list at one
+      // entry per frame.
+      existing.sequence = state.set_owned(dependency);
+      return;
+    }
+    let sequence = state.set_owned(dependency);
+    let published = PublishedBlockingDependency {
+      state: Arc::downgrade(&state),
+      sequence,
+    };
+    match &mut self.first {
+      slot @ None => *slot = Some(published),
+      Some(_) => self.rest.push(published),
+    }
+  }
+
+  /// Retire every publication, each against the state it was filed in.
+  ///
+  /// This is exactly inverse to publication, so it can never cancel an entry
+  /// this handle did not create. It cannot strand a frame either: a frame is
+  /// only stranded if it is parked awaiting something, and it cannot be parked
+  /// awaiting a handle that is concurrently being dropped, because the handle
+  /// is owned by the future that frame is driving. A frame that has already
+  /// gone cancelled its entries in its own `Drop`, so an expired token is
+  /// simply skipped.
+  fn retire_all(self) {
+    for published in self.first.into_iter().chain(self.rest) {
+      if let Some(state) = published.state.upgrade() {
+        state.retire(published.sequence);
+      }
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn record_blocking_dependency(
+  published: &mut PublishedBlockingDependencies,
+  dependency: BlockingDependency,
+) {
   let current = CURRENT_DEPENDENCY_STACK.with(|stack| stack.borrow().last().cloned());
   if let Some(current) = current {
     let dependency = BlockingDependency {
@@ -1678,7 +1874,7 @@ fn record_blocking_dependency(dependency: BlockingDependency) {
         .or_else(|| BLOCKING_OWNER.with(std::cell::Cell::get)),
       ..dependency
     };
-    current.set_owned(dependency);
+    published.publish(current, dependency);
   }
 }
 
@@ -1693,11 +1889,11 @@ fn propagate_blocking_dependency(publication: DependencyPublication) {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn clear_blocking_dependency(dependency: BlockingDependency) {
-  let current = CURRENT_DEPENDENCY_STACK.with(|stack| stack.borrow().last().cloned());
-  if let Some(current) = current {
-    current.clear_if_dependency(dependency);
-  }
+fn clear_blocking_dependency(published: PublishedBlockingDependencies) {
+  // Retire against the states that were published to, NOT against whatever
+  // frame happens to be on top of the stack at drop time. The frame that
+  // published is the frame whose dependency graph is now wrong.
+  published.retire_all();
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1719,6 +1915,9 @@ enum JoinHandleInner<T> {
   Blocking {
     receiver: oneshot::Receiver<Result<ContainedTaskOutput<T>, JoinError>>,
     dependency: BlockingDependency,
+    /// Every dependency this handle has published, so detaching retires each
+    /// in O(1) instead of searching for them by job id.
+    published: PublishedBlockingDependencies,
   },
   Ready(Option<Result<ContainedTaskOutput<T>, JoinError>>),
 }
@@ -1753,7 +1952,8 @@ impl<T> JoinHandle<T> {
       #[cfg(not(target_family = "wasm"))]
       JoinHandleInner::Blocking {
         receiver,
-        dependency,
+        dependency: _,
+        published,
       } => {
         // A completed result may already be buffered in the receiver. Its
         // destructor is user code and must receive the same containment as an
@@ -1761,7 +1961,7 @@ impl<T> JoinHandle<T> {
         let _ = catch_unwind_contained(|| drop(receiver));
         // Notify only after receiver retirement, and keep that arbitrary waker
         // behind an independent unwind boundary.
-        let _ = catch_unwind_contained(|| clear_blocking_dependency(dependency));
+        let _ = catch_unwind_contained(|| clear_blocking_dependency(published));
       }
       JoinHandleInner::Ready(result) => {
         let _ = catch_unwind_contained(|| drop(result));
@@ -1827,10 +2027,11 @@ impl<T> Future for JoinHandle<T> {
       JoinHandleInner::Blocking {
         receiver,
         dependency,
+        published,
       } => {
         let poll = Pin::new(receiver).poll(cx);
         if poll.is_pending() {
-          record_blocking_dependency(*dependency);
+          record_blocking_dependency(published, *dependency);
         }
         match poll {
           Poll::Ready(Ok(result)) => Poll::Ready(result.map(ContainedTaskOutput::into_inner)),
@@ -3060,6 +3261,7 @@ impl CurrentThreadExecutor {
       return JoinHandle(JoinHandleInner::Blocking {
         receiver,
         dependency,
+        published: PublishedBlockingDependencies::default(),
       });
     }
 
@@ -4832,6 +5034,7 @@ impl MultiThreadExecutor {
     JoinHandle(JoinHandleInner::Blocking {
       receiver,
       dependency,
+      published: PublishedBlockingDependencies::default(),
     })
   }
 
@@ -16336,7 +16539,10 @@ mod tests {
 
       fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
         if let Some(first_poll) = self.first_poll.take() {
-          record_blocking_dependency(self.dependency);
+          // This shape never retires its publication -- the driver panics
+          // instead -- so the returned token is dropped straight away.
+          let mut published = PublishedBlockingDependencies::default();
+          record_blocking_dependency(&mut published, self.dependency);
           first_poll.send(()).unwrap();
           return Poll::Pending;
         }
@@ -19305,6 +19511,7 @@ mod tests {
     let mut handle = JoinHandle(JoinHandleInner::Blocking {
       receiver,
       dependency,
+      published: PublishedBlockingDependencies::default(),
     });
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -19337,6 +19544,7 @@ mod tests {
     let mut handle = JoinHandle(JoinHandleInner::Blocking {
       receiver,
       dependency,
+      published: PublishedBlockingDependencies::default(),
     });
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -19379,10 +19587,12 @@ mod tests {
     let mut first_handle = JoinHandle(JoinHandleInner::Blocking {
       receiver: first_receiver,
       dependency: first,
+      published: PublishedBlockingDependencies::default(),
     });
     let mut second_handle = JoinHandle(JoinHandleInner::Blocking {
       receiver: second_receiver,
       dependency: second,
+      published: PublishedBlockingDependencies::default(),
     });
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -19399,6 +19609,322 @@ mod tests {
     drop(second_handle);
     drop(first_sender);
     drop(second_sender);
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn double_polled_then_detached_handle_does_not_outrank_a_live_dependency() {
+    let owner = BlockingOwnerToken {
+      executor_id: u64::MAX - 900,
+      frame: u64::MAX - 901,
+    };
+    let parent = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let _context = TaskDependencyGuard::enter(&parent);
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let j1 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 910),
+      owner: Some(owner),
+    };
+    let j2 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 911),
+      owner: Some(owner),
+    };
+
+    let (s1, r1) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let (s2, r2) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+
+    let mut h1 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r1,
+      dependency: j1,
+      published: PublishedBlockingDependencies::default(),
+    });
+    // TWO Pending polls in one pass. Each publishes, so without coalescing the
+    // handle leaves two live entries for J1 and can retire only the newer one.
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+    let entries_after_double_poll = parent
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .current
+      .len();
+    drop(h1);
+
+    let mut h2 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r2,
+      dependency: j2,
+      published: PublishedBlockingDependencies::default(),
+    });
+    assert!(Pin::new(&mut h2).poll(&mut cx).is_pending());
+
+    assert_eq!(
+      entries_after_double_poll, 1,
+      "a repeat Pending poll must supersede the handle's own previous publication"
+    );
+    let selected = parent
+      .select_for_owner(owner)
+      .expect("a live dependency must be selectable");
+    assert_eq!(
+      selected.publication.dependency.job, j2.job,
+      "a DETACHED job must not be selected for owner lending ahead of the live one"
+    );
+    drop((s1, s2));
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn handle_polled_under_a_nested_frame_retires_both_publications() {
+    let owner = BlockingOwnerToken {
+      executor_id: u64::MAX - 920,
+      frame: u64::MAX - 921,
+    };
+    let outer = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let inner = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let j1 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 930),
+      owner: Some(owner),
+    };
+    let j2 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 931),
+      owner: Some(owner),
+    };
+    let (s1, r1) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let (s2, r2) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut h1 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r1,
+      dependency: j1,
+      published: Default::default(),
+    });
+
+    {
+      let _outer_ctx = TaskDependencyGuard::enter(&outer);
+      // A handle can publish into more than one frame: once here, and again
+      // under a nested re-entrant frame. Detaching must retire BOTH, or the
+      // forgotten entry keeps a detached job selectable for owner lending.
+      assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+      {
+        let _inner_ctx = TaskDependencyGuard::enter(&inner);
+        assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+      }
+      drop(h1);
+      assert!(
+        outer.get_dependencies().is_empty(),
+        "detaching must retire the publication made in the outer frame too"
+      );
+      let mut h2 = JoinHandle(JoinHandleInner::Blocking {
+        receiver: r2,
+        dependency: j2,
+        published: Default::default(),
+      });
+      assert!(Pin::new(&mut h2).poll(&mut cx).is_pending());
+      let selected = outer.select_for_owner(owner).expect("selectable");
+      assert_eq!(
+        selected.publication.dependency.job, j2.job,
+        "a detached job published in an outer frame must not outrank a live one"
+      );
+      drop(h2);
+    }
+    drop((s1, s2));
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn a_pending_handle_does_not_retain_the_frames_it_has_left() {
+    const FRAME_COUNT: usize = 64;
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let (sender, receiver) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut handle = JoinHandle(JoinHandleInner::Blocking {
+      receiver,
+      dependency: BlockingDependency {
+        job: BlockingJobId(u64::MAX - 940),
+        owner: None,
+      },
+      published: PublishedBlockingDependencies::default(),
+    });
+    let mut frames = Vec::new();
+    for _ in 0..FRAME_COUNT {
+      let frame = Arc::new(TaskDependency::default());
+      frames.push(Arc::downgrade(&frame));
+      let _context = TaskDependencyGuard::enter(&frame);
+      assert!(Pin::new(&mut handle).poll(&mut cx).is_pending());
+    }
+    // A handle carried through a sequence of completed frames must not keep
+    // any of them alive: it remembers each publication by `Weak`, and prunes
+    // the expired tokens on its next publication, so the history stays at the
+    // live frame count instead of growing with every frame ever seen.
+    let retained = frames
+      .iter()
+      .filter(|frame| frame.strong_count() > 0)
+      .count();
+    assert_eq!(
+      retained, 0,
+      "a completed frame must not be kept alive by a pending handle's publication history"
+    );
+    drop(handle);
+    drop(sender);
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn repolling_a_handle_does_not_reorder_it_behind_a_later_dependency() {
+    // H1 -> H2 -> H1 in one poll pass. `select_for_owner` picks the LOWEST live
+    // sequence, so H1 must keep the position its FIRST poll gave it: if
+    // re-polling appended a replacement at the tail, H2 would be lent first,
+    // and an H2 that waits on H1 would deadlock the owner's single lane.
+    let owner = BlockingOwnerToken {
+      executor_id: u64::MAX - 950,
+      frame: u64::MAX - 951,
+    };
+    let parent = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let _context = TaskDependencyGuard::enter(&parent);
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let j1 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 960),
+      owner: Some(owner),
+    };
+    let j2 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 961),
+      owner: Some(owner),
+    };
+    let (s1, r1) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let (s2, r2) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut h1 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r1,
+      dependency: j1,
+      published: PublishedBlockingDependencies::default(),
+    });
+    let mut h2 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r2,
+      dependency: j2,
+      published: PublishedBlockingDependencies::default(),
+    });
+
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+    assert!(Pin::new(&mut h2).poll(&mut cx).is_pending());
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+
+    let selected = parent
+      .select_for_owner(owner)
+      .expect("a live dependency must be selectable");
+    assert_eq!(
+      selected.publication.dependency.job, j1.job,
+      "re-polling a handle must not push its dependency behind one published later"
+    );
+    drop((h1, h2, s1, s2));
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn a_handle_carried_through_reused_frames_keeps_a_bounded_history() {
+    // Frames here are RETAINED (as a completed task's `JoinHandle` retains its
+    // `TaskDependency`) but each drains `current` at the start of its poll,
+    // which is what a real task poll does. A drained frame no longer holds the
+    // entry, so its token stops standing and is dropped on the next
+    // publication: the history tracks frames that still hold an entry, not
+    // every frame the handle has ever been polled under.
+    const FRAME_COUNT: usize = 256;
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let (sender, receiver) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut handle = JoinHandle(JoinHandleInner::Blocking {
+      receiver,
+      dependency: BlockingDependency {
+        job: BlockingJobId(u64::MAX - 970),
+        owner: None,
+      },
+      published: PublishedBlockingDependencies::default(),
+    });
+    let mut retained = Vec::new();
+    for _ in 0..FRAME_COUNT {
+      let frame = Arc::new(TaskDependency::default());
+      retained.push(Arc::clone(&frame));
+      let _context = TaskDependencyGuard::enter(&frame);
+      assert!(Pin::new(&mut handle).poll(&mut cx).is_pending());
+      // The frame's next poll drains what the previous one published.
+      frame.begin_poll();
+    }
+    let JoinHandle(JoinHandleInner::Blocking { published, .. }) = &handle else {
+      panic!("the handle must still be a blocking handle");
+    };
+    let remembered = usize::from(published.first.is_some()) + published.rest.len();
+    assert!(
+      remembered <= 2,
+      "a drained frame must not stay in the publication history, remembered={remembered}"
+    );
+    drop(handle);
+    drop(sender);
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn mass_detach_of_pending_blocking_handles_stays_linear() {
+    // A cancelled fan-out: N blocking handles are polled Pending inside ONE
+    // poll pass -- so `begin_poll` never runs to drain `current` and all N
+    // entries are simultaneously registered and still pending -- and are then
+    // dropped together. Retiring a handle's own entry is O(1) and
+    // `prune_stale_prefix` is amortised, so the whole detach is O(N).
+    //
+    // This is the shape that made an earlier attempt at this optimisation
+    // quadratic: it replaced the job index with a scan of `current` on every
+    // drop, which costs exactly N(N+1)/2 entry visits here, all of it under
+    // the dependency mutex.
+    const HANDLE_COUNT: usize = 512;
+
+    let parent = Arc::new(TaskDependency::default());
+    let _context = TaskDependencyGuard::enter(&parent);
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let mut senders = Vec::with_capacity(HANDLE_COUNT);
+    let mut handles = Vec::with_capacity(HANDLE_COUNT);
+    for index in 0..HANDLE_COUNT {
+      let (sender, receiver) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+      senders.push(sender);
+      handles.push(JoinHandle(JoinHandleInner::Blocking {
+        receiver,
+        dependency: BlockingDependency {
+          job: BlockingJobId(u64::MAX - 300_000 - index as u64),
+          owner: None,
+        },
+        published: PublishedBlockingDependencies::default(),
+      }));
+    }
+    for handle in &mut handles {
+      assert!(Pin::new(handle).poll(&mut cx).is_pending());
+    }
+    assert_eq!(
+      parent
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .current
+        .len(),
+      HANDLE_COUNT,
+      "every handle must be registered and still pending before the detach"
+    );
+
+    parent.reset_entry_visits();
+    drop(handles);
+
+    assert!(
+      parent.entry_visits() <= HANDLE_COUNT * 4,
+      "mass-detach must visit O(n) entries across n handles, visits={}",
+      parent.entry_visits()
+    );
+    assert_eq!(
+      parent.get_dependency(),
+      None,
+      "every detached handle must have retired its own publication"
+    );
+    drop(senders);
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -19432,13 +19958,14 @@ mod tests {
     };
 
     let _context = TaskDependencyGuard::enter(&parent);
-    record_blocking_dependency(blocking);
+    let mut published = PublishedBlockingDependencies::default();
+    record_blocking_dependency(&mut published, blocking);
     woke_rx
       .recv_timeout(Duration::from_secs(1))
       .expect("dependency notification must permit reentrant TLS context access");
 
     parent.register_waiter(&waiter);
-    clear_blocking_dependency(blocking);
+    clear_blocking_dependency(published);
     woke_rx
       .recv_timeout(Duration::from_secs(1))
       .expect("dependency clearing must permit reentrant TLS context access");
@@ -19577,20 +20104,18 @@ mod tests {
       job: BlockingJobId(u64::MAX),
       owner: None,
     };
-    dependency.set_owned(blocking);
+    let sequence = dependency.set_owned(blocking);
     dependency.register_waiter(&Waker::from(Arc::new(PanicWake)));
 
-    let result = catch_unwind(AssertUnwindSafe(|| {
-      dependency.clear_if_dependency(blocking)
-    }));
+    let result = catch_unwind(AssertUnwindSafe(|| dependency.retire(sequence)));
     assert!(
       result.is_ok(),
-      "clear_if notification must not unwind its caller"
+      "retire notification must not unwind its caller"
     );
     assert_eq!(
       dependency.get_dependency(),
       None,
-      "clear_if must commit before notifying its waiter"
+      "retire must commit before notifying its waiter"
     );
   }
 
@@ -19849,14 +20374,18 @@ mod tests {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       assert_eq!(state.current.len(), 3);
-      assert_eq!(
+      // The `job_sequences` index is gone -- a blocking handle retires its own
+      // entry by sequence -- so "the index retains no stale sequence" is
+      // structurally impossible rather than something to assert. The
+      // substantive property that assertion protected, that only the three
+      // NON-matching sentinels survived the clear, is checked directly on the
+      // authoritative structure.
+      assert!(
         state
-          .job_sequences
-          .values()
-          .map(FxHashSet::len)
-          .sum::<usize>(),
-        3,
-        "the job index must retain only the three non-matching sentinels"
+          .current
+          .iter()
+          .all(|entry| entry.publication.is_live()),
+        "only the three non-matching sentinels may remain, all still live"
       );
       assert!(state.unowned_sequences.is_empty());
       assert_eq!(state.owner_sequences.len(), 1);
@@ -19898,7 +20427,10 @@ mod tests {
         job: BlockingJobId(u64::MAX - 1),
         owner: None,
       };
-      parent.set_owned(dependency);
+      // The handle is built by hand rather than by polling, so hand it the
+      // publication token a Pending poll would have recorded; detach retires
+      // the entry by sequence.
+      let sequence = parent.set_owned(dependency);
       parent.register_waiter(&Waker::from(Arc::new(PanicWake)));
       let _context = TaskDependencyGuard::enter(&parent);
       let (sender, receiver) = oneshot::channel();
@@ -19908,6 +20440,13 @@ mod tests {
       drop(JoinHandle(JoinHandleInner::Blocking {
         receiver,
         dependency,
+        published: PublishedBlockingDependencies {
+          first: Some(PublishedBlockingDependency {
+            state: Arc::downgrade(&parent),
+            sequence,
+          }),
+          rest: Vec::new(),
+        },
       }));
       assert_eq!(parent.get_dependency(), None);
       return;
@@ -21025,6 +21564,7 @@ mod tests {
           job,
           owner: Some(owner),
         },
+        published: PublishedBlockingDependencies::default(),
       });
       let _owner = executor.enter_blocking_owner(owner, false);
 
@@ -26048,7 +26588,10 @@ mod tests {
       if self.ready.load(Ordering::SeqCst) {
         Poll::Ready(())
       } else {
-        record_blocking_dependency(self.dependency);
+        // This shape publishes on every pending poll and never retires; the
+        // owner-lane assertions read the state, not the token.
+        let mut published = PublishedBlockingDependencies::default();
+        record_blocking_dependency(&mut published, self.dependency);
         Poll::Pending
       }
     }
