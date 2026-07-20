@@ -153,12 +153,19 @@ pub unsafe fn tag_object(
 ///
 /// The tag stamp is a **no-op** on builds without `napi8` and on **all** wasm
 /// targets (same story as [`tag_object`]); on those targets this is exactly a
-/// bare `napi_wrap`. Passes `None` as the finalizer — the caller owns cleanup
-/// of `native` (e.g. via `napi_remove_wrap`).
+/// bare `napi_wrap`. Passes `None` as the finalizer, so the JS engine never owns
+/// `native` — the caller owns its cleanup in every case (on success, later via
+/// `napi_remove_wrap`; on error, immediately).
+///
+/// The wrap + tag are **atomic**: if tagging fails after the wrap succeeded, the
+/// wrap is rolled back (`napi_remove_wrap`) before returning the error, so
+/// `js_obj` is never left holding `native`. Without that rollback the caller's
+/// error-path free of `native` would leave `js_obj` wrapping dangling memory,
+/// and the next `napi_unwrap` would be a use-after-free.
 ///
 /// # Safety
 /// `env` valid; `js_obj` a valid, not-yet-wrapped JS object; `native` a live
-/// pointer to a `T` whose ownership transfers to the JS engine on success.
+/// pointer to a `T`. `native` stays owned by the caller (`None` finalizer).
 pub unsafe fn wrap_and_tag<T: TypeTag>(
   env: sys::napi_env,
   js_obj: sys::napi_value,
@@ -177,7 +184,18 @@ pub unsafe fn wrap_and_tag<T: TypeTag>(
     },
     "Failed to wrap native object for manual class tagging"
   )?;
-  unsafe { tag_object(env, js_obj, &<T as TypeTag>::type_tag()) }
+  // Atomic wrap+tag: if tagging fails, undo the wrap so `js_obj` is not left
+  // holding `native`. The caller frees `native` on error (JS never owns it via
+  // the `None` finalizer), so a lingering wrap would dangle on the next unwrap.
+  // On non-napi8 / wasm, `tag_object` is an infallible no-op, so this rollback
+  // branch is dead there and the call is a bare `napi_wrap`.
+  if let Err(err) = unsafe { tag_object(env, js_obj, &<T as TypeTag>::type_tag()) } {
+    let mut unwrapped = std::ptr::null_mut();
+    // Best-effort detach; the caller owns and will free `native`.
+    let _ = unsafe { sys::napi_remove_wrap(env, js_obj, &mut unwrapped) };
+    return Err(err);
+  }
+  Ok(())
 }
 
 /// Verify that `obj` carries the class type tag `tag`. On mismatch, returns a
