@@ -67,8 +67,8 @@ pub struct ClassInstance<'env, T: 'env> {
 // NOTE: the `MaybeTypeTag` bound here is transitively required, not collateral:
 // `JsValue: FromNapiValue` (see `js_values/value.rs`), and
 // `FromNapiValue for ClassInstance<T>` (below) needs `T: MaybeTypeTag` to name
-// `T::type_tag()` under napi8-native. Under napi4/no-napi8 it is vacuous, so the
-// default public API is unchanged.
+// `T::type_tag()` under napi8-native. Without `napi8` and on all wasm targets
+// `MaybeTypeTag` is vacuous, so the default and wasm public API are unchanged.
 impl<'env, T: 'env + MaybeTypeTag> JsValue<'env> for ClassInstance<'env, T> {
   fn value(&self) -> Value {
     Value {
@@ -144,8 +144,8 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
   where
     'this: 'env,
     // Transitively required (not collateral): `.with_value(self)` below needs
-    // `ClassInstance<T>: JsValue`, which needs `T: MaybeTypeTag`. Vacuous under
-    // napi4/no-napi8, so the default public API is unchanged.
+    // `ClassInstance<T>: JsValue`, which needs `T: MaybeTypeTag`. Vacuous without
+    // `napi8` and on all wasm targets, so the default and wasm API are unchanged.
     T: MaybeTypeTag,
     U: FromNapiValue + JsValue<'this>,
   {
