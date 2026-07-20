@@ -64,6 +64,11 @@ pub struct ClassInstance<'env, T: 'env> {
   _phantom: &'env PhantomData<()>,
 }
 
+// NOTE: the `MaybeTypeTag` bound here is transitively required, not collateral:
+// `JsValue: FromNapiValue` (see `js_values/value.rs`), and
+// `FromNapiValue for ClassInstance<T>` (below) needs `T: MaybeTypeTag` to name
+// `T::type_tag()` under napi8-native. Under napi4/no-napi8 it is vacuous, so the
+// default public API is unchanged.
 impl<'env, T: 'env + MaybeTypeTag> JsValue<'env> for ClassInstance<'env, T> {
   fn value(&self) -> Value {
     Value {
@@ -138,6 +143,9 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
   ) -> Result<ClassInstance<'this, T>>
   where
     'this: 'env,
+    // Transitively required (not collateral): `.with_value(self)` below needs
+    // `ClassInstance<T>: JsValue`, which needs `T: MaybeTypeTag`. Vacuous under
+    // napi4/no-napi8, so the default public API is unchanged.
     T: MaybeTypeTag,
     U: FromNapiValue + JsValue<'this>,
   {
