@@ -20,6 +20,28 @@ use crate::sys;
 /// `napi8` feature) so that generic `where T: TypeTag` bounds always type-check.
 /// The actual stamping/checking is performed by [`tag_object`] /
 /// [`validate_type_tag`], which only do real work under the `napi8` feature.
+///
+/// # Opting into a crate-unique salt: `#[napi(type_tag = "…")]`
+///
+/// The default identity string keys on `crate@version`, so two *unrelated*
+/// addons that happen to share the same crate name **and** version **and**
+/// module path **and** class name would derive the same tag. If that collision
+/// worries you (e.g. a widely-vendored crate name), annotate the class with
+/// `#[napi(type_tag = "…")]`:
+///
+/// ```ignore
+/// #[napi(type_tag = "6f9619ff-8b86-d011-b42d-00cf4fc964ff")]
+/// pub struct MyClass { /* … */ }
+/// ```
+///
+/// The supplied string (a UUID is recommended) **replaces** the `crate@version`
+/// component of the identity string — the derived tag becomes
+/// `type_tag_from_ident("SALT::module_path::ClassName")`. `module_path` and the
+/// class name are still folded in, so the salt only needs crate-level global
+/// uniqueness; two classes in the same crate can never share a tag even with the
+/// same salt. Like the default, the salted form is a compile-time constant, so
+/// the tag stays stable across process reload / dual-load. The attribute is
+/// runtime-only and never appears in the generated TypeScript.
 pub trait TypeTag {
   /// Returns this class's stable per-type tag. The derive computes it from the
   /// class's content identity string (`crate@version::module_path::ClassName`),

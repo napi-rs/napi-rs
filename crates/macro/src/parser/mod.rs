@@ -1258,6 +1258,7 @@ impl ConvertToAST for syn::ItemStruct {
 
     record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
+    let type_tag = opts.type_tag().map(|(s, _)| s.to_owned());
     let implement_iterator = opts.iterator().is_some();
     let implement_async_iterator = opts.async_iterator().is_some();
 
@@ -1411,6 +1412,7 @@ impl ConvertToAST for syn::ItemStruct {
         has_lifetime: lifetime.is_some(),
         is_generator: implement_iterator,
         is_async_generator: implement_async_iterator,
+        type_tag,
       }),
     })
   }
@@ -1610,6 +1612,10 @@ impl ConvertToAST for syn::ItemEnum {
           has_lifetime: false,
           is_generator: false,
           is_async_generator: false,
+          // Structured enums never emit an `impl TypeTag`; call the accessor so a
+          // stray `#[napi(type_tag = "...")]` is marked used (strict check) and
+          // harmlessly ignored.
+          type_tag: opts.type_tag().map(|(s, _)| s.to_owned()),
         }),
       });
     }
