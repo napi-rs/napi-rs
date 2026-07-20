@@ -84,7 +84,7 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
+  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -124,10 +124,22 @@ impl<const N: usize> CallbackInfo<N> {
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
     );
+
+    // Stamp the object's type tag AFTER `add_ref` has adopted the Arc + napi_ref
+    // into `REFERENCE_MAP`, so a tag failure cannot leak them: the object is
+    // fully registered and GC reclaims value_ref + object_ref + Arc.
+    // Compiled only on napi8 NATIVE targets: elsewhere there is no tag to stamp,
+    // and the `T: MaybeTypeTag` bound provides `T::type_tag()` only there (it is
+    // vacuous without napi8 and on all wasm targets).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    unsafe {
+      tag_object(self.env, this, &T::type_tag())?;
+    }
+
     Ok((this, value_ref))
   }
 
-  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
+  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -140,7 +152,7 @@ impl<const N: usize> CallbackInfo<N> {
   pub fn construct_generator<
     'a,
     const IsEmptyStructHint: bool,
-    T: ScopedGenerator<'a> + ObjectFinalize + 'static,
+    T: ScopedGenerator<'a> + ObjectFinalize + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -151,7 +163,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  pub fn factory<T: ObjectFinalize + 'static>(
+  pub fn factory<T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -159,7 +171,7 @@ impl<const N: usize> CallbackInfo<N> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + 'static>(
+  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -172,7 +184,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn construct_async_generator<
     const IsEmptyStructHint: bool,
-    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + 'static,
+    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -185,7 +197,7 @@ impl<const N: usize> CallbackInfo<N> {
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn async_generator_factory<
-    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + 'static,
+    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -196,7 +208,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  fn _factory<T: ObjectFinalize + 'static>(
+  fn _factory<T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -260,19 +272,28 @@ impl<const N: usize> CallbackInfo<N> {
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
     );
+
+    // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
+    // napi_ref (see `_construct`). Compiled only on napi8 NATIVE targets (the
+    // `T: MaybeTypeTag` bound provides `T::type_tag()` only there).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    unsafe {
+      tag_object(self.env, instance, &T::type_tag())?;
+    }
+
     Ok((instance, value_ref))
   }
 
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
   where
-    T: FromNapiMutRef + TypeName,
+    T: FromNapiMutRef + TypeName + MaybeTypeTag,
   {
     unsafe { self.unwrap_raw::<T>() }.map(|raw| Box::leak(unsafe { Box::from_raw(raw) }))
   }
 
   pub fn unwrap_borrow<T>(&mut self) -> Result<&'static T>
   where
-    T: FromNapiRef + TypeName,
+    T: FromNapiRef + TypeName + MaybeTypeTag,
   {
     unsafe { self.unwrap_raw::<T>() }
       .map(|raw| Box::leak(unsafe { Box::from_raw(raw) }) as &'static T)
@@ -282,7 +303,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[inline]
   pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
   where
-    T: TypeName,
+    T: TypeName + MaybeTypeTag,
   {
     let mut wrapped_val: *mut c_void = std::ptr::null_mut();
 
@@ -292,6 +313,20 @@ impl<const N: usize> CallbackInfo<N> {
         "Failed to unwrap exclusive reference of `{}` type from napi value",
         T::type_name(),
       )?;
+
+      // Reject a spoofed receiver (`ClassA.prototype.method.call(new ClassB())`)
+      // before the blind cast below. On Node this wrong receiver is *also*
+      // rejected by the V8 FunctionTemplate signature that `napi_define_class`
+      // installs on instance methods ("Illegal invocation", before the callback
+      // runs) — but that signature is NOT enforced by every supported Node-API
+      // runtime: Bun (exercised by CI's `test-latest-bun` job) invokes the
+      // callback with a wrong-class receiver where Node throws. Without this tag
+      // check `napi_unwrap` hands back the other class's pointer and the cast
+      // below is type-confused (UB). Compiled only on napi8 NATIVE targets (the
+      // `T: MaybeTypeTag` bound provides `T::type_tag()` only there; elsewhere
+      // this is the pre-tag unchecked cast).
+      #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+      validate_type_tag(self.env, self.this, &T::type_tag(), T::type_name())?;
 
       Ok(wrapped_val.cast())
     }

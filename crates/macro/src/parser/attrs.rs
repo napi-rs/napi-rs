@@ -70,6 +70,7 @@ macro_rules! attrgen {
       (object_to_js, ObjectToJs(Span, Option<bool>), true),
       (custom_finalize, CustomFinalize(Span)),
       (namespace, Namespace(Span, String, Span)),
+      (type_tag, TypeTag(Span, String, Span)),
       (iterator, Iterator(Span)),
       (async_iterator, AsyncIterator(Span)),
       (ts_args_type, TsArgsType(Span, String, Span)),

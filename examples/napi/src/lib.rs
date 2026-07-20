@@ -100,5 +100,6 @@ mod task;
 mod threadsafe_function;
 mod transparent;
 mod r#type;
+mod type_tag;
 mod typed_array;
 mod wasm;

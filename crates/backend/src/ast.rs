@@ -92,6 +92,14 @@ pub struct NapiStruct {
   pub has_lifetime: bool,
   pub is_generator: bool,
   pub is_async_generator: bool,
+  /// Optional crate-unique salt from `#[napi(type_tag = "...")]`. When set on a
+  /// class it REPLACES the default `crate@version` identity component of the
+  /// content-derived class type tag (module_path + ClassName still apply), so a
+  /// class's tag cannot collide with an unrelated addon that happens to share
+  /// the same crate name@version + module path + class name. `None` keeps the
+  /// default `crate@version::module_path::ClassName` derivation. Runtime-only;
+  /// never emitted into TypeScript.
+  pub type_tag: Option<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -694,6 +694,19 @@ mod napi8 {
       fn napi_object_freeze(env: napi_env, object: napi_value) -> napi_status;
 
       fn napi_object_seal(env: napi_env, object: napi_value) -> napi_status;
+
+      fn napi_type_tag_object(
+        env: napi_env,
+        value: napi_value,
+        type_tag: *const napi_type_tag,
+      ) -> napi_status;
+
+      fn napi_check_object_type_tag(
+        env: napi_env,
+        value: napi_value,
+        type_tag: *const napi_type_tag,
+        result: *mut bool,
+      ) -> napi_status;
     }
   );
 }

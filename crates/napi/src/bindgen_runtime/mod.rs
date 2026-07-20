@@ -7,6 +7,7 @@ pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
+pub use type_tag::*;
 
 use super::sys;
 use crate::{Error, JsError, Result, Status};
@@ -22,6 +23,7 @@ mod error;
 pub mod iterator;
 mod js_values;
 mod module_register;
+mod type_tag;
 
 pub trait ObjectFinalize: Sized {
   #[allow(unused)]
@@ -54,14 +56,16 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   _finalize_hint: *mut c_void,
 ) {
   let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
-  if let Err(err) = data.finalize(Env::from_raw(env)) {
-    let e: JsError = err.into();
-    unsafe { e.throw_into(env) };
-    return;
-  }
-  if let Some((_, ref_val, finalize_callbacks_ptr)) =
-    REFERENCE_MAP.with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)))
-  {
+  // Remove the `REFERENCE_MAP` entry and run the reference bookkeeping
+  // *regardless* of whether the user `finalize()` returns `Err`, so an errored
+  // finalize can never leave a stale entry keyed on the just-freed pointer. The
+  // finalize error (if any) is thrown last, after cleanup. The success path is
+  // unchanged.
+  let ref_entry = REFERENCE_MAP
+    .with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)));
+  let finalize_result = data.finalize(Env::from_raw(env));
+
+  if let Some((_, ref_val, finalize_callbacks_ptr)) = ref_entry {
     let finalize_callbacks_rc = unsafe { Arc::from_raw(finalize_callbacks_ptr) };
 
     #[cfg(all(debug_assertions, not(target_family = "wasm")))]
@@ -82,6 +86,11 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
       "Delete reference in finalize callback failed {}",
       Status::from(delete_reference_status)
     );
+  }
+
+  if let Err(err) = finalize_result {
+    let e: JsError = err.into();
+    unsafe { e.throw_into(env) };
   }
 }
 
