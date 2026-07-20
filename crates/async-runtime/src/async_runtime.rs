@@ -1063,7 +1063,15 @@ struct TaskDependencyState {
   next_sequence: u64,
   unowned_sequences: VecDeque<u64>,
   owner_sequences: FxHashMap<BlockingOwnerToken, VecDeque<u64>>,
-  job_sequences: FxHashMap<BlockingJobId, FxHashSet<u64>>,
+  // NOTE: there is deliberately no `job_sequences` index. It used to be a
+  // `FxHashMap<BlockingJobId, FxHashSet<u64>>`, which cost TWO heap
+  // allocations per blocking dispatch (the map's table plus an inner set that
+  // almost always held exactly one sequence) and a hash per lookup. It was a
+  // pure derived index -- every entry leaving `current` passes through
+  // `remove_sequence_indexes` or `drain(..) + clear_indexes()` -- so the same
+  // answers come from scanning `current` for a matching job. A task's live
+  // dependency count is ~1 in practice (await one blocking read at a time), so
+  // the scan is shorter than the hash it replaces.
   waiter: Option<Waker>,
 }
 
@@ -1083,11 +1091,6 @@ impl TaskDependencyState {
         .push_back(sequence),
       None => self.unowned_sequences.push_back(sequence),
     }
-    self
-      .job_sequences
-      .entry(publication.dependency.job)
-      .or_default()
-      .insert(sequence);
     self.current.push_back(TaskDependencyEntry {
       sequence,
       publication,
@@ -1137,18 +1140,12 @@ impl TaskDependencyState {
         }
       }
     }
-    if let Some(sequences) = self.job_sequences.get_mut(&dependency.job) {
-      sequences.remove(&sequence);
-      if sequences.is_empty() {
-        self.job_sequences.remove(&dependency.job);
-      }
-    }
+    let _ = dependency.job;
   }
 
   fn clear_indexes(&mut self) {
     self.unowned_sequences.clear();
     self.owner_sequences.clear();
-    self.job_sequences.clear();
   }
 }
 
@@ -1232,13 +1229,18 @@ impl TaskDependency {
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+      // Same set the removed `job_sequences` index would have produced: the
+      // index held exactly the sequences of `current` entries for this job.
       let mut removed = false;
-      if let Some(sequences) = state.job_sequences.remove(&dependency.job) {
-        for sequence in sequences {
-          if let Some(current) = state.entry_mut(sequence) {
-            current.publication.cancel();
-            removed = true;
-          }
+      for entry in state.current.iter_mut() {
+        // Instrumented like every other `current` walk so this scan is visible
+        // to the linearity guards. `current` is bounded per poll pass --
+        // `begin_poll` drains it -- so this stays a short walk, but an
+        // uninstrumented scan would be invisible if that ever stopped holding.
+        self.note_entry_visit();
+        if entry.publication.dependency.job == dependency.job {
+          entry.publication.cancel();
+          removed = true;
         }
       }
       if removed {
@@ -1287,14 +1289,8 @@ impl TaskDependency {
           Some((current.sequence, current.publication.dependency.job))
         })
         .collect::<Vec<_>>();
-      for (sequence, job) in &removed {
-        if let Some(sequences) = state.job_sequences.get_mut(job) {
-          sequences.remove(sequence);
-          if sequences.is_empty() {
-            state.job_sequences.remove(job);
-          }
-        }
-      }
+      // No `job_sequences` index to maintain; the cancelled entries stay in
+      // `current` until `prune_stale_prefix` retires them, exactly as before.
       if removed.is_empty() {
         None
       } else {
@@ -19849,14 +19845,17 @@ mod tests {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       assert_eq!(state.current.len(), 3);
-      assert_eq!(
+      // The `job_sequences` index was removed; job lookup now scans `current`,
+      // so "the index retains no stale sequence" is structurally impossible
+      // rather than something to assert. The substantive property the old
+      // assertion protected -- only the three NON-matching sentinels survived
+      // the clear -- is checked directly on the authoritative structure.
+      assert!(
         state
-          .job_sequences
-          .values()
-          .map(FxHashSet::len)
-          .sum::<usize>(),
-        3,
-        "the job index must retain only the three non-matching sentinels"
+          .current
+          .iter()
+          .all(|entry| entry.publication.is_live()),
+        "only the three non-matching sentinels may remain, all still live"
       );
       assert!(state.unowned_sequences.is_empty());
       assert_eq!(state.owner_sequences.len(), 1);
