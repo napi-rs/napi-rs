@@ -15891,6 +15891,60 @@ mod tests {
 
   #[cfg(not(target_family = "wasm"))]
   #[test]
+  #[ignore = "microbenchmark: run explicitly in release mode"]
+  fn parked_drivers_registry_cycle_microbench() {
+    // Isolates the registry traffic of one steady-state linger cycle at
+    // various registry sizes: wake_one pops the LIFO top (O(1)), the woken
+    // drainer deregisters (the entry is already gone, so the position scan
+    // walks the WHOLE vector and fails), then re-registers (push). Also
+    // measures the timeout-path deregister (entry present) and a
+    // wake_one_owner_dependency sweep over dependency-less lingerers.
+    for &n in &[8usize, 64, 256] {
+      let registry = ParkedDrivers::default();
+      let parkers: Vec<Arc<DriverParker>> =
+        (0..n).map(|_| Arc::new(DriverParker::default())).collect();
+      for parker in &parkers {
+        registry.register_with_role(parker, true, None);
+      }
+      let hot = &parkers[n - 1];
+
+      let iters = 2_000_000u32;
+      let start = Instant::now();
+      for _ in 0..iters {
+        assert!(registry.wake_one());
+        registry.deregister(hot);
+        assert!(hot.consume_permit());
+        registry.register_with_role(hot, true, None);
+      }
+      let wake_cycle = start.elapsed() / iters;
+
+      let start = Instant::now();
+      for _ in 0..iters {
+        registry.deregister(hot);
+        registry.register_with_role(hot, true, None);
+      }
+      let timeout_cycle = start.elapsed() / iters;
+
+      let owner = BlockingOwnerToken {
+        executor_id: u64::MAX,
+        frame: u64::MAX,
+      };
+      let start = Instant::now();
+      for _ in 0..iters {
+        assert!(!registry.wake_one_owner_dependency(owner));
+      }
+      let owner_sweep = start.elapsed() / iters;
+
+      eprintln!(
+        "N={n:>3}: wake+failed-deregister+re-register {wake_cycle:?}, \
+         timeout-deregister+re-register {timeout_cycle:?}, \
+         owner-dependency sweep {owner_sweep:?}"
+      );
+    }
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
   fn multi_thread_block_on_from_caller_thread_still_parks() {
     // The non-pool (napi caller) path must keep using the plain parking
     // `block_on`; here we just assert it drives a ready future to completion.
