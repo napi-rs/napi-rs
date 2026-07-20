@@ -36,14 +36,14 @@ fn gen_napi_value_map_impl(
   has_lifetime: bool,
 ) -> TokenStream {
   let name_str = name.to_string();
-  // The per-class type tag is derived from the address of a per-class static
-  // (see the `impl TypeTag` body below). That address is process-unique by
-  // construction — distinct classes have distinct anchor statics, and
-  // separately-loaded addons map their statics at distinct process addresses —
-  // and is used injectively, so two *distinct* Rust classes always get distinct
-  // tags even when they share every string field (`js_name`/namespace/crate/
-  // version). The body does not name the class type, so no `'static`/lifetime
-  // form of `#name` is needed for the tag.
+  // The per-class type tag is content-derived from the class's identity string
+  // `crate@version::module_path::ClassName` (see the `impl TypeTag` body below).
+  // Content derivation keeps the tag stable across process reload / dual-load,
+  // while staying per-class unique because Rust forbids duplicate
+  // `module_path::ident` — so two *distinct* Rust classes always get distinct
+  // tags even when they share `js_name`/namespace/crate/version. The body does
+  // not name the class type, so no `'static`/lifetime form of `#name` is needed
+  // for the tag.
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
@@ -120,13 +120,15 @@ fn gen_napi_value_map_impl(
     #[automatically_derived]
     impl napi::bindgen_prelude::TypeTag for #name {
       fn type_tag() -> napi::bindgen_prelude::sys::napi_type_tag {
-        // A per-class static with interior mutability → placed in writable data,
-        // so the linker never merges it with another class's anchor (identical-
-        // constant folding only applies to read-only data). Its address is
-        // stable for the process lifetime and unique to THIS class in THIS
-        // loaded module, and `type_tag_from_anchor` uses it injectively.
-        static ANCHOR: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-        napi::bindgen_prelude::type_tag_from_anchor(&ANCHOR as *const _ as usize)
+        // Content-derived, per-class-unique class identity. `env!`/`module_path!`
+        // expand at the CONSUMER crate/module expansion site, so the tag encodes
+        // the class's real owning crate@version and module path. Stable across
+        // reload / dual-load; distinct classes differ because Rust forbids
+        // duplicate `module_path::ident`.
+        napi::bindgen_prelude::type_tag_from_ident(concat!(
+          env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"),
+          "::", module_path!(), "::", #name_str
+        ))
       }
     }
 

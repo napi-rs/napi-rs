@@ -4,12 +4,13 @@ use crate::sys;
 ///
 /// Every `#[napi]` struct that becomes a JS class gets a derive-generated
 /// `impl TypeTag`, whose [`type_tag`](TypeTag::type_tag) returns a stable
-/// 128-bit value derived from the **address of a per-class static** —
-/// process-unique by construction: distinct classes have distinct anchor
-/// statics, and separately-loaded addons map their statics at distinct process
-/// addresses. Because the address is used injectively (see
-/// [`type_tag_from_anchor`]), two *distinct* Rust classes can **never** share a
-/// tag — with no hash and no birthday bound — even when they share the same
+/// 128-bit value derived from the class's **content identity string**
+/// (`crate@version::module_path::ClassName`, see [`type_tag_from_ident`]).
+/// Content derivation makes the tag identical across process reload and across
+/// two separately-loaded copies of the same addon (Node's documented type-tag
+/// contract), while staying per-class unique because Rust forbids duplicate
+/// `module_path::ident` — so two *distinct* Rust classes always get distinct
+/// identity strings, hence distinct tags, even when they share the same
 /// `js_name` and namespace. The tag is stamped onto each instance's JS object
 /// right after `napi_wrap` and verified before every blind pointer cast, so a
 /// wrong-class / prototype-spoofed / `method.call(wrongThis)` object is rejected
@@ -21,31 +22,34 @@ use crate::sys;
 /// [`validate_type_tag`], which only do real work under the `napi8` feature.
 pub trait TypeTag {
   /// Returns this class's stable per-type tag. The derive computes it from the
-  /// address of a per-class static, which is fixed for the process lifetime, so
-  /// repeated calls within a process return the same tag.
+  /// class's content identity string (`crate@version::module_path::ClassName`),
+  /// which is fixed for a given class, so repeated calls return the same tag.
   fn type_tag() -> sys::napi_type_tag;
 }
 
-/// Build a process-unique 128-bit [`sys::napi_type_tag`] from the address of a
-/// per-class static.
+/// Build a stable per-class 128-bit [`sys::napi_type_tag`] from a content
+/// identity string (`crate@version::module_path::ClassName`). Content-derived,
+/// so a class's tag is identical across process reload and across two loaded
+/// copies of the same addon (Node's documented type-tag contract), while
+/// staying per-class unique because Rust forbids duplicate `module_path::ident`.
 ///
-/// The address is unique per class per process: distinct classes have distinct
-/// anchor statics, and separately-loaded addons map their statics at distinct
-/// process addresses. Feeding the address in as the `lower` half makes the
-/// encoding **injective** — a distinct address yields a distinct `lower`, hence
-/// a distinct tag — so two distinct classes can never collide (there is no
-/// hashing and no birthday bound, unlike a hash of a nominal id which can
-/// alias). The `upper` half is a decorrelating bijection of the same address
-/// used only to fill the remaining 64 bits; it does not affect uniqueness.
-///
-/// Defined **unconditionally** (pure arithmetic, no `napi8` dependency) so the
-/// derive-generated `type_tag()` compiles in every build.
-#[inline]
-pub fn type_tag_from_anchor(anchor: usize) -> sys::napi_type_tag {
-  let a = anchor as u64;
+/// `const fn` (pure arithmetic, no `napi8` dependency) so the derive-generated
+/// `type_tag()` folds at compile time in every build.
+pub const fn type_tag_from_ident(ident: &str) -> sys::napi_type_tag {
+  // 128-bit FNV-1a.
+  const FNV_OFFSET: u128 = 0x6c62272e07bb0142_62b821756295c58d;
+  const FNV_PRIME: u128 = 0x0000000001000000_000000000000013B;
+  let bytes = ident.as_bytes();
+  let mut hash = FNV_OFFSET;
+  let mut i = 0;
+  while i < bytes.len() {
+    hash ^= bytes[i] as u128;
+    hash = hash.wrapping_mul(FNV_PRIME);
+    i += 1;
+  }
   sys::napi_type_tag {
-    lower: a,
-    upper: a.rotate_left(32) ^ 0x9E37_79B9_7F4A_7C15,
+    lower: hash as u64,
+    upper: (hash >> 64) as u64,
   }
 }
 
@@ -212,35 +216,49 @@ pub unsafe fn validate_type_tag(
 #[cfg(test)]
 mod tests {
   // NOTE: object tagging/checking is a **native-only** guarantee. These tests
-  // cover the pure address→tag arithmetic ([`type_tag_from_anchor`]), which is
-  // unconditional. The actual N-API stamp/check ([`tag_object`] /
-  // [`validate_type_tag`]) is a no-op on wasm, because the anchor address is an
-  // instance-local linear-memory offset there (not process-globally unique) and
+  // cover the pure content-identity→tag arithmetic ([`type_tag_from_ident`], a
+  // 128-bit FNV-1a), which is unconditional. The actual N-API stamp/check
+  // ([`tag_object`] / [`validate_type_tag`]) is a no-op on wasm, because
   // Node-API type-tag support on wasm/emnapi is host-dependent.
-  use super::type_tag_from_anchor;
+  use super::{sys, type_tag_from_ident};
 
-  /// Distinct anchor addresses get distinct tags. The encoding is injective in
-  /// `lower`, so distinct classes (which have distinct anchor statics at
-  /// distinct addresses) can never collide — even two classes that would share
-  /// every string field (js_name/namespace/crate/version).
+  /// Distinct identity strings get distinct tags. Rust forbids duplicate
+  /// `module_path::ident`, so distinct classes always have distinct identity
+  /// strings — even two classes that share every other string field
+  /// (js_name/namespace/crate/version) differ by their `module_path::ident`.
   #[test]
-  fn distinct_anchors_get_distinct_tags() {
+  fn distinct_idents_get_distinct_tags() {
     assert_ne!(
-      type_tag_from_anchor(0x1000),
-      type_tag_from_anchor(0x2000),
-      "distinct anchor addresses must map to distinct tags",
+      type_tag_from_ident("a::Foo"),
+      type_tag_from_ident("a::Bar"),
+      "distinct identity strings must map to distinct tags",
     );
   }
 
-  /// The same anchor address always maps to the same tag (pure arithmetic on a
-  /// static's address, which is fixed for the process lifetime — required since
-  /// stamp and check happen in one binary).
+  /// The same identity string always maps to the same tag (pure arithmetic on
+  /// the content string — required since a class's tag must be stable across
+  /// reload / dual-load and stamp and check use the same derivation).
   #[test]
-  fn deterministic() {
+  fn same_ident_is_deterministic() {
     assert_eq!(
-      type_tag_from_anchor(0x1000),
-      type_tag_from_anchor(0x1000),
-      "same anchor address must map to the same tag on repeat",
+      type_tag_from_ident("a::Foo"),
+      type_tag_from_ident("a::Foo"),
+      "same identity string must map to the same tag on repeat",
+    );
+  }
+
+  /// Golden known-vector: locks the FNV-1a tag derivation so the wire value can
+  /// never silently drift across releases (a drift would break already-tagged
+  /// objects surviving a reload). If this fails, the hash arithmetic changed —
+  /// that is a breaking change, not a test to re-bless.
+  #[test]
+  fn known_vector_locks_stability() {
+    assert_eq!(
+      type_tag_from_ident("napi@1.0.0::x::Foo"),
+      sys::napi_type_tag {
+        lower: 9205288767444028904,
+        upper: 12488879969338687231,
+      },
     );
   }
 }

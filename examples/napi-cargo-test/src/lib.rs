@@ -20,12 +20,12 @@ pub struct MyObject {
 }
 
 // Two DISTINCT Rust classes that deliberately share the SAME `js_name` AND the
-// SAME namespace. Under the previous string-based identity (manifest_dir + crate
-// + version + module + js_name) all five fields are identical, so both would
-// hash to the SAME type tag — a blind-cast collision. Deriving the tag from the
-// address of a per-class anchor static gives each a distinct tag (each class has
-// its own anchor at a distinct address). Module registration is never triggered
-// under `cargo test`, so the duplicate js_name+namespace is harmless here.
+// SAME namespace. A tag derived only from js_name/namespace/crate/version would
+// be identical for both — a blind-cast collision. The content-derived tag keys
+// on `crate@version::module_path::ClassName` instead, and each class's
+// `module_path::ident` differs (`SameNameOne` vs `SameNameTwo`), so they get
+// distinct tags. Module registration is never triggered under `cargo test`, so
+// the duplicate js_name+namespace is harmless here.
 #[napi(namespace = "dup_tag", js_name = "SameName")]
 pub struct SameNameOne {
   pub value: i32,
@@ -52,8 +52,8 @@ mod tests {
 
     let one = <SameNameOne as TypeTag>::type_tag();
     let two = <SameNameTwo as TypeTag>::type_tag();
-    // Distinct Rust types must get distinct tags even though every string field
-    // (js_name/namespace/crate/version) is identical.
+    // Distinct Rust types must get distinct tags even though js_name/namespace/
+    // crate/version are identical — they differ by `module_path::ident`.
     assert_ne!(
       one, two,
       "distinct classes sharing js_name+namespace must get distinct tags"
