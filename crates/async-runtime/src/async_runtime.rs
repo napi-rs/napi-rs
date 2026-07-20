@@ -5065,6 +5065,18 @@ impl MultiThreadExecutor {
     }
   }
 
+  /// Test-only raw FIFO enqueue: the former `queue.lock().push_back()` staging
+  /// that tests use to seed queued work WITHOUT the accompanying wake (so no
+  /// drainer races the manual `run_one`/`drain` calls). Keeps the post-push
+  /// SeqCst fence from `push_to_queue_and_wake` so any wake/park interaction a
+  /// test performs afterwards still sees the Dekker pairing documented on
+  /// `injector`.
+  #[cfg(test)]
+  fn push_fifo_raw(&self, runnable: Runnable) {
+    self.injector.push(runnable);
+    std::sync::atomic::fence(Ordering::SeqCst);
+  }
+
   fn claim_fifo_runnable(&self) -> RunnableClaim {
     let stop_publication = self.stop.runnable_claim_guard();
     let runnable = self.steal_one();
@@ -15681,7 +15693,7 @@ mod tests {
       |_| {},
     );
     executor.metrics.runnable_scheduled();
-    executor.queue.lock().unwrap().push_back(fifo);
+    executor.push_fifo_raw(fifo);
     let fifo_executor = Arc::clone(&executor);
     assert!(run_claim_with_deadlock_gate_assertion(
       &executor,
@@ -15705,7 +15717,7 @@ mod tests {
         |_| {},
       );
       executor.metrics.runnable_scheduled();
-      executor.queue.lock().unwrap().push_back(runnable);
+      executor.push_fifo_raw(runnable);
       fifo_tasks.push(task);
     }
     for _ in 0..2 {
@@ -16418,7 +16430,7 @@ mod tests {
       "panic cleanup must empty the LIFO slot"
     );
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "panic cleanup must move the slot runnable to the shared FIFO"
     );
@@ -16489,7 +16501,7 @@ mod tests {
     );
     task.detach();
     executor.metrics.runnable_scheduled();
-    executor.queue.lock().unwrap().push_back(runnable);
+    executor.push_fifo_raw(runnable);
     assert!(
       executor.parked_drivers.wake_one(),
       "the queued runnable's wake must be absorbed by the cooperative driver"
@@ -16574,7 +16586,7 @@ mod tests {
       let sched2 = Arc::clone(&executor);
       let (runnable2, task2) = async_task::spawn(t2_body, move |r| sched2.schedule(r));
       executor.metrics.runnable_scheduled(); // keep the raw push's accounting balanced
-      executor.queue.lock().unwrap().push_back(runnable2);
+      executor.push_fifo_raw(runnable2);
       executor.ensure_drainer();
       wait_until("driver 2 parked", || {
         executor.parked_drivers.count.load(Ordering::SeqCst) == 2
@@ -16664,7 +16676,7 @@ mod tests {
         move |r| sched_stranded.schedule(r),
       );
       executor.metrics.runnable_scheduled(); // keep the raw push's accounting balanced
-      executor.queue.lock().unwrap().push_back(stranded_runnable);
+      executor.push_fifo_raw(stranded_runnable);
       stranded_task.detach();
 
       // Drive a ready future through the cooperative branch on THIS thread
@@ -16918,7 +16930,7 @@ mod tests {
       move |r| sched.schedule(r),
     );
     executor.metrics.runnable_scheduled(); // keep the raw push's accounting balanced
-    executor.queue.lock().unwrap().push_back(old_runnable);
+    executor.push_fifo_raw(old_runnable);
     old_task.detach();
 
     // Simulate being on this executor's pool worker: the schedule below must
@@ -16935,7 +16947,7 @@ mod tests {
     executor.schedule(new_runnable);
     new_task.detach();
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "the slot-path schedule must not push to the shared FIFO"
     );
@@ -16972,7 +16984,7 @@ mod tests {
     );
     task.detach();
     executor.metrics.runnable_scheduled();
-    executor.queue.lock().unwrap().push_back(runnable);
+    executor.push_fifo_raw(runnable);
     executor.active_drainers.store(1, Ordering::Release);
 
     let owner = executor.fresh_owner_token();
@@ -17037,7 +17049,7 @@ mod tests {
       let sched = Arc::clone(&executor);
       let (p_runnable, p_task) = async_task::spawn(p_body, move |r| sched.schedule(r));
       executor.metrics.runnable_scheduled();
-      executor.queue.lock().unwrap().push_back(p_runnable);
+      executor.push_fifo_raw(p_runnable);
       tasks.push(p_task);
       for name in ["T1", "T2"] {
         let t_order = Arc::clone(&order);
@@ -17049,7 +17061,7 @@ mod tests {
           move |r| sched.schedule(r),
         );
         executor.metrics.runnable_scheduled();
-        executor.queue.lock().unwrap().push_back(t_runnable);
+        executor.push_fifo_raw(t_runnable);
         tasks.push(t_task);
       }
       executor.ensure_drainer();
@@ -17110,7 +17122,7 @@ mod tests {
       task.detach();
     }
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "the displaced occupant (a) must have been pushed to the shared FIFO"
     );
@@ -17169,7 +17181,7 @@ mod tests {
     exec1.schedule(r1);
     t1.detach();
     assert!(
-      exec1.queue.lock().unwrap().is_empty(),
+      exec1.injector.is_empty(),
       "r1 must sit in the slot, not exec1's FIFO"
     );
 
@@ -17188,7 +17200,7 @@ mod tests {
       exec2.schedule(r2);
       t2.detach();
       assert_eq!(
-        exec2.queue.lock().unwrap().len(),
+        exec2.injector.len(),
         1,
         "a foreign-occupied slot must route exec2's schedule to exec2's FIFO"
       );
@@ -17316,7 +17328,7 @@ mod tests {
     executor.schedule(runnable);
     task.detach();
     assert!(
-      executor.queue.lock().unwrap().is_empty(),
+      executor.injector.is_empty(),
       "the runnable must start in the slot"
     );
 
@@ -17326,7 +17338,7 @@ mod tests {
       "the slot must be empty after a flush"
     );
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "the flushed runnable must be on the shared FIFO"
     );
@@ -17372,7 +17384,7 @@ mod tests {
     executor.schedule(runnable);
     task.detach();
     assert!(
-      executor.queue.lock().unwrap().is_empty(),
+      executor.injector.is_empty(),
       "the runnable must sit in the slot"
     );
 
@@ -18190,7 +18202,7 @@ mod tests {
       );
       task.detach();
       executor.metrics.runnable_scheduled();
-      executor.queue.lock().unwrap().push_back(fifo);
+      executor.push_fifo_raw(fifo);
 
       {
         let _driver = OnPoolWorkerGuard::enter(executor.id);
@@ -20623,7 +20635,7 @@ mod tests {
     fn enqueue_runnable(target: &Arc<MultiThreadExecutor>) {
       let scheduler = Arc::clone(target);
       let (runnable, task) = async_task::spawn(async {}, move |r| scheduler.schedule(r));
-      target.queue.lock().unwrap().push_back(runnable);
+      target.push_fifo_raw(runnable);
       task.detach();
     }
 
@@ -20657,7 +20669,7 @@ mod tests {
       "a foreign-executor on-pool marker must NOT drive exec2's queue (must park)"
     );
     assert_eq!(
-      exec2.queue.lock().unwrap().len(),
+      exec2.injector.len(),
       1,
       "the foreign call must leave exec2's runnable untouched on its queue"
     );
@@ -20676,12 +20688,13 @@ mod tests {
       "a same-executor on-pool marker MUST drive exec1's queue cooperatively"
     );
     assert!(
-      exec1.queue.lock().unwrap().is_empty(),
+      exec1.injector.is_empty(),
       "the cooperative branch must have drained exec1's queued runnable"
     );
 
-    // Tidy: drop the untouched exec2 runnable so its task does not leak a waker.
-    exec2.queue.lock().unwrap().clear();
+    // Tidy: drop the untouched exec2 runnable so its task does not leak a waker
+    // (steal-drain replaces the former `queue.lock().clear()`).
+    while exec2.steal_one().is_some() {}
   }
 
   #[cfg(not(target_family = "wasm"))]
