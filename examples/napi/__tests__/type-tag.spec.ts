@@ -1,6 +1,14 @@
 import test from 'ava'
 
-import { TypeTagA, TypeTagB, makeTypeTagA } from '../index.cjs'
+import {
+  TypeTagA,
+  TypeTagB,
+  makeTypeTagA,
+  ReentrantBorrowOrderTest,
+  createReentrantBorrowOrderTestTarget,
+  detachReentrantBorrowOrderTestTarget,
+  cleanupReentrantBorrowOrderTestTargets,
+} from '../index.cjs'
 
 // Object type tags are a NATIVE-only guarantee. On wasm, `tag_object` /
 // `validate_type_tag` are no-ops (see
@@ -106,6 +114,27 @@ napi8NativeOnlyTest(
     Object.setPrototypeOf(spoofB, TypeTagB.prototype)
     t.true(spoofB instanceof TypeTagB)
     t.truthy(t.throws(() => a.addOther(spoofB as unknown as TypeTagB)))
+  },
+)
+
+// 6. Manual-wrap escape hatch: an object wrapped by hand via `wrap_and_tag`
+//    (see `createReentrantBorrowOrderTestTarget`) is stamped with its class
+//    tag, so its own V8-UNGUARDED field accessors (`class_accessor` path) pass
+//    the tag check instead of throwing "Value is not an instance of class". A
+//    bare `napi_wrap` (pre-stamp) would make `target.values` throw here.
+napi8NativeOnlyTest(
+  'manually-wrapped (wrap_and_tag) instance round-trips its own accessor',
+  (t) => {
+    const target: any = createReentrantBorrowOrderTestTarget(
+      ReentrantBorrowOrderTest,
+    )
+    // field accessor (class_accessor path is NOT V8-signature-guarded) must not throw
+    t.deepEqual(target.values, [])
+    target.values = [1, 2, 3]
+    t.deepEqual(target.values, [1, 2, 3])
+    // clean up the manual wrap exactly like the existing reentrant test
+    detachReentrantBorrowOrderTestTarget(target)
+    t.is(cleanupReentrantBorrowOrderTestTargets(), 1)
   },
 )
 

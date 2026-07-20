@@ -672,21 +672,16 @@ pub fn create_reentrant_borrow_order_test_target<'env>(
 
   let target = unsafe { Object::from_napi_value(env.raw(), instance)? };
   let native = Box::into_raw(Box::new(ReentrantBorrowOrderTest::new()));
-  let status = unsafe {
-    napi::sys::napi_wrap(
+  if let Err(err) = unsafe {
+    napi::bindgen_prelude::wrap_and_tag::<ReentrantBorrowOrderTest>(
       env.raw(),
       target.raw(),
       native.cast(),
-      None,
-      ptr::null_mut(),
-      ptr::null_mut(),
     )
-  };
-
-  if status != napi::sys::Status::napi_ok {
-    // SAFETY: `napi_wrap` failed, so JavaScript did not take ownership.
+  } {
+    // SAFETY: wrap failed, so JavaScript did not take ownership.
     unsafe { drop(Box::from_raw(native)) };
-    napi::check_status!(status, "Failed to wrap reentrant borrow-order test target")?;
+    return Err(err);
   }
 
   Ok(target)

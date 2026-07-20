@@ -88,6 +88,10 @@ impl<T> MaybeTypeTag for T {}
 
 /// Stamp `obj` with the class type tag `tag` (right after `napi_wrap`).
 ///
+/// Hand-rolled `napi_wrap` wrappers should prefer [`wrap_and_tag`], which does
+/// the wrap and this stamp in one step so their (V8-unguarded) field accessors
+/// and `&T` params pass the tag check.
+///
 /// # Safety
 ///
 /// `env` must be a valid napi env pointer and `obj` a valid js object that has
@@ -107,15 +111,12 @@ impl<T> MaybeTypeTag for T {}
 ///
 /// # Note on wasm
 ///
-/// Tagging is a **no-op on wasm**. The anchor address is a process-global
-/// identity only on native targets; on wasm it is an instance-local
-/// linear-memory offset, so two instances of the same addon would map their
-/// anchor statics at identical offsets and receive identical tags, defeating
-/// cross-instance uniqueness. Additionally, Node-API type-tag support on
-/// wasm/emnapi is host-dependent (the `napi_type_tag_object` extern may be
-/// unresolved). So on wasm the binding keeps its pre-tag behavior (blind cast,
-/// or `instanceof` under `strict`) — no worse than before this feature, and no
-/// unresolved-symbol risk.
+/// Tagging is a **no-op on wasm**. The content-derived tag itself would be valid
+/// on wasm (it keys on `crate@version::module_path::ClassName`, not a
+/// linear-memory offset), but Node-API type-tag support on wasm/emnapi is
+/// host-dependent (the `napi_type_tag_object` extern may be unresolved), so the
+/// binding keeps its pre-tag behavior on wasm (blind cast, or `instanceof` under
+/// `strict`) — no worse than before this feature, and no unresolved-symbol risk.
 #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
 pub unsafe fn tag_object(
   env: sys::napi_env,
@@ -145,6 +146,40 @@ pub unsafe fn tag_object(
   Ok(())
 }
 
+/// Wrap `native` into `js_obj` and stamp it with `T`'s class type tag in one
+/// step — the supported path for hand-rolled `napi_wrap` wrappers so their own
+/// (V8-unguarded) field accessors and `&T` params pass the tag check instead of
+/// throwing "Value is not an instance of class `T`".
+///
+/// The tag stamp is a **no-op** on builds without `napi8` and on **all** wasm
+/// targets (same story as [`tag_object`]); on those targets this is exactly a
+/// bare `napi_wrap`. Passes `None` as the finalizer — the caller owns cleanup
+/// of `native` (e.g. via `napi_remove_wrap`).
+///
+/// # Safety
+/// `env` valid; `js_obj` a valid, not-yet-wrapped JS object; `native` a live
+/// pointer to a `T` whose ownership transfers to the JS engine on success.
+pub unsafe fn wrap_and_tag<T: TypeTag>(
+  env: sys::napi_env,
+  js_obj: sys::napi_value,
+  native: *mut std::ffi::c_void,
+) -> crate::Result<()> {
+  crate::check_status!(
+    unsafe {
+      sys::napi_wrap(
+        env,
+        js_obj,
+        native,
+        None,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+      )
+    },
+    "Failed to wrap native object for manual class tagging"
+  )?;
+  unsafe { tag_object(env, js_obj, &<T as TypeTag>::type_tag()) }
+}
+
 /// Verify that `obj` carries the class type tag `tag`. On mismatch, returns a
 /// catchable [`crate::Status::InvalidArg`] error instead of allowing a
 /// type-confused pointer cast.
@@ -165,13 +200,11 @@ pub unsafe fn tag_object(
 ///
 /// # Note on wasm
 ///
-/// The check is a **no-op on wasm** for the same reasons stamping is (see
-/// [`tag_object`]): the anchor address is a process-global identity only on
-/// native targets — on wasm it is an instance-local linear-memory offset, not
-/// unique across instances — and Node-API type-tag support on wasm/emnapi is
-/// host-dependent (the `napi_check_object_type_tag` extern may be unresolved).
-/// On wasm the binding keeps its pre-tag behavior (blind cast, or `instanceof`
-/// under `strict`).
+/// The check is a **no-op on wasm** for the same reason stamping is (see
+/// [`tag_object`]): Node-API type-tag support on wasm/emnapi is host-dependent
+/// (the `napi_check_object_type_tag` extern may be unresolved). On wasm the
+/// binding keeps its pre-tag behavior (blind cast, or `instanceof` under
+/// `strict`).
 #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
 pub unsafe fn validate_type_tag(
   env: sys::napi_env,
