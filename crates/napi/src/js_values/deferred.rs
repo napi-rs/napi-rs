@@ -2,7 +2,10 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::{
   marker::PhantomData,
-  sync::{Arc, Mutex, RwLock, Weak},
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, RwLock, Weak,
+  },
 };
 
 #[cfg(feature = "deferred_trace")]
@@ -101,6 +104,18 @@ struct DeferredHandle {
   pending_tsfn: Mutex<Option<sys::napi_threadsafe_function>>,
 }
 
+/// Shared by the env teardown hook and the threadsafe function's finalize callback; boxed, and
+/// freed exactly once, by the finalize callback (which during an env teardown runs after the
+/// LIFO-ordered cleanup hooks).
+struct DeferredHookData {
+  handle: Weak<DeferredHandle>,
+  /// Whether the env cleanup hook is currently registered: set once registration succeeds,
+  /// cleared when the teardown hook runs (Node's teardown drain consumes hooks as it runs them).
+  /// The finalize callback only unregisters the hook while this is set — Node-API requires the
+  /// removed pair to still be registered, otherwise the process may abort (Bun ≤ 1.2.18 panics).
+  hook_registered: AtomicBool,
+}
+
 // The raw threadsafe-function pointer makes the handle neither `Send` nor `Sync`, but calling a
 // threadsafe function from any thread is its documented purpose, and the mutex hands it to
 // exactly one consumer.
@@ -143,18 +158,19 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     let handle = Arc::new(DeferredHandle {
       pending_tsfn: Mutex::new(None),
     });
-    // Shared by the finalize callback and the env teardown hook; freed exactly once, by the
-    // finalize callback (which during an env teardown runs after the LIFO-ordered cleanup hooks).
-    let handle_weak_ptr = Box::into_raw(Box::new(Arc::downgrade(&handle)));
+    let hook_data_ptr = Box::into_raw(Box::new(DeferredHookData {
+      handle: Arc::downgrade(&handle),
+      hook_registered: AtomicBool::new(false),
+    }));
 
     let (tsfn, promise) = match js_deferred_new_raw(
       env,
       Some(napi_resolve_deferred::<Data, Resolver>),
-      handle_weak_ptr.cast(),
+      hook_data_ptr.cast(),
     ) {
       Ok(created) => created,
       Err(err) => {
-        drop(unsafe { Box::from_raw(handle_weak_ptr) });
+        drop(unsafe { Box::from_raw(hook_data_ptr) });
         return Err(err);
       }
     };
@@ -170,16 +186,21 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     // a cleanup hook at creation, and hooks run in reverse registration order, so this hook runs
     // before Node finalizes the threadsafe function.
     #[cfg(not(target_family = "wasm"))]
-    check_status!(
-      unsafe {
-        sys::napi_add_env_cleanup_hook(
-          env.0,
-          Some(deferred_env_teardown_cb),
-          handle_weak_ptr.cast(),
-        )
-      },
-      "Register env cleanup hook in JsDeferred failed"
-    )?;
+    {
+      check_status!(
+        unsafe {
+          sys::napi_add_env_cleanup_hook(
+            env.0,
+            Some(deferred_env_teardown_cb),
+            hook_data_ptr.cast(),
+          )
+        },
+        "Register env cleanup hook in JsDeferred failed"
+      )?;
+      unsafe { &*hook_data_ptr }
+        .hook_registered
+        .store(true, Ordering::Release);
+    }
 
     let deferred = Self {
       handle,
@@ -249,12 +270,15 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
 }
 
 /// Aborts the deferred's threadsafe function when its environment starts tearing down, before
-/// Node finalizes it. Runs on the environment's thread; the `aborted` write lock serializes it
+/// Node finalizes it. Runs on the environment's thread; the `pending_tsfn` lock serializes it
 /// against settles on foreign threads.
 #[cfg(not(target_family = "wasm"))]
 unsafe extern "C" fn deferred_env_teardown_cb(data: *mut c_void) {
-  let handle_weak = unsafe { &*data.cast::<Weak<DeferredHandle>>() };
-  let Some(handle) = handle_weak.upgrade() else {
+  let hook_data = unsafe { &*data.cast::<DeferredHookData>() };
+  // The teardown drain consumes this hook as it runs it; the threadsafe function's finalize
+  // callback, which runs later in the teardown, must not unregister it a second time.
+  hook_data.hook_registered.store(false, Ordering::Release);
+  let Some(handle) = hook_data.handle.upgrade() else {
     return;
   };
 
@@ -273,15 +297,19 @@ unsafe extern "C" fn deferred_env_teardown_cb(data: *mut c_void) {
   }
 }
 
-/// Finalize callback of the deferred's threadsafe function: unregisters the teardown hook and
-/// frees the shared handle weak exactly once.
+/// Finalize callback of the deferred's threadsafe function: unregisters the teardown hook (when
+/// it is still registered — during an env teardown the drain already consumed it) and frees the
+/// shared hook data exactly once.
 unsafe extern "C" fn deferred_finalize_cb(
   env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
+  let hook_registered = unsafe { &*finalize_data.cast::<DeferredHookData>() }
+    .hook_registered
+    .load(Ordering::Acquire);
   #[cfg(not(target_family = "wasm"))]
-  if !env.is_null() {
+  if !env.is_null() && hook_registered {
     unsafe {
       sys::napi_remove_env_cleanup_hook(env, Some(deferred_env_teardown_cb), finalize_data)
     };
@@ -289,10 +317,11 @@ unsafe extern "C" fn deferred_finalize_cb(
   #[cfg(target_family = "wasm")]
   {
     let _ = env;
+    let _ = hook_registered;
   }
 
-  let handle_weak = unsafe { Box::from_raw(finalize_data.cast::<Weak<DeferredHandle>>()) };
-  if let Some(handle) = handle_weak.upgrade() {
+  let hook_data = unsafe { Box::from_raw(finalize_data.cast::<DeferredHookData>()) };
+  if let Some(handle) = hook_data.handle.upgrade() {
     handle
       .pending_tsfn
       .lock()
