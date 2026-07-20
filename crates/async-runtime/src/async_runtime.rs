@@ -184,6 +184,23 @@ impl RuntimeOptions {
 /// hosts may resolve their own variable into the same field.
 pub const PARK_DEADLINE_ENV: &str = "NAPI_RUNTIME_PARK_DEADLINE_MS";
 
+/// Environment variable overriding the MultiThread drainer idle-linger budget
+/// in MICROSECONDS (see `MultiThreadExecutor::drain`). After a drainer runs
+/// the runnable/blocking queues empty it parks on its own [`DriverParker`]
+/// (registered with `parked_drivers`) for up to this long before returning
+/// its thread to rayon. A wave of work arriving within the budget is resumed
+/// by ONE targeted condvar wake instead of a `spawn_fifo` respawn through
+/// rayon's idle protocol -- whose per-transition cost (a wake cascade plus 33
+/// `sched_yield` rounds and a full steal sweep on EVERY worker that was woken)
+/// is what makes system CPU scale with the worker count under wave-shaped
+/// loads. `0` disables lingering (legacy exit-and-respawn on every empty
+/// queue); a non-numeric value keeps the built-in default.
+pub const DRAIN_LINGER_ENV: &str = "NAPI_RUNTIME_DRAIN_LINGER_US";
+
+/// Default drainer idle-linger budget (µs) when [`DRAIN_LINGER_ENV`] is unset.
+#[cfg(not(target_family = "wasm"))]
+const DEFAULT_DRAIN_LINGER_MICROS: u64 = 500;
+
 /// True on builds where no second thread can EVER deliver a wake to a parked
 /// `block_on`: every wasm build except the threaded WASI target (i.e. the
 /// single-thread `wasm32-wasip1` build and `wasm32-unknown-unknown`). On such
@@ -5056,7 +5073,29 @@ impl MultiThreadExecutor {
     }
   }
 
+  /// Idle-linger budget for pool drainers (resolved once per process). `None`
+  /// disables lingering; see [`DRAIN_LINGER_ENV`].
+  fn drain_linger_budget() -> Option<Duration> {
+    static BUDGET: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
+    *BUDGET.get_or_init(|| {
+      let micros = match std::env::var(DRAIN_LINGER_ENV) {
+        Ok(value) => value
+          .trim()
+          .parse::<u64>()
+          .unwrap_or(DEFAULT_DRAIN_LINGER_MICROS),
+        Err(_) => DEFAULT_DRAIN_LINGER_MICROS,
+      };
+      (micros > 0).then(|| Duration::from_micros(micros))
+    })
+  }
+
   fn drain(self: Arc<Self>) {
+    // LINGER GATE: captured BEFORE the guard installs the marker below. In
+    // production `drain` only ever runs via `pool.spawn_fifo`, i.e. on a pool
+    // worker whose start handler already set `ON_POOL_WORKER`, so lingering is
+    // active there; a direct test call from a foreign thread keeps the legacy
+    // return-when-empty shape.
+    let on_pool_worker = ON_POOL_WORKER.with(std::cell::Cell::get) == Some(self.id);
     // Mark this worker so a re-entrant `block_on` (reached from a polled task)
     // drives the queue cooperatively instead of parking the worker.
     let _on_pool = OnPoolWorkerGuard::enter(self.id);
@@ -5067,23 +5106,99 @@ impl MultiThreadExecutor {
     // wrappers are catch_unwind'd) but must not lose a task if they happen.
     let _slot_backstop = LifoSlotFlushGuard(&self);
 
-    let mut runnable_streak = 0usize;
-    for _ in 0..Self::RUNNABLE_BUDGET {
-      if self.run_one_fair(&mut runnable_streak) {
-        continue;
+    let linger_budget = Self::drain_linger_budget().filter(|_| on_pool_worker);
+    // Linger state (parker + generation-stop registration), created lazily on
+    // this frame's first idle episode and reused for the rest of the frame.
+    let mut linger: Option<DrainLinger> = None;
+    // Absolute exit deadline of the CURRENT idle episode, armed on the first
+    // empty observation after work ran. Spurious wakes (timer churn, a stolen
+    // queue wake) re-park with the REMAINING time rather than a fresh budget,
+    // so a lingering drainer occupies its pool slot for at most
+    // `linger_budget` past the last work unit it executed.
+    let mut idle_deadline: Option<Instant> = None;
+
+    'frame: loop {
+      let mut runnable_streak = 0usize;
+      for _ in 0..Self::RUNNABLE_BUDGET {
+        if self.run_one_fair(&mut runnable_streak) {
+          idle_deadline = None;
+          continue;
+        }
+        // Queue observed empty. MANDATORY flush before the shared exit AND
+        // before any park: slot work is invisible to other threads and to
+        // `finish_draining`'s re-check, so no path may leave this loop (or
+        // sleep) with an occupied slot. On this path the slot was observed
+        // empty at the top of the iteration and no user code ran since, so
+        // the flush is defensive -- kept unconditional so every exit upholds
+        // the stranding invariant by construction.
+        self.flush_lifo_slot();
+        // IDLE LINGER: instead of exiting and paying a full
+        // spawn_fifo/rayon-idle-protocol round trip on the NEXT wave, park on
+        // our own parker, registered in `parked_drivers` so
+        // `wake_for_new_work`/`wake_for_blocking_work` deliver ONE targeted
+        // wake. `active_drainers` stays counted for the whole linger: this
+        // frame is still a live drainer, so `ensure_drainer`'s cap and the
+        // idle-wait predicate keep their meaning.
+        //
+        // LOST-WAKEUP ARGUMENT (identical protocol to a cooperative driver's
+        // park): register FIRST (the registry `count` store), THEN re-check
+        // the shared queues (`has_queued_work_for_role`'s SeqCst fence pairs
+        // with `push_to_queue_and_wake`'s post-push fence), THEN park -- see
+        // [`ParkedDrivers::wake_one`]. On the timeout path, `wake_one` may
+        // have popped this parker (counting the wake as DELIVERED, so the
+        // producer spawned no drainer) while its `unpark` is still in flight:
+        // the pop precedes our `deregister` on the registry mutex, so the
+        // producer's push (made BEFORE its wake) is visible to the
+        // post-deregister permit/queue re-checks below, which then RESUME
+        // draining instead of exiting. Only a truly empty re-check falls
+        // through to `finish_draining`, whose own post-decrement re-check
+        // remains the existing final net for pushes racing the exit.
+        let Some(budget) = linger_budget else {
+          break 'frame;
+        };
+        if self.stop.is_stopping() {
+          break 'frame;
+        }
+        let now = Instant::now();
+        let deadline = *idle_deadline.get_or_insert_with(|| now + budget);
+        if now >= deadline {
+          break 'frame;
+        }
+        let state = match &linger {
+          Some(state) => state,
+          None => linger.insert(DrainLinger::new(&self)),
+        };
+        self
+          .parked_drivers
+          .register_with_role(&state.parker, true, None);
+        if self.has_queued_work_for_role(true) {
+          self.parked_drivers.deregister(&state.parker);
+          continue 'frame;
+        }
+        // Stop re-check AFTER registering: `begin_shutdown` unparks every
+        // generation-stop-registered parker (ours included, via
+        // `DrainLinger`'s registration), so a stop publishing after this
+        // check still cuts the park short instead of waiting out the budget.
+        if self.stop.is_stopping() {
+          self.parked_drivers.deregister(&state.parker);
+          break 'frame;
+        }
+        let woken = state.parker.park_timeout(deadline - now);
+        self.parked_drivers.deregister(&state.parker);
+        if woken || state.parker.consume_permit() || self.has_queued_work_for_role(true) {
+          continue 'frame;
+        }
+        break 'frame;
       }
-      // MANDATORY flush before finish_draining. On this path
-      // the slot was observed empty at the top of the iteration and no user
-      // code ran since, so the flush is defensive -- kept unconditional so
-      // every drain exit upholds the stranding invariant by construction.
-      self.flush_lifo_slot();
-      self.finish_draining();
-      return;
+      // Budget exhausted: yield this worker back to rayon exactly as before
+      // the linger existed -- `finish_draining` re-arms a FIFO drain job
+      // BEHIND any pending rayon work (par_iter splits, nested jobs), which
+      // is the pool-fairness property the budget exists for.
+      break 'frame;
     }
 
-    // Budget exhausted: the last runnable may have scheduled into the slot.
     // MANDATORY flush before `finish_draining` so its
-    // re-check sees the runnable on the shared FIFO and re-arms a drainer.
+    // re-check sees a slot runnable on the shared FIFO and re-arms a drainer.
     self.flush_lifo_slot();
     self.finish_draining();
   }
@@ -6069,6 +6184,30 @@ struct LifoSlotFlushGuard<'a>(&'a Arc<MultiThreadExecutor>);
 impl Drop for LifoSlotFlushGuard<'_> {
   fn drop(&mut self) {
     self.0.flush_lifo_slot();
+  }
+}
+
+/// Per-drain-frame idle-linger state, created lazily on the frame's first
+/// idle episode (see the linger block in `MultiThreadExecutor::drain`): the
+/// parker queue wakes are delivered to while this drainer lingers, plus its
+/// generation-stop registration so `begin_shutdown` cuts a linger short
+/// instead of `wait_until_scheduler_idle` waiting out the idle budget. The
+/// registration guard deregisters on drop when the drain frame exits.
+#[cfg(not(target_family = "wasm"))]
+struct DrainLinger {
+  parker: Arc<DriverParker>,
+  _stop_registration: GenerationStopGuard,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl DrainLinger {
+  fn new(executor: &MultiThreadExecutor) -> Self {
+    let parker = Arc::new(DriverParker::default());
+    let stop_registration = executor.stop.register(&parker);
+    Self {
+      parker,
+      _stop_registration: stop_registration,
+    }
   }
 }
 
@@ -16830,10 +16969,18 @@ mod tests {
         !t2_done.load(Ordering::SeqCst),
         "D2 must still be parked: its future was never completed"
       );
-      assert_eq!(
-        executor.parked_drivers.count.load(Ordering::SeqCst),
-        1,
-        "exactly the untargeted driver must remain parked"
+      // D1's drain frame LINGERS in the registry for its idle budget after T1
+      // retires (see `drain`'s idle linger), so the registry can transiently
+      // hold the lingering drainer alongside D2. Wait for it to expire: the
+      // settled registry must contain EXACTLY the untargeted driver (a
+      // misrouted wake would leave D1 registered and settle at 2, tripping
+      // the bounded wait; D1's completion was already proven via `t1_done`).
+      wait_until("exactly the untargeted driver to remain parked", || {
+        executor.parked_drivers.count.load(Ordering::SeqCst) == 1
+      });
+      assert!(
+        !t2_done.load(Ordering::SeqCst),
+        "D2 must still be parked after the lingering drainer expired"
       );
 
       // Teardown: release D2 as well.
