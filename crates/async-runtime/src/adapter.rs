@@ -133,6 +133,9 @@ impl TryFrom<BindingRuntimeOptions> for RuntimeOptionsPatch {
         value.max_blocking_tasks,
         MAX_ASYNC_RUNTIME_WORKER_THREADS,
       )?,
+      // Not exposed through the JavaScript configure surface; the addon-load
+      // resolution (`install` + `DRAIN_LINGER_ENV`) owns this knob.
+      drain_linger: None,
     })
   }
 }
@@ -171,6 +174,9 @@ pub struct BindingRuntimeConfig {
   pub flavor: BindingRuntimeFlavor,
   pub worker_threads: u32,
   pub max_blocking_tasks: u32,
+  /// Drainer idle-linger budget in microseconds; `0` means lingering is
+  /// disabled. Reported from the validated (ceiling-clamped) options.
+  pub drain_linger_us: u32,
 }
 
 impl From<RuntimeOptions> for BindingRuntimeConfig {
@@ -179,6 +185,9 @@ impl From<RuntimeOptions> for BindingRuntimeConfig {
       flavor: value.flavor.into(),
       worker_threads: saturating_u32(value.worker_threads as u64),
       max_blocking_tasks: saturating_u32(value.max_blocking_tasks as u64),
+      drain_linger_us: saturating_u32(
+        u64::try_from(value.drain_linger.as_micros()).unwrap_or(u64::MAX),
+      ),
     }
   }
 }
@@ -1961,10 +1970,20 @@ pub fn unregister_timer_host(registration_high: u32, registration_low: u32) {
 /// Call this from the host's own `#[napi_derive::module_init]` hook, after
 /// resolving the process configuration (environment variables, defaults) into
 /// [`RuntimeOptions`]. The scheduler never reads the environment itself; the
-/// host owns that resolution. `configure` validates and normalizes the
-/// options, and the runtime controller's options remain the reporting
-/// authority for `getAsyncRuntimeConfig`.
-pub fn install(options: RuntimeOptions) -> napi::Result<()> {
+/// host owns that resolution -- with ONE adapter-owned convenience: `install`
+/// resolves the conventional [`DRAIN_LINGER_ENV`] override into
+/// [`RuntimeOptions::drain_linger`] here, at the same addon-load boundary
+/// where the host resolves its variables (a present numeric value wins over
+/// the passed field; absent or non-numeric keeps it -- see
+/// [`resolve_drain_linger`]). Hosts that call [`configure`] directly instead
+/// of `install` own that resolution too. `configure` validates and normalizes
+/// the options (clamping `drain_linger` to its ceiling), and the runtime
+/// controller's options remain the reporting authority for
+/// `getAsyncRuntimeConfig`.
+pub fn install(mut options: RuntimeOptions) -> napi::Result<()> {
+  if let Ok(raw) = std::env::var(crate::async_runtime::DRAIN_LINGER_ENV) {
+    options.drain_linger = resolve_drain_linger(Some(raw), options.drain_linger);
+  }
   configure(options).map_err(|error| napi::Error::from_reason(error.to_string()))?;
   register_async_runtime(SharedAsyncRuntime);
   Ok(())
@@ -1985,6 +2004,27 @@ pub fn resolve_thread_count(raw: Option<String>, default: usize, maximum: usize)
     .filter(|&value| value != 0)
     .unwrap_or(default)
     .min(maximum)
+}
+
+/// Resolve an env-derived drainer idle-linger budget (a raw
+/// [`DRAIN_LINGER_ENV`]-style value, MICROSECONDS) into
+/// [`RuntimeOptions::drain_linger`]: a missing or non-numeric value keeps
+/// `fallback` (the host-provided field, [`DEFAULT_DRAIN_LINGER_MICROS`] by
+/// default); `0` disables lingering; anything else is clamped to
+/// [`MAX_DRAIN_LINGER_MICROS`] so an extreme value (e.g. `u64::MAX`) tunes
+/// the wave optimization instead of pinning pool workers on never-expiring
+/// lingers. [`RuntimeOptions`] validation re-applies the same clamp, so a
+/// host bypassing this resolver cannot smuggle an unbounded budget either.
+pub fn resolve_drain_linger(
+  raw: Option<String>,
+  fallback: std::time::Duration,
+) -> std::time::Duration {
+  raw
+    .and_then(|value| value.trim().parse::<u64>().ok())
+    .map_or(fallback, std::time::Duration::from_micros)
+    .min(std::time::Duration::from_micros(
+      crate::async_runtime::MAX_DRAIN_LINGER_MICROS,
+    ))
 }
 
 #[cfg(test)]
@@ -3779,5 +3819,54 @@ mod tests {
   #[should_panic(expected = "the default thread count must be positive")]
   fn resolve_thread_count_rejects_an_invalid_default() {
     let _ = resolve_thread_count(None, 0, 1);
+  }
+
+  #[test]
+  fn resolve_drain_linger_handles_env_inputs() {
+    use std::time::Duration;
+
+    use crate::async_runtime::{DEFAULT_DRAIN_LINGER_MICROS, MAX_DRAIN_LINGER_MICROS};
+
+    use super::resolve_drain_linger;
+
+    let fallback = Duration::from_micros(DEFAULT_DRAIN_LINGER_MICROS);
+    let ceiling = Duration::from_micros(MAX_DRAIN_LINGER_MICROS);
+    // Valid values pass through unchanged.
+    assert_eq!(
+      resolve_drain_linger(Some("250".to_string()), fallback),
+      Duration::from_micros(250)
+    );
+    // `0` disables lingering (it is a VALUE here, unlike thread counts).
+    assert_eq!(
+      resolve_drain_linger(Some("0".to_string()), fallback),
+      Duration::ZERO
+    );
+    // u64::MAX -- the exact value that used to wedge the suite through the
+    // removed first-drainer OnceLock -- clamps to the ceiling.
+    assert_eq!(
+      resolve_drain_linger(Some(u64::MAX.to_string()), fallback),
+      ceiling
+    );
+    // Parse overflow is invalid input and keeps the host-provided field.
+    assert_eq!(
+      resolve_drain_linger(Some("18446744073709551616".to_string()), fallback),
+      fallback
+    );
+    // Non-numeric and unset keep the host-provided field.
+    assert_eq!(
+      resolve_drain_linger(Some("abc".to_string()), fallback),
+      fallback
+    );
+    assert_eq!(resolve_drain_linger(None, fallback), fallback);
+    // Whitespace is tolerated, matching the removed in-scheduler parse.
+    assert_eq!(
+      resolve_drain_linger(Some(" 750 ".to_string()), fallback),
+      Duration::from_micros(750)
+    );
+    // An out-of-range host fallback is bounded too.
+    assert_eq!(
+      resolve_drain_linger(None, Duration::from_micros(u64::MAX)),
+      ceiling
+    );
   }
 }

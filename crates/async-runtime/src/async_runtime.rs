@@ -30,13 +30,13 @@ use futures::{
 };
 
 #[cfg(not(target_family = "wasm"))]
+use crossbeam_deque::{Injector, Steal};
+#[cfg(not(target_family = "wasm"))]
 use futures::channel::oneshot;
 #[cfg(all(test, not(target_family = "wasm")))]
 use rayon::max_num_threads;
 #[cfg(not(target_family = "wasm"))]
 use rayon::{ThreadPool, ThreadPoolBuilder};
-#[cfg(not(target_family = "wasm"))]
-use crossbeam_deque::{Injector, Steal};
 
 /// Stable scheduler identities are equality capabilities. Exhaustion must fail
 /// before reuse can authorize a stale handle or collide in an indexed queue.
@@ -71,6 +71,21 @@ pub struct RuntimeOptions {
   /// threadless-wasm CERTAIN deadlock check is independent of this knob and
   /// always on.
   pub park_deadline: Option<Duration>,
+  /// MultiThread drainer idle-linger budget (see `MultiThreadExecutor::drain`):
+  /// after running the runnable/blocking queues empty a drainer parks on its
+  /// own parker for up to this long before returning its thread to rayon, so
+  /// a wave landing within the budget resumes it with one targeted wake
+  /// instead of a `spawn_fifo` respawn through rayon's idle protocol.
+  /// `Duration::ZERO` disables lingering (legacy exit-and-respawn on every
+  /// empty queue). Validation clamps the budget to
+  /// [`MAX_DRAIN_LINGER_MICROS`]: a linger occupies a pool worker and an
+  /// `active_drainers` slot while idle, so an unbounded value would pin
+  /// workers indefinitely. As with `park_deadline`, the runtime itself never
+  /// reads the environment; the embedder resolves its configuration
+  /// (conventionally [`DRAIN_LINGER_ENV`], which the napi adapter's `install`
+  /// resolves for hosts that use it) into this field at addon load. Ignored
+  /// by the CurrentThread flavor, which has no pool drainers.
+  pub drain_linger: Duration,
 }
 
 /// A partial update to the runtime options exposed by the binding.
@@ -84,6 +99,9 @@ pub struct RuntimeOptionsPatch {
   pub flavor: Option<RuntimeFlavor>,
   pub worker_threads: Option<usize>,
   pub max_blocking_tasks: Option<usize>,
+  /// `Some(Duration::ZERO)` disables lingering; other values are clamped to
+  /// [`MAX_DRAIN_LINGER_MICROS`] by validation.
+  pub drain_linger: Option<Duration>,
 }
 
 impl RuntimeOptionsPatch {
@@ -96,6 +114,9 @@ impl RuntimeOptionsPatch {
     }
     if let Some(max_blocking_tasks) = self.max_blocking_tasks {
       options.max_blocking_tasks = max_blocking_tasks;
+    }
+    if let Some(drain_linger) = self.drain_linger {
+      options.drain_linger = drain_linger;
     }
   }
 }
@@ -115,6 +136,7 @@ impl Default for RuntimeOptions {
       max_blocking_tasks: worker_threads,
       thread_name_prefix: "napi-async-runtime".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
   }
 }
@@ -142,6 +164,13 @@ impl RuntimeOptions {
         "max_blocking_tasks must be greater than zero".to_string(),
       ));
     }
+    // A lingering drainer occupies a pool worker and an `active_drainers`
+    // slot while idle, so an unbounded budget (e.g. an env typo resolving to
+    // u64::MAX microseconds) would pin workers indefinitely and wedge every
+    // idle-wait. Clamp instead of erroring: like the thread-count clamps
+    // below, an out-of-range value is a tuning excess, not a topology error.
+    // ZERO passes through unchanged and means "lingering disabled".
+    self.drain_linger = self.drain_linger.min(MAX_DRAIN_LINGER);
     if self.flavor == RuntimeFlavor::CurrentThread {
       self.worker_threads = 1;
       self.max_blocking_tasks = 1;
@@ -185,24 +214,48 @@ impl RuntimeOptions {
 pub const PARK_DEADLINE_ENV: &str = "NAPI_RUNTIME_PARK_DEADLINE_MS";
 
 /// Environment variable overriding the MultiThread drainer idle-linger budget
-/// in MICROSECONDS (see `MultiThreadExecutor::drain`). After a drainer runs
-/// the runnable/blocking queues empty it parks on its own [`DriverParker`]
-/// (registered with `parked_drivers`) for up to this long before returning
-/// its thread to rayon. A wave of work arriving within the budget is resumed
-/// by ONE targeted condvar wake instead of a `spawn_fifo` respawn through
-/// rayon's idle protocol -- whose per-transition cost (a wake cascade plus 33
-/// `sched_yield` rounds and a full steal sweep on EVERY worker that was woken)
-/// is what makes system CPU scale with the worker count under wave-shaped
-/// loads. `0` disables lingering (legacy exit-and-respawn on every empty
-/// queue); a non-numeric value keeps the built-in default. A frame's TOTAL
-/// lingering residence is additionally capped at
+/// in MICROSECONDS ([`RuntimeOptions::drain_linger`], consumed by
+/// `MultiThreadExecutor::drain`). After a drainer runs the runnable/blocking
+/// queues empty it parks on its own [`DriverParker`] (registered with
+/// `parked_drivers`) for up to this long before returning its thread to
+/// rayon. A wave of work arriving within the budget is resumed by ONE
+/// targeted condvar wake instead of a `spawn_fifo` respawn through rayon's
+/// idle protocol -- whose per-transition cost (a wake cascade plus 33
+/// `sched_yield` rounds and a full steal sweep on EVERY worker that was
+/// woken) is what makes system CPU scale with the worker count under
+/// wave-shaped loads. `0` disables lingering (legacy exit-and-respawn on
+/// every empty queue); values above [`MAX_DRAIN_LINGER_MICROS`] are clamped.
+/// A frame's TOTAL lingering residence is additionally capped at
 /// [`DRAIN_LINGER_FRAME_FACTOR`] times this budget so periodic sub-budget
 /// work cannot pin a rayon worker inside one drain frame forever.
+///
+/// Like [`PARK_DEADLINE_ENV`], the runtime does NOT read this variable
+/// itself: it is resolved once at addon load into
+/// [`RuntimeOptions::drain_linger`] -- by the napi adapter's `install` (via
+/// `resolve_drain_linger`) for hosts that use it, while hosts owning their
+/// own env resolution may resolve their own variable into the same field. A
+/// present-but-non-numeric value keeps the host-provided field (which
+/// defaults to [`DEFAULT_DRAIN_LINGER_MICROS`]).
 pub const DRAIN_LINGER_ENV: &str = "NAPI_RUNTIME_DRAIN_LINGER_US";
 
-/// Default drainer idle-linger budget (µs) when [`DRAIN_LINGER_ENV`] is unset.
-#[cfg(not(target_family = "wasm"))]
-const DEFAULT_DRAIN_LINGER_MICROS: u64 = 500;
+/// Default drainer idle-linger budget (µs): [`RuntimeOptions::drain_linger`]'s
+/// default, applied when no host configuration or [`DRAIN_LINGER_ENV`]
+/// override resolves a different value.
+pub const DEFAULT_DRAIN_LINGER_MICROS: u64 = 500;
+
+/// Ceiling on [`RuntimeOptions::drain_linger`] in MICROSECONDS (100ms).
+/// Validation (and, defensively, executor construction) clamps the budget
+/// here: lingering exists to bridge micro-scale gaps between scheduling
+/// waves, and a lingering drainer holds a pool worker plus an
+/// `active_drainers` slot while idle, so budgets beyond this bound stop
+/// tuning the wave optimization and start pinning workers.
+pub const MAX_DRAIN_LINGER_MICROS: u64 = 100_000;
+
+/// [`DEFAULT_DRAIN_LINGER_MICROS`] as a `Duration`.
+const DEFAULT_DRAIN_LINGER: Duration = Duration::from_micros(DEFAULT_DRAIN_LINGER_MICROS);
+
+/// [`MAX_DRAIN_LINGER_MICROS`] as a `Duration`.
+const MAX_DRAIN_LINGER: Duration = Duration::from_micros(MAX_DRAIN_LINGER_MICROS);
 
 /// Bound on a single drain frame's TOTAL lingering residence, as a multiple
 /// of the per-episode idle budget (default 16 x 500us = 8ms). The per-episode
@@ -4755,6 +4808,11 @@ struct MultiThreadExecutor {
   // configured via `RuntimeOptions::park_deadline` (the embedder resolves
   // `PARK_DEADLINE_ENV` into it).
   park_deadline: Option<Duration>,
+  // Idle-linger budget for pool drainers (`None` = disabled); resolved from
+  // `RuntimeOptions::drain_linger` (`ZERO` = disabled, embedder-resolved from
+  // `DRAIN_LINGER_ENV` at addon load) at construction and ceiling-clamped
+  // there so even direct unvalidated test constructions stay bounded.
+  drain_linger: Option<Duration>,
   // Shared with the timer heap because firing removes the timer before invoking
   // its waker. The admission remains active until that wake has published any
   // resulting runnable, so a final verdict cannot observe both sources empty.
@@ -4874,6 +4932,13 @@ impl MultiThreadExecutor {
       max_drainers: pool_threads,
       max_blocking: options.max_blocking_tasks,
       park_deadline: options.park_deadline,
+      drain_linger: {
+        // Defensive re-clamp: production options were already clamped by
+        // `RuntimeOptions::validate`, but direct executor unit tests construct
+        // from unvalidated options.
+        let budget = options.drain_linger.min(MAX_DRAIN_LINGER);
+        (!budget.is_zero()).then_some(budget)
+      },
       deadlock_state,
       timers,
       metrics,
@@ -5097,22 +5162,6 @@ impl MultiThreadExecutor {
     }
   }
 
-  /// Idle-linger budget for pool drainers (resolved once per process). `None`
-  /// disables lingering; see [`DRAIN_LINGER_ENV`].
-  fn drain_linger_budget() -> Option<Duration> {
-    static BUDGET: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
-    *BUDGET.get_or_init(|| {
-      let micros = match std::env::var(DRAIN_LINGER_ENV) {
-        Ok(value) => value
-          .trim()
-          .parse::<u64>()
-          .unwrap_or(DEFAULT_DRAIN_LINGER_MICROS),
-        Err(_) => DEFAULT_DRAIN_LINGER_MICROS,
-      };
-      (micros > 0).then(|| Duration::from_micros(micros))
-    })
-  }
-
   fn drain(self: Arc<Self>) {
     // LINGER GATE: captured BEFORE the guard installs the marker below. In
     // production `drain` only ever runs via `pool.spawn_fifo`, i.e. on a pool
@@ -5130,7 +5179,7 @@ impl MultiThreadExecutor {
     // wrappers are catch_unwind'd) but must not lose a task if they happen.
     let _slot_backstop = LifoSlotFlushGuard(&self);
 
-    let linger_budget = Self::drain_linger_budget().filter(|_| on_pool_worker);
+    let linger_budget = self.drain_linger.filter(|_| on_pool_worker);
     // Linger state (parker + generation-stop registration), created lazily on
     // this frame's first idle episode and reused for the rest of the frame.
     let mut linger: Option<DrainLinger> = None;
@@ -15667,6 +15716,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "worker-classification".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -15712,6 +15762,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-test".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -15786,6 +15837,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: format!("linger-starve-{round}"),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -15955,6 +16007,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "rd1-caller".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -16026,6 +16079,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd10-caller".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -16106,6 +16160,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-park".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -17141,6 +17196,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "wake-target".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -17249,6 +17305,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "wake-compensate".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -17339,6 +17396,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "blocking-exit-compensation".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17408,6 +17466,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "stopped-exit-compensation".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17517,6 +17576,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-order".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17574,6 +17634,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "fifo-owner".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17623,6 +17684,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifo-drain".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17703,6 +17765,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-displace".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17757,6 +17820,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-scope".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let exec1 =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17868,6 +17932,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifo-budget".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -17911,6 +17976,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-flush".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17966,6 +18032,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-owner".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18092,6 +18159,7 @@ mod tests {
         max_blocking_tasks: 0,
         thread_name_prefix: "lifo-streak".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18170,6 +18238,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifo-blocking".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18234,6 +18303,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "blocking-fairness".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18298,6 +18368,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "exact-dependency-fairness".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18385,6 +18456,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "exact-before-last-slot".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18527,6 +18599,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "blocking-reserve".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("production options must reserve a runnable lane");
@@ -18615,6 +18688,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "exit-flush".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18694,6 +18768,7 @@ mod tests {
         max_blocking_tasks: 0,
         thread_name_prefix: "coop-budget".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18787,6 +18862,7 @@ mod tests {
         max_blocking_tasks: 0,
         thread_name_prefix: "forced-fifo".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18846,6 +18922,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "blk-spawn-wait".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18921,6 +18998,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-nested-blk".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -19007,6 +19085,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "exact-owner-frame".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -19106,6 +19185,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "parked-unrelated-worker".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -19190,6 +19270,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "same-owner-rearm".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -19341,6 +19422,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "stopped-exact-owner".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -19411,6 +19493,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "linear-owner-lending".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -19670,6 +19753,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "dependency-lending-metrics".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .unwrap();
 
@@ -19724,6 +19808,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "exact-blocking-job".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -20871,6 +20956,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-cap".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -20977,6 +21063,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-owner-runnable".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -21067,6 +21154,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-unrelated".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -21157,6 +21245,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "rd1-scope".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let exec1 =
       Arc::new(MultiThreadExecutor::new(&opts, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -21581,6 +21670,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "rd-onpool-scope".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let exec1 =
       Arc::new(MultiThreadExecutor::new(&opts, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -21677,6 +21767,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "rd2-pre-fix".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       }
       .validate()
       .expect("production MultiThread options must provide a reserve lane");
@@ -22829,6 +22920,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect_err("worker_threads == 0 must be rejected");
@@ -22846,6 +22938,7 @@ mod tests {
       max_blocking_tasks: 0,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect_err("max_blocking_tasks == 0 must be rejected");
@@ -22865,6 +22958,7 @@ mod tests {
       max_blocking_tasks: 8,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("CurrentThread options must validate");
@@ -22884,6 +22978,7 @@ mod tests {
       max_blocking_tasks: 8,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("MultiThread options must validate");
@@ -22900,6 +22995,7 @@ mod tests {
       max_blocking_tasks: 8,
       thread_name_prefix: "rd8-minimum".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("MultiThread options must validate");
@@ -22916,6 +23012,7 @@ mod tests {
       max_blocking_tasks: 256,
       thread_name_prefix: "rd8-rayon-cap-32".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate_with_rayon_max_threads(Some(255))
     .expect("a 32-bit-sized request must clamp to Rayon's 255-thread cap");
@@ -22935,6 +23032,7 @@ mod tests {
         max_blocking_tasks: requested_threads,
         thread_name_prefix: "rd8-rayon-cap".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("an oversized request must clamp to the production worker ceiling");
 
@@ -22946,6 +23044,79 @@ mod tests {
       expected_workers - 1,
       "the blocking cap must reserve a lane from the physically realizable worker count"
     );
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn drain_linger_extreme_values_are_clamped_and_zero_disables() {
+    // u64::MAX microseconds (the exact value an unvalidated
+    // `NAPI_RUNTIME_DRAIN_LINGER_US` typo used to freeze into the process
+    // via the removed OnceLock) must clamp to the ceiling everywhere a
+    // budget enters the system: full options validation, a partial patch
+    // through the controller, and the executor's defensive constructor
+    // clamp for direct unvalidated test construction.
+    let extreme = Duration::from_micros(u64::MAX);
+    let validated = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 2,
+      max_blocking_tasks: 1,
+      thread_name_prefix: "linger-clamp".to_string(),
+      park_deadline: None,
+      drain_linger: extreme,
+    }
+    .validate_with_rayon_max_threads(Some(2))
+    .expect("an extreme linger budget must clamp, not fail validation");
+    assert_eq!(validated.drain_linger, MAX_DRAIN_LINGER);
+
+    let controller = RuntimeController::new();
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        drain_linger: Some(extreme),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("an extreme linger patch must clamp, not fail validation");
+    assert_eq!(
+      controller.options().drain_linger,
+      MAX_DRAIN_LINGER,
+      "introspection must report the clamped budget, not the requested one"
+    );
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        drain_linger: Some(Duration::ZERO),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("ZERO (lingering disabled) must remain a valid budget");
+    assert_eq!(controller.options().drain_linger, Duration::ZERO);
+
+    let metrics = Arc::new(RuntimeMetrics::default());
+    let unvalidated = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 2,
+      max_blocking_tasks: 2,
+      thread_name_prefix: "linger-clamp-exec".to_string(),
+      park_deadline: None,
+      drain_linger: extreme,
+    };
+    let executor = MultiThreadExecutor::new(&unvalidated, metrics)
+      .expect("the executor must construct with an extreme unvalidated budget");
+    assert_eq!(
+      executor.drain_linger,
+      Some(MAX_DRAIN_LINGER),
+      "the constructor's defensive clamp must bound unvalidated budgets"
+    );
+
+    let metrics = Arc::new(RuntimeMetrics::default());
+    let disabled = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 2,
+      max_blocking_tasks: 2,
+      thread_name_prefix: "linger-clamp-off".to_string(),
+      park_deadline: None,
+      drain_linger: Duration::ZERO,
+    };
+    let executor = MultiThreadExecutor::new(&disabled, metrics)
+      .expect("the executor must construct with lingering disabled");
+    assert_eq!(executor.drain_linger, None, "ZERO must disable lingering");
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -23141,6 +23312,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "rd8".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("first configure before the backend exists must succeed");
 
@@ -23182,6 +23354,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: thread_name_prefix.to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("CurrentThread test configuration must be accepted");
     controller
@@ -23201,6 +23374,7 @@ mod tests {
         max_blocking_tasks,
         thread_name_prefix: thread_name_prefix.to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("MultiThread test configuration must be accepted");
     controller
@@ -23342,6 +23516,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "try-block-on-dyn-shutdown".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("the isolated runtime must accept CurrentThread configuration");
       start().expect("the isolated runtime must start");
@@ -23409,6 +23584,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifecycle-initial-start".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("module-registration start must not consume the configuration window");
 
@@ -23459,6 +23635,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifecycle-zero-work-config".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("zero-work lifecycle cycles must not consume the configuration window");
 
@@ -24018,6 +24195,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifecycle-zero-work-real-generation".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("configuration before first real async use must succeed");
 
@@ -26282,6 +26460,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "buffered-blocking-result-drop".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -26519,6 +26698,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd9-blk-cap".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -26624,6 +26804,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd9-budget".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -26700,6 +26881,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd9-panic".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -26849,6 +27031,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "metrics-snapshot".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
 
     let queued_metrics = Arc::new(RuntimeMetrics::default());
@@ -27195,6 +27378,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "deadline-fire".to_string(),
         park_deadline: Some(Duration::from_millis(50)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -27270,6 +27454,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "deadline-reset".to_string(),
         park_deadline: Some(deadline),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -27347,6 +27532,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "foreign-exempt".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -27420,6 +27606,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "edge-wake".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -27517,6 +27704,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "verdict-blocking".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -27611,6 +27799,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "final-verdict-publication".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -27993,6 +28182,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "shutdown-gated-verdict".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("the shutdown race test configuration must be accepted");
 
@@ -28135,6 +28325,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "verdict-before-shutdown".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("the verdict-first test configuration must be accepted");
 
@@ -28735,6 +28926,7 @@ mod tests {
       max_blocking_tasks: workers,
       thread_name_prefix: prefix.to_string(),
       park_deadline,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap())
   }
@@ -29380,6 +29572,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "nested-timer-wake".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
