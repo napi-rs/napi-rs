@@ -73,7 +73,7 @@
     "obug": "^2.1.2",
     "semver": "^7.8.2",
     "typanion": "^3.14.0",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.0"
   },
   "devDependencies": {
     "@emnapi/runtime": "2.0.0-alpha.3",
