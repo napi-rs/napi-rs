@@ -70,29 +70,54 @@ async function packPackage(sourceDir, destination) {
   return join(destination, result[0].filename)
 }
 
-function resolvePnpm(consumerDir) {
+function readPnpmPackageManager(packageJson) {
+  const packageManager = packageJson.packageManager
+  const match =
+    typeof packageManager === 'string'
+      ? packageManager.match(
+          /^pnpm@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.+)?$/,
+        )
+      : null
+  assert.ok(match, 'the pnpm fixture must declare an exact packageManager')
+  const version = match[1]
+  const engine = packageJson.devEngines?.packageManager
+  if (engine !== undefined) {
+    assert.equal(engine.name, 'pnpm')
+    assert.ok(
+      engine.version === version ||
+        engine.version === packageManager.slice('pnpm@'.length),
+      'packageManager and devEngines.packageManager must agree',
+    )
+  }
+  return { packageManager, version }
+}
+
+function resolvePnpm(packageJson, consumerDir) {
+  const pnpm = readPnpmPackageManager(packageJson)
   const candidates =
     process.platform === 'win32'
       ? [
+          ['corepack.cmd', [pnpm.packageManager]],
           ['pnpm.cmd', []],
-          ['corepack.cmd', ['pnpm']],
         ]
       : [
+          ['corepack', [pnpm.packageManager]],
           ['pnpm', []],
-          ['corepack', ['pnpm']],
         ]
 
   for (const [command, arguments_] of candidates) {
     const probe = spawnSync(command, [...arguments_, '--version'], {
       cwd: consumerDir,
-      env: process.env,
-      stdio: 'ignore',
+      env: { ...process.env, COREPACK_ENABLE_PROJECT_SPEC: '1' },
+      encoding: 'utf8',
     })
-    if (probe.status === 0) {
+    if (probe.status === 0 && probe.stdout.trim() === pnpm.version) {
       return { command, arguments_ }
     }
   }
-  throw new Error('pnpm or Corepack is required for the isolated consumer')
+  throw new Error(
+    `Could not execute the fixture package manager ${pnpm.packageManager}`,
+  )
 }
 
 async function rewriteInitialMemory(path) {
@@ -359,6 +384,9 @@ try {
       2,
     )}\n`,
   )
+  const writtenConsumerManifest = JSON.parse(
+    await readFile(join(consumerDir, 'package.json'), 'utf8'),
+  )
   await writeFile(
     join(consumerDir, 'pnpm-workspace.yaml'),
     `overrides:
@@ -381,7 +409,7 @@ try {
     ),
   ])
 
-  const pnpm = resolvePnpm(consumerDir)
+  const pnpm = resolvePnpm(writtenConsumerManifest, consumerDir)
   await run(
     pnpm.command,
     [
@@ -392,7 +420,7 @@ try {
     ],
     {
       cwd: consumerDir,
-      env: { COREPACK_ENABLE_PROJECT_SPEC: '0' },
+      env: { COREPACK_ENABLE_PROJECT_SPEC: '1' },
     },
   )
 

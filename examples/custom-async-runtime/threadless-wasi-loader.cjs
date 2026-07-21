@@ -2,7 +2,11 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { WASI } = require('node:wasi')
 
-const { instantiateNapiModuleSync } = require('@napi-rs/wasm-runtime')
+const {
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+  instantiateNapiModuleSync,
+} = require('@napi-rs/wasm-runtime')
 const { createContext } = require('@emnapi/runtime')
 
 const wasi = new WASI({
@@ -16,10 +20,21 @@ const context = createContext({ autoDestroy: false })
 context.suppressDestroy()
 
 let disposed = false
+let cleanupPrepared = false
+let napiInstance
 function destroyContext() {
   if (disposed) return
+  if (!cleanupPrepared) {
+    const prepareWasmEnvCleanup =
+      napiInstance?.exports.napi_prepare_wasm_env_cleanup
+    if (typeof prepareWasmEnvCleanup === 'function') {
+      prepareWasmEnvCleanup()
+    }
+    cleanupPrepared = true
+  }
+  const result = context.destroy()
   disposed = true
-  return context.destroy()
+  return result
 }
 function destroyContextOnExit() {
   try {
@@ -35,13 +50,14 @@ const memory = new WebAssembly.Memory({
 
 let napiModule
 try {
-  ;({ napiModule } = instantiateNapiModuleSync(
+  ;({ instance: napiInstance, napiModule } = instantiateNapiModuleSync(
     fs.readFileSync(
       path.join(__dirname, 'custom_async_runtime.wasm32-wasip1.wasm'),
     ),
     {
       context,
       asyncWorkPoolSize: 0,
+      plugins: [emnapiAsyncWorkPlugin, emnapiTSFNPlugin],
       wasi,
       overwriteImports(importObject) {
         importObject.env = {

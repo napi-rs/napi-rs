@@ -1,5 +1,4 @@
 import test from 'ava'
-import { subset } from 'semver'
 
 import {
   MINIMUM_WASI_NODE_VERSION,
@@ -12,34 +11,43 @@ test('should generate correct napi engine requirement', (t) => {
   t.snapshot(SUPPORTED_NAPI_VERSIONS.map(napiEngineRequirement))
 })
 
-test('should intersect every compatible branch in a node engine range', (t) => {
-  t.is(
-    restrictWasiNodeEngine('>=12 <16 || >=18'),
-    '>=14.18.0 <16.0.0-0 || >=18.0.0',
-  )
-  t.is(restrictWasiNodeEngine('>=12 <16 || >=18'), MINIMUM_WASI_NODE_VERSION)
+test('should keep node engine ranges inside the WASI floor', (t) => {
+  t.is(restrictWasiNodeEngine('^22.14.0'), '^22.14.0')
+  t.is(restrictWasiNodeEngine('>=24'), '>=24')
 })
 
-test('should not admit prereleases excluded by the WASI node floor', (t) => {
-  for (const [source, expected] of [
-    ['>=14.18.0-rc.1 <15 || >=20.0.0-rc.1', '>=14.18.0 <15.0.0-0 || >=20.0.0'],
-    ['>=18.0.0-rc.1', '>=18.0.0'],
-    ['<20.0.0-rc.1', '>=14.18.0 <20.0.0-0'],
-    ['>=20.19.0-rc.1 <21', '>=20.19.0 <21.0.0-0'],
-    ['>=22.13.0-rc.1 <23', '>=22.13.0 <23.0.0-0'],
-    ['>=23.5.0-rc.1', '>=23.5.0'],
-  ]) {
-    const restricted = restrictWasiNodeEngine(source)
-    t.is(restricted, expected)
-    t.true(subset(restricted, source))
-    t.true(subset(restricted, MINIMUM_WASI_NODE_VERSION))
+test('should return the WASI floor for superset node engine ranges', (t) => {
+  t.is(restrictWasiNodeEngine('>=18'), MINIMUM_WASI_NODE_VERSION)
+  t.is(restrictWasiNodeEngine('>=12 <14 || >=18'), MINIMUM_WASI_NODE_VERSION)
+})
+
+test('should preserve partial intersections with the WASI floor', (t) => {
+  t.is(restrictWasiNodeEngine('>=22'), '>=22.13.0 <23.0.0-0 || >=23.5.0')
+  t.is(restrictWasiNodeEngine('<21'), '>=20.19.0 <21.0.0-0')
+})
+
+test('should reject node engine ranges disjoint from the WASI floor', (t) => {
+  for (const nodeRange of ['>=21 <22', '<20', '13.0.0', '21.0.0']) {
+    const error = t.throws(() => restrictWasiNodeEngine(nodeRange))
+    t.true(
+      error.message.includes(`"${nodeRange}"`),
+      `error should name the rejected range ${nodeRange}`,
+    )
+    t.true(
+      error.message.includes(`"${MINIMUM_WASI_NODE_VERSION}"`),
+      'error should name the supported WASI versions',
+    )
   }
 })
 
-test('should exclude unsupported Node release lines', (t) => {
-  t.is(restrictWasiNodeEngine('>=21 <22'), MINIMUM_WASI_NODE_VERSION)
-  t.is(
-    restrictWasiNodeEngine('>=20.0.0 <23'),
-    '>=20.19.0 <21.0.0-0 || >=22.13.0 <23.0.0-0',
-  )
+test('should fall back to the WASI floor for malformed node engine ranges', (t) => {
+  t.is(restrictWasiNodeEngine('not-a-range'), MINIMUM_WASI_NODE_VERSION)
+})
+
+test('napi engine requirements always intersect the WASI floor', (t) => {
+  for (const napiVersion of SUPPORTED_NAPI_VERSIONS) {
+    t.notThrows(() =>
+      restrictWasiNodeEngine(napiEngineRequirement(napiVersion)),
+    )
+  }
 })

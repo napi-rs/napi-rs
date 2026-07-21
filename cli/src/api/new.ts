@@ -57,8 +57,9 @@ const WASI_CI_ARTIFACT_PATTERNS = [
   '*.wasi*-deferred.d.ts',
   'wasi-worker*.mjs',
 ]
-const GENERATED_WASI_BINDING =
-  /(?:\.(?:wasi|wasip\d+)(?:-browser|-deferred)?\.(?:cjs|js|d\.[ct]s)|wasi-worker(?:-browser)?\.mjs)/
+// Exported for tests.
+export const GENERATED_WASI_BINDING =
+  /(?:\.(?:wasi|wasip\d+)(?:-browser|-deferred)?\.(?:cjs|js|d\.[cm]?ts)|wasi-worker(?:-browser)?\.mjs)/
 const TYPE_DEF_FILE = /\.d\.[cm]?ts$/
 const GLOB_PATTERN = /[*?[\]{}]/
 

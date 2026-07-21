@@ -1,0 +1,11 @@
+[package]
+name = "with-optional-derive"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+napi-derive = { path = "../napi-derive", optional = true }
+
+[features]
+default = []
+node = ["dep:napi-derive"]

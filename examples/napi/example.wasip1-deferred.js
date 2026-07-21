@@ -379,8 +379,6 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   let __contextInitializationFailed = false
   try {
     __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
-    // emnapi <= 1.11 ignores autoDestroy. suppressDestroy() is the public
-    // contract that keeps this context alive until our explicit cleanup runs.
     // emnapi 2.x still registers an unconditional process.once('beforeExit')
     // auto-destroy listener on Node hosts, and suppressDestroy() only
     // neutralizes its callback without removing it. This loader must stay
@@ -391,8 +389,6 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
     __contextInitializationError = error
     __contextInitializationFailed = true
   } finally {
-    // Remove only the exact legacy callback captured above. suppressDestroy()
-    // remains the safety net if listener removal is unavailable or fails.
     // Remove only the exact emnapi callback captured above.
     __finishAutoDestroyCapture?.()
   }
@@ -598,7 +594,6 @@ async function __createInstance(
       __onManagedDestroyer(__destroyBeforeExit)
       await __registerCleanup(__destroyBeforeExit)
     }
-    __emnapiContext.feature.Buffer = Buffer
     __emnapiContext.features.Buffer = Buffer
     let __napiModule
     ;({ instance: __napiInstance, napiModule: __napiModule } =
@@ -627,14 +622,6 @@ async function __createInstance(
       }))
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
-    }
-    for (const name of unsupportedWasiFunctions) {
-      if (__napiModule.exports[name] === undefined) {
-        __napiModule.exports[name] = getDeferredWasiBindingExport(
-          __napiModule.exports,
-          name,
-        )
-      }
     }
     return {
       exports: __napiModule.exports,
@@ -684,97 +671,6 @@ async function __createInstance(
  * Create an independent instance. Call dispose() when the instance is no
  * longer needed so emnapi cleanup hooks run deterministically.
  */
-const unsupportedWasiFunctions = new Set([
-  'abandonDeferredClones',
-  'armTokioBlockingTlsRetirementProbe',
-  'armTokioWorkerTlsRetirementProbe',
-  'assignClassInstanceAcrossDuplicateLoad',
-  'assignClassInstanceFromLaterTurn',
-  'assignClampedSliceAcrossDuplicateLoad',
-  'assignTypedArraySliceAcrossDuplicateLoad',
-  'cancelAsyncWorkLifecycle',
-  'configureTokioThreadStopFileBarrier',
-  'convertClampedSliceAcrossDuplicateLoad',
-  'convertTypedArraySliceAcrossDuplicateLoad',
-  'copyExternalTokenAlias',
-  'createExternalPublicBorrowProbe',
-  'createExternalRefProvenanceProbe',
-  'createExternalTokenGcProbe',
-  'createMutableTypedArrayForOwnershipTest',
-  'createPanickingAsyncWork',
-  'createQueuedAsyncWorkLifecycle',
-  'createResolvePanickingAsyncWork',
-  'createRunningAsyncWorkLifecycle',
-  'deferredFinalizeCallbackCount',
-  'disposeAsyncWorkLifecycle',
-  'disposeThreadsafeFunctionForEnvOwnership',
-  'externalTokenGcProbeFinalizeCount',
-  'fetch',
-  'inspectExternalRefAcrossDuplicateLoad',
-  'inspectExternalTokenGcProbe',
-  'mutableTypedArrayFinalizeCount',
-  'panickingAsyncWorkFinallyCount',
-  'prepareTsfnBlockingCallRegression',
-  'prepareTsfnTeardownRegression',
-  'referThreadsafeFunctionForEnvOwnership',
-  'registerDeferredCleanupOrderProbe',
-  'registerLateDeferredFinalizeCallback',
-  'releaseAsyncWorkLifecycle',
-  'resolvePanickingAsyncWorkFinallyCount',
-  'restartTokioRuntimeAfterRetirement',
-  'returnTypedArraySliceMutAcrossDuplicateLoad',
-  'returnTypedArraySliceRefAcrossDuplicateLoad',
-  'settleDeferredBeforeFinalizeRegistration',
-  'settleDeferredClone',
-  'stashBufferAcrossDuplicateLoad',
-  'stashClassInstanceForLaterTurn',
-  'stashErrorAcrossDuplicateLoad',
-  'stashExternalRefAcrossDuplicateLoad',
-  'stashExternalRefForTeardown',
-  'stashPromiseRejectionAcrossDuplicateLoad',
-  'stashThreadsafeFunctionForEnvOwnership',
-  'stashTypedArrayAcrossDuplicateLoad',
-  'stashTypedArraySlicesAcrossDuplicateLoad',
-  'startDeferredTeardownRace',
-  'startReferencedTsfnFinalizerLivenessWorker',
-  'startWeakTsfnFinalizerLivenessWorker',
-  'takeAdditionalBorrowedValueAcrossDuplicateLoad',
-  'takeBorrowedValueAcrossDuplicateLoad',
-  'takeBufferAcrossDuplicateLoad',
-  'takeBufferSliceIntoBufferAcrossDuplicateLoad',
-  'takeBufferSliceRefAcrossDuplicateLoad',
-  'takeClassInstanceFromLaterTurn',
-  'takeExternalRefAcrossDuplicateLoad',
-  'takeReferenceValueAcrossDuplicateLoad',
-  'takeTypedArrayAcrossDuplicateLoad',
-  'throwErrorAcrossDuplicateLoad',
-  'throwPromiseRejectionAcrossDuplicateLoad',
-  'tokioRuntimeFactoryCallCount',
-  'tokioRuntimeLifecycleValue',
-  'unrefThreadsafeFunctionForEnvOwnership',
-  'verifyReferenceValuesRejectNativeThread',
-  'verifyThreadsafeFunctionOwnerEnv',
-  'verifyTypedArraySlicesSameEnv',
-  'waitForTokioRuntimeRetirement',
-  'withAdditionalBorrowedValuesAcrossDuplicateLoad',
-  'withBorrowedValuesAcrossDuplicateLoad',
-  'withReferenceValuesAcrossDuplicateLoad',
-])
-
-function getDeferredWasiBindingExport(binding, name) {
-  const value = binding[name]
-  if (value !== undefined || !unsupportedWasiFunctions.has(name)) {
-    return value
-  }
-  return function unsupportedWasiFunction() {
-    const error = new Error(
-      `The "${name}" export is not supported by this WASI binding`,
-    )
-    error.code = 'NAPI_RS_UNSUPPORTED_WASI_EXPORT'
-    throw error
-  }
-}
-
 export async function createInstance(__wasmInput) {
   return __createInstance(__wasmInput)
 }

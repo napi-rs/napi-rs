@@ -7,25 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [6.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.2...napi-derive-backend-v6.0.0) - 2026-07-21
 
-- **Breaking:** Current generated glue targets napi's versioned `codegen_v1` contract. Upgrade the
-  napi runtime before the derive crates; previously released derive code remains compatible with
-  the new runtime, while new derive code intentionally does not compile against the old runtime.
-- **Breaking:** Generated class methods, iterators, and field accessors now participate in native
-  borrow checking, and every constructor and factory path uses a unique aligned allocation for
-  zero-sized class values.
-- **Breaking:** Generated async-iterator `Next` types no longer add `undefined`; the CLI represents
-  an omitted `next()` argument separately from an explicitly supplied value, matching runtime
-  conversion behavior.
-- **Breaking:** Native class codegen rejects borrowed reference fields before expansion, and
-  generated `JavaScriptClassExt::into_instance` implementations use fallible class-instance
-  construction.
+### Added
 
-### Fixed
+- unforgeable `#[napi]` class identity via Node object type tags ([#3405](https://github.com/napi-rs/napi-rs/pull/3405))
 
-- Bare `This` parameters on exported free functions now generate `this: object` instead of the
-  invalid TypeScript declaration `this: this`.
+### Other
+
+- *(napi)* share tracing callsite ([#3409](https://github.com/napi-rs/napi-rs/pull/3409))
 
 ## [5.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.1...napi-derive-backend-v5.1.2) - 2026-07-12
 

@@ -13,7 +13,7 @@ creates a fresh worker generation.
 parks the caller instead of busy-spinning. Scheduler submissions also notify
 parked callers so deferred task drains cannot strand them. Threadless WASI
 returns control when a future cannot make synchronous progress, allowing the
-fallible wrapper to report the incomplete drive instead of invoking an
+exported wrappers to report the incomplete drive instead of invoking an
 unsupported parking primitive.
 
 Threadless `wasm32-wasip1` has no blocking-capable thread. Its runtime hook

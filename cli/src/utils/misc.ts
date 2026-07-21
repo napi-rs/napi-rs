@@ -116,7 +116,7 @@ interface ReconciliationReclaimOwner {
 }
 
 interface ReconciliationLockState {
-  lockStats: Stats
+  lockStats: BigIntStats
   ownerContent?: string
   owner?: ReconciliationLockOwner
   stale: boolean
@@ -126,20 +126,18 @@ interface ReconciliationLockState {
 interface ReconciliationReclaimState {
   owner: ReconciliationReclaimOwner
   ownerContent: string
-  reclaimStats: Stats
+  reclaimStats: BigIntStats
   stale: boolean
   unverifiableReason?: string
 }
 
 type ReconciliationMetadataOwner =
-  | ReconciliationLockOwner
-  | ReconciliationReclaimOwner
   ReconciliationLockOwner | ReconciliationReclaimOwner
 
 interface ReconciliationCandidateState {
   owner: ReconciliationMetadataOwner
   ownerContent: string
-  stats: Stats
+  stats: BigIntStats
   stale: boolean
   unverifiableReason?: string
 }
@@ -168,11 +166,14 @@ interface ReconciliationLockDeadline {
 
 interface ReconciliationLockIdentity {
   anchorPath: string
-  dev: number
-  ino: number
+  // 64-bit filesystem identifiers are captured from bigint stats so anchors
+  // whose dev/ino exceed Number.MAX_SAFE_INTEGER (Windows NTFS file IDs and
+  // volume serials) never collide with a distinct filesystem object.
+  dev: bigint
+  ino: bigint
   key: string
-  lockRootDev: number
-  lockRootIno: number
+  lockRootDev: bigint
+  lockRootIno: bigint
   lockRootPath: string
   reportTopologyChange: boolean
   requestedPath: string
@@ -184,17 +185,10 @@ const processIncarnationObservations = new Map<
 >()
 let currentProcessIncarnation: string | undefined
 let currentProcessIncarnationProbe: Promise<string | null> | undefined
-let currentProcessExecutionIdentity: ProcessExecutionIdentity | undefined
-let currentProcessExecutionIdentityProbe:
-  | Promise<ProcessExecutionIdentity>
-  | undefined
 let linuxBootId: string | undefined
 
 interface TransactionParentIdentity {
   canonicalParent: string
-  dev: number
-  identityPath: string
-  ino: number
   // 64-bit filesystem identifiers are captured from a bigint stat() and stored
   // as decimal strings so values above Number.MAX_SAFE_INTEGER (common for
   // Windows NTFS file references and volume serials) round-trip losslessly.
@@ -205,15 +199,6 @@ interface TransactionParentIdentity {
 
 interface FileSystemTransactionJournalParent {
   canonicalParent: string
-  dev: number
-  identityPath: string
-  ino: number
-}
-
-interface FileSystemTransactionJournalFileState {
-  dev?: number
-  hash: string
-  ino?: number
   dev: string
   identityPath: string
   ino: string
@@ -227,8 +212,6 @@ interface FileSystemTransactionJournalFileState {
 }
 
 interface FileSystemTransactionFileIdentity {
-  dev: number
-  ino: number
   dev: string
   ino: string
 }
@@ -782,9 +765,6 @@ async function commitFileSystemTransactionUnlocked(
   for (const path of affected) {
     assertFileSystemTransactionPathIsNotReserved(transactionRoot, path)
   }
-  const affectedStats = new Map<string, Stats | undefined>()
-  for (const path of affected) {
-    const stats = await lstatIfExists(path)
   // Capture 64-bit identity so the source preflight below can detect an inode
   // replacement even when dev/ino exceed Number.MAX_SAFE_INTEGER on Windows.
   const affectedStats = new Map<string, BigIntStats | undefined>()
@@ -1138,7 +1118,6 @@ async function commitFileSystemTransactionUnlocked(
       )
       const backupName = String(backupIndex++)
       const backup = join(candidateBackupRoot, backupName)
-      const mode = stats.mode & 0o7777
       const mode = Number(stats.mode & 0o7777n)
       const state = await snapshotFileSystemTransactionInput(
         path,
@@ -1260,7 +1239,6 @@ async function commitFileSystemTransactionUnlocked(
     await rename(candidateRoot, journalRoot)
     published = true
     await syncDirectory(transactionRoot)
-    const publishedStats = await lstatIfExists(journalRoot)
     const publishedStats = await lstatIfExists(journalRoot, { bigint: true })
     if (!fileSystemTransactionStateMatches(candidateStats, publishedStats)) {
       throw new Error(
@@ -1422,8 +1400,6 @@ async function commitFileSystemTransactionUnlocked(
 async function pathsReferToSameDirectoryEntry(
   left: string,
   right: string,
-  leftStats: Stats,
-  rightStats: Stats,
   leftStats: BigIntStats,
   rightStats: BigIntStats,
 ) {
@@ -1436,8 +1412,7 @@ async function pathsReferToSameDirectoryEntry(
   if (
     !leftStats.isFile() ||
     !rightStats.isFile() ||
-    leftStats.dev !== rightStats.dev ||
-    leftStats.ino !== rightStats.ino
+    !statIdentitiesMatch(leftStats, rightStats)
   ) {
     return false
   }
@@ -1463,9 +1438,6 @@ async function pathsReferToSameDirectoryEntry(
   )
 }
 
-async function lstatIfExists(path: string) {
-  try {
-    return await lstat(path)
 async function lstatIfExists(path: string): Promise<Stats | undefined>
 async function lstatIfExists(
   path: string,
@@ -1484,6 +1456,26 @@ async function lstatIfExists(path: string, options?: { bigint: true }) {
   }
 }
 
+/**
+ * Exact 64-bit dev/ino identity equality between two bigint stat observations.
+ * Every ownership or continuity decision in the reconciliation and transaction
+ * subsystems must compare identity through this helper (or on the decimal
+ * strings derived from a bigint stat), never on the lossy Number
+ * `Stats.dev`/`Stats.ino` fields: Windows NTFS file IDs and volume serials
+ * exceed Number.MAX_SAFE_INTEGER, so two distinct filesystem objects can
+ * collapse onto the same JS double and defeat the check.
+ */
+export function statIdentitiesMatch(
+  expected: Pick<BigIntStats, 'dev' | 'ino'>,
+  current: Pick<BigIntStats, 'dev' | 'ino'> | undefined,
+): boolean {
+  return (
+    current !== undefined &&
+    expected.dev === current.dev &&
+    expected.ino === current.ino
+  )
+}
+
 async function readReconciliationMetadata(path: string, label: string) {
   let handle
   try {
@@ -1499,7 +1491,9 @@ async function readReconciliationMetadata(path: string, label: string) {
   }
 
   try {
-    const stats = await handle.stat()
+    // Capture 64-bit dev/ino so every downstream ownership comparison on this
+    // metadata is exact even past Number.MAX_SAFE_INTEGER.
+    const stats = await handle.stat({ bigint: true })
     if (!stats.isFile()) {
       throw reconciliationPathCollisionError(
         path,
@@ -1561,9 +1555,9 @@ async function resolveReconciliationLockIdentities(
 ): Promise<ReconciliationLockIdentity[]> {
   const requestedPath = resolve(path)
   const anchorPath = await canonicalizeReconciliationPath(path)
-  let anchorStats: Stats
+  let anchorStats: BigIntStats
   try {
-    anchorStats = await lstat(anchorPath)
+    anchorStats = await lstat(anchorPath, { bigint: true })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw reconciliationAnchorError(anchorPath, 'does not exist', 'ENOENT')
@@ -1595,7 +1589,7 @@ async function resolveReconciliationLockIdentities(
   const pathIdentities = await Promise.all(
     [...guardKeys].map(async (key) => {
       const lockRootPath = await realpath(dirname(key))
-      const lockRootStats = await lstat(lockRootPath)
+      const lockRootStats = await lstat(lockRootPath, { bigint: true })
       if (!lockRootStats.isDirectory()) {
         throw reconciliationPathCollisionError(
           lockRootPath,
@@ -1616,9 +1610,9 @@ async function resolveReconciliationLockIdentities(
     }),
   )
   const anchorParentPath = await realpath(dirname(anchorPath))
-  const anchorParentStats = await lstat(anchorParentPath)
+  const anchorParentStats = await lstat(anchorParentPath, { bigint: true })
   const anchorParentIsShared =
-    (anchorParentStats.mode & 0o1000) === 0 &&
+    (anchorParentStats.mode & 0o1000n) === 0n &&
     (await directoryIsWritable(anchorParentPath))
   const objectLockRootPath = anchorParentIsShared
     ? anchorParentPath
@@ -1673,11 +1667,10 @@ async function assertReconciliationRequestedPathUnchanged(
       'ESTALE',
     )
   }
-  const currentStats = await lstatIfExists(currentPath)
+  const currentStats = await lstatIfExists(currentPath, { bigint: true })
   if (
     !currentStats?.isDirectory() ||
-    currentStats.dev !== identity.dev ||
-    currentStats.ino !== identity.ino
+    !statIdentitiesMatch(identity, currentStats)
   ) {
     throw reconciliationAnchorError(
       identity.requestedPath,
@@ -1690,9 +1683,9 @@ async function assertReconciliationRequestedPathUnchanged(
 async function assertReconciliationAnchorUnchanged(
   identity: ReconciliationLockIdentity,
 ) {
-  let anchorStats: Stats
+  let anchorStats: BigIntStats
   try {
-    anchorStats = await lstat(identity.anchorPath)
+    anchorStats = await lstat(identity.anchorPath, { bigint: true })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw reconciliationAnchorError(
@@ -1705,8 +1698,7 @@ async function assertReconciliationAnchorUnchanged(
   }
   if (
     !anchorStats.isDirectory() ||
-    anchorStats.dev !== identity.dev ||
-    anchorStats.ino !== identity.ino
+    !statIdentitiesMatch(identity, anchorStats)
   ) {
     throw reconciliationAnchorError(
       identity.anchorPath,
@@ -1719,11 +1711,15 @@ async function assertReconciliationAnchorUnchanged(
 async function assertReconciliationLockRootUnchanged(
   identity: ReconciliationLockIdentity,
 ) {
-  const lockRootStats = await lstatIfExists(identity.lockRootPath)
+  const lockRootStats = await lstatIfExists(identity.lockRootPath, {
+    bigint: true,
+  })
   if (
     !lockRootStats?.isDirectory() ||
-    lockRootStats.dev !== identity.lockRootDev ||
-    lockRootStats.ino !== identity.lockRootIno
+    !statIdentitiesMatch(
+      { dev: identity.lockRootDev, ino: identity.lockRootIno },
+      lockRootStats,
+    )
   ) {
     throw reconciliationAnchorError(
       identity.lockRootPath,
@@ -1831,7 +1827,7 @@ async function acquireReconciliationLock(
       token,
       version: reconciliationStateVersion,
     }
-    let lockStats: Stats
+    let lockStats: BigIntStats
     try {
       lockStats = await createExclusiveReconciliationMetadata(
         identity,
@@ -1915,7 +1911,7 @@ async function createExclusiveReconciliationMetadata(
     }
     throw error
   }
-  const createdStats = await handle.stat()
+  const createdStats = await handle.stat({ bigint: true })
   let published = false
   try {
     if (process.platform !== 'win32') {
@@ -1988,7 +1984,7 @@ async function createExclusiveReconciliationMetadata(
 async function cleanupFailedReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   try {
@@ -2052,7 +2048,7 @@ async function cleanupFailedReconciliationLock(
 function scheduleFailedReconciliationLockCleanup(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   const timer = scheduleTimeout(() => {
@@ -2095,7 +2091,7 @@ function scheduleFailedReconciliationLockCleanup(
 async function retryFailedReconciliationLockCleanup(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   await assertReconciliationLockRootUnchanged(identity)
@@ -2122,7 +2118,7 @@ function isReconciliationAnchorChangedError(error: unknown) {
 function maintainReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   const { key } = identity
@@ -2200,7 +2196,7 @@ function maintainReconciliationLock(
 async function removeOwnedReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ): Promise<'blocked' | 'not-owned' | 'removed'> {
   await assertReconciliationLockRootUnchanged(identity)
@@ -2253,15 +2249,12 @@ async function removeOwnedReconciliationLock(
 async function reconciliationLockIsOwnedBy(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   token: string,
 ) {
   try {
     const metadata = await readReconciliationMetadata(lockPath, 'lock-state')
-    if (
-      metadata.stats.dev !== expectedStats.dev ||
-      metadata.stats.ino !== expectedStats.ino
-    ) {
+    if (!statIdentitiesMatch(expectedStats, metadata.stats)) {
       return false
     }
     const owner = JSON.parse(metadata.content) as ReconciliationLockOwner
@@ -2413,7 +2406,7 @@ async function tryReclaimStaleReconciliationLock(
     token,
     version: reconciliationStateVersion,
   }
-  let reclaimStats: Stats
+  let reclaimStats: BigIntStats
   try {
     reclaimStats = await createExclusiveReconciliationMetadata(
       identity,
@@ -2544,8 +2537,7 @@ function reconciliationLockStatesMatch(
   current: ReconciliationLockState,
 ) {
   return (
-    expected.lockStats.dev === current.lockStats.dev &&
-    expected.lockStats.ino === current.lockStats.ino &&
+    statIdentitiesMatch(expected.lockStats, current.lockStats) &&
     expected.ownerContent === current.ownerContent
   )
 }
@@ -2626,8 +2618,7 @@ async function waitForUnverifiableReconciliationReclaim(
     const observed = await inspectReconciliationReclaim(identity)
     if (
       !observed ||
-      observed.reclaimStats.dev !== expected.reclaimStats.dev ||
-      observed.reclaimStats.ino !== expected.reclaimStats.ino ||
+      !statIdentitiesMatch(expected.reclaimStats, observed.reclaimStats) ||
       observed.ownerContent !== expected.ownerContent ||
       !observed.unverifiableReason
     ) {
@@ -2645,7 +2636,7 @@ async function waitForUnverifiableReconciliationReclaim(
 async function reconciliationReclaimIsOwnedBy(
   identity: ReconciliationLockIdentity,
   reclaimPath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   token: string,
 ) {
   try {
@@ -2653,10 +2644,7 @@ async function reconciliationReclaimIsOwnedBy(
       reclaimPath,
       'reclaim-state',
     )
-    if (
-      metadata.stats.dev !== expectedStats.dev ||
-      metadata.stats.ino !== expectedStats.ino
-    ) {
+    if (!statIdentitiesMatch(expectedStats, metadata.stats)) {
       return false
     }
     const owner = JSON.parse(metadata.content) as ReconciliationReclaimOwner
@@ -2748,8 +2736,10 @@ async function removeStaleReconciliationReclaim(
   if (
     !currentState ||
     !currentState.stale ||
-    expectedState.reclaimStats.dev !== currentState.reclaimStats.dev ||
-    expectedState.reclaimStats.ino !== currentState.reclaimStats.ino ||
+    !statIdentitiesMatch(
+      expectedState.reclaimStats,
+      currentState.reclaimStats,
+    ) ||
     expectedState.ownerContent !== currentState.ownerContent
   ) {
     return false
@@ -2835,8 +2825,7 @@ async function removeStaleReconciliationCandidates(
     )
     if (
       !currentState?.stale ||
-      expectedState.stats.dev !== currentState.stats.dev ||
-      expectedState.stats.ino !== currentState.stats.ino ||
+      !statIdentitiesMatch(expectedState.stats, currentState.stats) ||
       expectedState.ownerContent !== currentState.ownerContent
     ) {
       continue
@@ -2894,7 +2883,7 @@ async function inspectReconciliationCandidate(
 async function removeReconciliationCandidateIfMatches(
   identity: ReconciliationLockIdentity,
   candidatePath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
 ) {
   await retireReconciliationPathIfMatches(
     identity,
@@ -2906,7 +2895,7 @@ async function removeReconciliationCandidateIfMatches(
 async function removeReconciliationCandidateBestEffort(
   identity: ReconciliationLockIdentity,
   candidatePath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
 ) {
   try {
     await removeReconciliationCandidateIfMatches(
@@ -2923,19 +2912,21 @@ async function removeReconciliationCandidateBestEffort(
   }
 }
 
-async function reconciliationPathMatches(path: string, expectedStats: Stats) {
-  const currentStats = await lstatIfExists(path)
+async function reconciliationPathMatches(
+  path: string,
+  expectedStats: BigIntStats,
+) {
+  const currentStats = await lstatIfExists(path, { bigint: true })
   return (
     currentStats?.isFile() === true &&
-    currentStats.dev === expectedStats.dev &&
-    currentStats.ino === expectedStats.ino
+    statIdentitiesMatch(expectedStats, currentStats)
   )
 }
 
 async function retireReconciliationPathIfMatches(
   identity: ReconciliationLockIdentity,
   path: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   validate?: (retiredPath: string) => Promise<boolean>,
 ) {
   await assertReconciliationLockRootUnchanged(identity)
@@ -2963,11 +2954,10 @@ async function retireReconciliationPathIfMatches(
     }
   }
 
-  const retiredStats = await lstatIfExists(retiredPath)
+  const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
   let valid =
     retiredStats?.isFile() === true &&
-    retiredStats.dev === expectedStats.dev &&
-    retiredStats.ino === expectedStats.ino
+    statIdentitiesMatch(expectedStats, retiredStats)
   if (valid && validate !== undefined) {
     try {
       valid = await validate(retiredPath)
@@ -3039,7 +3029,7 @@ async function unlinkReconciliationPathWithRetry(path: string) {
 function scheduleRetiredReconciliationPathCleanup(
   identity: ReconciliationLockIdentity,
   path: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
 ) {
   const timer = scheduleTimeout(() => {
     void (async () => {
@@ -3367,32 +3357,6 @@ function getCurrentProcessIncarnation() {
     () => {
       if (currentProcessIncarnationProbe === probe) {
         currentProcessIncarnationProbe = undefined
-      }
-    },
-  )
-  return probe
-}
-
-function getCurrentProcessExecutionIdentity() {
-  if (currentProcessExecutionIdentity !== undefined) {
-    return Promise.resolve(currentProcessExecutionIdentity)
-  }
-  if (currentProcessExecutionIdentityProbe !== undefined) {
-    return currentProcessExecutionIdentityProbe
-  }
-
-  const probe = readProcessExecutionIdentity()
-  currentProcessExecutionIdentityProbe = probe
-  void probe.then(
-    (identity) => {
-      currentProcessExecutionIdentity = identity
-      if (currentProcessExecutionIdentityProbe === probe) {
-        currentProcessExecutionIdentityProbe = undefined
-      }
-    },
-    () => {
-      if (currentProcessExecutionIdentityProbe === probe) {
-        currentProcessExecutionIdentityProbe = undefined
       }
     },
   )
@@ -3823,7 +3787,6 @@ async function captureTransactionParentIdentity(
   resolveTransactionPath(root, join(canonicalParent, '.napi-parent-check'))
 
   let identityPath = canonicalParent
-  let identityStats = await lstatIfExists(identityPath)
   let identityStats = await lstatIfExists(identityPath, { bigint: true })
   while (!identityStats) {
     const next = dirname(identityPath)
@@ -3833,7 +3796,6 @@ async function captureTransactionParentIdentity(
       )
     }
     identityPath = next
-    identityStats = await lstatIfExists(identityPath)
     identityStats = await lstatIfExists(identityPath, { bigint: true })
   }
   if (!identityStats.isDirectory()) {
@@ -3843,9 +3805,6 @@ async function captureTransactionParentIdentity(
   }
   return {
     canonicalParent,
-    dev: identityStats.dev,
-    identityPath,
-    ino: identityStats.ino,
     dev: String(identityStats.dev),
     identityPath,
     ino: String(identityStats.ino),
@@ -3875,11 +3834,6 @@ async function assertTransactionParentUnchanged(
       `Filesystem transaction parent changed from ${expected.canonicalParent} to ${canonicalParent}`,
     )
   }
-  const identityStats = await lstatIfExists(expected.identityPath)
-  if (
-    !identityStats?.isDirectory() ||
-    identityStats.dev !== expected.dev ||
-    identityStats.ino !== expected.ino
   const identityStats = await lstatIfExists(expected.identityPath, {
     bigint: true,
   })
@@ -3985,7 +3939,6 @@ async function createFileSystemTransactionCandidate(root: string) {
       }
       throw error
     }
-    const stats = await lstat(path)
     const stats = await lstat(path, { bigint: true })
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
       throw new Error(
@@ -4024,17 +3977,18 @@ export function snapshotLeftoverIsTransactionOwned(
  * - `'unlink'` — the first fstat never succeeded (`destinationStats` undefined),
  *   so no inode identity exists at all; the pathname is transaction-owned and
  *   unpredictable, so best-effort unlink it.
- * - `'preserve'` — the first fstat succeeded but the bigint identity fstat failed
- *   (`destinationIdentity` undefined), so the leftover's ownership cannot be
- *   proven. Never destroy a file we cannot prove we created; leave it for the
- *   sibling scavenger. Without this fail-closed case a rare second-fstat failure
- *   (after a successful first fstat) would unconditionally unlink a possibly
- *   non-owned successor.
- * - `'verify-identity'` — both observations exist, so the caller re-reads the
- *   pathname and unlinks only when it still resolves to the exact owned inode.
+ * - `'preserve'` — the fstat succeeded but no identity was captured (the created
+ *   entry was not a regular file), so the leftover's ownership cannot be
+ *   proven. Never destroy an entry we cannot prove we created; leave it for the
+ *   sibling scavenger. Without this fail-closed case the cleanup would
+ *   unconditionally unlink a possibly non-owned successor.
+ * - `'verify-identity'` — both observations exist, so the caller retires the
+ *   pathname by rename, revalidates the retired entry against the recorded
+ *   identity, and deletes only a revalidated match
+ *   (see retireFailedSnapshotLeftover).
  */
 export function failedSnapshotLeftoverCleanupAction(
-  destinationStats: Stats | undefined,
+  destinationStats: BigIntStats | undefined,
   destinationIdentity: FileSystemTransactionFileIdentity | undefined,
 ): 'unlink' | 'preserve' | 'verify-identity' {
   if (destinationStats === undefined) {
@@ -4046,11 +4000,88 @@ export function failedSnapshotLeftoverCleanupAction(
   return 'verify-identity'
 }
 
+/**
+ * Removes the leftover at a failed snapshot's destination pathname only when it
+ * is still the exact inode this transaction created, without the
+ * check-then-unlink pathname race: a successor swapped in between an lstat and
+ * an unlink of the same pathname would be deleted even though the transaction
+ * never owned it. Instead the leftover is first retired to a unique sibling
+ * name with an atomic rename, the retired entry is revalidated against the
+ * recorded 64-bit identity, and only a revalidated match is deleted. A
+ * mismatched (non-owned) entry is hard-linked back to the destination pathname
+ * — or, when the pathname was already reoccupied by an even newer successor,
+ * preserved at the retired name (mirroring
+ * restoreUnexpectedFileSystemTransactionRetirement).
+ *
+ * Returns what happened to the leftover: `'removed'` (owned inode deleted),
+ * `'missing'` (nothing at the pathname), `'kept'` (a non-owned successor was
+ * left at — or restored to — the destination), or `'preserved'` (a non-owned
+ * successor could not be restored and remains at the returned retired path).
+ *
+ * `onBeforeRetire` is a deterministic test seam invoked after the ownership
+ * pre-check and before the retirement rename — the window the retire pattern
+ * exists to close.
+ */
+export async function retireFailedSnapshotLeftover(
+  destination: string,
+  identity: FileSystemTransactionFileIdentity,
+  onBeforeRetire?: () => Promise<void>,
+): Promise<
+  | { outcome: 'removed' | 'missing' | 'kept' }
+  | { outcome: 'preserved'; retiredPath: string }
+> {
+  const currentStats = await lstatIfExists(destination, { bigint: true })
+  if (currentStats === undefined) {
+    return { outcome: 'missing' }
+  }
+  if (!snapshotLeftoverIsTransactionOwned(currentStats, identity)) {
+    return { outcome: 'kept' }
+  }
+  await onBeforeRetire?.()
+
+  const retiredPath = atomicTemporaryPath(destination)
+  try {
+    await rename(destination, retiredPath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { outcome: 'missing' }
+    }
+    throw error
+  }
+
+  const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
+  if (snapshotLeftoverIsTransactionOwned(retiredStats, identity)) {
+    // The unique retired name is process-private, so this unlink cannot race
+    // with another writer: it deletes exactly the inode revalidated above.
+    await unlinkFileIfExists(retiredPath)
+    return { outcome: 'removed' }
+  }
+
+  // A successor was swapped onto the pathname between the pre-check and the
+  // rename. It was never ours to delete: put it back without clobbering an
+  // even newer occupant of the destination.
+  try {
+    await link(retiredPath, destination)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw fileSystemTransactionOperationError(
+        `Failed to restore a non-owned leftover from ${retiredPath} to ${destination}`,
+        error,
+      )
+    }
+    debug.warn(
+      `A non-owned leftover of a failed transaction snapshot was preserved at ${retiredPath} because a successor already occupies ${destination}`,
+    )
+    return { outcome: 'preserved', retiredPath }
+  }
+  await unlinkFileIfExists(retiredPath)
+  return { outcome: 'kept' }
+}
+
 async function snapshotFileSystemTransactionInput(
   source: string,
   destination: string,
   mode?: number,
-  expectedStats?: Stats,
   expectedStats?: BigIntStats,
   destinationMode = 0o400,
   createDestinationParent = true,
@@ -4059,37 +4090,22 @@ async function snapshotFileSystemTransactionInput(
     identity: FileSystemTransactionFileIdentity,
   ) => Promise<void>,
 ): Promise<FileSystemTransactionJournalFileState> {
-  const initialPathStats = await lstatIfExists(source)
+  // All stats in this flow are bigint so every path-vs-handle continuity check
+  // below compares exact 64-bit identity, never the lossy Number dev/ino: a
+  // Number-colliding external replacement (two distinct inodes past 2 ** 53
+  // sharing one double) must be detected as a conflict rather than silently
+  // adopted and snapshotted as if it were the expected file.
+  const initialPathStats = await lstatIfExists(source, { bigint: true })
   if (!initialPathStats?.isFile()) {
     throw new Error(
       `Filesystem transaction source is not a regular file: ${source}`,
     )
   }
-  if (
-    expectedStats &&
-    (initialPathStats.dev !== expectedStats.dev ||
-      initialPathStats.ino !== expectedStats.ino)
-  ) {
+  if (expectedStats && !statIdentitiesMatch(expectedStats, initialPathStats)) {
     throw fileSystemTransactionConflictError(
       source,
       'changed before it could be snapshotted',
     )
-  if (expectedStats) {
-    // Compare exact 64-bit identity, never the lossy Number dev/ino: a
-    // Number-colliding external replacement of the source (two distinct inodes
-    // past 2 ** 53 sharing one double) must be detected as a conflict rather than
-    // silently adopted and snapshotted as if it were the expected file.
-    const sourceIdentityStats = await lstatIfExists(source, { bigint: true })
-    if (
-      sourceIdentityStats?.isFile() !== true ||
-      sourceIdentityStats.dev !== expectedStats.dev ||
-      sourceIdentityStats.ino !== expectedStats.ino
-    ) {
-      throw fileSystemTransactionConflictError(
-        source,
-        'changed before it could be snapshotted',
-      )
-    }
   }
   let sourceHandle
   try {
@@ -4104,37 +4120,28 @@ async function snapshotFileSystemTransactionInput(
     )
   }
   try {
-    const sourceStats = await sourceHandle.stat()
+    const sourceStats = await sourceHandle.stat({ bigint: true })
     if (
       !sourceStats.isFile() ||
-      sourceStats.dev !== initialPathStats.dev ||
-      sourceStats.ino !== initialPathStats.ino
+      !statIdentitiesMatch(initialPathStats, sourceStats)
     ) {
       throw new Error(
         `Filesystem transaction source changed while it was opened: ${source}`,
       )
     }
-    if (expectedStats) {
-      // Re-bind the exact 64-bit identity to the descriptor we just opened. The
-      // pre-open preflight validated the pathname, but `open` pins whatever inode
-      // is at the path *now*; a Number-colliding successor swapped into the
-      // pre-open window would still pass the lossy Number gate above (two distinct
-      // inodes past 2 ** 53 share one JS double). Compare the pinned fd's exact
-      // bigint dev/ino against the caller's expected identity so such a swap is
-      // raised as a conflict instead of being snapshotted and recorded as the
-      // original.
-      const openedIdentityStats = await sourceHandle.stat({ bigint: true })
-      if (
-        openedIdentityStats.dev !== expectedStats.dev ||
-        openedIdentityStats.ino !== expectedStats.ino
-      ) {
-        throw fileSystemTransactionConflictError(
-          source,
-          'changed before it could be snapshotted',
-        )
-      }
+    // `open` pins whatever inode is at the path *now*; a successor swapped into
+    // the pre-open window must be raised as a conflict instead of being
+    // snapshotted and recorded as the original. `sourceStats` is the pinned
+    // descriptor's exact 64-bit identity, so this gate cannot be defeated by a
+    // Number-colliding successor (two distinct inodes past 2 ** 53 share one JS
+    // double).
+    if (expectedStats && !statIdentitiesMatch(expectedStats, sourceStats)) {
+      throw fileSystemTransactionConflictError(
+        source,
+        'changed before it could be snapshotted',
+      )
     }
-    const finalMode = mode ?? sourceStats.mode & 0o7777
+    const finalMode = mode ?? Number(sourceStats.mode & 0o7777n)
     if (createDestinationParent) {
       await mkdir(dirname(destination), { recursive: true })
     }
@@ -4148,43 +4155,37 @@ async function snapshotFileSystemTransactionInput(
         error,
       )
     }
-    let destinationStats: Stats | undefined
+    let destinationStats: BigIntStats | undefined
     let destinationIdentity: FileSystemTransactionFileIdentity | undefined
     let committed = false
     try {
-      destinationStats = await destinationHandle.stat()
+      destinationStats = await destinationHandle.stat({ bigint: true })
       if (!destinationStats.isFile()) {
         throw new Error(
           `Filesystem transaction snapshot is not a regular file: ${destination}`,
         )
       }
-      // Capture the exact 64-bit identity of the transaction-owned inode from the
-      // open handle once. The open descriptor pins the inode, so this is the
+      // The exact 64-bit identity of the transaction-owned inode, captured from
+      // the open handle. The open descriptor pins the inode, so this is the
       // authoritative identity both for the recorded journal entry and for the
       // failed-snapshot cleanup guard that must not unlink a colliding successor.
-      const destinationIdentityStats = await destinationHandle.stat({
-        bigint: true,
-      })
       destinationIdentity = {
-        dev: String(destinationIdentityStats.dev),
-        ino: String(destinationIdentityStats.ino),
+        dev: String(destinationStats.dev),
+        ino: String(destinationStats.ino),
       }
       await assertDestinationParentUnchanged?.()
       if (recordDestinationIdentity) {
-        const destinationPathStats = await lstatIfExists(destination)
+        const destinationPathStats = await lstatIfExists(destination, {
+          bigint: true,
+        })
         if (
           destinationPathStats?.isFile() !== true ||
-          destinationPathStats.dev !== destinationStats.dev ||
-          destinationPathStats.ino !== destinationStats.ino
+          !statIdentitiesMatch(destinationStats, destinationPathStats)
         ) {
           throw new Error(
             `Filesystem transaction snapshot path changed before its identity was recorded: ${destination}`,
           )
         }
-        await recordDestinationIdentity({
-          dev: destinationStats.dev,
-          ino: destinationStats.ino,
-        })
         await recordDestinationIdentity(destinationIdentity)
       }
       const hash = createHash('sha256')
@@ -4214,20 +4215,18 @@ async function snapshotFileSystemTransactionInput(
         position += bytesRead
       }
       const [finalSourceStats, finalPathStats] = await Promise.all([
-        sourceHandle.stat(),
-        lstatIfExists(source),
+        sourceHandle.stat({ bigint: true }),
+        lstatIfExists(source, { bigint: true }),
       ])
       if (
-        finalSourceStats.dev !== sourceStats.dev ||
-        finalSourceStats.ino !== sourceStats.ino ||
+        !statIdentitiesMatch(sourceStats, finalSourceStats) ||
         finalSourceStats.size !== sourceStats.size ||
-        finalSourceStats.size !== position ||
+        finalSourceStats.size !== BigInt(position) ||
         finalSourceStats.mode !== sourceStats.mode ||
-        finalSourceStats.mtimeMs !== sourceStats.mtimeMs ||
-        finalSourceStats.ctimeMs !== sourceStats.ctimeMs ||
+        finalSourceStats.mtimeNs !== sourceStats.mtimeNs ||
+        finalSourceStats.ctimeNs !== sourceStats.ctimeNs ||
         finalPathStats?.isFile() !== true ||
-        finalPathStats.dev !== sourceStats.dev ||
-        finalPathStats.ino !== sourceStats.ino
+        !statIdentitiesMatch(sourceStats, finalPathStats)
       ) {
         throw new Error(
           `Filesystem transaction source changed while it was snapshotted: ${source}`,
@@ -4235,22 +4234,24 @@ async function snapshotFileSystemTransactionInput(
       }
       await applyFileSystemTransactionMode(destinationHandle, destinationMode)
       await destinationHandle.sync()
-      const finalDestinationStats = await destinationHandle.stat()
+      const finalDestinationStats = await destinationHandle.stat({
+        bigint: true,
+      })
       if (
         !finalDestinationStats.isFile() ||
-        finalDestinationStats.dev !== destinationStats.dev ||
-        finalDestinationStats.ino !== destinationStats.ino
+        !statIdentitiesMatch(destinationStats, finalDestinationStats)
       ) {
         throw new Error(
           `Filesystem transaction snapshot changed while it was written: ${destination}`,
         )
       }
       await assertDestinationParentUnchanged?.()
-      const finalDestinationPathStats = await lstatIfExists(destination)
+      const finalDestinationPathStats = await lstatIfExists(destination, {
+        bigint: true,
+      })
       if (
         finalDestinationPathStats?.isFile() !== true ||
-        finalDestinationPathStats.dev !== destinationStats.dev ||
-        finalDestinationPathStats.ino !== destinationStats.ino
+        !statIdentitiesMatch(destinationStats, finalDestinationPathStats)
       ) {
         throw new Error(
           `Filesystem transaction snapshot path changed while it was written: ${destination}`,
@@ -4259,10 +4260,6 @@ async function snapshotFileSystemTransactionInput(
       await destinationHandle.close()
       await syncDirectory(dirname(destination))
       committed = true
-      return {
-        dev: sourceStats.dev,
-        hash: hash.digest('hex'),
-        ino: sourceStats.ino,
       const sourceIdentityStats = await sourceHandle.stat({ bigint: true })
       return {
         dev: String(sourceIdentityStats.dev),
@@ -4273,8 +4270,6 @@ async function snapshotFileSystemTransactionInput(
     } finally {
       await destinationHandle.close().catch(() => {})
       if (!committed) {
-        const currentStats = await lstatIfExists(destination)
-        if (destinationStats === undefined) {
         const cleanup = failedSnapshotLeftoverCleanupAction(
           destinationStats,
           destinationIdentity,
@@ -4285,38 +4280,19 @@ async function snapshotFileSystemTransactionInput(
           // handle first and make the best cleanup Node's pathname API permits.
           await unlinkFileIfExists(destination)
         } else if (
-          currentStats?.isFile() === true &&
-          currentStats.dev === destinationStats.dev &&
-          currentStats.ino === destinationStats.ino
-        ) {
-          await unlinkFileIfExists(destination)
-        }
           cleanup === 'verify-identity' &&
           destinationIdentity !== undefined
         ) {
-          // Only unlink when the pathname still resolves to the exact inode this
-          // transaction created. The identity match is on decimal-string dev/ino
-          // (see snapshotLeftoverIsTransactionOwned), never lossy Number fields,
-          // so a Number-colliding successor past 2 ** 53 is preserved, not
-          // destroyed.
-          //
-          // Known limitation: identity-check-then-unlink is a two-syscall pathname race.
-          // A successor swapped in between the lstat and the unlink is deleted regardless
-          // of dev/ino; exact string identity narrows precision false-matches but cannot
-          // close the between-syscall window. A structural fix (retire-by-rename to a
-          // unique path + post-rename revalidation, per retireFileSystemTransactionState)
-          // is tracked as a follow-up.
-          const currentStats = await lstatIfExists(destination, {
-            bigint: true,
-          })
-          if (
-            snapshotLeftoverIsTransactionOwned(
-              currentStats,
-              destinationIdentity,
-            )
-          ) {
-            await unlinkFileIfExists(destination)
-          }
+          // Delete the leftover only when it is still the exact inode this
+          // transaction created. The retire-by-rename pattern (unique-name
+          // rename, then revalidation of the retired inode, then unlink of the
+          // process-private retired name) closes the between-syscall pathname
+          // window an identity-check-then-unlink would leave open, and the
+          // identity match is on decimal-string dev/ino (see
+          // snapshotLeftoverIsTransactionOwned), never lossy Number fields, so
+          // a Number-colliding successor past 2 ** 53 is restored or
+          // preserved, not destroyed.
+          await retireFailedSnapshotLeftover(destination, destinationIdentity)
         }
         // cleanup === 'preserve': the first fstat succeeded but the bigint
         // identity fstat failed, so ownership cannot be proven — leave the
@@ -4481,7 +4457,7 @@ async function openFileSystemTransactionIdentity(
   path: string,
   mode?: number,
 ): Promise<OpenFileSystemTransactionIdentity> {
-  const pathStats = await lstat(path)
+  const pathStats = await lstat(path, { bigint: true })
   if (!pathStats.isFile()) {
     throw new Error(
       `Filesystem transaction path is not a regular file: ${path}`,
@@ -4497,16 +4473,11 @@ async function openFileSystemTransactionIdentity(
     )
   }
   try {
-    const stats = await handle.stat()
-    // Capture 64-bit dev/ino from a bigint stat of the same open handle so the
-    // recorded identity is exact even when it exceeds Number.MAX_SAFE_INTEGER.
-    // The open descriptor pins the inode, so this matches the verified `stats`.
-    const identityStats = await handle.stat({ bigint: true })
-    if (
-      !stats.isFile() ||
-      stats.dev !== pathStats.dev ||
-      stats.ino !== pathStats.ino
-    ) {
+    // 64-bit dev/ino from a bigint stat of the open handle: the recorded
+    // identity and every continuity comparison below are exact even when the
+    // identifiers exceed Number.MAX_SAFE_INTEGER.
+    const stats = await handle.stat({ bigint: true })
+    if (!stats.isFile() || !statIdentitiesMatch(pathStats, stats)) {
       throw new Error(
         `Filesystem transaction path changed while it was opened: ${path}`,
       )
@@ -4528,20 +4499,18 @@ async function openFileSystemTransactionIdentity(
       position += bytesRead
     }
     const [finalStats, finalPathStats] = await Promise.all([
-      handle.stat(),
-      lstatIfExists(path),
+      handle.stat({ bigint: true }),
+      lstatIfExists(path, { bigint: true }),
     ])
     if (
-      finalStats.dev !== stats.dev ||
-      finalStats.ino !== stats.ino ||
+      !statIdentitiesMatch(stats, finalStats) ||
       finalStats.size !== stats.size ||
-      finalStats.size !== position ||
+      finalStats.size !== BigInt(position) ||
       finalStats.mode !== stats.mode ||
-      finalStats.mtimeMs !== stats.mtimeMs ||
-      finalStats.ctimeMs !== stats.ctimeMs ||
+      finalStats.mtimeNs !== stats.mtimeNs ||
+      finalStats.ctimeNs !== stats.ctimeNs ||
       finalPathStats?.isFile() !== true ||
-      finalPathStats.dev !== stats.dev ||
-      finalPathStats.ino !== stats.ino
+      !statIdentitiesMatch(stats, finalPathStats)
     ) {
       throw new Error(
         `Filesystem transaction file changed while it was read: ${path}`,
@@ -4550,13 +4519,10 @@ async function openFileSystemTransactionIdentity(
     return {
       handle,
       state: {
-        dev: stats.dev,
+        dev: String(stats.dev),
         hash: hash.digest('hex'),
-        ino: stats.ino,
-        dev: String(identityStats.dev),
-        hash: hash.digest('hex'),
-        ino: String(identityStats.ino),
-        mode: mode ?? stats.mode & 0o7777,
+        ino: String(stats.ino),
+        mode: mode ?? Number(stats.mode & 0o7777n),
       },
     }
   } catch (error) {
@@ -4994,19 +4960,11 @@ function normalizeFileSystemTransactionFileState(
     !Number.isSafeInteger(candidate.mode) ||
     ((candidate.mode as number) & ~0o7777) !== 0 ||
     hasDevice !== hasInode ||
-    (hasDevice &&
-      (!Number.isSafeInteger(candidate.dev) ||
-        (candidate.dev as number) < 0 ||
-        !Number.isSafeInteger(candidate.ino) ||
-        (candidate.ino as number) < 0))
     (hasDevice && (dev === undefined || ino === undefined))
   ) {
     throw new Error('Invalid file state in filesystem transaction journal')
   }
   return {
-    dev: candidate.dev as number | undefined,
-    hash: candidate.hash,
-    ino: candidate.ino as number | undefined,
     dev,
     hash: candidate.hash,
     ino,
@@ -5229,11 +5187,6 @@ function normalizeFileSystemTransactionJournal(
         )
       }
       const parent = candidate.parent
-      if (
-        typeof parent.canonicalParent !== 'string' ||
-        typeof parent.identityPath !== 'string' ||
-        !Number.isSafeInteger(parent.dev) ||
-        !Number.isSafeInteger(parent.ino)
       const parentDev = normalizeFileSystemTransactionIdentityComponent(
         parent.dev,
       )
@@ -5268,9 +5221,6 @@ function normalizeFileSystemTransactionJournal(
         original,
         parent: {
           canonicalParent: parent.canonicalParent,
-          dev: parent.dev as number,
-          identityPath: parent.identityPath,
-          ino: parent.ino as number,
           dev: parentDev,
           identityPath: parent.identityPath,
           ino: parentIno,
@@ -5388,11 +5338,6 @@ async function assertFileSystemTransactionJournalParentUnchanged(
     'Transaction parent identity',
     true,
   )
-  const identityStats = await lstatIfExists(identityPath)
-  if (
-    !identityStats?.isDirectory() ||
-    identityStats.dev !== entry.parent.dev ||
-    identityStats.ino !== entry.parent.ino
   const identityStats = await lstatIfExists(identityPath, { bigint: true })
   if (
     !identityStats?.isDirectory() ||
@@ -5636,7 +5581,6 @@ async function recoverLegacyFileSystemTransaction(
   root: string,
   journal: FileSystemTransactionJournal,
   owner: FileSystemTransactionJournalOwner,
-  journalStats: Stats,
   journalStats: BigIntStats,
 ) {
   if (journal.phase === 'committed') {
@@ -5821,7 +5765,6 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
     }
     const path = join(root, entry.name)
     try {
-      const stats = await lstatIfExists(path)
       const stats = await lstatIfExists(path, { bigint: true })
       if (
         !entry.isDirectory() ||
@@ -5891,7 +5834,6 @@ async function scavengeFileSystemTransactionSiblings(root: string) {
 
 async function recoverFileSystemTransaction(root: string) {
   const journalRoot = fileSystemTransactionJournalPath(root)
-  const journalStats = await lstatIfExists(journalRoot)
   const journalStats = await lstatIfExists(journalRoot, { bigint: true })
   if (!journalStats) {
     await scavengeFileSystemTransactionSiblings(root)
@@ -5940,9 +5882,6 @@ async function recoverFileSystemTransaction(root: string) {
   await scavengeFileSystemTransactionSiblings(root)
 }
 
-function fileSystemTransactionStateMatches(
-  left: Stats,
-  right: Stats | undefined,
 export function fileSystemTransactionStateMatches(
   left: BigIntStats,
   right: BigIntStats | undefined,
@@ -5950,20 +5889,13 @@ export function fileSystemTransactionStateMatches(
   return (
     right?.isDirectory() === true &&
     !right.isSymbolicLink() &&
-    left.dev === right.dev &&
-    left.ino === right.ino
-    String(left.dev) === String(right.dev) &&
-    String(left.ino) === String(right.ino)
+    statIdentitiesMatch(left, right)
   )
 }
 
 async function retireFileSystemTransactionState(
   root: string,
   path: string,
-  expectedStats: Stats,
-  expectedToken?: string,
-) {
-  const currentStats = await lstatIfExists(path)
   expectedStats: BigIntStats,
   expectedToken?: string,
 ) {
@@ -6000,7 +5932,6 @@ async function retireFileSystemTransactionState(
   }
   await syncDirectory(root)
 
-  const retiredStats = await lstatIfExists(retiredPath)
   const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
   if (!fileSystemTransactionStateMatches(expectedStats, retiredStats)) {
     throw new Error(
@@ -6063,7 +5994,6 @@ async function removeFileSystemTransactionStateTree(path: string) {
 async function removeFileSystemTransactionCandidate(
   root: string,
   candidateRoot: string,
-  candidateStats: Stats,
   candidateStats: BigIntStats,
 ) {
   const retiredPath = await retireFileSystemTransactionState(
@@ -6078,7 +6008,6 @@ async function removeFileSystemTransactionCandidate(
 async function removeFileSystemTransactionJournal(
   root: string,
   token: string,
-  journalStats: Stats,
   journalStats: BigIntStats,
 ) {
   const journalRoot = fileSystemTransactionJournalPath(root)

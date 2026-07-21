@@ -16,7 +16,7 @@ fn gen_tracing_debug(js_name: &str, parent_js_name: Option<&String>) -> TokenStr
     js_name.to_string()
   };
   quote! {
-    napi::bindgen_prelude::tracing::debug!(target: "napi", "{}", #full_name);
+    napi::bindgen_prelude::trace_napi_call(#full_name);
   }
 }
 

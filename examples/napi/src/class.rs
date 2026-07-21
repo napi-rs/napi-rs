@@ -1,9 +1,9 @@
-#[cfg(not(feature = "noop"))]
-use napi::bindgen_prelude::Object;
+use std::{cell::RefCell, ffi::c_void, ptr};
+
 use napi::{
   bindgen_prelude::{
-    Buffer, ClassInstance, Function, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize,
-    Reference, This, Uint8Array, Unknown,
+    Buffer, ClassInstance, FromNapiValue, Function, JavaScriptClassExt, JsObjectValue, JsValue,
+    Object, ObjectFinalize, This, TypeName, Uint8Array, Unknown, ValidateNapiValue, ValueType,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -128,22 +128,6 @@ impl Animal {
   }
 }
 
-#[napi]
-pub fn read_animal_pair(first: &Animal, second: &Animal) -> String {
-  format!("{}:{}", first.get_name(), second.get_name())
-}
-
-#[napi]
-pub fn mutate_animal_pair(first: &mut Animal, second: &mut Animal) {
-  first.name.push('1');
-  second.name.push('2');
-}
-
-#[napi]
-pub fn read_mutate_animal_pair(first: &Animal, second: &mut Animal) {
-  second.name = first.name.clone();
-}
-
 #[napi(constructor)]
 pub struct Dog {
   pub name: String,
@@ -177,26 +161,6 @@ impl Bird {
     slice.len() as u32
   }
 }
-
-#[napi]
-#[repr(align(64))]
-pub struct AlignedZst;
-
-#[napi]
-impl AlignedZst {
-  #[napi(constructor)]
-  pub fn new() -> Self {
-    Self
-  }
-
-  #[napi(factory)]
-  pub fn create() -> Self {
-    Self
-  }
-}
-
-#[napi]
-pub fn borrow_aligned_zst_pair(_first: &mut AlignedZst, _second: &mut AlignedZst) {}
 
 /// Smoking test for type generation
 #[napi]
@@ -463,23 +427,10 @@ impl CustomFinalize {
 }
 
 impl ObjectFinalize for CustomFinalize {
-  fn finalize(&mut self, env: Env) -> Result<()> {
+  fn finalize(self, env: Env) -> Result<()> {
     env.adjust_external_memory(-(self.inner.len() as i64))?;
     Ok(())
   }
-}
-
-#[cfg(not(feature = "noop"))]
-#[napi]
-fn create_runtime_lifecycle_finalizer<'env>(
-  env: &'env Env,
-  result_path: String,
-) -> Result<Object<'env>> {
-  let mut object = Object::new(env)?;
-  object.add_finalizer((), result_path, |context| {
-    crate::env::record_runtime_transition_probe(&context.hint);
-  })?;
-  Ok(object)
 }
 
 #[napi(constructor)]
@@ -567,29 +518,9 @@ impl<'scope> ClassWithLifetime<'scope> {
   }
 
   #[napi]
-  pub fn get_name(&self) -> Result<String> {
-    self.inner.with(|animal| animal.get_name().to_owned())
+  pub fn get_name(&self) -> &str {
+    self.inner.get_name()
   }
-}
-
-#[napi]
-pub fn create_class_with_lifetime_from_rust<'env>(
-  env: &'env Env,
-) -> Result<ClassInstance<'env, ClassWithLifetime<'env>>> {
-  let inner = Animal {
-    kind: Kind::Cat,
-    name: "rust lifetime".to_owned(),
-    optional_value: None,
-  }
-  .into_instance(env)?;
-  let inner2 = Animal {
-    kind: Kind::Dog,
-    name: "owned reference".to_owned(),
-    optional_value: None,
-  }
-  .into_instance(env)?;
-
-  ClassWithLifetime { inner, inner2 }.into_instance(env)
 }
 
 #[napi(js_name = "MyJsNamedClass")]
@@ -654,6 +585,149 @@ impl ThingList {
   }
 }
 
+thread_local! {
+  static DETACHED_REENTRANT_BORROW_ORDER_TARGETS: RefCell<Vec<*mut ReentrantBorrowOrderTest>> =
+    const { RefCell::new(Vec::new()) };
+}
+
+pub struct ReentrantThisValue(u32);
+
+impl TypeName for ReentrantThisValue {
+  fn type_name() -> &'static str {
+    "Object"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for ReentrantThisValue {}
+
+impl FromNapiValue for ReentrantThisValue {
+  unsafe fn from_napi_value(
+    env: napi::sys::napi_env,
+    napi_val: napi::sys::napi_value,
+  ) -> Result<Self> {
+    let object = unsafe { Object::from_napi_value(env, napi_val)? };
+    Ok(Self(object.get_element(0)?))
+  }
+}
+
+/// Regression fixture for issue #3378. `Vec` conversion reads JavaScript array
+/// elements, so an indexed getter can synchronously reenter before conversion
+/// has finished.
+#[napi]
+pub struct ReentrantBorrowOrderTest {
+  pub values: Vec<u32>,
+}
+
+#[napi]
+impl ReentrantBorrowOrderTest {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self { values: Vec::new() }
+  }
+
+  #[napi]
+  pub fn replace_values(&mut self, values: Vec<u32>) {
+    self.values = values;
+  }
+
+  #[napi]
+  pub fn replace_values_from_this(
+    &mut self,
+    #[napi(ts_arg_type = "object")] value: This<ReentrantThisValue>,
+  ) {
+    self.values = vec![value.object.0];
+  }
+}
+
+/// Create a class-branded object whose wrap can be removed without touching
+/// the generated class instance's reference/finalizer bookkeeping.
+#[napi]
+pub fn create_reentrant_borrow_order_test_target<'env>(
+  env: &'env Env,
+  #[napi(ts_arg_type = "new (...args: any[]) => unknown")] constructor: Function<'env>,
+) -> Result<Object<'env>> {
+  // The generated constructor skips its normal native allocation while this
+  // flag is set. This gives the fixture a receiver with the class's V8 brand,
+  // while keeping ownership of the manually-installed wrap local to the test.
+  let mut instance = ptr::null_mut();
+  napi::__private::___CALL_FROM_FACTORY.with(|flag| flag.set(true));
+  let construct_status = unsafe {
+    napi::sys::napi_new_instance(
+      env.raw(),
+      constructor.raw(),
+      0,
+      ptr::null_mut(),
+      &mut instance,
+    )
+  };
+  napi::__private::___CALL_FROM_FACTORY.with(|flag| flag.set(false));
+  napi::check_status!(
+    construct_status,
+    "Failed to construct reentrant test class instance"
+  )?;
+
+  let target = unsafe { Object::from_napi_value(env.raw(), instance)? };
+  let native = Box::into_raw(Box::new(ReentrantBorrowOrderTest::new()));
+  if let Err(err) = unsafe {
+    napi::bindgen_prelude::wrap_and_tag::<ReentrantBorrowOrderTest>(
+      env.raw(),
+      target.raw(),
+      native.cast(),
+    )
+  } {
+    // SAFETY: wrap failed, so JavaScript did not take ownership.
+    unsafe { drop(Box::from_raw(native)) };
+    return Err(err);
+  }
+
+  Ok(target)
+}
+
+/// Detach the native value without constructing a second Rust receiver during
+/// reentry. Cleanup is deliberately deferred until the outer native call has
+/// returned or thrown, because the old code generation keeps using the cached
+/// pointer after input conversion.
+#[napi]
+pub fn detach_reentrant_borrow_order_test_target(env: Env, target: Unknown) -> Result<()> {
+  let mut detached = ptr::null_mut::<c_void>();
+  napi::check_status!(
+    unsafe { napi::sys::napi_remove_wrap(env.raw(), target.raw(), &mut detached) },
+    "Failed to detach receiver during reentrant conversion"
+  )?;
+
+  if detached.is_null() {
+    return Err(napi::Error::from_reason(
+      "Reentrant receiver did not contain a native value",
+    ));
+  }
+
+  DETACHED_REENTRANT_BORROW_ORDER_TARGETS.with(|targets| {
+    targets
+      .borrow_mut()
+      .push(detached.cast::<ReentrantBorrowOrderTest>());
+  });
+  Ok(())
+}
+
+#[napi]
+pub fn cleanup_reentrant_borrow_order_test_targets() -> u32 {
+  DETACHED_REENTRANT_BORROW_ORDER_TARGETS.with(|targets| {
+    let mut targets = targets.borrow_mut();
+    let count = targets.len() as u32;
+    for target in targets.drain(..) {
+      // SAFETY: every pointer comes from one successful `napi_remove_wrap`,
+      // which transfers ownership and disables the generated finalizer. The
+      // JS test calls this only after its outer native call has completed.
+      unsafe { drop(Box::from_raw(target)) };
+    }
+    count
+  })
+}
+
 #[napi(
   ts_return_type = r#"typeof DynamicRustClass\n\ndeclare class DynamicRustClass {
   constructor(value: number)
@@ -668,29 +742,6 @@ pub fn define_class<'env>(env: &'env Env) -> Result<Function<'env>> {
       .with_utf8_name("rustMethod")?
       .with_method(rust_class_method_c_callback)],
   )
-}
-
-#[napi(ts_return_type = "(animal: Animal) => void")]
-pub fn create_direct_class_reference_callback<'env>(
-  env: &'env Env,
-) -> Result<Function<'env, Unknown<'env>, ()>> {
-  env.create_function_from_closure("directClassReference", |ctx| {
-    let animal: Reference<Animal> = ctx.get(0)?;
-    animal.with_mut(|_| ())
-  })
-}
-
-#[napi(object)]
-pub struct ReentrantClassBorrowProbe {
-  pub trigger: u32,
-}
-
-#[napi]
-pub fn read_animal_with_reentrant_probe(
-  animal: &Animal,
-  probe: ReentrantClassBorrowProbe,
-) -> String {
-  format!("{}:{}", animal.get_name(), probe.trigger)
 }
 
 #[napi(no_export)]

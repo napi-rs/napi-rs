@@ -92,13 +92,17 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
+  fn _construct<const IsEmptyStructHint: bool, T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
   ) -> Result<(sys::napi_value, *mut T)> {
     let this = self.this();
     let _ = IsEmptyStructHint;
+    // Pin funnels construction through `wrap_owned_class_value`, which itself
+    // stamps the class type tag after `add_ref` (see class.rs) — so the #3405
+    // tag lands here without an inline `tag_object` (a second stamp would fail
+    // "already tagged").
     let value_ref = unsafe { crate::bindgen_runtime::wrap_owned_class_value(self.env, this, obj) }
       .map_err(|err| {
         Error::new(
@@ -109,7 +113,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok((this, value_ref))
   }
 
-  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
+  pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -122,7 +126,7 @@ impl<const N: usize> CallbackInfo<N> {
   pub fn construct_generator<
     'a,
     const IsEmptyStructHint: bool,
-    T: ScopedGenerator<'a> + ObjectFinalize + 'static,
+    T: ScopedGenerator<'a> + ObjectFinalize + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -135,7 +139,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  pub fn factory<T: ObjectFinalize + 'static>(
+  pub fn factory<T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -143,7 +147,7 @@ impl<const N: usize> CallbackInfo<N> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + 'static>(
+  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -158,7 +162,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn construct_async_generator<
     const IsEmptyStructHint: bool,
-    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + 'static,
+    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -175,7 +179,7 @@ impl<const N: usize> CallbackInfo<N> {
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn async_generator_factory<
-    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + 'static,
+    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + MaybeTypeTag + 'static,
   >(
     &self,
     js_name: &str,
@@ -190,7 +194,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  fn _factory<T: ObjectFinalize + 'static>(
+  fn _factory<T: ObjectFinalize + MaybeTypeTag + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -221,6 +225,9 @@ impl<const N: usize> CallbackInfo<N> {
       return Ok((ptr::null_mut(), ptr::null_mut()));
     }
     check_status!(status, "Failed to create instance of class `{}`", js_name)?;
+    // Pin funnels the factory path through `wrap_owned_class_value`, which stamps
+    // the class type tag after `add_ref` (see class.rs) — so the #3405 tag lands
+    // here too, without an inline `tag_object` (a second stamp would fail).
     let value_ref =
       unsafe { crate::bindgen_runtime::wrap_owned_class_value(self.env, instance, obj) }.map_err(
         |err| {
@@ -237,7 +244,7 @@ impl<const N: usize> CallbackInfo<N> {
   #[inline]
   pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
   where
-    T: TypeName,
+    T: TypeName + MaybeTypeTag,
   {
     let mut wrapped_val: *mut c_void = std::ptr::null_mut();
 
@@ -247,6 +254,20 @@ impl<const N: usize> CallbackInfo<N> {
         "Failed to unwrap exclusive reference of `{}` type from napi value",
         T::type_name(),
       )?;
+
+      // Reject a spoofed receiver (`ClassA.prototype.method.call(new ClassB())`)
+      // before the blind cast below. On Node this wrong receiver is *also*
+      // rejected by the V8 FunctionTemplate signature that `napi_define_class`
+      // installs on instance methods ("Illegal invocation", before the callback
+      // runs) — but that signature is NOT enforced by every supported Node-API
+      // runtime: Bun (exercised by CI's `test-latest-bun` job) invokes the
+      // callback with a wrong-class receiver where Node throws. Without this tag
+      // check `napi_unwrap` hands back the other class's pointer and the cast
+      // below is type-confused (UB). Compiled only on napi8 NATIVE targets (the
+      // `T: MaybeTypeTag` bound provides `T::type_tag()` only there; elsewhere
+      // this is the pre-tag unchecked cast).
+      #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+      validate_type_tag(self.env, self.this, &T::type_tag(), T::type_name())?;
 
       Ok(wrapped_val.cast())
     }

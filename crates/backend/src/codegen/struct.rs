@@ -28,7 +28,7 @@ fn class_type_id_type(name: &Ident, has_lifetime: bool) -> TokenStream {
 fn gen_tracing_debug(class_name: &str, method_name: &str) -> TokenStream {
   let full_name = format!("{}::{}", class_name, method_name);
   quote! {
-    napi::bindgen_prelude::tracing::debug!(target: "napi", "{}", #full_name);
+    napi::bindgen_prelude::trace_napi_call(#full_name);
   }
 }
 
@@ -43,9 +43,50 @@ fn gen_napi_value_map_impl(
   js_mod: Option<&String>,
   to_napi_val_impl: TokenStream,
   has_lifetime: bool,
+  type_tag: Option<&str>,
 ) -> TokenStream {
   let rust_type = class_type_id_type(name, has_lifetime);
   let name_str = name.to_string();
+  // The per-class type tag is content-derived from the class's identity string
+  // (see the `impl TypeTag` body below). By default that string is
+  // `crate@version::module_path::ClassName`. When the class opts in with
+  // `#[napi(type_tag = "SALT")]`, the user's `SALT` REPLACES the
+  // `crate@version` component (module_path + ClassName still apply), giving a
+  // crate-unique salt so the tag cannot collide with an unrelated addon that
+  // happens to share the same crate name@version + module path + class name.
+  // Either way the derivation is a compile-time constant, so the tag stays
+  // stable across process reload / dual-load, while staying per-class unique
+  // because Rust forbids duplicate `module_path::ident` — so two *distinct*
+  // Rust classes always get distinct tags even when they share
+  // `js_name`/namespace/crate/version. The body does not name the class type,
+  // so no `'static`/lifetime form of `#name` is needed for the tag.
+  let type_tag_body = match type_tag {
+    Some(salt) => {
+      let salt_lit = Literal::string(salt);
+      quote! {
+        // Crate-unique salt override via `#[napi(type_tag = "...")]`: `SALT`
+        // replaces the default `crate@version` identity component, giving
+        // crate-level global uniqueness, while `module_path!()::ClassName`
+        // still disambiguates classes so two distinct classes in the same
+        // crate can never share a tag. Compile-time-constant, so the tag is
+        // stable across reload / dual-load.
+        napi::bindgen_prelude::type_tag_from_ident(concat!(
+          #salt_lit, "::", module_path!(), "::", #name_str
+        ))
+      }
+    }
+    None => quote! {
+      // Content-derived, per-class-unique class identity. `env!`/`module_path!`
+      // expand at the CONSUMER crate/module expansion site, so the tag encodes
+      // the class's real owning crate@version and module path. Stable across
+      // reload / dual-load; distinct classes differ because Rust forbids
+      // duplicate `module_path::ident`.
+      napi::bindgen_prelude::type_tag_from_ident(concat!(
+        env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"),
+        "::", module_path!(), "::", #name_str
+      ))
+    },
+  };
   let name = if has_lifetime {
     quote! { #name<'_> }
   } else {
@@ -126,6 +167,13 @@ fn gen_napi_value_map_impl(
     #to_napi_val_impl
 
     #[automatically_derived]
+    impl napi::bindgen_prelude::TypeTag for #name {
+      fn type_tag() -> napi::bindgen_prelude::sys::napi_type_tag {
+        #type_tag_body
+      }
+    }
+
+    #[automatically_derived]
     impl napi::bindgen_prelude::FromNapiRef for #name {
       unsafe fn from_napi_ref(
         env: napi::bindgen_prelude::sys::napi_env,
@@ -136,6 +184,18 @@ fn gen_napi_value_map_impl(
         napi::bindgen_prelude::check_status!(
           napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
           "Failed to recover `{}` type from napi value",
+          #name_str,
+        )?;
+
+        // Reject a wrong-class / prototype-spoofed `&T` argument before ANY
+        // cast (including pin's native-borrow registration below).
+        // `validate_type_tag` is a no-op on builds without the `napi8` feature
+        // (the gate lives inside napi, since this code expands in the consumer
+        // crate where `cfg(feature = "napi8")` would not see napi's features).
+        napi::bindgen_prelude::validate_type_tag(
+          env,
+          napi_val,
+          &<#name as napi::bindgen_prelude::TypeTag>::type_tag(),
           #name_str,
         )?;
 
@@ -160,6 +220,18 @@ fn gen_napi_value_map_impl(
         napi::bindgen_prelude::check_status!(
           napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
           "Failed to recover `{}` type from napi value",
+          #name_str,
+        )?;
+
+        // Reject a wrong-class / prototype-spoofed `&mut T` argument before ANY
+        // cast (including pin's native-borrow registration below).
+        // `validate_type_tag` is a no-op on builds without the `napi8` feature
+        // (the gate lives inside napi, since this code expands in the consumer
+        // crate where `cfg(feature = "napi8")` would not see napi's features).
+        napi::bindgen_prelude::validate_type_tag(
+          env,
+          napi_val,
+          &<#name as napi::bindgen_prelude::TypeTag>::type_tag(),
           #name_str,
         )?;
 
@@ -389,12 +461,14 @@ impl NapiStruct {
         self.js_mod.as_ref(),
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
         self.has_lifetime,
+        self.type_tag.as_deref(),
       ),
       NapiStructKind::Class(class) => gen_napi_value_map_impl(
         &self.name,
         self.js_mod.as_ref(),
         self.gen_to_napi_value_ctor_impl(class),
         self.has_lifetime,
+        self.type_tag.as_deref(),
       ),
       NapiStructKind::Object(obj) => self.gen_to_napi_value_obj_impl(obj),
       NapiStructKind::StructuredEnum(structured_enum) => {
@@ -1878,6 +1952,7 @@ mod tests {
       has_lifetime: false,
       is_generator: false,
       is_async_generator: false,
+      type_tag: None,
     };
 
     let generated = napi_struct
@@ -1916,6 +1991,7 @@ mod tests {
       has_lifetime: false,
       is_generator: false,
       is_async_generator: true,
+      type_tag: None,
     };
 
     let generated = napi_struct.gen_default_ctor(&class).to_string();
@@ -1955,6 +2031,7 @@ mod tests {
         has_lifetime: false,
         is_generator: implement_iterator,
         is_async_generator: implement_async_iterator,
+        type_tag: None,
       };
 
       let generated = napi_struct

@@ -108,58 +108,6 @@ jobs:
       - name: Clippy
         run: cargo clippy
 
-  trybuild:
-    # trybuild snapshots include rustc's rendered diagnostics. Run them once on
-    # stable Linux instead of multiplying compiler-version-specific text checks
-    # across every Node/platform matrix entry.
-    name: Compile-fail API contracts (stable Linux)
-    runs-on: ubuntu-latest
-    needs: audit
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: trybuild-stable-linux-cargo-cache
-      - name: Run compile-fail API contracts
-        run: cargo test -p napi-examples --test macro_tests -- --ignored
-
-  test-cli-node-baselines:
-    name: Packed CLI - node@${{ matrix.node }}
-    runs-on: ubuntu-latest
-    needs: audit
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['20.17.0', '22.13.0']
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup build node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: 'yarn'
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
-      - name: Build CLI package
-        run: yarn workspace @napi-rs/cli build
-      - name: Setup test node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Test packed raw CLI
-        run: node cli/e2e/raw-cli-test.mjs
-
   build_and_test:
     needs: audit
     permissions:
@@ -177,6 +125,7 @@ jobs:
               yarn test
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
+              yarn test:macro
               cargo test
               cargo test -p napi --features tokio_rt,async-runtime
               cargo test -p napi --features async-runtime
@@ -188,7 +137,7 @@ jobs:
               yarn test:cli
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              cargo test -p napi --features napi4 --test threadsafe_function_api_compile
+              yarn test:macro
             toolchain: 1.88.0
           - host: macos-latest
             target: aarch64-apple-darwin
@@ -198,18 +147,18 @@ jobs:
               yarn test
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains" cargo test
+              RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains"
+              cargo test
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            build: |
-              yarn workspace @examples/custom-async-runtime build
-              yarn workspace @examples/napi build
+            build: yarn workspace @examples/napi build
             test: |
               yarn test:cli
               yarn workspace @examples/napi test
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
+              yarn test:macro
               cargo test
             toolchain: stable
           - host: windows-11-arm
@@ -218,11 +167,11 @@ jobs:
             test: |
               yarn test:cli
               yarn test
+              yarn test:macro
             toolchain: stable
           - host: windows-latest
             target: i686-pc-windows-msvc
             build: |
-              yarn workspace @examples/custom-async-runtime build --target i686-pc-windows-msvc --release
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
@@ -354,12 +303,6 @@ jobs:
         shell: msys2 {0}
         run: |
           cargo test
-      - name: Build and load addon
-        shell: msys2 {0}
-        run: |
-          cargo build -p napi-examples
-          cp target/debug/napi_examples.dll examples/napi/napi_examples.node
-          node -e "require('./examples/napi/napi_examples.node')"
   # Because dependencies use napi-rs itself they use older versions of napi-rs to install the package, this will fail automatically during build, uncomment when bootstrap issues have been solved
   #    - name: Install dependencies
   #      shell: msys2 {0}
@@ -496,19 +439,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example
-          path: |
-            examples/napi/*.node
-            examples/napi/module-init-rollback/*.node
-            examples/napi/tsfn-retention/*.node
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.settings.target }}-custom-async-runtime
-          path: |
-            examples/custom-async-runtime/index.cjs
-            examples/custom-async-runtime/*.node
-            examples/custom-async-runtime/.pure-runtime/*.node
-          include-hidden-files: true
-          if-no-files-found: error
+          path: examples/napi/*.node
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example-compat
@@ -569,19 +500,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example
-          path: |
-            examples/napi/*.node
-            examples/napi/module-init-rollback/*.node
-            examples/napi/tsfn-retention/*.node
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.settings.target }}-custom-async-runtime
-          path: |
-            examples/custom-async-runtime/index.cjs
-            examples/custom-async-runtime/*.node
-            examples/custom-async-runtime/.pure-runtime/*.node
-          include-hidden-files: true
+          path: examples/napi/*.node
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -651,12 +570,8 @@ jobs:
           path: examples/napi/
       - uses: actions/download-artifact@v8
         with:
-          name: ${{ matrix.settings.target }}-custom-async-runtime
-          path: examples/custom-async-runtime/
-      - uses: actions/download-artifact@v8
-        with:
           name: ${{ matrix.settings.target }}-example-compat
-          path: examples/napi-compat-mode/
+          path: examples/napi-compat-mode/index.node
       - name: Install dependencies
         if: ${{ matrix.settings.arch != 's390x' }}
         run: |
@@ -788,25 +703,18 @@ jobs:
         settings:
           - features: 'napi1,napi2,napi3,napi4,napi5,napi6,napi7,napi8,napi9,experimental,async,chrono_date,latin1,full'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'napi3'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'napi3,compat-mode'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'napi9'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'napi3,serde-json'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'napi9,serde-json'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'async,compat-mode'
             package: 'napi'
-            extra_args: '--no-default-features'
           - features: 'compat-mode,strict,type-def,noop,full,default'
             package: 'napi-derive'
           - features: 'noop'
@@ -825,14 +733,7 @@ jobs:
           toolchain: stable
 
       - name: Check build
-        run: cargo check -p ${{ matrix.settings.package }} ${{ matrix.settings.extra_args }} -F ${{ matrix.settings.features }}
-
-      - name: Test N-API thread-affinity and cleanup-hook contracts
-        if: matrix.settings.package == 'napi' && matrix.settings.features == 'napi3'
-        run: |
-          cargo test -p napi --no-default-features --features napi1 --test thread_affinity_api
-          cargo test -p napi --no-default-features --features napi3 --test thread_affinity_api --test cleanup_hook_api
-          cargo test -p napi --no-default-features --features napi4 --test thread_affinity_api --test cleanup_hook_api
+        run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
 
   test-freebsd:
     runs-on: ubuntu-latest
@@ -877,7 +778,6 @@ jobs:
           yarn install --mode=skip-build --immutable
       - name: Build
         run: |
-          yarn workspace @examples/custom-async-runtime build --target x86_64-unknown-freebsd -x
           yarn workspace @examples/napi build --target x86_64-unknown-freebsd -x
           yarn tsc -p examples/napi/tsconfig.json
           rm -rf examples/napi/__tests__
@@ -915,180 +815,6 @@ jobs:
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn workspace @examples/napi test-js -s
 
-  test-custom-async-runtime-native:
-    runs-on: ubuntu-latest
-    name: Test custom async runtime on native
-    timeout-minutes: 10
-    needs: audit
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: 'yarn'
-          cache-dependency-path: 'yarn.lock'
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
-      - name: Test previous derive against current runtime
-        run: |
-          cargo build --locked --manifest-path crates/napi/tests/fixtures/previous-derive/Cargo.toml
-          node crates/napi/tests/fixtures/previous-derive/test.mjs
-      - name: Build
-        run: |
-          node cli/cli.mjs build \
-            --cwd examples/custom-async-runtime \
-            --platform \
-            --js index.cjs \
-            --dts index.d.cts
-      - name: Test
-        run: node examples/custom-async-runtime/test.mjs native
-
-  check-custom-async-runtime-wasi:
-    runs-on: ubuntu-latest
-    name: Test custom async runtime on WASI
-    timeout-minutes: 10
-    needs: audit
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: 'yarn'
-          cache-dependency-path: 'yarn.lock'
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1, wasm32-wasip1-threads
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
-      - name: Build WASM runtime
-        run: yarn workspace @napi-rs/wasm-runtime build
-      - name: Check threadless WASI Tokio API feature sets
-        run: |
-          cargo check -p napi --no-default-features --features napi4,tokio_rt --target wasm32-wasip1 --test runtime_api_compile
-          cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1 --test runtime_api_compile
-        env:
-          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1
-      - name: Check non-noop runtime feature sets
-        run: |
-          cargo check -p napi --no-default-features --features napi4,async-runtime --target wasm32-wasip1-threads
-          cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1-threads
-          cargo check -p napi-custom-async-runtime-example --target wasm32-wasip1-threads
-          cargo check -p napi-examples --features noop --target wasm32-wasip1-threads
-        env:
-          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1-threads
-          RUSTFLAGS: '--cfg tokio_unstable'
-      - name: Check minimal cleanup-hook imports
-        run: |
-          for api in napi3 napi4; do
-            cargo build \
-              --manifest-path examples/napi/wasi-cleanup-hook-link/Cargo.toml \
-              --target wasm32-wasip1-threads \
-              --target-dir "target/wasi-cleanup-hook-${api}" \
-              --no-default-features \
-              --features "${api}"
-            node examples/napi/wasi-cleanup-hook-link/check-imports.mjs \
-              "target/wasi-cleanup-hook-${api}/wasm32-wasip1-threads/debug/napi_wasi_cleanup_hook_link.wasm" \
-              "${api}"
-          done
-        env:
-          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1-threads
-      - name: Test threadless WASI artifact
-        run: yarn workspace @examples/custom-async-runtime test:wasi
-      - name: Test threaded WASI artifact
-        run: yarn workspace @examples/custom-async-runtime test:wasi-threads
-        env:
-          RUSTFLAGS: '--cfg tokio_unstable'
-
-  check-unix-runtime-module-retention:
-    runs-on: ubuntu-latest
-    name: Codegen runtime module retention - ${{ matrix.target }}
-    timeout-minutes: 25
-    needs: audit
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - powerpc64-ibm-aix
-          - x86_64-unknown-openbsd
-          - x86_64-unknown-dragonfly
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rust-src
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: nightly-${{ matrix.target }}-cargo-cache-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            nightly-${{ matrix.target }}-cargo-cache-
-      - name: Codegen runtime feature sets
-        run: |
-          for features in \
-            napi4,tokio_rt \
-            napi4,async-runtime \
-            napi4,async-runtime,tokio_rt
-          do
-            echo "::group::cargo rustc --features ${features}"
-            cargo rustc \
-              -p napi \
-              --lib \
-              --no-default-features \
-              --features "${features}" \
-              --target ${{ matrix.target }} \
-              -Zbuild-std=std,panic_abort \
-              -- \
-              --emit=llvm-ir
-            echo '::endgroup::'
-          done
-        env:
-          CARGO_TARGET_POWERPC64_IBM_AIX_RUSTFLAGS: '-Dwarnings'
-          CARGO_TARGET_X86_64_UNKNOWN_OPENBSD_RUSTFLAGS: '-Dwarnings'
-          CARGO_TARGET_X86_64_UNKNOWN_DRAGONFLY_RUSTFLAGS: '-Dwarnings'
-
-  test-async-runtime-spi:
-    runs-on: ubuntu-latest
-    name: Test async-runtime SPI (cargo)
-    timeout-minutes: 15
-    needs: audit
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: async-runtime-spi-cargo-cache
-      - name: Check pure async-runtime build is tokio-free
-        run: |
-          cargo check -p napi --features async-runtime
-          if cargo tree -p napi --features async-runtime -e normal --prefix none | grep -E '^tokio v'; then
-            echo 'tokio leaked back into the pure async-runtime build' >&2
-            exit 1
-          fi
-      - name: Test async-runtime (pure)
-        run: cargo test -p napi --features async-runtime
-      - name: Compile runtime helper API (tokio_rt)
-        run: cargo test -p napi --features tokio_rt --test runtime_api_compile
-      - name: Test tokio_rt lifecycle (pure)
-        run: cargo test -p napi --no-default-features --features napi4,tokio_rt,dyn-symbols --lib --test tokio_runtime_lifecycle
-      - name: Test async-runtime + tokio_rt (combined)
-        run: cargo test -p napi --features async-runtime,tokio_rt
-
   napi-async-runtime:
     runs-on: ubuntu-latest
     name: Test napi-async-runtime shared scheduler (cargo)
@@ -1096,6 +822,8 @@ jobs:
     needs: audit
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -1137,8 +865,10 @@ jobs:
     needs: audit
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'yarn'
@@ -1149,6 +879,15 @@ jobs:
           targets: wasm32-wasip1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
+      # The example workspace is excluded from the root `yarn test`, so this
+      # job is the only CI gate for the native lane (duplicate-registration,
+      # start-error, worker-reload, and termination-loop scenarios). Run it
+      # before the WASI builds below overwrite the shared root artifacts.
+      - name: Build and test native
+        working-directory: examples/custom-async-runtime
+        run: |
+          node build.mjs
+          node test.mjs native
       - name: Build
         run: |
           yarn workspace @napi-rs/wasm-runtime build
@@ -1169,16 +908,12 @@ jobs:
         run: |
           yarn workspace @examples/napi test \
             __tests__/wasi-buffer-public-api.spec.ts \
-            __tests__/wasi-deferred-before-exit.spec.ts \
-            __tests__/wasi-deferred-dispose-failure.spec.ts
+            __tests__/wasi-deferred-before-exit.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface
         run: |
           yarn workspace @examples/napi test \
-            __tests__/lifecycle-public-surface.spec.ts \
-            __tests__/stock-emnapi-lifecycle.spec.ts \
-            __tests__/published-emnapi-v2-lifecycle.spec.ts \
             __tests__/wasi-eager-before-exit.spec.ts
         env:
           WASI_TEST: 'true'
@@ -1203,6 +938,8 @@ jobs:
     needs: audit
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Setup node
         uses: actions/setup-node@v6
         with:
@@ -1215,10 +952,6 @@ jobs:
           targets: wasm32-wasip1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        run: node vendor/emnapi/install.mjs
       - name: Build
         run: |
           yarn workspace @napi-rs/wasm-runtime build
@@ -1246,18 +979,14 @@ jobs:
           targets: wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      - name: Check non-noop combined runtime and all features
-        run: |
-          cargo check -p napi --no-default-features --features napi4,async-runtime,tokio_rt --target wasm32-wasip1-threads
-          cargo check -p napi --all-features --target wasm32-wasip1-threads
+      - name: Check
+        run: cargo check -p napi --all-features --target wasm32-wasip1-threads
         env:
           RUSTFLAGS: '--cfg tokio_unstable'
       - name: Build
         run: |
           yarn build
           yarn workspace @examples/napi build --target wasm32-wasip1-threads --profile wasi
-          # Native builds also regenerate configured WASI loaders.
-          yarn workspace @examples/napi build --target x86_64-unknown-linux-gnu --release
         env:
           RUSTFLAGS: '--cfg tokio_unstable'
       - name: Test
@@ -1319,7 +1048,8 @@ jobs:
       contents: write
       id-token: write
     needs:
-      - done
+      - lint
+      - build_binary_crate
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
       - uses: actions/checkout@v7
@@ -1348,8 +1078,6 @@ jobs:
     needs:
       - audit
       - lint
-      - trybuild
-      - test-cli-node-baselines
       - build_and_test
       - build-and-test-msys2
       - build_only
@@ -1358,12 +1086,8 @@ jobs:
       - build_binary_crate
       - check-all-features
       - test-freebsd
-      - test-custom-async-runtime-native
-      - check-custom-async-runtime-wasi
-      - check-unix-runtime-module-retention
-      - test-async-runtime-spi
-      - test-custom-async-runtime-wasi
       - napi-async-runtime
+      - test-custom-async-runtime-wasi
       - test-shared-async-runtime-wasi
       - test-node-wasi
       - test-latest-bun

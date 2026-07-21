@@ -242,6 +242,17 @@ pub mod bindgen_prelude {
   #[cfg(feature = "tracing")]
   pub use ::tracing;
 
+  /// Emit NAPI call tracing through one shared callsite.
+  ///
+  /// Keep this out of line: every generated NAPI wrapper calls this function, and inlining the
+  /// tracing macro would duplicate its static callsite metadata in every wrapper.
+  #[cfg(feature = "tracing")]
+  #[doc(hidden)]
+  #[inline(never)]
+  pub fn trace_napi_call(name: &'static str) {
+    ::tracing::debug!(target: "napi", "{}", name);
+  }
+
   // This function's signature must be kept in sync with the one in tokio_runtime.rs, otherwise napi
   // will fail to compile without the `tokio_rt` feature.
 

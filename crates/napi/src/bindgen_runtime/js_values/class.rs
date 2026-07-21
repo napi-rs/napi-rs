@@ -6,8 +6,8 @@ use std::ptr;
 
 use crate::{
   bindgen_runtime::{
-    raw_finalize_unchecked, FromNapiValue, Object, ObjectFinalize, Reference, Result, ToNapiValue,
-    TypeName, ValidateNapiValue,
+    raw_finalize_unchecked, FromNapiValue, MaybeTypeTag, Object, ObjectFinalize, Reference, Result,
+    ToNapiValue, TypeName, ValidateNapiValue,
   },
   check_status, sys, Env, JsValue, Property, PropertyAttributes, Value, ValueType,
 };
@@ -209,7 +209,7 @@ where
   }
 }
 
-impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
+impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut value = ptr::null_mut();
     check_status!(
@@ -217,6 +217,14 @@ impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
       "Unwrap value [{}] from class failed",
       type_name::<T>(),
     )?;
+    // Reject a wrong-class / prototype-spoofed object before the blind cast.
+    // Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag` bound provides
+    // `T::type_tag()` only there; elsewhere this is the pre-tag unchecked cast).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    unsafe {
+      crate::bindgen_runtime::validate_type_tag(env, napi_val, &T::type_tag(), type_name::<T>())?;
+    }
+
     let value = value.cast::<T>();
     Ok(Self {
       reference: unsafe { Reference::from_value_ptr(value.cast(), env)? },
@@ -536,12 +544,28 @@ unsafe fn wrap_owned_class_value_with_ops<T: ObjectFinalize, O: NewInstanceOps>(
 /// `env` and `instance` must belong to the current JavaScript environment, and `instance` must not
 /// already wrap another native value.
 #[doc(hidden)]
-pub unsafe fn wrap_owned_class_value<T: ObjectFinalize>(
+pub unsafe fn wrap_owned_class_value<T: ObjectFinalize + MaybeTypeTag>(
   env: sys::napi_env,
   instance: sys::napi_value,
   value: T,
 ) -> Result<*mut T> {
-  unsafe { wrap_owned_class_value_with_ops::<T, NodeApiNewInstanceOps>(env, instance, value) }
+  let wrapped_value =
+    unsafe { wrap_owned_class_value_with_ops::<T, NodeApiNewInstanceOps>(env, instance, value)? };
+
+  // Stamp the class type tag AFTER the wrap+`add_ref`+`transfer` above have fully
+  // registered the object (so a tag failure cannot leak it — GC reclaims a fully
+  // registered object). This is pin's owned-value analog of the third wrap site
+  // main tagged in `new_instance` (#3405); `_construct`/`_factory` reach it too,
+  // and the derive codegen drives it via `new_instance_with_owned_value`. Tagging
+  // in the public wrapper (not the `*_with_ops` internals) keeps those internals
+  // usable by non-`#[napi]` types. Compiled only on napi8 NATIVE targets
+  // (`T: MaybeTypeTag` provides `T::type_tag()` only there; no-op otherwise).
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  unsafe {
+    crate::bindgen_runtime::tag_object(env, instance, &T::type_tag())?;
+  }
+
+  Ok(wrapped_value)
 }
 
 /// Creates a JavaScript class instance while retaining ownership of `value` until `napi_wrap`
@@ -551,19 +575,33 @@ pub unsafe fn wrap_owned_class_value<T: ObjectFinalize>(
 ///
 /// `env` and `ctor_ref` must belong to the current JavaScript environment.
 #[doc(hidden)]
-pub unsafe fn new_instance_with_owned_value<T: ObjectFinalize>(
+pub unsafe fn new_instance_with_owned_value<T: ObjectFinalize + MaybeTypeTag>(
   env: sys::napi_env,
   value: T,
   ctor_ref: sys::napi_ref,
 ) -> Result<(sys::napi_value, *mut T)> {
-  unsafe { new_instance_with_owned_value_and_ops::<T, NodeApiNewInstanceOps>(env, value, ctor_ref) }
+  let (result, wrapped_value) = unsafe {
+    new_instance_with_owned_value_and_ops::<T, NodeApiNewInstanceOps>(env, value, ctor_ref)?
+  };
+
+  // Stamp the class type tag AFTER the instance is fully registered (see
+  // `wrap_owned_class_value`). This is the by-value / factory / `into_instance`
+  // wrap site the derive codegen calls; tagging here (not in the `*_with_ops`
+  // internals) keeps the internals usable by non-`#[napi]` types. napi8 NATIVE
+  // only (`T: MaybeTypeTag` provides `T::type_tag()` there; no-op otherwise).
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  unsafe {
+    crate::bindgen_runtime::tag_object(env, result, &T::type_tag())?;
+  }
+
+  Ok((result, wrapped_value))
 }
 
 /// # Safety
 ///
 /// create instance of class
 #[doc(hidden)]
-pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
+pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
   env: sys::napi_env,
   wrapped_value: *mut std::ffi::c_void,
   ctor_ref: sys::napi_ref,
@@ -584,6 +622,17 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
     (wrapped_value, object_ref, finalize_callbacks_ptr),
   );
   finalize_callbacks.transfer();
+
+  // Stamp the type tag AFTER `add_ref`/`transfer` has adopted the Arc + napi_ref
+  // into `REFERENCE_MAP`, so a tag failure cannot leak them: the object is fully
+  // registered and GC reclaims value_ref + object_ref + Arc (see
+  // `CallbackInfo::_construct`). Compiled only on napi8 NATIVE targets (the
+  // `T: MaybeTypeTag` bound provides `T::type_tag()` only there).
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  unsafe {
+    crate::bindgen_runtime::tag_object(env, result, &T::type_tag())?;
+  }
+
   Ok(result)
 }
 

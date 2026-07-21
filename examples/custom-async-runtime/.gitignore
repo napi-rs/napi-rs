@@ -1,6 +1,5 @@
 *.node
 *.wasm
-.pure-runtime/
 browser.js
 # generated loaders — the non-threaded (wasm32-wasip1) flavor is what this
 # example's tests exercise; the threaded names are ignored too so a local

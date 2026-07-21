@@ -187,5 +187,6 @@ mod tokio_runtime_lifecycle;
 mod tokio_wasi_lifecycle;
 mod transparent;
 mod r#type;
+mod type_tag;
 mod typed_array;
 mod wasm;

@@ -23,20 +23,11 @@ use std::sync::mpsc;
 
 use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
-  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
-  try_shutdown_async_runtime, try_start_async_runtime, AsyncGenerator, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error, FnArgs,
-  JsObjectValue, JsValue, Object, PromiseRaw, Result, Status, Unknown,
+  register_async_runtime, shutdown_async_runtime, start_async_runtime, AsyncGenerator,
+  AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error,
+  JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-use napi::bindgen_prelude::{spawn_blocking, spawn_on_custom_runtime, JoinError};
-#[cfg(not(target_family = "wasm"))]
-use napi::bindgen_prelude::{AsyncBlock, AsyncBlockBuilder};
-use napi::threadsafe_function::ThreadsafeFunction;
 use napi_derive::napi;
-
-#[cfg(not(target_family = "wasm"))]
-mod cancellation_order;
 
 static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
 static RUNTIME_REGISTRATION: Once = Once::new();
@@ -65,6 +56,36 @@ struct SchedulerState {
   next_task_id: usize,
   draining: bool,
   active_polls: usize,
+}
+
+struct SchedulerQuiescence {
+  task_refs: Vec<Weak<Task>>,
+  block_on_refs: Vec<Weak<BlockOnWaker>>,
+}
+
+impl SchedulerQuiescence {
+  fn validate_retained_wakers(self) {
+    // Every scheduler-owned strong reference is gone at this point. An
+    // upgrade can therefore only come from a reference retained outside the
+    // scheduler, including a cloned task Waker whose vtable lives in this
+    // addon image. Returning would let Node unload code that the reference can
+    // still invoke, so the unsafe AsyncRuntime contract requires failing
+    // closed.
+    let retained_task_waker = self
+      .task_refs
+      .into_iter()
+      .any(|task| task.upgrade().is_some());
+    let retained_block_on_waker = self
+      .block_on_refs
+      .into_iter()
+      .any(|waker| waker.upgrade().is_some());
+    if retained_task_waker || retained_block_on_waker {
+      eprintln!(
+        "custom async runtime shutdown found an externally retained task waker or block_on waker"
+      );
+      std::process::abort();
+    }
+  }
 }
 
 impl SchedulerState {
@@ -98,14 +119,9 @@ struct RuntimeState {
   blocking_ready: Condvar,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
+  reject_next_blocking_spawn: AtomicBool,
   defer_next_spawn_drain: AtomicBool,
   defer_next_task_wake: AtomicBool,
-  fail_next_shutdown: AtomicBool,
-  panic_next_shutdown: AtomicBool,
-  #[cfg(not(target_family = "wasm"))]
-  start_transition_barrier: Mutex<Option<LifecycleHookBarrier>>,
-  #[cfg(not(target_family = "wasm"))]
-  shutdown_transition_barrier: Mutex<Option<LifecycleHookBarrier>>,
   #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
   shutdown_probe: Mutex<Option<ShutdownProbe>>,
   #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
@@ -302,7 +318,7 @@ impl RuntimeState {
     }
   }
 
-  fn shutdown_scheduler(&self) {
+  fn quiesce_scheduler(&self) -> SchedulerQuiescence {
     self.accepting.store(false, Ordering::Release);
     let (tasks, queued, task_refs, block_on_refs) = {
       let mut scheduler = lock(&self.scheduler);
@@ -331,21 +347,105 @@ impl RuntimeState {
     drop(scheduler);
     drop(tasks);
 
-    // Every scheduler-owned strong reference is gone at this point. An
-    // upgrade can therefore only come from a reference retained outside the
-    // scheduler, including a cloned task Waker whose vtable lives in this
-    // addon image. Returning would let Node unload code that the reference can
-    // still invoke, so the unsafe AsyncRuntime contract requires failing
-    // closed.
-    let retained_task_waker = task_refs.into_iter().any(|task| task.upgrade().is_some());
-    let retained_block_on_waker = block_on_refs
-      .into_iter()
-      .any(|waker| waker.upgrade().is_some());
-    if retained_task_waker || retained_block_on_waker {
-      eprintln!(
-        "custom async runtime shutdown found an externally retained task waker or block_on waker"
-      );
-      std::process::abort();
+    SchedulerQuiescence {
+      task_refs,
+      block_on_refs,
+    }
+  }
+
+  #[cfg(test)]
+  fn shutdown_scheduler(&self) {
+    self.quiesce_scheduler().validate_retained_wakers();
+  }
+
+  fn submit_backend_blocking(
+    self: &Arc<Self>,
+    work: BlockingWork,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<BlockingWork>> {
+    if self
+      .reject_next_blocking_spawn
+      .swap(false, Ordering::AcqRel)
+    {
+      return Err(AsyncRuntimeRejection::new(
+        work,
+        Error::new(
+          Status::QueueFull,
+          "custom runtime rejected the blocking task",
+        ),
+      ));
+    }
+    if !self.accepting.load(Ordering::Acquire) {
+      return Err(AsyncRuntimeRejection::new(
+        work,
+        Error::new(
+          Status::Cancelled,
+          "custom runtime is not accepting blocking work",
+        ),
+      ));
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    {
+      self.submit_blocking_work(work).map_err(|work| {
+        AsyncRuntimeRejection::new(
+          work,
+          Error::new(
+            Status::QueueFull,
+            "custom runtime blocking queue is full or stopped",
+          ),
+        )
+      })?;
+      self.spawn_blocking_calls.fetch_add(1, Ordering::Relaxed);
+      Ok(())
+    }
+
+    #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
+    {
+      Err(AsyncRuntimeRejection::new(
+        work,
+        Error::new(Status::GenericFailure, THREADLESS_WASI_BLOCKING_UNSUPPORTED),
+      ))
+    }
+
+    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+    {
+      work();
+      self.spawn_blocking_calls.fetch_add(1, Ordering::Relaxed);
+      Ok(())
+    }
+  }
+
+  fn drive_block_on(self: &Arc<Self>, mut future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+    self.block_on_calls.fetch_add(1, Ordering::Relaxed);
+    let signal = Arc::new(BlockOnWaker {
+      notified: AtomicBool::new(false),
+      #[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
+      thread: thread::current(),
+    });
+    {
+      let mut scheduler = lock(&self.scheduler);
+      scheduler
+        .block_on_refs
+        .retain(|waker| waker.strong_count() != 0);
+      scheduler.block_on_refs.push(Arc::downgrade(&signal));
+    }
+    let waker = waker_ref(&signal);
+    let mut context = Context::from_waker(&waker);
+
+    loop {
+      signal.prepare_poll();
+      self.block_on_polls.fetch_add(1, Ordering::Relaxed);
+      if future.as_mut().poll(&mut context).is_ready() {
+        return Ok(());
+      }
+
+      self.drain();
+      if !signal.wait(self) {
+        return Err(Error::new(
+          Status::WouldDeadlock,
+          "custom runtime block_on cannot make progress without a wake",
+        ));
+      }
     }
   }
 
@@ -475,56 +575,6 @@ impl RuntimeState {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
-  fn arm_lifecycle_hook_barrier(
-    &self,
-    hook: LifecycleHook,
-    entered_path: String,
-    release_path: String,
-  ) -> Result<()> {
-    let mut barrier = lock(match hook {
-      LifecycleHook::Start => &self.start_transition_barrier,
-      LifecycleHook::Shutdown => &self.shutdown_transition_barrier,
-    });
-    if barrier.is_some() {
-      return Err(Error::new(
-        Status::GenericFailure,
-        format!("custom runtime {hook} barrier is already armed"),
-      ));
-    }
-    *barrier = Some(LifecycleHookBarrier {
-      entered_path,
-      release_path,
-    });
-    Ok(())
-  }
-
-  #[cfg(not(target_family = "wasm"))]
-  fn wait_for_lifecycle_hook_barrier(&self, hook: LifecycleHook) -> Result<()> {
-    let barrier = lock(match hook {
-      LifecycleHook::Start => &self.start_transition_barrier,
-      LifecycleHook::Shutdown => &self.shutdown_transition_barrier,
-    })
-    .take();
-    let Some(barrier) = barrier else {
-      return Ok(());
-    };
-
-    write_file(Path::new(&barrier.entered_path), "entered").map_err(|error| {
-      Error::new(
-        Status::GenericFailure,
-        format!("failed to publish custom runtime {hook} barrier: {error}"),
-      )
-    })?;
-    if !wait_for_file(Path::new(&barrier.release_path)) {
-      return Err(Error::new(
-        Status::GenericFailure,
-        format!("timed out waiting to release custom runtime {hook} barrier"),
-      ));
-    }
-    Ok(())
-  }
-
   #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
   fn start_shutdown_probe(
     self: &Arc<Self>,
@@ -601,43 +651,6 @@ impl RuntimeState {
       )
     })
   }
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[derive(Clone, Copy)]
-enum LifecycleHook {
-  Start,
-  Shutdown,
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl LifecycleHook {
-  fn parse(value: &str) -> Result<Self> {
-    match value {
-      "start" => Ok(Self::Start),
-      "shutdown" => Ok(Self::Shutdown),
-      _ => Err(Error::new(
-        Status::InvalidArg,
-        format!("unknown custom runtime lifecycle hook: {value}"),
-      )),
-    }
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl std::fmt::Display for LifecycleHook {
-  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    formatter.write_str(match self {
-      Self::Start => "start",
-      Self::Shutdown => "shutdown",
-    })
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-struct LifecycleHookBarrier {
-  entered_path: String,
-  release_path: String,
 }
 
 #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
@@ -912,85 +925,11 @@ unsafe impl AsyncRuntime for TestRuntime {
     &self,
     work: BlockingWork,
   ) -> std::result::Result<(), AsyncRuntimeRejection<BlockingWork>> {
-    if !self.state.accepting.load(Ordering::Acquire) {
-      return Err(AsyncRuntimeRejection::new(
-        work,
-        Error::new(
-          Status::Cancelled,
-          "custom runtime is not accepting blocking work",
-        ),
-      ));
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    {
-      self.state.submit_blocking_work(work).map_err(|work| {
-        AsyncRuntimeRejection::new(
-          work,
-          Error::new(
-            Status::QueueFull,
-            "custom runtime blocking queue is full or stopped",
-          ),
-        )
-      })?;
-      self
-        .state
-        .spawn_blocking_calls
-        .fetch_add(1, Ordering::Relaxed);
-      Ok(())
-    }
-
-    #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
-    {
-      Err(AsyncRuntimeRejection::new(
-        work,
-        Error::new(Status::GenericFailure, THREADLESS_WASI_BLOCKING_UNSUPPORTED),
-      ))
-    }
-
-    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
-    {
-      work();
-      self
-        .state
-        .spawn_blocking_calls
-        .fetch_add(1, Ordering::Relaxed);
-      Ok(())
-    }
+    self.state.submit_backend_blocking(work)
   }
 
-  fn block_on(&self, mut future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
-    self.state.block_on_calls.fetch_add(1, Ordering::Relaxed);
-    let signal = Arc::new(BlockOnWaker {
-      notified: AtomicBool::new(false),
-      #[cfg(any(not(target_family = "wasm"), custom_runtime_wasi_threads))]
-      thread: thread::current(),
-    });
-    {
-      let mut scheduler = lock(&self.state.scheduler);
-      scheduler
-        .block_on_refs
-        .retain(|waker| waker.strong_count() != 0);
-      scheduler.block_on_refs.push(Arc::downgrade(&signal));
-    }
-    let waker = waker_ref(&signal);
-    let mut context = Context::from_waker(&waker);
-
-    loop {
-      signal.prepare_poll();
-      self.state.block_on_polls.fetch_add(1, Ordering::Relaxed);
-      if future.as_mut().poll(&mut context).is_ready() {
-        return Ok(());
-      }
-
-      self.state.drain();
-      if !signal.wait(&self.state) {
-        return Err(Error::new(
-          Status::WouldDeadlock,
-          "custom runtime block_on cannot make progress without a wake",
-        ));
-      }
-    }
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> Result<()> {
+    self.state.drive_block_on(future)
   }
 
   fn enter(&self) -> Result<Box<dyn AsyncRuntimeGuard + '_>> {
@@ -1002,10 +941,6 @@ unsafe impl AsyncRuntime for TestRuntime {
   }
 
   fn start(&self) -> Result<()> {
-    #[cfg(not(target_family = "wasm"))]
-    self
-      .state
-      .wait_for_lifecycle_hook_barrier(LifecycleHook::Start)?;
     #[cfg(not(target_family = "wasm"))]
     if std::env::var_os("NAPI_CUSTOM_RUNTIME_TEST_START_ERROR").is_some() {
       #[cfg(feature = "tokio-rt")]
@@ -1031,35 +966,15 @@ unsafe impl AsyncRuntime for TestRuntime {
 
   fn shutdown(&self) -> Result<()> {
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
-    #[cfg(not(target_family = "wasm"))]
-    cancellation_order::mark_active_poll_shutdown_entered();
-    #[cfg(not(target_family = "wasm"))]
-    let lifecycle_barrier = self
-      .state
-      .wait_for_lifecycle_hook_barrier(LifecycleHook::Shutdown);
-    let fail = self.state.fail_next_shutdown.swap(false, Ordering::AcqRel);
-    let panic = self.state.panic_next_shutdown.swap(false, Ordering::AcqRel);
     self.state.accepting.store(false, Ordering::Release);
+    let scheduler_quiescence = self.state.quiesce_scheduler();
     #[cfg(not(target_family = "wasm"))]
     let blocking_shutdown = self.state.shutdown_blocking_pool();
-    self.state.shutdown_scheduler();
-    if panic {
-      panic!("injected custom runtime shutdown panic");
-    }
+    scheduler_quiescence.validate_retained_wakers();
     #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-    let probe_shutdown = self.state.stop_shutdown_probe();
-    #[cfg(not(target_family = "wasm"))]
-    lifecycle_barrier?;
-    #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-    probe_shutdown?;
+    self.state.stop_shutdown_probe()?;
     #[cfg(not(target_family = "wasm"))]
     blocking_shutdown?;
-    if fail {
-      return Err(Error::new(
-        Status::GenericFailure,
-        "injected custom runtime shutdown error",
-      ));
-    }
     Ok(())
   }
 }
@@ -1109,6 +1024,12 @@ fn state() -> &'static RuntimeState {
   RUNTIME_STATE
     .get()
     .map(Arc::as_ref)
+    .expect("Custom async runtime was not initialized")
+}
+
+fn runtime_state() -> &'static Arc<RuntimeState> {
+  RUNTIME_STATE
+    .get()
     .expect("Custom async runtime was not initialized")
 }
 
@@ -1173,35 +1094,13 @@ fn init() {
   });
 }
 
-struct WrappedExports;
-
 #[napi(module_exports)]
-pub fn preserve_exports_wrap_slot(mut exports: Object) -> Result<()> {
-  #[cfg(not(target_family = "wasm"))]
-  if std::env::var_os("NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST").is_some() {
-    exports.create_named_method(
-      "armSubmissionTransitionBarrier",
-      arm_submission_transition_barrier_c_callback,
-    )?;
-    #[cfg(feature = "tokio-rt")]
-    {
-      exports.create_named_method(
-        "startTokioRetirementProbe",
-        start_tokio_retirement_probe_c_callback,
-      )?;
-      exports.create_named_method("failNextShutdown", fail_next_shutdown_c_callback)?;
-      exports.create_named_method("panicNextShutdown", panic_next_shutdown_c_callback)?;
-      exports.create_named_method(
-        "startShutdownPanicProbe",
-        start_shutdown_panic_probe_c_callback,
-      )?;
-      exports.create_named_method(
-        "probeSubmissionTransition",
-        probe_submission_transition_c_callback,
-      )?;
-    }
-  }
-  exports.wrap(WrappedExports, None)
+pub fn module_exports_hook(_exports: Object) -> Result<()> {
+  // NOTE: the old SPI branch wrapped a marker value here to prove that napi
+  // leaves the exports wrap slot to the addon. The minimal SPI base still
+  // owns that slot for its wasm env-cleanup bookkeeping, so wrapping the
+  // exports object would fail module registration on WASI targets.
+  Ok(())
 }
 
 #[napi(object)]
@@ -1306,44 +1205,6 @@ pub async fn async_error() -> Result<()> {
 }
 
 #[napi]
-pub async fn tsfn_throw_from_js_catch_recover(
-  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
-) -> Result<()> {
-  match tsfn.call_async_catch(("trigger".to_owned(),).into()).await {
-    Ok(()) => Err(Error::new(
-      Status::GenericFailure,
-      "expected JavaScript callback to throw",
-    )),
-    Err(error) if error.status == Status::PendingException => {
-      Err(error.try_clone().unwrap_or_else(|clone_error| clone_error))
-    }
-    Err(error) => Err(Error::new(
-      Status::GenericFailure,
-      format!("expected PendingException, got {:?}", error.status),
-    )),
-  }
-}
-
-#[napi]
-pub async fn tsfn_throw_from_js_catch_drop(
-  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
-) -> Result<()> {
-  match tsfn.call_async_catch(("trigger".to_owned(),).into()).await {
-    Ok(()) => Err(Error::new(
-      Status::GenericFailure,
-      "expected JavaScript callback to throw",
-    )),
-    Err(error) if error.status == Status::PendingException => {
-      let cloned = error.try_clone()?;
-      drop(error);
-      drop(cloned);
-      Ok(())
-    }
-    Err(error) => Err(error),
-  }
-}
-
-#[napi]
 pub async fn async_panic() {
   yield_once().await;
   panic!("custom runtime async panic");
@@ -1422,164 +1283,6 @@ impl RuntimeAsyncIterator {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn runtime_transition_result(result: Result<()>) -> String {
-  match result {
-    Ok(()) => "Ok".to_owned(),
-    Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-struct AsyncIteratorAdmissionLifecycleFuture {
-  start_result_path: String,
-  value: Option<u32>,
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl Future for AsyncIteratorAdmissionLifecycleFuture {
-  type Output = Result<Option<u32>>;
-
-  fn poll(mut self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
-    Poll::Ready(Ok(self.value.take()))
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl Drop for AsyncIteratorAdmissionLifecycleFuture {
-  fn drop(&mut self) {
-    let result = runtime_transition_result(try_start_async_runtime());
-    let _ = std::fs::write(&self.start_result_path, result);
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi(object)]
-pub struct AsyncIteratorAdmissionValue {
-  pub value: u32,
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi(async_iterator)]
-pub struct AsyncIteratorAdmissionLifecycle {
-  start_result_path: String,
-  yielded: bool,
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi]
-impl AsyncGenerator for AsyncIteratorAdmissionLifecycle {
-  type Yield = u32;
-  type Next = AsyncIteratorAdmissionValue;
-  type Return = ();
-
-  fn next(
-    &mut self,
-    value: Option<Self::Next>,
-  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
-    let value = (!self.yielded).then_some(value.map_or(7, |value| value.value));
-    self.yielded = true;
-    AsyncIteratorAdmissionLifecycleFuture {
-      start_result_path: self.start_result_path.clone(),
-      value,
-    }
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi]
-impl AsyncIteratorAdmissionLifecycle {
-  #[napi(constructor)]
-  pub fn new(start_result_path: String) -> Self {
-    Self {
-      start_result_path,
-      yielded: false,
-    }
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-struct SetupRejectionFuture {
-  _drop_probe: SetupRejectionDropProbe,
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl Future for SetupRejectionFuture {
-  type Output = Result<()>;
-
-  fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
-    Poll::Pending
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-struct SetupRejectionDropProbe(Arc<AtomicBool>);
-
-#[cfg(not(target_family = "wasm"))]
-impl Drop for SetupRejectionDropProbe {
-  fn drop(&mut self) {
-    self.0.store(true, Ordering::Release);
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi]
-pub fn stopped_async_block_cleanup_order(env: &Env, result_path: String) -> Result<AsyncBlock<()>> {
-  let future_dropped = Arc::new(AtomicBool::new(false));
-  let resolver_dropped = Arc::new(AtomicBool::new(false));
-  let finalizer_future_dropped = Arc::clone(&future_dropped);
-  let finalizer_resolver_dropped = Arc::clone(&resolver_dropped);
-  let resolver_probe = SetupRejectionDropProbe(resolver_dropped);
-  AsyncBlockBuilder::new(SetupRejectionFuture {
-    _drop_probe: SetupRejectionDropProbe(future_dropped),
-  })
-  .with_dispose(move |_| {
-    drop(resolver_probe);
-    Ok(())
-  })
-  .with_terminal_finalizer(move || {
-    let future_dropped = finalizer_future_dropped.load(Ordering::Acquire);
-    let resolver_dropped = finalizer_resolver_dropped.load(Ordering::Acquire);
-    let shutdown = runtime_transition_result(try_shutdown_async_runtime());
-    let _ = std::fs::write(
-      result_path,
-      format!("future={future_dropped}\nresolver={resolver_dropped}\nshutdown={shutdown}"),
-    );
-  })
-  .build(env)
-}
-
-#[cfg(not(target_family = "wasm"))]
-struct ShutdownOnUnpolledDrop {
-  result_path: String,
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl Future for ShutdownOnUnpolledDrop {
-  type Output = Result<()>;
-
-  fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
-    Poll::Pending
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl Drop for ShutdownOnUnpolledDrop {
-  fn drop(&mut self) {
-    let marker = match try_shutdown_async_runtime() {
-      Ok(()) => "Ok\nnested runtime shutdown unexpectedly succeeded".to_owned(),
-      Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
-    };
-    let _ = std::fs::write(&self.result_path, marker);
-  }
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi]
-pub fn unpolled_shutdown_on_drop(env: &Env, result_path: String) -> Result<AsyncBlock<()>> {
-  AsyncBlockBuilder::new(ShutdownOnUnpolledDrop { result_path }).build(env)
-}
-
-#[cfg(not(target_family = "wasm"))]
 struct RetainTaskWaker;
 
 #[cfg(not(target_family = "wasm"))]
@@ -1601,6 +1304,13 @@ pub async fn retain_task_waker() {
 #[napi]
 pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
+}
+
+#[napi]
+pub fn reject_next_blocking_spawn() {
+  state()
+    .reject_next_blocking_spawn
+    .store(true, Ordering::Release);
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1626,95 +1336,6 @@ pub fn drain_runtime_tasks() {
     .drain();
 }
 
-#[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
-pub fn fail_next_shutdown() {
-  state().fail_next_shutdown.store(true, Ordering::Release);
-}
-
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-#[napi(no_export)]
-pub fn panic_next_shutdown() {
-  state().panic_next_shutdown.store(true, Ordering::Release);
-}
-
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-#[napi(no_export)]
-pub fn start_shutdown_panic_probe(started_path: String, stopped_path: String) -> Result<()> {
-  RUNTIME_STATE
-    .get()
-    .expect("Custom async runtime was not initialized")
-    .start_shutdown_probe(started_path, stopped_path)
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[napi(no_export)]
-pub fn arm_submission_transition_barrier(
-  hook: String,
-  entered_path: String,
-  release_path: String,
-) -> Result<()> {
-  if std::env::var_os("NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST").is_none() {
-    return Err(Error::new(
-      Status::GenericFailure,
-      "custom runtime lifecycle barriers require NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST",
-    ));
-  }
-  state().arm_lifecycle_hook_barrier(LifecycleHook::parse(&hook)?, entered_path, release_path)
-}
-
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-fn submission_join_error<'env>(env: &'env Env, error: JoinError) -> Result<Object<'env>> {
-  let is_runtime_error = error.is_runtime_error();
-  let is_cancelled = error.is_cancelled();
-  let message = error.to_string();
-  let (status, reason) = match error.try_into_runtime_error() {
-    Ok(error) => (Some(error.status.as_ref().to_owned()), Some(error.reason)),
-    Err(_) => (None, None),
-  };
-  let mut result = Object::new(env)?;
-  result.set("isRuntimeError", is_runtime_error)?;
-  result.set("isCancelled", is_cancelled)?;
-  result.set("message", message)?;
-  result.set("status", status)?;
-  result.set("reason", reason)?;
-  Ok(result)
-}
-
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-#[napi(no_export)]
-pub fn probe_submission_transition<'env>(env: &'env Env) -> Result<Object<'env>> {
-  let future = futures::executor::block_on(spawn_on_custom_runtime(async { 42 }))
-    .err()
-    .ok_or_else(|| {
-      Error::new(
-        Status::GenericFailure,
-        "custom runtime future unexpectedly ran during a lifecycle transition",
-      )
-    })?;
-  let blocking_work_ran = Arc::new(AtomicBool::new(false));
-  let blocking_work_ran_in_task = Arc::clone(&blocking_work_ran);
-  let blocking = futures::executor::block_on(spawn_blocking_on_custom_runtime(move || {
-    blocking_work_ran_in_task.store(true, Ordering::Release);
-    43
-  }))
-  .err()
-  .ok_or_else(|| {
-    Error::new(
-      Status::GenericFailure,
-      "custom runtime blocking work unexpectedly ran during a lifecycle transition",
-    )
-  })?;
-
-  let future = submission_join_error(env, future)?;
-  let blocking = submission_join_error(env, blocking)?;
-  let mut result = Object::new(env)?;
-  result.set("future", future)?;
-  result.set("blocking", blocking)?;
-  result.set("blockingWorkRan", blocking_work_ran.load(Ordering::Acquire))?;
-  Ok(result)
-}
-
 #[napi]
 pub fn spawn_future<'env>(env: &'env Env, value: u32) -> Result<PromiseRaw<'env, u32>> {
   env.spawn_future(async move {
@@ -1730,30 +1351,50 @@ pub fn runtime_context_is_active() -> bool {
 
 #[napi(async_runtime)]
 pub fn runtime_context_add(value: u32) -> u32 {
+  #[cfg(not(feature = "tokio-rt"))]
   assert!(state().active_guards.load(Ordering::Relaxed) > 0);
   value + 1
 }
 
 #[napi]
 pub fn block_on_value(value: u32) -> Result<u32> {
-  try_block_on_custom_runtime(async move {
+  let state = runtime_state();
+  if !state.accepting.load(Ordering::Acquire) {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "custom async runtime is not running",
+    ));
+  }
+  let result = std::cell::Cell::new(None);
+  let mut future = std::pin::pin!(async {
     yield_once().await;
-    value + 1
+    result.set(Some(value + 1));
+  });
+  state.drive_block_on(future.as_mut() as Pin<&mut dyn Future<Output = ()>>)?;
+  result.take().ok_or_else(|| {
+    Error::new(
+      Status::GenericFailure,
+      "custom runtime block_on returned before the future completed",
+    )
   })
-}
-
-fn blocking_work_error(error: impl std::fmt::Display) -> Error {
-  #[cfg(all(target_family = "wasm", not(custom_runtime_wasi_threads)))]
-  let reason = format!("{THREADLESS_WASI_BLOCKING_UNSUPPORTED}: {error}");
-  #[cfg(not(all(target_family = "wasm", not(custom_runtime_wasi_threads))))]
-  let reason = format!("custom runtime blocking work failed: {error}");
-  Error::new(Status::GenericFailure, reason)
 }
 
 #[napi]
 pub fn spawn_blocking_value(value: u32) -> Result<u32> {
-  try_block_on_custom_runtime(spawn_blocking_on_custom_runtime(move || value + 1))?
-    .map_err(blocking_work_error)
+  let (sender, receiver) = std::sync::mpsc::channel();
+  runtime_state()
+    .submit_backend_blocking(Box::new(move || {
+      let _ = sender.send(value + 1);
+    }))
+    .map_err(|rejection| rejection.into_parts().1)?;
+  receiver
+    .recv_timeout(std::time::Duration::from_secs(10))
+    .map_err(|error| {
+      Error::new(
+        Status::GenericFailure,
+        format!("custom runtime blocking work did not complete: {error}"),
+      )
+    })
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1766,27 +1407,56 @@ pub struct BlockingThreadProbe {
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[derive(Default)]
+struct BlockingProbeShared {
+  result: Mutex<Option<(bool, bool)>>,
+  waker: Mutex<Option<Waker>>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct BlockingProbeFuture {
+  shared: Arc<BlockingProbeShared>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Future for BlockingProbeFuture {
+  type Output = (bool, bool);
+
+  fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+    if let Some(result) = lock(&self.shared.result).take() {
+      return Poll::Ready(result);
+    }
+    *lock(&self.shared.waker) = Some(context.waker().clone());
+    if let Some(result) = lock(&self.shared.result).take() {
+      return Poll::Ready(result);
+    }
+    Poll::Pending
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
 #[napi]
 pub async fn probe_blocking_thread(release_path: String) -> Result<BlockingThreadProbe> {
   let caller_thread = thread::current().id();
-  let (ran_off_caller_thread, observed_timer_release) =
-    spawn_blocking_on_custom_runtime(move || {
-      (
+  let shared = Arc::new(BlockingProbeShared::default());
+  let shared_in_work = Arc::clone(&shared);
+  runtime_state()
+    .submit_backend_blocking(Box::new(move || {
+      let result = (
         thread::current().id() != caller_thread,
         wait_for_file_timeout(Path::new(&release_path), Duration::from_secs(5)),
-      )
-    })
-    .await
-    .map_err(blocking_work_error)?;
+      );
+      *lock(&shared_in_work.result) = Some(result);
+      if let Some(waker) = lock(&shared_in_work.waker).take() {
+        waker.wake();
+      }
+    }))
+    .map_err(|rejection| rejection.into_parts().1)?;
+  let (ran_off_caller_thread, observed_timer_release) = BlockingProbeFuture { shared }.await;
   Ok(BlockingThreadProbe {
     ran_off_caller_thread,
     observed_timer_release,
   })
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn wait_for_file(path: &Path) -> bool {
-  wait_for_file_timeout(path, Duration::from_secs(30))
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1808,102 +1478,14 @@ fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
   std::fs::rename(temporary_path, path)
 }
 
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-fn explicit_start_during_automatic_transition() -> String {
-  let deadline = Instant::now() + Duration::from_secs(30);
-  loop {
-    match try_start_async_runtime() {
-      Err(error)
-        if error.status == Status::WouldDeadlock
-          && error.reason == "Tokio runtime is still shutting down" =>
-      {
-        if Instant::now() >= deadline {
-          return "Timeout\nautomatic runtime registration did not start".to_owned();
-        }
-        thread::sleep(Duration::from_millis(5));
-      }
-      Ok(()) => return "Ok\nexplicit start unexpectedly succeeded".to_owned(),
-      Err(error) => return format!("{}\n{}", error.status.as_ref(), error.reason),
-    }
-  }
-}
-
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-fn explicit_shutdown_during_automatic_transition() -> String {
-  match try_shutdown_async_runtime() {
-    Ok(()) => "Ok\nexplicit shutdown unexpectedly succeeded".to_owned(),
-    Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
-  }
-}
-
-#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
-#[napi(no_export)]
-pub fn start_tokio_retirement_probe(
-  entered_path: String,
-  explicit_attempt_path: String,
-  explicit_start_result_path: String,
-  explicit_shutdown_result_path: String,
-  release_path: String,
-) {
-  drop(spawn_blocking(move || {
-    if write_file(Path::new(&entered_path), "entered").is_err() {
-      return;
-    }
-    if !wait_for_file(Path::new(&explicit_attempt_path)) {
-      let _ = write_file(
-        Path::new(&explicit_start_result_path),
-        "Timeout\ntimed out waiting to attempt the explicit start",
-      );
-      return;
-    }
-
-    // Tokio blocking callbacks are runtime operations. Use a plain child thread
-    // so this probe still observes transition contention rather than same-call
-    // lifecycle reentry.
-    let lifecycle_results = thread::spawn(|| {
-      (
-        explicit_start_during_automatic_transition(),
-        explicit_shutdown_during_automatic_transition(),
-      )
-    })
-    .join();
-    let (explicit_start_result, explicit_shutdown_result) = match lifecycle_results {
-      Ok(results) => results,
-      Err(_) => (
-        "Panic\nexplicit lifecycle probe panicked".to_owned(),
-        "Panic\nexplicit lifecycle probe panicked".to_owned(),
-      ),
-    };
-    if write_file(
-      Path::new(&explicit_start_result_path),
-      &explicit_start_result,
-    )
-    .is_err()
-    {
-      return;
-    }
-
-    if write_file(
-      Path::new(&explicit_shutdown_result_path),
-      &explicit_shutdown_result,
-    )
-    .is_err()
-    {
-      return;
-    }
-
-    wait_for_file(Path::new(&release_path));
-  }));
+#[napi]
+pub fn start_runtime() {
+  start_async_runtime();
 }
 
 #[napi]
-pub fn start_runtime() -> Result<()> {
-  try_start_async_runtime()
-}
-
-#[napi]
-pub fn shutdown_runtime() -> Result<()> {
-  try_shutdown_async_runtime()
+pub fn shutdown_runtime() {
+  shutdown_async_runtime();
 }
 
 #[napi]
@@ -2112,6 +1694,68 @@ mod tests {
     drain.join().unwrap();
     shutdown.join().unwrap();
     assert!(dropped.load(Ordering::SeqCst));
+  }
+
+  struct NotifyOnDropFuture(Option<mpsc::Sender<()>>);
+
+  impl Future for NotifyOnDropFuture {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+      Poll::Pending
+    }
+  }
+
+  impl Drop for NotifyOnDropFuture {
+    fn drop(&mut self) {
+      if let Some(dropped) = self.0.take() {
+        let _ = dropped.send(());
+      }
+    }
+  }
+
+  #[test]
+  fn shutdown_cancels_scheduler_before_joining_blocking_workers() {
+    let runtime = Arc::new(RuntimeState::default());
+    runtime.start_scheduler().unwrap();
+    runtime.start_blocking_pool().unwrap();
+
+    let (future_dropped_tx, future_dropped_rx) = mpsc::channel();
+    drop(schedule_test_future(
+      &runtime,
+      NotifyOnDropFuture(Some(future_dropped_tx)),
+    ));
+
+    let (blocking_started_tx, blocking_started_rx) = mpsc::channel();
+    let (observed_cancellation_tx, observed_cancellation_rx) = mpsc::channel();
+    assert!(runtime
+      .submit_blocking_work(Box::new(move || {
+        blocking_started_tx.send(()).unwrap();
+        observed_cancellation_tx
+          .send(
+            future_dropped_rx
+              .recv_timeout(Duration::from_secs(1))
+              .is_ok(),
+          )
+          .unwrap();
+      }))
+      .is_ok());
+    blocking_started_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("blocking worker did not start");
+
+    TestRuntime {
+      state: Arc::clone(&runtime),
+    }
+    .shutdown()
+    .unwrap();
+
+    assert!(
+      observed_cancellation_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("blocking worker did not report scheduler cancellation"),
+      "blocking workers must observe scheduler cancellation before shutdown joins them"
+    );
   }
 
   #[test]

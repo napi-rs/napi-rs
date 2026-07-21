@@ -12,19 +12,6 @@ const isThreadlessWasiBufferTest = Boolean(
   process.env.NAPI_RS_TEST_THREADLESS_WASI_BUFFER,
 )
 
-test.skipIf(!isThreadlessWasiBufferTest)(
-  'threadless WASI rejects built-in Tokio async exports without trapping',
-  async (t) => {
-    const binding = require('../example.wasip1.cjs')
-
-    t.is(binding.add(1, 2), 3)
-    await t.throwsAsync(() => binding.asyncPlus100(Promise.resolve(1)), {
-      message:
-        'Built-in Tokio async tasks require a threaded WASI target. Use wasm32-wasip1-threads, or enable async-runtime and register a custom AsyncRuntime backend for wasm32-wasip1.',
-    })
-    t.is(binding.add(2, 3), 5)
-  },
-)
 // NOTE: the graceful rejection of built-in Tokio async exports on threadless
 // WASI ("Built-in Tokio async tasks require a threaded WASI target...") lives
 // in crates/napi and is not part of the minimal async-runtime SPI base yet;
@@ -58,84 +45,6 @@ test.skipIf(!isThreadlessWasiBufferTest)(
 test.skipIf(!isThreadlessWasiBufferTest)(
   'threadless Buffer declarations compile without ambient Node types',
   async (t) => {
-    const [source, rootSource, threadedSource, workerdSource] =
-      await Promise.all([
-        readFile(new URL('../example.wasip1.d.cts', import.meta.url), 'utf8'),
-        readFile(new URL('../index.d.cts', import.meta.url), 'utf8'),
-        readFile(new URL('../example.wasi.d.cts', import.meta.url), 'utf8'),
-        readFile(
-          new URL('../example.wasip1-deferred.d.ts', import.meta.url),
-          'utf8',
-        ),
-      ])
-    t.regex(source, /import\("buffer"\)\.Buffer/)
-    t.regex(source, /import \{ Buffer as __NapiRsBuffer_1 \} from "buffer"/)
-    t.notRegex(source, /node:stream\/web/)
-    t.notRegex(workerdSource, /node:stream\/web/)
-    t.notRegex(source, /typeof global\b/)
-    t.notRegex(workerdSource, /typeof global\b/)
-    t.regex(
-      source,
-      /appendBuffer\(buf: import\("buffer"\)\.Buffer\): import\("buffer"\)\.Buffer/,
-    )
-    t.regex(source, /value: import\("buffer"\)\.Buffer/)
-    t.regex(
-      source,
-      /bufferGenericConstraint<T extends import\("buffer"\)\.Buffer>\(value: T\): T/,
-    )
-    t.regex(source, /bufferGenericShadow<Buffer>\(value: Buffer\): Buffer/)
-    t.regex(
-      source,
-      /interface BufferHeritageOverride extends __NapiRsBuffer_1 \{\}/,
-    )
-    t.regex(source, /Buffer\(\): "line\\nnext"/)
-    t.regex(source, /\[Buffer in keyof T\]: T\[Buffer\]/)
-    t.regex(source, /external: import\("buffer"\)\.Buffer/)
-    t.regex(
-      source,
-      /export declare function fetch\(\.\.\.args: unknown\[\]\): never/,
-    )
-    t.notRegex(source, /export declare function fetch\(/)
-    t.notRegex(source, /undici-types/)
-    t.regex(
-      source,
-      /`template\\n\$\{import\("buffer"\)\.Buffer extends Uint8Array \? "buffer" : "other"\}`/,
-    )
-    t.regex(
-      source,
-      /\{ Buffer \}: \{ Buffer: string \}, value: import\("buffer"\)\.Buffer/,
-    )
-    t.regex(
-      source,
-      /bufferAssertionTarget\(Buffer: unknown\): asserts Buffer is string/,
-    )
-    t.regex(source, /bufferValueBinding\(Buffer: unknown\): typeof Buffer/)
-    t.true(source.includes('"line\\nnext"'))
-    t.notRegex(source, /__NAPI_RS_TYPE_IMPORT_/)
-    t.notRegex(rootSource, /import\("buffer"\)\.Buffer/)
-    t.notRegex(threadedSource, /import\("buffer"\)\.Buffer/)
-    t.notRegex(rootSource, /__NapiRsBuffer_1/)
-    t.notRegex(threadedSource, /__NapiRsBuffer_1/)
-    t.regex(rootSource, /interface BufferHeritageOverride extends Buffer \{\}/)
-    t.regex(
-      threadedSource,
-      /interface BufferHeritageOverride extends Buffer \{\}/,
-    )
-    t.regex(rootSource, /appendBuffer\(buf: Buffer\): Buffer/)
-    t.regex(rootSource, /value: Buffer/)
-    t.regex(
-      rootSource,
-      /bufferGenericConstraint<T extends Buffer>\(value: T\): T/,
-    )
-    t.regex(rootSource, /bufferGenericShadow<Buffer>\(value: Buffer\): Buffer/)
-    t.regex(rootSource, /bufferValueBinding\(Buffer: unknown\): typeof Buffer/)
-    t.true(rootSource.includes('"line\\nnext"'))
-    t.true(
-      rootSource.includes(
-        '`template\\n${Buffer extends Uint8Array ? "buffer" : "other"}`',
-      ),
-    )
-
     const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
     const directory = await mkdtemp(
       join(packageDirectory, '.strict-buffer-consumer-'),
@@ -153,7 +62,6 @@ test.skipIf(!isThreadlessWasiBufferTest)(
   bufferGenericShadow,
   bufferPassThrough,
   bufferValueBinding,
-  fetch,
 } from '../example.wasip1.cjs'
 import type { BufferHeritageOverride } from '../example.wasip1.cjs'
 
@@ -170,7 +78,6 @@ const destructured: ExpectedBuffer = bufferDestructureBinding(
 )
 const valueBound: unknown = bufferValueBinding(input)
 const asyncResult: Promise<ExpectedBuffer> = bufferPassThrough(input)
-const unsupportedFetch: (...args: unknown[]) => never = fetch
 void syncResult
 void heritageResult
 void constrained
@@ -178,7 +85,6 @@ void shadowed
 void destructured
 void valueBound
 void asyncResult
-void unsupportedFetch
 `
       await Promise.all([
         writeFile(

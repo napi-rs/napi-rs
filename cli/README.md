@@ -33,6 +33,31 @@ Earlier Node.js releases are no longer supported by the CLI runtime.
 | version         | Update version in created npm packages by `create-npm-dirs`    | [./docs/version.md](./docs/version.md)              |
 | pre-publish     | Update package.json and copy addons into per platform packages | [./docs/pre-publish.md](./docs/pre-publish.md)      |
 
+## Disposing generated WASI bindings
+
+Generated WASI bindings expose deterministic cleanup through a non-enumerable
+symbol on the binding object:
+
+```js
+const binding = require('<package>')
+const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+
+if (dispose) {
+  await dispose()
+}
+```
+
+The symbol is present only when the loaded binding is WASI. Browser WASI
+loaders expose it on their default export. Disposal releases the instance: it
+destroys the emnapi context and then terminates the workers owned by that
+binding. Pending napi-rs runtime promises are settled or cancelled first only
+when the binary exports the `napi_prepare_wasm_env_cleanup` preparation hook
+(a planned napi-side follow-up); otherwise they may remain pending forever,
+so settle in-flight work before disposing. Concurrent calls share one
+promise, successful disposal is idempotent, and a failed cleanup phase can be
+retried by calling the same function again. Do not call addon exports after
+disposal completes.
+
 See [WASI targets and loaders](./docs/wasi.md) for threaded, threadless,
 browser, and workerd packaging behavior.
 

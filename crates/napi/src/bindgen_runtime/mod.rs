@@ -8,6 +8,7 @@ pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
 pub use native_borrow::*;
+pub use type_tag::*;
 
 use super::sys;
 use crate::{Error, JsError, Result, Status};
@@ -24,6 +25,7 @@ pub mod iterator;
 mod js_values;
 mod module_register;
 mod native_borrow;
+mod type_tag;
 
 pub(crate) use js_values::{ensure_same_env, NapiValueOwner};
 

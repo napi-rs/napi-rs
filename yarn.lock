@@ -176,16 +176,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core-stock@npm:@emnapi/core@1.11.2":
-  version: 1.11.2
-  resolution: "@emnapi/core@npm:1.11.2"
-  dependencies:
-    "@emnapi/wasi-threads": "npm:1.2.2"
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/424ca1607f498e524eb58db1095e6cc2082986edfd84a74b116d4e2c6e43b5e9d557ea7f0d7b9adf7f6d5023e25ac2ed6bd08caf0043d3d8602598d79579c2cd
-  languageName: node
-  linkType: hard
-
 "@emnapi/core@npm:2.0.0-alpha.3":
   version: 2.0.0-alpha.3
   resolution: "@emnapi/core@npm:2.0.0-alpha.3"
@@ -193,15 +183,6 @@ __metadata:
     "@emnapi/wasi-threads": "npm:2.0.1"
     tslib: "npm:^2.4.0"
   checksum: 10c0/dfc26f53eb40dab0e316206cabe01e6e98d21ef8a0b820f81ce7e0fa7b4307c94f2a9599c11e6c601ad7bd77e8efb9b7cb9f86dbc3b6237f799405e0cb60c587
-  languageName: node
-  linkType: hard
-
-"@emnapi/runtime-stock@npm:@emnapi/runtime@1.11.2":
-  version: 1.11.2
-  resolution: "@emnapi/runtime@npm:1.11.2"
-  dependencies:
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/d8d500059fe9c0864571c79ce29439c1b6fb44d7ec4ac865a2aaaa7469194e5d91ebdc820cabd37c3d373478b725a8b60771733e4743cfef41fc86d9a1f2eab0
   languageName: node
   linkType: hard
 
@@ -444,9 +425,7 @@ __metadata:
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
     "@emnapi/core": "npm:2.0.0-alpha.3"
-    "@emnapi/core-stock": "npm:@emnapi/core@1.11.2"
     "@emnapi/runtime": "npm:2.0.0-alpha.3"
-    "@emnapi/runtime-stock": "npm:@emnapi/runtime@1.11.2"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -1681,7 +1660,6 @@ __metadata:
     tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
     typescript: "npm:^6.0.3"
-    typescript-legacy: "npm:typescript@4.9.5"
   peerDependencies:
     "@emnapi/runtime": 2.0.0-alpha.3
   peerDependenciesMeta:
@@ -5809,9 +5787,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"c8@npm:^11.0.0":
-  version: 11.0.0
-  resolution: "c8@npm:11.0.0"
+"c8@npm:^12.0.0":
+  version: 12.0.0
+  resolution: "c8@npm:12.0.0"
   dependencies:
     "@bcoe/v8-coverage": "npm:^1.0.1"
     "@istanbuljs/schema": "npm:^0.1.3"
@@ -5822,7 +5800,7 @@ __metadata:
     istanbul-reports: "npm:^3.1.6"
     test-exclude: "npm:^8.0.0"
     v8-to-istanbul: "npm:^9.0.0"
-    yargs: "npm:^17.7.2"
+    yargs: "npm:^18.0.0"
     yargs-parser: "npm:^21.1.1"
   peerDependencies:
     monocart-coverage-reports: ^2
@@ -5831,7 +5809,7 @@ __metadata:
       optional: true
   bin:
     c8: bin/c8.js
-  checksum: 10c0/94b0cf8756715ca8fedb9331c61ebda0c5bbd63c5eeea523d18904af790f6f197a02f547c066fa2d8d0544bb9f9547a6a67d653f3575953139c74ca915771963
+  checksum: 10c0/bd6da501c223d8700915a91e67be4c59830718ebd15125b82348cda6e3d816632539c9047b1b0b2cbc878596448e8c724e539568be23926deb95693e703f35f7
   languageName: node
   linkType: hard
 
@@ -10315,7 +10293,7 @@ __metadata:
     "@types/sinon": "npm:^22.0.0"
     ava: "npm:^8.0.1"
     bun-types: "npm:^1.3.14"
-    c8: "npm:^11.0.0"
+    c8: "npm:^12.0.0"
     cross-env: "npm:^10.1.0"
     electron: "npm:^43.0.0"
     esbuild: "npm:^0.28.0"
@@ -11913,8 +11891,8 @@ __metadata:
   linkType: hard
 
 "protobufjs@npm:^7.2.5, protobufjs@npm:^7.3.2, protobufjs@npm:^7.5.5":
-  version: 7.6.4
-  resolution: "protobufjs@npm:7.6.4"
+  version: 7.6.5
+  resolution: "protobufjs@npm:7.6.5"
   dependencies:
     "@protobufjs/aspromise": "npm:^1.1.2"
     "@protobufjs/base64": "npm:^1.1.2"
@@ -11927,7 +11905,7 @@ __metadata:
     "@protobufjs/utf8": "npm:^1.1.1"
     "@types/node": "npm:>=13.7.0"
     long: "npm:^5.3.2"
-  checksum: 10c0/6403eaa9c5a72cc6450c11f38fefafdde243fd806e7ac606ac8d591bc3fdaec45ae764febf83181a2d9aac51aca624e0f46dec368ceea191f7e85e2d6ccaaf93
+  checksum: 10c0/863eaca9c6f45bfcfb8787c545f53e9c6696507e328e3981b4643c12d35df7f2826021c10e3fd30bef342c13a8e9d306547bac9c0849ee3bf50f770a12f01dc5
   languageName: node
   linkType: hard
 
@@ -13992,16 +13970,6 @@ __metadata:
   version: 0.0.6
   resolution: "typedarray@npm:0.0.6"
   checksum: 10c0/6005cb31df50eef8b1f3c780eb71a17925f3038a100d82f9406ac2ad1de5eb59f8e6decbdc145b3a1f8e5836e17b0c0002fb698b9fe2516b8f9f9ff602d36412
-  languageName: node
-  linkType: hard
-
-"typescript-legacy@npm:typescript@4.9.5":
-  version: 4.9.5
-  resolution: "typescript@npm:4.9.5"
-  bin:
-    tsc: bin/tsc
-    tsserver: bin/tsserver
-  checksum: 10c0/5f6cad2e728a8a063521328e612d7876e12f0d8a8390d3b3aaa452a6a65e24e9ac8ea22beb72a924fd96ea0a49ea63bb4e251fb922b12eedfb7f7a26475e5c56
   languageName: node
   linkType: hard
 

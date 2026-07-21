@@ -11,7 +11,9 @@ use std::sync::{
 use nohash_hasher::NoHashHasher;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, NapiValueOwner, PersistedPerInstanceHashMap, ToNapiValue},
+  bindgen_runtime::{
+    FromNapiValue, MaybeTypeTag, NapiValueOwner, PersistedPerInstanceHashMap, ToNapiValue,
+  },
   check_status, Env, Error, Result, Status,
 };
 
@@ -189,7 +191,7 @@ impl<T> ToNapiValue for Reference<T> {
   }
 }
 
-impl<T> FromNapiValue for Reference<T> {
+impl<T: MaybeTypeTag> FromNapiValue for Reference<T> {
   unsafe fn from_napi_value(
     env: crate::sys::napi_env,
     napi_val: crate::sys::napi_value,
@@ -200,6 +202,21 @@ impl<T> FromNapiValue for Reference<T> {
       "Unwrap value [{}] from class Reference failed",
       std::any::type_name::<T>(),
     )?;
+
+    // Reject a wrong-class / prototype-spoofed object before adopting it as a
+    // `Reference<T>`. Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag`
+    // bound provides `T::type_tag()` only there; elsewhere this is the pre-tag
+    // path).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    unsafe {
+      crate::bindgen_runtime::validate_type_tag(
+        env,
+        napi_val,
+        &T::type_tag(),
+        std::any::type_name::<T>(),
+      )?
+    };
+
     unsafe { Reference::from_value_ptr(value.cast(), env) }
   }
 }

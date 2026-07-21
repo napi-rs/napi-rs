@@ -33,7 +33,6 @@ export const SUPPORTED_NAPI_VERSIONS = Object.values(NapiVersion).filter(
   (v): v is NapiVersion => typeof v === 'number',
 )
 
-export const MINIMUM_WASI_NODE_VERSION = '>=14.18.0'
 // emnapi v2 is ESM-only. These are the Node.js lines where require(esm) is
 // enabled by default without an experimental warning.
 export const MINIMUM_WASI_NODE_VERSION = '^20.19.0 || ^22.13.0 || >=23.5.0'
@@ -100,10 +99,6 @@ export function restrictWasiNodeEngine(nodeRange: string) {
       return MINIMUM_WASI_NODE_VERSION
     }
 
-    const minimumComparator = new Comparator(MINIMUM_WASI_NODE_VERSION)
-    const restrictedRangeSets = new Range(nodeRange).set
-      .map((comparators) =>
-        normalizeComparatorSet([...comparators, minimumComparator]),
     const supportedRangeSets = new Range(MINIMUM_WASI_NODE_VERSION).set
     const restrictedRangeSets = new Range(nodeRange).set
       .flatMap((comparators) =>
@@ -121,9 +116,15 @@ export function restrictWasiNodeEngine(nodeRange: string) {
     }
   } catch {
     // Fall back to the supported WASI floor for malformed ranges.
+    return MINIMUM_WASI_NODE_VERSION
   }
 
-  return MINIMUM_WASI_NODE_VERSION
+  // The declared range is valid but disjoint from the WASI floor. Broadening
+  // it here would publish metadata claiming support for Node.js versions the
+  // package explicitly excluded, so fail loudly instead.
+  throw new Error(
+    `Cannot restrict engines.node "${nodeRange}" to the Node.js versions supported by WASI packages: it does not intersect "${MINIMUM_WASI_NODE_VERSION}". Broaden engines.node to include a supported Node.js version or remove the WASI targets.`,
+  )
 }
 
 function normalizeComparatorSet(comparators: Comparator[]) {

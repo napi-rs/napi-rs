@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
+import { debugFactory } from './log.js'
+
+const debug = debugFactory('metadata')
+
 export type CrateTargetKind =
   | 'bin'
   | 'example'
@@ -65,6 +69,34 @@ export interface CargoWorkspaceMetadata {
     root: string | null
     nodes: CargoResolveNode[]
   } | null
+}
+
+// Crates that will actually compile `napi-derive` in this build, and are therefore
+// expected to emit a type-def intermediate file. Prefer the resolved dependency graph:
+// a crate whose `napi-derive` dependency is optional and stays disabled in the current
+// build never emits a type-def file, so force-building it would invalidate cargo's
+// fingerprint on every build without ever satisfying the type-def check. Fall back
+// to declared dependencies when the resolve graph is unavailable.
+export function getNapiDeriveDependentCrates(
+  metadata: CargoWorkspaceMetadata,
+): Crate[] {
+  const resolveNodes = metadata.resolve?.nodes
+  if (!resolveNodes) {
+    return metadata.packages.filter((crate) =>
+      crate.dependencies.some((d) => d.name === 'napi-derive'),
+    )
+  }
+  const napiDerivePackageIds = new Set(
+    metadata.packages.filter((p) => p.name === 'napi-derive').map((p) => p.id),
+  )
+  const dependentPackageIds = new Set(
+    resolveNodes
+      .filter((node) =>
+        node.deps.some((dep) => napiDerivePackageIds.has(dep.pkg)),
+      )
+      .map((node) => node.id),
+  )
+  return metadata.packages.filter((crate) => dependentPackageIds.has(crate.id))
 }
 
 interface ParseMetadataOptions {
@@ -164,7 +196,6 @@ export function createCargoMetadataInvocation(
   }
 
   return {
-    command: process.env.CARGO ?? 'cargo',
     // Deliberately NOT `process.env.CARGO ?? 'cargo'`: `$CARGO` only overrides
     // the cargo/cross binary spawned for the actual build (see the Builder in
     // api/build.ts) — tests poison `$CARGO` with a nonexistent path to assert
@@ -185,6 +216,43 @@ export async function parseMetadata(
   }
 
   const invocation = createCargoMetadataInvocation(manifestPath, options)
+  // Resolving with the build's feature flags keeps `metadata.resolve` in sync
+  // with what `cargo build` will actually compile. Feature flags are rejected
+  // in some setups (e.g. a virtual workspace root manifest), so fall back to a
+  // plain invocation without them.
+  const featurelessArgs = stripFeatureArgs(invocation.args)
+  if (featurelessArgs.length !== invocation.args.length) {
+    try {
+      return await execCargoMetadata(invocation)
+    } catch (e) {
+      debug.warn(
+        `cargo metadata failed with feature flags, retrying without them: ${e}`,
+      )
+    }
+    return execCargoMetadata({ ...invocation, args: featurelessArgs })
+  }
+  return execCargoMetadata(invocation)
+}
+
+function stripFeatureArgs(args: string[]): string[] {
+  const stripped: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === '--features') {
+      // also skip the flag's value
+      index += 1
+    } else if (arg !== '--all-features' && arg !== '--no-default-features') {
+      stripped.push(arg)
+    }
+  }
+  return stripped
+}
+
+async function execCargoMetadata(invocation: {
+  command: string
+  args: string[]
+  cwd: string
+}) {
   const childProcess = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     stdio: 'pipe',

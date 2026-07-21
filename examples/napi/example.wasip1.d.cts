@@ -32,11 +32,6 @@ declare global {
   }
 }
 
-export declare class AlignedZst {
-  constructor()
-  static create(): AlignedZst
-}
-
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor
@@ -112,17 +107,6 @@ export type JsAssets = Assets
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
-export declare class AsyncComplexTypeGenerator {
-  constructor()
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncComplexTypeGenerator, number[], [number, number], Record<string, number>>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
 export declare class AsyncDataSource {
   /** Creates an async data source that yields each item with a simulated I/O delay */
   static fromData(data: Array<string>, delayMs: number): AsyncDataSource
@@ -138,76 +122,6 @@ export declare class AsyncDataSource {
 export declare class AsyncFib {
   constructor()
   [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncFib, number, void, number>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
-export declare class AsyncGeneratorSetupFailure {
-  constructor(panicIn: string)
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncGeneratorSetupFailure, number, number, number>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
-export declare class AsyncIteratorAdmissionProbe {
-  constructor(outcomes: Array<string>)
-  get events(): Array<string>
-  release(count: number): void
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorAdmissionProbe, number, string, number>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
-export declare class AsyncIteratorConstructor {
-  current: number
-  end: number
-  constructor(current: number, end: number)
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorConstructor, number, void, undefined>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
-export declare class AsyncIteratorFailedSendProbe {
-  constructor(startResultPath: string)
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorFailedSendProbe, number, void, AsyncIteratorFailedSendValue>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
-export declare class AsyncIteratorIntoInstance {
-
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncIteratorIntoInstance, number, void, undefined>
-}
-
-/**
- * This type implements JavaScript's async iterable protocol.
- * It can be used with `for await...of` loops.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
- */
-export declare class AsyncReentrantGenerator {
-  constructor()
-  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncReentrantGenerator, number, void, () => void>
 }
 
 export declare class AsyncThrowClass {
@@ -264,23 +178,6 @@ export declare class ClassWithLifetime {
   constructor()
   getName(): string
 }
-
-/**
- * This type implements JavaScript's iterable iterator protocol.
- * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
- */
-export declare class ComplexTypeGenerator {
-  constructor()
-  [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [Record<string, number>]): globalThis.IteratorResult<number[], ([string, number]) | undefined>
-  return(...[value]: [] | [[string, number]]): globalThis.IteratorResult<number[], ([string, number]) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number[], ([string, number]) | undefined>
-}
-
-export interface ComplexTypeGenerator extends globalThis.Omit<globalThis.IteratorObject<number[], ([string, number]) | undefined, Record<string, number>>, 'next' | 'return' | 'throw'> {}
 
 export declare class Context {
   maybeNeed?: boolean
@@ -429,25 +326,6 @@ export declare class Fib4 {
 
 export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
-/**
- * This type implements JavaScript's iterable iterator protocol.
- * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
- */
-export declare class GeneratorLifecycleProbe {
-  constructor()
-  get nextCalls(): number
-  get completeCalls(): number
-  [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [undefined]): globalThis.IteratorResult<number, (string) | undefined>
-  return(...[value]: [] | [string]): globalThis.IteratorResult<number, (string) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number, (string) | undefined>
-}
-
-export interface GeneratorLifecycleProbe extends globalThis.Omit<globalThis.IteratorObject<number, (string) | undefined, undefined>, 'next' | 'return' | 'throw'> {}
-
 export declare class GetterSetterWithClosures {
   constructor()
 }
@@ -523,21 +401,16 @@ export declare class Reader {
 }
 
 /**
- * This type implements JavaScript's iterable iterator protocol.
- * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ * Regression fixture for issue #3378. `Vec` conversion reads JavaScript array
+ * elements, so an indexed getter can synchronously reenter before conversion
+ * has finished.
  */
-export declare class ReentrantGenerator {
+export declare class ReentrantBorrowOrderTest {
+  values: Array<number>
   constructor()
-  [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [() => void]): globalThis.IteratorResult<number, (void) | undefined>
-  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
+  replaceValues(values: Array<number>): void
+  replaceValuesFromThis(this: object): void
 }
-
-export interface ReentrantGenerator extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, () => void>, 'next' | 'return' | 'throw'> {}
 
 export declare class Selector {
   orderBy: Array<string>
@@ -546,23 +419,6 @@ export declare class Selector {
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
-
-/**
- * This type implements JavaScript's iterable iterator protocol.
- * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
- *
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
- */
-export declare class SyncIteratorIntoInstance {
-
-  [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [undefined]): globalThis.IteratorResult<number, (void) | undefined>
-  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
-}
-
-export interface SyncIteratorIntoInstance extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, undefined>, 'next' | 'return' | 'throw'> {}
 
 export declare class Thing {
 
@@ -573,21 +429,36 @@ export declare class ThingList {
   get thing(): Thing
 }
 
+/** Constructed via `new` (W1), `#[napi(factory)]` (W2) and by-value return (W3). */
+export declare class TypeTagA {
+  value: number
+  constructor(value: number)
+  /** Factory constructor -> stamp site W2 (`_factory`). */
+  static fromValue(value: number): TypeTagA
+  /** `&self` receiver -> receiver tag check in `unwrap_raw`. */
+  getValue(): number
+  /** Takes a `&TypeTagB` param -> param tag check in generated `from_napi_ref`. */
+  addOther(other: TypeTagB): number
+  /**
+   * Takes a `&mut TypeTagB` param -> param tag check in generated
+   * `from_napi_mut_ref`.
+   */
+  bumpOther(other: TypeTagB): number
+}
+
+/** The "other" class, only ever passed as a `&TypeTagB` / `&mut TypeTagB` arg. */
+export declare class TypeTagB {
+  value: number
+  constructor(value: number)
+  getValue(): number
+}
+
 export declare class UseNullableClass {
   requiredNumberField: number
   requiredStringField: string
   nullableNumberField: number | null
   nullableStringField: string | null
   constructor(requiredNumberField: number, requiredStringField: string, nullableNumberField: number | null, nullableStringField: string | null)
-}
-
-export declare class WeakReferenceGcHolder {
-  constructor(target: WeakReferenceGcTarget)
-  withTarget(callback: () => void): number
-}
-
-export declare class WeakReferenceGcTarget {
-  constructor(value: number)
 }
 
 export declare class Width {
@@ -598,8 +469,6 @@ export declare class Width {
 export interface A {
   foo: number
 }
-
-export declare function abandonDeferredClones(...args: unknown[]): never
 
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
@@ -646,12 +515,6 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
-export declare function armTokioBlockingTlsRetirementProbe(...args: unknown[]): never
-
-export declare function armTokioWorkerTlsRetirementProbe(...args: unknown[]): never
-
-export declare function arrayBufferCopyFrom(): ArrayBuffer
-
 export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
@@ -662,31 +525,13 @@ export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Ar
 
 export declare function arrayParams(arr: Array<number>): number
 
-export declare function assignClampedSliceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function assignClassInstanceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function assignClassInstanceFromLaterTurn(...args: unknown[]): never
-
-export declare function assignTypedArraySliceAcrossDuplicateLoad(...args: unknown[]): never
-
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
-export declare function asyncCleanupHookCounts(): Array<number>
-
-export interface AsyncIteratorFailedSendValue {
-  value: number
-}
-
 export declare function asyncMultiTwo(arg: number): Promise<number>
-
-export declare function asyncPartialReferenceSetupProbe(first: ExternalObject<number>, second: ExternalObject<number>): Promise<number>
 
 export declare function asyncPlus100(p: Promise<number>): Promise<number>
 
 export declare function asyncReduceBuffer(buf: import("buffer").Buffer): Promise<number>
-
-export declare function asyncReferenceSetupProbe(probe: ExternalObject<number>, value: number): Promise<number>
 
 export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
@@ -699,11 +544,6 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 export declare function asyncTaskReadFile(path: string): Promise<import("buffer").Buffer>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
-
-export interface AsyncWorkLifecycleHandle {
-  id: number
-  promise: Promise<number>
-}
 
 /**
  * Awaits `promise` on the async runtime; a rejection materializes as an
@@ -727,8 +567,6 @@ export declare function bigintGetU64AsString(bi: bigint): string
 export interface BindingVitePluginMeta {
   'vite:import-glob': ViteImportGlobMeta
 }
-
-export declare function borrowAlignedZstPair(first: AlignedZst, second: AlignedZst): void
 
 export declare function btreeSetToJs(): Set<string>
 
@@ -804,8 +642,6 @@ export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) 
 
 export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
 
-export declare function cancelAsyncWorkLifecycle(...args: unknown[]): never
-
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
 export declare function chronoDateAdd1Minute(input: Date): Date
@@ -836,6 +672,8 @@ export declare function chronoUtcDateToMillis(input: Date): number
  * with (this is what made the corruption deterministic in napi-rs#3368).
  */
 export declare function churnGlobalHandles(value: unknown, count: number): void
+
+export declare function cleanupReentrantBorrowOrderTestTargets(): number
 
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
@@ -894,25 +732,11 @@ export declare function concatStr(s: string): string
 
 export declare function concatUtf16(s: string): string
 
-export declare function configureTokioThreadStopFileBarrier(...args: unknown[]): never
-
 export declare function contains(source: string, target: string): boolean
-
-export declare function convertClampedSliceAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function convertTypedArraySliceAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function convertU32Array(input: Uint32Array): Array<number>
 
-export declare function copyExternalTokenAlias(...args: unknown[]): never
-
 export declare function createArraybuffer(): ArrayBuffer
-
-export declare function createAsyncGeneratorSetupFailure(): Promise<AsyncGeneratorSetupFailure>
-
-export declare function createAsyncIteratorIntoInstance(current: number, end: number): AsyncIteratorIntoInstance
-
-export declare function createAsyncReferenceSetupProbe(value: number): ExternalObject<number>
 
 export declare function createBigInt(): bigint
 
@@ -920,19 +744,20 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): import("buffer").Buffer
 
-export declare function createClassWithLifetimeFromRust(): ClassWithLifetime
-
 /**
- * Creates two counters whose matching `next()` calls wait for each other.
- * This gives the JavaScript tests a deterministic concurrency probe.
+ * Regression guard for the off-thread `FunctionRef` drop.
+ *
+ * A `create_with_stream_bytes` output whose pull future REJECTS (the underlying
+ * stream yields an `Err` item, or the output is cancelled while a pull is parked)
+ * drops the pull resolver — which owns the controller's `enqueue`/`close`
+ * `FunctionRef`s — on a Tokio worker thread rather than the JS thread. A
+ * `FunctionRef` holds a thread-affine `napi_ref`; deleting it off the JS thread
+ * mutates V8's `GlobalHandles` concurrently with the JS thread and corrupts the
+ * heap, surfacing later as a SIGSEGV/SIGBUS inside V8/napi. This emits one `Ok`
+ * chunk then a terminal `Err`, so JS can loop it and assert the process stays
+ * alive (see the matching test in `__tests__/values.spec.ts`).
  */
-export declare function createDelayedCounterPair(max: number, delayMs: number): Array<DelayedCounter>
-
-export declare function createDetachableExternalArraybuffer(): ArrayBuffer
-
-export declare function createDirectClassReferenceCallback(): (animal: Animal) => void
-
-export declare function createEmptyTypedArraySlices(): [Uint16Array, Uint8ClampedArray]
+export declare function createErroringReadableStream(): ReadableStream<import("buffer").Buffer>
 
 export declare function createExternal(size: number): ExternalObject<number>
 
@@ -950,15 +775,9 @@ export declare function createExternalLatin1String(): string
 
 export declare function createExternalLatin1WithLatin1Chars(): string
 
-export declare function createExternalPublicBorrowProbe(...args: unknown[]): never
-
 export declare function createExternalRef(size: number): ExternalObject<number>
 
-export declare function createExternalRefProvenanceProbe(...args: unknown[]): never
-
 export declare function createExternalString(content: string): ExternalObject<string>
-
-export declare function createExternalTokenGcProbe(...args: unknown[]): never
 
 export declare function createExternalTypedArray(): Uint32Array
 
@@ -966,11 +785,7 @@ export declare function createExternalUtf16String(): string
 
 export declare function createFunction(): (arg: number) => number
 
-export declare function createGeneratorLifecycleProbe(): Promise<GeneratorLifecycleProbe>
-
 export declare function createI32ArrayFromExternal(): Int32Array
-
-export declare function createMutableTypedArrayForOwnershipTest(...args: unknown[]): never
 
 export declare function createNotUseNullableStruct(): NotUseNullableStruct
 
@@ -984,10 +799,6 @@ export declare function createObjWithProperty(): { value: ArrayBuffer, get gette
 
 export declare function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null
 
-export declare function createPanickingAsyncWork(...args: unknown[]): never
-
-export declare function createQueuedAsyncWorkLifecycle(...args: unknown[]): never
-
 export declare function createReadableStream(): ReadableStream<import("buffer").Buffer>
 
 export declare function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<import("buffer").Buffer>
@@ -998,23 +809,17 @@ export declare function createReadableStreamFromClass(readableStreamClass: typeo
  */
 export declare function createReadableStreamWithObject(): ReadableStream<StreamItem>
 
+/**
+ * Create a class-branded object whose wrap can be removed without touching
+ * the generated class instance's reference/finalizer bookkeeping.
+ */
+export declare function createReentrantBorrowOrderTestTarget(constructor: new (...args: any[]) => unknown): object
+
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export declare function createRejectedPromise(message: string): Promise<number>
 
 export declare function createResolvedPromise(value: number): Promise<number>
-
-export declare function createResolvePanickingAsyncWork(...args: unknown[]): never
-
-export declare function createRunningAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function createRuntimeLifecycleExternalLatin1Probe(resultPath: string): string
-
-export declare function createRuntimeLifecycleExternalProbe(resultPath: string): unknown
-
-export declare function createRuntimeLifecycleExternalUtf16Probe(resultPath: string): string
-
-export declare function createRuntimeLifecycleFinalizer(resultPath: string): object
 
 export declare function createStaticLatin1String(): string
 
@@ -1025,8 +830,6 @@ export declare function createSymbol(): symbol
 export declare function createSymbolFor(desc: string): symbol
 
 export declare function createSymbolRef(desc: string): symbol
-
-export declare function createSyncIteratorIntoInstance(current: number, end: number): SyncIteratorIntoInstance
 
 export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
 
@@ -1082,8 +885,6 @@ export interface DefaultUseNullableStruct {
   optionalStringField?: string
 }
 
-export declare function deferredFinalizeCallbackCount(...args: unknown[]): never
-
 export declare function defineClass(): typeof DynamicRustClass
 
 declare class DynamicRustClass {
@@ -1093,13 +894,13 @@ declare class DynamicRustClass {
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
-export declare function detachableExternalArraybufferFinalizeCount(): number
-
-export declare function detachArraybufferWithAlias(buffer: ArrayBuffer, alias: ArrayBuffer): void
-
-export declare function disposeAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function disposeThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
+/**
+ * Detach the native value without constructing a second Rust receiver during
+ * reentry. Cleanup is deliberately deferred until the outer native call has
+ * returned or thrown, because the old code generation keeps using the cached
+ * pointer after input conversion.
+ */
+export declare function detachReentrantBorrowOrderTestTarget(target: unknown): void
 
 /**
  * Counts the chunks read from a stream, swallowing (dropping) any read error.
@@ -1116,18 +917,17 @@ export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Pr
  * dropping a sibling is an atomic refcount decrement, and the underlying
  * reference is released only when the LAST sibling drops. Here the original
  * drops on the JS thread first (a plain decrement, no release), then the last
- * sibling drops on a libuv worker — so the release is routed through the
- * custom-GC TSFN. The returned Promise confirms that release was queued.
+ * sibling drops off-thread — so the release is routed through the custom-GC
+ * TSFN, exactly the path a shared reference must survive without corrupting
+ * V8's GlobalHandles from a foreign thread.
  */
-export declare function dropClonedErrorsOnTwoThreads(value: unknown): Promise<void>
+export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
 
 /**
  * Converts `value` into an `Error` — creating a `napi_ref` to it, the same
- * code path a `Promise` rejection takes — and drops it on a libuv worker.
- * The returned Promise confirms the off-thread destructor ran; custom-GC
- * release of the `napi_ref` is queued separately on the JavaScript thread.
+ * code path a `Promise` rejection takes — and drops it on a spawned thread.
  */
-export declare function dropErrorFromValueOffThread(value: unknown): Promise<void>
+export declare function dropErrorFromValueOffThread(value: unknown): void
 
 export declare function either3(input: string | number | boolean): number
 
@@ -1165,13 +965,9 @@ export type ExternalLinterLoadPluginCb =
 export type ExternalLinterLoadPluginCb2 =
   ((arg: string) => PluginLoadResult)
 
-export declare function externalTokenGcProbeFinalizeCount(...args: unknown[]): never
-
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
-
-export declare function fetch(...args: unknown[]): never
 
 export declare function fibonacci(n: number): number
 
@@ -1206,8 +1002,6 @@ export declare function getGlobal(): typeof globalThis
 export declare function getIndexMapping(): Record<string, number>
 
 export declare function getIndexMappingWithHasher(): Record<string, number>
-
-export declare function getJsExternal(external: ExternalObject<number>): number
 
 export declare function getMapping(): Record<string, number>
 
@@ -1256,10 +1050,6 @@ export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
 
-export declare function inspectExternalRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function inspectExternalTokenGcProbe(...args: unknown[]): never
-
 export declare function intoUtf8(s: string): string
 
 export declare function joinPath(path: string, segment: string): string
@@ -1302,6 +1092,9 @@ export interface LocalDates {
   end?: Date
 }
 
+/** By-value return -> stamp site W3 (`new_instance`). */
+export declare function makeTypeTagA(value: number): TypeTagA
+
 export declare function mapOption(val?: number | undefined | null): number | null
 
 export declare function mergeTupleArray(t1: TupleToArray, t2: TupleToArray): TupleToArray
@@ -1310,10 +1103,6 @@ export interface Meta {
   merge: boolean
 }
 
-export declare function mutableTypedArrayFinalizeCount(...args: unknown[]): never
-
-export declare function mutateAnimalPair(first: Animal, second: Animal): void
-
 export declare function mutateArraybuffer(buf: ArrayBuffer): void
 
 export declare function mutateExternal(external: ExternalObject<number>, newVal: number): void
@@ -1321,8 +1110,6 @@ export declare function mutateExternal(external: ExternalObject<number>, newVal:
 export declare function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void
 
 export declare function mutateTypedArray(input: Float32Array): void
-
-export declare function mutateUint16ArrayForSync(input: Uint16Array): void
 
 export type MyPromise =
   string | Promise<string>
@@ -1396,8 +1183,6 @@ export declare function panic(): void
 
 export declare function panicInAsync(): Promise<void>
 
-export declare function panickingAsyncWorkFinallyCount(...args: unknown[]): never
-
 export declare function passSetToJs(): Set<string>
 
 export declare function passSetToRust(set: Set<string>): void
@@ -1405,8 +1190,6 @@ export declare function passSetToRust(set: Set<string>): void
 export declare function passSetWithHasherToJs(): Set<string>
 
 export declare function pathParent(path: string): string | null
-
-export declare function pendingAsyncBlockWithTerminalFinalizer(resultPath: string, startedPath?: string | undefined | null): Promise<undefined>
 
 export interface Pet {
   name: string
@@ -1421,27 +1204,9 @@ export interface PluginLoadResult {
 
 export declare function plusOne(this: Width): number
 
-export declare function prepareTsfnBlockingCallRegression(...args: unknown[]): never
-
-export declare function prepareTsfnTeardownRegression(...args: unknown[]): never
-
 export declare function promiseInEither(input: number | Promise<number>): Promise<boolean>
 
-export declare function promiseRawCallbackDropCount(): number
-
-export declare function promiseRawCatchCallbackDropProbe(input: Promise<undefined>): Promise<undefined>
-
-export declare function promiseRawCatchCallbackPanic(input: Promise<undefined>): Promise<undefined>
-
-export declare function promiseRawFinallyCallbackDropProbe(input: Promise<undefined>): Promise<undefined>
-
-export declare function promiseRawFinallyCallbackPanic(input: Promise<undefined>): Promise<undefined>
-
 export declare function promiseRawReturnClassInstance(): Promise<ClassReturnInPromise>
-
-export declare function promiseRawThenCallbackDropProbe(input: Promise<undefined>): Promise<undefined>
-
-export declare function promiseRawThenCallbackPanic(input: Promise<undefined>): Promise<undefined>
 
 export interface PropertyNameDigitTest {
   /** Property names starting with digits should be quoted */
@@ -1474,16 +1239,10 @@ export interface PropertyNameValidTest {
   with123Numbers: string
 }
 
-export declare function readAnimalPair(first: Animal, second: Animal): string
-
-export declare function readAnimalWithReentrantProbe(animal: Animal, probe: ReentrantClassBorrowProbe): string
-
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
 export declare function readFileAsync(path: string): Promise<import("buffer").Buffer>
-
-export declare function readMutateAnimalPair(first: Animal, second: Animal): void
 
 export declare function readPackageJson(): PackageJson
 
@@ -1507,50 +1266,9 @@ export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
 
-export interface ReentrantClassBorrowProbe {
-  trigger: number
-}
-
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
-
-export declare function referThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function registerDeferredCleanupOrderProbe(...args: unknown[]): never
-
-export declare function registerEnvCleanupRuntimeLifecycleProbes(cleanupResultPath: string, asyncCleanupResultPath: string): void
-
-export declare function registerLateDeferredFinalizeCallback(...args: unknown[]): never
-
-export declare function registerModuleFinalizerProbes(this: object, probePaths: object): void
-
-export declare function registerRemovableAsyncCleanupHook(): void
-
-export declare function registerRemovableSyncCleanupHook(): void
-
-export declare function registerSelfDroppingAsyncCleanupHook(resultPath: string): void
-
-export declare function registerSelfRemovingSyncCleanupHook(resultPath: string): void
-
-export declare function releaseAsyncWorkLifecycle(...args: unknown[]): never
-
-export declare function removeRemovableAsyncCleanupHook(): void
-
-export declare function removeRemovableSyncCleanupHook(): void
-
-export interface RequestInit {
-  method?: string
-  headers?: Record<string, string>
-}
-
-export declare function resetPromiseRawCallbackDropCount(): void
-
-export declare function resetWeakReferenceGcTargetFinalizeCount(): void
-
-export declare function resolvePanickingAsyncWorkFinallyCount(...args: unknown[]): never
-
-export declare function restartTokioRuntimeAfterRetirement(...args: unknown[]): never
 
 export declare function returnCString(): string
 
@@ -1563,10 +1281,6 @@ export declare function returnFromSharedCrate(): Shared
 export declare function returnNull(): null
 
 export declare function returnObjectOnlyToJs(): ObjectOnlyToJs
-
-export declare function returnTypedArraySliceMutAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function returnTypedArraySliceRefAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function returnUndefined(): void
 
@@ -1586,21 +1300,13 @@ export type RuleHandler<Args, Ret> =
 
 export declare function runScript(script: string): unknown
 
-export declare function setInstanceDataRuntimeLifecycleProbe(resultPath: string): void
-
 export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
-export declare function settleDeferredBeforeFinalizeRegistration(...args: unknown[]): never
-
-export declare function settleDeferredClone(...args: unknown[]): never
-
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
-
-export declare function shutdownAsyncRuntimeForTest(): void
 
 export declare function shutdownRuntime(): void
 
@@ -1608,19 +1314,7 @@ export declare function spawnFutureLifetime(input: number): Promise<string>
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
-export declare function startDeferredTeardownRace(...args: unknown[]): never
-
-export declare function startReferencedTsfnFinalizerLivenessWorker(...args: unknown[]): never
-
-export declare function startWeakTsfnFinalizerLivenessWorker(...args: unknown[]): never
-
-export declare function stashBufferAcrossDuplicateLoad(...args: unknown[]): never
-
 export declare function stashBufferInThreadLocal(buf: import("buffer").Buffer): void
-
-export declare function stashClassInstanceForLaterTurn(...args: unknown[]): never
-
-export declare function stashErrorAcrossDuplicateLoad(...args: unknown[]): never
 
 /**
  * Stashes a JS-derived `Error` in a Rust thread_local on the calling JS
@@ -1629,19 +1323,7 @@ export declare function stashErrorAcrossDuplicateLoad(...args: unknown[]): never
  */
 export declare function stashErrorInThreadLocal(value: unknown): void
 
-export declare function stashExternalRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function stashExternalRefForTeardown(...args: unknown[]): never
-
-export declare function stashPromiseRejectionAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function stashThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function stashTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
-
 export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
-
-export declare function stashTypedArraySlicesAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare const enum Status {
   Pristine = 'Pristine',
@@ -1654,8 +1336,6 @@ export declare const enum StatusInValidate {
   Ready = 'Ready',
   Done = 'Done'
 }
-
-export declare function stoppedTokioAsyncBlockCleanupOrder(resultPath: string): Promise<undefined>
 
 /** Example struct demonstrating object streaming with nested types */
 export interface StreamItem {
@@ -1690,37 +1370,11 @@ export type StructuredKindLowercase =
 
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
-export declare function sumBufferSliceFromCopy(): number
-
-export declare function sumBufferSliceFromData(): number
-
-export declare function sumBufferSliceFromExternal(): number
-
 export declare function sumIndexMapping(nums: Record<string, number>): number
 
 export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
-
-export declare function syncCleanupHookCounts(): Array<number>
-
-export declare function takeAdditionalBorrowedValueAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBorrowedValueAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBufferAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBufferSliceIntoBufferAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeBufferSliceRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeClassInstanceFromLaterTurn(...args: unknown[]): never
-
-export declare function takeExternalRefAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeReferenceValueAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function takeTypedArrayAcrossDuplicateLoad(...args: unknown[]): never
 
 /**
  * Function to test escaped quotes in comments.
@@ -1740,17 +1394,13 @@ export declare function testSerdeRoundtrip(data: any): any
 
 export declare function testWorkers(amount: number, completeCallback: ((err: Error | null, ) => void)): void
 
-export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: () => void): void
+export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
 
 export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void
 
 export declare function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unknown)): void
 
 export declare function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => string)): void
-
-export declare function threadsafeFunctionRustPanic(cb: () => void): void
-
-export declare function threadsafeFunctionRustPanicCalleeHandled(cb: (arg: Error) => void): void
 
 export declare function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void
 
@@ -1770,19 +1420,11 @@ export declare function throwDetachedPendingException(): void
 
 export declare function throwError(): void
 
-export declare function throwErrorAcrossDuplicateLoad(...args: unknown[]): never
-
 export declare function throwErrorWithCause(): void
-
-export declare function throwPromiseRejectionAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 
 export declare function toJsObj(): object
-
-export declare function tokioRuntimeFactoryCallCount(...args: unknown[]): never
-
-export declare function tokioRuntimeLifecycleValue(...args: unknown[]): never
 
 /**
  * Regression cover for napi-rs#3370 cause preservation: a JS `Error` carrying
@@ -1876,17 +1518,9 @@ export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 
-export declare function uint16ArrayCopyFrom(): Uint16Array
-
 export declare function uint8ArrayFromData(): Uint8Array
 
 export declare function uint8ArrayFromExternal(): Uint8Array
-
-export declare function uint8ClampedArrayCopyFrom(): Uint8ClampedArray
-
-export declare function unrefThreadsafeFunctionForEnvOwnership(...args: unknown[]): never
-
-export declare function untypedTypedArrayBackingBytes(input: TypedArray): Array<number>
 
 export interface UseNullableStruct {
   requiredNumberField: number
@@ -1948,12 +1582,6 @@ export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): num
 
 export declare function validateUndefined(i: undefined): boolean
 
-export declare function verifyReferenceValuesRejectNativeThread(...args: unknown[]): never
-
-export declare function verifyThreadsafeFunctionOwnerEnv(...args: unknown[]): never
-
-export declare function verifyTypedArraySlicesSameEnv(...args: unknown[]): never
-
 export interface ViteImportGlobMeta {
   isSubImportsPattern?: boolean
 }
@@ -1961,47 +1589,15 @@ export interface ViteImportGlobMeta {
 export type VoidNullable<T = void> =
   Nullable<T>
 
-export declare function waitForTokioRuntimeRetirement(...args: unknown[]): never
-
-export declare function weakReferenceGcTargetFinalizeCount(): number
-
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
 export declare function withAbortSignalHandle(signal: AbortSignal): Promise<number>
-
-export declare function withAdditionalBorrowedValuesAcrossDuplicateLoad(...args: unknown[]): never
-
-export declare function withBorrowedValuesAcrossDuplicateLoad(...args: unknown[]): never
 
 export declare function withinAsyncRuntimeIfAvailable(): void
 
 export declare function withoutAbortController(a: number, b: number): Promise<number>
 
-export declare function withReferenceValuesAcrossDuplicateLoad(...args: unknown[]): never
-
 export declare function xxh64Alias(input: import("buffer").Buffer): bigint
-
-export declare namespace duplicateClassNameAlpha {
-  export class SharedClass {
-    constructor(value: number)
-    static create(value: number): SharedClass
-    incremented(): SharedClass
-    get value(): number
-    get namespace(): string
-  }
-  export type AlphaSharedClass = SharedClass
-}
-
-export declare namespace duplicateClassNameBeta {
-  export class SharedClass {
-    constructor(value: number)
-    static create(value: number): SharedClass
-    incremented(): SharedClass
-    get value(): number
-    get namespace(): string
-  }
-  export type BetaSharedClass = SharedClass
-}
 
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number

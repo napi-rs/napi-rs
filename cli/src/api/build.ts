@@ -27,6 +27,7 @@ import {
   DEFAULT_TYPE_DEF_HEADER,
   fileExists,
   getSystemDefaultTarget,
+  getNapiDeriveDependentCrates,
   getPackageReconciliationRoot,
   getTargetLinker,
   mkdirAsync,
@@ -1362,11 +1363,8 @@ class Builder {
 
   private setForceBuildEnvs(typeDefTmpFolder: string) {
     // dynamically check all napi-rs deps and set `NAPI_FORCE_BUILD_{uppercase(snake_case(name))} = timestamp`
-    this.metadata.packages.forEach((crate) => {
-      if (
-        crate.dependencies.some((d) => d.name === 'napi-derive') &&
-        !existsSync(join(typeDefTmpFolder, crate.name))
-      ) {
+    getNapiDeriveDependentCrates(this.metadata).forEach((crate) => {
+      if (!existsSync(join(typeDefTmpFolder, crate.name))) {
         this.envs[
           `NAPI_FORCE_BUILD_${crate.name.replace(/-/g, '_').toUpperCase()}`
         ] = Date.now().toString()
@@ -1414,13 +1412,6 @@ class Builder {
     const hasThreads = wasiTargetHasThreads(this.target)
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
-    this.envs.EMNAPI_LINK_DIR = emnapi
-    const emnapiVersion = require('emnapi/package.json').version
-    const projectRequire = createRequire(
-      resolve(this.options.cwd, 'package.json'),
-    )
-    const emnapiCoreVersion = projectRequire('@emnapi/core').version
-    const emnapiRuntimeVersion = projectRequire('@emnapi/runtime').version
     const emnapiVersion = require('emnapi/package.json').version
     // Keep this in sync with `emnapi_link_library` in `crates/build/src/wasi.rs`.
     const emnapiArchive = join(
@@ -1436,12 +1427,19 @@ class Builder {
     const projectRequire = createRequire(
       resolve(this.options.cwd, 'package.json'),
     )
-    const emnapiCoreVersion = projectRequire(
-      '@emnapi/core/package.json',
-    ).version
-    const emnapiRuntimeVersion = projectRequire(
-      '@emnapi/runtime/package.json',
-    ).version
+    const projectPackageVersion = (name: string): string => {
+      try {
+        return projectRequire(`${name}/package.json`).version
+      } catch {
+        // emnapi v1 packages do not list `./package.json` in their export
+        // maps, so fall back to the module's own `version` export to keep the
+        // descriptive version-mismatch error below reachable for stale
+        // installs instead of a bare ERR_PACKAGE_PATH_NOT_EXPORTED.
+        return projectRequire(name).version
+      }
+    }
+    const emnapiCoreVersion = projectPackageVersion('@emnapi/core')
+    const emnapiRuntimeVersion = projectPackageVersion('@emnapi/runtime')
 
     if (
       emnapiVersion !== emnapiCoreVersion ||
