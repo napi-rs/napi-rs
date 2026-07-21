@@ -3977,14 +3977,15 @@ export function snapshotLeftoverIsTransactionOwned(
  * - `'unlink'` — the first fstat never succeeded (`destinationStats` undefined),
  *   so no inode identity exists at all; the pathname is transaction-owned and
  *   unpredictable, so best-effort unlink it.
- * - `'preserve'` — the first fstat succeeded but the bigint identity fstat failed
- *   (`destinationIdentity` undefined), so the leftover's ownership cannot be
- *   proven. Never destroy a file we cannot prove we created; leave it for the
- *   sibling scavenger. Without this fail-closed case a rare second-fstat failure
- *   (after a successful first fstat) would unconditionally unlink a possibly
- *   non-owned successor.
- * - `'verify-identity'` — both observations exist, so the caller re-reads the
- *   pathname and unlinks only when it still resolves to the exact owned inode.
+ * - `'preserve'` — the fstat succeeded but no identity was captured (the created
+ *   entry was not a regular file), so the leftover's ownership cannot be
+ *   proven. Never destroy an entry we cannot prove we created; leave it for the
+ *   sibling scavenger. Without this fail-closed case the cleanup would
+ *   unconditionally unlink a possibly non-owned successor.
+ * - `'verify-identity'` — both observations exist, so the caller retires the
+ *   pathname by rename, revalidates the retired entry against the recorded
+ *   identity, and deletes only a revalidated match
+ *   (see retireFailedSnapshotLeftover).
  */
 export function failedSnapshotLeftoverCleanupAction(
   destinationStats: BigIntStats | undefined,
@@ -3997,6 +3998,84 @@ export function failedSnapshotLeftoverCleanupAction(
     return 'preserve'
   }
   return 'verify-identity'
+}
+
+/**
+ * Removes the leftover at a failed snapshot's destination pathname only when it
+ * is still the exact inode this transaction created, without the
+ * check-then-unlink pathname race: a successor swapped in between an lstat and
+ * an unlink of the same pathname would be deleted even though the transaction
+ * never owned it. Instead the leftover is first retired to a unique sibling
+ * name with an atomic rename, the retired entry is revalidated against the
+ * recorded 64-bit identity, and only a revalidated match is deleted. A
+ * mismatched (non-owned) entry is hard-linked back to the destination pathname
+ * — or, when the pathname was already reoccupied by an even newer successor,
+ * preserved at the retired name (mirroring
+ * restoreUnexpectedFileSystemTransactionRetirement).
+ *
+ * Returns what happened to the leftover: `'removed'` (owned inode deleted),
+ * `'missing'` (nothing at the pathname), `'kept'` (a non-owned successor was
+ * left at — or restored to — the destination), or `'preserved'` (a non-owned
+ * successor could not be restored and remains at the returned retired path).
+ *
+ * `onBeforeRetire` is a deterministic test seam invoked after the ownership
+ * pre-check and before the retirement rename — the window the retire pattern
+ * exists to close.
+ */
+export async function retireFailedSnapshotLeftover(
+  destination: string,
+  identity: FileSystemTransactionFileIdentity,
+  onBeforeRetire?: () => Promise<void>,
+): Promise<
+  | { outcome: 'removed' | 'missing' | 'kept' }
+  | { outcome: 'preserved'; retiredPath: string }
+> {
+  const currentStats = await lstatIfExists(destination, { bigint: true })
+  if (currentStats === undefined) {
+    return { outcome: 'missing' }
+  }
+  if (!snapshotLeftoverIsTransactionOwned(currentStats, identity)) {
+    return { outcome: 'kept' }
+  }
+  await onBeforeRetire?.()
+
+  const retiredPath = atomicTemporaryPath(destination)
+  try {
+    await rename(destination, retiredPath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { outcome: 'missing' }
+    }
+    throw error
+  }
+
+  const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
+  if (snapshotLeftoverIsTransactionOwned(retiredStats, identity)) {
+    // The unique retired name is process-private, so this unlink cannot race
+    // with another writer: it deletes exactly the inode revalidated above.
+    await unlinkFileIfExists(retiredPath)
+    return { outcome: 'removed' }
+  }
+
+  // A successor was swapped onto the pathname between the pre-check and the
+  // rename. It was never ours to delete: put it back without clobbering an
+  // even newer occupant of the destination.
+  try {
+    await link(retiredPath, destination)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw fileSystemTransactionOperationError(
+        `Failed to restore a non-owned leftover from ${retiredPath} to ${destination}`,
+        error,
+      )
+    }
+    debug.warn(
+      `A non-owned leftover of a failed transaction snapshot was preserved at ${retiredPath} because a successor already occupies ${destination}`,
+    )
+    return { outcome: 'preserved', retiredPath }
+  }
+  await unlinkFileIfExists(retiredPath)
+  return { outcome: 'kept' }
 }
 
 async function snapshotFileSystemTransactionInput(
@@ -4204,29 +4283,16 @@ async function snapshotFileSystemTransactionInput(
           cleanup === 'verify-identity' &&
           destinationIdentity !== undefined
         ) {
-          // Only unlink when the pathname still resolves to the exact inode this
-          // transaction created. The identity match is on decimal-string dev/ino
-          // (see snapshotLeftoverIsTransactionOwned), never lossy Number fields,
-          // so a Number-colliding successor past 2 ** 53 is preserved, not
-          // destroyed.
-          //
-          // Known limitation: identity-check-then-unlink is a two-syscall pathname race.
-          // A successor swapped in between the lstat and the unlink is deleted regardless
-          // of dev/ino; exact string identity narrows precision false-matches but cannot
-          // close the between-syscall window. A structural fix (retire-by-rename to a
-          // unique path + post-rename revalidation, per retireFileSystemTransactionState)
-          // is tracked as a follow-up.
-          const currentStats = await lstatIfExists(destination, {
-            bigint: true,
-          })
-          if (
-            snapshotLeftoverIsTransactionOwned(
-              currentStats,
-              destinationIdentity,
-            )
-          ) {
-            await unlinkFileIfExists(destination)
-          }
+          // Delete the leftover only when it is still the exact inode this
+          // transaction created. The retire-by-rename pattern (unique-name
+          // rename, then revalidation of the retired inode, then unlink of the
+          // process-private retired name) closes the between-syscall pathname
+          // window an identity-check-then-unlink would leave open, and the
+          // identity match is on decimal-string dev/ino (see
+          // snapshotLeftoverIsTransactionOwned), never lossy Number fields, so
+          // a Number-colliding successor past 2 ** 53 is restored or
+          // preserved, not destroyed.
+          await retireFailedSnapshotLeftover(destination, destinationIdentity)
         }
         // cleanup === 'preserve': the first fstat succeeded but the bigint
         // identity fstat failed, so ownership cannot be proven — leave the
