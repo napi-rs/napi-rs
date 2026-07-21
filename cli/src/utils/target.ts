@@ -31,7 +31,7 @@ export const AVAILABLE_TARGETS = [
   'riscv64gc-unknown-linux-gnu',
   'powerpc64le-unknown-linux-gnu',
   's390x-unknown-linux-gnu',
-  'wasm32-wasi-preview1-threads',
+  'wasm32-wasip1',
   'wasm32-wasip1-threads',
 ] as const
 
@@ -111,6 +111,51 @@ export interface Target {
   abi: string | null
 }
 
+export type WasiFlavor = 'single' | 'threads'
+
+export interface WasiTarget {
+  canonicalTriple: string
+  flavor: WasiFlavor
+  platformArchABI: string
+}
+
+/**
+ * Resolve historical WASI spellings to one build target and one artifact
+ * identity. `wasm32-wasi` historically produced the threaded package, so it
+ * must never be inferred as threadless merely because its name lacks the
+ * `-threads` suffix.
+ */
+export function getWasiTarget(
+  target: string | Pick<Target, 'triple'>,
+): WasiTarget | undefined {
+  const triple = typeof target === 'string' ? target : target.triple
+
+  switch (triple) {
+    case 'wasm32-wasi':
+    case 'wasm32-wasi-preview1-threads':
+    case 'wasm32-wasip1-threads':
+      return {
+        canonicalTriple: 'wasm32-wasip1-threads',
+        flavor: 'threads',
+        platformArchABI: 'wasm32-wasi',
+      }
+    case 'wasm32-wasip1':
+      return {
+        canonicalTriple: 'wasm32-wasip1',
+        flavor: 'single',
+        platformArchABI: 'wasm32-wasip1',
+      }
+    default:
+      return
+  }
+}
+
+export function wasiTargetHasThreads(
+  target: string | Pick<Target, 'triple'>,
+): boolean {
+  return getWasiTarget(target)?.flavor === 'threads'
+}
+
 /**
  * A triple is a specific format for specifying a target architecture.
  * Triples may be referred to as a target triple which is the architecture for the artifact produced, and the host triple which is the architecture that the compiler is running on.
@@ -122,18 +167,20 @@ export interface Target {
  *   - `abi` = The ABI, for example `gnu`, `android`, `eabi`, etc.
  */
 export function parseTriple(rawTriple: string): Target {
-  if (
-    rawTriple === 'wasm32-wasi' ||
-    rawTriple === 'wasm32-wasi-preview1-threads' ||
-    rawTriple.startsWith('wasm32-wasip')
-  ) {
+  const wasiTarget = getWasiTarget(rawTriple)
+  if (wasiTarget) {
     return {
-      triple: rawTriple,
-      platformArchABI: 'wasm32-wasi',
+      triple: wasiTarget.canonicalTriple,
+      platformArchABI: wasiTarget.platformArchABI,
       platform: 'wasi',
       arch: 'wasm32',
       abi: 'wasi',
     }
+  }
+  if (/^wasm32-(?:wasip|wasi(?:-|$))/.test(rawTriple)) {
+    throw new TypeError(
+      `Unsupported WASI target ${rawTriple}. Supported targets are wasm32-wasip1, wasm32-wasip1-threads, wasm32-wasi, and wasm32-wasi-preview1-threads.`,
+    )
   }
   const triple = rawTriple.endsWith('eabi')
     ? `${rawTriple.slice(0, -4)}-eabi`
@@ -186,6 +233,17 @@ export function getSystemDefaultTarget(): Target {
 
 export function getTargetLinker(target: string): string | undefined {
   return TARGET_LINKER[target]
+}
+
+/**
+ * Loader-file suffix for a WASI flavor, derived from its `platformArchABI`:
+ * the legacy threaded flavor keeps the historical `wasi` stem
+ * (`<binaryName>.wasi.cjs`, `<binaryName>.wasi-browser.js`), while each
+ * distinctly named non-threaded flavor derives its own
+ * (`<binaryName>.wasip1.cjs`, `<binaryName>.wasip1-browser.js`, ...).
+ */
+export function wasiLoaderSuffix(platformArchABI: string): string {
+  return platformArchABI.replace(/^wasm32-/, '')
 }
 
 export function targetToEnvVar(target: string): string {

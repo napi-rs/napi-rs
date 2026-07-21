@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import ava, { type TestFn } from 'ava'
 
 import { createNpmDirs } from '../create-npm-dirs.js'
+import { MINIMUM_WASI_NODE_VERSION } from '../../utils/index.js'
 
 const require = createRequire(import.meta.url)
 
@@ -281,7 +282,7 @@ test('should preserve stricter node engine ranges for WASM targets', async (t) =
     name: 'test-wasm-engines',
     version: '1.0.0',
     engines: {
-      node: '>=18',
+      node: '>=24',
     },
     napi: {
       binaryName: 'test-wasm-engines',
@@ -300,7 +301,7 @@ test('should preserve stricter node engine ranges for WASM targets', async (t) =
     await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
   )
 
-  t.is(scopedPackageJson.engines.node, '>=18')
+  t.is(scopedPackageJson.engines.node, '>=24')
 })
 
 test('should intersect mixed node engine ranges with the WASI minimum', async (t) => {
@@ -329,7 +330,7 @@ test('should intersect mixed node engine ranges with the WASI minimum', async (t
     await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
   )
 
-  t.is(scopedPackageJson.engines.node, '>=18.0.0')
+  t.is(scopedPackageJson.engines.node, MINIMUM_WASI_NODE_VERSION)
 })
 
 test('should preserve sibling engine constraints when node is missing for WASM targets', async (t) => {
@@ -360,11 +361,11 @@ test('should preserve sibling engine constraints when node is missing for WASM t
 
   t.deepEqual(scopedPackageJson.engines, {
     npm: '>=10',
-    node: '>=14.0.0',
+    node: MINIMUM_WASI_NODE_VERSION,
   })
 })
 
-test('should replace an exact node engine below the WASI minimum for WASM targets', async (t) => {
+test('should reject an exact node engine below the WASI minimum for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
   const packageJson = {
@@ -381,16 +382,14 @@ test('should replace an exact node engine below the WASI minimum for WASM target
 
   await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
 
-  await createNpmDirs({
-    cwd: tmpDir,
-    packageJsonPath: 'package.json',
-  })
-
-  const scopedPackageJson = JSON.parse(
-    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  const error = await t.throwsAsync(() =>
+    createNpmDirs({
+      cwd: tmpDir,
+      packageJsonPath: 'package.json',
+    }),
   )
-
-  t.is(scopedPackageJson.engines.node, '>=14.0.0')
+  t.true(error.message.includes('"13.0.0"'))
+  t.true(error.message.includes(`"${MINIMUM_WASI_NODE_VERSION}"`))
 })
 
 test('should drop exact node engine branches below the WASI minimum for WASM targets', async (t) => {
@@ -419,7 +418,7 @@ test('should drop exact node engine branches below the WASI minimum for WASM tar
     await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
   )
 
-  t.is(scopedPackageJson.engines.node, '>=18.0.0')
+  t.is(scopedPackageJson.engines.node, MINIMUM_WASI_NODE_VERSION)
 })
 
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {

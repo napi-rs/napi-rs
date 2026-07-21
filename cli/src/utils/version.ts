@@ -1,3 +1,5 @@
+import { Comparator, Range, minVersion, subset } from 'semver'
+
 export enum NapiVersion {
   Napi1 = 1,
   Napi2,
@@ -30,6 +32,10 @@ const NAPI_VERSION_MATRIX = new Map<NapiVersion, string>([
 export const SUPPORTED_NAPI_VERSIONS = Object.values(NapiVersion).filter(
   (v): v is NapiVersion => typeof v === 'number',
 )
+
+// emnapi v2 is ESM-only. These are the Node.js lines where require(esm) is
+// enabled by default without an experimental warning.
+export const MINIMUM_WASI_NODE_VERSION = '^20.19.0 || ^22.13.0 || >=23.5.0'
 
 interface NodeVersion {
   major: number
@@ -81,4 +87,94 @@ function toEngineRequirement(versions: NodeVersion[]): string {
 
 export function napiEngineRequirement(napiVersion: NapiVersion): string {
   return toEngineRequirement(requiredNodeVersions(napiVersion))
+}
+
+export function restrictWasiNodeEngine(nodeRange: string) {
+  try {
+    if (subset(nodeRange, MINIMUM_WASI_NODE_VERSION)) {
+      return nodeRange
+    }
+
+    if (subset(MINIMUM_WASI_NODE_VERSION, nodeRange)) {
+      return MINIMUM_WASI_NODE_VERSION
+    }
+
+    const supportedRangeSets = new Range(MINIMUM_WASI_NODE_VERSION).set
+    const restrictedRangeSets = new Range(nodeRange).set
+      .flatMap((comparators) =>
+        supportedRangeSets.map((supportedComparators) =>
+          normalizeComparatorSet([...comparators, ...supportedComparators]),
+        ),
+      )
+      .filter(
+        (candidate): candidate is string =>
+          candidate !== undefined && minVersion(candidate) !== null,
+      )
+
+    if (restrictedRangeSets.length > 0) {
+      return restrictedRangeSets.join(' || ')
+    }
+  } catch {
+    // Fall back to the supported WASI floor for malformed ranges.
+    return MINIMUM_WASI_NODE_VERSION
+  }
+
+  // The declared range is valid but disjoint from the WASI floor. Broadening
+  // it here would publish metadata claiming support for Node.js versions the
+  // package explicitly excluded, so fail loudly instead.
+  throw new Error(
+    `Cannot restrict engines.node "${nodeRange}" to the Node.js versions supported by WASI packages: it does not intersect "${MINIMUM_WASI_NODE_VERSION}". Broaden engines.node to include a supported Node.js version or remove the WASI targets.`,
+  )
+}
+
+function normalizeComparatorSet(comparators: Comparator[]) {
+  const exactMatch = comparators.find(({ operator }) => operator === '')
+  if (exactMatch) {
+    return comparators.every((comparator) => comparator.test(exactMatch.semver))
+      ? exactMatch.value
+      : undefined
+  }
+
+  let lowerBound: Comparator | undefined
+  let upperBound: Comparator | undefined
+
+  for (const rawComparator of comparators) {
+    const comparator = stabilizePrereleaseComparator(rawComparator)
+    if (comparator.operator === '>' || comparator.operator === '>=') {
+      if (
+        !lowerBound ||
+        comparator.semver.compare(lowerBound.semver) > 0 ||
+        (comparator.semver.compare(lowerBound.semver) === 0 &&
+          comparator.operator === '>')
+      ) {
+        lowerBound = comparator
+      }
+    } else if (comparator.operator === '<' || comparator.operator === '<=') {
+      if (
+        !upperBound ||
+        comparator.semver.compare(upperBound.semver) < 0 ||
+        (comparator.semver.compare(upperBound.semver) === 0 &&
+          comparator.operator === '<')
+      ) {
+        upperBound = comparator
+      }
+    }
+  }
+
+  return [lowerBound?.value, upperBound?.value].filter(Boolean).join(' ')
+}
+
+function stabilizePrereleaseComparator(comparator: Comparator) {
+  if (comparator.semver.prerelease.length === 0) {
+    return comparator
+  }
+
+  const stableVersion = `${comparator.semver.major}.${comparator.semver.minor}.${comparator.semver.patch}`
+  if (comparator.operator === '>' || comparator.operator === '>=') {
+    return new Comparator(`>=${stableVersion}`)
+  }
+  if (comparator.operator === '<' || comparator.operator === '<=') {
+    return new Comparator(`<${stableVersion}-0`)
+  }
+  return comparator
 }

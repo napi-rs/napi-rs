@@ -5,6 +5,10 @@ import type { ReadableStream } from 'node:stream/web'
 
 type MaybePromise<T> = T | Promise<T>
 
+interface __NapiRsBuffer {}
+
+export interface BufferHeritageOverride extends Buffer {}
+
 export declare const NAPI_RS_SYMBOL: symbol
 
 export declare class ExternalObject<T> {
@@ -15,6 +19,20 @@ export declare class ExternalObject<T> {
 }
 
 export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
+declare global {
+  interface IteratorObject<T, TReturn = unknown, TNext = unknown>
+    extends globalThis.Iterator<T, TReturn, TNext> {
+    [globalThis.Symbol.iterator](): globalThis.IteratorObject<T, TReturn, TNext>
+  }
+
+  interface __NapiRsAsyncGenerator<TOwner, T, TReturn, TNext> {
+    next(...[value]: [] | [TNext]): globalThis.Promise<globalThis.IteratorResult<T, TReturn | undefined>>
+    return(...[value]: [] | [TReturn]): globalThis.Promise<globalThis.IteratorResult<T, TReturn | undefined>>
+    throw(exception?: unknown): globalThis.Promise<globalThis.IteratorResult<T, TReturn | undefined>>
+    [globalThis.Symbol.asyncIterator](): this
+  }
+}
+
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor
@@ -91,9 +109,9 @@ export type JsAssets = Assets
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncDataSource {
-  [Symbol.asyncIterator](): AsyncGenerator<string, void, undefined>
   /** Creates an async data source that yields each item with a simulated I/O delay */
   static fromData(data: Array<string>, delayMs: number): AsyncDataSource
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncDataSource, string, void, undefined>
 }
 
 /**
@@ -103,8 +121,8 @@ export declare class AsyncDataSource {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class AsyncFib {
-  [Symbol.asyncIterator](): AsyncGenerator<number, void, number | undefined>
   constructor()
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<AsyncFib, number, void, number>
 }
 
 export declare class AsyncThrowClass {
@@ -179,7 +197,7 @@ export declare class Context {
  */
 export declare class CounterRepro {
   constructor(max: number)
-  [Symbol.asyncIterator](): AsyncGenerator<number, void, undefined>
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<CounterRepro, number, void, undefined>
 }
 
 export declare class CreateStringClass {
@@ -226,9 +244,9 @@ export declare class DefaultUseNullableClass {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
  */
 export declare class DelayedCounter {
-  [Symbol.asyncIterator](): AsyncGenerator<number, string, undefined>
   /** Creates a counter that yields values from 0 to max-1 with a delay between each */
   constructor(max: number, delayMs: number)
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<DelayedCounter, number, string, undefined>
 }
 
 export declare class Dog {
@@ -237,57 +255,77 @@ export declare class Dog {
 }
 
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib extends Iterator<number, void, number> {
+export declare class Fib {
   constructor()
-  next(value?: number): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
+export interface Fib extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib2 extends Iterator<number, void, number> {
+export declare class Fib2 {
   static create(seed: number): Fib2
-  next(value?: number): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
+export interface Fib2 extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib3 extends Iterator<number, void, number> {
+export declare class Fib3 {
   current: number
   nextNum: number
   constructor(current: number, nextNum: number)
-  next(value?: number): IteratorResult<number, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
 }
 
+export interface Fib3 extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+
 /**
- * This type extends JavaScript's `Iterator`, and so has the iterator helper
- * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
- * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
  */
-export declare class Fib4 extends Iterator<unknown, void, number> {
+export declare class Fib4 {
   current: number
   nextItem: number
   constructor(current: number, nextItem: number)
   toJSON(): Array<number>
-  next(value?: number): IteratorResult<unknown, void>
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [number]): globalThis.IteratorResult<unknown, (void) | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<unknown, (void) | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<unknown, (void) | undefined>
 }
+
+export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 export declare class GetterSetterWithClosures {
   constructor()
@@ -535,9 +573,29 @@ export declare function btreeSetToJs(): Set<string>
 
 export declare function btreeSetToRust(set: Set<string>): void
 
+export declare function bufferAssertionTarget(Buffer: unknown): asserts Buffer is string
+
+export declare function bufferComplexOverride<T extends Record<string, unknown>>(value: {
+  Buffer(): "line\nnext"
+mapped: { [Buffer in keyof T]: T[Buffer] }
+external: Buffer
+}, external: Buffer): "line\nnext" | `template\n${Buffer extends Uint8Array ? "buffer" : "other"}`
+
+export declare function bufferDestructureBinding({ Buffer }: { Buffer: string }, value: Buffer): Buffer
+
+export declare function bufferGenericConstraint<T extends Buffer>(value: T): T
+
+export declare function bufferGenericShadow<Buffer>(value: Buffer): Buffer
+
 export declare function bufferLenAsync(buf: Buffer): Promise<number>
 
+export interface BufferOverrideObject {
+  value: Buffer
+}
+
 export declare function bufferPassThrough(buf: Buffer): Promise<Buffer>
+
+export declare function bufferValueBinding(Buffer: unknown): typeof Buffer
 
 export declare function bufferWithAsyncBlock(buf: Buffer): Promise<number>
 
@@ -830,7 +888,7 @@ export interface DefaultUseNullableStruct {
 
 export declare function defineClass(): typeof DynamicRustClass
 
-class DynamicRustClass {
+declare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }

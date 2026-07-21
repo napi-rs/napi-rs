@@ -53,7 +53,15 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
   const browserEntry =
     "const worker = new URL('./wasi-worker-browser.mjs', import.meta.url)\n"
   await Promise.all([
+    writeFile(
+      join(tmpDir, 'artifacts', `${binaryName}.wasm32-wasi.wasm`),
+      'wasm artifact',
+    ),
     writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), 'node binding'),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'node binding types',
+    ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'node worker'),
     writeFile(
       join(buildOutputDir, `${binaryName}.wasi-browser.js`),
@@ -63,6 +71,8 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
       join(buildOutputDir, 'wasi-worker-browser.mjs'),
       'browser worker',
     ),
+    writeFile(join(buildOutputDir, 'browser.js'), 'root browser'),
+    writeFile(join(buildOutputDir, 'index.js'), 'root index'),
   ])
 
   await collectArtifacts({
@@ -70,6 +80,13 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
     buildOutputDir: 'build-output',
   })
 
+  t.is(
+    await readFile(
+      join(wasiPackageDir, `${binaryName}.wasm32-wasi.wasm`),
+      'utf8',
+    ),
+    'wasm artifact',
+  )
   t.is(
     await readFile(join(wasiPackageDir, `${binaryName}.wasi.cjs`), 'utf8'),
     'node binding',

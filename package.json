@@ -9,6 +9,7 @@
     "wasm-runtime",
     "triples",
     "memory-testing",
+    "examples/custom-async-runtime",
     "examples/napi",
     "examples/napi-compat-mode",
     "examples/binary"
@@ -29,7 +30,7 @@
     "format:rs": "cargo fmt",
     "format:toml": "taplo format",
     "lint": "oxlint --import-plugin --ignore-path=./.oxlintignore --deny-warnings -c oxlint.json",
-    "test": "yarn workspaces foreach -j 1 -A --exclude \"{cli,napi-rs}\" run test",
+    "test": "yarn workspaces foreach -j 1 -A --exclude \"{cli,napi-rs,@examples/custom-async-runtime}\" run test",
     "test:bun": "bun test examples/napi/__tests__/values.spec.ts",
     "test:cli": "yarn workspace @napi-rs/cli test",
     "test:electron": "electron examples/napi/electron.cjs",
@@ -92,6 +93,10 @@
   "packageManager": "yarn@4.17.1",
   "resolutions": {
     "node-inspect-extracted": "patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch",
-    "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch"
+    "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch",
+    "emnapi": "2.0.0-alpha.3",
+    "@emnapi/core": "2.0.0-alpha.3",
+    "@emnapi/runtime": "2.0.0-alpha.3",
+    "@emnapi/wasi-threads": "2.0.1"
   }
 }

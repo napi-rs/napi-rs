@@ -11,7 +11,8 @@
     "declaration": true,
     "rootDir": "./src",
     "outDir": "dist",
-    "allowJs": false
+    "allowJs": false,
+    "lib": ["ESNext", "DOM"]
   },
   "include": ["./src"],
   "ts-node": {

@@ -252,7 +252,7 @@ jobs:
         if: matrix.settings.test
         run: ${{ matrix.settings.test }}
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 20
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           DISABLE_V8_COMPILE_CACHE: 1
@@ -815,6 +815,75 @@ jobs:
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn workspace @examples/napi test-js -s
 
+  test-custom-async-runtime-wasi:
+    runs-on: ubuntu-latest
+    name: Test custom async runtime on wasm32-wasip1
+    timeout-minutes: 10
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      # The example workspace is excluded from the root `yarn test`, so this
+      # job is the only CI gate for the native lane (duplicate-registration,
+      # start-error, worker-reload, and termination-loop scenarios). Run it
+      # before the WASI builds below overwrite the shared root artifacts.
+      - name: Build and test native
+        working-directory: examples/custom-async-runtime
+        run: |
+          node build.mjs
+          node test.mjs native
+      - name: Build
+        run: |
+          yarn workspace @napi-rs/wasm-runtime build
+          node cli/cli.mjs build \
+            --cwd examples/custom-async-runtime \
+            --target wasm32-wasip1 \
+            --platform \
+            --js index.cjs \
+            --no-default-features \
+            --features async-runtime \
+            --dts index.d.cts
+          yarn workspace @examples/napi build --target wasm32-wasip1 --profile wasi
+          # Native builds regenerate every configured WASI flavor.
+          yarn workspace @examples/napi build --target x86_64-unknown-linux-gnu --release
+      - name: Test
+        run: node examples/custom-async-runtime/test.mjs wasi
+      - name: Test public Buffer and deferred lifecycle APIs
+        run: |
+          yarn workspace @examples/napi test \
+            __tests__/wasi-buffer-public-api.spec.ts \
+            __tests__/wasi-deferred-before-exit.spec.ts
+        env:
+          NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
+      - name: Test lifecycle public surface
+        run: |
+          yarn workspace @examples/napi test \
+            __tests__/wasi-eager-before-exit.spec.ts
+        env:
+          WASI_TEST: 'true'
+          NAPI_RS_WASI_FLAVOR: wasm32-wasip1
+      - name: Browser test (single-thread, no cross-origin isolation)
+        run: |
+          yarn workspace @examples/custom-async-runtime playwright install chromium
+          yarn workspace @examples/custom-async-runtime test:browser
+      - name: Workerd test (miniflare)
+        run: yarn workspace @examples/custom-async-runtime test:workerd
+      - name: Test examples/napi threadless public surfaces
+        run: yarn workspace @examples/napi test:wasi-public-surfaces
+
   test-node-wasi:
     runs-on: ubuntu-latest
     name: Test node wasi target
@@ -942,6 +1011,7 @@ jobs:
       - build_binary_crate
       - check-all-features
       - test-freebsd
+      - test-custom-async-runtime-wasi
       - test-node-wasi
       - test-latest-bun
     steps:

@@ -2,7 +2,7 @@ schema_version: 1
 manager: yarn
 manager_lockfile_sha256: ""
 node_version: 24.15.0
-generated_at: 2026-06-22T09:33:00.458Z
+generated_at: 2026-07-12T07:44:14.459Z
 packages:
   napi-rs@0.0.0:
     lifecycle:

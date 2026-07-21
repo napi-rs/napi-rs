@@ -5,4 +5,8 @@ import type { ReadableStream } from 'node:stream/web'
 
 type MaybePromise<T> = T | Promise<T>
 
+interface __NapiRsBuffer {}
+
+export interface BufferHeritageOverride extends Buffer {}
+
 export declare const NAPI_RS_SYMBOL: symbol
