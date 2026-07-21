@@ -75,18 +75,19 @@ function registerWorkerdTimerHost(binding) {
     }, delay)
   }
   const cancelTimer = (timer) => {
-    try {
-      if (timer.handle !== undefined) {
+    if (timer.handle !== undefined) {
+      try {
         clearTimeoutHost(timer.handle)
+      } catch (error) {
+        // Rust awaits the schedule promise; reject it so the relay settles,
+        // then rethrow through napi-rs's catching cancellation TSFN so the
+        // native bounded strike policy observes the failed cancellation
+        // instead of counting it as a success.
+        timer.reject(error)
+        throw error
       }
-    } catch {
-      // Rust invokes this callback through a non-catching TSFN. Contain host
-      // cancellation failures at the JavaScript boundary.
-    } finally {
-      // Rust awaits the schedule promise. Resolve even if the host
-      // cancellation API throws so the detached relay can still retire.
-      timer.resolve()
     }
+    timer.resolve()
   }
   const schedule = (idOrMs, ms) => {
     if (disposed) return Promise.resolve()
@@ -117,7 +118,12 @@ function registerWorkerdTimerHost(binding) {
     const previous = active.get(id)
     if (previous) {
       active.delete(id)
-      cancelTimer(previous)
+      try {
+        cancelTimer(previous)
+      } catch {
+        // The stale relay was already rejected by cancelTimer; scheduling
+        // the replacement must still proceed.
+      }
     }
 
     return new Promise((resolve, reject) => {
@@ -161,7 +167,13 @@ function registerWorkerdTimerHost(binding) {
     active.clear()
     legacyActive.clear()
     for (const timer of timers) {
-      cancelTimer(timer)
+      try {
+        cancelTimer(timer)
+      } catch {
+        // Disposal must settle every relay even when the host cancellation
+        // API throws; cancelTimer already rejected this relay, and the
+        // unregistered native host ignores it.
+      }
     }
   }
 

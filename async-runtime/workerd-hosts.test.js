@@ -321,18 +321,70 @@ test('timer host: splits delays above the host timeout limit', async (t) => {
   assert.equal(await relay, undefined)
 })
 
-test('timer host: contains cancellation failures and still settles the relay', async (t) => {
+test('timer host: rejects the relay and rethrows when cancellation fails', async (t) => {
   const { binding, callbacks } = createBindingHarness()
   const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
   stubGlobalTimers(t, host.setTimeout, () => {
-    throw new Error('clearTimeout failed')
+    throw clearError
   })
 
   registerWorkerdTimerHost(binding)
   const relay = callbacks.schedule(6, 5_000)
 
-  assert.doesNotThrow(() => callbacks.cancel(6))
-  assert.equal(await relay, undefined)
+  assert.throws(
+    () => callbacks.cancel(6),
+    (error) => error === clearError,
+  )
+  await assert.rejects(relay, (error) => error === clearError)
+})
+
+test('timer host: a failed stale-relay cancellation does not fail the replacement schedule', async (t) => {
+  const { binding, callbacks } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  stubGlobalTimers(t, host.setTimeout, () => {
+    throw clearError
+  })
+
+  registerWorkerdTimerHost(binding)
+  const first = callbacks.schedule(20, 5_000)
+  let second
+  assert.doesNotThrow(() => {
+    second = callbacks.schedule(20, 7_000)
+  })
+
+  await assert.rejects(first, (error) => error === clearError)
+  // The stale timeout could not be cleared; it fires as a no-op.
+  assert.equal(host.pending.size, 2)
+  host.fireNext()
+  await Promise.resolve()
+
+  host.fireNext()
+  assert.equal(await second, undefined)
+})
+
+test('timer host: dispose settles every relay even when cancellation fails', async (t) => {
+  const { binding, callbacks, calls } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  stubGlobalTimers(t, host.setTimeout, () => {
+    throw clearError
+  })
+
+  const dispose = registerWorkerdTimerHost(binding)
+  const relay = callbacks.schedule(21, 60_000)
+  const legacyRelay = callbacks.schedule(30_000)
+  assert.equal(host.pending.size, 2)
+
+  assert.doesNotThrow(dispose)
+
+  assert.deepEqual(calls.unregisterTimerHost, [[0, 1]])
+  await assert.rejects(relay, (error) => error === clearError)
+  await assert.rejects(legacyRelay, (error) => error === clearError)
+
+  dispose()
+  assert.equal(calls.unregisterTimerHost.length, 1)
 })
 
 test('timer host: dispose unregisters, settles outstanding timers, and is idempotent', async (t) => {
