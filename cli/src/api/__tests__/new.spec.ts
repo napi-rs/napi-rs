@@ -9,7 +9,7 @@ import { parse as parseToml } from '@std/toml'
 import ava, { type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
-import { newProject } from '../new.js'
+import { GENERATED_WASI_BINDING, newProject } from '../new.js'
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -524,4 +524,40 @@ test('should fail when no targets are enabled', async (t) => {
     },
     { message: /At least one target must be enabled/ },
   )
+})
+
+test('generated WASI binding pattern matches every generated artifact name', (t) => {
+  // Mirrors the artifact names produced for the threaded (`wasi`) and
+  // non-threaded (`wasip1`) loader suffixes, including the `.d.cts` loader
+  // typings emitted alongside `.cjs` entries.
+  const generated = [
+    'binary.wasi.cjs',
+    'binary.wasi.d.cts',
+    'binary.wasi-browser.js',
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+    'binary.wasip1.cjs',
+    'binary.wasip1.d.cts',
+    'binary.wasip1-browser.js',
+    'binary.wasip1-deferred.js',
+    'binary.wasip1-deferred.d.ts',
+  ]
+  for (const file of generated) {
+    t.true(GENERATED_WASI_BINDING.test(file), `should match ${file}`)
+    t.true(
+      GENERATED_WASI_BINDING.test(`${file} linguist-detectable=false`),
+      `should match the .gitattributes line for ${file}`,
+    )
+  }
+
+  const notGenerated = [
+    'index.js',
+    'index.d.ts',
+    'browser.js',
+    'binary.wasm32-wasi.wasm.d.mts',
+    'binary.node',
+  ]
+  for (const file of notGenerated) {
+    t.false(GENERATED_WASI_BINDING.test(file), `should not match ${file}`)
+  }
 })
