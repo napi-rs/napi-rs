@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.7.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.3...@napi-rs/cli@3.7.4) (2026-07-21)
+
+### Bug Fixes
+
+- **cli:** don't force-build crates whose optional napi-derive dependency is disabled ([#3402](https://github.com/napi-rs/napi-rs/issues/3402)) ([0a4681d](https://github.com/napi-rs/napi-rs/commit/0a4681d3ffa0348ae4524c1c92f4f2fbe631eecd))
+
 ## [3.7.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.2...@napi-rs/cli@3.7.3) (2026-07-12)
 
 ### Bug Fixes
