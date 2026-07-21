@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.3.2...napi-build-v2.4.0) - 2026-07-21
+
+### Added
+
+- *(cli)* support non-threaded WASI targets ([#3353](https://github.com/napi-rs/napi-rs/pull/3353))
+
 ## [2.3.2](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.3.1...napi-build-v2.3.2) - 2026-05-13
 
 ### Fixed
