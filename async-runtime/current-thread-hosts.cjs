@@ -699,11 +699,19 @@ function installCurrentThreadHosts(binding, options) {
         if (hostInstallation.timerHostRegistration === timerHostRegistration) {
           hostInstallation.timerHostRegistration = undefined
         }
-        if (disposeActiveTimers) {
-          disposeActiveTimers()
-        }
       } catch (disposalError) {
         disposalErrors.push(disposalError)
+      }
+      // Release the outstanding host timers even when unregisterTimerHost
+      // threw above: skipping this would leave a referenced long timeout armed
+      // and keep the Node process alive to its original deadline. Accumulate
+      // its own failure so neither error masks the other.
+      if (disposeActiveTimers) {
+        try {
+          disposeActiveTimers()
+        } catch (disposalError) {
+          disposalErrors.push(disposalError)
+        }
       }
     }
     if (taskHostRegistration) {

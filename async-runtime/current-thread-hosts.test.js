@@ -769,3 +769,85 @@ test('disposal rejects relays it can neither cancel nor unreference and still se
   )
   assert.equal(reported.length, 2)
 })
+
+test('disposal still releases referenced timers when unregisterTimerHost throws', async (t) => {
+  const { binding, callbacks, calls } = createBindingHarness()
+  const host = createFakeTimerHost()
+  stubGlobalTimers(t, host.setTimeout, host.clearTimeout)
+
+  const unregisterError = new Error('unregisterTimerHost failed')
+  binding.unregisterTimerHost = (high, low) => {
+    calls.unregisterTimerHost.push([high, low])
+    throw unregisterError
+  }
+
+  const dispose = installCurrentThreadHosts(binding)
+  const relay = callbacks.schedule(19, 60_000)
+  assert.equal(host.pending.size, 1)
+
+  // The unregister failure is still surfaced instead of being swallowed.
+  assert.throws(dispose, (error) => error === unregisterError)
+
+  // ...but the referenced long timer is still released, so it can no longer
+  // keep the Node process alive to its original deadline.
+  assert.equal(host.pending.size, 0)
+  assert.equal(await relay, undefined)
+
+  // Both hosts were still unregistered even though the timer host threw.
+  assert.deepEqual(calls.unregisterTimerHost, [[0, 2]])
+  assert.deepEqual(calls.unregisterTaskHost, [[0, 1]])
+})
+
+test('disposal accumulates both a throwing unregister and a timer it cannot release', async (t) => {
+  const { binding, callbacks, calls } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  const closeError = new Error('timeout.close failed')
+  stubGlobalTimers(
+    t,
+    (callback, delay) => {
+      host.setTimeout(callback, delay)
+      return {
+        close: () => {
+          throw closeError
+        },
+      }
+    },
+    () => {
+      throw clearError
+    },
+  )
+  const reported = captureConsoleErrors(t)
+
+  const unregisterError = new Error('unregisterTimerHost failed')
+  binding.unregisterTimerHost = (high, low) => {
+    calls.unregisterTimerHost.push([high, low])
+    throw unregisterError
+  }
+
+  const dispose = installCurrentThreadHosts(binding)
+  const relay = callbacks.schedule(20, 60_000)
+  // Observe the relay outcome without awaiting it: on the unfixed path the
+  // relay never settles, so awaiting here would hang the test rather than
+  // fail it. Attaching a handler also keeps a green rejection from surfacing
+  // as an unhandled rejection.
+  const relayOutcome = relay.then(
+    () => ({ rejected: false }),
+    (error) => ({ rejected: true, error }),
+  )
+
+  // The unregister failure is surfaced even though the timer can neither be
+  // cancelled nor unreferenced; disposal still runs the timer fallback chain
+  // (reporting the unreleasable timeout) instead of skipping it.
+  assert.throws(dispose, (error) => error === unregisterError)
+  assert.equal(reported.length, 1)
+  assert.match(reported[0].message, /could not be cancelled or unreferenced/)
+  assert.deepEqual(calls.unregisterTimerHost, [[0, 2]])
+  assert.deepEqual(calls.unregisterTaskHost, [[0, 1]])
+
+  // The abandoned relay is rejected rather than left dangling.
+  assert.deepEqual(await relayOutcome, {
+    rejected: true,
+    error: reported[0],
+  })
+})
