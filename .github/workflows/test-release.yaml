@@ -936,6 +936,8 @@ jobs:
     needs: audit
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Setup node
         uses: actions/setup-node@v6
         with:
@@ -948,10 +950,6 @@ jobs:
           targets: wasm32-wasip1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      # TEMPORARY until emnapi publishes complete wasip1 archives, see
-      # vendor/emnapi/README.md. `--mode=skip-build` skips `postinstall`.
-      - name: Install vendored emnapi archives
-        run: node vendor/emnapi/install.mjs
       - name: Build
         run: |
           yarn workspace @napi-rs/wasm-runtime build
