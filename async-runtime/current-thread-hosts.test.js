@@ -653,3 +653,119 @@ test("the disposer unregisters this call's hosts and settles outstanding relays"
     [0, 4],
   ])
 })
+
+test('disposal falls back to the captured dispose method when clearTimeout throws', async (t) => {
+  const { binding, callbacks } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  const disposeCalls = []
+  stubGlobalTimers(
+    t,
+    (callback, delay) => {
+      const inner = host.setTimeout(callback, delay)
+      return {
+        [Symbol.dispose]: () => {
+          disposeCalls.push(inner)
+          host.clearTimeout(inner)
+        },
+        unref: () => {},
+      }
+    },
+    () => {
+      throw clearError
+    },
+  )
+  const reported = captureConsoleErrors(t)
+  const dispose = installCurrentThreadHosts(binding)
+
+  const relay = callbacks.schedule(15, 60_000)
+  assert.equal(host.pending.size, 1)
+
+  assert.doesNotThrow(dispose)
+
+  assert.equal(await relay, undefined)
+  assert.equal(disposeCalls.length, 1)
+  assert.equal(host.pending.size, 0)
+  assert.equal(reported.length, 1)
+  assert.match(reported[0].message, /timeout\[Symbol\.dispose\]\(\)/)
+  assert.equal(reported[0].cause, clearError)
+})
+
+test('disposal unrefs the handle when no cancellation mechanism works', async (t) => {
+  const { binding, callbacks } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  const closeError = new Error('timeout.close failed')
+  let unrefCalls = 0
+  stubGlobalTimers(
+    t,
+    (callback, delay) => {
+      host.setTimeout(callback, delay)
+      return {
+        close: () => {
+          throw closeError
+        },
+        unref: () => {
+          unrefCalls += 1
+        },
+      }
+    },
+    () => {
+      throw clearError
+    },
+  )
+  const reported = captureConsoleErrors(t)
+  const dispose = installCurrentThreadHosts(binding)
+
+  const relay = callbacks.schedule(16, 60_000)
+  assert.doesNotThrow(dispose)
+
+  assert.equal(await relay, undefined)
+  assert.equal(unrefCalls, 1)
+  assert.equal(reported.length, 1)
+  assert.match(reported[0].message, /unreferenced and may still fire/)
+  assert.deepEqual(reported[0].errors, [clearError, closeError])
+  assert.equal(reported[0].cause, clearError)
+})
+
+test('disposal rejects relays it can neither cancel nor unreference and still settles the rest', async (t) => {
+  const { binding, callbacks } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  const closeError = new Error('timeout.close failed')
+  stubGlobalTimers(
+    t,
+    (callback, delay) => {
+      host.setTimeout(callback, delay)
+      return {
+        close: () => {
+          throw closeError
+        },
+      }
+    },
+    () => {
+      throw clearError
+    },
+  )
+  const reported = captureConsoleErrors(t)
+  const dispose = installCurrentThreadHosts(binding)
+
+  const first = callbacks.schedule(17, 60_000)
+  const second = callbacks.schedule(18, 60_000)
+
+  assert.doesNotThrow(dispose)
+
+  await assert.rejects(
+    first,
+    (error) =>
+      /could not be cancelled or unreferenced/.test(error.message) &&
+      error.cause === clearError &&
+      Array.isArray(error.errors) &&
+      error.errors[0] === clearError &&
+      error.errors[1] === closeError,
+  )
+  await assert.rejects(second, (error) =>
+    /could not be cancelled or unreferenced/.test(error.message),
+  )
+  assert.equal(reported.length, 2)
+})

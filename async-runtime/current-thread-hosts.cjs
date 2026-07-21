@@ -235,6 +235,57 @@ function reportTimerCancellationError(error) {
   }
 }
 
+// Attempt to release an armed timer handle: the captured clearTimeout first,
+// then the captured handle fallbacks (Symbol.dispose/close), then unref.
+// Returns undefined once the timeout is cancelled (reporting which fallback
+// stepped in); otherwise returns the aggregate cancellation error and whether
+// the handle was at least unreferenced so it cannot retain the Node process.
+function cancelTimerHandle(id, timer) {
+  try {
+    Reflect.apply(timer.clearTimeoutHost, globalThis, [timer.handle])
+    return undefined
+  } catch (clearError) {
+    const errors = [clearError]
+    for (const fallback of timer.cancelHandleFallbacks) {
+      try {
+        fallback.run()
+        reportTimerCancellationError(
+          new Error(
+            `CurrentThread timer ${id} clearTimeout failed; ` +
+              `the timeout was cancelled with ${fallback.name}.`,
+            { cause: clearError },
+          ),
+        )
+        return undefined
+      } catch (fallbackError) {
+        errors.push(fallbackError)
+      }
+    }
+
+    let unreferenced = false
+    if (timer.unrefHandle) {
+      try {
+        timer.unrefHandle.run()
+        unreferenced = true
+      } catch (unrefError) {
+        errors.push(unrefError)
+      }
+    }
+    return {
+      error: createAggregateError(
+        errors,
+        unreferenced
+          ? `CurrentThread timer ${id} could not be cancelled; ` +
+              `the timeout was unreferenced and may still fire.`
+          : `CurrentThread timer ${id} could not be cancelled or ` +
+              `unreferenced.`,
+        clearError,
+      ),
+      unreferenced,
+    }
+  }
+}
+
 function createAggregateError(errors, message, cause) {
   try {
     const AggregateErrorHost = getProperty(
@@ -519,63 +570,24 @@ function installCurrentThreadHosts(binding, options) {
                 return
               }
 
-              try {
-                Reflect.apply(timer.clearTimeoutHost, globalThis, [
-                  timer.handle,
-                ])
+              const failure = cancelTimerHandle(id, timer)
+              if (failure === undefined) {
                 timer.resolve()
                 return
-              } catch (clearError) {
-                const errors = [clearError]
-                for (const fallback of timer.cancelHandleFallbacks) {
-                  try {
-                    fallback.run()
-                    reportTimerCancellationError(
-                      new Error(
-                        `CurrentThread timer ${id} clearTimeout failed; ` +
-                          `the timeout was cancelled with ${fallback.name}.`,
-                        { cause: clearError },
-                      ),
-                    )
-                    timer.resolve()
-                    return
-                  } catch (fallbackError) {
-                    errors.push(fallbackError)
-                  }
-                }
-
-                let unreferenced = false
-                if (timer.unrefHandle) {
-                  try {
-                    timer.unrefHandle.run()
-                    unreferenced = true
-                  } catch (unrefError) {
-                    errors.push(unrefError)
-                  }
-                }
-                const cancellationError = createAggregateError(
-                  errors,
-                  unreferenced
-                    ? `CurrentThread timer ${id} could not be cancelled; ` +
-                        `the timeout was unreferenced and may still fire.`
-                    : `CurrentThread timer ${id} could not be cancelled or ` +
-                        `unreferenced.`,
-                  clearError,
-                )
-                if (unreferenced) {
-                  reportTimerCancellationError(cancellationError)
-                  // The callback may still run, but the active identity check
-                  // makes it a no-op and unref prevents it from retaining the
-                  // Node process.
-                  timer.resolve()
-                } else {
-                  // Settle the abandoned schedule Promise for local resource
-                  // release, then throw through napi-rs's catching
-                  // cancellation TSFN so Rust can apply the host's bounded
-                  // strike policy.
-                  timer.reject(cancellationError)
-                  throw cancellationError
-                }
+              }
+              if (failure.unreferenced) {
+                reportTimerCancellationError(failure.error)
+                // The callback may still run, but the active identity check
+                // makes it a no-op and unref prevents it from retaining the
+                // Node process.
+                timer.resolve()
+              } else {
+                // Settle the abandoned schedule Promise for local resource
+                // release, then throw through napi-rs's catching
+                // cancellation TSFN so Rust can apply the host's bounded
+                // strike policy.
+                timer.reject(failure.error)
+                throw failure.error
               }
             } catch (error) {
               try {
@@ -613,21 +625,29 @@ function installCurrentThreadHosts(binding, options) {
         }
         hostInstallation.timerHostRegistration = timerHostRegistration
         disposeActiveTimers = () => {
-          const timers = [...active.values()]
+          const timers = [...active.entries()]
           active.clear()
-          for (const timer of timers) {
-            try {
-              if (timer.handle !== undefined) {
-                Reflect.apply(timer.clearTimeoutHost, globalThis, [
-                  timer.handle,
-                ])
-              }
-            } catch {
-              // Disposal must settle every relay even when the host
-              // cancellation API throws; the unregistered native host
-              // already ignores this relay.
-            } finally {
+          for (const [id, timer] of timers) {
+            if (timer.handle === undefined) {
               timer.resolve()
+              continue
+            }
+            const failure = cancelTimerHandle(id, timer)
+            if (failure === undefined) {
+              timer.resolve()
+              continue
+            }
+            reportTimerCancellationError(failure.error)
+            if (failure.unreferenced) {
+              // The unregistered native host already ignores this relay; the
+              // callback may still fire as a no-op and unref keeps it from
+              // retaining the Node process.
+              timer.resolve()
+            } else {
+              // Nothing could release the host timeout. Reject so the relay
+              // still settles for local resource release without aborting
+              // the disposal of the remaining timers.
+              timer.reject(failure.error)
             }
           }
         }
