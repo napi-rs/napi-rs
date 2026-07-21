@@ -158,11 +158,26 @@ function registerWorkerdTimerHost(binding) {
   }
   const dispose = () => {
     if (disposed) return
-    if (registration) {
-      Reflect.apply(unregisterTimerHost, binding, registration)
-      registration = undefined
-    }
+    // Latch `disposed` before the unregister attempt so a caller that disposes
+    // once stays idempotent even if unregisterTimerHost throws below: a second
+    // dispose() must not re-run unregister or re-touch the already-settled
+    // relays. The sibling current-thread disposer already latches first; the
+    // workerd disposer previously set it only after a successful unregister,
+    // so an unregister throw left it false and leaked on the retry path.
     disposed = true
+    const disposalErrors = []
+    if (registration) {
+      try {
+        Reflect.apply(unregisterTimerHost, binding, registration)
+        registration = undefined
+      } catch (disposalError) {
+        disposalErrors.push(disposalError)
+      }
+    }
+    // Release the outstanding host timers even when unregisterTimerHost threw
+    // above: skipping this would leave a referenced long timeout armed, keep
+    // the Node process alive to its original deadline, and leave its schedule
+    // relay unsettled. This runs independently of the unregister result.
     const timers = [...active.values(), ...legacyActive]
     active.clear()
     legacyActive.clear()
@@ -174,6 +189,14 @@ function registerWorkerdTimerHost(binding) {
         // API throws; cancelTimer already rejected this relay, and the
         // unregistered native host ignores it.
       }
+    }
+    // Surface the unregister failure only after every relay is settled so it
+    // still reaches the caller (and the setup rollback path) without masking
+    // the timer release. Only unregister can contribute an error here -- the
+    // loop above deliberately swallows cancellation failures after settling
+    // each relay -- so a single captured error is re-thrown directly.
+    if (disposalErrors.length > 0) {
+      throw disposalErrors[0]
     }
   }
 

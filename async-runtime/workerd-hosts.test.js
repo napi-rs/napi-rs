@@ -411,6 +411,69 @@ test('timer host: dispose unregisters, settles outstanding timers, and is idempo
   assert.equal(calls.unregisterTimerHost.length, 1)
 })
 
+test('timer host: dispose releases outstanding timers and surfaces a throwing unregister', async (t) => {
+  const { binding, callbacks, calls } = createBindingHarness()
+  const host = createFakeTimerHost()
+  stubGlobalTimers(t, host.setTimeout, host.clearTimeout)
+  const unregisterError = new Error('unregisterTimerHost failed')
+  binding.unregisterTimerHost = (high, low) => {
+    calls.unregisterTimerHost.push([high, low])
+    throw unregisterError
+  }
+
+  const dispose = registerWorkerdTimerHost(binding)
+  const relay = callbacks.schedule(9, 60_000)
+  const legacyRelay = callbacks.schedule(30_000)
+  assert.equal(host.pending.size, 2)
+
+  // The unregister failure is still surfaced to the caller...
+  assert.throws(dispose, (error) => error === unregisterError)
+
+  // ...but disposal released the outstanding referenced host timers anyway
+  // (not left armed) and settled their relays instead of leaking them.
+  assert.equal(host.pending.size, 0)
+  assert.equal(await relay, undefined)
+  assert.equal(await legacyRelay, undefined)
+  assert.deepEqual(calls.unregisterTimerHost, [[0, 1]])
+
+  // Idempotent: a second dispose is a safe no-op even though unregister threw,
+  // so `disposed` was latched despite the failure.
+  assert.doesNotThrow(dispose)
+  assert.equal(calls.unregisterTimerHost.length, 1)
+})
+
+test('timer host: dispose settles relays and surfaces unregister when cancellation also fails', async (t) => {
+  const { binding, callbacks, calls } = createBindingHarness()
+  const host = createFakeTimerHost()
+  const clearError = new Error('clearTimeout failed')
+  stubGlobalTimers(t, host.setTimeout, () => {
+    throw clearError
+  })
+  const unregisterError = new Error('unregisterTimerHost failed')
+  binding.unregisterTimerHost = (high, low) => {
+    calls.unregisterTimerHost.push([high, low])
+    throw unregisterError
+  }
+
+  const dispose = registerWorkerdTimerHost(binding)
+  const relay = callbacks.schedule(10, 60_000)
+  const legacyRelay = callbacks.schedule(30_000)
+  assert.equal(host.pending.size, 2)
+
+  // The unregister failure is surfaced; the swallowed cancellation errors do
+  // not mask it.
+  assert.throws(dispose, (error) => error === unregisterError)
+
+  // Every relay still settles (rejects) so no schedule promise is left hanging.
+  await assert.rejects(relay, (error) => error === clearError)
+  await assert.rejects(legacyRelay, (error) => error === clearError)
+  assert.deepEqual(calls.unregisterTimerHost, [[0, 1]])
+
+  // Idempotent even after both the unregister and cancellation throws.
+  assert.doesNotThrow(dispose)
+  assert.equal(calls.unregisterTimerHost.length, 1)
+})
+
 test('timer host: rolls back an inactive registration through dispose', (t) => {
   const { binding, calls, state } = createBindingHarness()
   const host = createFakeTimerHost()
