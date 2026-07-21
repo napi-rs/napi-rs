@@ -116,9 +116,15 @@ export function restrictWasiNodeEngine(nodeRange: string) {
     }
   } catch {
     // Fall back to the supported WASI floor for malformed ranges.
+    return MINIMUM_WASI_NODE_VERSION
   }
 
-  return MINIMUM_WASI_NODE_VERSION
+  // The declared range is valid but disjoint from the WASI floor. Broadening
+  // it here would publish metadata claiming support for Node.js versions the
+  // package explicitly excluded, so fail loudly instead.
+  throw new Error(
+    `Cannot restrict engines.node "${nodeRange}" to the Node.js versions supported by WASI packages: it does not intersect "${MINIMUM_WASI_NODE_VERSION}". Broaden engines.node to include a supported Node.js version or remove the WASI targets.`,
+  )
 }
 
 function normalizeComparatorSet(comparators: Comparator[]) {
