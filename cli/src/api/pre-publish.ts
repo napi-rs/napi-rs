@@ -1455,7 +1455,7 @@ function resolveLegacyPackageTarget(rootDir: string, target: string) {
       relativeTarget !== '..' &&
       !relativeTarget.startsWith(`..${sep}`) &&
       !resolve(rootDir, relativeTarget).startsWith(
-        `${resolve(rootDir)}${sep}node_modules}${sep}`,
+        `${resolve(rootDir)}${sep}node_modules${sep}`,
       )
     ) {
       return normalizePackageTarget(relativeTarget.split(sep).join('/'))
