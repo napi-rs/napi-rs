@@ -28,7 +28,7 @@ ctor = { version = "1.0.0", default-features = false, optional = true }
 napi-derive-backend = { version = "6.0.0", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["fold", "full", "extra-traits"] }
+syn = { version = "3", features = ["fold", "full", "extra-traits"] }
 
 [lib]
 proc-macro = true
