@@ -20,7 +20,7 @@ const STRUCT_FIELD_SPECIAL_CASE: &[&str] = &["Option", "Result"];
 fn gen_tracing_debug(class_name: &str, method_name: &str) -> TokenStream {
   let full_name = format!("{}::{}", class_name, method_name);
   quote! {
-    napi::bindgen_prelude::tracing::debug!(target: "napi", "{}", #full_name);
+    napi::bindgen_prelude::trace_napi_call(#full_name);
   }
 }
 
