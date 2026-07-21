@@ -2,7 +2,10 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::{
   marker::PhantomData,
-  sync::{Arc, RwLock},
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, RwLock, Weak,
+  },
 };
 
 #[cfg(feature = "deferred_trace")]
@@ -92,8 +95,35 @@ struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   finalize_callback: FinalizeCallback,
 }
 
+/// Shared between the deferred (and its clones) and the threadsafe function's env teardown hook
+/// and finalize callback. Owns the pending threadsafe function: a settle takes it (moving the
+/// release duty into the queued `DeferredData`), the env teardown hook abort-releases it,
+/// whichever locks first. The lock is held across those calls so env teardown cannot finalize
+/// the threadsafe function while a settle on a foreign thread is inside it.
+struct DeferredHandle {
+  pending_tsfn: Mutex<Option<sys::napi_threadsafe_function>>,
+}
+
+/// Shared by the env teardown hook and the threadsafe function's finalize callback; boxed, and
+/// freed exactly once, by the finalize callback (which during an env teardown runs after the
+/// LIFO-ordered cleanup hooks).
+struct DeferredHookData {
+  handle: Weak<DeferredHandle>,
+  /// Whether the env cleanup hook is currently registered: set once registration succeeds,
+  /// cleared when the teardown hook runs (Node's teardown drain consumes hooks as it runs them).
+  /// The finalize callback only unregisters the hook while this is set — Node-API requires the
+  /// removed pair to still be registered, otherwise the process may abort (Bun ≤ 1.2.18 panics).
+  hook_registered: AtomicBool,
+}
+
+// The raw threadsafe-function pointer makes the handle neither `Send` nor `Sync`, but calling a
+// threadsafe function from any thread is its documented purpose, and the mutex hands it to
+// exactly one consumer.
+unsafe impl Send for DeferredHandle {}
+unsafe impl Sync for DeferredHandle {}
+
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
-  pub(crate) tsfn: sys::napi_threadsafe_function,
+  handle: Arc<DeferredHandle>,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
   finalize_callback: FinalizeCallback,
@@ -108,7 +138,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
 {
   fn clone(&self) -> Self {
     Self {
-      tsfn: self.tsfn,
+      handle: self.handle.clone(),
       #[cfg(feature = "deferred_trace")]
       trace: self.trace.clone(),
       finalize_callback: self.finalize_callback.clone(),
@@ -125,10 +155,55 @@ unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send
 
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
   pub(crate) fn new(env: &Env) -> Result<(Self, Object<'_>)> {
-    let (tsfn, promise) = js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
+    let handle = Arc::new(DeferredHandle {
+      pending_tsfn: Mutex::new(None),
+    });
+    let hook_data_ptr = Box::into_raw(Box::new(DeferredHookData {
+      handle: Arc::downgrade(&handle),
+      hook_registered: AtomicBool::new(false),
+    }));
+
+    let (tsfn, promise) = match js_deferred_new_raw(
+      env,
+      Some(napi_resolve_deferred::<Data, Resolver>),
+      hook_data_ptr.cast(),
+    ) {
+      Ok(created) => created,
+      Err(err) => {
+        drop(unsafe { Box::from_raw(hook_data_ptr) });
+        return Err(err);
+      }
+    };
+    *handle
+      .pending_tsfn
+      .lock()
+      .expect("JsDeferred pending lock failed") = Some(tsfn);
+
+    // Pre-abort the threadsafe function when the environment tears down, before Node finalizes
+    // it: a deferred settled from a foreign thread after (or while) its env tears down (e.g. a
+    // future resolving after a worker thread terminated, see napi-rs#2460) would otherwise call
+    // into a freed threadsafe function. Node registers the threadsafe function's own teardown as
+    // a cleanup hook at creation, and hooks run in reverse registration order, so this hook runs
+    // before Node finalizes the threadsafe function.
+    #[cfg(not(target_family = "wasm"))]
+    {
+      check_status!(
+        unsafe {
+          sys::napi_add_env_cleanup_hook(
+            env.0,
+            Some(deferred_env_teardown_cb),
+            hook_data_ptr.cast(),
+          )
+        },
+        "Register env cleanup hook in JsDeferred failed"
+      )?;
+      unsafe { &*hook_data_ptr }
+        .hook_registered
+        .store(true, Ordering::Release);
+    }
 
     let deferred = Self {
-      tsfn,
+      handle,
       #[cfg(feature = "deferred_trace")]
       trace: DeferredTrace::new(env.0)?,
       finalize_callback: Default::default(),
@@ -159,18 +234,30 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
   }
 
   fn call_tsfn(self, result: Result<Resolver>) {
+    let mut pending = self
+      .handle
+      .pending_tsfn
+      .lock()
+      .expect("JsDeferred pending lock failed");
+    let Some(tsfn) = pending.take() else {
+      // The environment tore down (or another clone already settled the promise): the promise no
+      // longer exists and the threadsafe function is gone. Drop the resolver instead of calling
+      // into freed memory.
+      return;
+    };
+
     let data = DeferredData {
       resolver: result,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace,
-      tsfn: self.tsfn,
+      tsfn,
       finalize_callback: self.finalize_callback.clone(),
     };
 
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
     let status = unsafe {
       sys::napi_call_threadsafe_function(
-        self.tsfn,
+        tsfn,
         Box::into_raw(Box::from(data)).cast(),
         sys::ThreadsafeFunctionCallMode::blocking,
       )
@@ -182,9 +269,71 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
   }
 }
 
+/// Aborts the deferred's threadsafe function when its environment starts tearing down, before
+/// Node finalizes it. Runs on the environment's thread; the `pending_tsfn` lock serializes it
+/// against settles on foreign threads.
+#[cfg(not(target_family = "wasm"))]
+unsafe extern "C" fn deferred_env_teardown_cb(data: *mut c_void) {
+  let hook_data = unsafe { &*data.cast::<DeferredHookData>() };
+  // The teardown drain consumes this hook as it runs it; the threadsafe function's finalize
+  // callback, which runs later in the teardown, must not unregister it a second time.
+  hook_data.hook_registered.store(false, Ordering::Release);
+  let Some(handle) = hook_data.handle.upgrade() else {
+    return;
+  };
+
+  let mut pending = handle
+    .pending_tsfn
+    .lock()
+    .expect("JsDeferred pending lock failed");
+  if let Some(tsfn) = pending.take() {
+    let status = unsafe {
+      sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::abort)
+    };
+    debug_assert!(
+      status == sys::Status::napi_ok,
+      "Abort deferred threadsafe function on env teardown failed"
+    );
+  }
+}
+
+/// Finalize callback of the deferred's threadsafe function: unregisters the teardown hook (when
+/// it is still registered — during an env teardown the drain already consumed it) and frees the
+/// shared hook data exactly once.
+unsafe extern "C" fn deferred_finalize_cb(
+  env: sys::napi_env,
+  finalize_data: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  let hook_registered = unsafe { &*finalize_data.cast::<DeferredHookData>() }
+    .hook_registered
+    .load(Ordering::Acquire);
+  #[cfg(not(target_family = "wasm"))]
+  if !env.is_null() && hook_registered {
+    unsafe {
+      sys::napi_remove_env_cleanup_hook(env, Some(deferred_env_teardown_cb), finalize_data)
+    };
+  }
+  #[cfg(target_family = "wasm")]
+  {
+    let _ = env;
+    let _ = hook_registered;
+  }
+
+  let hook_data = unsafe { Box::from_raw(finalize_data.cast::<DeferredHookData>()) };
+  if let Some(handle) = hook_data.handle.upgrade() {
+    handle
+      .pending_tsfn
+      .lock()
+      .expect("JsDeferred pending lock failed")
+      .take();
+  }
+}
+
 fn js_deferred_new_raw(
   env: &Env,
   resolve_deferred: sys::napi_threadsafe_function_call_js,
+  finalize_data: *mut c_void,
 ) -> Result<(sys::napi_threadsafe_function, Object<'_>)> {
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
@@ -217,8 +366,8 @@ fn js_deferred_new_raw(
         async_resource_name,
         0,
         1,
-        ptr::null_mut(),
-        None,
+        finalize_data,
+        Some(deferred_finalize_cb),
         raw_deferred.cast(),
         resolve_deferred,
         &mut tsfn,
@@ -238,8 +387,16 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   context: *mut c_void,
   data: *mut c_void,
 ) {
-  let deferred = context.cast();
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
+
+  // Node invokes leftover queue items with a null env while the threadsafe function closes
+  // during env teardown; there is no promise left to settle, and the threadsafe function is
+  // already being torn down, so only the queued data must be freed.
+  if env.is_null() {
+    return;
+  }
+
+  let deferred = context.cast();
   let tsfn: *mut napi_sys::napi_threadsafe_function__ = deferred_data.tsfn;
   let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
     .expect("RwLock Poison")
