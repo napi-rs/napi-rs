@@ -112,7 +112,8 @@ struct DeferredHookData {
   /// Whether the env cleanup hook is currently registered: set once registration succeeds,
   /// cleared when the teardown hook runs (Node's teardown drain consumes hooks as it runs them).
   /// The finalize callback only unregisters the hook while this is set — Node-API requires the
-  /// removed pair to still be registered, otherwise the process may abort (Bun ≤ 1.2.18 panics).
+  /// removed pair to still be registered, otherwise the process may abort (Bun ≤ 1.2.20 aborts via
+  /// `NAPI_PERISH`; fixed in 1.2.21 to match Node's silent no-op).
   hook_registered: AtomicBool,
 }
 
@@ -187,7 +188,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     // before Node finalizes the threadsafe function.
     #[cfg(not(target_family = "wasm"))]
     {
-      check_status!(
+      if let Err(err) = check_status!(
         unsafe {
           sys::napi_add_env_cleanup_hook(
             env.0,
@@ -196,16 +197,55 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
           )
         },
         "Register env cleanup hook in JsDeferred failed"
-      )?;
+      ) {
+        // The tsfn exists but no teardown hook guards it yet. Release it so it cannot keep the loop
+        // alive; its finalize callback owns the boxed `DeferredHookData`, frees it, and — seeing
+        // `hook_registered == false` — skips the unregister. Do NOT free the box here: that would
+        // double-free against the finalize callback.
+        if let Some(tsfn) = handle
+          .pending_tsfn
+          .lock()
+          .expect("JsDeferred pending lock failed")
+          .take()
+        {
+          unsafe {
+            sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::abort)
+          };
+        }
+        return Err(err);
+      }
       unsafe { &*hook_data_ptr }
         .hook_registered
         .store(true, Ordering::Release);
     }
 
+    // Create the trace ref LAST, after every fallible step. `DeferredTrace` has no `Drop` (its
+    // `napi_ref` is deleted by hand when the promise settles), so building it before a step that can
+    // still fail would leak that ref on the error path. On its own failure there is no trace ref yet
+    // to leak, and we release the still-`Some` tsfn so it cannot strand the loop either — its
+    // finalize still frees the boxed `DeferredHookData`, so (as above) we must not free it here.
+    #[cfg(feature = "deferred_trace")]
+    let trace = match DeferredTrace::new(env.0) {
+      Ok(trace) => trace,
+      Err(err) => {
+        if let Some(tsfn) = handle
+          .pending_tsfn
+          .lock()
+          .expect("JsDeferred pending lock failed")
+          .take()
+        {
+          unsafe {
+            sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::abort)
+          };
+        }
+        return Err(err);
+      }
+    };
+
     let deferred = Self {
       handle,
       #[cfg(feature = "deferred_trace")]
-      trace: DeferredTrace::new(env.0)?,
+      trace,
       finalize_callback: Default::default(),
       _data: PhantomData,
       _resolver: PhantomData,
@@ -389,10 +429,21 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
 ) {
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
 
-  // Node invokes leftover queue items with a null env while the threadsafe function closes
-  // during env teardown; there is no promise left to settle, and the threadsafe function is
-  // already being torn down, so only the queued data must be freed.
+  // A leftover queue item is drained with a null env while the threadsafe function closes during env
+  // teardown. There is no promise left to settle, but this item still owns the release of the
+  // threadsafe function's thread count (moved here by the settle in `call_tsfn`). Recent Node (its
+  // `MaybeDelete` only frees the threadsafe function once the count reaches zero) and emnapi will
+  // otherwise leak the threadsafe function, so we must release it here too instead of only on the
+  // settle path below. This is safe during the teardown drain: `EmptyQueue` runs this callback
+  // without holding the tsfn lock, and while it is closing the release only drops the count — the
+  // object is deleted exactly once by the finalize that immediately follows.
   if env.is_null() {
+    unsafe {
+      sys::napi_release_threadsafe_function(
+        deferred_data.tsfn,
+        sys::ThreadsafeFunctionReleaseMode::release,
+      )
+    };
     return;
   }
 
