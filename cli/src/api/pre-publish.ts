@@ -1179,18 +1179,19 @@ function applyThreadlessWasiRootFacade(
   packageJson: CommonPackageJsonFields,
   rootFacade: ThreadlessWasiRootFacade,
 ) {
-  const updatedPackageJson = {
-    ...packageJson,
-    exports: rootFacade.exports,
-  }
-  if (rootFacade.packageJsonUpdate.files) {
-    updatedPackageJson.files = rootFacade.packageJsonUpdate.files
-  }
+  const updatedPackageJson = { ...packageJson }
   if (rootFacade.publishConfigExports) {
+    // The facade exports were built from publishConfig.exports, so write the
+    // result back there and leave the package's local exports map untouched.
     updatedPackageJson.publishConfig = {
       ...asRecord(packageJson.publishConfig),
       exports: rootFacade.publishConfigExports,
     }
+  } else {
+    updatedPackageJson.exports = rootFacade.exports
+  }
+  if (rootFacade.packageJsonUpdate.files) {
+    updatedPackageJson.files = rootFacade.packageJsonUpdate.files
   }
   return updatedPackageJson
 }
