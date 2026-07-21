@@ -1427,12 +1427,19 @@ class Builder {
     const projectRequire = createRequire(
       resolve(this.options.cwd, 'package.json'),
     )
-    const emnapiCoreVersion = projectRequire(
-      '@emnapi/core/package.json',
-    ).version
-    const emnapiRuntimeVersion = projectRequire(
-      '@emnapi/runtime/package.json',
-    ).version
+    const projectPackageVersion = (name: string): string => {
+      try {
+        return projectRequire(`${name}/package.json`).version
+      } catch {
+        // emnapi v1 packages do not list `./package.json` in their export
+        // maps, so fall back to the module's own `version` export to keep the
+        // descriptive version-mismatch error below reachable for stale
+        // installs instead of a bare ERR_PACKAGE_PATH_NOT_EXPORTED.
+        return projectRequire(name).version
+      }
+    }
+    const emnapiCoreVersion = projectPackageVersion('@emnapi/core')
+    const emnapiRuntimeVersion = projectPackageVersion('@emnapi/runtime')
 
     if (
       emnapiVersion !== emnapiCoreVersion ||
