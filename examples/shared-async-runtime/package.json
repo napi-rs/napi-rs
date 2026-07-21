@@ -1,0 +1,27 @@
+{
+  "name": "@examples/shared-async-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./index.cjs",
+  "scripts": {
+    "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
+    "build:wasi": "napi-raw build --target wasm32-wasip1 --platform --js index.cjs --dts index.d.cts",
+    "test:wasi": "node --test test-wasi.mjs"
+  },
+  "napi": {
+    "binaryName": "shared_async_runtime",
+    "targets": [
+      "wasm32-wasip1"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/async-runtime": "workspace:*",
+    "@napi-rs/cli": "workspace:*",
+    "@napi-rs/wasm-runtime": "workspace:*"
+  },
+  "dependencies": {
+    "@emnapi/core": "2.0.0-alpha.3",
+    "@emnapi/runtime": "2.0.0-alpha.3"
+  }
+}

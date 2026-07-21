@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "./crates/async-runtime",
   "./crates/backend",
   "./crates/build",
   "./crates/macro",
@@ -10,6 +11,7 @@ members = [
   "./examples/napi-shared",
   "./examples/napi-compat-mode",
   "./examples/custom-async-runtime",
+  "./examples/shared-async-runtime",
   "./examples/binary",
   "./bench",
   "./memory-testing",

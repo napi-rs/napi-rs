@@ -455,6 +455,18 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@examples/shared-async-runtime@workspace:examples/shared-async-runtime":
+  version: 0.0.0-use.local
+  resolution: "@examples/shared-async-runtime@workspace:examples/shared-async-runtime"
+  dependencies:
+    "@emnapi/core": "npm:2.0.0-alpha.3"
+    "@emnapi/runtime": "npm:2.0.0-alpha.3"
+    "@napi-rs/async-runtime": "workspace:*"
+    "@napi-rs/cli": "workspace:*"
+    "@napi-rs/wasm-runtime": "workspace:*"
+  languageName: unknown
+  linkType: soft
+
 "@gar/promise-retry@npm:^1.0.0, @gar/promise-retry@npm:^1.0.2":
   version: 1.0.3
   resolution: "@gar/promise-retry@npm:1.0.3"
@@ -1610,6 +1622,12 @@ __metadata:
   checksum: 10c0/6243c60f0d7327772c679aad20f17bcbf771b362fb7fbf1ae6dcf8dd379bb852e5af26180ab1e987a75dffa7cd5445414dc47e2acbcfe820cb08374deebecbc3
   languageName: node
   linkType: hard
+
+"@napi-rs/async-runtime@workspace:*, @napi-rs/async-runtime@workspace:async-runtime":
+  version: 0.0.0-use.local
+  resolution: "@napi-rs/async-runtime@workspace:async-runtime"
+  languageName: unknown
+  linkType: soft
 
 "@napi-rs/cli@workspace:*, @napi-rs/cli@workspace:cli":
   version: 0.0.0-use.local
