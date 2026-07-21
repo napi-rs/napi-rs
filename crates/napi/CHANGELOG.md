@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.5...napi-v3.11.0) - 2026-07-21
+
+### Added
+
+- unforgeable `#[napi]` class identity via Node object type tags ([#3405](https://github.com/napi-rs/napi-rs/pull/3405))
+- *(napi)* add pluggable async runtime backend ([#3352](https://github.com/napi-rs/napi-rs/pull/3352))
+
+### Fixed
+
+- *(napi)* release JsDeferred tsfn on null-env teardown drain (#3404 follow-up) ([#3408](https://github.com/napi-rs/napi-rs/pull/3408))
+- *(napi)* guard JsDeferred against env teardown ([#3404](https://github.com/napi-rs/napi-rs/pull/3404))
+- *(napi)* register the async runtime env cleanup hook per registration ([#3400](https://github.com/napi-rs/napi-rs/pull/3400))
+
+### Other
+
+- *(napi)* share tracing callsite ([#3409](https://github.com/napi-rs/napi-rs/pull/3409))
+
 ## [3.10.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.4...napi-v3.10.5) - 2026-07-13
 
 ### Fixed
