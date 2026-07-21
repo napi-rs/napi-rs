@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.2.3...napi-sys-v3.3.0) - 2026-07-21
+
+### Added
+
+- unforgeable `#[napi]` class identity via Node object type tags ([#3405](https://github.com/napi-rs/napi-rs/pull/3405))
+
 ## [3.2.3](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.2.2...napi-sys-v3.2.3) - 2026-07-12
 
 ### Fixed

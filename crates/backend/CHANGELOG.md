@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.2...napi-derive-backend-v6.0.0) - 2026-07-21
+
+### Added
+
+- unforgeable `#[napi]` class identity via Node object type tags ([#3405](https://github.com/napi-rs/napi-rs/pull/3405))
+
+### Other
+
+- *(napi)* share tracing callsite ([#3409](https://github.com/napi-rs/napi-rs/pull/3409))
+
 ## [5.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.1...napi-derive-backend-v5.1.2) - 2026-07-12
 
 ### Fixed
