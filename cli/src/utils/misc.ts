@@ -116,7 +116,7 @@ interface ReconciliationReclaimOwner {
 }
 
 interface ReconciliationLockState {
-  lockStats: Stats
+  lockStats: BigIntStats
   ownerContent?: string
   owner?: ReconciliationLockOwner
   stale: boolean
@@ -126,7 +126,7 @@ interface ReconciliationLockState {
 interface ReconciliationReclaimState {
   owner: ReconciliationReclaimOwner
   ownerContent: string
-  reclaimStats: Stats
+  reclaimStats: BigIntStats
   stale: boolean
   unverifiableReason?: string
 }
@@ -137,7 +137,7 @@ type ReconciliationMetadataOwner =
 interface ReconciliationCandidateState {
   owner: ReconciliationMetadataOwner
   ownerContent: string
-  stats: Stats
+  stats: BigIntStats
   stale: boolean
   unverifiableReason?: string
 }
@@ -166,11 +166,14 @@ interface ReconciliationLockDeadline {
 
 interface ReconciliationLockIdentity {
   anchorPath: string
-  dev: number
-  ino: number
+  // 64-bit filesystem identifiers are captured from bigint stats so anchors
+  // whose dev/ino exceed Number.MAX_SAFE_INTEGER (Windows NTFS file IDs and
+  // volume serials) never collide with a distinct filesystem object.
+  dev: bigint
+  ino: bigint
   key: string
-  lockRootDev: number
-  lockRootIno: number
+  lockRootDev: bigint
+  lockRootIno: bigint
   lockRootPath: string
   reportTopologyChange: boolean
   requestedPath: string
@@ -1409,8 +1412,7 @@ async function pathsReferToSameDirectoryEntry(
   if (
     !leftStats.isFile() ||
     !rightStats.isFile() ||
-    leftStats.dev !== rightStats.dev ||
-    leftStats.ino !== rightStats.ino
+    !statIdentitiesMatch(leftStats, rightStats)
   ) {
     return false
   }
@@ -1454,6 +1456,26 @@ async function lstatIfExists(path: string, options?: { bigint: true }) {
   }
 }
 
+/**
+ * Exact 64-bit dev/ino identity equality between two bigint stat observations.
+ * Every ownership or continuity decision in the reconciliation and transaction
+ * subsystems must compare identity through this helper (or on the decimal
+ * strings derived from a bigint stat), never on the lossy Number
+ * `Stats.dev`/`Stats.ino` fields: Windows NTFS file IDs and volume serials
+ * exceed Number.MAX_SAFE_INTEGER, so two distinct filesystem objects can
+ * collapse onto the same JS double and defeat the check.
+ */
+export function statIdentitiesMatch(
+  expected: Pick<BigIntStats, 'dev' | 'ino'>,
+  current: Pick<BigIntStats, 'dev' | 'ino'> | undefined,
+): boolean {
+  return (
+    current !== undefined &&
+    expected.dev === current.dev &&
+    expected.ino === current.ino
+  )
+}
+
 async function readReconciliationMetadata(path: string, label: string) {
   let handle
   try {
@@ -1469,7 +1491,9 @@ async function readReconciliationMetadata(path: string, label: string) {
   }
 
   try {
-    const stats = await handle.stat()
+    // Capture 64-bit dev/ino so every downstream ownership comparison on this
+    // metadata is exact even past Number.MAX_SAFE_INTEGER.
+    const stats = await handle.stat({ bigint: true })
     if (!stats.isFile()) {
       throw reconciliationPathCollisionError(
         path,
@@ -1531,9 +1555,9 @@ async function resolveReconciliationLockIdentities(
 ): Promise<ReconciliationLockIdentity[]> {
   const requestedPath = resolve(path)
   const anchorPath = await canonicalizeReconciliationPath(path)
-  let anchorStats: Stats
+  let anchorStats: BigIntStats
   try {
-    anchorStats = await lstat(anchorPath)
+    anchorStats = await lstat(anchorPath, { bigint: true })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw reconciliationAnchorError(anchorPath, 'does not exist', 'ENOENT')
@@ -1565,7 +1589,7 @@ async function resolveReconciliationLockIdentities(
   const pathIdentities = await Promise.all(
     [...guardKeys].map(async (key) => {
       const lockRootPath = await realpath(dirname(key))
-      const lockRootStats = await lstat(lockRootPath)
+      const lockRootStats = await lstat(lockRootPath, { bigint: true })
       if (!lockRootStats.isDirectory()) {
         throw reconciliationPathCollisionError(
           lockRootPath,
@@ -1586,9 +1610,9 @@ async function resolveReconciliationLockIdentities(
     }),
   )
   const anchorParentPath = await realpath(dirname(anchorPath))
-  const anchorParentStats = await lstat(anchorParentPath)
+  const anchorParentStats = await lstat(anchorParentPath, { bigint: true })
   const anchorParentIsShared =
-    (anchorParentStats.mode & 0o1000) === 0 &&
+    (anchorParentStats.mode & 0o1000n) === 0n &&
     (await directoryIsWritable(anchorParentPath))
   const objectLockRootPath = anchorParentIsShared
     ? anchorParentPath
@@ -1643,11 +1667,10 @@ async function assertReconciliationRequestedPathUnchanged(
       'ESTALE',
     )
   }
-  const currentStats = await lstatIfExists(currentPath)
+  const currentStats = await lstatIfExists(currentPath, { bigint: true })
   if (
     !currentStats?.isDirectory() ||
-    currentStats.dev !== identity.dev ||
-    currentStats.ino !== identity.ino
+    !statIdentitiesMatch(identity, currentStats)
   ) {
     throw reconciliationAnchorError(
       identity.requestedPath,
@@ -1660,9 +1683,9 @@ async function assertReconciliationRequestedPathUnchanged(
 async function assertReconciliationAnchorUnchanged(
   identity: ReconciliationLockIdentity,
 ) {
-  let anchorStats: Stats
+  let anchorStats: BigIntStats
   try {
-    anchorStats = await lstat(identity.anchorPath)
+    anchorStats = await lstat(identity.anchorPath, { bigint: true })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw reconciliationAnchorError(
@@ -1675,8 +1698,7 @@ async function assertReconciliationAnchorUnchanged(
   }
   if (
     !anchorStats.isDirectory() ||
-    anchorStats.dev !== identity.dev ||
-    anchorStats.ino !== identity.ino
+    !statIdentitiesMatch(identity, anchorStats)
   ) {
     throw reconciliationAnchorError(
       identity.anchorPath,
@@ -1689,11 +1711,15 @@ async function assertReconciliationAnchorUnchanged(
 async function assertReconciliationLockRootUnchanged(
   identity: ReconciliationLockIdentity,
 ) {
-  const lockRootStats = await lstatIfExists(identity.lockRootPath)
+  const lockRootStats = await lstatIfExists(identity.lockRootPath, {
+    bigint: true,
+  })
   if (
     !lockRootStats?.isDirectory() ||
-    lockRootStats.dev !== identity.lockRootDev ||
-    lockRootStats.ino !== identity.lockRootIno
+    !statIdentitiesMatch(
+      { dev: identity.lockRootDev, ino: identity.lockRootIno },
+      lockRootStats,
+    )
   ) {
     throw reconciliationAnchorError(
       identity.lockRootPath,
@@ -1801,7 +1827,7 @@ async function acquireReconciliationLock(
       token,
       version: reconciliationStateVersion,
     }
-    let lockStats: Stats
+    let lockStats: BigIntStats
     try {
       lockStats = await createExclusiveReconciliationMetadata(
         identity,
@@ -1885,7 +1911,7 @@ async function createExclusiveReconciliationMetadata(
     }
     throw error
   }
-  const createdStats = await handle.stat()
+  const createdStats = await handle.stat({ bigint: true })
   let published = false
   try {
     if (process.platform !== 'win32') {
@@ -1958,7 +1984,7 @@ async function createExclusiveReconciliationMetadata(
 async function cleanupFailedReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   try {
@@ -2022,7 +2048,7 @@ async function cleanupFailedReconciliationLock(
 function scheduleFailedReconciliationLockCleanup(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   const timer = scheduleTimeout(() => {
@@ -2065,7 +2091,7 @@ function scheduleFailedReconciliationLockCleanup(
 async function retryFailedReconciliationLockCleanup(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   await assertReconciliationLockRootUnchanged(identity)
@@ -2092,7 +2118,7 @@ function isReconciliationAnchorChangedError(error: unknown) {
 function maintainReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ) {
   const { key } = identity
@@ -2170,7 +2196,7 @@ function maintainReconciliationLock(
 async function removeOwnedReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  lockStats: Stats,
+  lockStats: BigIntStats,
   token: string,
 ): Promise<'blocked' | 'not-owned' | 'removed'> {
   await assertReconciliationLockRootUnchanged(identity)
@@ -2223,15 +2249,12 @@ async function removeOwnedReconciliationLock(
 async function reconciliationLockIsOwnedBy(
   identity: ReconciliationLockIdentity,
   lockPath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   token: string,
 ) {
   try {
     const metadata = await readReconciliationMetadata(lockPath, 'lock-state')
-    if (
-      metadata.stats.dev !== expectedStats.dev ||
-      metadata.stats.ino !== expectedStats.ino
-    ) {
+    if (!statIdentitiesMatch(expectedStats, metadata.stats)) {
       return false
     }
     const owner = JSON.parse(metadata.content) as ReconciliationLockOwner
@@ -2383,7 +2406,7 @@ async function tryReclaimStaleReconciliationLock(
     token,
     version: reconciliationStateVersion,
   }
-  let reclaimStats: Stats
+  let reclaimStats: BigIntStats
   try {
     reclaimStats = await createExclusiveReconciliationMetadata(
       identity,
@@ -2514,8 +2537,7 @@ function reconciliationLockStatesMatch(
   current: ReconciliationLockState,
 ) {
   return (
-    expected.lockStats.dev === current.lockStats.dev &&
-    expected.lockStats.ino === current.lockStats.ino &&
+    statIdentitiesMatch(expected.lockStats, current.lockStats) &&
     expected.ownerContent === current.ownerContent
   )
 }
@@ -2596,8 +2618,7 @@ async function waitForUnverifiableReconciliationReclaim(
     const observed = await inspectReconciliationReclaim(identity)
     if (
       !observed ||
-      observed.reclaimStats.dev !== expected.reclaimStats.dev ||
-      observed.reclaimStats.ino !== expected.reclaimStats.ino ||
+      !statIdentitiesMatch(expected.reclaimStats, observed.reclaimStats) ||
       observed.ownerContent !== expected.ownerContent ||
       !observed.unverifiableReason
     ) {
@@ -2615,7 +2636,7 @@ async function waitForUnverifiableReconciliationReclaim(
 async function reconciliationReclaimIsOwnedBy(
   identity: ReconciliationLockIdentity,
   reclaimPath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   token: string,
 ) {
   try {
@@ -2623,10 +2644,7 @@ async function reconciliationReclaimIsOwnedBy(
       reclaimPath,
       'reclaim-state',
     )
-    if (
-      metadata.stats.dev !== expectedStats.dev ||
-      metadata.stats.ino !== expectedStats.ino
-    ) {
+    if (!statIdentitiesMatch(expectedStats, metadata.stats)) {
       return false
     }
     const owner = JSON.parse(metadata.content) as ReconciliationReclaimOwner
@@ -2718,8 +2736,10 @@ async function removeStaleReconciliationReclaim(
   if (
     !currentState ||
     !currentState.stale ||
-    expectedState.reclaimStats.dev !== currentState.reclaimStats.dev ||
-    expectedState.reclaimStats.ino !== currentState.reclaimStats.ino ||
+    !statIdentitiesMatch(
+      expectedState.reclaimStats,
+      currentState.reclaimStats,
+    ) ||
     expectedState.ownerContent !== currentState.ownerContent
   ) {
     return false
@@ -2805,8 +2825,7 @@ async function removeStaleReconciliationCandidates(
     )
     if (
       !currentState?.stale ||
-      expectedState.stats.dev !== currentState.stats.dev ||
-      expectedState.stats.ino !== currentState.stats.ino ||
+      !statIdentitiesMatch(expectedState.stats, currentState.stats) ||
       expectedState.ownerContent !== currentState.ownerContent
     ) {
       continue
@@ -2864,7 +2883,7 @@ async function inspectReconciliationCandidate(
 async function removeReconciliationCandidateIfMatches(
   identity: ReconciliationLockIdentity,
   candidatePath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
 ) {
   await retireReconciliationPathIfMatches(
     identity,
@@ -2876,7 +2895,7 @@ async function removeReconciliationCandidateIfMatches(
 async function removeReconciliationCandidateBestEffort(
   identity: ReconciliationLockIdentity,
   candidatePath: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
 ) {
   try {
     await removeReconciliationCandidateIfMatches(
@@ -2893,19 +2912,21 @@ async function removeReconciliationCandidateBestEffort(
   }
 }
 
-async function reconciliationPathMatches(path: string, expectedStats: Stats) {
-  const currentStats = await lstatIfExists(path)
+async function reconciliationPathMatches(
+  path: string,
+  expectedStats: BigIntStats,
+) {
+  const currentStats = await lstatIfExists(path, { bigint: true })
   return (
     currentStats?.isFile() === true &&
-    currentStats.dev === expectedStats.dev &&
-    currentStats.ino === expectedStats.ino
+    statIdentitiesMatch(expectedStats, currentStats)
   )
 }
 
 async function retireReconciliationPathIfMatches(
   identity: ReconciliationLockIdentity,
   path: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
   validate?: (retiredPath: string) => Promise<boolean>,
 ) {
   await assertReconciliationLockRootUnchanged(identity)
@@ -2933,11 +2954,10 @@ async function retireReconciliationPathIfMatches(
     }
   }
 
-  const retiredStats = await lstatIfExists(retiredPath)
+  const retiredStats = await lstatIfExists(retiredPath, { bigint: true })
   let valid =
     retiredStats?.isFile() === true &&
-    retiredStats.dev === expectedStats.dev &&
-    retiredStats.ino === expectedStats.ino
+    statIdentitiesMatch(expectedStats, retiredStats)
   if (valid && validate !== undefined) {
     try {
       valid = await validate(retiredPath)
@@ -3009,7 +3029,7 @@ async function unlinkReconciliationPathWithRetry(path: string) {
 function scheduleRetiredReconciliationPathCleanup(
   identity: ReconciliationLockIdentity,
   path: string,
-  expectedStats: Stats,
+  expectedStats: BigIntStats,
 ) {
   const timer = scheduleTimeout(() => {
     void (async () => {
@@ -3967,7 +3987,7 @@ export function snapshotLeftoverIsTransactionOwned(
  *   pathname and unlinks only when it still resolves to the exact owned inode.
  */
 export function failedSnapshotLeftoverCleanupAction(
-  destinationStats: Stats | undefined,
+  destinationStats: BigIntStats | undefined,
   destinationIdentity: FileSystemTransactionFileIdentity | undefined,
 ): 'unlink' | 'preserve' | 'verify-identity' {
   if (destinationStats === undefined) {
@@ -3991,28 +4011,22 @@ async function snapshotFileSystemTransactionInput(
     identity: FileSystemTransactionFileIdentity,
   ) => Promise<void>,
 ): Promise<FileSystemTransactionJournalFileState> {
-  const initialPathStats = await lstatIfExists(source)
+  // All stats in this flow are bigint so every path-vs-handle continuity check
+  // below compares exact 64-bit identity, never the lossy Number dev/ino: a
+  // Number-colliding external replacement (two distinct inodes past 2 ** 53
+  // sharing one double) must be detected as a conflict rather than silently
+  // adopted and snapshotted as if it were the expected file.
+  const initialPathStats = await lstatIfExists(source, { bigint: true })
   if (!initialPathStats?.isFile()) {
     throw new Error(
       `Filesystem transaction source is not a regular file: ${source}`,
     )
   }
-  if (expectedStats) {
-    // Compare exact 64-bit identity, never the lossy Number dev/ino: a
-    // Number-colliding external replacement of the source (two distinct inodes
-    // past 2 ** 53 sharing one double) must be detected as a conflict rather than
-    // silently adopted and snapshotted as if it were the expected file.
-    const sourceIdentityStats = await lstatIfExists(source, { bigint: true })
-    if (
-      sourceIdentityStats?.isFile() !== true ||
-      sourceIdentityStats.dev !== expectedStats.dev ||
-      sourceIdentityStats.ino !== expectedStats.ino
-    ) {
-      throw fileSystemTransactionConflictError(
-        source,
-        'changed before it could be snapshotted',
-      )
-    }
+  if (expectedStats && !statIdentitiesMatch(expectedStats, initialPathStats)) {
+    throw fileSystemTransactionConflictError(
+      source,
+      'changed before it could be snapshotted',
+    )
   }
   let sourceHandle
   try {
@@ -4027,37 +4041,28 @@ async function snapshotFileSystemTransactionInput(
     )
   }
   try {
-    const sourceStats = await sourceHandle.stat()
+    const sourceStats = await sourceHandle.stat({ bigint: true })
     if (
       !sourceStats.isFile() ||
-      sourceStats.dev !== initialPathStats.dev ||
-      sourceStats.ino !== initialPathStats.ino
+      !statIdentitiesMatch(initialPathStats, sourceStats)
     ) {
       throw new Error(
         `Filesystem transaction source changed while it was opened: ${source}`,
       )
     }
-    if (expectedStats) {
-      // Re-bind the exact 64-bit identity to the descriptor we just opened. The
-      // pre-open preflight validated the pathname, but `open` pins whatever inode
-      // is at the path *now*; a Number-colliding successor swapped into the
-      // pre-open window would still pass the lossy Number gate above (two distinct
-      // inodes past 2 ** 53 share one JS double). Compare the pinned fd's exact
-      // bigint dev/ino against the caller's expected identity so such a swap is
-      // raised as a conflict instead of being snapshotted and recorded as the
-      // original.
-      const openedIdentityStats = await sourceHandle.stat({ bigint: true })
-      if (
-        openedIdentityStats.dev !== expectedStats.dev ||
-        openedIdentityStats.ino !== expectedStats.ino
-      ) {
-        throw fileSystemTransactionConflictError(
-          source,
-          'changed before it could be snapshotted',
-        )
-      }
+    // `open` pins whatever inode is at the path *now*; a successor swapped into
+    // the pre-open window must be raised as a conflict instead of being
+    // snapshotted and recorded as the original. `sourceStats` is the pinned
+    // descriptor's exact 64-bit identity, so this gate cannot be defeated by a
+    // Number-colliding successor (two distinct inodes past 2 ** 53 share one JS
+    // double).
+    if (expectedStats && !statIdentitiesMatch(expectedStats, sourceStats)) {
+      throw fileSystemTransactionConflictError(
+        source,
+        'changed before it could be snapshotted',
+      )
     }
-    const finalMode = mode ?? sourceStats.mode & 0o7777
+    const finalMode = mode ?? Number(sourceStats.mode & 0o7777n)
     if (createDestinationParent) {
       await mkdir(dirname(destination), { recursive: true })
     }
@@ -4071,34 +4076,32 @@ async function snapshotFileSystemTransactionInput(
         error,
       )
     }
-    let destinationStats: Stats | undefined
+    let destinationStats: BigIntStats | undefined
     let destinationIdentity: FileSystemTransactionFileIdentity | undefined
     let committed = false
     try {
-      destinationStats = await destinationHandle.stat()
+      destinationStats = await destinationHandle.stat({ bigint: true })
       if (!destinationStats.isFile()) {
         throw new Error(
           `Filesystem transaction snapshot is not a regular file: ${destination}`,
         )
       }
-      // Capture the exact 64-bit identity of the transaction-owned inode from the
-      // open handle once. The open descriptor pins the inode, so this is the
+      // The exact 64-bit identity of the transaction-owned inode, captured from
+      // the open handle. The open descriptor pins the inode, so this is the
       // authoritative identity both for the recorded journal entry and for the
       // failed-snapshot cleanup guard that must not unlink a colliding successor.
-      const destinationIdentityStats = await destinationHandle.stat({
-        bigint: true,
-      })
       destinationIdentity = {
-        dev: String(destinationIdentityStats.dev),
-        ino: String(destinationIdentityStats.ino),
+        dev: String(destinationStats.dev),
+        ino: String(destinationStats.ino),
       }
       await assertDestinationParentUnchanged?.()
       if (recordDestinationIdentity) {
-        const destinationPathStats = await lstatIfExists(destination)
+        const destinationPathStats = await lstatIfExists(destination, {
+          bigint: true,
+        })
         if (
           destinationPathStats?.isFile() !== true ||
-          destinationPathStats.dev !== destinationStats.dev ||
-          destinationPathStats.ino !== destinationStats.ino
+          !statIdentitiesMatch(destinationStats, destinationPathStats)
         ) {
           throw new Error(
             `Filesystem transaction snapshot path changed before its identity was recorded: ${destination}`,
@@ -4133,20 +4136,18 @@ async function snapshotFileSystemTransactionInput(
         position += bytesRead
       }
       const [finalSourceStats, finalPathStats] = await Promise.all([
-        sourceHandle.stat(),
-        lstatIfExists(source),
+        sourceHandle.stat({ bigint: true }),
+        lstatIfExists(source, { bigint: true }),
       ])
       if (
-        finalSourceStats.dev !== sourceStats.dev ||
-        finalSourceStats.ino !== sourceStats.ino ||
+        !statIdentitiesMatch(sourceStats, finalSourceStats) ||
         finalSourceStats.size !== sourceStats.size ||
-        finalSourceStats.size !== position ||
+        finalSourceStats.size !== BigInt(position) ||
         finalSourceStats.mode !== sourceStats.mode ||
-        finalSourceStats.mtimeMs !== sourceStats.mtimeMs ||
-        finalSourceStats.ctimeMs !== sourceStats.ctimeMs ||
+        finalSourceStats.mtimeNs !== sourceStats.mtimeNs ||
+        finalSourceStats.ctimeNs !== sourceStats.ctimeNs ||
         finalPathStats?.isFile() !== true ||
-        finalPathStats.dev !== sourceStats.dev ||
-        finalPathStats.ino !== sourceStats.ino
+        !statIdentitiesMatch(sourceStats, finalPathStats)
       ) {
         throw new Error(
           `Filesystem transaction source changed while it was snapshotted: ${source}`,
@@ -4154,22 +4155,24 @@ async function snapshotFileSystemTransactionInput(
       }
       await applyFileSystemTransactionMode(destinationHandle, destinationMode)
       await destinationHandle.sync()
-      const finalDestinationStats = await destinationHandle.stat()
+      const finalDestinationStats = await destinationHandle.stat({
+        bigint: true,
+      })
       if (
         !finalDestinationStats.isFile() ||
-        finalDestinationStats.dev !== destinationStats.dev ||
-        finalDestinationStats.ino !== destinationStats.ino
+        !statIdentitiesMatch(destinationStats, finalDestinationStats)
       ) {
         throw new Error(
           `Filesystem transaction snapshot changed while it was written: ${destination}`,
         )
       }
       await assertDestinationParentUnchanged?.()
-      const finalDestinationPathStats = await lstatIfExists(destination)
+      const finalDestinationPathStats = await lstatIfExists(destination, {
+        bigint: true,
+      })
       if (
         finalDestinationPathStats?.isFile() !== true ||
-        finalDestinationPathStats.dev !== destinationStats.dev ||
-        finalDestinationPathStats.ino !== destinationStats.ino
+        !statIdentitiesMatch(destinationStats, finalDestinationPathStats)
       ) {
         throw new Error(
           `Filesystem transaction snapshot path changed while it was written: ${destination}`,
@@ -4388,7 +4391,7 @@ async function openFileSystemTransactionIdentity(
   path: string,
   mode?: number,
 ): Promise<OpenFileSystemTransactionIdentity> {
-  const pathStats = await lstat(path)
+  const pathStats = await lstat(path, { bigint: true })
   if (!pathStats.isFile()) {
     throw new Error(
       `Filesystem transaction path is not a regular file: ${path}`,
@@ -4404,16 +4407,11 @@ async function openFileSystemTransactionIdentity(
     )
   }
   try {
-    const stats = await handle.stat()
-    // Capture 64-bit dev/ino from a bigint stat of the same open handle so the
-    // recorded identity is exact even when it exceeds Number.MAX_SAFE_INTEGER.
-    // The open descriptor pins the inode, so this matches the verified `stats`.
-    const identityStats = await handle.stat({ bigint: true })
-    if (
-      !stats.isFile() ||
-      stats.dev !== pathStats.dev ||
-      stats.ino !== pathStats.ino
-    ) {
+    // 64-bit dev/ino from a bigint stat of the open handle: the recorded
+    // identity and every continuity comparison below are exact even when the
+    // identifiers exceed Number.MAX_SAFE_INTEGER.
+    const stats = await handle.stat({ bigint: true })
+    if (!stats.isFile() || !statIdentitiesMatch(pathStats, stats)) {
       throw new Error(
         `Filesystem transaction path changed while it was opened: ${path}`,
       )
@@ -4435,20 +4433,18 @@ async function openFileSystemTransactionIdentity(
       position += bytesRead
     }
     const [finalStats, finalPathStats] = await Promise.all([
-      handle.stat(),
-      lstatIfExists(path),
+      handle.stat({ bigint: true }),
+      lstatIfExists(path, { bigint: true }),
     ])
     if (
-      finalStats.dev !== stats.dev ||
-      finalStats.ino !== stats.ino ||
+      !statIdentitiesMatch(stats, finalStats) ||
       finalStats.size !== stats.size ||
-      finalStats.size !== position ||
+      finalStats.size !== BigInt(position) ||
       finalStats.mode !== stats.mode ||
-      finalStats.mtimeMs !== stats.mtimeMs ||
-      finalStats.ctimeMs !== stats.ctimeMs ||
+      finalStats.mtimeNs !== stats.mtimeNs ||
+      finalStats.ctimeNs !== stats.ctimeNs ||
       finalPathStats?.isFile() !== true ||
-      finalPathStats.dev !== stats.dev ||
-      finalPathStats.ino !== stats.ino
+      !statIdentitiesMatch(stats, finalPathStats)
     ) {
       throw new Error(
         `Filesystem transaction file changed while it was read: ${path}`,
@@ -4457,10 +4453,10 @@ async function openFileSystemTransactionIdentity(
     return {
       handle,
       state: {
-        dev: String(identityStats.dev),
+        dev: String(stats.dev),
         hash: hash.digest('hex'),
-        ino: String(identityStats.ino),
-        mode: mode ?? stats.mode & 0o7777,
+        ino: String(stats.ino),
+        mode: mode ?? Number(stats.mode & 0o7777n),
       },
     }
   } catch (error) {
@@ -5827,8 +5823,7 @@ export function fileSystemTransactionStateMatches(
   return (
     right?.isDirectory() === true &&
     !right.isSymbolicLink() &&
-    String(left.dev) === String(right.dev) &&
-    String(left.ino) === String(right.ino)
+    statIdentitiesMatch(left, right)
   )
 }
 
