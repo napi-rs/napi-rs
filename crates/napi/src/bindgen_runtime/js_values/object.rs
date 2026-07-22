@@ -746,7 +746,7 @@ pub unsafe fn set_named_property_raw(
 }
 
 #[doc(hidden)]
-#[inline(never)]
+#[inline]
 pub unsafe fn from_raw_required_field<T>(
   env: sys::napi_env,
   raw: Option<sys::napi_value>,
@@ -770,7 +770,7 @@ where
 }
 
 #[doc(hidden)]
-#[inline(never)]
+#[inline]
 pub unsafe fn from_raw_optional_field<T>(
   env: sys::napi_env,
   raw: Option<sys::napi_value>,
