@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.0.0...napi-derive-backend-v6.1.0) - 2026-07-23
+
+### Added
+
+- *(cli)* support non-threaded WASI targets ([#3353](https://github.com/napi-rs/napi-rs/pull/3353))
+
 ## [6.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.2...napi-derive-backend-v6.0.0) - 2026-07-21
 
 ### Added
