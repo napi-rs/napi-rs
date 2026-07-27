@@ -17,6 +17,7 @@ use std::{
   time::{Duration, Instant},
 };
 
+use arc_swap::ArcSwapOption;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
@@ -28,6 +29,8 @@ use futures::{
   future::{AbortHandle, AbortRegistration, Abortable},
 };
 
+#[cfg(not(target_family = "wasm"))]
+use crossbeam_deque::{Injector, Steal};
 #[cfg(not(target_family = "wasm"))]
 use futures::channel::oneshot;
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -68,6 +71,21 @@ pub struct RuntimeOptions {
   /// threadless-wasm CERTAIN deadlock check is independent of this knob and
   /// always on.
   pub park_deadline: Option<Duration>,
+  /// MultiThread drainer idle-linger budget (see `MultiThreadExecutor::drain`):
+  /// after running the runnable/blocking queues empty a drainer parks on its
+  /// own parker for up to this long before returning its thread to rayon, so
+  /// a wave landing within the budget resumes it with one targeted wake
+  /// instead of a `spawn_fifo` respawn through rayon's idle protocol.
+  /// `Duration::ZERO` disables lingering (legacy exit-and-respawn on every
+  /// empty queue). Validation clamps the budget to
+  /// [`MAX_DRAIN_LINGER_MICROS`]: a linger occupies a pool worker and an
+  /// `active_drainers` slot while idle, so an unbounded value would pin
+  /// workers indefinitely. As with `park_deadline`, the runtime itself never
+  /// reads the environment; the embedder resolves its configuration
+  /// (conventionally [`DRAIN_LINGER_ENV`], which the napi adapter's `install`
+  /// resolves for hosts that use it) into this field at addon load. Ignored
+  /// by the CurrentThread flavor, which has no pool drainers.
+  pub drain_linger: Duration,
 }
 
 /// A partial update to the runtime options exposed by the binding.
@@ -81,6 +99,9 @@ pub struct RuntimeOptionsPatch {
   pub flavor: Option<RuntimeFlavor>,
   pub worker_threads: Option<usize>,
   pub max_blocking_tasks: Option<usize>,
+  /// `Some(Duration::ZERO)` disables lingering; other values are clamped to
+  /// [`MAX_DRAIN_LINGER_MICROS`] by validation.
+  pub drain_linger: Option<Duration>,
 }
 
 impl RuntimeOptionsPatch {
@@ -93,6 +114,9 @@ impl RuntimeOptionsPatch {
     }
     if let Some(max_blocking_tasks) = self.max_blocking_tasks {
       options.max_blocking_tasks = max_blocking_tasks;
+    }
+    if let Some(drain_linger) = self.drain_linger {
+      options.drain_linger = drain_linger;
     }
   }
 }
@@ -112,6 +136,7 @@ impl Default for RuntimeOptions {
       max_blocking_tasks: worker_threads,
       thread_name_prefix: "napi-async-runtime".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
   }
 }
@@ -139,6 +164,13 @@ impl RuntimeOptions {
         "max_blocking_tasks must be greater than zero".to_string(),
       ));
     }
+    // A lingering drainer occupies a pool worker and an `active_drainers`
+    // slot while idle, so an unbounded budget (e.g. an env typo resolving to
+    // u64::MAX microseconds) would pin workers indefinitely and wedge every
+    // idle-wait. Clamp instead of erroring: like the thread-count clamps
+    // below, an out-of-range value is a tuning excess, not a topology error.
+    // ZERO passes through unchanged and means "lingering disabled".
+    self.drain_linger = self.drain_linger.min(MAX_DRAIN_LINGER);
     if self.flavor == RuntimeFlavor::CurrentThread {
       self.worker_threads = 1;
       self.max_blocking_tasks = 1;
@@ -180,6 +212,71 @@ impl RuntimeOptions {
 /// [`RuntimeOptions::park_deadline`]. The name is the conventional default;
 /// hosts may resolve their own variable into the same field.
 pub const PARK_DEADLINE_ENV: &str = "NAPI_RUNTIME_PARK_DEADLINE_MS";
+
+/// Environment variable overriding the MultiThread drainer idle-linger budget
+/// in MICROSECONDS ([`RuntimeOptions::drain_linger`], consumed by
+/// `MultiThreadExecutor::drain`). After a drainer runs the runnable/blocking
+/// queues empty it parks on its own [`DriverParker`] (registered with
+/// `parked_drivers`) for up to this long before returning its thread to
+/// rayon. A wave of work arriving within the budget is resumed by ONE
+/// targeted condvar wake instead of a `spawn_fifo` respawn through rayon's
+/// idle protocol -- whose per-transition cost (a wake cascade plus 33
+/// `sched_yield` rounds and a full steal sweep on EVERY worker that was
+/// woken) is what makes system CPU scale with the worker count under
+/// wave-shaped loads. `0` disables lingering (legacy exit-and-respawn on
+/// every empty queue); values above [`MAX_DRAIN_LINGER_MICROS`] are clamped.
+/// A frame's TOTAL lingering residence is additionally capped at
+/// [`DRAIN_LINGER_FRAME_FACTOR`] times this budget so periodic sub-budget
+/// work cannot pin a rayon worker inside one drain frame forever.
+///
+/// Like [`PARK_DEADLINE_ENV`], the runtime does NOT read this variable
+/// itself: it is resolved once at addon load into
+/// [`RuntimeOptions::drain_linger`] -- by the napi adapter's `install` (via
+/// `resolve_drain_linger`) for hosts that use it, while hosts owning their
+/// own env resolution may resolve their own variable into the same field. A
+/// present-but-non-numeric value keeps the host-provided field (which
+/// defaults to [`DEFAULT_DRAIN_LINGER_MICROS`]).
+pub const DRAIN_LINGER_ENV: &str = "NAPI_RUNTIME_DRAIN_LINGER_US";
+
+/// Default drainer idle-linger budget (µs): [`RuntimeOptions::drain_linger`]'s
+/// default, applied when no host configuration or [`DRAIN_LINGER_ENV`]
+/// override resolves a different value.
+pub const DEFAULT_DRAIN_LINGER_MICROS: u64 = 500;
+
+/// Ceiling on [`RuntimeOptions::drain_linger`] in MICROSECONDS (100ms).
+/// Validation (and, defensively, executor construction) clamps the budget
+/// here: lingering exists to bridge micro-scale gaps between scheduling
+/// waves, and a lingering drainer holds a pool worker plus an
+/// `active_drainers` slot while idle, so budgets beyond this bound stop
+/// tuning the wave optimization and start pinning workers.
+pub const MAX_DRAIN_LINGER_MICROS: u64 = 100_000;
+
+/// [`DEFAULT_DRAIN_LINGER_MICROS`] as a `Duration`.
+const DEFAULT_DRAIN_LINGER: Duration = Duration::from_micros(DEFAULT_DRAIN_LINGER_MICROS);
+
+/// [`MAX_DRAIN_LINGER_MICROS`] as a `Duration`.
+const MAX_DRAIN_LINGER: Duration = Duration::from_micros(MAX_DRAIN_LINGER_MICROS);
+
+/// Bound on a single drain frame's TOTAL lingering residence, as a multiple
+/// of the per-episode idle budget (default 16 x 500us = 8ms). The per-episode
+/// deadline alone does NOT bound how long a drain frame occupies its rayon
+/// worker: every executed work unit re-arms it, so periodic sub-budget work
+/// (e.g. a timer publishing one short task every <500us) would keep the frame
+/// resident FOREVER -- and a raw rayon job spawned onto the pool (which only
+/// a worker that returned to rayon's scheduler can run) would starve behind
+/// it indefinitely. Once cumulative residence past the frame's FIRST idle
+/// observation reaches this bound, the drainer exits through the unchanged
+/// `finish_draining` path even though more sub-budget work may be arriving;
+/// the exit-and-respawn through rayon's queue is exactly the interleaving
+/// point that lets pending raw rayon work (par_iter splits, `pool.spawn`
+/// jobs) take the worker before the re-armed FIFO drain.
+#[cfg(not(target_family = "wasm"))]
+const DRAIN_LINGER_FRAME_FACTOR: u32 = 16;
+
+/// Ceiling on the frame residence bound so an absurd [`DRAIN_LINGER_ENV`]
+/// value cannot arm a deadline beyond the platform's representable range.
+#[cfg(not(target_family = "wasm"))]
+const MAX_DRAIN_LINGER_FRAME_RESIDENCE: Duration = Duration::from_secs(60);
 
 /// True on builds where no second thread can EVER deliver a wake to a parked
 /// `block_on`: every wasm build except the threaded WASI target (i.e. the
@@ -1060,13 +1157,23 @@ struct TaskDependencyState {
   next_sequence: u64,
   unowned_sequences: VecDeque<u64>,
   owner_sequences: FxHashMap<BlockingOwnerToken, VecDeque<u64>>,
-  job_sequences: FxHashMap<BlockingJobId, FxHashSet<u64>>,
+  // NOTE: there is deliberately no `job_sequences` index. It used to be a
+  // `FxHashMap<BlockingJobId, FxHashSet<u64>>` costing TWO heap allocations
+  // per blocking dispatch (the map's table plus an inner set that almost
+  // always held exactly one sequence). Its only job was to let a dropped
+  // blocking `JoinHandle` find the entry it had published, and the handle can
+  // simply remember the `sequence` `append` gave it: `current` is positionally
+  // indexed by sequence via `entry_in`, so the handle retires its own entry in
+  // O(1) with no map, no hash, and no scan. `next_sequence` never rewinds, so
+  // a remembered sequence can never alias a later entry.
   waiter: Option<Waker>,
 }
 
 #[cfg(not(target_family = "wasm"))]
 impl TaskDependencyState {
-  fn append(&mut self, publication: DependencyPublication) {
+  /// Publish `publication` and return the sequence it was filed under, so the
+  /// publisher can retire exactly this entry later in O(1).
+  fn append(&mut self, publication: DependencyPublication) -> u64 {
     let sequence = self.next_sequence;
     self.next_sequence = self
       .next_sequence
@@ -1080,15 +1187,11 @@ impl TaskDependencyState {
         .push_back(sequence),
       None => self.unowned_sequences.push_back(sequence),
     }
-    self
-      .job_sequences
-      .entry(publication.dependency.job)
-      .or_default()
-      .insert(sequence);
     self.current.push_back(TaskDependencyEntry {
       sequence,
       publication,
     });
+    sequence
   }
 
   fn entry_in(
@@ -1134,18 +1237,11 @@ impl TaskDependencyState {
         }
       }
     }
-    if let Some(sequences) = self.job_sequences.get_mut(&dependency.job) {
-      sequences.remove(&sequence);
-      if sequences.is_empty() {
-        self.job_sequences.remove(&dependency.job);
-      }
-    }
   }
 
   fn clear_indexes(&mut self) {
     self.unowned_sequences.clear();
     self.owner_sequences.clear();
-    self.job_sequences.clear();
   }
 }
 
@@ -1223,22 +1319,30 @@ impl TaskDependency {
     self.notify_waiter(waiter);
   }
 
-  fn clear_if_dependency(&self, dependency: BlockingDependency) {
+  /// Retire the single entry filed under `sequence`, in O(1).
+  ///
+  /// This replaces a job-id lookup through a `job_sequences` index. `current`
+  /// is positionally indexed by sequence, so the publisher that remembers the
+  /// sequence `append` returned can cancel exactly its own entry without a
+  /// map and without a scan. `entry_in` re-checks `entry.sequence == sequence`
+  /// after the positional lookup and `next_sequence` never rewinds, so a
+  /// sequence whose entry has already been drained (`begin_poll`) or pruned
+  /// resolves to `None` rather than aliasing a later entry.
+  fn retire(&self, sequence: u64) {
     let waiter = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-      let mut removed = false;
-      if let Some(sequences) = state.job_sequences.remove(&dependency.job) {
-        for sequence in sequences {
-          if let Some(current) = state.entry_mut(sequence) {
-            current.publication.cancel();
-            removed = true;
-          }
+      let cancelled = match state.entry_mut(sequence) {
+        Some(current) => {
+          self.note_entry_visit();
+          current.publication.cancel();
+          true
         }
-      }
-      if removed {
+        None => false,
+      };
+      if cancelled {
         self.prune_stale_prefix(&mut state);
         state.waiter.take()
       } else {
@@ -1281,17 +1385,11 @@ impl TaskDependency {
             return None;
           }
           current.publication.cancel();
-          Some((current.sequence, current.publication.dependency.job))
+          Some(current.sequence)
         })
         .collect::<Vec<_>>();
-      for (sequence, job) in &removed {
-        if let Some(sequences) = state.job_sequences.get_mut(job) {
-          sequences.remove(sequence);
-          if sequences.is_empty() {
-            state.job_sequences.remove(job);
-          }
-        }
-      }
+      // No `job_sequences` index to maintain; the cancelled entries stay in
+      // `current` until `prune_stale_prefix` retires them, exactly as before.
       if removed.is_empty() {
         None
       } else {
@@ -1302,31 +1400,50 @@ impl TaskDependency {
     self.notify_waiter(waiter);
   }
 
-  fn set_owned(&self, dependency: BlockingDependency) {
+  /// Publish an owned dependency and return the sequence it was filed under,
+  /// so the caller can [`retire`](Self::retire) exactly this entry in O(1).
+  fn set_owned(&self, dependency: BlockingDependency) -> u64 {
     let publication = DependencyPublication::owned(BlockingDependency {
       owner: dependency.owner.or(self.owner_hint),
       ..dependency
     });
-    self.set_entry(publication);
+    self.set_entry(publication)
+  }
+
+  /// Whether `sequence` still resolves to a LIVE entry in this state.
+  ///
+  /// A publisher uses this to decide whether its earlier publication still
+  /// stands. `false` means the entry was drained by `begin_poll`, pruned, or
+  /// cancelled (by a lending claim, say), so a fresh publication is needed.
+  fn holds_live(&self, sequence: u64) -> bool {
+    let state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    TaskDependencyState::entry_in(&state.current, sequence).is_some_and(|entry| {
+      self.note_entry_visit();
+      entry.publication.is_live()
+    })
   }
 
   fn set_borrowed(&self, publication: &DependencyPublication) {
-    self.set_entry(publication.derived(self.owner_hint));
+    let _sequence = self.set_entry(publication.derived(self.owner_hint));
   }
 
-  fn set_entry(&self, publication: DependencyPublication) {
-    let waiter = {
+  fn set_entry(&self, publication: DependencyPublication) -> u64 {
+    let (sequence, waiter) = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       // Owned publications and propagated publications both create a fresh
       // local liveness link, so identity cannot already exist in this state.
-      state.append(publication);
+      let sequence = state.append(publication);
       self.has_current.store(true, Ordering::Release);
-      state.waiter.take()
+      (sequence, state.waiter.take())
     };
     self.notify_waiter(waiter);
+    sequence
   }
 
   fn note_entry_visit(&self) {
@@ -1665,8 +1782,184 @@ impl BlockOnDependencyGuard {
   }
 }
 
+/// A dependency this handle published, remembered well enough to retire it in
+/// O(1).
+///
+/// The sequence alone is not enough: sequences are allocated per
+/// `TaskDependency`, so applying one to a different state would cancel an
+/// unrelated entry. The state's identity therefore travels with it, as a
+/// `Weak` rather than a raw pointer so a freed state cannot be impersonated by
+/// a later allocation reusing its address -- a `Weak` keeps the allocation
+/// itself reserved, so the pointer stays unique even after the state is gone.
+///
+/// It is deliberately NOT a strong `Arc`: a handle can be polled under many
+/// frames over its life, and holding each one alive to remember it would retain
+/// one dead `TaskDependency`, with its deque and index maps, per frame the
+/// handle has ever seen.
 #[cfg(not(target_family = "wasm"))]
-fn record_blocking_dependency(dependency: BlockingDependency) {
+struct PublishedBlockingDependency {
+  state: Weak<TaskDependency>,
+  sequence: u64,
+}
+
+/// Every publication a blocking handle has made, one per dependency frame it
+/// has been polled under.
+///
+/// A handle publishes once per Pending poll into whichever frame is on top of
+/// `CURRENT_DEPENDENCY_STACK`. Re-polling under a frame it has already
+/// published into supersedes that frame's entry, so the common case is exactly
+/// one publication and `rest` never allocates.
+///
+/// Retiring EVERY publication is load-bearing. Dropping a blocking handle
+/// detaches rather than dequeues, so any entry left live keeps a job that
+/// nobody awaits selectable for owner-lane lending -- and `select_for_owner`
+/// picks the LOWEST live sequence, so a forgotten entry outranks dependencies
+/// published after it. Lending then runs the detached job inline in the owner's
+/// single lane, which deadlocks if that job waits on the dependency it
+/// displaced. The job-id index this replaces cancelled every entry for the job
+/// in the frame it was called on, so nothing was forgotten; a handle that
+/// remembered only its newest publication would forget both a repeat poll in
+/// one frame and a poll under a nested frame.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Default)]
+struct PublishedBlockingDependencies {
+  first: Option<PublishedBlockingDependency>,
+  rest: Vec<PublishedBlockingDependency>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl PublishedBlockingDependency {
+  /// Whether this publication is still worth remembering.
+  ///
+  /// A token stops standing when its frame is gone -- a dropped
+  /// `TaskDependency` already cancelled every entry it held -- or when the
+  /// frame no longer holds the entry as live, because its `begin_poll` drained
+  /// `current`, `prune_stale_prefix` retired it, or a lending claim took it.
+  ///
+  /// Absence from this thread's dependency stack deliberately does NOT count.
+  /// It would bound this list more tightly, but it is not sound: a `JoinHandle`
+  /// is `Send + Unpin`, so a safe adapter can serialise one behind a mutex and
+  /// poll it from several tasks, and then a frame parked on another thread can
+  /// still be awaiting a handle that is being polled here. Retiring on local
+  /// absence would take that frame's publication away while it still needs it
+  /// for owner-lane lending.
+  fn still_stands(&self) -> bool {
+    self
+      .state
+      .upgrade()
+      .is_some_and(|state| state.holds_live(self.sequence))
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl PublishedBlockingDependencies {
+  /// Forget publications whose frame is gone.
+  ///
+  /// A dropped `TaskDependency` cancels every entry it holds, so an expired
+  /// token has nothing left to retire. Discarding it here is what keeps this
+  /// list at the handle's currently-live frame count rather than the total
+  /// number of frames it has ever been polled under: without it, a pending
+  /// handle carried through a sequence of completed tasks would accumulate one
+  /// token per task and the lookup below would grow with it.
+  /// Forget publications that no longer stand.
+  ///
+  /// A token is obsolete once its frame is gone -- a dropped `TaskDependency`
+  /// cancels every entry it holds, so there is nothing left to retire -- or
+  /// once that frame no longer holds the entry, because its `begin_poll`
+  /// drained `current`. Dropping both kinds keeps this list at the handle's
+  /// currently-live frame count rather than the number of frames it has ever
+  /// been polled under.
+  ///
+  /// Testing the second condition costs a lock, so it is confined to the
+  /// multi-frame path: a handle polled under a single frame -- the
+  /// overwhelmingly common case -- reuses its one token and never reaches it.
+  /// Without that condition a handle carried through many tasks whose
+  /// `JoinHandle`s are still held would keep one token per task, since those
+  /// handles keep the states alive, and both this walk and detach would grow
+  /// with that count.
+  fn prune(&mut self) {
+    if self.rest.is_empty() {
+      if self
+        .first
+        .as_ref()
+        .is_some_and(|first| first.state.strong_count() == 0)
+      {
+        self.first = None;
+      }
+      return;
+    }
+    self.rest.retain(PublishedBlockingDependency::still_stands);
+    if self
+      .first
+      .as_ref()
+      .is_some_and(|first| !first.still_stands())
+    {
+      self.first = self.rest.pop();
+    }
+  }
+
+  fn publish(&mut self, state: Arc<TaskDependency>, dependency: BlockingDependency) {
+    self.prune();
+    let target = Arc::as_ptr(&state);
+    if let Some(existing) = self
+      .first
+      .iter_mut()
+      .chain(self.rest.iter_mut())
+      .find(|published| std::ptr::eq(published.state.as_ptr(), target))
+    {
+      // The entry this handle already published into this frame still says the
+      // frame depends on this job, so a repeat Pending poll must LEAVE IT
+      // ALONE. Publishing again would append at the tail, and
+      // `select_for_owner` picks the LOWEST live sequence, so re-polling a
+      // handle would push its own dependency behind ones published after it.
+      // In an H1 -> H2 -> H1 poll pass that reorders H1 behind H2, and if H2
+      // waits on H1 the owner lane lends H2 inline while H1 stays queued
+      // forever. Keeping the original sequence preserves the publication order
+      // the job index produced, and skips a `DependencyClaim`/`DependencyLink`
+      // pair per repeat poll.
+      if state.holds_live(existing.sequence) {
+        return;
+      }
+      // The entry was drained, pruned or claimed, so it no longer stands and
+      // this frame needs a fresh one. Reusing the token keeps the list at one
+      // entry per frame.
+      existing.sequence = state.set_owned(dependency);
+      return;
+    }
+    let sequence = state.set_owned(dependency);
+    let published = PublishedBlockingDependency {
+      state: Arc::downgrade(&state),
+      sequence,
+    };
+    match &mut self.first {
+      slot @ None => *slot = Some(published),
+      Some(_) => self.rest.push(published),
+    }
+  }
+
+  /// Retire every publication, each against the state it was filed in.
+  ///
+  /// This is exactly inverse to publication, so it can never cancel an entry
+  /// this handle did not create. It cannot strand a frame either: a frame is
+  /// only stranded if it is parked awaiting something, and it cannot be parked
+  /// awaiting a handle that is concurrently being dropped, because the handle
+  /// is owned by the future that frame is driving. A frame that has already
+  /// gone cancelled its entries in its own `Drop`, so an expired token is
+  /// simply skipped.
+  fn retire_all(self) {
+    for published in self.first.into_iter().chain(self.rest) {
+      if let Some(state) = published.state.upgrade() {
+        state.retire(published.sequence);
+      }
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn record_blocking_dependency(
+  published: &mut PublishedBlockingDependencies,
+  dependency: BlockingDependency,
+) {
   let current = CURRENT_DEPENDENCY_STACK.with(|stack| stack.borrow().last().cloned());
   if let Some(current) = current {
     let dependency = BlockingDependency {
@@ -1675,7 +1968,7 @@ fn record_blocking_dependency(dependency: BlockingDependency) {
         .or_else(|| BLOCKING_OWNER.with(std::cell::Cell::get)),
       ..dependency
     };
-    current.set_owned(dependency);
+    published.publish(current, dependency);
   }
 }
 
@@ -1690,11 +1983,11 @@ fn propagate_blocking_dependency(publication: DependencyPublication) {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn clear_blocking_dependency(dependency: BlockingDependency) {
-  let current = CURRENT_DEPENDENCY_STACK.with(|stack| stack.borrow().last().cloned());
-  if let Some(current) = current {
-    current.clear_if_dependency(dependency);
-  }
+fn clear_blocking_dependency(published: PublishedBlockingDependencies) {
+  // Retire against the states that were published to, NOT against whatever
+  // frame happens to be on top of the stack at drop time. The frame that
+  // published is the frame whose dependency graph is now wrong.
+  published.retire_all();
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1716,6 +2009,9 @@ enum JoinHandleInner<T> {
   Blocking {
     receiver: oneshot::Receiver<Result<ContainedTaskOutput<T>, JoinError>>,
     dependency: BlockingDependency,
+    /// Every dependency this handle has published, so detaching retires each
+    /// in O(1) instead of searching for them by job id.
+    published: PublishedBlockingDependencies,
   },
   Ready(Option<Result<ContainedTaskOutput<T>, JoinError>>),
 }
@@ -1750,7 +2046,8 @@ impl<T> JoinHandle<T> {
       #[cfg(not(target_family = "wasm"))]
       JoinHandleInner::Blocking {
         receiver,
-        dependency,
+        dependency: _,
+        published,
       } => {
         // A completed result may already be buffered in the receiver. Its
         // destructor is user code and must receive the same containment as an
@@ -1758,7 +2055,7 @@ impl<T> JoinHandle<T> {
         let _ = catch_unwind_contained(|| drop(receiver));
         // Notify only after receiver retirement, and keep that arbitrary waker
         // behind an independent unwind boundary.
-        let _ = catch_unwind_contained(|| clear_blocking_dependency(dependency));
+        let _ = catch_unwind_contained(|| clear_blocking_dependency(published));
       }
       JoinHandleInner::Ready(result) => {
         let _ = catch_unwind_contained(|| drop(result));
@@ -1824,10 +2121,11 @@ impl<T> Future for JoinHandle<T> {
       JoinHandleInner::Blocking {
         receiver,
         dependency,
+        published,
       } => {
         let poll = Pin::new(receiver).poll(cx);
         if poll.is_pending() {
-          record_blocking_dependency(*dependency);
+          record_blocking_dependency(published, *dependency);
         }
         match poll {
           Poll::Ready(Ok(result)) => Poll::Ready(result.map(ContainedTaskOutput::into_inner)),
@@ -3057,6 +3355,7 @@ impl CurrentThreadExecutor {
       return JoinHandle(JoinHandleInner::Blocking {
         receiver,
         dependency,
+        published: PublishedBlockingDependencies::default(),
       });
     }
 
@@ -4469,11 +4768,24 @@ struct MultiThreadExecutor {
   // executor can never authorize an over-cap escape on a replacement.
   id: u64,
   pool: ThreadPool,
-  queue: Mutex<VecDeque<Runnable>>,
+  // Lock-free MPMC injector replacing the former `Mutex<VecDeque<Runnable>>`.
+  // Invariant: every push goes through `push_to_queue_and_wake` and every
+  // emptiness check through `has_queued_runnable` -- their paired SeqCst fences
+  // restore the removed mutex's synchronizes-with edge (full lost-wakeup proof
+  // at `push_to_queue_and_wake`). A raw `injector.push`/`is_empty` at a new site
+  // silently breaks the pairing.
+  injector: Injector<Runnable>,
   blocking_queue: Mutex<BlockingQueue>,
   active_drainers: AtomicUsize,
   active_blocking: AtomicUsize,
-  scheduler_idle_lock: Mutex<()>,
+  // Guards the idle-waiter count. `finish_draining` runs once per drain batch
+  // -- i.e. per task whenever the drainer catches the producer -- and used to
+  // call `notify_all` unconditionally. On Linux `Condvar::notify_all` issues a
+  // `futex_wake_all` SYSCALL even with an empty waiter set, and the only waiter
+  // site in this crate (`wait_until_scheduler_idle`) is reachable only from
+  // shutdown/restart. Counting waiters under this same mutex lets the steady
+  // state skip the syscall entirely.
+  scheduler_idle_lock: Mutex<usize>,
   scheduler_idle: Condvar,
   worker_lifecycle: Arc<WorkerLifecycle>,
   // Registry of pool workers currently parked inside a re-entrant cooperative
@@ -4487,6 +4799,19 @@ struct MultiThreadExecutor {
   active_blocking_owners: ActiveBlockingOwners,
   #[cfg(test)]
   owner_lending_attempts: AtomicUsize,
+  // Linger-lifecycle observability for tests (see the idle-linger block in
+  // `drain`): counts every linger-parker REGISTRATION into `parked_drivers`
+  // and every idle-budget EXPIRY exit (the deadline-elapsed `break` paths,
+  // counted AFTER the parker is deregistered, so `expiries` rising implies
+  // the linger parker has permanently left the registry for that episode).
+  // Tests that must observe a lingering drainer's full register->expire
+  // lifecycle wait on these instead of sampling the non-monotonic registry
+  // count, which is transiently at its settled value BEFORE the linger
+  // parker registers.
+  #[cfg(test)]
+  drain_linger_registrations: AtomicUsize,
+  #[cfg(test)]
+  drain_linger_expiries: AtomicUsize,
   max_drainers: usize,
   max_blocking: usize,
   // Deadline-based deadlock detection for COOPERATIVE driver parks ONLY. The
@@ -4496,6 +4821,11 @@ struct MultiThreadExecutor {
   // configured via `RuntimeOptions::park_deadline` (the embedder resolves
   // `PARK_DEADLINE_ENV` into it).
   park_deadline: Option<Duration>,
+  // Idle-linger budget for pool drainers (`None` = disabled); resolved from
+  // `RuntimeOptions::drain_linger` (`ZERO` = disabled, embedder-resolved from
+  // `DRAIN_LINGER_ENV` at addon load) at construction and ceiling-clamped
+  // there so even direct unvalidated test constructions stay bounded.
+  drain_linger: Option<Duration>,
   // Shared with the timer heap because firing removes the timer before invoking
   // its waker. The admission remains active until that wake has published any
   // resulting runnable, so a final verdict cannot observe both sources empty.
@@ -4596,7 +4926,7 @@ impl MultiThreadExecutor {
       stop,
       id,
       pool,
-      queue: Mutex::new(VecDeque::new()),
+      injector: Injector::new(),
       blocking_queue: Mutex::new(BlockingQueue {
         closed: false,
         head: None,
@@ -4605,16 +4935,27 @@ impl MultiThreadExecutor {
       }),
       active_drainers: AtomicUsize::new(0),
       active_blocking: AtomicUsize::new(0),
-      scheduler_idle_lock: Mutex::new(()),
+      scheduler_idle_lock: Mutex::new(0),
       scheduler_idle: Condvar::new(),
       worker_lifecycle,
       parked_drivers: ParkedDrivers::default(),
       active_blocking_owners: ActiveBlockingOwners::default(),
       #[cfg(test)]
       owner_lending_attempts: AtomicUsize::new(0),
+      #[cfg(test)]
+      drain_linger_registrations: AtomicUsize::new(0),
+      #[cfg(test)]
+      drain_linger_expiries: AtomicUsize::new(0),
       max_drainers: pool_threads,
       max_blocking: options.max_blocking_tasks,
       park_deadline: options.park_deadline,
+      drain_linger: {
+        // Defensive re-clamp: production options were already clamped by
+        // `RuntimeOptions::validate`, but direct executor unit tests construct
+        // from unvalidated options.
+        let budget = options.drain_linger.min(MAX_DRAIN_LINGER);
+        (!budget.is_zero()).then_some(budget)
+      },
       deadlock_state,
       timers,
       metrics,
@@ -4714,11 +5055,16 @@ impl MultiThreadExecutor {
   /// displaced/flushed slot runnables, whose `runnable_scheduled` accounting
   /// already happened at their original schedule).
   fn push_to_queue_and_wake(self: &Arc<Self>, runnable: Runnable) {
-    self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .push_back(runnable);
+    self.injector.push(runnable);
+    // The former queue mutex provided the synchronizes-with edge the
+    // lost-wakeup proof depends on (see `wake_one`). With a lock-free injector
+    // that edge is gone, so restore it explicitly: a SeqCst fence between the
+    // push and BOTH wake mechanisms (`wake_one`'s SeqCst `count` load and
+    // `ensure_drainer`'s `active_drainers` load), mirrored by the SeqCst fence
+    // in `has_queued_runnable` before the waiter/drainer re-check. This is the
+    // Dekker ordering rayon-core's injector+sleep protocol uses; without both
+    // fences a worker can park next to stealable work.
+    std::sync::atomic::fence(Ordering::SeqCst);
     self.wake_for_new_work();
   }
 
@@ -4811,6 +5157,7 @@ impl MultiThreadExecutor {
     JoinHandle(JoinHandleInner::Blocking {
       receiver,
       dependency,
+      published: PublishedBlockingDependencies::default(),
     })
   }
 
@@ -4833,6 +5180,12 @@ impl MultiThreadExecutor {
   }
 
   fn drain(self: Arc<Self>) {
+    // LINGER GATE: captured BEFORE the guard installs the marker below. In
+    // production `drain` only ever runs via `pool.spawn_fifo`, i.e. on a pool
+    // worker whose start handler already set `ON_POOL_WORKER`, so lingering is
+    // active there; a direct test call from a foreign thread keeps the legacy
+    // return-when-empty shape.
+    let on_pool_worker = ON_POOL_WORKER.with(std::cell::Cell::get) == Some(self.id);
     // Mark this worker so a re-entrant `block_on` (reached from a polled task)
     // drives the queue cooperatively instead of parking the worker.
     let _on_pool = OnPoolWorkerGuard::enter(self.id);
@@ -4843,23 +5196,134 @@ impl MultiThreadExecutor {
     // wrappers are catch_unwind'd) but must not lose a task if they happen.
     let _slot_backstop = LifoSlotFlushGuard(&self);
 
-    let mut runnable_streak = 0usize;
-    for _ in 0..Self::RUNNABLE_BUDGET {
-      if self.run_one_fair(&mut runnable_streak) {
-        continue;
+    let linger_budget = self.drain_linger.filter(|_| on_pool_worker);
+    // Linger state (parker + generation-stop registration), created lazily on
+    // this frame's first idle episode and reused for the rest of the frame.
+    let mut linger: Option<DrainLinger> = None;
+    // Absolute exit deadline of the CURRENT idle episode, armed on the first
+    // empty observation after work ran. Spurious wakes (timer churn, a stolen
+    // queue wake) re-park with the REMAINING time rather than a fresh budget,
+    // so a lingering drainer occupies its pool slot for at most
+    // `linger_budget` past the last work unit it executed.
+    let mut idle_deadline: Option<Instant> = None;
+    // Absolute residence deadline of the WHOLE frame, armed on the frame's
+    // FIRST idle observation and -- unlike `idle_deadline` -- never reset by
+    // executed work. Without it, periodic sub-budget work re-arms the episode
+    // deadline forever and this frame never returns its rayon worker; see
+    // [`DRAIN_LINGER_FRAME_FACTOR`].
+    let mut frame_deadline: Option<Instant> = None;
+
+    'frame: loop {
+      let mut runnable_streak = 0usize;
+      for _ in 0..Self::RUNNABLE_BUDGET {
+        if self.run_one_fair(&mut runnable_streak) {
+          idle_deadline = None;
+          continue;
+        }
+        // Queue observed empty. MANDATORY flush before the shared exit AND
+        // before any park: slot work is invisible to other threads and to
+        // `finish_draining`'s re-check, so no path may leave this loop (or
+        // sleep) with an occupied slot. On this path the slot was observed
+        // empty at the top of the iteration and no user code ran since, so
+        // the flush is defensive -- kept unconditional so every exit upholds
+        // the stranding invariant by construction.
+        self.flush_lifo_slot();
+        // IDLE LINGER: instead of exiting and paying a full
+        // spawn_fifo/rayon-idle-protocol round trip on the NEXT wave, park on
+        // our own parker, registered in `parked_drivers` so
+        // `wake_for_new_work`/`wake_for_blocking_work` deliver ONE targeted
+        // wake. `active_drainers` stays counted for the whole linger: this
+        // frame is still a live drainer, so `ensure_drainer`'s cap and the
+        // idle-wait predicate keep their meaning.
+        //
+        // LOST-WAKEUP ARGUMENT (identical protocol to a cooperative driver's
+        // park): register FIRST (the registry `count` store), THEN re-check
+        // the shared queues (`has_queued_work_for_role`'s SeqCst fence pairs
+        // with `push_to_queue_and_wake`'s post-push fence), THEN park -- see
+        // [`ParkedDrivers::wake_one`]. On the timeout path, `wake_one` may
+        // have popped this parker (counting the wake as DELIVERED, so the
+        // producer spawned no drainer) while its `unpark` is still in flight:
+        // the pop precedes our `deregister` on the registry mutex, so the
+        // producer's push (made BEFORE its wake) is visible to the
+        // post-deregister permit/queue re-checks below, which then RESUME
+        // draining instead of exiting. Only a truly empty re-check falls
+        // through to `finish_draining`, whose own post-decrement re-check
+        // remains the existing final net for pushes racing the exit.
+        let Some(budget) = linger_budget else {
+          break 'frame;
+        };
+        if self.stop.is_stopping() {
+          break 'frame;
+        }
+        let now = Instant::now();
+        // FRAME RESIDENCE BOUND: exiting here (or via the min-capped park
+        // below) funnels through the UNCHANGED finish_draining path, whose
+        // re-check re-arms a FIFO drain via ensure_drainer/spawn_fifo when
+        // work remains -- that re-entry through rayon's queue is exactly the
+        // interleaving point that lets pending raw rayon work run.
+        let frame = *frame_deadline.get_or_insert_with(|| {
+          now
+            + budget
+              .saturating_mul(DRAIN_LINGER_FRAME_FACTOR)
+              .min(MAX_DRAIN_LINGER_FRAME_RESIDENCE)
+        });
+        let deadline = (*idle_deadline.get_or_insert_with(|| now + budget)).min(frame);
+        if now >= deadline {
+          // Deadline EXPIRY observed at the top: either a wake consumed the
+          // rest of the episode's idle budget, or the frame residence bound
+          // elapsed while work kept re-arming the episode deadline. Either
+          // way this frame's lingering is over, and the linger parker of the
+          // previous episode -- if one registered -- was already deregistered
+          // after its park.
+          #[cfg(test)]
+          self.drain_linger_expiries.fetch_add(1, Ordering::SeqCst);
+          break 'frame;
+        }
+        let state = match &linger {
+          Some(state) => state,
+          None => linger.insert(DrainLinger::new(&self)),
+        };
+        self
+          .parked_drivers
+          .register_with_role(&state.parker, true, None);
+        #[cfg(test)]
+        self
+          .drain_linger_registrations
+          .fetch_add(1, Ordering::SeqCst);
+        if self.has_queued_work_for_role(true) {
+          self.parked_drivers.deregister(&state.parker);
+          continue 'frame;
+        }
+        // Stop re-check AFTER registering: `begin_shutdown` unparks every
+        // generation-stop-registered parker (ours included, via
+        // `DrainLinger`'s registration), so a stop publishing after this
+        // check still cuts the park short instead of waiting out the budget.
+        if self.stop.is_stopping() {
+          self.parked_drivers.deregister(&state.parker);
+          break 'frame;
+        }
+        let woken = state.parker.park_timeout(deadline - now);
+        self.parked_drivers.deregister(&state.parker);
+        if woken || state.parker.consume_permit() || self.has_queued_work_for_role(true) {
+          continue 'frame;
+        }
+        // Idle-budget EXPIRY: the park timed out with no wake, no permit and
+        // no queued work. Counted AFTER the deregister above, so a test
+        // observing `drain_linger_expiries` rise knows the linger parker has
+        // permanently left the registry for this idle episode.
+        #[cfg(test)]
+        self.drain_linger_expiries.fetch_add(1, Ordering::SeqCst);
+        break 'frame;
       }
-      // MANDATORY flush before finish_draining. On this path
-      // the slot was observed empty at the top of the iteration and no user
-      // code ran since, so the flush is defensive -- kept unconditional so
-      // every drain exit upholds the stranding invariant by construction.
-      self.flush_lifo_slot();
-      self.finish_draining();
-      return;
+      // Budget exhausted: yield this worker back to rayon exactly as before
+      // the linger existed -- `finish_draining` re-arms a FIFO drain job
+      // BEHIND any pending rayon work (par_iter splits, nested jobs), which
+      // is the pool-fairness property the budget exists for.
+      break 'frame;
     }
 
-    // Budget exhausted: the last runnable may have scheduled into the slot.
     // MANDATORY flush before `finish_draining` so its
-    // re-check sees the runnable on the shared FIFO and re-arms a drainer.
+    // re-check sees a slot runnable on the shared FIFO and re-arms a drainer.
     self.flush_lifo_slot();
     self.finish_draining();
   }
@@ -4917,11 +5381,7 @@ impl MultiThreadExecutor {
     // executor code with its slot occupied, so the exit-then-respawn window
     // below cannot hide slot work from `ensure_drainer`.
     self.active_drainers.fetch_sub(1, Ordering::AcqRel);
-    let has_runnable = !self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .is_empty();
+    let has_runnable = self.has_queued_runnable();
     let has_blocking = self.active_blocking.load(Ordering::Acquire) < self.max_blocking
       && !self
         .blocking_queue
@@ -4931,11 +5391,18 @@ impl MultiThreadExecutor {
     if has_runnable || has_blocking {
       self.ensure_drainer();
     }
-    let _idle = self
+    // The lock is still taken unconditionally: it is the release edge that
+    // publishes the `active_drainers` decrement above to a waiter that is about
+    // to evaluate the predicate. Only the wake is now conditional, and the
+    // waiter count is read under the very mutex the waiter must hold to
+    // register, so a waiter is never missed. See `wait_until_scheduler_idle`.
+    let idle = self
       .scheduler_idle_lock
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    self.scheduler_idle.notify_all();
+    if *idle > 0 {
+      self.scheduler_idle.notify_all();
+    }
   }
 
   fn block_on(self: &Arc<Self>, future: Pin<&mut dyn Future<Output = ()>>) -> BlockOnOutcome {
@@ -5042,13 +5509,34 @@ impl MultiThreadExecutor {
     }
   }
 
+  /// Lock-free single-item steal from the shared injector, retrying the
+  /// transient `Steal::Retry` contention state. Replaces the former
+  /// `queue.lock().pop_front()`; `Injector` preserves FIFO order.
+  fn steal_one(&self) -> Option<Runnable> {
+    loop {
+      match self.injector.steal() {
+        Steal::Success(runnable) => return Some(runnable),
+        Steal::Empty => return None,
+        Steal::Retry => continue,
+      }
+    }
+  }
+
+  /// Test-only raw FIFO enqueue: the former `queue.lock().push_back()` staging
+  /// that tests use to seed queued work WITHOUT the accompanying wake (so no
+  /// drainer races the manual `run_one`/`drain` calls). Keeps the post-push
+  /// SeqCst fence from `push_to_queue_and_wake` so any wake/park interaction a
+  /// test performs afterwards still sees the Dekker pairing documented on
+  /// `injector`.
+  #[cfg(test)]
+  fn push_fifo_raw(&self, runnable: Runnable) {
+    self.injector.push(runnable);
+    std::sync::atomic::fence(Ordering::SeqCst);
+  }
+
   fn claim_fifo_runnable(&self) -> RunnableClaim {
     let stop_publication = self.stop.runnable_claim_guard();
-    let runnable = self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .pop_front();
+    let runnable = self.steal_one();
     let stopping = stop_publication.is_stopping();
     drop(stop_publication);
     Self::runnable_claim(stopping, runnable)
@@ -5056,13 +5544,7 @@ impl MultiThreadExecutor {
 
   fn claim_runnable(&self) -> RunnableClaim {
     let stop_publication = self.stop.runnable_claim_guard();
-    let runnable = self.pop_lifo_slot().or_else(|| {
-      self
-        .queue
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .pop_front()
-    });
+    let runnable = self.pop_lifo_slot().or_else(|| self.steal_one());
     let stopping = stop_publication.is_stopping();
     drop(stop_publication);
     Self::runnable_claim(stopping, runnable)
@@ -5635,11 +6117,14 @@ impl MultiThreadExecutor {
   }
 
   fn has_queued_runnable(&self) -> bool {
-    !self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .is_empty()
+    // Waiter-side mirror of the `push_to_queue_and_wake` fence: a parking
+    // driver (pre-park re-check) and the drainer-exit re-check in
+    // `finish_draining` must not observe the injector empty when a racing push
+    // is already visible to a wake. This SeqCst fence pairs with the post-push
+    // fence so the Dekker ordering holds without the former queue mutex. Only
+    // on park/quiesce decision paths, never the per-task hot path.
+    std::sync::atomic::fence(Ordering::SeqCst);
+    !self.injector.is_empty()
   }
 
   /// Pop the next queued blocking job FIFO within the cap. Any blocking-capable
@@ -5824,6 +6309,30 @@ struct LifoSlotFlushGuard<'a>(&'a Arc<MultiThreadExecutor>);
 impl Drop for LifoSlotFlushGuard<'_> {
   fn drop(&mut self) {
     self.0.flush_lifo_slot();
+  }
+}
+
+/// Per-drain-frame idle-linger state, created lazily on the frame's first
+/// idle episode (see the linger block in `MultiThreadExecutor::drain`): the
+/// parker queue wakes are delivered to while this drainer lingers, plus its
+/// generation-stop registration so `begin_shutdown` cuts a linger short
+/// instead of `wait_until_scheduler_idle` waiting out the idle budget. The
+/// registration guard deregisters on drop when the drain frame exits.
+#[cfg(not(target_family = "wasm"))]
+struct DrainLinger {
+  parker: Arc<DriverParker>,
+  _stop_registration: GenerationStopGuard,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl DrainLinger {
+  fn new(executor: &MultiThreadExecutor) -> Self {
+    let parker = Arc::new(DriverParker::default());
+    let stop_registration = executor.stop.register(&parker);
+    Self {
+      parker,
+      _stop_registration: stop_registration,
+    }
   }
 }
 
@@ -8835,12 +9344,19 @@ impl MultiThreadExecutor {
       .scheduler_idle_lock
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Register BEFORE the first predicate evaluation and stay registered for
+    // the whole wait. `finish_draining` reads this count under the same mutex,
+    // so any drainer that retires after this increment is published either
+    // sees `> 0` and wakes us, or had already decremented `active_drainers`
+    // before we read the predicate -- in which case we never sleep.
+    *idle += 1;
     while self.active_drainers.load(Ordering::Acquire) != 0 {
       idle = self
         .scheduler_idle
         .wait(idle)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
+    *idle -= 1;
   }
 }
 
@@ -9490,6 +10006,12 @@ struct RuntimeController {
   state: Mutex<RuntimeState>,
   lifecycle_changed: Condvar,
   metrics: Arc<RuntimeMetrics>,
+  // Lock-free mirror of `state.lifecycle`'s backend, read by `fast_register`
+  // without the `state` lock. Invariant: store `Some(b)` on every transition
+  // INTO `Running(b)` and `None` on every transition OUT -- exactly 3 sites
+  // today (lazy-create, start, shutdown). Any new Running-boundary write MUST
+  // mirror here, or `fast_register` routes work onto a superseded backend.
+  current_backend: ArcSwapOption<RuntimeBackend>,
 }
 
 struct RejectedSubmissionGuard<'a> {
@@ -9524,6 +10046,7 @@ impl RuntimeController {
       }),
       lifecycle_changed: Condvar::new(),
       metrics: Arc::new(RuntimeMetrics::default()),
+      current_backend: ArcSwapOption::empty(),
     }
   }
 
@@ -9616,6 +10139,7 @@ impl RuntimeController {
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
     state.lifecycle = RuntimeLifecycle::Running(backend.clone());
+    self.current_backend.store(Some(Arc::new(backend.clone())));
     Ok(backend)
   }
 
@@ -9644,6 +10168,31 @@ impl RuntimeController {
     generation
   }
 
+  /// Lock-free spawn fast path. Returns Some((backend, registration)) when the
+  /// runtime is Running, the caller's generation is current, and registration
+  /// succeeds -- all without taking the outer `state` lock. Returns None (fall
+  /// to the locked slow path) for any miss: no current backend, retired
+  /// generation, or a closed generation. Staleness is safe: see the safety
+  /// invariant -- try_register_* re-checks `closed`, and wait_until_idle already
+  /// gates on any registration that slips in during shutdown.
+  #[inline]
+  fn fast_register<R>(
+    &self,
+    register: impl FnOnce(&Arc<GenerationWork>) -> Option<R>,
+  ) -> Option<(Arc<RuntimeBackend>, R)> {
+    let guard = self.current_backend.load();
+    let backend = guard.as_ref()?; // None => Initial/Stopping/Stopped => slow path
+    if let Some(active) = active_runtime_generation() {
+      if active != backend.generation() {
+        return None; // retired generation => slow path yields exact error
+      }
+    }
+    let registration = register(&backend.work)?; // closed => None => slow path rejects
+    // Hand back the already-loaded Arc (one refcount bump) rather than deep-
+    // cloning `RuntimeBackend`'s two inner Arcs; both callers only borrow it.
+    Some((Arc::clone(backend), registration))
+  }
+
   fn try_spawn_tracked<F, T>(
     &self,
     future: F,
@@ -9654,6 +10203,17 @@ impl RuntimeController {
   {
     #[cfg(test)]
     run_before_runtime_submission_lock_test_hook();
+
+    if let Some((backend, registration)) = self.fast_register(|w| w.try_register_async()) {
+      #[cfg(test)]
+      run_after_async_work_registration_test_hook();
+      return Ok(spawn_registered(
+        &backend,
+        Arc::clone(&self.metrics),
+        future,
+        registration,
+      ));
+    }
 
     let (backend, registration) = {
       let mut state = self
@@ -9745,6 +10305,12 @@ impl RuntimeController {
   {
     #[cfg(test)]
     run_before_runtime_submission_lock_test_hook();
+
+    if let Some((backend, registration)) = self.fast_register(|w| w.try_register_work()) {
+      #[cfg(test)]
+      run_after_blocking_work_registration_test_hook();
+      return Ok(backend.spawn_registered_blocking(function, registration, &self.metrics));
+    }
 
     let (backend, registration) = {
       let mut state = self
@@ -9932,6 +10498,7 @@ impl RuntimeController {
       }
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
+    self.current_backend.store(Some(Arc::new(backend.clone())));
     state.lifecycle = RuntimeLifecycle::Running(backend);
     Ok(())
   }
@@ -10097,6 +10664,7 @@ impl RuntimeController {
             else {
               unreachable!();
             };
+            self.current_backend.store(None);
             // Release before aborting tasks or running any user destruction.
             // Neither path may retain the publication mutex across scheduler
             // admission, lifecycle reentry, or a panic boundary.
@@ -15183,6 +15751,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "worker-classification".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -15228,6 +15797,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-test".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -15273,6 +15843,193 @@ mod tests {
 
   #[cfg(not(target_family = "wasm"))]
   #[test]
+  fn lingering_drainer_periodic_work_does_not_starve_rayon_jobs() {
+    // Idle-linger residence bound (adversarial rayon-starvation shape).
+    //
+    // W=2 pool. Worker B runs a blocking closure that spawns a raw rayon job
+    // R onto the SAME pool (it lands in worker B's rayon deque) and then
+    // cooperatively block_on's R's completion -- so worker B never returns to
+    // rayon's scheduler. Worker A's drain frame runs the queues empty and
+    // lingers on its own parker. A producer then publishes one trivial
+    // runnable every ~200us (< the 500us idle budget), stopping only after R
+    // ran. Every wake pops the MOST recently registered parker -- the
+    // lingering drainer, which re-registers on top after each task -- and
+    // every executed task clears the idle deadline, so without a bound on the
+    // frame's TOTAL lingering residence worker A never exits its drain frame,
+    // never returns its thread to rayon, and R (which only an idle rayon
+    // worker can steal) starves indefinitely: producer never stops, worker B
+    // never unparks. The frame residence bound must force the drainer out
+    // through `finish_draining` (exit-and-respawn through rayon's queue is
+    // exactly the interleaving point that lets R run), well inside the
+    // watchdog below.
+    use std::sync::mpsc;
+
+    for round in 0..3 {
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let options = RuntimeOptions {
+        flavor: RuntimeFlavor::MultiThread,
+        worker_threads: 2,
+        max_blocking_tasks: 1,
+        thread_name_prefix: format!("linger-starve-{round}"),
+        park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
+      };
+      let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
+
+      let r_done = Arc::new(AtomicBool::new(false));
+      let give_up = Arc::new(AtomicBool::new(false));
+      let (done_tx, done_rx) = mpsc::channel::<Duration>();
+
+      // T1 pins worker A until the cooperative driver (worker B, inside the
+      // blocking closure's re-entrant block_on) has parked. Worker A's drain
+      // frame then observes empty queues and starts lingering AFTER the
+      // cooperative driver registered, making the lingering drainer the
+      // most-recently-registered (i.e. wake-preferred) parker.
+      let t1_executor = Arc::clone(&executor);
+      let t1_started = Arc::new(AtomicBool::new(false));
+      let t1_started_setter = Arc::clone(&t1_started);
+      let t1_body = async move {
+        t1_started_setter.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while t1_executor.parked_drivers.count.load(Ordering::SeqCst) == 0 {
+          if Instant::now() >= deadline {
+            // Give the worker back; the watchdog below reports the failure.
+            return;
+          }
+          std::hint::spin_loop();
+        }
+      };
+      let t1_scheduler = Arc::clone(&executor);
+      let (t1_runnable, t1_task) = async_task::spawn(t1_body, move |r| t1_scheduler.schedule(r));
+      executor.schedule(t1_runnable);
+      wait_until("the worker-pinning task to start", || {
+        t1_started.load(Ordering::SeqCst)
+      });
+
+      // The blocking closure on worker B: spawn R, then block_on its result.
+      let blocking_executor = Arc::clone(&executor);
+      let r_done_setter = Arc::clone(&r_done);
+      let started = Instant::now();
+      let handle = executor.schedule_blocking(move || {
+        let (r_tx, r_rx) = oneshot::channel::<()>();
+        blocking_executor.pool.spawn(move || {
+          r_done_setter.store(true, Ordering::SeqCst);
+          let _ = r_tx.send(());
+        });
+        let mut wait_for_r = std::pin::pin!(async move {
+          let _ = r_rx.await;
+        });
+        blocking_executor.block_on(wait_for_r.as_mut());
+        let _ = done_tx.send(started.elapsed());
+      });
+
+      // Wait until both the cooperative driver and the lingering drainer are
+      // registered; if the linger expired first (R already ran), that round
+      // completed without ever reaching the adversarial interleaving.
+      let arm_deadline = Instant::now() + Duration::from_secs(15);
+      while executor.parked_drivers.count.load(Ordering::SeqCst) != 2
+        && !r_done.load(Ordering::SeqCst)
+      {
+        assert!(
+          Instant::now() < arm_deadline,
+          "timed out arming the linger-starvation interleaving"
+        );
+        std::thread::yield_now();
+      }
+
+      // Producer: one trivial runnable every ~200us (spin-paced, so cadence
+      // stays far below the 500us idle budget), until R completed.
+      let producer_executor = Arc::clone(&executor);
+      let producer_r_done = Arc::clone(&r_done);
+      let producer_give_up = Arc::clone(&give_up);
+      let producer = std::thread::spawn(move || {
+        let cadence = Duration::from_micros(200);
+        let mut next_tick = Instant::now();
+        while !producer_r_done.load(Ordering::SeqCst) && !producer_give_up.load(Ordering::SeqCst) {
+          let scheduler = Arc::clone(&producer_executor);
+          let (runnable, task) = async_task::spawn(async {}, move |r| scheduler.schedule(r));
+          producer_executor.schedule(runnable);
+          task.detach();
+          next_tick += cadence;
+          while Instant::now() < next_tick {
+            std::hint::spin_loop();
+          }
+        }
+      });
+
+      let outcome = done_rx.recv_timeout(Duration::from_secs(5));
+      give_up.store(true, Ordering::SeqCst);
+      producer.join().unwrap();
+      match outcome {
+        Ok(elapsed) => {
+          futures::executor::block_on(handle).expect("blocking closure join");
+          drop(t1_task);
+          eprintln!("round {round}: completed in {elapsed:?}");
+        }
+        Err(error) => panic!(
+          "round {round}: lingering drainer starved the rayon job for 5s ({error}): \
+           sub-budget periodic work must not keep a drain frame resident forever"
+        ),
+      }
+    }
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  #[ignore = "microbenchmark: run explicitly in release mode"]
+  fn parked_drivers_registry_cycle_microbench() {
+    // Isolates the registry traffic of one steady-state linger cycle at
+    // various registry sizes: wake_one pops the LIFO top (O(1)), the woken
+    // drainer deregisters (the entry is already gone, so the position scan
+    // walks the WHOLE vector and fails), then re-registers (push). Also
+    // measures the timeout-path deregister (entry present) and a
+    // wake_one_owner_dependency sweep over dependency-less lingerers.
+    for &n in &[8usize, 64, 256] {
+      let registry = ParkedDrivers::default();
+      let parkers: Vec<Arc<DriverParker>> =
+        (0..n).map(|_| Arc::new(DriverParker::default())).collect();
+      for parker in &parkers {
+        registry.register_with_role(parker, true, None);
+      }
+      let hot = &parkers[n - 1];
+
+      let iters = 2_000_000u32;
+      let start = Instant::now();
+      for _ in 0..iters {
+        assert!(registry.wake_one());
+        registry.deregister(hot);
+        assert!(hot.consume_permit());
+        registry.register_with_role(hot, true, None);
+      }
+      let wake_cycle = start.elapsed() / iters;
+
+      let start = Instant::now();
+      for _ in 0..iters {
+        registry.deregister(hot);
+        registry.register_with_role(hot, true, None);
+      }
+      let timeout_cycle = start.elapsed() / iters;
+
+      let owner = BlockingOwnerToken {
+        executor_id: u64::MAX,
+        frame: u64::MAX,
+      };
+      let start = Instant::now();
+      for _ in 0..iters {
+        assert!(!registry.wake_one_owner_dependency(owner));
+      }
+      let owner_sweep = start.elapsed() / iters;
+
+      eprintln!(
+        "N={n:>3}: wake+failed-deregister+re-register {wake_cycle:?}, \
+         timeout-deregister+re-register {timeout_cycle:?}, \
+         owner-dependency sweep {owner_sweep:?}"
+      );
+    }
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
   fn multi_thread_block_on_from_caller_thread_still_parks() {
     // The non-pool (napi caller) path must keep using the plain parking
     // `block_on`; here we just assert it drives a ready future to completion.
@@ -15283,6 +16040,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "rd1-caller".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -15354,6 +16112,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd10-caller".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -15434,6 +16193,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-park".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -15613,7 +16373,7 @@ mod tests {
       |_| {},
     );
     executor.metrics.runnable_scheduled();
-    executor.queue.lock().unwrap().push_back(fifo);
+    executor.push_fifo_raw(fifo);
     let fifo_executor = Arc::clone(&executor);
     assert!(run_claim_with_deadlock_gate_assertion(
       &executor,
@@ -15637,7 +16397,7 @@ mod tests {
         |_| {},
       );
       executor.metrics.runnable_scheduled();
-      executor.queue.lock().unwrap().push_back(runnable);
+      executor.push_fifo_raw(runnable);
       fifo_tasks.push(task);
     }
     for _ in 0..2 {
@@ -16235,7 +16995,10 @@ mod tests {
 
       fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
         if let Some(first_poll) = self.first_poll.take() {
-          record_blocking_dependency(self.dependency);
+          // This shape never retires its publication -- the driver panics
+          // instead -- so the returned token is dropped straight away.
+          let mut published = PublishedBlockingDependencies::default();
+          record_blocking_dependency(&mut published, self.dependency);
           first_poll.send(()).unwrap();
           return Poll::Pending;
         }
@@ -16350,7 +17113,7 @@ mod tests {
       "panic cleanup must empty the LIFO slot"
     );
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "panic cleanup must move the slot runnable to the shared FIFO"
     );
@@ -16421,7 +17184,7 @@ mod tests {
     );
     task.detach();
     executor.metrics.runnable_scheduled();
-    executor.queue.lock().unwrap().push_back(runnable);
+    executor.push_fifo_raw(runnable);
     assert!(
       executor.parked_drivers.wake_one(),
       "the queued runnable's wake must be absorbed by the cooperative driver"
@@ -16466,6 +17229,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "wake-target".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -16506,7 +17270,7 @@ mod tests {
       let sched2 = Arc::clone(&executor);
       let (runnable2, task2) = async_task::spawn(t2_body, move |r| sched2.schedule(r));
       executor.metrics.runnable_scheduled(); // keep the raw push's accounting balanced
-      executor.queue.lock().unwrap().push_back(runnable2);
+      executor.push_fifo_raw(runnable2);
       executor.ensure_drainer();
       wait_until("driver 2 parked", || {
         executor.parked_drivers.count.load(Ordering::SeqCst) == 2
@@ -16523,10 +17287,37 @@ mod tests {
         !t2_done.load(Ordering::SeqCst),
         "D2 must still be parked: its future was never completed"
       );
+      // D1's drain frame LINGERS after T1 retires (see `drain`'s idle
+      // linger): its linger parker joins the registry alongside D2 for the
+      // idle budget. The registry count is NON-MONOTONIC here -- it reads 1
+      // in the window between the cooperative parker's wake-deregistration
+      // and the drain frame's linger registration, then 2 while lingering,
+      // then 1 again after expiry -- so a `count == 1` wait can return
+      // during the transient window and prove nothing about the linger.
+      // Observe the lifecycle itself instead, via the test counters that
+      // `drain` maintains: the linger parker must REGISTER, and its idle
+      // budget must EXPIRE (`drain_linger_expiries` is incremented only
+      // after the expiry path deregistered the parker, and no further work
+      // exists to start another episode), after which the registry has
+      // deterministically settled: EXACTLY the untargeted driver D2 remains
+      // (a misrouted wake would have left D1 cooperatively parked instead,
+      // already excluded by the `t1_done` wait above, and a linger parker
+      // stranded in the registry would read 2 here).
+      wait_until(
+        "the retiring drain frame registered its linger parker",
+        || executor.drain_linger_registrations.load(Ordering::SeqCst) >= 1,
+      );
+      wait_until("the lingering drainer's idle budget expired", || {
+        executor.drain_linger_expiries.load(Ordering::SeqCst) >= 1
+      });
       assert_eq!(
         executor.parked_drivers.count.load(Ordering::SeqCst),
         1,
-        "exactly the untargeted driver must remain parked"
+        "exactly the untargeted driver must remain parked after the linger expired"
+      );
+      assert!(
+        !t2_done.load(Ordering::SeqCst),
+        "D2 must still be parked after the lingering drainer expired"
       );
 
       // Teardown: release D2 as well.
@@ -16566,6 +17357,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "wake-compensate".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -16596,7 +17388,7 @@ mod tests {
         move |r| sched_stranded.schedule(r),
       );
       executor.metrics.runnable_scheduled(); // keep the raw push's accounting balanced
-      executor.queue.lock().unwrap().push_back(stranded_runnable);
+      executor.push_fifo_raw(stranded_runnable);
       stranded_task.detach();
 
       // Drive a ready future through the cooperative branch on THIS thread
@@ -16656,6 +17448,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "blocking-exit-compensation".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -16679,7 +17472,20 @@ mod tests {
       move |runnable| scheduler.schedule(runnable),
     );
     executor.schedule(runnable);
-    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    // The cooperative frame must be PARKED (registered) before the timer task
+    // is scheduled, so that schedule's wake targets the frame instead of
+    // spawning a second drainer. A second drainer would later LINGER as a
+    // registered blocking-capable parker, and `wake_one_blocking` prefers the
+    // most recently parked candidate: on a starved runner (observed on the
+    // Windows CI) the linger parker absorbs the blocking wake below, the
+    // drainer services the job, and the frame -- whose exit compensation is
+    // the subject under test -- sleeps in its timer-bounded park until the
+    // 120s heap timer, far past any sane recv bound.
+    wait_until("the cooperative frame parked", || {
+      executor.parked_drivers.count.load(Ordering::SeqCst) == 1
+    });
 
     let timer_exec = Arc::clone(&executor);
     let timer_scheduler = Arc::clone(&executor);
@@ -16699,16 +17505,28 @@ mod tests {
         .timekeeper_parker
         .is_some()
     });
+    // Re-parked after running the timer runnable: the blocking wake below
+    // must find the frame registered (the sole candidate), so the frame
+    // absorbs the wake, observes its ready future, and its EXIT COMPENSATION
+    // services the blocking-only residue.
+    wait_until(
+      "the cooperative frame re-parked in its timer-bounded park",
+      || executor.parked_drivers.count.load(Ordering::SeqCst) == 1,
+    );
 
     ready.store(true, Ordering::SeqCst);
     let (blocking_tx, blocking_rx) = mpsc::channel();
     let blocking = executor.schedule_blocking(move || {
       blocking_tx.send(()).unwrap();
     });
+    // Generous hang-detector bounds, not latency assertions: starved CI
+    // runners (msys2 CLANG64) can stall a woken thread for whole seconds.
     blocking_rx
-      .recv_timeout(Duration::from_secs(2))
+      .recv_timeout(Duration::from_secs(10))
       .expect("blocking-only residue must be serviced by a Rayon worker");
-    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    returned_rx
+      .recv_timeout(Duration::from_secs(10))
+      .expect("the cooperative frame must observe its ready future and return after the absorbed blocking wake");
     release_tx.send(()).unwrap();
     futures::executor::block_on(task);
     futures::executor::block_on(blocking).unwrap();
@@ -16725,6 +17543,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "stopped-exit-compensation".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -16834,6 +17653,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-order".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -16850,7 +17670,7 @@ mod tests {
       move |r| sched.schedule(r),
     );
     executor.metrics.runnable_scheduled(); // keep the raw push's accounting balanced
-    executor.queue.lock().unwrap().push_back(old_runnable);
+    executor.push_fifo_raw(old_runnable);
     old_task.detach();
 
     // Simulate being on this executor's pool worker: the schedule below must
@@ -16867,7 +17687,7 @@ mod tests {
     executor.schedule(new_runnable);
     new_task.detach();
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "the slot-path schedule must not push to the shared FIFO"
     );
@@ -16891,6 +17711,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "fifo-owner".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -16904,7 +17725,7 @@ mod tests {
     );
     task.detach();
     executor.metrics.runnable_scheduled();
-    executor.queue.lock().unwrap().push_back(runnable);
+    executor.push_fifo_raw(runnable);
     executor.active_drainers.store(1, Ordering::Release);
 
     let owner = executor.fresh_owner_token();
@@ -16940,6 +17761,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifo-drain".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -16969,7 +17791,7 @@ mod tests {
       let sched = Arc::clone(&executor);
       let (p_runnable, p_task) = async_task::spawn(p_body, move |r| sched.schedule(r));
       executor.metrics.runnable_scheduled();
-      executor.queue.lock().unwrap().push_back(p_runnable);
+      executor.push_fifo_raw(p_runnable);
       tasks.push(p_task);
       for name in ["T1", "T2"] {
         let t_order = Arc::clone(&order);
@@ -16981,7 +17803,7 @@ mod tests {
           move |r| sched.schedule(r),
         );
         executor.metrics.runnable_scheduled();
-        executor.queue.lock().unwrap().push_back(t_runnable);
+        executor.push_fifo_raw(t_runnable);
         tasks.push(t_task);
       }
       executor.ensure_drainer();
@@ -17020,6 +17842,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-displace".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17042,7 +17865,7 @@ mod tests {
       task.detach();
     }
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "the displaced occupant (a) must have been pushed to the shared FIFO"
     );
@@ -17074,6 +17897,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-scope".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let exec1 =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17101,7 +17925,7 @@ mod tests {
     exec1.schedule(r1);
     t1.detach();
     assert!(
-      exec1.queue.lock().unwrap().is_empty(),
+      exec1.injector.is_empty(),
       "r1 must sit in the slot, not exec1's FIFO"
     );
 
@@ -17120,7 +17944,7 @@ mod tests {
       exec2.schedule(r2);
       t2.detach();
       assert_eq!(
-        exec2.queue.lock().unwrap().len(),
+        exec2.injector.len(),
         1,
         "a foreign-occupied slot must route exec2's schedule to exec2's FIFO"
       );
@@ -17185,6 +18009,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifo-budget".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -17228,6 +18053,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-flush".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17248,7 +18074,7 @@ mod tests {
     executor.schedule(runnable);
     task.detach();
     assert!(
-      executor.queue.lock().unwrap().is_empty(),
+      executor.injector.is_empty(),
       "the runnable must start in the slot"
     );
 
@@ -17258,7 +18084,7 @@ mod tests {
       "the slot must be empty after a flush"
     );
     assert_eq!(
-      executor.queue.lock().unwrap().len(),
+      executor.injector.len(),
       1,
       "the flushed runnable must be on the shared FIFO"
     );
@@ -17283,6 +18109,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "lifo-owner".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17304,7 +18131,7 @@ mod tests {
     executor.schedule(runnable);
     task.detach();
     assert!(
-      executor.queue.lock().unwrap().is_empty(),
+      executor.injector.is_empty(),
       "the runnable must sit in the slot"
     );
 
@@ -17409,6 +18236,7 @@ mod tests {
         max_blocking_tasks: 0,
         thread_name_prefix: "lifo-streak".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17487,6 +18315,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifo-blocking".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17551,6 +18380,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "blocking-fairness".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17615,6 +18445,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "exact-dependency-fairness".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17702,6 +18533,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "exact-before-last-slot".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -17844,6 +18676,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "blocking-reserve".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("production options must reserve a runnable lane");
@@ -17932,6 +18765,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "exit-flush".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18011,6 +18845,7 @@ mod tests {
         max_blocking_tasks: 0,
         thread_name_prefix: "coop-budget".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18104,6 +18939,7 @@ mod tests {
         max_blocking_tasks: 0,
         thread_name_prefix: "forced-fifo".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18122,7 +18958,7 @@ mod tests {
       );
       task.detach();
       executor.metrics.runnable_scheduled();
-      executor.queue.lock().unwrap().push_back(fifo);
+      executor.push_fifo_raw(fifo);
 
       {
         let _driver = OnPoolWorkerGuard::enter(executor.id);
@@ -18163,6 +18999,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "blk-spawn-wait".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18238,6 +19075,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-nested-blk".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -18324,6 +19162,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "exact-owner-frame".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18423,6 +19262,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "parked-unrelated-worker".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18507,6 +19347,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "same-owner-rearm".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18658,6 +19499,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "stopped-exact-owner".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18728,6 +19570,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "linear-owner-lending".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -18987,6 +19830,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "dependency-lending-metrics".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .unwrap();
 
@@ -19041,6 +19885,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "exact-blocking-job".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -19204,6 +20049,7 @@ mod tests {
     let mut handle = JoinHandle(JoinHandleInner::Blocking {
       receiver,
       dependency,
+      published: PublishedBlockingDependencies::default(),
     });
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -19236,6 +20082,7 @@ mod tests {
     let mut handle = JoinHandle(JoinHandleInner::Blocking {
       receiver,
       dependency,
+      published: PublishedBlockingDependencies::default(),
     });
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -19278,10 +20125,12 @@ mod tests {
     let mut first_handle = JoinHandle(JoinHandleInner::Blocking {
       receiver: first_receiver,
       dependency: first,
+      published: PublishedBlockingDependencies::default(),
     });
     let mut second_handle = JoinHandle(JoinHandleInner::Blocking {
       receiver: second_receiver,
       dependency: second,
+      published: PublishedBlockingDependencies::default(),
     });
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -19298,6 +20147,322 @@ mod tests {
     drop(second_handle);
     drop(first_sender);
     drop(second_sender);
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn double_polled_then_detached_handle_does_not_outrank_a_live_dependency() {
+    let owner = BlockingOwnerToken {
+      executor_id: u64::MAX - 900,
+      frame: u64::MAX - 901,
+    };
+    let parent = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let _context = TaskDependencyGuard::enter(&parent);
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let j1 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 910),
+      owner: Some(owner),
+    };
+    let j2 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 911),
+      owner: Some(owner),
+    };
+
+    let (s1, r1) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let (s2, r2) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+
+    let mut h1 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r1,
+      dependency: j1,
+      published: PublishedBlockingDependencies::default(),
+    });
+    // TWO Pending polls in one pass. Each publishes, so without coalescing the
+    // handle leaves two live entries for J1 and can retire only the newer one.
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+    let entries_after_double_poll = parent
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .current
+      .len();
+    drop(h1);
+
+    let mut h2 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r2,
+      dependency: j2,
+      published: PublishedBlockingDependencies::default(),
+    });
+    assert!(Pin::new(&mut h2).poll(&mut cx).is_pending());
+
+    assert_eq!(
+      entries_after_double_poll, 1,
+      "a repeat Pending poll must supersede the handle's own previous publication"
+    );
+    let selected = parent
+      .select_for_owner(owner)
+      .expect("a live dependency must be selectable");
+    assert_eq!(
+      selected.publication.dependency.job, j2.job,
+      "a DETACHED job must not be selected for owner lending ahead of the live one"
+    );
+    drop((s1, s2));
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn handle_polled_under_a_nested_frame_retires_both_publications() {
+    let owner = BlockingOwnerToken {
+      executor_id: u64::MAX - 920,
+      frame: u64::MAX - 921,
+    };
+    let outer = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let inner = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let j1 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 930),
+      owner: Some(owner),
+    };
+    let j2 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 931),
+      owner: Some(owner),
+    };
+    let (s1, r1) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let (s2, r2) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut h1 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r1,
+      dependency: j1,
+      published: Default::default(),
+    });
+
+    {
+      let _outer_ctx = TaskDependencyGuard::enter(&outer);
+      // A handle can publish into more than one frame: once here, and again
+      // under a nested re-entrant frame. Detaching must retire BOTH, or the
+      // forgotten entry keeps a detached job selectable for owner lending.
+      assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+      {
+        let _inner_ctx = TaskDependencyGuard::enter(&inner);
+        assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+      }
+      drop(h1);
+      assert!(
+        outer.get_dependencies().is_empty(),
+        "detaching must retire the publication made in the outer frame too"
+      );
+      let mut h2 = JoinHandle(JoinHandleInner::Blocking {
+        receiver: r2,
+        dependency: j2,
+        published: Default::default(),
+      });
+      assert!(Pin::new(&mut h2).poll(&mut cx).is_pending());
+      let selected = outer.select_for_owner(owner).expect("selectable");
+      assert_eq!(
+        selected.publication.dependency.job, j2.job,
+        "a detached job published in an outer frame must not outrank a live one"
+      );
+      drop(h2);
+    }
+    drop((s1, s2));
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn a_pending_handle_does_not_retain_the_frames_it_has_left() {
+    const FRAME_COUNT: usize = 64;
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let (sender, receiver) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut handle = JoinHandle(JoinHandleInner::Blocking {
+      receiver,
+      dependency: BlockingDependency {
+        job: BlockingJobId(u64::MAX - 940),
+        owner: None,
+      },
+      published: PublishedBlockingDependencies::default(),
+    });
+    let mut frames = Vec::new();
+    for _ in 0..FRAME_COUNT {
+      let frame = Arc::new(TaskDependency::default());
+      frames.push(Arc::downgrade(&frame));
+      let _context = TaskDependencyGuard::enter(&frame);
+      assert!(Pin::new(&mut handle).poll(&mut cx).is_pending());
+    }
+    // A handle carried through a sequence of completed frames must not keep
+    // any of them alive: it remembers each publication by `Weak`, and prunes
+    // the expired tokens on its next publication, so the history stays at the
+    // live frame count instead of growing with every frame ever seen.
+    let retained = frames
+      .iter()
+      .filter(|frame| frame.strong_count() > 0)
+      .count();
+    assert_eq!(
+      retained, 0,
+      "a completed frame must not be kept alive by a pending handle's publication history"
+    );
+    drop(handle);
+    drop(sender);
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn repolling_a_handle_does_not_reorder_it_behind_a_later_dependency() {
+    // H1 -> H2 -> H1 in one poll pass. `select_for_owner` picks the LOWEST live
+    // sequence, so H1 must keep the position its FIRST poll gave it: if
+    // re-polling appended a replacement at the tail, H2 would be lent first,
+    // and an H2 that waits on H1 would deadlock the owner's single lane.
+    let owner = BlockingOwnerToken {
+      executor_id: u64::MAX - 950,
+      frame: u64::MAX - 951,
+    };
+    let parent = Arc::new(TaskDependency::new(u64::MAX, Some(owner)));
+    let _context = TaskDependencyGuard::enter(&parent);
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let j1 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 960),
+      owner: Some(owner),
+    };
+    let j2 = BlockingDependency {
+      job: BlockingJobId(u64::MAX - 961),
+      owner: Some(owner),
+    };
+    let (s1, r1) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let (s2, r2) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut h1 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r1,
+      dependency: j1,
+      published: PublishedBlockingDependencies::default(),
+    });
+    let mut h2 = JoinHandle(JoinHandleInner::Blocking {
+      receiver: r2,
+      dependency: j2,
+      published: PublishedBlockingDependencies::default(),
+    });
+
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+    assert!(Pin::new(&mut h2).poll(&mut cx).is_pending());
+    assert!(Pin::new(&mut h1).poll(&mut cx).is_pending());
+
+    let selected = parent
+      .select_for_owner(owner)
+      .expect("a live dependency must be selectable");
+    assert_eq!(
+      selected.publication.dependency.job, j1.job,
+      "re-polling a handle must not push its dependency behind one published later"
+    );
+    drop((h1, h2, s1, s2));
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn a_handle_carried_through_reused_frames_keeps_a_bounded_history() {
+    // Frames here are RETAINED (as a completed task's `JoinHandle` retains its
+    // `TaskDependency`) but each drains `current` at the start of its poll,
+    // which is what a real task poll does. A drained frame no longer holds the
+    // entry, so its token stops standing and is dropped on the next
+    // publication: the history tracks frames that still hold an entry, not
+    // every frame the handle has ever been polled under.
+    const FRAME_COUNT: usize = 256;
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let (sender, receiver) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+    let mut handle = JoinHandle(JoinHandleInner::Blocking {
+      receiver,
+      dependency: BlockingDependency {
+        job: BlockingJobId(u64::MAX - 970),
+        owner: None,
+      },
+      published: PublishedBlockingDependencies::default(),
+    });
+    let mut retained = Vec::new();
+    for _ in 0..FRAME_COUNT {
+      let frame = Arc::new(TaskDependency::default());
+      retained.push(Arc::clone(&frame));
+      let _context = TaskDependencyGuard::enter(&frame);
+      assert!(Pin::new(&mut handle).poll(&mut cx).is_pending());
+      // The frame's next poll drains what the previous one published.
+      frame.begin_poll();
+    }
+    let JoinHandle(JoinHandleInner::Blocking { published, .. }) = &handle else {
+      panic!("the handle must still be a blocking handle");
+    };
+    let remembered = usize::from(published.first.is_some()) + published.rest.len();
+    assert!(
+      remembered <= 2,
+      "a drained frame must not stay in the publication history, remembered={remembered}"
+    );
+    drop(handle);
+    drop(sender);
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn mass_detach_of_pending_blocking_handles_stays_linear() {
+    // A cancelled fan-out: N blocking handles are polled Pending inside ONE
+    // poll pass -- so `begin_poll` never runs to drain `current` and all N
+    // entries are simultaneously registered and still pending -- and are then
+    // dropped together. Retiring a handle's own entry is O(1) and
+    // `prune_stale_prefix` is amortised, so the whole detach is O(N).
+    //
+    // This is the shape that made an earlier attempt at this optimisation
+    // quadratic: it replaced the job index with a scan of `current` on every
+    // drop, which costs exactly N(N+1)/2 entry visits here, all of it under
+    // the dependency mutex.
+    const HANDLE_COUNT: usize = 512;
+
+    let parent = Arc::new(TaskDependency::default());
+    let _context = TaskDependencyGuard::enter(&parent);
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    let mut senders = Vec::with_capacity(HANDLE_COUNT);
+    let mut handles = Vec::with_capacity(HANDLE_COUNT);
+    for index in 0..HANDLE_COUNT {
+      let (sender, receiver) = oneshot::channel::<Result<ContainedTaskOutput<()>, JoinError>>();
+      senders.push(sender);
+      handles.push(JoinHandle(JoinHandleInner::Blocking {
+        receiver,
+        dependency: BlockingDependency {
+          job: BlockingJobId(u64::MAX - 300_000 - index as u64),
+          owner: None,
+        },
+        published: PublishedBlockingDependencies::default(),
+      }));
+    }
+    for handle in &mut handles {
+      assert!(Pin::new(handle).poll(&mut cx).is_pending());
+    }
+    assert_eq!(
+      parent
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .current
+        .len(),
+      HANDLE_COUNT,
+      "every handle must be registered and still pending before the detach"
+    );
+
+    parent.reset_entry_visits();
+    drop(handles);
+
+    assert!(
+      parent.entry_visits() <= HANDLE_COUNT * 4,
+      "mass-detach must visit O(n) entries across n handles, visits={}",
+      parent.entry_visits()
+    );
+    assert_eq!(
+      parent.get_dependency(),
+      None,
+      "every detached handle must have retired its own publication"
+    );
+    drop(senders);
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -19331,13 +20496,14 @@ mod tests {
     };
 
     let _context = TaskDependencyGuard::enter(&parent);
-    record_blocking_dependency(blocking);
+    let mut published = PublishedBlockingDependencies::default();
+    record_blocking_dependency(&mut published, blocking);
     woke_rx
       .recv_timeout(Duration::from_secs(1))
       .expect("dependency notification must permit reentrant TLS context access");
 
     parent.register_waiter(&waiter);
-    clear_blocking_dependency(blocking);
+    clear_blocking_dependency(published);
     woke_rx
       .recv_timeout(Duration::from_secs(1))
       .expect("dependency clearing must permit reentrant TLS context access");
@@ -19476,20 +20642,18 @@ mod tests {
       job: BlockingJobId(u64::MAX),
       owner: None,
     };
-    dependency.set_owned(blocking);
+    let sequence = dependency.set_owned(blocking);
     dependency.register_waiter(&Waker::from(Arc::new(PanicWake)));
 
-    let result = catch_unwind(AssertUnwindSafe(|| {
-      dependency.clear_if_dependency(blocking)
-    }));
+    let result = catch_unwind(AssertUnwindSafe(|| dependency.retire(sequence)));
     assert!(
       result.is_ok(),
-      "clear_if notification must not unwind its caller"
+      "retire notification must not unwind its caller"
     );
     assert_eq!(
       dependency.get_dependency(),
       None,
-      "clear_if must commit before notifying its waiter"
+      "retire must commit before notifying its waiter"
     );
   }
 
@@ -19748,14 +20912,18 @@ mod tests {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       assert_eq!(state.current.len(), 3);
-      assert_eq!(
+      // The `job_sequences` index is gone -- a blocking handle retires its own
+      // entry by sequence -- so "the index retains no stale sequence" is
+      // structurally impossible rather than something to assert. The
+      // substantive property that assertion protected, that only the three
+      // NON-matching sentinels survived the clear, is checked directly on the
+      // authoritative structure.
+      assert!(
         state
-          .job_sequences
-          .values()
-          .map(FxHashSet::len)
-          .sum::<usize>(),
-        3,
-        "the job index must retain only the three non-matching sentinels"
+          .current
+          .iter()
+          .all(|entry| entry.publication.is_live()),
+        "only the three non-matching sentinels may remain, all still live"
       );
       assert!(state.unowned_sequences.is_empty());
       assert_eq!(state.owner_sequences.len(), 1);
@@ -19797,7 +20965,10 @@ mod tests {
         job: BlockingJobId(u64::MAX - 1),
         owner: None,
       };
-      parent.set_owned(dependency);
+      // The handle is built by hand rather than by polling, so hand it the
+      // publication token a Pending poll would have recorded; detach retires
+      // the entry by sequence.
+      let sequence = parent.set_owned(dependency);
       parent.register_waiter(&Waker::from(Arc::new(PanicWake)));
       let _context = TaskDependencyGuard::enter(&parent);
       let (sender, receiver) = oneshot::channel();
@@ -19807,6 +20978,13 @@ mod tests {
       drop(JoinHandle(JoinHandleInner::Blocking {
         receiver,
         dependency,
+        published: PublishedBlockingDependencies {
+          first: Some(PublishedBlockingDependency {
+            state: Arc::downgrade(&parent),
+            sequence,
+          }),
+          rest: Vec::new(),
+        },
       }));
       assert_eq!(parent.get_dependency(), None);
       return;
@@ -19855,6 +21033,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-cap".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -19961,6 +21140,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-owner-runnable".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -20051,6 +21231,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd1-unrelated".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -20141,6 +21322,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "rd1-scope".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let exec1 =
       Arc::new(MultiThreadExecutor::new(&opts, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -20555,7 +21737,7 @@ mod tests {
     fn enqueue_runnable(target: &Arc<MultiThreadExecutor>) {
       let scheduler = Arc::clone(target);
       let (runnable, task) = async_task::spawn(async {}, move |r| scheduler.schedule(r));
-      target.queue.lock().unwrap().push_back(runnable);
+      target.push_fifo_raw(runnable);
       task.detach();
     }
 
@@ -20565,6 +21747,7 @@ mod tests {
       max_blocking_tasks: 2,
       thread_name_prefix: "rd-onpool-scope".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let exec1 =
       Arc::new(MultiThreadExecutor::new(&opts, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -20589,7 +21772,7 @@ mod tests {
       "a foreign-executor on-pool marker must NOT drive exec2's queue (must park)"
     );
     assert_eq!(
-      exec2.queue.lock().unwrap().len(),
+      exec2.injector.len(),
       1,
       "the foreign call must leave exec2's runnable untouched on its queue"
     );
@@ -20608,12 +21791,13 @@ mod tests {
       "a same-executor on-pool marker MUST drive exec1's queue cooperatively"
     );
     assert!(
-      exec1.queue.lock().unwrap().is_empty(),
+      exec1.injector.is_empty(),
       "the cooperative branch must have drained exec1's queued runnable"
     );
 
-    // Tidy: drop the untouched exec2 runnable so its task does not leak a waker.
-    exec2.queue.lock().unwrap().clear();
+    // Tidy: drop the untouched exec2 runnable so its task does not leak a waker
+    // (steal-drain replaces the former `queue.lock().clear()`).
+    while exec2.steal_one().is_some() {}
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -20660,6 +21844,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "rd2-pre-fix".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       }
       .validate()
       .expect("production MultiThread options must provide a reserve lane");
@@ -20923,6 +22108,7 @@ mod tests {
           job,
           owner: Some(owner),
         },
+        published: PublishedBlockingDependencies::default(),
       });
       let _owner = executor.enter_blocking_owner(owner, false);
 
@@ -21811,6 +22997,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect_err("worker_threads == 0 must be rejected");
@@ -21828,6 +23015,7 @@ mod tests {
       max_blocking_tasks: 0,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect_err("max_blocking_tasks == 0 must be rejected");
@@ -21847,6 +23035,7 @@ mod tests {
       max_blocking_tasks: 8,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("CurrentThread options must validate");
@@ -21866,6 +23055,7 @@ mod tests {
       max_blocking_tasks: 8,
       thread_name_prefix: "rd8".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("MultiThread options must validate");
@@ -21882,6 +23072,7 @@ mod tests {
       max_blocking_tasks: 8,
       thread_name_prefix: "rd8-minimum".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate()
     .expect("MultiThread options must validate");
@@ -21898,6 +23089,7 @@ mod tests {
       max_blocking_tasks: 256,
       thread_name_prefix: "rd8-rayon-cap-32".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     }
     .validate_with_rayon_max_threads(Some(255))
     .expect("a 32-bit-sized request must clamp to Rayon's 255-thread cap");
@@ -21917,6 +23109,7 @@ mod tests {
         max_blocking_tasks: requested_threads,
         thread_name_prefix: "rd8-rayon-cap".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("an oversized request must clamp to the production worker ceiling");
 
@@ -21928,6 +23121,79 @@ mod tests {
       expected_workers - 1,
       "the blocking cap must reserve a lane from the physically realizable worker count"
     );
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn drain_linger_extreme_values_are_clamped_and_zero_disables() {
+    // u64::MAX microseconds (the exact value an unvalidated
+    // `NAPI_RUNTIME_DRAIN_LINGER_US` typo used to freeze into the process
+    // via the removed OnceLock) must clamp to the ceiling everywhere a
+    // budget enters the system: full options validation, a partial patch
+    // through the controller, and the executor's defensive constructor
+    // clamp for direct unvalidated test construction.
+    let extreme = Duration::from_micros(u64::MAX);
+    let validated = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 2,
+      max_blocking_tasks: 1,
+      thread_name_prefix: "linger-clamp".to_string(),
+      park_deadline: None,
+      drain_linger: extreme,
+    }
+    .validate_with_rayon_max_threads(Some(2))
+    .expect("an extreme linger budget must clamp, not fail validation");
+    assert_eq!(validated.drain_linger, MAX_DRAIN_LINGER);
+
+    let controller = RuntimeController::new();
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        drain_linger: Some(extreme),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("an extreme linger patch must clamp, not fail validation");
+    assert_eq!(
+      controller.options().drain_linger,
+      MAX_DRAIN_LINGER,
+      "introspection must report the clamped budget, not the requested one"
+    );
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        drain_linger: Some(Duration::ZERO),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("ZERO (lingering disabled) must remain a valid budget");
+    assert_eq!(controller.options().drain_linger, Duration::ZERO);
+
+    let metrics = Arc::new(RuntimeMetrics::default());
+    let unvalidated = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 2,
+      max_blocking_tasks: 2,
+      thread_name_prefix: "linger-clamp-exec".to_string(),
+      park_deadline: None,
+      drain_linger: extreme,
+    };
+    let executor = MultiThreadExecutor::new(&unvalidated, metrics)
+      .expect("the executor must construct with an extreme unvalidated budget");
+    assert_eq!(
+      executor.drain_linger,
+      Some(MAX_DRAIN_LINGER),
+      "the constructor's defensive clamp must bound unvalidated budgets"
+    );
+
+    let metrics = Arc::new(RuntimeMetrics::default());
+    let disabled = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 2,
+      max_blocking_tasks: 2,
+      thread_name_prefix: "linger-clamp-off".to_string(),
+      park_deadline: None,
+      drain_linger: Duration::ZERO,
+    };
+    let executor = MultiThreadExecutor::new(&disabled, metrics)
+      .expect("the executor must construct with lingering disabled");
+    assert_eq!(executor.drain_linger, None, "ZERO must disable lingering");
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -22123,6 +23389,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "rd8".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("first configure before the backend exists must succeed");
 
@@ -22164,6 +23431,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: thread_name_prefix.to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("CurrentThread test configuration must be accepted");
     controller
@@ -22183,6 +23451,7 @@ mod tests {
         max_blocking_tasks,
         thread_name_prefix: thread_name_prefix.to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("MultiThread test configuration must be accepted");
     controller
@@ -22324,6 +23593,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "try-block-on-dyn-shutdown".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("the isolated runtime must accept CurrentThread configuration");
       start().expect("the isolated runtime must start");
@@ -22391,6 +23661,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifecycle-initial-start".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("module-registration start must not consume the configuration window");
 
@@ -22441,6 +23712,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifecycle-zero-work-config".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("zero-work lifecycle cycles must not consume the configuration window");
 
@@ -23000,6 +24272,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "lifecycle-zero-work-real-generation".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("configuration before first real async use must succeed");
 
@@ -25264,6 +26537,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "buffered-blocking-result-drop".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -25501,6 +26775,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd9-blk-cap".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -25606,6 +26881,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd9-budget".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -25682,6 +26958,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "rd9-panic".to_string(),
         park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, metrics).unwrap());
 
@@ -25831,6 +27108,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "metrics-snapshot".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
 
     let queued_metrics = Arc::new(RuntimeMetrics::default());
@@ -25946,7 +27224,10 @@ mod tests {
       if self.ready.load(Ordering::SeqCst) {
         Poll::Ready(())
       } else {
-        record_blocking_dependency(self.dependency);
+        // This shape publishes on every pending poll and never retires; the
+        // owner-lane assertions read the state, not the token.
+        let mut published = PublishedBlockingDependencies::default();
+        record_blocking_dependency(&mut published, self.dependency);
         Poll::Pending
       }
     }
@@ -26174,6 +27455,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "deadline-fire".to_string(),
         park_deadline: Some(Duration::from_millis(50)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -26249,6 +27531,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "deadline-reset".to_string(),
         park_deadline: Some(deadline),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
 
@@ -26326,6 +27609,7 @@ mod tests {
         max_blocking_tasks: 2,
         thread_name_prefix: "foreign-exempt".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -26399,6 +27683,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "edge-wake".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -26496,6 +27781,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "verdict-blocking".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -26590,6 +27876,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "final-verdict-publication".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       };
       let executor =
         Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
@@ -26972,6 +28259,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "shutdown-gated-verdict".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("the shutdown race test configuration must be accepted");
 
@@ -27114,6 +28402,7 @@ mod tests {
         max_blocking_tasks: 1,
         thread_name_prefix: "verdict-before-shutdown".to_string(),
         park_deadline: Some(Duration::from_millis(40)),
+        drain_linger: DEFAULT_DRAIN_LINGER,
       })
       .expect("the verdict-first test configuration must be accepted");
 
@@ -27714,6 +29003,7 @@ mod tests {
       max_blocking_tasks: workers,
       thread_name_prefix: prefix.to_string(),
       park_deadline,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap())
   }
@@ -28359,6 +29649,7 @@ mod tests {
       max_blocking_tasks: 1,
       thread_name_prefix: "nested-timer-wake".to_string(),
       park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
     };
     let executor =
       Arc::new(MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default())).unwrap());
