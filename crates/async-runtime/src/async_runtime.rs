@@ -15945,9 +15945,7 @@ mod tests {
       let producer = std::thread::spawn(move || {
         let cadence = Duration::from_micros(200);
         let mut next_tick = Instant::now();
-        while !producer_r_done.load(Ordering::SeqCst)
-          && !producer_give_up.load(Ordering::SeqCst)
-        {
+        while !producer_r_done.load(Ordering::SeqCst) && !producer_give_up.load(Ordering::SeqCst) {
           let scheduler = Arc::clone(&producer_executor);
           let (runnable, task) = async_task::spawn(async {}, move |r| scheduler.schedule(r));
           producer_executor.schedule(runnable);
@@ -17474,7 +17472,20 @@ mod tests {
       move |runnable| scheduler.schedule(runnable),
     );
     executor.schedule(runnable);
-    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    // The cooperative frame must be PARKED (registered) before the timer task
+    // is scheduled, so that schedule's wake targets the frame instead of
+    // spawning a second drainer. A second drainer would later LINGER as a
+    // registered blocking-capable parker, and `wake_one_blocking` prefers the
+    // most recently parked candidate: on a starved runner (observed on the
+    // Windows CI) the linger parker absorbs the blocking wake below, the
+    // drainer services the job, and the frame -- whose exit compensation is
+    // the subject under test -- sleeps in its timer-bounded park until the
+    // 120s heap timer, far past any sane recv bound.
+    wait_until("the cooperative frame parked", || {
+      executor.parked_drivers.count.load(Ordering::SeqCst) == 1
+    });
 
     let timer_exec = Arc::clone(&executor);
     let timer_scheduler = Arc::clone(&executor);
@@ -17494,16 +17505,28 @@ mod tests {
         .timekeeper_parker
         .is_some()
     });
+    // Re-parked after running the timer runnable: the blocking wake below
+    // must find the frame registered (the sole candidate), so the frame
+    // absorbs the wake, observes its ready future, and its EXIT COMPENSATION
+    // services the blocking-only residue.
+    wait_until(
+      "the cooperative frame re-parked in its timer-bounded park",
+      || executor.parked_drivers.count.load(Ordering::SeqCst) == 1,
+    );
 
     ready.store(true, Ordering::SeqCst);
     let (blocking_tx, blocking_rx) = mpsc::channel();
     let blocking = executor.schedule_blocking(move || {
       blocking_tx.send(()).unwrap();
     });
+    // Generous hang-detector bounds, not latency assertions: starved CI
+    // runners (msys2 CLANG64) can stall a woken thread for whole seconds.
     blocking_rx
-      .recv_timeout(Duration::from_secs(2))
+      .recv_timeout(Duration::from_secs(10))
       .expect("blocking-only residue must be serviced by a Rayon worker");
-    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    returned_rx
+      .recv_timeout(Duration::from_secs(10))
+      .expect("the cooperative frame must observe its ready future and return after the absorbed blocking wake");
     release_tx.send(()).unwrap();
     futures::executor::block_on(task);
     futures::executor::block_on(blocking).unwrap();
