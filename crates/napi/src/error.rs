@@ -19,6 +19,11 @@ use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Statu
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
+/// Property key of the private holder object used to retain a JS value that
+/// `napi_create_reference` cannot reference directly. See
+/// [`Error::from_unknown_without_coercion`].
+const ERROR_VALUE_KEY: &CStr = c"[[ErrorValue]]";
+
 /// Represent `JsError`.
 /// Return this Error in `js_function`, **napi-rs** will throw it as `JsError` for you.
 /// If you want throw it as `TypeError` or `RangeError`, you can use `JsTypeError/JsRangeError::from(Error).throw_into(env)`
@@ -47,6 +52,10 @@ pub struct Error<S: AsRef<str> = Status> {
 /// the env's custom-GC TSFN when the last drop happens elsewhere).
 pub(crate) struct ErrorRef {
   raw: sys::napi_ref,
+  // `true` when `raw` references a private holder object carrying the retained
+  // value under [`ERROR_VALUE_KEY`] instead of the value itself. Reads unwrap
+  // the holder, so the distinction never escapes `Error`.
+  indirect: bool,
   env: sys::napi_env,
   // The owning env's custom-GC handle, captured on the owning JS thread when
   // `raw` is created. Lets the release run safely from any thread: the
@@ -79,10 +88,20 @@ impl ErrorRef {
     debug_assert!(!raw.is_null(), "ErrorRef must wrap a non-null napi_ref");
     Self {
       raw,
+      indirect: false,
       env,
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
       custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
     }
+  }
+
+  /// Same as [`ErrorRef::new`], but `raw` references a holder object whose
+  /// [`ERROR_VALUE_KEY`] property is the retained value.
+  #[cfg(not(target_family = "wasm"))]
+  fn new_indirect(raw: sys::napi_ref, env: sys::napi_env) -> Self {
+    let mut value = Self::new(raw, env);
+    value.indirect = true;
+    value
   }
 }
 
@@ -289,6 +308,191 @@ impl From<Unknown<'_>> for Error {
   }
 }
 
+impl Error {
+  /// Captures an arbitrary JavaScript value as an `Error` without coercing it.
+  ///
+  /// JavaScript allows *any* value to be thrown or used to reject a promise, but
+  /// [`From<Unknown>`] assumes an object: it calls `napi_create_reference` on the
+  /// value and then `napi_coerce_to_string` on it. Both are wrong for a value
+  /// that is not an object:
+  ///
+  /// * `napi_create_reference` rejects primitives with `napi_invalid_arg` on
+  ///   Node-API < 10, so `Promise.reject('boom')` observed from Rust collapses to
+  ///   `Error { InvalidArg, "Create Error reference failed" }` and the thrown
+  ///   value is lost.
+  /// * `napi_coerce_to_string` invokes `toString`/`Symbol.toPrimitive`, i.e.
+  ///   arbitrary user code, while unwinding an error — which can throw again and
+  ///   leave a second exception pending.
+  ///
+  /// This constructor does neither. The value is retained behind a private
+  /// holder object, which `napi_create_reference` accepts for every value type,
+  /// so converting the `Error` back with [`ToNapiValue`] reproduces the original
+  /// value *identically* — same object identity, same primitive, no `Error`
+  /// wrapper synthesized around it.
+  ///
+  /// [`Error::reason`] is filled in only from data that can be read without
+  /// running JavaScript: a real `Error`'s own string `message`, or a string
+  /// primitive itself. Every other value (a plain object, a number, `null`, a
+  /// class instance with a `get message()`) yields an empty reason and relies on
+  /// the retained value to carry the information back to JavaScript. A property
+  /// read that throws is swallowed and its exception cleared, so a hostile
+  /// accessor cannot poison the environment.
+  ///
+  /// Use it wherever JavaScript decides the value and its identity must survive
+  /// the round trip: `Promise` rejection handlers and `AsyncGenerator.throw()`
+  /// both do. Prefer [`From<Unknown>`] when the value is known to be an `Error`
+  /// and a human-readable message matters more than exact identity.
+  pub fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
+    Self {
+      status: Status::GenericFailure,
+      reason: owned_reason_without_coercion(value),
+      // The retained value carries its own `cause`, and reading it here would
+      // mean recursively referencing a chain of values that may not be objects.
+      cause: None,
+      maybe_ref: retain_value_without_coercion(value),
+    }
+  }
+}
+
+/// Retains `value` so it can be handed back to JavaScript unchanged.
+///
+/// `napi_create_reference` only accepts objects, functions, and symbols before
+/// Node-API 10, so the value is stashed as a plain data property on a private
+/// holder object and the holder is what gets referenced. [`ErrorRef::indirect`]
+/// records that reads have to unwrap it.
+#[cfg(not(target_family = "wasm"))]
+fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<ErrorRef>> {
+  let env = value.0.env;
+  let mut holder = ptr::null_mut();
+  if unsafe { sys::napi_create_object(env, &mut holder) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  let properties = [sys::napi_property_descriptor {
+    utf8name: ERROR_VALUE_KEY.as_ptr().cast(),
+    name: ptr::null_mut(),
+    method: None,
+    getter: None,
+    setter: None,
+    value: value.0.value,
+    attributes: sys::PropertyAttributes::default,
+    data: ptr::null_mut(),
+  }];
+  let status =
+    unsafe { sys::napi_define_properties(env, holder, properties.len(), properties.as_ptr()) };
+  if status != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  let mut reference = ptr::null_mut();
+  if unsafe { sys::napi_create_reference(env, holder, 1, &mut reference) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  Some(std::sync::Arc::new(ErrorRef::new_indirect(reference, env)))
+}
+
+/// WASM builds never retain a JS reference in an `Error` (see the `wasm`
+/// [`From<Unknown>`] impl), so there is nothing to hold on to here either.
+#[cfg(target_family = "wasm")]
+fn retain_value_without_coercion(_value: Unknown<'_>) -> Option<std::sync::Arc<ErrorRef>> {
+  None
+}
+
+/// Best-effort [`Error::reason`] for [`Error::from_unknown_without_coercion`],
+/// derived without invoking any JavaScript.
+fn owned_reason_without_coercion(value: Unknown<'_>) -> String {
+  let env = value.0.env;
+  if is_error_without_coercion(value) {
+    return owned_named_string_property_without_coercion(value, c"message")
+      .unwrap_or_else(|| "JavaScript Error".to_owned());
+  }
+  // A string primitive is its own message; reading it is a plain copy, not a
+  // coercion, so `throw 'boom'` still surfaces as `"boom"` on the Rust side.
+  owned_string_without_coercion(env, value.0.value).unwrap_or_default()
+}
+
+/// `napi_is_error` without the `check_status!` machinery: a failure here means
+/// the value simply is not treated as an `Error`.
+fn is_error_without_coercion(value: Unknown<'_>) -> bool {
+  let env = value.0.env;
+  let mut is_error = false;
+  if unsafe { sys::napi_is_error(env, value.0.value, &mut is_error) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return false;
+  }
+  is_error
+}
+
+/// Reads `value[key]` and returns it only when it already is a string. A getter
+/// that throws yields `None` and its exception is cleared.
+fn owned_named_string_property_without_coercion(value: Unknown<'_>, key: &CStr) -> Option<String> {
+  let env = value.0.env;
+  let mut property = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, value.0.value, key.as_ptr(), &mut property) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+  owned_string_without_coercion(env, property)
+}
+
+/// Copies `value` into an owned `String` when — and only when — it is already a
+/// JavaScript string. Returns `None` for every other value type instead of
+/// coercing it.
+fn owned_string_without_coercion(env: sys::napi_env, value: sys::napi_value) -> Option<String> {
+  let mut value_type = -1;
+  if unsafe { sys::napi_typeof(env, value, &mut value_type) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  if value_type != sys::ValueType::napi_string {
+    return None;
+  }
+
+  let mut length = 0;
+  if unsafe { sys::napi_get_value_string_utf8(env, value, ptr::null_mut(), 0, &mut length) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+  let mut bytes = vec![0; length + 1];
+  let mut written = 0;
+  let status = unsafe {
+    sys::napi_get_value_string_utf8(
+      env,
+      value,
+      bytes.as_mut_ptr().cast(),
+      bytes.len(),
+      &mut written,
+    )
+  };
+  if status != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  bytes.truncate(written);
+  String::from_utf8(bytes).ok()
+}
+
+/// Drops any exception a failed N-API call left pending.
+///
+/// The non-coercing capture path deliberately ignores failures — a hostile
+/// `get message()` must not become the reported error — but it must not hand a
+/// poisoned environment back to the caller either.
+fn clear_pending_exception(env: sys::napi_env) {
+  let mut is_pending = false;
+  if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } != sys::Status::napi_ok
+    || !is_pending
+  {
+    return;
+  }
+  let mut exception = ptr::null_mut();
+  let _ = unsafe { sys::napi_get_and_clear_last_exception(env, &mut exception) };
+}
+
 #[cfg(feature = "anyhow")]
 impl From<anyhow::Error> for Error {
   fn from(value: anyhow::Error) -> Self {
@@ -422,6 +626,17 @@ impl<S: AsRef<str>> Error<S> {
     let status = unsafe { sys::napi_get_reference_value(env, error_ref.raw, &mut result) };
     if status != sys::Status::napi_ok {
       return None;
+    }
+    if error_ref.indirect {
+      // `result` is the private holder object; the retained value is its
+      // `ERROR_VALUE_KEY` property. It is a plain data property on an object we
+      // created ourselves, so reading it runs no user code.
+      let status = unsafe {
+        sys::napi_get_named_property(env, result, ERROR_VALUE_KEY.as_ptr().cast(), &mut result)
+      };
+      if status != sys::Status::napi_ok {
+        return None;
+      }
     }
     Some(result)
   }
