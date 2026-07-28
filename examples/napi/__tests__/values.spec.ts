@@ -2081,9 +2081,7 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
         throw new Error(errMsg)
       }),
     {
-      // on wasm targets the thrown error object is not referenced; JS receives
-      // a recreated error whose message contains the message and stack trace
-      message: process.env.WASI_TEST ? new RegExp(errMsg) : errMsg,
+      message: errMsg,
     },
   )
 
@@ -2107,14 +2105,27 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
         return Promise.resolve(1)
       })
     },
-    process.env.WASI_TEST
-      ? {
-          message: /Cannot set properties of undefined \(setting 'd'\)/,
-        }
-      : {
-          instanceOf: TypeError,
-          message: "Cannot set properties of undefined (setting 'd')",
-        },
+    {
+      instanceOf: TypeError,
+      message: "Cannot set properties of undefined (setting 'd')",
+    },
+  )
+})
+
+test('a primitive thrown from a ThreadsafeFunction callback is delivered, not fatal', async (t) => {
+  // `napi_create_reference` rejects every non-object below Node-API 10, so
+  // retaining the thrown value fails here. That has to stay a best effort:
+  // reporting the failure as the callback's own status raised a fatal exception
+  // for an error that had already been delivered, taking the process down over a
+  // string throw.
+  await t.throwsAsync(
+    () =>
+      tsfnThrowFromJs(() => {
+        throw 'a primitive string'
+      }),
+    {
+      message: /a primitive string/,
+    },
   )
 })
 
@@ -2125,9 +2136,7 @@ test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction
         throw new Error(arg)
       }),
     {
-      // on wasm targets the thrown error object is not referenced; JS receives
-      // a recreated error whose message contains the message and stack trace
-      message: process.env.WASI_TEST ? /foo/ : 'foo',
+      message: 'foo',
     },
   )
 })
@@ -2139,7 +2148,7 @@ test('call_async_catch on CalleeHandled=true ThreadsafeFunction propagates throw
         throw new Error(arg)
       }),
     {
-      message: process.env.WASI_TEST ? /foo/ : 'foo',
+      message: 'foo',
     },
   )
 })
@@ -2153,19 +2162,57 @@ test('call_async_catch preserves original JS exception object', async (t) => {
       throw thrown
     }),
   )
-  if (process.env.WASI_TEST) {
-    // On wasm targets the thrown error object is not referenced (the error may
-    // be dropped on another thread), so JS receives a recreated error that only
-    // carries the message and stack trace.
-    t.true(err?.message.includes('foo'))
-  } else {
-    // The Rust side propagates the original napi::Error; its maybe_raw reference
-    // round-trips back through ToNapiValue for Error, so JS receives the exact
-    // same Error instance that was thrown, with custom properties intact.
-    // @ts-expect-error reading custom property on Error
-    t.is(err?.code, 'E_FOO')
-    t.is(err?.message, 'foo')
-  }
+  // The Rust side propagates the original napi::Error; its maybe_ref reference
+  // round-trips back through ToNapiValue for Error, so JS receives the exact
+  // same Error instance that was thrown, with custom properties intact.
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_FOO')
+  t.is(err?.message, 'foo')
+  t.is(err, thrown)
+})
+
+test('a JS exception keeps its subclass, cause and own properties', async (t) => {
+  // The shape a real addon sees: user code throws an `Error` subclass carrying
+  // `cause` and custom fields. Everything but the message used to be erased on
+  // wasm, where the exception object was not referenced at all.
+  const cause = new RangeError('the cause')
+  const thrown = new TypeError('the message', { cause })
+  // @ts-expect-error custom property on Error
+  thrown.code = 'E_CUSTOM'
+  // @ts-expect-error custom property on Error
+  thrown.detail = { nested: [1, 2, 3] }
+
+  const err = await t.throwsAsync(() =>
+    tsfnThrowFromJsCatchRecover(() => {
+      throw thrown
+    }),
+  )
+  t.is(err, thrown)
+  t.true(err instanceof TypeError)
+  t.is(err?.message, 'the message')
+  t.is(err?.cause, cause)
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_CUSTOM')
+  // @ts-expect-error reading custom property on Error
+  t.deepEqual(err?.detail, { nested: [1, 2, 3] })
+})
+
+Napi4Test('a rejected promise keeps its subclass, cause and own properties', async (t) => {
+  // Same identity requirement on the other capture path: `Promise` rejection,
+  // which reaches Rust through `Error::from_unknown_without_coercion`.
+  const cause = new RangeError('the cause')
+  const rejection = new TypeError('the message', { cause })
+  // @ts-expect-error custom property on Error
+  rejection.code = 'E_CUSTOM'
+
+  const err = await t.throwsAsync(() =>
+    asyncPlus100(Promise.reject(rejection)),
+  )
+  t.is(err, rejection)
+  t.true(err instanceof TypeError)
+  t.is(err?.cause, cause)
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_CUSTOM')
 })
 
 test('napi::Error from a JS sync throw can be dropped on another thread', async (t) => {

@@ -92,7 +92,6 @@ impl ErrorRef {
   /// owning JS thread with a non-null `raw`. Every construction site builds an
   /// `ErrorRef` only after `napi_create_reference` succeeds, so `ErrorRef::drop`
   /// can release without a null check.
-  #[cfg(not(target_family = "wasm"))]
   pub(crate) fn new(raw: sys::napi_ref, env: sys::napi_env) -> Self {
     debug_assert!(!raw.is_null(), "ErrorRef must wrap a non-null napi_ref");
     Self {
@@ -107,7 +106,6 @@ impl ErrorRef {
 
   /// Same as [`ErrorRef::new`], but `raw` references a holder object whose
   /// [`ERROR_VALUE_KEY`] property is the retained value.
-  #[cfg(not(target_family = "wasm"))]
   fn new_indirect(raw: sys::napi_ref, env: sys::napi_env) -> Self {
     let mut value = Self::new(raw, env);
     value.indirect = true;
@@ -386,7 +384,6 @@ impl Error {
 /// Node-API 10, so the value is stashed as a plain data property on a private
 /// holder object and the holder is what gets referenced. [`ErrorRef::indirect`]
 /// records that reads have to unwrap it.
-#[cfg(not(target_family = "wasm"))]
 fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<ErrorRef>> {
   let env = value.0.env;
   let mut holder = ptr::null_mut();
@@ -416,13 +413,6 @@ fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<Er
     return None;
   }
   Some(std::sync::Arc::new(ErrorRef::new_indirect(reference, env)))
-}
-
-/// WASM builds never retain a JS reference in an `Error` (see the `wasm`
-/// [`From<Unknown>`] impl), so there is nothing to hold on to here either.
-#[cfg(target_family = "wasm")]
-fn retain_value_without_coercion(_value: Unknown<'_>) -> Option<std::sync::Arc<ErrorRef>> {
-  None
 }
 
 /// Best-effort [`Error::reason`] for [`Error::from_unknown_without_coercion`],

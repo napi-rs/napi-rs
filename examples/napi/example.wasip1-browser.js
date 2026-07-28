@@ -592,6 +592,8 @@ export const dateToNumber = __napiModule.exports.dateToNumber
 export const DEFAULT_COST = __napiModule.exports.DEFAULT_COST
 export const defineClass = __napiModule.exports.defineClass
 export const derefUint8Array = __napiModule.exports.derefUint8Array
+export const describePromiseRejection =
+  __napiModule.exports.describePromiseRejection
 export const detachReentrantBorrowOrderTestTarget =
   __napiModule.exports.detachReentrantBorrowOrderTestTarget
 export const drainStreamCount = __napiModule.exports.drainStreamCount
