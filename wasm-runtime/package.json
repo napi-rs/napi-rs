@@ -37,7 +37,7 @@
     "@rollup/plugin-replace": "^6.0.3",
     "buffer": "^6.0.3",
     "events": "^3.3.0",
-    "memfs": "^4.57.6",
+    "memfs": "^4.64.0",
     "node-inspect-extracted": "^3.3.2",
     "path-browserify": "^1.0.1",
     "process": "^0.11.10",
