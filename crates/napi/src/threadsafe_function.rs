@@ -110,11 +110,20 @@ impl Drop for ThreadsafeFunctionHandle {
               sys::ThreadsafeFunctionReleaseMode::release,
             )
           };
-          assert!(
-            release_status == sys::Status::napi_ok,
-            "Threadsafe Function release failed {}",
-            Status::from(release_status)
-          );
+          if release_status != sys::Status::napi_ok {
+            // This runs in a destructor, which can be reached from a Node
+            // callback or from a thread being torn down, so panicking here
+            // would unwind across an FFI boundary and abort the process. That
+            // is exactly what a worker exit used to do: Node closes the
+            // threadsafe function during environment teardown and reports
+            // `napi_closing` to whichever handle drops afterwards.
+            //
+            // The release did not happen, so native code that can still reach
+            // this threadsafe function may outlive the environment. Keep the
+            // addon image mapped instead of tearing the process down.
+            #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+            crate::bindgen_runtime::retain_current_module_for_unload_safety();
+          }
         }
       }
     })
