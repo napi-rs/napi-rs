@@ -195,6 +195,22 @@ test('async generator should support throw()', async (t) => {
   await t.throwsAsync(() => iter.throw!(new Error('test error')))
 })
 
+test('async generator should support throw() with a non-Error value', async (t) => {
+  if (typeof AsyncFib === 'undefined') {
+    t.pass(
+      'AsyncFib is not available (tokio_rt feature not enabled), skipping test',
+    )
+    return
+  }
+  const fib = new AsyncFib()
+  const iter = fib[Symbol.asyncIterator]()
+  t.deepEqual(await iter.next(), { value: 1, done: false })
+  // `throw()` accepts any value. Capturing it used to go through
+  // `napi_create_reference`, which rejects primitives, so the thrown value was
+  // replaced by a reference-creation failure.
+  await t.throwsAsync(() => iter.throw!('boom'), { message: 'boom' })
+})
+
 // Truly async generator tests - these use actual async delays
 test('DelayedCounter should yield values with real async delays', async (t) => {
   if (typeof DelayedCounter === 'undefined') {

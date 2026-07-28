@@ -6,6 +6,20 @@ pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
   Ok(v + 100)
 }
 
+/// Awaits `p` and reports how Rust saw the rejection, as `"<status>|<reason>"`.
+///
+/// JavaScript lets a promise reject with any value, including primitives that
+/// `napi_create_reference` refuses. This exists to pin down that such a
+/// rejection still arrives as itself instead of as a reference-creation
+/// failure.
+#[napi]
+pub async fn describe_promise_rejection(p: Promise<()>) -> Result<String> {
+  match p.await {
+    Ok(()) => Ok("resolved|".to_owned()),
+    Err(error) => Ok(format!("{}|{}", error.status.as_ref(), error.reason)),
+  }
+}
+
 #[napi]
 pub fn call_then_on_promise(input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
   input.then(|v| Ok(format!("{}", v.value)))

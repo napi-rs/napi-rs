@@ -122,6 +122,7 @@ import {
   tsfnThrowFromJsCatchHandled,
   tsfnThrowFromJsCatchRecover,
   asyncPlus100,
+  describePromiseRejection,
   getGlobal,
   getUndefined,
   getNull,
@@ -1996,6 +1997,48 @@ Napi4Test('Promise should reject raw error in rust', async (t) => {
   const fxError = new Error('What is Happy Planet')
   await t.throwsAsync(() => asyncPlus100(Promise.reject(fxError)), {
     message: fxError.message,
+  })
+})
+
+Napi4Test('Promise rejection is captured without coercion', async (t) => {
+  // A rejection value that N-API cannot reference directly. This used to fail
+  // `napi_create_reference` and surface as `InvalidArg|Create Error reference
+  // failed`, destroying the thrown value.
+  t.is(
+    await describePromiseRejection(Promise.reject('boom')),
+    'GenericFailure|boom',
+  )
+  t.is(await describePromiseRejection(Promise.reject(42)), 'GenericFailure|')
+  t.is(await describePromiseRejection(Promise.reject(null)), 'GenericFailure|')
+  t.is(
+    await describePromiseRejection(Promise.reject(undefined)),
+    'GenericFailure|',
+  )
+  // Real errors keep their own message, read without invoking JavaScript.
+  t.is(
+    await describePromiseRejection(Promise.reject(new TypeError('nope'))),
+    'GenericFailure|nope',
+  )
+  // A `message` accessor that throws is ignored rather than propagated, and its
+  // exception must not leak into the next call.
+  const hostile = new Error('ignored')
+  Object.defineProperty(hostile, 'message', {
+    get() {
+      throw new Error('accessor should not run')
+    },
+  })
+  t.is(
+    await describePromiseRejection(Promise.reject(hostile)),
+    'GenericFailure|JavaScript Error',
+  )
+  t.is(await describePromiseRejection(Promise.resolve()), 'resolved|')
+})
+
+Napi4Test('Promise rejected with a primitive surfaces that primitive', async (t) => {
+  // Before the rejection was captured without coercion this rejected with
+  // `Create Error reference failed`, hiding what JavaScript actually threw.
+  await t.throwsAsync(() => asyncPlus100(Promise.reject('boom')), {
+    message: 'boom',
   })
 })
 

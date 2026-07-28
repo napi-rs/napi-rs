@@ -59,16 +59,22 @@ impl DeferredTrace {
     let mut obj = Object::from_raw(raw_env, raw);
     // Reuse the original JS error object when it is safe to read on this thread;
     // the shared `napi_ref` is released when `err` drops at the end of the call.
-    let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
-      let err_obj = Object::from_raw(raw_env, err_raw_value);
-      if err_obj.has_named_property("message")? {
-        // The error was already created inside the JS engine, just return it
-        Ok(err_obj.raw())
-      } else {
-        obj.set_named_property("message", "")?;
-        obj.set_named_property("code", "")?;
-        Ok(raw)
+    let reusable_error = match unsafe { err.referenced_value(raw_env) } {
+      Some(err_raw_value) => {
+        let err_obj = Object::from_raw(raw_env, err_raw_value);
+        // The retained value can be anything JavaScript rejected with, so it is
+        // only usable as the rejection itself when it carries a message. A
+        // primitive is not even an object, hence the tolerant lookup.
+        err_obj
+          .has_named_property("message")
+          .unwrap_or(false)
+          .then(|| err_obj.raw())
       }
+      None => None,
+    };
+    // The error was already created inside the JS engine, just return it
+    let err_value = if let Some(err_raw_value) = reusable_error {
+      Ok(err_raw_value)
     } else {
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(

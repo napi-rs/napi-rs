@@ -38,13 +38,16 @@ pub trait AsyncGenerator {
 
   #[allow(unused_variables)]
   /// Implement catch to handle the `AsyncGenerator.throw()`
+  ///
+  /// The default rejects with the exact value passed to `throw()`, which
+  /// JavaScript allows to be anything — including a primitive.
   /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncGenerator/throw>
   fn catch(
     &mut self,
     env: Env,
     value: Unknown,
   ) -> impl Future<Output = crate::Result<Option<Self::Yield>>> + Send + 'static {
-    let err = value.into();
+    let err = crate::Error::from_unknown_without_coercion(value);
     async move { Err(err) }
   }
 }
