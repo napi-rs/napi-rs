@@ -2031,7 +2031,7 @@ Napi4Test('Promise rejection is captured without coercion', async (t) => {
     await describePromiseRejection(Promise.reject(hostile)),
     'GenericFailure|JavaScript Error',
   )
-  t.is(await describePromiseRejection(Promise.resolve()), 'resolved|')
+  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved|')
 })
 
 Napi4Test('Promise rejected with a primitive surfaces that primitive', async (t) => {
