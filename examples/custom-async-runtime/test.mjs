@@ -65,6 +65,9 @@ const binding = isManualThreadlessWasi ? loadedBinding.binding : loadedBinding
 const disposeBinding = isManualThreadlessWasi
   ? loadedBinding.dispose
   : undefined
+const prepareWasmEnvCleanup = isManualThreadlessWasi
+  ? loadedBinding.prepareWasmEnvCleanup
+  : undefined
 const nativeBindingFile =
   mode === 'native'
     ? Object.keys(require.cache).find(
@@ -511,10 +514,49 @@ if (mode === 'native') {
 }
 
 if (disposeBinding) {
-  // On the minimal SPI base the addon cannot settle still-pending promises
-  // during context disposal: that requires the napi_prepare_wasm_env_cleanup
-  // hook from the full lifecycle surface. Only verify that disposal completes
-  // cleanly while work is in flight without trapping.
-  binding.asyncNever().catch(() => {})
+  // The loader runs the addon's `napi_prepare_wasm_env_cleanup` barrier as the
+  // first step of disposal, while the environment can still call into
+  // JavaScript. That barrier shuts the registered backend down, so a task that
+  // is still in flight is cancelled — and its promise rejected — instead of
+  // being stranded behind an environment that has already stopped accepting JS
+  // calls. Drive the barrier by hand so the ordering is observable: everything
+  // asserted below happens strictly before `context.destroy()`.
+  //
+  // `napi-build` links the symbol with `--export-if-defined` and the loaders
+  // guard the call with `typeof`, so a binary without the barrier loads and runs
+  // exactly as if nothing were wrong. Fail loudly instead.
+  assert.equal(
+    loadedBinding.hasWasmEnvCleanupExport,
+    true,
+    'the wasm binary must export napi_prepare_wasm_env_cleanup, otherwise the loader silently skips the teardown barrier',
+  )
+  const beforeDispose = binding.getRuntimeMetrics()
+  const stranded = binding.asyncNever()
+  const strandedSettlement = stranded.then(
+    () => 'resolved',
+    (error) => `rejected: ${error.message}`,
+  )
+  prepareWasmEnvCleanup()
+  const afterBarrier = binding.getRuntimeMetrics()
+  assert.equal(
+    afterBarrier.shutdownCalls,
+    beforeDispose.shutdownCalls + 1,
+    'the barrier must shut the backend down before the environment is destroyed',
+  )
+  // The environment is still live at this point: reading metrics is a napi call
+  // into a still-active env, and it would throw if the barrier had run too late.
+  assert.equal(afterBarrier.backendIdentity, beforeDispose.backendIdentity)
+  // The cancelled task settles its promise through the environment the barrier
+  // deliberately kept alive.
+  assert.match(
+    await Promise.race([
+      strandedSettlement,
+      new Promise((resolve) =>
+        setTimeout(() => resolve('still pending'), 5_000),
+      ),
+    ]),
+    /^rejected: /,
+    'the in-flight promise must be settled by the barrier, not stranded',
+  )
   await disposeBinding()
 }
