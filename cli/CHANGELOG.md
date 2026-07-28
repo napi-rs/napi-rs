@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.8.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.4...@napi-rs/cli@3.8.0) (2026-07-28)
+
+### Features
+
+- **cli:** support non-threaded WASI targets ([#3353](https://github.com/napi-rs/napi-rs/issues/3353)) ([b5ecfa3](https://github.com/napi-rs/napi-rs/commit/b5ecfa3d6a9fcf8e66c59e05dd4027b832b44d61)), closes [#3352](https://github.com/napi-rs/napi-rs/issues/3352) [#3400](https://github.com/napi-rs/napi-rs/issues/3400) [#3405](https://github.com/napi-rs/napi-rs/issues/3405)
+
 ## [3.7.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.3...@napi-rs/cli@3.7.4) (2026-07-21)
 
 ### Bug Fixes
