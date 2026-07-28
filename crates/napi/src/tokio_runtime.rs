@@ -477,7 +477,21 @@ impl AsyncRuntimeRegistry {
       return Err((LATE_RUNTIME_REGISTRATION_ERROR, runtime));
     }
     match self.backend.set(runtime) {
-      Ok(()) => Ok(()),
+      Ok(()) => {
+        // A published backend is reachable for the rest of the process: `backend` is a
+        // `OnceLock` that is never cleared, and its trait object's vtable — plus every
+        // thread, waker, and destructor the backend creates in `start` — lives in this
+        // addon's image. Node unloads an addon as soon as the environment that loaded it
+        // goes away, so without pinning, `shutdown` at a later teardown (or any backend
+        // thread that outlives its environment) would run unmapped code. The built-in Tokio
+        // paths pin for the same reason in `create_runtime` and `create_custom_tokio_runtime`;
+        // pinning here is what gives a pure `async-runtime` build (no `tokio_rt`) the same
+        // protection. Publication is the earliest safe point: it happens once, and it happens
+        // before `start` can be called.
+        #[cfg(not(target_family = "wasm"))]
+        crate::bindgen_runtime::retain_current_module_for_unload_safety();
+        Ok(())
+      }
       // Unreachable while every publication goes through the state lock; kept for robustness.
       Err(rejected) => Err((DUPLICATE_RUNTIME_ERROR, rejected)),
     }
