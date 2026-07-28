@@ -810,3 +810,126 @@ extern "C" fn custom_gc(
     );
   }
 }
+
+/// A function whose address is guaranteed to live inside this addon's image.
+/// The loader APIs below identify the image to retain by looking up the module
+/// that owns this address, which works for a `cdylib` without knowing its path.
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[inline(never)]
+fn module_retention_anchor() {}
+
+/// Takes one extra loader reference to the image this addon was loaded from and
+/// never releases it, so the addon's code stays mapped for the lifetime of the
+/// process.
+///
+/// Node unloads an addon when the environment that loaded it goes away and no
+/// other environment holds it. On Windows that is a `FreeLibrary` which drops
+/// the module's reference count to zero and unmaps the image. Any native code
+/// still reachable from a thread that outlives the environment then points into
+/// unmapped memory: the reported symptom is a `0xC0000005` access violation
+/// raised from a Tokio waker vtable when an addon was loaded only inside a
+/// worker and that worker exited.
+///
+/// Call this before creating anything that can outlive a single environment —
+/// process-global runtimes, worker threads, or a waker/vtable handed to one.
+/// Repeated calls are cheap: the reference is taken at most once per process.
+///
+/// This is best effort. Platforms with no loader-pinning primitive and failures
+/// of the underlying call leave the image unpinned, which is exactly the
+/// behavior addons had before this existed, so it never makes things worse.
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+pub fn retain_current_module_for_unload_safety() {
+  static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  RETAIN_MODULE.call_once(retain_current_module);
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm"), windows))]
+fn retain_current_module() {
+  const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 0x0000_0001;
+  const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 0x0000_0004;
+
+  #[link(name = "kernel32")]
+  unsafe extern "system" {
+    fn GetModuleHandleExW(
+      flags: u32,
+      module_name: *const u16,
+      module: *mut *mut std::ffi::c_void,
+    ) -> i32;
+  }
+
+  let mut module = ptr::null_mut();
+  // With `FROM_ADDRESS` the "module name" argument is an address inside the
+  // wanted module, and `PIN` makes the loader hold the module until the process
+  // exits. The returned handle is intentionally never freed.
+  let _ = unsafe {
+    GetModuleHandleExW(
+      GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+      module_retention_anchor as *const () as *const u16,
+      &mut module,
+    )
+  };
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  any(
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  )
+))]
+fn retain_current_module() {
+  // glibc before 2.34 keeps the `dl*` symbols in a separate library.
+  #[cfg(any(target_os = "linux", target_os = "android"))]
+  #[link(name = "dl")]
+  unsafe extern "C" {}
+
+  let anchor = module_retention_anchor as *const () as *const std::ffi::c_void;
+  let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+  // SAFETY: `anchor` is the address of a function in this image and `info` is a
+  // live, correctly sized out-parameter.
+  let info = unsafe {
+    if libc::dladdr(anchor, info.as_mut_ptr()) == 0 {
+      return;
+    }
+    info.assume_init()
+  };
+  if info.dli_fname.is_null() {
+    return;
+  }
+  // `RTLD_NOLOAD` resolves the already-mapped image instead of loading anything
+  // new; it only increments the reference count. The handle is deliberately
+  // leaked — releasing it is the very thing being prevented.
+  // SAFETY: `dli_fname` is a NUL-terminated path owned by the loader.
+  unsafe {
+    libc::dlopen(
+      info.dli_fname,
+      libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_NOLOAD,
+    );
+  }
+}
+
+/// Fallback for targets with no portable way to pin the running image (AIX and
+/// OpenBSD among them). Unloading stays possible there, unchanged from before.
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  not(any(
+    windows,
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  ))
+))]
+fn retain_current_module() {}

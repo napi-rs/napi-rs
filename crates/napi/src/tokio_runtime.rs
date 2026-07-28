@@ -832,6 +832,12 @@ pub fn try_register_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()> {
 
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 fn create_runtime() -> Runtime {
+  // `RT` is process-global and its worker threads are never joined at
+  // environment teardown, so their task wakers keep vtable pointers into this
+  // addon's image after Node may have unloaded it. Pin the image first.
+  #[cfg(not(target_family = "wasm"))]
+  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
   // Check if we're supposed to use a user-defined runtime
   if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
     // Try to take the user-defined runtime if it's still available
@@ -916,6 +922,11 @@ static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
+  // A supplied runtime already owns worker threads by the time it gets here, so
+  // pin the image before storing it rather than at first use.
+  #[cfg(not(target_family = "wasm"))]
+  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
   USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
   IS_USER_DEFINED_RT.get_or_init(|| true);
 }

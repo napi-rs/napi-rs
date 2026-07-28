@@ -102,6 +102,12 @@ version = "0.4"
 optional = true
 version = "0.1"
 
+# `dladdr`/`dlopen` and the `RTLD_*` constants used to pin the addon image, see
+# `retain_current_module_for_unload_safety`. Windows uses `GetModuleHandleExW`
+# declared inline, so it needs no extra dependency.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(any(all(target_family = "wasm", tokio_unstable), not(target_family = "wasm")))'.dependencies]
 tokio = { version = "1", features = [
   "rt",
