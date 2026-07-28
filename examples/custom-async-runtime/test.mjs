@@ -4,7 +4,8 @@ import { writeFileSync } from 'node:fs'
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { Worker } from 'node:worker_threads'
 
@@ -621,4 +622,123 @@ if (disposeBinding) {
     'the in-flight promise must be settled by the barrier, not stranded',
   )
   await disposeBinding()
+}
+
+if (isManualThreadlessWasi) {
+  // Initialization rollback has to drain too, and it is easy to convince
+  // yourself it does not need to. Registration runs with a *live* environment,
+  // so a module-init hook can start a task and only then fail: the barrier
+  // cancels that task and `napi_call_threadsafe_function` merely appends the
+  // rejection to a queue @emnapi/core dispatches from a macrotask. A rollback
+  // that destroys the context in the same turn drains that queue with a null env
+  // and discards it — and the promise has already escaped into JavaScript, so it
+  // hangs forever with nobody left to settle it.
+  //
+  // Both generated loaders are driven, because they roll back through different
+  // code: the eager CJS loader through `__rollbackWasiInitialization`, the
+  // deferred loader through `__createInstance`'s catch.
+  const packageDirectory = dirname(fileURLToPath(import.meta.url))
+  const eagerLoaderPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasip1.cjs',
+  )
+  const deferredLoaderPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasip1-deferred.js',
+  )
+  const wasmPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasm32-wasip1.wasm',
+  )
+  await access(eagerLoaderPath)
+  await access(deferredLoaderPath)
+
+  for (const flavor of ['eager', 'deferred']) {
+    const load =
+      flavor === 'eager'
+        ? `
+        const require = createRequire(${JSON.stringify(import.meta.url)})
+        try {
+          require(${JSON.stringify(eagerLoaderPath)})
+        } catch (error) {
+          loadError = error
+        }
+      `
+        : `
+        const { createInstance } = await import(
+          pathToFileURL(${JSON.stringify(deferredLoaderPath)}).href
+        )
+        const wasmModule = await WebAssembly.compile(
+          readFileSync(${JSON.stringify(wasmPath)}),
+        )
+        try {
+          await createInstance(wasmModule)
+        } catch (error) {
+          loadError = error
+        }
+      `
+    const rollbackDrain = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+        import { readFileSync } from 'node:fs'
+        import { createRequire } from 'node:module'
+        import { pathToFileURL } from 'node:url'
+
+        globalThis.__napiCustomRuntimeFailRegistrationAfterSpawn = true
+        let outcome = 'PENDING'
+        // Attach the settlement handlers the instant registration stashes the
+        // promise: the deferred loader drains inside its catch, so the
+        // settlement lands before createInstance() ever rejects.
+        Object.defineProperty(globalThis, '__napiRegistrationSpawnedPromise', {
+          configurable: true,
+          get() {
+            return undefined
+          },
+          set(promise) {
+            Object.defineProperty(globalThis, '__napiRegistrationSpawnedPromise', {
+              configurable: true,
+              writable: true,
+              value: promise,
+            })
+            promise.then(
+              () => { outcome = 'RESOLVED' },
+              (error) => { outcome = 'REJECTED: ' + error.message },
+            )
+          },
+        })
+        const timeout = setTimeout(() => {
+          console.error('ROLLBACK_DRAIN_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+        let loadError
+        ${load}
+        if (!loadError) {
+          console.error('ROLLBACK_DRAIN_DID_NOT_FAIL')
+          process.exit(47)
+        }
+        // Well past the two turns @emnapi/core needs: if the settlement did not
+        // land by now, it never will.
+        for (let index = 0; index < 80; index++) {
+          await new Promise((resolve) => setImmediate(resolve))
+        }
+        console.error('ROLLBACK_DRAIN_OUTCOME ' + outcome)
+        process.exit(outcome.startsWith('REJECTED: ') ? 0 : 48)
+      `,
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    )
+    const rollbackDrainOutput = `${rollbackDrain.stdout}\n${rollbackDrain.stderr}`
+    assert.equal(rollbackDrain.error, undefined, rollbackDrain.error?.stack)
+    assert.equal(rollbackDrain.signal, null, rollbackDrainOutput)
+    assert.equal(
+      rollbackDrain.status,
+      0,
+      `the ${flavor} loader's initialization rollback must settle the promise of a task its teardown barrier cancelled, not destroy the environment out from under it:\n${rollbackDrainOutput}`,
+    )
+    assert.match(rollbackDrainOutput, /ROLLBACK_DRAIN_OUTCOME REJECTED: /)
+  }
 }

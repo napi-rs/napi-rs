@@ -166,9 +166,10 @@ for (const { name, code } of cjsBindingCases) {
 //
 // So a loader that emits the barrier and `destroy()` back to back strands
 // exactly the promises the barrier exists to settle, and it does so silently.
-// Only `examples/custom-async-runtime` covers this behaviorally, and it does so
-// through a hand-written loader — these emitted loaders have no such test, so
-// assert the shape here instead.
+// `examples/custom-async-runtime` covers the hand-written loader and the two
+// emitted flavors it builds (node cjs threadless, deferred/workerd)
+// behaviorally; the other flavors are never instantiated by any test, so assert
+// the shape here as well.
 const wasiLoaderCases: Array<{ name: string; code: string }> = [
   { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
   {
@@ -197,7 +198,42 @@ for (const { name, code } of wasiLoaderCases) {
       code.includes('__scheduleMacrotask'),
       'the drain must yield real macrotask turns; microtask checkpoints never let the emnapi dispatch run',
     )
+    // Initialization rollback is the same hazard, one step earlier. Registration
+    // runs with a live environment, so a module-init hook can start a task and
+    // *then* return an error; the barrier cancels the task and queues its
+    // rejection, and a rollback that destroys the context in the same turn
+    // discards it — stranding a promise that already escaped into JavaScript.
+    t.true(
+      initializationRollbackBody(code).includes(
+        DRAIN_CALL_BY_ROLLBACK_FLAVOR[
+          code.includes(EAGER_ROLLBACK_SIGNATURE) ? 'eager' : 'deferred'
+        ],
+      ),
+      'initialization rollback must drain queued settlements before destroying the context',
+    )
   })
+}
+
+const EAGER_ROLLBACK_SIGNATURE = 'function __rollbackWasiInitialization() {'
+const DEFERRED_ROLLBACK_SIGNATURE = "__lifecycleState = 'failed'"
+const DRAIN_CALL_BY_ROLLBACK_FLAVOR = {
+  eager: '__drainWasmEnvCleanup',
+  deferred: '__prepareForDisposal',
+} as const
+
+/**
+ * The body of a loader's initialization-failure path: `__rollbackWasiInitialization`
+ * for the eager loaders, `__createInstance`'s catch for the deferred one.
+ * Sliced rather than searched whole-file, so a drain that only runs on the
+ * ordinary disposal path cannot satisfy the assertion.
+ */
+function initializationRollbackBody(code: string): string {
+  const eagerStart = code.indexOf(EAGER_ROLLBACK_SIGNATURE)
+  if (eagerStart !== -1) {
+    return code.slice(eagerStart, code.indexOf('\n}', eagerStart))
+  }
+  const deferredStart = code.indexOf(DEFERRED_ROLLBACK_SIGNATURE)
+  return code.slice(deferredStart, code.indexOf('throw error', deferredStart))
 }
 
 test('createEsmBinding is Node 12 compatible', (t) => {

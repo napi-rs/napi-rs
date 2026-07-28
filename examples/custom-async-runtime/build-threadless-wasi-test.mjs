@@ -55,15 +55,33 @@ try {
     },
   )
 
-  const outputPath = join(
-    packageDirectory,
-    'custom_async_runtime.wasm32-wasip1.wasm',
-  )
   const declarationPath = join(outputDirectory, 'index.d.cts')
-  await copyFile(
-    join(outputDirectory, 'custom_async_runtime.wasm32-wasip1.wasm'),
-    outputPath,
-  )
+  // The generated loaders come along so `test.mjs` can drive the real
+  // `__rollbackWasiInitialization` / `__createInstance` catch paths, not just
+  // the hand-written loader.
+  for (const file of [
+    'custom_async_runtime.wasm32-wasip1.wasm',
+    'custom_async_runtime.wasip1.cjs',
+    'custom_async_runtime.wasip1-deferred.js',
+  ]) {
+    await copyFile(join(outputDirectory, file), join(packageDirectory, file))
+  }
+  // The generated eager loader prefers the debug wasm when one is present, so
+  // keep it in lockstep: take the freshly built one, or drop a stale one left
+  // behind by `build.mjs` rather than silently running a different binary than
+  // the loaders were generated for.
+  const debugWasm = 'custom_async_runtime.wasm32-wasip1.debug.wasm'
+  try {
+    await copyFile(
+      join(outputDirectory, debugWasm),
+      join(packageDirectory, debugWasm),
+    )
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error
+    }
+    await rm(join(packageDirectory, debugWasm), { force: true })
+  }
   const declarations = await readFile(declarationPath, 'utf8')
   if (declarations.includes('retainTaskWaker')) {
     throw new Error('threadless WASI declarations exposed retainTaskWaker')

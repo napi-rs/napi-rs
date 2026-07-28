@@ -386,8 +386,7 @@ function __finishWasiInitializationRollback(cleanupErrors) {
   return cleanupErrors
 }
 
-function __rollbackWasiInitialization() {
-  const cleanupErrors = []
+function __destroyContextForWasiRollback(cleanupErrors) {
   let destroyResult
   try {
     destroyResult = __destroyEmnapiContext()
@@ -403,6 +402,36 @@ function __rollbackWasiInitialization() {
       .then(() => __finishWasiInitializationRollback(cleanupErrors))
   }
   return __finishWasiInitializationRollback(cleanupErrors)
+}
+
+/**
+ * Initialization can fail *after* registration has already run, and registration
+ * runs with a live environment: a module-init hook can start async work and then
+ * return an error, and the promise it created may already have escaped into
+ * JavaScript. The barrier cancels that work and *queues* the settlement, so this
+ * path needs the same drain the ordinary disposal does — destroying without
+ * yielding discards the queue with a null env and strands the promise.
+ *
+ * Stays synchronous when nothing is queued, which covers every failure before
+ * `beforeInit`: there is no instance to run the barrier on, so nothing to drain.
+ */
+function __rollbackWasiInitialization() {
+  const cleanupErrors = []
+  let drainResult
+  try {
+    __prepareWasmEnvCleanup()
+    drainResult = __drainWasmEnvCleanup()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+  }
+  if (__isThenable(drainResult)) {
+    return Promise.resolve(drainResult)
+      .catch((cleanupError) => {
+        cleanupErrors.push(cleanupError)
+      })
+      .then(() => __destroyContextForWasiRollback(cleanupErrors))
+  }
+  return __destroyContextForWasiRollback(cleanupErrors)
 }
 
 let __wasiModule
@@ -634,6 +663,8 @@ export const createBigInt = __napiModule.exports.createBigInt
 export const createBigIntI64 = __napiModule.exports.createBigIntI64
 export const createBufferSliceFromCopiedData =
   __napiModule.exports.createBufferSliceFromCopiedData
+export const createErrorFromRetainedValue =
+  __napiModule.exports.createErrorFromRetainedValue
 export const createErroringReadableStream =
   __napiModule.exports.createErroringReadableStream
 export const createExternal = __napiModule.exports.createExternal
@@ -775,6 +806,12 @@ export const indexSetToRust = __napiModule.exports.indexSetToRust
 export const intoUtf8 = __napiModule.exports.intoUtf8
 export const joinPath = __napiModule.exports.joinPath
 export const jsErrorCallback = __napiModule.exports.jsErrorCallback
+export const jsErrorFromRetainedValue =
+  __napiModule.exports.jsErrorFromRetainedValue
+export const jsRangeErrorFromRetainedValue =
+  __napiModule.exports.jsRangeErrorFromRetainedValue
+export const jsTypeErrorFromRetainedValue =
+  __napiModule.exports.jsTypeErrorFromRetainedValue
 export const Kind = __napiModule.exports.Kind
 export const KindInValidate = __napiModule.exports.KindInValidate
 export const listObjKeys = __napiModule.exports.listObjKeys

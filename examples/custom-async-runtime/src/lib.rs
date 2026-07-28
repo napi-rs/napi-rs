@@ -27,6 +27,10 @@ use napi::bindgen_prelude::{
   AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error,
   JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
+// `set_named_property` on the global object; only the wasm-only
+// registration-failure hook needs it.
+#[cfg(target_family = "wasm")]
+use napi::bindgen_prelude::JsObjectValue;
 use napi_derive::napi;
 
 static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
@@ -1095,11 +1099,40 @@ fn init() {
 }
 
 #[napi(module_exports)]
-pub fn module_exports_hook(_exports: Object) -> Result<()> {
+pub fn module_exports_hook(_exports: Object, _env: Env) -> Result<()> {
   // NOTE: the old SPI branch wrapped a marker value here to prove that napi
   // leaves the exports wrap slot to the addon. The minimal SPI base still
   // owns that slot for its wasm env-cleanup bookkeeping, so wrapping the
   // exports object would fail module registration on WASI targets.
+
+  // Registration runs with a live `Env`, so an addon can start async work here
+  // and *then* fail, leaving a task in flight while instantiation unwinds into
+  // the loader's initialization-rollback path. The barrier cancels that task and
+  // queues its rejection, so a rollback that destroys the context without
+  // draining first strands the promise — which is what the WASI loaders are
+  // asserted not to do.
+  //
+  // Driven by a global rather than an environment variable: the deferred loader
+  // builds its `WASI` with no `env`, so `std::env` is empty there.
+  #[cfg(target_family = "wasm")]
+  {
+    let mut global = _env.get_global()?;
+    let flag: Unknown =
+      global.get_named_property("__napiCustomRuntimeFailRegistrationAfterSpawn")?;
+    if !matches!(
+      flag.get_type()?,
+      napi::ValueType::Undefined | napi::ValueType::Null
+    ) {
+      let promise = _env.spawn_future(std::future::pending::<Result<()>>())?;
+      // Escapes into JavaScript before registration fails, so the test can watch
+      // it settle even though instantiation never hands out any exports.
+      global.set_named_property("__napiRegistrationSpawnedPromise", promise)?;
+      return Err(Error::new(
+        Status::GenericFailure,
+        "module_exports_hook failed on purpose after spawning a task",
+      ));
+    }
+  }
   Ok(())
 }
 

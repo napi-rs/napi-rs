@@ -663,10 +663,11 @@ async function __createInstance(
     __wasmEnvCleanupPrepared = true
   }
   // The barrier + settlement drain, hoisted out of the context destroyer so the
-  // drain can yield without widening the destroyer's reentry window. The
-  // destroyer still runs the barrier itself (idempotently) for the paths that
-  // cannot yield at all: initialization rollback and managed beforeExit
-  // cleanup of an instance that never finished initializing.
+  // drain can yield without widening the destroyer's reentry window. Both
+  // yielding paths run it — dispose() and the initialization-failure rollback.
+  // The destroyer still runs the barrier itself (idempotently) for the one path
+  // that cannot yield: managed beforeExit cleanup of an instance whose rollback
+  // is being retried.
   const __prepareForDisposal = () => {
     if (__wasmEnvCleanupDrained) {
       return
@@ -761,6 +762,21 @@ async function __createInstance(
     }
   } catch (error) {
     __lifecycleState = 'failed'
+    // Instantiation can fail *after* registration has run, and registration runs
+    // with a live environment: a module-init hook can start async work and then
+    // return an error, and the promise it created may already have escaped into
+    // JavaScript. Settle what the barrier cancels before the context is
+    // destroyed, exactly like dispose() does; destroying without yielding
+    // discards the queue with a null env. Undefined unless something is queued,
+    // so a failure before beforeInit costs no extra turn.
+    try {
+      const __drained = __prepareForDisposal()
+      if (__drained) {
+        await __drained
+      }
+    } catch (drainError) {
+      __attachCleanupError(error, drainError)
+    }
     let __registrationError
     let __registrationFailed = false
     if (!__beforeExitDestroy) {
