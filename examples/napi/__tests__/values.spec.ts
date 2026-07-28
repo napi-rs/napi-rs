@@ -2014,23 +2014,51 @@ Napi4Test('Promise rejection is captured without coercion', async (t) => {
     await describePromiseRejection(Promise.reject(undefined)),
     'GenericFailure|',
   )
-  // Real errors keep their own message, read without invoking JavaScript.
+  // Real errors keep their own message; it is read, never coerced.
   t.is(
     await describePromiseRejection(Promise.reject(new TypeError('nope'))),
     'GenericFailure|nope',
   )
-  // A `message` accessor that throws is ignored rather than propagated, and its
-  // exception must not leak into the next call.
+  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved|')
+})
+
+Napi4Test('a `message` accessor runs, and a throwing one is contained', async (t) => {
+  // Reading `message` is a plain `[[Get]]`, so an accessor *does* run: Node-API
+  // has no descriptor read, so a data property cannot be told apart from an
+  // accessor without invoking it. What is guaranteed is that no coercion happens
+  // (`toString`/`Symbol.toPrimitive` are never reached) and that a throwing
+  // accessor is contained rather than propagated.
+  let invocations = 0
+  const observable = new Error('own message')
+  Object.defineProperty(observable, 'message', {
+    configurable: true,
+    get() {
+      invocations += 1
+      return 'from the accessor'
+    },
+  })
+  t.is(
+    await describePromiseRejection(Promise.reject(observable)),
+    'GenericFailure|from the accessor',
+  )
+  t.is(invocations, 1)
+
+  // A throwing accessor yields the fallback reason, and its exception must not
+  // leak into the next call.
+  let throwingInvocations = 0
   const hostile = new Error('ignored')
   Object.defineProperty(hostile, 'message', {
+    configurable: true,
     get() {
-      throw new Error('accessor should not run')
+      throwingInvocations += 1
+      throw new Error('thrown by the message accessor')
     },
   })
   t.is(
     await describePromiseRejection(Promise.reject(hostile)),
     'GenericFailure|JavaScript Error',
   )
+  t.is(throwingInvocations, 1)
   t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved|')
 })
 

@@ -348,19 +348,37 @@ impl Error {
   /// value *identically* — same object identity, same primitive, no `Error`
   /// wrapper synthesized around it.
   ///
-  /// [`Error::reason`] is filled in only from data that can be read without
-  /// running JavaScript: a real `Error`'s own string `message`, or a string
-  /// primitive itself. Every other value (a plain object, a number, `null`, a
-  /// class instance with a `get message()`) yields an empty reason and relies on
-  /// the retained value to carry the information back to JavaScript. A property
-  /// read that throws is swallowed and its exception cleared, so a hostile
-  /// accessor cannot poison the environment.
+  /// [`Error::reason`] is a best effort, and no *coercion* is ever performed to
+  /// build it: a string primitive is copied verbatim, and a value `napi_is_error`
+  /// accepts has its `message` read and kept only when that read already yields a
+  /// string. Every other value (a plain object, a number, `null`) yields an empty
+  /// reason and relies on the retained value to carry the information back to
+  /// JavaScript.
+  ///
+  /// Reading `message` goes through `napi_get_named_property`, which **does run a
+  /// `get message()` accessor** if the error carries one. Node-API has no
+  /// descriptor read — there is no `napi_get_own_property_descriptor` through
+  /// Node-API 10, and `napi_get_all_property_names` reports attributes but not
+  /// whether a property is data or accessor — so an accessor cannot be detected
+  /// without invoking it. The guarantee is therefore narrower than "no JavaScript
+  /// runs": `toString` and `Symbol.toPrimitive` are never reached (unlike
+  /// [`From<Unknown>`], which calls `napi_coerce_to_string` on every value), and
+  /// an accessor that throws is swallowed with its exception cleared so it cannot
+  /// poison the environment — but an accessor with side effects does have them,
+  /// and one that blocks does block. Do not call this with a value whose `message`
+  /// accessor must not run.
   ///
   /// Identity is reproduced only when the `Error` is converted back on the env
   /// and thread that captured it, which is where JavaScript can observe it
   /// anyway. Converted anywhere else — the `Error` was moved to a worker, or the
   /// owning env is gone — a fresh error is built from [`Error::reason`] instead,
   /// because a `napi_ref` cannot be resolved outside its own env.
+  ///
+  /// Identity also depends on the conversion used. [`ToNapiValue`] — the promise
+  /// and async-generator settlement paths — hands the value back untouched.
+  /// `JsError::into_value`, used by the synchronous throw path, still gates reuse
+  /// on `napi_is_error`, so a retained non-`Error` thrown synchronously is
+  /// replaced by an `Error` carrying [`Error::reason`].
   ///
   /// Use it wherever JavaScript decides the value and its identity must survive
   /// the round trip: `Promise` rejection handlers and `AsyncGenerator.throw()`
@@ -416,7 +434,10 @@ fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<Er
 }
 
 /// Best-effort [`Error::reason`] for [`Error::from_unknown_without_coercion`],
-/// derived without invoking any JavaScript.
+/// derived without coercing anything. This is not the same as "without running
+/// JavaScript": the `message` read below invokes a `get message()` accessor if
+/// the error has one, because Node-API cannot tell a data property from an
+/// accessor without reading it. See [`Error::from_unknown_without_coercion`].
 fn owned_reason_without_coercion(value: Unknown<'_>) -> String {
   let env = value.0.env;
   if is_error_without_coercion(value) {
@@ -440,8 +461,13 @@ fn is_error_without_coercion(value: Unknown<'_>) -> bool {
   is_error
 }
 
-/// Reads `value[key]` and returns it only when it already is a string. A getter
-/// that throws yields `None` and its exception is cleared.
+/// Reads `value[key]` and returns it only when it already is a string; a value
+/// of any other type yields `None` instead of being coerced.
+///
+/// `napi_get_named_property` is an ordinary `[[Get]]`, so an accessor installed
+/// under `key` *does* run. Node-API offers no descriptor read to avoid that. A
+/// getter that throws yields `None` and its exception is cleared, so the failure
+/// stays contained, but its side effects are not undone.
 fn owned_named_string_property_without_coercion(value: Unknown<'_>, key: &CStr) -> Option<String> {
   let env = value.0.env;
   let mut property = ptr::null_mut();
