@@ -391,11 +391,16 @@ impl Error {
   /// owning env is gone — a fresh error is built from [`Error::reason`] instead,
   /// because a `napi_ref` cannot be resolved outside its own env.
   ///
-  /// Identity also depends on the conversion used. [`ToNapiValue`] — the promise
-  /// and async-generator settlement paths — hands the value back untouched.
-  /// `JsError::into_value`, used by the synchronous throw path, still gates reuse
-  /// on `napi_is_error`, so a retained non-`Error` thrown synchronously is
-  /// replaced by an `Error` carrying [`Error::reason`].
+  /// Identity also depends on the conversion used. `<Error as ToNapiValue>` —
+  /// the promise and async-generator settlement paths — hands the value back
+  /// untouched. Everything that promises a JavaScript **error object** gates
+  /// reuse on `napi_is_error` instead and otherwise synthesizes one from
+  /// [`Error::reason`]: `JsError::into_value` (the synchronous throw path),
+  /// [`Env::create_error`], and the [`ToNapiValue`] impls for
+  /// `JsError`/`JsTypeError`/`JsRangeError`. So a retained non-`Error` survives
+  /// a rejection but not a `create_error`.
+  ///
+  /// [`Env::create_error`]: crate::Env::create_error
   ///
   /// The `cause` chain is captured the same way, up to eight links.
   /// The retained value carries its own `cause` back to JavaScript, but the
@@ -1000,6 +1005,27 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
   }
 }
 
+/// Whether `value` is a JavaScript `Error`.
+///
+/// An [`Error`] may retain an *arbitrary* JavaScript value — see
+/// [`Error::from_unknown_without_coercion`], which retains whatever a promise
+/// rejected with or a callback threw, primitives included. Handing that value
+/// back is correct on the rejection and throw settlement paths and wrong
+/// everywhere that promises an error *object*, so those APIs gate reuse on this.
+///
+/// A failed check reads as "not an error": the caller then synthesizes one,
+/// which is always a valid answer.
+///
+/// # Safety
+///
+/// `env` must be valid for the current thread and `value` must belong to it.
+pub(crate) unsafe fn is_js_error(env: sys::napi_env, value: sys::napi_value) -> bool {
+  let mut is_error = false;
+  let status = unsafe { sys::napi_is_error(env, value, &mut is_error) };
+  debug_assert!(status == sys::Status::napi_ok, "Check Error failed");
+  status == sys::Status::napi_ok && is_error
+}
+
 pub struct JsError<S: AsRef<str> = Status>(Error<S>);
 
 #[cfg(feature = "anyhow")]
@@ -1027,14 +1053,8 @@ macro_rules! impl_object_methods {
         // thread (owning JS thread). The shared `napi_ref` is released when
         // `self`'s `Arc` drops at the end of this function — never here.
         if let Some(err) = unsafe { self.0.referenced_value(env) } {
-          let mut is_error = false;
-          let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
-          debug_assert!(
-            is_error_status == sys::Status::napi_ok,
-            "Check Error failed"
-          );
           // make sure ref_value is a valid error at first and avoid throw error failed.
-          if is_error {
+          if unsafe { is_js_error(env, err) } {
             return err;
           }
         }
@@ -1141,7 +1161,17 @@ macro_rules! impl_object_methods {
 
     impl crate::bindgen_prelude::ToNapiValue for $js_value {
       unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-        unsafe { ToNapiValue::to_napi_value(env, val.0) }
+        // Deliberately NOT `ToNapiValue for Error`. That conversion hands the
+        // retained value back verbatim, which is the whole point on the promise
+        // and async-generator settlement paths — JavaScript may reject with
+        // anything and must get the same value back. `$js_value` is an error
+        // *object* though, so an addon returning one has to receive one:
+        // `into_value` reuses the retained value only when `napi_is_error`
+        // holds and otherwise synthesizes an error from `status`/`reason`/
+        // `cause`. Delegating to `Error` also lost the subclass — every
+        // `JsTypeError`/`JsRangeError` without a reusable reference came back as
+        // a plain `Error`, because the fallback there is `JsError::into_value`.
+        Ok(unsafe { val.into_value(env) })
       }
     }
   };

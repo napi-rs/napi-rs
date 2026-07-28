@@ -745,6 +745,8 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
 
+export declare function createErrorFromRetainedValue(value: unknown): object
+
 /**
  * Regression guard for the off-thread `FunctionRef` drop.
  *
@@ -1070,6 +1072,12 @@ export declare function intoUtf8(s: string): string
 export declare function joinPath(path: string, segment: string): string
 
 export declare function jsErrorCallback(value: unknown): Array<Error>
+
+export declare function jsErrorFromRetainedValue(value: unknown): Error
+
+export declare function jsRangeErrorFromRetainedValue(value: unknown): RangeError
+
+export declare function jsTypeErrorFromRetainedValue(value: unknown): TypeError
 
 /** default enum values are continuos i32s start from 0 */
 export declare const enum Kind {

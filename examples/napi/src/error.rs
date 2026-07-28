@@ -73,6 +73,37 @@ pub fn js_error_callback(value: Unknown) -> Result<Vec<JsError>> {
   Ok(vec![error.try_clone()?.into(), error.into()])
 }
 
+// ---------------------------------------------------------------------------
+// The error-object-producing APIs, fed an `Error` that retained an arbitrary JS
+// value. `Error::from_unknown_without_coercion` retains *anything* — that is the
+// point on the rejection and throw settlement paths — but `Env::create_error`
+// and the `JsError`/`JsTypeError`/`JsRangeError` conversions are documented to
+// hand back a JavaScript **error object**, so they have to validate and
+// synthesize instead of passing the retained value through.
+
+#[napi]
+pub fn create_error_from_retained_value<'env>(
+  env: &'env Env,
+  value: Unknown,
+) -> Result<Object<'env>> {
+  env.create_error(Error::from_unknown_without_coercion(value))
+}
+
+#[napi]
+pub fn js_error_from_retained_value(value: Unknown) -> Result<JsError> {
+  Ok(Error::from_unknown_without_coercion(value).into())
+}
+
+#[napi]
+pub fn js_type_error_from_retained_value(value: Unknown) -> Result<JsTypeError> {
+  Ok(Error::from_unknown_without_coercion(value).into())
+}
+
+#[napi]
+pub fn js_range_error_from_retained_value(value: Unknown) -> Result<JsRangeError> {
+  Ok(Error::from_unknown_without_coercion(value).into())
+}
+
 #[napi]
 pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Result<()> {
   let instance = error_class.new_instance("Error message in Rust".to_owned())?;

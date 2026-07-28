@@ -1026,11 +1026,23 @@ impl Env {
   }
 
   /// Create a JavaScript error object from `Error`
+  ///
+  /// The result is always an `Error`. An [`Error`] can retain an arbitrary
+  /// JavaScript value (see [`Error::from_unknown_without_coercion`]) — a number,
+  /// `null`, a string — and handing that back would break this function's own
+  /// contract and silently no-op every object operation the caller then performs
+  /// on the result. Reuse is therefore gated on `napi_is_error`, exactly like
+  /// `JsError::into_value`. The retained value is preserved where it is the point:
+  /// the rejection and throw settlement paths, which convert through
+  /// `ToNapiValue for Error`.
   pub fn create_error(&self, e: Error) -> Result<Object<'_>> {
-    // Reuse the original JS error object when it is safe to read on this thread;
-    // the shared `napi_ref` is released when `e` drops at the end of this call.
+    // Reuse the original JS error object when it is safe to read on this thread
+    // *and* it really is an error; the shared `napi_ref` is released when `e`
+    // drops at the end of this call.
     if let Some(result) = unsafe { e.referenced_value(self.0) } {
-      return Ok(Object::from_raw(self.0, result));
+      if unsafe { crate::error::is_js_error(self.0, result) } {
+        return Ok(Object::from_raw(self.0, result));
+      }
     }
     let reason = &e.reason;
     let reason_string = self.create_string(reason.as_str())?;

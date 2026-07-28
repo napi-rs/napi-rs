@@ -76,6 +76,10 @@ import {
   throwError,
   throwErrorWithCause,
   jsErrorCallback,
+  createErrorFromRetainedValue,
+  jsErrorFromRetainedValue,
+  jsTypeErrorFromRetainedValue,
+  jsRangeErrorFromRetainedValue,
   tryCloneErrorOffThread,
   tryCloneErrorCauseOffThread,
   tryCloneErrorCauseTransitiveOffThread,
@@ -2012,7 +2016,10 @@ Napi4Test('Promise rejection is captured without coercion', async (t) => {
     'GenericFailure|boom|-',
   )
   t.is(await describePromiseRejection(Promise.reject(42)), 'GenericFailure||-')
-  t.is(await describePromiseRejection(Promise.reject(null)), 'GenericFailure||-')
+  t.is(
+    await describePromiseRejection(Promise.reject(null)),
+    'GenericFailure||-',
+  )
   t.is(
     await describePromiseRejection(Promise.reject(undefined)),
     'GenericFailure||-',
@@ -2022,7 +2029,10 @@ Napi4Test('Promise rejection is captured without coercion', async (t) => {
     await describePromiseRejection(Promise.reject(new TypeError('nope'))),
     'GenericFailure|nope|-',
   )
-  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved||-')
+  t.is(
+    await describePromiseRejection(Promise.resolve(undefined)),
+    'resolved||-',
+  )
 })
 
 Napi4Test('a `message` accessor is never invoked', async (t) => {
@@ -2076,7 +2086,10 @@ Napi4Test('a `message` accessor is never invoked', async (t) => {
     'GenericFailure|JavaScript Error|-',
   )
   t.is(throwingInvocations, 0)
-  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved||-')
+  t.is(
+    await describePromiseRejection(Promise.resolve(undefined)),
+    'resolved||-',
+  )
 
   // A `message` data property up the prototype chain is still found: the walk
   // exists so this keeps working.
@@ -2100,7 +2113,9 @@ Napi4Test('the `cause` chain survives the capture', async (t) => {
   // `reason`/`cause`.
   t.is(
     await describePromiseRejection(
-      Promise.reject(new TypeError('the message', { cause: new RangeError('the cause') })),
+      Promise.reject(
+        new TypeError('the message', { cause: new RangeError('the cause') }),
+      ),
     ),
     'GenericFailure|the message|the cause',
   )
@@ -2148,32 +2163,35 @@ Napi4Test('the `cause` chain survives the capture', async (t) => {
   )
 })
 
-Napi4Test('a rejected promise settles JavaScript with the identical value', async (t) => {
-  // The central claim: the value is retained, not coerced, so it comes back as
-  // *itself*. Asserting the message is not enough — a synthesized `Error`
-  // carrying the same message would pass that and fail this.
-  const rejections: [string, unknown][] = [
-    ['string', 'boom'],
-    ['number', 42],
-    ['null', null],
-    ['undefined', undefined],
-    ['boolean', false],
-    ['bigint', 7n],
-    ['symbol', Symbol('marker')],
-    ['plain object', { tag: 'marker' }],
-    ['array', [1, 2, 3]],
-    ['function', function marker() {}],
-    ['Error', new TypeError('a real error')],
-  ]
-  for (const [label, value] of rejections) {
-    const settled = await asyncPlus100(Promise.reject(value)).then(
-      (resolved) => ({ rejected: false, value: resolved as unknown }),
-      (reason: unknown) => ({ rejected: true, value: reason }),
-    )
-    t.true(settled.rejected, `${label} should reject`)
-    t.is(settled.value, value, `${label} should reject with the same value`)
-  }
-})
+Napi4Test(
+  'a rejected promise settles JavaScript with the identical value',
+  async (t) => {
+    // The central claim: the value is retained, not coerced, so it comes back as
+    // *itself*. Asserting the message is not enough — a synthesized `Error`
+    // carrying the same message would pass that and fail this.
+    const rejections: [string, unknown][] = [
+      ['string', 'boom'],
+      ['number', 42],
+      ['null', null],
+      ['undefined', undefined],
+      ['boolean', false],
+      ['bigint', 7n],
+      ['symbol', Symbol('marker')],
+      ['plain object', { tag: 'marker' }],
+      ['array', [1, 2, 3]],
+      ['function', function marker() {}],
+      ['Error', new TypeError('a real error')],
+    ]
+    for (const [label, value] of rejections) {
+      const settled = await asyncPlus100(Promise.reject(value)).then(
+        (resolved) => ({ rejected: false, value: resolved as unknown }),
+        (reason: unknown) => ({ rejected: true, value: reason }),
+      )
+      t.true(settled.rejected, `${label} should reject`)
+      t.is(settled.value, value, `${label} should reject with the same value`)
+    }
+  },
+)
 
 Napi4Test('call ThreadsafeFunction with callback', async (t) => {
   await t.notThrowsAsync(
@@ -2292,6 +2310,72 @@ test('a value thrown from a ThreadsafeFunction callback keeps its identity', asy
   }
 })
 
+test('error-object APIs never hand back a retained non-error value', (t) => {
+  // The mirror image of the identity matrix above. `from_unknown_without_coercion`
+  // retains whatever JavaScript handed over, which is exactly right where the
+  // value must settle as itself — a promise rejection, an `AsyncGenerator.throw()`,
+  // a throw out of a ThreadsafeFunction callback.
+  //
+  // It is exactly wrong for the APIs that promise a JavaScript **error object**.
+  // `Env::create_error` used to return the retained `42` verbatim, and the
+  // `ToNapiValue` impls for `JsError`/`JsTypeError`/`JsRangeError` delegated to
+  // the same value-preserving conversion, so an addon could hand JavaScript a
+  // number from an API typed as an error — after which every object operation on
+  // the result silently no-ops.
+  const retained: [string, unknown][] = [
+    ['string', 'a primitive string'],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['boolean', false],
+    ['bigint', 7n],
+    ['symbol', Symbol('marker')],
+    ['plain object', { tag: 'marker' }],
+    ['array', [1, 2, 3]],
+    ['function', function marker() {}],
+  ]
+  const factories: [string, (value: unknown) => unknown][] = [
+    ['Env::create_error', createErrorFromRetainedValue],
+    ['JsError', jsErrorFromRetainedValue],
+    ['JsTypeError', jsTypeErrorFromRetainedValue],
+    ['JsRangeError', jsRangeErrorFromRetainedValue],
+  ]
+  for (const [api, factory] of factories) {
+    for (const [label, value] of retained) {
+      const result = factory(value)
+      t.true(
+        result instanceof Error,
+        `${api} should synthesize an Error for a retained ${label}`,
+      )
+      t.not(
+        result,
+        value,
+        `${api} should not hand back the retained ${label} itself`,
+      )
+    }
+    // A retained *error* is still reused verbatim: gating on `napi_is_error` is
+    // what preserves identity where identity is meaningful.
+    const real = new TypeError('a real error')
+    t.is(factory(real), real, `${api} should reuse a retained Error`)
+  }
+  // Synthesizing keeps the subclass the API name promises. Delegating to
+  // `ToNapiValue for Error` used to fall back to `JsError`, so a `JsTypeError`
+  // with nothing reusable came back as a plain `Error`.
+  t.is(
+    (jsTypeErrorFromRetainedValue(42) as Error).constructor.name,
+    'TypeError',
+  )
+  t.is(
+    (jsRangeErrorFromRetainedValue(42) as Error).constructor.name,
+    'RangeError',
+  )
+  // And the result is a real object, so the operations the caller performs on it
+  // actually take effect.
+  const synthesized = createErrorFromRetainedValue(42) as { marker?: number }
+  synthesized.marker = 1
+  t.is(synthesized.marker, 1)
+})
+
 test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction', async (t) => {
   await t.throwsAsync(
     () =>
@@ -2360,23 +2444,26 @@ test('a JS exception keeps its subclass, cause and own properties', async (t) =>
   t.deepEqual(err?.detail, { nested: [1, 2, 3] })
 })
 
-Napi4Test('a rejected promise keeps its subclass, cause and own properties', async (t) => {
-  // Same identity requirement on the other capture path: `Promise` rejection,
-  // which reaches Rust through `Error::from_unknown_without_coercion`.
-  const cause = new RangeError('the cause')
-  const rejection = new TypeError('the message', { cause })
-  // @ts-expect-error custom property on Error
-  rejection.code = 'E_CUSTOM'
+Napi4Test(
+  'a rejected promise keeps its subclass, cause and own properties',
+  async (t) => {
+    // Same identity requirement on the other capture path: `Promise` rejection,
+    // which reaches Rust through `Error::from_unknown_without_coercion`.
+    const cause = new RangeError('the cause')
+    const rejection = new TypeError('the message', { cause })
+    // @ts-expect-error custom property on Error
+    rejection.code = 'E_CUSTOM'
 
-  const err = await t.throwsAsync(() =>
-    asyncPlus100(Promise.reject(rejection)),
-  )
-  t.is(err, rejection)
-  t.true(err instanceof TypeError)
-  t.is(err?.cause, cause)
-  // @ts-expect-error reading custom property on Error
-  t.is(err?.code, 'E_CUSTOM')
-})
+    const err = await t.throwsAsync(() =>
+      asyncPlus100(Promise.reject(rejection)),
+    )
+    t.is(err, rejection)
+    t.true(err instanceof TypeError)
+    t.is(err?.cause, cause)
+    // @ts-expect-error reading custom property on Error
+    t.is(err?.code, 'E_CUSTOM')
+  },
+)
 
 test('napi::Error from a JS sync throw can be dropped on another thread', async (t) => {
   // https://github.com/rolldown/rolldown/issues/10075
