@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [1.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.1.6...@napi-rs/wasm-runtime@1.2.0) (2026-07-28)
+
+### Features
+
+- **cli:** support non-threaded WASI targets ([#3353](https://github.com/napi-rs/napi-rs/issues/3353)) ([b5ecfa3](https://github.com/napi-rs/napi-rs/commit/b5ecfa3d6a9fcf8e66c59e05dd4027b832b44d61)), closes [#3352](https://github.com/napi-rs/napi-rs/issues/3352) [#3400](https://github.com/napi-rs/napi-rs/issues/3400) [#3405](https://github.com/napi-rs/napi-rs/issues/3405)
+
 ## [1.1.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.1.5...@napi-rs/wasm-runtime@1.1.6) (2026-06-24)
 
 **Note:** Version bump only for package @napi-rs/wasm-runtime
