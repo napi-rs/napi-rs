@@ -391,14 +391,52 @@ test('async generators should run concurrently', async (t) => {
     `Expected the two counters to interleave, got ${concurrentOrder.join('')}`,
   )
 
-  // And the sleeps really do overlap rather than merely interleave. Running
-  // both counters serially sleeps 2 * (CONCURRENCY_YIELDS + 1) * delay;
-  // running them concurrently sleeps half of that, so concurrency is worth at
-  // least CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS of wall clock however slow
-  // the per-yield machinery is. Requiring half of that leaves room for a
-  // scheduling hiccup while still going to zero the moment the two counters
-  // stop overlapping.
   const saved = serialElapsed - concurrentElapsed
+
+  // The remaining claim — that the sleeps overlap rather than merely
+  // interleaving — is not true on the WASI lane, and the reason is below
+  // napi-rs, so asserting it there would only be asserting a Tokio bug.
+  //
+  // Tokio parks a worker on its next timer deadline through
+  // `runtime::park::Inner::park_timeout`, which is
+  //
+  //     #[cfg(all(target_family = "wasm", not(target_feature = "atomics")))]
+  //     { std::thread::sleep(dur) }   // "Wasm without atomics doesn't have threads"
+  //
+  // and `target_feature = "atomics"` is never set on `wasm32-wasip1-threads`:
+  // it is an *unstable* target feature, and rustc does not surface unstable
+  // target features to `cfg` even when the target compiles with them. So on
+  // the one wasm target that does have threads, Tokio's timer park is an
+  // uninterruptible sleep. `available_parallelism()` is 1 under Node's WASI,
+  // so the single worker owns the time driver, and a task injected from the
+  // JavaScript thread is not polled until whatever sleep is already in flight
+  // runs out — measured on this lane, a task submitted 30ms into a 200ms sleep
+  // waits ~165ms for its first poll. Nothing else on the path is at fault:
+  // eight 50ms sleeps joined *inside* one task still finish in 51ms, and eight
+  // spawned from within the runtime in 53ms; only the cross-thread wake-up is
+  // lost. Two DelayedCounters therefore add up instead of overlapping, on this
+  // branch and on `main` alike (serial 153ms vs concurrent 153ms for both).
+  // Patching that single `cfg` in a local Tokio checkout takes the same
+  // measurement to serial 184ms / concurrent 98ms.
+  //
+  // Lowering the threshold until this passes would mean shipping a
+  // "concurrency" assertion that accepts fully serialised execution, so the
+  // saving is asserted only where the executor can actually overlap timers.
+  // The interleaving assertion above still runs on every target, including
+  // this one, and still fails there if a generator blocks the runtime.
+  if (process.env.WASI_TEST) {
+    t.log(
+      `WASI: sleeps do not overlap here (tokio-rs/tokio park_timeout is thread::sleep on wasm); serial ${serialElapsed}ms, concurrent ${concurrentElapsed}ms, saved ${saved}ms`,
+    )
+    return
+  }
+
+  // Running both counters serially sleeps 2 * (CONCURRENCY_YIELDS + 1) *
+  // delay; running them concurrently sleeps half of that, so concurrency is
+  // worth at least CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS of wall clock
+  // however slow the per-yield machinery is. Requiring half of that leaves
+  // room for a scheduling hiccup while still going to zero the moment the two
+  // counters stop overlapping.
   const minimumSaving = (CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS) / 2
   t.true(
     saved > minimumSaving,
