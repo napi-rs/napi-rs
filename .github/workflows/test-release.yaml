@@ -908,7 +908,8 @@ jobs:
         run: |
           yarn workspace @examples/napi test \
             __tests__/wasi-buffer-public-api.spec.ts \
-            __tests__/wasi-deferred-before-exit.spec.ts
+            __tests__/wasi-deferred-before-exit.spec.ts \
+            __tests__/wasi-env-cleanup-export.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface
@@ -926,6 +927,13 @@ jobs:
         run: yarn workspace @examples/custom-async-runtime test:workerd
       - name: Test examples/napi threadless public surfaces
         run: yarn workspace @examples/napi test:wasi-public-surfaces
+      # Last: this rebuilds custom_async_runtime.wasm32-wasip1.wasm in place. It
+      # is the only lane that loads the addon through a loader the test controls,
+      # which is what makes it able to drive `napi_prepare_wasm_env_cleanup` by
+      # hand and observe that the backend shut down while the environment was
+      # still alive.
+      - name: Test threadless WASI environment teardown barrier
+        run: yarn workspace @examples/custom-async-runtime test:wasi
 
   # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
   # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`

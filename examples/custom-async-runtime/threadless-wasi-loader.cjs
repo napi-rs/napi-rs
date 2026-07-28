@@ -22,16 +22,17 @@ context.suppressDestroy()
 let disposed = false
 let cleanupPrepared = false
 let napiInstance
+function prepareWasmEnvCleanup() {
+  if (cleanupPrepared) return
+  const prepare = napiInstance?.exports.napi_prepare_wasm_env_cleanup
+  if (typeof prepare === 'function') {
+    prepare()
+  }
+  cleanupPrepared = true
+}
 function destroyContext() {
   if (disposed) return
-  if (!cleanupPrepared) {
-    const prepareWasmEnvCleanup =
-      napiInstance?.exports.napi_prepare_wasm_env_cleanup
-    if (typeof prepareWasmEnvCleanup === 'function') {
-      prepareWasmEnvCleanup()
-    }
-    cleanupPrepared = true
-  }
+  prepareWasmEnvCleanup()
   const result = context.destroy()
   disposed = true
   return result
@@ -91,6 +92,12 @@ try {
 
 module.exports = {
   binding: napiModule.exports,
+  // Exposed so the test can drive the pre-teardown barrier on its own and
+  // observe that it ran *before* the context was destroyed. `dispose` still
+  // calls it, and it is idempotent.
+  prepareWasmEnvCleanup,
+  hasWasmEnvCleanupExport:
+    typeof napiInstance?.exports.napi_prepare_wasm_env_cleanup === 'function',
   async dispose() {
     process.removeListener('exit', destroyContextOnExit)
     await destroyContext()
