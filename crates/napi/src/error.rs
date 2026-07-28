@@ -15,7 +15,7 @@ use serde_json::Error as SerdeJSONError;
 #[cfg(target_family = "wasm")]
 use crate::bindgen_runtime::JsObjectValue;
 use crate::ValueType;
-use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
+use crate::{bindgen_runtime::ToNapiValue, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
@@ -348,25 +348,42 @@ impl Error {
   /// value *identically* — same object identity, same primitive, no `Error`
   /// wrapper synthesized around it.
   ///
-  /// [`Error::reason`] is a best effort, and no *coercion* is ever performed to
-  /// build it: a string primitive is copied verbatim, and a value `napi_is_error`
-  /// accepts has its `message` read and kept only when that read already yields a
-  /// string. Every other value (a plain object, a number, `null`) yields an empty
-  /// reason and relies on the retained value to carry the information back to
-  /// JavaScript.
+  /// [`Error::reason`] and [`Error::cause`] are filled in only from data that is
+  /// readable **without running JavaScript**: a string primitive is copied
+  /// verbatim, and a value `napi_is_error` accepts has its `message` and `cause`
+  /// read as *data properties*. Every other value (a plain object, a number,
+  /// `null`) yields an empty reason and relies on the retained value to carry the
+  /// information back to JavaScript.
   ///
-  /// Reading `message` goes through `napi_get_named_property`, which **does run a
-  /// `get message()` accessor** if the error carries one. Node-API has no
-  /// descriptor read — there is no `napi_get_own_property_descriptor` through
-  /// Node-API 10, and `napi_get_all_property_names` reports attributes but not
-  /// whether a property is data or accessor — so an accessor cannot be detected
-  /// without invoking it. The guarantee is therefore narrower than "no JavaScript
-  /// runs": `toString` and `Symbol.toPrimitive` are never reached (unlike
-  /// [`From<Unknown>`], which calls `napi_coerce_to_string` on every value), and
-  /// an accessor that throws is swallowed with its exception cleared so it cannot
-  /// poison the environment — but an accessor with side effects does have them,
-  /// and one that blocks does block. Do not call this with a value whose `message`
-  /// accessor must not run.
+  /// `message` and `cause` are not read with `napi_get_named_property`, which is
+  /// an ordinary `[[Get]]` and would run a `get message()` accessor. Node-API has
+  /// no descriptor read — there is no `napi_get_own_property_descriptor` through
+  /// Node-API 10 — so the lookup goes through `Reflect.getOwnPropertyDescriptor`,
+  /// walking the prototype chain with `napi_get_prototype`. A **data** descriptor
+  /// contributes its `value`; an **accessor** descriptor stops the walk and is
+  /// never invoked, leaving the reason empty (or the cause absent). Reading
+  /// `.value` off the returned descriptor is safe: it is a fresh ordinary object
+  /// the specification just created.
+  ///
+  /// Two honest caveats:
+  ///
+  /// * A [`Proxy`] still runs its `getOwnPropertyDescriptor` and `getPrototypeOf`
+  ///   traps. There is no way to interrogate a proxy without waking it up. (In
+  ///   practice `napi_is_error` returns `false` for a proxy over an `Error`, so
+  ///   this path is usually not even entered.)
+  /// * `Reflect` is read off the global object on every call and is patchable by
+  ///   user code. It is deliberately not cached: caching only moves *when* a
+  ///   patched `Reflect` would be observed, it cannot prevent it, and a cached
+  ///   `napi_ref` would have to be kept alive per env across worker teardown. A
+  ///   `Reflect` that is missing, is not an object, or whose
+  ///   `getOwnPropertyDescriptor` is not a function makes the lookup give up —
+  ///   the same outcome as an accessor — rather than fall back to a `[[Get]]`.
+  ///
+  /// Every failure along the way is swallowed with its pending exception cleared,
+  /// so a hostile value cannot poison the environment or become the reported
+  /// error.
+  ///
+  /// [`Proxy`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy
   ///
   /// Identity is reproduced only when the `Error` is converted back on the env
   /// and thread that captured it, which is where JavaScript can observe it
@@ -380,19 +397,48 @@ impl Error {
   /// on `napi_is_error`, so a retained non-`Error` thrown synchronously is
   /// replaced by an `Error` carrying [`Error::reason`].
   ///
+  /// The `cause` chain is captured the same way, up to eight links.
+  /// The retained value carries its own `cause` back to JavaScript, but the
+  /// fallback path — off-thread, or a foreign env, exactly where the retained
+  /// value is gone — has nothing but this chain to rebuild from, and
+  /// `JsError::into_value` does set `cause` on the error it synthesizes. The
+  /// depth limit is what keeps a cyclic chain (`a.cause = b; b.cause = a`) from
+  /// recursing forever; [`From<Unknown>`] overflows the stack on exactly that
+  /// input.
+  ///
   /// Use it wherever JavaScript decides the value and its identity must survive
-  /// the round trip: `Promise` rejection handlers and `AsyncGenerator.throw()`
-  /// both do. Prefer [`From<Unknown>`] when the value is known to be an `Error`
-  /// and a human-readable message matters more than exact identity.
+  /// the round trip: `Promise` rejection handlers, `AsyncGenerator.throw()` and
+  /// a throw out of a ThreadsafeFunction callback all do. Prefer
+  /// [`From<Unknown>`] when the value is known to be an `Error` and a
+  /// human-readable rendering (including the stack trace) matters more than
+  /// exact identity.
   pub fn from_unknown_without_coercion(value: Unknown<'_>) -> Self {
-    Self {
-      status: Status::GenericFailure,
-      reason: owned_reason_without_coercion(value),
-      // The retained value carries its own `cause`, and reading it here would
-      // mean recursively referencing a chain of values that may not be objects.
-      cause: None,
-      maybe_ref: retain_value_without_coercion(value),
-    }
+    error_without_coercion(value, MAX_CAUSE_DEPTH)
+  }
+}
+
+/// How many `cause` links [`Error::from_unknown_without_coercion`] follows.
+///
+/// `cause` chains are user data and may be cyclic, so the walk has to be
+/// bounded. Eight links is far past anything a human writes and keeps the
+/// captured error small.
+const MAX_CAUSE_DEPTH: usize = 8;
+
+/// How many prototypes a property lookup walks before giving up.
+///
+/// Ordinary prototype chains are short and acyclic, but a `Proxy` can return a
+/// fresh object from its `getPrototypeOf` trap every time, so the walk needs a
+/// bound of its own.
+const MAX_PROTOTYPE_DEPTH: usize = 32;
+
+/// Body of [`Error::from_unknown_without_coercion`], carrying the remaining
+/// `cause` budget so the chain can be captured without unbounded recursion.
+fn error_without_coercion(value: Unknown<'_>, cause_budget: usize) -> Error {
+  Error {
+    status: Status::GenericFailure,
+    reason: owned_reason_without_coercion(value),
+    cause: cause_without_coercion(value, cause_budget),
+    maybe_ref: retain_value_without_coercion(value),
   }
 }
 
@@ -434,19 +480,51 @@ fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<Er
 }
 
 /// Best-effort [`Error::reason`] for [`Error::from_unknown_without_coercion`],
-/// derived without coercing anything. This is not the same as "without running
-/// JavaScript": the `message` read below invokes a `get message()` accessor if
-/// the error has one, because Node-API cannot tell a data property from an
-/// accessor without reading it. See [`Error::from_unknown_without_coercion`].
+/// derived without coercing anything and without running any JavaScript: the
+/// `message` read below goes through a descriptor lookup and refuses to invoke a
+/// `get message()` accessor. See [`Error::from_unknown_without_coercion`].
 fn owned_reason_without_coercion(value: Unknown<'_>) -> String {
   let env = value.0.env;
   if is_error_without_coercion(value) {
-    return owned_named_string_property_without_coercion(value, c"message")
+    return data_property_without_get(env, value.0.value, c"message")
+      .and_then(|message| owned_string_without_coercion(env, message))
       .unwrap_or_else(|| "JavaScript Error".to_owned());
   }
   // A string primitive is its own message; reading it is a plain copy, not a
   // coercion, so `throw 'boom'` still surfaces as `"boom"` on the Rust side.
   owned_string_without_coercion(env, value.0.value).unwrap_or_default()
+}
+
+/// Best-effort [`Error::cause`] for [`Error::from_unknown_without_coercion`],
+/// read with the same descriptor discipline as the reason: a `get cause()`
+/// accessor is detected and left alone rather than invoked.
+///
+/// The chain is followed for at most `budget` more links, so a cyclic `cause`
+/// chain terminates instead of recursing until the stack runs out.
+fn cause_without_coercion(value: Unknown<'_>, budget: usize) -> Option<Box<Error>> {
+  if budget == 0 {
+    return None;
+  }
+  let env = value.0.env;
+  // Only objects and functions can carry an own `cause`; asking for a
+  // descriptor on anything else throws a `TypeError`.
+  if !matches!(
+    type_without_coercion(env, value.0.value)?,
+    sys::ValueType::napi_object | sys::ValueType::napi_function
+  ) {
+    return None;
+  }
+  let raw_cause = data_property_without_get(env, value.0.value, c"cause")?;
+  // An absent `cause`, and an explicit `cause: undefined` or `cause: null`, all
+  // mean "no cause" — the same rule `extract_error_cause` applies.
+  if matches!(
+    type_without_coercion(env, raw_cause)?,
+    sys::ValueType::napi_undefined | sys::ValueType::napi_null
+  ) {
+    return None;
+  }
+  let cause = unsafe { Unknown::from_raw_unchecked(env, raw_cause) };
+  Some(Box::new(error_without_coercion(cause, budget - 1)))
 }
 
 /// `napi_is_error` without the `check_status!` machinery: a failure here means
@@ -461,35 +539,181 @@ fn is_error_without_coercion(value: Unknown<'_>) -> bool {
   is_error
 }
 
-/// Reads `value[key]` and returns it only when it already is a string; a value
-/// of any other type yields `None` instead of being coerced.
+/// `napi_typeof`, reporting a failure as `None` instead of a status.
+fn type_without_coercion(
+  env: sys::napi_env,
+  value: sys::napi_value,
+) -> Option<sys::napi_valuetype> {
+  let mut value_type = -1;
+  if unsafe { sys::napi_typeof(env, value, &mut value_type) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  Some(value_type)
+}
+
+/// Resolves `Reflect.getOwnPropertyDescriptor`, returning it together with the
+/// `Reflect` object to call it on.
 ///
-/// `napi_get_named_property` is an ordinary `[[Get]]`, so an accessor installed
-/// under `key` *does* run. Node-API offers no descriptor read to avoid that. A
-/// getter that throws yields `None` and its exception is cleared, so the failure
-/// stays contained, but its side effects are not undone.
-fn owned_named_string_property_without_coercion(value: Unknown<'_>, key: &CStr) -> Option<String> {
-  let env = value.0.env;
-  let mut property = ptr::null_mut();
-  if unsafe { sys::napi_get_named_property(env, value.0.value, key.as_ptr(), &mut property) }
+/// Node-API exposes no descriptor read of its own, so the only way to inspect a
+/// property without triggering its getter is to go through the language. Both
+/// `napi_get_global` and `napi_call_function` are Node-API 1 and are implemented
+/// by emnapi, so this works on `wasm32-wasip1` and `wasm32-wasip1-threads` too.
+///
+/// `Reflect` is looked up on every call rather than cached: caching cannot stop
+/// user code from patching `Reflect` (it would only change *when* the patch is
+/// picked up) and a cached `napi_ref` would have to be tracked per env and
+/// released at teardown. This is an error path, not a hot path.
+fn reflect_get_own_property_descriptor(
+  env: sys::napi_env,
+) -> Option<(sys::napi_value, sys::napi_value)> {
+  let mut global = ptr::null_mut();
+  if unsafe { sys::napi_get_global(env, &mut global) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  let mut reflect = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, global, c"Reflect".as_ptr(), &mut reflect) }
     != sys::Status::napi_ok
   {
     clear_pending_exception(env);
     return None;
   }
-  owned_string_without_coercion(env, property)
+  if type_without_coercion(env, reflect)? != sys::ValueType::napi_object {
+    return None;
+  }
+  let mut get_own_property_descriptor = ptr::null_mut();
+  if unsafe {
+    sys::napi_get_named_property(
+      env,
+      reflect,
+      c"getOwnPropertyDescriptor".as_ptr(),
+      &mut get_own_property_descriptor,
+    )
+  } != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+  if type_without_coercion(env, get_own_property_descriptor)? != sys::ValueType::napi_function {
+    return None;
+  }
+  Some((reflect, get_own_property_descriptor))
+}
+
+/// Reads `object[key]` as a **data** property, without performing a `[[Get]]`.
+///
+/// `napi_get_named_property` would run a `get key()` accessor — arbitrary user
+/// code, executed while an error is unwinding, which is precisely what
+/// [`Error::from_unknown_without_coercion`] exists to avoid. Instead the
+/// prototype chain is walked with `napi_get_prototype` and each link is asked
+/// for an own descriptor via `Reflect.getOwnPropertyDescriptor`:
+///
+/// * a **data** descriptor contributes its `value` and ends the walk;
+/// * an **accessor** descriptor ends the walk with `None` — it shadows anything
+///   further up the chain, and it is *not* invoked;
+/// * no descriptor means "not an own property here", so the walk continues.
+///
+/// Reading `value` back off the descriptor is safe: `getOwnPropertyDescriptor`
+/// returns a freshly created ordinary object, so `napi_has_own_property` and
+/// `napi_get_named_property` on it cannot reach user code — `has_own` in
+/// particular is immune to `Object.prototype` pollution.
+///
+/// A `Proxy` does run its `getOwnPropertyDescriptor` and `getPrototypeOf` traps.
+/// Nothing can interrogate a proxy without waking it up.
+fn data_property_without_get(
+  env: sys::napi_env,
+  object: sys::napi_value,
+  key: &CStr,
+) -> Option<sys::napi_value> {
+  let (reflect, get_own_property_descriptor) = reflect_get_own_property_descriptor(env)?;
+
+  let key_bytes = key.to_bytes();
+  let mut key_value = ptr::null_mut();
+  if unsafe {
+    sys::napi_create_string_utf8(
+      env,
+      key_bytes.as_ptr().cast(),
+      key_bytes.len() as isize,
+      &mut key_value,
+    )
+  } != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+  let mut value_key = ptr::null_mut();
+  if unsafe { sys::napi_create_string_utf8(env, c"value".as_ptr(), 5, &mut value_key) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+
+  let mut current = object;
+  for _ in 0..MAX_PROTOTYPE_DEPTH {
+    let args = [current, key_value];
+    let mut descriptor = ptr::null_mut();
+    if unsafe {
+      sys::napi_call_function(
+        env,
+        reflect,
+        get_own_property_descriptor,
+        args.len(),
+        args.as_ptr(),
+        &mut descriptor,
+      )
+    } != sys::Status::napi_ok
+    {
+      clear_pending_exception(env);
+      return None;
+    }
+
+    if type_without_coercion(env, descriptor)? == sys::ValueType::napi_object {
+      let mut is_data_descriptor = false;
+      if unsafe { sys::napi_has_own_property(env, descriptor, value_key, &mut is_data_descriptor) }
+        != sys::Status::napi_ok
+      {
+        clear_pending_exception(env);
+        return None;
+      }
+      if !is_data_descriptor {
+        // An accessor descriptor. Stop here without calling the getter.
+        return None;
+      }
+      let mut property = ptr::null_mut();
+      if unsafe { sys::napi_get_named_property(env, descriptor, c"value".as_ptr(), &mut property) }
+        != sys::Status::napi_ok
+      {
+        clear_pending_exception(env);
+        return None;
+      }
+      return Some(property);
+    }
+
+    // Not an own property of `current`; continue up the prototype chain.
+    let mut prototype = ptr::null_mut();
+    if unsafe { sys::napi_get_prototype(env, current, &mut prototype) } != sys::Status::napi_ok {
+      clear_pending_exception(env);
+      return None;
+    }
+    if !matches!(
+      type_without_coercion(env, prototype)?,
+      sys::ValueType::napi_object | sys::ValueType::napi_function
+    ) {
+      // End of the chain (`null`).
+      return None;
+    }
+    current = prototype;
+  }
+  None
 }
 
 /// Copies `value` into an owned `String` when — and only when — it is already a
 /// JavaScript string. Returns `None` for every other value type instead of
 /// coercing it.
 fn owned_string_without_coercion(env: sys::napi_env, value: sys::napi_value) -> Option<String> {
-  let mut value_type = -1;
-  if unsafe { sys::napi_typeof(env, value, &mut value_type) } != sys::Status::napi_ok {
-    clear_pending_exception(env);
-    return None;
-  }
-  if value_type != sys::ValueType::napi_string {
+  if type_without_coercion(env, value)? != sys::ValueType::napi_string {
     return None;
   }
 
@@ -791,38 +1015,6 @@ pub struct JsRangeError<S: AsRef<str> = Status>(Error<S>);
 
 #[cfg(feature = "napi9")]
 pub struct JsSyntaxError<S: AsRef<str> = Status>(Error<S>);
-
-pub(crate) fn get_error_message_and_stack_trace(
-  env: sys::napi_env,
-  err: sys::napi_value,
-) -> Result<String> {
-  use crate::bindgen_runtime::FromNapiValue;
-
-  let mut error_string = ptr::null_mut();
-  check_status!(
-    unsafe { sys::napi_coerce_to_string(env, err, &mut error_string) },
-    "Get error message failed"
-  )?;
-  let mut result = unsafe { String::from_napi_value(env, error_string) }?;
-
-  let mut stack_trace = ptr::null_mut();
-  check_status!(
-    unsafe { sys::napi_get_named_property(env, err, c"stack".as_ptr().cast(), &mut stack_trace) },
-    "Get stack trace failed"
-  )?;
-  let mut stack_type = -1;
-  check_status!(
-    unsafe { sys::napi_typeof(env, stack_trace, &mut stack_type) },
-    "Get stack trace type failed"
-  )?;
-  if stack_type == sys::ValueType::napi_string {
-    let stack_trace = unsafe { String::from_napi_value(env, stack_trace) }?;
-    result.push('\n');
-    result.push_str(&stack_trace);
-  }
-
-  Ok(result)
-}
 
 macro_rules! impl_object_methods {
   ($js_value:ident, $kind:expr) => {

@@ -2001,33 +2001,36 @@ Napi4Test('Promise should reject raw error in rust', async (t) => {
 })
 
 Napi4Test('Promise rejection is captured without coercion', async (t) => {
+  // `describePromiseRejection` reports `"<status>|<reason>|<cause chain>"`, with
+  // `-` for "no cause".
+  //
   // A rejection value that N-API cannot reference directly. This used to fail
   // `napi_create_reference` and surface as `InvalidArg|Create Error reference
   // failed`, destroying the thrown value.
   t.is(
     await describePromiseRejection(Promise.reject('boom')),
-    'GenericFailure|boom',
+    'GenericFailure|boom|-',
   )
-  t.is(await describePromiseRejection(Promise.reject(42)), 'GenericFailure|')
-  t.is(await describePromiseRejection(Promise.reject(null)), 'GenericFailure|')
+  t.is(await describePromiseRejection(Promise.reject(42)), 'GenericFailure||-')
+  t.is(await describePromiseRejection(Promise.reject(null)), 'GenericFailure||-')
   t.is(
     await describePromiseRejection(Promise.reject(undefined)),
-    'GenericFailure|',
+    'GenericFailure||-',
   )
   // Real errors keep their own message; it is read, never coerced.
   t.is(
     await describePromiseRejection(Promise.reject(new TypeError('nope'))),
-    'GenericFailure|nope',
+    'GenericFailure|nope|-',
   )
-  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved|')
+  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved||-')
 })
 
-Napi4Test('a `message` accessor runs, and a throwing one is contained', async (t) => {
-  // Reading `message` is a plain `[[Get]]`, so an accessor *does* run: Node-API
-  // has no descriptor read, so a data property cannot be told apart from an
-  // accessor without invoking it. What is guaranteed is that no coercion happens
-  // (`toString`/`Symbol.toPrimitive` are never reached) and that a throwing
-  // accessor is contained rather than propagated.
+Napi4Test('a `message` accessor is never invoked', async (t) => {
+  // The central claim of the non-coercing capture: `reason` is built only from
+  // data readable *without running JavaScript*. `message` is looked up with
+  // `Reflect.getOwnPropertyDescriptor` walking the prototype chain, so a data
+  // property is read and an accessor is detected and left alone — where a plain
+  // `napi_get_named_property` would have called it.
   let invocations = 0
   const observable = new Error('own message')
   Object.defineProperty(observable, 'message', {
@@ -2039,12 +2042,26 @@ Napi4Test('a `message` accessor runs, and a throwing one is contained', async (t
   })
   t.is(
     await describePromiseRejection(Promise.reject(observable)),
-    'GenericFailure|from the accessor',
+    'GenericFailure|JavaScript Error|-',
   )
-  t.is(invocations, 1)
+  t.is(invocations, 0)
 
-  // A throwing accessor yields the fallback reason, and its exception must not
-  // leak into the next call.
+  // Same for an accessor inherited from a subclass prototype.
+  let protoInvocations = 0
+  class AccessorError extends Error {
+    override get message() {
+      protoInvocations += 1
+      return 'from the prototype accessor'
+    }
+  }
+  t.is(
+    await describePromiseRejection(Promise.reject(new AccessorError())),
+    'GenericFailure|JavaScript Error|-',
+  )
+  t.is(protoInvocations, 0)
+
+  // A throwing accessor cannot even be reached, so nothing has to be contained —
+  // but assert the environment is still clean afterwards.
   let throwingInvocations = 0
   const hostile = new Error('ignored')
   Object.defineProperty(hostile, 'message', {
@@ -2056,10 +2073,79 @@ Napi4Test('a `message` accessor runs, and a throwing one is contained', async (t
   })
   t.is(
     await describePromiseRejection(Promise.reject(hostile)),
-    'GenericFailure|JavaScript Error',
+    'GenericFailure|JavaScript Error|-',
   )
-  t.is(throwingInvocations, 1)
-  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved|')
+  t.is(throwingInvocations, 0)
+  t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved||-')
+
+  // A `message` data property up the prototype chain is still found: the walk
+  // exists so this keeps working.
+  class DataError extends Error {}
+  DataError.prototype.message = 'from the prototype data property'
+  t.is(
+    await describePromiseRejection(Promise.reject(new DataError())),
+    'GenericFailure|from the prototype data property|-',
+  )
+  // `new Error()` has no own `message`; `Error.prototype.message` is `''`.
+  t.is(
+    await describePromiseRejection(Promise.reject(new Error())),
+    'GenericFailure||-',
+  )
+})
+
+Napi4Test('the `cause` chain survives the capture', async (t) => {
+  // `Error::cause` used to be hardcoded to `None` here, which lost the cause on
+  // the fallback path — off-thread or a foreign env, exactly where the retained
+  // value is gone and `JsError::into_value` has to rebuild the error from
+  // `reason`/`cause`.
+  t.is(
+    await describePromiseRejection(
+      Promise.reject(new TypeError('the message', { cause: new RangeError('the cause') })),
+    ),
+    'GenericFailure|the message|the cause',
+  )
+  // The chain is followed, not just the first link.
+  t.is(
+    await describePromiseRejection(
+      Promise.reject(
+        new Error('L1', { cause: new Error('L2', { cause: new Error('L3') }) }),
+      ),
+    ),
+    'GenericFailure|L1|L2<L3',
+  )
+  // A primitive cause is copied verbatim rather than coerced or dropped.
+  t.is(
+    await describePromiseRejection(
+      Promise.reject(new Error('outer', { cause: 'just a string' })),
+    ),
+    'GenericFailure|outer|just a string',
+  )
+  // ...and a `get cause()` accessor is no more welcome than a `get message()`.
+  let invocations = 0
+  const hostile = new Error('accessor cause')
+  Object.defineProperty(hostile, 'cause', {
+    configurable: true,
+    get() {
+      invocations += 1
+      return new Error('should never be read')
+    },
+  })
+  t.is(
+    await describePromiseRejection(Promise.reject(hostile)),
+    'GenericFailure|accessor cause|-',
+  )
+  t.is(invocations, 0)
+
+  // A cyclic chain terminates at the depth limit instead of recursing until the
+  // stack runs out, which is what `From<Unknown>` does on this input.
+  const a = new Error('A')
+  const b = new Error('B')
+  a.cause = b
+  b.cause = a
+  t.is(
+    await describePromiseRejection(Promise.reject(a)),
+    'GenericFailure|A|B<A<B<A<B<A<B<A',
+  )
 })
 
 Napi4Test('a rejected promise settles JavaScript with the identical value', async (t) => {
@@ -2161,19 +2247,49 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
 
 test('a primitive thrown from a ThreadsafeFunction callback is delivered, not fatal', async (t) => {
   // `napi_create_reference` rejects every non-object below Node-API 10, so
-  // retaining the thrown value fails here. That has to stay a best effort:
+  // retaining the thrown value used to fail here and take the process down:
   // reporting the failure as the callback's own status raised a fatal exception
-  // for an error that had already been delivered, taking the process down over a
-  // string throw.
-  await t.throwsAsync(
-    () =>
-      tsfnThrowFromJs(() => {
-        throw 'a primitive string'
-      }),
-    {
-      message: /a primitive string/,
-    },
+  // for an error that had already been delivered.
+  const thrown = 'a primitive string'
+  const settled = await tsfnThrowFromJs(() => {
+    throw thrown
+  }).then(
+    (resolved) => ({ rejected: false, value: resolved as unknown }),
+    (reason: unknown) => ({ rejected: true, value: reason }),
   )
+  t.true(settled.rejected)
+  t.is(settled.value, thrown)
+})
+
+test('a value thrown from a ThreadsafeFunction callback keeps its identity', async (t) => {
+  // Same contract as a promise rejection: JavaScript may throw *anything* and
+  // the value has to come back as itself. Asserting the message is not enough —
+  // a synthesized `Error` carrying the same message would pass that and fail
+  // this. `throw null` and `throw Symbol()` additionally used to leave a second
+  // exception pending in the env (`napi_coerce_to_string` throws on a symbol).
+  const thrown: [string, unknown][] = [
+    ['string', 'a primitive string'],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['boolean', false],
+    ['bigint', 7n],
+    ['symbol', Symbol('marker')],
+    ['plain object', { tag: 'marker' }],
+    ['array', [1, 2, 3]],
+    ['function', function marker() {}],
+    ['Error', new TypeError('a real error')],
+  ]
+  for (const [label, value] of thrown) {
+    const settled = await tsfnThrowFromJsCatchRecover(() => {
+      throw value
+    }).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${label} should reject`)
+    t.is(settled.value, value, `${label} should reject with itself`)
+  }
 })
 
 test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction', async (t) => {

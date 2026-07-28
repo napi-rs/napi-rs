@@ -13,8 +13,7 @@ use futures::channel::oneshot::channel;
 
 use crate::{
   bindgen_runtime::{FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue},
-  check_status, extract_error_cause, get_error_message_and_stack_trace, sys, Env, Error, JsError,
-  Result, Status,
+  check_status, sys, Env, Error, JsError, Result, Status,
 };
 
 #[deprecated(since = "2.17.0", note = "Please use `ThreadsafeFunction` instead")]
@@ -859,50 +858,46 @@ unsafe extern "C" fn call_js_cb<
           // The exception has been taken out of the env and is about to be handed
           // to the Rust callback, so it is handled from Node's point of view.
           status = sys::Status::napi_ok;
-          let maybe_ref = {
-            let mut error_reference = ptr::null_mut();
-            // Deliberately not assigned to `status`: retaining the exception is a
-            // best effort. `napi_create_reference` rejects every non-object below
-            // Node-API 10 — and a module without
-            // `node_api_module_get_api_version_v1` is version 8 — so `throw 'oops'`
-            // in the callback fails here. Reporting that as the callback's status
-            // would raise a fatal exception for an error that was already
-            // delivered, killing the process over a string throw.
-            let ref_status =
-              unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
-            // Only own a reference when creation actually succeeded; on failure
-            // `error_reference` stays null, so keep `maybe_ref: None` (the message
-            // and stack are still captured in `reason` below) rather than wrapping
-            // a null ref that `ErrorRef::drop` would blindly release — mirrors the
-            // early guard in `From<Unknown> for Error`. `call_js_cb` runs on the
-            // env's JS thread, so `ErrorRef::new` captures the owning env, its
-            // thread and its custom-GC handle; the returned `Error` is then free
-            // to travel to the caller's thread, where the reference reads as
-            // absent and the release is routed back here (#2975, #3369).
-            if ref_status == sys::Status::napi_ok {
-              Some(std::sync::Arc::new(crate::error::ErrorRef::new(
-                error_reference,
-                raw_env,
-              )))
-            } else {
-              None
-            }
-          };
 
-          get_error_message_and_stack_trace(raw_env, exception).and_then(|reason| {
-            Err(Error {
-              maybe_ref,
-              // SAFETY: `raw_env` and `exception` are valid pointers obtained from
-              // `napi_get_and_clear_last_exception` above, which guarantees they are
-              // non-null and live for the duration of this callback.
-              cause: extract_error_cause(unsafe {
-                Unknown::from_raw_unchecked(raw_env, exception)
-              })
-              .unwrap_or(None),
-              status: Status::from(raw_status),
-              reason,
-            })
-          })
+          // JavaScript can throw *anything*, so capture the exception the same
+          // way a promise rejection is captured. The previous code did two things
+          // that broke on a non-`Error`:
+          //
+          // * `napi_create_reference` rejects every non-object below Node-API 10
+          //   — and a module without `node_api_module_get_api_version_v1` is
+          //   version 8 — so `throw 'oops'` lost the thrown value outright.
+          // * building `reason` from `napi_coerce_to_string` plus a `[[Get]]` of
+          //   `stack` runs `toString`/`Symbol.toPrimitive` and V8's lazy stack
+          //   formatter while the error is unwinding, and *throws* on a symbol,
+          //   leaving that second exception pending in an env Node has already
+          //   been told is clean.
+          //
+          // `from_unknown_without_coercion` does neither: the value is retained
+          // behind a private holder object every type can be referenced through,
+          // and `reason`/`cause` are read as data properties only.
+          //
+          // The cost is that `reason` no longer carries the stack trace: `stack`
+          // is an own *accessor* on every V8 error, so there is no way to read it
+          // without running a getter. JavaScript is unaffected — it now receives
+          // the original exception object, stack and all.
+          //
+          // `call_js_cb` runs on the env's JS thread, so the `ErrorRef` inside
+          // captures the owning env, its thread and its custom-GC handle; the
+          // returned `Error` is then free to travel to the caller's thread, where
+          // the reference reads as absent and the release is routed back here
+          // (#2975, #3369).
+          //
+          // SAFETY: `raw_env` and `exception` are valid pointers obtained from
+          // `napi_get_and_clear_last_exception` above, which guarantees they are
+          // non-null and live for the duration of this callback.
+          let mut error = Error::from_unknown_without_coercion(unsafe {
+            Unknown::from_raw_unchecked(raw_env, exception)
+          });
+          // Keep reporting *why* the callback failed. `call_async_catch` callers
+          // branch on `PendingException` to tell a JS throw apart from a Rust
+          // error, so the status has to survive the capture.
+          error.status = Status::from(raw_status);
+          Err(error)
         } else {
           unsafe { Return::from_napi_value(raw_env, return_value) }
         };

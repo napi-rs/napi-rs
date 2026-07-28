@@ -896,12 +896,14 @@ declare class DynamicRustClass {
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
 /**
- * Awaits `p` and reports how Rust saw the rejection, as `"<status>|<reason>"`.
+ * Awaits `p` and reports how Rust saw the rejection, as
+ * `"<status>|<reason>|<cause chain>"`, where the cause chain is `-` when there
+ * is none and otherwise the `reason` of each link joined by `<`.
  *
  * JavaScript lets a promise reject with any value, including primitives that
  * `napi_create_reference` refuses. This exists to pin down that such a
  * rejection still arrives as itself instead of as a reference-creation
- * failure.
+ * failure, and that its `cause` chain survives the capture.
  */
 export declare function describePromiseRejection(p: Promise<undefined>): Promise<string>
 

@@ -65,9 +65,10 @@ impl DeferredTrace {
     // settled at all. Only an error carrying no retained value — created in Rust,
     // or converted off the owning thread — falls back to the trace object. The
     // shared `napi_ref` is released when `err` drops at the end of the call.
-    let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
-      Ok(err_raw_value)
-    } else {
+    let err_value = (|| -> Result<sys::napi_value> {
+      if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
+        return Ok(err_raw_value);
+      }
       let mut obj = Object::from_raw(raw_env, raw);
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(
@@ -75,12 +76,19 @@ impl DeferredTrace {
         env.create_string_from_std(format!("{}", err.status))?,
       )?;
       Ok(raw)
-    };
+    })();
+    // Delete the trace reference unconditionally. `self` is consumed here and
+    // `DeferredTrace` has no `Drop`, so an early `?` out of the fallback above
+    // used to be the last chance to release it — and leaked it instead.
+    let delete_status = unsafe { sys::napi_delete_reference(raw_env, self.0) };
+    // A failure building the rejection value is the more informative one, so it
+    // wins over a failure to delete the reference.
+    let err_value = err_value?;
     check_status!(
-      unsafe { sys::napi_delete_reference(raw_env, self.0) },
-      "Failed to get referenced value in DeferredTrace"
+      delete_status,
+      "Failed to delete the reference in DeferredTrace"
     )?;
-    err_value
+    Ok(err_value)
   }
 }
 
