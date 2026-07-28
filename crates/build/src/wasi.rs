@@ -98,9 +98,14 @@ pub fn setup() {
   println!("cargo:rustc-link-arg=--export=emnapi_create_env");
   println!("cargo:rustc-link-arg=--export=emnapi_delete_env");
   println!("cargo:rustc-link-arg=--export=napi_register_wasm_v1");
-  // The minimal async-runtime SPI base does not define
-  // `napi_prepare_wasm_env_cleanup`; keep the export conditional so builds
-  // work both before and after the full lifecycle surface lands.
+  // `napi` defines `napi_prepare_wasm_env_cleanup`, but `napi-build` and `napi`
+  // are versioned independently: a new `napi-build` can be unified with a `napi`
+  // that predates the symbol. Keep the export conditional so that combination
+  // still links instead of failing with an unresolved export. The generated
+  // loaders guard the call with `typeof … === 'function'` for the same reason,
+  // which is why `examples/napi/__tests__/wasi-env-cleanup-export.spec.ts`
+  // asserts the export really is present in the built artifact — a missing
+  // barrier is otherwise completely silent.
   println!("cargo:rustc-link-arg=--export-if-defined=napi_prepare_wasm_env_cleanup");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");

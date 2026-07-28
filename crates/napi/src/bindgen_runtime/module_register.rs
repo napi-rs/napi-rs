@@ -313,6 +313,54 @@ unsafe extern "C" fn napi_register_wasm_v1(
   unsafe { napi_register_module_v1(env, exports) }
 }
 
+/// Shut this addon's async runtime down while the WebAssembly environment can still call into
+/// JavaScript.
+///
+/// The generated WASI loaders — and emnapi's own `disposeNapiModule` — look this export up on
+/// the instantiated module and call it, synchronously and on the main thread, as the *first*
+/// step of disposing the environment, immediately before `Env::beginTeardown` and
+/// `Context::destroy` flip emnapi's `canCallIntoJs` to `false`. It is therefore the last moment
+/// at which a background task may still reach its `JsDeferred`: afterwards
+/// `napi_call_threadsafe_function` reports `napi_closing`, a settle from a task that is still
+/// running traps the instance, and the promise it owned can never settle.
+///
+/// Native targets get this ordering from Node for free — `napi_register_module_v1` registers
+/// `thread_cleanup` with `napi_add_env_cleanup_hook`, and Node runs cleanup hooks before it
+/// finalizes threadsafe functions. wasm has no equivalent: the only teardown callback there is
+/// the `exports` object finalizer that `napi_register_module_v1` installs with `napi_wrap`,
+/// which runs deep inside the environment teardown, long after JavaScript calls are disabled.
+/// This export is that missing pre-teardown barrier, and it performs exactly the same teardown
+/// as the finalizer — only early enough to be useful.
+///
+/// # Ordering this guarantees
+///
+/// 1. The loader calls this export. The environment is still fully active.
+/// 2. A registered `AsyncRuntime` backend's `shutdown` hook runs and, per its documented
+///    contract, returns only once every backend-owned thread, task, and blocking closure has
+///    quiesced.
+///    Tasks dropped by that shutdown reject their promises through the cancellation callback,
+///    which can still reach JavaScript from here.
+/// 3. This export returns. Only then does the loader destroy the environment.
+///
+/// The built-in Tokio path keeps `shutdown_async_runtime`'s existing best-effort
+/// `shutdown_background` semantics: it starts the drain here instead of
+/// after teardown, but it does not join Tokio's workers. Blocking on them would be the wrong
+/// trade on wasm, where this runs on the only thread that can drain the threadsafe-function
+/// queue and, in a browser, may not block at all. Addons that need the hard guarantee register
+/// an `AsyncRuntime` backend, whose `shutdown` contract provides it.
+///
+/// Repeated calls are harmless — the loaders guard against them anyway, and the finalizer that
+/// still fires later performs the same idempotent teardown.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_prepare_wasm_env_cleanup() {
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  crate::tokio_runtime::shutdown_async_runtime();
+}
+
 #[cfg(not(feature = "noop"))]
 #[no_mangle]
 /// Register the n-api module exports.
