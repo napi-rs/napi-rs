@@ -1,5 +1,7 @@
 use std::os::raw::c_void;
 use std::ptr;
+#[cfg(target_family = "wasm")]
+use std::sync::atomic::AtomicU32;
 use std::{
   marker::PhantomData,
   sync::{
@@ -7,6 +9,31 @@ use std::{
     Arc, Mutex, RwLock, Weak,
   },
 };
+
+/// How many promise settlements this addon has handed to the threadsafe-function queue that
+/// have not been dispatched back into JavaScript yet.
+///
+/// On wasm the queue is drained by the host, not by napi: `napi_call_threadsafe_function`
+/// only appends to it, and `@emnapi/core` dispatches the appended item from a *macrotask* —
+/// two coalescing turns later, even when the call was made on the JavaScript thread itself.
+/// A loader that runs `napi_prepare_wasm_env_cleanup()` and `Context.destroy()` back to back
+/// therefore disables JavaScript calls before the queue is dispatched, and the queued settles
+/// are discarded with a null env instead of settling their promises.
+///
+/// This counter is what makes the drain observable: `napi_wasm_env_cleanup_pending` exports
+/// it so the loader can yield real event-loop turns until it reaches zero before destroying
+/// the environment. It is incremented once the settle is accepted into the queue and
+/// decremented by `napi_resolve_deferred`, which every queued item reaches exactly once —
+/// including the null-env drain during teardown.
+#[cfg(target_family = "wasm")]
+static PENDING_DEFERRED_SETTLES: AtomicU32 = AtomicU32::new(0);
+
+/// Gated exactly like its only caller, the `napi_wasm_env_cleanup_pending` export: a `noop`
+/// build exports nothing, so reading the counter there would be dead code.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn pending_deferred_settles() -> u32 {
+  PENDING_DEFERRED_SETTLES.load(Ordering::SeqCst)
+}
 
 #[cfg(feature = "deferred_trace")]
 use crate::{bindgen_runtime::JsObjectValue, JsValue};
@@ -301,6 +328,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       finalize_callback: self.finalize_callback.clone(),
     };
 
+    // Count the settle *before* it is queued: on wasm32-wasip1-threads this may run on a
+    // backend-owned thread, and the JavaScript thread must be able to observe the pending
+    // settle the moment `AsyncRuntime::shutdown` returns.
+    #[cfg(target_family = "wasm")]
+    PENDING_DEFERRED_SETTLES.fetch_add(1, Ordering::SeqCst);
+
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
     let status = unsafe {
       sys::napi_call_threadsafe_function(
@@ -309,6 +342,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
         sys::ThreadsafeFunctionCallMode::blocking,
       )
     };
+    // A rejected call queued nothing, so `napi_resolve_deferred` will never run for it and
+    // would otherwise leave the counter permanently above zero.
+    #[cfg(target_family = "wasm")]
+    if status != sys::Status::napi_ok {
+      release_pending_deferred_settle();
+    }
     debug_assert!(
       status == sys::Status::napi_ok,
       "Call threadsafe function in JsDeferred failed"
@@ -428,12 +467,26 @@ fn js_deferred_new_raw(
   Ok((tsfn, promise))
 }
 
+/// Saturating decrement, so a decrement that is somehow unpaired cannot wrap the counter to
+/// `u32::MAX` and make every later disposal spin until its bound.
+#[cfg(target_family = "wasm")]
+fn release_pending_deferred_settle() {
+  let _ = PENDING_DEFERRED_SETTLES.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |pending| {
+    Some(pending.saturating_sub(1))
+  });
+}
+
 extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   env: sys::napi_env,
   _js_callback: sys::napi_value,
   context: *mut c_void,
   data: *mut c_void,
 ) {
+  // The item has left the queue, whichever branch below handles it. Release it first so an
+  // early return — or a resolver that traps the instance — cannot strand the count.
+  #[cfg(target_family = "wasm")]
+  release_pending_deferred_settle();
+
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
 
   // A leftover queue item is drained with a null env while the threadsafe function closes during env

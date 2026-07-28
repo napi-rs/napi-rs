@@ -514,22 +514,84 @@ if (mode === 'native') {
 }
 
 if (disposeBinding) {
-  // The loader runs the addon's `napi_prepare_wasm_env_cleanup` barrier as the
-  // first step of disposal, while the environment can still call into
-  // JavaScript. That barrier shuts the registered backend down, so a task that
-  // is still in flight is cancelled — and its promise rejected — instead of
-  // being stranded behind an environment that has already stopped accepting JS
-  // calls. Drive the barrier by hand so the ordering is observable: everything
-  // asserted below happens strictly before `context.destroy()`.
+  // The barrier alone is NOT enough, and this is the part that is easy to get
+  // wrong: `napi_prepare_wasm_env_cleanup` cancels the in-flight tasks and their
+  // rejections reach `napi_call_threadsafe_function`, but that call only appends
+  // to the threadsafe-function queue. @emnapi/core dispatches that queue from a
+  // macrotask two coalescing turns later, and `context.destroy()` drains it with
+  // a null env and discards whatever is left. A loader that runs the barrier and
+  // `destroy()` back to back therefore strands exactly the promises the barrier
+  // exists to settle.
   //
-  // `napi-build` links the symbol with `--export-if-defined` and the loaders
-  // guard the call with `typeof`, so a binary without the barrier loads and runs
+  // So the real disposal path is asserted end to end below, in its own process.
+  // The hand-driven barrier here only proves the *ordering* — that the backend
+  // is already down while the environment can still call into JavaScript — and
+  // it must not be mistaken for coverage of `dispose()`: awaiting the rejection
+  // in between is what makes this variant work.
+  //
+  // `napi-build` links both symbols with `--export-if-defined` and the loaders
+  // guard the calls with `typeof`, so a binary without them loads and runs
   // exactly as if nothing were wrong. Fail loudly instead.
   assert.equal(
     loadedBinding.hasWasmEnvCleanupExport,
     true,
     'the wasm binary must export napi_prepare_wasm_env_cleanup, otherwise the loader silently skips the teardown barrier',
   )
+  assert.equal(
+    loadedBinding.hasWasmEnvCleanupPendingExport,
+    true,
+    'the wasm binary must export napi_wasm_env_cleanup_pending, otherwise the loader cannot tell when the queued settlements have been dispatched and falls back to guessing turns',
+  )
+
+  // The arbiter: the ordinary `dispose()` path, with no manual barrier call and
+  // nothing awaited in between. Run it in its own process so a promise that
+  // never settles shows up as a stranded promise here and not as a hang
+  // somewhere else.
+  const ordinaryDispose = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const loaded = require(${JSON.stringify(resolvedBindingFile)})
+        const timeout = setTimeout(() => {
+          console.error('ORDINARY_DISPOSE_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+        let outcome = 'PENDING'
+        const stranded = loaded.binding.asyncNever()
+        stranded.then(
+          () => { outcome = 'RESOLVED' },
+          (error) => { outcome = 'REJECTED: ' + error.message },
+        )
+        loaded.dispose().then(
+          async () => {
+            // Well past the two turns @emnapi/core needs: if the settlement did
+            // not land by now, it never will.
+            for (let index = 0; index < 50; index++) {
+              await new Promise((resolve) => setImmediate(resolve))
+            }
+            console.error('ORDINARY_DISPOSE_OUTCOME ' + outcome)
+            process.exit(outcome.startsWith('REJECTED: ') ? 0 : 47)
+          },
+          (error) => {
+            console.error('ORDINARY_DISPOSE_THREW', error)
+            process.exit(48)
+          },
+        )
+      `,
+    ],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  const ordinaryDisposeOutput = `${ordinaryDispose.stdout}\n${ordinaryDispose.stderr}`
+  assert.equal(ordinaryDispose.error, undefined, ordinaryDispose.error?.stack)
+  assert.equal(ordinaryDispose.signal, null, ordinaryDisposeOutput)
+  assert.equal(
+    ordinaryDispose.status,
+    0,
+    `dispose() must settle the promise of a task its teardown barrier cancelled, without the caller driving the barrier by hand:\n${ordinaryDisposeOutput}`,
+  )
+  assert.match(ordinaryDisposeOutput, /ORDINARY_DISPOSE_OUTCOME REJECTED: /)
   const beforeDispose = binding.getRuntimeMetrics()
   const stranded = binding.asyncNever()
   const strandedSettlement = stranded.then(

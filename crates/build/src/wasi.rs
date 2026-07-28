@@ -107,6 +107,10 @@ pub fn setup() {
   // asserts the export really is present in the built artifact — a missing
   // barrier is otherwise completely silent.
   println!("cargo:rustc-link-arg=--export-if-defined=napi_prepare_wasm_env_cleanup");
+  // The settlement half of the same barrier: the loaders poll it to know when the settles the
+  // barrier queued have actually been dispatched, instead of destroying the environment while
+  // they are still in the threadsafe-function queue. Conditional for the same reason.
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_env_cleanup_pending");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {

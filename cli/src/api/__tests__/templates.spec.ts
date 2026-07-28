@@ -2,7 +2,11 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
-import { createWasiBrowserBinding } from '../templates/load-wasi-template.js'
+import {
+  createWasiBinding,
+  createWasiBrowserBinding,
+  createWasiDeferredBrowserBinding,
+} from '../templates/load-wasi-template.js'
 import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
 
 const test = ava
@@ -148,6 +152,50 @@ for (const { name, code } of cjsBindingCases) {
     t.false(
       /\bcause:/.test(code),
       'CJS loader must not pass `{ cause }` to the Error constructor (ignored on Node < 16.9); assign `error.cause` instead',
+    )
+  })
+}
+
+// `napi_prepare_wasm_env_cleanup` only *queues* the promise settlements of the
+// tasks it cancels: `napi_call_threadsafe_function` appends to the
+// threadsafe-function queue, and @emnapi/core dispatches that queue from a
+// macrotask two coalescing turns later. `Context.destroy()` then drains the
+// queue with a null env and discards it. Measured against @emnapi/core
+// 2.0.0-alpha.3: zero microtask checkpoints ever deliver the settlement, and it
+// takes exactly two macrotask turns.
+//
+// So a loader that emits the barrier and `destroy()` back to back strands
+// exactly the promises the barrier exists to settle, and it does so silently.
+// Only `examples/custom-async-runtime` covers this behaviorally, and it does so
+// through a hand-written loader — these emitted loaders have no such test, so
+// assert the shape here instead.
+const wasiLoaderCases: Array<{ name: string; code: string }> = [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding('test', '@scope/test', 4000, 65536, false),
+  },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+  { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
+]
+
+for (const { name, code } of wasiLoaderCases) {
+  test(`WASI loader waits for queued settlements before destroy: ${name}`, (t) => {
+    t.true(
+      code.includes('napi_prepare_wasm_env_cleanup'),
+      'loader must run the pre-teardown barrier',
+    )
+    t.true(
+      code.includes('napi_wasm_env_cleanup_pending'),
+      'loader must poll napi_wasm_env_cleanup_pending; without it the barrier queues settlements that Context.destroy() then discards',
+    )
+    t.true(
+      code.includes('__drainWasmEnvCleanup'),
+      'loader must call the settlement drain on its disposal path',
+    )
+    t.true(
+      code.includes('__scheduleMacrotask'),
+      'the drain must yield real macrotask turns; microtask checkpoints never let the emnapi dispatch run',
     )
   })
 }

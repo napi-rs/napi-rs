@@ -316,11 +316,10 @@ unsafe extern "C" fn napi_register_wasm_v1(
 /// Shut this addon's async runtime down while the WebAssembly environment can still call into
 /// JavaScript.
 ///
-/// The generated WASI loaders — and emnapi's own `disposeNapiModule` — look this export up on
-/// the instantiated module and call it, synchronously and on the main thread, as the *first*
-/// step of disposing the environment, immediately before `Env::beginTeardown` and
-/// `Context::destroy` flip emnapi's `canCallIntoJs` to `false`. It is therefore the last moment
-/// at which a background task may still reach its `JsDeferred`: afterwards
+/// The generated WASI loaders look this export up on the instantiated module and call it,
+/// synchronously and on the main thread, as the *first* step of disposing the environment,
+/// before `Context::destroy` flips emnapi's `canCallIntoJs` to `false`. It is therefore the
+/// last moment at which a background task may still reach its `JsDeferred`: afterwards
 /// `napi_call_threadsafe_function` reports `napi_closing`, a settle from a task that is still
 /// running traps the instance, and the promise it owned can never settle.
 ///
@@ -339,8 +338,23 @@ unsafe extern "C" fn napi_register_wasm_v1(
 ///    contract, returns only once every backend-owned thread, task, and blocking closure has
 ///    quiesced.
 ///    Tasks dropped by that shutdown reject their promises through the cancellation callback,
-///    which can still reach JavaScript from here.
-/// 3. This export returns. Only then does the loader destroy the environment.
+///    which can still *enqueue* the settle from here.
+/// 3. This export returns. The set of settles waiting in the threadsafe-function queue is now
+///    complete: the backend is stopped, so nothing can append to it any more.
+///
+/// # What this export does NOT do
+///
+/// It does not deliver those settles. `napi_call_threadsafe_function` only appends to the
+/// queue; on wasm the queue is dispatched by the host, and `@emnapi/core` dispatches a
+/// main-thread call from a *macrotask*, two coalescing turns later. Calling this export and
+/// `Context::destroy()` back to back — with no turn of the event loop between them — therefore
+/// still strands every promise, because `destroy()` runs the threadsafe function's cleanup
+/// hook, which drains the queue with a null env and discards the settles.
+///
+/// The loader must close that gap: after this returns it has to yield real event-loop turns
+/// until [`napi_wasm_env_cleanup_pending`] reports zero, and only then destroy the
+/// environment. The generated loaders do exactly that. A host that cannot yield — a Node
+/// `process.on('exit')` handler, for one — cannot get this guarantee at all.
 ///
 /// The built-in Tokio path keeps `shutdown_async_runtime`'s existing best-effort
 /// `shutdown_background` semantics: it starts the drain here instead of
@@ -359,6 +373,34 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
     feature = "napi4"
   ))]
   crate::tokio_runtime::shutdown_async_runtime();
+}
+
+/// How many promise settlements are queued in the threadsafe-function queue and have not been
+/// dispatched back into JavaScript yet.
+///
+/// This is the settlement half of the [`napi_prepare_wasm_env_cleanup`] handshake. The barrier
+/// makes the queued set complete; this export makes it observable, so the generated loaders can
+/// yield event-loop turns until it reads zero and destroy the environment only then. Without
+/// it a loader could only guess a turn count, and the guess would be wrong the moment
+/// `@emnapi/core` changed how it coalesces wakeups — or the moment the settle came from a
+/// `wasm32-wasip1-threads` worker, whose wakeup needs a `postMessage` round trip first.
+///
+/// It counts only settles that are already in the queue, never promises that are merely
+/// pending, so a long-running task that shutdown did not cancel cannot make a loader spin.
+///
+/// Loaders must still bound their wait: this reaching zero is the success condition, not a
+/// promise that it always will.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_wasm_env_cleanup_pending() -> u32 {
+  #[cfg(feature = "napi4")]
+  {
+    crate::js_values::pending_deferred_settles()
+  }
+  #[cfg(not(feature = "napi4"))]
+  {
+    0
+  }
 }
 
 #[cfg(not(feature = "noop"))]

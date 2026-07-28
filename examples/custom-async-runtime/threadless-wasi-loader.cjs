@@ -21,14 +21,34 @@ context.suppressDestroy()
 
 let disposed = false
 let cleanupPrepared = false
+let cleanupRan = false
+let cleanupDrained = false
 let napiInstance
 function prepareWasmEnvCleanup() {
   if (cleanupPrepared) return
   const prepare = napiInstance?.exports.napi_prepare_wasm_env_cleanup
   if (typeof prepare === 'function') {
     prepare()
+    cleanupRan = true
   }
   cleanupPrepared = true
+}
+// Mirrors the generated loaders: the barrier only *queues* the settlements of
+// the tasks it cancelled, and @emnapi/core dispatches that queue from a
+// macrotask two coalescing turns later. `context.destroy()` drains the queue
+// with a null env and discards whatever is left, so the loader has to yield
+// real turns in between or it strands exactly the promises the barrier exists
+// to settle.
+async function drainWasmEnvCleanup() {
+  if (cleanupDrained || !cleanupRan) return
+  cleanupDrained = true
+  const pending = napiInstance?.exports.napi_wasm_env_cleanup_pending
+  const observable = typeof pending === 'function'
+  const limit = observable ? 128 : 4
+  for (let turn = 0; turn < limit; turn++) {
+    if (observable && !pending()) return
+    await new Promise((resolve) => setImmediate(resolve))
+  }
 }
 function destroyContext() {
   if (disposed) return
@@ -98,8 +118,12 @@ module.exports = {
   prepareWasmEnvCleanup,
   hasWasmEnvCleanupExport:
     typeof napiInstance?.exports.napi_prepare_wasm_env_cleanup === 'function',
+  hasWasmEnvCleanupPendingExport:
+    typeof napiInstance?.exports.napi_wasm_env_cleanup_pending === 'function',
   async dispose() {
     process.removeListener('exit', destroyContextOnExit)
+    prepareWasmEnvCleanup()
+    await drainWasmEnvCleanup()
     await destroyContext()
   },
 }

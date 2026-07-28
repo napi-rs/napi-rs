@@ -150,6 +150,99 @@ function __attachCleanupError(__error, __cleanupError) {
   } catch {}
 }
 
+// Mirror the primitive @emnapi/core schedules its threadsafe-function dispatch
+// on, so the drain turns below interleave with that dispatch instead of racing
+// ahead of it on a faster queue.
+const __scheduleMacrotask = (function () {
+  if (typeof setImmediate === 'function') {
+    return function (__callback) {
+      setImmediate(__callback)
+    }
+  }
+  const __MessageChannel = globalThis.MessageChannel
+  if (typeof __MessageChannel === 'function') {
+    return function (__callback) {
+      const __channel = new __MessageChannel()
+      __channel.port1.onmessage = function () {
+        __channel.port1.onmessage = null
+        try {
+          __channel.port1.close()
+        } catch {}
+        try {
+          __channel.port2.close()
+        } catch {}
+        __callback()
+      }
+      __channel.port2.postMessage(null)
+    }
+  }
+  return function (__callback) {
+    setTimeout(__callback, 0)
+  }
+})()
+
+// Turns to wait for while the addon still reports queued settlements. Reaching
+// zero is the success condition, not a guarantee, so the wait stays bounded.
+const __WASM_ENV_CLEANUP_DRAIN_TURNS = 128
+// Without `napi_wasm_env_cleanup_pending` the queue is not observable. Fall
+// back to the number of turns @emnapi/core needs to coalesce and dispatch a
+// call made on this thread (two), plus a margin.
+const __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS = 4
+
+/**
+ * `napi_prepare_wasm_env_cleanup` only *queues* the promise settlements of the
+ * tasks it cancelled: `napi_call_threadsafe_function` appends to the
+ * threadsafe-function queue, and @emnapi/core dispatches that queue from a
+ * macrotask — two coalescing turns later, even for a call made on this very
+ * thread. `Context.destroy()` then runs the threadsafe function's cleanup hook,
+ * which drains the queue with a null env and *discards* whatever is still in it.
+ *
+ * So destroying without yielding first strands exactly the promises the barrier
+ * exists to settle. Yield real event-loop turns until the addon reports the
+ * queue empty; microtask checkpoints cannot help, no number of them lets a
+ * macrotask run.
+ *
+ * Returns nothing when there is nothing to wait for, which keeps disposal
+ * synchronous in the common case.
+ */
+function __drainWasmEnvCleanup(__instance) {
+  const __pending = __instance?.exports.napi_wasm_env_cleanup_pending
+  const __observable = typeof __pending === 'function'
+  if (__observable) {
+    let __queued
+    try {
+      __queued = __pending()
+    } catch {
+      return
+    }
+    if (!__queued) {
+      return
+    }
+  }
+  const __limit = __observable
+    ? __WASM_ENV_CLEANUP_DRAIN_TURNS
+    : __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS
+  return (async () => {
+    for (let __turn = 0; __turn < __limit; __turn++) {
+      await new Promise((resolve) => {
+        __scheduleMacrotask(resolve)
+      })
+      if (!__observable) {
+        continue
+      }
+      let __queued
+      try {
+        __queued = __pending()
+      } catch {
+        return
+      }
+      if (!__queued) {
+        return
+      }
+    }
+  })()
+}
+
 function __createLifecycleReentryError(__operation) {
   const __error = new Error(
     __operation +
@@ -554,6 +647,37 @@ async function __createInstance(
   let __destroyOwnedContext
   let __destroyManagedOwnedContext
   let __napiInstance
+  let __wasmEnvCleanupRan = false
+  let __wasmEnvCleanupPrepared = false
+  let __wasmEnvCleanupDrained = false
+  const __prepareEnvCleanup = () => {
+    if (__wasmEnvCleanupPrepared) {
+      return
+    }
+    const __prepareWasmEnvCleanup =
+      __napiInstance?.exports.napi_prepare_wasm_env_cleanup
+    if (typeof __prepareWasmEnvCleanup === 'function') {
+      __prepareWasmEnvCleanup()
+      __wasmEnvCleanupRan = true
+    }
+    __wasmEnvCleanupPrepared = true
+  }
+  // The barrier + settlement drain, hoisted out of the context destroyer so the
+  // drain can yield without widening the destroyer's reentry window. The
+  // destroyer still runs the barrier itself (idempotently) for the paths that
+  // cannot yield at all: initialization rollback and managed beforeExit
+  // cleanup of an instance that never finished initializing.
+  const __prepareForDisposal = () => {
+    if (__wasmEnvCleanupDrained) {
+      return
+    }
+    __prepareEnvCleanup()
+    if (!__wasmEnvCleanupRan) {
+      return
+    }
+    __wasmEnvCleanupDrained = true
+    return __drainWasmEnvCleanup(__napiInstance)
+  }
   const __destroyBeforeExit = __beforeExitDestroy
     ? async () => {
         if (__lifecycleState === 'failed') {
@@ -579,13 +703,7 @@ async function __createInstance(
     destroy,
     destroyForModuleLifecycle,
     registerCleanup: __registerCleanup,
-  } = await __createManagedEmnapiContext(() => {
-    const __prepareWasmEnvCleanup =
-      __napiInstance?.exports.napi_prepare_wasm_env_cleanup
-    if (typeof __prepareWasmEnvCleanup === 'function') {
-      __prepareWasmEnvCleanup()
-    }
-  })
+  } = await __createManagedEmnapiContext(__prepareEnvCleanup)
   __destroyEmnapiContext = destroy
   __destroyOwnedContext = () => __destroyEmnapiContext()
   __destroyManagedOwnedContext = destroyForModuleLifecycle
@@ -628,6 +746,13 @@ async function __createInstance(
       async dispose() {
         if (__lifecycleState !== 'failed') {
           __lifecycleState = 'disposal'
+        }
+        // Settle what the barrier cancelled before the environment stops
+        // accepting JavaScript calls. Undefined unless something is queued, so
+        // an idle disposal is not delayed by a single turn.
+        const __drained = __prepareForDisposal()
+        if (__drained) {
+          await __drained
         }
         return __beforeExitDestroy
           ? __destroyManagedOwnedContext()
