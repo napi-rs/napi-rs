@@ -56,26 +56,19 @@ impl DeferredTrace {
       "Failed to get referenced value in DeferredTrace"
     )?;
 
-    let mut obj = Object::from_raw(raw_env, raw);
-    // Reuse the original JS error object when it is safe to read on this thread;
-    // the shared `napi_ref` is released when `err` drops at the end of the call.
-    let reusable_error = match unsafe { err.referenced_value(raw_env) } {
-      Some(err_raw_value) => {
-        let err_obj = Object::from_raw(raw_env, err_raw_value);
-        // The retained value can be anything JavaScript rejected with, so it is
-        // only usable as the rejection itself when it carries a message. A
-        // primitive is not even an object, hence the tolerant lookup.
-        err_obj
-          .has_named_property("message")
-          .unwrap_or(false)
-          .then(|| err_obj.raw())
-      }
-      None => None,
-    };
-    // The error was already created inside the JS engine, just return it
-    let err_value = if let Some(err_raw_value) = reusable_error {
+    // Reject with the exact value the error retained. JavaScript may reject with
+    // *anything*, and a value that reached Rust has to come back as itself — not
+    // as a synthetic `Error` built around whatever message could be scraped off
+    // it. Probing the retained value for a `message` used to decide this, which
+    // both replaced every non-`Error` rejection and, for `null`/`undefined`, left
+    // the `napi_has_named_property` type error pending so the promise never
+    // settled at all. Only an error carrying no retained value — created in Rust,
+    // or converted off the owning thread — falls back to the trace object. The
+    // shared `napi_ref` is released when `err` drops at the end of the call.
+    let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
       Ok(err_raw_value)
     } else {
+      let mut obj = Object::from_raw(raw_env, raw);
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(
         "code",
@@ -490,8 +483,14 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   }) {
     #[cfg(feature = "deferred_trace")]
     let error = deferred_data.trace.into_rejected(env, e);
+    // `ToNapiValue for Error` hands back the retained value verbatim and only
+    // synthesizes a fresh `Error` when there is nothing to hand back.
+    // `JsError::into_value` cannot be used here: it gates the reuse on
+    // `napi_is_error`, so a promise rejected with a string, a number or a plain
+    // object would settle with a newly created `Error` instead of the value
+    // JavaScript actually rejected with.
     #[cfg(not(feature = "deferred_trace"))]
-    let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(e).into_value(env) });
+    let error = unsafe { ToNapiValue::to_napi_value(env, e) };
 
     match error {
       Ok(error) => {

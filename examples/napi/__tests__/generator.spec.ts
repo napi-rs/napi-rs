@@ -195,20 +195,40 @@ test('async generator should support throw()', async (t) => {
   await t.throwsAsync(() => iter.throw!(new Error('test error')))
 })
 
-test('async generator should support throw() with a non-Error value', async (t) => {
+test('async generator throw() rejects with the identical value', async (t) => {
   if (typeof AsyncFib === 'undefined') {
     t.pass(
       'AsyncFib is not available (tokio_rt feature not enabled), skipping test',
     )
     return
   }
-  const fib = new AsyncFib()
-  const iter = fib[Symbol.asyncIterator]()
-  t.deepEqual(await iter.next(), { value: 1, done: false })
   // `throw()` accepts any value. Capturing it used to go through
   // `napi_create_reference`, which rejects primitives, so the thrown value was
-  // replaced by a reference-creation failure.
-  await t.throwsAsync(() => iter.throw!('boom'), { message: 'boom' })
+  // replaced by a reference-creation failure. Assert identity, not the message:
+  // a synthesized `Error` carrying the same message would pass a message check.
+  const thrown: unknown[] = [
+    'boom',
+    42,
+    null,
+    undefined,
+    false,
+    7n,
+    Symbol('marker'),
+    { tag: 'marker' },
+    [1, 2, 3],
+    new TypeError('a real error'),
+  ]
+  for (const value of thrown) {
+    const fib = new AsyncFib()
+    const iter = fib[Symbol.asyncIterator]()
+    t.deepEqual(await iter.next(), { value: 1, done: false })
+    const settled = await iter.throw!(value).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${String(value)} should reject`)
+    t.is(settled.value, value, `${String(value)} should reject with itself`)
+  }
 })
 
 // Truly async generator tests - these use actual async delays

@@ -2034,12 +2034,31 @@ Napi4Test('Promise rejection is captured without coercion', async (t) => {
   t.is(await describePromiseRejection(Promise.resolve(undefined)), 'resolved|')
 })
 
-Napi4Test('Promise rejected with a primitive surfaces that primitive', async (t) => {
-  // Before the rejection was captured without coercion this rejected with
-  // `Create Error reference failed`, hiding what JavaScript actually threw.
-  await t.throwsAsync(() => asyncPlus100(Promise.reject('boom')), {
-    message: 'boom',
-  })
+Napi4Test('a rejected promise settles JavaScript with the identical value', async (t) => {
+  // The central claim: the value is retained, not coerced, so it comes back as
+  // *itself*. Asserting the message is not enough — a synthesized `Error`
+  // carrying the same message would pass that and fail this.
+  const rejections: [string, unknown][] = [
+    ['string', 'boom'],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['boolean', false],
+    ['bigint', 7n],
+    ['symbol', Symbol('marker')],
+    ['plain object', { tag: 'marker' }],
+    ['array', [1, 2, 3]],
+    ['function', function marker() {}],
+    ['Error', new TypeError('a real error')],
+  ]
+  for (const [label, value] of rejections) {
+    const settled = await asyncPlus100(Promise.reject(value)).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${label} should reject`)
+    t.is(settled.value, value, `${label} should reject with the same value`)
+  }
 })
 
 Napi4Test('call ThreadsafeFunction with callback', async (t) => {
