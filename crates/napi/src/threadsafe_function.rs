@@ -856,29 +856,30 @@ unsafe extern "C" fn call_js_cb<
           let mut exception = ptr::null_mut();
           unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
           let raw_status = status;
-          // Referencing the exception object is not allowed on wasm targets: the
-          // returned `Error` is sent to the calling thread, and un-referencing it
-          // there crashes because the reference belongs to the JS thread's env.
-          // The message and stack trace are still captured in `reason` below.
-          // See the `From<Unknown> for Error` impls in `error.rs` (#2975).
-          #[cfg(target_family = "wasm")]
-          let maybe_ref = {
-            status = sys::Status::napi_ok;
-            None
-          };
-          #[cfg(not(target_family = "wasm"))]
+          // The exception has been taken out of the env and is about to be handed
+          // to the Rust callback, so it is handled from Node's point of view.
+          status = sys::Status::napi_ok;
           let maybe_ref = {
             let mut error_reference = ptr::null_mut();
-            status =
+            // Deliberately not assigned to `status`: retaining the exception is a
+            // best effort. `napi_create_reference` rejects every non-object below
+            // Node-API 10 — and a module without
+            // `node_api_module_get_api_version_v1` is version 8 — so `throw 'oops'`
+            // in the callback fails here. Reporting that as the callback's status
+            // would raise a fatal exception for an error that was already
+            // delivered, killing the process over a string throw.
+            let ref_status =
               unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
             // Only own a reference when creation actually succeeded; on failure
             // `error_reference` stays null, so keep `maybe_ref: None` (the message
             // and stack are still captured in `reason` below) rather than wrapping
             // a null ref that `ErrorRef::drop` would blindly release — mirrors the
             // early guard in `From<Unknown> for Error`. `call_js_cb` runs on the
-            // env's JS thread, so `ErrorRef::new` captures the owning env's
-            // custom-GC handle for the (typically off-thread) release.
-            if status == sys::Status::napi_ok {
+            // env's JS thread, so `ErrorRef::new` captures the owning env, its
+            // thread and its custom-GC handle; the returned `Error` is then free
+            // to travel to the caller's thread, where the reference reads as
+            // absent and the release is routed back here (#2975, #3369).
+            if ref_status == sys::Status::napi_ok {
               Some(std::sync::Arc::new(crate::error::ErrorRef::new(
                 error_reference,
                 raw_env,

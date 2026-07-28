@@ -57,6 +57,15 @@ pub(crate) struct ErrorRef {
   // the holder, so the distinction never escapes `Error`.
   indirect: bool,
   env: sys::napi_env,
+  // The thread `raw` was created on, i.e. the only thread whose napi
+  // implementation can resolve `env`. Every access to `raw` is gated on it, so a
+  // reference that reaches a foreign thread is read as absent and, when no
+  // custom-GC handle is available to route the release, deliberately leaked
+  // rather than freed off-thread. This is the last line of defence behind
+  // `custom_gc`; it is what makes the reference safe on `wasm32-wasip1-threads`,
+  // where each agent owns a private `napi_env` table and an off-thread call
+  // resolves `env` to `undefined` instead of merely racing.
+  owner_thread: std::thread::ThreadId,
   // The owning env's custom-GC handle, captured on the owning JS thread when
   // `raw` is created. Lets the release run safely from any thread: the
   // `napi_ref` is thread-affine, so `napi_reference_unref`/`napi_delete_reference`
@@ -67,29 +76,29 @@ pub(crate) struct ErrorRef {
 }
 
 // SAFETY: the raw `napi_ref`/`napi_env` are only ever dereferenced via napi FFI
-// on the owning JS thread — `Error::referenced_value` gates reads on
-// `current_thread_owns_custom_gc`, and `ErrorRef::drop` releases on the owning
-// thread directly or routes the release through the env's custom-GC TSFN. Moving
-// or sharing an `ErrorRef` (and cloning its `Arc`) only copies/reads the pointer
-// values; it never touches V8 off-thread. The captured `Arc<CustomGcHandle>` is
-// itself `Send + Sync`. Mirrors the `unsafe impl Send/Sync for Error`.
+// on the owning JS thread — `Error::referenced_value` gates reads on `env`
+// identity, `owner_thread` and `current_thread_owns_custom_gc`, and
+// `ErrorRef::drop` releases on the owning thread directly, routes the release
+// through the env's custom-GC TSFN, or leaks. Moving or sharing an `ErrorRef`
+// (and cloning its `Arc`) only copies/reads the pointer values; it never touches
+// V8 off-thread. The captured `Arc<CustomGcHandle>` is itself `Send + Sync`.
+// Mirrors the `unsafe impl Send/Sync for Error`.
 unsafe impl Send for ErrorRef {}
 unsafe impl Sync for ErrorRef {}
 
 impl ErrorRef {
   /// Wraps a freshly created (`refcount == 1`) JS error `napi_ref`, capturing
-  /// the current thread's custom-GC handle. Must be called on the owning JS
-  /// thread with a non-null `raw` — both construction sites (`From<Unknown>` and
-  /// the ThreadsafeFunction JS-throw path) only build an `ErrorRef` after
-  /// `napi_create_reference` succeeds, so `ErrorRef::drop` can release without a
-  /// null check.
-  #[cfg(not(target_family = "wasm"))]
+  /// the current thread's identity and custom-GC handle. Must be called on the
+  /// owning JS thread with a non-null `raw`. Every construction site builds an
+  /// `ErrorRef` only after `napi_create_reference` succeeds, so `ErrorRef::drop`
+  /// can release without a null check.
   pub(crate) fn new(raw: sys::napi_ref, env: sys::napi_env) -> Self {
     debug_assert!(!raw.is_null(), "ErrorRef must wrap a non-null napi_ref");
     Self {
       raw,
       indirect: false,
       env,
+      owner_thread: std::thread::current().id(),
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
       custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
     }
@@ -97,7 +106,6 @@ impl ErrorRef {
 
   /// Same as [`ErrorRef::new`], but `raw` references a holder object whose
   /// [`ERROR_VALUE_KEY`] property is the retained value.
-  #[cfg(not(target_family = "wasm"))]
   fn new_indirect(raw: sys::napi_ref, env: sys::napi_env) -> Self {
     let mut value = Self::new(raw, env);
     value.indirect = true;
@@ -113,6 +121,9 @@ fn release_error_reference(env: sys::napi_env, reference: sys::napi_ref) {
   let status = unsafe { sys::napi_reference_unref(env, reference, &mut ref_count) };
   if status != sys::Status::napi_ok {
     eprintln!("unref error reference failed: {}", Status::from(status));
+    // `ref_count` is meaningless when the unref failed, so deleting on the
+    // strength of it would be a guess. Leave the reference to env teardown.
+    return;
   }
   if ref_count == 0 {
     let status = unsafe { sys::napi_delete_reference(env, reference) };
@@ -156,8 +167,15 @@ impl Drop for ErrorRef {
       return;
     }
     // No custom-GC handle captured (pre-napi4 build, or the reference was
-    // created before module registration): previous behavior, which is only
-    // correct on the owning JS thread.
+    // created before module registration), so there is nothing to route the
+    // release through. Releasing is only correct on the owning JS thread; from
+    // anywhere else, leak instead. The leak is bounded — env teardown reclaims
+    // the reference — whereas an off-thread `napi_reference_unref` corrupts V8's
+    // `GlobalHandles` on native and, on `wasm32-wasip1-threads`, faults inside
+    // the emnapi shim because the calling agent has no entry for `env`.
+    if self.owner_thread != std::thread::current().id() {
+      return;
+    }
     release_error_reference(self.env, self.raw);
   }
 }
@@ -338,6 +356,12 @@ impl Error {
   /// read that throws is swallowed and its exception cleared, so a hostile
   /// accessor cannot poison the environment.
   ///
+  /// Identity is reproduced only when the `Error` is converted back on the env
+  /// and thread that captured it, which is where JavaScript can observe it
+  /// anyway. Converted anywhere else — the `Error` was moved to a worker, or the
+  /// owning env is gone — a fresh error is built from [`Error::reason`] instead,
+  /// because a `napi_ref` cannot be resolved outside its own env.
+  ///
   /// Use it wherever JavaScript decides the value and its identity must survive
   /// the round trip: `Promise` rejection handlers and `AsyncGenerator.throw()`
   /// both do. Prefer [`From<Unknown>`] when the value is known to be an `Error`
@@ -360,7 +384,6 @@ impl Error {
 /// Node-API 10, so the value is stashed as a plain data property on a private
 /// holder object and the holder is what gets referenced. [`ErrorRef::indirect`]
 /// records that reads have to unwrap it.
-#[cfg(not(target_family = "wasm"))]
 fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<ErrorRef>> {
   let env = value.0.env;
   let mut holder = ptr::null_mut();
@@ -390,13 +413,6 @@ fn retain_value_without_coercion(value: Unknown<'_>) -> Option<std::sync::Arc<Er
     return None;
   }
   Some(std::sync::Arc::new(ErrorRef::new_indirect(reference, env)))
-}
-
-/// WASM builds never retain a JS reference in an `Error` (see the `wasm`
-/// [`From<Unknown>`] impl), so there is nothing to hold on to here either.
-#[cfg(target_family = "wasm")]
-fn retain_value_without_coercion(_value: Unknown<'_>) -> Option<std::sync::Arc<ErrorRef>> {
-  None
 }
 
 /// Best-effort [`Error::reason`] for [`Error::from_unknown_without_coercion`],
@@ -603,19 +619,22 @@ impl<S: AsRef<str>> Error<S> {
   /// custom-GC handle we read it only with proof we are on the owning JS thread;
   /// off the owning thread (a shared clone being converted on a foreign env) it
   /// returns `None`, so the caller rebuilds a fresh error from `reason` instead
-  /// of dereferencing a foreign env's reference. When the build carries no
-  /// custom-GC machinery (non-`napi4`, or a reference created before module
-  /// registration) there is no primitive to check thread ownership, so the read
-  /// is unconditional — the same contract as before this change: `try_clone`
-  /// never *shares* such a reference across threads (it clones reference-lessly),
-  /// so only a directly-moved owning `Error` could reach here off-thread, which
-  /// was already unsound and is unchanged.
+  /// of dereferencing a foreign env's reference. The captured `env` and owner
+  /// thread gate the read the same way when the build carries no custom-GC
+  /// machinery (non-`napi4`, or a reference created before module registration),
+  /// where there is no handle to compare.
   ///
   /// # Safety
   ///
   /// `env` must be a valid `napi_env` for the current thread.
   pub(crate) unsafe fn referenced_value(&self, env: sys::napi_env) -> Option<sys::napi_value> {
     let error_ref = self.maybe_ref.as_ref()?;
+    // A reference belongs to the env it was created in and may only be resolved
+    // from that env's thread. Both checks are pure Rust — no napi call is made
+    // until the reference is known to be readable here.
+    if error_ref.env != env || error_ref.owner_thread != std::thread::current().id() {
+      return None;
+    }
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     if let Some(handle) = &error_ref.custom_gc {
       if !crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {

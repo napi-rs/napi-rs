@@ -895,6 +895,16 @@ declare class DynamicRustClass {
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
 /**
+ * Awaits `p` and reports how Rust saw the rejection, as `"<status>|<reason>"`.
+ *
+ * JavaScript lets a promise reject with any value, including primitives that
+ * `napi_create_reference` refuses. This exists to pin down that such a
+ * rejection still arrives as itself instead of as a reference-creation
+ * failure.
+ */
+export declare function describePromiseRejection(p: Promise<undefined>): Promise<string>
+
+/**
  * Detach the native value without constructing a second Rust receiver during
  * reentry. Cleanup is deliberately deferred until the outer native call has
  * returned or thrown, because the old code generation keeps using the cached
