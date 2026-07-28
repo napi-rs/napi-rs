@@ -315,6 +315,24 @@ test('AsyncDataSource factory pattern should work', async (t) => {
   t.deepEqual(await iter.next(), { value: undefined, done: true })
 })
 
+const CONCURRENCY_YIELDS = 5
+const CONCURRENCY_DELAY_MS = 10
+
+async function drainDelayedCounter(
+  label: string,
+  order: string[],
+): Promise<number[]> {
+  const values: number[] = []
+  for await (const value of new DelayedCounter(
+    CONCURRENCY_YIELDS,
+    CONCURRENCY_DELAY_MS,
+  )) {
+    order.push(label)
+    values.push(value)
+  }
+  return values
+}
+
 test('async generators should run concurrently', async (t) => {
   if (typeof DelayedCounter === 'undefined') {
     t.pass(
@@ -323,34 +341,67 @@ test('async generators should run concurrently', async (t) => {
     return
   }
 
-  // Create two counters that each take 50ms total
-  const counter1 = new DelayedCounter(5, 10) // 5 * 10ms = 50ms
-  const counter2 = new DelayedCounter(5, 10) // 5 * 10ms = 50ms
+  // A fixed millisecond budget cannot express "these ran concurrently". Each
+  // `next()` costs a promise, a tokio wake-up and a threadsafe-function hop on
+  // top of its `delay_ms` sleep, and on an emulated target that per-yield cost
+  // dwarfs the sleeping and swings with whatever else the runner is doing: the
+  // QEMU armv7 job has measured this exact loop anywhere from 132ms to 362ms
+  // across CI runs with nothing in the async-generator path changing between
+  // them. A budget tight enough to catch serialisation there is a budget the
+  // slow end of that range trips on its own.
+  //
+  // So measure both shapes in the same process moments apart and assert on the
+  // thing concurrency actually buys — the sleeps overlap instead of adding up —
+  // which is a property of the ratio, not of the absolute numbers.
 
-  const startTime = Date.now()
+  // Warm the path first so the serial baseline is not paying one-time costs the
+  // concurrent run would then get for free.
+  await drainDelayedCounter('warmup', [])
 
-  // Run both concurrently
+  const serialOrder: string[] = []
+  const serialStart = Date.now()
+  const serial1 = await drainDelayedCounter('a', serialOrder)
+  const serial2 = await drainDelayedCounter('b', serialOrder)
+  const serialElapsed = Date.now() - serialStart
+
+  const concurrentOrder: string[] = []
+  const concurrentStart = Date.now()
   const [results1, results2] = await Promise.all([
-    (async () => {
-      const r: number[] = []
-      for await (const v of counter1) r.push(v as number)
-      return r
-    })(),
-    (async () => {
-      const r: number[] = []
-      for await (const v of counter2) r.push(v as number)
-      return r
-    })(),
+    drainDelayedCounter('a', concurrentOrder),
+    drainDelayedCounter('b', concurrentOrder),
   ])
+  const concurrentElapsed = Date.now() - concurrentStart
 
-  const elapsed = Date.now() - startTime
+  const expected = [0, 1, 2, 3, 4]
+  t.deepEqual(serial1, expected)
+  t.deepEqual(serial2, expected)
+  t.deepEqual(results1, expected)
+  t.deepEqual(results2, expected)
 
-  t.deepEqual(results1, [0, 1, 2, 3, 4])
-  t.deepEqual(results2, [0, 1, 2, 3, 4])
-  // If running concurrently, should take ~50ms, not ~100ms
-  // Allow very generous tolerance for CI/WASI environments
+  // The serial baseline is what "not concurrent" looks like on this machine
+  // right now: every value of the first counter lands before the first value of
+  // the second.
+  t.is(serialOrder.join(''), 'aaaaabbbbb')
+
+  // Concurrently, the two counters make progress against each other, so the
+  // second one yields before the first one is done. This alone catches a
+  // generator that blocks the runtime, and it does not depend on the clock.
   t.true(
-    elapsed < 300,
-    `Expected concurrent execution under 300ms, got ${elapsed}ms`,
+    concurrentOrder.indexOf('b') < concurrentOrder.lastIndexOf('a'),
+    `Expected the two counters to interleave, got ${concurrentOrder.join('')}`,
+  )
+
+  // And the sleeps really do overlap rather than merely interleave. Running
+  // both counters serially sleeps 2 * (CONCURRENCY_YIELDS + 1) * delay;
+  // running them concurrently sleeps half of that, so concurrency is worth at
+  // least CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS of wall clock however slow
+  // the per-yield machinery is. Requiring half of that leaves room for a
+  // scheduling hiccup while still going to zero the moment the two counters
+  // stop overlapping.
+  const saved = serialElapsed - concurrentElapsed
+  const minimumSaving = (CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS) / 2
+  t.true(
+    saved > minimumSaving,
+    `Expected concurrent execution to save more than ${minimumSaving}ms over the serial baseline, but serial took ${serialElapsed}ms and concurrent took ${concurrentElapsed}ms (saved ${saved}ms)`,
   )
 })
