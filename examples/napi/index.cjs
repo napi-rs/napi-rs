@@ -1020,6 +1020,7 @@ module.exports.listObjKeys = nativeBinding.listObjKeys
 module.exports.makeTypeTagA = nativeBinding.makeTypeTagA
 module.exports.mapOption = nativeBinding.mapOption
 module.exports.mergeTupleArray = nativeBinding.mergeTupleArray
+module.exports.moduleRetentionRequests = nativeBinding.moduleRetentionRequests
 module.exports.mutateArraybuffer = nativeBinding.mutateArraybuffer
 module.exports.mutateExternal = nativeBinding.mutateExternal
 module.exports.mutateOptionalExternal = nativeBinding.mutateOptionalExternal

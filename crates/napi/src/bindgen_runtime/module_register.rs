@@ -987,8 +987,26 @@ fn module_retention_anchor() {}
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 pub fn retain_current_module_for_unload_safety() {
   static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  // Counted on every call, not just the first, so a test can observe that a
+  // given code path asked for retention even though the pin itself is taken
+  // once per process. One relaxed increment next to an N-API call is noise.
+  MODULE_RETENTION_REQUESTS.fetch_add(1, Ordering::Relaxed);
   RETAIN_MODULE.call_once(retain_current_module);
 }
+
+/// How many times [`retain_current_module_for_unload_safety`] has been asked to
+/// pin this addon's image. The pin happens at most once per process; this
+/// counts requests, so a caller can check that a particular path requested it.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[doc(hidden)]
+pub fn module_retention_requests() -> usize {
+  MODULE_RETENTION_REQUESTS.load(Ordering::Relaxed)
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+static MODULE_RETENTION_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm"), windows))]
 fn retain_current_module() {

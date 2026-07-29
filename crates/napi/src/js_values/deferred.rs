@@ -577,6 +577,14 @@ fn js_deferred_new_raw(
   sys::napi_deferred,
   Object<'_>,
 )> {
+  // Same reasoning as `ThreadsafeFunction::create`: a `JsDeferred` is `Send`
+  // precisely so a foreign thread can settle it, so this addon's code becomes
+  // reachable from a thread that can outlive the environment. `Env::create_deferred`
+  // needs only `napi4`, so this path is reachable in a build where no runtime
+  // pins the image. Pin on the environment's own thread, at creation.
+  #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
   check_status!(

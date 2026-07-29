@@ -224,6 +224,7 @@ import {
   bigintFromI128,
   bigintFromI64,
   acceptThreadsafeFunction,
+  moduleRetentionRequests,
   acceptThreadsafeFunctionFatal,
   acceptThreadsafeFunctionTupleArgs,
   promiseInEither,
@@ -2515,6 +2516,34 @@ Napi4Test('accept ThreadsafeFunction', async (t) => {
       }
     })
   })
+})
+
+Napi4Test('ThreadsafeFunction creation pins the addon image', (t) => {
+  // napi-rs#3423. Node unloads an addon once the environment that loaded it
+  // goes away and no other environment holds it; on Windows that unmaps the
+  // image. A ThreadsafeFunction handle's destructor is code in that image and
+  // runs on whichever thread drops it last, which can be a foreign thread that
+  // outlives the environment.
+  //
+  // Retention therefore has to happen at creation, on the environment's own
+  // thread. Doing it only after a failed release misses the case that matters:
+  // environment teardown finalizes the threadsafe function first, which marks
+  // the handle aborted, and Drop then takes its no-op branch and never reaches
+  // the release-failure path at all.
+  //
+  // wasm has no loader to pin and no image to unmap, so the counter is always
+  // 0 there and there is nothing to assert.
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const before = moduleRetentionRequests()
+  acceptThreadsafeFunction(() => {})
+  const after = moduleRetentionRequests()
+  t.true(
+    after > before,
+    `creating a ThreadsafeFunction must request module retention (${before} -> ${after})`,
+  )
 })
 
 Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {

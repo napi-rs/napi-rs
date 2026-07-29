@@ -1130,6 +1130,16 @@ export interface Meta {
   merge: boolean
 }
 
+/**
+ * How many times this addon has asked napi-rs to pin its image against being
+ * unloaded while a foreign thread can still reach it. Creating a
+ * `ThreadsafeFunction` must bump this, because the resulting handle's own
+ * destructor runs on whichever thread drops it last, possibly after the
+ * environment that created it is gone. Always 0 on wasm, which has no loader
+ * to pin.
+ */
+export declare function moduleRetentionRequests(): number
+
 export declare function mutateArraybuffer(buf: ArrayBuffer): void
 
 export declare function mutateExternal(external: ExternalObject<number>, newVal: number): void

@@ -120,6 +120,13 @@ impl Drop for ThreadsafeFunctionHandle {
             // The release did not happen, so native code that can still reach
             // this threadsafe function may outlive the environment. Keep the
             // addon image mapped instead of tearing the process down.
+            //
+            // Backstop, not the primary guard: `create_raw` already pinned the
+            // image for every handle it built, and it covers the aborted case
+            // that never reaches this branch at all. This still matters for a
+            // handle built directly through the public `ThreadsafeFunctionHandle::new`,
+            // which does not go through `create_raw`. Retention is idempotent,
+            // so the duplicate call is a single atomic load.
             #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
             crate::bindgen_runtime::retain_current_module_for_unload_safety();
           }
@@ -292,6 +299,21 @@ fn create_raw(
   thread_finalize_cb: sys::napi_finalize,
   call_js_cb: sys::napi_threadsafe_function_call_js,
 ) -> Result<Arc<ThreadsafeFunctionHandle>> {
+  // A threadsafe function exists to be handed to a thread that is not the one
+  // owning this environment, so from here on native code in this image is
+  // reachable from a thread that can outlive the environment. Node unloads an
+  // addon once the environment that loaded it goes away, and the handle's own
+  // destructor — `Arc` drop glue, the `RwLock` read, `napi_release_threadsafe_function`
+  // — is code in this image, so that thread would run unmapped code.
+  //
+  // Pin here rather than at release time. This runs on the environment's thread
+  // while the image is unquestionably still owned, and it is the only point
+  // that covers the abort path: environment teardown finalizes the threadsafe
+  // function first, which marks the handle aborted, and `Drop` then takes its
+  // no-op branch and never reaches the release-failure retention below.
+  #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
   let mut async_resource_name = ptr::null_mut();
   static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
 

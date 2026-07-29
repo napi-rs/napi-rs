@@ -170,6 +170,24 @@ pub fn tsfn_async_call<'env>(
   })
 }
 
+/// How many times this addon has asked napi-rs to pin its image against being
+/// unloaded while a foreign thread can still reach it. Creating a
+/// `ThreadsafeFunction` must bump this, because the resulting handle's own
+/// destructor runs on whichever thread drops it last, possibly after the
+/// environment that created it is gone. Always 0 on wasm, which has no loader
+/// to pin.
+#[napi]
+pub fn module_retention_requests() -> u32 {
+  #[cfg(not(target_family = "wasm"))]
+  {
+    napi::bindgen_prelude::module_retention_requests() as u32
+  }
+  #[cfg(target_family = "wasm")]
+  {
+    0
+  }
+}
+
 #[napi]
 pub fn accept_threadsafe_function(func: ThreadsafeFunction<u32>) {
   thread::spawn(move || {

@@ -840,6 +840,7 @@ export const listObjKeys = __napiModule.exports.listObjKeys
 export const makeTypeTagA = __napiModule.exports.makeTypeTagA
 export const mapOption = __napiModule.exports.mapOption
 export const mergeTupleArray = __napiModule.exports.mergeTupleArray
+export const moduleRetentionRequests = __napiModule.exports.moduleRetentionRequests
 export const mutateArraybuffer = __napiModule.exports.mutateArraybuffer
 export const mutateExternal = __napiModule.exports.mutateExternal
 export const mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal
