@@ -897,6 +897,17 @@ declare class DynamicRustClass {
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
 /**
+ * Captures `value` with `Error::from_unknown_without_coercion` and reports how
+ * Rust saw it, as `"<status>|<reason>|<cause chain>"` — the same shape as
+ * `describe_promise_rejection`, but synchronous. The synchronous window is the
+ * point: a test can patch `globalThis.Reflect` (or delete it), call this, and
+ * restore it before any other code can observe the patch, so the capture path's
+ * treatment of the global — cached at module registration, never `[[Get]]` off
+ * the global mid-capture — is testable without poisoning concurrent tests.
+ */
+export declare function describeCapturedValue(value: unknown): string
+
+/**
  * Awaits `p` and reports how Rust saw the rejection, as
  * `"<status>|<reason>|<cause chain>"`, where the cause chain is `-` when there
  * is none and otherwise the `reason` of each link joined by `<`.

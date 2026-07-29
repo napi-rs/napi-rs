@@ -945,6 +945,7 @@ module.exports.dateToNumber = nativeBinding.dateToNumber
 module.exports.DEFAULT_COST = nativeBinding.DEFAULT_COST
 module.exports.defineClass = nativeBinding.defineClass
 module.exports.derefUint8Array = nativeBinding.derefUint8Array
+module.exports.describeCapturedValue = nativeBinding.describeCapturedValue
 module.exports.describePromiseRejection = nativeBinding.describePromiseRejection
 module.exports.detachReentrantBorrowOrderTestTarget = nativeBinding.detachReentrantBorrowOrderTestTarget
 module.exports.drainStreamCount = nativeBinding.drainStreamCount

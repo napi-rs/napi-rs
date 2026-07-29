@@ -385,13 +385,22 @@ impl Error {
   ///   traps. There is no way to interrogate a proxy without waking it up. (In
   ///   practice `napi_is_error` returns `false` for a proxy over an `Error`, so
   ///   this path is usually not even entered.)
-  /// * `Reflect` is read off the global object on every call and is patchable by
-  ///   user code. It is deliberately not cached: caching only moves *when* a
-  ///   patched `Reflect` would be observed, it cannot prevent it, and a cached
-  ///   `napi_ref` would have to be kept alive per env across worker teardown. A
-  ///   `Reflect` that is missing, is not an object, or whose
-  ///   `getOwnPropertyDescriptor` is not a function makes the lookup give up —
-  ///   the same outcome as an accessor — rather than fall back to a `[[Get]]`.
+  /// * `Reflect.getOwnPropertyDescriptor` is resolved **once per env, at module
+  ///   registration**, and kept behind a `napi_ref` for that env's lifetime.
+  ///   Reading `Reflect` off the global object is itself an ordinary `[[Get]]` —
+  ///   `globalThis.Reflect` is configurable, so user code can redefine it as an
+  ///   accessor — and a per-capture read would run that accessor *while an error
+  ///   is unwinding*: arbitrary user code, possibly reentering the addon, with
+  ///   side effects no cleared exception can undo. Resolving at registration
+  ///   moves the one unavoidable `[[Get]]` to a defined moment (the `require()`
+  ///   of the addon) and makes capture immune to later patching. The trade-off
+  ///   is deliberate: a `Reflect` patched *after* load is ignored by capture
+  ///   rather than observed on the next call. An env whose registration found
+  ///   `Reflect` missing, not an object, or without a callable
+  ///   `getOwnPropertyDescriptor` — like an env that never registered this
+  ///   addon — degrades to an empty reason and absent cause; the retained value
+  ///   is unaffected. Capture never falls back to a `[[Get]]`, on the global or
+  ///   on `message`.
   ///
   /// Every failure along the way is swallowed with its pending exception cleared,
   /// so a hostile value cannot poison the environment or become the reported
@@ -576,35 +585,56 @@ fn type_without_coercion(
   Some(value_type)
 }
 
-/// Resolves `Reflect.getOwnPropertyDescriptor`, returning it together with the
-/// `Reflect` object to call it on.
-///
-/// Node-API exposes no descriptor read of its own, so the only way to inspect a
-/// property without triggering its getter is to go through the language. Both
-/// `napi_get_global` and `napi_call_function` are Node-API 1 and are implemented
-/// by emnapi, so this works on `wasm32-wasip1` and `wasm32-wasip1-threads` too.
-///
-/// `Reflect` is looked up on every call rather than cached: caching cannot stop
-/// user code from patching `Reflect` (it would only change *when* the patch is
-/// picked up) and a cached `napi_ref` would have to be tracked per env and
-/// released at teardown. This is an error path, not a hot path.
-fn reflect_get_own_property_descriptor(
+/// The load-time `Reflect` / `Reflect.getOwnPropertyDescriptor` pair of the env
+/// this thread registered, kept as own data properties of a private holder
+/// object behind a single `napi_ref`.
+struct ReflectIntrinsics {
   env: sys::napi_env,
-) -> Option<(sys::napi_value, sys::napi_value)> {
+  holder: sys::napi_ref,
+}
+
+thread_local! {
+  // One slot per OS thread, keyed by env — the same one-env-per-OS-thread
+  // invariant `CURRENT_CUSTOM_GC_HANDLE` documents and relies on. Installed by
+  // `cache_reflect_intrinsics_for_env` on the registering (env's own) thread;
+  // read by `reflect_get_own_property_descriptor` on that same thread, which is
+  // the only thread whose napi implementation can resolve the env at all.
+  static REFLECT_INTRINSICS: std::cell::RefCell<Option<ReflectIntrinsics>> =
+    const { std::cell::RefCell::new(None) };
+}
+
+/// Resolves and caches the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
+/// pair. Called from `napi_register_module_v1`, once per env registration, on
+/// the env's own thread.
+///
+/// This performs the one deliberate `[[Get]]` of `Reflect` off the global
+/// object — at module load, a defined moment — so that
+/// [`Error::from_unknown_without_coercion`] never has to touch the patchable
+/// global mid-capture. A `Reflect` that is missing, not an object, or without a
+/// callable `getOwnPropertyDescriptor` leaves the cache empty and every capture
+/// on this env degrades to an empty reason/cause.
+///
+/// Best effort: any failure clears the pending exception and leaves the slot
+/// unchanged. `napi_get_global`, `napi_get_named_property` and
+/// `napi_create_reference` (on an object) are all implemented by emnapi, so
+/// the cache works on `wasm32-wasip1` and `wasm32-wasip1-threads` too — only
+/// the env-cleanup hook is skipped there (see below).
+#[cfg(not(feature = "noop"))]
+pub(crate) fn cache_reflect_intrinsics_for_env(env: sys::napi_env) {
   let mut global = ptr::null_mut();
   if unsafe { sys::napi_get_global(env, &mut global) } != sys::Status::napi_ok {
     clear_pending_exception(env);
-    return None;
+    return;
   }
   let mut reflect = ptr::null_mut();
   if unsafe { sys::napi_get_named_property(env, global, c"Reflect".as_ptr(), &mut reflect) }
     != sys::Status::napi_ok
   {
     clear_pending_exception(env);
-    return None;
+    return;
   }
-  if type_without_coercion(env, reflect)? != sys::ValueType::napi_object {
-    return None;
+  if type_without_coercion(env, reflect) != Some(sys::ValueType::napi_object) {
+    return;
   }
   let mut get_own_property_descriptor = ptr::null_mut();
   if unsafe {
@@ -617,9 +647,190 @@ fn reflect_get_own_property_descriptor(
   } != sys::Status::napi_ok
   {
     clear_pending_exception(env);
+    return;
+  }
+  if type_without_coercion(env, get_own_property_descriptor) != Some(sys::ValueType::napi_function)
+  {
+    return;
+  }
+  // Pin both behind one reference: a holder object whose own data properties
+  // are the pair, exactly the `ERROR_VALUE_KEY` retention pattern.
+  let mut holder = ptr::null_mut();
+  if unsafe { sys::napi_create_object(env, &mut holder) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return;
+  }
+  let properties = [
+    sys::napi_property_descriptor {
+      utf8name: c"Reflect".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: reflect,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+    sys::napi_property_descriptor {
+      utf8name: c"getOwnPropertyDescriptor".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: get_own_property_descriptor,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+  ];
+  if unsafe { sys::napi_define_properties(env, holder, properties.len(), properties.as_ptr()) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  let mut reference = ptr::null_mut();
+  if unsafe { sys::napi_create_reference(env, holder, 1, &mut reference) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return;
+  }
+  let previous = REFLECT_INTRINSICS.with(|slot| {
+    slot.borrow_mut().replace(ReflectIntrinsics {
+      env,
+      holder: reference,
+    })
+  });
+  match previous {
+    Some(superseded) if superseded.env == env => {
+      // The same env re-registered this addon (`delete require.cache` and
+      // re-`require`, see unload.spec.js). The env is alive and this is its
+      // thread, so the superseded holder can be released immediately. The
+      // cleanup hook from the first registration stays in place — Node aborts
+      // on a duplicate `(fn, arg)` cleanup-hook pair, so it must not be
+      // registered again.
+      let _ = unsafe { sys::napi_delete_reference(env, superseded.holder) };
+      clear_pending_exception(env);
+    }
+    _ => {
+      // Empty slot, or a different env owned this thread before. In the latter
+      // case that env is gone (one env per OS thread) and its teardown already
+      // reclaimed the superseded reference — reachable only on builds without
+      // napi3's cleanup hook, which would have cleared the slot — so there is
+      // nothing to release and deleting through a dead env would be the real
+      // bug. Either way this is the first hook registration for `env`.
+      //
+      // Registration is best effort, like the cache itself: without the hook
+      // the slot is cleared by thread death instead (a worker's thread dies
+      // with its env), and the reference is reclaimed by env teardown.
+      //
+      // Not on wasm: referencing `napi_add_env_cleanup_hook` from Rust imports
+      // it under the `env` wasm module, while emnapi's static archive declares
+      // it under `napi` — wasm-ld refuses the mismatch. The hook exists for a
+      // native embedder tearing an env down and reusing its thread (and
+      // possibly the env pointer); on wasm this thread-local lives inside the
+      // instance's own linear memory and dies with the instance, whose
+      // context is never reused after `Context.destroy()`, so there is no
+      // stale slot for a later env to match.
+      #[cfg(all(feature = "napi3", not(target_family = "wasm")))]
+      {
+        let _ = unsafe {
+          sys::napi_add_env_cleanup_hook(env, Some(reflect_intrinsics_env_cleanup), env.cast())
+        };
+      }
+    }
+  }
+}
+
+/// Env-teardown counterpart of [`cache_reflect_intrinsics_for_env`]: drops the
+/// cached holder reference while the env can still delete it, and clears the
+/// slot so a later env reusing this thread (an embedder reload) can never match
+/// a stale entry through a recycled env pointer.
+///
+/// Runs on the env's own thread, before the env is destroyed — napi calls are
+/// still legal here.
+#[cfg(all(not(feature = "noop"), feature = "napi3", not(target_family = "wasm")))]
+unsafe extern "C" fn reflect_intrinsics_env_cleanup(arg: *mut c_void) {
+  REFLECT_INTRINSICS.with(|slot| {
+    let mut slot = slot.borrow_mut();
+    if slot
+      .as_ref()
+      .is_some_and(|cache| cache.env.cast::<c_void>() == arg)
+    {
+      if let Some(cache) = slot.take() {
+        let _ = unsafe { sys::napi_delete_reference(cache.env, cache.holder) };
+        clear_pending_exception(cache.env);
+      }
+    }
+  });
+}
+
+/// Resolves the env's **cached** `Reflect.getOwnPropertyDescriptor`, returning
+/// it together with the `Reflect` object to call it on.
+///
+/// Node-API exposes no descriptor read of its own, so the only way to inspect a
+/// property without triggering its getter is to go through the language. The
+/// pair is resolved once per env, at module registration
+/// ([`cache_reflect_intrinsics_for_env`]), because reading `Reflect` off the
+/// global object is itself a `[[Get]]`: `globalThis.Reflect` is configurable,
+/// user code can redefine it as an accessor, and a per-capture read would run
+/// that accessor — arbitrary user code, free to reenter the addon or hang —
+/// mid-unwind, which is precisely what this path exists to avoid.
+///
+/// This inverts an earlier per-call design. That design's concern was
+/// *staleness* — "caching only changes when a patch is observed" — but the
+/// threat model that matters here is *reentrancy during capture*, and the
+/// load-time cache ends it: after registration, capture never touches the
+/// global again, so a later patch cannot inject code into the capture path at
+/// all (a strictly stronger property than observing the patch late).
+///
+/// `None` — an env with no usable cache, because `Reflect` was missing or
+/// unusable at registration or the env never registered this addon — makes the
+/// capture degrade to an empty reason/cause. It never falls back to a `[[Get]]`.
+///
+/// Reading the pair back off the private holder is safe: both are its own
+/// **data** properties on an ordinary object that never escaped to JavaScript,
+/// so `napi_get_named_property` finds them without walking the prototype chain
+/// or running user code.
+fn reflect_get_own_property_descriptor(
+  env: sys::napi_env,
+) -> Option<(sys::napi_value, sys::napi_value)> {
+  let holder = REFLECT_INTRINSICS.with(|slot| {
+    slot
+      .borrow()
+      .as_ref()
+      .and_then(|cache| (cache.env == env).then_some(cache.holder))
+  })?;
+  let mut holder_value = ptr::null_mut();
+  if unsafe { sys::napi_get_reference_value(env, holder, &mut holder_value) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
     return None;
   }
-  if type_without_coercion(env, get_own_property_descriptor)? != sys::ValueType::napi_function {
+  if holder_value.is_null() {
+    return None;
+  }
+  let mut reflect = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, holder_value, c"Reflect".as_ptr(), &mut reflect) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+  let mut get_own_property_descriptor = ptr::null_mut();
+  if unsafe {
+    sys::napi_get_named_property(
+      env,
+      holder_value,
+      c"getOwnPropertyDescriptor".as_ptr(),
+      &mut get_own_property_descriptor,
+    )
+  } != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return None;
+  }
+  if type_without_coercion(env, get_own_property_descriptor) != Some(sys::ValueType::napi_function)
+  {
     return None;
   }
   Some((reflect, get_own_property_descriptor))

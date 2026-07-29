@@ -107,6 +107,34 @@ pub fn js_range_error_from_retained_value(value: Unknown) -> Result<JsRangeError
   Ok(Error::from_unknown_without_coercion(value).into())
 }
 
+/// Captures `value` with `Error::from_unknown_without_coercion` and reports how
+/// Rust saw it, as `"<status>|<reason>|<cause chain>"` — the same shape as
+/// `describe_promise_rejection`, but synchronous. The synchronous window is the
+/// point: a test can patch `globalThis.Reflect` (or delete it), call this, and
+/// restore it before any other code can observe the patch, so the capture path's
+/// treatment of the global — cached at module registration, never `[[Get]]` off
+/// the global mid-capture — is testable without poisoning concurrent tests.
+#[napi]
+pub fn describe_captured_value(value: Unknown) -> String {
+  let error = Error::from_unknown_without_coercion(value);
+  let mut causes = Vec::new();
+  let mut cause = error.cause.as_deref();
+  while let Some(link) = cause {
+    causes.push(link.reason.clone());
+    cause = link.cause.as_deref();
+  }
+  format!(
+    "{}|{}|{}",
+    error.status.as_ref(),
+    error.reason,
+    if causes.is_empty() {
+      "-".to_owned()
+    } else {
+      causes.join("<")
+    }
+  )
+}
+
 // The other half: an `Error` built in Rust retains nothing, so the conversion
 // has to synthesize — and the synthesized error must keep the constructor its
 // wrapper names. Delegating to `ToNapiValue for Error` used to fall back to

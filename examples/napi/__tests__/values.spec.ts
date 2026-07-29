@@ -130,6 +130,7 @@ import {
   tsfnThrowFromJsCatchRecover,
   asyncPlus100,
   describePromiseRejection,
+  describeCapturedValue,
   getGlobal,
   getUndefined,
   getNull,
@@ -2167,6 +2168,85 @@ Napi4Test('the `cause` chain survives the capture', async (t) => {
   )
 })
 
+test('capture never performs a [[Get]] on the global Reflect', (t) => {
+  // napi-rs#3423. `globalThis.Reflect` is configurable, so user code can
+  // redefine it as an accessor, and reading it off the global per capture is an
+  // ordinary `[[Get]]` — the accessor would run, mid-unwind, exactly the
+  // arbitrary-user-code hazard the descriptor discipline exists to avoid. The
+  // `Reflect.getOwnPropertyDescriptor` pair is therefore cached per env at
+  // module registration: a post-load accessor must never fire during capture,
+  // and capture keeps full fidelity because the load-time intrinsic still does
+  // the reads.
+  //
+  // The patch window is fully synchronous, so no concurrent test can observe
+  // the patched global, and every getter hit counted here was caused by the
+  // capture calls between the two defineProperty calls.
+  //
+  // On the WASI lanes the addon's env lives in its own realm whose `Reflect`
+  // this patch does not reach, so the hit counter is trivially 0 there; the
+  // fidelity and identity assertions still hold. The native lane is the
+  // meaningful one.
+  const realReflect = globalThis.Reflect
+  const realDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Reflect')!
+  let hits = 0
+  let described: string
+  let identity: unknown
+  const value = new TypeError('the message', {
+    cause: new RangeError('the cause'),
+  })
+  Object.defineProperty(globalThis, 'Reflect', {
+    configurable: true,
+    get() {
+      hits += 1
+      return realReflect
+    },
+  })
+  try {
+    described = describeCapturedValue(value)
+    identity = jsErrorFromRetainedValue(value)
+  } finally {
+    Object.defineProperty(globalThis, 'Reflect', realDescriptor)
+  }
+  t.is(hits, 0, 'a hostile Reflect accessor must not fire during capture')
+  t.is(described, 'GenericFailure|the message|the cause')
+  t.is(identity, value)
+})
+
+test('capture survives a deleted global Reflect with full fidelity', (t) => {
+  // With the registration-time cache, a post-load `delete globalThis.Reflect`
+  // cannot degrade capture. A per-call lookup would collapse the reason to
+  // "JavaScript Error" and lose the cause here, so this is the mutation guard
+  // for removing the cache. Synchronous window, as above.
+  const realDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Reflect')!
+  let described: string
+  try {
+    delete (globalThis as { Reflect?: unknown }).Reflect
+    described = describeCapturedValue(
+      new TypeError('kept', { cause: 'and this too' }),
+    )
+  } finally {
+    Object.defineProperty(globalThis, 'Reflect', realDescriptor)
+  }
+  t.is(described, 'GenericFailure|kept|and this too')
+})
+
+test('capture ignores a post-load replacement of Reflect', (t) => {
+  // Same property from the other side: overwriting `Reflect` with a data
+  // property that has no usable `getOwnPropertyDescriptor` must not degrade
+  // capture either — the cache pinned the load-time pair. Synchronous window.
+  const realDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Reflect')!
+  let described: string
+  try {
+    ;(globalThis as { Reflect?: unknown }).Reflect = {}
+    described = describeCapturedValue(
+      new TypeError('still read', { cause: new Error('still walked') }),
+    )
+  } finally {
+    Object.defineProperty(globalThis, 'Reflect', realDescriptor)
+  }
+  t.is(described, 'GenericFailure|still read|still walked')
+})
+
 Napi4Test(
   'a rejected promise settles JavaScript with the identical value',
   async (t) => {
@@ -2545,6 +2625,7 @@ Napi4Test('ThreadsafeFunction creation pins the addon image', (t) => {
     `creating a ThreadsafeFunction must request module retention (${before} -> ${after})`,
   )
 })
+
 test('capturing a JS value into an Error pins the addon image', (t) => {
   // napi-rs#3423, same hazard as the ThreadsafeFunction pin above: an `Error`
   // is `Send`, so the `Arc<ErrorRef>` created by
@@ -2571,7 +2652,6 @@ test('capturing a JS value into an Error pins the addon image', (t) => {
   )
   t.truthy(captured)
 })
-
 
 Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {
   await new Promise<void>((resolve) => {

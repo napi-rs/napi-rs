@@ -522,6 +522,16 @@ pub unsafe extern "C" fn napi_register_module_v1(
   #[cfg(feature = "napi4")]
   create_custom_gc(env);
 
+  // Resolve and cache this env's `Reflect.getOwnPropertyDescriptor` pair NOW,
+  // at registration, so `Error::from_unknown_without_coercion` never reads
+  // `Reflect` off the global object mid-capture. That read is an ordinary
+  // `[[Get]]`: user code can redefine `globalThis.Reflect` as an accessor, and
+  // a per-capture read would run that accessor — arbitrary user code, free to
+  // reenter the addon — while an error is unwinding. Registration is the
+  // defined moment where the one unavoidable `[[Get]]` may happen. Best effort:
+  // a failure leaves capture degrading to an empty reason/cause.
+  crate::error::cache_reflect_intrinsics_for_env(env);
+
   let mut exports_objects: HashSet<String> = HashSet::default();
 
   {
