@@ -66,6 +66,15 @@ const WASM_ENV_DISPOSING_ERROR: &str = "the wasm environment is being disposed: 
 /// same call instead reaches an `RT` slot the teardown drained and panics on it, which on wasm
 /// traps the whole instance.
 ///
+/// The Tokio compatibility helpers ([`spawn`], [`block_on`], [`spawn_blocking`]) reach [`RT`]
+/// directly rather than through the dispatch path, so they need the latch too — and in a
+/// combined build they need it *most*: a custom backend owns the runtime lifecycle, [`RT`]'s
+/// `LazyLock` is typically never forced, so the teardown has nothing to drain and there is no
+/// empty slot to panic on. A helper called after the barrier would construct a brand-new Tokio
+/// runtime and run work on it, invisibly to the drain. They are refused instead; see
+/// [`refuse_tokio_helper_during_wasm_env_disposal`] for why a panic is the only answer their
+/// signatures can give.
+///
 /// # Scope
 ///
 /// "The remainder of environment disposal" is the lifetime of this wasm instance's linear
@@ -1147,15 +1156,60 @@ pub fn shutdown_async_runtime() {
   }
 }
 
+/// Refuse a built-in Tokio compatibility helper for the remainder of a wasm environment's
+/// disposal.
+///
+/// [`spawn`], [`block_on`] and [`spawn_blocking`] hand back a `JoinHandle` or the future's own
+/// output. Neither can express "declined": a `JoinHandle` cannot be built without a runtime to
+/// build it on, and `F::Output` cannot be conjured at all. So unlike an async export — which
+/// [`execute_future_impl`] degrades to a promise rejected with [`crate::Status::Cancelled`] — a call
+/// made past the barrier has only three possible answers: accept the work, drop it, or panic.
+///
+/// Accepting it is the bug this exists to close: in a combined `async-runtime` + `tokio_rt`
+/// build a custom backend owns the runtime lifecycle, so [`RT`]'s `LazyLock` is typically never
+/// forced and `shutdown_async_runtime` has nothing to drain — a helper called after the barrier
+/// would *construct a brand-new Tokio runtime* and run work on it, work no threadsafe-function
+/// queue entry represents, so `napi_wasm_env_cleanup_pending` reads zero, the drain stops, and
+/// `Context.destroy()` arrives with the work still live. Dropping it would silently lose work
+/// the caller is holding a handle to. That leaves the panic.
+///
+/// It is not a new failure mode. Every *other* configuration already panics here: once the
+/// barrier's `shutdown_async_runtime` has taken the runtime out of [`RT`], the `.expect` below
+/// fires on the empty slot, which is the documented post-`shutdown_async_runtime` behaviour of
+/// these helpers. This only makes the one configuration that silently deviated behave like the
+/// rest, and replaces "Access tokio runtime failed in spawn" with a message that says what
+/// actually happened.
+///
+/// On wasm a panic aborts to an `unreachable` trap (both wasm targets build `panic = "abort"`),
+/// which JavaScript sees as a thrown error from the offending call — loud, attributable, and
+/// exactly what a call that cannot be answered deserves.
+#[cfg(all(target_family = "wasm", feature = "tokio_rt", not(feature = "noop")))]
+#[cold]
+#[inline(never)]
+fn refuse_tokio_helper_during_wasm_env_disposal(helper: &'static str) -> ! {
+  panic!("napi::{helper} cannot run: {WASM_ENV_DISPOSING_ERROR}");
+}
+
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
 /// To avoid undefined behavior and memory corruptions.
+///
+/// On wasm this panics when called after `napi_prepare_wasm_env_cleanup` rather than accept
+/// work the environment is about to destroy.
 pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
+  // Checked before `RT` is touched, because touching it is the problem: reading it forces the
+  // `LazyLock`, and in a combined build that has never used a Tokio helper that construction
+  // happens *after* the cleanup barrier declared the environment quiescent. See
+  // [`WASM_ENV_DISPOSING`].
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    refuse_tokio_helper_during_wasm_env_disposal("spawn");
+  }
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
@@ -1166,7 +1220,15 @@ where
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
+///
+/// On wasm this panics when called after `napi_prepare_wasm_env_cleanup` rather than accept
+/// work the environment is about to destroy.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
+  // See the note in [`spawn`]: the check has to precede the first `RT` access.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    refuse_tokio_helper_during_wasm_env_disposal("block_on");
+  }
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
@@ -1183,11 +1245,19 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
 
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 /// spawn_blocking on the current Tokio runtime.
+///
+/// On wasm this panics when called after `napi_prepare_wasm_env_cleanup` rather than accept
+/// work the environment is about to destroy.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
+  // See the note in [`spawn`]: the check has to precede the first `RT` access.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    refuse_tokio_helper_during_wasm_env_disposal("spawn_blocking");
+  }
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))

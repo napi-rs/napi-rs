@@ -382,7 +382,16 @@ unsafe extern "C" fn napi_register_wasm_v1(
 /// just quiesced, behind the back of a drain that has no way to see the new work. From here on,
 /// `start_async_runtime` is a no-op and every runtime-backed call returns a promise rejected
 /// with [`Status::Cancelled`](crate::Status) rather than starting work the environment is about
-/// to destroy. Synchronous exports are unaffected.
+/// to destroy.
+///
+/// Synchronous exports keep working, with one exception: the built-in Tokio compatibility
+/// helpers (`napi::spawn`, `napi::block_on`, `napi::spawn_blocking`) hand back a `JoinHandle`
+/// or the future's own output, so they have no way to answer "declined" — they panic instead of
+/// accepting work the environment is about to destroy. That is what they already did in every
+/// configuration whose runtime the teardown actually drained; the latch extends it to the
+/// combined `async-runtime` + `tokio_rt` build, where the built-in runtime is typically never
+/// constructed and a post-barrier call would otherwise construct one. See
+/// `tokio_runtime::refuse_tokio_helper_during_wasm_env_disposal`.
 ///
 /// Repeated calls are harmless — the loaders guard against them anyway, and the finalizer that
 /// still fires later performs the same idempotent teardown.

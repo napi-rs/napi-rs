@@ -1430,6 +1430,37 @@ pub fn spawn_blocking_value(value: u32) -> Result<u32> {
     })
 }
 
+/// Drive one of napi's built-in Tokio compatibility helpers from a **synchronous** export.
+///
+/// A combined `async-runtime` + `tokio_rt` build keeps `napi::spawn`, `napi::block_on` and
+/// `napi::spawn_blocking` Tokio-backed even though a custom backend owns the runtime
+/// lifecycle, so the built-in `RT` slot is never constructed. That is the configuration in
+/// which the wasm cleanup barrier's `shutdown_async_runtime` has nothing to drain — and a
+/// synchronous export reached from a JavaScript callback during the loader's drain could
+/// therefore construct a brand-new Tokio runtime *after* the barrier declared the
+/// environment quiescent.
+///
+/// Compiled only when `tokio-rt` is on, which is exactly when the helpers exist.
+#[cfg(feature = "tokio-rt")]
+#[napi]
+pub fn tokio_helper_probe(kind: String) -> Result<u32> {
+  match kind.as_str() {
+    "spawn" => {
+      drop(napi::bindgen_prelude::spawn(async {}));
+      Ok(1)
+    }
+    "block_on" => Ok(napi::bindgen_prelude::block_on(async { 2 })),
+    "spawn_blocking" => {
+      drop(napi::bindgen_prelude::spawn_blocking(|| ()));
+      Ok(3)
+    }
+    other => Err(Error::new(
+      Status::InvalidArg,
+      format!("unknown tokio helper probe: {other}"),
+    )),
+  }
+}
+
 #[cfg(not(target_family = "wasm"))]
 #[napi(object)]
 pub struct BlockingThreadProbe {

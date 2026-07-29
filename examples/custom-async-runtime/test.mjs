@@ -41,6 +41,12 @@ if (isManualThreadlessWasi && !declarationFile) {
   )
 }
 
+// Set by `build-threadless-wasi-test.mjs`: a directory holding a *combined*
+// `async-runtime` + `tokio_rt` wasm32-wasip1 build of this addon, alongside its
+// generated eager loader. Every other lane builds one runtime backend or the
+// other; this is the only one where both exist at once.
+const combinedWasiDirectory = process.env.NAPI_RS_TEST_COMBINED_WASI_DIR
+
 if (isWasi) {
   const [source, declarations] = await Promise.all([
     readFile(new URL(bindingFile, import.meta.url), 'utf8'),
@@ -639,7 +645,11 @@ if (disposeBinding) {
     { encoding: 'utf8', timeout: 60_000 },
   )
   const synchronousDisposeOutput = `${synchronousDispose.stdout}\n${synchronousDispose.stderr}`
-  assert.equal(synchronousDispose.error, undefined, synchronousDispose.error?.stack)
+  assert.equal(
+    synchronousDispose.error,
+    undefined,
+    synchronousDispose.error?.stack,
+  )
   assert.equal(synchronousDispose.signal, null, synchronousDisposeOutput)
   assert.equal(
     synchronousDispose.status,
@@ -828,6 +838,138 @@ if (isThreadlessWasi) {
     /RESTART_DRAIN_BEFORE_DESTROY true/,
     `the rejection must reach JavaScript before Context.destroy(), which is what the drain is for:\n${restartDuringDrainOutput}`,
   )
+}
+
+if (combinedWasiDirectory) {
+  // A combined `async-runtime` + `tokio_rt` build is the configuration in which
+  // napi's Tokio compatibility helpers (`napi::spawn`, `napi::block_on`,
+  // `napi::spawn_blocking`) are the most dangerous thing a synchronous export
+  // can reach during the drain. A custom backend owns the runtime lifecycle, so
+  // the built-in `RT` slot is never constructed and the barrier's
+  // `shutdown_async_runtime` has nothing to drain — a helper called from a
+  // disposal-time JavaScript callback would force `RT`'s `LazyLock` and get a
+  // brand-new Tokio runtime, *after* the barrier declared the environment
+  // quiescent. That work is in no threadsafe-function queue, so
+  // `napi_wasm_env_cleanup_pending` reads zero, the drain stops, and
+  // `Context.destroy()` arrives with it still live.
+  //
+  // The helpers hand back a `JoinHandle` or the future's own output, so unlike
+  // an async export they cannot degrade to a rejection. They refuse loudly
+  // instead — which is what they already did in every configuration whose
+  // runtime the teardown actually drained.
+  const combinedLoader = join(
+    combinedWasiDirectory,
+    'custom_async_runtime.wasip1.cjs',
+  )
+  await access(combinedLoader)
+
+  // Before the barrier the helpers are ordinary working API. Its own process,
+  // because merely calling one forces `RT`'s `LazyLock` — which is precisely
+  // the state the `cold` runs below must not be in.
+  const helperBeforeBarrier = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const binding = require(${JSON.stringify(combinedLoader)})
+        console.error('TOKIO_HELPER_BEFORE ' + binding.tokioHelperProbe('block_on'))
+      `,
+    ],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  const helperBeforeOutput = `${helperBeforeBarrier.stdout}\n${helperBeforeBarrier.stderr}`
+  assert.equal(helperBeforeBarrier.status, 0, helperBeforeOutput)
+  assert.match(
+    helperBeforeOutput,
+    /TOKIO_HELPER_BEFORE 2/,
+    `napi::block_on must still work before the cleanup barrier, otherwise the refusals below prove nothing:\n${helperBeforeOutput}`,
+  )
+
+  for (const helper of ['spawn', 'block_on', 'spawn_blocking']) {
+    // `cold` is the hole: nothing has forced `RT`, so the barrier's shutdown
+    // had nothing to drain and there is no empty slot to fall over on — without
+    // the latch the helper quietly builds a runtime and takes the work.
+    // `warm` forced `RT` first, so the barrier drained it and the helper would
+    // have panicked on the empty slot anyway; the latch has to reach that case
+    // too, with the same diagnostic.
+    for (const warmth of ['cold', 'warm']) {
+      const helperDuringDrain = spawnSync(
+        process.execPath,
+        [
+          '-e',
+          `
+        const binding = require(${JSON.stringify(combinedLoader)})
+        const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+        const timeout = setTimeout(() => {
+          console.error('TOKIO_HELPER_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+
+        if (${JSON.stringify(warmth)} === 'warm') {
+          binding.tokioHelperProbe('block_on')
+        }
+
+        let outcome = 'HANDLER_DID_NOT_RUN'
+        binding.asyncNever().catch(() => {
+          try {
+            outcome = 'RETURNED: ' + binding.tokioHelperProbe(${JSON.stringify(helper)})
+          } catch (error) {
+            outcome = 'REFUSED: ' + (error && error.message)
+          }
+        })
+        // Force a real drain, so the callback above runs between its turns.
+        binding.asyncDouble(21).catch(() => {})
+
+        dispose().then(
+          () => {
+            console.error('TOKIO_HELPER_OUTCOME ' + outcome)
+            process.exit(0)
+          },
+          (error) => {
+            console.error('TOKIO_HELPER_DISPOSE_THREW ' + (error && error.message))
+            console.error('TOKIO_HELPER_OUTCOME ' + outcome)
+            process.exit(0)
+          },
+        )
+      `,
+        ],
+        { encoding: 'utf8', timeout: 60_000 },
+      )
+      const helperOutput = `${helperDuringDrain.stdout}\n${helperDuringDrain.stderr}`
+      assert.equal(
+        helperDuringDrain.error,
+        undefined,
+        helperDuringDrain.error?.stack,
+      )
+      assert.equal(helperDuringDrain.signal, null, helperOutput)
+      assert.equal(helperDuringDrain.status, 0, helperOutput)
+      // The handler has to have run at all, otherwise everything below is
+      // vacuous.
+      assert.match(
+        helperOutput,
+        /TOKIO_HELPER_OUTCOME (RETURNED|REFUSED): /,
+        `the barrier must reject the in-flight promise while the loader can still run its handler (${warmth}):\n${helperOutput}`,
+      )
+      assert.doesNotMatch(
+        helperOutput,
+        /TOKIO_HELPER_OUTCOME RETURNED: /,
+        `napi::${helper} must not accept work after the cleanup barrier (${warmth}) — in this build it would construct a brand-new Tokio runtime the drain cannot see:\n${helperOutput}`,
+      )
+      // A wasm panic aborts to an `unreachable` trap, which JavaScript sees as
+      // a thrown error from the offending call; the diagnostic itself goes to
+      // stderr. Assert on the diagnostic, so a refusal for some *other* reason
+      // (a drained slot, a failed worker-thread spawn) cannot pass for this
+      // one.
+      assert.match(
+        helperOutput,
+        new RegExp(
+          `napi::${helper} cannot run: the wasm environment is being disposed`,
+        ),
+        `napi::${helper} must say why it refused (${warmth}):\n${helperOutput}`,
+      )
+    }
+  }
 }
 
 if (isManualThreadlessWasi) {

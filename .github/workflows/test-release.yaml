@@ -861,7 +861,10 @@ jobs:
   test-custom-async-runtime-wasi:
     runs-on: ubuntu-latest
     name: Test custom async runtime on wasm32-wasip1
-    timeout-minutes: 10
+    # The last step builds this addon twice for wasm32-wasip1 — once
+    # `async-runtime`-only, once combined with `tokio_rt` — and the two feature
+    # sets share no cargo fingerprints, so the second is a full rebuild.
+    timeout-minutes: 15
     needs: audit
     steps:
       - uses: actions/checkout@v7
