@@ -840,6 +840,148 @@ if (isThreadlessWasi) {
   )
 }
 
+if (isThreadlessWasi) {
+  // The drain is the one part of disposal that can fail on its own: it yields
+  // real event-loop turns, and scheduling a macrotask is a host call. A
+  // host-provided or patched `setImmediate` that throws makes the very first
+  // turn reject, and the loaders keep disposal retryable after a rejection —
+  // `__wasiDisposePromise` is cleared, `dispose()` can be called again.
+  //
+  // So the "already drained" flag may not be set before the wait has actually
+  // finished. Set up front, the retry skips the drain entirely and destroys the
+  // context with the barrier's settlements still in the threadsafe-function
+  // queue, where `Context.destroy()`'s cleanup hook discards them with a null
+  // env — the promises the barrier exists to settle hang forever, and this time
+  // nothing is left that could ever settle them.
+  //
+  // Both generated loaders track the flag separately, so both are driven.
+  const packageDirectory = dirname(fileURLToPath(import.meta.url))
+  const eagerLoaderPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasip1.cjs',
+  )
+  const deferredLoaderPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasip1-deferred.js',
+  )
+  const wasmPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasm32-wasip1.wasm',
+  )
+  await access(eagerLoaderPath)
+  await access(deferredLoaderPath)
+
+  for (const flavor of ['eager', 'deferred']) {
+    const load =
+      flavor === 'eager'
+        ? `
+        const require = createRequire(${JSON.stringify(import.meta.url)})
+        const binding = require(${JSON.stringify(eagerLoaderPath)})
+        const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+      `
+        : `
+        const { createInstance } = await import(
+          pathToFileURL(${JSON.stringify(deferredLoaderPath)}).href
+        )
+        const wasmModule = await WebAssembly.compile(
+          readFileSync(${JSON.stringify(wasmPath)}),
+        )
+        const instance = await createInstance(wasmModule)
+        const binding = instance.exports
+        const dispose = () => instance.dispose()
+      `
+    const poisonedDrain = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+        import { readFileSync } from 'node:fs'
+        import { createRequire } from 'node:module'
+        import { pathToFileURL } from 'node:url'
+
+        const realSetImmediate = globalThis.setImmediate
+        const timeout = setTimeout(() => {
+          console.error('POISONED_DRAIN_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+
+        ${load}
+
+        // In flight when the barrier runs, so its cancellation settle goes
+        // through the threadsafe-function queue and the drain has something to
+        // wait for.
+        let queued = 'PENDING'
+        binding.asyncDouble(21).then(
+          (value) => { queued = 'RESOLVED: ' + value },
+          (error) => { queued = 'REJECTED: ' + error.message },
+        )
+
+        // Break only the drain's scheduling: the barrier itself must still run,
+        // otherwise this proves nothing.
+        let broken = true
+        globalThis.setImmediate = function (...args) {
+          if (broken) {
+            throw new Error('host setImmediate is broken')
+          }
+          return realSetImmediate(...args)
+        }
+
+        let first = 'RESOLVED'
+        try {
+          await dispose()
+        } catch (error) {
+          first = 'REJECTED: ' + error.message
+        }
+
+        broken = false
+        globalThis.setImmediate = realSetImmediate
+
+        let second = 'RESOLVED'
+        try {
+          await dispose()
+        } catch (error) {
+          second = 'REJECTED: ' + error.message
+        }
+
+        // Well past the two turns @emnapi/core needs: if the settlement did not
+        // land by now, it never will.
+        for (let index = 0; index < 80; index++) {
+          await new Promise((resolve) => realSetImmediate(resolve))
+        }
+        console.error('POISONED_DRAIN_FIRST ' + first)
+        console.error('POISONED_DRAIN_SECOND ' + second)
+        console.error('POISONED_DRAIN_QUEUED ' + queued)
+        process.exit(0)
+      `,
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    )
+    const poisonedDrainOutput = `${poisonedDrain.stdout}\n${poisonedDrain.stderr}`
+    assert.equal(poisonedDrain.error, undefined, poisonedDrain.error?.stack)
+    assert.equal(poisonedDrain.signal, null, poisonedDrainOutput)
+    assert.equal(poisonedDrain.status, 0, poisonedDrainOutput)
+    // The first disposal has to have failed *in the drain*, otherwise the retry
+    // below never exercises the flag and everything after it is vacuous.
+    assert.match(
+      poisonedDrainOutput,
+      /POISONED_DRAIN_FIRST REJECTED: host setImmediate is broken/,
+      `the ${flavor} loader's drain must surface a failed macrotask schedule:\n${poisonedDrainOutput}`,
+    )
+    assert.match(
+      poisonedDrainOutput,
+      /POISONED_DRAIN_SECOND RESOLVED/,
+      `the ${flavor} loader's retried disposal must succeed:\n${poisonedDrainOutput}`,
+    )
+    assert.match(
+      poisonedDrainOutput,
+      /POISONED_DRAIN_QUEUED RESOLVED: 42/,
+      `a drain that failed must not mark itself complete: the ${flavor} loader's retried disposal has to wait for the queued settlements again instead of destroying the environment out from under them:\n${poisonedDrainOutput}`,
+    )
+  }
+}
+
 if (combinedWasiDirectory) {
   // A combined `async-runtime` + `tokio_rt` build is the configuration in which
   // napi's Tokio compatibility helpers (`napi::spawn`, `napi::block_on`,

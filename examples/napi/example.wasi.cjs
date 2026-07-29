@@ -152,6 +152,7 @@ let __emnapiContextDestroyPromise
 let __emnapiWasmEnvCleanupPrepared = false
 let __emnapiWasmEnvCleanupRan = false
 let __emnapiWasmEnvCleanupDrained = false
+let __emnapiWasmEnvCleanupDrainPromise
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __completeWasiDisposal = function() {}
@@ -284,12 +285,20 @@ const __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS = 4
  *
  * Returns nothing when there is nothing to wait for, which keeps disposal
  * synchronous in the common case.
+ *
+ * The "already drained" flag is set only once a wait has actually finished.
+ * Scheduling a macrotask can fail — a host-provided or patched `setImmediate`
+ * that throws is enough — and a disposal that rejects stays retryable, so
+ * marking the drain complete up front would make the retry skip it and destroy
+ * the context with the barrier's settlements still queued.
  */
 function __drainWasmEnvCleanup() {
   if (__emnapiWasmEnvCleanupDrained || !__emnapiWasmEnvCleanupRan) {
     return
   }
-  __emnapiWasmEnvCleanupDrained = true
+  if (__emnapiWasmEnvCleanupDrainPromise) {
+    return __emnapiWasmEnvCleanupDrainPromise
+  }
   const pending = __napiInstance?.exports?.napi_wasm_env_cleanup_pending
   const observable = typeof pending === 'function'
   if (observable) {
@@ -297,16 +306,18 @@ function __drainWasmEnvCleanup() {
     try {
       queued = pending()
     } catch {
+      __emnapiWasmEnvCleanupDrained = true
       return
     }
     if (!queued) {
+      __emnapiWasmEnvCleanupDrained = true
       return
     }
   }
   const limit = observable
     ? __WASM_ENV_CLEANUP_DRAIN_TURNS
     : __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS
-  return (async () => {
+  const drainPromise = (async () => {
     for (let turn = 0; turn < limit; turn++) {
       await new Promise((resolve) => {
         __scheduleMacrotask(resolve)
@@ -324,7 +335,21 @@ function __drainWasmEnvCleanup() {
         return
       }
     }
-  })()
+  })().then(
+    (value) => {
+      // Reaching the turn limit still counts: the wait is bounded by design, so
+      // repeating it would only spend another 128 turns on the same queue.
+      __emnapiWasmEnvCleanupDrained = true
+      __emnapiWasmEnvCleanupDrainPromise = undefined
+      return value
+    },
+    (error) => {
+      __emnapiWasmEnvCleanupDrainPromise = undefined
+      throw error
+    },
+  )
+  __emnapiWasmEnvCleanupDrainPromise = drainPromise
+  return drainPromise
 }
 
 function __destroyEmnapiContext() {

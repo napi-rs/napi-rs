@@ -650,6 +650,7 @@ async function __createInstance(
   let __wasmEnvCleanupRan = false
   let __wasmEnvCleanupPrepared = false
   let __wasmEnvCleanupDrained = false
+  let __wasmEnvCleanupDrainPromise
   const __prepareEnvCleanup = () => {
     if (__wasmEnvCleanupPrepared) {
       return
@@ -668,16 +669,41 @@ async function __createInstance(
   // The destroyer still runs the barrier itself (idempotently) for the one path
   // that cannot yield: managed beforeExit cleanup of an instance whose rollback
   // is being retried.
+  //
+  // "Drained" is recorded only once a wait has actually finished. Scheduling a
+  // macrotask can fail — a host-provided or patched `setImmediate` that throws
+  // is enough — and dispose() stays retryable after it rejects, so marking the
+  // drain complete up front would make the retry skip it and destroy the context
+  // with the barrier's settlements still queued.
   const __prepareForDisposal = () => {
     if (__wasmEnvCleanupDrained) {
       return
+    }
+    if (__wasmEnvCleanupDrainPromise) {
+      return __wasmEnvCleanupDrainPromise
     }
     __prepareEnvCleanup()
     if (!__wasmEnvCleanupRan) {
       return
     }
-    __wasmEnvCleanupDrained = true
-    return __drainWasmEnvCleanup(__napiInstance)
+    const __drained = __drainWasmEnvCleanup(__napiInstance)
+    if (!__drained || typeof __drained.then !== 'function') {
+      __wasmEnvCleanupDrained = true
+      return
+    }
+    const __tracked = __drained.then(
+      (__value) => {
+        __wasmEnvCleanupDrained = true
+        __wasmEnvCleanupDrainPromise = undefined
+        return __value
+      },
+      (__error) => {
+        __wasmEnvCleanupDrainPromise = undefined
+        throw __error
+      },
+    )
+    __wasmEnvCleanupDrainPromise = __tracked
+    return __tracked
   }
   const __destroyBeforeExit = __beforeExitDestroy
     ? async () => {
