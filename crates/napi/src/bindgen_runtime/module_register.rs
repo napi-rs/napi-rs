@@ -1008,6 +1008,13 @@ pub fn module_retention_requests() -> usize {
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 static MODULE_RETENTION_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 
+/// `noop` stub: nothing registers, so nothing ever requests a pin.
+#[cfg(all(feature = "noop", not(target_family = "wasm")))]
+#[doc(hidden)]
+pub fn module_retention_requests() -> usize {
+  0
+}
+
 #[cfg(all(not(feature = "noop"), not(target_family = "wasm"), windows))]
 fn retain_current_module() {
   const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 0x0000_0001;
