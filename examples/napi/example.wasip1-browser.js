@@ -808,10 +808,16 @@ export const joinPath = __napiModule.exports.joinPath
 export const jsErrorCallback = __napiModule.exports.jsErrorCallback
 export const jsErrorFromRetainedValue =
   __napiModule.exports.jsErrorFromRetainedValue
+export const jsErrorWithoutRetainedValue =
+  __napiModule.exports.jsErrorWithoutRetainedValue
 export const jsRangeErrorFromRetainedValue =
   __napiModule.exports.jsRangeErrorFromRetainedValue
+export const jsRangeErrorWithoutRetainedValue =
+  __napiModule.exports.jsRangeErrorWithoutRetainedValue
 export const jsTypeErrorFromRetainedValue =
   __napiModule.exports.jsTypeErrorFromRetainedValue
+export const jsTypeErrorWithoutRetainedValue =
+  __napiModule.exports.jsTypeErrorWithoutRetainedValue
 export const Kind = __napiModule.exports.Kind
 export const KindInValidate = __napiModule.exports.KindInValidate
 export const listObjKeys = __napiModule.exports.listObjKeys

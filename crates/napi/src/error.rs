@@ -391,14 +391,19 @@ impl Error {
   /// owning env is gone — a fresh error is built from [`Error::reason`] instead,
   /// because a `napi_ref` cannot be resolved outside its own env.
   ///
-  /// Identity also depends on the conversion used. `<Error as ToNapiValue>` —
-  /// the promise and async-generator settlement paths — hands the value back
-  /// untouched. Everything that promises a JavaScript **error object** gates
-  /// reuse on `napi_is_error` instead and otherwise synthesizes one from
-  /// [`Error::reason`]: `JsError::into_value` (the synchronous throw path),
-  /// [`Env::create_error`], and the [`ToNapiValue`] impls for
-  /// `JsError`/`JsTypeError`/`JsRangeError`. So a retained non-`Error` survives
-  /// a rejection but not a `create_error`.
+  /// Identity also depends on the conversion used. The [`ToNapiValue`] impls —
+  /// for `Error` itself and for `JsError`/`JsTypeError`/`JsRangeError` — hand the
+  /// retained value back untouched, which is what the settlement paths (promise
+  /// rejection, `AsyncGenerator.throw()`, a throw out of a ThreadsafeFunction
+  /// callback) rely on. Only the two APIs that *construct* an error object gate
+  /// reuse on `napi_is_error` and otherwise synthesize one from
+  /// [`Error::reason`]: `JsError::into_value` (the synchronous throw path) and
+  /// [`Env::create_error`]. So a retained non-`Error` survives a rejection and a
+  /// `JsTypeError` return value, but not a `create_error`.
+  ///
+  /// When there is nothing to reuse, the synthesized error keeps the constructor
+  /// its wrapper names: a `JsTypeError` becomes a `TypeError`, a `JsRangeError` a
+  /// `RangeError`.
   ///
   /// [`Env::create_error`]: crate::Env::create_error
   ///
@@ -1010,11 +1015,16 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
 /// An [`Error`] may retain an *arbitrary* JavaScript value — see
 /// [`Error::from_unknown_without_coercion`], which retains whatever a promise
 /// rejected with or a callback threw, primitives included. Handing that value
-/// back is correct on the rejection and throw settlement paths and wrong
-/// everywhere that promises an error *object*, so those APIs gate reuse on this.
+/// back is what every *conversion* has to do, so the value JavaScript supplied
+/// comes back as itself. The two APIs that instead **construct** an error object
+/// — `JsError::into_value`, which feeds `napi_throw`, and [`Env::create_error`] —
+/// cannot: a primitive there would break their own contract and silently no-op
+/// every object operation the caller then performs. They gate reuse on this.
 ///
 /// A failed check reads as "not an error": the caller then synthesizes one,
 /// which is always a valid answer.
+///
+/// [`Env::create_error`]: crate::Env::create_error
 ///
 /// # Safety
 ///
@@ -1161,16 +1171,22 @@ macro_rules! impl_object_methods {
 
     impl crate::bindgen_prelude::ToNapiValue for $js_value {
       unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-        // Deliberately NOT `ToNapiValue for Error`. That conversion hands the
-        // retained value back verbatim, which is the whole point on the promise
-        // and async-generator settlement paths — JavaScript may reject with
-        // anything and must get the same value back. `$js_value` is an error
-        // *object* though, so an addon returning one has to receive one:
-        // `into_value` reuses the retained value only when `napi_is_error`
-        // holds and otherwise synthesizes an error from `status`/`reason`/
-        // `cause`. Delegating to `Error` also lost the subclass — every
-        // `JsTypeError`/`JsRangeError` without a reusable reference came back as
-        // a plain `Error`, because the fallback there is `JsError::into_value`.
+        // A retained value comes back *verbatim*, with no `napi_is_error` gate.
+        // This is a conversion, not a constructor: it is what the promise and
+        // async-generator settlement paths run through, and JavaScript may
+        // reject with anything — a string, a number, `null` — and must get the
+        // same value back. `into_value` cannot be used for this half: it gates
+        // reuse on `napi_is_error`, which would replace every non-`Error`
+        // rejection with a synthesized one.
+        if let Some(retained) = unsafe { val.0.referenced_value(env) } {
+          return Ok(retained);
+        }
+        // Nothing to reuse — the error was built in Rust, or is being converted
+        // off the thread that captured it. Synthesize through `into_value`,
+        // which uses `$kind`, deliberately NOT `ToNapiValue for Error`: that
+        // delegation lost the subclass, so a `JsTypeError` with no retained
+        // value came back as a plain `Error` (its fallback is
+        // `JsError::into_value`).
         Ok(unsafe { val.into_value(env) })
       }
     }

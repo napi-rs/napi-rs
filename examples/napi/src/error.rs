@@ -74,12 +74,15 @@ pub fn js_error_callback(value: Unknown) -> Result<Vec<JsError>> {
 }
 
 // ---------------------------------------------------------------------------
-// The error-object-producing APIs, fed an `Error` that retained an arbitrary JS
-// value. `Error::from_unknown_without_coercion` retains *anything* — that is the
-// point on the rejection and throw settlement paths — but `Env::create_error`
-// and the `JsError`/`JsTypeError`/`JsRangeError` conversions are documented to
-// hand back a JavaScript **error object**, so they have to validate and
-// synthesize instead of passing the retained value through.
+// The error-object APIs, fed an `Error` that retained an arbitrary JS value.
+// `Error::from_unknown_without_coercion` retains *anything* — that is the point
+// on the rejection and throw settlement paths.
+//
+// `Env::create_error` *constructs* an error object and is documented to return
+// one, so it validates with `napi_is_error` and synthesizes otherwise. The
+// `JsError`/`JsTypeError`/`JsRangeError` `ToNapiValue` impls are *conversions*
+// on the same footing as `ToNapiValue for Error`, so they hand the retained
+// value straight back.
 
 #[napi]
 pub fn create_error_from_retained_value<'env>(
@@ -102,6 +105,26 @@ pub fn js_type_error_from_retained_value(value: Unknown) -> Result<JsTypeError> 
 #[napi]
 pub fn js_range_error_from_retained_value(value: Unknown) -> Result<JsRangeError> {
   Ok(Error::from_unknown_without_coercion(value).into())
+}
+
+// The other half: an `Error` built in Rust retains nothing, so the conversion
+// has to synthesize — and the synthesized error must keep the constructor its
+// wrapper names. Delegating to `ToNapiValue for Error` used to fall back to
+// `JsError::into_value`, which made every one of these a plain `Error`.
+
+#[napi]
+pub fn js_error_without_retained_value(reason: String) -> Result<JsError> {
+  Ok(Error::new(Status::GenericFailure, reason).into())
+}
+
+#[napi]
+pub fn js_type_error_without_retained_value(reason: String) -> Result<JsTypeError> {
+  Ok(Error::new(Status::GenericFailure, reason).into())
+}
+
+#[napi]
+pub fn js_range_error_without_retained_value(reason: String) -> Result<JsRangeError> {
+  Ok(Error::new(Status::GenericFailure, reason).into())
 }
 
 #[napi]

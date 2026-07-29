@@ -80,6 +80,9 @@ import {
   jsErrorFromRetainedValue,
   jsTypeErrorFromRetainedValue,
   jsRangeErrorFromRetainedValue,
+  jsErrorWithoutRetainedValue,
+  jsTypeErrorWithoutRetainedValue,
+  jsRangeErrorWithoutRetainedValue,
   tryCloneErrorOffThread,
   tryCloneErrorCauseOffThread,
   tryCloneErrorCauseTransitiveOffThread,
@@ -2310,70 +2313,96 @@ test('a value thrown from a ThreadsafeFunction callback keeps its identity', asy
   }
 })
 
-test('error-object APIs never hand back a retained non-error value', (t) => {
-  // The mirror image of the identity matrix above. `from_unknown_without_coercion`
-  // retains whatever JavaScript handed over, which is exactly right where the
-  // value must settle as itself — a promise rejection, an `AsyncGenerator.throw()`,
-  // a throw out of a ThreadsafeFunction callback.
+const RETAINED_VALUES: [string, unknown][] = [
+  ['string', 'a primitive string'],
+  ['number', 42],
+  ['null', null],
+  ['undefined', undefined],
+  ['boolean', false],
+  ['bigint', 7n],
+  ['symbol', Symbol('marker')],
+  ['plain object', { tag: 'marker' }],
+  ['array', [1, 2, 3]],
+  ['function', function marker() {}],
+]
+
+test('Env::create_error never hands back a retained non-error value', (t) => {
+  // `from_unknown_without_coercion` retains whatever JavaScript handed over,
+  // which is exactly right where the value must come back as itself — a promise
+  // rejection, an `AsyncGenerator.throw()`, a throw out of a ThreadsafeFunction
+  // callback, and every `ToNapiValue` conversion feeding them.
   //
-  // It is exactly wrong for the APIs that promise a JavaScript **error object**.
-  // `Env::create_error` used to return the retained `42` verbatim, and the
-  // `ToNapiValue` impls for `JsError`/`JsTypeError`/`JsRangeError` delegated to
-  // the same value-preserving conversion, so an addon could hand JavaScript a
-  // number from an API typed as an error — after which every object operation on
-  // the result silently no-ops.
-  const retained: [string, unknown][] = [
-    ['string', 'a primitive string'],
-    ['number', 42],
-    ['null', null],
-    ['undefined', undefined],
-    ['boolean', false],
-    ['bigint', 7n],
-    ['symbol', Symbol('marker')],
-    ['plain object', { tag: 'marker' }],
-    ['array', [1, 2, 3]],
-    ['function', function marker() {}],
-  ]
-  const factories: [string, (value: unknown) => unknown][] = [
-    ['Env::create_error', createErrorFromRetainedValue],
-    ['JsError', jsErrorFromRetainedValue],
-    ['JsTypeError', jsTypeErrorFromRetainedValue],
-    ['JsRangeError', jsRangeErrorFromRetainedValue],
-  ]
-  for (const [api, factory] of factories) {
-    for (const [label, value] of retained) {
-      const result = factory(value)
-      t.true(
-        result instanceof Error,
-        `${api} should synthesize an Error for a retained ${label}`,
-      )
-      t.not(
-        result,
-        value,
-        `${api} should not hand back the retained ${label} itself`,
-      )
-    }
-    // A retained *error* is still reused verbatim: gating on `napi_is_error` is
-    // what preserves identity where identity is meaningful.
-    const real = new TypeError('a real error')
-    t.is(factory(real), real, `${api} should reuse a retained Error`)
+  // `Env::create_error` is not a conversion. It *constructs* an error object and
+  // is documented to return one, so it used to be the odd one out: given an
+  // `Error` that retained `42` it returned the number `42`, after which every
+  // object operation the caller performed on the "error" silently no-oped.
+  for (const [label, value] of RETAINED_VALUES) {
+    const result = createErrorFromRetainedValue(value)
+    t.true(
+      result instanceof Error,
+      `create_error should synthesize an Error for a retained ${label}`,
+    )
+    t.not(
+      result,
+      value,
+      `create_error should not hand back the retained ${label} itself`,
+    )
   }
-  // Synthesizing keeps the subclass the API name promises. Delegating to
-  // `ToNapiValue for Error` used to fall back to `JsError`, so a `JsTypeError`
-  // with nothing reusable came back as a plain `Error`.
-  t.is(
-    (jsTypeErrorFromRetainedValue(42) as Error).constructor.name,
-    'TypeError',
-  )
-  t.is(
-    (jsRangeErrorFromRetainedValue(42) as Error).constructor.name,
-    'RangeError',
-  )
+  // A retained *error* is still reused verbatim: gating on `napi_is_error` is
+  // what preserves identity where identity is meaningful.
+  const real = new TypeError('a real error')
+  t.is(createErrorFromRetainedValue(real), real)
   // And the result is a real object, so the operations the caller performs on it
   // actually take effect.
   const synthesized = createErrorFromRetainedValue(42) as { marker?: number }
   synthesized.marker = 1
   t.is(synthesized.marker, 1)
+})
+
+test('the JsError wrappers convert a retained value back verbatim', (t) => {
+  // The other half of the same rule, and the reason `Env::create_error` had to be
+  // singled out rather than gating everything: `ToNapiValue for JsError` and
+  // friends are conversions, on exactly the same footing as `ToNapiValue for
+  // Error`. An addon returning `JsTypeError::from(Error::from_unknown_without_
+  // coercion(value))` is relaying a value JavaScript chose, so JavaScript gets it
+  // back as itself — no `napi_is_error` gate, no synthesized replacement.
+  const converters: [string, (value: unknown) => unknown][] = [
+    ['JsError', jsErrorFromRetainedValue],
+    ['JsTypeError', jsTypeErrorFromRetainedValue],
+    ['JsRangeError', jsRangeErrorFromRetainedValue],
+  ]
+  for (const [api, convert] of converters) {
+    for (const [label, value] of RETAINED_VALUES) {
+      t.is(
+        convert(value),
+        value,
+        `${api} should hand the retained ${label} back verbatim`,
+      )
+    }
+    const real = new TypeError('a real error')
+    t.is(convert(real), real, `${api} should hand a retained Error back verbatim`)
+  }
+})
+
+test('the JsError wrappers keep their subclass when there is nothing to reuse', (t) => {
+  // The bug a plain revert would reintroduce. With no retained value the
+  // conversion has to synthesize, and it must use the constructor its wrapper
+  // names. Delegating to `ToNapiValue for Error` fell back to
+  // `JsError::into_value`, so every `JsTypeError`/`JsRangeError` built in Rust
+  // arrived in JavaScript as a plain `Error`.
+  const plain = jsErrorWithoutRetainedValue('plain') as Error
+  t.is(plain.constructor.name, 'Error')
+  t.is(plain.message, 'plain')
+
+  const type = jsTypeErrorWithoutRetainedValue('typed') as Error
+  t.true(type instanceof TypeError)
+  t.is(type.constructor.name, 'TypeError')
+  t.is(type.message, 'typed')
+
+  const range = jsRangeErrorWithoutRetainedValue('ranged') as Error
+  t.true(range instanceof RangeError)
+  t.is(range.constructor.name, 'RangeError')
+  t.is(range.message, 'ranged')
 })
 
 test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction', async (t) => {

@@ -1032,9 +1032,13 @@ impl Env {
   /// `null`, a string — and handing that back would break this function's own
   /// contract and silently no-op every object operation the caller then performs
   /// on the result. Reuse is therefore gated on `napi_is_error`, exactly like
-  /// `JsError::into_value`. The retained value is preserved where it is the point:
-  /// the rejection and throw settlement paths, which convert through
-  /// `ToNapiValue for Error`.
+  /// `JsError::into_value`.
+  ///
+  /// This gate is specific to the two APIs that *construct* an error object. The
+  /// [`ToNapiValue`](crate::bindgen_prelude::ToNapiValue) impls — for `Error` and
+  /// for `JsError`/`JsTypeError`/`JsRangeError` — are conversions and hand the
+  /// retained value back verbatim, which is what the rejection and throw
+  /// settlement paths need.
   pub fn create_error(&self, e: Error) -> Result<Object<'_>> {
     // Reuse the original JS error object when it is safe to read on this thread
     // *and* it really is an error; the shared `napi_ref` is released when `e`

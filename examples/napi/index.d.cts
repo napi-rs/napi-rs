@@ -1075,9 +1075,15 @@ export declare function jsErrorCallback(value: unknown): Array<Error>
 
 export declare function jsErrorFromRetainedValue(value: unknown): Error
 
+export declare function jsErrorWithoutRetainedValue(reason: string): Error
+
 export declare function jsRangeErrorFromRetainedValue(value: unknown): RangeError
 
+export declare function jsRangeErrorWithoutRetainedValue(reason: string): RangeError
+
 export declare function jsTypeErrorFromRetainedValue(value: unknown): TypeError
+
+export declare function jsTypeErrorWithoutRetainedValue(reason: string): TypeError
 
 /** default enum values are continuos i32s start from 0 */
 export declare const enum Kind {
