@@ -400,7 +400,17 @@ impl Error {
   ///   `getOwnPropertyDescriptor` — like an env that never registered this
   ///   addon — degrades to an empty reason and absent cause; the retained value
   ///   is unaffected. Capture never falls back to a `[[Get]]`, on the global or
-  ///   on `message`.
+  ///   on `message`. The pair registration finds is trusted the way the addon's
+  ///   own exports are trusted: code that ran *before* the addon loaded can have
+  ///   replaced it, and Node-API offers no way to tell (no descriptor-read
+  ///   primitive, no fresh realm, no pristine reference to compare against) —
+  ///   nor any way to defend, since a pre-load adversary can just as well wrap
+  ///   the addon's exports themselves. Registration does, however, put the
+  ///   candidate through a behavioral sanity probe against an object of known,
+  ///   non-interposable shape; a candidate that misreports it — a broken shim, a
+  ///   crude interposer — is dropped at that defined moment and the env degrades
+  ///   to an empty reason and absent cause permanently, instead of the impostor
+  ///   running during every capture.
   ///
   /// Every failure along the way is swallowed with its pending exception cleared,
   /// so a hostile value cannot poison the environment or become the reported
@@ -603,6 +613,214 @@ thread_local! {
     const { std::cell::RefCell::new(None) };
 }
 
+#[cfg(not(feature = "noop"))]
+thread_local! {
+  // Counts invocations of the probe object's accessor getter, so
+  // `probe_get_own_property_descriptor` can prove the candidate descriptor
+  // reader did not fall back to a `[[Get]]`. Thread-local for the same
+  // one-env-per-OS-thread reason as `REFLECT_INTRINSICS`; registration and the
+  // probe calls all run on the env's own thread.
+  static PROBE_ACCESSOR_HITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Native getter installed on the probe object's `accessor` property. A
+/// specification-conforming `Reflect.getOwnPropertyDescriptor` reports the
+/// accessor without invoking it; anything that lands here reads properties
+/// with a `[[Get]]` instead, which is exactly the behavior the capture path
+/// must never trigger.
+#[cfg(not(feature = "noop"))]
+unsafe extern "C" fn probe_accessor_getter(
+  env: sys::napi_env,
+  _info: sys::napi_callback_info,
+) -> sys::napi_value {
+  PROBE_ACCESSOR_HITS.with(|hits| hits.set(hits.get().saturating_add(1)));
+  let mut undefined = ptr::null_mut();
+  if unsafe { sys::napi_get_undefined(env, &mut undefined) } != sys::Status::napi_ok {
+    return ptr::null_mut();
+  }
+  undefined
+}
+
+/// Behavioral sanity probe for the `getOwnPropertyDescriptor` candidate
+/// resolved at registration: exercises it against a freshly created object of
+/// known shape and accepts it only if it behaves like the intrinsic.
+///
+/// **Why a behavioral check and not provenance:** provenance cannot be
+/// established through Node-API at all. There is no descriptor-read primitive
+/// (`napi_get_own_property_descriptor` does not exist through Node-API 10), no
+/// non-`[[Get]]` read of the global, no fresh-realm primitive
+/// (`napi_run_script` evaluates in the same, already-patched realm), no proxy
+/// detection, and no pristine reference to `napi_strict_equals` against —
+/// obtaining one is the very problem. Any "is this native code" check via
+/// `Function.prototype.toString` is itself a call through a patchable callable.
+/// So the candidate is *trusted the way the module's own exports are trusted*:
+/// code that runs before the addon loads sits inside the addon's trust boundary
+/// — it can wrap `require`, replace the loader, or interpose every export — and
+/// no addon can defend against it. What this probe adds is a *defined moment of
+/// failure* for a candidate that is broken (a buggy shim, a crude interposer):
+/// it is caught here, at registration, and the env degrades to an empty
+/// reason/cause permanently instead of invoking the impostor during every
+/// capture. A sophisticated adversary that passes the probe and misbehaves
+/// later is inside the pre-load trust boundary, exactly like one that patched
+/// the module exports themselves.
+///
+/// The probe object is created with `napi_create_object` +
+/// `napi_define_properties`, which construct the object directly — its shape
+/// cannot be interposed from JavaScript. Three calls are made:
+///
+/// * `gopd(probe, "data")` must yield a descriptor whose own `value` is
+///   strict-equal to the sentinel;
+/// * `gopd(probe, "accessor")` must yield a descriptor with an own `get` and
+///   **no** own `value`, and the native getter must not have run;
+/// * `gopd(probe, "missing")` must yield `undefined`.
+///
+/// Reading `value` off a returned descriptor object may run user code when the
+/// candidate is hostile enough to return a proxy — acceptable here: the probe
+/// runs at registration, the same defined moment as the `[[Get]]` of `Reflect`
+/// itself, never mid-capture, and any misbehavior (a throw, a wrong shape)
+/// fails the probe.
+#[cfg(not(feature = "noop"))]
+fn probe_get_own_property_descriptor(
+  env: sys::napi_env,
+  reflect: sys::napi_value,
+  get_own_property_descriptor: sys::napi_value,
+) -> bool {
+  let create_string = |key: &CStr| -> Option<sys::napi_value> {
+    let bytes = key.to_bytes();
+    let mut value = ptr::null_mut();
+    if unsafe {
+      sys::napi_create_string_utf8(env, bytes.as_ptr().cast(), bytes.len() as isize, &mut value)
+    } != sys::Status::napi_ok
+    {
+      clear_pending_exception(env);
+      return None;
+    }
+    Some(value)
+  };
+  let Some(sentinel) = create_string(c"napi-rs reflect probe") else {
+    return false;
+  };
+  let mut probe = ptr::null_mut();
+  if unsafe { sys::napi_create_object(env, &mut probe) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return false;
+  }
+  let properties = [
+    sys::napi_property_descriptor {
+      utf8name: c"data".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: sentinel,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+    sys::napi_property_descriptor {
+      utf8name: c"accessor".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: Some(probe_accessor_getter),
+      setter: None,
+      value: ptr::null_mut(),
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+  ];
+  if unsafe { sys::napi_define_properties(env, probe, properties.len(), properties.as_ptr()) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return false;
+  }
+  let call_candidate = |key: &CStr| -> Option<sys::napi_value> {
+    let key_value = create_string(key)?;
+    let args = [probe, key_value];
+    let mut descriptor = ptr::null_mut();
+    if unsafe {
+      sys::napi_call_function(
+        env,
+        reflect,
+        get_own_property_descriptor,
+        args.len(),
+        args.as_ptr(),
+        &mut descriptor,
+      )
+    } != sys::Status::napi_ok
+    {
+      clear_pending_exception(env);
+      return None;
+    }
+    Some(descriptor)
+  };
+  let has_own = |object: sys::napi_value, key: &CStr| -> Option<bool> {
+    let key_value = create_string(key)?;
+    let mut result = false;
+    if unsafe { sys::napi_has_own_property(env, object, key_value, &mut result) }
+      != sys::Status::napi_ok
+    {
+      clear_pending_exception(env);
+      return None;
+    }
+    Some(result)
+  };
+  let hits_before = PROBE_ACCESSOR_HITS.with(|hits| hits.get());
+
+  // A data property must come back as a descriptor whose own `value` is the
+  // sentinel, verbatim.
+  let Some(descriptor) = call_candidate(c"data") else {
+    return false;
+  };
+  if type_without_coercion(env, descriptor) != Some(sys::ValueType::napi_object) {
+    return false;
+  }
+  if has_own(descriptor, c"value") != Some(true) {
+    return false;
+  }
+  let mut reported = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, descriptor, c"value".as_ptr(), &mut reported) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return false;
+  }
+  let mut is_sentinel = false;
+  if unsafe { sys::napi_strict_equals(env, reported, sentinel, &mut is_sentinel) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return false;
+  }
+  if !is_sentinel {
+    return false;
+  }
+
+  // An accessor property must be *described*, never *read*: an own `get`, no
+  // own `value`, and the native getter untouched.
+  let Some(descriptor) = call_candidate(c"accessor") else {
+    return false;
+  };
+  if type_without_coercion(env, descriptor) != Some(sys::ValueType::napi_object) {
+    return false;
+  }
+  if has_own(descriptor, c"value") != Some(false) {
+    return false;
+  }
+  if has_own(descriptor, c"get") != Some(true) {
+    return false;
+  }
+
+  // A missing property must yield `undefined`, not a fabricated descriptor.
+  let Some(descriptor) = call_candidate(c"missing") else {
+    return false;
+  };
+  if type_without_coercion(env, descriptor) != Some(sys::ValueType::napi_undefined) {
+    return false;
+  }
+
+  PROBE_ACCESSOR_HITS.with(|hits| hits.get()) == hits_before
+}
+
 /// Resolves and caches the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
 /// pair. Called from `napi_register_module_v1`, once per env registration, on
 /// the env's own thread.
@@ -613,6 +831,24 @@ thread_local! {
 /// global mid-capture. A `Reflect` that is missing, not an object, or without a
 /// callable `getOwnPropertyDescriptor` leaves the cache empty and every capture
 /// on this env degrades to an empty reason/cause.
+///
+/// **Trust boundary.** What this cache holds is whatever
+/// `globalThis.Reflect.getOwnPropertyDescriptor` resolved to when the addon
+/// loaded. Code that ran *before* the addon loaded can have replaced it, and
+/// that replacement is then invoked during capture. This is accepted
+/// deliberately, because it is not a defensible line: a pre-load adversary
+/// already owns the addon's entire surface (it can wrap `require`, interpose
+/// every export, or patch the module loader), and Node-API offers no
+/// alternative — no descriptor-read primitive, no non-`[[Get]]` global access,
+/// no fresh-realm escape hatch, and no pristine reference to compare against
+/// (see [`probe_get_own_property_descriptor`]). Omitting `reason`/`cause`
+/// entirely would not close that boundary; it would only take fidelity away
+/// from every non-adversarial user. What *is* enforced is behavior: the
+/// resolved candidate must pass a registration-time sanity probe against an
+/// object whose shape JavaScript cannot interpose, so a broken or crudely
+/// hostile replacement is dropped at a defined moment — the env then degrades
+/// to an empty reason/cause permanently, and the impostor is never invoked
+/// during capture. The retained value itself never depends on any of this.
 ///
 /// Best effort: any failure clears the pending exception and leaves the slot
 /// unchanged. `napi_get_global`, `napi_get_named_property` and
@@ -651,6 +887,15 @@ pub(crate) fn cache_reflect_intrinsics_for_env(env: sys::napi_env) {
   }
   if type_without_coercion(env, get_own_property_descriptor) != Some(sys::ValueType::napi_function)
   {
+    return;
+  }
+  // Registration-time sanity probe: only a candidate that behaves like the
+  // intrinsic on an object of known, non-interposable shape is cached. A
+  // failing candidate is dropped here — leaving the slot as it was, so this
+  // env's captures degrade to an empty reason/cause (or, on a re-registration,
+  // keep the pair the first load vetted) — rather than being invoked during
+  // every capture.
+  if !probe_get_own_property_descriptor(env, reflect, get_own_property_descriptor) {
     return;
   }
   // Pin both behind one reference: a holder object whose own data properties
