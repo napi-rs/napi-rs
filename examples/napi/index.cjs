@@ -838,6 +838,7 @@ module.exports.asyncTaskArraybuffer = nativeBinding.asyncTaskArraybuffer
 module.exports.asyncTaskFinally = nativeBinding.asyncTaskFinally
 module.exports.asyncTaskOptionalReturn = nativeBinding.asyncTaskOptionalReturn
 module.exports.asyncTaskReadFile = nativeBinding.asyncTaskReadFile
+module.exports.asyncTaskRejectWithCapturedValue = nativeBinding.asyncTaskRejectWithCapturedValue
 module.exports.asyncTaskVoidReturn = nativeBinding.asyncTaskVoidReturn
 module.exports.awaitRejectionOffThread = nativeBinding.awaitRejectionOffThread
 module.exports.bigintAdd = nativeBinding.bigintAdd

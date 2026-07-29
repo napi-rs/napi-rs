@@ -694,6 +694,8 @@ export const asyncTaskFinally = __napiModule.exports.asyncTaskFinally
 export const asyncTaskOptionalReturn =
   __napiModule.exports.asyncTaskOptionalReturn
 export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
+export const asyncTaskRejectWithCapturedValue =
+  __napiModule.exports.asyncTaskRejectWithCapturedValue
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
 export const awaitRejectionOffThread =
   __napiModule.exports.awaitRejectionOffThread

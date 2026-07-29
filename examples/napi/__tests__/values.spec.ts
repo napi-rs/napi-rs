@@ -107,6 +107,7 @@ import {
   withoutAbortController,
   withAbortController,
   asyncTaskReadFile,
+  asyncTaskRejectWithCapturedValue,
   asyncTaskOptionalReturn,
   asyncTaskFinally,
   asyncResolveArray,
@@ -2276,6 +2277,38 @@ Napi4Test(
     }
   },
 )
+
+test('an AsyncTask rejecting with a captured value settles with the identical value', async (t) => {
+  // Same contract as the deferred/promise settlement paths, on the
+  // `napi_create_async_work` completion path: an `Error` captured on the JS
+  // thread with `Error::from_unknown_without_coercion`, carried through
+  // `Task::compute` on the libuv thread and handed back by the default
+  // `Task::reject`, must reject the promise with the retained value itself.
+  // Asserting the message is not enough — the bug this guards against
+  // (`JsError::into_value`'s `napi_is_error` gate on the completion path)
+  // produced a synthesized `Error` carrying the same reason.
+  const rejections: [string, unknown][] = [
+    ['string', 'boom'],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['boolean', false],
+    ['bigint', 7n],
+    ['symbol', Symbol('marker')],
+    ['plain object', { tag: 'marker' }],
+    ['array', [1, 2, 3]],
+    ['function', function marker() {}],
+    ['Error', new TypeError('a real error')],
+  ]
+  for (const [label, value] of rejections) {
+    const settled = await asyncTaskRejectWithCapturedValue(value).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${label} should reject`)
+    t.is(settled.value, value, `${label} should reject with the same value`)
+  }
+})
 
 Napi4Test('call ThreadsafeFunction with callback', async (t) => {
   await t.notThrowsAsync(

@@ -543,6 +543,8 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<import("buffer").Buffer>
 
+export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
+
 export declare function asyncTaskVoidReturn(): Promise<void>
 
 /**
