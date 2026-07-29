@@ -980,6 +980,172 @@ if (isThreadlessWasi) {
       `a drain that failed must not mark itself complete: the ${flavor} loader's retried disposal has to wait for the queued settlements again instead of destroying the environment out from under them:\n${poisonedDrainOutput}`,
     )
   }
+
+  // The drain's other failure mode: the wait runs out of turns with
+  // `napi_wasm_env_cleanup_pending` still nonzero — a settlement whose delivery
+  // is delayed past the bound. Marking that "finished" would be
+  // indistinguishable from the stranding above: disposal would destroy the
+  // context, whose cleanup hook discards the still-queued settlement with a
+  // null env. The loaders must instead reject with
+  // ERR_NAPI_WASI_CLEANUP_PENDING, leave the drained flag unset, decline to
+  // destroy, and let a later dispose() wait for the queue again.
+  //
+  // A genuinely late delivery cannot be produced deterministically — the drain
+  // itself yields the very turns @emnapi/core dispatches on — so the counter is
+  // forced instead: `WebAssembly.Instance.prototype.exports` is a configurable
+  // accessor, and wrapping it before the loader runs lets the harness clamp
+  // `napi_wasm_env_cleanup_pending` to >= 1 while `stuck` is set, leaving every
+  // other export untouched. The clamp also stands in for a counter that is
+  // simply stuck: each dispose() attempt costs one bounded wait and one
+  // rejection, never a stranded promise, and the retry after `stuck` is lifted
+  // succeeds.
+  for (const flavor of ['eager', 'deferred']) {
+    const load =
+      flavor === 'eager'
+        ? `
+        const require = createRequire(${JSON.stringify(import.meta.url)})
+        const binding = require(${JSON.stringify(eagerLoaderPath)})
+        const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+      `
+        : `
+        const { createInstance } = await import(
+          pathToFileURL(${JSON.stringify(deferredLoaderPath)}).href
+        )
+        const wasmModule = await WebAssembly.compile(
+          readFileSync(${JSON.stringify(wasmPath)}),
+        )
+        const instance = await createInstance(wasmModule)
+        const binding = instance.exports
+        const dispose = () => instance.dispose()
+      `
+    const stuckPending = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+        import { readFileSync } from 'node:fs'
+        import { createRequire } from 'node:module'
+        import { pathToFileURL } from 'node:url'
+
+        const timeout = setTimeout(() => {
+          console.error('STUCK_PENDING_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+
+        // Installed BEFORE the loader runs, so every read of
+        // \`instance.exports\` — including the drain's — goes through the
+        // wrapper. Only \`napi_wasm_env_cleanup_pending\` is touched, and only
+        // its return value, and only while \`stuck\` is set: the real export
+        // still runs, so the barrier and queue behave exactly as shipped. A
+        // plain copy rather than a Proxy: the exports' properties are
+        // non-configurable data properties, so a Proxy \`get\` trap is not
+        // allowed to substitute their values.
+        const exportsDescriptor = Object.getOwnPropertyDescriptor(
+          WebAssembly.Instance.prototype,
+          'exports',
+        )
+        let stuck = false
+        const wrappedExports = new WeakMap()
+        Object.defineProperty(WebAssembly.Instance.prototype, 'exports', {
+          configurable: true,
+          get() {
+            const real = exportsDescriptor.get.call(this)
+            let wrapped = wrappedExports.get(real)
+            if (!wrapped) {
+              wrapped = {}
+              for (const name of Object.keys(real)) {
+                const value = real[name]
+                if (
+                  name === 'napi_wasm_env_cleanup_pending' &&
+                  typeof value === 'function'
+                ) {
+                  wrapped[name] = (...args) => {
+                    const pending = value(...args)
+                    return stuck ? Math.max(pending, 1) : pending
+                  }
+                } else {
+                  wrapped[name] = value
+                }
+              }
+              wrappedExports.set(real, wrapped)
+            }
+            return wrapped
+          },
+        })
+
+        ${load}
+
+        // In flight when the barrier runs, so a real settlement is queued and
+        // the drain has a genuine wait to perform before the clamp takes over.
+        let queued = 'PENDING'
+        binding.asyncDouble(21).then(
+          (value) => { queued = 'RESOLVED: ' + value },
+          (error) => { queued = 'REJECTED: ' + error.message },
+        )
+
+        stuck = true
+        let first = 'RESOLVED'
+        let firstCode = 'NONE'
+        try {
+          await dispose()
+        } catch (error) {
+          first = 'REJECTED: ' + error.message
+          firstCode = String(error.code)
+        }
+        stuck = false
+
+        let second = 'RESOLVED'
+        try {
+          await dispose()
+        } catch (error) {
+          second = 'REJECTED: ' + error.message
+        }
+
+        console.error('STUCK_PENDING_FIRST ' + first)
+        console.error('STUCK_PENDING_FIRST_CODE ' + firstCode)
+        console.error('STUCK_PENDING_SECOND ' + second)
+        console.error('STUCK_PENDING_QUEUED ' + queued)
+        process.exit(0)
+      `,
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    )
+    const stuckPendingOutput = `${stuckPending.stdout}\n${stuckPending.stderr}`
+    assert.equal(stuckPending.error, undefined, stuckPending.error?.stack)
+    assert.equal(stuckPending.signal, null, stuckPendingOutput)
+    assert.equal(stuckPending.status, 0, stuckPendingOutput)
+    // Direction one: nonzero at the bound must reject as retryable, not count
+    // as finished — with the shipped behavior the first dispose() RESOLVES here
+    // and the context is destroyed over the (apparently) still-queued
+    // settlement.
+    assert.match(
+      stuckPendingOutput,
+      /STUCK_PENDING_FIRST REJECTED: .*still reports 1 queued settlement/,
+      `the ${flavor} loader must reject a drain whose counter is still nonzero at the turn limit:\n${stuckPendingOutput}`,
+    )
+    assert.match(
+      stuckPendingOutput,
+      /STUCK_PENDING_FIRST_CODE ERR_NAPI_WASI_CLEANUP_PENDING/,
+      `the ${flavor} loader's turn-limit rejection must carry its documented code:\n${stuckPendingOutput}`,
+    )
+    // Direction two: the failure is retryable, and a counter that reads zero
+    // again disposes cleanly.
+    assert.match(
+      stuckPendingOutput,
+      /STUCK_PENDING_SECOND RESOLVED/,
+      `the ${flavor} loader's disposal must stay retryable after a turn-limit rejection:\n${stuckPendingOutput}`,
+    )
+    // The declined destroy left the environment intact while the real queue was
+    // delivered during the bounded wait: the in-flight task's settlement
+    // reached its promise instead of being discarded.
+    assert.match(
+      stuckPendingOutput,
+      /STUCK_PENDING_QUEUED RESOLVED: 42/,
+      `a turn-limit rejection must not destroy the context out from under the queued settlement:\n${stuckPendingOutput}`,
+    )
+  }
 }
 
 if (combinedWasiDirectory) {

@@ -182,7 +182,10 @@ const __scheduleMacrotask = (function () {
 })()
 
 // Turns to wait for while the addon still reports queued settlements. Reaching
-// zero is the success condition, not a guarantee, so the wait stays bounded.
+// zero is the only success. A counter still nonzero at this bound rejects the
+// disposal as retryable (`ERR_NAPI_WASI_CLEANUP_PENDING`) rather than
+// destroying the context over a still-queued settlement — the wait stays
+// bounded either way.
 const __WASM_ENV_CLEANUP_DRAIN_TURNS = 128
 // Without `napi_wasm_env_cleanup_pending` the queue is not observable. Fall
 // back to the number of turns @emnapi/core needs to coalesce and dispatch a
@@ -223,6 +226,7 @@ function __drainWasmEnvCleanup(__instance) {
     ? __WASM_ENV_CLEANUP_DRAIN_TURNS
     : __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS
   return (async () => {
+    let __queued = 0
     for (let __turn = 0; __turn < __limit; __turn++) {
       await new Promise((resolve) => {
         __scheduleMacrotask(resolve)
@@ -230,7 +234,6 @@ function __drainWasmEnvCleanup(__instance) {
       if (!__observable) {
         continue
       }
-      let __queued
       try {
         __queued = __pending()
       } catch {
@@ -240,6 +243,33 @@ function __drainWasmEnvCleanup(__instance) {
         return
       }
     }
+    if (!__observable) {
+      // Blind wait: without `napi_wasm_env_cleanup_pending` the bound IS the
+      // contract — there is nothing to consult, so finishing the turns is
+      // finishing the drain.
+      return
+    }
+    // The counter is still nonzero after every turn the bound allows. The wait
+    // stays bounded — but claiming success here would be indistinguishable from
+    // the stranding this drain exists to prevent: disposal would go on to
+    // destroy the context, whose cleanup hook discards the still-queued
+    // settlement with a null env, and the promise it was for hangs forever.
+    // Reject instead, as a retryable cleanup failure: `__prepareForDisposal`
+    // leaves its drained flag unset, dispose() (and the instantiation-failure
+    // path) decline to destroy, and a later dispose() runs the drain again — by
+    // which time the queue has usually been delivered. A counter that is
+    // somehow stuck nonzero therefore costs each attempt at most another
+    // bounded wait and a rejection, never a stranded promise; the managed
+    // beforeExit destroyer still reclaims the context.
+    const __drainError = new Error(
+      'the wasm environment still reports ' +
+        __queued +
+        ' queued settlement(s) after ' +
+        __limit +
+        ' event-loop turns; the context was not destroyed - retry dispose() to wait for the queue again',
+    )
+    __drainError.code = 'ERR_NAPI_WASI_CLEANUP_PENDING'
+    throw __drainError
   })()
 }
 
