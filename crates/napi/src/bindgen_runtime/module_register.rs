@@ -373,6 +373,17 @@ unsafe extern "C" fn napi_register_wasm_v1(
 /// queue and, in a browser, may not block at all. Addons that need the hard guarantee register
 /// an `AsyncRuntime` backend, whose `shutdown` contract provides it.
 ///
+/// # The runtime stays down
+///
+/// Calling this declares the environment to be disposing, and that declaration outlives the
+/// call: the runtime is latched against restart until a *new* environment registers this addon
+/// image. Yielding to the event loop — which the drain above requires — lets arbitrary
+/// JavaScript run, and an addon export called from it would otherwise restart the runtime this
+/// just quiesced, behind the back of a drain that has no way to see the new work. From here on,
+/// `start_async_runtime` is a no-op and every runtime-backed call returns a promise rejected
+/// with [`Status::Cancelled`](crate::Status) rather than starting work the environment is about
+/// to destroy. Synchronous exports are unaffected.
+///
 /// Repeated calls are harmless — the loaders guard against them anyway, and the finalizer that
 /// still fires later performs the same idempotent teardown.
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
@@ -388,6 +399,14 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
     // two macrotasks later — which a caller that destroys the environment synchronously never
     // reaches. The guard is scoped to the shutdown, so ordinary settles after this returns go
     // back through the queue.
+    //
+    // Latch *before* the shutdown, and leave it latched after this returns: the drain below is
+    // an event loop, so the rejections this shutdown delivers run their JavaScript handlers
+    // while the environment is still alive, and an addon export called from one of them would
+    // otherwise restart the very runtime that just quiesced — behind the back of a drain that
+    // cannot see the restarted work. Runtime-backed calls made from here on reject with a
+    // defined error instead.
+    crate::tokio_runtime::latch_wasm_env_disposal();
     let _deliver_settlements = crate::js_values::WasmEnvCleanupBarrier::enter();
     crate::tokio_runtime::shutdown_async_runtime();
   }
@@ -441,6 +460,17 @@ pub unsafe extern "C" fn napi_register_module_v1(
   unsafe {
     sys::setup();
   }
+  // A new environment is registering this addon image, so whatever disposal latched the runtime
+  // against restart is over. This is the only release point, and the only one that is safe:
+  // emnapi runs module registration on the main thread only, so a `wasm32-wasip1-threads` worker
+  // sharing this linear memory can never reach it mid-disposal. See
+  // `tokio_runtime::WASM_ENV_DISPOSING`.
+  #[cfg(all(
+    target_family = "wasm",
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  crate::tokio_runtime::release_wasm_env_disposal_latch();
   #[cfg(feature = "node_version_detect")]
   {
     NODE_VERSION.get_or_init(|| {

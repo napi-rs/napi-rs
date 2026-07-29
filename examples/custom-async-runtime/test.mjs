@@ -696,6 +696,140 @@ if (disposeBinding) {
   await disposeBinding()
 }
 
+if (isThreadlessWasi) {
+  // The drain is an event loop, and that is the part that bites: between its
+  // macrotask turns JavaScript runs, including the rejection handlers of the
+  // very promises the barrier just cancelled. An addon export called from one of
+  // those handlers used to walk straight back into the dispatch path, where
+  // `ensure_started` found the `Idle` phase the teardown left behind and started
+  // the backend again — after its `shutdown` had already reported quiescence.
+  // Nothing in the threadsafe-function queue represents that restarted work, so
+  // `napi_wasm_env_cleanup_pending` reads zero, the drain stops waiting, and
+  // `Context.destroy()` runs with the work still live: its promise is stranded,
+  // which is exactly the failure the barrier exists to prevent.
+  //
+  // So the barrier latches the runtime against restart for the rest of the
+  // disposal, and a runtime-backed call made during it rejects with a defined
+  // error instead of silently reviving the backend.
+  //
+  // Driven through the *generated* loader, because the generated drain is what
+  // opens the window, and in its own process so a promise that never settles
+  // shows up as a stranded promise here rather than a hang somewhere else.
+  const generatedEagerLoader = join(
+    dirname(fileURLToPath(import.meta.url)),
+    'custom_async_runtime.wasip1.cjs',
+  )
+  await access(generatedEagerLoader)
+
+  const restartDuringDrain = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const binding = require(${JSON.stringify(generatedEagerLoader)})
+        const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+        const timeout = setTimeout(() => {
+          console.error('RESTART_DRAIN_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+
+        const before = binding.getRuntimeMetrics()
+        let handler = 'HANDLER_DID_NOT_RUN'
+        let reentrant = 'PENDING'
+        let reentrantCode = 'NONE'
+        let disposeSettled = false
+        let settledBeforeDestroy = false
+
+        // Cancelled by the barrier's shutdown; its rejection handler is the
+        // reentrancy vector.
+        binding.asyncNever().catch(() => {
+          const promise = binding.asyncNever()
+          promise.then(
+            () => {
+              reentrant = 'RESOLVED'
+              settledBeforeDestroy = !disposeSettled
+            },
+            (error) => {
+              reentrant = 'REJECTED: ' + error.message
+              reentrantCode = String(error.code)
+              settledBeforeDestroy = !disposeSettled
+            },
+          )
+          const during = binding.getRuntimeMetrics()
+          handler =
+            'startCalls=' + during.startCalls +
+            ' shutdownCalls=' + during.shutdownCalls +
+            ' spawnCalls=' + during.spawnCalls
+        })
+
+        // Force a real drain: this settlement goes through the
+        // threadsafe-function queue, so the barrier leaves a non-zero pending
+        // count and the loader has to yield event-loop turns.
+        binding.asyncDouble(21).catch(() => {})
+
+        dispose().then(
+          async () => {
+            disposeSettled = true
+            for (let index = 0; index < 60; index++) {
+              await new Promise((resolve) => setImmediate(resolve))
+            }
+            console.error('RESTART_DRAIN_BEFORE startCalls=' + before.startCalls)
+            console.error('RESTART_DRAIN_HANDLER ' + handler)
+            console.error('RESTART_DRAIN_REENTRANT ' + reentrant)
+            console.error('RESTART_DRAIN_CODE ' + reentrantCode)
+            console.error('RESTART_DRAIN_BEFORE_DESTROY ' + settledBeforeDestroy)
+            process.exit(0)
+          },
+          (error) => {
+            console.error('RESTART_DRAIN_DISPOSE_THREW', error)
+            process.exit(48)
+          },
+        )
+      `,
+    ],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  const restartDuringDrainOutput = `${restartDuringDrain.stdout}\n${restartDuringDrain.stderr}`
+  assert.equal(
+    restartDuringDrain.error,
+    undefined,
+    restartDuringDrain.error?.stack,
+  )
+  assert.equal(restartDuringDrain.signal, null, restartDuringDrainOutput)
+  assert.equal(restartDuringDrain.status, 0, restartDuringDrainOutput)
+  // The handler has to have run at all, otherwise everything below is vacuous.
+  assert.match(
+    restartDuringDrainOutput,
+    /RESTART_DRAIN_HANDLER startCalls=/,
+    `the barrier must reject the in-flight promise while the loader can still run its handler:\n${restartDuringDrainOutput}`,
+  )
+  // The latch: the backend must not have been started a second time.
+  assert.match(
+    restartDuringDrainOutput,
+    /RESTART_DRAIN_BEFORE startCalls=1\b/,
+    restartDuringDrainOutput,
+  )
+  assert.match(
+    restartDuringDrainOutput,
+    /RESTART_DRAIN_HANDLER startCalls=1 shutdownCalls=1\b/,
+    `an addon export called during disposal must not restart the backend the cleanup barrier shut down:\n${restartDuringDrainOutput}`,
+  )
+  // …and the call it refused must still be answered, before the environment goes
+  // away, rather than left pending forever.
+  assert.match(
+    restartDuringDrainOutput,
+    /RESTART_DRAIN_REENTRANT REJECTED: the wasm environment is being disposed/,
+    `a runtime-backed call made during disposal must reject with a defined error, not strand its promise:\n${restartDuringDrainOutput}`,
+  )
+  assert.match(restartDuringDrainOutput, /RESTART_DRAIN_CODE Cancelled/)
+  assert.match(
+    restartDuringDrainOutput,
+    /RESTART_DRAIN_BEFORE_DESTROY true/,
+    `the rejection must reach JavaScript before Context.destroy(), which is what the drain is for:\n${restartDuringDrainOutput}`,
+  )
+}
+
 if (isManualThreadlessWasi) {
   // Initialization rollback has to drain too, and it is easy to convince
   // yourself it does not need to. Registration runs with a *live* environment,

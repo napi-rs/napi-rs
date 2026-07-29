@@ -1,4 +1,10 @@
-#[cfg(all(feature = "async-runtime", feature = "tokio_rt", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    all(feature = "async-runtime", feature = "tokio_rt"),
+    target_family = "wasm"
+  )
+))]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(feature = "noop"))]
 use std::sync::OnceLock;
@@ -34,6 +40,70 @@ const LATE_RUNTIME_REGISTRATION_ERROR: &str = "register_async_runtime must be ca
 const MISSING_RUNTIME_BACKEND_ERROR: &str = "no AsyncRuntime backend is registered; call `register_async_runtime` from `#[module_init]` before invoking runtime-backed operations";
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 const TASK_CANCELLED_ERROR: &str = "task was cancelled before completion";
+
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+const WASM_ENV_DISPOSING_ERROR: &str = "the wasm environment is being disposed: its async runtime was shut down by napi_prepare_wasm_env_cleanup and cannot accept new work";
+
+/// Latched by the `napi_prepare_wasm_env_cleanup` export before it shuts the async runtime down,
+/// and released only when a *new* environment registers this addon image.
+///
+/// # Why a latch is needed at all
+///
+/// The barrier is not the last thing that happens to the environment. It shuts the runtime down
+/// while the environment is still fully alive, and the settlements it produces reject promises
+/// whose handlers are ordinary JavaScript. Those handlers run before the environment is
+/// destroyed — the generated loaders' drain deliberately yields real event-loop turns so the
+/// threadsafe-function queue can be dispatched, and every one of those turns is a turn in which
+/// arbitrary JavaScript runs.
+///
+/// Without a latch, an addon export called from one of those handlers walks straight back into
+/// the dispatch path, where [`AsyncRuntimeRegistry::ensure_started`] finds the
+/// [`LifecyclePhase::Idle`] the teardown left behind and starts the backend again — after its
+/// `shutdown` already reported quiescence. The restarted work is not in the
+/// threadsafe-function queue, so `napi_wasm_env_cleanup_pending` does not see it, the drain
+/// reads zero, and `Context.destroy()` runs with that work still live: its promise is stranded,
+/// which is the exact failure the barrier exists to prevent. On the built-in Tokio path the
+/// same call instead reaches an `RT` slot the teardown drained and panics on it, which on wasm
+/// traps the whole instance.
+///
+/// # Scope
+///
+/// "The remainder of environment disposal" is the lifetime of this wasm instance's linear
+/// memory, which is where this static lives. Rust statics are per-instance; a second
+/// environment in the same process (another Worker, a re-`require` after a fresh
+/// `WebAssembly.Memory`, a browser page reload) gets a fresh instance and a fresh, unlatched
+/// static, so latching here can never poison an environment that legitimately follows this one.
+///
+/// The one case that *does* share this static is `wasm32-wasip1-threads`, whose worker threads
+/// instantiate the same module over the same shared memory — but emnapi only runs module
+/// registration on the main thread (`if (!napiModule.childThread)`), so a worker never releases
+/// the latch mid-disposal. Registration is therefore the single event that unambiguously means
+/// "a live environment needs this addon again", and it is where the latch is released.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+static WASM_ENV_DISPOSING: AtomicBool = AtomicBool::new(false);
+
+/// Latch the runtime against restart for the remainder of this environment's disposal.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn latch_wasm_env_disposal() {
+  WASM_ENV_DISPOSING.store(true, Ordering::SeqCst);
+}
+
+/// Release the latch because a new environment registered this addon image. See
+/// [`WASM_ENV_DISPOSING`] for why registration is the only safe release point.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn release_wasm_env_disposal_latch() {
+  WASM_ENV_DISPOSING.store(false, Ordering::SeqCst);
+}
+
+/// Whether the current environment is past its cleanup barrier. Every caller is wasm-gated: the
+/// barrier is a wasm-only export, and native teardown runs after JavaScript is already disabled,
+/// so there is no window for a reentrant call to restart anything and nothing on the native
+/// paths changes.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[inline]
+fn wasm_env_disposing() -> bool {
+  WASM_ENV_DISPOSING.load(Ordering::SeqCst)
+}
 
 /// Marker trait for the guard returned by [`AsyncRuntime::enter`].
 ///
@@ -536,7 +606,17 @@ impl AsyncRuntimeRegistry {
   /// the lifecycle lock in [`Self::run_claimed_start`]. A dispatch that observes an in-flight
   /// `Starting` proceeds without waiting; spawning before `start` completes is
   /// contract-legal (see [`AsyncRuntime::spawn`]).
+  ///
+  /// Past the wasm environment cleanup barrier this claims nothing: the `Idle` phase there is
+  /// the one the barrier's teardown left behind, and restarting the backend from a JavaScript
+  /// callback that runs during disposal would create resources the already-returned `shutdown`
+  /// can never stop (see [`WASM_ENV_DISPOSING`]). The dispatch then proceeds against the
+  /// stopped backend, exactly like a dispatch that races a teardown.
   fn ensure_started(&self, backend: &dyn AsyncRuntime) {
+    #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+    if wasm_env_disposing() {
+      return;
+    }
     {
       let mut state = self.lock_state();
       match state.phase {
@@ -568,6 +648,14 @@ impl AsyncRuntimeRegistry {
     not(feature = "noop")
   ))]
   fn within_runtime<F: FnOnce() -> T, T>(&self, f: F) -> T {
+    // Past the wasm environment cleanup barrier the backend has been shut down and must not be
+    // brought back up or entered again (see [`WASM_ENV_DISPOSING`]). A synchronous export still
+    // has to run — it has a value to return — so it runs without the runtime context, exactly
+    // like it would on a build with no backend registered.
+    #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+    if wasm_env_disposing() {
+      return f();
+    }
     if let Some(backend) = self.commit_selection(false) {
       self.ensure_started(backend);
       let _guard = match catch_unwind(AssertUnwindSafe(|| backend.enter())) {
@@ -967,6 +1055,15 @@ pub fn create_custom_tokio_runtime(_: Runtime) {}
 /// So, you need to call `shutdown_async_runtime` function to manually shutdown the async runtime.
 /// In some scenarios, you may want to start the async runtime again like in tests.
 pub fn start_async_runtime() {
+  // Past the wasm environment cleanup barrier this is a no-op, so an addon export called from a
+  // JavaScript callback that runs during disposal cannot bring the runtime back up behind the
+  // loader's back — neither the custom backend (through `activate`) nor the built-in Tokio
+  // runtime the teardown drained. See [`WASM_ENV_DISPOSING`]. Module registration releases the
+  // latch before calling this, so a new environment still starts normally.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    return;
+  }
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.activate() {
     // A custom backend owns the runtime lifecycle; do not construct Tokio. But in combined
@@ -1106,6 +1203,15 @@ where
 /// In combined `tokio_rt` + `async-runtime` builds this established helper stays Tokio-backed,
 /// so Cargo feature unification cannot silently change its routing.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  // Past the wasm environment cleanup barrier the built-in runtime has been drained, and the
+  // `.expect` below would abort on the empty slot — a wasm trap that poisons the whole instance,
+  // from a synchronous export a disposal-time JavaScript callback is free to call. Run the
+  // closure without a runtime context instead; it is the same thing this helper does when no
+  // runtime is available at all. See [`WASM_ENV_DISPOSING`].
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    return f();
+  }
   RT.read()
     .ok()
     .and_then(|rt| {
@@ -1190,6 +1296,23 @@ fn execute_future_impl<
   let (mut deferred, promise) = JsDeferred::new(&env)?;
   deferred.set_finalize_callback(finalize_callback);
   let promise_value = promise.0.value;
+
+  // Past the wasm environment cleanup barrier the runtime is gone for good: the custom backend
+  // has been shut down and, on the built-in Tokio path, `RT` has been drained (where `spawn`
+  // would `.expect` on the empty slot and trap the instance). Reject rather than dispatch, so a
+  // call made from a JavaScript callback that runs during disposal gets a defined, settled
+  // promise instead of one that is stranded when `Context.destroy()` arrives. The rejection goes
+  // through the ordinary settle path: made on this thread outside the barrier it is queued and
+  // therefore counted, so the loader's drain waits for it and it reaches JavaScript before the
+  // environment is destroyed.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    deferred.reject(Error::new(
+      crate::Status::Cancelled,
+      WASM_ENV_DISPOSING_ERROR,
+    ));
+    return Ok(promise_value);
+  }
 
   #[cfg(feature = "async-runtime")]
   if let Some(reason) = ASYNC_RUNTIME_REGISTRY.deferred_registration_error() {
