@@ -33,12 +33,12 @@ function prepareWasmEnvCleanup() {
   }
   cleanupPrepared = true
 }
-// Mirrors the generated loaders: the barrier only *queues* the settlements of
-// the tasks it cancelled, and @emnapi/core dispatches that queue from a
+// Mirrors the generated loaders. The barrier delivers every settlement it can
+// reach from this thread, but a task cancelled on another thread can only
+// *queue* its settlement, and @emnapi/core dispatches that queue from a
 // macrotask two coalescing turns later. `context.destroy()` drains the queue
-// with a null env and discards whatever is left, so the loader has to yield
-// real turns in between or it strands exactly the promises the barrier exists
-// to settle.
+// with a null env and discards whatever is left, so a loader that can yield has
+// to yield real turns in between rather than strand those.
 async function drainWasmEnvCleanup() {
   if (cleanupDrained || !cleanupRan) return
   cleanupDrained = true
@@ -120,6 +120,23 @@ module.exports = {
     typeof napiInstance?.exports.napi_prepare_wasm_env_cleanup === 'function',
   hasWasmEnvCleanupPendingExport:
     typeof napiInstance?.exports.napi_wasm_env_cleanup_pending === 'function',
+  // How many settlements are still sitting in the threadsafe-function queue.
+  // The barrier delivers everything it settles on this thread without going
+  // through the queue at all, so right after it returns this reads zero and the
+  // drain above has nothing to wait for.
+  wasmEnvCleanupPending() {
+    const pending = napiInstance?.exports.napi_wasm_env_cleanup_pending
+    return typeof pending === 'function' ? pending() : undefined
+  },
+  // The teardown a host that cannot yield is stuck with: barrier and
+  // `Context.destroy()` back to back, in one synchronous turn, with no chance
+  // for @emnapi/core to dispatch anything in between. It is exactly what the
+  // `process.on('exit')` handler above runs, and what a caller reaching for
+  // `emnapiContext.destroy()` by hand gets.
+  disposeSync() {
+    process.removeListener('exit', destroyContextOnExit)
+    return destroyContext()
+  },
   async dispose() {
     process.removeListener('exit', destroyContextOnExit)
     prepareWasmEnvCleanup()

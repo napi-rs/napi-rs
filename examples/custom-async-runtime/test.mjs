@@ -593,11 +593,68 @@ if (disposeBinding) {
     `dispose() must settle the promise of a task its teardown barrier cancelled, without the caller driving the barrier by hand:\n${ordinaryDisposeOutput}`,
   )
   assert.match(ordinaryDisposeOutput, /ORDINARY_DISPOSE_OUTCOME REJECTED: /)
+
+  // The other arbiter, and the one a drain can never satisfy: barrier and
+  // `Context.destroy()` in a single synchronous turn, with nothing awaited in
+  // between. A host may have no choice — `process.on('exit')` cannot yield, and
+  // a caller holding the emnapi context can just call `destroy()` — so the
+  // barrier has to *deliver* the settlements it produces on this thread rather
+  // than leave them in a queue @emnapi/core would dispatch two macrotasks later
+  // and `destroy()` would discard with a null env.
+  const synchronousDispose = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const loaded = require(${JSON.stringify(resolvedBindingFile)})
+        const timeout = setTimeout(() => {
+          console.error('SYNC_DISPOSE_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+        let outcome = 'PENDING'
+        const stranded = loaded.binding.asyncNever()
+        stranded.then(
+          () => { outcome = 'RESOLVED' },
+          (error) => { outcome = 'REJECTED: ' + error.message },
+        )
+        loaded.prepareWasmEnvCleanup()
+        // Nothing may be left in the threadsafe-function queue: whatever the
+        // barrier settled here never entered it, and the synchronous destroy
+        // below is about to throw the queue away.
+        const queued = loaded.wasmEnvCleanupPending()
+        loaded.disposeSync()
+        ;(async () => {
+          // Well past the two turns @emnapi/core needs: if the settlement did
+          // not land by now, it never will.
+          for (let index = 0; index < 50; index++) {
+            await new Promise((resolve) => setImmediate(resolve))
+          }
+          console.error('SYNC_DISPOSE_QUEUED ' + queued)
+          console.error('SYNC_DISPOSE_OUTCOME ' + outcome)
+          process.exit(outcome.startsWith('REJECTED: ') && queued === 0 ? 0 : 47)
+        })()
+      `,
+    ],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  const synchronousDisposeOutput = `${synchronousDispose.stdout}\n${synchronousDispose.stderr}`
+  assert.equal(synchronousDispose.error, undefined, synchronousDispose.error?.stack)
+  assert.equal(synchronousDispose.signal, null, synchronousDisposeOutput)
+  assert.equal(
+    synchronousDispose.status,
+    0,
+    `the barrier must deliver its settlements, not queue them: a barrier followed by a synchronous Context.destroy() in the same turn must still settle the promise of a task it cancelled:\n${synchronousDisposeOutput}`,
+  )
+  assert.match(synchronousDisposeOutput, /SYNC_DISPOSE_QUEUED 0/)
+  assert.match(synchronousDisposeOutput, /SYNC_DISPOSE_OUTCOME REJECTED: /)
+
   const beforeDispose = binding.getRuntimeMetrics()
   const stranded = binding.asyncNever()
+  let strandedOutcome = 'still pending'
   const strandedSettlement = stranded.then(
-    () => 'resolved',
-    (error) => `rejected: ${error.message}`,
+    () => (strandedOutcome = 'resolved'),
+    (error) => (strandedOutcome = `rejected: ${error.message}`),
   )
   prepareWasmEnvCleanup()
   const afterBarrier = binding.getRuntimeMetrics()
@@ -609,6 +666,21 @@ if (disposeBinding) {
   // The environment is still live at this point: reading metrics is a napi call
   // into a still-active env, and it would throw if the barrier had run too late.
   assert.equal(afterBarrier.backendIdentity, beforeDispose.backendIdentity)
+  // Nothing was left for the drain to wait on: the rejection went straight into
+  // the promise instead of onto the threadsafe-function queue.
+  assert.equal(
+    loadedBinding.wasmEnvCleanupPending(),
+    0,
+    'the barrier must leave nothing queued for a settlement it made on this thread',
+  )
+  // And it landed within a microtask of the barrier returning — no event-loop
+  // turn, which is the whole difference between delivering and queueing.
+  await Promise.resolve()
+  assert.match(
+    strandedOutcome,
+    /^rejected: /,
+    'the in-flight promise must be rejected by the barrier itself, not a later macrotask',
+  )
   // The cancelled task settles its promise through the environment the barrier
   // deliberately kept alive.
   assert.match(

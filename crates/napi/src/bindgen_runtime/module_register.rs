@@ -338,23 +338,33 @@ unsafe extern "C" fn napi_register_wasm_v1(
 ///    contract, returns only once every backend-owned thread, task, and blocking closure has
 ///    quiesced.
 ///    Tasks dropped by that shutdown reject their promises through the cancellation callback,
-///    which can still *enqueue* the settle from here.
-/// 3. This export returns. The set of settles waiting in the threadsafe-function queue is now
-///    complete: the backend is stopped, so nothing can append to it any more.
+///    which reaches JavaScript from here.
+/// 3. This export returns. Every settle produced on *this* thread has already been delivered —
+///    the promises are rejected, their `.then` handlers queued as microtasks. The set of
+///    settles left waiting in the threadsafe-function queue is complete: the backend is
+///    stopped, so nothing can append to it any more.
 ///
-/// # What this export does NOT do
+/// # Delivery, and the part that still needs the loader
 ///
-/// It does not deliver those settles. `napi_call_threadsafe_function` only appends to the
-/// queue; on wasm the queue is dispatched by the host, and `@emnapi/core` dispatches a
-/// main-thread call from a *macrotask*, two coalescing turns later. Calling this export and
-/// `Context::destroy()` back to back — with no turn of the event loop between them — therefore
-/// still strands every promise, because `destroy()` runs the threadsafe function's cleanup
-/// hook, which drains the queue with a null env and discards the settles.
+/// `napi_call_threadsafe_function` only *appends* to the queue; on wasm the queue is dispatched
+/// by the host, and `@emnapi/core` dispatches a main-thread call from a *macrotask*, two
+/// coalescing turns later. Calling this export and `Context::destroy()` back to back — with no
+/// turn of the event loop between them — would therefore strand every promise, because
+/// `destroy()` runs the threadsafe function's cleanup hook, which drains the queue with a null
+/// env and discards the settles.
 ///
-/// The loader must close that gap: after this returns it has to yield real event-loop turns
-/// until [`napi_wasm_env_cleanup_pending`] reports zero, and only then destroy the
-/// environment. The generated loaders do exactly that. A host that cannot yield — a Node
-/// `process.on('exit')` handler, for one — cannot get this guarantee at all.
+/// So a settle made on this thread while this export is running does not go through the queue
+/// at all: it runs straight into the promise, with the environment still fully alive. That
+/// covers `wasm32-wasip1` outright, and every `wasm32-wasip1-threads` task whose cancellation
+/// runs on the JavaScript thread. A host that cannot yield — a raw synchronous
+/// `Context::destroy()`, a Node `process.on('exit')` handler — gets those promises settled.
+///
+/// What it cannot cover is a settle produced on *another* thread, which has no way to reach the
+/// promise except the queue. [`napi_wasm_env_cleanup_pending`] counts exactly those. A loader
+/// that can yield must, after this returns, yield real event-loop turns until that count reports
+/// zero and only then destroy the environment; the generated loaders do. A host that cannot
+/// yield still cannot get that half of the guarantee — it is the documented limitation of
+/// `process.on('exit')`.
 ///
 /// The built-in Tokio path keeps `shutdown_async_runtime`'s existing best-effort
 /// `shutdown_background` semantics: it starts the drain here instead of
@@ -372,7 +382,15 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
   ))]
-  crate::tokio_runtime::shutdown_async_runtime();
+  {
+    // Deliver, do not queue: for as long as this guard is alive, a `JsDeferred` settled on this
+    // thread settles its promise directly instead of appending to a queue the host dispatches
+    // two macrotasks later — which a caller that destroys the environment synchronously never
+    // reaches. The guard is scoped to the shutdown, so ordinary settles after this returns go
+    // back through the queue.
+    let _deliver_settlements = crate::js_values::WasmEnvCleanupBarrier::enter();
+    crate::tokio_runtime::shutdown_async_runtime();
+  }
 }
 
 /// How many promise settlements are queued in the threadsafe-function queue and have not been
