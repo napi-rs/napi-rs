@@ -53,6 +53,10 @@ let __emnapiWasmEnvCleanupDrainPromise
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __completeWasiDisposal = function() {}
+// Overridden by loader flavors that have a last-resort reclaim for a rollback
+// that stopped short of destroying the context. See
+// `__rollbackWasiInitialization`.
+let __retainWasiRollbackForRetry = function() {}
 
 function __isThenable(value) {
   return (
@@ -436,6 +440,19 @@ function __destroyContextForWasiRollback(cleanupErrors) {
 }
 
 /**
+ * Leaves a rollback that could not reach the queued settlements undestroyed, and
+ * hands it to whatever this flavor has that can still reclaim it.
+ */
+function __retainFailedWasiRollback(cleanupErrors) {
+  try {
+    __retainWasiRollbackForRetry()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+  }
+  return cleanupErrors
+}
+
+/**
  * Initialization can fail *after* registration has already run, and registration
  * runs with a live environment: a module-init hook can start async work and then
  * return an error, and the promise it created may already have escaped into
@@ -445,22 +462,56 @@ function __destroyContextForWasiRollback(cleanupErrors) {
  *
  * Stays synchronous when nothing is queued, which covers every failure before
  * `beforeInit`: there is no instance to run the barrier on, so nothing to drain.
+ *
+ * A barrier or drain that did *not* finish stops the rollback short of
+ * destroying, which is what `dispose()` already does — a rejected drain there
+ * never reaches `__continueWasiDisposal`. Destroying anyway is the worse of the
+ * two trades, and not because of what it saves:
+ *
+ *   - It cannot deliver the settlements. `Context.destroy()` runs the
+ *     threadsafe function's cleanup hook, which drains the queue with a null env
+ *     and discards it, so a promise that already escaped into JavaScript hangs
+ *     forever with nothing left that could ever settle it.
+ *   - It saves less than it looks. `Context.destroy()` stops JavaScript calls
+ *     and runs cleanup hooks; it does not free the wasm instance or its Memory,
+ *     which this module's scope holds either way. What stopping short retains is
+ *     the emnapi context's bookkeeping and its un-run cleanup hooks.
+ *   - Retry is not theoretical. A rollback that records a cleanup error is
+ *     already kept in the process-wide registry above, so re-`require()`ing this
+ *     file replays it instead of re-instantiating — and the `6e15de6f` flag fix
+ *     means the replay drains again rather than skipping it. Destroying first is
+ *     what makes that retained record useless.
+ *
+ * The residual cost is honest: the CJS flavor hands the context to its
+ * `process.on('exit')` teardown, so a process that never retries still reclaims
+ * it on the way out. The ESM browser flavor has no equivalent — a module that
+ * throws while evaluating is permanently errored, so re-importing rethrows
+ * without re-running this file — and there the context stays until the realm
+ * goes away. That is the deliberate choice: a hung promise is a silent liveness
+ * bug with no upper bound, while the retained bookkeeping is bounded by the page.
  */
 function __rollbackWasiInitialization() {
   const cleanupErrors = []
   let drainResult
+  let settlementsUnreached = false
   try {
     __prepareWasmEnvCleanup()
     drainResult = __drainWasmEnvCleanup()
   } catch (cleanupError) {
     cleanupErrors.push(cleanupError)
+    settlementsUnreached = true
   }
   if (__isThenable(drainResult)) {
-    return Promise.resolve(drainResult)
-      .catch((cleanupError) => {
+    return Promise.resolve(drainResult).then(
+      () => __destroyContextForWasiRollback(cleanupErrors),
+      (cleanupError) => {
         cleanupErrors.push(cleanupError)
-      })
-      .then(() => __destroyContextForWasiRollback(cleanupErrors))
+        return __retainFailedWasiRollback(cleanupErrors)
+      },
+    )
+  }
+  if (settlementsUnreached) {
+    return __retainFailedWasiRollback(cleanupErrors)
   }
   return __destroyContextForWasiRollback(cleanupErrors)
 }

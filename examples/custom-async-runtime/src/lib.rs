@@ -1123,6 +1123,15 @@ pub fn module_exports_hook(_exports: Object, _env: Env) -> Result<()> {
       flag.get_type()?,
       napi::ValueType::Undefined | napi::ValueType::Null
     ) {
+      // A task that completes right now. `TestRuntime::spawn` drains inline, so
+      // this settles before the barrier ever runs — outside it, which is what
+      // sends the settle through the threadsafe-function queue and leaves
+      // `napi_wasm_env_cleanup_pending` above zero when the rollback starts.
+      // Without it the rollback's drain has nothing to wait for and never
+      // schedules a macrotask at all, so the failure modes of that scheduling
+      // are unreachable.
+      let queued = _env.spawn_future(async { Ok(7u32) })?;
+      global.set_named_property("__napiRegistrationQueuedPromise", queued)?;
       let promise = _env.spawn_future(std::future::pending::<Result<()>>())?;
       // Escapes into JavaScript before registration fails, so the test can watch
       // it settle even though instantiation never hands out any exports.

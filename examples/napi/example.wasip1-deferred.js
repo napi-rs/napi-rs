@@ -795,6 +795,7 @@ async function __createInstance(
     // destroyed, exactly like dispose() does; destroying without yielding
     // discards the queue with a null env. Undefined unless something is queued,
     // so a failure before beforeInit costs no extra turn.
+    let __settlementsUnreached = false
     try {
       const __drained = __prepareForDisposal()
       if (__drained) {
@@ -802,6 +803,7 @@ async function __createInstance(
       }
     } catch (drainError) {
       __attachCleanupError(error, drainError)
+      __settlementsUnreached = true
     }
     let __registrationError
     let __registrationFailed = false
@@ -815,6 +817,25 @@ async function __createInstance(
         __registrationError = registrationError
         __registrationFailed = true
       }
+    }
+    if (__settlementsUnreached) {
+      // The barrier or the drain did not finish, so the settlements it queued
+      // are still in the threadsafe-function queue. Destroying now runs the
+      // cleanup hook that drains that queue with a null env and discards it,
+      // stranding a promise that already escaped into JavaScript — with nothing
+      // left that could ever settle it. dispose() refuses to destroy for exactly
+      // this reason (a rejected drain there never reaches the destroy), so this
+      // path refuses too.
+      //
+      // Nothing leaks. The registration just above — and, for the singleton, the
+      // one made before instantiation — leaves this context in
+      // `__managedEmnapiContextDestroyers`, so beforeExit destroys it and
+      // dispose() can retry it. Only the destruction is deferred, and the turns
+      // that pass in the meantime are exactly what the queue needed.
+      try {
+        __registerManagedBeforeExitListener()
+      } catch {}
+      throw error
     }
     try {
       await __destroyManagedOwnedContext()

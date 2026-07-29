@@ -1231,4 +1231,215 @@ if (isManualThreadlessWasi) {
     )
     assert.match(rollbackDrainOutput, /ROLLBACK_DRAIN_OUTCOME REJECTED: /)
   }
+
+  // …and the rollback's drain can fail on its own, exactly like the drain in
+  // `dispose()`: it yields real event-loop turns, and scheduling a macrotask is
+  // a host call that a host-provided or patched `setImmediate` can make throw.
+  //
+  // `dispose()` answers that by not destroying — a rejected drain never reaches
+  // `__continueWasiDisposal` — which leaves the queued settlements where they
+  // are and keeps the disposal retryable. The rollback has to answer the same
+  // way. Destroying anyway cannot deliver those settlements: `Context.destroy()`
+  // runs the threadsafe function's cleanup hook, which drains the queue with a
+  // null env and discards it, so a promise that already escaped into JavaScript
+  // hangs forever with nothing left that could ever settle it. And it buys very
+  // little — `Context.destroy()` does not free the wasm instance or its Memory,
+  // which the loader's module scope holds either way.
+  //
+  // So the assertion is in two halves, and both matter: the escaped promise must
+  // still settle, *and* the context the rollback declined to destroy must still
+  // be reclaimable — through the process-wide registry replay for the eager CJS
+  // loader, through the managed destroyer `dispose()` drains for the deferred
+  // one. Otherwise this would trade a visible stranding for an invisible leak.
+  //
+  // The poison is installed from the registration hook, after emnapi's
+  // `createContext()` has bound `features.setImmediate` to the real global.
+  // Breaking it any earlier would break @emnapi/core's own dispatch too, and
+  // then nothing could settle the promise no matter what the loader did.
+  for (const flavor of ['eager', 'deferred']) {
+    const load =
+      flavor === 'eager'
+        ? `
+        const require = createRequire(${JSON.stringify(import.meta.url)})
+        try {
+          require(${JSON.stringify(eagerLoaderPath)})
+        } catch (error) {
+          loadError = error
+        }
+      `
+        : `
+        const loader = await import(
+          pathToFileURL(${JSON.stringify(deferredLoaderPath)}).href
+        )
+        const wasmModule = await WebAssembly.compile(
+          readFileSync(${JSON.stringify(wasmPath)}),
+        )
+        try {
+          await loader.createInstance(wasmModule)
+        } catch (error) {
+          loadError = error
+        }
+      `
+    // Run only once the first rollback has settled: the eager loader throws out
+    // of `require()` while its drain is still in flight, and the registry replay
+    // deliberately refuses to re-enter a rollback that is still active.
+    //
+    // Each flavor is watched through the handle its own retry machinery uses —
+    // the process-wide rollback registry, and the managed destroyer set behind
+    // the beforeExit listener. Both must read "held" before the retry and
+    // "released" after, so neither half of the assertion can pass vacuously.
+    const retryTeardown =
+      flavor === 'eager'
+        ? `
+        const registry = process[Symbol.for('napi.rs.wasi.rollback.registry.v1')]
+        const held = () =>
+          registry ? registry.has(${JSON.stringify(eagerLoaderPath)}) : false
+        console.error('ROLLBACK_POISONED_HELD ' + held())
+        // The registry replay: re-requiring the loader must re-run the rollback
+        // it left unfinished rather than re-instantiate, and finish it this time.
+        let retry = 'DID_NOT_THROW'
+        try {
+          require(${JSON.stringify(eagerLoaderPath)})
+        } catch (error) {
+          retry = 'THREW: ' + error.message
+        }
+        for (let index = 0; index < 20; index++) {
+          await new Promise((resolve) => realSetImmediate(resolve))
+        }
+        console.error('ROLLBACK_POISONED_RETRY ' + retry)
+        console.error('ROLLBACK_POISONED_RETAINED ' + held())
+      `
+        : `
+        // The managed destroyer set is private, but it is exactly what keeps the
+        // loader's beforeExit listener registered: the last destroyer to go
+        // removes it.
+        const held = () => process.listenerCount('beforeExit') !== 0
+        console.error('ROLLBACK_POISONED_HELD ' + held())
+        // The catch registered this context precisely so an unfinished rollback
+        // stays reclaimable, so dispose() must run its destroyer.
+        let retry = 'RESOLVED'
+        try {
+          await loader.dispose()
+        } catch (error) {
+          retry = 'THREW: ' + error.message
+        }
+        console.error('ROLLBACK_POISONED_RETRY ' + retry)
+        console.error('ROLLBACK_POISONED_RETAINED ' + held())
+      `
+    const poisonedRollback = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+        import { readFileSync } from 'node:fs'
+        import { createRequire } from 'node:module'
+        import { pathToFileURL } from 'node:url'
+
+        const realSetImmediate = globalThis.setImmediate
+        const timeout = setTimeout(() => {
+          console.error('ROLLBACK_POISONED_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+
+        globalThis.__napiCustomRuntimeFailRegistrationAfterSpawn = true
+        let queued = 'PENDING'
+        let cancelled = 'PENDING'
+        const watch = (name, settle) => {
+          Object.defineProperty(globalThis, name, {
+            configurable: true,
+            get() {
+              return undefined
+            },
+            set(promise) {
+              Object.defineProperty(globalThis, name, {
+                configurable: true,
+                writable: true,
+                value: promise,
+              })
+              promise.then(
+                (value) => settle('RESOLVED: ' + value),
+                (error) => settle('REJECTED: ' + error.message),
+              )
+            },
+          })
+        }
+        // Settles through the threadsafe-function queue, so the rollback's drain
+        // has something to wait for and Context.destroy() has something to
+        // discard. Without it the drain never schedules a macrotask at all.
+        watch('__napiRegistrationQueuedPromise', (outcome) => { queued = outcome })
+        // Settled by the barrier itself, on the owning thread.
+        watch('__napiRegistrationSpawnedPromise', (outcome) => {
+          cancelled = outcome
+          // Registration is about to fail. Break only the loader's macrotask
+          // scheduling from here on.
+          globalThis.setImmediate = function () {
+            throw new Error('host setImmediate is broken')
+          }
+        })
+
+        let loadError
+        ${load}
+        globalThis.setImmediate = realSetImmediate
+        if (!loadError) {
+          console.error('ROLLBACK_POISONED_DID_NOT_FAIL')
+          process.exit(47)
+        }
+        // Well past the two turns @emnapi/core needs: if the settlement did not
+        // land by now, it never will.
+        for (let index = 0; index < 80; index++) {
+          await new Promise((resolve) => realSetImmediate(resolve))
+        }
+        console.error('ROLLBACK_POISONED_QUEUED ' + queued)
+        console.error('ROLLBACK_POISONED_CANCELLED ' + cancelled)
+        ${retryTeardown}
+        process.exit(0)
+      `,
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    )
+    const poisonedRollbackOutput = `${poisonedRollback.stdout}\n${poisonedRollback.stderr}`
+    assert.equal(
+      poisonedRollback.error,
+      undefined,
+      poisonedRollback.error?.stack,
+    )
+    assert.equal(poisonedRollback.signal, null, poisonedRollbackOutput)
+    assert.equal(poisonedRollback.status, 0, poisonedRollbackOutput)
+    // The barrier still has to have run, otherwise the rest is vacuous: only a
+    // barrier that reached the cancelled task proves the poison hit the drain
+    // rather than something earlier.
+    assert.match(
+      poisonedRollbackOutput,
+      /ROLLBACK_POISONED_CANCELLED REJECTED: /,
+      `the ${flavor} loader's rollback must still run the barrier when the drain cannot schedule:\n${poisonedRollbackOutput}`,
+    )
+    assert.match(
+      poisonedRollbackOutput,
+      /ROLLBACK_POISONED_QUEUED RESOLVED: 7/,
+      `a rollback whose drain failed must not destroy the environment out from under the settlements the drain never got to wait for: the ${flavor} loader stranded a promise that had already escaped into JavaScript:\n${poisonedRollbackOutput}`,
+    )
+    // The other half of the trade: declining to destroy may not leak. Something
+    // has to be able to finish the teardown afterwards, and it must be reached.
+    // The context has to still be held by that machinery first, otherwise
+    // "released afterwards" would be true of a context nothing ever tracked.
+    assert.match(
+      poisonedRollbackOutput,
+      /ROLLBACK_POISONED_HELD true/,
+      `the ${flavor} loader must keep a rollback it declined to finish reachable for retry:\n${poisonedRollbackOutput}`,
+    )
+    assert.match(
+      poisonedRollbackOutput,
+      flavor === 'eager'
+        ? /ROLLBACK_POISONED_RETRY THREW: module_exports_hook failed on purpose/
+        : /ROLLBACK_POISONED_RETRY RESOLVED/,
+      `the ${flavor} loader must leave a rollback it declined to finish reclaimable:\n${poisonedRollbackOutput}`,
+    )
+    assert.match(
+      poisonedRollbackOutput,
+      /ROLLBACK_POISONED_RETAINED false/,
+      `the ${flavor} loader's retried rollback must run to completion and release what it retained:\n${poisonedRollbackOutput}`,
+    )
+  }
 }
