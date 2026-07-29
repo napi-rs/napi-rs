@@ -2545,6 +2545,33 @@ Napi4Test('ThreadsafeFunction creation pins the addon image', (t) => {
     `creating a ThreadsafeFunction must request module retention (${before} -> ${after})`,
   )
 })
+test('capturing a JS value into an Error pins the addon image', (t) => {
+  // napi-rs#3423, same hazard as the ThreadsafeFunction pin above: an `Error`
+  // is `Send`, so the `Arc<ErrorRef>` created by
+  // `Error::from_unknown_without_coercion` (and by `From<Unknown>`) can make
+  // its last drop on a detached thread after the worker that created it — and
+  // with it the only environment holding a worker-only addon — is gone.
+  // `ErrorRef::drop` is code in the unloaded image and crashes on entry, before
+  // it could observe the aborted custom-GC handle. Retention must therefore be
+  // requested when the `ErrorRef` is created, on the env's thread, before the
+  // value can escape.
+  //
+  // wasm has no loader to pin and no image to unmap, so the counter is always
+  // 0 there and there is nothing to assert.
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const before = moduleRetentionRequests()
+  const captured = jsErrorFromRetainedValue({ tag: 'pin me' })
+  const after = moduleRetentionRequests()
+  t.true(
+    after > before,
+    `capturing a JS value into an Error must request module retention (${before} -> ${after})`,
+  )
+  t.truthy(captured)
+})
+
 
 Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {
   await new Promise<void>((resolve) => {

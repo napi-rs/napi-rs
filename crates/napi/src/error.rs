@@ -94,6 +94,20 @@ impl ErrorRef {
   /// can release without a null check.
   pub(crate) fn new(raw: sys::napi_ref, env: sys::napi_env) -> Self {
     debug_assert!(!raw.is_null(), "ErrorRef must wrap a non-null napi_ref");
+    // An `Error` is `Send`, so the `Arc<ErrorRef>` inside it can make its last
+    // drop on a detached thread after the environment that created it — and the
+    // worker that hosted that environment — are gone. Node then unloads a
+    // worker-only addon, and `ErrorRef::drop` is code in that image: it crashes
+    // on entry, before it could ever observe the aborted custom-GC handle. Pin
+    // the image here, at construction, on the environment's own thread — the
+    // same reasoning as `ThreadsafeFunctionHandle::new`: environment teardown
+    // marks the custom-GC handle aborted and the drop path then no-ops, so a
+    // pin placed anywhere on the drop path is skipped in exactly the
+    // worker-teardown case it exists for. The pin happens at most once per
+    // process; repeats are a single atomic increment. wasm has no loader and no
+    // image to unmap.
+    #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+    crate::bindgen_runtime::retain_current_module_for_unload_safety();
     Self {
       raw,
       indirect: false,
