@@ -51,6 +51,18 @@ pub struct ThreadsafeFunctionHandle {
 impl ThreadsafeFunctionHandle {
   /// create a Arc to hold the `ThreadsafeFunctionHandle`
   pub fn new(raw: sys::napi_threadsafe_function) -> Arc<Self> {
+    // Every handle pins the addon image, at construction, on the env's thread,
+    // while the environment unquestionably still owns the image. Construction
+    // is the only point that covers every path: environment teardown finalizes
+    // the threadsafe function first, which marks the handle aborted, and `Drop`
+    // then takes its no-op branch — so a pin placed anywhere on the drop path
+    // is skipped in exactly the worker-teardown case it exists for. This also
+    // covers handles wrapped around a raw threadsafe function directly through
+    // this public constructor, which never pass through `create_raw`. The pin
+    // happens at most once per process; repeats are a single atomic load.
+    #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+    crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
     Arc::new(Self {
       raw: AtomicPtr::new(raw),
       aborted: RwLock::new(false),
@@ -118,17 +130,10 @@ impl Drop for ThreadsafeFunctionHandle {
             // `napi_closing` to whichever handle drops afterwards.
             //
             // The release did not happen, so native code that can still reach
-            // this threadsafe function may outlive the environment. Keep the
-            // addon image mapped instead of tearing the process down.
-            //
-            // Backstop, not the primary guard: `create_raw` already pinned the
-            // image for every handle it built, and it covers the aborted case
-            // that never reaches this branch at all. This still matters for a
-            // handle built directly through the public `ThreadsafeFunctionHandle::new`,
-            // which does not go through `create_raw`. Retention is idempotent,
-            // so the duplicate call is a single atomic load.
-            #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
-            crate::bindgen_runtime::retain_current_module_for_unload_safety();
+            // this threadsafe function may outlive the environment. The addon
+            // image is already pinned — `ThreadsafeFunctionHandle::new` pins at
+            // construction for every handle, including this one — so nothing
+            // more is needed here; the failure is simply not asserted on.
           }
         }
       }
@@ -301,18 +306,9 @@ fn create_raw(
 ) -> Result<Arc<ThreadsafeFunctionHandle>> {
   // A threadsafe function exists to be handed to a thread that is not the one
   // owning this environment, so from here on native code in this image is
-  // reachable from a thread that can outlive the environment. Node unloads an
-  // addon once the environment that loaded it goes away, and the handle's own
-  // destructor — `Arc` drop glue, the `RwLock` read, `napi_release_threadsafe_function`
-  // — is code in this image, so that thread would run unmapped code.
-  //
-  // Pin here rather than at release time. This runs on the environment's thread
-  // while the image is unquestionably still owned, and it is the only point
-  // that covers the abort path: environment teardown finalizes the threadsafe
-  // function first, which marks the handle aborted, and `Drop` then takes its
-  // no-op branch and never reaches the release-failure retention below.
-  #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
-  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+  // reachable from a thread that can outlive the environment. The addon image
+  // is pinned by `ThreadsafeFunctionHandle::new` (via `null()` below), so no
+  // separate retention call is needed here.
 
   let mut async_resource_name = ptr::null_mut();
   static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
