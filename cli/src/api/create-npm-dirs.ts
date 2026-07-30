@@ -554,7 +554,9 @@ async function createNpmDirsUnlocked(
       }
       const emnapiVersion = require('emnapi/package.json').version
       scopedPackageJson.dependencies = {
-        '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
+        // Runtime minor releases can target a different emnapi generation.
+        // Keep generated packages on the resolved minor while allowing fixes.
+        '@napi-rs/wasm-runtime': `~${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
         ...(wasm?.browser?.buffer === true &&
