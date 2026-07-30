@@ -29,6 +29,7 @@
     "dist/*.js"
   ],
   "devDependencies": {
+    "@emnapi/core": "2.0.0-alpha.3",
     "@rollup/plugin-alias": "^6.0.0",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-inject": "^5.0.5",
@@ -50,12 +51,12 @@
     "@tybys/wasm-util": "^0.10.3"
   },
   "peerDependencies": {
-    "@emnapi/core": "^2.0.0-alpha.3",
-    "@emnapi/runtime": "^2.0.0-alpha.3"
+    "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.3",
+    "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.3"
   },
   "scripts": {
     "build": "rollup -c rollup.config.js",
-    "test": "node --test"
+    "test": "yarn run build && node --test"
   },
   "funding": {
     "type": "github",

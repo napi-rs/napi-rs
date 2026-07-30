@@ -2093,6 +2093,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
+    "@emnapi/core": "npm:2.0.0-alpha.3"
     "@rollup/plugin-alias": "npm:^6.0.0"
     "@rollup/plugin-commonjs": "npm:^29.0.3"
     "@rollup/plugin-inject": "npm:^5.0.5"
@@ -2111,8 +2112,8 @@ __metadata:
     rollup-plugin-polyfill-node: "npm:^0.13.0"
     tslib: "npm:^2.8.1"
   peerDependencies:
-    "@emnapi/core": ^2.0.0-alpha.3
-    "@emnapi/runtime": ^2.0.0-alpha.3
+    "@emnapi/core": ^1.7.1 || ^2.0.0-alpha.3
+    "@emnapi/runtime": ^1.7.1 || ^2.0.0-alpha.3
   languageName: unknown
   linkType: soft
 

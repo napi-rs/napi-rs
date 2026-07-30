@@ -13,11 +13,13 @@ const {
 // instantiation fails with a LinkError naming the missing import. Threaded
 // (shared-memory) builds link the C implementations and need no plugins;
 // this mirrors the upstream @emnapi/core v2 plugin split (v1 bundled these
-// implementations in the core runtime).
+// implementations in the core runtime). The plugins are bundled into this
+// package so loading the runtime with @emnapi/core v1 does not resolve the
+// v2-only `@emnapi/core/plugins` package export.
 const {
-  asyncWork: emnapiAsyncWorkPlugin,
-  tsfn: emnapiTSFNPlugin,
-} = require('@emnapi/core/plugins')
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+} = require('./dist/emnapi-plugins.cjs')
 const { createContext, getDefaultContext } = require('@emnapi/runtime')
 const { WASI } = require('@tybys/wasm-util')
 

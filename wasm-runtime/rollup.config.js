@@ -54,4 +54,20 @@ export default defineConfig([
       file: './dist/fs-proxy.cjs',
     },
   },
+  {
+    input: './emnapi-plugins.js',
+    plugins: [nodeResolve()],
+    treeshake: true,
+    output: [
+      {
+        format: 'esm',
+        file: './dist/emnapi-plugins.js',
+      },
+      {
+        format: 'commonjs',
+        exports: 'named',
+        file: './dist/emnapi-plugins.cjs',
+      },
+    ],
+  },
 ])
