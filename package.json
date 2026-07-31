@@ -80,7 +80,7 @@
     "electron": "^43.0.0",
     "esbuild": "^0.28.0",
     "husky": "^9.1.7",
-    "lerna": "^9.0.7",
+    "lerna": "^10.0.0",
     "lint-staged": "^17.0.7",
     "npm-run-all2": "^9.0.1",
     "oxlint": "^1.69.0",
