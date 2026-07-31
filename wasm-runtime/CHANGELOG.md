@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.2.1...@napi-rs/wasm-runtime@1.2.2) (2026-07-31)
+
+### Performance Improvements
+
+- **wasm-runtime:** remove sourcemap ([#3428](https://github.com/napi-rs/napi-rs/issues/3428)) ([0fd17fa](https://github.com/napi-rs/napi-rs/commit/0fd17fa5f0ba53d15cfb3616428317aa775542e3))
+
 ## [1.2.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.2.0...@napi-rs/wasm-runtime@1.2.1) (2026-07-30)
 
 ### Bug Fixes
