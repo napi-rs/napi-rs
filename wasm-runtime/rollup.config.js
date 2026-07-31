@@ -43,7 +43,6 @@ export default defineConfig([
     treeshake: true,
     output: {
       format: 'esm',
-      sourcemap: 'inline',
       dir: './dist',
     },
   },
