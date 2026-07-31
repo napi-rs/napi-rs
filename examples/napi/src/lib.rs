@@ -81,6 +81,7 @@ mod fn_strict;
 mod fn_ts_override;
 mod function;
 mod generator;
+mod issue_3427;
 mod js_mod;
 mod lifetime;
 mod map;
