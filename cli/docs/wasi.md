@@ -153,6 +153,28 @@ module runs inside the host process, so `wasm32` or host-OS restrictions would
 make npm reject a direct install or skip the optional dependency on otherwise
 supported hosts.
 
+Because nothing gates the install, the root package does not declare the WASI
+package in `optionalDependencies` when native targets are also configured. npm
+evaluates every `optionalDependencies` entry independently, so a declared WASI
+package is downloaded by every consumer, including the ones that already
+resolved a native package and will never load the `.wasm` binary. The generated
+binding loader picks WASI at require time instead, and environments without a
+native package are expected to install it on demand.
+
+When WASI is the only configured target it is the primary artifact rather than a
+fallback, so it is declared by default. Set `napi.wasm.optionalDependency` to
+override the default in either direction:
+
+```json
+{
+  "napi": {
+    "wasm": {
+      "optionalDependency": true
+    }
+  }
+}
+```
+
 `napi.wasm.initialMemory` is measured in 64 KiB WebAssembly pages. The regular
 Node and browser loaders retain the historical 4,000-page (250 MiB) default.
 The deferred `./workerd` loader defaults to 1,024 pages (64 MiB), leaving

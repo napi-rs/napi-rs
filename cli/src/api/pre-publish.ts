@@ -60,6 +60,7 @@ import {
   type CommonPackageJsonFields,
   type FileSystemTransactionWrite,
   type Target,
+  type UserNapiConfig,
 } from '../utils/index.js'
 
 const debug = debugFactory('pre-publish')
@@ -227,6 +228,61 @@ async function copyOwnedTemporaryPath(source: string, destination: string) {
   }
 }
 
+function wasiIsOnlyTarget(targets: Target[]) {
+  return (
+    targets.length > 0 && targets.every((target) => target.platform === 'wasi')
+  )
+}
+
+/**
+ * Build the root package's `optionalDependencies` map.
+ *
+ * A WASI package is a fallback for hosts that cannot load a `.node` binary, and
+ * the generated binding loader selects it at require time rather than npm
+ * selecting it at install time. Declaring it as an `optionalDependency`
+ * alongside the native packages cannot express "install this only when nothing
+ * else matched": npm evaluates every entry independently, so every consumer
+ * downloads a `.wasm` binary they will never load.
+ *
+ * It is therefore only declared when WASI is the only configured target, which
+ * makes it the primary artifact rather than a fallback.
+ * `napi.wasm.optionalDependency` overrides the default in both directions.
+ *
+ * See https://github.com/rolldown/rolldown/issues/10556
+ */
+export function resolveRootOptionalDependencies({
+  existing,
+  managedPackageNames,
+  packageName,
+  targets,
+  version,
+  wasm,
+}: {
+  existing: unknown
+  managedPackageNames: Iterable<string>
+  packageName: string
+  targets: Target[]
+  version: string
+  wasm?: UserNapiConfig['wasm']
+}): Record<string, unknown> {
+  const optionalDependencies: Record<string, unknown> = {
+    ...asRecord(existing),
+  }
+  for (const managedPackageName of managedPackageNames) {
+    for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
+      delete optionalDependencies[`${managedPackageName}-${suffix}`]
+    }
+  }
+  const declareWasi = wasm?.optionalDependency ?? wasiIsOnlyTarget(targets)
+  for (const target of targets) {
+    if (target.platform === 'wasi' && !declareWasi) {
+      continue
+    }
+    optionalDependencies[`${packageName}-${target.platformArchABI}`] = version
+  }
+  return optionalDependencies
+}
+
 export async function prePublish(userOptions: PrePublishOptions) {
   debug('Receive pre-publish options:')
   debug('  %O', userOptions)
@@ -341,9 +397,6 @@ export async function prePublish(userOptions: PrePublishOptions) {
             rootFacade,
           )
         }
-        const optionalDependencies = {
-          ...asRecord(packageJson.optionalDependencies),
-        }
         const managedPackageNames = new Set([packageName])
         for (const flavorPackage of rootFacadeReconciliation.managedFlavorPackages) {
           for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
@@ -353,22 +406,19 @@ export async function prePublish(userOptions: PrePublishOptions) {
             }
           }
         }
-        for (const managedPackageName of managedPackageNames) {
-          for (const suffix of MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES) {
-            delete optionalDependencies[`${managedPackageName}-${suffix}`]
-          }
-        }
-        for (const target of targets) {
-          optionalDependencies[`${packageName}-${target.platformArchABI}`] =
-            packageJson.version
-        }
-        const nodeEngine =
-          targets.length > 0 &&
-          targets.every((target) => target.platform === 'wasi')
-            ? restrictWasiNodeEngine(
-                packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
-              )
-            : undefined
+        const optionalDependencies = resolveRootOptionalDependencies({
+          existing: packageJson.optionalDependencies,
+          managedPackageNames,
+          packageName,
+          targets,
+          version: packageJson.version,
+          wasm,
+        })
+        const nodeEngine = wasiIsOnlyTarget(targets)
+          ? restrictWasiNodeEngine(
+              packageJson.engines?.node ?? MINIMUM_WASI_NODE_VERSION,
+            )
+          : undefined
         const rootReleasePlan: RootReleaseMaterializationPlan = {
           packageJson: reconciledPackageJson,
           optionalDependencies,
