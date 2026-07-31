@@ -22,6 +22,8 @@ pub(crate) struct ClassStructRef {
 }
 
 impl ClassStructRef {
+  /// Renders the class's JS name qualified by its namespace (`{js_mod}.{js_name}`),
+  /// or the bare `js_name` when it has none.
   pub(crate) fn qualified_name(&self) -> String {
     match &self.js_mod {
       Some(js_mod) => format!("{js_mod}.{}", self.js_name),

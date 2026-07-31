@@ -39,6 +39,10 @@ thread_local! {
   static ALIAS: RefCell<HashMap<String, String>> = Default::default();
 }
 
+/// Registers `name` (a Rust type identifier) as an alias for `alias` (its JS
+/// name), qualified by `js_mod` when the item was declared in a namespace, so
+/// later lookups by Rust identifier resolve to a reference that's valid from
+/// outside that namespace too.
 fn add_alias(name: String, alias: String, js_mod: Option<&str>) {
   let alias = match js_mod {
     Some(js_mod) => format!("{js_mod}.{alias}"),
