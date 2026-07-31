@@ -30,8 +30,15 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
 }
 
 // Generate trait implementations for given Struct.
+//
+// `js_name` is the class's registered JS name (`#[napi(js_name = "...")]`, or the
+// Rust ident when not overridden). It is the key constructors are registered under,
+// so it must be the `get_class_constructor` lookup key in `validate()` below. `name`
+// stays the Rust ident and is used only for cosmetic identifiers (`type_name()`,
+// error text, the content-derived type tag), which are not registry lookups.
 fn gen_napi_value_map_impl(
   name: &Ident,
+  js_name: &str,
   to_napi_val_impl: TokenStream,
   has_lifetime: bool,
   type_tag: Option<&str>,
@@ -82,7 +89,7 @@ fn gen_napi_value_map_impl(
   } else {
     quote! { #name }
   };
-  let js_name_str = format!("{name_str}\0");
+  let js_name_str = format!("{js_name}\0");
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
       if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
@@ -414,12 +421,14 @@ impl NapiStruct {
       NapiStructKind::Transparent(transparent) => self.gen_napi_value_transparent_impl(transparent),
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
+        &self.js_name,
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
         self.has_lifetime,
         self.type_tag.as_deref(),
       ),
       NapiStructKind::Class(class) => gen_napi_value_map_impl(
         &self.name,
+        &self.js_name,
         self.gen_to_napi_value_ctor_impl(class),
         self.has_lifetime,
         self.type_tag.as_deref(),
