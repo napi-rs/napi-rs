@@ -7,16 +7,45 @@ use crate::{typegen::JSDoc, util::to_case, NapiImpl, NapiStruct, NapiStructField
 
 thread_local! {
   pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
-  pub(crate) static CLASS_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
+  pub(crate) static CLASS_STRUCTS: RefCell<HashMap<String, ClassStructRef>> = Default::default();
+}
+
+/// A registered `#[napi]` class's JS name plus the namespace it was declared
+/// in, so lookups elsewhere (cross-references to the class from other type
+/// positions) can rebuild a namespace-qualified reference instead of the
+/// bare `js_name`, which would be ambiguous or dangling once two classes in
+/// different namespaces share a `js_name`.
+#[derive(Clone)]
+pub(crate) struct ClassStructRef {
+  pub(crate) js_name: String,
+  pub(crate) js_mod: Option<String>,
+}
+
+impl ClassStructRef {
+  pub(crate) fn qualified_name(&self) -> String {
+    match &self.js_mod {
+      Some(js_mod) => format!("{js_mod}.{}", self.js_name),
+      None => self.js_name.clone(),
+    }
+  }
 }
 
 impl ToTypeDef for NapiStruct {
   fn to_type_def(&self) -> Option<TypeDef> {
     CLASS_STRUCTS.with(|c| {
-      c.borrow_mut()
-        .insert(self.name.to_string(), self.js_name.clone());
+      c.borrow_mut().insert(
+        self.name.to_string(),
+        ClassStructRef {
+          js_name: self.js_name.clone(),
+          js_mod: self.js_mod.clone(),
+        },
+      );
     });
-    add_alias(self.name.to_string(), self.js_name.to_string());
+    add_alias(
+      self.name.to_string(),
+      self.js_name.to_string(),
+      self.js_mod.as_deref(),
+    );
 
     let mut js_doc = JSDoc::new(&self.comments);
     if self.is_generator {

@@ -39,7 +39,11 @@ thread_local! {
   static ALIAS: RefCell<HashMap<String, String>> = Default::default();
 }
 
-fn add_alias(name: String, alias: String) {
+fn add_alias(name: String, alias: String, js_mod: Option<&str>) {
+  let alias = match js_mod {
+    Some(js_mod) => format!("{js_mod}.{alias}"),
+    None => alias,
+  };
   ALIAS.with(|aliases| {
     aliases.borrow_mut().insert(name, alias);
   });
@@ -806,9 +810,11 @@ fn handle_type_path(
     } else if rust_ty == "FnArgs" {
       is_passthrough_type = true;
       Some(args.first().unwrap().to_owned())
-    } else if let Some(t) = crate::typegen::r#struct::CLASS_STRUCTS
-      .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
-    {
+    } else if let Some(t) = crate::typegen::r#struct::CLASS_STRUCTS.with(|c| {
+      c.borrow_mut()
+        .get(rust_ty.as_str())
+        .map(|c| c.qualified_name())
+    }) {
       Some((t, false))
     } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
       handle_known_type(&rust_ty, known_ty, args, is_return_ty)
@@ -916,8 +922,8 @@ pub fn ty_to_ts_type(
 #[cfg(test)]
 mod tests {
   use super::{
-    escape_json, format_js_property_name, ty_to_ts_type, JSDoc, TypeDef,
-    BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
+    add_alias, escape_json, format_js_property_name, handle_generic_type, ty_to_ts_type, JSDoc,
+    TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
   };
 
   #[test]
@@ -1015,9 +1021,13 @@ mod tests {
   #[test]
   fn user_class_named_buffer_precedes_the_builtin_buffer_mapping() {
     crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
-      classes
-        .borrow_mut()
-        .insert("Buffer".to_owned(), "UserBuffer".to_owned());
+      classes.borrow_mut().insert(
+        "Buffer".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "UserBuffer".to_owned(),
+          js_mod: None,
+        },
+      );
     });
     let ty = syn::parse_str("Buffer").expect("Buffer must parse as a Rust type");
     assert_eq!(
@@ -1027,6 +1037,64 @@ mod tests {
     crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
       classes.borrow_mut().clear();
     });
+  }
+
+  #[test]
+  fn class_reference_across_namespaces_keeps_namespace_qualifier() {
+    // Regression test for napi-rs/napi-rs#3406 (symptom 2): a function
+    // referencing a namespaced class resolved to the bare `js_name`,
+    // dropping the namespace. Two classes sharing a `js_name` in different
+    // namespaces ("alpha"/"beta") must each resolve to their own
+    // `<namespace>.<js_name>`, not a dangling unqualified name.
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      let mut classes = classes.borrow_mut();
+      classes.insert(
+        "AlphaClient".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "Client".to_owned(),
+          js_mod: Some("alpha".to_owned()),
+        },
+      );
+      classes.insert(
+        "BetaClient".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "Client".to_owned(),
+          js_mod: Some("beta".to_owned()),
+        },
+      );
+    });
+
+    let alpha_ty: syn::Type = syn::parse_str("AlphaClient").expect("AlphaClient must parse");
+    let beta_ty: syn::Type = syn::parse_str("BetaClient").expect("BetaClient must parse");
+
+    assert_eq!(
+      ty_to_ts_type(&alpha_ty, false, false, false),
+      ("alpha.Client".to_owned(), false)
+    );
+    assert_eq!(
+      ty_to_ts_type(&beta_ty, false, false, false),
+      ("beta.Client".to_owned(), false)
+    );
+
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| classes.borrow_mut().clear());
+  }
+
+  #[test]
+  fn non_class_alias_across_namespaces_keeps_namespace_qualifier() {
+    // Same underlying bug as #3406, but for the ALIAS-map path that enums,
+    // consts, and type aliases resolve through (CLASS_STRUCTS only covers
+    // classes/structs).
+    add_alias("AlphaStatus".to_owned(), "Status".to_owned(), Some("alpha"));
+    add_alias("BetaStatus".to_owned(), "Status".to_owned(), Some("beta"));
+
+    assert_eq!(
+      handle_generic_type("AlphaStatus", &[]),
+      Some(("alpha.Status".to_owned(), false))
+    );
+    assert_eq!(
+      handle_generic_type("BetaStatus", &[]),
+      Some(("beta.Status".to_owned(), false))
+    );
   }
 
   #[test]
