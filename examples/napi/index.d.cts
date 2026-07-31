@@ -358,6 +358,10 @@ export declare class MyJsNamedClass {
   multiplyValue(times: number): string
 }
 export type OriginalRustNameForJsNamedStruct = MyJsNamedClass
+export declare class RenamedForIssue3427 {
+  constructor(value: number)
+}
+export type RenamedForIssue3427Rust = RenamedForIssue3427
 
 export declare class NinjaTurtle {
   name: string
@@ -1255,6 +1259,8 @@ export declare function receiveBindingVitePluginMeta(meta: BindingVitePluginMeta
 
 export declare function receiveBufferSliceWithLifetime(data: Data): number
 
+export declare function issue3427Either(input: RenamedForIssue3427 | number): number
+export declare function issue3427Strict(input: RenamedForIssue3427): number
 export declare function receiveClassOrNumber(either: number | JsClassForEither): number
 
 export declare function receiveDifferentClass(either: JsClassForEither | AnotherClassForEither): number
