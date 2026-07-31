@@ -162,7 +162,7 @@ binding loader picks WASI at require time instead, and environments without a
 native package are expected to install it on demand.
 
 When WASI is the only configured target it is the primary artifact rather than a
-fallback, so it is always declared. Set `napi.wasm.optionalDependency` to
+fallback, so it is declared by default. Set `napi.wasm.optionalDependency` to
 override the default in either direction:
 
 ```json

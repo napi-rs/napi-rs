@@ -83,7 +83,7 @@ export interface UserNapiConfig {
      * the environments that need it.
      *
      * When WASI is the only configured target it is the primary artifact and is
-     * always declared.
+     * declared by default.
      *
      * Set this explicitly to override either default.
      *
