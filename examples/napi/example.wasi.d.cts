@@ -544,6 +544,8 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
+export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
+
 export declare function asyncTaskVoidReturn(): Promise<void>
 
 /**
@@ -745,6 +747,8 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
 
+export declare function createErrorFromRetainedValue(value: unknown): object
+
 /**
  * Regression guard for the off-thread `FunctionRef` drop.
  *
@@ -894,6 +898,29 @@ declare class DynamicRustClass {
 }
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
+
+/**
+ * Captures `value` with `Error::from_unknown_without_coercion` and reports how
+ * Rust saw it, as `"<status>|<reason>|<cause chain>"` — the same shape as
+ * `describe_promise_rejection`, but synchronous. The synchronous window is the
+ * point: a test can patch `globalThis.Reflect` (or delete it), call this, and
+ * restore it before any other code can observe the patch, so the capture path's
+ * treatment of the global — cached at module registration, never `[[Get]]` off
+ * the global mid-capture — is testable without poisoning concurrent tests.
+ */
+export declare function describeCapturedValue(value: unknown): string
+
+/**
+ * Awaits `p` and reports how Rust saw the rejection, as
+ * `"<status>|<reason>|<cause chain>"`, where the cause chain is `-` when there
+ * is none and otherwise the `reason` of each link joined by `<`.
+ *
+ * JavaScript lets a promise reject with any value, including primitives that
+ * `napi_create_reference` refuses. This exists to pin down that such a
+ * rejection still arrives as itself instead of as a reference-creation
+ * failure, and that its `cause` chain survives the capture.
+ */
+export declare function describePromiseRejection(p: Promise<undefined>): Promise<string>
 
 /**
  * Detach the native value without constructing a second Rust receiver during
@@ -1057,6 +1084,18 @@ export declare function joinPath(path: string, segment: string): string
 
 export declare function jsErrorCallback(value: unknown): Array<Error>
 
+export declare function jsErrorFromRetainedValue(value: unknown): Error
+
+export declare function jsErrorWithoutRetainedValue(reason: string): Error
+
+export declare function jsRangeErrorFromRetainedValue(value: unknown): RangeError
+
+export declare function jsRangeErrorWithoutRetainedValue(reason: string): RangeError
+
+export declare function jsTypeErrorFromRetainedValue(value: unknown): TypeError
+
+export declare function jsTypeErrorWithoutRetainedValue(reason: string): TypeError
+
 /** default enum values are continuos i32s start from 0 */
 export declare const enum Kind {
   /** Barks */
@@ -1103,6 +1142,16 @@ export declare function mergeTupleArray(t1: TupleToArray, t2: TupleToArray): Tup
 export interface Meta {
   merge: boolean
 }
+
+/**
+ * How many times this addon has asked napi-rs to pin its image against being
+ * unloaded while a foreign thread can still reach it. Creating a
+ * `ThreadsafeFunction` must bump this, because the resulting handle's own
+ * destructor runs on whichever thread drops it last, possibly after the
+ * environment that created it is gone. Always 0 on wasm, which has no loader
+ * to pin.
+ */
+export declare function moduleRetentionRequests(): number
 
 export declare function mutateArraybuffer(buf: ArrayBuffer): void
 

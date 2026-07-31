@@ -1,4 +1,4 @@
-// napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","Asset","JsAsset","Assets","JsAssets","AsyncDataSource","AsyncFib","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","Dog","Fib","Fib2","Fib3","Fib4","GetterSetterWithClosures","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","PackageJsonReader","Reader","ReentrantBorrowOrderTest","Selector","Thing","ThingList","TypeTagA","TypeTagB","UseNullableClass","Width","acceptArraybuffer","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","add","ALIAS","AliasedEnum","appendBuffer","appendToOsString","apply0","apply1","arrayBufferFromData","arrayBufferFromExternal","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncMultiTwo","asyncPlus100","asyncReduceBuffer","asyncResolveArray","asyncTaskArraybuffer","asyncTaskFinally","asyncTaskOptionalReturn","asyncTaskReadFile","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","cleanupReentrantBorrowOrderTestTargets","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createErroringReadableStream","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createFunction","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReentrantBorrowOrderTestTarget","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","DEFAULT_COST","defineClass","derefUint8Array","detachReentrantBorrowOrderTestTarget","drainStreamCount","dropClonedErrorsOnTwoThreads","dropErrorFromValueOffThread","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","Empty","enumToI32","errorMessageContainsNullByte","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","fnReceivedAliased","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getEmptyBuffer","getEmptyTypedArray","getExternal","getGlobal","getIndexMapping","getIndexMappingWithHasher","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoUtf8","joinPath","jsErrorCallback","Kind","KindInValidate","listObjKeys","makeTypeTagA","mapOption","mergeTupleArray","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","objectGetNamedPropertyShouldPerformTypecheck","objectWithCApis","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","plusOne","promiseInEither","promiseRawReturnClassInstance","readFile","readFileAsync","readPackageJson","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","referenceAsCallback","referenceWithTupleArg","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","roundtripStr","runScript","setNullByteProperty","setSymbolInObj","shorterEscapableScope","shorterScope","shutdownRuntime","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashTypedArrayInThreadLocal","Status","StatusInValidate","StringEnum","sumBtreeMapping","sumIndexMapping","sumMapping","sumNums","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeRoundtrip","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint8ArrayFromData","uint8ArrayFromExternal","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","withAbortController","withAbortSignalHandle","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
+// napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","Asset","JsAsset","Assets","JsAssets","AsyncDataSource","AsyncFib","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","Dog","Fib","Fib2","Fib3","Fib4","GetterSetterWithClosures","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","PackageJsonReader","Reader","ReentrantBorrowOrderTest","Selector","Thing","ThingList","TypeTagA","TypeTagB","UseNullableClass","Width","acceptArraybuffer","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","add","ALIAS","AliasedEnum","appendBuffer","appendToOsString","apply0","apply1","arrayBufferFromData","arrayBufferFromExternal","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncMultiTwo","asyncPlus100","asyncReduceBuffer","asyncResolveArray","asyncTaskArraybuffer","asyncTaskFinally","asyncTaskOptionalReturn","asyncTaskReadFile","asyncTaskRejectWithCapturedValue","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","cleanupReentrantBorrowOrderTestTargets","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createErrorFromRetainedValue","createErroringReadableStream","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createFunction","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReentrantBorrowOrderTestTarget","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","DEFAULT_COST","defineClass","derefUint8Array","describeCapturedValue","describePromiseRejection","detachReentrantBorrowOrderTestTarget","drainStreamCount","dropClonedErrorsOnTwoThreads","dropErrorFromValueOffThread","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","Empty","enumToI32","errorMessageContainsNullByte","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","fnReceivedAliased","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getEmptyBuffer","getEmptyTypedArray","getExternal","getGlobal","getIndexMapping","getIndexMappingWithHasher","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoUtf8","joinPath","jsErrorCallback","jsErrorFromRetainedValue","jsErrorWithoutRetainedValue","jsRangeErrorFromRetainedValue","jsRangeErrorWithoutRetainedValue","jsTypeErrorFromRetainedValue","jsTypeErrorWithoutRetainedValue","Kind","KindInValidate","listObjKeys","makeTypeTagA","mapOption","mergeTupleArray","moduleRetentionRequests","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","objectGetNamedPropertyShouldPerformTypecheck","objectWithCApis","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","plusOne","promiseInEither","promiseRawReturnClassInstance","readFile","readFileAsync","readPackageJson","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","referenceAsCallback","referenceWithTupleArg","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","roundtripStr","runScript","setNullByteProperty","setSymbolInObj","shorterEscapableScope","shorterScope","shutdownRuntime","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashTypedArrayInThreadLocal","Status","StatusInValidate","StringEnum","sumBtreeMapping","sumIndexMapping","sumMapping","sumNums","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeRoundtrip","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint8ArrayFromData","uint8ArrayFromExternal","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","withAbortController","withAbortSignalHandle","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
 /* eslint-disable */
 /* prettier-ignore */
 
@@ -58,9 +58,16 @@ let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiWasmEnvCleanupPrepared = false
+let __emnapiWasmEnvCleanupRan = false
+let __emnapiWasmEnvCleanupDrained = false
+let __emnapiWasmEnvCleanupDrainPromise
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __completeWasiDisposal = function() {}
+// Overridden by loader flavors that have a last-resort reclaim for a rollback
+// that stopped short of destroying the context. See
+// `__rollbackWasiInitialization`.
+let __retainWasiRollbackForRetry = function() {}
 
 function __isThenable(value) {
   return (
@@ -131,8 +138,166 @@ function __prepareWasmEnvCleanup() {
   const prepare = __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
   if (typeof prepare === 'function') {
     prepare()
+    __emnapiWasmEnvCleanupRan = true
   }
   __emnapiWasmEnvCleanupPrepared = true
+}
+
+// Mirror the primitive @emnapi/core schedules its threadsafe-function dispatch
+// on, so the drain turns below interleave with that dispatch instead of racing
+// ahead of it on a faster queue.
+const __scheduleMacrotask = (function () {
+  if (typeof setImmediate === 'function') {
+    return function (callback) {
+      setImmediate(callback)
+    }
+  }
+  const __MessageChannel = globalThis.MessageChannel
+  if (typeof __MessageChannel === 'function') {
+    return function (callback) {
+      const channel = new __MessageChannel()
+      channel.port1.onmessage = function () {
+        channel.port1.onmessage = null
+        try {
+          channel.port1.close()
+        } catch {}
+        try {
+          channel.port2.close()
+        } catch {}
+        callback()
+      }
+      channel.port2.postMessage(null)
+    }
+  }
+  return function (callback) {
+    setTimeout(callback, 0)
+  }
+})()
+
+// Turns to wait for while the addon still reports queued settlements. Reaching
+// zero is the only success. A counter still nonzero at this bound rejects the
+// disposal as retryable (`ERR_NAPI_WASI_CLEANUP_PENDING`) rather than
+// destroying the context over a still-queued settlement — the wait stays
+// bounded either way.
+const __WASM_ENV_CLEANUP_DRAIN_TURNS = 128
+// Without `napi_wasm_env_cleanup_pending` the queue is not observable. Fall
+// back to the number of turns @emnapi/core needs to coalesce and dispatch a
+// call made on this thread (two), plus a margin.
+const __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS = 4
+
+/**
+ * `napi_prepare_wasm_env_cleanup` only *queues* the promise settlements of the
+ * tasks it cancelled: `napi_call_threadsafe_function` appends to the
+ * threadsafe-function queue, and @emnapi/core dispatches that queue from a
+ * macrotask — two coalescing turns later, even for a call made on this very
+ * thread. `Context.destroy()` then runs the threadsafe function's cleanup hook,
+ * which drains the queue with a null env and *discards* whatever is still in it.
+ *
+ * So destroying without yielding first strands exactly the promises the barrier
+ * exists to settle. Yield real event-loop turns until the addon reports the
+ * queue empty; microtask checkpoints cannot help, no number of them lets a
+ * macrotask run.
+ *
+ * Returns nothing when there is nothing to wait for, which keeps disposal
+ * synchronous in the common case.
+ *
+ * The "already drained" flag is set only once a wait has actually finished.
+ * Scheduling a macrotask can fail — a host-provided or patched `setImmediate`
+ * that throws is enough — and a disposal that rejects stays retryable, so
+ * marking the drain complete up front would make the retry skip it and destroy
+ * the context with the barrier's settlements still queued.
+ *
+ * A wait that runs out of turns with the counter still nonzero rejects with
+ * `ERR_NAPI_WASI_CLEANUP_PENDING` for the same reason: at that point
+ * "finished" is indistinguishable from the stranding above, and destroying
+ * would discard the very settlement the wait was for. The rejection leaves the
+ * flag unset and disposal retryable.
+ */
+function __drainWasmEnvCleanup() {
+  if (__emnapiWasmEnvCleanupDrained || !__emnapiWasmEnvCleanupRan) {
+    return
+  }
+  if (__emnapiWasmEnvCleanupDrainPromise) {
+    return __emnapiWasmEnvCleanupDrainPromise
+  }
+  const pending = __napiInstance?.exports?.napi_wasm_env_cleanup_pending
+  const observable = typeof pending === 'function'
+  if (observable) {
+    let queued
+    try {
+      queued = pending()
+    } catch {
+      __emnapiWasmEnvCleanupDrained = true
+      return
+    }
+    if (!queued) {
+      __emnapiWasmEnvCleanupDrained = true
+      return
+    }
+  }
+  const limit = observable
+    ? __WASM_ENV_CLEANUP_DRAIN_TURNS
+    : __WASM_ENV_CLEANUP_BLIND_DRAIN_TURNS
+  const drainPromise = (async () => {
+    let queued = 0
+    for (let turn = 0; turn < limit; turn++) {
+      await new Promise((resolve) => {
+        __scheduleMacrotask(resolve)
+      })
+      if (!observable) {
+        continue
+      }
+      try {
+        queued = pending()
+      } catch {
+        return
+      }
+      if (!queued) {
+        return
+      }
+    }
+    if (!observable) {
+      // Blind wait: without `napi_wasm_env_cleanup_pending` the bound IS the
+      // contract — there is nothing to consult, so finishing the turns is
+      // finishing the drain.
+      return
+    }
+    // The counter is still nonzero after every turn the bound allows. The wait
+    // stays bounded — but claiming success here would be indistinguishable from
+    // the stranding this drain exists to prevent: disposal would go on to
+    // destroy the context, whose cleanup hook discards the still-queued
+    // settlement with a null env, and the promise it was for hangs forever.
+    // Reject instead, as a retryable cleanup failure: the drained flag stays
+    // unset, dispose() (and the rollback) decline to destroy, and a later
+    // dispose() runs the drain again — by which time the queue has usually been
+    // delivered. A counter that is somehow stuck nonzero therefore costs each
+    // attempt at most another bounded wait and a rejection, never a stranded
+    // promise; the process-exit teardown still reclaims the context.
+    const drainError = new Error(
+      'the wasm environment still reports ' +
+        queued +
+        ' queued settlement(s) after ' +
+        limit +
+        ' event-loop turns; the context was not destroyed - retry dispose() to wait for the queue again',
+    )
+    drainError.code = 'ERR_NAPI_WASI_CLEANUP_PENDING'
+    throw drainError
+  })().then(
+    (value) => {
+      // Set only when the wait actually finished AND the queue was seen empty
+      // (or is unobservable): a drain that timed out with settlements still
+      // queued rejects above and must stay repeatable.
+      __emnapiWasmEnvCleanupDrained = true
+      __emnapiWasmEnvCleanupDrainPromise = undefined
+      return value
+    },
+    (error) => {
+      __emnapiWasmEnvCleanupDrainPromise = undefined
+      throw error
+    },
+  )
+  __emnapiWasmEnvCleanupDrainPromise = drainPromise
+  return drainPromise
 }
 
 function __destroyEmnapiContext() {
@@ -212,12 +377,24 @@ function __finishWasiDisposal() {
   return __completeWasiDisposal()
 }
 
-function __startWasiDisposal() {
+function __continueWasiDisposal() {
   const destroyResult = __destroyEmnapiContext()
   if (__isThenable(destroyResult)) {
     return Promise.resolve(destroyResult).then(__finishWasiDisposal)
   }
   return __finishWasiDisposal()
+}
+
+function __startWasiDisposal() {
+  // Run the pre-teardown barrier, then let the settlements it queued actually
+  // reach JavaScript, and only then destroy the environment. Doing these two
+  // back to back is what strands them.
+  __prepareWasmEnvCleanup()
+  const drainResult = __drainWasmEnvCleanup()
+  if (__isThenable(drainResult)) {
+    return Promise.resolve(drainResult).then(__continueWasiDisposal)
+  }
+  return __continueWasiDisposal()
 }
 
 /**
@@ -291,8 +468,7 @@ function __finishWasiInitializationRollback(cleanupErrors) {
   return cleanupErrors
 }
 
-function __rollbackWasiInitialization() {
-  const cleanupErrors = []
+function __destroyContextForWasiRollback(cleanupErrors) {
   let destroyResult
   try {
     destroyResult = __destroyEmnapiContext()
@@ -308,6 +484,83 @@ function __rollbackWasiInitialization() {
       .then(() => __finishWasiInitializationRollback(cleanupErrors))
   }
   return __finishWasiInitializationRollback(cleanupErrors)
+}
+
+/**
+ * Leaves a rollback that could not reach the queued settlements undestroyed, and
+ * hands it to whatever this flavor has that can still reclaim it.
+ */
+function __retainFailedWasiRollback(cleanupErrors) {
+  try {
+    __retainWasiRollbackForRetry()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+  }
+  return cleanupErrors
+}
+
+/**
+ * Initialization can fail *after* registration has already run, and registration
+ * runs with a live environment: a module-init hook can start async work and then
+ * return an error, and the promise it created may already have escaped into
+ * JavaScript. The barrier cancels that work and *queues* the settlement, so this
+ * path needs the same drain the ordinary disposal does — destroying without
+ * yielding discards the queue with a null env and strands the promise.
+ *
+ * Stays synchronous when nothing is queued, which covers every failure before
+ * `beforeInit`: there is no instance to run the barrier on, so nothing to drain.
+ *
+ * A barrier or drain that did *not* finish stops the rollback short of
+ * destroying, which is what `dispose()` already does — a rejected drain there
+ * never reaches `__continueWasiDisposal`. Destroying anyway is the worse of the
+ * two trades, and not because of what it saves:
+ *
+ *   - It cannot deliver the settlements. `Context.destroy()` runs the
+ *     threadsafe function's cleanup hook, which drains the queue with a null env
+ *     and discards it, so a promise that already escaped into JavaScript hangs
+ *     forever with nothing left that could ever settle it.
+ *   - It saves less than it looks. `Context.destroy()` stops JavaScript calls
+ *     and runs cleanup hooks; it does not free the wasm instance or its Memory,
+ *     which this module's scope holds either way. What stopping short retains is
+ *     the emnapi context's bookkeeping and its un-run cleanup hooks.
+ *   - Retry is not theoretical. A rollback that records a cleanup error is
+ *     already kept in the process-wide registry above, so re-`require()`ing this
+ *     file replays it instead of re-instantiating — and the `6e15de6f` flag fix
+ *     means the replay drains again rather than skipping it. Destroying first is
+ *     what makes that retained record useless.
+ *
+ * The residual cost is honest: the CJS flavor hands the context to its
+ * `process.on('exit')` teardown, so a process that never retries still reclaims
+ * it on the way out. The ESM browser flavor has no equivalent — a module that
+ * throws while evaluating is permanently errored, so re-importing rethrows
+ * without re-running this file — and there the context stays until the realm
+ * goes away. That is the deliberate choice: a hung promise is a silent liveness
+ * bug with no upper bound, while the retained bookkeeping is bounded by the page.
+ */
+function __rollbackWasiInitialization() {
+  const cleanupErrors = []
+  let drainResult
+  let settlementsUnreached = false
+  try {
+    __prepareWasmEnvCleanup()
+    drainResult = __drainWasmEnvCleanup()
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError)
+    settlementsUnreached = true
+  }
+  if (__isThenable(drainResult)) {
+    return Promise.resolve(drainResult).then(
+      () => __destroyContextForWasiRollback(cleanupErrors),
+      (cleanupError) => {
+        cleanupErrors.push(cleanupError)
+        return __retainFailedWasiRollback(cleanupErrors)
+      },
+    )
+  }
+  if (settlementsUnreached) {
+    return __retainFailedWasiRollback(cleanupErrors)
+  }
+  return __destroyContextForWasiRollback(cleanupErrors)
 }
 
 const __wasiRollbackRegistrySymbol = Symbol.for('napi.rs.wasi.rollback.registry.v1')
@@ -413,10 +666,18 @@ function __removeWasiExitListener() {
 
 function __disposeWasiBindingAtExit() {
   __wasiExitListenerRegistered = false
+  // An 'exit' handler cannot yield, so it cannot wait for queued promise
+  // settlements the way __startWasiDisposal does — the process is leaving and
+  // those promises have no observer left anyway. Run the synchronous teardown
+  // directly. Every step is idempotent, which also makes this the synchronous
+  // finish for a disposal that is still waiting for its drain.
   try {
-    const result = __disposeWasiBinding()
-    if (__isThenable(result)) {
-      void Promise.resolve(result).catch(() => {})
+    __destroyEmnapiContext()
+  } catch {}
+  try {
+    const workerResult = __terminateWasiWorkers()
+    if (__isThenable(workerResult)) {
+      void Promise.resolve(workerResult).catch(() => {})
     }
   } catch {}
 }
@@ -432,6 +693,13 @@ function __registerWasiExitListener() {
 }
 
 __completeWasiDisposal = __removeWasiExitListener
+// A rollback that could not reach the queued settlements keeps the context so
+// the registry replay above can retry it. Nothing forces that replay to happen,
+// so hand the context to the same synchronous teardown a successful load uses:
+// a process that exits without ever retrying still runs the cleanup hooks. The
+// handler cannot yield, so it does not settle anything — but by then the process
+// is leaving and those promises have no observer left anyway.
+__retainWasiRollbackForRetry = __registerWasiExitListener
 
 function __captureEmnapiAutoDestroyListener() {
   if (
@@ -613,6 +881,7 @@ module.exports.asyncTaskArraybuffer = __napiModule.exports.asyncTaskArraybuffer
 module.exports.asyncTaskFinally = __napiModule.exports.asyncTaskFinally
 module.exports.asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
 module.exports.asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
+module.exports.asyncTaskRejectWithCapturedValue = __napiModule.exports.asyncTaskRejectWithCapturedValue
 module.exports.asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
 module.exports.awaitRejectionOffThread = __napiModule.exports.awaitRejectionOffThread
 module.exports.bigintAdd = __napiModule.exports.bigintAdd
@@ -674,6 +943,7 @@ module.exports.createArraybuffer = __napiModule.exports.createArraybuffer
 module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
+module.exports.createErrorFromRetainedValue = __napiModule.exports.createErrorFromRetainedValue
 module.exports.createErroringReadableStream = __napiModule.exports.createErroringReadableStream
 module.exports.createExternal = __napiModule.exports.createExternal
 module.exports.createExternalBufferSlice = __napiModule.exports.createExternalBufferSlice
@@ -719,6 +989,8 @@ module.exports.dateToNumber = __napiModule.exports.dateToNumber
 module.exports.DEFAULT_COST = __napiModule.exports.DEFAULT_COST
 module.exports.defineClass = __napiModule.exports.defineClass
 module.exports.derefUint8Array = __napiModule.exports.derefUint8Array
+module.exports.describeCapturedValue = __napiModule.exports.describeCapturedValue
+module.exports.describePromiseRejection = __napiModule.exports.describePromiseRejection
 module.exports.detachReentrantBorrowOrderTestTarget = __napiModule.exports.detachReentrantBorrowOrderTestTarget
 module.exports.drainStreamCount = __napiModule.exports.drainStreamCount
 module.exports.dropClonedErrorsOnTwoThreads = __napiModule.exports.dropClonedErrorsOnTwoThreads
@@ -780,12 +1052,19 @@ module.exports.indexSetToRust = __napiModule.exports.indexSetToRust
 module.exports.intoUtf8 = __napiModule.exports.intoUtf8
 module.exports.joinPath = __napiModule.exports.joinPath
 module.exports.jsErrorCallback = __napiModule.exports.jsErrorCallback
+module.exports.jsErrorFromRetainedValue = __napiModule.exports.jsErrorFromRetainedValue
+module.exports.jsErrorWithoutRetainedValue = __napiModule.exports.jsErrorWithoutRetainedValue
+module.exports.jsRangeErrorFromRetainedValue = __napiModule.exports.jsRangeErrorFromRetainedValue
+module.exports.jsRangeErrorWithoutRetainedValue = __napiModule.exports.jsRangeErrorWithoutRetainedValue
+module.exports.jsTypeErrorFromRetainedValue = __napiModule.exports.jsTypeErrorFromRetainedValue
+module.exports.jsTypeErrorWithoutRetainedValue = __napiModule.exports.jsTypeErrorWithoutRetainedValue
 module.exports.Kind = __napiModule.exports.Kind
 module.exports.KindInValidate = __napiModule.exports.KindInValidate
 module.exports.listObjKeys = __napiModule.exports.listObjKeys
 module.exports.makeTypeTagA = __napiModule.exports.makeTypeTagA
 module.exports.mapOption = __napiModule.exports.mapOption
 module.exports.mergeTupleArray = __napiModule.exports.mergeTupleArray
+module.exports.moduleRetentionRequests = __napiModule.exports.moduleRetentionRequests
 module.exports.mutateArraybuffer = __napiModule.exports.mutateArraybuffer
 module.exports.mutateExternal = __napiModule.exports.mutateExternal
 module.exports.mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal

@@ -27,6 +27,10 @@ use napi::bindgen_prelude::{
   AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeRejection, AsyncRuntimeTask, Buffer, Env, Error,
   JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
+// `set_named_property` on the global object; only the wasm-only
+// registration-failure hook needs it.
+#[cfg(target_family = "wasm")]
+use napi::bindgen_prelude::JsObjectValue;
 use napi_derive::napi;
 
 static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
@@ -1095,11 +1099,49 @@ fn init() {
 }
 
 #[napi(module_exports)]
-pub fn module_exports_hook(_exports: Object) -> Result<()> {
+pub fn module_exports_hook(_exports: Object, _env: Env) -> Result<()> {
   // NOTE: the old SPI branch wrapped a marker value here to prove that napi
   // leaves the exports wrap slot to the addon. The minimal SPI base still
   // owns that slot for its wasm env-cleanup bookkeeping, so wrapping the
   // exports object would fail module registration on WASI targets.
+
+  // Registration runs with a live `Env`, so an addon can start async work here
+  // and *then* fail, leaving a task in flight while instantiation unwinds into
+  // the loader's initialization-rollback path. The barrier cancels that task and
+  // queues its rejection, so a rollback that destroys the context without
+  // draining first strands the promise — which is what the WASI loaders are
+  // asserted not to do.
+  //
+  // Driven by a global rather than an environment variable: the deferred loader
+  // builds its `WASI` with no `env`, so `std::env` is empty there.
+  #[cfg(target_family = "wasm")]
+  {
+    let mut global = _env.get_global()?;
+    let flag: Unknown =
+      global.get_named_property("__napiCustomRuntimeFailRegistrationAfterSpawn")?;
+    if !matches!(
+      flag.get_type()?,
+      napi::ValueType::Undefined | napi::ValueType::Null
+    ) {
+      // A task that completes right now. `TestRuntime::spawn` drains inline, so
+      // this settles before the barrier ever runs — outside it, which is what
+      // sends the settle through the threadsafe-function queue and leaves
+      // `napi_wasm_env_cleanup_pending` above zero when the rollback starts.
+      // Without it the rollback's drain has nothing to wait for and never
+      // schedules a macrotask at all, so the failure modes of that scheduling
+      // are unreachable.
+      let queued = _env.spawn_future(async { Ok(7u32) })?;
+      global.set_named_property("__napiRegistrationQueuedPromise", queued)?;
+      let promise = _env.spawn_future(std::future::pending::<Result<()>>())?;
+      // Escapes into JavaScript before registration fails, so the test can watch
+      // it settle even though instantiation never hands out any exports.
+      global.set_named_property("__napiRegistrationSpawnedPromise", promise)?;
+      return Err(Error::new(
+        Status::GenericFailure,
+        "module_exports_hook failed on purpose after spawning a task",
+      ));
+    }
+  }
   Ok(())
 }
 
@@ -1395,6 +1437,37 @@ pub fn spawn_blocking_value(value: u32) -> Result<u32> {
         format!("custom runtime blocking work did not complete: {error}"),
       )
     })
+}
+
+/// Drive one of napi's built-in Tokio compatibility helpers from a **synchronous** export.
+///
+/// A combined `async-runtime` + `tokio_rt` build keeps `napi::spawn`, `napi::block_on` and
+/// `napi::spawn_blocking` Tokio-backed even though a custom backend owns the runtime
+/// lifecycle, so the built-in `RT` slot is never constructed. That is the configuration in
+/// which the wasm cleanup barrier's `shutdown_async_runtime` has nothing to drain — and a
+/// synchronous export reached from a JavaScript callback during the loader's drain could
+/// therefore construct a brand-new Tokio runtime *after* the barrier declared the
+/// environment quiescent.
+///
+/// Compiled only when `tokio-rt` is on, which is exactly when the helpers exist.
+#[cfg(feature = "tokio-rt")]
+#[napi]
+pub fn tokio_helper_probe(kind: String) -> Result<u32> {
+  match kind.as_str() {
+    "spawn" => {
+      drop(napi::bindgen_prelude::spawn(async {}));
+      Ok(1)
+    }
+    "block_on" => Ok(napi::bindgen_prelude::block_on(async { 2 })),
+    "spawn_blocking" => {
+      drop(napi::bindgen_prelude::spawn_blocking(|| ()));
+      Ok(3)
+    }
+    other => Err(Error::new(
+      Status::InvalidArg,
+      format!("unknown tokio helper probe: {other}"),
+    )),
+  }
 }
 
 #[cfg(not(target_family = "wasm"))]

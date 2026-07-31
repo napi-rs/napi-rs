@@ -313,6 +313,142 @@ unsafe extern "C" fn napi_register_wasm_v1(
   unsafe { napi_register_module_v1(env, exports) }
 }
 
+/// Shut this addon's async runtime down while the WebAssembly environment can still call into
+/// JavaScript.
+///
+/// The generated WASI loaders look this export up on the instantiated module and call it,
+/// synchronously and on the main thread, as the *first* step of disposing the environment,
+/// before `Context::destroy` flips emnapi's `canCallIntoJs` to `false`. It is therefore the
+/// last moment at which a background task may still reach its `JsDeferred`: afterwards
+/// `napi_call_threadsafe_function` reports `napi_closing`, a settle from a task that is still
+/// running traps the instance, and the promise it owned can never settle.
+///
+/// Native targets get this ordering from Node for free — `napi_register_module_v1` registers
+/// `thread_cleanup` with `napi_add_env_cleanup_hook`, and Node runs cleanup hooks before it
+/// finalizes threadsafe functions. wasm has no equivalent: the only teardown callback there is
+/// the `exports` object finalizer that `napi_register_module_v1` installs with `napi_wrap`,
+/// which runs deep inside the environment teardown, long after JavaScript calls are disabled.
+/// This export is that missing pre-teardown barrier, and it performs exactly the same teardown
+/// as the finalizer — only early enough to be useful.
+///
+/// # Ordering this guarantees
+///
+/// 1. The loader calls this export. The environment is still fully active.
+/// 2. A registered `AsyncRuntime` backend's `shutdown` hook runs and, per its documented
+///    contract, returns only once every backend-owned thread, task, and blocking closure has
+///    quiesced.
+///    Tasks dropped by that shutdown reject their promises through the cancellation callback,
+///    which reaches JavaScript from here.
+/// 3. This export returns. Every settle produced on *this* thread has already been delivered —
+///    the promises are rejected, their `.then` handlers queued as microtasks. The set of
+///    settles left waiting in the threadsafe-function queue is complete: the backend is
+///    stopped, so nothing can append to it any more.
+///
+/// # Delivery, and the part that still needs the loader
+///
+/// `napi_call_threadsafe_function` only *appends* to the queue; on wasm the queue is dispatched
+/// by the host, and `@emnapi/core` dispatches a main-thread call from a *macrotask*, two
+/// coalescing turns later. Calling this export and `Context::destroy()` back to back — with no
+/// turn of the event loop between them — would therefore strand every promise, because
+/// `destroy()` runs the threadsafe function's cleanup hook, which drains the queue with a null
+/// env and discards the settles.
+///
+/// So a settle made on this thread while this export is running does not go through the queue
+/// at all: it runs straight into the promise, with the environment still fully alive. That
+/// covers `wasm32-wasip1` outright, and every `wasm32-wasip1-threads` task whose cancellation
+/// runs on the JavaScript thread. A host that cannot yield — a raw synchronous
+/// `Context::destroy()`, a Node `process.on('exit')` handler — gets those promises settled.
+///
+/// What it cannot cover is a settle produced on *another* thread, which has no way to reach the
+/// promise except the queue. [`napi_wasm_env_cleanup_pending`] counts exactly those. A loader
+/// that can yield must, after this returns, yield real event-loop turns until that count reports
+/// zero and only then destroy the environment; the generated loaders do. A host that cannot
+/// yield still cannot get that half of the guarantee — it is the documented limitation of
+/// `process.on('exit')`.
+///
+/// The built-in Tokio path keeps `shutdown_async_runtime`'s existing best-effort
+/// `shutdown_background` semantics: it starts the drain here instead of
+/// after teardown, but it does not join Tokio's workers. Blocking on them would be the wrong
+/// trade on wasm, where this runs on the only thread that can drain the threadsafe-function
+/// queue and, in a browser, may not block at all. Addons that need the hard guarantee register
+/// an `AsyncRuntime` backend, whose `shutdown` contract provides it.
+///
+/// # The runtime stays down
+///
+/// Calling this declares the environment to be disposing, and that declaration outlives the
+/// call: the runtime is latched against restart until a *new* environment registers this addon
+/// image. Yielding to the event loop — which the drain above requires — lets arbitrary
+/// JavaScript run, and an addon export called from it would otherwise restart the runtime this
+/// just quiesced, behind the back of a drain that has no way to see the new work. From here on,
+/// `start_async_runtime` is a no-op and every runtime-backed call returns a promise rejected
+/// with [`Status::Cancelled`](crate::Status) rather than starting work the environment is about
+/// to destroy.
+///
+/// Synchronous exports keep working, with one exception: the built-in Tokio compatibility
+/// helpers (`napi::spawn`, `napi::block_on`, `napi::spawn_blocking`) hand back a `JoinHandle`
+/// or the future's own output, so they have no way to answer "declined" — they panic instead of
+/// accepting work the environment is about to destroy. That is what they already did in every
+/// configuration whose runtime the teardown actually drained; the latch extends it to the
+/// combined `async-runtime` + `tokio_rt` build, where the built-in runtime is typically never
+/// constructed and a post-barrier call would otherwise construct one. See
+/// `tokio_runtime::refuse_tokio_helper_during_wasm_env_disposal`.
+///
+/// Repeated calls are harmless — the loaders guard against them anyway, and the finalizer that
+/// still fires later performs the same idempotent teardown.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_prepare_wasm_env_cleanup() {
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  {
+    // Deliver, do not queue: for as long as this guard is alive, a `JsDeferred` settled on this
+    // thread settles its promise directly instead of appending to a queue the host dispatches
+    // two macrotasks later — which a caller that destroys the environment synchronously never
+    // reaches. The guard is scoped to the shutdown, so ordinary settles after this returns go
+    // back through the queue.
+    //
+    // Latch *before* the shutdown, and leave it latched after this returns: the drain below is
+    // an event loop, so the rejections this shutdown delivers run their JavaScript handlers
+    // while the environment is still alive, and an addon export called from one of them would
+    // otherwise restart the very runtime that just quiesced — behind the back of a drain that
+    // cannot see the restarted work. Runtime-backed calls made from here on reject with a
+    // defined error instead.
+    crate::tokio_runtime::latch_wasm_env_disposal();
+    let _deliver_settlements = crate::js_values::WasmEnvCleanupBarrier::enter();
+    crate::tokio_runtime::shutdown_async_runtime();
+  }
+}
+
+/// How many promise settlements are queued in the threadsafe-function queue and have not been
+/// dispatched back into JavaScript yet.
+///
+/// This is the settlement half of the [`napi_prepare_wasm_env_cleanup`] handshake. The barrier
+/// makes the queued set complete; this export makes it observable, so the generated loaders can
+/// yield event-loop turns until it reads zero and destroy the environment only then. Without
+/// it a loader could only guess a turn count, and the guess would be wrong the moment
+/// `@emnapi/core` changed how it coalesces wakeups — or the moment the settle came from a
+/// `wasm32-wasip1-threads` worker, whose wakeup needs a `postMessage` round trip first.
+///
+/// It counts only settles that are already in the queue, never promises that are merely
+/// pending, so a long-running task that shutdown did not cancel cannot make a loader spin.
+///
+/// Loaders must still bound their wait: this reaching zero is the success condition, not a
+/// promise that it always will.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_wasm_env_cleanup_pending() -> u32 {
+  #[cfg(feature = "napi4")]
+  {
+    crate::js_values::pending_deferred_settles()
+  }
+  #[cfg(not(feature = "napi4"))]
+  {
+    0
+  }
+}
+
 #[cfg(not(feature = "noop"))]
 #[no_mangle]
 /// Register the n-api module exports.
@@ -333,6 +469,17 @@ pub unsafe extern "C" fn napi_register_module_v1(
   unsafe {
     sys::setup();
   }
+  // A new environment is registering this addon image, so whatever disposal latched the runtime
+  // against restart is over. This is the only release point, and the only one that is safe:
+  // emnapi runs module registration on the main thread only, so a `wasm32-wasip1-threads` worker
+  // sharing this linear memory can never reach it mid-disposal. See
+  // `tokio_runtime::WASM_ENV_DISPOSING`.
+  #[cfg(all(
+    target_family = "wasm",
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  crate::tokio_runtime::release_wasm_env_disposal_latch();
   #[cfg(feature = "node_version_detect")]
   {
     NODE_VERSION.get_or_init(|| {
@@ -374,6 +521,16 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // `exports`), so running it this early is safe.
   #[cfg(feature = "napi4")]
   create_custom_gc(env);
+
+  // Resolve and cache this env's `Reflect.getOwnPropertyDescriptor` pair NOW,
+  // at registration, so `Error::from_unknown_without_coercion` never reads
+  // `Reflect` off the global object mid-capture. That read is an ordinary
+  // `[[Get]]`: user code can redefine `globalThis.Reflect` as an accessor, and
+  // a per-capture read would run that accessor — arbitrary user code, free to
+  // reenter the addon — while an error is unwinding. Registration is the
+  // defined moment where the one unavoidable `[[Get]]` may happen. Best effort:
+  // a failure leaves capture degrading to an empty reason/cause.
+  crate::error::cache_reflect_intrinsics_for_env(env);
 
   let mut exports_objects: HashSet<String> = HashSet::default();
 
@@ -810,3 +967,151 @@ extern "C" fn custom_gc(
     );
   }
 }
+
+/// A function whose address is guaranteed to live inside this addon's image.
+/// The loader APIs below identify the image to retain by looking up the module
+/// that owns this address, which works for a `cdylib` without knowing its path.
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[inline(never)]
+fn module_retention_anchor() {}
+
+/// Takes one extra loader reference to the image this addon was loaded from and
+/// never releases it, so the addon's code stays mapped for the lifetime of the
+/// process.
+///
+/// Node unloads an addon when the environment that loaded it goes away and no
+/// other environment holds it. On Windows that is a `FreeLibrary` which drops
+/// the module's reference count to zero and unmaps the image. Any native code
+/// still reachable from a thread that outlives the environment then points into
+/// unmapped memory: the reported symptom is a `0xC0000005` access violation
+/// raised from a Tokio waker vtable when an addon was loaded only inside a
+/// worker and that worker exited.
+///
+/// Call this before creating anything that can outlive a single environment —
+/// process-global runtimes, worker threads, or a waker/vtable handed to one.
+/// Repeated calls are cheap: the reference is taken at most once per process.
+///
+/// This is best effort. Platforms with no loader-pinning primitive and failures
+/// of the underlying call leave the image unpinned, which is exactly the
+/// behavior addons had before this existed, so it never makes things worse.
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+pub fn retain_current_module_for_unload_safety() {
+  static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  // Counted on every call, not just the first, so a test can observe that a
+  // given code path asked for retention even though the pin itself is taken
+  // once per process. One relaxed increment next to an N-API call is noise.
+  MODULE_RETENTION_REQUESTS.fetch_add(1, Ordering::Relaxed);
+  RETAIN_MODULE.call_once(retain_current_module);
+}
+
+/// How many times [`retain_current_module_for_unload_safety`] has been asked to
+/// pin this addon's image. The pin happens at most once per process; this
+/// counts requests, so a caller can check that a particular path requested it.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+#[doc(hidden)]
+pub fn module_retention_requests() -> usize {
+  MODULE_RETENTION_REQUESTS.load(Ordering::Relaxed)
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+static MODULE_RETENTION_REQUESTS: AtomicUsize = AtomicUsize::new(0);
+
+/// `noop` stub: nothing registers, so nothing ever requests a pin.
+#[cfg(all(feature = "noop", not(target_family = "wasm")))]
+#[doc(hidden)]
+pub fn module_retention_requests() -> usize {
+  0
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm"), windows))]
+fn retain_current_module() {
+  const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 0x0000_0001;
+  const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 0x0000_0004;
+
+  #[link(name = "kernel32")]
+  unsafe extern "system" {
+    fn GetModuleHandleExW(
+      flags: u32,
+      module_name: *const u16,
+      module: *mut *mut std::ffi::c_void,
+    ) -> i32;
+  }
+
+  let mut module = ptr::null_mut();
+  // With `FROM_ADDRESS` the "module name" argument is an address inside the
+  // wanted module, and `PIN` makes the loader hold the module until the process
+  // exits. The returned handle is intentionally never freed.
+  let _ = unsafe {
+    GetModuleHandleExW(
+      GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+      module_retention_anchor as *const () as *const u16,
+      &mut module,
+    )
+  };
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  any(
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  )
+))]
+fn retain_current_module() {
+  // glibc before 2.34 keeps the `dl*` symbols in a separate library.
+  #[cfg(any(target_os = "linux", target_os = "android"))]
+  #[link(name = "dl")]
+  unsafe extern "C" {}
+
+  let anchor = module_retention_anchor as *const () as *const std::ffi::c_void;
+  let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+  // SAFETY: `anchor` is the address of a function in this image and `info` is a
+  // live, correctly sized out-parameter.
+  let info = unsafe {
+    if libc::dladdr(anchor, info.as_mut_ptr()) == 0 {
+      return;
+    }
+    info.assume_init()
+  };
+  if info.dli_fname.is_null() {
+    return;
+  }
+  // `RTLD_NOLOAD` resolves the already-mapped image instead of loading anything
+  // new; it only increments the reference count. The handle is deliberately
+  // leaked — releasing it is the very thing being prevented.
+  // SAFETY: `dli_fname` is a NUL-terminated path owned by the loader.
+  unsafe {
+    libc::dlopen(
+      info.dli_fname,
+      libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_NOLOAD,
+    );
+  }
+}
+
+/// Fallback for targets with no portable way to pin the running image (AIX and
+/// OpenBSD among them). Unloading stays possible there, unchanged from before.
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  not(any(
+    windows,
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  ))
+))]
+fn retain_current_module() {}

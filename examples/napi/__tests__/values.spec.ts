@@ -76,6 +76,13 @@ import {
   throwError,
   throwErrorWithCause,
   jsErrorCallback,
+  createErrorFromRetainedValue,
+  jsErrorFromRetainedValue,
+  jsTypeErrorFromRetainedValue,
+  jsRangeErrorFromRetainedValue,
+  jsErrorWithoutRetainedValue,
+  jsTypeErrorWithoutRetainedValue,
+  jsRangeErrorWithoutRetainedValue,
   tryCloneErrorOffThread,
   tryCloneErrorCauseOffThread,
   tryCloneErrorCauseTransitiveOffThread,
@@ -100,6 +107,7 @@ import {
   withoutAbortController,
   withAbortController,
   asyncTaskReadFile,
+  asyncTaskRejectWithCapturedValue,
   asyncTaskOptionalReturn,
   asyncTaskFinally,
   asyncResolveArray,
@@ -122,6 +130,8 @@ import {
   tsfnThrowFromJsCatchHandled,
   tsfnThrowFromJsCatchRecover,
   asyncPlus100,
+  describePromiseRejection,
+  describeCapturedValue,
   getGlobal,
   getUndefined,
   getNull,
@@ -216,6 +226,7 @@ import {
   bigintFromI128,
   bigintFromI64,
   acceptThreadsafeFunction,
+  moduleRetentionRequests,
   acceptThreadsafeFunctionFatal,
   acceptThreadsafeFunctionTupleArgs,
   promiseInEither,
@@ -1999,6 +2010,306 @@ Napi4Test('Promise should reject raw error in rust', async (t) => {
   })
 })
 
+Napi4Test('Promise rejection is captured without coercion', async (t) => {
+  // `describePromiseRejection` reports `"<status>|<reason>|<cause chain>"`, with
+  // `-` for "no cause".
+  //
+  // A rejection value that N-API cannot reference directly. This used to fail
+  // `napi_create_reference` and surface as `InvalidArg|Create Error reference
+  // failed`, destroying the thrown value.
+  t.is(
+    await describePromiseRejection(Promise.reject('boom')),
+    'GenericFailure|boom|-',
+  )
+  t.is(await describePromiseRejection(Promise.reject(42)), 'GenericFailure||-')
+  t.is(
+    await describePromiseRejection(Promise.reject(null)),
+    'GenericFailure||-',
+  )
+  t.is(
+    await describePromiseRejection(Promise.reject(undefined)),
+    'GenericFailure||-',
+  )
+  // Real errors keep their own message; it is read, never coerced.
+  t.is(
+    await describePromiseRejection(Promise.reject(new TypeError('nope'))),
+    'GenericFailure|nope|-',
+  )
+  t.is(
+    await describePromiseRejection(Promise.resolve(undefined)),
+    'resolved||-',
+  )
+})
+
+Napi4Test('a `message` accessor is never invoked', async (t) => {
+  // The central claim of the non-coercing capture: `reason` is built only from
+  // data readable *without running JavaScript*. `message` is looked up with
+  // `Reflect.getOwnPropertyDescriptor` walking the prototype chain, so a data
+  // property is read and an accessor is detected and left alone — where a plain
+  // `napi_get_named_property` would have called it.
+  let invocations = 0
+  const observable = new Error('own message')
+  Object.defineProperty(observable, 'message', {
+    configurable: true,
+    get() {
+      invocations += 1
+      return 'from the accessor'
+    },
+  })
+  t.is(
+    await describePromiseRejection(Promise.reject(observable)),
+    'GenericFailure|JavaScript Error|-',
+  )
+  t.is(invocations, 0)
+
+  // Same for an accessor inherited from a subclass prototype.
+  let protoInvocations = 0
+  class AccessorError extends Error {
+    override get message() {
+      protoInvocations += 1
+      return 'from the prototype accessor'
+    }
+  }
+  t.is(
+    await describePromiseRejection(Promise.reject(new AccessorError())),
+    'GenericFailure|JavaScript Error|-',
+  )
+  t.is(protoInvocations, 0)
+
+  // A throwing accessor cannot even be reached, so nothing has to be contained —
+  // but assert the environment is still clean afterwards.
+  let throwingInvocations = 0
+  const hostile = new Error('ignored')
+  Object.defineProperty(hostile, 'message', {
+    configurable: true,
+    get() {
+      throwingInvocations += 1
+      throw new Error('thrown by the message accessor')
+    },
+  })
+  t.is(
+    await describePromiseRejection(Promise.reject(hostile)),
+    'GenericFailure|JavaScript Error|-',
+  )
+  t.is(throwingInvocations, 0)
+  t.is(
+    await describePromiseRejection(Promise.resolve(undefined)),
+    'resolved||-',
+  )
+
+  // A `message` data property up the prototype chain is still found: the walk
+  // exists so this keeps working.
+  class DataError extends Error {}
+  DataError.prototype.message = 'from the prototype data property'
+  t.is(
+    await describePromiseRejection(Promise.reject(new DataError())),
+    'GenericFailure|from the prototype data property|-',
+  )
+  // `new Error()` has no own `message`; `Error.prototype.message` is `''`.
+  t.is(
+    await describePromiseRejection(Promise.reject(new Error())),
+    'GenericFailure||-',
+  )
+})
+
+Napi4Test('the `cause` chain survives the capture', async (t) => {
+  // `Error::cause` used to be hardcoded to `None` here, which lost the cause on
+  // the fallback path — off-thread or a foreign env, exactly where the retained
+  // value is gone and `JsError::into_value` has to rebuild the error from
+  // `reason`/`cause`.
+  t.is(
+    await describePromiseRejection(
+      Promise.reject(
+        new TypeError('the message', { cause: new RangeError('the cause') }),
+      ),
+    ),
+    'GenericFailure|the message|the cause',
+  )
+  // The chain is followed, not just the first link.
+  t.is(
+    await describePromiseRejection(
+      Promise.reject(
+        new Error('L1', { cause: new Error('L2', { cause: new Error('L3') }) }),
+      ),
+    ),
+    'GenericFailure|L1|L2<L3',
+  )
+  // A primitive cause is copied verbatim rather than coerced or dropped.
+  t.is(
+    await describePromiseRejection(
+      Promise.reject(new Error('outer', { cause: 'just a string' })),
+    ),
+    'GenericFailure|outer|just a string',
+  )
+  // ...and a `get cause()` accessor is no more welcome than a `get message()`.
+  let invocations = 0
+  const hostile = new Error('accessor cause')
+  Object.defineProperty(hostile, 'cause', {
+    configurable: true,
+    get() {
+      invocations += 1
+      return new Error('should never be read')
+    },
+  })
+  t.is(
+    await describePromiseRejection(Promise.reject(hostile)),
+    'GenericFailure|accessor cause|-',
+  )
+  t.is(invocations, 0)
+
+  // A cyclic chain terminates at the depth limit instead of recursing until the
+  // stack runs out, which is what `From<Unknown>` does on this input.
+  const a = new Error('A')
+  const b = new Error('B')
+  a.cause = b
+  b.cause = a
+  t.is(
+    await describePromiseRejection(Promise.reject(a)),
+    'GenericFailure|A|B<A<B<A<B<A<B<A',
+  )
+})
+
+test('capture never performs a [[Get]] on the global Reflect', (t) => {
+  // napi-rs#3423. `globalThis.Reflect` is configurable, so user code can
+  // redefine it as an accessor, and reading it off the global per capture is an
+  // ordinary `[[Get]]` — the accessor would run, mid-unwind, exactly the
+  // arbitrary-user-code hazard the descriptor discipline exists to avoid. The
+  // `Reflect.getOwnPropertyDescriptor` pair is therefore cached per env at
+  // module registration: a post-load accessor must never fire during capture,
+  // and capture keeps full fidelity because the load-time intrinsic still does
+  // the reads.
+  //
+  // The patch window is fully synchronous, so no concurrent test can observe
+  // the patched global, and every getter hit counted here was caused by the
+  // capture calls between the two defineProperty calls.
+  //
+  // On the WASI lanes the addon's env lives in its own realm whose `Reflect`
+  // this patch does not reach, so the hit counter is trivially 0 there; the
+  // fidelity and identity assertions still hold. The native lane is the
+  // meaningful one.
+  const realReflect = globalThis.Reflect
+  const realDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Reflect')!
+  let hits = 0
+  let described: string
+  let identity: unknown
+  const value = new TypeError('the message', {
+    cause: new RangeError('the cause'),
+  })
+  Object.defineProperty(globalThis, 'Reflect', {
+    configurable: true,
+    get() {
+      hits += 1
+      return realReflect
+    },
+  })
+  try {
+    described = describeCapturedValue(value)
+    identity = jsErrorFromRetainedValue(value)
+  } finally {
+    Object.defineProperty(globalThis, 'Reflect', realDescriptor)
+  }
+  t.is(hits, 0, 'a hostile Reflect accessor must not fire during capture')
+  t.is(described, 'GenericFailure|the message|the cause')
+  t.is(identity, value)
+})
+
+test('capture survives a deleted global Reflect with full fidelity', (t) => {
+  // With the registration-time cache, a post-load `delete globalThis.Reflect`
+  // cannot degrade capture. A per-call lookup would collapse the reason to
+  // "JavaScript Error" and lose the cause here, so this is the mutation guard
+  // for removing the cache. Synchronous window, as above.
+  const realDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Reflect')!
+  let described: string
+  try {
+    delete (globalThis as { Reflect?: unknown }).Reflect
+    described = describeCapturedValue(
+      new TypeError('kept', { cause: 'and this too' }),
+    )
+  } finally {
+    Object.defineProperty(globalThis, 'Reflect', realDescriptor)
+  }
+  t.is(described, 'GenericFailure|kept|and this too')
+})
+
+test('capture ignores a post-load replacement of Reflect', (t) => {
+  // Same property from the other side: overwriting `Reflect` with a data
+  // property that has no usable `getOwnPropertyDescriptor` must not degrade
+  // capture either — the cache pinned the load-time pair. Synchronous window.
+  const realDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Reflect')!
+  let described: string
+  try {
+    ;(globalThis as { Reflect?: unknown }).Reflect = {}
+    described = describeCapturedValue(
+      new TypeError('still read', { cause: new Error('still walked') }),
+    )
+  } finally {
+    Object.defineProperty(globalThis, 'Reflect', realDescriptor)
+  }
+  t.is(described, 'GenericFailure|still read|still walked')
+})
+
+Napi4Test(
+  'a rejected promise settles JavaScript with the identical value',
+  async (t) => {
+    // The central claim: the value is retained, not coerced, so it comes back as
+    // *itself*. Asserting the message is not enough — a synthesized `Error`
+    // carrying the same message would pass that and fail this.
+    const rejections: [string, unknown][] = [
+      ['string', 'boom'],
+      ['number', 42],
+      ['null', null],
+      ['undefined', undefined],
+      ['boolean', false],
+      ['bigint', 7n],
+      ['symbol', Symbol('marker')],
+      ['plain object', { tag: 'marker' }],
+      ['array', [1, 2, 3]],
+      ['function', function marker() {}],
+      ['Error', new TypeError('a real error')],
+    ]
+    for (const [label, value] of rejections) {
+      const settled = await asyncPlus100(Promise.reject(value)).then(
+        (resolved) => ({ rejected: false, value: resolved as unknown }),
+        (reason: unknown) => ({ rejected: true, value: reason }),
+      )
+      t.true(settled.rejected, `${label} should reject`)
+      t.is(settled.value, value, `${label} should reject with the same value`)
+    }
+  },
+)
+
+test('an AsyncTask rejecting with a captured value settles with the identical value', async (t) => {
+  // Same contract as the deferred/promise settlement paths, on the
+  // `napi_create_async_work` completion path: an `Error` captured on the JS
+  // thread with `Error::from_unknown_without_coercion`, carried through
+  // `Task::compute` on the libuv thread and handed back by the default
+  // `Task::reject`, must reject the promise with the retained value itself.
+  // Asserting the message is not enough — the bug this guards against
+  // (`JsError::into_value`'s `napi_is_error` gate on the completion path)
+  // produced a synthesized `Error` carrying the same reason.
+  const rejections: [string, unknown][] = [
+    ['string', 'boom'],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['boolean', false],
+    ['bigint', 7n],
+    ['symbol', Symbol('marker')],
+    ['plain object', { tag: 'marker' }],
+    ['array', [1, 2, 3]],
+    ['function', function marker() {}],
+    ['Error', new TypeError('a real error')],
+  ]
+  for (const [label, value] of rejections) {
+    const settled = await asyncTaskRejectWithCapturedValue(value).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${label} should reject`)
+    t.is(settled.value, value, `${label} should reject with the same value`)
+  }
+})
+
 Napi4Test('call ThreadsafeFunction with callback', async (t) => {
   await t.notThrowsAsync(
     () =>
@@ -2038,9 +2349,7 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
         throw new Error(errMsg)
       }),
     {
-      // on wasm targets the thrown error object is not referenced; JS receives
-      // a recreated error whose message contains the message and stack trace
-      message: process.env.WASI_TEST ? new RegExp(errMsg) : errMsg,
+      message: errMsg,
     },
   )
 
@@ -2064,15 +2373,150 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
         return Promise.resolve(1)
       })
     },
-    process.env.WASI_TEST
-      ? {
-          message: /Cannot set properties of undefined \(setting 'd'\)/,
-        }
-      : {
-          instanceOf: TypeError,
-          message: "Cannot set properties of undefined (setting 'd')",
-        },
+    {
+      instanceOf: TypeError,
+      message: "Cannot set properties of undefined (setting 'd')",
+    },
   )
+})
+
+test('a primitive thrown from a ThreadsafeFunction callback is delivered, not fatal', async (t) => {
+  // `napi_create_reference` rejects every non-object below Node-API 10, so
+  // retaining the thrown value used to fail here and take the process down:
+  // reporting the failure as the callback's own status raised a fatal exception
+  // for an error that had already been delivered.
+  const thrown = 'a primitive string'
+  const settled = await tsfnThrowFromJs(() => {
+    throw thrown
+  }).then(
+    (resolved) => ({ rejected: false, value: resolved as unknown }),
+    (reason: unknown) => ({ rejected: true, value: reason }),
+  )
+  t.true(settled.rejected)
+  t.is(settled.value, thrown)
+})
+
+test('a value thrown from a ThreadsafeFunction callback keeps its identity', async (t) => {
+  // Same contract as a promise rejection: JavaScript may throw *anything* and
+  // the value has to come back as itself. Asserting the message is not enough —
+  // a synthesized `Error` carrying the same message would pass that and fail
+  // this. `throw null` and `throw Symbol()` additionally used to leave a second
+  // exception pending in the env (`napi_coerce_to_string` throws on a symbol).
+  const thrown: [string, unknown][] = [
+    ['string', 'a primitive string'],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['boolean', false],
+    ['bigint', 7n],
+    ['symbol', Symbol('marker')],
+    ['plain object', { tag: 'marker' }],
+    ['array', [1, 2, 3]],
+    ['function', function marker() {}],
+    ['Error', new TypeError('a real error')],
+  ]
+  for (const [label, value] of thrown) {
+    const settled = await tsfnThrowFromJsCatchRecover(() => {
+      throw value
+    }).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${label} should reject`)
+    t.is(settled.value, value, `${label} should reject with itself`)
+  }
+})
+
+const RETAINED_VALUES: [string, unknown][] = [
+  ['string', 'a primitive string'],
+  ['number', 42],
+  ['null', null],
+  ['undefined', undefined],
+  ['boolean', false],
+  ['bigint', 7n],
+  ['symbol', Symbol('marker')],
+  ['plain object', { tag: 'marker' }],
+  ['array', [1, 2, 3]],
+  ['function', function marker() {}],
+]
+
+test('Env::create_error never hands back a retained non-error value', (t) => {
+  // `from_unknown_without_coercion` retains whatever JavaScript handed over,
+  // which is exactly right where the value must come back as itself — a promise
+  // rejection, an `AsyncGenerator.throw()`, a throw out of a ThreadsafeFunction
+  // callback, and every `ToNapiValue` conversion feeding them.
+  //
+  // `Env::create_error` is not a conversion. It *constructs* an error object and
+  // is documented to return one, so it used to be the odd one out: given an
+  // `Error` that retained `42` it returned the number `42`, after which every
+  // object operation the caller performed on the "error" silently no-oped.
+  for (const [label, value] of RETAINED_VALUES) {
+    const result = createErrorFromRetainedValue(value)
+    t.true(
+      result instanceof Error,
+      `create_error should synthesize an Error for a retained ${label}`,
+    )
+    t.not(
+      result,
+      value,
+      `create_error should not hand back the retained ${label} itself`,
+    )
+  }
+  // A retained *error* is still reused verbatim: gating on `napi_is_error` is
+  // what preserves identity where identity is meaningful.
+  const real = new TypeError('a real error')
+  t.is(createErrorFromRetainedValue(real), real)
+  // And the result is a real object, so the operations the caller performs on it
+  // actually take effect.
+  const synthesized = createErrorFromRetainedValue(42) as { marker?: number }
+  synthesized.marker = 1
+  t.is(synthesized.marker, 1)
+})
+
+test('the JsError wrappers convert a retained value back verbatim', (t) => {
+  // The other half of the same rule, and the reason `Env::create_error` had to be
+  // singled out rather than gating everything: `ToNapiValue for JsError` and
+  // friends are conversions, on exactly the same footing as `ToNapiValue for
+  // Error`. An addon returning `JsTypeError::from(Error::from_unknown_without_
+  // coercion(value))` is relaying a value JavaScript chose, so JavaScript gets it
+  // back as itself — no `napi_is_error` gate, no synthesized replacement.
+  const converters: [string, (value: unknown) => unknown][] = [
+    ['JsError', jsErrorFromRetainedValue],
+    ['JsTypeError', jsTypeErrorFromRetainedValue],
+    ['JsRangeError', jsRangeErrorFromRetainedValue],
+  ]
+  for (const [api, convert] of converters) {
+    for (const [label, value] of RETAINED_VALUES) {
+      t.is(
+        convert(value),
+        value,
+        `${api} should hand the retained ${label} back verbatim`,
+      )
+    }
+    const real = new TypeError('a real error')
+    t.is(convert(real), real, `${api} should hand a retained Error back verbatim`)
+  }
+})
+
+test('the JsError wrappers keep their subclass when there is nothing to reuse', (t) => {
+  // The bug a plain revert would reintroduce. With no retained value the
+  // conversion has to synthesize, and it must use the constructor its wrapper
+  // names. Delegating to `ToNapiValue for Error` fell back to
+  // `JsError::into_value`, so every `JsTypeError`/`JsRangeError` built in Rust
+  // arrived in JavaScript as a plain `Error`.
+  const plain = jsErrorWithoutRetainedValue('plain') as Error
+  t.is(plain.constructor.name, 'Error')
+  t.is(plain.message, 'plain')
+
+  const type = jsTypeErrorWithoutRetainedValue('typed') as Error
+  t.true(type instanceof TypeError)
+  t.is(type.constructor.name, 'TypeError')
+  t.is(type.message, 'typed')
+
+  const range = jsRangeErrorWithoutRetainedValue('ranged') as Error
+  t.true(range instanceof RangeError)
+  t.is(range.constructor.name, 'RangeError')
+  t.is(range.message, 'ranged')
 })
 
 test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction', async (t) => {
@@ -2082,9 +2526,7 @@ test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction
         throw new Error(arg)
       }),
     {
-      // on wasm targets the thrown error object is not referenced; JS receives
-      // a recreated error whose message contains the message and stack trace
-      message: process.env.WASI_TEST ? /foo/ : 'foo',
+      message: 'foo',
     },
   )
 })
@@ -2096,7 +2538,7 @@ test('call_async_catch on CalleeHandled=true ThreadsafeFunction propagates throw
         throw new Error(arg)
       }),
     {
-      message: process.env.WASI_TEST ? /foo/ : 'foo',
+      message: 'foo',
     },
   )
 })
@@ -2110,20 +2552,61 @@ test('call_async_catch preserves original JS exception object', async (t) => {
       throw thrown
     }),
   )
-  if (process.env.WASI_TEST) {
-    // On wasm targets the thrown error object is not referenced (the error may
-    // be dropped on another thread), so JS receives a recreated error that only
-    // carries the message and stack trace.
-    t.true(err?.message.includes('foo'))
-  } else {
-    // The Rust side propagates the original napi::Error; its maybe_raw reference
-    // round-trips back through ToNapiValue for Error, so JS receives the exact
-    // same Error instance that was thrown, with custom properties intact.
-    // @ts-expect-error reading custom property on Error
-    t.is(err?.code, 'E_FOO')
-    t.is(err?.message, 'foo')
-  }
+  // The Rust side propagates the original napi::Error; its maybe_ref reference
+  // round-trips back through ToNapiValue for Error, so JS receives the exact
+  // same Error instance that was thrown, with custom properties intact.
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_FOO')
+  t.is(err?.message, 'foo')
+  t.is(err, thrown)
 })
+
+test('a JS exception keeps its subclass, cause and own properties', async (t) => {
+  // The shape a real addon sees: user code throws an `Error` subclass carrying
+  // `cause` and custom fields. Everything but the message used to be erased on
+  // wasm, where the exception object was not referenced at all.
+  const cause = new RangeError('the cause')
+  const thrown = new TypeError('the message', { cause })
+  // @ts-expect-error custom property on Error
+  thrown.code = 'E_CUSTOM'
+  // @ts-expect-error custom property on Error
+  thrown.detail = { nested: [1, 2, 3] }
+
+  const err = await t.throwsAsync(() =>
+    tsfnThrowFromJsCatchRecover(() => {
+      throw thrown
+    }),
+  )
+  t.is(err, thrown)
+  t.true(err instanceof TypeError)
+  t.is(err?.message, 'the message')
+  t.is(err?.cause, cause)
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_CUSTOM')
+  // @ts-expect-error reading custom property on Error
+  t.deepEqual(err?.detail, { nested: [1, 2, 3] })
+})
+
+Napi4Test(
+  'a rejected promise keeps its subclass, cause and own properties',
+  async (t) => {
+    // Same identity requirement on the other capture path: `Promise` rejection,
+    // which reaches Rust through `Error::from_unknown_without_coercion`.
+    const cause = new RangeError('the cause')
+    const rejection = new TypeError('the message', { cause })
+    // @ts-expect-error custom property on Error
+    rejection.code = 'E_CUSTOM'
+
+    const err = await t.throwsAsync(() =>
+      asyncPlus100(Promise.reject(rejection)),
+    )
+    t.is(err, rejection)
+    t.true(err instanceof TypeError)
+    t.is(err?.cause, cause)
+    // @ts-expect-error reading custom property on Error
+    t.is(err?.code, 'E_CUSTOM')
+  },
+)
 
 test('napi::Error from a JS sync throw can be dropped on another thread', async (t) => {
   // https://github.com/rolldown/rolldown/issues/10075
@@ -2146,6 +2629,61 @@ Napi4Test('accept ThreadsafeFunction', async (t) => {
       }
     })
   })
+})
+
+Napi4Test('ThreadsafeFunction creation pins the addon image', (t) => {
+  // napi-rs#3423. Node unloads an addon once the environment that loaded it
+  // goes away and no other environment holds it; on Windows that unmaps the
+  // image. A ThreadsafeFunction handle's destructor is code in that image and
+  // runs on whichever thread drops it last, which can be a foreign thread that
+  // outlives the environment.
+  //
+  // Retention therefore has to happen at creation, on the environment's own
+  // thread. Doing it only after a failed release misses the case that matters:
+  // environment teardown finalizes the threadsafe function first, which marks
+  // the handle aborted, and Drop then takes its no-op branch and never reaches
+  // the release-failure path at all.
+  //
+  // wasm has no loader to pin and no image to unmap, so the counter is always
+  // 0 there and there is nothing to assert.
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const before = moduleRetentionRequests()
+  acceptThreadsafeFunction(() => {})
+  const after = moduleRetentionRequests()
+  t.true(
+    after > before,
+    `creating a ThreadsafeFunction must request module retention (${before} -> ${after})`,
+  )
+})
+
+test('capturing a JS value into an Error pins the addon image', (t) => {
+  // napi-rs#3423, same hazard as the ThreadsafeFunction pin above: an `Error`
+  // is `Send`, so the `Arc<ErrorRef>` created by
+  // `Error::from_unknown_without_coercion` (and by `From<Unknown>`) can make
+  // its last drop on a detached thread after the worker that created it — and
+  // with it the only environment holding a worker-only addon — is gone.
+  // `ErrorRef::drop` is code in the unloaded image and crashes on entry, before
+  // it could observe the aborted custom-GC handle. Retention must therefore be
+  // requested when the `ErrorRef` is created, on the env's thread, before the
+  // value can escape.
+  //
+  // wasm has no loader to pin and no image to unmap, so the counter is always
+  // 0 there and there is nothing to assert.
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const before = moduleRetentionRequests()
+  const captured = jsErrorFromRetainedValue({ tag: 'pin me' })
+  const after = moduleRetentionRequests()
+  t.true(
+    after > before,
+    `capturing a JS value into an Error must request module retention (${before} -> ${after})`,
+  )
+  t.truthy(captured)
 })
 
 Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {

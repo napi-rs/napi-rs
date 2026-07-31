@@ -1,5 +1,7 @@
 use std::os::raw::c_void;
 use std::ptr;
+#[cfg(target_family = "wasm")]
+use std::sync::atomic::AtomicU32;
 use std::{
   marker::PhantomData,
   sync::{
@@ -7,6 +9,129 @@ use std::{
     Arc, Mutex, RwLock, Weak,
   },
 };
+
+/// How many promise settlements this addon has handed to the threadsafe-function queue that
+/// have not been dispatched back into JavaScript yet.
+///
+/// On wasm the queue is drained by the host, not by napi: `napi_call_threadsafe_function`
+/// only appends to it, and `@emnapi/core` dispatches the appended item from a *macrotask* —
+/// two coalescing turns later, even when the call was made on the JavaScript thread itself.
+/// A loader that runs `napi_prepare_wasm_env_cleanup()` and `Context.destroy()` back to back
+/// therefore disables JavaScript calls before the queue is dispatched, and the queued settles
+/// are discarded with a null env instead of settling their promises.
+///
+/// This counter is what makes the drain observable: `napi_wasm_env_cleanup_pending` exports
+/// it so the loader can yield real event-loop turns until it reaches zero before destroying
+/// the environment. It is incremented once the settle is accepted into the queue and
+/// decremented by `napi_resolve_deferred`, which every queued item reaches exactly once —
+/// including the null-env drain during teardown.
+#[cfg(target_family = "wasm")]
+static PENDING_DEFERRED_SETTLES: AtomicU32 = AtomicU32::new(0);
+
+/// Gated exactly like its only caller, the `napi_wasm_env_cleanup_pending` export: a `noop`
+/// build exports nothing, so reading the counter there would be dead code.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn pending_deferred_settles() -> u32 {
+  PENDING_DEFERRED_SETTLES.load(Ordering::SeqCst)
+}
+
+// Nesting depth of `napi_prepare_wasm_env_cleanup` on *this* thread.
+//
+// The barrier runs on the JavaScript thread, so a thread local is exactly the right scope: it is
+// set only while that thread is inside the barrier, and a `wasm32-wasip1-threads` worker settling
+// a deferred concurrently never observes it.
+#[cfg(target_family = "wasm")]
+thread_local! {
+  static WASM_ENV_CLEANUP_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether a settle made right now, from this thread, must be delivered instead of queued.
+///
+/// `owner_thread` is the thread that created the deferred — the only thread whose `napi_env`
+/// can resolve it. A settle produced on any other thread has to go through the
+/// threadsafe-function queue no matter what, which is why the barrier still needs the
+/// [`PENDING_DEFERRED_SETTLES`] handshake for those.
+#[cfg(target_family = "wasm")]
+fn settles_synchronously(owner_thread: std::thread::ThreadId) -> bool {
+  owner_thread == std::thread::current().id()
+    && WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.get() != 0)
+}
+
+/// A `napi_handle_scope` held for the duration of a settle that the host is not dispatching.
+///
+/// The threadsafe-function dispatch opens one around the callback; a settle delivered straight
+/// out of `napi_prepare_wasm_env_cleanup` has to open its own, because that export is entered
+/// from JavaScript as a bare wasm function with no napi machinery around it.
+#[cfg(target_family = "wasm")]
+struct WasmHandleScope {
+  env: sys::napi_env,
+  scope: sys::napi_handle_scope,
+}
+
+#[cfg(target_family = "wasm")]
+impl WasmHandleScope {
+  fn open(env: sys::napi_env) -> Option<Self> {
+    let mut scope = ptr::null_mut();
+    let status = unsafe { sys::napi_open_handle_scope(env, &mut scope) };
+    debug_assert!(
+      status == sys::Status::napi_ok,
+      "Open handle scope in JsDeferred failed"
+    );
+    (status == sys::Status::napi_ok).then_some(Self { env, scope })
+  }
+}
+
+#[cfg(target_family = "wasm")]
+impl Drop for WasmHandleScope {
+  fn drop(&mut self) {
+    let status = unsafe { sys::napi_close_handle_scope(self.env, self.scope) };
+    debug_assert!(
+      status == sys::Status::napi_ok,
+      "Close handle scope in JsDeferred failed"
+    );
+  }
+}
+
+/// Makes `JsDeferred` settle on the current thread deliver instead of queue, for as long as it
+/// is alive.
+///
+/// `napi_prepare_wasm_env_cleanup` holds one across the backend shutdown. The tasks that
+/// shutdown cancels reject their deferreds from inside it, on this very thread, and
+/// `napi_call_threadsafe_function` would merely *append* those rejections to a queue
+/// `@emnapi/core` dispatches from a macrotask two turns later — which a host that destroys the
+/// environment in the same turn never reaches. Settling straight through, while the
+/// environment is still fully alive, is what makes a purely synchronous `Context.destroy()`
+/// work. Those settles never enter the queue, so they never enter
+/// [`PENDING_DEFERRED_SETTLES`] either, and the loader's drain sees zero and returns at once.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime")
+))]
+pub(crate) struct WasmEnvCleanupBarrier(());
+
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime")
+))]
+impl WasmEnvCleanupBarrier {
+  pub(crate) fn enter() -> Self {
+    WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+    Self(())
+  }
+}
+
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime")
+))]
+impl Drop for WasmEnvCleanupBarrier {
+  fn drop(&mut self) {
+    WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+  }
+}
 
 #[cfg(feature = "deferred_trace")]
 use crate::{bindgen_runtime::JsObjectValue, JsValue};
@@ -56,32 +181,39 @@ impl DeferredTrace {
       "Failed to get referenced value in DeferredTrace"
     )?;
 
-    let mut obj = Object::from_raw(raw_env, raw);
-    // Reuse the original JS error object when it is safe to read on this thread;
-    // the shared `napi_ref` is released when `err` drops at the end of the call.
-    let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
-      let err_obj = Object::from_raw(raw_env, err_raw_value);
-      if err_obj.has_named_property("message")? {
-        // The error was already created inside the JS engine, just return it
-        Ok(err_obj.raw())
-      } else {
-        obj.set_named_property("message", "")?;
-        obj.set_named_property("code", "")?;
-        Ok(raw)
+    // Reject with the exact value the error retained. JavaScript may reject with
+    // *anything*, and a value that reached Rust has to come back as itself — not
+    // as a synthetic `Error` built around whatever message could be scraped off
+    // it. Probing the retained value for a `message` used to decide this, which
+    // both replaced every non-`Error` rejection and, for `null`/`undefined`, left
+    // the `napi_has_named_property` type error pending so the promise never
+    // settled at all. Only an error carrying no retained value — created in Rust,
+    // or converted off the owning thread — falls back to the trace object. The
+    // shared `napi_ref` is released when `err` drops at the end of the call.
+    let err_value = (|| -> Result<sys::napi_value> {
+      if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
+        return Ok(err_raw_value);
       }
-    } else {
+      let mut obj = Object::from_raw(raw_env, raw);
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(
         "code",
         env.create_string_from_std(format!("{}", err.status))?,
       )?;
       Ok(raw)
-    };
+    })();
+    // Delete the trace reference unconditionally. `self` is consumed here and
+    // `DeferredTrace` has no `Drop`, so an early `?` out of the fallback above
+    // used to be the last chance to release it — and leaked it instead.
+    let delete_status = unsafe { sys::napi_delete_reference(raw_env, self.0) };
+    // A failure building the rejection value is the more informative one, so it
+    // wins over a failure to delete the reference.
+    let err_value = err_value?;
     check_status!(
-      unsafe { sys::napi_delete_reference(raw_env, self.0) },
-      "Failed to get referenced value in DeferredTrace"
+      delete_status,
+      "Failed to delete the reference in DeferredTrace"
     )?;
-    err_value
+    Ok(err_value)
   }
 }
 
@@ -128,6 +260,16 @@ pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> 
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
   finalize_callback: FinalizeCallback,
+  /// What the threadsafe-function callback would otherwise receive as `env` and `context`.
+  /// Kept so a settle made on the owning thread *inside* the wasm environment cleanup barrier
+  /// can reach the promise directly, without the host's macrotask dispatch. wasm only: every
+  /// other target settles through the queue exclusively.
+  #[cfg(target_family = "wasm")]
+  env: sys::napi_env,
+  #[cfg(target_family = "wasm")]
+  raw_deferred: sys::napi_deferred,
+  #[cfg(target_family = "wasm")]
+  owner_thread: std::thread::ThreadId,
   _data: PhantomData<Data>,
   _resolver: PhantomData<Resolver>,
 }
@@ -143,6 +285,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
       #[cfg(feature = "deferred_trace")]
       trace: self.trace.clone(),
       finalize_callback: self.finalize_callback.clone(),
+      #[cfg(target_family = "wasm")]
+      env: self.env,
+      #[cfg(target_family = "wasm")]
+      raw_deferred: self.raw_deferred,
+      #[cfg(target_family = "wasm")]
+      owner_thread: self.owner_thread,
       _data: PhantomData,
       _resolver: PhantomData,
     }
@@ -164,7 +312,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       hook_registered: AtomicBool::new(false),
     }));
 
-    let (tsfn, promise) = match js_deferred_new_raw(
+    let (tsfn, _raw_deferred, promise) = match js_deferred_new_raw(
       env,
       Some(napi_resolve_deferred::<Data, Resolver>),
       hook_data_ptr.cast(),
@@ -247,6 +395,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       #[cfg(feature = "deferred_trace")]
       trace,
       finalize_callback: Default::default(),
+      #[cfg(target_family = "wasm")]
+      env: env.0,
+      #[cfg(target_family = "wasm")]
+      raw_deferred: _raw_deferred,
+      #[cfg(target_family = "wasm")]
+      owner_thread: std::thread::current().id(),
       _data: PhantomData,
       _resolver: PhantomData,
     };
@@ -294,6 +448,44 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       finalize_callback: self.finalize_callback.clone(),
     };
 
+    // Inside `napi_prepare_wasm_env_cleanup`, on the thread that owns this deferred: settle
+    // now, while the environment is still fully alive, instead of appending to a queue the
+    // host dispatches two macrotasks later. A caller that destroys the environment in the same
+    // synchronous turn — `emnapiContext.destroy()` called by hand, a `process.on('exit')`
+    // handler — never reaches that dispatch, and the promise this settle owns would be
+    // discarded with the rest of the queue.
+    //
+    // The lock is released first, deliberately. Delivering releases the threadsafe function's
+    // last thread count, which can run `deferred_finalize_cb` — and that takes this very lock.
+    // Nothing else can race for it here: this is the owning JavaScript thread, and the tsfn has
+    // already been taken out of the handle, so a concurrent settle from a worker returns early.
+    #[cfg(target_family = "wasm")]
+    let data = if settles_synchronously(self.owner_thread) {
+      let (env, raw_deferred) = (self.env, self.raw_deferred);
+      // `napi_prepare_wasm_env_cleanup` is a bare wasm export: JavaScript enters it directly,
+      // not through a napi entry point, so — unlike the threadsafe-function dispatch that
+      // normally runs the settle — there is no handle scope open. Settling creates
+      // `napi_value`s, so open the scope the dispatcher would have opened.
+      match WasmHandleScope::open(env) {
+        Some(_scope) => {
+          drop(pending);
+          settle_deferred::<Data, Resolver>(env, raw_deferred, data);
+          return;
+        }
+        // No scope, so nothing here may create a `napi_value`. Fall back to the queue: worse,
+        // never wrong — this is the behaviour every caller had before the barrier delivered.
+        None => data,
+      }
+    } else {
+      data
+    };
+
+    // Count the settle *before* it is queued: on wasm32-wasip1-threads this may run on a
+    // backend-owned thread, and the JavaScript thread must be able to observe the pending
+    // settle the moment `AsyncRuntime::shutdown` returns.
+    #[cfg(target_family = "wasm")]
+    PENDING_DEFERRED_SETTLES.fetch_add(1, Ordering::SeqCst);
+
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
     let status = unsafe {
       sys::napi_call_threadsafe_function(
@@ -302,6 +494,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
         sys::ThreadsafeFunctionCallMode::blocking,
       )
     };
+    // A rejected call queued nothing, so `napi_resolve_deferred` will never run for it and
+    // would otherwise leave the counter permanently above zero.
+    #[cfg(target_family = "wasm")]
+    if status != sys::Status::napi_ok {
+      release_pending_deferred_settle();
+    }
     debug_assert!(
       status == sys::Status::napi_ok,
       "Call threadsafe function in JsDeferred failed"
@@ -374,7 +572,19 @@ fn js_deferred_new_raw(
   env: &Env,
   resolve_deferred: sys::napi_threadsafe_function_call_js,
   finalize_data: *mut c_void,
-) -> Result<(sys::napi_threadsafe_function, Object<'_>)> {
+) -> Result<(
+  sys::napi_threadsafe_function,
+  sys::napi_deferred,
+  Object<'_>,
+)> {
+  // Same reasoning as `ThreadsafeFunction::create`: a `JsDeferred` is `Send`
+  // precisely so a foreign thread can settle it, so this addon's code becomes
+  // reachable from a thread that can outlive the environment. `Env::create_deferred`
+  // needs only `napi4`, so this path is reachable in a build where no runtime
+  // pins the image. Pin on the environment's own thread, at creation.
+  #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
   check_status!(
@@ -418,7 +628,16 @@ fn js_deferred_new_raw(
 
   let promise = Object::from_raw(env.0, raw_promise);
 
-  Ok((tsfn, promise))
+  Ok((tsfn, raw_deferred, promise))
+}
+
+/// Saturating decrement, so a decrement that is somehow unpaired cannot wrap the counter to
+/// `u32::MAX` and make every later disposal spin until its bound.
+#[cfg(target_family = "wasm")]
+fn release_pending_deferred_settle() {
+  let _ = PENDING_DEFERRED_SETTLES.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |pending| {
+    Some(pending.saturating_sub(1))
+  });
 }
 
 extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
@@ -427,6 +646,11 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   context: *mut c_void,
   data: *mut c_void,
 ) {
+  // The item has left the queue, whichever branch below handles it. Release it first so an
+  // early return — or a resolver that traps the instance — cannot strand the count.
+  #[cfg(target_family = "wasm")]
+  release_pending_deferred_settle();
+
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
 
   // A leftover queue item is drained with a null env while the threadsafe function closes during env
@@ -447,8 +671,23 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     return;
   }
 
-  let deferred = context.cast();
-  let tsfn: *mut napi_sys::napi_threadsafe_function__ = deferred_data.tsfn;
+  settle_deferred::<Data, Resolver>(env, context.cast(), *deferred_data);
+}
+
+/// Settles the promise this deferred owns, releasing the threadsafe function's thread count on
+/// the way.
+///
+/// Reached two ways, doing the same thing both times: dispatched out of the threadsafe-function
+/// queue by the host (`napi_resolve_deferred`), or called straight from `call_tsfn` on wasm when
+/// the environment cleanup barrier is running on the owning thread and the queue would not be
+/// dispatched in time. It must therefore assume nothing about which one it is: `env` is a live
+/// environment on the owning thread in both.
+fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
+  env: sys::napi_env,
+  deferred: sys::napi_deferred,
+  deferred_data: DeferredData<Data, Resolver>,
+) {
+  let tsfn: sys::napi_threadsafe_function = deferred_data.tsfn;
   let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
     .expect("RwLock Poison")
     .take();
@@ -484,8 +723,14 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   }) {
     #[cfg(feature = "deferred_trace")]
     let error = deferred_data.trace.into_rejected(env, e);
+    // `ToNapiValue for Error` hands back the retained value verbatim and only
+    // synthesizes a fresh `Error` when there is nothing to hand back.
+    // `JsError::into_value` cannot be used here: it gates the reuse on
+    // `napi_is_error`, so a promise rejected with a string, a number or a plain
+    // object would settle with a newly created `Error` instead of the value
+    // JavaScript actually rejected with.
     #[cfg(not(feature = "deferred_trace"))]
-    let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(e).into_value(env) });
+    let error = unsafe { ToNapiValue::to_napi_value(env, e) };
 
     match error {
       Ok(error) => {

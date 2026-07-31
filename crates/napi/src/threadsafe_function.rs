@@ -13,8 +13,7 @@ use futures::channel::oneshot::channel;
 
 use crate::{
   bindgen_runtime::{FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue},
-  check_status, extract_error_cause, get_error_message_and_stack_trace, sys, Env, Error, JsError,
-  Result, Status,
+  check_status, sys, Env, Error, JsError, Result, Status,
 };
 
 #[deprecated(since = "2.17.0", note = "Please use `ThreadsafeFunction` instead")]
@@ -52,6 +51,18 @@ pub struct ThreadsafeFunctionHandle {
 impl ThreadsafeFunctionHandle {
   /// create a Arc to hold the `ThreadsafeFunctionHandle`
   pub fn new(raw: sys::napi_threadsafe_function) -> Arc<Self> {
+    // Every handle pins the addon image, at construction, on the env's thread,
+    // while the environment unquestionably still owns the image. Construction
+    // is the only point that covers every path: environment teardown finalizes
+    // the threadsafe function first, which marks the handle aborted, and `Drop`
+    // then takes its no-op branch — so a pin placed anywhere on the drop path
+    // is skipped in exactly the worker-teardown case it exists for. This also
+    // covers handles wrapped around a raw threadsafe function directly through
+    // this public constructor, which never pass through `create_raw`. The pin
+    // happens at most once per process; repeats are a single atomic load.
+    #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+    crate::bindgen_runtime::retain_current_module_for_unload_safety();
+
     Arc::new(Self {
       raw: AtomicPtr::new(raw),
       aborted: RwLock::new(false),
@@ -110,11 +121,20 @@ impl Drop for ThreadsafeFunctionHandle {
               sys::ThreadsafeFunctionReleaseMode::release,
             )
           };
-          assert!(
-            release_status == sys::Status::napi_ok,
-            "Threadsafe Function release failed {}",
-            Status::from(release_status)
-          );
+          if release_status != sys::Status::napi_ok {
+            // This runs in a destructor, which can be reached from a Node
+            // callback or from a thread being torn down, so panicking here
+            // would unwind across an FFI boundary and abort the process. That
+            // is exactly what a worker exit used to do: Node closes the
+            // threadsafe function during environment teardown and reports
+            // `napi_closing` to whichever handle drops afterwards.
+            //
+            // The release did not happen, so native code that can still reach
+            // this threadsafe function may outlive the environment. The addon
+            // image is already pinned — `ThreadsafeFunctionHandle::new` pins at
+            // construction for every handle, including this one — so nothing
+            // more is needed here; the failure is simply not asserted on.
+          }
         }
       }
     })
@@ -284,6 +304,12 @@ fn create_raw(
   thread_finalize_cb: sys::napi_finalize,
   call_js_cb: sys::napi_threadsafe_function_call_js,
 ) -> Result<Arc<ThreadsafeFunctionHandle>> {
+  // A threadsafe function exists to be handed to a thread that is not the one
+  // owning this environment, so from here on native code in this image is
+  // reachable from a thread that can outlive the environment. The addon image
+  // is pinned by `ThreadsafeFunctionHandle::new` (via `null()` below), so no
+  // separate retention call is needed here.
+
   let mut async_resource_name = ptr::null_mut();
   static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
 
@@ -847,52 +873,49 @@ unsafe extern "C" fn call_js_cb<
           let mut exception = ptr::null_mut();
           unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
           let raw_status = status;
-          // Referencing the exception object is not allowed on wasm targets: the
-          // returned `Error` is sent to the calling thread, and un-referencing it
-          // there crashes because the reference belongs to the JS thread's env.
-          // The message and stack trace are still captured in `reason` below.
-          // See the `From<Unknown> for Error` impls in `error.rs` (#2975).
-          #[cfg(target_family = "wasm")]
-          let maybe_ref = {
-            status = sys::Status::napi_ok;
-            None
-          };
-          #[cfg(not(target_family = "wasm"))]
-          let maybe_ref = {
-            let mut error_reference = ptr::null_mut();
-            status =
-              unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
-            // Only own a reference when creation actually succeeded; on failure
-            // `error_reference` stays null, so keep `maybe_ref: None` (the message
-            // and stack are still captured in `reason` below) rather than wrapping
-            // a null ref that `ErrorRef::drop` would blindly release — mirrors the
-            // early guard in `From<Unknown> for Error`. `call_js_cb` runs on the
-            // env's JS thread, so `ErrorRef::new` captures the owning env's
-            // custom-GC handle for the (typically off-thread) release.
-            if status == sys::Status::napi_ok {
-              Some(std::sync::Arc::new(crate::error::ErrorRef::new(
-                error_reference,
-                raw_env,
-              )))
-            } else {
-              None
-            }
-          };
+          // The exception has been taken out of the env and is about to be handed
+          // to the Rust callback, so it is handled from Node's point of view.
+          status = sys::Status::napi_ok;
 
-          get_error_message_and_stack_trace(raw_env, exception).and_then(|reason| {
-            Err(Error {
-              maybe_ref,
-              // SAFETY: `raw_env` and `exception` are valid pointers obtained from
-              // `napi_get_and_clear_last_exception` above, which guarantees they are
-              // non-null and live for the duration of this callback.
-              cause: extract_error_cause(unsafe {
-                Unknown::from_raw_unchecked(raw_env, exception)
-              })
-              .unwrap_or(None),
-              status: Status::from(raw_status),
-              reason,
-            })
-          })
+          // JavaScript can throw *anything*, so capture the exception the same
+          // way a promise rejection is captured. The previous code did two things
+          // that broke on a non-`Error`:
+          //
+          // * `napi_create_reference` rejects every non-object below Node-API 10
+          //   — and a module without `node_api_module_get_api_version_v1` is
+          //   version 8 — so `throw 'oops'` lost the thrown value outright.
+          // * building `reason` from `napi_coerce_to_string` plus a `[[Get]]` of
+          //   `stack` runs `toString`/`Symbol.toPrimitive` and V8's lazy stack
+          //   formatter while the error is unwinding, and *throws* on a symbol,
+          //   leaving that second exception pending in an env Node has already
+          //   been told is clean.
+          //
+          // `from_unknown_without_coercion` does neither: the value is retained
+          // behind a private holder object every type can be referenced through,
+          // and `reason`/`cause` are read as data properties only.
+          //
+          // The cost is that `reason` no longer carries the stack trace: `stack`
+          // is an own *accessor* on every V8 error, so there is no way to read it
+          // without running a getter. JavaScript is unaffected — it now receives
+          // the original exception object, stack and all.
+          //
+          // `call_js_cb` runs on the env's JS thread, so the `ErrorRef` inside
+          // captures the owning env, its thread and its custom-GC handle; the
+          // returned `Error` is then free to travel to the caller's thread, where
+          // the reference reads as absent and the release is routed back here
+          // (#2975, #3369).
+          //
+          // SAFETY: `raw_env` and `exception` are valid pointers obtained from
+          // `napi_get_and_clear_last_exception` above, which guarantees they are
+          // non-null and live for the duration of this callback.
+          let mut error = Error::from_unknown_without_coercion(unsafe {
+            Unknown::from_raw_unchecked(raw_env, exception)
+          });
+          // Keep reporting *why* the callback failed. `call_async_catch` callers
+          // branch on `PendingException` to tell a JS throw apart from a Rust
+          // error, so the status has to survive the capture.
+          error.status = Status::from(raw_status);
+          Err(error)
         } else {
           unsafe { Return::from_napi_value(raw_env, return_value) }
         };

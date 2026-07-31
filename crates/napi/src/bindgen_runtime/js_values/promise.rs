@@ -74,8 +74,11 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       })?
       .catch(move |ctx: CallbackContext<Unknown>| {
         if let Some(sender) = tx_in_catch.replace(None) {
+          // A promise may reject with *any* value, including primitives, so the
+          // rejection reason is captured without coercing it — `From<Unknown>`
+          // would fail outright on a primitive.
           // no need to handle the send error here, the receiver has been dropped
-          let _ = sender.send(Err(ctx.value.into()));
+          let _ = sender.send(Err(Error::from_unknown_without_coercion(ctx.value)));
         }
         Ok(())
       })?;
