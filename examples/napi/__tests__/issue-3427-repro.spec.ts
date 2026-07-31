@@ -3,6 +3,7 @@ import test from 'ava'
 import {
   RenamedForIssue3427,
   issue3427Either,
+  issue3427Option,
   issue3427Strict,
 } from '../index.cjs'
 
@@ -32,4 +33,17 @@ test('strict &T argument accepts an instance whose js_name differs from the Rust
 
 test('strict &T argument rejects a value that is not an instance', (t) => {
   t.throws(() => issue3427Strict(5 as unknown as RenamedForIssue3427))
+})
+
+test('strict Option<&T> accepts an instance as Some', (t) => {
+  const instance = new RenamedForIssue3427(7)
+  t.is(issue3427Option(instance), 7)
+})
+
+test('strict Option<&T> maps null to None', (t) => {
+  t.is(issue3427Option(null), -1)
+})
+
+test('strict Option<&T> rejects a value that is not an instance', (t) => {
+  t.throws(() => issue3427Option(5 as unknown as RenamedForIssue3427))
 })

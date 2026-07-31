@@ -45,3 +45,15 @@ pub fn issue_3427_either(input: Either<&RenamedForIssue3427Rust, u32>) -> u32 {
 pub fn issue_3427_strict(input: &RenamedForIssue3427Rust) -> u32 {
   input.value
 }
+
+/// `Option<&T>` under `#[napi(strict)]` is validated via `Option::validate` -> `T::validate`,
+/// the same constructor lookup. `Some` must accept a valid instance, `None` maps from
+/// `null`/`undefined`, and a non-instance is rejected. Before the fix, `Some` threw for a valid
+/// instance. Returns the wrapped value for `Some`, or `-1` for `None`.
+#[napi(strict)]
+pub fn issue_3427_option(input: Option<&RenamedForIssue3427Rust>) -> i32 {
+  match input {
+    Some(instance) => instance.value as i32,
+    None => -1,
+  }
+}
