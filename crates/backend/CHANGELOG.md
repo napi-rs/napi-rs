@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.1.0...napi-derive-backend-v6.1.1) - 2026-08-01
+
+### Fixed
+
+- *(napi-derive)* keep the namespace when resolving cross-namespace type references ([#3434](https://github.com/napi-rs/napi-rs/pull/3434))
+- *(napi-derive)* look up constructor by js_name in validate() ([#3432](https://github.com/napi-rs/napi-rs/pull/3432))
+
 ## [6.1.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.0.0...napi-derive-backend-v6.1.0) - 2026-07-28
 
 ### Added
