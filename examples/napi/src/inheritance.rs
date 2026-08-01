@@ -6,6 +6,7 @@
 //! registration, so `sub instanceof Base` holds and inherited field getters
 //! resolve through the prototype chain.
 
+use napi::bindgen_prelude::Reference;
 use napi_derive::napi;
 
 /// Root of the inheritance fixture chain.
@@ -21,17 +22,51 @@ impl Base {
     Base { value }
   }
 
+  /// A parent-defined factory (static side). Because v1 wires only the
+  /// *instance* prototype chain, this must NOT be reachable as `Sub.fromValue`.
+  #[napi(factory)]
+  pub fn from_value(value: i32) -> Self {
+    Base { value }
+  }
+
+  /// A parent-defined plain static. Same as the factory: never inherited by a
+  /// descendant in v1, so `Sub.baseStatic` must be `undefined`.
+  #[napi]
+  pub fn base_static() -> i32 {
+    42
+  }
+
   /// A parent field getter — must be readable through a descendant instance.
   #[napi(getter)]
   pub fn get_value(&self) -> i32 {
     self.value
   }
 
-  /// A parent plain method — reachable on a descendant only once the V8
-  /// signature is routed around (P8); kept here to exercise that path.
+  /// A parent field setter — must be writable through a descendant instance
+  /// (BorrowedUpcast accessor: works with P5 alone, no P8 needed).
+  #[napi(setter)]
+  pub fn set_value(&mut self, value: i32) {
+    self.value = value;
+  }
+
+  /// A parent plain method (BorrowedUpcast: plain `&self`, no `Reference<Self>`).
+  /// Reachable on a descendant only once the V8 signature is routed around (P8);
+  /// kept here to exercise that path and contrast with `ref_value` below.
   #[napi]
   pub fn doubled(&self) -> i32 {
     self.value * 2
+  }
+
+  /// A parent method classified `ReceiverPolicy::Exact` — it takes a
+  /// `Reference<Self>`, whose `Deref`/`share_with` machinery would reconstruct a
+  /// `Box<Base>` over the receiver, so it keeps the exact tag-checked receiver
+  /// unwrap and is deliberately NOT rewrapped by P8. Called on a descendant it
+  /// must fail (V8 `Illegal invocation` on Node; a clean tag mismatch on a
+  /// runtime that does not enforce the signature), never silently read `Sub`
+  /// memory as a `Base`.
+  #[napi]
+  pub fn ref_value(&self, _this: Reference<Base>) -> i32 {
+    self.value
   }
 }
 
