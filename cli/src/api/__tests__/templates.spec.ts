@@ -24,9 +24,16 @@ test('createWasiBrowserBinding threaded builds size worker pools from hardwareCo
     false,
     true,
   )
-  t.true(binding.includes('hardwareConcurrency'))
-  t.true(binding.includes('reuseWorker: { size: __workerPoolSize },'))
-  t.true(binding.includes('asyncWorkPoolSize: __workerPoolSize,'))
+  t.true(binding.includes('const __workerPoolSize = Math.max('))
+  t.true(
+    binding.includes('(globalThis.navigator?.hardwareConcurrency ?? 4) - 1'),
+  )
+  t.true(
+    binding.includes('reuseWorker: { size: __workerPoolSize, strict: true },'),
+  )
+  // The async-work pool stays a small constant: it shares the reuse pool,
+  // and sizing both from the core count starves addon thread spawns.
+  t.true(binding.includes('asyncWorkPoolSize: 4,'))
   t.true(binding.includes('await __emnapiInstantiateNapiModule('))
   t.false(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
 })
@@ -42,7 +49,10 @@ test('createWasiBrowserBinding threadless keeps sync init and no pool', (t) => {
     false,
     false,
   )
+  t.false(binding.includes('__workerPoolSize'))
+  t.false(binding.includes('hardwareConcurrency'))
   t.false(binding.includes('reuseWorker'))
+  t.true(binding.includes('asyncWorkPoolSize: 0,'))
   t.true(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
 })
 

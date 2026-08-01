@@ -327,18 +327,28 @@ const __wasi = new __WASI({
   const emnapiInstantiateCall = effectiveAsyncInit
     ? `await __emnapiInstantiateNapiModule`
     : `__emnapiInstantiateNapiModuleSync`
-  // Worker pool sizes come from `navigator.hardwareConcurrency` at runtime
-  // (logical cores minus one for the main thread, floored at 2, with a
-  // fallback for privacy-fuzzed or missing values) rather than a hardcoded
-  // constant: 4 undersizes both ends of the range — big desktops leave
-  // parallelism on the table, and a fuzzed "2 cores" would oversubscribe.
-  //
   // The `reuseWorker` pool is what lets addon Rust code spawn threads while
   // the calling thread is blocked inside the wasm call: a browser cannot
   // start a worker until the blocking thread returns to its event loop, so
   // a thread spawned mid-call can never boot and the caller deadlocks
   // waiting for it. With a pre-created pool, spawning is only a message to
   // an already-running worker.
+  //
+  // Its size comes from `navigator.hardwareConcurrency` at runtime (logical
+  // cores minus one for the main thread, floored at 2, with a fallback for
+  // privacy-fuzzed or missing values): a constant undersizes both ends of
+  // the range — big desktops leave parallelism on the table, and a fuzzed
+  // "2 cores" would oversubscribe. `asyncWorkPoolSize` stays a small
+  // constant on purpose: emnapi's async-work pool draws its workers from
+  // the same reuse pool, and sizing both from the core count leaves no
+  // slots for addon threads at all.
+  //
+  // `strict: true` makes pool exhaustion a recoverable EAGAIN spawn error
+  // (which callers can fall back from) instead of silently allocating a
+  // fresh worker that — in exactly the blocked-parent situation — can
+  // never boot, reintroducing the deadlock the pool exists to prevent.
+  // Deterministic error over silent hang. (Browsers only: emnapi ignores
+  // `strict` in Node, where overflow workers boot fine regardless.)
   const workerPoolSizeBinding = threads
     ? `const __workerPoolSize = Math.max(
   2,
@@ -348,13 +358,13 @@ const __wasi = new __WASI({
 `
     : ''
   const reuseWorkerOption = threads
-    ? `    reuseWorker: { size: __workerPoolSize },\n`
+    ? `    reuseWorker: { size: __workerPoolSize, strict: true },\n`
     : ''
   const workerRuntimeImport = threads
     ? `  createOnMessage as __wasmCreateOnMessageForFsProxy,\n`
     : ''
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
-  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? '__workerPoolSize' : 0},
+  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
 `
   // Every build links a "basic" emnapi archive without the C async-work and
   // threadsafe-function implementations (the `emnapi-napi-rs(-mt)` archives shipped by the emnapi package), so the
