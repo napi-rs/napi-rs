@@ -16,6 +16,8 @@ impl ToTypeDef for NapiConst {
       self.name.to_string(),
       self.js_name.to_string(),
       self.js_mod.as_deref(),
+      self.js_mod.clone(),
+      self.js_name.to_string(),
     );
 
     Some(TypeDef {
@@ -29,6 +31,7 @@ impl ToTypeDef for NapiConst {
       ),
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
+      producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
     })
   }
 }

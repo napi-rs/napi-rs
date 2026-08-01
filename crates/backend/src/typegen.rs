@@ -24,6 +24,12 @@ pub struct TypeDef {
   pub def: String,
   pub js_mod: Option<String>,
   pub js_doc: JSDoc,
+  /// The Rust crate (`CARGO_PKG_NAME`) that emitted this fragment. Used only
+  /// to produce a clear diagnostic when the CLI's cross-crate reference
+  /// resolution (see `napi_type_ref_sentinel` below) finds more than one
+  /// candidate for the same bare Rust identifier — it has no bearing on
+  /// resolution itself, which is keyed on `(js_mod, name)`.
+  pub producer_crate: Option<String>,
 }
 
 #[derive(Default, Debug)]
@@ -36,7 +42,9 @@ pub trait ToTypeDef {
 }
 
 thread_local! {
-  static ALIAS: RefCell<HashMap<String, String>> = Default::default();
+  // Value: (js_mod, js_name) — namespace-qualified so a same-crate,
+  // cross-namespace reference resolves correctly (see `qualify_napi_type_name`).
+  static ALIAS: RefCell<HashMap<String, (Option<String>, String)>> = Default::default();
 }
 
 /// Registers `name` (a Rust type identifier) as an alias for `alias` (its JS
@@ -48,9 +56,70 @@ fn add_alias(name: String, alias: String, js_mod: Option<&str>) {
     Some(js_mod) => format!("{js_mod}.{alias}"),
     None => alias,
   };
+fn add_alias(name: String, js_mod: Option<String>, js_name: String) {
   ALIAS.with(|aliases| {
-    aliases.borrow_mut().insert(name, alias);
+    aliases.borrow_mut().insert(name, (js_mod, js_name));
   });
+}
+
+/// Formats a `#[napi]` item's public JS reference for use inside generated
+/// TypeScript, fully qualifying it with its namespace when one is set.
+/// Always fully qualifies — even from inside the same namespace — since a
+/// TypeScript namespace can validly reference itself by name from its own
+/// body (`namespace Sdk { function f(): Sdk.TimeSeries }` is valid), so this
+/// never needs to know the referencing site's own namespace.
+pub(crate) fn qualify_napi_type_name(js_mod: &Option<String>, js_name: &str) -> String {
+  match js_mod {
+    Some(m) => format!("{m}.{js_name}"),
+    None => js_name.to_owned(),
+  }
+}
+
+/// Marks a Rust identifier that this crate's own macro expansion could not
+/// resolve to a registered `#[napi]` item (struct/class, enum, const, or type
+/// alias). `CLASS_STRUCTS`/`ALIAS` are `thread_local!` tables scoped to one
+/// proc-macro-crate-load — i.e. one rustc process per compiled crate — so
+/// they never survive the crate-compilation-process boundary: a reference to
+/// a `#[napi]` item declared in a DIFFERENT crate always misses here even
+/// though the referenced item is real and registered.
+///
+/// The sentinel is embedded directly in `def`'s text (JSON-escaped like any
+/// other content by `escape_json` — no separate marker/sideband field is
+/// needed here, unlike the buffer-type-import case: there Rust already knows
+/// the resolution and only defers the *import-statement* styling choice to
+/// the CLI, whereas here Rust genuinely cannot resolve the reference at all).
+/// The CLI's cross-fragment resolution pass (`cli/src/utils/typegen.ts`)
+/// resolves it once every crate's fragment has been collected — the only
+/// point that ever has the full picture: exactly one candidate elsewhere in
+/// the build is substituted in qualified form; zero candidates falls back to
+/// the bare identifier (a legitimate hand-written external type, not a
+/// `#[napi]` item); more than one candidate fails generation with a clear
+/// error, since a proc-macro cannot syntactically determine which crate a
+/// bare identifier truly originates from.
+const NAPI_TYPE_REF_SENTINEL_PREFIX: &str = "\u{0}napi-rs-unresolved-type-ref:";
+const NAPI_TYPE_REF_SENTINEL_SUFFIX: &str = "\u{0}";
+
+fn napi_type_ref_sentinel(rust_ident: &str) -> String {
+  format!("{NAPI_TYPE_REF_SENTINEL_PREFIX}{rust_ident}{NAPI_TYPE_REF_SENTINEL_SUFFIX}")
+}
+
+/// If `text` is exactly one `napi_type_ref_sentinel` occurrence (nothing
+/// else), returns the embedded Rust identifier; otherwise returns `text`
+/// unchanged. `TASK_STRUCTS` (`crates/backend/src/typegen/struct.rs`) is a
+/// same-crate table keyed by bare Rust ident, populated independently of
+/// `CLASS_STRUCTS`/`ALIAS`. `handle_async_task_type`/`handle_reference_type`
+/// look an already-`ty_to_ts_type`-resolved generic argument up in it — so an
+/// argument that fell through to a cross-crate sentinel must be unwrapped
+/// back to its raw ident before that lookup, or a real same-crate task type
+/// would be missed purely because of how its generic argument happened to
+/// resolve (this previously worked only by coincidence: the old fallback
+/// always returned the bare ident, which is exactly what `TASK_STRUCTS` is
+/// keyed by).
+fn strip_napi_type_ref_sentinel(text: &str) -> &str {
+  text
+    .strip_prefix(NAPI_TYPE_REF_SENTINEL_PREFIX)
+    .and_then(|rest| rest.strip_suffix(NAPI_TYPE_REF_SENTINEL_SUFFIX))
+    .unwrap_or(text)
 }
 
 /// Escapes a string for safe embedding in JSON
@@ -264,6 +333,11 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
+    let producer_crate = if let Some(producer_crate) = &self.producer_crate {
+      format!(", \"producer_crate\": \"{}\"", escape_json(producer_crate))
+    } else {
+      "".to_string()
+    };
     let imported_types = if uses_buffer_type {
       format!(
         r#", "def_with_type_import_markers": "{}", "type_imports": [{{"marker": "{}", "name": "Buffer", "module": "buffer"}}]"#,
@@ -276,13 +350,14 @@ impl Display for TypeDef {
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
       escape_json(&def),
       original_name,
       js_mod,
+      producer_crate,
       imported_types,
     )
   }
@@ -546,7 +621,8 @@ fn handle_option_type(
 fn handle_async_task_type(args: &[(String, bool)]) -> Option<(String, bool)> {
   r#struct::TASK_STRUCTS.with(|t| {
     let (output_type, _) = args.first()?.to_owned();
-    if let Some(o) = t.borrow().get(&output_type) {
+    let lookup_key = strip_napi_type_ref_sentinel(&output_type);
+    if let Some(o) = t.borrow().get(lookup_key) {
       Some((format!("Promise<{o}>"), false))
     } else {
       Some(("Promise<unknown>".to_owned(), false))
@@ -560,7 +636,8 @@ fn handle_reference_type(args: &[(String, bool)], rust_ty: String) -> Option<(St
     // Reference<T> => T
     if let Some(arg) = args.first() {
       let (output_type, _) = arg.to_owned();
-      if let Some(o) = t.borrow().get(&output_type) {
+      let lookup_key = strip_napi_type_ref_sentinel(&output_type);
+      if let Some(o) = t.borrow().get(lookup_key) {
         Some((o.to_owned(), false))
       } else {
         Some((output_type, false))
@@ -670,8 +747,7 @@ fn handle_known_type(
 
 /// Handles generic type conversion and aliasing
 fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String, bool)> {
-  let type_alias =
-    ALIAS.with(|aliases| aliases.borrow().get(rust_ty).map(|a| (a.to_owned(), false)));
+  let type_alias = ALIAS.with(|aliases| aliases.borrow().get(rust_ty).cloned());
 
   // Generic type handling
   if !args.is_empty() {
@@ -680,15 +756,31 @@ fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String
       .map(|(arg, _)| arg.clone())
       .collect::<Vec<String>>()
       .join(", ");
-    let mut ty = rust_ty;
-    if let Some((alias, _)) = type_alias {
-      // If alias contains '<', take the base type as &str, then convert to String for formatting
-      ty = alias.split_once('<').map(|(t, _)| t).unwrap();
+    if let Some((js_mod, js_name)) = &type_alias {
+      let qualified = qualify_napi_type_name(js_mod, js_name);
+      // If the qualified alias contains '<', take the base type, then use it for formatting.
+      // A plain `#[napi]` item's alias never contains '<' (it's a rare, out-of-scope case for
+      // an unrecognized generic wrapper around one) — fall back to the qualified text itself
+      // rather than the original code's unconditional `.unwrap()`, which would otherwise panic.
+      let ty = qualified
+        .split_once('<')
+        .map(|(t, _)| t)
+        .unwrap_or(&qualified);
       return Some((format!("{}<{}>", ty, arg_str), false));
     }
-    Some((format!("{}<{}>", ty, arg_str), false))
+    Some((format!("{}<{}>", rust_ty, arg_str), false))
   } else {
-    type_alias.or(Some((rust_ty.to_string(), false)))
+    match type_alias {
+      Some((js_mod, js_name)) => Some((qualify_napi_type_name(&js_mod, &js_name), false)),
+      // `Self` is never a registered `#[napi]` item — it's the literal string
+      // `gen_ts_func_ret` (`typegen/fn.rs`) matches on to rewrite a factory
+      // method's return type to TypeScript's `this`. It must pass through
+      // unsentineled, exactly as before, or that string-equality check silently
+      // stops firing (this was a real regression caught by the end-to-end
+      // `examples/napi` build/snapshot, not by a narrower unit test).
+      None if rust_ty == "Self" => Some((rust_ty.to_string(), false)),
+      None => Some((napi_type_ref_sentinel(rust_ty), false)),
+    }
   }
 }
 
@@ -820,6 +912,10 @@ fn handle_type_path(
         .map(|c| c.qualified_name())
     }) {
       Some((t, false))
+    } else if let Some((js_mod, js_name)) = crate::typegen::r#struct::CLASS_STRUCTS
+      .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
+    {
+      Some((qualify_napi_type_name(&js_mod, &js_name), false))
     } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
       handle_known_type(&rust_ty, known_ty, args, is_return_ty)
     } else if rust_ty == TSFN_RUST_TY {
@@ -928,6 +1024,9 @@ mod tests {
   use super::{
     add_alias, escape_json, format_js_property_name, handle_generic_type, ty_to_ts_type, JSDoc,
     TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
+    escape_json, format_js_property_name, napi_type_ref_sentinel, qualify_napi_type_name,
+    strip_napi_type_ref_sentinel, ty_to_ts_type, JSDoc, TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE,
+    BUFFER_TYPE_IMPORT_SENTINEL,
   };
 
   #[test]
@@ -939,6 +1038,7 @@ mod tests {
       def: "method(): \"value\"".to_owned(),
       js_mod: Some("namespace\\\"name".to_owned()),
       js_doc: JSDoc::new(["A \"quoted\" doc"]),
+      producer_crate: None,
     };
 
     let parsed: serde_json::Value =
@@ -1032,6 +1132,9 @@ mod tests {
           js_mod: None,
         },
       );
+      classes
+        .borrow_mut()
+        .insert("Buffer".to_owned(), (None, "UserBuffer".to_owned()));
     });
     let ty = syn::parse_str("Buffer").expect("Buffer must parse as a Rust type");
     assert_eq!(
@@ -1098,7 +1201,155 @@ mod tests {
     assert_eq!(
       handle_generic_type("BetaStatus", &[]),
       Some(("beta.Status".to_owned(), false))
+  fn same_crate_class_reference_is_namespace_qualified() {
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes.borrow_mut().insert(
+        "TimeSeriesNapi".to_owned(),
+        (Some("Sdk".to_owned()), "TimeSeries".to_owned()),
+      );
+    });
+    let ty = syn::parse_str("TimeSeriesNapi").expect("must parse as a Rust type");
+    assert_eq!(
+      ty_to_ts_type(&ty, false, false, false),
+      ("Sdk.TimeSeries".to_owned(), false)
     );
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes.borrow_mut().clear();
+    });
+  }
+
+  #[test]
+  fn same_crate_top_level_class_reference_is_not_qualified() {
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes
+        .borrow_mut()
+        .insert("PlainNapi".to_owned(), (None, "Plain".to_owned()));
+    });
+    let ty = syn::parse_str("PlainNapi").expect("must parse as a Rust type");
+    assert_eq!(
+      ty_to_ts_type(&ty, false, false, false),
+      ("Plain".to_owned(), false)
+    );
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes.borrow_mut().clear();
+    });
+  }
+
+  #[test]
+  fn unresolved_cross_crate_reference_embeds_a_sentinel_not_the_bare_ident() {
+    // Nothing registered in CLASS_STRUCTS/ALIAS for this ident (simulates a
+    // reference to a `#[napi]` item declared in a different crate, which this
+    // crate's own macro expansion has no way to see — see `napi_type_ref_sentinel`).
+    let ty = syn::parse_str("SomeOtherCrateNapiClass").expect("must parse as a Rust type");
+    let (resolved, _) = ty_to_ts_type(&ty, false, false, false);
+    assert_ne!(
+      resolved, "SomeOtherCrateNapiClass",
+      "an unresolved reference must not silently fall back to the bare Rust ident \
+       (that is the exact cross-crate leak this mechanism replaces)"
+    );
+    assert!(
+      resolved.contains("SomeOtherCrateNapiClass"),
+      "the sentinel must still carry the original ident so the CLI can resolve it: {resolved}"
+    );
+    assert_eq!(
+      resolved,
+      napi_type_ref_sentinel("SomeOtherCrateNapiClass"),
+      "must be exactly the sentinel form, not some other mangling"
+    );
+  }
+
+  #[test]
+  fn async_task_output_type_resolves_via_task_structs_despite_unresolved_generic_arg() {
+    // `DelaySum` is registered ONLY in `TASK_STRUCTS` here (simulating a Task
+    // implementor that is not itself a `#[napi]` class) — not in
+    // `CLASS_STRUCTS`/`ALIAS`. Its generic argument must still resolve via
+    // the sentinel-stripping lookup below, not silently degrade to
+    // `Promise<unknown>` just because the class-identity lookup missed (this
+    // is a regression test for exactly that bug, caught via a real end-to-end
+    // `examples/napi` build, not by a narrower unit test).
+    crate::typegen::r#struct::TASK_STRUCTS.with(|t| {
+      t.borrow_mut()
+        .insert("DelaySum".to_owned(), "number".to_owned());
+    });
+    let ty = syn::parse_str("AsyncTask<DelaySum>").expect("must parse as a Rust type");
+    assert_eq!(
+      ty_to_ts_type(&ty, false, false, false),
+      ("Promise<number>".to_owned(), false)
+    );
+    crate::typegen::r#struct::TASK_STRUCTS.with(|t| t.borrow_mut().clear());
+  }
+
+  #[test]
+  fn reference_type_resolves_via_task_structs_despite_unresolved_generic_arg() {
+    crate::typegen::r#struct::TASK_STRUCTS.with(|t| {
+      t.borrow_mut()
+        .insert("DelaySum".to_owned(), "number".to_owned());
+    });
+    let ty = syn::parse_str("Reference<DelaySum>").expect("must parse as a Rust type");
+    assert_eq!(
+      ty_to_ts_type(&ty, false, false, false),
+      ("number".to_owned(), false)
+    );
+    crate::typegen::r#struct::TASK_STRUCTS.with(|t| t.borrow_mut().clear());
+  }
+
+  #[test]
+  fn self_return_type_is_never_sentineled() {
+    // `gen_ts_func_ret` (typegen/fn.rs) rewrites a factory's `Self` return
+    // type to `this` by matching the literal string "Self" returned here —
+    // it must never become a sentinel, or that rewrite silently stops firing.
+    let ty = syn::parse_str("Self").expect("must parse as a Rust type");
+    assert_eq!(
+      ty_to_ts_type(&ty, false, false, false),
+      ("Self".to_owned(), false)
+    );
+  }
+
+  #[test]
+  fn strip_napi_type_ref_sentinel_unwraps_exactly_and_only_a_full_sentinel() {
+    assert_eq!(
+      strip_napi_type_ref_sentinel(&napi_type_ref_sentinel("Foo")),
+      "Foo"
+    );
+    assert_eq!(strip_napi_type_ref_sentinel("Foo"), "Foo");
+  }
+
+  #[test]
+  fn qualify_napi_type_name_qualifies_only_when_namespaced() {
+    assert_eq!(
+      qualify_napi_type_name(&Some("Sdk".to_owned()), "TimeSeries"),
+      "Sdk.TimeSeries"
+    );
+    assert_eq!(qualify_napi_type_name(&None, "TimeSeries"), "TimeSeries");
+  }
+
+  #[test]
+  fn type_def_display_includes_producer_crate_when_set() {
+    let type_def = TypeDef {
+      kind: "struct".to_owned(),
+      name: "TimeSeries".to_owned(),
+      original_name: Some("TimeSeriesNapi".to_owned()),
+      def: String::new(),
+      js_mod: Some("Sdk".to_owned()),
+      js_doc: JSDoc::default(),
+      producer_crate: Some("identity-base".to_owned()),
+    };
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+    assert_eq!(parsed["producer_crate"].as_str(), Some("identity-base"));
+  }
+
+  #[test]
+  fn type_def_display_omits_producer_crate_when_absent() {
+    let type_def = TypeDef {
+      kind: "fn".to_owned(),
+      name: "doSomething".to_owned(),
+      def: String::new(),
+      ..Default::default()
+    };
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+    assert!(parsed.get("producer_crate").is_none());
   }
 
   #[test]

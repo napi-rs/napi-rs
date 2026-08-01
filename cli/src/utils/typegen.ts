@@ -68,6 +68,10 @@ interface TypeDefLine {
   js_doc?: string
   js_mod?: string
   type_imports?: TypeImport[]
+  // The Rust crate (`CARGO_PKG_NAME`) that emitted this fragment. Only used to
+  // name conflicting crates in the cross-fragment reference ambiguity error
+  // below — has no bearing on resolution itself (keyed on `(js_mod, name)`).
+  producer_crate?: string
 }
 
 export interface TypeImport {
@@ -301,6 +305,127 @@ export async function processTypeDef(
   return processTypeDefs([intermediateTypeFile], constEnum, runtimeStringEnum)
 }
 
+// The exact prefix/suffix `napi_type_ref_sentinel` wraps a Rust identifier in
+// (`crates/backend/src/typegen.rs`) when a crate's own macro expansion cannot
+// resolve it to a registered `#[napi]` item — see that file for why a
+// proc-macro must defer this resolution to the CLI. Scanned with plain
+// string operations, not a regex: `no-control-regex` (correctly) flags any
+// regex whose parsed pattern matches control characters regardless of how
+// the NUL byte is spelled in source, and the existing buffer-marker scanning
+// elsewhere in this file (`reallocateTypeImportMarkers`) already avoids a
+// regex for the same reason.
+const NAPI_TYPE_REF_SENTINEL_PREFIX = '\0napi-rs-unresolved-type-ref:'
+const NAPI_TYPE_REF_SENTINEL_SUFFIX = '\0'
+const NAPI_TYPE_REF_SENTINEL_TEXT = NAPI_TYPE_REF_SENTINEL_PREFIX
+
+interface TypeRefCandidate {
+  namespace?: string
+  jsName: string
+  producerCrate?: string
+}
+
+/**
+ * Resolves cross-crate (and same-crate, out-of-expansion-order) `#[napi]`
+ * item references left as sentinels by the backend. This is the only point
+ * in the pipeline with every crate's fragment collected, so it is the only
+ * place resolution can happen — and it must run before any TypeScript
+ * parsing of the generated output (`rewriteTypeImportReferences` parses the
+ * whole file as TypeScript; a raw sentinel is not valid TypeScript syntax).
+ *
+ * - Exactly one candidate across the whole build -> substituted, qualified
+ *   (`namespace.jsName`, or bare `jsName` at top level).
+ * - Zero candidates -> falls back to the bare identifier (a legitimate
+ *   hand-written external type with its own `TypeName`/`ToNapiValue` impl,
+ *   not a `#[napi]` item — not an error).
+ * - More than one candidate -> throws. A proc-macro cannot syntactically
+ *   determine which crate a bare identifier truly originates from, so
+ *   guessing would silently produce a wrong reference; refusing is the only
+ *   sound option (mirrors the alias-ambiguity rule below).
+ */
+function resolveCrossFragmentTypeReferences(
+  typeDefGroups: TypeDefLine[][],
+): TypeDefLine[][] {
+  const index = new Map<string, TypeRefCandidate[]>()
+  for (const def of typeDefGroups.flat()) {
+    if (!def.original_name) {
+      continue
+    }
+    const candidates = index.get(def.original_name) ?? []
+    candidates.push({
+      namespace: def.js_mod,
+      jsName: def.name,
+      producerCrate: def.producer_crate,
+    })
+    index.set(def.original_name, candidates)
+  }
+
+  const resolveOne = (rustIdent: string): string => {
+    const candidates = index.get(rustIdent) ?? []
+    if (candidates.length === 0) {
+      return rustIdent
+    }
+    if (candidates.length === 1) {
+      const { namespace, jsName } = candidates[0]
+      return namespace ? `${namespace}.${jsName}` : jsName
+    }
+    const describe = (c: TypeRefCandidate) =>
+      `crate \`${c.producerCrate ?? 'unknown'}\` (namespace: ${
+        c.namespace ?? 'top-level'
+      })`
+    throw new Error(
+      `Ambiguous reference to \`${rustIdent}\`: found in ${candidates
+        .map(describe)
+        .join(' and ')}. A proc-macro cannot determine which crate a bare ` +
+        'identifier refers to across crate boundaries — rename one of the ' +
+        'conflicting items, or use distinct `#[napi(namespace = "...")]` values.',
+    )
+  }
+
+  const substitute = (text: string): string => {
+    let rewritten = ''
+    let rest = text
+    for (
+      let start = rest.indexOf(NAPI_TYPE_REF_SENTINEL_PREFIX);
+      start !== -1;
+      start = rest.indexOf(NAPI_TYPE_REF_SENTINEL_PREFIX)
+    ) {
+      const afterPrefix = start + NAPI_TYPE_REF_SENTINEL_PREFIX.length
+      const end = rest.indexOf(NAPI_TYPE_REF_SENTINEL_SUFFIX, afterPrefix)
+      if (end === -1) {
+        throw new Error(
+          `Unterminated cross-crate reference sentinel in generated type definition: ${rest.slice(start)}`,
+        )
+      }
+      const rustIdent = rest.slice(afterPrefix, end)
+      rewritten += rest.slice(0, start) + resolveOne(rustIdent)
+      rest = rest.slice(end + NAPI_TYPE_REF_SENTINEL_SUFFIX.length)
+    }
+    return rewritten + rest
+  }
+
+  return typeDefGroups.map((defs) =>
+    defs.map((def) => {
+      const hasSentinel =
+        def.def.includes(NAPI_TYPE_REF_SENTINEL_TEXT) ||
+        (def.def_with_type_import_markers?.includes(
+          NAPI_TYPE_REF_SENTINEL_TEXT,
+        ) ??
+          false)
+      if (!hasSentinel) {
+        return def
+      }
+      return {
+        ...def,
+        def: substitute(def.def),
+        def_with_type_import_markers:
+          def.def_with_type_import_markers === undefined
+            ? undefined
+            : substitute(def.def_with_type_import_markers),
+      }
+    }),
+  )
+}
+
 export async function processTypeDefs(
   intermediateTypeFiles: string[],
   constEnum: boolean,
@@ -308,9 +433,10 @@ export async function processTypeDefs(
   reservedDeclarationText: string = '',
 ) {
   const exports: string[] = []
-  const typeDefs = await Promise.all(
+  const rawTypeDefs = await Promise.all(
     intermediateTypeFiles.map((file) => readIntermediateTypeFile(file)),
   )
+  const typeDefs = resolveCrossFragmentTypeReferences(rawTypeDefs)
   const typeDefsWithUniqueMarkers = makeTypeImportMarkersUnique(
     typeDefs,
     reservedDeclarationText,

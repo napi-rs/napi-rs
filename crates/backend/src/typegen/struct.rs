@@ -30,6 +30,11 @@ impl ClassStructRef {
       None => self.js_name.clone(),
     }
   }
+  // Value: (js_mod, js_name) — see `crate::typegen::qualify_napi_type_name`. Same-crate
+  // lookup only; a cross-crate reference always misses here (thread_local, scoped to one
+  // proc-macro-crate-load) and is resolved later by the CLI — see `napi_type_ref_sentinel`.
+  pub(crate) static CLASS_STRUCTS: RefCell<HashMap<String, (Option<String>, String)>> =
+    Default::default();
 }
 
 impl ToTypeDef for NapiStruct {
@@ -41,12 +46,15 @@ impl ToTypeDef for NapiStruct {
           js_name: self.js_name.clone(),
           js_mod: self.js_mod.clone(),
         },
+        (self.js_mod.clone(), self.js_name.clone()),
       );
     });
     add_alias(
       self.name.to_string(),
       self.js_name.to_string(),
       self.js_mod.as_deref(),
+      self.js_mod.clone(),
+      self.js_name.to_string(),
     );
 
     let mut js_doc = JSDoc::new(&self.comments);
@@ -82,6 +90,7 @@ impl ToTypeDef for NapiStruct {
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
       js_doc,
+      producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
     })
   }
 }
@@ -130,6 +139,7 @@ impl ToTypeDef for NapiImpl {
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        producer_crate: None,
       })
     } else if let Some(output_type) = &self.async_iterator_yield_type {
       let yield_type = ty_to_ts_type(output_type, false, true, false).0;
@@ -165,6 +175,7 @@ impl ToTypeDef for NapiImpl {
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        producer_crate: None,
       })
     } else {
       Some(TypeDef {
@@ -190,6 +201,7 @@ impl ToTypeDef for NapiImpl {
           .join("\n"),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        producer_crate: None,
       })
     }
   }

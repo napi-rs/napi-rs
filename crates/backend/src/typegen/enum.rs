@@ -11,6 +11,8 @@ impl ToTypeDef for NapiEnum {
       self.name.to_string(),
       self.js_name.to_string(),
       self.js_mod.as_deref(),
+      self.js_mod.clone(),
+      self.js_name.to_string(),
     );
 
     Some(TypeDef {
@@ -24,6 +26,7 @@ impl ToTypeDef for NapiEnum {
       def: self.gen_ts_variants(),
       js_doc: JSDoc::new(&self.comments),
       js_mod: self.js_mod.to_owned(),
+      producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
     })
   }
 }

@@ -16,6 +16,8 @@ impl ToTypeDef for NapiType {
       self.name.to_string(),
       self.js_name.to_string(),
       self.js_mod.as_deref(),
+      self.js_mod.clone(),
+      self.js_name.to_string(),
     );
 
     Some(TypeDef {
@@ -25,6 +27,7 @@ impl ToTypeDef for NapiType {
       def: ty_to_ts_type(&self.value, false, false, false).0,
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
+      producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
     })
   }
 }

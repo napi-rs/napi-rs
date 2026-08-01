@@ -98,7 +98,7 @@ export type JsAsset = Asset
 
 export declare class Assets {
   constructor()
-  get(id: number): JsAsset | null
+  get(id: number): Asset | null
 }
 export type JsAssets = Assets
 
@@ -179,7 +179,7 @@ export declare class Bird {
 
 /** Smoking test for type generation */
 export declare class Blake2BHasher {
-  static withKey(key: Blake2bKey): Blake2BHasher
+  static withKey(key: Blake2BKey): Blake2BHasher
   update(data: Buffer): void
 }
 export type Blake2bHasher = Blake2BHasher
@@ -278,7 +278,7 @@ export declare class CssRule {
 
 export declare class CssRuleList {
   getRules(): Array<string>
-  get parentStyleSheet(): CSSStyleSheet
+  get parentStyleSheet(): CssStyleSheet
   get name(): string | null
 }
 export type CSSRuleList = CssRuleList
