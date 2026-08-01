@@ -126,6 +126,18 @@ pub struct NapiClass {
   pub implement_async_iterator: bool,
   pub is_tuple: bool,
   pub use_custom_finalize: bool,
+  /// `#[napi(extends = Parent)]` — the parent class path, if this class
+  /// declares single-inheritance (issue #1164). `None` for a flat class.
+  pub extends: Option<syn::Path>,
+  /// The struct's physical first field (its `syn::Member`), resolved from the
+  /// raw `syn::ItemStruct` at parse time. Present only when `extends` is set;
+  /// used by codegen to place the parent-embedding layout assertion and to skip
+  /// accessor generation for the embedded-parent field.
+  pub first_field_member: Option<syn::Member>,
+  /// The declared type of that first field (its `syn::Type`), resolved at parse
+  /// time. Present only when `extends` is set; the layout assertion checks this
+  /// exact type against the parent path (rejecting `Box<Parent>`-style wrappers).
+  pub first_field_ty: Option<syn::Type>,
 }
 
 #[derive(Debug, Clone)]

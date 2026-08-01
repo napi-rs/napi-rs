@@ -1,0 +1,7 @@
+error: #[napi(extends = ...)] is only valid on a class struct (not #[napi(object)], #[napi(array)], #[napi(transparent)], or a string enum)
+ --> tests/build_error_tests/extends_non_class.rs:7:1
+  |
+7 | / pub struct NotAClass {
+8 | |   pub a: i32,
+9 | | }
+  | |_^

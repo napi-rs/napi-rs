@@ -131,6 +131,18 @@ export declare class AsyncThrowClass {
   asyncThrowError(): Promise<void>
 }
 
+/** Root of the inheritance fixture chain. */
+export declare class Base {
+  constructor(value: number)
+  /** A parent field getter — must be readable through a descendant instance. */
+  get value(): number
+  /**
+   * A parent plain method — reachable on a descendant only once the V8
+   * signature is routed around (P8); kept here to exercise that path.
+   */
+  doubled(): number
+}
+
 export declare class Bird {
   name: string
   constructor(name: string)
@@ -424,6 +436,15 @@ export declare class Selector {
   struct: string
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
+}
+
+/**
+ * Direct child of `Base`. Constructed via a factory (a `#[napi(constructor)]`
+ * cannot be combined with `#[napi(extends)]` in v1).
+ */
+export declare class Sub {
+  static create(value: number, extra: number): Sub
+  get extra(): number
 }
 
 export declare class Thing {

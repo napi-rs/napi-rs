@@ -1,0 +1,7 @@
+error: #[napi(extends = ...)] requires #[repr(C)] so the embedded parent stays at offset 0
+  --> tests/build_error_tests/extends_missing_repr.rs:13:1
+   |
+13 | / pub struct Child {
+14 | |   parent: Parent,
+15 | | }
+   | |_^

@@ -1312,6 +1312,96 @@ impl ConvertToAST for syn::ItemStruct {
       })
       .transpose()?;
 
+    // P2 (#1164): resolve + validate `#[napi(extends = Parent)]`.
+    // `extends` is only meaningful on a class struct; the class branch is the
+    // final `else` below, reached only when the struct is not transparent /
+    // array / object.
+    let will_be_class = transparent.is_none() && opts.array().is_none() && opts.object().is_none();
+    if opts.extends().is_some() && !will_be_class {
+      errors.push(err_span!(
+        self,
+        "#[napi(extends = ...)] is only valid on a class struct (not #[napi(object)], #[napi(array)], #[napi(transparent)], or a string enum)"
+      ));
+    }
+    let (extends_first_field_member, extends_first_field_ty) = if opts.extends().is_some()
+      && will_be_class
+    {
+      // #[repr(C)] is required (embedded parent must sit at offset 0);
+      // #[repr(packed)] is rejected (it can misalign the parent field, making
+      // `&self.parent` reference-materialization UB); #[repr(align(N))] is
+      // allowed (it only raises overall alignment, never moves field 0).
+      // Scan across ALL `#[repr(...)]` attrs, since `#[repr(C)] #[repr(packed)]`
+      // as two attrs is legal and equivalent to `#[repr(C, packed)]`.
+      let (mut has_repr_c, mut has_packed) = (false, false);
+      for attr in self.attrs.iter() {
+        if attr.path().is_ident("repr") {
+          if let Meta::List(list) = &attr.meta {
+            for tt in list.tokens.clone() {
+              if let proc_macro2::TokenTree::Ident(id) = tt {
+                match id.to_string().as_str() {
+                  "C" => has_repr_c = true,
+                  "packed" => has_packed = true,
+                  _ => {}
+                }
+              }
+            }
+          }
+        }
+      }
+      if !has_repr_c {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] requires #[repr(C)] so the embedded parent stays at offset 0"
+        ));
+      }
+      if has_packed {
+        errors.push(err_span!(
+            self,
+            "#[napi(extends = ...)] cannot be combined with #[repr(packed)]: it can misalign the embedded parent field"
+          ));
+      }
+      // Both `extends` and iterator/generator wiring mutate the prototype's
+      // single `[[Prototype]]` slot (see `setup_iterator_class`), so they
+      // cannot coexist on the same class.
+      if implement_iterator || implement_async_iterator {
+        errors.push(err_span!(
+            self,
+            "#[napi(extends = ...)] cannot be combined with #[napi(iterator)] or #[napi(async_iterator)]: both wire the prototype's [[Prototype]] slot"
+          ));
+      }
+      // v1 boundary (#1164): a generated `#[napi(constructor)]` takes every
+      // field as an argument, including the embedded parent — which is a
+      // `#[napi]` class value, not a marshalable type, so it fails to compile.
+      // Extended classes must be built with a `#[napi(factory)]` in v1.
+      if opts.constructor().is_some() {
+        errors.push(err_span!(
+            self,
+            "#[napi(extends = ...)] cannot be combined with #[napi(constructor)] in this version: construct the extended class with a #[napi(factory)] method instead (the embedded parent field is not a constructor-marshalable argument)"
+          ));
+      }
+      // Resolve the physical first field from the RAW `self.fields` (not the
+      // visibility-filtered `fields` above): a factory-only class may keep a
+      // private parent first field, which `convert_fields` drops.
+      match self.fields.iter().next() {
+        Some(first) => {
+          let member = match &first.ident {
+            Some(ident) => syn::Member::Named(ident.clone()),
+            None => syn::Member::Unnamed(syn::Index::from(0)),
+          };
+          (Some(member), Some(first.ty.clone()))
+        }
+        None => {
+          errors.push(err_span!(
+              self,
+              "#[napi(extends = ...)] requires at least one field: the embedded parent must be the first field"
+            ));
+          (None, None)
+        }
+      }
+    } else {
+      (None, None)
+    };
+
     let struct_kind = if let Some(transparent) = transparent {
       NapiStructKind::Transparent(NapiTransparent {
         ty: transparent,
@@ -1366,6 +1456,9 @@ impl ConvertToAST for syn::ItemStruct {
         implement_async_iterator,
         is_tuple,
         use_custom_finalize: opts.custom_finalize().is_some(),
+        extends: opts.extends().cloned(),
+        first_field_member: extends_first_field_member,
+        first_field_ty: extends_first_field_ty,
       })
     };
 
