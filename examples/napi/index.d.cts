@@ -244,12 +244,56 @@ export declare class CreateStringClass {
   createStringResult(): string
 }
 
+/** Level 3. */
+export declare class CssConditionRule {
+  static create(ruleType: number, groupSize: number, condition: number): CssConditionRule
+  get condition(): number
+  set condition(condition: number)
+  conditionKind(): number
+}
+
+/** Level 2. */
+export declare class CssGroupingRule {
+  static create(ruleType: number, groupSize: number): CssGroupingRule
+  get groupSize(): number
+  set groupSize(groupSize: number)
+  groupingKind(): number
+}
+
+/** Level 4 — the deepest rule in the chain. */
+export declare class CssMediaRule {
+  static create(ruleType: number, groupSize: number, condition: number, media: number): CssMediaRule
+  get media(): number
+  set media(media: number)
+  mediaKind(): number
+}
+
+/** Level 1 — the root of the CSS-OM chain. */
+export declare class CssRule {
+  constructor(ruleType: number)
+  get ruleType(): number
+  set ruleType(ruleType: number)
+  ruleKind(): number
+}
+
 export declare class CssRuleList {
   getRules(): Array<string>
   get parentStyleSheet(): CSSStyleSheet
   get name(): string | null
 }
 export type CSSRuleList = CssRuleList
+
+/**
+ * A sibling of `CssGroupingRule`: it also extends the root `CssRule`, so it must
+ * never be confused with the `CssGroupingRule` branch (no `instanceof`
+ * relationship, and none of that branch's methods reachable on it).
+ */
+export declare class CssStyleRule {
+  static create(ruleType: number, selector: number): CssStyleRule
+  get selector(): number
+  set selector(selector: number)
+  styleKind(): number
+}
 
 export declare class CssStyleSheet {
   constructor(name: string, rules: Array<string>)

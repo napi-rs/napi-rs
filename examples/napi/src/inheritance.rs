@@ -94,3 +94,181 @@ impl Sub {
     self.extra
   }
 }
+
+// ---------------------------------------------------------------------------
+// The issue's own motivating example: a CSS-OM rule hierarchy
+//   CssRule <- CssGroupingRule <- CssConditionRule <- CssMediaRule
+// plus a sibling `CssStyleRule <- CssRule`. Every level embeds its parent as
+// its first `#[repr(C)]` field, adds one own field with a getter + setter, and
+// one plain method returning a level-distinct constant, so a deep instance can
+// be checked for: multi-level `instanceof`, a root getter/setter round-tripped
+// through the deepest instance, each ancestor's plain method dispatching on the
+// descendant receiver, and a sibling staying unrelated.
+// ---------------------------------------------------------------------------
+
+/// Level 1 — the root of the CSS-OM chain.
+#[napi]
+pub struct CssRule {
+  rule_type: i32,
+}
+
+#[napi]
+impl CssRule {
+  #[napi(constructor)]
+  pub fn new(rule_type: i32) -> Self {
+    CssRule { rule_type }
+  }
+
+  #[napi(getter)]
+  pub fn get_rule_type(&self) -> i32 {
+    self.rule_type
+  }
+
+  #[napi(setter)]
+  pub fn set_rule_type(&mut self, rule_type: i32) {
+    self.rule_type = rule_type;
+  }
+
+  #[napi]
+  pub fn rule_kind(&self) -> i32 {
+    1
+  }
+}
+
+/// Level 2.
+#[napi(extends = CssRule)]
+#[repr(C)]
+pub struct CssGroupingRule {
+  base: CssRule,
+  group_size: i32,
+}
+
+#[napi]
+impl CssGroupingRule {
+  #[napi(factory)]
+  pub fn create(rule_type: i32, group_size: i32) -> Self {
+    CssGroupingRule {
+      base: CssRule::new(rule_type),
+      group_size,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn get_group_size(&self) -> i32 {
+    self.group_size
+  }
+
+  #[napi(setter)]
+  pub fn set_group_size(&mut self, group_size: i32) {
+    self.group_size = group_size;
+  }
+
+  #[napi]
+  pub fn grouping_kind(&self) -> i32 {
+    2
+  }
+}
+
+/// Level 3.
+#[napi(extends = CssGroupingRule)]
+#[repr(C)]
+pub struct CssConditionRule {
+  base: CssGroupingRule,
+  condition: i32,
+}
+
+#[napi]
+impl CssConditionRule {
+  #[napi(factory)]
+  pub fn create(rule_type: i32, group_size: i32, condition: i32) -> Self {
+    CssConditionRule {
+      base: CssGroupingRule::create(rule_type, group_size),
+      condition,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn get_condition(&self) -> i32 {
+    self.condition
+  }
+
+  #[napi(setter)]
+  pub fn set_condition(&mut self, condition: i32) {
+    self.condition = condition;
+  }
+
+  #[napi]
+  pub fn condition_kind(&self) -> i32 {
+    3
+  }
+}
+
+/// Level 4 — the deepest rule in the chain.
+#[napi(extends = CssConditionRule)]
+#[repr(C)]
+pub struct CssMediaRule {
+  base: CssConditionRule,
+  media: i32,
+}
+
+#[napi]
+impl CssMediaRule {
+  #[napi(factory)]
+  pub fn create(rule_type: i32, group_size: i32, condition: i32, media: i32) -> Self {
+    CssMediaRule {
+      base: CssConditionRule::create(rule_type, group_size, condition),
+      media,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn get_media(&self) -> i32 {
+    self.media
+  }
+
+  #[napi(setter)]
+  pub fn set_media(&mut self, media: i32) {
+    self.media = media;
+  }
+
+  #[napi]
+  pub fn media_kind(&self) -> i32 {
+    4
+  }
+}
+
+/// A sibling of `CssGroupingRule`: it also extends the root `CssRule`, so it must
+/// never be confused with the `CssGroupingRule` branch (no `instanceof`
+/// relationship, and none of that branch's methods reachable on it).
+#[napi(extends = CssRule)]
+#[repr(C)]
+pub struct CssStyleRule {
+  base: CssRule,
+  selector: i32,
+}
+
+#[napi]
+impl CssStyleRule {
+  #[napi(factory)]
+  pub fn create(rule_type: i32, selector: i32) -> Self {
+    CssStyleRule {
+      base: CssRule::new(rule_type),
+      selector,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn get_selector(&self) -> i32 {
+    self.selector
+  }
+
+  #[napi(setter)]
+  pub fn set_selector(&mut self, selector: i32) {
+    self.selector = selector;
+  }
+
+  #[napi]
+  pub fn style_kind(&self) -> i32 {
+    5
+  }
+}

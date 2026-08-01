@@ -1,0 +1,8 @@
+error: #[napi(extends = ...)] cannot be combined with #[napi(iterator)] or #[napi(async_iterator)]: both wire the prototype's [[Prototype]] slot
+  --> tests/build_error_tests/extends_iterator.rs:13:1
+   |
+13 | / #[repr(C)]
+14 | | pub struct Child {
+15 | |   parent: Parent,
+16 | | }
+   | |_^
