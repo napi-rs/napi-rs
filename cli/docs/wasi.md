@@ -183,20 +183,15 @@ headroom under workerd's 128 MiB isolate limit. An explicit
 target isolate's limit after measuring the addon's actual requirements.
 
 Threaded browser loaders always pre-create a pool of wasi-threads workers at
-module initialization, sized from `navigator.hardwareConcurrency` at runtime
-(logical cores minus one for the main thread, floored at 2, with a fallback
-for privacy-fuzzed values), and therefore always initialize asynchronously.
-This is what allows addon Rust code to spawn threads from inside a blocking
-call: a browser cannot start a worker until the blocking thread returns to
-its event loop, so a thread spawned mid-call would never boot and the caller
-would deadlock waiting for it. With a pre-created pool, spawning is only a
-message to an already-running worker.
-
-The pool is created with `strict: true`, so exhausting it fails the spawn
-with a recoverable `EAGAIN` (which well-behaved callers fall back from)
-rather than silently allocating a fresh worker that — in exactly the
-blocked-parent situation — could never boot, reintroducing the deadlock.
-`asyncWorkPoolSize` stays a small constant: emnapi's async-work pool draws
-from the same reuse pool, and sizing both from the core count would leave
-no slots for addon thread spawns. (Browsers only: emnapi ignores `strict`
-in Node, where overflow workers boot regardless.)
+module initialization, sized as `asyncWorkPoolSize + hardwareConcurrency`
+(logical cores, floored at 2, with a fallback for privacy-fuzzed values),
+and therefore always initialize asynchronously. The `asyncWorkPoolSize`
+reservation is included because emnapi's async-work pool draws its workers
+from the same reuse pool; without it, async work could starve the pool
+before addon thread spawns. This is what allows addon Rust code to spawn
+threads from inside a blocking call: a browser cannot start a worker until
+the blocking thread returns to its event loop, so a thread spawned mid-call
+would never boot and the caller would deadlock waiting for it. With a
+pre-created pool, spawning is only a message to an already-running worker,
+and if the pool is exhausted the fallback allocates a fresh worker that
+boots once the spawning parent returns to its event loop.

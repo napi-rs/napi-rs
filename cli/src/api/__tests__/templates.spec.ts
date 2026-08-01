@@ -24,16 +24,21 @@ test('createWasiBrowserBinding threaded builds size worker pools from hardwareCo
     false,
     true,
   )
+  t.true(binding.includes('const __asyncWorkPoolSize = 4'))
   t.true(binding.includes('const __workerPoolSize = Math.max('))
+  t.true(binding.includes('globalThis.navigator?.hardwareConcurrency ?? 4'))
+  // The reuse pool includes the async-work reservation: the async pool
+  // draws from the same reuse pool, so without it exhaustion would starve
+  // addon thread spawns. No `strict`: at exhaustion the fallback worker
+  // boots once the parent returns to its event loop, which is the correct
+  // behavior for spawn-and-return workloads.
   t.true(
-    binding.includes('(globalThis.navigator?.hardwareConcurrency ?? 4) - 1'),
+    binding.includes(
+      'reuseWorker: { size: __asyncWorkPoolSize + __workerPoolSize },',
+    ),
   )
-  t.true(
-    binding.includes('reuseWorker: { size: __workerPoolSize, strict: true },'),
-  )
-  // The async-work pool stays a small constant: it shares the reuse pool,
-  // and sizing both from the core count starves addon thread spawns.
-  t.true(binding.includes('asyncWorkPoolSize: 4,'))
+  t.false(binding.includes('strict'))
+  t.true(binding.includes('asyncWorkPoolSize: __asyncWorkPoolSize,'))
   t.true(binding.includes('await __emnapiInstantiateNapiModule('))
   t.false(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
 })

@@ -335,36 +335,41 @@ const __wasi = new __WASI({
   // an already-running worker.
   //
   // Its size comes from `navigator.hardwareConcurrency` at runtime (logical
-  // cores minus one for the main thread, floored at 2, with a fallback for
-  // privacy-fuzzed or missing values): a constant undersizes both ends of
-  // the range — big desktops leave parallelism on the table, and a fuzzed
-  // "2 cores" would oversubscribe. `asyncWorkPoolSize` stays a small
-  // constant on purpose: emnapi's async-work pool draws its workers from
-  // the same reuse pool, and sizing both from the core count leaves no
-  // slots for addon threads at all.
+  // cores, floored at 2, with a fallback for privacy-fuzzed or missing
+  // values): a constant undersizes both ends of the range — big desktops
+  // leave parallelism on the table, and a fuzzed "2 cores" would
+  // oversubscribe.
   //
-  // `strict: true` makes pool exhaustion a recoverable EAGAIN spawn error
-  // (which callers can fall back from) instead of silently allocating a
-  // fresh worker that — in exactly the blocked-parent situation — can
-  // never boot, reintroducing the deadlock the pool exists to prevent.
-  // Deterministic error over silent hang. (Browsers only: emnapi ignores
-  // `strict` in Node, where overflow workers boot fine regardless.)
+  // The reuse pool is sized as `__asyncWorkPoolSize + __workerPoolSize`
+  // because emnapi's async-work pool draws its workers from the SAME reuse
+  // pool: the async reservation must be included or async-work
+  // initialization can starve the reuse pool before addon threads spawn.
+  //
+  // `strict` is deliberately NOT set. Review suggested it so exhaustion
+  // errors instead of allocating a fresh worker, but it breaks
+  // spawn-and-return workloads (e.g. `testWorkers` in examples/napi, which
+  // spawns workers and joins them on a helper thread): at exhaustion their
+  // `std::thread::spawn` panics on EAGAIN. Without `strict` the fallback
+  // allocates a fresh worker, which boots normally once the spawning
+  // parent returns to its event loop — and for joins inside a blocked
+  // call, the pre-created pool is what those calls draw from anyway.
   const workerPoolSizeBinding = threads
-    ? `const __workerPoolSize = Math.max(
+    ? `const __asyncWorkPoolSize = 4
+const __workerPoolSize = Math.max(
   2,
-  (globalThis.navigator?.hardwareConcurrency ?? 4) - 1,
+  globalThis.navigator?.hardwareConcurrency ?? 4,
 )
 
 `
     : ''
   const reuseWorkerOption = threads
-    ? `    reuseWorker: { size: __workerPoolSize, strict: true },\n`
+    ? `    reuseWorker: { size: __asyncWorkPoolSize + __workerPoolSize },\n`
     : ''
   const workerRuntimeImport = threads
     ? `  createOnMessage as __wasmCreateOnMessageForFsProxy,\n`
     : ''
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
-  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
+  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? '__asyncWorkPoolSize' : 0},
 `
   // Every build links a "basic" emnapi archive without the C async-work and
   // threadsafe-function implementations (the `emnapi-napi-rs(-mt)` archives shipped by the emnapi package), so the
