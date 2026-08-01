@@ -1925,6 +1925,8 @@ class Builder {
       constEnum: this.options.constEnum ?? this.config.constEnum,
       runtimeStringEnum:
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
+      // Config-file-only for now (no CLI flag) — see `UserNapiConfig.emitRustNameTypeAlias`.
+      emitRustNameTypeAlias: this.config.emitRustNameTypeAlias,
       cwd: this.options.cwd,
     })
     this.typeDefWithTypeImports = dtsWithTypeImports
@@ -2420,6 +2422,7 @@ export interface GenerateTypeDefOptions {
   configDtsHeaderFile?: string
   constEnum?: boolean
   runtimeStringEnum?: boolean
+  emitRustNameTypeAlias?: boolean
   cwd: string
 }
 
@@ -2475,6 +2478,7 @@ export async function generateTypeDef(
 
   const constEnum = options.constEnum ?? true
   const runtimeStringEnum = options.runtimeStringEnum ?? false
+  const emitRustNameTypeAlias = options.emitRustNameTypeAlias ?? true
   if (runtimeStringEnum && constEnum) {
     debug.warn(
       '`--runtime-string-enum` has no effect when `--const-enum` is enabled (the default). Pass `--no-const-enum` to activate runtime string enum emission.',
@@ -2486,6 +2490,7 @@ export async function generateTypeDef(
     constEnum,
     runtimeStringEnum,
     header,
+    emitRustNameTypeAlias,
   )
 
   dts = processedTypeDefs.dts

@@ -48,6 +48,15 @@ export interface UserNapiConfig {
   runtimeStringEnum?: boolean
 
   /**
+   * Emit a top-level `export type <RustIdent> = <js_name>` alias for every
+   * `#[napi]` class whose `js_name` differs from its Rust identifier.
+   * Default `true`, preserving today's behavior — this alias predates
+   * `(namespace, js_name)` becoming the canonical identity and may already be
+   * relied on by downstream consumers. Set `false` to stop emitting it.
+   */
+  emitRustNameTypeAlias?: boolean
+
+  /**
    * dts header prepend to the generated dts file
    */
   dtsHeader?: string

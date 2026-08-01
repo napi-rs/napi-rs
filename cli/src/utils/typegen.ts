@@ -203,6 +203,7 @@ function prettyPrint(
   ident: number,
   ambient = false,
   asyncGeneratorHelperName?: string,
+  emitRustNameTypeAlias = true,
 ): string {
   let s = line.js_doc ?? ''
   switch (line.kind) {
@@ -262,7 +263,11 @@ function prettyPrint(
       }
       s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${classDef}\n}`
       s += iteratorInterface
-      if (line.original_name && line.original_name !== line.name) {
+      if (
+        emitRustNameTypeAlias &&
+        line.original_name &&
+        line.original_name !== line.name
+      ) {
         s += `\nexport type ${line.original_name} = ${line.name}`
       }
       break
@@ -301,8 +306,15 @@ export async function processTypeDef(
   intermediateTypeFile: string,
   constEnum: boolean,
   runtimeStringEnum: boolean = false,
+  emitRustNameTypeAlias: boolean = true,
 ) {
-  return processTypeDefs([intermediateTypeFile], constEnum, runtimeStringEnum)
+  return processTypeDefs(
+    [intermediateTypeFile],
+    constEnum,
+    runtimeStringEnum,
+    '',
+    emitRustNameTypeAlias,
+  )
 }
 
 // The exact prefix/suffix `napi_type_ref_sentinel` wraps a Rust identifier in
@@ -431,12 +443,16 @@ export async function processTypeDefs(
   constEnum: boolean,
   runtimeStringEnum: boolean = false,
   reservedDeclarationText: string = '',
+  emitRustNameTypeAlias: boolean = true,
 ) {
   const exports: string[] = []
   const rawTypeDefs = await Promise.all(
     intermediateTypeFiles.map((file) => readIntermediateTypeFile(file)),
   )
   const typeDefs = resolveCrossFragmentTypeReferences(rawTypeDefs)
+  if (emitRustNameTypeAlias) {
+    validateNoAliasAmbiguity(typeDefs)
+  }
   const typeDefsWithUniqueMarkers = makeTypeImportMarkersUnique(
     typeDefs,
     reservedDeclarationText,
@@ -450,6 +466,7 @@ export async function processTypeDefs(
     runtimeStringEnum,
     exports,
     reservedDeclarationText,
+    emitRustNameTypeAlias,
   )
   const dts = rewriteTypeImportReferences(
     dtsWithTypeImportMarkers,
@@ -465,12 +482,60 @@ export async function processTypeDefs(
   }
 }
 
+/**
+ * `prettyPrint`'s `export type <original_name> = <name>` alias (Struct kind
+ * only) is emitted at the same scope as the class itself — top-level or
+ * inside a `namespace N { ... }` block. Two classes sharing the same
+ * `original_name` collide only when they render into the SAME scope (the
+ * same namespace, or both top-level); two classes in different namespaces
+ * each get their own namespace-scoped alias and do not collide. A
+ * proc-macro cannot resolve which crate a bare identifier belongs to (see
+ * `napi_type_ref_sentinel` in the Rust backend), so a genuine same-scope
+ * collision must fail generation rather than silently emit two conflicting
+ * declarations into the same scope.
+ */
+function validateNoAliasAmbiguity(typeDefGroups: TypeDefLine[][]): void {
+  const seen = new Map<
+    string,
+    Array<{ name: string; producerCrate?: string }>
+  >()
+  for (const def of typeDefGroups.flat()) {
+    if (def.kind !== TypeDefKind.Struct || !def.original_name) {
+      continue
+    }
+    const scopeKey = `${def.js_mod ?? TOP_LEVEL_NAMESPACE}\0${def.original_name}`
+    const entries = seen.get(scopeKey) ?? []
+    entries.push({ name: def.name, producerCrate: def.producer_crate })
+    seen.set(scopeKey, entries)
+  }
+  for (const [scopeKey, entries] of seen) {
+    const distinctNames = new Set(entries.map((e) => e.name))
+    if (distinctNames.size <= 1) {
+      continue
+    }
+    const [namespace, originalName] = scopeKey.split('\0')
+    const describe = (e: { name: string; producerCrate?: string }) =>
+      `\`${e.name}\` (crate \`${e.producerCrate ?? 'unknown'}\`)`
+    throw new Error(
+      `Ambiguous \`export type ${originalName} = ...\` alias: ${entries
+        .map(describe)
+        .join(' and ')} both use the Rust identifier \`${originalName}\`` +
+        (namespace === TOP_LEVEL_NAMESPACE
+          ? ' at the top level.'
+          : ` in namespace \`${namespace}\`.`) +
+        ' Rename one of the conflicting Rust identifiers, or disable this ' +
+        'alias entirely with `emitRustNameTypeAlias: false`.',
+    )
+  }
+}
+
 function renderTypeDefs(
   groupedTypeDefs: Map<string, TypeDefLine[]>[],
   constEnum: boolean,
   runtimeStringEnum: boolean,
   exports: string[],
   reservedDeclarationText: string,
+  emitRustNameTypeAlias: boolean = true,
 ): string {
   const topLevelExportNames = new Set<string>()
   for (const groupedDefs of groupedTypeDefs) {
@@ -538,10 +603,14 @@ function renderTypeDefs(
                   case TypeDefKind.StringEnum:
                   case TypeDefKind.Fn:
                   case TypeDefKind.Struct: {
+                    // Only `def.name` (the real js_name) is ever a valid
+                    // runtime export — `module.exports.<original_name>`
+                    // never existed on the native binding (the binding is
+                    // keyed by js_name only), so pushing the Rust identifier
+                    // here produced a dead alias. Note `original_name` is
+                    // still added to `topLevelExportNames` above, which is a
+                    // separate, unrelated reserved-name-collision check.
                     exports.push(def.name)
-                    if (def.original_name && def.original_name !== def.name) {
-                      exports.push(def.original_name)
-                    }
                     break
                   }
                   default:
@@ -554,6 +623,7 @@ function renderTypeDefs(
                   0,
                   false,
                   asyncGeneratorHelperName,
+                  emitRustNameTypeAlias,
                 )
               })
               .join('\n\n')
@@ -570,6 +640,7 @@ function renderTypeDefs(
                   2,
                   true,
                   asyncGeneratorHelperName,
+                  emitRustNameTypeAlias,
                 ) + '\n'
             }
             declaration += '}'
