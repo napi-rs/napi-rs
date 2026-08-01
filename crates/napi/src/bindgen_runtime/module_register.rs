@@ -978,6 +978,37 @@ pub unsafe extern "C" fn napi_register_module_v1(
             .first()
             .map(|c| c.raw().method.unwrap())
             .unwrap_or(noop);
+
+          // issue #1164 (P8): on napi8 + non-wasm, an extended-base class splits
+          // its BorrowedUpcast plain methods off from the signature-guarded
+          // descriptors handed to `napi_define_class` and rebuilds them below as
+          // signature-free functions on the prototype — so a descendant instance
+          // reaching them through the prototype chain is not rejected by V8's
+          // method-receiver signature. Exact methods (a `Reference<Self>`
+          // receiver) are never split out: they keep the exact tag-checked unwrap
+          // and must fail on a descendant. `wire_prototypes` is already false for
+          // any addon without an extends edge, so ordinary addons skip even the
+          // per-class check. On every other config this partition is absent and
+          // every method keeps the `napi_define_class` path (an inherited plain
+          // method keeps throwing `Illegal invocation`, as before this feature).
+          #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+          let (borrowed_upcast_methods, props): (Vec<_>, Vec<_>) = {
+            let is_extended_base = wire_prototypes
+              && class_registration.own_tag.is_some_and(|own_tag| {
+                matches!(
+                  CLASS_HIERARCHY.get(),
+                  Some(Ok(hierarchy)) if hierarchy.is_extended_base(&own_tag)
+                )
+              });
+            if is_extended_base {
+              props
+                .into_iter()
+                .partition(|prop| prop.is_borrowed_upcast_method)
+            } else {
+              (Vec::new(), props)
+            }
+          };
+
           let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 
           let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
@@ -1001,6 +1032,63 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
           if class_registration.implement_iterator {
             crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr);
+          }
+
+          // issue #1164 (P8): attach the split-off BorrowedUpcast methods to the
+          // class prototype as signature-free data-property functions, reusing
+          // each method's original callback and data pointer unchanged. The
+          // callback's own receiver unwrap (exact-first, with a descendant
+          // fallback) still guards dispatch. Empty on any config or class that
+          // did not split any methods out above (an iterator class can never be
+          // an extended base — that edge is rejected at compile time — so this
+          // never races the `setup_iterator_class` prototype mutation above).
+          #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+          if !borrowed_upcast_methods.is_empty() {
+            let mut class_proto = ptr::null_mut();
+            check_status_or_throw!(
+              env,
+              sys::napi_get_named_property(
+                env,
+                class_ptr,
+                c"prototype".as_ptr().cast(),
+                &mut class_proto,
+              ),
+              "Failed to get prototype of class `{}`",
+              &js_name,
+            );
+            for prop in &borrowed_upcast_methods {
+              let descriptor = prop.raw();
+              let mut method_fn = ptr::null_mut();
+              check_status_or_throw!(
+                env,
+                sys::napi_create_function(
+                  env,
+                  descriptor.utf8name,
+                  prop.utf8_name_len(),
+                  descriptor.method,
+                  descriptor.data,
+                  &mut method_fn,
+                ),
+                "Failed to rebuild a borrowed-upcast method of class `{}`",
+                &js_name,
+              );
+              let value_descriptor = sys::napi_property_descriptor {
+                utf8name: descriptor.utf8name,
+                name: ptr::null_mut(),
+                method: None,
+                getter: None,
+                setter: None,
+                value: method_fn,
+                attributes: descriptor.attributes,
+                data: ptr::null_mut(),
+              };
+              check_status_or_throw!(
+                env,
+                sys::napi_define_properties(env, class_proto, 1, &value_descriptor),
+                "Failed to define a borrowed-upcast method on the prototype of class `{}`",
+                &js_name,
+              );
+            }
           }
 
           let mut ctor_ref = ptr::null_mut();

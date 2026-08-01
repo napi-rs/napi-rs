@@ -41,6 +41,15 @@ pub struct Property {
   value: sys::napi_value,
   data: *mut c_void,
   pub(crate) is_ctor: bool,
+  /// issue #1164 (P8): set by codegen for a plain `&self` / `&mut self` method
+  /// whose receiver is BorrowedUpcast (i.e. it has no `Reference<Self>`
+  /// parameter). When the owning class is an extended base, such a method is
+  /// rebuilt without a V8 receiver signature so a descendant instance can call
+  /// it through the prototype chain. The field exists only on the configs where
+  /// that rebuild happens (napi8, non-wasm); everywhere else every method stays
+  /// on the signature-guarded `napi_define_class` path.
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  pub(crate) is_borrowed_upcast_method: bool,
   #[cfg(feature = "napi5")]
   pub(crate) closures: PropertyClosures,
 }
@@ -57,6 +66,8 @@ impl Default for Property {
       value: ptr::null_mut(),
       data: ptr::null_mut(),
       is_ctor: Default::default(),
+      #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+      is_borrowed_upcast_method: false,
       #[cfg(feature = "napi5")]
       closures: PropertyClosures::default(),
     }
@@ -103,6 +114,21 @@ impl Property {
 
   pub fn with_method(mut self, callback: Callback) -> Self {
     self.method = Some(callback);
+    self
+  }
+
+  /// issue #1164 (P8): mark a plain `&self` / `&mut self` method as
+  /// BorrowedUpcast (no `Reference<Self>` parameter). Emitted by codegen on
+  /// every config so the generated call compiles everywhere; it only records
+  /// anything on the configs where the field exists (napi8, non-wasm), where an
+  /// extended base later rebuilds these methods without a V8 receiver signature.
+  #[doc(hidden)]
+  #[allow(unused_mut)]
+  pub fn as_borrowed_upcast_method(mut self) -> Self {
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    {
+      self.is_borrowed_upcast_method = true;
+    }
     self
   }
 
@@ -177,6 +203,17 @@ impl Property {
   pub(crate) fn has_closure_data(&self) -> bool {
     self.data.is_null()
       && (!self.closures.getter_closure.is_null() || !self.closures.setter_closure.is_null())
+  }
+
+  /// issue #1164 (P8): byte length of the method name, for `napi_create_function`
+  /// when rebuilding a BorrowedUpcast method as a signature-free function.
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  pub(crate) fn utf8_name_len(&self) -> isize {
+    self
+      .utf8_name
+      .as_ref()
+      .map(|name| name.as_bytes().len() as isize)
+      .unwrap_or(0)
   }
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {

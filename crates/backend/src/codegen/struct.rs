@@ -1807,7 +1807,17 @@ impl NapiImpl {
         FnKind::Setter => quote! { .with_setter(#intermediate_name) },
         _ => {
           if item.fn_self.is_some() {
-            quote! { .with_method(#intermediate_name) }
+            // issue #1164 (P8): a plain `&self` / `&mut self` receiver is
+            // BorrowedUpcast unless the method takes a `Reference<Self>` (which
+            // keeps it Exact — see `receiver_is_exact`). Marking it lets an
+            // extended base rebuild it without a V8 receiver signature so a
+            // descendant can call it; an Exact method is left signature-guarded
+            // and must fail on a descendant.
+            if item.receiver_is_exact() {
+              quote! { .with_method(#intermediate_name) }
+            } else {
+              quote! { .with_method(#intermediate_name).as_borrowed_upcast_method() }
+            }
           } else {
             quote! { .with_method(#intermediate_name).with_property_attributes(napi::bindgen_prelude::PropertyAttributes::Static) }
           }

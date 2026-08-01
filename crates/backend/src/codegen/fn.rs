@@ -370,7 +370,7 @@ impl NapiFn {
   /// pointer that is only ever borrowed (never boxed). `This<&Self>` / `This<Self>`
   /// parameters are unaffected — they convert `cb.this()` independently via
   /// `from_napi_ref` / `from_napi_value` (still exact), not through `this_ptr`.
-  fn receiver_is_exact(&self) -> bool {
+  pub(crate) fn receiver_is_exact(&self) -> bool {
     let Some(parent) = &self.parent else {
       return false;
     };
