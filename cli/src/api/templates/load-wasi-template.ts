@@ -271,6 +271,10 @@ export const createWasiBrowserBinding = (
   errorEvent = false,
   threads = true,
 ) => {
+  // Threaded builds always get a pre-created worker pool (see
+  // `reuseWorkerOption` below), and pool pre-creation is asynchronous, so
+  // they always initialize asynchronously.
+  const effectiveAsyncInit = asyncInit || threads
   const fsImport = fs
     ? buffer
       ? `import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'`
@@ -317,17 +321,40 @@ const __wasi = new __WASI({
   const emnapiInjectBuffer = buffer
     ? '  __emnapiContext.features.Buffer = Buffer\n'
     : ''
-  const emnapiInstantiateImport = asyncInit
+  const emnapiInstantiateImport = effectiveAsyncInit
     ? `instantiateNapiModule as __emnapiInstantiateNapiModule`
     : `instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync`
-  const emnapiInstantiateCall = asyncInit
+  const emnapiInstantiateCall = effectiveAsyncInit
     ? `await __emnapiInstantiateNapiModule`
     : `__emnapiInstantiateNapiModuleSync`
+  // Worker pool sizes come from `navigator.hardwareConcurrency` at runtime
+  // (logical cores minus one for the main thread, floored at 2, with a
+  // fallback for privacy-fuzzed or missing values) rather than a hardcoded
+  // constant: 4 undersizes both ends of the range — big desktops leave
+  // parallelism on the table, and a fuzzed "2 cores" would oversubscribe.
+  //
+  // The `reuseWorker` pool is what lets addon Rust code spawn threads while
+  // the calling thread is blocked inside the wasm call: a browser cannot
+  // start a worker until the blocking thread returns to its event loop, so
+  // a thread spawned mid-call can never boot and the caller deadlocks
+  // waiting for it. With a pre-created pool, spawning is only a message to
+  // an already-running worker.
+  const workerPoolSizeBinding = threads
+    ? `const __workerPoolSize = Math.max(
+  2,
+  (globalThis.navigator?.hardwareConcurrency ?? 4) - 1,
+)
+
+`
+    : ''
+  const reuseWorkerOption = threads
+    ? `    reuseWorker: { size: __workerPoolSize },\n`
+    : ''
   const workerRuntimeImport = threads
     ? `  createOnMessage as __wasmCreateOnMessageForFsProxy,\n`
     : ''
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
-  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? 4 : 0},
+  const asyncWorkPoolOption = `    asyncWorkPoolSize: ${threads ? '__workerPoolSize' : 0},
 `
   // Every build links a "basic" emnapi archive without the C async-work and
   // threadsafe-function implementations (the `emnapi-napi-rs(-mt)` archives shipped by the emnapi package), so the
@@ -380,7 +407,7 @@ const ${memoryName} = new WebAssembly.Memory({
   maximum: ${maximumMemory},
 ${threads ? '  shared: true,\n' : ''}\
 })
-
+${workerPoolSizeBinding}\
 let __emnapiContext
 ${emnapiContextLifecycle}
 let __wasiModule
@@ -397,6 +424,7 @@ try {
   } = ${emnapiInstantiateCall}(__wasmFile, {
     context: __emnapiContext,
 ${asyncWorkPoolOption}\
+${reuseWorkerOption}\
 ${emnapiPluginOption}\
     wasi: __wasi,
 ${workerOption}\

@@ -13,6 +13,39 @@ test('createWasiBrowserBinding default', (t) => {
   t.snapshot(createWasiBrowserBinding('test-wasi'))
 })
 
+test('createWasiBrowserBinding threaded builds size worker pools from hardwareConcurrency', (t) => {
+  const binding = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false, // asyncInit: false — threaded builds still init asynchronously
+    false,
+    false,
+    true,
+  )
+  t.true(binding.includes('hardwareConcurrency'))
+  t.true(binding.includes('reuseWorker: { size: __workerPoolSize },'))
+  t.true(binding.includes('asyncWorkPoolSize: __workerPoolSize,'))
+  t.true(binding.includes('await __emnapiInstantiateNapiModule('))
+  t.false(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
+})
+
+test('createWasiBrowserBinding threadless keeps sync init and no pool', (t) => {
+  const binding = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    false,
+  )
+  t.false(binding.includes('reuseWorker'))
+  t.true(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
+})
+
 test('createWasiBrowserBinding with errorEvent', (t) => {
   t.snapshot(
     createWasiBrowserBinding(

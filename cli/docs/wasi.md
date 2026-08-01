@@ -181,3 +181,14 @@ The deferred `./workerd` loader defaults to 1,024 pages (64 MiB), leaving
 headroom under workerd's 128 MiB isolate limit. An explicit
 `napi.wasm.initialMemory` value applies to every loader, so keep it within the
 target isolate's limit after measuring the addon's actual requirements.
+
+Threaded browser loaders always pre-create a pool of wasi-threads workers at
+module initialization, sized from `navigator.hardwareConcurrency` at runtime
+(logical cores minus one for the main thread, floored at 2, with a fallback
+for privacy-fuzzed values), and therefore always initialize asynchronously.
+The same size drives both `reuseWorker` and `asyncWorkPoolSize`. This is
+what allows addon Rust code to spawn threads from inside a blocking call: a
+browser cannot start a worker until the blocking thread returns to its event
+loop, so a thread spawned mid-call would never boot and the caller would
+deadlock waiting for it. With a pre-created pool, spawning is only a message
+to an already-running worker.
