@@ -1466,6 +1466,44 @@ mod hierarchy_tests {
   }
 
   #[test]
+  fn non_extended_class_has_no_descendant_set_even_when_inheritance_exists_elsewhere() {
+    // The structural regression guard behind `unwrap_borrowed_receiver`'s
+    // "exact-first" fast path (see type_tag.rs): a non-extended class pays
+    // exactly one tag check and consults the descendant set ONLY on an exact
+    // mismatch — and for such a class there is no descendant set to consult, so
+    // the fallback loop can never run for it. This asserts the *code path*, not
+    // its duration: even in an addon that uses inheritance elsewhere (T1 <- T2),
+    // a class uninvolved in inheritance (T3) is absent from `descendants`, so
+    // `class_descendants(T3_tag)` returns `Ok(None)` and the receiver unwrap
+    // does zero hierarchy traversal beyond the single exact check.
+    let snapshot = [
+      meta(TypeId::of::<T1>(), tag(1), None),
+      meta(TypeId::of::<T2>(), tag(2), Some(tag(1))),
+      meta(TypeId::of::<T3>(), tag(3), None),
+    ];
+    let h = build_hierarchy(&snapshot).expect("valid mixed hierarchy");
+
+    // The extended base has a descendant set...
+    assert!(h.is_extended_base(&tag(1)));
+    assert_eq!(&*h.descendants[&tag(1)], &[tag(2)]);
+
+    // ...but the non-extended class has NONE: `class_descendants` maps this to
+    // `Ok(None)`, so the descendant fallback loop is unreachable for it.
+    assert!(
+      !h.descendants.contains_key(&tag(3)),
+      "a non-extended class must not appear in the descendant map",
+    );
+    assert!(
+      !h.is_extended_base(&tag(3)),
+      "a non-extended class is not an extended base",
+    );
+    // It is also not anyone's descendant, so no ancestor's fallback loop ever
+    // visits it either.
+    assert!(!h.is_descendant(&tag(1), &tag(3)));
+    assert!(!h.is_descendant(&tag(2), &tag(3)));
+  }
+
+  #[test]
   fn four_level_chain_builds_strict_descendants() {
     // T1 <- T2 <- T3 <- T4
     let snapshot = [
