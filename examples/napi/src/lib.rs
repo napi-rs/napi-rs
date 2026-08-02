@@ -81,6 +81,7 @@ mod fn_strict;
 mod fn_ts_override;
 mod function;
 mod generator;
+mod identity;
 mod inheritance;
 mod issue_3427;
 mod js_mod;

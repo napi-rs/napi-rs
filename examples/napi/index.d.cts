@@ -1143,6 +1143,21 @@ export declare function i64ArrayToArray(input: BigInt64Array): Array<number>
 
 export declare function i8ArrayToArray(input: Int8Array): Array<number>
 
+/** `Option<&T>`. */
+export declare function identityAcceptOptionalTimeSeries(series?: Sdk.TimeSeries | undefined | null): number
+
+/** Direct `&T` reference. */
+export declare function identityAcceptTimeSeries(series: Sdk.TimeSeries): number
+
+/** `Either<&T, String>`. */
+export declare function identityAcceptTimeSeriesOrString(input: Sdk.TimeSeries | string): string
+
+/** A factory-style function returning the cross-crate class directly. */
+export declare function identityMakeTimeSeries(value: number): Sdk.TimeSeries
+
+/** `Vec<T>`. */
+export declare function identitySumTimeSeries(series: Array<Sdk.TimeSeries>): number
+
 export declare function indexmapPassthrough(fixture: Record<string, number>): Record<string, number>
 
 export declare function indexSetToJs(): Set<string>
@@ -1743,6 +1758,14 @@ export declare namespace xxh3 {
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
 }
+export declare namespace Sdk {
+  export class TimeSeries {
+    value: number
+    static fromValue(value: number): Sdk.TimeSeries
+  }
+  export type TimeSeriesNapi = TimeSeries
+}
+
 export declare class ComplexClass {
   value: string
   number: number
