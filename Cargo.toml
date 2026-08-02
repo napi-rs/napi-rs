@@ -8,6 +8,7 @@ members = [
   "./crates/napi",
   "./crates/sys",
   "./examples/napi",
+  "./examples/napi-broken-hierarchy",
   "./examples/napi-shared",
   "./examples/napi-compat-mode",
   "./examples/custom-async-runtime",
