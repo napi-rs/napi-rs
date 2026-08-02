@@ -241,26 +241,58 @@ nativeOnly('a plain JS subclass of a base still passes the tag check', (t) => {
 })
 
 // ---------------------------------------------------------------------------
-// Deferred, with reasons (documented rather than silently omitted):
+// Adversarial: every ancestor's setter (not just the root's) must be writable
+// through the deepest descendant, at every level of the chain, and writing one
+// level must never disturb another.
+// ---------------------------------------------------------------------------
+
+nativeOnly(
+  'every ancestor setter is writable through the deepest descendant',
+  (t) => {
+    const media = CssMediaRule.create(10, 20, 30, 40)
+
+    // write each level's field through the deep instance...
+    media.ruleType = 11 // CssRule (root, 3 levels up)
+    media.groupSize = 22 // CssGroupingRule
+    media.condition = 33 // CssConditionRule
+    media.media = 44 // own
+
+    // ...and read each back, independent of the others.
+    t.is(media.ruleType, 11)
+    t.is(media.groupSize, 22)
+    t.is(media.condition, 33)
+    t.is(media.media, 44)
+
+    // an intermediate instance's setters are likewise writable at its own level
+    // and every level above, but it never gains a descendant's field.
+    const condition = CssConditionRule.create(1, 2, 3)
+    condition.ruleType = 111
+    condition.groupSize = 222
+    condition.condition = 333
+    t.is(condition.ruleType, 111)
+    t.is(condition.groupSize, 222)
+    t.is(condition.condition, 333)
+    t.is(typeof (condition as any).media, 'undefined')
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Previously-deferred edge tests, now landed in dedicated specs (each needs a
+// setup this deterministic, single-addon suite cannot provide):
 //
-// * A colliding-tag hierarchy failing fast in two concurrent worker_threads
-//   (proving the `get_or_init` + first-registration guard): a broken hierarchy
-//   cannot arise from ordinary macro use (a missing/duplicate/iterator edge is
-//   rejected at compile time, and type tags are content-derived so two distinct
-//   classes never collide naturally). Forcing one needs a separate addon with a
-//   hand-written colliding `TypeTag`. The `Err` paths themselves are covered by
-//   the `build_hierarchy` unit tests, and the happy concurrent registration path
-//   by the existing "new Class in worker thread concurrently" test.
+// * Colliding/broken-hierarchy fail-fast under two concurrent worker_threads —
+//   `broken-hierarchy.spec.ts` (a separate `napi-broken-hierarchy` fixture addon
+//   that hand-forces a broken hierarchy through `register_class`, since one
+//   cannot arise from ordinary macro use). Proves the `get_or_init` +
+//   `FirstRegistrationGuard` fail fast rather than hang; the `Err` paths
+//   themselves are covered by the `build_hierarchy` unit tests.
 //
-// * A build without `napi8` still throwing `Illegal invocation` for an inherited
-//   plain method: needs a second, non-napi8 build of this addon (it ships
-//   napi9). That code path is compile-checked on the non-napi8 targets and is
-//   simply the pre-feature status quo.
+// * A build WITHOUT `napi8` still throwing `Illegal invocation` for an inherited
+//   plain method — `no-napi8-inheritance.spec.ts` (a separate `napi-no-napi8`
+//   fixture addon compiled without napi8). Pins the pre-P8 status quo.
 //
-// * ObjectFinalize-not-chained / Drop-exactly-once: both are GC-finalization
-//   timing tests (need `--expose-gc`, like memory-test.ts) rather than part of
-//   the deterministic suite. Structurally, finalize is registered per class at
-//   wrap time and is untouched by this feature; a child's Drop runs the child's
-//   own finalizer, which drops the embedded parent field through ordinary Rust
-//   Drop glue, and the parent's separate finalizer is never invoked for it.
+// * ObjectFinalize-not-chained / Drop-exactly-once — `inheritance-gc.spec.ts`
+//   (native `AtomicU32` counters + `--expose-gc`, like memory-test.ts). Proves a
+//   finalized child runs its own Drop and the embedded parent's Drop but never
+//   the parent's custom ObjectFinalize, while a finalized parent runs both.
 // ---------------------------------------------------------------------------
