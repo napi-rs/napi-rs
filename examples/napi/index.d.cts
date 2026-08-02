@@ -413,6 +413,28 @@ export declare class Fib4 {
 
 export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
+/**
+ * Parent carrying BOTH a custom `ObjectFinalize` (counted) and a `Drop`
+ * (counted), so the two teardown paths can be told apart.
+ */
+export declare class FinalizeBase {
+  constructor(value: number)
+  get value(): number
+}
+
+/**
+ * Child of [`FinalizeBase`]. Deliberately does NOT declare `custom_finalize`:
+ * a collected child runs the DEFAULT finalizer for its own class (drop the
+ * boxed child), which runs `FinalizeSub::drop` and then — via ordinary Rust
+ * drop glue — drops the embedded `base`, running `FinalizeBase::drop`. The
+ * parent's custom `ObjectFinalize` is never reached this way.
+ */
+export declare class FinalizeSub {
+  static create(value: number, extra: number): FinalizeSub
+  get extra(): number
+}
+export interface FinalizeSub extends FinalizeBase {}
+
 export declare class GetterSetterWithClosures {
   constructor()
 }
@@ -1075,6 +1097,13 @@ export declare function fetch(url: string, requestInit?: RequestInit | undefined
 
 export declare function fibonacci(n: number): number
 
+/** Snapshot of the three teardown counters, read from JS after forcing GC. */
+export interface FinalizeCounters {
+  baseFinalize: number
+  baseDrop: number
+  subDrop: number
+}
+
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
 export interface FunctionData {
@@ -1385,6 +1414,8 @@ export declare function readFile(callback: (arg0: Error | undefined, arg1?: stri
 
 export declare function readFileAsync(path: string): Promise<Buffer>
 
+export declare function readFinalizeCounters(): FinalizeCounters
+
 export declare function readPackageJson(): PackageJson
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
@@ -1415,6 +1446,8 @@ export interface RequestInit {
   method?: string
   headers?: Record<string, string>
 }
+
+export declare function resetFinalizeCounters(): void
 
 export declare function returnCString(): string
 

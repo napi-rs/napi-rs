@@ -83,6 +83,7 @@ mod function;
 mod generator;
 mod identity;
 mod inheritance;
+mod inheritance_finalize;
 mod issue_3427;
 mod js_mod;
 mod lifetime;
