@@ -32,6 +32,7 @@ impl ToTypeDef for NapiConst {
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
       producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
+      instance_extends: None,
     })
   }
 }

@@ -114,6 +114,7 @@ impl ToTypeDef for NapiFn {
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
       producer_crate: None,
+      instance_extends: None,
     })
   }
 }

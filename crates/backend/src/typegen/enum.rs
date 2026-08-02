@@ -27,6 +27,7 @@ impl ToTypeDef for NapiEnum {
       js_doc: JSDoc::new(&self.comments),
       js_mod: self.js_mod.to_owned(),
       producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
+      instance_extends: None,
     })
   }
 }

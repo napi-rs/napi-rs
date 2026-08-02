@@ -251,6 +251,7 @@ export declare class CssConditionRule {
   set condition(condition: number)
   conditionKind(): number
 }
+export interface CssConditionRule extends CssGroupingRule {}
 
 /** Level 2. */
 export declare class CssGroupingRule {
@@ -259,6 +260,7 @@ export declare class CssGroupingRule {
   set groupSize(groupSize: number)
   groupingKind(): number
 }
+export interface CssGroupingRule extends CssRule {}
 
 /** Level 4 — the deepest rule in the chain. */
 export declare class CssMediaRule {
@@ -267,6 +269,7 @@ export declare class CssMediaRule {
   set media(media: number)
   mediaKind(): number
 }
+export interface CssMediaRule extends CssConditionRule {}
 
 /** Level 1 — the root of the CSS-OM chain. */
 export declare class CssRule {
@@ -294,6 +297,7 @@ export declare class CssStyleRule {
   set selector(selector: number)
   styleKind(): number
 }
+export interface CssStyleRule extends CssRule {}
 
 export declare class CssStyleSheet {
   constructor(name: string, rules: Array<string>)
@@ -516,6 +520,7 @@ export declare class Sub {
   static create(value: number, extra: number): Sub
   get extra(): number
 }
+export interface Sub extends Base {}
 
 export declare class Thing {
 

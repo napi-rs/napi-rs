@@ -30,6 +30,16 @@ pub struct TypeDef {
   /// candidate for the same bare Rust identifier — it has no bearing on
   /// resolution itself, which is keyed on `(js_mod, name)`.
   pub producer_crate: Option<String>,
+  /// For a `#[napi(extends = Parent)]` class (issue #1164), the public JS
+  /// reference to the parent class — namespace-qualified (`qualify_napi_type_name`)
+  /// when the parent is resolvable in this crate, or a `napi_type_ref_sentinel`
+  /// the CLI resolves cross-crate otherwise. Rendered by the CLI as a sibling
+  /// `export interface Child extends Parent {}` declaration-merge (instance-only
+  /// inheritance), NOT as the class's own `extends` clause — the shipped runtime
+  /// wires only the instance prototype chain, never the constructor/static chain,
+  /// so `class Child extends Parent` (which TypeScript reads as inheriting statics
+  /// too) would make the types claim an inheritance the runtime does not provide.
+  pub instance_extends: Option<String>,
 }
 
 #[derive(Default, Debug)]
@@ -338,6 +348,14 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
+    let instance_extends = if let Some(instance_extends) = &self.instance_extends {
+      format!(
+        ", \"instance_extends\": \"{}\"",
+        escape_json(instance_extends)
+      )
+    } else {
+      "".to_string()
+    };
     let imported_types = if uses_buffer_type {
       format!(
         r#", "def_with_type_import_markers": "{}", "type_imports": [{{"marker": "{}", "name": "Buffer", "module": "buffer"}}]"#,
@@ -350,7 +368,7 @@ impl Display for TypeDef {
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
@@ -358,6 +376,7 @@ impl Display for TypeDef {
       original_name,
       js_mod,
       producer_crate,
+      instance_extends,
       imported_types,
     )
   }
@@ -1025,9 +1044,43 @@ mod tests {
     add_alias, escape_json, format_js_property_name, handle_generic_type, ty_to_ts_type, JSDoc,
     TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
     escape_json, format_js_property_name, napi_type_ref_sentinel, qualify_napi_type_name,
-    strip_napi_type_ref_sentinel, ty_to_ts_type, JSDoc, TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE,
-    BUFFER_TYPE_IMPORT_SENTINEL,
+    strip_napi_type_ref_sentinel, ty_to_ts_type, JSDoc, ToTypeDef, TypeDef,
+    BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
   };
+  use crate::{NapiClass, NapiStruct, NapiStructKind};
+
+  /// Builds a minimal `Class`-kind `NapiStruct` for the inheritance-typegen
+  /// tests below (issue #1164). `extends` is parsed as a parent path when set.
+  fn class_struct_with_extends(
+    name: &str,
+    js_mod: Option<&str>,
+    js_name: &str,
+    extends: Option<&str>,
+  ) -> NapiStruct {
+    NapiStruct {
+      name: syn::parse_str(name).expect("class name must parse as an ident"),
+      js_name: js_name.to_owned(),
+      comments: Vec::new(),
+      js_mod: js_mod.map(str::to_owned),
+      use_nullable: false,
+      register_name: syn::parse_str(name).expect("register name must parse as an ident"),
+      kind: NapiStructKind::Class(NapiClass {
+        fields: Vec::new(),
+        ctor: false,
+        implement_iterator: false,
+        implement_async_iterator: false,
+        is_tuple: false,
+        use_custom_finalize: false,
+        extends: extends.map(|p| syn::parse_str(p).expect("parent path must parse")),
+        first_field_member: None,
+        first_field_ty: None,
+      }),
+      has_lifetime: false,
+      is_generator: false,
+      is_async_generator: false,
+      type_tag: None,
+    }
+  }
 
   #[test]
   fn type_def_display_escapes_all_json_fields() {
@@ -1039,6 +1092,7 @@ mod tests {
       js_mod: Some("namespace\\\"name".to_owned()),
       js_doc: JSDoc::new(["A \"quoted\" doc"]),
       producer_crate: None,
+      instance_extends: None,
     };
 
     let parsed: serde_json::Value =
@@ -1333,6 +1387,7 @@ mod tests {
       js_mod: Some("Sdk".to_owned()),
       js_doc: JSDoc::default(),
       producer_crate: Some("identity-base".to_owned()),
+      instance_extends: None,
     };
     let parsed: serde_json::Value =
       serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
@@ -1350,6 +1405,84 @@ mod tests {
     let parsed: serde_json::Value =
       serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
     assert!(parsed.get("producer_crate").is_none());
+  }
+
+  #[test]
+  fn type_def_display_includes_instance_extends_when_set() {
+    let type_def = TypeDef {
+      kind: "struct".to_owned(),
+      name: "CssGroupingRule".to_owned(),
+      original_name: Some("CssGroupingRule".to_owned()),
+      def: String::new(),
+      instance_extends: Some("CssRule".to_owned()),
+      ..Default::default()
+    };
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+    assert_eq!(parsed["instance_extends"].as_str(), Some("CssRule"));
+  }
+
+  #[test]
+  fn type_def_display_omits_instance_extends_when_absent() {
+    // A flat (non-`extends`) class must not emit the key at all, so the CLI
+    // never renders a spurious `export interface X extends undefined {}`.
+    let type_def = TypeDef {
+      kind: "struct".to_owned(),
+      name: "CssRule".to_owned(),
+      def: String::new(),
+      ..Default::default()
+    };
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+    assert!(parsed.get("instance_extends").is_none());
+  }
+
+  #[test]
+  fn class_with_same_crate_parent_qualifies_instance_extends() {
+    // A parent already registered in this crate's `CLASS_STRUCTS` resolves via
+    // the fast path — namespace-qualified, no sentinel.
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|c| {
+      c.borrow_mut().insert(
+        "CssRuleNapi".to_owned(),
+        (Some("Css".to_owned()), "CssRule".to_owned()),
+      );
+    });
+    let child = class_struct_with_extends(
+      "CssGroupingRuleNapi",
+      Some("Css"),
+      "CssGroupingRule",
+      Some("CssRuleNapi"),
+    );
+    let type_def = child
+      .to_type_def()
+      .expect("a class must produce a type def");
+    assert_eq!(type_def.instance_extends.as_deref(), Some("Css.CssRule"));
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|c| c.borrow_mut().clear());
+  }
+
+  #[test]
+  fn class_with_cross_crate_parent_sentinels_instance_extends() {
+    // A parent this crate's own macro expansion cannot see (declared in another
+    // crate) misses `CLASS_STRUCTS` and must fall through to the sentinel, which
+    // the CLI resolves once every crate's fragment is collected — never a silent
+    // bare-ident leak.
+    let child = class_struct_with_extends("ChildNapi", None, "Child", Some("ParentInAnotherCrate"));
+    let type_def = child
+      .to_type_def()
+      .expect("a class must produce a type def");
+    assert_eq!(
+      type_def.instance_extends.as_deref(),
+      Some(napi_type_ref_sentinel("ParentInAnotherCrate").as_str())
+    );
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|c| c.borrow_mut().clear());
+  }
+
+  #[test]
+  fn flat_class_has_no_instance_extends() {
+    let flat = class_struct_with_extends("PlainNapi", None, "Plain", None);
+    let type_def = flat.to_type_def().expect("a class must produce a type def");
+    assert_eq!(type_def.instance_extends, None);
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|c| c.borrow_mut().clear());
   }
 
   #[test]

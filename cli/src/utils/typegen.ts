@@ -64,6 +64,15 @@ interface TypeDefLine {
   def: string
   def_with_type_import_markers?: string
   extends?: string
+  // For a `#[napi(extends = Parent)]` class (issue #1164): the public JS
+  // reference to the parent, rendered as a sibling `export interface Child
+  // extends Parent {}` declaration-merge (instance-only inheritance), never as
+  // the class's own `extends` clause (which — unlike `extends` above, reserved
+  // for the iterator shape — would make TypeScript also inherit the parent's
+  // statics, an inheritance the shipped runtime deliberately does not wire).
+  // May arrive as a cross-crate `napi_type_ref_sentinel`, resolved by
+  // `resolveCrossFragmentTypeReferences` alongside `def`.
+  instance_extends?: string
   asyncIterator?: [yieldType: string, returnType: string, nextType: string]
   js_doc?: string
   js_mod?: string
@@ -263,6 +272,18 @@ function prettyPrint(
       }
       s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${classDef}\n}`
       s += iteratorInterface
+      if (line.instance_extends) {
+        // Instance-only single inheritance (issue #1164). Declaration merging —
+        // `interface Child extends Parent {}` grafts only the parent's *instance*
+        // members onto the child's instance type, leaving the child `class`
+        // declaration (and therefore its static side) untouched. This matches
+        // the runtime, which wires `Object.setPrototypeOf(Child.prototype,
+        // Parent.prototype)` but never re-parents the constructor, so a parent
+        // static/factory is correctly absent from both the runtime and the types.
+        // `class Child extends Parent` would instead claim static inheritance the
+        // runtime does not provide.
+        s += `\nexport interface ${line.name} extends ${line.instance_extends} {}`
+      }
       if (
         emitRustNameTypeAlias &&
         line.original_name &&
@@ -422,7 +443,8 @@ function resolveCrossFragmentTypeReferences(
         (def.def_with_type_import_markers?.includes(
           NAPI_TYPE_REF_SENTINEL_TEXT,
         ) ??
-          false)
+          false) ||
+        (def.instance_extends?.includes(NAPI_TYPE_REF_SENTINEL_TEXT) ?? false)
       if (!hasSentinel) {
         return def
       }
@@ -433,6 +455,10 @@ function resolveCrossFragmentTypeReferences(
           def.def_with_type_import_markers === undefined
             ? undefined
             : substitute(def.def_with_type_import_markers),
+        instance_extends:
+          def.instance_extends === undefined
+            ? undefined
+            : substitute(def.instance_extends),
       }
     }),
   )
