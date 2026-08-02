@@ -23,6 +23,61 @@ use syn::{parse_macro_input, ItemFn};
 ///   "hello" + name
 /// }
 /// ```
+///
+/// # Single inheritance: `#[napi(extends = Parent)]`
+///
+/// A `#[napi]` class may declare a single parent class (issue #1164):
+///
+/// ```ignore
+/// #[napi]
+/// pub struct Base {
+///   value: i32,
+/// }
+///
+/// #[napi]
+/// impl Base {
+///   #[napi(getter)]
+///   pub fn get_value(&self) -> i32 { self.value }
+///   #[napi]
+///   pub fn doubled(&self) -> i32 { self.value * 2 }
+/// }
+///
+/// #[napi(extends = Base)]
+/// #[repr(C)]
+/// pub struct Sub {
+///   base: Base, // MUST be the first field
+///   extra: i32,
+/// }
+/// ```
+///
+/// ## Layout requirements
+///
+/// The child must be `#[repr(C)]` and embed the parent as its **first field**,
+/// so the parent's portion sits at offset 0 and a `*mut Child` can be borrowed
+/// as `&Parent`. Both are enforced at compile time (`Box<Parent>`-style wrappers
+/// are rejected). A `#[napi(constructor)]` cannot be combined with
+/// `#[napi(extends)]`; construct the child through a `#[napi(factory)]` instead.
+///
+/// ## Runtime semantics (v1 — instance-only)
+///
+/// Only the **instance** prototype chain is wired
+/// (`Object.setPrototypeOf(Sub.prototype, Base.prototype)`), so `sub instanceof
+/// Base` holds and inherited getters, setters, and plain methods resolve through
+/// the prototype chain. The **constructor/static** chain is deliberately not
+/// re-parented: a parent's `static`s and factories are **not** inherited
+/// (`Sub.baseStatic` stays `undefined`). Inheriting a plain method on a
+/// descendant additionally requires the `napi8` feature (non-wasm); without it
+/// the inherited method still hits V8's receiver-signature check and throws.
+/// `#[napi(extends)]` cannot be combined with the iterator/generator protocols.
+///
+/// ## Generated TypeScript
+///
+/// Inheritance is emitted as instance-only **declaration merging**, a sibling
+/// `export interface Sub extends Base {}` next to `export declare class Sub`, so
+/// the child's instance type gains the parent's instance members while its
+/// static side is left untouched — matching the runtime, which does not inherit
+/// statics. (It is deliberately not `class Sub extends Base`, which TypeScript
+/// would read as also inheriting the parent's statics.)
 #[proc_macro_attribute]
 pub fn napi(attr: TokenStream, input: TokenStream) -> TokenStream {
   match expand::expand(attr.into(), input.into()) {
