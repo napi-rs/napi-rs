@@ -1083,24 +1083,32 @@ impl NapiStruct {
       }
       None => quote! { None },
     };
-    // Embedded-parent layout assertion (#1164): the first field's declared type
-    // must be EXACTLY the parent (not `Box<Parent>` / `Rc<Parent>` / a custom
-    // `Deref<Target = Parent>` — those are pointer indirections, not the parent's
-    // bytes at offset 0). A same-type marker trait is used deliberately instead
-    // of `let _: &Parent = &v.first_field;`, which is a deref-coercion site that
-    // would wrongly accept those wrappers. The whole thing is wrapped in an
-    // anonymous `const _` scope so two extended classes in one module don't
-    // collide on the helper trait name.
-    let layout_assertion = match (&class.extends, &class.first_field_ty) {
-      (Some(parent_path), Some(first_field_ty)) => quote! {
+    // Embedded-parent layout assertions (#1164). Two independent compile-time
+    // invariants guard the runtime offset-0 upcast (see
+    // `napi::bindgen_runtime::type_tag::unwrap_borrowed_receiver`, which
+    // reinterprets `*mut Child` as `*mut Parent` with no offset adjustment):
+    //   1. the first field's declared type is EXACTLY the parent (not
+    //      `Box<Parent>` / `Rc<Parent>` / a custom `Deref<Target = Parent>` —
+    //      those are pointer indirections, not the parent's bytes at offset 0);
+    //   2. that field physically begins at offset 0.
+    // Each lives in its own anonymous `const _` scope (so two extended classes
+    // in one module don't collide on the helper trait name, and so the offset
+    // check still runs even if the type check fails to satisfy its bound).
+    let layout_assertion = match (
+      &class.extends,
+      &class.first_field_ty,
+      &class.first_field_member,
+    ) {
+      (Some(parent_path), Some(first_field_ty), Some(first_field_member)) => quote! {
+        // Invariant 1 — exact parent type. A same-type marker trait:
+        // `impl<T> __NapiExactType<T> for T {}` is reflexive only, so the bound
+        // holds iff the first field's declared type is EXACTLY the parent. This
+        // is used deliberately instead of `let _: &Parent = &v.first_field;`,
+        // which is a deref-coercion site that would wrongly accept `Box`/`Rc`/
+        // newtype wrappers. `#[diagnostic::on_unimplemented]` turns the
+        // otherwise-cryptic unsatisfied-bound error into a message that names
+        // the actual misuse (MSRV 1.88 ≥ the 1.78 stabilization).
         const _: () = {
-          // A same-type marker trait: `impl<T> __NapiExactType<T> for T {}` is
-          // reflexive only, so the bound holds iff the first field's declared
-          // type is EXACTLY the parent (not `Box<Parent>` / `Rc<Parent>` / a
-          // `Deref<Target = Parent>` newtype — those are pointer indirections,
-          // not the parent's bytes at offset 0). `#[diagnostic::on_unimplemented]`
-          // turns the otherwise-cryptic unsatisfied-bound error into a message
-          // that names the actual misuse (MSRV 1.88 ≥ the 1.78 stabilization).
           #[diagnostic::on_unimplemented(
             message = "`#[napi(extends = ...)]` requires the first field to be exactly the parent class type",
             label = "the first field here is not the `extends` parent type",
@@ -1110,6 +1118,17 @@ impl NapiStruct {
           impl<T> __NapiExactType<T> for T {}
           fn __assert_parent_is_first_field<T: __NapiExactType<#parent_path>>() {}
           let _ = __assert_parent_is_first_field::<#first_field_ty>;
+        };
+        // Invariant 2 — the embedded parent starts at offset 0. `#[repr(C)]` +
+        // the parent-first-field rule (both enforced by the parser) guarantee
+        // this today; asserting it here makes it a hard, self-checking invariant
+        // so a future codegen or layout change can never silently move the
+        // parent off offset 0 and invalidate the unchecked upcast.
+        const _: () = {
+          assert!(
+            ::core::mem::offset_of!(#name, #first_field_member) == 0,
+            "`#[napi(extends)]` internal invariant broken: the embedded parent field must be at offset 0"
+          );
         };
       },
       _ => quote! {},

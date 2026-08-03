@@ -356,7 +356,12 @@ where
     return Ok(wrapped_val.cast());
   }
   // Descendant fallback: `this` may be a subclass whose `T`-portion sits at
-  // offset 0. Consult the hierarchy built once at registration (P4.5).
+  // offset 0, so the same `wrapped_val.cast()` is a valid `*mut T`. That
+  // offset-0 placement is not assumed blindly — it is guaranteed at compile
+  // time for every `#[napi(extends = T)]` class by the generated layout
+  // assertions in `napi-derive-backend` (`codegen/struct.rs`: exact-parent-type
+  // marker trait + `offset_of!(Child, parent) == 0`). Consult the hierarchy
+  // built once at registration (P4.5).
   match crate::bindgen_runtime::module_register::class_descendants(&own_tag) {
     Ok(Some(descendants)) => {
       for descendant in descendants {
