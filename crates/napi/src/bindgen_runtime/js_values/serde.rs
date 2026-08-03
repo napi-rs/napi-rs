@@ -5,7 +5,7 @@ use std::ptr;
 use serde_json::{Map, Number, Value};
 
 use crate::{
-  bindgen_runtime::{Null, Object},
+  bindgen_runtime::{Null, Object, Unknown},
   check_status, sys, type_of, Env, Error, Result, Status, ValueType,
 };
 
@@ -226,5 +226,68 @@ impl FromNapiValue for Number {
     })?;
 
     Ok(n)
+  }
+}
+
+#[cfg(feature = "napi6")]
+impl Object<'_> {
+  /// Convert this object into an owned [`serde_json::Value`] using napi-rs's
+  /// serde bridge (the same [`FromNapiValue`] path a `serde_json::Value`
+  /// function argument takes).
+  ///
+  /// This is **not** JavaScript's `JSON.stringify`/`JSON.parse`: it never calls a
+  /// `toJSON` method, and several inputs behave differently from the ECMAScript
+  /// JSON algorithm. "Safe" here means memory-safe and error-checked — it is
+  /// **not** side-effect-free: reading a value can run JS getters / Proxy traps.
+  /// An object is walked with `napi_get_property_names` — its **enumerable**
+  /// properties, own **and inherited** (like a `for…in` loop), not own-only.
+  /// Exact, tested semantics:
+  ///
+  /// | JS input | Result |
+  /// |----------|--------|
+  /// | object / array / string / boolean / `null` | converted structurally |
+  /// | number | `Number` (integers narrow to `i32`/`u32` when exact) |
+  /// | `undefined` | `Err(InvalidArg)` — JSON has no `undefined` (differs from `JSON.stringify`, which silently drops it) |
+  /// | function | `Err(InvalidArg)` |
+  /// | symbol | `Err(InvalidArg)` |
+  /// | `External` | `Err(InvalidArg)` |
+  /// | `BigInt` | `Number` when it fits `i64`/`u64` losslessly, otherwise its decimal `String` |
+  /// | `Date` | `{}` — only enumerable own properties are read (a `Date` has none); the instant is lost. Call `.getTime()` first if you need it. |
+  /// | typed array (`Uint8Array`, …) | index-keyed **object** (`{"0":…}`), never a JSON array |
+  /// | native `#[napi]` class instance | typically `Err` — a napi class's methods are *enumerable* prototype members, and a method is a function (unrepresentable); the native-wrapped state is never visible either way |
+  /// | a getter / Proxy trap that throws | `Err` — the thrown JS exception propagates |
+  ///
+  /// # Cycles are not handled
+  ///
+  /// There is **no cycle detection**. A self-referential object (`a.self = a`)
+  /// recurses until the stack is exhausted — a hard abort, not a catchable
+  /// `Err`, because the conversion is depth-first with no visited set. The caller
+  /// must not pass cyclic input. (`JSON.stringify` throws a `TypeError` on cycles;
+  /// this bridge cannot.)
+  ///
+  /// # Feature gate
+  ///
+  /// Requires `serde-json` **and** `napi6`. The `napi6` gate — stricter than the
+  /// `serde-json` the bridge itself needs — keeps the `BigInt` row above always
+  /// true: without `napi6` a `BigInt` would instead hit the catch-all error arm,
+  /// and offering a method whose documented semantics silently changed with a
+  /// feature is worse than not offering it on that build.
+  pub fn to_serde_json_value(&self) -> Result<Value> {
+    unsafe { Value::from_napi_value(self.0.env, self.0.value) }
+  }
+}
+
+#[cfg(feature = "napi6")]
+impl Unknown<'_> {
+  /// Convert this value into an owned [`serde_json::Value`].
+  ///
+  /// Unlike [`Object::to_serde_json_value`], this accepts any JS value — so it is
+  /// the entry point for the non-object cases (`undefined`, functions, symbols,
+  /// `BigInt`, primitives) that an [`Object`] parameter would reject before the
+  /// conversion ever runs. See [`Object::to_serde_json_value`] for the full,
+  /// tested semantics table (including the cycle-handling caveat and feature
+  /// gate), which apply identically here.
+  pub fn to_serde_json_value(&self) -> Result<Value> {
+    unsafe { Value::from_napi_value(self.0.env, self.0.value) }
   }
 }

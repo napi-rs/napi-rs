@@ -419,6 +419,77 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     unsafe { T::from_napi_value(env, result) }
   }
 
+  /// Return this object's `constructor.name`, or `None` when there is no usable
+  /// constructor name.
+  ///
+  /// * `Ok(Some(name))` — the object's `constructor` is an object/function whose
+  ///   `name` is a string (the common case: `{}` → `"Object"`, `[]` → `"Array"`,
+  ///   a class instance → the class name).
+  /// * `Ok(None)` — the object has no `constructor` (e.g. `Object.create(null)`,
+  ///   whose prototype is null so `constructor` reads back as `undefined`), or its
+  ///   `constructor` has no string `name`.
+  /// * `Err(..)` — reading `constructor` or `name` itself threw. Both are ordinary
+  ///   property reads, so a JS getter or a Proxy `get` trap can run arbitrary code
+  ///   and throw; "safe" here means memory-safe and error-checked, **not**
+  ///   side-effect-free.
+  fn constructor_name(&self) -> Result<Option<String>> {
+    let env = self.value().env;
+    let this = self.value().value;
+
+    let ctor_key = CString::new("constructor")?;
+    let mut ctor = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_named_property(env, this, ctor_key.as_ptr(), &mut ctor) },
+      "Failed to read `constructor`"
+    )?;
+    // A null-prototype object has no `constructor` (napi hands back `undefined`);
+    // a primitive/`null` value cannot carry a `.name`. Only an object or function
+    // is worth reading `name` off.
+    match type_of!(env, ctor)? {
+      ValueType::Object | ValueType::Function => {}
+      _ => return Ok(None),
+    }
+
+    let name_key = CString::new("name")?;
+    let mut name = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_named_property(env, ctor, name_key.as_ptr(), &mut name) },
+      "Failed to read `constructor.name`"
+    )?;
+    if type_of!(env, name)? != ValueType::String {
+      return Ok(None);
+    }
+    Ok(Some(unsafe { String::from_napi_value(env, name)? }))
+  }
+
+  /// Node-API type-tag check: does this object carry the 128-bit identity tag of
+  /// the `#[napi]` class `T`?
+  ///
+  /// This is a **type-tag** check (`napi_check_object_type_tag`), not JavaScript
+  /// `instanceof`: it is true only for an object this exact `T` (or a manual
+  /// [`wrap_and_tag::<T>`](crate::bindgen_runtime::wrap_and_tag) call) stamped, and
+  /// so is unaffected by prototype spoofing. A real JS subclass instance created
+  /// through `super()` **does** carry `T`'s tag (so it returns `true`), but note
+  /// this does not walk the prototype chain the way `instanceof` does — it checks
+  /// for exactly `T`'s tag.
+  ///
+  /// Compiled **only** under `all(feature = "napi8", not(wasm))` — the exact
+  /// configuration in which N-API type tagging does real work. Outside it the
+  /// method does not exist at all (rather than silently returning `Ok(false)`), so
+  /// "the check ran and said no" can never be confused with "this platform cannot
+  /// perform the check". Callers needing one code path across configs `#[cfg]` at
+  /// the call site.
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  fn has_type_tag<T: crate::bindgen_runtime::TypeTag>(&self) -> Result<bool> {
+    unsafe {
+      crate::bindgen_runtime::object_has_type_tag(
+        self.value().env,
+        self.value().value,
+        &<T as crate::bindgen_runtime::TypeTag>::type_tag(),
+      )
+    }
+  }
+
   /// Set the element at the given index
   fn set_element<'t, T>(&mut self, index: u32, value: T) -> Result<()>
   where
@@ -1171,5 +1242,45 @@ pub(crate) unsafe extern "C" fn finalize_closures(
         }
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod reflection_helper_gating {
+  //! Compile-time gate assertions for the reflection helpers. These never run —
+  //! they need no live `Env` — and exist so that a drift in a
+  //! helper's feature gate becomes a *compile* error in the matching feature
+  //! build. This is the committed half of the "builds with serde-json on/off and
+  //! napi8 on/off" matrix; the other half is running
+  //! `cargo test -p napi --no-default-features --features <combo> --no-run`
+  //! across those combos (which compiles this module under each).
+  use crate::bindgen_runtime::{JsObjectValue, Object};
+
+  /// `constructor_name` is unconditional — present in every build.
+  #[allow(dead_code)]
+  fn constructor_name_is_always_present() {
+    let _f = <Object as JsObjectValue>::constructor_name;
+  }
+
+  /// `to_serde_json_value` (on both `Object` and `Unknown`) exists exactly under
+  /// `serde-json` + `napi6`.
+  #[cfg(all(feature = "serde-json", feature = "napi6"))]
+  #[allow(dead_code)]
+  fn to_serde_json_value_present_under_serde_and_napi6() {
+    let _obj = Object::to_serde_json_value;
+    let _unknown = crate::bindgen_runtime::Unknown::to_serde_json_value;
+  }
+
+  /// `has_type_tag` exists exactly under `napi8` + non-wasm.
+  #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+  #[allow(dead_code)]
+  fn has_type_tag_present_under_napi8_native() {
+    struct Dummy;
+    impl crate::bindgen_runtime::TypeTag for Dummy {
+      fn type_tag() -> crate::sys::napi_type_tag {
+        crate::sys::napi_type_tag { lower: 0, upper: 0 }
+      }
+    }
+    let _f = <Object as JsObjectValue>::has_type_tag::<Dummy>;
   }
 }
