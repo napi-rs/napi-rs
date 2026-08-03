@@ -643,6 +643,10 @@ export async function buildProject(rawOptions: BuildOptions) {
       // run unaborted) and stop without awaiting/collecting its output.
       if (aborted) {
         abort()
+        // Cancellation can make the spawned build reject after this branch
+        // stops awaiting it. Consume that rejection so it cannot surface as
+        // an unhandled promise rejection.
+        void binaryTask.catch(() => {})
         break
       }
       outputs.push(...(await binaryTask))

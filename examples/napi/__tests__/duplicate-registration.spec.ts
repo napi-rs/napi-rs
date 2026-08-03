@@ -101,6 +101,7 @@ nativeOnly(
       {
         env: { ...process.env, NAPI_RS_ALLOW_DUPLICATE_EXPORTS: '1' },
         encoding: 'utf8',
+        timeout: 30_000,
       },
     )
 

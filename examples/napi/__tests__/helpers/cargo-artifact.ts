@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { statSync } from 'node:fs'
 
 // Shared by the cargo-only addon fixtures (`napi-duplicate-registration`,
 // `napi-broken-hierarchy`, `napi-no-napi8`): resolves the built cdylib's
@@ -32,6 +33,17 @@ export function buildCargoCdylibArtifact(
   cwd: string,
   packageName: string,
 ): CargoArtifactResult {
+  try {
+    if (!statSync(cwd).isDirectory()) {
+      return {
+        cargoUnavailable: false,
+        error: new Error(`cargo build cwd is not a directory: ${cwd}`),
+      }
+    }
+  } catch (error) {
+    return { cargoUnavailable: false, error }
+  }
+
   let stdout: string
   try {
     stdout = execFileSync(
@@ -51,8 +63,8 @@ export function buildCargoCdylibArtifact(
   } catch (error) {
     // `ENOENT` means the `cargo` executable itself could not be found/spawned
     // (the environment has no Rust toolchain) — the one case callers should
-    // skip gracefully. Any other failure (non-zero exit from a real compile
-    // error, for instance) must propagate so a broken build fails the test.
+    // skip gracefully. Any other failure is returned with
+    // `cargoUnavailable: false`; each caller decides whether to fail or skip.
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return { cargoUnavailable: true }
     }
@@ -72,11 +84,12 @@ export function buildCargoCdylibArtifact(
     }
     const artifact = message as {
       reason?: string
-      target?: { kind?: string[] }
+      target?: { kind?: string[]; name?: string }
       filenames?: string[]
     }
     if (
       artifact.reason === 'compiler-artifact' &&
+      artifact.target?.name === packageName.replaceAll('-', '_') &&
       artifact.target?.kind?.includes('cdylib') &&
       Array.isArray(artifact.filenames)
     ) {
