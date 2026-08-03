@@ -58,6 +58,18 @@ thread_local! {
   static ALIAS: RefCell<HashMap<String, String>> = Default::default();
 }
 
+/// The crate currently being expanded, read from `CARGO_PKG_NAME` at proc-macro
+/// **expansion** time — deliberately `std::env::var`, **not** `env!`. These
+/// `to_type_def` calls run inside the *consuming* crate's compilation, so
+/// `std::env::var("CARGO_PKG_NAME")` yields that consumer's name; `env!` would
+/// instead bake in `napi-derive-backend` (this crate, at the time napi was built),
+/// which is never what a fragment's `producer_crate` should record. Stamped on
+/// every emitted [`TypeDef`] so the CLI can build its cross-fragment
+/// `original_name -> [(namespace, js_name, producer_crate)]` resolution index.
+pub(crate) fn producer_crate() -> Option<String> {
+  std::env::var("CARGO_PKG_NAME").ok()
+}
+
 /// Registers `name` (a Rust type identifier) as an alias for `alias` (its JS
 /// name), qualified by `js_mod` when the item was declared in a namespace, so
 /// later lookups by Rust identifier resolve to a reference that's valid from

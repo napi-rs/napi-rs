@@ -1,11 +1,12 @@
-import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
+
+import { buildCargoCdylibArtifact } from './helpers/cargo-artifact.js'
 
 // The registration-manifest pre-pass must fail closed on a `(namespace, name)`
 // collision that N-API would otherwise resolve by silently overwriting one
@@ -21,40 +22,32 @@ const __dirname = join(fileURLToPath(import.meta.url), '..')
 const repoRoot = join(__dirname, '..', '..', '..')
 const require = createRequire(import.meta.url)
 
-function fixtureLibraryFileName(): string {
-  switch (process.platform) {
-    case 'win32':
-      return 'napi_duplicate_registration.dll'
-    case 'darwin':
-      return 'libnapi_duplicate_registration.dylib'
-    default:
-      return 'libnapi_duplicate_registration.so'
-  }
-}
-
 // Built + staged as a loadable `.node` in `before`; left undefined (→ test
-// skips) if cargo is unavailable or the build fails in this environment.
+// skips) only when cargo itself is unavailable in this environment. A real
+// build/lookup failure is thrown from `before` instead, so a broken fixture
+// fails the test rather than silently skipping it.
 let fixtureNodePath: string | undefined
 
 test.before(() => {
-  try {
-    execFileSync('cargo', ['build', '-p', 'napi-duplicate-registration'], {
-      cwd: repoRoot,
-      stdio: 'ignore',
-    })
-    const built = join(repoRoot, 'target', 'debug', fixtureLibraryFileName())
-    if (!existsSync(built)) {
-      return
-    }
-    const staged = join(
-      tmpdir(),
-      `napi-duplicate-registration-${process.pid}.node`,
-    )
-    copyFileSync(built, staged)
-    fixtureNodePath = staged
-  } catch {
-    // Leave `fixtureNodePath` undefined so the test below skips gracefully.
+  const result = buildCargoCdylibArtifact(
+    repoRoot,
+    'napi-duplicate-registration',
+  )
+  if (result.cargoUnavailable) {
+    return
   }
+  if (!result.path) {
+    throw new Error(
+      'failed to build/locate the napi-duplicate-registration fixture addon',
+      { cause: result.error },
+    )
+  }
+  const staged = join(
+    tmpdir(),
+    `napi-duplicate-registration-${process.pid}.node`,
+  )
+  copyFileSync(result.path, staged)
+  fixtureNodePath = staged
 })
 
 const nativeOnly = process.env.WASI_TEST ? test.skip : test

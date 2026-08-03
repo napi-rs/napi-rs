@@ -1,11 +1,12 @@
-import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
+
+import { buildCargoCdylibArtifact } from './helpers/cargo-artifact.js'
 
 // Deferred #1164 test: on a build WITHOUT `napi8`, an inherited *plain method*
 // called on a descendant must still throw "Illegal invocation" — the
@@ -27,37 +28,25 @@ interface NoNapi8Addon {
   }
 }
 
-function fixtureLibraryFileName(): string {
-  switch (process.platform) {
-    case 'win32':
-      return 'napi_no_napi8.dll'
-    case 'darwin':
-      return 'libnapi_no_napi8.dylib'
-    default:
-      return 'libnapi_no_napi8.so'
-  }
-}
-
-// Loaded in `before`; left undefined (→ test skips) if cargo is unavailable or
-// the build fails in this environment.
+// Loaded in `before`; left undefined (→ test skips) only when cargo itself is
+// unavailable in this environment. A real compile/artifact/require failure is
+// thrown from `before` instead, so a broken fixture fails the test rather than
+// silently skipping it.
 let addon: NoNapi8Addon | undefined
 
 test.before(() => {
-  try {
-    execFileSync('cargo', ['build', '-p', 'napi-no-napi8'], {
-      cwd: repoRoot,
-      stdio: 'ignore',
-    })
-    const built = join(repoRoot, 'target', 'debug', fixtureLibraryFileName())
-    if (!existsSync(built)) {
-      return
-    }
-    const staged = join(tmpdir(), `napi-no-napi8-${process.pid}.node`)
-    copyFileSync(built, staged)
-    addon = require(staged) as NoNapi8Addon
-  } catch {
-    // Leave `addon` undefined so the test below skips gracefully.
+  const result = buildCargoCdylibArtifact(repoRoot, 'napi-no-napi8')
+  if (result.cargoUnavailable) {
+    return
   }
+  if (!result.path) {
+    throw new Error('failed to build/locate the napi-no-napi8 fixture addon', {
+      cause: result.error,
+    })
+  }
+  const staged = join(tmpdir(), `napi-no-napi8-${process.pid}.node`)
+  copyFileSync(result.path, staged)
+  addon = require(staged) as NoNapi8Addon
 })
 
 const noNapi8Test = process.env.WASI_TEST ? test.skip : test

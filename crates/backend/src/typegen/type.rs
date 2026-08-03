@@ -25,7 +25,7 @@ impl ToTypeDef for NapiType {
       def: ty_to_ts_type(&self.value, false, false, false).0,
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
-      producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
+      producer_crate: super::producer_crate(),
       instance_extends: None,
     })
   }

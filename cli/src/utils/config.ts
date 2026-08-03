@@ -261,6 +261,7 @@ export type NapiConfig = Required<
     | 'constEnum'
     | 'runtimeStringEnum'
     | 'binaries'
+    | 'emitRustNameTypeAlias'
   > & {
     targets: Target[]
     packageJson: CommonPackageJsonFields

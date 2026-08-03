@@ -82,7 +82,7 @@ impl ToTypeDef for NapiStruct {
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
       js_doc,
-      producer_crate: std::env::var("CARGO_PKG_NAME").ok(),
+      producer_crate: super::producer_crate(),
       instance_extends: self.instance_extends_ref(),
     })
   }

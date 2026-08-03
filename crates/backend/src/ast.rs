@@ -140,6 +140,20 @@ pub struct NapiClass {
   pub first_field_ty: Option<syn::Type>,
 }
 
+impl NapiClass {
+  /// True when `field` is the embedded-parent field of an `#[napi(extends)]` class
+  /// — the first field that physically embeds the parent. It must not get a JS
+  /// accessor (a `#[napi]`-class value is not `ToNapiValue`/`FromNapiValue`,
+  /// #1164), so both getter/setter generation and registration skip it. The single
+  /// rule shared by those two code paths.
+  pub fn is_embedded_parent_field(&self, field: &syn::Member) -> bool {
+    matches!(
+      (&self.extends, &self.first_field_member),
+      (Some(_), Some(parent_member)) if field == parent_member
+    )
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct NapiObject {
   pub fields: Vec<NapiStructField>,

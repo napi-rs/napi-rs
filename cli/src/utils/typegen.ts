@@ -397,16 +397,32 @@ function resolveCrossFragmentTypeReferences(
     if (candidates.length === 0) {
       return rustIdent
     }
-    if (candidates.length === 1) {
-      const { namespace, jsName } = candidates[0]
-      return namespace ? `${namespace}.${jsName}` : jsName
+    // Two candidate entries can describe the exact same item — e.g. the same
+    // fragment collected twice into the type-def tmp folder across an
+    // incremental or multi-binary build. Dedupe by the resolved (namespace,
+    // jsName) reference itself before checking for a genuine ambiguity, so
+    // duplicate-but-identical registrations resolve cleanly instead of
+    // throwing a false-positive "Ambiguous reference" error.
+    const distinctByResolvedRef = new Map<string, TypeRefCandidate>()
+    for (const candidate of candidates) {
+      const resolved = candidate.namespace
+        ? `${candidate.namespace}.${candidate.jsName}`
+        : candidate.jsName
+      if (!distinctByResolvedRef.has(resolved)) {
+        distinctByResolvedRef.set(resolved, candidate)
+      }
+    }
+    if (distinctByResolvedRef.size === 1) {
+      return distinctByResolvedRef.keys().next().value as string
     }
     const describe = (c: TypeRefCandidate) =>
       `crate \`${c.producerCrate ?? 'unknown'}\` (namespace: ${
         c.namespace ?? 'top-level'
       })`
     throw new Error(
-      `Ambiguous reference to \`${rustIdent}\`: found in ${candidates
+      `Ambiguous reference to \`${rustIdent}\`: found in ${Array.from(
+        distinctByResolvedRef.values(),
+      )
         .map(describe)
         .join(' and ')}. A proc-macro cannot determine which crate a bare ` +
         'identifier refers to across crate boundaries — rename one of the ' +

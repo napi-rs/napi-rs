@@ -634,6 +634,16 @@ export async function buildProject(rawOptions: BuildOptions) {
       }
       const { task: binaryTask, abort } = await buildSingleProject(binary)
       aborters.push(abort)
+      // `abort()` may have been called while `buildSingleProject` above was
+      // still resolving — before this binary's own `abort` was registered, so
+      // the outer `abort()`'s loop over `aborters` couldn't have reached it.
+      // Re-check immediately after registering: if cancellation happened in
+      // that window, invoke this binary's abort now (instead of leaving it to
+      // run unaborted) and stop without awaiting/collecting its output.
+      if (aborted) {
+        abort()
+        break
+      }
       outputs.push(...(await binaryTask))
     }
     return outputs
@@ -698,7 +708,7 @@ export function normalizeConfig(
 
   // Validate the whole array regardless of selection, so a misconfigured entry
   // is reported even when a different entry is the one being built.
-  validateBinaries(binaries, config)
+  validateBinaries(binaries, config, options)
 
   let selected = binaries
   if (options.binary) {
@@ -747,8 +757,18 @@ export function normalizeConfig(
  * one of `manifestPath`/`package`, no nested `binaries`, and no two entries may
  * write the same output artifact (`.node`, `js`, or `dts`) — a collision would
  * silently clobber one binary with another.
+ *
+ * `options` supplies the same `jsBinding`/`dts` fallbacks `normalizeConfig`'s
+ * per-binary map uses for an entry that omits `js`/`dts` (`entry.js ??
+ * options.jsBinding`, `entry.dts ?? options.dts`) — using a different
+ * (hardcoded) fallback here would let a real collision slip through undetected
+ * whenever a top-level `--dts`/`--js-binding` override is in play.
  */
-function validateBinaries(binaries: BinaryConfig[], config: NapiConfig): void {
+function validateBinaries(
+  binaries: BinaryConfig[],
+  config: NapiConfig,
+  options: ParsedBuildOptions,
+): void {
   const names = new Set<string>()
   const seenOutputs = new Map<string, string>()
 
@@ -797,8 +817,16 @@ function validateBinaries(binaries: BinaryConfig[], config: NapiConfig): void {
       entry.binaryName ?? config.binaryName,
       entry.name,
     )
-    claimOutput('js binding', entry.js ?? 'index.js', entry.name)
-    claimOutput('type def', entry.dts ?? 'index.d.ts', entry.name)
+    claimOutput(
+      'js binding',
+      entry.js ?? options.jsBinding ?? 'index.js',
+      entry.name,
+    )
+    claimOutput(
+      'type def',
+      entry.dts ?? options.dts ?? 'index.d.ts',
+      entry.name,
+    )
   }
 }
 

@@ -1,11 +1,12 @@
-import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
+
+import { buildCargoCdylibArtifact } from './helpers/cargo-artifact.js'
 
 // Deferred #1164 test: a BROKEN `#[napi(extends)]` hierarchy must fail FAST —
 // never hang — even when the same broken addon is `require()`d concurrently
@@ -20,37 +21,28 @@ import test from 'ava'
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 const repoRoot = join(__dirname, '..', '..', '..')
 
-function fixtureLibraryFileName(): string {
-  switch (process.platform) {
-    case 'win32':
-      return 'napi_broken_hierarchy.dll'
-    case 'darwin':
-      return 'libnapi_broken_hierarchy.dylib'
-    default:
-      return 'libnapi_broken_hierarchy.so'
-  }
-}
-
 // Built + staged as a loadable `.node` in `before`; left undefined (→ tests
-// skip) if cargo is unavailable or the build fails in this environment.
+// skip) if cargo is unavailable or the build fails in this environment. A
+// build/lookup failure still skips gracefully (this fixture is genuinely
+// optional in environments without a Rust toolchain), but the reason is
+// logged rather than silently swallowed.
 let brokenNodePath: string | undefined
 
-test.before(() => {
-  try {
-    execFileSync('cargo', ['build', '-p', 'napi-broken-hierarchy'], {
-      cwd: repoRoot,
-      stdio: 'ignore',
-    })
-    const built = join(repoRoot, 'target', 'debug', fixtureLibraryFileName())
-    if (!existsSync(built)) {
-      return
-    }
-    const staged = join(tmpdir(), `napi-broken-hierarchy-${process.pid}.node`)
-    copyFileSync(built, staged)
-    brokenNodePath = staged
-  } catch {
-    // Leave `brokenNodePath` undefined so the test below skips gracefully.
+test.before((t) => {
+  const result = buildCargoCdylibArtifact(repoRoot, 'napi-broken-hierarchy')
+  if (result.cargoUnavailable) {
+    return
   }
+  if (!result.path) {
+    t.log(
+      'failed to build/locate the napi-broken-hierarchy fixture addon:',
+      result.error,
+    )
+    return
+  }
+  const staged = join(tmpdir(), `napi-broken-hierarchy-${process.pid}.node`)
+  copyFileSync(result.path, staged)
+  brokenNodePath = staged
 })
 
 const brokenTest = process.env.WASI_TEST ? test.skip : test
@@ -60,21 +52,43 @@ interface WorkerLoadResult {
   message?: string
 }
 
-function loadInWorker(nodePath: string): Promise<WorkerLoadResult> {
-  return new Promise<WorkerLoadResult>((resolve, reject) => {
-    const worker = new Worker(join(__dirname, 'broken-hierarchy-worker.cjs'), {
-      workerData: { nodePath },
-      env: process.env,
-    })
+interface WorkerHandle {
+  worker: Worker
+  result: Promise<WorkerLoadResult>
+}
+
+// Returns the `Worker` alongside its result promise (rather than just the
+// promise) so a caller can `terminate()` it directly — needed both to reject
+// on a native crash (no 'message'/'error' ever fires; only 'exit') and to stop
+// an in-flight worker if the caller's own hang guard trips first.
+function loadInWorker(nodePath: string): WorkerHandle {
+  const worker = new Worker(join(__dirname, 'broken-hierarchy-worker.cjs'), {
+    workerData: { nodePath },
+    env: process.env,
+  })
+  let settled = false
+  const result = new Promise<WorkerLoadResult>((resolve, reject) => {
     worker.once('message', (message: WorkerLoadResult) => {
+      settled = true
       void worker.terminate()
       resolve(message)
     })
     worker.once('error', (error) => {
+      settled = true
       void worker.terminate()
       reject(error)
     })
+    worker.once('exit', (code) => {
+      if (!settled) {
+        reject(
+          new Error(
+            `worker exited with code ${code} before reporting a load result (a native crash?)`,
+          ),
+        )
+      }
+    })
   })
+  return { worker, result }
 }
 
 brokenTest(
@@ -102,9 +116,13 @@ brokenTest(
       )
     })
 
+    // Keep both `Worker` handles (not just their result promises) so they can
+    // be terminated below regardless of which way the race resolves.
+    const handles = [loadInWorker(nodePath), loadInWorker(nodePath)]
+
     try {
       const results = await Promise.race([
-        Promise.all([loadInWorker(nodePath), loadInWorker(nodePath)]),
+        Promise.all(handles.map((handle) => handle.result)),
         hangGuard,
       ])
 
@@ -117,6 +135,14 @@ brokenTest(
         )
       }
     } finally {
+      // Terminate any still-active worker before clearing the hang-guard
+      // timeout — if the hang guard won the race, both workers would
+      // otherwise keep running in the background for the rest of the test
+      // process's lifetime. `terminate()` on an already-exited worker is a
+      // harmless no-op.
+      for (const { worker } of handles) {
+        void worker.terminate()
+      }
       if (timeoutHandle) {
         clearTimeout(timeoutHandle)
       }

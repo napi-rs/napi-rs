@@ -32,8 +32,51 @@ impl ToNapiValue for Value {
   }
 }
 
+/// serde_json's own default nesting limit. Converting JS input nested deeper than
+/// this — which a cycle reaches unconditionally — returns `Err` instead of
+/// recursing until the native stack overflows (a hard, uncatchable abort).
+const SERDE_VALUE_MAX_DEPTH: usize = 128;
+
+thread_local! {
+  static SERDE_VALUE_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII recursion-depth counter for the [`Value`] conversion below. Incremented on
+/// entry to each `Value::from_napi_value` frame and decremented on every exit
+/// (including error paths, via `Drop`), so nested object/array conversion is
+/// bounded and deeply nested or cyclic input surfaces as a catchable `Err` rather
+/// than exhausting the native stack.
+struct SerdeValueDepthGuard;
+
+impl SerdeValueDepthGuard {
+  fn enter() -> Result<Self> {
+    SERDE_VALUE_DEPTH.with(|depth| {
+      let next = depth.get() + 1;
+      if next > SERDE_VALUE_MAX_DEPTH {
+        return Err(Error::new(
+          Status::InvalidArg,
+          format!(
+            "JS value nesting exceeds the maximum supported depth of {SERDE_VALUE_MAX_DEPTH} when converting to serde_json::Value (deeply nested or cyclic input)"
+          ),
+        ));
+      }
+      depth.set(next);
+      Ok(SerdeValueDepthGuard)
+    })
+  }
+}
+
+impl Drop for SerdeValueDepthGuard {
+  fn drop(&mut self) {
+    SERDE_VALUE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+  }
+}
+
 impl FromNapiValue for Value {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    // Bound the depth-first recursion below (object/array walks re-enter this fn):
+    // deeply nested or cyclic input errors here instead of overflowing the stack.
+    let _depth_guard = SerdeValueDepthGuard::enter()?;
     let ty = type_of!(env, napi_val)?;
     let val = match ty {
       ValueType::Boolean => Value::Bool(unsafe { bool::from_napi_value(env, napi_val)? }),
@@ -257,13 +300,16 @@ impl Object<'_> {
   /// | native `#[napi]` class instance | typically `Err` — a napi class's methods are *enumerable* prototype members, and a method is a function (unrepresentable); the native-wrapped state is never visible either way |
   /// | a getter / Proxy trap that throws | `Err` — the thrown JS exception propagates |
   ///
-  /// # Cycles are not handled
+  /// # Depth is bounded; cycles surface as `Err`
   ///
-  /// There is **no cycle detection**. A self-referential object (`a.self = a`)
-  /// recurses until the stack is exhausted — a hard abort, not a catchable
-  /// `Err`, because the conversion is depth-first with no visited set. The caller
-  /// must not pass cyclic input. (`JSON.stringify` throws a `TypeError` on cycles;
-  /// this bridge cannot.)
+  /// The conversion is depth-first with **no visited set**, but it is
+  /// **depth-limited**: input nested deeper than 128 levels
+  /// (`SERDE_VALUE_MAX_DEPTH`, matching `serde_json`'s own default recursion limit)
+  /// returns `Err(InvalidArg)` rather than recursing until the native stack is
+  /// exhausted — a hard, uncatchable abort. A self-referential object
+  /// (`a.self = a`) is unbounded and so always trips this limit and errors, rather
+  /// than crashing the process. (`JSON.stringify` throws a `TypeError` on cycles;
+  /// this bridge returns an `Err`.)
   ///
   /// # Feature gate
   ///

@@ -942,10 +942,8 @@ impl NapiStruct {
       // Skip the embedded-parent field of an `extends` class: it gets no JS
       // accessor, so no getter/setter fn is generated for it either — a
       // `#[napi]`-class value is not `ToNapiValue`/`FromNapiValue` (#1164).
-      if let (Some(_), Some(parent_member)) = (&class.extends, &class.first_field_member) {
-        if &field.name == parent_member {
-          continue;
-        }
+      if class.is_embedded_parent_field(&field.name) {
+        continue;
       }
 
       let field_ident = &field.name;
@@ -1142,10 +1140,8 @@ impl NapiStruct {
     for field in class.fields.iter() {
       // Skip the embedded-parent field of an `extends` class: it must not get a
       // JS accessor, since a `#[napi]`-class value is not marshalable (#1164).
-      if let (Some(_), Some(parent_member)) = (&class.extends, &class.first_field_member) {
-        if &field.name == parent_member {
-          continue;
-        }
+      if class.is_embedded_parent_field(&field.name) {
+        continue;
       }
 
       let field_name = match &field.name {
