@@ -79,3 +79,42 @@ test('should be able to read config from napi.json', async (t) => {
   const config = await readNapiConfig(packageJson, configPath)
   t.snapshot(config)
 })
+
+test('passes a `binaries` multi-binary config through unchanged', async (t) => {
+  const packageJsonPath = join(
+    tmpdir(),
+    `napi-binaries-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
+  )
+  const binaries = [
+    {
+      name: 'full',
+      manifestPath: 'crates/full/Cargo.toml',
+      binaryName: 'index',
+      js: 'index.js',
+      dts: 'index.d.ts',
+    },
+    {
+      name: 'client',
+      manifestPath: 'crates/client/Cargo.toml',
+      binaryName: 'index-client',
+      js: 'index-client.js',
+      dts: 'index-client.d.ts',
+    },
+  ]
+  await writeFile(
+    packageJsonPath,
+    JSON.stringify({
+      name: '@napi-rs/multi-binary',
+      version: '0.0.0',
+      napi: { packageName: '@napi-rs/multi-binary', binaries },
+    }),
+  )
+  try {
+    const config = await readNapiConfig(packageJsonPath)
+    // The array is carried onto the normalized config verbatim so the build
+    // pipeline can expand it into one build per entry.
+    t.deepEqual(config.binaries, binaries)
+  } finally {
+    await unlink(packageJsonPath)
+  }
+})
