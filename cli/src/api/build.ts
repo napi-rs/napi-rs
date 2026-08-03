@@ -19,6 +19,7 @@ import * as colors from 'colorette'
 
 import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
+  type BinaryConfig,
   CLI_VERSION,
   commitFileSystemTransaction,
   copyFileAtomic,
@@ -168,6 +169,14 @@ export function getTypeDefCacheFolder(options: {
   manifestPath: string
   targetTriple: string
   profile: string
+  /**
+   * Stable name of the output binary this cache belongs to, in a multi-binary
+   * build. Two binaries compiled from the same crate would otherwise share one
+   * type-def cache and clobber each other's fragments; keying on the binary
+   * name gives each its own. Omitted for single-binary builds, where it is
+   * left out of the identity so their existing cache folder is unchanged.
+   */
+  name?: string
   features?: string[]
   allFeatures?: boolean
   noDefaultFeatures?: boolean
@@ -196,6 +205,9 @@ export function getTypeDefCacheFolder(options: {
   const identity = JSON.stringify({
     version: 4,
     cliVersion: CLI_VERSION,
+    // `undefined` for single-binary builds, so `JSON.stringify` drops the key
+    // and the existing single-binary cache folder hash is preserved.
+    binaryName: options.name,
     manifestPath: options.manifestPath,
     cargoDependencyGraph: options.cargoDependencyGraph,
     targetTriple: options.targetTriple,
@@ -594,6 +606,213 @@ export async function buildProject(rawOptions: BuildOptions) {
 
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
+  // Read the napi config once up front: a multi-binary project keys its output
+  // binaries off it, and each may name a different crate/manifest, so the
+  // config has to be known before any per-binary `cargo metadata` runs.
+  const config = await readNapiConfig(
+    resolvePath(options.packageJsonPath ?? 'package.json'),
+    options.configPath ? resolvePath(options.configPath) : undefined,
+  )
+
+  const binaries = normalizeConfig(config, options)
+
+  // Single-binary (the common case, and any `--binary` selection): return the
+  // builder's `{ task, abort }` unchanged so existing callers are unaffected.
+  if (binaries.length === 1) {
+    return buildSingleProject(binaries[0])
+  }
+
+  // Multi-binary: build each entry in order, concatenating their outputs.
+  // `abort` cancels whichever build is currently running and stops the rest.
+  let aborted = false
+  const aborters: Array<() => void> = []
+  const task = (async () => {
+    const outputs: Output[] = []
+    for (const binary of binaries) {
+      if (aborted) {
+        break
+      }
+      const { task: binaryTask, abort } = await buildSingleProject(binary)
+      aborters.push(abort)
+      outputs.push(...(await binaryTask))
+    }
+    return outputs
+  })()
+
+  return {
+    task,
+    abort: () => {
+      aborted = true
+      for (const abort of aborters) {
+        abort()
+      }
+    },
+  }
+}
+
+/**
+ * One resolved output binary: the crate/options to build and the config that
+ * names its output artifact, plus the stable binary name that isolates its
+ * type-def cache from sibling binaries (undefined for single-binary builds).
+ */
+export interface NormalizedBinary {
+  config: NapiConfig
+  options: ParsedBuildOptions
+  binaryFolderName?: string
+}
+
+/**
+ * Expand a napi config and the parsed build options into one build spec per
+ * output binary.
+ *
+ * With no `binaries[]` config this returns a single spec that is exactly the
+ * classic single-binary build (unchanged behavior). With `binaries[]` it
+ * validates the array and returns one spec per entry — or just the entry
+ * selected by `options.binary` — each carrying that entry's crate, output
+ * artifact name, `js`/`dts` paths, and a distinct `binaryFolderName` so the
+ * per-binary type-def caches never collide.
+ *
+ * Pure and side-effect free (no filesystem, no cargo) so it can be unit tested
+ * directly.
+ */
+export function normalizeConfig(
+  config: NapiConfig,
+  options: ParsedBuildOptions,
+): NormalizedBinary[] {
+  const binaries = config.binaries
+
+  if (!binaries || binaries.length === 0) {
+    if (options.binary) {
+      throw new Error(
+        `\`--binary ${options.binary}\` was given but no \`binaries\` are configured. Add a \`binaries\` array to the napi config, or drop \`--binary\`.`,
+      )
+    }
+    return [{ config, options }]
+  }
+
+  if (options.watch) {
+    throw new Error(
+      '`--watch` cannot be combined with a `binaries[]` multi-binary config. Watch a single binary with `napi build --binary <name> --watch`.',
+    )
+  }
+
+  // Validate the whole array regardless of selection, so a misconfigured entry
+  // is reported even when a different entry is the one being built.
+  validateBinaries(binaries, config)
+
+  let selected = binaries
+  if (options.binary) {
+    const entry = binaries.find((binary) => binary.name === options.binary)
+    if (!entry) {
+      throw new Error(
+        `\`--binary ${options.binary}\` does not match any configured binary. Available: ${binaries
+          .map((binary) => binary.name)
+          .join(', ')}.`,
+      )
+    }
+    selected = [entry]
+  }
+
+  return selected.map((entry) => {
+    const entryOptions: ParsedBuildOptions = {
+      ...options,
+      dts: entry.dts ?? options.dts,
+      jsBinding: entry.js ?? options.jsBinding,
+      // The selector has been resolved; don't leak it into the per-binary
+      // build (nothing downstream reads it, but keep the spec honest).
+      binary: undefined,
+    }
+    if (entry.manifestPath) {
+      // The entry points straight at a crate's manifest.
+      entryOptions.manifestPath = entry.manifestPath
+      entryOptions.package = undefined
+    } else {
+      // The entry selects a workspace member by name; keep the top-level
+      // manifest path as the workspace anchor for `cargo metadata`.
+      entryOptions.package = entry.package
+    }
+    return {
+      binaryFolderName: entry.name,
+      config: {
+        ...config,
+        binaryName: entry.binaryName ?? config.binaryName,
+      },
+      options: entryOptions,
+    }
+  })
+}
+
+/**
+ * Validate a `binaries[]` array: every entry needs a unique `name`, exactly
+ * one of `manifestPath`/`package`, no nested `binaries`, and no two entries may
+ * write the same output artifact (`.node`, `js`, or `dts`) — a collision would
+ * silently clobber one binary with another.
+ */
+function validateBinaries(binaries: BinaryConfig[], config: NapiConfig): void {
+  const names = new Set<string>()
+  const seenOutputs = new Map<string, string>()
+
+  const claimOutput = (kind: string, value: string, owner: string) => {
+    const key = `${kind}:${value}`
+    const previous = seenOutputs.get(key)
+    if (previous) {
+      throw new Error(
+        `\`binaries[]\` entries "${previous}" and "${owner}" both produce the ${kind} \`${value}\`. Give each binary a distinct output.`,
+      )
+    }
+    seenOutputs.set(key, owner)
+  }
+
+  for (const entry of binaries) {
+    if (!entry.name) {
+      throw new Error('Every `binaries[]` entry needs a non-empty `name`.')
+    }
+    if (names.has(entry.name)) {
+      throw new Error(
+        `Duplicate \`binaries[]\` name "${entry.name}". Each entry's \`name\` must be unique.`,
+      )
+    }
+    names.add(entry.name)
+
+    const hasManifest = Boolean(entry.manifestPath)
+    const hasPackage = Boolean(entry.package)
+    if (hasManifest === hasPackage) {
+      throw new Error(
+        `\`binaries[]\` entry "${entry.name}" must set exactly one of \`manifestPath\` or \`package\` (got ${
+          hasManifest ? 'both' : 'neither'
+        }).`,
+      )
+    }
+
+    // `binaries` is not part of `BinaryConfig`, but a hand-written JSON config
+    // could still nest one; reject it rather than silently ignoring it.
+    if ((entry as { binaries?: unknown }).binaries !== undefined) {
+      throw new Error(
+        `\`binaries[]\` entry "${entry.name}" must not contain a nested \`binaries\` array.`,
+      )
+    }
+
+    claimOutput(
+      'binary name',
+      entry.binaryName ?? config.binaryName,
+      entry.name,
+    )
+    claimOutput('js binding', entry.js ?? 'index.js', entry.name)
+    claimOutput('type def', entry.dts ?? 'index.d.ts', entry.name)
+  }
+}
+
+/**
+ * Build one resolved binary: resolve its crate from `cargo metadata` and run
+ * the {@link Builder}. Returns the builder's `{ task, abort }`.
+ */
+async function buildSingleProject({
+  config,
+  options,
+  binaryFolderName,
+}: NormalizedBinary) {
+  const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
+
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
   const metadataTarget = options.target ?? process.env.CARGO_BUILD_TARGET
   const metadata = await parseMetadata(manifestPath, {
@@ -622,12 +841,14 @@ export async function buildProject(rawOptions: BuildOptions) {
       'Unable to find crate to build. It seems you are trying to build a crate in a workspace, try using `--package` option to specify the package to build.',
     )
   }
-  const config = await readNapiConfig(
-    resolvePath(options.packageJsonPath ?? 'package.json'),
-    options.configPath ? resolvePath(options.configPath) : undefined,
-  )
 
-  const builder = new Builder(metadata, crate, config, options)
+  const builder = new Builder(
+    metadata,
+    crate,
+    config,
+    options,
+    binaryFolderName,
+  )
 
   return builder.build()
 }
@@ -931,6 +1152,9 @@ class Builder {
     private readonly crate: Crate,
     private readonly config: NapiConfig,
     private readonly options: ParsedBuildOptions,
+    // Stable name of the output binary in a multi-binary build; isolates this
+    // binary's type-def cache from its siblings. Undefined for single-binary.
+    private readonly binaryFolderName?: string,
   ) {
     this.target = resolveTarget(options.target)
     this.crateDir = parse(crate.manifest_path).dir
@@ -1595,6 +1819,7 @@ class Builder {
     let folder = getTypeDefCacheFolder({
       targetDir: this.targetDir,
       crateName: this.crate.name,
+      name: this.binaryFolderName,
       manifestPath: this.crate.manifest_path,
       targetTriple: this.target.triple,
       profile:
