@@ -1,0 +1,23 @@
+[package]
+name = "napi-duplicate-registration"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Test-only fixture addon: two distinct `#[napi]` classes are exported under the
+# same top-level name, a `(namespace, name)` collision N-API would otherwise
+# resolve by silently overwriting one with the other. The registration-manifest
+# pre-pass in `napi_register_module_v1` fails closed instead, so `require()`ing
+# this addon throws. `dyn-symbols` lets a plain `cargo build` produce a loadable
+# `.node` (napi host symbols resolved at runtime), so no napi-CLI build step is
+# needed.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi-derive = { path = "../../crates/macro" }
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi8",
+  "dyn-symbols",
+] }
