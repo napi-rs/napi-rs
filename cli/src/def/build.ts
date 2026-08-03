@@ -110,6 +110,11 @@ export abstract class BaseBuildCommand extends Command {
     description: 'Build only the specified binary',
   })
 
+  binary?: string = Option.String('--binary', {
+    description:
+      'Build only the `binaries[]` config entry with this `name`. Selects one output addon in a multi-binary project by its config `name` (distinct from `--bin`, which picks a Cargo binary target).',
+  })
+
   package?: string = Option.String('--package,-p', {
     description: 'Build the specified library or the one at cwd',
   })
@@ -174,6 +179,7 @@ export abstract class BaseBuildCommand extends Command {
       release: this.release,
       verbose: this.verbose,
       bin: this.bin,
+      binary: this.binary,
       package: this.package,
       profile: this.profile,
       crossCompile: this.crossCompile,
@@ -281,6 +287,10 @@ export interface BuildOptions {
    * Build only the specified binary
    */
   bin?: string
+  /**
+   * Build only the `binaries[]` config entry with this `name`. Selects one output addon in a multi-binary project by its config `name` (distinct from `--bin`, which picks a Cargo binary target).
+   */
+  binary?: string
   /**
    * Build the specified library or the one at cwd
    */
