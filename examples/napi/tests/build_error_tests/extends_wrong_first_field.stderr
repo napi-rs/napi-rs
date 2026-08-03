@@ -1,0 +1,14 @@
+error[E0277]: `#[napi(extends = ...)]` requires the first field to be exactly the parent class type
+  --> tests/build_error_tests/extends_wrong_first_field.rs:17:10
+   |
+17 |   first: i32,
+   |          ^^^ the first field here is not the `extends` parent type
+   |
+   = help: the trait `__NapiExactType<Parent>` is not implemented for `i32`
+   = note: embed the parent by value as the first field; `Box<Parent>`, `Rc<Parent>`, a reference, or a newtype wrapper is rejected because the embedded-parent model needs the parent's bytes at offset 0
+note: required by a bound in `__assert_parent_is_first_field`
+  --> tests/build_error_tests/extends_wrong_first_field.rs:14:1
+   |
+14 | #[napi(extends = Parent)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `__assert_parent_is_first_field`
+   = note: this error originates in the attribute macro `napi` (in Nightly builds, run with -Z macro-backtrace for more info)

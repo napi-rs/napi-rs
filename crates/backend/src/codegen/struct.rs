@@ -1094,6 +1094,18 @@ impl NapiStruct {
     let layout_assertion = match (&class.extends, &class.first_field_ty) {
       (Some(parent_path), Some(first_field_ty)) => quote! {
         const _: () = {
+          // A same-type marker trait: `impl<T> __NapiExactType<T> for T {}` is
+          // reflexive only, so the bound holds iff the first field's declared
+          // type is EXACTLY the parent (not `Box<Parent>` / `Rc<Parent>` / a
+          // `Deref<Target = Parent>` newtype — those are pointer indirections,
+          // not the parent's bytes at offset 0). `#[diagnostic::on_unimplemented]`
+          // turns the otherwise-cryptic unsatisfied-bound error into a message
+          // that names the actual misuse (MSRV 1.88 ≥ the 1.78 stabilization).
+          #[diagnostic::on_unimplemented(
+            message = "`#[napi(extends = ...)]` requires the first field to be exactly the parent class type",
+            label = "the first field here is not the `extends` parent type",
+            note = "embed the parent by value as the first field; `Box<Parent>`, `Rc<Parent>`, a reference, or a newtype wrapper is rejected because the embedded-parent model needs the parent's bytes at offset 0"
+          )]
           trait __NapiExactType<T> {}
           impl<T> __NapiExactType<T> for T {}
           fn __assert_parent_is_first_field<T: __NapiExactType<#parent_path>>() {}
