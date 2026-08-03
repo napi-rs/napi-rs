@@ -132,6 +132,43 @@ impl Property {
     self
   }
 
+  /// Registration-manifest classification for the duplicate-detection pre-pass.
+  /// N-API module registration silently lets a later export overwrite
+  /// an earlier one that shares its name; these `pub(crate)` accessors let
+  /// `napi_register_module_v1` inspect each descriptor before it is defined and
+  /// fail closed on a genuine collision.
+  ///
+  /// `manifest_utf8_name` returns `None` for a descriptor named by a
+  /// `napi_value` (symbol/computed) rather than a static utf8 string — such a
+  /// name cannot be read without a live `env`, so the pre-pass skips it.
+  #[cfg(not(feature = "noop"))]
+  pub(crate) fn manifest_utf8_name(&self) -> Option<&str> {
+    self
+      .utf8_name
+      .as_deref()
+      .and_then(|name| name.to_str().ok())
+  }
+
+  #[cfg(not(feature = "noop"))]
+  pub(crate) fn is_static_member(&self) -> bool {
+    self.attrs.contains(PropertyAttributes::Static)
+  }
+
+  #[cfg(not(feature = "noop"))]
+  pub(crate) fn defines_getter(&self) -> bool {
+    self.getter.is_some()
+  }
+
+  #[cfg(not(feature = "noop"))]
+  pub(crate) fn defines_setter(&self) -> bool {
+    self.setter.is_some()
+  }
+
+  #[cfg(not(feature = "noop"))]
+  pub(crate) fn defines_method(&self) -> bool {
+    self.method.is_some()
+  }
+
   pub fn with_getter(mut self, callback: Callback) -> Self {
     self.getter = Some(callback);
     self

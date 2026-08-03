@@ -741,6 +741,182 @@ fn build_hierarchy(
   Ok(ClassHierarchy { descendants })
 }
 
+// ---------------------------------------------------------------------------
+// Registration manifest — descriptor-level duplicate detection.
+//
+// N-API module registration defines each export with `napi_set_named_property`
+// and each class with `napi_define_class`, both of which SILENTLY let a later
+// definition overwrite an earlier one that shares its name. `detect_registration_conflicts`
+// is a *pure* pre-pass (no locks, no globals, no env) that `napi_register_module_v1`
+// runs before anything is defined: it fails closed on a genuine collision that
+// would otherwise vanish without a trace, mirroring `build_hierarchy`'s
+// fail-closed posture. It reasons about *final JS definitions* — a getter+setter
+// pair for one property is one accessor (not a duplicate), and a class assembled
+// from several `#[napi] impl` blocks is one class — never about raw
+// registration-call counts.
+// ---------------------------------------------------------------------------
+
+/// What a top-level `(js_mod, js_name)` export is, for a clearer diagnostic.
+#[cfg(not(feature = "noop"))]
+#[derive(Clone, Copy)]
+enum ExportKind {
+  Function,
+  Class,
+}
+
+/// One top-level export — a free function/const/enum, or a class — named within
+/// an optional namespace (`js_mod`).
+#[cfg(not(feature = "noop"))]
+struct ExportDescriptor<'a> {
+  js_mod: Option<&'a str>,
+  js_name: &'a str,
+  kind: ExportKind,
+}
+
+/// One final class member (the constructor excluded), with the roles it defines.
+/// A single descriptor may carry both a getter and a setter (a struct-field
+/// accessor, or a getter+setter merged within one `impl` block); equally, two
+/// separate descriptors — a getter here, a setter from another `impl` block —
+/// describe the same valid accessor. Both shapes must read as "one getter, one
+/// setter", so the roles are *counted* across the group, never assumed
+/// one-per-descriptor.
+#[cfg(not(feature = "noop"))]
+struct MemberDescriptor<'a> {
+  class_js_mod: Option<&'a str>,
+  class_js_name: &'a str,
+  is_static: bool,
+  name: &'a str,
+  is_getter: bool,
+  is_setter: bool,
+  is_method: bool,
+}
+
+#[cfg(not(feature = "noop"))]
+fn namespace_suffix(js_mod: Option<&str>) -> String {
+  match js_mod {
+    Some(m) => format!(" in namespace `{m}`"),
+    None => String::new(),
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+fn describe_export_kinds(kinds: &[ExportKind]) -> &'static str {
+  let mut has_fn = false;
+  let mut has_class = false;
+  for k in kinds {
+    match k {
+      ExportKind::Function => has_fn = true,
+      ExportKind::Class => has_class = true,
+    }
+  }
+  match (has_fn, has_class) {
+    (true, true) => "as both a function and a class",
+    (true, false) => "as a function",
+    (false, true) => "as a class",
+    (false, false) => "of unknown kind",
+  }
+}
+
+/// Fail closed on any registration collision N-API would otherwise resolve by
+/// silent overwrite. Pure: no locks, no globals, no env. Deterministic — every
+/// grouping is ordered, so the *first* reported conflict never depends on
+/// linker/constructor execution order (which is not a stable API).
+///
+/// Rules:
+/// * **Module scope** — two exports sharing `(js_mod, js_name)` (function vs
+///   function, function vs class, or two distinct classes) is a conflict.
+/// * **Within a class** — grouped by `(is_static, name)`: a lone getter and/or
+///   setter is valid; anything else with more than one contributor is a conflict
+///   (two getters, two setters, or a method sharing a name with another method
+///   or with an accessor). Static and instance members of the same name are
+///   distinct (constructor vs prototype) and never collide.
+#[cfg(not(feature = "noop"))]
+fn detect_registration_conflicts(
+  exports: &[ExportDescriptor],
+  members: &[MemberDescriptor],
+) -> std::result::Result<(), String> {
+  use std::collections::BTreeMap;
+
+  // --- Module scope: unique (js_mod, js_name). ---
+  // BTreeMap keeps iteration ordered so the first reported conflict is stable.
+  let mut by_name: BTreeMap<(Option<&str>, &str), Vec<ExportKind>> = BTreeMap::new();
+  for e in exports {
+    by_name
+      .entry((e.js_mod, e.js_name))
+      .or_default()
+      .push(e.kind);
+  }
+  for ((js_mod, js_name), kinds) in &by_name {
+    if kinds.len() > 1 {
+      return Err(format!(
+        "duplicate export `{js_name}`{}: registered {} times ({}). Each \
+         (namespace, name) must be unique; N-API would otherwise silently keep \
+         only the last.",
+        namespace_suffix(*js_mod),
+        kinds.len(),
+        describe_export_kinds(kinds),
+      ));
+    }
+  }
+
+  // --- Within a class: (is_static, name) role validity. ---
+  // The key includes the class so members of different classes never collide,
+  // and `is_static` so a static and an instance member of one name (distinct
+  // targets: constructor vs prototype) are not a false positive.
+  #[derive(Default)]
+  struct Roles {
+    getters: usize,
+    setters: usize,
+    methods: usize,
+  }
+  let mut by_member: BTreeMap<(Option<&str>, &str, bool, &str), Roles> = BTreeMap::new();
+  for m in members {
+    let roles = by_member
+      .entry((m.class_js_mod, m.class_js_name, m.is_static, m.name))
+      .or_default();
+    roles.getters += usize::from(m.is_getter);
+    roles.setters += usize::from(m.is_setter);
+    roles.methods += usize::from(m.is_method);
+  }
+  for ((class_js_mod, class_js_name, is_static, name), roles) in &by_member {
+    let staticness = if *is_static { "static " } else { "" };
+    if roles.methods > 0 && (roles.getters > 0 || roles.setters > 0) {
+      return Err(format!(
+        "conflicting members named `{name}` on {staticness}class \
+         `{class_js_name}`{}: defined as both a method and an accessor \
+         (getter/setter).",
+        namespace_suffix(*class_js_mod),
+      ));
+    }
+    if roles.methods > 1 {
+      return Err(format!(
+        "duplicate method `{name}` on {staticness}class `{class_js_name}`{}: \
+         defined {} times.",
+        namespace_suffix(*class_js_mod),
+        roles.methods,
+      ));
+    }
+    if roles.getters > 1 {
+      return Err(format!(
+        "duplicate getter `{name}` on {staticness}class `{class_js_name}`{}: \
+         defined {} times.",
+        namespace_suffix(*class_js_mod),
+        roles.getters,
+      ));
+    }
+    if roles.setters > 1 {
+      return Err(format!(
+        "duplicate setter `{name}` on {staticness}class `{class_js_name}`{}: \
+         defined {} times.",
+        namespace_suffix(*class_js_mod),
+        roles.setters,
+      ));
+    }
+  }
+
+  Ok(())
+}
+
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
@@ -841,6 +1017,64 @@ pub unsafe extern "C" fn napi_register_module_v1(
   create_custom_gc(env);
 
   let mut exports_objects: HashSet<String> = HashSet::default();
+
+  // Registration-manifest pre-pass. Fail closed on a duplicate
+  // `(namespace, name)` export, or a class member defined as both a method and an
+  // accessor / more than once — collisions N-API would otherwise resolve by
+  // silently overwriting one definition with another (a member simply missing at
+  // runtime, with no error). Reads only the static registration tables already
+  // populated at dylib load (no env calls) and runs before any export is defined,
+  // so a colliding addon throws on every `require` with a clear message. This
+  // runs on `worker_threads` loads too — the tables are process-global and fully
+  // populated before any registration — so every thread fails consistently.
+  if let Err(err) = {
+    let register_callback = MODULE_REGISTER_CALLBACK
+      .read()
+      .expect("Read MODULE_REGISTER_CALLBACK for the registration manifest failed");
+    MODULE_CLASS_PROPERTIES.borrow(|inner| {
+      let mut export_descriptors: Vec<ExportDescriptor> = Vec::new();
+      for (js_mod, (name, _cb)) in register_callback.iter() {
+        export_descriptors.push(ExportDescriptor {
+          js_mod: *js_mod,
+          js_name: name,
+          kind: ExportKind::Function,
+        });
+      }
+      let mut member_descriptors: Vec<MemberDescriptor> = Vec::new();
+      for js_mods in inner.values() {
+        for (js_mod, class_registration) in js_mods {
+          export_descriptors.push(ExportDescriptor {
+            js_mod: *js_mod,
+            js_name: class_registration.js_name,
+            kind: ExportKind::Class,
+          });
+          for prop in &class_registration.props {
+            // The constructor is handled by `napi_define_class`, not defined as a
+            // named property; a symbol/computed-named prop carries no static utf8
+            // name to compare. Both are skipped.
+            if prop.is_ctor {
+              continue;
+            }
+            if let Some(name) = prop.manifest_utf8_name() {
+              member_descriptors.push(MemberDescriptor {
+                class_js_mod: *js_mod,
+                class_js_name: class_registration.js_name,
+                is_static: prop.is_static_member(),
+                name,
+                is_getter: prop.defines_getter(),
+                is_setter: prop.defines_setter(),
+                is_method: prop.defines_method(),
+              });
+            }
+          }
+        }
+      }
+      detect_registration_conflicts(&export_descriptors, &member_descriptors)
+    })
+  } {
+    unsafe { JsError::from(crate::Error::from_reason(err)).throw_into(env) };
+    return exports;
+  }
 
   {
     let mut register_callback = MODULE_REGISTER_CALLBACK
@@ -1414,6 +1648,195 @@ extern "C" fn custom_gc(
       unsafe { sys::napi_delete_reference(env, data.cast()) },
       "Failed to delete reference in Custom GC"
     );
+  }
+}
+
+#[cfg(all(test, not(feature = "noop")))]
+mod manifest_tests {
+  //! Unit tests for the pure `detect_registration_conflicts` duplicate-detection
+  //! pre-pass. No Node/N-API — plain descriptor structs — so these
+  //! run under `cargo test -p napi --lib`.
+  use super::{detect_registration_conflicts, ExportDescriptor, ExportKind, MemberDescriptor};
+
+  fn func<'a>(js_mod: Option<&'a str>, js_name: &'a str) -> ExportDescriptor<'a> {
+    ExportDescriptor {
+      js_mod,
+      js_name,
+      kind: ExportKind::Function,
+    }
+  }
+  fn class<'a>(js_mod: Option<&'a str>, js_name: &'a str) -> ExportDescriptor<'a> {
+    ExportDescriptor {
+      js_mod,
+      js_name,
+      kind: ExportKind::Class,
+    }
+  }
+  fn member<'a>(
+    owner: &'a str,
+    name: &'a str,
+    is_getter: bool,
+    is_setter: bool,
+    is_method: bool,
+  ) -> MemberDescriptor<'a> {
+    MemberDescriptor {
+      class_js_mod: None,
+      class_js_name: owner,
+      is_static: false,
+      name,
+      is_getter,
+      is_setter,
+      is_method,
+    }
+  }
+  fn getter<'a>(owner: &'a str, name: &'a str) -> MemberDescriptor<'a> {
+    member(owner, name, true, false, false)
+  }
+  fn setter<'a>(owner: &'a str, name: &'a str) -> MemberDescriptor<'a> {
+    member(owner, name, false, true, false)
+  }
+  fn accessor<'a>(owner: &'a str, name: &'a str) -> MemberDescriptor<'a> {
+    member(owner, name, true, true, false)
+  }
+  fn method<'a>(owner: &'a str, name: &'a str) -> MemberDescriptor<'a> {
+    member(owner, name, false, false, true)
+  }
+
+  #[test]
+  fn a_clean_addon_has_no_conflicts() {
+    let exports = [func(None, "a"), class(None, "B"), func(Some("ns\0"), "a")];
+    let members = [getter("B", "x"), setter("B", "x"), method("B", "run")];
+    assert!(detect_registration_conflicts(&exports, &members).is_ok());
+  }
+
+  // Rule 1 — module scope.
+  #[test]
+  fn module_scope_class_and_function_collide() {
+    let exports = [func(None, "thing"), class(None, "thing")];
+    let err = detect_registration_conflicts(&exports, &[]).unwrap_err();
+    assert!(err.contains("thing"), "{err}");
+    assert!(
+      err.contains("function") && err.contains("class"),
+      "message names both kinds: {err}"
+    );
+  }
+
+  #[test]
+  fn two_functions_of_one_name_collide() {
+    let exports = [func(None, "dup"), func(None, "dup")];
+    assert!(detect_registration_conflicts(&exports, &[]).is_err());
+  }
+
+  #[test]
+  fn two_classes_of_one_name_collide() {
+    let exports = [class(None, "Dup"), class(None, "Dup")];
+    assert!(detect_registration_conflicts(&exports, &[]).is_err());
+  }
+
+  #[test]
+  fn one_name_in_different_namespaces_is_ok() {
+    let exports = [
+      func(None, "a"),
+      func(Some("ns\0"), "a"),
+      class(Some("other\0"), "a"),
+    ];
+    assert!(detect_registration_conflicts(&exports, &[]).is_ok());
+  }
+
+  // Rule 2 — a getter+setter pair is one accessor, whether it arrives as two
+  // descriptors (getter here, setter from another impl block)...
+  #[test]
+  fn getter_and_setter_of_one_name_two_descriptors_is_ok() {
+    let members = [getter("C", "value"), setter("C", "value")];
+    assert!(detect_registration_conflicts(&[], &members).is_ok());
+  }
+
+  // ...or as one descriptor carrying both roles (a struct-field accessor).
+  #[test]
+  fn getter_and_setter_of_one_name_one_descriptor_is_ok() {
+    let members = [accessor("C", "value")];
+    assert!(detect_registration_conflicts(&[], &members).is_ok());
+  }
+
+  // Rule 3 — a method sharing a name with an accessor.
+  #[test]
+  fn method_and_getter_of_one_name_conflict() {
+    let members = [getter("C", "x"), method("C", "x")];
+    let err = detect_registration_conflicts(&[], &members).unwrap_err();
+    assert!(err.contains("method") && err.contains("accessor"), "{err}");
+  }
+
+  // Rule 4 — two methods of one name.
+  #[test]
+  fn two_methods_of_one_name_conflict() {
+    let members = [method("C", "run"), method("C", "run")];
+    let err = detect_registration_conflicts(&[], &members).unwrap_err();
+    assert!(err.contains("run"), "{err}");
+  }
+
+  // Rule 5 — several impl blocks contributing DISTINCT members merge into one
+  // valid class (the regression guard on the existing merge path).
+  #[test]
+  fn several_impl_blocks_of_distinct_members_is_ok() {
+    // block A: getter `a` + method `run`; block B: setter `a` + method `stop`.
+    // Merged, `a` is a valid accessor and the two methods are distinct.
+    let members = [
+      getter("C", "a"),
+      method("C", "run"),
+      setter("C", "a"),
+      method("C", "stop"),
+    ];
+    assert!(detect_registration_conflicts(&[], &members).is_ok());
+  }
+
+  #[test]
+  fn two_getters_of_one_name_conflict() {
+    let members = [getter("C", "x"), getter("C", "x")];
+    assert!(detect_registration_conflicts(&[], &members).is_err());
+  }
+
+  #[test]
+  fn two_setters_of_one_name_conflict() {
+    let members = [setter("C", "x"), setter("C", "x")];
+    assert!(detect_registration_conflicts(&[], &members).is_err());
+  }
+
+  #[test]
+  fn one_member_name_on_different_classes_is_ok() {
+    let members = [method("A", "run"), method("B", "run")];
+    assert!(detect_registration_conflicts(&[], &members).is_ok());
+  }
+
+  #[test]
+  fn a_static_and_an_instance_member_of_one_name_is_ok() {
+    // A static method and an instance getter of one name live on the constructor
+    // vs the prototype — distinct targets, not a collision.
+    let instance_getter = member("C", "kind", true, false, false);
+    let mut static_method = method("C", "kind");
+    static_method.is_static = true;
+    assert!(detect_registration_conflicts(&[], &[instance_getter, static_method]).is_ok());
+  }
+
+  #[test]
+  fn reported_conflict_is_deterministic_regardless_of_input_order() {
+    // Two independent conflicts; the reported one must not depend on input order
+    // (grouping is BTreeMap-ordered). `alpha` sorts before `zeta`, so it wins.
+    let forward = [
+      func(None, "zeta"),
+      func(None, "zeta"),
+      func(None, "alpha"),
+      func(None, "alpha"),
+    ];
+    let reverse = [
+      func(None, "alpha"),
+      func(None, "alpha"),
+      func(None, "zeta"),
+      func(None, "zeta"),
+    ];
+    let a = detect_registration_conflicts(&forward, &[]).unwrap_err();
+    let b = detect_registration_conflicts(&reverse, &[]).unwrap_err();
+    assert_eq!(a, b);
+    assert!(a.contains("alpha"), "{a}");
   }
 }
 
