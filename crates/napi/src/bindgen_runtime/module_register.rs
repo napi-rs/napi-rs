@@ -756,6 +756,13 @@ fn build_hierarchy(
 // registration-call counts.
 // ---------------------------------------------------------------------------
 
+/// Set (to any value) to downgrade a registration conflict found by
+/// [`detect_registration_conflicts`] from a thrown load error to a stderr
+/// warning, letting the addon finish loading anyway. See the pre-pass call
+/// site in `napi_register_module_v1` for the full rationale.
+#[cfg(not(feature = "noop"))]
+const ALLOW_DUPLICATE_EXPORTS_ENV: &str = "NAPI_RS_ALLOW_DUPLICATE_EXPORTS";
+
 /// What a top-level `(js_mod, js_name)` export is, for a clearer diagnostic.
 #[cfg(not(feature = "noop"))]
 #[derive(Clone, Copy)]
@@ -1027,6 +1034,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // so a colliding addon throws on every `require` with a clear message. This
   // runs on `worker_threads` loads too — the tables are process-global and fully
   // populated before any registration — so every thread fails consistently.
+  //
+  // Escape hatch: setting `NAPI_RS_ALLOW_DUPLICATE_EXPORTS` downgrades a found
+  // conflict from a thrown error to a stderr warning and lets the module finish
+  // loading — for an addon that can't be fixed immediately (a third-party
+  // dependency, say) and would rather ship with a silently-missing/overwritten
+  // member than fail to load at all. The detection pass itself is unaffected
+  // (and still makes no env calls); only this outcome decision reads the var.
   if let Err(err) = {
     let register_callback = MODULE_REGISTER_CALLBACK
       .read()
@@ -1072,8 +1086,15 @@ pub unsafe extern "C" fn napi_register_module_v1(
       detect_registration_conflicts(&export_descriptors, &member_descriptors)
     })
   } {
-    unsafe { JsError::from(crate::Error::from_reason(err)).throw_into(env) };
-    return exports;
+    if std::env::var(ALLOW_DUPLICATE_EXPORTS_ENV).is_ok() {
+      eprintln!(
+        "[napi-rs] WARNING: {err} (continuing because {ALLOW_DUPLICATE_EXPORTS_ENV} is set; the \
+         colliding export may be silently missing or incorrect at runtime)"
+      );
+    } else {
+      unsafe { JsError::from(crate::Error::from_reason(err)).throw_into(env) };
+      return exports;
+    }
   }
 
   {

@@ -37,7 +37,16 @@ export function buildCargoCdylibArtifact(
     stdout = execFileSync(
       'cargo',
       ['build', '-p', packageName, '--message-format=json'],
-      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // A cold build emits one JSON message per compiled unit (plus
+        // diagnostics) across every transitive dependency — comfortably over
+        // `execFileSync`'s 1 MB default `maxBuffer`, which would otherwise
+        // throw and be mistaken for a real build failure below.
+        maxBuffer: 64 * 1024 * 1024,
+      },
     )
   } catch (error) {
     // `ENOENT` means the `cargo` executable itself could not be found/spawned

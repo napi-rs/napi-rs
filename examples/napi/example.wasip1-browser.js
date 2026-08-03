@@ -339,19 +339,15 @@ export const AnimalWithDefaultConstructor =
   __napiModule.exports.AnimalWithDefaultConstructor
 export const AnotherClassForEither = __napiModule.exports.AnotherClassForEither
 export const AnotherCssStyleSheet = __napiModule.exports.AnotherCssStyleSheet
-export const AnotherCSSStyleSheet = __napiModule.exports.AnotherCSSStyleSheet
 export const Asset = __napiModule.exports.Asset
-export const JsAsset = __napiModule.exports.JsAsset
 export const Assets = __napiModule.exports.Assets
-export const JsAssets = __napiModule.exports.JsAssets
 export const AsyncDataSource = __napiModule.exports.AsyncDataSource
 export const AsyncFib = __napiModule.exports.AsyncFib
 export const AsyncThrowClass = __napiModule.exports.AsyncThrowClass
+export const Base = __napiModule.exports.Base
 export const Bird = __napiModule.exports.Bird
 export const Blake2BHasher = __napiModule.exports.Blake2BHasher
-export const Blake2bHasher = __napiModule.exports.Blake2bHasher
 export const Blake2BKey = __napiModule.exports.Blake2BKey
-export const Blake2bKey = __napiModule.exports.Blake2bKey
 export const CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 export const CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
 export const ClassInArray = __napiModule.exports.ClassInArray
@@ -361,10 +357,13 @@ export const ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 export const Context = __napiModule.exports.Context
 export const CounterRepro = __napiModule.exports.CounterRepro
 export const CreateStringClass = __napiModule.exports.CreateStringClass
+export const CssConditionRule = __napiModule.exports.CssConditionRule
+export const CssGroupingRule = __napiModule.exports.CssGroupingRule
+export const CssMediaRule = __napiModule.exports.CssMediaRule
+export const CssRule = __napiModule.exports.CssRule
 export const CssRuleList = __napiModule.exports.CssRuleList
-export const CSSRuleList = __napiModule.exports.CSSRuleList
+export const CssStyleRule = __napiModule.exports.CssStyleRule
 export const CssStyleSheet = __napiModule.exports.CssStyleSheet
-export const CSSStyleSheet = __napiModule.exports.CSSStyleSheet
 export const CustomFinalize = __napiModule.exports.CustomFinalize
 export const CustomStruct = __napiModule.exports.CustomStruct
 export const DefaultUseNullableClass =
@@ -375,16 +374,15 @@ export const Fib = __napiModule.exports.Fib
 export const Fib2 = __napiModule.exports.Fib2
 export const Fib3 = __napiModule.exports.Fib3
 export const Fib4 = __napiModule.exports.Fib4
+export const FinalizeBase = __napiModule.exports.FinalizeBase
+export const FinalizeSub = __napiModule.exports.FinalizeSub
 export const GetterSetterWithClosures =
   __napiModule.exports.GetterSetterWithClosures
 export const JsClassForEither = __napiModule.exports.JsClassForEither
 export const JSOnlyMethodsClass = __napiModule.exports.JSOnlyMethodsClass
-export const RustOnlyMethodsClass = __napiModule.exports.RustOnlyMethodsClass
 export const JsRemote = __napiModule.exports.JsRemote
 export const JsRepo = __napiModule.exports.JsRepo
 export const MyJsNamedClass = __napiModule.exports.MyJsNamedClass
-export const OriginalRustNameForJsNamedStruct =
-  __napiModule.exports.OriginalRustNameForJsNamedStruct
 export const NinjaTurtle = __napiModule.exports.NinjaTurtle
 export const NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 export const NotWritableClass = __napiModule.exports.NotWritableClass
@@ -393,7 +391,9 @@ export const PackageJsonReader = __napiModule.exports.PackageJsonReader
 export const Reader = __napiModule.exports.Reader
 export const ReentrantBorrowOrderTest =
   __napiModule.exports.ReentrantBorrowOrderTest
+export const RenamedForIssue3427 = __napiModule.exports.RenamedForIssue3427
 export const Selector = __napiModule.exports.Selector
+export const Sub = __napiModule.exports.Sub
 export const Thing = __napiModule.exports.Thing
 export const ThingList = __napiModule.exports.ThingList
 export const TypeTagA = __napiModule.exports.TypeTagA
@@ -419,7 +419,6 @@ export const acceptUntypedTypedArray =
   __napiModule.exports.acceptUntypedTypedArray
 export const add = __napiModule.exports.add
 export const ALIAS = __napiModule.exports.ALIAS
-export const AliasedEnum = __napiModule.exports.AliasedEnum
 export const appendBuffer = __napiModule.exports.appendBuffer
 export const appendToOsString = __napiModule.exports.appendToOsString
 export const apply0 = __napiModule.exports.apply0
@@ -655,10 +654,22 @@ export const i16ArrayToArray = __napiModule.exports.i16ArrayToArray
 export const i32ArrayToArray = __napiModule.exports.i32ArrayToArray
 export const i64ArrayToArray = __napiModule.exports.i64ArrayToArray
 export const i8ArrayToArray = __napiModule.exports.i8ArrayToArray
+export const identityAcceptOptionalTimeSeries =
+  __napiModule.exports.identityAcceptOptionalTimeSeries
+export const identityAcceptTimeSeries =
+  __napiModule.exports.identityAcceptTimeSeries
+export const identityAcceptTimeSeriesOrString =
+  __napiModule.exports.identityAcceptTimeSeriesOrString
+export const identityMakeTimeSeries =
+  __napiModule.exports.identityMakeTimeSeries
+export const identitySumTimeSeries = __napiModule.exports.identitySumTimeSeries
 export const indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 export const indexSetToJs = __napiModule.exports.indexSetToJs
 export const indexSetToRust = __napiModule.exports.indexSetToRust
 export const intoUtf8 = __napiModule.exports.intoUtf8
+export const issue3427Either = __napiModule.exports.issue3427Either
+export const issue3427Option = __napiModule.exports.issue3427Option
+export const issue3427Strict = __napiModule.exports.issue3427Strict
 export const joinPath = __napiModule.exports.joinPath
 export const jsErrorCallback = __napiModule.exports.jsErrorCallback
 export const Kind = __napiModule.exports.Kind
@@ -698,6 +709,7 @@ export const promiseRawReturnClassInstance =
   __napiModule.exports.promiseRawReturnClassInstance
 export const readFile = __napiModule.exports.readFile
 export const readFileAsync = __napiModule.exports.readFileAsync
+export const readFinalizeCounters = __napiModule.exports.readFinalizeCounters
 export const readPackageJson = __napiModule.exports.readPackageJson
 export const receiveAllOptionalObject =
   __napiModule.exports.receiveAllOptionalObject
@@ -717,6 +729,11 @@ export const receiveStrictObject = __napiModule.exports.receiveStrictObject
 export const receiveString = __napiModule.exports.receiveString
 export const referenceAsCallback = __napiModule.exports.referenceAsCallback
 export const referenceWithTupleArg = __napiModule.exports.referenceWithTupleArg
+export const reflectConstructorName =
+  __napiModule.exports.reflectConstructorName
+export const reflectObjectToJson = __napiModule.exports.reflectObjectToJson
+export const reflectUnknownToJson = __napiModule.exports.reflectUnknownToJson
+export const resetFinalizeCounters = __napiModule.exports.resetFinalizeCounters
 export const returnCString = __napiModule.exports.returnCString
 export const returnEither = __napiModule.exports.returnEither
 export const returnEitherClass = __napiModule.exports.returnEitherClass
@@ -848,4 +865,5 @@ export const withoutAbortController =
 export const xxh64Alias = __napiModule.exports.xxh64Alias
 export const xxh2 = __napiModule.exports.xxh2
 export const xxh3 = __napiModule.exports.xxh3
+export const Sdk = __napiModule.exports.Sdk
 export const ComplexClass = __napiModule.exports.ComplexClass

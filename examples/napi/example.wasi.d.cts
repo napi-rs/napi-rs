@@ -98,7 +98,7 @@ export type JsAsset = Asset
 
 export declare class Assets {
   constructor()
-  get(id: number): JsAsset | null
+  get(id: number): Asset | null
 }
 export type JsAssets = Assets
 
@@ -131,6 +131,44 @@ export declare class AsyncThrowClass {
   asyncThrowError(): Promise<void>
 }
 
+/** Root of the inheritance fixture chain. */
+export declare class Base {
+  constructor(value: number)
+  /**
+   * A parent-defined factory (static side). Because v1 wires only the
+   * *instance* prototype chain, this must NOT be reachable as `Sub.fromValue`.
+   */
+  static fromValue(value: number): Base
+  /**
+   * A parent-defined plain static. Same as the factory: never inherited by a
+   * descendant in v1, so `Sub.baseStatic` must be `undefined`.
+   */
+  static baseStatic(): number
+  /** A parent field getter — must be readable through a descendant instance. */
+  get value(): number
+  /**
+   * A parent field setter — must be writable through a descendant instance
+   * (BorrowedUpcast accessor: works with P5 alone, no P8 needed).
+   */
+  set value(value: number)
+  /**
+   * A parent plain method (BorrowedUpcast: plain `&self`, no `Reference<Self>`).
+   * Reachable on a descendant only once the V8 signature is routed around (P8);
+   * kept here to exercise that path and contrast with `ref_value` below.
+   */
+  doubled(): number
+  /**
+   * A parent method classified `ReceiverPolicy::Exact` — it takes a
+   * `Reference<Self>`, whose `Deref`/`share_with` machinery would reconstruct a
+   * `Box<Base>` over the receiver, so it keeps the exact tag-checked receiver
+   * unwrap and is deliberately NOT rewrapped by P8. Called on a descendant it
+   * must fail (V8 `Illegal invocation` on Node; a clean tag mismatch on a
+   * runtime that does not enforce the signature), never silently read `Sub`
+   * memory as a `Base`.
+   */
+  refValue(): number
+}
+
 export declare class Bird {
   name: string
   constructor(name: string)
@@ -141,7 +179,7 @@ export declare class Bird {
 
 /** Smoking test for type generation */
 export declare class Blake2BHasher {
-  static withKey(key: Blake2bKey): Blake2BHasher
+  static withKey(key: Blake2BKey): Blake2BHasher
   update(data: Buffer): void
 }
 export type Blake2bHasher = Blake2BHasher
@@ -206,12 +244,60 @@ export declare class CreateStringClass {
   createStringResult(): string
 }
 
+/** Level 3. */
+export declare class CssConditionRule {
+  static create(ruleType: number, groupSize: number, condition: number): CssConditionRule
+  get condition(): number
+  set condition(condition: number)
+  conditionKind(): number
+}
+export interface CssConditionRule extends CssGroupingRule {}
+
+/** Level 2. */
+export declare class CssGroupingRule {
+  static create(ruleType: number, groupSize: number): CssGroupingRule
+  get groupSize(): number
+  set groupSize(groupSize: number)
+  groupingKind(): number
+}
+export interface CssGroupingRule extends CssRule {}
+
+/** Level 4 — the deepest rule in the chain. */
+export declare class CssMediaRule {
+  static create(ruleType: number, groupSize: number, condition: number, media: number): CssMediaRule
+  get media(): number
+  set media(media: number)
+  mediaKind(): number
+}
+export interface CssMediaRule extends CssConditionRule {}
+
+/** Level 1 — the root of the CSS-OM chain. */
+export declare class CssRule {
+  constructor(ruleType: number)
+  get ruleType(): number
+  set ruleType(ruleType: number)
+  ruleKind(): number
+}
+
 export declare class CssRuleList {
   getRules(): Array<string>
-  get parentStyleSheet(): CSSStyleSheet
+  get parentStyleSheet(): CssStyleSheet
   get name(): string | null
 }
 export type CSSRuleList = CssRuleList
+
+/**
+ * A sibling of `CssGroupingRule`: it also extends the root `CssRule`, so it must
+ * never be confused with the `CssGroupingRule` branch (no `instanceof`
+ * relationship, and none of that branch's methods reachable on it).
+ */
+export declare class CssStyleRule {
+  static create(ruleType: number, selector: number): CssStyleRule
+  get selector(): number
+  set selector(selector: number)
+  styleKind(): number
+}
+export interface CssStyleRule extends CssRule {}
 
 export declare class CssStyleSheet {
   constructor(name: string, rules: Array<string>)
@@ -327,6 +413,28 @@ export declare class Fib4 {
 
 export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
 
+/**
+ * Parent carrying BOTH a custom `ObjectFinalize` (counted) and a `Drop`
+ * (counted), so the two teardown paths can be told apart.
+ */
+export declare class FinalizeBase {
+  constructor(value: number)
+  get value(): number
+}
+
+/**
+ * Child of [`FinalizeBase`]. Deliberately does NOT declare `custom_finalize`:
+ * a collected child runs the DEFAULT finalizer for its own class (drop the
+ * boxed child), which runs `FinalizeSub::drop` and then — via ordinary Rust
+ * drop glue — drops the embedded `base`, running `FinalizeBase::drop`. The
+ * parent's custom `ObjectFinalize` is never reached this way.
+ */
+export declare class FinalizeSub {
+  static create(value: number, extra: number): FinalizeSub
+  get extra(): number
+}
+export interface FinalizeSub extends FinalizeBase {}
+
 export declare class GetterSetterWithClosures {
   constructor()
 }
@@ -413,6 +521,11 @@ export declare class ReentrantBorrowOrderTest {
   replaceValuesFromThis(this: object): void
 }
 
+export declare class RenamedForIssue3427 {
+  constructor(value: number)
+}
+export type RenamedForIssue3427Rust = RenamedForIssue3427
+
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>
@@ -420,6 +533,16 @@ export declare class Selector {
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
+
+/**
+ * Direct child of `Base`. Constructed via a factory (a `#[napi(constructor)]`
+ * cannot be combined with `#[napi(extends)]` in v1).
+ */
+export declare class Sub {
+  static create(value: number, extra: number): Sub
+  get extra(): number
+}
+export interface Sub extends Base {}
 
 export declare class Thing {
 
@@ -972,6 +1095,13 @@ export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
 export declare function fibonacci(n: number): number
 
+/** Snapshot of the three teardown counters, read from JS after forcing GC. */
+export interface FinalizeCounters {
+  baseFinalize: number
+  baseDrop: number
+  subDrop: number
+}
+
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
 export interface FunctionData {
@@ -1045,6 +1175,21 @@ export declare function i64ArrayToArray(input: BigInt64Array): Array<number>
 
 export declare function i8ArrayToArray(input: Int8Array): Array<number>
 
+/** `Option<&T>`. */
+export declare function identityAcceptOptionalTimeSeries(series?: Sdk.TimeSeries | undefined | null): number
+
+/** Direct `&T` reference. */
+export declare function identityAcceptTimeSeries(series: Sdk.TimeSeries): number
+
+/** `Either<&T, String>`. */
+export declare function identityAcceptTimeSeriesOrString(input: Sdk.TimeSeries | string): string
+
+/** A factory-style function returning the cross-crate class directly. */
+export declare function identityMakeTimeSeries(value: number): Sdk.TimeSeries
+
+/** `Vec<T>`. */
+export declare function identitySumTimeSeries(series: Array<Sdk.TimeSeries>): number
+
 export declare function indexmapPassthrough(fixture: Record<string, number>): Record<string, number>
 
 export declare function indexSetToJs(): Set<string>
@@ -1052,6 +1197,28 @@ export declare function indexSetToJs(): Set<string>
 export declare function indexSetToRust(set: Set<string>): void
 
 export declare function intoUtf8(s: string): string
+
+/**
+ * `Either<&T, ..>` discrimination calls `T::validate()` to decide the branch and treats an
+ * error as "not this branch". Before the fix, `validate()` errored on the wrong lookup key,
+ * so the class branch was skipped and the call threw instead of matching a valid instance.
+ */
+export declare function issue3427Either(input: RenamedForIssue3427 | number): number
+
+/**
+ * `Option<&T>` under `#[napi(strict)]` is validated via `Option::validate` -> `T::validate`,
+ * the same constructor lookup. `Some` must accept a valid instance, `None` maps from
+ * `null`/`undefined`, and a non-instance is rejected. Before the fix, `Some` threw for a valid
+ * instance. Returns the wrapped value for `Some`, or `-1` for `None`.
+ */
+export declare function issue3427Option(input?: RenamedForIssue3427 | undefined | null): number
+
+/**
+ * A strict argument is validated via `ValidateNapiValue::validate()` before conversion, so a
+ * strict `&T` parameter exercises the same constructor lookup directly. Before the fix this
+ * threw for a valid instance.
+ */
+export declare function issue3427Strict(input: RenamedForIssue3427): number
 
 export declare function joinPath(path: string, segment: string): string
 
@@ -1245,6 +1412,8 @@ export declare function readFile(callback: (arg0: Error | undefined, arg1?: stri
 
 export declare function readFileAsync(path: string): Promise<Buffer>
 
+export declare function readFinalizeCounters(): FinalizeCounters
+
 export declare function readPackageJson(): PackageJson
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
@@ -1270,6 +1439,21 @@ export declare function receiveString(s: string): string
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
+
+/** This object's `constructor.name`, or `null`. */
+export declare function reflectConstructorName(obj: object): string | null
+
+/** Round-trips an object through `Object::to_serde_json_value`. */
+export declare function reflectObjectToJson(obj: object): any
+
+/**
+ * Round-trips any JS value through `Unknown::to_serde_json_value` — this covers
+ * the non-object inputs (undefined, functions, symbols, bigint) an `Object`
+ * parameter would reject before the conversion could run.
+ */
+export declare function reflectUnknownToJson(value: unknown): any
+
+export declare function resetFinalizeCounters(): void
 
 export declare function returnCString(): string
 
@@ -1618,6 +1802,14 @@ export declare namespace xxh3 {
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
 }
+export declare namespace Sdk {
+  export class TimeSeries {
+    value: number
+    static fromValue(value: number): Sdk.TimeSeries
+  }
+  export type TimeSeriesNapi = TimeSeries
+}
+
 export declare class ComplexClass {
   value: string
   number: number

@@ -9,6 +9,7 @@ import {
   dirname,
   isAbsolute,
   join,
+  normalize,
   parse,
   relative,
   resolve,
@@ -770,17 +771,37 @@ function validateBinaries(
   options: ParsedBuildOptions,
 ): void {
   const names = new Set<string>()
-  const seenOutputs = new Map<string, string>()
+  const seenBinaryNames = new Map<string, string>()
 
-  const claimOutput = (kind: string, value: string, owner: string) => {
-    const key = `${kind}:${value}`
-    const previous = seenOutputs.get(key)
+  const claimBinaryName = (value: string, owner: string) => {
+    const previous = seenBinaryNames.get(value)
     if (previous) {
       throw new Error(
-        `\`binaries[]\` entries "${previous}" and "${owner}" both produce the ${kind} \`${value}\`. Give each binary a distinct output.`,
+        `\`binaries[]\` entries "${previous}" and "${owner}" both produce the binary name \`${value}\`. Give each binary a distinct output.`,
       )
     }
-    seenOutputs.set(key, owner)
+    seenBinaryNames.set(value, owner)
+  }
+
+  // All binaries in one `binaries[]` config write into the same output
+  // directory (only their filenames differ), so a js binding and a type def
+  // — from the same or different entries — genuinely collide if they resolve
+  // to the same file, even though they're different kinds of output. One
+  // shared, path-normalized map catches that; `./index.js` and `index.js`
+  // must compare equal, not slip past a kind-specific or un-normalized key.
+  const seenFileOutputs = new Map<string, { owner: string; kind: string }>()
+
+  const claimFileOutput = (kind: string, rawValue: string, owner: string) => {
+    const value = normalize(rawValue)
+    const previous = seenFileOutputs.get(value)
+    if (previous) {
+      const message =
+        previous.kind === kind
+          ? `\`binaries[]\` entries "${previous.owner}" and "${owner}" both produce the ${kind} \`${value}\`. Give each binary a distinct output.`
+          : `\`binaries[]\` entry "${owner}"'s ${kind} \`${value}\` collides with entry "${previous.owner}"'s ${previous.kind}. Give each binary a distinct output.`
+      throw new Error(message)
+    }
+    seenFileOutputs.set(value, { owner, kind })
   }
 
   for (const entry of binaries) {
@@ -812,17 +833,13 @@ function validateBinaries(
       )
     }
 
-    claimOutput(
-      'binary name',
-      entry.binaryName ?? config.binaryName,
-      entry.name,
-    )
-    claimOutput(
+    claimBinaryName(entry.binaryName ?? config.binaryName, entry.name)
+    claimFileOutput(
       'js binding',
       entry.js ?? options.jsBinding ?? 'index.js',
       entry.name,
     )
-    claimOutput(
+    claimFileOutput(
       'type def',
       entry.dts ?? options.dts ?? 'index.d.ts',
       entry.name,

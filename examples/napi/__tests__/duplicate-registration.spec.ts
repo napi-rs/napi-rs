@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { copyFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -72,6 +73,52 @@ nativeOnly(
       String(error?.message),
       /Widget/,
       'the error names the colliding export',
+    )
+  },
+)
+
+nativeOnly(
+  'NAPI_RS_ALLOW_DUPLICATE_EXPORTS lets the addon load with a warning instead of throwing',
+  (t) => {
+    if (!fixtureNodePath) {
+      t.pass(
+        'duplicate-registration fixture addon was not built (cargo unavailable?); skipping',
+      )
+      return
+    }
+
+    // A native `eprintln!` writes straight to the process's stderr file
+    // descriptor, bypassing Node's `process.stderr` JS stream — so a real
+    // child process (whose stdout/stderr the parent captures at the OS level
+    // regardless of which layer inside it wrote) is the only reliable way to
+    // observe both the successful load and the warning text.
+    const result = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `require(${JSON.stringify(fixtureNodePath)}); console.log('loaded')`,
+      ],
+      {
+        env: { ...process.env, NAPI_RS_ALLOW_DUPLICATE_EXPORTS: '1' },
+        encoding: 'utf8',
+      },
+    )
+
+    t.is(
+      result.status,
+      0,
+      `the escape hatch lets require() succeed instead of throwing (stderr: ${result.stderr})`,
+    )
+    t.is(result.stdout.trim(), 'loaded')
+    t.regex(
+      result.stderr,
+      /duplicate export/,
+      'the collision is still reported, as a warning',
+    )
+    t.regex(
+      result.stderr,
+      /Widget/,
+      'the warning still names the colliding export',
     )
   },
 )
