@@ -329,9 +329,7 @@ impl NapiFn {
           // defensive guess against expansion-order edge cases, not a real
           // cross-crate path.
           let parent = CLASS_STRUCTS
-            .with_borrow(|c| c.get(&origin_name).map(|c| c.js_name.clone()))
-            .with_borrow(|c| c.get(&origin_name).cloned())
-            .map(|(js_mod, js_name)| crate::typegen::qualify_napi_type_name(&js_mod, &js_name))
+            .with_borrow(|c| c.get(&origin_name).map(|c| c.qualified_name()))
             .unwrap_or_else(|| to_case(origin_name, Case::Pascal));
 
           if self.is_async {

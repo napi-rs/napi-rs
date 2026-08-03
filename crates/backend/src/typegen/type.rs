@@ -16,8 +16,6 @@ impl ToTypeDef for NapiType {
       self.name.to_string(),
       self.js_name.to_string(),
       self.js_mod.as_deref(),
-      self.js_mod.clone(),
-      self.js_name.to_string(),
     );
 
     Some(TypeDef {

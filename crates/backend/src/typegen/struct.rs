@@ -28,16 +28,8 @@ impl ClassStructRef {
   /// Renders the class's JS name qualified by its namespace (`{js_mod}.{js_name}`),
   /// or the bare `js_name` when it has none.
   pub(crate) fn qualified_name(&self) -> String {
-    match &self.js_mod {
-      Some(js_mod) => format!("{js_mod}.{}", self.js_name),
-      None => self.js_name.clone(),
-    }
+    qualify_napi_type_name(&self.js_mod, &self.js_name)
   }
-  // Value: (js_mod, js_name) — see `crate::typegen::qualify_napi_type_name`. Same-crate
-  // lookup only; a cross-crate reference always misses here (thread_local, scoped to one
-  // proc-macro-crate-load) and is resolved later by the CLI — see `napi_type_ref_sentinel`.
-  pub(crate) static CLASS_STRUCTS: RefCell<HashMap<String, (Option<String>, String)>> =
-    Default::default();
 }
 
 impl ToTypeDef for NapiStruct {
@@ -49,15 +41,12 @@ impl ToTypeDef for NapiStruct {
           js_name: self.js_name.clone(),
           js_mod: self.js_mod.clone(),
         },
-        (self.js_mod.clone(), self.js_name.clone()),
       );
     });
     add_alias(
       self.name.to_string(),
       self.js_name.to_string(),
       self.js_mod.as_deref(),
-      self.js_mod.clone(),
-      self.js_name.to_string(),
     );
 
     let mut js_doc = JSDoc::new(&self.comments);
@@ -260,7 +249,7 @@ impl NapiStruct {
     };
     let parent_ident = class.extends.as_ref()?.segments.last()?.ident.to_string();
     Some(CLASS_STRUCTS.with(|c| match c.borrow().get(&parent_ident) {
-      Some((js_mod, js_name)) => qualify_napi_type_name(js_mod, js_name),
+      Some(class_ref) => class_ref.qualified_name(),
       None => napi_type_ref_sentinel(&parent_ident),
     }))
   }

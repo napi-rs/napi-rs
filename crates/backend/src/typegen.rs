@@ -52,9 +52,10 @@ pub trait ToTypeDef {
 }
 
 thread_local! {
-  // Value: (js_mod, js_name) — namespace-qualified so a same-crate,
-  // cross-namespace reference resolves correctly (see `qualify_napi_type_name`).
-  static ALIAS: RefCell<HashMap<String, (Option<String>, String)>> = Default::default();
+  // Value: the alias's JS name, already namespace-qualified at insert time by
+  // `add_alias` (see `qualify_napi_type_name`), so a same-crate, cross-namespace
+  // reference resolves correctly without needing to re-qualify on read.
+  static ALIAS: RefCell<HashMap<String, String>> = Default::default();
 }
 
 /// Registers `name` (a Rust type identifier) as an alias for `alias` (its JS
@@ -66,9 +67,8 @@ fn add_alias(name: String, alias: String, js_mod: Option<&str>) {
     Some(js_mod) => format!("{js_mod}.{alias}"),
     None => alias,
   };
-fn add_alias(name: String, js_mod: Option<String>, js_name: String) {
   ALIAS.with(|aliases| {
-    aliases.borrow_mut().insert(name, (js_mod, js_name));
+    aliases.borrow_mut().insert(name, alias);
   });
 }
 
@@ -775,22 +775,19 @@ fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String
       .map(|(arg, _)| arg.clone())
       .collect::<Vec<String>>()
       .join(", ");
-    if let Some((js_mod, js_name)) = &type_alias {
-      let qualified = qualify_napi_type_name(js_mod, js_name);
-      // If the qualified alias contains '<', take the base type, then use it for formatting.
-      // A plain `#[napi]` item's alias never contains '<' (it's a rare, out-of-scope case for
-      // an unrecognized generic wrapper around one) — fall back to the qualified text itself
-      // rather than the original code's unconditional `.unwrap()`, which would otherwise panic.
-      let ty = qualified
-        .split_once('<')
-        .map(|(t, _)| t)
-        .unwrap_or(&qualified);
+    if let Some(alias) = &type_alias {
+      // The alias is already namespace-qualified (see `add_alias`). If it contains
+      // '<', take the base type, then use it for formatting. A plain `#[napi]` item's
+      // alias never contains '<' (it's a rare, out-of-scope case for an unrecognized
+      // generic wrapper around one) — fall back to the alias text itself rather than
+      // an unconditional `.unwrap()`, which would otherwise panic.
+      let ty = alias.split_once('<').map(|(t, _)| t).unwrap_or(alias);
       return Some((format!("{}<{}>", ty, arg_str), false));
     }
     Some((format!("{}<{}>", rust_ty, arg_str), false))
   } else {
     match type_alias {
-      Some((js_mod, js_name)) => Some((qualify_napi_type_name(&js_mod, &js_name), false)),
+      Some(alias) => Some((alias, false)),
       // `Self` is never a registered `#[napi]` item — it's the literal string
       // `gen_ts_func_ret` (`typegen/fn.rs`) matches on to rewrite a factory
       // method's return type to TypeScript's `this`. It must pass through
@@ -931,10 +928,6 @@ fn handle_type_path(
         .map(|c| c.qualified_name())
     }) {
       Some((t, false))
-    } else if let Some((js_mod, js_name)) = crate::typegen::r#struct::CLASS_STRUCTS
-      .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
-    {
-      Some((qualify_napi_type_name(&js_mod, &js_name), false))
     } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
       handle_known_type(&rust_ty, known_ty, args, is_return_ty)
     } else if rust_ty == TSFN_RUST_TY {
@@ -1041,10 +1034,8 @@ pub fn ty_to_ts_type(
 #[cfg(test)]
 mod tests {
   use super::{
-    add_alias, escape_json, format_js_property_name, handle_generic_type, ty_to_ts_type, JSDoc,
-    TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
-    escape_json, format_js_property_name, napi_type_ref_sentinel, qualify_napi_type_name,
-    strip_napi_type_ref_sentinel, ty_to_ts_type, JSDoc, ToTypeDef, TypeDef,
+    add_alias, escape_json, format_js_property_name, handle_generic_type, napi_type_ref_sentinel,
+    qualify_napi_type_name, strip_napi_type_ref_sentinel, ty_to_ts_type, JSDoc, ToTypeDef, TypeDef,
     BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
   };
   use crate::{NapiClass, NapiStruct, NapiStructKind};
@@ -1186,9 +1177,6 @@ mod tests {
           js_mod: None,
         },
       );
-      classes
-        .borrow_mut()
-        .insert("Buffer".to_owned(), (None, "UserBuffer".to_owned()));
     });
     let ty = syn::parse_str("Buffer").expect("Buffer must parse as a Rust type");
     assert_eq!(
@@ -1255,11 +1243,18 @@ mod tests {
     assert_eq!(
       handle_generic_type("BetaStatus", &[]),
       Some(("beta.Status".to_owned(), false))
+    );
+  }
+
+  #[test]
   fn same_crate_class_reference_is_namespace_qualified() {
     crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
       classes.borrow_mut().insert(
         "TimeSeriesNapi".to_owned(),
-        (Some("Sdk".to_owned()), "TimeSeries".to_owned()),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "TimeSeries".to_owned(),
+          js_mod: Some("Sdk".to_owned()),
+        },
       );
     });
     let ty = syn::parse_str("TimeSeriesNapi").expect("must parse as a Rust type");
@@ -1275,9 +1270,13 @@ mod tests {
   #[test]
   fn same_crate_top_level_class_reference_is_not_qualified() {
     crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
-      classes
-        .borrow_mut()
-        .insert("PlainNapi".to_owned(), (None, "Plain".to_owned()));
+      classes.borrow_mut().insert(
+        "PlainNapi".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "Plain".to_owned(),
+          js_mod: None,
+        },
+      );
     });
     let ty = syn::parse_str("PlainNapi").expect("must parse as a Rust type");
     assert_eq!(
@@ -1444,7 +1443,10 @@ mod tests {
     crate::typegen::r#struct::CLASS_STRUCTS.with(|c| {
       c.borrow_mut().insert(
         "CssRuleNapi".to_owned(),
-        (Some("Css".to_owned()), "CssRule".to_owned()),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "CssRule".to_owned(),
+          js_mod: Some("Css".to_owned()),
+        },
       );
     });
     let child = class_struct_with_extends(

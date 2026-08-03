@@ -290,7 +290,6 @@ import {
   MyJsNamedClass,
   JSOnlyMethodsClass,
   RustOnlyMethodsClass,
-  OriginalRustNameForJsNamedStruct,
   ComplexClass,
   createUint8ClampedArrayFromData,
   arrayBufferFromData,
@@ -319,6 +318,10 @@ import {
   cleanupReentrantBorrowOrderTestTargets,
   detachReentrantBorrowOrderTestTarget,
 } from '../index.cjs'
+// The Rust ident of a `#[napi(js_name = ...)]` class is a compile-time type
+// alias for the js-named class, not a runtime export, so it is imported as a
+// type here (this spec only uses it in a type annotation).
+import type { OriginalRustNameForJsNamedStruct } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
 
