@@ -26,7 +26,9 @@ use syn::{parse_macro_input, ItemFn};
 ///
 /// # Single inheritance: `#[napi(extends = Parent)]`
 ///
-/// A `#[napi]` class may declare a single parent class (issue #1164):
+/// A `#[napi]` class may declare a single parent class (issue #1164). Multi-level
+/// chains (`A` ← `B` ← `C`) are supported; multiple parents (mixins) are not —
+/// each class has exactly one `extends`.
 ///
 /// ```ignore
 /// #[napi]
@@ -54,9 +56,12 @@ use syn::{parse_macro_input, ItemFn};
 ///
 /// The child must be `#[repr(C)]` and embed the parent as its **first field**,
 /// so the parent's portion sits at offset 0 and a `*mut Child` can be borrowed
-/// as `&Parent`. Both are enforced at compile time (`Box<Parent>`-style wrappers
-/// are rejected). A `#[napi(constructor)]` cannot be combined with
-/// `#[napi(extends)]`; construct the child through a `#[napi(factory)]` instead.
+/// as `&Parent`. Both are enforced at compile time by generated assertions: the
+/// first field's type must be *exactly* the parent (`Box<Parent>`/`Rc<Parent>`/
+/// newtype wrappers are rejected, with a `#[diagnostic::on_unimplemented]`
+/// message that names the misuse), and `offset_of!(Child, parent)` must be `0`.
+/// A `#[napi(constructor)]` cannot be combined with `#[napi(extends)]`;
+/// construct the child through a `#[napi(factory)]` instead.
 ///
 /// ## Runtime semantics (v1 — instance-only)
 ///
@@ -78,6 +83,20 @@ use syn::{parse_macro_input, ItemFn};
 /// static side is left untouched — matching the runtime, which does not inherit
 /// statics. (It is deliberately not `class Sub extends Base`, which TypeScript
 /// would read as also inheriting the parent's statics.)
+///
+/// ## Not yet supported (growth path)
+///
+/// This is the first, deliberately narrow version of inheritance. The embedded
+/// `#[repr(C)]` + parent-first-field model is its main constraint: a child that
+/// wants to *wrap* rather than embed its parent (e.g. `struct Sub { inner:
+/// PureType }`, or a `#[serde(transparent)]` newtype) cannot use it. The planned
+/// growth path is an opt-in composition variant,
+/// `#[napi(extends = Parent, via = AsRef)]`, where the child proves
+/// `AsRef<Parent>` (and `AsMut<Parent>` for `&mut self` parent methods) instead
+/// of embedding the parent at offset 0 — lifting the layout constraint while
+/// reusing the same tag hierarchy and prototype wiring. Inherited statics and
+/// factories, and combining `extends` with the iterator/generator protocols,
+/// also remain out of scope.
 #[proc_macro_attribute]
 pub fn napi(attr: TokenStream, input: TokenStream) -> TokenStream {
   match expand::expand(attr.into(), input.into()) {
