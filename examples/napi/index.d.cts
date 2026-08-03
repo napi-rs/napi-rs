@@ -1442,6 +1442,28 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+/** This object's `constructor.name`, or `null`. */
+export declare function reflectConstructorName(obj: object): string | null
+
+/**
+ * Type-tag check against `TypeTagA`. Native-only: the tag check does real work
+ * only under napi8 on a non-wasm target, so the method does not exist elsewhere.
+ */
+export declare function reflectHasTypeTagA(obj: object): boolean
+
+/** Type-tag check against `TypeTagB`. */
+export declare function reflectHasTypeTagB(obj: object): boolean
+
+/** Round-trips an object through `Object::to_serde_json_value`. */
+export declare function reflectObjectToJson(obj: object): any
+
+/**
+ * Round-trips any JS value through `Unknown::to_serde_json_value` — this covers
+ * the non-object inputs (undefined, functions, symbols, bigint) an `Object`
+ * parameter would reject before the conversion could run.
+ */
+export declare function reflectUnknownToJson(value: unknown): any
+
 export interface RequestInit {
   method?: string
   headers?: Record<string, string>
