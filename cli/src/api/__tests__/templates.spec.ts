@@ -13,6 +13,54 @@ test('createWasiBrowserBinding default', (t) => {
   t.snapshot(createWasiBrowserBinding('test-wasi'))
 })
 
+test('createWasiBrowserBinding threaded builds size worker pools from hardwareConcurrency', (t) => {
+  const binding = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false, // asyncInit: false — threaded builds still init asynchronously
+    false,
+    false,
+    true,
+  )
+  t.true(binding.includes('const __asyncWorkPoolSize = 4'))
+  t.true(binding.includes('const __workerPoolSize = Math.max('))
+  t.true(binding.includes('globalThis.navigator?.hardwareConcurrency ?? 4'))
+  // The reuse pool includes the async-work reservation: the async pool
+  // draws from the same reuse pool, so without it exhaustion would starve
+  // addon thread spawns. No `strict`: at exhaustion the fallback worker
+  // boots once the parent returns to its event loop, which is the correct
+  // behavior for spawn-and-return workloads.
+  t.true(
+    binding.includes(
+      'reuseWorker: { size: __asyncWorkPoolSize + __workerPoolSize },',
+    ),
+  )
+  t.false(binding.includes('strict'))
+  t.true(binding.includes('asyncWorkPoolSize: __asyncWorkPoolSize,'))
+  t.true(binding.includes('await __emnapiInstantiateNapiModule('))
+  t.false(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
+})
+
+test('createWasiBrowserBinding threadless keeps sync init and no pool', (t) => {
+  const binding = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    false,
+  )
+  t.false(binding.includes('__workerPoolSize'))
+  t.false(binding.includes('hardwareConcurrency'))
+  t.false(binding.includes('reuseWorker'))
+  t.true(binding.includes('asyncWorkPoolSize: 0,'))
+  t.true(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
+})
+
 test('createWasiBrowserBinding with errorEvent', (t) => {
   t.snapshot(
     createWasiBrowserBinding(
