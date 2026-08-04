@@ -1648,7 +1648,7 @@ __metadata:
     empathic: "npm:^2.0.1"
     env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.47.0"
-    js-yaml: "npm:^4.2.0"
+    js-yaml: "npm:^5.0.0"
     obug: "npm:^2.1.2"
     oxc-parser: "npm:^0.143.0"
     prettier: "npm:^3.8.3"
@@ -8422,7 +8422,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"js-yaml@npm:4.3.0, js-yaml@npm:^4.1.0, js-yaml@npm:^4.2.0":
+"js-yaml@npm:4.3.0, js-yaml@npm:^4.1.0":
   version: 4.3.0
   resolution: "js-yaml@npm:4.3.0"
   dependencies:
@@ -8442,6 +8442,17 @@ __metadata:
   bin:
     js-yaml: bin/js-yaml.js
   checksum: 10c0/ca966bd354ac5b1b7a4694ebdba46526796aa3a6a99529fa540af2abf85918bd155a50ccc0166b413130a00622999973754458ec01e7095bc902177bfdbd5b64
+  languageName: node
+  linkType: hard
+
+"js-yaml@npm:^5.0.0":
+  version: 5.2.3
+  resolution: "js-yaml@npm:5.2.3"
+  dependencies:
+    argparse: "npm:^2.0.1"
+  bin:
+    js-yaml: bin/js-yaml.mjs
+  checksum: 10c0/55cd6310c8eee88d432ae038d451ac9d6aa0eb9e5d38a94df3d6c4a4015d08c9dad7c18669e0e8854e4173a615d6b6b7448bd0aac408773f8a46122ffd863c69
   languageName: node
   linkType: hard
 
