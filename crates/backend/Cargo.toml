@@ -22,7 +22,7 @@ type-def = ["semver"]
 convert_case = "0.11"
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["fold", "full", "extra-traits"] }
+syn = { version = "3", features = ["fold", "full", "extra-traits"] }
 
 [dependencies.semver]
 optional = true
