@@ -1,3 +1,4 @@
+use super::TypeName;
 use crate::sys;
 
 /// Unforgeable per-class identity for `#[napi]` classes.
@@ -286,6 +287,130 @@ pub unsafe fn validate_type_tag(
   _class_name: &str,
 ) -> crate::Result<()> {
   Ok(())
+}
+
+/// Tri-state exact type-tag check (issue #1164). `Ok(true)` = `obj` carries
+/// exactly `tag`; `Ok(false)` = it genuinely carries a different tag (or none);
+/// `Err` = a real N-API host failure — never collapsed into `Ok(false)`, so the
+/// descendant-fallback caller can tell "not this exact class" apart from "the
+/// host call itself failed" and never mask the latter as a plain mismatch.
+///
+/// napi8-native only; its sole caller ([`unwrap_borrowed_receiver`]) has a
+/// separate non-napi8 / wasm path that needs no tag check.
+///
+/// # Safety
+/// `env` must be a valid napi env pointer and `obj` a valid js object.
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+pub(crate) unsafe fn object_has_type_tag(
+  env: sys::napi_env,
+  obj: sys::napi_value,
+  tag: &sys::napi_type_tag,
+) -> crate::Result<bool> {
+  let mut matches = false;
+  crate::check_status!(
+    unsafe { sys::napi_check_object_type_tag(env, obj, tag, &mut matches) },
+    "type tag check failed"
+  )?;
+  Ok(matches)
+}
+
+/// Unwrap a **borrowed** method/accessor receiver (`&self` / `&mut self`, or a
+/// field getter/setter's `this`) to a raw `*mut T`, accepting `T` itself or —
+/// via the class hierarchy (issue #1164) — any registered descendant of `T`.
+/// A descendant's `T`-portion is guaranteed to be its first field at offset 0 by
+/// the `#[napi(extends)]` layout rules (transitively, for a multi-level chain),
+/// so casting the descendant's wrapped pointer to `*mut T` yields a valid `T`
+/// view. The caller borrows the result (`&*ptr` / `&mut *ptr`) and must **never**
+/// reconstruct a `Box<T>` from it — for a descendant instance the pointer is the
+/// `T`-view into a larger allocation, not a standalone `Box<T>`.
+///
+/// Exact-first: a non-extended class pays exactly one tag check, identical to
+/// today. Only a genuine exact mismatch (`Ok(false)`) consults the descendant
+/// set; any host-call `Err` propagates immediately rather than being retried as
+/// the descendant path. If the hierarchy failed to build this fails closed —
+/// but that can happen only once the addon has at least one `#[napi(extends)]`
+/// edge (see `build_hierarchy`); [`validate_type_tag`] itself is never affected,
+/// so classes uninvolved in inheritance keep exactly today's behavior.
+///
+/// # Safety
+/// `env` must be a valid napi env pointer and `this` a valid JS object that was
+/// `napi_wrap`+tagged for some `#[napi]` class.
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+pub unsafe fn unwrap_borrowed_receiver<T>(
+  env: sys::napi_env,
+  this: sys::napi_value,
+) -> crate::Result<*mut T>
+where
+  T: TypeName + MaybeTypeTag,
+{
+  let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+  crate::check_status!(
+    unsafe { sys::napi_unwrap(env, this, &mut wrapped_val) },
+    "Failed to unwrap borrowed reference of `{}` type from napi value",
+    <T as TypeName>::type_name(),
+  )?;
+
+  let own_tag = <T as TypeTag>::type_tag();
+  // Exact-first — today's cost for every non-extended class.
+  if unsafe { object_has_type_tag(env, this, &own_tag)? } {
+    return Ok(wrapped_val.cast());
+  }
+  // Descendant fallback: `this` may be a subclass whose `T`-portion sits at
+  // offset 0, so the same `wrapped_val.cast()` is a valid `*mut T`. That
+  // offset-0 placement is not assumed blindly — it is guaranteed at compile
+  // time for every `#[napi(extends = T)]` class by the generated layout
+  // assertions in `napi-derive-backend` (`codegen/struct.rs`: exact-parent-type
+  // marker trait + `offset_of!(Child, parent) == 0`). Consult the hierarchy
+  // built once at registration (P4.5).
+  match crate::bindgen_runtime::module_register::class_descendants(&own_tag) {
+    Ok(Some(descendants)) => {
+      for descendant in descendants {
+        if unsafe { object_has_type_tag(env, this, descendant)? } {
+          return Ok(wrapped_val.cast());
+        }
+      }
+    }
+    Ok(None) => {}
+    Err(err) => {
+      return Err(crate::Error::new(
+        crate::Status::GenericFailure,
+        err.to_owned(),
+      ));
+    }
+  }
+  Err(crate::Error::new(
+    crate::Status::InvalidArg,
+    format!(
+      "Value is not an instance of class `{}` or any of its registered subclasses",
+      <T as TypeName>::type_name()
+    ),
+  ))
+}
+
+/// Non-napi8 / wasm fallback: no tag support on these targets, so this is
+/// exactly today's blind `napi_unwrap` + cast (the pre-#1164 behavior). The
+/// descendant upcast is a napi8-native-only capability; on these targets an
+/// inherited method reached via the instance-side prototype chain behaves as it
+/// did before this feature (the V8 signature or `instanceof`-under-`strict`
+/// still gates receivers on the platforms that enforce them).
+///
+/// # Safety
+/// `env` must be a valid napi env pointer and `this` a valid, wrapped JS object.
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+pub unsafe fn unwrap_borrowed_receiver<T>(
+  env: sys::napi_env,
+  this: sys::napi_value,
+) -> crate::Result<*mut T>
+where
+  T: TypeName + MaybeTypeTag,
+{
+  let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+  crate::check_status!(
+    unsafe { sys::napi_unwrap(env, this, &mut wrapped_val) },
+    "Failed to unwrap borrowed reference of `{}` type from napi value",
+    <T as TypeName>::type_name(),
+  )?;
+  Ok(wrapped_val.cast())
 }
 
 #[cfg(test)]

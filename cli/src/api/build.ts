@@ -9,6 +9,7 @@ import {
   dirname,
   isAbsolute,
   join,
+  normalize,
   parse,
   relative,
   resolve,
@@ -19,6 +20,7 @@ import * as colors from 'colorette'
 
 import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
+  type BinaryConfig,
   CLI_VERSION,
   commitFileSystemTransaction,
   copyFileAtomic,
@@ -168,6 +170,14 @@ export function getTypeDefCacheFolder(options: {
   manifestPath: string
   targetTriple: string
   profile: string
+  /**
+   * Stable name of the output binary this cache belongs to, in a multi-binary
+   * build. Two binaries compiled from the same crate would otherwise share one
+   * type-def cache and clobber each other's fragments; keying on the binary
+   * name gives each its own. Omitted for single-binary builds, where it is
+   * left out of the identity so their existing cache folder is unchanged.
+   */
+  name?: string
   features?: string[]
   allFeatures?: boolean
   noDefaultFeatures?: boolean
@@ -196,6 +206,9 @@ export function getTypeDefCacheFolder(options: {
   const identity = JSON.stringify({
     version: 4,
     cliVersion: CLI_VERSION,
+    // `undefined` for single-binary builds, so `JSON.stringify` drops the key
+    // and the existing single-binary cache folder hash is preserved.
+    binaryName: options.name,
     manifestPath: options.manifestPath,
     cargoDependencyGraph: options.cargoDependencyGraph,
     targetTriple: options.targetTriple,
@@ -446,6 +459,7 @@ export function collectStaleWasiBuildOutputNames(
   binaryName: string,
   buildTarget: Target,
   configuredTargets: Target[],
+  manageSharedRootArtifacts: boolean = true,
 ) {
   const staleNames = new Set<string>()
   const retainedFlavors = new Set(
@@ -480,7 +494,10 @@ export function collectStaleWasiBuildOutputNames(
     (flavor) =>
       flavor.hasThreads && retainedFlavors.has(flavor.platformArchABI),
   )
-  if (regeneratesWorkers || !retainsThreadedFlavor) {
+  if (
+    manageSharedRootArtifacts &&
+    (regeneratesWorkers || !retainsThreadedFlavor)
+  ) {
     staleNames.add('wasi-worker.mjs')
     staleNames.add('wasi-worker-browser.mjs')
   }
@@ -594,6 +611,268 @@ export async function buildProject(rawOptions: BuildOptions) {
 
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
+  // Read the napi config once up front: a multi-binary project keys its output
+  // binaries off it, and each may name a different crate/manifest, so the
+  // config has to be known before any per-binary `cargo metadata` runs.
+  const config = await readNapiConfig(
+    resolvePath(options.packageJsonPath ?? 'package.json'),
+    options.configPath ? resolvePath(options.configPath) : undefined,
+  )
+
+  const binaries = normalizeConfig(config, options)
+
+  // Single-binary (the common case, and any `--binary` selection): return the
+  // builder's `{ task, abort }` unchanged so existing callers are unaffected.
+  if (binaries.length === 1) {
+    return buildSingleProject(
+      binaries[0],
+      binaries[0].manageSharedWasiArtifacts,
+    )
+  }
+
+  // Multi-binary: build each entry in order, concatenating their outputs.
+  // `abort` cancels whichever build is currently running and stops the rest.
+  let aborted = false
+  const aborters: Array<() => void> = []
+  const task = (async () => {
+    const outputs: Output[] = []
+    for (const binary of binaries) {
+      if (aborted) {
+        break
+      }
+      const { task: binaryTask, abort } = await buildSingleProject(
+        binary,
+        binary.manageSharedWasiArtifacts,
+      )
+      aborters.push(abort)
+      // `abort()` may have been called while `buildSingleProject` above was
+      // still resolving — before this binary's own `abort` was registered, so
+      // the outer `abort()`'s loop over `aborters` couldn't have reached it.
+      // Re-check immediately after registering: if cancellation happened in
+      // that window, invoke this binary's abort now (instead of leaving it to
+      // run unaborted) and stop without awaiting/collecting its output.
+      if (aborted) {
+        abort()
+        // Cancellation can make the spawned build reject after this branch
+        // stops awaiting it. Consume that rejection so it cannot surface as
+        // an unhandled promise rejection.
+        void binaryTask.catch(() => {})
+        break
+      }
+      outputs.push(...(await binaryTask))
+    }
+    return outputs
+  })()
+
+  return {
+    task,
+    abort: () => {
+      aborted = true
+      for (const abort of aborters) {
+        abort()
+      }
+    },
+  }
+}
+
+/**
+ * One resolved output binary: the crate/options to build and the config that
+ * names its output artifact, plus the stable binary name that isolates its
+ * type-def cache from sibling binaries (undefined for single-binary builds).
+ */
+export interface NormalizedBinary {
+  config: NapiConfig
+  options: ParsedBuildOptions
+  binaryFolderName?: string
+  manageSharedWasiArtifacts: boolean
+}
+
+/**
+ * Expand a napi config and the parsed build options into one build spec per
+ * output binary.
+ *
+ * With no `binaries[]` config this returns a single spec that is exactly the
+ * classic single-binary build (unchanged behavior). With `binaries[]` it
+ * validates the array and returns one spec per entry — or just the entry
+ * selected by `options.binary` — each carrying that entry's crate, output
+ * artifact name, `js`/`dts` paths, and a distinct `binaryFolderName` so the
+ * per-binary type-def caches never collide.
+ *
+ * Pure and side-effect free (no filesystem, no cargo) so it can be unit tested
+ * directly.
+ */
+export function normalizeConfig(
+  config: NapiConfig,
+  options: ParsedBuildOptions,
+): NormalizedBinary[] {
+  const binaries = config.binaries
+
+  if (!binaries || binaries.length === 0) {
+    if (options.binary) {
+      throw new Error(
+        `\`--binary ${options.binary}\` was given but no \`binaries\` are configured. Add a \`binaries\` array to the napi config, or drop \`--binary\`.`,
+      )
+    }
+    return [{ config, options, manageSharedWasiArtifacts: true }]
+  }
+
+  // Validate the whole array regardless of selection, so a misconfigured entry
+  // is reported even when a different entry is the one being built.
+  validateBinaries(binaries, config, options)
+
+  let selected = binaries
+  if (options.binary) {
+    const entry = binaries.find((binary) => binary.name === options.binary)
+    if (!entry) {
+      throw new Error(
+        `\`--binary ${options.binary}\` does not match any configured binary. Available: ${binaries
+          .map((binary) => binary.name)
+          .join(', ')}.`,
+      )
+    }
+    selected = [entry]
+  }
+
+  if (options.watch && selected.length > 1) {
+    throw new Error(
+      '`--watch` cannot be combined with an unselected `binaries[]` multi-binary config. Watch a single binary with `napi build --binary <name> --watch`.',
+    )
+  }
+
+  return selected.map((entry) => {
+    const entryOptions: ParsedBuildOptions = {
+      ...options,
+      dts: entry.dts ?? options.dts,
+      jsBinding: entry.js ?? options.jsBinding,
+      // The selector has been resolved; don't leak it into the per-binary
+      // build (nothing downstream reads it, but keep the spec honest).
+      binary: undefined,
+    }
+    if (entry.manifestPath) {
+      // The entry points straight at a crate's manifest.
+      entryOptions.manifestPath = entry.manifestPath
+      entryOptions.package = undefined
+    } else {
+      // The entry selects a workspace member by name; keep the top-level
+      // manifest path as the workspace anchor for `cargo metadata`.
+      entryOptions.package = entry.package
+    }
+    return {
+      binaryFolderName: entry.name,
+      config: {
+        ...config,
+        binaryName: entry.binaryName ?? config.binaryName,
+      },
+      options: entryOptions,
+      manageSharedWasiArtifacts: entry === binaries[0],
+    }
+  })
+}
+
+/**
+ * Validate a `binaries[]` array: every entry needs a unique `name`, exactly
+ * one of `manifestPath`/`package`, no nested `binaries`, and no two entries may
+ * write the same output artifact (`.node`, `js`, or `dts`) — a collision would
+ * silently clobber one binary with another.
+ *
+ * `options` supplies the same `jsBinding`/`dts` fallbacks `normalizeConfig`'s
+ * per-binary map uses for an entry that omits `js`/`dts` (`entry.js ??
+ * options.jsBinding`, `entry.dts ?? options.dts`) — using a different
+ * (hardcoded) fallback here would let a real collision slip through undetected
+ * whenever a top-level `--dts`/`--js-binding` override is in play.
+ */
+function validateBinaries(
+  binaries: BinaryConfig[],
+  config: NapiConfig,
+  options: ParsedBuildOptions,
+): void {
+  const names = new Set<string>()
+  const seenBinaryNames = new Map<string, string>()
+
+  const claimBinaryName = (value: string, owner: string) => {
+    const previous = seenBinaryNames.get(value)
+    if (previous) {
+      throw new Error(
+        `\`binaries[]\` entries "${previous}" and "${owner}" both produce the binary name \`${value}\`. Give each binary a distinct output.`,
+      )
+    }
+    seenBinaryNames.set(value, owner)
+  }
+
+  // All binaries in one `binaries[]` config write into the same output
+  // directory (only their filenames differ), so a js binding and a type def
+  // — from the same or different entries — genuinely collide if they resolve
+  // to the same file, even though they're different kinds of output. One
+  // shared, path-normalized map catches that; `./index.js` and `index.js`
+  // must compare equal, not slip past a kind-specific or un-normalized key.
+  const seenFileOutputs = new Map<string, { owner: string; kind: string }>()
+
+  const claimFileOutput = (kind: string, rawValue: string, owner: string) => {
+    const value = normalize(rawValue)
+    const previous = seenFileOutputs.get(value)
+    if (previous) {
+      const message =
+        previous.kind === kind
+          ? `\`binaries[]\` entries "${previous.owner}" and "${owner}" both produce the ${kind} \`${value}\`. Give each binary a distinct output.`
+          : `\`binaries[]\` entry "${owner}"'s ${kind} \`${value}\` collides with entry "${previous.owner}"'s ${previous.kind}. Give each binary a distinct output.`
+      throw new Error(message)
+    }
+    seenFileOutputs.set(value, { owner, kind })
+  }
+
+  for (const entry of binaries) {
+    if (!entry.name) {
+      throw new Error('Every `binaries[]` entry needs a non-empty `name`.')
+    }
+    if (names.has(entry.name)) {
+      throw new Error(
+        `Duplicate \`binaries[]\` name "${entry.name}". Each entry's \`name\` must be unique.`,
+      )
+    }
+    names.add(entry.name)
+
+    const hasManifest = Boolean(entry.manifestPath)
+    const hasPackage = Boolean(entry.package)
+    if (hasManifest === hasPackage) {
+      throw new Error(
+        `\`binaries[]\` entry "${entry.name}" must set exactly one of \`manifestPath\` or \`package\` (got ${
+          hasManifest ? 'both' : 'neither'
+        }).`,
+      )
+    }
+
+    // `binaries` is not part of `BinaryConfig`, but a hand-written JSON config
+    // could still nest one; reject it rather than silently ignoring it.
+    if ((entry as { binaries?: unknown }).binaries !== undefined) {
+      throw new Error(
+        `\`binaries[]\` entry "${entry.name}" must not contain a nested \`binaries\` array.`,
+      )
+    }
+
+    claimBinaryName(entry.binaryName ?? config.binaryName, entry.name)
+    claimFileOutput(
+      'js binding',
+      entry.js ?? options.jsBinding ?? 'index.js',
+      entry.name,
+    )
+    claimFileOutput(
+      'type def',
+      entry.dts ?? options.dts ?? 'index.d.ts',
+      entry.name,
+    )
+  }
+}
+
+/**
+ * Build one resolved binary: resolve its crate from `cargo metadata` and run
+ * the {@link Builder}. Returns the builder's `{ task, abort }`.
+ */
+async function buildSingleProject(
+  { config, options, binaryFolderName }: NormalizedBinary,
+  manageSharedWasiArtifacts: boolean = true,
+) {
+  const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
+
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
   const metadataTarget = options.target ?? process.env.CARGO_BUILD_TARGET
   const metadata = await parseMetadata(manifestPath, {
@@ -622,12 +901,15 @@ export async function buildProject(rawOptions: BuildOptions) {
       'Unable to find crate to build. It seems you are trying to build a crate in a workspace, try using `--package` option to specify the package to build.',
     )
   }
-  const config = await readNapiConfig(
-    resolvePath(options.packageJsonPath ?? 'package.json'),
-    options.configPath ? resolvePath(options.configPath) : undefined,
-  )
 
-  const builder = new Builder(metadata, crate, config, options)
+  const builder = new Builder(
+    metadata,
+    crate,
+    config,
+    options,
+    binaryFolderName,
+    manageSharedWasiArtifacts,
+  )
 
   return builder.build()
 }
@@ -931,6 +1213,13 @@ class Builder {
     private readonly crate: Crate,
     private readonly config: NapiConfig,
     private readonly options: ParsedBuildOptions,
+    // Stable name of the output binary in a multi-binary build; isolates this
+    // binary's type-def cache from its siblings. Undefined for single-binary.
+    private readonly binaryFolderName?: string,
+    // WASI has package-global browser/worker entry points. In a full
+    // multi-binary build the first configured binary owns those shared files;
+    // every binary still emits its own binary-prefixed loaders and declarations.
+    private readonly manageSharedWasiArtifacts: boolean = true,
   ) {
     this.target = resolveTarget(options.target)
     this.crateDir = parse(crate.manifest_path).dir
@@ -1126,6 +1415,7 @@ class Builder {
       this.config.binaryName,
       this.target,
       this.config.targets,
+      this.manageSharedWasiArtifacts,
     )) {
       stalePaths.add(join(this.outputDir, name))
     }
@@ -1133,8 +1423,10 @@ class Builder {
       this.target.platform === 'wasi' ||
       this.config.targets.some((target) => target.platform === 'wasi') ||
       managedRootEntries.size > 0
-    if (hasWasiOutput) {
+    if (hasWasiOutput && this.manageSharedWasiArtifacts) {
       stalePaths.add(join(this.outputDir, 'browser.js'))
+    }
+    if (hasWasiOutput) {
       stalePaths.add(join(this.outputDir, `${this.config.binaryName}.wasm`))
       stalePaths.add(
         join(this.outputDir, `${this.config.binaryName}.debug.wasm`),
@@ -1146,6 +1438,9 @@ class Builder {
       }
     }
     for (const entry of managedRootEntries) {
+      if (!this.manageSharedWasiArtifacts && entry === 'browser.js') {
+        continue
+      }
       stalePaths.add(
         resolveManagedOutputPath(this.outputDir, entry, 'WASI root entry'),
       )
@@ -1595,6 +1890,7 @@ class Builder {
     let folder = getTypeDefCacheFolder({
       targetDir: this.targetDir,
       crateName: this.crate.name,
+      name: this.binaryFolderName,
       manifestPath: this.crate.manifest_path,
       targetTriple: this.target.triple,
       profile:
@@ -1925,6 +2221,8 @@ class Builder {
       constEnum: this.options.constEnum ?? this.config.constEnum,
       runtimeStringEnum:
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
+      // Config-file-only for now (no CLI flag) — see `UserNapiConfig.emitRustNameTypeAlias`.
+      emitRustNameTypeAlias: this.config.emitRustNameTypeAlias,
       cwd: this.options.cwd,
     })
     this.typeDefWithTypeImports = dtsWithTypeImports
@@ -2054,7 +2352,7 @@ class Builder {
           ...(await this.writeWasiBindingForTarget(wasiTarget, dir, metadata)),
         )
       }
-      if (wasiTargets.length > 0) {
+      if (wasiTargets.length > 0 && this.manageSharedWasiArtifacts) {
         // The browser entry re-exports a single flavor: the non-threaded one
         // when declared (browser environments without cross-origin isolation
         // cannot use the threaded flavor). An explicit WASI build target is
@@ -2208,7 +2506,7 @@ export = binding
       { kind: 'js', path: browserBindingPath },
       { kind: 'dts', path: bindingTypeDefPath },
     ]
-    if (hasThreads) {
+    if (hasThreads && this.manageSharedWasiArtifacts) {
       // worker scripts are only referenced by the threaded loaders
       const workerPath = join(dir, 'wasi-worker.mjs')
       const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
@@ -2420,6 +2718,7 @@ export interface GenerateTypeDefOptions {
   configDtsHeaderFile?: string
   constEnum?: boolean
   runtimeStringEnum?: boolean
+  emitRustNameTypeAlias?: boolean
   cwd: string
 }
 
@@ -2475,6 +2774,7 @@ export async function generateTypeDef(
 
   const constEnum = options.constEnum ?? true
   const runtimeStringEnum = options.runtimeStringEnum ?? false
+  const emitRustNameTypeAlias = options.emitRustNameTypeAlias ?? true
   if (runtimeStringEnum && constEnum) {
     debug.warn(
       '`--runtime-string-enum` has no effect when `--const-enum` is enabled (the default). Pass `--no-const-enum` to activate runtime string enum emission.',
@@ -2486,6 +2786,7 @@ export async function generateTypeDef(
     constEnum,
     runtimeStringEnum,
     header,
+    emitRustNameTypeAlias,
   )
 
   dts = processedTypeDefs.dts

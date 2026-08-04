@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::vec::Vec;
 use std::{cell::RefCell, iter};
 
-use super::{add_alias, format_js_property_name, ty_to_ts_type, ToTypeDef, TypeDef};
+use super::{
+  add_alias, format_js_property_name, napi_type_ref_sentinel, qualify_napi_type_name,
+  ty_to_ts_type, ToTypeDef, TypeDef,
+};
 use crate::{typegen::JSDoc, util::to_case, NapiImpl, NapiStruct, NapiStructField, NapiStructKind};
 
 thread_local! {
@@ -25,10 +28,7 @@ impl ClassStructRef {
   /// Renders the class's JS name qualified by its namespace (`{js_mod}.{js_name}`),
   /// or the bare `js_name` when it has none.
   pub(crate) fn qualified_name(&self) -> String {
-    match &self.js_mod {
-      Some(js_mod) => format!("{js_mod}.{}", self.js_name),
-      None => self.js_name.clone(),
-    }
+    qualify_napi_type_name(&self.js_mod, &self.js_name)
   }
 }
 
@@ -82,6 +82,9 @@ impl ToTypeDef for NapiStruct {
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
       js_doc,
+      producer_crate: super::producer_crate(),
+      instance_extends: self.instance_extends_ref(),
+      non_inheritable_methods: Vec::new(),
     })
   }
 }
@@ -130,6 +133,9 @@ impl ToTypeDef for NapiImpl {
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        producer_crate: None,
+        instance_extends: None,
+        non_inheritable_methods: Vec::new(),
       })
     } else if let Some(output_type) = &self.async_iterator_yield_type {
       let yield_type = ty_to_ts_type(output_type, false, true, false).0;
@@ -165,6 +171,9 @@ impl ToTypeDef for NapiImpl {
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        producer_crate: None,
+        instance_extends: None,
+        non_inheritable_methods: Vec::new(),
       })
     } else {
       Some(TypeDef {
@@ -190,6 +199,14 @@ impl ToTypeDef for NapiImpl {
           .join("\n"),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        producer_crate: None,
+        instance_extends: None,
+        non_inheritable_methods: self
+          .items
+          .iter()
+          .filter(|item| !item.skip_typescript && item.receiver_is_exact())
+          .map(|item| item.js_name.clone())
+          .collect(),
       })
     }
   }
@@ -224,6 +241,26 @@ impl NapiStruct {
     };
     field_str.push_str(&arg);
     Some((field_str, arg))
+  }
+
+  /// For a `#[napi(extends = Parent)]` class, resolves the parent to its public
+  /// JS reference for the `export interface Child extends Parent {}` declaration
+  /// merge (issue #1164). Mirrors PR A's reference resolution exactly: a
+  /// same-crate parent already recorded in `CLASS_STRUCTS` is namespace-qualified
+  /// directly, and a parent this crate's own macro expansion cannot see (declared
+  /// later in the same crate, or in another crate entirely) falls through to a
+  /// `napi_type_ref_sentinel` the CLI resolves once every crate's fragment is
+  /// collected. Returns `None` for a flat (non-`extends`) class or any non-class
+  /// struct kind.
+  fn instance_extends_ref(&self) -> Option<String> {
+    let NapiStructKind::Class(class) = &self.kind else {
+      return None;
+    };
+    let parent_ident = class.extends.as_ref()?.segments.last()?.ident.to_string();
+    Some(CLASS_STRUCTS.with(|c| match c.borrow().get(&parent_ident) {
+      Some(class_ref) => class_ref.qualified_name(),
+      None => napi_type_ref_sentinel(&parent_ident),
+    }))
   }
 
   fn gen_ts_class(&self) -> String {

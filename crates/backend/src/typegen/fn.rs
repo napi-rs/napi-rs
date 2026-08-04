@@ -113,6 +113,9 @@ impl ToTypeDef for NapiFn {
       def,
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
+      producer_crate: None,
+      instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     })
   }
 }
@@ -320,8 +323,14 @@ impl NapiFn {
         .clone()
         .map(|i| {
           let origin_name = i.to_string();
+          // A factory's `impl` block is always in the same crate as the class it
+          // constructs (Rust's orphan rules require it), so `CLASS_STRUCTS` — a
+          // same-crate-only table — always has it once the struct's own
+          // `to_type_def()` has run; the `to_case` fallback below is only a
+          // defensive guess against expansion-order edge cases, not a real
+          // cross-crate path.
           let parent = CLASS_STRUCTS
-            .with_borrow(|c| c.get(&origin_name).map(|c| c.js_name.clone()))
+            .with_borrow(|c| c.get(&origin_name).map(|c| c.qualified_name()))
             .unwrap_or_else(|| to_case(origin_name, Case::Pascal));
 
           if self.is_async {

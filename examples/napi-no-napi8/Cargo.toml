@@ -1,0 +1,23 @@
+[package]
+name = "napi-no-napi8"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Test-only fixture addon (issue #1164) built WITHOUT the `napi8` feature. The
+# instance prototype chain is still wired (that is pure `Object.setPrototypeOf`,
+# not gated on napi8), but the P8 method rebuild that lets a descendant reach an
+# inherited *plain method* is napi8-only — so an inherited plain method called on
+# a descendant must still hit V8's method-receiver signature check and throw
+# "Illegal invocation", the pre-feature status quo. `dyn-symbols` lets a plain
+# `cargo build` produce a loadable `.node`.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi-derive = { path = "../../crates/macro" }
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi4",
+  "dyn-symbols",
+] }

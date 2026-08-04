@@ -64,10 +64,26 @@ interface TypeDefLine {
   def: string
   def_with_type_import_markers?: string
   extends?: string
+  // For a `#[napi(extends = Parent)]` class (issue #1164): the public JS
+  // reference to the parent, rendered as a sibling `export interface Child
+  // extends Parent {}` declaration-merge (instance-only inheritance), never as
+  // the class's own `extends` clause (which — unlike `extends` above, reserved
+  // for the iterator shape — would make TypeScript also inherit the parent's
+  // statics, an inheritance the shipped runtime deliberately does not wire).
+  // May arrive as a cross-crate `napi_type_ref_sentinel`, resolved by
+  // `resolveCrossFragmentTypeReferences` alongside `def`.
+  instance_extends?: string
+  // Methods whose hidden native receiver arguments require an exact instance
+  // and therefore cannot be called through a descendant prototype.
+  non_inheritable_methods?: string[]
   asyncIterator?: [yieldType: string, returnType: string, nextType: string]
   js_doc?: string
   js_mod?: string
   type_imports?: TypeImport[]
+  // The Rust crate (`CARGO_PKG_NAME`) that emitted this fragment. Only used to
+  // name conflicting crates in the cross-fragment reference ambiguity error
+  // below — has no bearing on resolution itself (keyed on `(js_mod, name)`).
+  producer_crate?: string
 }
 
 export interface TypeImport {
@@ -199,6 +215,7 @@ function prettyPrint(
   ident: number,
   ambient = false,
   asyncGeneratorHelperName?: string,
+  emitRustNameTypeAlias = true,
 ): string {
   let s = line.js_doc ?? ''
   switch (line.kind) {
@@ -258,7 +275,23 @@ function prettyPrint(
       }
       s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${classDef}\n}`
       s += iteratorInterface
-      if (line.original_name && line.original_name !== line.name) {
+      if (line.instance_extends) {
+        // Instance-only single inheritance (issue #1164). Declaration merging —
+        // `interface Child extends Parent {}` grafts only the parent's *instance*
+        // members onto the child's instance type, leaving the child `class`
+        // declaration (and therefore its static side) untouched. This matches
+        // the runtime, which wires `Object.setPrototypeOf(Child.prototype,
+        // Parent.prototype)` but never re-parents the constructor, so a parent
+        // static/factory is correctly absent from both the runtime and the types.
+        // `class Child extends Parent` would instead claim static inheritance the
+        // runtime does not provide.
+        s += `\nexport interface ${line.name} extends ${line.instance_extends} {}`
+      }
+      if (
+        emitRustNameTypeAlias &&
+        line.original_name &&
+        line.original_name !== line.name
+      ) {
         s += `\nexport type ${line.original_name} = ${line.name}`
       }
       break
@@ -297,8 +330,201 @@ export async function processTypeDef(
   intermediateTypeFile: string,
   constEnum: boolean,
   runtimeStringEnum: boolean = false,
+  emitRustNameTypeAlias: boolean = true,
 ) {
-  return processTypeDefs([intermediateTypeFile], constEnum, runtimeStringEnum)
+  return processTypeDefs(
+    [intermediateTypeFile],
+    constEnum,
+    runtimeStringEnum,
+    '',
+    emitRustNameTypeAlias,
+  )
+}
+
+// The exact prefix/suffix `napi_type_ref_sentinel` wraps a Rust identifier in
+// (`crates/backend/src/typegen.rs`) when a crate's own macro expansion cannot
+// resolve it to a registered `#[napi]` item — see that file for why a
+// proc-macro must defer this resolution to the CLI. Scanned with plain
+// string operations, not a regex: `no-control-regex` (correctly) flags any
+// regex whose parsed pattern matches control characters regardless of how
+// the NUL byte is spelled in source, and the existing buffer-marker scanning
+// elsewhere in this file (`reallocateTypeImportMarkers`) already avoids a
+// regex for the same reason.
+const NAPI_TYPE_REF_SENTINEL_PREFIX = '\0napi-rs-unresolved-type-ref:'
+const NAPI_TYPE_REF_SENTINEL_SUFFIX = '\0'
+const NAPI_TYPE_REF_SENTINEL_TEXT = NAPI_TYPE_REF_SENTINEL_PREFIX
+
+interface TypeRefCandidate {
+  namespace?: string
+  jsName: string
+  producerCrate?: string
+}
+
+/**
+ * Resolves cross-crate (and same-crate, out-of-expansion-order) `#[napi]`
+ * item references left as sentinels by the backend. This is the only point
+ * in the pipeline with every crate's fragment collected, so it is the only
+ * place resolution can happen — and it must run before any TypeScript
+ * parsing of the generated output (`rewriteTypeImportReferences` parses the
+ * whole file as TypeScript; a raw sentinel is not valid TypeScript syntax).
+ *
+ * - Exactly one candidate across the whole build -> substituted, qualified
+ *   (`namespace.jsName`, or bare `jsName` at top level).
+ * - Zero candidates -> falls back to the bare identifier (a legitimate
+ *   hand-written external type with its own `TypeName`/`ToNapiValue` impl,
+ *   not a `#[napi]` item — not an error).
+ * - More than one candidate -> throws. A proc-macro cannot syntactically
+ *   determine which crate a bare identifier truly originates from, so
+ *   guessing would silently produce a wrong reference; refusing is the only
+ *   sound option (mirrors the alias-ambiguity rule below).
+ */
+function resolveCrossFragmentTypeReferences(
+  typeDefGroups: TypeDefLine[][],
+): TypeDefLine[][] {
+  const index = new Map<string, TypeRefCandidate[]>()
+  for (const def of typeDefGroups.flat()) {
+    if (!def.original_name) {
+      continue
+    }
+    const candidates = index.get(def.original_name) ?? []
+    candidates.push({
+      namespace: def.js_mod,
+      jsName: def.name,
+      producerCrate: def.producer_crate,
+    })
+    index.set(def.original_name, candidates)
+  }
+
+  const resolveOne = (rustIdent: string): string => {
+    const candidates = index.get(rustIdent) ?? []
+    if (candidates.length === 0) {
+      return rustIdent
+    }
+    // Two candidate entries can describe the exact same item — e.g. the same
+    // fragment collected twice into the type-def tmp folder across an
+    // incremental or multi-binary build. Dedupe by the resolved (namespace,
+    // jsName) reference itself before checking for a genuine ambiguity, so
+    // duplicate-but-identical registrations resolve cleanly instead of
+    // throwing a false-positive "Ambiguous reference" error.
+    const distinctByResolvedRef = new Map<string, TypeRefCandidate>()
+    for (const candidate of candidates) {
+      const resolved = candidate.namespace
+        ? `${candidate.namespace}.${candidate.jsName}`
+        : candidate.jsName
+      if (!distinctByResolvedRef.has(resolved)) {
+        distinctByResolvedRef.set(resolved, candidate)
+      }
+    }
+    if (distinctByResolvedRef.size === 1) {
+      return distinctByResolvedRef.keys().next().value as string
+    }
+    const describe = (c: TypeRefCandidate) =>
+      `crate \`${c.producerCrate ?? 'unknown'}\` (namespace: ${
+        c.namespace ?? 'top-level'
+      })`
+    throw new Error(
+      `Ambiguous reference to \`${rustIdent}\`: found in ${Array.from(
+        distinctByResolvedRef.values(),
+      )
+        .map(describe)
+        .join(' and ')}. A proc-macro cannot determine which crate a bare ` +
+        'identifier refers to across crate boundaries — rename one of the ' +
+        'conflicting items, or use distinct `#[napi(namespace = "...")]` values.',
+    )
+  }
+
+  const substitute = (text: string): string => {
+    let rewritten = ''
+    let rest = text
+    for (
+      let start = rest.indexOf(NAPI_TYPE_REF_SENTINEL_PREFIX);
+      start !== -1;
+      start = rest.indexOf(NAPI_TYPE_REF_SENTINEL_PREFIX)
+    ) {
+      const afterPrefix = start + NAPI_TYPE_REF_SENTINEL_PREFIX.length
+      const end = rest.indexOf(NAPI_TYPE_REF_SENTINEL_SUFFIX, afterPrefix)
+      if (end === -1) {
+        throw new Error(
+          `Unterminated cross-crate reference sentinel in generated type definition: ${rest.slice(start)}`,
+        )
+      }
+      const rustIdent = rest.slice(afterPrefix, end)
+      rewritten += rest.slice(0, start) + resolveOne(rustIdent)
+      rest = rest.slice(end + NAPI_TYPE_REF_SENTINEL_SUFFIX.length)
+    }
+    return rewritten + rest
+  }
+
+  return typeDefGroups.map((defs) =>
+    defs.map((def) => {
+      const hasSentinel =
+        def.def.includes(NAPI_TYPE_REF_SENTINEL_TEXT) ||
+        (def.def_with_type_import_markers?.includes(
+          NAPI_TYPE_REF_SENTINEL_TEXT,
+        ) ??
+          false) ||
+        (def.instance_extends?.includes(NAPI_TYPE_REF_SENTINEL_TEXT) ?? false)
+      if (!hasSentinel) {
+        return def
+      }
+      return {
+        ...def,
+        def: substitute(def.def),
+        def_with_type_import_markers:
+          def.def_with_type_import_markers === undefined
+            ? undefined
+            : substitute(def.def_with_type_import_markers),
+        instance_extends:
+          def.instance_extends === undefined
+            ? undefined
+            : substitute(def.instance_extends),
+      }
+    }),
+  )
+}
+
+/**
+ * Remove exact-receiver methods from a child's inherited instance surface.
+ * The runtime leaves these methods on the parent prototype but rejects a
+ * descendant receiver, so plain `interface Child extends Parent` would promise
+ * calls that always throw. The metadata lives on the parent's `impl` fragment;
+ * this cross-fragment pass can match it after parent references are resolved.
+ */
+function omitNonInheritableParentMethods(
+  typeDefGroups: TypeDefLine[][],
+): TypeDefLine[][] {
+  const methodsByClass = new Map<string, Set<string>>()
+  for (const def of typeDefGroups.flat()) {
+    if (def.kind !== TypeDefKind.Impl || !def.non_inheritable_methods?.length) {
+      continue
+    }
+    const className = def.js_mod ? `${def.js_mod}.${def.name}` : def.name
+    const methods = methodsByClass.get(className) ?? new Set<string>()
+    for (const method of def.non_inheritable_methods) {
+      methods.add(method)
+    }
+    methodsByClass.set(className, methods)
+  }
+
+  return typeDefGroups.map((defs) =>
+    defs.map((def) => {
+      if (def.kind !== TypeDefKind.Struct || !def.instance_extends) {
+        return def
+      }
+      const methods = methodsByClass.get(def.instance_extends)
+      if (!methods?.size) {
+        return def
+      }
+      const omittedKeys = [...methods]
+        .sort()
+        .map((method) => JSON.stringify(method))
+        .join(' | ')
+      return {
+        ...def,
+        instance_extends: `globalThis.Omit<${def.instance_extends}, ${omittedKeys}>`,
+      }
+    }),
+  )
 }
 
 export async function processTypeDefs(
@@ -306,11 +532,18 @@ export async function processTypeDefs(
   constEnum: boolean,
   runtimeStringEnum: boolean = false,
   reservedDeclarationText: string = '',
+  emitRustNameTypeAlias: boolean = true,
 ) {
   const exports: string[] = []
-  const typeDefs = await Promise.all(
+  const rawTypeDefs = await Promise.all(
     intermediateTypeFiles.map((file) => readIntermediateTypeFile(file)),
   )
+  const typeDefs = omitNonInheritableParentMethods(
+    resolveCrossFragmentTypeReferences(rawTypeDefs),
+  )
+  if (emitRustNameTypeAlias) {
+    validateNoAliasAmbiguity(typeDefs)
+  }
   const typeDefsWithUniqueMarkers = makeTypeImportMarkersUnique(
     typeDefs,
     reservedDeclarationText,
@@ -324,6 +557,7 @@ export async function processTypeDefs(
     runtimeStringEnum,
     exports,
     reservedDeclarationText,
+    emitRustNameTypeAlias,
   )
   const dts = rewriteTypeImportReferences(
     dtsWithTypeImportMarkers,
@@ -339,12 +573,60 @@ export async function processTypeDefs(
   }
 }
 
+/**
+ * `prettyPrint`'s `export type <original_name> = <name>` alias (Struct kind
+ * only) is emitted at the same scope as the class itself — top-level or
+ * inside a `namespace N { ... }` block. Two classes sharing the same
+ * `original_name` collide only when they render into the SAME scope (the
+ * same namespace, or both top-level); two classes in different namespaces
+ * each get their own namespace-scoped alias and do not collide. A
+ * proc-macro cannot resolve which crate a bare identifier belongs to (see
+ * `napi_type_ref_sentinel` in the Rust backend), so a genuine same-scope
+ * collision must fail generation rather than silently emit two conflicting
+ * declarations into the same scope.
+ */
+function validateNoAliasAmbiguity(typeDefGroups: TypeDefLine[][]): void {
+  const seen = new Map<
+    string,
+    Array<{ name: string; producerCrate?: string }>
+  >()
+  for (const def of typeDefGroups.flat()) {
+    if (def.kind !== TypeDefKind.Struct || !def.original_name) {
+      continue
+    }
+    const scopeKey = `${def.js_mod ?? TOP_LEVEL_NAMESPACE}\0${def.original_name}`
+    const entries = seen.get(scopeKey) ?? []
+    entries.push({ name: def.name, producerCrate: def.producer_crate })
+    seen.set(scopeKey, entries)
+  }
+  for (const [scopeKey, entries] of seen) {
+    const distinctNames = new Set(entries.map((e) => e.name))
+    if (distinctNames.size <= 1) {
+      continue
+    }
+    const [namespace, originalName] = scopeKey.split('\0')
+    const describe = (e: { name: string; producerCrate?: string }) =>
+      `\`${e.name}\` (crate \`${e.producerCrate ?? 'unknown'}\`)`
+    throw new Error(
+      `Ambiguous \`export type ${originalName} = ...\` alias: ${entries
+        .map(describe)
+        .join(' and ')} both use the Rust identifier \`${originalName}\`` +
+        (namespace === TOP_LEVEL_NAMESPACE
+          ? ' at the top level.'
+          : ` in namespace \`${namespace}\`.`) +
+        ' Rename one of the conflicting Rust identifiers, or disable this ' +
+        'alias entirely with `emitRustNameTypeAlias: false`.',
+    )
+  }
+}
+
 function renderTypeDefs(
   groupedTypeDefs: Map<string, TypeDefLine[]>[],
   constEnum: boolean,
   runtimeStringEnum: boolean,
   exports: string[],
   reservedDeclarationText: string,
+  emitRustNameTypeAlias: boolean = true,
 ): string {
   const topLevelExportNames = new Set<string>()
   for (const groupedDefs of groupedTypeDefs) {
@@ -412,10 +694,14 @@ function renderTypeDefs(
                   case TypeDefKind.StringEnum:
                   case TypeDefKind.Fn:
                   case TypeDefKind.Struct: {
+                    // Only `def.name` (the real js_name) is ever a valid
+                    // runtime export — `module.exports.<original_name>`
+                    // never existed on the native binding (the binding is
+                    // keyed by js_name only), so pushing the Rust identifier
+                    // here produced a dead alias. Note `original_name` is
+                    // still added to `topLevelExportNames` above, which is a
+                    // separate, unrelated reserved-name-collision check.
                     exports.push(def.name)
-                    if (def.original_name && def.original_name !== def.name) {
-                      exports.push(def.original_name)
-                    }
                     break
                   }
                   default:
@@ -428,6 +714,7 @@ function renderTypeDefs(
                   0,
                   false,
                   asyncGeneratorHelperName,
+                  emitRustNameTypeAlias,
                 )
               })
               .join('\n\n')
@@ -444,6 +731,7 @@ function renderTypeDefs(
                   2,
                   true,
                   asyncGeneratorHelperName,
+                  emitRustNameTypeAlias,
                 ) + '\n'
             }
             declaration += '}'

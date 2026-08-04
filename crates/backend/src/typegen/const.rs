@@ -29,6 +29,9 @@ impl ToTypeDef for NapiConst {
       ),
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
+      producer_crate: super::producer_crate(),
+      instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     })
   }
 }

@@ -216,7 +216,7 @@ pub type napi_async_cleanup_hook =
   Option<unsafe extern "C" fn(handle: napi_async_cleanup_hook_handle, data: *mut c_void)>;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct napi_type_tag {
   pub lower: u64,
   pub upper: u64,

@@ -1,0 +1,21 @@
+[package]
+name = "napi-broken-hierarchy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Test-only fixture addon (issue #1164): its module registration deliberately
+# fails, to prove `#[napi(extends)]` fails FAST rather than hanging when a
+# broken hierarchy is `require()`d concurrently from multiple worker_threads.
+# `dyn-symbols` lets a plain `cargo build` produce a loadable `.node` (napi host
+# symbols resolved at runtime), so no napi-CLI build step is needed.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi-derive = { path = "../../crates/macro" }
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi8",
+  "dyn-symbols",
+] }

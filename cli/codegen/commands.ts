@@ -252,6 +252,12 @@ const BUILD_OPTIONS: CommandSchema = {
       description: 'Build only the specified binary',
     },
     {
+      name: 'binary',
+      type: 'string',
+      description:
+        'Build only the `binaries[]` config entry with this `name`. Selects one output addon in a multi-binary project by its config `name` (distinct from `--bin`, which picks a Cargo binary target).',
+    },
+    {
       name: 'package',
       type: 'string',
       description: 'Build the specified library or the one at cwd',

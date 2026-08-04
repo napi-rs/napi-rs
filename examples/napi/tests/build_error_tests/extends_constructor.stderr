@@ -1,0 +1,8 @@
+error: #[napi(extends = ...)] cannot be combined with #[napi(constructor)] in this version: construct the extended class with a #[napi(factory)] method instead (the embedded parent field is not a constructor-marshalable argument)
+  --> tests/build_error_tests/extends_constructor.rs:16:1
+   |
+16 | / #[repr(C)]
+17 | | pub struct Child {
+18 | |   pub parent: Parent,
+19 | | }
+   | |_^

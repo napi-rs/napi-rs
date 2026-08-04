@@ -1,0 +1,8 @@
+error: #[napi(extends = ...)] cannot be combined with #[repr(packed)]: it can misalign the embedded parent field
+  --> tests/build_error_tests/extends_packed.rs:12:1
+   |
+12 | / #[repr(C, packed)]
+13 | | pub struct Child {
+14 | |   parent: Parent,
+15 | | }
+   | |_^

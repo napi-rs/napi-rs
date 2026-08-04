@@ -358,6 +358,51 @@ impl TryToTokens for NapiFn {
 }
 
 impl NapiFn {
+  /// Classify this method's receiver for the issue #1164 borrowed-upcast
+  /// routing. Returns `true` (**Exact** — keep today's exact-only receiver
+  /// unwrap) iff the method has a `Reference<Self>` parameter: that parameter
+  /// reuses the receiver's `this_ptr` to build a persistent
+  /// `Reference::<Self>::from_value_ptr(this_ptr, ..)`, whose `Deref`/`share_with`
+  /// would reconstruct a `Box<Self>` — a layout error if `this_ptr` were the
+  /// `Self`-view into a larger descendant allocation. Every other `&self` /
+  /// `&mut self` method is **BorrowedUpcast** and routes through
+  /// `unwrap_borrowed_receiver`, which accepts a descendant receiver and yields a
+  /// pointer that is only ever borrowed (never boxed). `This<&Self>` / `This<Self>`
+  /// parameters are unaffected — they convert `cb.this()` independently via
+  /// `from_napi_ref` / `from_napi_value` (still exact), not through `this_ptr`.
+  pub(crate) fn receiver_is_exact(&self) -> bool {
+    let Some(parent) = &self.parent else {
+      return false;
+    };
+    self.args.iter().any(|arg| {
+      let NapiFnArgKind::PatType(pat_type) = &arg.kind else {
+        return false;
+      };
+      let syn::Type::Path(type_path) = pat_type.ty.as_ref() else {
+        return false;
+      };
+      let Some(last_segment) = type_path.path.segments.last() else {
+        return false;
+      };
+      if last_segment.ident != "Reference" {
+        return false;
+      }
+      let syn::PathArguments::AngleBracketed(angle_bracketed) = &last_segment.arguments else {
+        return false;
+      };
+      let Some(syn::GenericArgument::Type(syn::Type::Path(inner_path))) =
+        angle_bracketed.args.first()
+      else {
+        return false;
+      };
+      inner_path
+        .path
+        .segments
+        .first()
+        .is_some_and(|inner_segment| inner_segment.ident == *parent)
+    })
+  }
+
   fn gen_arg_conversions(&self) -> BindgenResult<ArgConversions> {
     let mut arg_conversions = vec![];
     let mut this_conversions = vec![];
@@ -369,24 +414,49 @@ impl NapiFn {
     let mut receiver_conversion = quote! {};
     // fetch this
     if let Some(parent) = &self.parent {
+      // issue #1164: a plain `&self` / `&mut self` receiver is BorrowedUpcast —
+      // route it through `unwrap_borrowed_receiver` (accepts a descendant, yields
+      // a pointer we only borrow, never box). A method carrying a
+      // `Reference<Self>` param is Exact and keeps today's exact unwrap + boxed
+      // reconstruction, because that param builds a persistent `Reference<Self>`
+      // from the same `this_ptr` (see `receiver_is_exact`).
+      let receiver_is_exact = self.receiver_is_exact();
       match self.fn_self {
         Some(FnSelf::Ref) => {
           refs.push(make_ref(quote! { cb.this() }));
-          receiver_unwrap = quote! {
-            let this_ptr = cb.unwrap_raw::<#parent>()?;
-          };
-          receiver_conversion = quote! {
-            let this: &#parent = Box::leak(Box::from_raw(this_ptr));
-          };
+          if receiver_is_exact {
+            receiver_unwrap = quote! {
+              let this_ptr = cb.unwrap_raw::<#parent>()?;
+            };
+            receiver_conversion = quote! {
+              let this: &#parent = Box::leak(Box::from_raw(this_ptr));
+            };
+          } else {
+            receiver_unwrap = quote! {
+              let this_ptr = cb.unwrap_borrowed_raw::<#parent>()?;
+            };
+            receiver_conversion = quote! {
+              let this: &#parent = &*this_ptr;
+            };
+          }
         }
         Some(FnSelf::MutRef) => {
           refs.push(make_ref(quote! { cb.this() }));
-          receiver_unwrap = quote! {
-            let this_ptr = cb.unwrap_raw::<#parent>()?;
-          };
-          receiver_conversion = quote! {
-            let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
-          };
+          if receiver_is_exact {
+            receiver_unwrap = quote! {
+              let this_ptr = cb.unwrap_raw::<#parent>()?;
+            };
+            receiver_conversion = quote! {
+              let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
+            };
+          } else {
+            receiver_unwrap = quote! {
+              let this_ptr = cb.unwrap_borrowed_raw::<#parent>()?;
+            };
+            receiver_conversion = quote! {
+              let this: &mut #parent = &mut *this_ptr;
+            };
+          }
         }
         _ => {}
       };

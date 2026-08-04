@@ -331,4 +331,23 @@ impl<const N: usize> CallbackInfo<N> {
       Ok(wrapped_val.cast())
     }
   }
+
+  /// Unwrap a **borrowed** `&self` / `&mut self` receiver, accepting `T` itself
+  /// or any registered descendant of `T` (issue #1164). Unlike [`unwrap_raw`],
+  /// which is exact-only and feeds persistent wrappers (`Reference<Self>`), this
+  /// is used only for the plain-borrow receiver path: the returned pointer is
+  /// borrowed directly (`&*` / `&mut *`) and never reconstructed into a `Box<T>`
+  /// (which would be a layout error for a descendant instance). For a
+  /// non-extended class it is exactly as cheap as `unwrap_raw` (one exact tag
+  /// check). See [`unwrap_borrowed_receiver`].
+  ///
+  /// [`unwrap_raw`]: CallbackInfo::unwrap_raw
+  #[doc(hidden)]
+  #[inline]
+  pub unsafe fn unwrap_borrowed_raw<T>(&mut self) -> Result<*mut T>
+  where
+    T: TypeName + MaybeTypeTag,
+  {
+    unsafe { unwrap_borrowed_receiver::<T>(self.env, self.this) }
+  }
 }

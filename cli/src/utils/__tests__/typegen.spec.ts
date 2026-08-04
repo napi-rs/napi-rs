@@ -72,6 +72,13 @@ const flagFixture = join(
   'runtime_string_enum_flag',
 )
 
+const exactReceiverInheritanceFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'exact_receiver_inheritance',
+)
+
 test('should process type def with noConstEnum and runtimeStringEnum correctly', async (t) => {
   const { dts } = await processTypeDef(flagFixture, false, true)
 
@@ -82,4 +89,14 @@ test('runtimeStringEnum is a no-op when constEnum is set', async (t) => {
   const { dts } = await processTypeDef(flagFixture, true, true)
 
   t.snapshot(dts)
+})
+
+test('exact-receiver methods are omitted from descendant instance types', async (t) => {
+  const { dts } = await processTypeDef(exactReceiverInheritanceFixture, true)
+
+  t.regex(
+    dts,
+    /export interface Sub extends globalThis\.Omit<Base, "refValue"> \{\}/,
+  )
+  t.regex(dts, /refValue\(\): number/)
 })

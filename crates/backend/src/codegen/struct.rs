@@ -939,6 +939,13 @@ impl NapiStruct {
     let js_name_str = &self.js_name;
 
     for field in class.fields.iter() {
+      // Skip the embedded-parent field of an `extends` class: it gets no JS
+      // accessor, so no getter/setter fn is generated for it either — a
+      // `#[napi]`-class value is not `ToNapiValue`/`FromNapiValue` (#1164).
+      if class.is_embedded_parent_field(&field.name) {
+        continue;
+      }
+
       let field_ident = &field.name;
       let field_name = match &field.name {
         syn::Member::Named(ident) => ident.to_string(),
@@ -999,7 +1006,10 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
-              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              // issue #1164: borrow the receiver directly instead of
+              // reconstructing a `Box` — for a descendant instance `this_ptr` is
+              // the parent-view into a larger allocation, not a standalone Box.
+              let obj: &mut #struct_name = unsafe { &mut *this_ptr };
               #to_napi_value_convert
             }
           },
@@ -1024,7 +1034,10 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
-              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              // issue #1164: borrow the receiver directly instead of
+              // reconstructing a `Box` — for a descendant instance `this_ptr` is
+              // the parent-view into a larger allocation, not a standalone Box.
+              let obj: &mut #struct_name = unsafe { &mut *this_ptr };
               obj.#field_ident = val;
               unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }
             }
@@ -1059,6 +1072,65 @@ impl NapiStruct {
     let struct_register_name = &self.register_name;
     let js_name = format!("{}\0", self.js_name);
     let implement_iterator = class.implement_iterator;
+    // Registration type-tag metadata (#1164). `own_tag` is this class's tag;
+    // `parent_tag` is `Some` only for an `#[napi(extends = Parent)]` class.
+    let own_tag_expr = quote! { Some(<#name as napi::bindgen_prelude::TypeTag>::type_tag()) };
+    let parent_tag_expr = match &class.extends {
+      Some(parent_path) => {
+        quote! { Some(<#parent_path as napi::bindgen_prelude::TypeTag>::type_tag()) }
+      }
+      None => quote! { None },
+    };
+    // Embedded-parent layout assertions (#1164). Two independent compile-time
+    // invariants guard the runtime offset-0 upcast (see
+    // `napi::bindgen_runtime::type_tag::unwrap_borrowed_receiver`, which
+    // reinterprets `*mut Child` as `*mut Parent` with no offset adjustment):
+    //   1. the first field's declared type is EXACTLY the parent (not
+    //      `Box<Parent>` / `Rc<Parent>` / a custom `Deref<Target = Parent>` —
+    //      those are pointer indirections, not the parent's bytes at offset 0);
+    //   2. that field physically begins at offset 0.
+    // Each lives in its own anonymous `const _` scope (so two extended classes
+    // in one module don't collide on the helper trait name, and so the offset
+    // check still runs even if the type check fails to satisfy its bound).
+    let layout_assertion = match (
+      &class.extends,
+      &class.first_field_ty,
+      &class.first_field_member,
+    ) {
+      (Some(parent_path), Some(first_field_ty), Some(first_field_member)) => quote! {
+        // Invariant 1 — exact parent type. A same-type marker trait:
+        // `impl<T> __NapiExactType<T> for T {}` is reflexive only, so the bound
+        // holds iff the first field's declared type is EXACTLY the parent. This
+        // is used deliberately instead of `let _: &Parent = &v.first_field;`,
+        // which is a deref-coercion site that would wrongly accept `Box`/`Rc`/
+        // newtype wrappers. `#[diagnostic::on_unimplemented]` turns the
+        // otherwise-cryptic unsatisfied-bound error into a message that names
+        // the actual misuse (MSRV 1.88 ≥ the 1.78 stabilization).
+        const _: () = {
+          #[diagnostic::on_unimplemented(
+            message = "`#[napi(extends = ...)]` requires the first field to be exactly the parent class type",
+            label = "the first field here is not the `extends` parent type",
+            note = "embed the parent by value as the first field; `Box<Parent>`, `Rc<Parent>`, a reference, or a newtype wrapper is rejected because the embedded-parent model needs the parent's bytes at offset 0"
+          )]
+          trait __NapiExactType<T> {}
+          impl<T> __NapiExactType<T> for T {}
+          fn __assert_parent_is_first_field<T: __NapiExactType<#parent_path>>() {}
+          let _ = __assert_parent_is_first_field::<#first_field_ty>;
+        };
+        // Invariant 2 — the embedded parent starts at offset 0. `#[repr(C)]` +
+        // the parent-first-field rule (both enforced by the parser) guarantee
+        // this today; asserting it here makes it a hard, self-checking invariant
+        // so a future codegen or layout change can never silently move the
+        // parent off offset 0 and invalidate the unchecked upcast.
+        const _: () = {
+          assert!(
+            ::core::mem::offset_of!(#name, #first_field_member) == 0,
+            "`#[napi(extends)]` internal invariant broken: the embedded parent field must be at offset 0"
+          );
+        };
+      },
+      _ => quote! {},
+    };
     let mut props = vec![];
 
     if class.ctor {
@@ -1066,6 +1138,12 @@ impl NapiStruct {
     }
 
     for field in class.fields.iter() {
+      // Skip the embedded-parent field of an `extends` class: it must not get a
+      // JS accessor, since a `#[napi]`-class value is not marshalable (#1164).
+      if class.is_embedded_parent_field(&field.name) {
+        continue;
+      }
+
       let field_name = match &field.name {
         syn::Member::Named(ident) => ident.to_string(),
         syn::Member::Unnamed(i) => format!("field{}", i.index),
@@ -1127,13 +1205,15 @@ impl NapiStruct {
     }
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     quote! {
+      #layout_assertion
+
       #[cfg(all(not(test), not(target_family = "wasm")))]
       napi::ctor::declarative::ctor! {
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
         #[ctor(unsafe)]
         fn #struct_register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
+          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator, #own_tag_expr, #parent_tag_expr);
         }
       }
 
@@ -1142,7 +1222,7 @@ impl NapiStruct {
       #[cfg(all(not(test), target_family = "wasm"))]
       #[no_mangle]
       extern "C" fn #struct_register_name() {
-        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
+        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator, #own_tag_expr, #parent_tag_expr);
       }
     }
   }
@@ -1754,7 +1834,17 @@ impl NapiImpl {
         FnKind::Setter => quote! { .with_setter(#intermediate_name) },
         _ => {
           if item.fn_self.is_some() {
-            quote! { .with_method(#intermediate_name) }
+            // issue #1164 (P8): a plain `&self` / `&mut self` receiver is
+            // BorrowedUpcast unless the method takes a `Reference<Self>` (which
+            // keeps it Exact — see `receiver_is_exact`). Marking it lets an
+            // extended base rebuild it without a V8 receiver signature so a
+            // descendant can call it; an Exact method is left signature-guarded
+            // and must fail on a descendant.
+            if item.receiver_is_exact() {
+              quote! { .with_method(#intermediate_name) }
+            } else {
+              quote! { .with_method(#intermediate_name).as_borrowed_upcast_method() }
+            }
           } else {
             quote! { .with_method(#intermediate_name).with_property_attributes(napi::bindgen_prelude::PropertyAttributes::Static) }
           }
@@ -1799,14 +1889,14 @@ impl NapiImpl {
         napi::ctor::declarative::ctor! {
           #[ctor(unsafe)]
           fn #register_name() {
-            napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], false);
+            napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], false, None, None);
           }
         }
 
         #[cfg(all(not(test), target_family = "wasm"))]
         #[no_mangle]
         extern "C" fn #register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props_wasm),*], false);
+          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props_wasm),*], false, None, None);
         }
       }
     })

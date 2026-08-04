@@ -5,7 +5,7 @@ use std::ptr;
 use serde_json::{Map, Number, Value};
 
 use crate::{
-  bindgen_runtime::{Null, Object},
+  bindgen_runtime::{Null, Object, Unknown},
   check_status, sys, type_of, Env, Error, Result, Status, ValueType,
 };
 
@@ -32,8 +32,51 @@ impl ToNapiValue for Value {
   }
 }
 
+/// serde_json's own default nesting limit. Converting JS input nested deeper than
+/// this — which a cycle reaches unconditionally — returns `Err` instead of
+/// recursing until the native stack overflows (a hard, uncatchable abort).
+const SERDE_VALUE_MAX_DEPTH: usize = 128;
+
+thread_local! {
+  static SERDE_VALUE_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII recursion-depth counter for the [`Value`] conversion below. Incremented on
+/// entry to each `Value::from_napi_value` frame and decremented on every exit
+/// (including error paths, via `Drop`), so nested object/array conversion is
+/// bounded and deeply nested or cyclic input surfaces as a catchable `Err` rather
+/// than exhausting the native stack.
+struct SerdeValueDepthGuard;
+
+impl SerdeValueDepthGuard {
+  fn enter() -> Result<Self> {
+    SERDE_VALUE_DEPTH.with(|depth| {
+      let next = depth.get() + 1;
+      if next > SERDE_VALUE_MAX_DEPTH {
+        return Err(Error::new(
+          Status::InvalidArg,
+          format!(
+            "JS value nesting exceeds the maximum supported depth of {SERDE_VALUE_MAX_DEPTH} when converting to serde_json::Value (deeply nested or cyclic input)"
+          ),
+        ));
+      }
+      depth.set(next);
+      Ok(SerdeValueDepthGuard)
+    })
+  }
+}
+
+impl Drop for SerdeValueDepthGuard {
+  fn drop(&mut self) {
+    SERDE_VALUE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+  }
+}
+
 impl FromNapiValue for Value {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    // Bound the depth-first recursion below (object/array walks re-enter this fn):
+    // deeply nested or cyclic input errors here instead of overflowing the stack.
+    let _depth_guard = SerdeValueDepthGuard::enter()?;
     let ty = type_of!(env, napi_val)?;
     let val = match ty {
       ValueType::Boolean => Value::Bool(unsafe { bool::from_napi_value(env, napi_val)? }),
@@ -226,5 +269,71 @@ impl FromNapiValue for Number {
     })?;
 
     Ok(n)
+  }
+}
+
+#[cfg(feature = "napi6")]
+impl Object<'_> {
+  /// Convert this object into an owned [`serde_json::Value`] using napi-rs's
+  /// serde bridge (the same [`FromNapiValue`] path a `serde_json::Value`
+  /// function argument takes).
+  ///
+  /// This is **not** JavaScript's `JSON.stringify`/`JSON.parse`: it never calls a
+  /// `toJSON` method, and several inputs behave differently from the ECMAScript
+  /// JSON algorithm. "Safe" here means memory-safe and error-checked — it is
+  /// **not** side-effect-free: reading a value can run JS getters / Proxy traps.
+  /// An object is walked with `napi_get_property_names` — its **enumerable**
+  /// properties, own **and inherited** (like a `for…in` loop), not own-only.
+  /// Exact, tested semantics:
+  ///
+  /// | JS input | Result |
+  /// |----------|--------|
+  /// | object / array / string / boolean / `null` | converted structurally |
+  /// | number | `Number` (integers narrow to `i32`/`u32` when exact) |
+  /// | `undefined` | `Err(InvalidArg)` — JSON has no `undefined` (differs from `JSON.stringify`, which silently drops it) |
+  /// | function | `Err(InvalidArg)` |
+  /// | symbol | `Err(InvalidArg)` |
+  /// | `External` | `Err(InvalidArg)` |
+  /// | `BigInt` | `Number` when it fits `i64`/`u64` losslessly, otherwise its decimal `String` |
+  /// | `Date` | `{}` — only enumerable own properties are read (a `Date` has none); the instant is lost. Call `.getTime()` first if you need it. |
+  /// | typed array (`Uint8Array`, …) | index-keyed **object** (`{"0":…}`), never a JSON array |
+  /// | native `#[napi]` class instance | typically `Err` — a napi class's methods are *enumerable* prototype members, and a method is a function (unrepresentable); the native-wrapped state is never visible either way |
+  /// | a getter / Proxy trap that throws | `Err` — the thrown JS exception propagates |
+  ///
+  /// # Depth is bounded; cycles surface as `Err`
+  ///
+  /// The conversion is depth-first with **no visited set**, but it is
+  /// **depth-limited**: input nested deeper than 128 levels
+  /// (`SERDE_VALUE_MAX_DEPTH`, matching `serde_json`'s own default recursion limit)
+  /// returns `Err(InvalidArg)` rather than recursing until the native stack is
+  /// exhausted — a hard, uncatchable abort. A self-referential object
+  /// (`a.self = a`) is unbounded and so always trips this limit and errors, rather
+  /// than crashing the process. (`JSON.stringify` throws a `TypeError` on cycles;
+  /// this bridge returns an `Err`.)
+  ///
+  /// # Feature gate
+  ///
+  /// Requires `serde-json` **and** `napi6`. The `napi6` gate — stricter than the
+  /// `serde-json` the bridge itself needs — keeps the `BigInt` row above always
+  /// true: without `napi6` a `BigInt` would instead hit the catch-all error arm,
+  /// and offering a method whose documented semantics silently changed with a
+  /// feature is worse than not offering it on that build.
+  pub fn to_serde_json_value(&self) -> Result<Value> {
+    unsafe { Value::from_napi_value(self.0.env, self.0.value) }
+  }
+}
+
+#[cfg(feature = "napi6")]
+impl Unknown<'_> {
+  /// Convert this value into an owned [`serde_json::Value`].
+  ///
+  /// Unlike [`Object::to_serde_json_value`], this accepts any JS value — so it is
+  /// the entry point for the non-object cases (`undefined`, functions, symbols,
+  /// `BigInt`, primitives) that an [`Object`] parameter would reject before the
+  /// conversion ever runs. See [`Object::to_serde_json_value`] for the full,
+  /// tested semantics table (including the cycle-handling caveat and feature
+  /// gate), which apply identically here.
+  pub fn to_serde_json_value(&self) -> Result<Value> {
+    unsafe { Value::from_napi_value(self.0.env, self.0.value) }
   }
 }

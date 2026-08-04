@@ -56,6 +56,7 @@ macro_rules! attrgen {
       (js_name, JsName(Span, String, Span)),
       (constructor, Constructor(Span)),
       (factory, Factory(Span)),
+      (extends, Extends(Span, syn::Path)),
       (getter, Getter(Span, Option<Ident>)),
       (setter, Setter(Span, Option<Ident>)),
       (readonly, Readonly(Span)),

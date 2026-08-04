@@ -16,11 +16,75 @@ export type SupportedTestFramework = ValueOfConstArray<
   typeof SupportedTestFrameworks
 >
 
+/**
+ * A single output binary in a multi-binary project.
+ *
+ * A project that ships more than one addon from the same repository — for
+ * example a full-featured build and a slimmed-down build compiled from a
+ * different crate — lists each one here. `napi build` then builds every entry
+ * in order, each into its own private type-def cache so their generated
+ * bindings never collide, or a single entry selected with
+ * `napi build --binary <name>`.
+ *
+ * When `binaries` is absent the top-level single-binary fields (`binaryName`,
+ * `manifestPath`, ...) are used unchanged, so existing single-binary projects
+ * are unaffected.
+ */
+export interface BinaryConfig {
+  /**
+   * Stable identifier for this binary. It is the `napi build --binary <name>`
+   * selector and keys this binary's private type-def cache, so it must be
+   * unique across all entries. It is independent of `binaryName` (the output
+   * artifact name), so a binary can be renamed on disk without changing how it
+   * is selected on the command line.
+   */
+  name: string
+  /**
+   * Path to the `Cargo.toml` of the crate this binary is compiled from,
+   * relative to the working directory. Provide exactly one of `manifestPath`
+   * or `package`.
+   */
+  manifestPath?: string
+  /**
+   * Cargo package to build (`cargo build --package <package>`), for selecting
+   * one crate out of a workspace. Provide exactly one of `manifestPath` or
+   * `package`.
+   */
+  package?: string
+  /**
+   * Output artifact base name for this binary (the `.node`/`.wasm` file).
+   * Overrides the top-level `binaryName`; defaults to it when omitted.
+   */
+  binaryName?: string
+  /**
+   * Path and filename of the generated JS binding file for this binary,
+   * relative to the output directory. Defaults to `index.js` when omitted.
+   */
+  js?: string
+  /**
+   * Path and filename of the generated type-def (`.d.ts`) file for this
+   * binary, relative to the output directory. Defaults to `index.d.ts` when
+   * omitted.
+   */
+  dts?: string
+}
+
 export interface UserNapiConfig {
   /**
    * Name of the binary to be generated, default to `index`
    */
   binaryName?: string
+
+  /**
+   * Build more than one output binary from a single `napi build` invocation.
+   *
+   * Each entry describes one addon (its crate, output artifact name, and
+   * generated `js`/`dts` paths). When present, `napi build` builds every entry
+   * in order — each with its own isolated type-def cache — or a single entry
+   * selected by `napi build --binary <name>`. When absent, the top-level
+   * single-binary fields are used and behavior is unchanged.
+   */
+  binaries?: BinaryConfig[]
   /**
    * Name of the npm package, default to the name of root package.json name
    *
@@ -46,6 +110,15 @@ export interface UserNapiConfig {
    * Emit `#[napi(string_enum)]` enums as runtime enums (`export declare enum`) under `--no-const-enum`. Default: type-only union.
    */
   runtimeStringEnum?: boolean
+
+  /**
+   * Emit a top-level `export type <RustIdent> = <js_name>` alias for every
+   * `#[napi]` class whose `js_name` differs from its Rust identifier.
+   * Default `true`, preserving today's behavior — this alias predates
+   * `(namespace, js_name)` becoming the canonical identity and may already be
+   * relied on by downstream consumers. Set `false` to stop emitting it.
+   */
+  emitRustNameTypeAlias?: boolean
 
   /**
    * dts header prepend to the generated dts file
@@ -182,7 +255,13 @@ export type NapiConfig = Required<
 > &
   Pick<
     UserNapiConfig,
-    'wasm' | 'dtsHeader' | 'dtsHeaderFile' | 'constEnum' | 'runtimeStringEnum'
+    | 'wasm'
+    | 'dtsHeader'
+    | 'dtsHeaderFile'
+    | 'constEnum'
+    | 'runtimeStringEnum'
+    | 'binaries'
+    | 'emitRustNameTypeAlias'
   > & {
     targets: Target[]
     packageJson: CommonPackageJsonFields
