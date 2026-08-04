@@ -38,6 +38,7 @@ mod external;
 #[cfg(feature = "compat-mode")]
 mod function;
 mod global;
+pub(crate) mod json_stream;
 #[cfg(feature = "compat-mode")]
 mod null;
 mod number;
