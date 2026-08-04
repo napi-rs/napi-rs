@@ -26,6 +26,7 @@ impl ToTypeDef for NapiEnum {
       js_mod: self.js_mod.to_owned(),
       producer_crate: super::producer_crate(),
       instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     })
   }
 }

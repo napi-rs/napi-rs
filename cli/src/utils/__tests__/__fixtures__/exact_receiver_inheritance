@@ -1,0 +1,3 @@
+{"kind":"struct","name":"Base","original_name":"Base","js_doc":"","def":"refValue(): number","producer_crate":"fixture"}
+{"kind":"impl","name":"Base","js_doc":"","def":"refValue(): number","non_inheritable_methods":["refValue"]}
+{"kind":"struct","name":"Sub","original_name":"Sub","js_doc":"","def":"ownValue(): number","producer_crate":"fixture","instance_extends":"Base"}

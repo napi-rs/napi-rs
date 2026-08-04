@@ -73,6 +73,9 @@ interface TypeDefLine {
   // May arrive as a cross-crate `napi_type_ref_sentinel`, resolved by
   // `resolveCrossFragmentTypeReferences` alongside `def`.
   instance_extends?: string
+  // Methods whose hidden native receiver arguments require an exact instance
+  // and therefore cannot be called through a descendant prototype.
+  non_inheritable_methods?: string[]
   asyncIterator?: [yieldType: string, returnType: string, nextType: string]
   js_doc?: string
   js_mod?: string
@@ -480,6 +483,50 @@ function resolveCrossFragmentTypeReferences(
   )
 }
 
+/**
+ * Remove exact-receiver methods from a child's inherited instance surface.
+ * The runtime leaves these methods on the parent prototype but rejects a
+ * descendant receiver, so plain `interface Child extends Parent` would promise
+ * calls that always throw. The metadata lives on the parent's `impl` fragment;
+ * this cross-fragment pass can match it after parent references are resolved.
+ */
+function omitNonInheritableParentMethods(
+  typeDefGroups: TypeDefLine[][],
+): TypeDefLine[][] {
+  const methodsByClass = new Map<string, Set<string>>()
+  for (const def of typeDefGroups.flat()) {
+    if (def.kind !== TypeDefKind.Impl || !def.non_inheritable_methods?.length) {
+      continue
+    }
+    const className = def.js_mod ? `${def.js_mod}.${def.name}` : def.name
+    const methods = methodsByClass.get(className) ?? new Set<string>()
+    for (const method of def.non_inheritable_methods) {
+      methods.add(method)
+    }
+    methodsByClass.set(className, methods)
+  }
+
+  return typeDefGroups.map((defs) =>
+    defs.map((def) => {
+      if (def.kind !== TypeDefKind.Struct || !def.instance_extends) {
+        return def
+      }
+      const methods = methodsByClass.get(def.instance_extends)
+      if (!methods?.size) {
+        return def
+      }
+      const omittedKeys = [...methods]
+        .sort()
+        .map((method) => JSON.stringify(method))
+        .join(' | ')
+      return {
+        ...def,
+        instance_extends: `globalThis.Omit<${def.instance_extends}, ${omittedKeys}>`,
+      }
+    }),
+  )
+}
+
 export async function processTypeDefs(
   intermediateTypeFiles: string[],
   constEnum: boolean,
@@ -491,7 +538,9 @@ export async function processTypeDefs(
   const rawTypeDefs = await Promise.all(
     intermediateTypeFiles.map((file) => readIntermediateTypeFile(file)),
   )
-  const typeDefs = resolveCrossFragmentTypeReferences(rawTypeDefs)
+  const typeDefs = omitNonInheritableParentMethods(
+    resolveCrossFragmentTypeReferences(rawTypeDefs),
+  )
   if (emitRustNameTypeAlias) {
     validateNoAliasAmbiguity(typeDefs)
   }

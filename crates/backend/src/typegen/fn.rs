@@ -115,6 +115,7 @@ impl ToTypeDef for NapiFn {
       js_doc: JSDoc::new(&self.comments),
       producer_crate: None,
       instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     })
   }
 }

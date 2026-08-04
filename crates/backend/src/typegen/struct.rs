@@ -84,6 +84,7 @@ impl ToTypeDef for NapiStruct {
       js_doc,
       producer_crate: super::producer_crate(),
       instance_extends: self.instance_extends_ref(),
+      non_inheritable_methods: Vec::new(),
     })
   }
 }
@@ -134,6 +135,7 @@ impl ToTypeDef for NapiImpl {
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
         producer_crate: None,
         instance_extends: None,
+        non_inheritable_methods: Vec::new(),
       })
     } else if let Some(output_type) = &self.async_iterator_yield_type {
       let yield_type = ty_to_ts_type(output_type, false, true, false).0;
@@ -171,6 +173,7 @@ impl ToTypeDef for NapiImpl {
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
         producer_crate: None,
         instance_extends: None,
+        non_inheritable_methods: Vec::new(),
       })
     } else {
       Some(TypeDef {
@@ -198,6 +201,12 @@ impl ToTypeDef for NapiImpl {
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
         producer_crate: None,
         instance_extends: None,
+        non_inheritable_methods: self
+          .items
+          .iter()
+          .filter(|item| !item.skip_typescript && item.receiver_is_exact())
+          .map(|item| item.js_name.clone())
+          .collect(),
       })
     }
   }

@@ -25,13 +25,14 @@ import ava, { type ExecutionContext, type TestFn } from 'ava'
 
 import {
   buildProject,
+  collectStaleWasiBuildOutputNames,
   generateTypeDef,
   napiCrossToolchainEnvs,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
   writeJsBinding,
 } from '../build.js'
-import { getSystemDefaultTarget } from '../../utils/index.js'
+import { getSystemDefaultTarget, parseTriple } from '../../utils/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../../..')
@@ -41,6 +42,23 @@ const test = ava as TestFn<{
   projectDir: string
   typeDefDir: string
 }>
+
+test('secondary WASI binaries do not manage package-global worker artifacts', (t) => {
+  const target = parseTriple('wasm32-wasip1-threads')
+  const primary = collectStaleWasiBuildOutputNames('primary', target, [], true)
+  const secondary = collectStaleWasiBuildOutputNames(
+    'secondary',
+    target,
+    [],
+    false,
+  )
+
+  t.true(primary.has('wasi-worker.mjs'))
+  t.true(primary.has('wasi-worker-browser.mjs'))
+  t.false(secondary.has('wasi-worker.mjs'))
+  t.false(secondary.has('wasi-worker-browser.mjs'))
+  t.true(secondary.has('secondary.wasi.cjs'))
+})
 
 test.beforeEach(async (t) => {
   const timestamp = Date.now()

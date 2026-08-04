@@ -542,7 +542,7 @@ export declare class Sub {
   static create(value: number, extra: number): Sub
   get extra(): number
 }
-export interface Sub extends Base {}
+export interface Sub extends globalThis.Omit<Base, "refValue"> {}
 
 export declare class Thing {
 

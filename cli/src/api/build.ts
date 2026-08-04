@@ -459,6 +459,7 @@ export function collectStaleWasiBuildOutputNames(
   binaryName: string,
   buildTarget: Target,
   configuredTargets: Target[],
+  manageSharedRootArtifacts: boolean = true,
 ) {
   const staleNames = new Set<string>()
   const retainedFlavors = new Set(
@@ -493,7 +494,10 @@ export function collectStaleWasiBuildOutputNames(
     (flavor) =>
       flavor.hasThreads && retainedFlavors.has(flavor.platformArchABI),
   )
-  if (regeneratesWorkers || !retainsThreadedFlavor) {
+  if (
+    manageSharedRootArtifacts &&
+    (regeneratesWorkers || !retainsThreadedFlavor)
+  ) {
     staleNames.add('wasi-worker.mjs')
     staleNames.add('wasi-worker-browser.mjs')
   }
@@ -629,11 +633,14 @@ export async function buildProject(rawOptions: BuildOptions) {
   const aborters: Array<() => void> = []
   const task = (async () => {
     const outputs: Output[] = []
-    for (const binary of binaries) {
+    for (const [index, binary] of binaries.entries()) {
       if (aborted) {
         break
       }
-      const { task: binaryTask, abort } = await buildSingleProject(binary)
+      const { task: binaryTask, abort } = await buildSingleProject(
+        binary,
+        index === 0,
+      )
       aborters.push(abort)
       // `abort()` may have been called while `buildSingleProject` above was
       // still resolving — before this binary's own `abort` was registered, so
@@ -855,11 +862,10 @@ function validateBinaries(
  * Build one resolved binary: resolve its crate from `cargo metadata` and run
  * the {@link Builder}. Returns the builder's `{ task, abort }`.
  */
-async function buildSingleProject({
-  config,
-  options,
-  binaryFolderName,
-}: NormalizedBinary) {
+async function buildSingleProject(
+  { config, options, binaryFolderName }: NormalizedBinary,
+  manageSharedWasiArtifacts: boolean = true,
+) {
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
@@ -897,6 +903,7 @@ async function buildSingleProject({
     config,
     options,
     binaryFolderName,
+    manageSharedWasiArtifacts,
   )
 
   return builder.build()
@@ -1204,6 +1211,10 @@ class Builder {
     // Stable name of the output binary in a multi-binary build; isolates this
     // binary's type-def cache from its siblings. Undefined for single-binary.
     private readonly binaryFolderName?: string,
+    // WASI has package-global browser/worker entry points. In a full
+    // multi-binary build the first configured binary owns those shared files;
+    // every binary still emits its own binary-prefixed loaders and declarations.
+    private readonly manageSharedWasiArtifacts: boolean = true,
   ) {
     this.target = resolveTarget(options.target)
     this.crateDir = parse(crate.manifest_path).dir
@@ -1399,6 +1410,7 @@ class Builder {
       this.config.binaryName,
       this.target,
       this.config.targets,
+      this.manageSharedWasiArtifacts,
     )) {
       stalePaths.add(join(this.outputDir, name))
     }
@@ -1406,8 +1418,10 @@ class Builder {
       this.target.platform === 'wasi' ||
       this.config.targets.some((target) => target.platform === 'wasi') ||
       managedRootEntries.size > 0
-    if (hasWasiOutput) {
+    if (hasWasiOutput && this.manageSharedWasiArtifacts) {
       stalePaths.add(join(this.outputDir, 'browser.js'))
+    }
+    if (hasWasiOutput) {
       stalePaths.add(join(this.outputDir, `${this.config.binaryName}.wasm`))
       stalePaths.add(
         join(this.outputDir, `${this.config.binaryName}.debug.wasm`),
@@ -1419,6 +1433,9 @@ class Builder {
       }
     }
     for (const entry of managedRootEntries) {
+      if (!this.manageSharedWasiArtifacts && entry === 'browser.js') {
+        continue
+      }
       stalePaths.add(
         resolveManagedOutputPath(this.outputDir, entry, 'WASI root entry'),
       )
@@ -2330,7 +2347,7 @@ class Builder {
           ...(await this.writeWasiBindingForTarget(wasiTarget, dir, metadata)),
         )
       }
-      if (wasiTargets.length > 0) {
+      if (wasiTargets.length > 0 && this.manageSharedWasiArtifacts) {
         // The browser entry re-exports a single flavor: the non-threaded one
         // when declared (browser environments without cross-origin isolation
         // cannot use the threaded flavor). An explicit WASI build target is
@@ -2484,7 +2501,7 @@ export = binding
       { kind: 'js', path: browserBindingPath },
       { kind: 'dts', path: bindingTypeDefPath },
     ]
-    if (hasThreads) {
+    if (hasThreads && this.manageSharedWasiArtifacts) {
       // worker scripts are only referenced by the threaded loaders
       const workerPath = join(dir, 'wasi-worker.mjs')
       const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')

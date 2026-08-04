@@ -56,6 +56,12 @@ export function subReadsInheritedBaseMembers(): number {
   return value + doubled + extra
 }
 
+export function exactReceiverMethodIsNotInherited(): unknown {
+  const sub = Sub.create(10, 5)
+  // @ts-expect-error - Reference<Self> methods require an exact Base receiver at runtime.
+  return sub.refValue()
+}
+
 // Referenced so the imports of intermediate levels are not unused; also proves
 // each intermediate level is itself constructible via its own factory.
 export function intermediateLevelsAreConstructible(): number {

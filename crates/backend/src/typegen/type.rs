@@ -27,6 +27,7 @@ impl ToTypeDef for NapiType {
       js_doc: JSDoc::new(&self.comments),
       producer_crate: super::producer_crate(),
       instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     })
   }
 }

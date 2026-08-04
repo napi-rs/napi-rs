@@ -40,6 +40,11 @@ pub struct TypeDef {
   /// so `class Child extends Parent` (which TypeScript reads as inheriting statics
   /// too) would make the types claim an inheritance the runtime does not provide.
   pub instance_extends: Option<String>,
+  /// Instance methods that cannot be inherited safely at runtime. Currently
+  /// these are methods with a hidden `Reference<Self>` argument: their receiver
+  /// must remain exact because constructing a persistent `Reference<Self>` over
+  /// a descendant allocation would give it the wrong layout.
+  pub non_inheritable_methods: Vec<String>,
 }
 
 #[derive(Default, Debug)]
@@ -368,6 +373,19 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
+    let non_inheritable_methods = if self.non_inheritable_methods.is_empty() {
+      String::new()
+    } else {
+      format!(
+        ", \"non_inheritable_methods\": [{}]",
+        self
+          .non_inheritable_methods
+          .iter()
+          .map(|name| format!("\"{}\"", escape_json(name)))
+          .collect::<Vec<_>>()
+          .join(", ")
+      )
+    };
     let imported_types = if uses_buffer_type {
       format!(
         r#", "def_with_type_import_markers": "{}", "type_imports": [{{"marker": "{}", "name": "Buffer", "module": "buffer"}}]"#,
@@ -380,7 +398,7 @@ impl Display for TypeDef {
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
@@ -389,6 +407,7 @@ impl Display for TypeDef {
       js_mod,
       producer_crate,
       instance_extends,
+      non_inheritable_methods,
       imported_types,
     )
   }
@@ -1096,6 +1115,7 @@ mod tests {
       js_doc: JSDoc::new(["A \"quoted\" doc"]),
       producer_crate: None,
       instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     };
 
     let parsed: serde_json::Value =
@@ -1399,6 +1419,7 @@ mod tests {
       js_doc: JSDoc::default(),
       producer_crate: Some("identity-base".to_owned()),
       instance_extends: None,
+      non_inheritable_methods: Vec::new(),
     };
     let parsed: serde_json::Value =
       serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");

@@ -261,6 +261,37 @@ impl Drop for FirstRegistrationGuard {
   }
 }
 
+/// Balances the process-wide module count when registration exits before it
+/// has installed all per-environment cleanup state. Successful registration
+/// disarms the guard; an error return or panic rolls the optimistic increment
+/// back so a later successful retry has exactly one matching cleanup.
+#[cfg(not(feature = "noop"))]
+struct ModuleCountGuard<'a> {
+  count: &'a AtomicUsize,
+  armed: bool,
+}
+
+#[cfg(not(feature = "noop"))]
+impl<'a> ModuleCountGuard<'a> {
+  fn increment(count: &'a AtomicUsize) -> (Self, bool) {
+    let is_first = count.fetch_add(1, Ordering::SeqCst) == 0;
+    (Self { count, armed: true }, is_first)
+  }
+
+  fn commit(&mut self) {
+    self.armed = false;
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for ModuleCountGuard<'_> {
+  fn drop(&mut self) {
+    if self.armed {
+      self.count.fetch_sub(1, Ordering::SeqCst);
+    }
+  }
+}
+
 #[doc(hidden)]
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
@@ -996,7 +1027,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     return exports;
   }
 
-  let is_first_registration = MODULE_COUNT.fetch_add(1, Ordering::SeqCst) == 0;
+  let (mut module_count_guard, is_first_registration) = ModuleCountGuard::increment(&MODULE_COUNT);
   // From here on the guard owns the "first registration finished" signal: its
   // `Drop` sets `FIRST_MODULE_REGISTERED` on every exit path, so a later failure
   // (e.g. P5's prototype-wiring pass) may throw-and-return without leaving any
@@ -1488,6 +1519,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
     "Failed to add remove thread id cleanup hook"
   );
 
+  // From this point the environment cleanup owns the successful registration's
+  // count (or no cleanup is required by the active feature set), so an error
+  // guard must no longer roll it back.
+  module_count_guard.commit();
+
   // `FIRST_MODULE_REGISTERED` is now set by `_first_registration_guard`'s `Drop`
   // as this scope exits (see `FirstRegistrationGuard`), covering error exits too.
   exports
@@ -1677,7 +1713,33 @@ mod manifest_tests {
   //! Unit tests for the pure `detect_registration_conflicts` duplicate-detection
   //! pre-pass. No Node/N-API — plain descriptor structs — so these
   //! run under `cargo test -p napi --lib`.
-  use super::{detect_registration_conflicts, ExportDescriptor, ExportKind, MemberDescriptor};
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use super::{
+    detect_registration_conflicts, ExportDescriptor, ExportKind, MemberDescriptor, ModuleCountGuard,
+  };
+
+  #[test]
+  fn failed_registration_rolls_back_module_count() {
+    let count = AtomicUsize::new(0);
+    {
+      let (_guard, is_first) = ModuleCountGuard::increment(&count);
+      assert!(is_first);
+      assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+  }
+
+  #[test]
+  fn successful_registration_keeps_module_count_for_cleanup() {
+    let count = AtomicUsize::new(0);
+    {
+      let (mut guard, is_first) = ModuleCountGuard::increment(&count);
+      assert!(is_first);
+      guard.commit();
+    }
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+  }
 
   fn func<'a>(js_mod: Option<&'a str>, js_name: &'a str) -> ExportDescriptor<'a> {
     ExportDescriptor {
