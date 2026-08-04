@@ -163,7 +163,7 @@ nativeOnly(
     // throw — a V8 `Illegal invocation` on Node, a clean tag mismatch on a
     // runtime that does not enforce the signature. The message differs by
     // runtime (see type-tag.spec.ts), so assert only that it throws.
-    t.truthy(t.throws(() => sub.refValue()))
+    t.truthy(t.throws(() => (sub as any).refValue()))
 
     // it still works on a real Base instance.
     const base = new Base(7)

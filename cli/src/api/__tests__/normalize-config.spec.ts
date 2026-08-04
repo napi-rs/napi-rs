@@ -46,6 +46,7 @@ test('no binaries[] returns the single-binary build unchanged', (t) => {
     'the options are passed through by reference',
   )
   t.is(result[0].binaryFolderName, undefined)
+  t.true(result[0].manageSharedWasiArtifacts)
 })
 
 test('binaries[] expands into one build spec per entry', (t) => {
@@ -74,6 +75,7 @@ test('binaries[] expands into one build spec per entry', (t) => {
 
   const [full, client] = result as [NormalizedBinary, NormalizedBinary]
   t.is(full.binaryFolderName, 'full')
+  t.true(full.manageSharedWasiArtifacts)
   t.is(full.config.binaryName, 'index')
   t.is(full.options.manifestPath, 'crates/full/Cargo.toml')
   t.is(full.options.dts, 'index.d.ts')
@@ -81,6 +83,7 @@ test('binaries[] expands into one build spec per entry', (t) => {
   t.is(full.options.package, undefined)
 
   t.is(client.binaryFolderName, 'client')
+  t.false(client.manageSharedWasiArtifacts)
   t.is(client.config.binaryName, 'index-client')
   t.is(client.options.manifestPath, 'crates/client/Cargo.toml')
   t.is(client.options.dts, 'index-client.d.ts')
@@ -264,6 +267,18 @@ test('--binary selects exactly the matching entry', (t) => {
   t.is(result.length, 1)
   t.is(result[0].binaryFolderName, 'client')
   t.is(result[0].config.binaryName, 'index-client')
+  t.false(
+    result[0].manageSharedWasiArtifacts,
+    'a selected later binary must not overwrite package-global WASI files',
+  )
+})
+
+test('--binary selecting the first entry retains shared WASI ownership', (t) => {
+  const config = makeConfig({ binaries: FULL_CLIENT_BINARIES })
+
+  const [result] = normalizeConfig(config, makeOptions({ binary: 'full' }))
+
+  t.true(result.manageSharedWasiArtifacts)
 })
 
 test('--binary naming no entry lists the available binaries', (t) => {
@@ -282,15 +297,24 @@ test('--binary without any binaries[] config is rejected', (t) => {
 })
 
 test('--watch combined with binaries[] is rejected', (t) => {
-  const config = makeConfig({
-    binaries: [
-      { name: 'full', manifestPath: 'full/Cargo.toml', binaryName: 'index' },
-    ],
-  })
+  const config = makeConfig({ binaries: FULL_CLIENT_BINARIES })
 
   t.throws(() => normalizeConfig(config, makeOptions({ watch: true })), {
-    message: /`--watch` cannot be combined with a `binaries\[\]`/,
+    message: /`--watch` cannot be combined with an unselected `binaries\[\]`/,
   })
+})
+
+test('--binary allows watching one selected binary', (t) => {
+  const config = makeConfig({ binaries: FULL_CLIENT_BINARIES })
+
+  const [result] = normalizeConfig(
+    config,
+    makeOptions({ binary: 'client', watch: true }),
+  )
+
+  t.is(result.binaryFolderName, 'client')
+  t.true(result.options.watch)
+  t.false(result.manageSharedWasiArtifacts)
 })
 
 test('the type-def cache folder is stable and independent of any binary name', (t) => {

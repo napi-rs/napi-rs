@@ -624,7 +624,10 @@ export async function buildProject(rawOptions: BuildOptions) {
   // Single-binary (the common case, and any `--binary` selection): return the
   // builder's `{ task, abort }` unchanged so existing callers are unaffected.
   if (binaries.length === 1) {
-    return buildSingleProject(binaries[0])
+    return buildSingleProject(
+      binaries[0],
+      binaries[0].manageSharedWasiArtifacts,
+    )
   }
 
   // Multi-binary: build each entry in order, concatenating their outputs.
@@ -633,13 +636,13 @@ export async function buildProject(rawOptions: BuildOptions) {
   const aborters: Array<() => void> = []
   const task = (async () => {
     const outputs: Output[] = []
-    for (const [index, binary] of binaries.entries()) {
+    for (const binary of binaries) {
       if (aborted) {
         break
       }
       const { task: binaryTask, abort } = await buildSingleProject(
         binary,
-        index === 0,
+        binary.manageSharedWasiArtifacts,
       )
       aborters.push(abort)
       // `abort()` may have been called while `buildSingleProject` above was
@@ -681,6 +684,7 @@ export interface NormalizedBinary {
   config: NapiConfig
   options: ParsedBuildOptions
   binaryFolderName?: string
+  manageSharedWasiArtifacts: boolean
 }
 
 /**
@@ -709,13 +713,7 @@ export function normalizeConfig(
         `\`--binary ${options.binary}\` was given but no \`binaries\` are configured. Add a \`binaries\` array to the napi config, or drop \`--binary\`.`,
       )
     }
-    return [{ config, options }]
-  }
-
-  if (options.watch) {
-    throw new Error(
-      '`--watch` cannot be combined with a `binaries[]` multi-binary config. Watch a single binary with `napi build --binary <name> --watch`.',
-    )
+    return [{ config, options, manageSharedWasiArtifacts: true }]
   }
 
   // Validate the whole array regardless of selection, so a misconfigured entry
@@ -733,6 +731,12 @@ export function normalizeConfig(
       )
     }
     selected = [entry]
+  }
+
+  if (options.watch && selected.length > 1) {
+    throw new Error(
+      '`--watch` cannot be combined with an unselected `binaries[]` multi-binary config. Watch a single binary with `napi build --binary <name> --watch`.',
+    )
   }
 
   return selected.map((entry) => {
@@ -760,6 +764,7 @@ export function normalizeConfig(
         binaryName: entry.binaryName ?? config.binaryName,
       },
       options: entryOptions,
+      manageSharedWasiArtifacts: entry === binaries[0],
     }
   })
 }
