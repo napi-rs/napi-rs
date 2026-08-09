@@ -601,6 +601,14 @@ fn type_without_coercion(
 struct ReflectIntrinsics {
   env: sys::napi_env,
   holder: sys::napi_ref,
+  // Whether `napi_add_env_cleanup_hook` SUCCEEDED for this env. Only then does
+  // a later pointer-equal entry prove the env is alive: the hook clears the
+  // slot at teardown, so a stale entry cannot survive to be matched. Without
+  // it (pre-napi3, or a hook call that failed) an embedder can tear the env
+  // down and receive the same `napi_env` address for a new one — and deleting
+  // the superseded reference through that recycled pointer would hand a dead
+  // ref to a live env.
+  cleanup_hook_installed: bool,
 }
 
 thread_local! {
@@ -938,51 +946,74 @@ pub(crate) fn cache_reflect_intrinsics_for_env(env: sys::napi_env) {
     clear_pending_exception(env);
     return;
   }
-  let previous = REFLECT_INTRINSICS.with(|slot| {
-    slot.borrow_mut().replace(ReflectIntrinsics {
+  REFLECT_INTRINSICS.with(|slot| {
+    let mut slot = slot.borrow_mut();
+    let previous = slot.take();
+    let cleanup_hook_installed = match previous {
+      Some(superseded) if superseded.env == env => {
+        // A pointer-equal entry. Whether it belongs to a LIVE env depends on
+        // the cleanup hook: with it installed, teardown clears the slot, so a
+        // surviving entry proves this is the same live env re-registering
+        // (`delete require.cache` and re-`require`, see unload.spec.js) and
+        // the superseded holder can be released immediately. The hook from the
+        // first registration stays in place — Node aborts on a duplicate
+        // `(fn, arg)` cleanup-hook pair, so it must not be registered again.
+        //
+        // Without the hook (pre-napi3, or an installation that failed),
+        // pointer equality proves nothing: an embedder can destroy the env and
+        // recreate one at the same address on this thread, and the entry would
+        // be the DEAD env's. Deleting its already-reclaimed reference through
+        // the new env risks corrupting the live runtime, so the superseded
+        // reference is deliberately leaked instead — one reference per env
+        // recreation, bounded, and only on configurations that cannot observe
+        // teardown. On wasm the delete stays unconditional: the slot lives in
+        // the instance's own linear memory and dies with it, so a pointer
+        // match there is the same live instance by construction.
+        if superseded.cleanup_hook_installed || cfg!(target_family = "wasm") {
+          let _ = unsafe { sys::napi_delete_reference(env, superseded.holder) };
+          clear_pending_exception(env);
+        }
+        superseded.cleanup_hook_installed
+      }
+      _ => {
+        // Empty slot, or a different env owned this thread before. In the latter
+        // case that env is gone (one env per OS thread) and its teardown already
+        // reclaimed the superseded reference — reachable only on builds without
+        // napi3's cleanup hook, which would have cleared the slot — so there is
+        // nothing to release and deleting through a dead env would be the real
+        // bug. Either way this is the first hook registration for `env`.
+        //
+        // Registration is best effort, like the cache itself: without the hook
+        // the slot is cleared by thread death instead (a worker's thread dies
+        // with its env), and the reference is reclaimed by env teardown.
+        //
+        // Not on wasm: referencing `napi_add_env_cleanup_hook` from Rust imports
+        // it under the `env` wasm module, while emnapi's static archive declares
+        // it under `napi` — wasm-ld refuses the mismatch. The hook exists for a
+        // native embedder tearing an env down and reusing its thread (and
+        // possibly the env pointer); on wasm this thread-local lives inside the
+        // instance's own linear memory and dies with the instance, whose
+        // context is never reused after `Context.destroy()`, so there is no
+        // stale slot for a later env to match.
+        #[cfg(all(feature = "napi3", not(target_family = "wasm")))]
+        {
+          let hook_status = unsafe {
+            sys::napi_add_env_cleanup_hook(env, Some(reflect_intrinsics_env_cleanup), env.cast())
+          };
+          hook_status == sys::Status::napi_ok
+        }
+        #[cfg(not(all(feature = "napi3", not(target_family = "wasm"))))]
+        {
+          false
+        }
+      }
+    };
+    *slot = Some(ReflectIntrinsics {
       env,
       holder: reference,
-    })
+      cleanup_hook_installed,
+    });
   });
-  match previous {
-    Some(superseded) if superseded.env == env => {
-      // The same env re-registered this addon (`delete require.cache` and
-      // re-`require`, see unload.spec.js). The env is alive and this is its
-      // thread, so the superseded holder can be released immediately. The
-      // cleanup hook from the first registration stays in place — Node aborts
-      // on a duplicate `(fn, arg)` cleanup-hook pair, so it must not be
-      // registered again.
-      let _ = unsafe { sys::napi_delete_reference(env, superseded.holder) };
-      clear_pending_exception(env);
-    }
-    _ => {
-      // Empty slot, or a different env owned this thread before. In the latter
-      // case that env is gone (one env per OS thread) and its teardown already
-      // reclaimed the superseded reference — reachable only on builds without
-      // napi3's cleanup hook, which would have cleared the slot — so there is
-      // nothing to release and deleting through a dead env would be the real
-      // bug. Either way this is the first hook registration for `env`.
-      //
-      // Registration is best effort, like the cache itself: without the hook
-      // the slot is cleared by thread death instead (a worker's thread dies
-      // with its env), and the reference is reclaimed by env teardown.
-      //
-      // Not on wasm: referencing `napi_add_env_cleanup_hook` from Rust imports
-      // it under the `env` wasm module, while emnapi's static archive declares
-      // it under `napi` — wasm-ld refuses the mismatch. The hook exists for a
-      // native embedder tearing an env down and reusing its thread (and
-      // possibly the env pointer); on wasm this thread-local lives inside the
-      // instance's own linear memory and dies with the instance, whose
-      // context is never reused after `Context.destroy()`, so there is no
-      // stale slot for a later env to match.
-      #[cfg(all(feature = "napi3", not(target_family = "wasm")))]
-      {
-        let _ = unsafe {
-          sys::napi_add_env_cleanup_hook(env, Some(reflect_intrinsics_env_cleanup), env.cast())
-        };
-      }
-    }
-  }
 }
 
 /// Env-teardown counterpart of [`cache_reflect_intrinsics_for_env`]: drops the
