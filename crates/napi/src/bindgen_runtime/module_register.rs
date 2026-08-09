@@ -375,7 +375,9 @@ pub unsafe extern "C" fn napi_register_module_v1(
   #[cfg(feature = "napi4")]
   create_custom_gc(env);
 
-  let mut exports_objects: HashSet<String> = HashSet::default();
+  // Registration keys are compile-time strings. Avoid `RandomState` so WASI module
+  // registration does not request randomness during workerd global initialization.
+  let mut exports_objects: HashSet<String, FxBuildHasher> = HashSet::with_hasher(FxBuildHasher);
 
   {
     let mut register_callback = MODULE_REGISTER_CALLBACK
@@ -384,7 +386,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
     register_callback
       .iter_mut()
       .fold(
-        HashMap::<Option<&'static str>, Vec<(&'static str, ExportRegisterCallback)>>::new(),
+        HashMap::<
+          Option<&'static str>,
+          Vec<(&'static str, ExportRegisterCallback)>,
+          FxBuildHasher,
+        >::with_hasher(FxBuildHasher),
         |mut acc, (js_mod, item)| {
           if let Some(k) = acc.get_mut(js_mod) {
             k.push(*item);

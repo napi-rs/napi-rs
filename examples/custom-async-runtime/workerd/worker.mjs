@@ -4,16 +4,14 @@
 import wasmModule from '@examples/custom-async-runtime/wasm.wasm'
 import { dispose, instantiate } from '@examples/custom-async-runtime/workerd'
 
-// Instantiate lazily inside the handler, memoized across requests. Kicking it
-// off at top level fails on workerd with "Disallowed operation called within
-// global scope": the WASI/emnapi init path needs capabilities (e.g. random
-// values) that workerd only grants inside a handler.
-let apiPromise
+// Exercise module-scope initialization, which is required by root-package
+// `workerd` conditions that expose synchronous binding functions.
+let apiPromise = instantiate(wasmModule)
+await apiPromise
 
 export default {
   async fetch(request) {
     try {
-      apiPromise ??= instantiate(wasmModule)
       const api = await apiPromise
       if (new URL(request.url).pathname === '/dispose-reload') {
         // The minimal SPI base ships no env-cleanup preparation hook, so
