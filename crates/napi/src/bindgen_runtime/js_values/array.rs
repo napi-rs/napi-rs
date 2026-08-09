@@ -45,6 +45,9 @@ impl<'env> Array<'env> {
     }
   }
 
+  /// Note: for `#[napi]` classes the generated [`FromNapiRef`] registers a native borrow, which
+  /// is only permitted during generated callback argument conversion. Reading a class element
+  /// from inside a native call should go through `ClassInstance<T>` (via [`Array::get`]) instead.
   pub fn get_ref<T: 'static + FromNapiRef>(&self, index: u32) -> Result<Option<&'env T>> {
     if index >= self.len() {
       return Ok(None);

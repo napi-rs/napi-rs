@@ -623,6 +623,7 @@ export const DefaultUseNullableClass =
   __napiModule.exports.DefaultUseNullableClass
 export const DelayedCounter = __napiModule.exports.DelayedCounter
 export const Dog = __napiModule.exports.Dog
+export const EagerReleaseHolder = __napiModule.exports.EagerReleaseHolder
 export const Fib = __napiModule.exports.Fib
 export const Fib2 = __napiModule.exports.Fib2
 export const Fib3 = __napiModule.exports.Fib3
@@ -645,6 +646,9 @@ export const PackageJsonReader = __napiModule.exports.PackageJsonReader
 export const Reader = __napiModule.exports.Reader
 export const ReentrantBorrowOrderTest =
   __napiModule.exports.ReentrantBorrowOrderTest
+export const RenamedForIssue3427 = __napiModule.exports.RenamedForIssue3427
+export const RenamedForIssue3427Rust =
+  __napiModule.exports.RenamedForIssue3427Rust
 export const Selector = __napiModule.exports.Selector
 export const Thing = __napiModule.exports.Thing
 export const ThingList = __napiModule.exports.ThingList
@@ -918,6 +922,9 @@ export const indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 export const indexSetToJs = __napiModule.exports.indexSetToJs
 export const indexSetToRust = __napiModule.exports.indexSetToRust
 export const intoUtf8 = __napiModule.exports.intoUtf8
+export const issue3427Either = __napiModule.exports.issue3427Either
+export const issue3427Option = __napiModule.exports.issue3427Option
+export const issue3427Strict = __napiModule.exports.issue3427Strict
 export const joinPath = __napiModule.exports.joinPath
 export const jsErrorCallback = __napiModule.exports.jsErrorCallback
 export const jsErrorFromRetainedValue =

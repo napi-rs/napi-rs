@@ -728,6 +728,62 @@ pub fn cleanup_reentrant_borrow_order_test_targets() -> u32 {
   })
 }
 
+/// Regression fixture for the native borrow tracker. Mirrors downstream
+/// eager-release patterns (rolldown's `BindingRenderedChunk::drop_inner`):
+/// an `Option<Arc<...>>` inner, a `&mut self` method that drops it, and a
+/// getter returning `Vec<&str>` borrowed from it. Converting the getter's
+/// return value reads JavaScript-observable array indices, so a hostile
+/// `Array.prototype` index setter can reenter `drop_inner` while the `&str`
+/// elements still point into the `Arc`'d strings. The shared borrow guard
+/// held across return-value conversion must turn that use-after-free into a
+/// borrow-conflict error.
+#[napi]
+pub struct EagerReleaseHolder {
+  inner: Option<std::sync::Arc<Vec<String>>>,
+}
+
+#[napi]
+impl EagerReleaseHolder {
+  #[napi(constructor)]
+  #[allow(clippy::new_without_default)]
+  pub fn new() -> Self {
+    Self {
+      inner: Some(std::sync::Arc::new(vec![
+        "A".repeat(256),
+        "B".repeat(256),
+        "C".repeat(256),
+        "D".repeat(256),
+      ])),
+    }
+  }
+
+  /// Returns `true` when it dropped the last strong reference.
+  #[napi]
+  pub fn drop_inner(&mut self) -> bool {
+    match self.inner.take() {
+      Some(arc) => {
+        let last = std::sync::Arc::strong_count(&arc) == 1;
+        drop(arc);
+        last
+      }
+      None => false,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn get_items(&self) -> Result<Vec<&str>> {
+    Ok(
+      self
+        .inner
+        .as_ref()
+        .ok_or_else(|| napi::Error::from_reason("inner value already released"))?
+        .iter()
+        .map(AsRef::as_ref)
+        .collect(),
+    )
+  }
+}
+
 #[napi(
   ts_return_type = r#"typeof DynamicRustClass\n\ndeclare class DynamicRustClass {
   constructor(value: number)

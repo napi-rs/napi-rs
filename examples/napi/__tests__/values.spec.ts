@@ -329,6 +329,7 @@ import {
   createReentrantBorrowOrderTestTarget,
   cleanupReentrantBorrowOrderTestTargets,
   detachReentrantBorrowOrderTestTarget,
+  EagerReleaseHolder,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -773,6 +774,66 @@ test('mutable receiver is borrowed after reentrant input conversion', (t) => {
 
   t.true(getterRan)
   t.truthy(error, 'receiver must be unwrapped after injected input conversion')
+})
+
+test('shared receiver borrow is held across return-value conversion', (t) => {
+  // `EagerReleaseHolder.items` returns `Vec<&str>` borrowed from an
+  // `Option<Arc<Vec<String>>>` the `&mut self` `dropInner` method releases.
+  // Converting the returned Vec writes JavaScript-observable array indices, so
+  // an `Array.prototype` index setter reenters `dropInner` while the `&str`
+  // elements still point into the strings it would free. The shared borrow
+  // guard held across the whole call must reject that reentrant mutable
+  // borrow; the conversion must then complete intact, and `dropInner` must
+  // work again once the getter has returned.
+  const holder = new EagerReleaseHolder()
+  const reenteredAt: number[] = []
+  let dropResult: boolean | undefined
+  let dropError: unknown
+
+  Object.defineProperty(Array.prototype, '1', {
+    configurable: true,
+    set(v: unknown) {
+      reenteredAt.push(1)
+      try {
+        dropResult = holder.dropInner()
+      } catch (caught) {
+        dropError = caught
+      }
+      Object.defineProperty(this, '1', {
+        value: v,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      })
+    },
+  })
+
+  let items: string[]
+  try {
+    items = holder.items
+  } finally {
+    delete (Array.prototype as unknown as Record<string, unknown>)['1']
+  }
+
+  // (a) the reentrant mutable call threw the borrow-conflict error
+  t.deepEqual(reenteredAt, [1], 'return-value conversion must reenter')
+  t.is(dropResult, undefined)
+  t.is(
+    (dropError as Error)?.message,
+    'The same native value cannot be borrowed mutably while another borrow is active',
+  )
+
+  // (b) every element converted intact
+  t.deepEqual(items, [
+    'A'.repeat(256),
+    'B'.repeat(256),
+    'C'.repeat(256),
+    'D'.repeat(256),
+  ])
+
+  // (c) the mutable method succeeds after the getter returned
+  t.true(holder.dropInner())
+  t.false(holder.dropInner())
 })
 
 test('class with js_name', (t) => {

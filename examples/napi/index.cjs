@@ -781,6 +781,7 @@ module.exports.CustomStruct = nativeBinding.CustomStruct
 module.exports.DefaultUseNullableClass = nativeBinding.DefaultUseNullableClass
 module.exports.DelayedCounter = nativeBinding.DelayedCounter
 module.exports.Dog = nativeBinding.Dog
+module.exports.EagerReleaseHolder = nativeBinding.EagerReleaseHolder
 module.exports.Fib = nativeBinding.Fib
 module.exports.Fib2 = nativeBinding.Fib2
 module.exports.Fib3 = nativeBinding.Fib3

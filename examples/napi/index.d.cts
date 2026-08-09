@@ -255,6 +255,24 @@ export declare class Dog {
 }
 
 /**
+ * Regression fixture for the native borrow tracker. Mirrors downstream
+ * eager-release patterns (rolldown's `BindingRenderedChunk::drop_inner`):
+ * an `Option<Arc<...>>` inner, a `&mut self` method that drops it, and a
+ * getter returning `Vec<&str>` borrowed from it. Converting the getter's
+ * return value reads JavaScript-observable array indices, so a hostile
+ * `Array.prototype` index setter can reenter `drop_inner` while the `&str`
+ * elements still point into the `Arc`'d strings. The shared borrow guard
+ * held across return-value conversion must turn that use-after-free into a
+ * borrow-conflict error.
+ */
+export declare class EagerReleaseHolder {
+  constructor()
+  /** Returns `true` when it dropped the last strong reference. */
+  dropInner(): boolean
+  get items(): Array<string>
+}
+
+/**
  * This type implements JavaScript's iterable iterator protocol.
  * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
