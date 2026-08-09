@@ -1,5 +1,5 @@
 use std::{
-  collections::{HashMap, VecDeque},
+  collections::VecDeque,
   future::Future,
   pin::Pin,
   sync::{
@@ -28,6 +28,7 @@ use napi::bindgen_prelude::{
   JsValue, Object, PromiseRaw, Result, Status, Unknown,
 };
 use napi_derive::napi;
+use rustc_hash::FxHashMap;
 
 static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
 static RUNTIME_REGISTRATION: Once = Once::new();
@@ -48,7 +49,7 @@ const THREADLESS_WASI_BLOCKING_UNSUPPORTED: &str =
 #[derive(Default)]
 struct SchedulerState {
   queue: VecDeque<Arc<Task>>,
-  tasks: HashMap<usize, Arc<Task>>,
+  tasks: FxHashMap<usize, Arc<Task>>,
   task_refs: Vec<Weak<Task>>,
   block_on_refs: Vec<Weak<BlockOnWaker>>,
   accepting: bool,
