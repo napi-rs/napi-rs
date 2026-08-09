@@ -451,6 +451,52 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
 })
 
 test.serial(
+  'should keep generated WASM runtime dependencies within the resolved minor',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '1.1.6',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-runtime-range',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-runtime-range',
+        targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+        const scopedPackageJson = JSON.parse(
+          await readFile(
+            join(tmpDir, 'npm', packageDir, 'package.json'),
+            'utf-8',
+          ),
+        )
+
+        t.is(scopedPackageJson.dependencies['@napi-rs/wasm-runtime'], '~1.1.6')
+      }
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
   'should reject an empty latest dist-tag when resolving wasm runtime metadata',
   async (t) => {
     const { tmpDir, packageJsonPath } = t.context

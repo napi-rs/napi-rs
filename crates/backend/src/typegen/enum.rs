@@ -7,7 +7,11 @@ impl ToTypeDef for NapiEnum {
       return None;
     }
 
-    add_alias(self.name.to_string(), self.js_name.to_string());
+    add_alias(
+      self.name.to_string(),
+      self.js_name.to_string(),
+      self.js_mod.as_deref(),
+    );
 
     Some(TypeDef {
       kind: if self.is_string_enum {

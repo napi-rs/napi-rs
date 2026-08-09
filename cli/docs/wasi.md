@@ -153,9 +153,45 @@ module runs inside the host process, so `wasm32` or host-OS restrictions would
 make npm reject a direct install or skip the optional dependency on otherwise
 supported hosts.
 
+Because nothing gates the install, the root package does not declare the WASI
+package in `optionalDependencies` when native targets are also configured. npm
+evaluates every `optionalDependencies` entry independently, so a declared WASI
+package is downloaded by every consumer, including the ones that already
+resolved a native package and will never load the `.wasm` binary. The generated
+binding loader picks WASI at require time instead, and environments without a
+native package are expected to install it on demand.
+
+When WASI is the only configured target it is the primary artifact rather than a
+fallback, so it is declared by default. Set `napi.wasm.optionalDependency` to
+override the default in either direction:
+
+```json
+{
+  "napi": {
+    "wasm": {
+      "optionalDependency": true
+    }
+  }
+}
+```
+
 `napi.wasm.initialMemory` is measured in 64 KiB WebAssembly pages. The regular
 Node and browser loaders retain the historical 4,000-page (250 MiB) default.
 The deferred `./workerd` loader defaults to 1,024 pages (64 MiB), leaving
 headroom under workerd's 128 MiB isolate limit. An explicit
 `napi.wasm.initialMemory` value applies to every loader, so keep it within the
 target isolate's limit after measuring the addon's actual requirements.
+
+Threaded browser loaders always pre-create a pool of wasi-threads workers at
+module initialization, sized as `asyncWorkPoolSize + hardwareConcurrency`
+(logical cores, floored at 2, with a fallback for privacy-fuzzed values),
+and therefore always initialize asynchronously. The `asyncWorkPoolSize`
+reservation is included because emnapi's async-work pool draws its workers
+from the same reuse pool; without it, async work could starve the pool
+before addon thread spawns. This is what allows addon Rust code to spawn
+threads from inside a blocking call: a browser cannot start a worker until
+the blocking thread returns to its event loop, so a thread spawned mid-call
+would never boot and the caller would deadlock waiting for it. With a
+pre-created pool, spawning is only a message to an already-running worker,
+and if the pool is exhausted the fallback allocates a fresh worker that
+boots once the spawning parent returns to its event loop.

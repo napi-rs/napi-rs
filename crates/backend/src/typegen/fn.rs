@@ -321,7 +321,7 @@ impl NapiFn {
         .map(|i| {
           let origin_name = i.to_string();
           let parent = CLASS_STRUCTS
-            .with_borrow(|c| c.get(&origin_name).cloned())
+            .with_borrow(|c| c.get(&origin_name).map(|c| c.js_name.clone()))
             .unwrap_or_else(|| to_case(origin_name, Case::Pascal));
 
           if self.is_async {

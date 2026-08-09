@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.8.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.8.1...@napi-rs/cli@3.8.2) (2026-07-31)
+
+### Bug Fixes
+
+- **cli:** omit the WASI package from `optionalDependencies` when native targets exist ([#3430](https://github.com/napi-rs/napi-rs/issues/3430)) ([3098f0c](https://github.com/napi-rs/napi-rs/commit/3098f0c96174658de84e828ae26177c940a5bcd1))
+
+## [3.8.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.8.0...@napi-rs/cli@3.8.1) (2026-07-30)
+
+### Bug Fixes
+
+- **wasm-runtime:** preserve emnapi v1 compatibility ([#3426](https://github.com/napi-rs/napi-rs/issues/3426)) ([856326b](https://github.com/napi-rs/napi-rs/commit/856326b3051028b0d9992227f02167227f46b07b))
+
 # [3.8.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.4...@napi-rs/cli@3.8.0) (2026-07-28)
 
 ### Features

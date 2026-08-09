@@ -413,6 +413,11 @@ export declare class ReentrantBorrowOrderTest {
   replaceValuesFromThis(this: object): void
 }
 
+export declare class RenamedForIssue3427 {
+  constructor(value: number)
+}
+export type RenamedForIssue3427Rust = RenamedForIssue3427
+
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>
@@ -1081,6 +1086,28 @@ export declare function indexSetToJs(): Set<string>
 export declare function indexSetToRust(set: Set<string>): void
 
 export declare function intoUtf8(s: string): string
+
+/**
+ * `Either<&T, ..>` discrimination calls `T::validate()` to decide the branch and treats an
+ * error as "not this branch". Before the fix, `validate()` errored on the wrong lookup key,
+ * so the class branch was skipped and the call threw instead of matching a valid instance.
+ */
+export declare function issue3427Either(input: RenamedForIssue3427 | number): number
+
+/**
+ * `Option<&T>` under `#[napi(strict)]` is validated via `Option::validate` -> `T::validate`,
+ * the same constructor lookup. `Some` must accept a valid instance, `None` maps from
+ * `null`/`undefined`, and a non-instance is rejected. Before the fix, `Some` threw for a valid
+ * instance. Returns the wrapped value for `Some`, or `-1` for `None`.
+ */
+export declare function issue3427Option(input?: RenamedForIssue3427 | undefined | null): number
+
+/**
+ * A strict argument is validated via `ValidateNapiValue::validate()` before conversion, so a
+ * strict `&T` parameter exercises the same constructor lookup directly. Before the fix this
+ * threw for a valid instance.
+ */
+export declare function issue3427Strict(input: RenamedForIssue3427): number
 
 export declare function joinPath(path: string, segment: string): string
 

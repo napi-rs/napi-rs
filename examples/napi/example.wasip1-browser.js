@@ -35,7 +35,6 @@ const __wasmMemory = new WebAssembly.Memory({
   initial: 16384,
   maximum: 65536,
 })
-
 let __emnapiContext
 
 const __wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
