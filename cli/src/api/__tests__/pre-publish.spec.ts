@@ -1,6 +1,9 @@
 import test from 'ava'
 
-import { resolveRootOptionalDependencies } from '../pre-publish.js'
+import {
+  parseNpmPackFiles,
+  resolveRootOptionalDependencies,
+} from '../pre-publish.js'
 import { parseTriple } from '../../utils/index.js'
 
 const PACKAGE_NAME = '@scope/pkg'
@@ -103,4 +106,36 @@ test('preserves unmanaged optionalDependencies', (t) => {
       ...NATIVE_ENTRIES,
     },
   )
+})
+
+const NPM_PACK_FILES = [
+  { path: './package.json' },
+  { path: 'dist\\index.js' },
+  { path: 42 },
+]
+
+test('parses npm 11 pack JSON output', (t) => {
+  t.deepEqual(
+    [...parseNpmPackFiles(JSON.stringify([{ files: NPM_PACK_FILES }]))],
+    ['package.json', 'dist/index.js'],
+  )
+})
+
+test('parses npm 12 pack JSON output', (t) => {
+  t.deepEqual(
+    [
+      ...parseNpmPackFiles(
+        JSON.stringify({
+          [PACKAGE_NAME]: { files: NPM_PACK_FILES },
+        }),
+      ),
+    ],
+    ['package.json', 'dist/index.js'],
+  )
+})
+
+test('rejects an unexpected npm pack JSON result', (t) => {
+  t.throws(() => parseNpmPackFiles(JSON.stringify({ files: [] })), {
+    message: 'npm pack returned an unexpected JSON result',
+  })
 })
