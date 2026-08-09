@@ -93,6 +93,18 @@ for (const name of WASM_ARTIFACTS) {
         'napi_prepare_wasm_env_cleanup is missing: the loaders guard the call with `typeof`, so the environment teardown barrier would be skipped without a single error',
       )
       t.is(barrier?.kind, 'function')
+
+      // The drain counter disappears just as silently: the loaders `typeof`-guard
+      // it and fall back to a blind fixed-turn drain, which cannot observe a
+      // still-queued settlement. Same failure mode, same compile-time assertion.
+      const pending = wasmExports.find(
+        (entry) => entry.name === 'napi_wasm_env_cleanup_pending',
+      )
+      t.truthy(
+        pending,
+        'napi_wasm_env_cleanup_pending is missing: the loaders guard the call with `typeof`, so disposal would silently fall back to the blind drain and could destroy over queued settlements',
+      )
+      t.is(pending?.kind, 'function')
     },
   )
 }
