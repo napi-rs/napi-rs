@@ -1691,24 +1691,30 @@ function readNpmPackFiles(packageDir: string, packageDescription: string) {
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const packResult = JSON.parse(output) as {
-      files?: { path?: unknown }[]
-    }[]
-    if (!Array.isArray(packResult) || !Array.isArray(packResult[0]?.files)) {
-      throw new Error('npm pack returned an unexpected JSON result')
-    }
-    return new Set(
-      packResult[0].files
-        .map(({ path }) => path)
-        .filter((path): path is string => typeof path === 'string')
-        .map((path) => path.replaceAll('\\', '/').replace(/^\.\//, '')),
-    )
+    return parseNpmPackFiles(output)
   } catch (error) {
     throw new Error(
       `Failed to validate the ${packageDescription} with npm pack --dry-run. Ensure npm is available and the package can be packed.`,
       { cause: error },
     )
   }
+}
+
+export function parseNpmPackFiles(output: string) {
+  const parsedResult: unknown = JSON.parse(output)
+  const packResults = Array.isArray(parsedResult)
+    ? parsedResult
+    : Object.values(asRecord(parsedResult) ?? {})
+  const files = asRecord(packResults[0])?.files
+  if (!Array.isArray(files)) {
+    throw new Error('npm pack returned an unexpected JSON result')
+  }
+  return new Set(
+    files
+      .map((file) => asRecord(file)?.path)
+      .filter((path): path is string => typeof path === 'string')
+      .map((path) => path.replaceAll('\\', '/').replace(/^\.\//, '')),
+  )
 }
 
 function validateRootFacadePacklist(
