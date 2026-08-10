@@ -1573,6 +1573,26 @@ function createLegacyDeepImportExports(rootDir: string) {
   return exportsMap
 }
 
+// pnpm and yarn (berry) rewrite the manifest they pack: `publishConfig.exports`
+// wholesale-replaces `exports` in the published package.json (pnpm docs: "It is
+// possible to override some fields in the manifest before the package is
+// packed"; verified empirically with pnpm 11 and yarn 4 `pack`). npm does NOT:
+// its `publishConfig` only carries publish-time configuration such as tag,
+// registry and access (https://docs.npmjs.com/cli/v11/configuring-npm/package-json#publishconfig),
+// and npm 11 packs the raw `exports` untouched. Package managers identify
+// themselves to lifecycle scripts (e.g. `prepublishOnly`) via
+// `npm_config_user_agent`, so sniff it to learn which manifest will ship.
+const MANIFEST_REWRITING_PUBLISHER_PATTERN = /(?:^|\s)(?:pnpm|yarn)\//
+
+export function publisherRewritesPublishConfigExports(
+  userAgent: string | undefined = process.env.npm_config_user_agent,
+) {
+  return (
+    typeof userAgent === 'string' &&
+    MANIFEST_REWRITING_PUBLISHER_PATTERN.test(userAgent)
+  )
+}
+
 export function collectRootPackagePathReferences(
   packageJson: CommonPackageJsonFields,
 ) {
@@ -1589,18 +1609,25 @@ export function collectRootPackagePathReferences(
   )
   addLegacyPackageFileReference(files, packageJson.browser)
 
-  // Package managers replace `exports` with `publishConfig.exports` in the
-  // published manifest, so validation must target the effective map: the
-  // local `exports` may reference development-only sources that are never
-  // packed (and never published).
+  // Validate the export map(s) that will actually ship. Under a
+  // manifest-rewriting publisher (pnpm/yarn), `publishConfig.exports` replaces
+  // the local `exports` in the published manifest, so only the
+  // publish-effective map matters: the local map may reference
+  // development-only sources (e.g. `dev: ./src/*.ts` conditions) that are
+  // never packed. Under npm — or when the publisher is unknown — the raw
+  // `exports` ships as-is, so keep validating the union of both maps.
   const publishConfig = asRecord(packageJson.publishConfig)
   const hasPublishConfigExports =
     publishConfig &&
     Object.prototype.hasOwnProperty.call(publishConfig, 'exports')
-  collectRootExportFileReferences(
-    files,
-    hasPublishConfigExports ? publishConfig.exports : packageJson.exports,
-  )
+  const rawExportsReplacedOnPublish =
+    hasPublishConfigExports && publisherRewritesPublishConfigExports()
+  if (!rawExportsReplacedOnPublish) {
+    collectRootExportFileReferences(files, packageJson.exports)
+  }
+  if (hasPublishConfigExports) {
+    collectRootExportFileReferences(files, publishConfig.exports)
+  }
   return [...files]
 }
 
