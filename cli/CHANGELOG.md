@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.8.5](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.4...%40napi-rs%2Fcli%403.8.5) (2026-08-10)
+
+### Bug Fixes
+
+- **cli:** validate publish-effective exports in threadless wasi pre-publish ([#3450](https://github.com/napi-rs/napi-rs/issues/3450)) ([980b0b3](https://github.com/napi-rs/napi-rs/commit/980b0b3f1b56186261b12868053fa0acae755e6a))
+
 ## [3.8.4](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.3...%40napi-rs%2Fcli%403.8.4) (2026-08-10)
 
 ### Bug Fixes
