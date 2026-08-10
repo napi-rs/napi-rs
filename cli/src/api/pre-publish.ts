@@ -1573,7 +1573,7 @@ function createLegacyDeepImportExports(rootDir: string) {
   return exportsMap
 }
 
-function collectRootPackagePathReferences(
+export function collectRootPackagePathReferences(
   packageJson: CommonPackageJsonFields,
 ) {
   const files = new Set<string>()
@@ -1588,15 +1588,19 @@ function collectRootPackagePathReferences(
     (packageJson as CommonPackageJsonFields & { typings?: unknown }).typings,
   )
   addLegacyPackageFileReference(files, packageJson.browser)
-  collectRootExportFileReferences(files, packageJson.exports)
 
+  // Package managers replace `exports` with `publishConfig.exports` in the
+  // published manifest, so validation must target the effective map: the
+  // local `exports` may reference development-only sources that are never
+  // packed (and never published).
   const publishConfig = asRecord(packageJson.publishConfig)
-  if (
+  const hasPublishConfigExports =
     publishConfig &&
     Object.prototype.hasOwnProperty.call(publishConfig, 'exports')
-  ) {
-    collectRootExportFileReferences(files, publishConfig.exports)
-  }
+  collectRootExportFileReferences(
+    files,
+    hasPublishConfigExports ? publishConfig.exports : packageJson.exports,
+  )
   return [...files]
 }
 
@@ -1717,7 +1721,7 @@ export function parseNpmPackFiles(output: string) {
   )
 }
 
-function validateRootFacadePacklist(
+export function validateRootFacadePacklist(
   rootDir: string,
   rootPackageFiles: string[],
 ) {
