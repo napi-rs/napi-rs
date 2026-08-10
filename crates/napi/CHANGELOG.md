@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.0...napi-v3.12.1) - 2026-08-10
+
+### Fixed
+
+- *(napi)* stop unloading addons with live native code, preserve non-Error rejections, and add the wasm teardown barrier ([#3423](https://github.com/napi-rs/napi-rs/pull/3423))
+- *(wasi)* avoid randomness during module registration ([#3447](https://github.com/napi-rs/napi-rs/pull/3447))
+
 ## [3.12.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.11.0...napi-v3.12.0) - 2026-07-28
 
 ### Added
