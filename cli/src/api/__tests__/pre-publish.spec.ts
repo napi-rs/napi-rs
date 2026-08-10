@@ -161,6 +161,10 @@ const YARN_USER_AGENT = 'yarn/4.6.0 npm/? node/v24.19.0 darwin arm64'
 // it must be treated like npm despite the matching `yarn/` prefix.
 const YARN_CLASSIC_USER_AGENT = 'yarn/1.22.22 npm/? node/v24.19.0 darwin arm64'
 const NPM_USER_AGENT = 'npm/11.6.2 node/v24.19.0 darwin arm64 workspaces/false'
+// A truncated version token must not be read as a major version: an agent we
+// cannot parse is an unknown publisher and takes the conservative branch.
+const MALFORMED_YARN_USER_AGENT = 'yarn/2garbage npm/? node/v24.19.0'
+const MALFORMED_PNPM_USER_AGENT = 'pnpm/2garbage npm/? node/v24.19.0'
 
 function withNpmUserAgent<T>(agent: string | undefined, fn: () => T): T {
   const previous = process.env.npm_config_user_agent
@@ -238,6 +242,23 @@ test('detects manifest-rewriting publishers from the user agent', (t) => {
   })
 })
 
+test('requires a complete version token to identify a rewriting publisher', (t) => {
+  // `yarn/2garbage` is not yarn 2 and `pnpm/x` is not pnpm: matching only the
+  // numeric prefix (or the bare name) would opt a malformed agent into the
+  // narrow publish-effective branch.
+  t.false(publisherRewritesPublishConfigExports(MALFORMED_YARN_USER_AGENT))
+  t.false(publisherRewritesPublishConfigExports('yarn/2garbage'))
+  t.false(publisherRewritesPublishConfigExports('yarn/4.6.0.1 npm/?'))
+  t.false(publisherRewritesPublishConfigExports(MALFORMED_PNPM_USER_AGENT))
+  t.false(publisherRewritesPublishConfigExports('pnpm/x npm/? node/v24.19.0'))
+  t.false(publisherRewritesPublishConfigExports('pnpm/'))
+  // Well-formed prerelease and build metadata tails still parse.
+  t.true(
+    publisherRewritesPublishConfigExports('yarn/4.10.0-git.20250101 npm/?'),
+  )
+  t.true(publisherRewritesPublishConfigExports('pnpm/10.15.1+sha512.ab npm/?'))
+})
+
 test('collects publishConfig.exports only under a rewriting publisher', (t) => {
   const effectiveOnly = ['dist/helper.cjs', 'dist/index.cjs', 'dist/index.d.ts']
   for (const agent of [PNPM_USER_AGENT, YARN_USER_AGENT]) {
@@ -258,7 +279,13 @@ test('collects the union of exports and publishConfig.exports under npm or an un
     'src/helper.ts',
     'src/index.ts',
   ]
-  for (const agent of [NPM_USER_AGENT, YARN_CLASSIC_USER_AGENT, undefined]) {
+  for (const agent of [
+    NPM_USER_AGENT,
+    YARN_CLASSIC_USER_AGENT,
+    MALFORMED_YARN_USER_AGENT,
+    MALFORMED_PNPM_USER_AGENT,
+    undefined,
+  ]) {
     withNpmUserAgent(agent, () => {
       t.deepEqual(
         collectRootPackagePathReferences(EFFECTIVE_EXPORTS_MANIFEST).sort(),

@@ -1585,9 +1585,22 @@ function createLegacyDeepImportExports(rootDir: string) {
 // the raw `exports` in the tarball manifest. Package managers identify
 // themselves to lifecycle scripts (e.g. `prepublishOnly`) via
 // `npm_config_user_agent`, so sniff it to learn which manifest will ship;
-// yarn versions that cannot be parsed fall back to the conservative branch.
-const PNPM_PUBLISHER_PATTERN = /(?:^|\s)pnpm\//
-const YARN_PUBLISHER_PATTERN = /(?:^|\s)yarn\/(\d+)/
+// agents that cannot be parsed fall back to the conservative branch.
+//
+// Both patterns require a complete `<name>/<version>` token — a semver-ish
+// version followed by a token boundary — so that a malformed agent such as
+// `yarn/2garbage` is not read as "yarn 2" (and `pnpm/x` not as pnpm) by
+// matching a numeric prefix. The prerelease/build tails are kept as two
+// separate optional groups on purpose: collapsing them into
+// `(?:[-+][0-9A-Za-z.-]+)*` makes the `-` ambiguous with the character class
+// and backtracks exponentially on a non-matching tail.
+const VERSION_TOKEN_TAIL = String.raw`(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?(?=\s|$)`
+const PNPM_PUBLISHER_PATTERN = new RegExp(
+  String.raw`(?:^|\s)pnpm\/\d+` + VERSION_TOKEN_TAIL,
+)
+const YARN_PUBLISHER_PATTERN = new RegExp(
+  String.raw`(?:^|\s)yarn\/(\d+)` + VERSION_TOKEN_TAIL,
+)
 
 export function publisherRewritesPublishConfigExports(
   userAgent: string | undefined = process.env.npm_config_user_agent,
