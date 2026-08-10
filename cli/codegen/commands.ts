@@ -592,6 +592,12 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       default: false,
     },
     {
+      name: 'rootPublisher',
+      type: "'npm' | 'pnpm' | 'yarn' | 'yarn-classic'",
+      description:
+        'The package manager that publishes the root package. pnpm and yarn berry replace `exports` with `publishConfig.exports` while packing, so for them the root package validation targets the publish-effective export map. Defaults to the `napi.rootPublisher` config field, and validates both export maps when neither is set',
+    },
+    {
       name: 'dryRun',
       type: 'boolean',
       description: 'Dry run without touching file system',

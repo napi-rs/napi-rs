@@ -51,6 +51,7 @@ import {
   mkdirAsync,
   restrictWasiNodeEngine,
   resolvePackageReconciliationPaths,
+  RootPublishers,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   writeFileAtomic,
@@ -59,6 +60,7 @@ import {
   parseTriple,
   type CommonPackageJsonFields,
   type FileSystemTransactionWrite,
+  type RootPublisher,
   type Target,
   type UserNapiConfig,
 } from '../utils/index.js'
@@ -312,12 +314,17 @@ export async function prePublish(userOptions: PrePublishOptions) {
           packageName,
           binaryName,
           npmClient,
+          rootPublisher: configuredRootPublisher,
           wasm,
         } = await readNapiConfig(
           packageJsonPath,
           options.configPath
             ? resolve(options.cwd, options.configPath)
             : undefined,
+        )
+        const rootPublisher = resolveRootPublisher(
+          options.rootPublisher,
+          configuredRootPublisher,
         )
         const threadlessWasiTarget = targets.find(
           (target) =>
@@ -425,6 +432,7 @@ export async function prePublish(userOptions: PrePublishOptions) {
           nodeEngine,
           facade: rootFacade,
           staleGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
+          rootPublisher,
         }
         if (preparedWorkspaceRoot) {
           const stagedTransactionRoot = join(
@@ -1582,12 +1590,48 @@ function createLegacyDeepImportExports(rootDir: string) {
 // (https://docs.npmjs.com/cli/v11/configuring-npm/package-json#publishconfig),
 // and npm 11 packs the raw `exports` untouched. Yarn Classic (1.x) behaves
 // like npm here — verified empirically with yarn 1.22.22 `pack`, which keeps
-// the raw `exports` in the tarball manifest. Package managers identify
-// themselves to lifecycle scripts (e.g. `prepublishOnly`) via
-// `npm_config_user_agent`, so sniff it to learn which manifest will ship;
-// agents that cannot be parsed fall back to the conservative branch.
+// the raw `exports` in the tarball manifest.
+const REWRITING_ROOT_PUBLISHERS = new Set<RootPublisher>(['pnpm', 'yarn'])
+
+export function rootPublisherRewritesRootExports(
+  rootPublisher: RootPublisher | undefined,
+) {
+  return (
+    rootPublisher !== undefined && REWRITING_ROOT_PUBLISHERS.has(rootPublisher)
+  )
+}
+
+// `prePublish` publishes only the generated per-platform packages; the root
+// package is packed and published by whoever called us. Which manifest ships
+// therefore cannot be observed here, so it must be declared: `--root-publisher`
+// wins over the `napi.rootPublisher` config field, and when neither is set the
+// conservative union of both export maps is validated.
+export function resolveRootPublisher(
+  optionValue: string | undefined,
+  configValue: string | undefined,
+): RootPublisher | undefined {
+  const [value, source] =
+    optionValue === undefined
+      ? ([configValue, 'napi.rootPublisher'] as const)
+      : ([optionValue, '--root-publisher'] as const)
+  if (value === undefined) {
+    return undefined
+  }
+  if (!(RootPublishers as readonly string[]).includes(value)) {
+    throw new Error(
+      `Unknown ${source} value "${value}". Expected one of: ${RootPublishers.join(', ')}.`,
+    )
+  }
+  return value as RootPublisher
+}
+
+// Package managers identify themselves to lifecycle scripts (e.g.
+// `prepublishOnly`) via `npm_config_user_agent`. That names the process that
+// invoked this command, which is not necessarily the root publisher, so it
+// never selects a validation branch — it only makes the failure actionable by
+// naming the option to set.
 //
-// Both patterns require a complete `<name>/<version>` token — a semver-ish
+// The patterns require a complete `<name>/<version>` token — a semver-ish
 // version followed by a token boundary — so that a malformed agent such as
 // `yarn/2garbage` is not read as "yarn 2" (and `pnpm/x` not as pnpm) by
 // matching a numeric prefix. The prerelease/build tails are kept as two
@@ -1602,21 +1646,36 @@ const YARN_PUBLISHER_PATTERN = new RegExp(
   String.raw`(?:^|\s)yarn\/(\d+)` + VERSION_TOKEN_TAIL,
 )
 
-export function publisherRewritesPublishConfigExports(
+export function sniffRewritingPublisherFromUserAgent(
   userAgent: string | undefined = process.env.npm_config_user_agent,
-) {
+): 'pnpm' | 'yarn' | undefined {
   if (typeof userAgent !== 'string') {
-    return false
+    return undefined
   }
   if (PNPM_PUBLISHER_PATTERN.test(userAgent)) {
-    return true
+    return 'pnpm'
   }
   const yarnMajor = YARN_PUBLISHER_PATTERN.exec(userAgent)
-  return yarnMajor !== null && Number(yarnMajor[1]) >= 2
+  return yarnMajor !== null && Number(yarnMajor[1]) >= 2 ? 'yarn' : undefined
+}
+
+export function rootPublisherHint(
+  rootPublisher: RootPublisher | undefined,
+  userAgent?: string,
+) {
+  if (rootPublisher !== undefined) {
+    return ''
+  }
+  const sniffed = sniffRewritingPublisherFromUserAgent(userAgent)
+  if (sniffed === undefined) {
+    return ''
+  }
+  return ` This ran under ${sniffed}, which replaces "exports" with "publishConfig.exports" when it packs: if ${sniffed} also publishes the root package, set napi.rootPublisher to "${sniffed}" (or pass --root-publisher ${sniffed}) to validate the publish-effective export map instead.`
 }
 
 export function collectRootPackagePathReferences(
   packageJson: CommonPackageJsonFields,
+  rootPublisher?: RootPublisher,
 ) {
   const files = new Set<string>()
   addLegacyPackageFileReference(files, packageJson.main)
@@ -1631,19 +1690,19 @@ export function collectRootPackagePathReferences(
   )
   addLegacyPackageFileReference(files, packageJson.browser)
 
-  // Validate the export map(s) that will actually ship. Under a
+  // Validate the export map(s) that will actually ship. Under a declared
   // manifest-rewriting publisher (pnpm/yarn), `publishConfig.exports` replaces
   // the local `exports` in the published manifest, so only the
   // publish-effective map matters: the local map may reference
   // development-only sources (e.g. `dev: ./src/*.ts` conditions) that are
-  // never packed. Under npm — or when the publisher is unknown — the raw
-  // `exports` ships as-is, so keep validating the union of both maps.
+  // never packed. Under npm and Yarn Classic — or when no publisher is
+  // declared — the raw `exports` ships as-is, so validate both maps.
   const publishConfig = asRecord(packageJson.publishConfig)
   const hasPublishConfigExports =
     publishConfig &&
     Object.prototype.hasOwnProperty.call(publishConfig, 'exports')
   const rawExportsReplacedOnPublish =
-    hasPublishConfigExports && publisherRewritesPublishConfigExports()
+    hasPublishConfigExports && rootPublisherRewritesRootExports(rootPublisher)
   if (!rawExportsReplacedOnPublish) {
     collectRootExportFileReferences(files, packageJson.exports)
   }
@@ -1773,6 +1832,7 @@ export function parseNpmPackFiles(output: string) {
 export function validateRootFacadePacklist(
   rootDir: string,
   rootPackageFiles: string[],
+  rootPublisher?: RootPublisher,
 ) {
   const paths = validateRootPackagePaths(rootDir, rootPackageFiles)
   const packedFiles = readNpmPackFiles(rootDir, 'threadless WASI root package')
@@ -1789,7 +1849,7 @@ export function validateRootFacadePacklist(
     .map(({ path }) => path)
   if (missingPaths.length > 0) {
     throw new Error(
-      `The threadless WASI root package references paths omitted by npm pack: ${missingPaths.join(', ')}. Add them to package.json "files" or remove the matching .npmignore rules.`,
+      `The threadless WASI root package references paths omitted by npm pack: ${missingPaths.join(', ')}. Add them to package.json "files" or remove the matching .npmignore rules.${rootPublisherHint(rootPublisher)}`,
     )
   }
 }
@@ -1800,6 +1860,7 @@ interface RootReleaseMaterializationPlan {
   nodeEngine?: string
   facade?: ThreadlessWasiRootFacade
   staleGeneratedFiles: string[]
+  rootPublisher?: RootPublisher
 }
 
 function pathIsWithin(root: string, path: string) {
@@ -2271,7 +2332,10 @@ async function stageRootReleasePlan(
   await cp(packageJsonPath, join(stagedRootDir, 'package.json'))
   if (plan.facade) {
     const packedFiles = readNpmPackFiles(rootDir, 'root package')
-    const referencedFiles = collectRootPackagePathReferences(plan.packageJson)
+    const referencedFiles = collectRootPackagePathReferences(
+      plan.packageJson,
+      plan.rootPublisher,
+    )
     for (const file of new Set([
       ...packedFiles,
       ...referencedFiles,
@@ -2293,10 +2357,17 @@ async function stageRootReleasePlan(
   }
   await materializeRootReleasePlan(stagedRootDir, plan)
   if (plan.facade) {
-    validateRootFacadePacklist(stagedRootDir, [
-      ...plan.facade.generatedFiles,
-      ...collectRootPackagePathReferences(plan.packageJson),
-    ])
+    validateRootFacadePacklist(
+      stagedRootDir,
+      [
+        ...plan.facade.generatedFiles,
+        ...collectRootPackagePathReferences(
+          plan.packageJson,
+          plan.rootPublisher,
+        ),
+      ],
+      plan.rootPublisher,
+    )
   }
 }
 

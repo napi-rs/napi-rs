@@ -16,6 +16,17 @@ export type SupportedTestFramework = ValueOfConstArray<
   typeof SupportedTestFrameworks
 >
 
+/**
+ * Package managers that may publish the **root** package, distinguished by
+ * whether they rewrite the manifest while packing it.
+ *
+ * `yarn` means yarn berry (>= 2); Yarn Classic (1.x) packs the raw manifest
+ * like npm does and is spelled `yarn-classic`.
+ */
+export const RootPublishers = ['npm', 'pnpm', 'yarn', 'yarn-classic'] as const
+
+export type RootPublisher = ValueOfConstArray<typeof RootPublishers>
+
 export interface UserNapiConfig {
   /**
    * Name of the binary to be generated, default to `index`
@@ -36,6 +47,23 @@ export interface UserNapiConfig {
    * The npm client project uses.
    */
   npmClient?: string
+
+  /**
+   * The package manager that publishes the **root** package.
+   *
+   * `napi pre-publish` publishes only the generated per-platform packages; the
+   * root package is packed and published by the caller, so this cannot be
+   * inferred reliably. pnpm and yarn berry replace `exports` with
+   * `publishConfig.exports` while packing, so under those publishers
+   * `napi pre-publish` validates only the publish-effective export map and the
+   * local `exports` may point at development-only sources. npm and Yarn
+   * Classic ship `exports` untouched.
+   *
+   * Unset — the default — validates both maps, which is correct for every
+   * publisher but rejects development-only conditions such as
+   * `"dev": "./src/index.ts"`.
+   */
+  rootPublisher?: RootPublisher
 
   /**
    * Whether generate const enum for typescript bindings
@@ -182,7 +210,12 @@ export type NapiConfig = Required<
 > &
   Pick<
     UserNapiConfig,
-    'wasm' | 'dtsHeader' | 'dtsHeaderFile' | 'constEnum' | 'runtimeStringEnum'
+    | 'wasm'
+    | 'dtsHeader'
+    | 'dtsHeaderFile'
+    | 'constEnum'
+    | 'runtimeStringEnum'
+    | 'rootPublisher'
   > & {
     targets: Target[]
     packageJson: CommonPackageJsonFields
