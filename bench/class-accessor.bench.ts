@@ -6,7 +6,8 @@ const require = createRequire(import.meta.url)
 
 const { BenchFieldAccessor, BenchImplAccessor } = require('./index.node')
 
-let sink = 0
+// Prevent the JIT from eliminating measured work.
+let _sink = 0
 
 class JsAccessor {
   #value: number
@@ -35,7 +36,7 @@ bench('class accessor from #[napi] impl getter/setter', () => {
     sum += o.value
   }
 
-  sink = sum
+  _sink = sum
 })
 
 bench('class accessor from #[napi(getter, setter)] field', () => {
@@ -47,7 +48,7 @@ bench('class accessor from #[napi(getter, setter)] field', () => {
     sum += o.value
   }
 
-  sink = sum
+  _sink = sum
 })
 
 bench('JavaScript getter/setter baseline', () => {
@@ -59,5 +60,5 @@ bench('JavaScript getter/setter baseline', () => {
     sum += o.value
   }
 
-  sink = sum
+  _sink = sum
 })

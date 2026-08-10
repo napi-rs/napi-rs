@@ -26,26 +26,29 @@ function createClass() {
   return testObject
 }
 
+// Keep getter results live so the measured property access is not DCE'd.
+let _sink: unknown
+
 bench('Get Set from native#u32', () => {
   const o = createClass()
-  o.miterNative
+  _sink = o.miterNative
   o.miterNative = 1
 })
 
 bench('Get Set from JavaScript#u32', () => {
   const o = createClass()
-  o.miter
+  _sink = o.miter
   o.miter = 1
 })
 
 bench('Get Set from native#string', () => {
   const o = createClass()
-  o.lineJoinNative
+  _sink = o.lineJoinNative
   o.lineJoinNative = 'bevel'
 })
 
 bench('Get Set from JavaScript#string', () => {
   const o = createClass()
-  o.lineJoin
+  _sink = o.lineJoin
   o.lineJoin = 'bevel'
 })
