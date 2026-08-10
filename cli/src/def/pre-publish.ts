@@ -47,6 +47,14 @@ export abstract class BasePrePublishCommand extends Command {
     description: 'Whether skip optionalDependencies packages publish',
   })
 
+  rootPublisher?: 'npm' | 'pnpm' | 'yarn' | 'yarn-classic' = Option.String(
+    '--root-publisher',
+    {
+      description:
+        'The package manager that publishes the root package. pnpm and yarn berry replace `exports` with `publishConfig.exports` while packing, so for them the root package validation targets the publish-effective export map. Defaults to the `napi.rootPublisher` config field, and validates both export maps when neither is set',
+    },
+  )
+
   dryRun = Option.Boolean('--dry-run', false, {
     description: 'Dry run without touching file system',
   })
@@ -62,6 +70,7 @@ export abstract class BasePrePublishCommand extends Command {
       ghReleaseName: this.ghReleaseName,
       ghReleaseId: this.ghReleaseId,
       skipOptionalPublish: this.skipOptionalPublish,
+      rootPublisher: this.rootPublisher,
       dryRun: this.dryRun,
     }
   }
@@ -119,6 +128,10 @@ export interface PrePublishOptions {
    * @default false
    */
   skipOptionalPublish?: boolean
+  /**
+   * The package manager that publishes the root package. pnpm and yarn berry replace `exports` with `publishConfig.exports` while packing, so for them the root package validation targets the publish-effective export map. Defaults to the `napi.rootPublisher` config field, and validates both export maps when neither is set
+   */
+  rootPublisher?: 'npm' | 'pnpm' | 'yarn' | 'yarn-classic'
   /**
    * Dry run without touching file system
    *
