@@ -167,8 +167,21 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
           )?;
         }
         Err(e) => {
+          // `ToNapiValue for Error` hands the retained value back verbatim —
+          // the completion callback runs on the owning env/thread, exactly
+          // where the retained reference is restorable — and synthesizes a
+          // fresh `Error` from `status`/`reason`/`cause` when there is nothing
+          // to hand back (an error built on the libuv thread holds no
+          // reference; one captured on a foreign env or thread fails the owner
+          // gates in `referenced_value` and falls back to synthesis instead of
+          // dereferencing a foreign reference). `JsError::into_value` cannot
+          // be used here: it gates reuse on `napi_is_error`, so a task
+          // rejecting with a retained primitive or plain object — same
+          // contract as the deferred settlement path — would settle with a
+          // synthesized `Error` instead of the captured value.
+          let rejection = unsafe { ToNapiValue::to_napi_value(env, e) }?;
           check_status!(
-            unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) },
+            unsafe { sys::napi_reject_deferred(env, deferred, rejection) },
             "Reject promise failed"
           )?;
         }

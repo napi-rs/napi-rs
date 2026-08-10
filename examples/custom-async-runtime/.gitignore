@@ -17,6 +17,7 @@ index.d.cts
 index.js
 wasi-worker-browser.mjs
 wasi-worker.mjs
+.combined-wasi/
 .vitest-attachments/
 browser/__screenshots__/
 workerd/worker.bundle.mjs

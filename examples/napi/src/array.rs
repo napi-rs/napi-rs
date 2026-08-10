@@ -1,5 +1,5 @@
 use napi::{
-  bindgen_prelude::{Array, Object},
+  bindgen_prelude::{Array, ClassInstance, Object},
   Env,
 };
 
@@ -76,5 +76,13 @@ impl ClassInArray {
 
 #[napi]
 pub fn get_class_from_array(arr: Array<'_>) -> napi::Result<Option<u32>> {
-  arr.get_ref::<ClassInArray>(0).map(|c| c.map(|c| c.value))
+  // `Array::get_ref::<T>` on a `#[napi]` class routes through the generated
+  // `FromNapiRef`, which registers a native borrow and therefore requires the
+  // caller to be generated argument conversion. Inside a native call the
+  // `ClassInstance` conversion is the supported way to read a class element.
+  Ok(
+    arr
+      .get::<ClassInstance<ClassInArray>>(0)?
+      .map(|class| (*class).value),
+  )
 }

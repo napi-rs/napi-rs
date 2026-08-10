@@ -190,6 +190,15 @@ fn gen_napi_value_map_impl(
           #name_str,
         )?;
 
+        // Register the shared alias guard in the active conversion scope so the
+        // borrow stays tracked for as long as generated glue holds the `&T`.
+        napi::bindgen_prelude::register_native_borrow_with_value(
+          env,
+          napi_val,
+          wrapped_val.cast::<#name>(),
+          false,
+        )?;
+
         Ok(&*(wrapped_val as *const #name))
       }
     }
@@ -218,6 +227,15 @@ fn gen_napi_value_map_impl(
           napi_val,
           &<#name as napi::bindgen_prelude::TypeTag>::type_tag(),
           #name_str,
+        )?;
+
+        // Register the exclusive alias guard in the active conversion scope so any
+        // overlapping borrow of the same native value conflicts instead of aliasing.
+        napi::bindgen_prelude::register_native_borrow_with_value(
+          env,
+          napi_val,
+          wrapped_val.cast::<#name>(),
+          true,
         )?;
 
         Ok(&mut *(wrapped_val as *mut #name))
@@ -999,6 +1017,10 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
+              // Held until the end of this call, so the field borrow stays exclusive
+              // across return-value conversion.
+              let _napi_native_borrow =
+                napi::bindgen_prelude::acquire_native_borrow(this_ptr, true)?;
               let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
               #to_napi_value_convert
             }
@@ -1024,6 +1046,9 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
+              // Held until the end of this call, so the field assignment stays exclusive.
+              let _napi_native_borrow =
+                napi::bindgen_prelude::acquire_native_borrow(this_ptr, true)?;
               let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
               obj.#field_ident = val;
               unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }

@@ -193,6 +193,45 @@ pub fn async_task_finally(inner: ObjectRef) -> AsyncTask<AsyncTaskFinally> {
   AsyncTask::new(AsyncTaskFinally { inner })
 }
 
+/// An `Error` captured from an arbitrary JS value on the JS thread
+/// (`Error::from_unknown_without_coercion`), carried through an `AsyncTask`'s
+/// `compute` on the libuv thread and handed back by the default `Task::reject`.
+/// The promise must settle with the identical retained value — same primitive,
+/// same object identity — not a synthesized `Error` built from the reason.
+/// The completion callback runs back on the owning env/thread, so the retained
+/// reference is restorable there; `values.spec.ts` asserts the identity.
+pub struct AsyncTaskRejectWithCapturedValue {
+  error: Option<Error>,
+}
+
+#[napi]
+impl Task for AsyncTaskRejectWithCapturedValue {
+  type Output = ();
+  type JsValue = ();
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Err(
+      self
+        .error
+        .take()
+        .unwrap_or_else(|| Error::from_reason("captured error was already taken")),
+    )
+  }
+
+  fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+    Ok(())
+  }
+}
+
+#[napi]
+pub fn async_task_reject_with_captured_value(
+  value: Unknown,
+) -> AsyncTask<AsyncTaskRejectWithCapturedValue> {
+  AsyncTask::new(AsyncTaskRejectWithCapturedValue {
+    error: Some(Error::from_unknown_without_coercion(value)),
+  })
+}
+
 pub struct AsyncTaskArrayBuffer {
   data: Vec<u8>,
 }

@@ -2,7 +2,11 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
-import { createWasiBrowserBinding } from '../templates/load-wasi-template.js'
+import {
+  createWasiBinding,
+  createWasiBrowserBinding,
+  createWasiDeferredBrowserBinding,
+} from '../templates/load-wasi-template.js'
 import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
 
 const test = ava
@@ -198,6 +202,86 @@ for (const { name, code } of cjsBindingCases) {
       'CJS loader must not pass `{ cause }` to the Error constructor (ignored on Node < 16.9); assign `error.cause` instead',
     )
   })
+}
+
+// `napi_prepare_wasm_env_cleanup` only *queues* the promise settlements of the
+// tasks it cancels: `napi_call_threadsafe_function` appends to the
+// threadsafe-function queue, and @emnapi/core dispatches that queue from a
+// macrotask two coalescing turns later. `Context.destroy()` then drains the
+// queue with a null env and discards it. Measured against @emnapi/core
+// 2.0.0-alpha.3: zero microtask checkpoints ever deliver the settlement, and it
+// takes exactly two macrotask turns.
+//
+// So a loader that emits the barrier and `destroy()` back to back strands
+// exactly the promises the barrier exists to settle, and it does so silently.
+// `examples/custom-async-runtime` covers the hand-written loader and the two
+// emitted flavors it builds (node cjs threadless, deferred/workerd)
+// behaviorally; the other flavors are never instantiated by any test, so assert
+// the shape here as well.
+const wasiLoaderCases: Array<{ name: string; code: string }> = [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding('test', '@scope/test', 4000, 65536, false),
+  },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+  { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
+]
+
+for (const { name, code } of wasiLoaderCases) {
+  test(`WASI loader waits for queued settlements before destroy: ${name}`, (t) => {
+    t.true(
+      code.includes('napi_prepare_wasm_env_cleanup'),
+      'loader must run the pre-teardown barrier',
+    )
+    t.true(
+      code.includes('napi_wasm_env_cleanup_pending'),
+      'loader must poll napi_wasm_env_cleanup_pending; without it the barrier queues settlements that Context.destroy() then discards',
+    )
+    t.true(
+      code.includes('__drainWasmEnvCleanup'),
+      'loader must call the settlement drain on its disposal path',
+    )
+    t.true(
+      code.includes('__scheduleMacrotask'),
+      'the drain must yield real macrotask turns; microtask checkpoints never let the emnapi dispatch run',
+    )
+    // Initialization rollback is the same hazard, one step earlier. Registration
+    // runs with a live environment, so a module-init hook can start a task and
+    // *then* return an error; the barrier cancels the task and queues its
+    // rejection, and a rollback that destroys the context in the same turn
+    // discards it — stranding a promise that already escaped into JavaScript.
+    t.true(
+      initializationRollbackBody(code).includes(
+        DRAIN_CALL_BY_ROLLBACK_FLAVOR[
+          code.includes(EAGER_ROLLBACK_SIGNATURE) ? 'eager' : 'deferred'
+        ],
+      ),
+      'initialization rollback must drain queued settlements before destroying the context',
+    )
+  })
+}
+
+const EAGER_ROLLBACK_SIGNATURE = 'function __rollbackWasiInitialization() {'
+const DEFERRED_ROLLBACK_SIGNATURE = "__lifecycleState = 'failed'"
+const DRAIN_CALL_BY_ROLLBACK_FLAVOR = {
+  eager: '__drainWasmEnvCleanup',
+  deferred: '__prepareForDisposal',
+} as const
+
+/**
+ * The body of a loader's initialization-failure path: `__rollbackWasiInitialization`
+ * for the eager loaders, `__createInstance`'s catch for the deferred one.
+ * Sliced rather than searched whole-file, so a drain that only runs on the
+ * ordinary disposal path cannot satisfy the assertion.
+ */
+function initializationRollbackBody(code: string): string {
+  const eagerStart = code.indexOf(EAGER_ROLLBACK_SIGNATURE)
+  if (eagerStart !== -1) {
+    return code.slice(eagerStart, code.indexOf('\n}', eagerStart))
+  }
+  const deferredStart = code.indexOf(DEFERRED_ROLLBACK_SIGNATURE)
+  return code.slice(deferredStart, code.indexOf('throw error', deferredStart))
 }
 
 test('createEsmBinding is Node 12 compatible', (t) => {

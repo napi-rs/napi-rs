@@ -195,6 +195,42 @@ test('async generator should support throw()', async (t) => {
   await t.throwsAsync(() => iter.throw!(new Error('test error')))
 })
 
+test('async generator throw() rejects with the identical value', async (t) => {
+  if (typeof AsyncFib === 'undefined') {
+    t.pass(
+      'AsyncFib is not available (tokio_rt feature not enabled), skipping test',
+    )
+    return
+  }
+  // `throw()` accepts any value. Capturing it used to go through
+  // `napi_create_reference`, which rejects primitives, so the thrown value was
+  // replaced by a reference-creation failure. Assert identity, not the message:
+  // a synthesized `Error` carrying the same message would pass a message check.
+  const thrown: unknown[] = [
+    'boom',
+    42,
+    null,
+    undefined,
+    false,
+    7n,
+    Symbol('marker'),
+    { tag: 'marker' },
+    [1, 2, 3],
+    new TypeError('a real error'),
+  ]
+  for (const value of thrown) {
+    const fib = new AsyncFib()
+    const iter = fib[Symbol.asyncIterator]()
+    t.deepEqual(await iter.next(), { value: 1, done: false })
+    const settled = await iter.throw!(value).then(
+      (resolved) => ({ rejected: false, value: resolved as unknown }),
+      (reason: unknown) => ({ rejected: true, value: reason }),
+    )
+    t.true(settled.rejected, `${String(value)} should reject`)
+    t.is(settled.value, value, `${String(value)} should reject with itself`)
+  }
+})
+
 // Truly async generator tests - these use actual async delays
 test('DelayedCounter should yield values with real async delays', async (t) => {
   if (typeof DelayedCounter === 'undefined') {
@@ -279,6 +315,24 @@ test('AsyncDataSource factory pattern should work', async (t) => {
   t.deepEqual(await iter.next(), { value: undefined, done: true })
 })
 
+const CONCURRENCY_YIELDS = 5
+const CONCURRENCY_DELAY_MS = 10
+
+async function drainDelayedCounter(
+  label: string,
+  order: string[],
+): Promise<number[]> {
+  const values: number[] = []
+  for await (const value of new DelayedCounter(
+    CONCURRENCY_YIELDS,
+    CONCURRENCY_DELAY_MS,
+  )) {
+    order.push(label)
+    values.push(value)
+  }
+  return values
+}
+
 test('async generators should run concurrently', async (t) => {
   if (typeof DelayedCounter === 'undefined') {
     t.pass(
@@ -287,34 +341,105 @@ test('async generators should run concurrently', async (t) => {
     return
   }
 
-  // Create two counters that each take 50ms total
-  const counter1 = new DelayedCounter(5, 10) // 5 * 10ms = 50ms
-  const counter2 = new DelayedCounter(5, 10) // 5 * 10ms = 50ms
+  // A fixed millisecond budget cannot express "these ran concurrently". Each
+  // `next()` costs a promise, a tokio wake-up and a threadsafe-function hop on
+  // top of its `delay_ms` sleep, and on an emulated target that per-yield cost
+  // dwarfs the sleeping and swings with whatever else the runner is doing: the
+  // QEMU armv7 job has measured this exact loop anywhere from 132ms to 362ms
+  // across CI runs with nothing in the async-generator path changing between
+  // them. A budget tight enough to catch serialisation there is a budget the
+  // slow end of that range trips on its own.
+  //
+  // So measure both shapes in the same process moments apart and assert on the
+  // thing concurrency actually buys — the sleeps overlap instead of adding up —
+  // which is a property of the ratio, not of the absolute numbers.
 
-  const startTime = Date.now()
+  // Warm the path first so the serial baseline is not paying one-time costs the
+  // concurrent run would then get for free.
+  await drainDelayedCounter('warmup', [])
 
-  // Run both concurrently
+  const serialOrder: string[] = []
+  const serialStart = Date.now()
+  const serial1 = await drainDelayedCounter('a', serialOrder)
+  const serial2 = await drainDelayedCounter('b', serialOrder)
+  const serialElapsed = Date.now() - serialStart
+
+  const concurrentOrder: string[] = []
+  const concurrentStart = Date.now()
   const [results1, results2] = await Promise.all([
-    (async () => {
-      const r: number[] = []
-      for await (const v of counter1) r.push(v as number)
-      return r
-    })(),
-    (async () => {
-      const r: number[] = []
-      for await (const v of counter2) r.push(v as number)
-      return r
-    })(),
+    drainDelayedCounter('a', concurrentOrder),
+    drainDelayedCounter('b', concurrentOrder),
   ])
+  const concurrentElapsed = Date.now() - concurrentStart
 
-  const elapsed = Date.now() - startTime
+  const expected = [0, 1, 2, 3, 4]
+  t.deepEqual(serial1, expected)
+  t.deepEqual(serial2, expected)
+  t.deepEqual(results1, expected)
+  t.deepEqual(results2, expected)
 
-  t.deepEqual(results1, [0, 1, 2, 3, 4])
-  t.deepEqual(results2, [0, 1, 2, 3, 4])
-  // If running concurrently, should take ~50ms, not ~100ms
-  // Allow very generous tolerance for CI/WASI environments
+  // The serial baseline is what "not concurrent" looks like on this machine
+  // right now: every value of the first counter lands before the first value of
+  // the second.
+  t.is(serialOrder.join(''), 'aaaaabbbbb')
+
+  // Concurrently, the two counters make progress against each other, so the
+  // second one yields before the first one is done. This alone catches a
+  // generator that blocks the runtime, and it does not depend on the clock.
   t.true(
-    elapsed < 300,
-    `Expected concurrent execution under 300ms, got ${elapsed}ms`,
+    concurrentOrder.indexOf('b') < concurrentOrder.lastIndexOf('a'),
+    `Expected the two counters to interleave, got ${concurrentOrder.join('')}`,
+  )
+
+  const saved = serialElapsed - concurrentElapsed
+
+  // The remaining claim — that the sleeps overlap rather than merely
+  // interleaving — is not true on the WASI lane, and the reason is below
+  // napi-rs, so asserting it there would only be asserting a Tokio bug.
+  //
+  // Tokio parks a worker on its next timer deadline through
+  // `runtime::park::Inner::park_timeout`, which is
+  //
+  //     #[cfg(all(target_family = "wasm", not(target_feature = "atomics")))]
+  //     { std::thread::sleep(dur) }   // "Wasm without atomics doesn't have threads"
+  //
+  // and `target_feature = "atomics"` is never set on `wasm32-wasip1-threads`:
+  // it is an *unstable* target feature, and rustc does not surface unstable
+  // target features to `cfg` even when the target compiles with them. So on
+  // the one wasm target that does have threads, Tokio's timer park is an
+  // uninterruptible sleep. `available_parallelism()` is 1 under Node's WASI,
+  // so the single worker owns the time driver, and a task injected from the
+  // JavaScript thread is not polled until whatever sleep is already in flight
+  // runs out — measured on this lane, a task submitted 30ms into a 200ms sleep
+  // waits ~165ms for its first poll. Nothing else on the path is at fault:
+  // eight 50ms sleeps joined *inside* one task still finish in 51ms, and eight
+  // spawned from within the runtime in 53ms; only the cross-thread wake-up is
+  // lost. Two DelayedCounters therefore add up instead of overlapping, on this
+  // branch and on `main` alike (serial 153ms vs concurrent 153ms for both).
+  // Patching that single `cfg` in a local Tokio checkout takes the same
+  // measurement to serial 184ms / concurrent 98ms.
+  //
+  // Lowering the threshold until this passes would mean shipping a
+  // "concurrency" assertion that accepts fully serialised execution, so the
+  // saving is asserted only where the executor can actually overlap timers.
+  // The interleaving assertion above still runs on every target, including
+  // this one, and still fails there if a generator blocks the runtime.
+  if (process.env.WASI_TEST) {
+    t.log(
+      `WASI: sleeps do not overlap here (tokio-rs/tokio park_timeout is thread::sleep on wasm); serial ${serialElapsed}ms, concurrent ${concurrentElapsed}ms, saved ${saved}ms`,
+    )
+    return
+  }
+
+  // Running both counters serially sleeps 2 * (CONCURRENCY_YIELDS + 1) *
+  // delay; running them concurrently sleeps half of that, so concurrency is
+  // worth at least CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS of wall clock
+  // however slow the per-yield machinery is. Requiring half of that leaves
+  // room for a scheduling hiccup while still going to zero the moment the two
+  // counters stop overlapping.
+  const minimumSaving = (CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS) / 2
+  t.true(
+    saved > minimumSaving,
+    `Expected concurrent execution to save more than ${minimumSaving}ms over the serial baseline, but serial took ${serialElapsed}ms and concurrent took ${concurrentElapsed}ms (saved ${saved}ms)`,
   )
 })

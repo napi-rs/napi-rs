@@ -73,6 +73,88 @@ pub fn js_error_callback(value: Unknown) -> Result<Vec<JsError>> {
   Ok(vec![error.try_clone()?.into(), error.into()])
 }
 
+// ---------------------------------------------------------------------------
+// The error-object APIs, fed an `Error` that retained an arbitrary JS value.
+// `Error::from_unknown_without_coercion` retains *anything* — that is the point
+// on the rejection and throw settlement paths.
+//
+// `Env::create_error` *constructs* an error object and is documented to return
+// one, so it validates with `napi_is_error` and synthesizes otherwise. The
+// `JsError`/`JsTypeError`/`JsRangeError` `ToNapiValue` impls are *conversions*
+// on the same footing as `ToNapiValue for Error`, so they hand the retained
+// value straight back.
+
+#[napi]
+pub fn create_error_from_retained_value<'env>(
+  env: &'env Env,
+  value: Unknown,
+) -> Result<Object<'env>> {
+  env.create_error(Error::from_unknown_without_coercion(value))
+}
+
+#[napi]
+pub fn js_error_from_retained_value(value: Unknown) -> Result<JsError> {
+  Ok(Error::from_unknown_without_coercion(value).into())
+}
+
+#[napi]
+pub fn js_type_error_from_retained_value(value: Unknown) -> Result<JsTypeError> {
+  Ok(Error::from_unknown_without_coercion(value).into())
+}
+
+#[napi]
+pub fn js_range_error_from_retained_value(value: Unknown) -> Result<JsRangeError> {
+  Ok(Error::from_unknown_without_coercion(value).into())
+}
+
+/// Captures `value` with `Error::from_unknown_without_coercion` and reports how
+/// Rust saw it, as `"<status>|<reason>|<cause chain>"` — the same shape as
+/// `describe_promise_rejection`, but synchronous. The synchronous window is the
+/// point: a test can patch `globalThis.Reflect` (or delete it), call this, and
+/// restore it before any other code can observe the patch, so the capture path's
+/// treatment of the global — cached at module registration, never `[[Get]]` off
+/// the global mid-capture — is testable without poisoning concurrent tests.
+#[napi]
+pub fn describe_captured_value(value: Unknown) -> String {
+  let error = Error::from_unknown_without_coercion(value);
+  let mut causes = Vec::new();
+  let mut cause = error.cause.as_deref();
+  while let Some(link) = cause {
+    causes.push(link.reason.clone());
+    cause = link.cause.as_deref();
+  }
+  format!(
+    "{}|{}|{}",
+    error.status.as_ref(),
+    error.reason,
+    if causes.is_empty() {
+      "-".to_owned()
+    } else {
+      causes.join("<")
+    }
+  )
+}
+
+// The other half: an `Error` built in Rust retains nothing, so the conversion
+// has to synthesize — and the synthesized error must keep the constructor its
+// wrapper names. Delegating to `ToNapiValue for Error` used to fall back to
+// `JsError::into_value`, which made every one of these a plain `Error`.
+
+#[napi]
+pub fn js_error_without_retained_value(reason: String) -> Result<JsError> {
+  Ok(Error::new(Status::GenericFailure, reason).into())
+}
+
+#[napi]
+pub fn js_type_error_without_retained_value(reason: String) -> Result<JsTypeError> {
+  Ok(Error::new(Status::GenericFailure, reason).into())
+}
+
+#[napi]
+pub fn js_range_error_without_retained_value(reason: String) -> Result<JsRangeError> {
+  Ok(Error::new(Status::GenericFailure, reason).into())
+}
+
 #[napi]
 pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Result<()> {
   let instance = error_class.new_instance("Error message in Rust".to_owned())?;

@@ -142,12 +142,21 @@ impl TryToTokens for NapiFn {
           this,
           __napi_accessor_args,
         );
+        // The scope collects the receiver/argument borrow guards; it is declared before the
+        // native call and dropped at the end of this block, so the guards stay held across
+        // the native call INCLUDING return-value conversion. That property is the
+        // memory-safety invariant: a reentrant `&mut self` call during return-value
+        // conversion must conflict instead of freeing memory the conversion still reads.
+        let mut _napi_native_borrow_scope = napi::bindgen_prelude::NativeBorrowScope::new();
         let __wrapped_env = napi::bindgen_prelude::Env::from(env);
         #(#arg_conversions)*
         #(#this_conversions)*
         #receiver_unwrap
         #(#receiver_dependent_conversions)*
         #receiver_conversion
+        _napi_native_borrow_scope.finish();
+        let _napi_native_borrow_barrier =
+          napi::bindgen_prelude::NativeBorrowBarrier::new();
         #native_call
       };
 
@@ -234,6 +243,19 @@ impl TryToTokens for NapiFn {
     } else {
       quote! {}
     };
+    // Async callbacks root the exact source JavaScript values alongside their alias guards and
+    // release both on the owner thread once the generated future (and every reference it
+    // captured) is done. Synchronous callbacks only hold alias guards; the scope local's drop at
+    // the end of the callback block releases them after return-value conversion.
+    let create_native_borrow_scope = if self.is_async {
+      quote! {
+        napi::bindgen_prelude::NativeBorrowScope::new_async()
+      }
+    } else {
+      quote! {
+        napi::bindgen_prelude::NativeBorrowScope::new()
+      }
+    };
     let native_call = if !self.is_async {
       if self.within_async_runtime {
         quote! {
@@ -267,6 +289,7 @@ impl TryToTokens for NapiFn {
         napi::bindgen_prelude::execute_tokio_future_with_finalize_callback(env, async move { #call }, move |env, #receiver_ret_name| {
           #ret
         }, Some(Box::new(move |env| {
+          _napi_native_borrow_scope.release(env);
           _args_ref.drop(env);
         })))
       }
@@ -282,12 +305,22 @@ impl TryToTokens for NapiFn {
     let function_call_inner = quote! {
       napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None, #use_after_async).and_then(|#[allow(unused_mut)] mut cb| {
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
+          // The scope collects the receiver/argument borrow guards; it is declared before the
+          // native call and, for synchronous callbacks, dropped at the end of this block, so the
+          // guards stay held across the native call INCLUDING return-value conversion. That
+          // property is the memory-safety invariant: a reentrant `&mut self` call during
+          // return-value conversion must conflict instead of freeing memory the conversion still
+          // reads. Async callbacks move the scope into their terminal finalize callback instead.
+          let mut _napi_native_borrow_scope = #create_native_borrow_scope;
           #(#arg_conversions)*
           #(#this_conversions)*
           #receiver_unwrap
           #(#receiver_dependent_conversions)*
           #build_ref_container
           #receiver_conversion
+          _napi_native_borrow_scope.finish();
+          let _napi_native_borrow_barrier =
+            napi::bindgen_prelude::NativeBorrowBarrier::new();
           #native_call
         })
     };
@@ -298,7 +331,11 @@ impl TryToTokens for NapiFn {
       && self.kind != FnKind::Factory
       && !self.is_async
     {
-      quote! { #native_call }
+      quote! {
+        let _napi_native_borrow_barrier =
+          napi::bindgen_prelude::NativeBorrowBarrier::new();
+        #native_call
+      }
     } else if self.kind == FnKind::Constructor {
       let return_from_factory = if self.catch_unwind {
         quote! { return Ok(std::ptr::null_mut()); }
@@ -374,6 +411,12 @@ impl NapiFn {
           refs.push(make_ref(quote! { cb.this() }));
           receiver_unwrap = quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
+            napi::bindgen_prelude::register_native_borrow_with_value(
+              env,
+              cb.this(),
+              this_ptr,
+              false,
+            )?;
           };
           receiver_conversion = quote! {
             let this: &#parent = Box::leak(Box::from_raw(this_ptr));
@@ -383,6 +426,12 @@ impl NapiFn {
           refs.push(make_ref(quote! { cb.this() }));
           receiver_unwrap = quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
+            napi::bindgen_prelude::register_native_borrow_with_value(
+              env,
+              cb.this(),
+              this_ptr,
+              true,
+            )?;
           };
           receiver_conversion = quote! {
             let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
