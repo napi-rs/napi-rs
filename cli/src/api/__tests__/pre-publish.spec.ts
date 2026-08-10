@@ -157,6 +157,9 @@ test('rejects an unexpected npm pack JSON result', (t) => {
 // publisher is sniffed from `npm_config_user_agent`.
 const PNPM_USER_AGENT = 'pnpm/11.9.0 npm/? node/v24.19.0 darwin arm64'
 const YARN_USER_AGENT = 'yarn/4.6.0 npm/? node/v24.19.0 darwin arm64'
+// Yarn Classic packs the raw manifest (no publishConfig.exports rewrite), so
+// it must be treated like npm despite the matching `yarn/` prefix.
+const YARN_CLASSIC_USER_AGENT = 'yarn/1.22.22 npm/? node/v24.19.0 darwin arm64'
 const NPM_USER_AGENT = 'npm/11.6.2 node/v24.19.0 darwin arm64 workspaces/false'
 
 function withNpmUserAgent<T>(agent: string | undefined, fn: () => T): T {
@@ -221,6 +224,11 @@ async function createStagedRoot(
 test('detects manifest-rewriting publishers from the user agent', (t) => {
   t.true(publisherRewritesPublishConfigExports(PNPM_USER_AGENT))
   t.true(publisherRewritesPublishConfigExports(YARN_USER_AGENT))
+  t.true(
+    publisherRewritesPublishConfigExports('yarn/2.4.3 npm/? node/v24.19.0'),
+  )
+  t.false(publisherRewritesPublishConfigExports(YARN_CLASSIC_USER_AGENT))
+  t.false(publisherRewritesPublishConfigExports('yarn/ npm/? node/v24.19.0'))
   t.false(publisherRewritesPublishConfigExports(NPM_USER_AGENT))
   t.false(publisherRewritesPublishConfigExports('bun/1.2.0 node/v24.19.0'))
   // An explicit `undefined` argument falls back to the ambient environment,
@@ -250,7 +258,7 @@ test('collects the union of exports and publishConfig.exports under npm or an un
     'src/helper.ts',
     'src/index.ts',
   ]
-  for (const agent of [NPM_USER_AGENT, undefined]) {
+  for (const agent of [NPM_USER_AGENT, YARN_CLASSIC_USER_AGENT, undefined]) {
     withNpmUserAgent(agent, () => {
       t.deepEqual(
         collectRootPackagePathReferences(EFFECTIVE_EXPORTS_MANIFEST).sort(),
@@ -358,17 +366,19 @@ test('still rejects publishConfig.exports references omitted by npm pack', async
         'The threadless WASI root package references paths omitted by npm pack: dist/helper.cjs. Add them to package.json "files" or remove the matching .npmignore rules.',
     },
   )
-  t.throws(
-    () =>
-      withNpmUserAgent(NPM_USER_AGENT, () =>
-        validateRootFacadePacklist(
-          rootDir,
-          collectRootPackagePathReferences(manifest),
+  for (const agent of [NPM_USER_AGENT, YARN_CLASSIC_USER_AGENT]) {
+    t.throws(
+      () =>
+        withNpmUserAgent(agent, () =>
+          validateRootFacadePacklist(
+            rootDir,
+            collectRootPackagePathReferences(manifest),
+          ),
         ),
-      ),
-    {
-      message:
-        'The threadless WASI root package references paths omitted by npm pack: src/index.ts, src/helper.ts, dist/helper.cjs. Add them to package.json "files" or remove the matching .npmignore rules.',
-    },
-  )
+      {
+        message:
+          'The threadless WASI root package references paths omitted by npm pack: src/index.ts, src/helper.ts, dist/helper.cjs. Add them to package.json "files" or remove the matching .npmignore rules.',
+      },
+    )
+  }
 })

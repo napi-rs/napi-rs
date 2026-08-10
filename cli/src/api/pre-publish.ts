@@ -1573,24 +1573,33 @@ function createLegacyDeepImportExports(rootDir: string) {
   return exportsMap
 }
 
-// pnpm and yarn (berry) rewrite the manifest they pack: `publishConfig.exports`
-// wholesale-replaces `exports` in the published package.json (pnpm docs: "It is
-// possible to override some fields in the manifest before the package is
-// packed"; verified empirically with pnpm 11 and yarn 4 `pack`). npm does NOT:
-// its `publishConfig` only carries publish-time configuration such as tag,
-// registry and access (https://docs.npmjs.com/cli/v11/configuring-npm/package-json#publishconfig),
-// and npm 11 packs the raw `exports` untouched. Package managers identify
+// pnpm and yarn berry (>= 2) rewrite the manifest they pack:
+// `publishConfig.exports` wholesale-replaces `exports` in the published
+// package.json (pnpm docs: "It is possible to override some fields in the
+// manifest before the package is packed"; verified empirically with pnpm 11
+// and yarn 4 `pack`). npm does NOT: its `publishConfig` only carries
+// publish-time configuration such as tag, registry and access
+// (https://docs.npmjs.com/cli/v11/configuring-npm/package-json#publishconfig),
+// and npm 11 packs the raw `exports` untouched. Yarn Classic (1.x) behaves
+// like npm here — verified empirically with yarn 1.22.22 `pack`, which keeps
+// the raw `exports` in the tarball manifest. Package managers identify
 // themselves to lifecycle scripts (e.g. `prepublishOnly`) via
-// `npm_config_user_agent`, so sniff it to learn which manifest will ship.
-const MANIFEST_REWRITING_PUBLISHER_PATTERN = /(?:^|\s)(?:pnpm|yarn)\//
+// `npm_config_user_agent`, so sniff it to learn which manifest will ship;
+// yarn versions that cannot be parsed fall back to the conservative branch.
+const PNPM_PUBLISHER_PATTERN = /(?:^|\s)pnpm\//
+const YARN_PUBLISHER_PATTERN = /(?:^|\s)yarn\/(\d+)/
 
 export function publisherRewritesPublishConfigExports(
   userAgent: string | undefined = process.env.npm_config_user_agent,
 ) {
-  return (
-    typeof userAgent === 'string' &&
-    MANIFEST_REWRITING_PUBLISHER_PATTERN.test(userAgent)
-  )
+  if (typeof userAgent !== 'string') {
+    return false
+  }
+  if (PNPM_PUBLISHER_PATTERN.test(userAgent)) {
+    return true
+  }
+  const yarnMajor = YARN_PUBLISHER_PATTERN.exec(userAgent)
+  return yarnMajor !== null && Number(yarnMajor[1]) >= 2
 }
 
 export function collectRootPackagePathReferences(
