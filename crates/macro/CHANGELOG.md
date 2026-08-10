@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.2...napi-derive-v3.6.3) - 2026-08-10
+
+### Other
+
+- updated the following local packages: napi-derive-backend
+
 ## [3.6.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.1...napi-derive-v3.6.2) - 2026-08-01
 
 ### Other
