@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.8.4](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.3...%40napi-rs%2Fcli%403.8.4) (2026-08-10)
+
+### Bug Fixes
+
+- **napi:** stop unloading addons with live native code, preserve non-Error rejections, and add the wasm teardown barrier ([#3423](https://github.com/napi-rs/napi-rs/issues/3423)) ([61fae8a](https://github.com/napi-rs/napi-rs/commit/61fae8a1440ad8b7249f3cd7838fc2bafe00a906)), closes [#2975](https://github.com/napi-rs/napi-rs/issues/2975) [#3369](https://github.com/napi-rs/napi-rs/issues/3369) [#3392](https://github.com/napi-rs/napi-rs/issues/3392)
+
 ## [3.8.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.8.1...@napi-rs/cli@3.8.2) (2026-07-31)
 
 ### Bug Fixes
