@@ -63,11 +63,10 @@
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
     "@napi-rs/cross-toolchain": "^1.0.3",
-    "@napi-rs/wasm-tools": "^1.0.1",
+    "@napi-rs/wasm-tools": "^1.1.0",
     "@octokit/rest": "^22.0.1",
     "clipanion": "^4.0.0-rc.4",
     "colorette": "^2.0.20",
-    "emnapi": "2.0.0-alpha.4",
     "es-toolkit": "^1.47.0",
     "js-yaml": "^4.2.0",
     "obug": "^2.1.2",
@@ -76,7 +75,8 @@
     "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@emnapi/runtime": "2.0.0-alpha.4",
+    "@emnapi/core": "^2.0.0-alpha.4",
+    "@emnapi/runtime": "^2.0.0-alpha.4",
     "@oxc-node/core": "^0.1.0",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/inquirer": "^9.0.9",
@@ -84,6 +84,7 @@
     "@types/node": "^25.9.2",
     "@types/semver": "^7.7.1",
     "ava": "^8.0.1",
+    "emnapi": "^2.0.0-alpha.4",
     "empathic": "^2.0.1",
     "env-paths": "^4.0.0",
     "oxc-parser": "^0.144.0",
@@ -92,10 +93,18 @@
     "tslib": "^2.8.1"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "2.0.0-alpha.4"
+    "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.4",
+    "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.4",
+    "emnapi": "^1.7.1 || ^2.0.0-alpha.4"
   },
   "peerDependenciesMeta": {
+    "@emnapi/core": {
+      "optional": true
+    },
     "@emnapi/runtime": {
+      "optional": true
+    },
+    "emnapi": {
       "optional": true
     }
   },

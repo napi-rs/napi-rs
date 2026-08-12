@@ -401,8 +401,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-alpha.4"
-    "@emnapi/runtime": "npm:2.0.0-alpha.4"
+    "@emnapi/core": "npm:^2.0.0-alpha.4"
+    "@emnapi/runtime": "npm:^2.0.0-alpha.4"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -436,8 +436,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/shared-async-runtime@workspace:examples/shared-async-runtime"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-alpha.4"
-    "@emnapi/runtime": "npm:2.0.0-alpha.4"
+    "@emnapi/core": "npm:^2.0.0-alpha.4"
+    "@emnapi/runtime": "npm:^2.0.0-alpha.4"
     "@napi-rs/async-runtime": "workspace:*"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -1589,10 +1589,11 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/runtime": "npm:2.0.0-alpha.4"
+    "@emnapi/core": "npm:^2.0.0-alpha.4"
+    "@emnapi/runtime": "npm:^2.0.0-alpha.4"
     "@inquirer/prompts": "npm:^8.5.2"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
-    "@napi-rs/wasm-tools": "npm:^1.0.1"
+    "@napi-rs/wasm-tools": "npm:^1.1.0"
     "@octokit/rest": "npm:^22.0.1"
     "@oxc-node/core": "npm:^0.1.0"
     "@std/toml": "npm:@jsr/std__toml@^1.0.11"
@@ -1603,7 +1604,7 @@ __metadata:
     ava: "npm:^8.0.1"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    emnapi: "npm:2.0.0-alpha.4"
+    emnapi: "npm:^2.0.0-alpha.4"
     empathic: "npm:^2.0.1"
     env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.47.0"
@@ -1617,9 +1618,15 @@ __metadata:
     typanion: "npm:^3.14.0"
     typescript: "npm:^6.0.3"
   peerDependencies:
-    "@emnapi/runtime": 2.0.0-alpha.4
+    "@emnapi/core": ^1.7.1 || ^2.0.0-alpha.4
+    "@emnapi/runtime": ^1.7.1 || ^2.0.0-alpha.4
+    emnapi: ^1.7.1 || ^2.0.0-alpha.4
   peerDependenciesMeta:
+    "@emnapi/core":
+      optional: true
     "@emnapi/runtime":
+      optional: true
+    emnapi:
       optional: true
   bin:
     napi: ./dist/cli.js
@@ -2052,7 +2059,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-alpha.4"
+    "@emnapi/core": "npm:^2.0.0-alpha.4"
     "@tybys/wasm-util": "npm:^0.10.3"
     buffer: "npm:^6.0.3"
     events: "npm:^3.3.0"
@@ -2064,8 +2071,8 @@ __metadata:
     rolldown: "npm:^1.2.1"
     tslib: "npm:^2.8.1"
   peerDependencies:
-    "@emnapi/core": ^1.7.1 || ^2.0.0-alpha.3
-    "@emnapi/runtime": ^1.7.1 || ^2.0.0-alpha.3
+    "@emnapi/core": ^1.7.1 || ^2.0.0-alpha.4
+    "@emnapi/runtime": ^1.7.1 || ^2.0.0-alpha.4
   languageName: unknown
   linkType: soft
 
@@ -2164,7 +2171,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/wasm-tools@npm:^1.0.1":
+"@napi-rs/wasm-tools@npm:^1.1.0":
   version: 1.1.0
   resolution: "@napi-rs/wasm-tools@npm:1.1.0"
   dependencies:
