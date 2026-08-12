@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.8.6](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.5...%40napi-rs%2Fcli%403.8.6) (2026-08-12)
+
+### Bug Fixes
+
+- **cli:** compatible with emnapi v1 & v2 ([#3454](https://github.com/napi-rs/napi-rs/issues/3454)) ([aeba312](https://github.com/napi-rs/napi-rs/commit/aeba31217201e96435848fd17055478ff7cf8b98))
+- **deps:** update emnapi to v2.0.0-alpha.4 ([#3451](https://github.com/napi-rs/napi-rs/issues/3451)) ([b8ba732](https://github.com/napi-rs/napi-rs/commit/b8ba732c4611a54dde09dfe3da750f50726b51d9))
+
 ## [3.8.5](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.4...%40napi-rs%2Fcli%403.8.5) (2026-08-10)
 
 ### Bug Fixes

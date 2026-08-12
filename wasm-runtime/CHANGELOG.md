@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.3](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fwasm-runtime%401.2.2...%40napi-rs%2Fwasm-runtime%401.2.3) (2026-08-12)
+
+### Bug Fixes
+
+- **cli:** compatible with emnapi v1 & v2 ([#3454](https://github.com/napi-rs/napi-rs/issues/3454)) ([aeba312](https://github.com/napi-rs/napi-rs/commit/aeba31217201e96435848fd17055478ff7cf8b98))
+- **deps:** update emnapi to v2.0.0-alpha.4 ([#3451](https://github.com/napi-rs/napi-rs/issues/3451)) ([b8ba732](https://github.com/napi-rs/napi-rs/commit/b8ba732c4611a54dde09dfe3da750f50726b51d9))
+
 ## [1.2.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.2.1...@napi-rs/wasm-runtime@1.2.2) (2026-07-31)
 
 ### Performance Improvements
