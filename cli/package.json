@@ -87,7 +87,7 @@
     "emnapi": "^2.0.0-alpha.4",
     "empathic": "^2.0.1",
     "env-paths": "^4.0.0",
-    "oxc-parser": "^0.145.0",
+    "oxc-parser": "^0.146.0",
     "prettier": "^3.8.3",
     "tsdown": "^0.22.2",
     "tslib": "^2.8.1"
