@@ -1913,13 +1913,21 @@ test('should be able to return object from shared crate', (t) => {
 const AbortSignalTest =
   typeof AbortController !== 'undefined' ? test : test.skip
 
+// The AbortSignal type-tag protection is compiled out on wasm (type tags are a
+// no-op there), so the confusion-rejection tests below would not just fail —
+// they would exercise the confusion itself and corrupt the test process.
+const NativeAbortSignalTest =
+  typeof AbortController !== 'undefined' && !process.env.WASI_TEST
+    ? test
+    : test.skip
+
 test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
 // GHSA-qr54-xrr9-7575: a #[napi] class instance must be rejected as the
 // signal, not type-confused with the AbortSignal stack.
-AbortSignalTest('class instance is rejected as AbortSignal', (t) => {
+NativeAbortSignalTest('class instance is rejected as AbortSignal', (t) => {
   const notASignal = new Animal(Kind.Dog, 'rex')
   t.throws(() => withAbortController(1, 2, notASignal as any), {
     message: 'Value is not an AbortSignal',
@@ -1931,14 +1939,17 @@ AbortSignalTest('class instance is rejected as AbortSignal', (t) => {
 // The onabort handler is an extractable function value; calling it with a
 // foreign receiver must be rejected instead of casting the receiver's wrap
 // payload to the AbortSignal stack.
-AbortSignalTest('stolen onabort rejects a foreign receiver', async (t) => {
-  const ctrl = new AbortController()
-  await withAbortController(1, 2, ctrl.signal)
-  const stolen = ctrl.signal.onabort as unknown as () => void
-  t.throws(() => stolen.call(new Animal(Kind.Cat, 'felix')), {
-    message: 'Value is not an instance of class `AbortSignal`',
-  })
-})
+NativeAbortSignalTest(
+  'stolen onabort rejects a foreign receiver',
+  async (t) => {
+    const ctrl = new AbortController()
+    await withAbortController(1, 2, ctrl.signal)
+    const stolen = ctrl.signal.onabort as unknown as () => void
+    t.throws(() => stolen.call(new Animal(Kind.Cat, 'felix')), {
+      message: 'Value is not an instance of class `AbortSignal`',
+    })
+  },
+)
 
 AbortSignalTest('two tasks can share one AbortSignal', async (t) => {
   const ctrl = new AbortController()
