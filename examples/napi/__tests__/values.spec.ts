@@ -1124,8 +1124,11 @@ test('PromiseRaw callbacks survive a double-invoking thenable', (t) => {
 // long as the callback function itself is reachable.
 test('PromiseRaw callback survives GC of the thenable return value', async (t) => {
   const { setFlagsFromString } = await import('node:v8')
+  const { runInNewContext } = await import('node:vm')
+  // setFlagsFromString does not update the current context's global; the
+  // exposed gc must be pulled out of a freshly created context.
   setFlagsFromString('--expose-gc')
-  const gc = (globalThis as any).gc as undefined | (() => void)
+  const gc = runInNewContext('gc') as undefined | (() => void)
   if (!gc) {
     t.pass('gc not exposed; skipping')
     return
@@ -1913,21 +1916,13 @@ test('should be able to return object from shared crate', (t) => {
 const AbortSignalTest =
   typeof AbortController !== 'undefined' ? test : test.skip
 
-// The AbortSignal type-tag protection is compiled out on wasm (type tags are a
-// no-op there), so the confusion-rejection tests below would not just fail —
-// they would exercise the confusion itself and corrupt the test process.
-const NativeAbortSignalTest =
-  typeof AbortController !== 'undefined' && !process.env.WASI_TEST
-    ? test
-    : test.skip
-
 test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
 // GHSA-qr54-xrr9-7575: a #[napi] class instance must be rejected as the
 // signal, not type-confused with the AbortSignal stack.
-NativeAbortSignalTest('class instance is rejected as AbortSignal', (t) => {
+AbortSignalTest('class instance is rejected as AbortSignal', (t) => {
   const notASignal = new Animal(Kind.Dog, 'rex')
   t.throws(() => withAbortController(1, 2, notASignal as any), {
     message: 'Value is not an AbortSignal',
@@ -1939,17 +1934,14 @@ NativeAbortSignalTest('class instance is rejected as AbortSignal', (t) => {
 // The onabort handler is an extractable function value; calling it with a
 // foreign receiver must be rejected instead of casting the receiver's wrap
 // payload to the AbortSignal stack.
-NativeAbortSignalTest(
-  'stolen onabort rejects a foreign receiver',
-  async (t) => {
-    const ctrl = new AbortController()
-    await withAbortController(1, 2, ctrl.signal)
-    const stolen = ctrl.signal.onabort as unknown as () => void
-    t.throws(() => stolen.call(new Animal(Kind.Cat, 'felix')), {
-      message: 'Value is not an instance of class `AbortSignal`',
-    })
-  },
-)
+AbortSignalTest('stolen onabort rejects a foreign receiver', async (t) => {
+  const ctrl = new AbortController()
+  await withAbortController(1, 2, ctrl.signal)
+  const stolen = ctrl.signal.onabort as unknown as () => void
+  t.throws(() => stolen.call(new Animal(Kind.Cat, 'felix')), {
+    message: 'Value is not an AbortSignal',
+  })
+})
 
 AbortSignalTest('two tasks can share one AbortSignal', async (t) => {
   const ctrl = new AbortController()
