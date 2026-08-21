@@ -10,6 +10,7 @@ use std::{cell::Cell, panic::UnwindSafe};
 use crate::{
   async_work,
   bindgen_prelude::{FromNapiValue, JsObjectValue, ToNapiValue, TypeName, Unknown},
+  bindgen_runtime::{tag_object, type_tag_from_ident},
   check_status, sys, Env, Error, JsError, ScopedTask, Status, Value, ValueType,
 };
 
@@ -84,6 +85,19 @@ struct AbortSignalStack(Vec<AbortSignal>);
 static ABORT_SIGNAL_STACKS: LazyLock<Mutex<HashSet<usize>>> =
   LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// Unforgeable identity stamped on objects wrapped by
+/// `AbortSignal::from_napi_value`. The identity string is keyed on the crate
+/// version (like the `#[napi]` class tags) so two separately-loaded copies of
+/// the *same* napi version — dual-load, or two addons built on the same napi —
+/// recognize each other's stacks, while a different layout era is rejected.
+/// Stamping and checking are no-ops on builds without `napi8` and on wasm,
+/// where the registry above remains the only discriminator.
+const ABORT_SIGNAL_TAG: sys::napi_type_tag = type_tag_from_ident(concat!(
+  "napi-rs@",
+  env!("CARGO_PKG_VERSION"),
+  "::bindgen_runtime::AbortSignal"
+));
+
 fn register_stack(ptr: *mut AbortSignalStack) {
   ABORT_SIGNAL_STACKS.lock().unwrap().insert(ptr as usize);
 }
@@ -97,6 +111,33 @@ fn is_registered_stack(ptr: *const AbortSignalStack) -> bool {
     .lock()
     .unwrap()
     .contains(&(ptr as usize))
+}
+
+/// A wrapped payload may only be cast to `AbortSignalStack` when it is
+/// recognized: registered by this addon binary, or carrying the napi-rs
+/// AbortSignal type tag (which a sibling addon binary can hold).
+fn is_abort_signal_stack(
+  env: sys::napi_env,
+  obj: sys::napi_value,
+  payload: *const AbortSignalStack,
+) -> bool {
+  if is_registered_stack(payload) {
+    return true;
+  }
+  is_abort_signal_tagged(env, obj)
+}
+
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+fn is_abort_signal_tagged(env: sys::napi_env, obj: sys::napi_value) -> bool {
+  let mut has_tag = false;
+  let status =
+    unsafe { sys::napi_check_object_type_tag(env, obj, &ABORT_SIGNAL_TAG, &mut has_tag) };
+  status == sys::Status::napi_ok && has_tag
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+fn is_abort_signal_tagged(_env: sys::napi_env, _obj: sys::napi_value) -> bool {
+  false
 }
 
 impl FromNapiValue for AbortSignal {
@@ -122,14 +163,15 @@ impl FromNapiValue for AbortSignal {
     let mut stack;
     let mut maybe_stack = ptr::null_mut();
 
-    // If the object is already wrapped, its payload is only an
-    // `AbortSignalStack` when a previous conversion registered it. A `#[napi]`
-    // class instance wraps a bare `*mut T`; casting that is a type confusion,
-    // and it must be rejected before `napi_remove_wrap` detaches the victim's
-    // own wrap.
+    // If the object is already wrapped, its payload may only be cast to
+    // `AbortSignalStack` when it is recognized (registered by this addon, or
+    // carrying our type tag from a sibling addon). A `#[napi]` class instance
+    // wraps a bare `*mut T`; casting that is a type confusion, and it must be
+    // rejected before `napi_remove_wrap` detaches the victim's own wrap.
     let unwrap_status = unsafe { sys::napi_unwrap(env, signal.0.value, &mut maybe_stack) };
-    if unwrap_status == sys::Status::napi_ok {
-      if !is_registered_stack(maybe_stack.cast()) {
+    let freshly_wrapped = unwrap_status != sys::Status::napi_ok;
+    if !freshly_wrapped {
+      if !is_abort_signal_stack(env, signal.0.value, maybe_stack.cast()) {
         return Err(Error::new(
           Status::InvalidArg,
           "Value is not an AbortSignal".to_owned(),
@@ -164,6 +206,20 @@ impl FromNapiValue for AbortSignal {
     }
     check_status!(wrap_status, "Wrap AbortSignal failed")?;
     register_stack(stack_ptr);
+    if freshly_wrapped {
+      // Stamp our identity so sibling addon binaries recognize this wrap.
+      // Only fresh wraps need the stamp: the tag survives `napi_remove_wrap`,
+      // and stamping an already-tagged object fails. If stamping fails (the
+      // object carries a foreign tag), roll the wrap back so the object is
+      // not left holding our stack under another owner's identity.
+      if let Err(err) = unsafe { tag_object(env, signal.0.value, &ABORT_SIGNAL_TAG) } {
+        let mut removed = ptr::null_mut();
+        let _ = unsafe { sys::napi_remove_wrap(env, signal.0.value, &mut removed) };
+        unregister_stack(stack_ptr);
+        drop(unsafe { Box::from_raw(stack_ptr) });
+        return Err(err);
+      }
+    }
     signal.set_named_property(
       "onabort",
       js_env.create_function::<(), Unknown>("onabort", on_abort)?,
@@ -214,9 +270,10 @@ fn on_abort_impl(
       "Unwrap async_task from AbortSignal failed"
     )?;
     // `onabort` is an ordinary extractable function value: it can be stolen
-    // and called with an arbitrary receiver. Only receivers whose payload a
-    // conversion registered are genuine AbortSignal stacks.
-    if !is_registered_stack(async_task.cast()) {
+    // and called with an arbitrary receiver. Only receivers whose payload is
+    // recognized (our registry, or our tag from a sibling addon) are genuine
+    // AbortSignal stacks.
+    if !is_abort_signal_stack(env, this, async_task.cast()) {
       return Err(Error::new(
         Status::InvalidArg,
         "Value is not an AbortSignal".to_owned(),
