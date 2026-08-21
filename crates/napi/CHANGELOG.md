@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.1...napi-v3.12.2) - 2026-08-21
+
+### Fixed
+
+- *(napi)* memory safety in PromiseRaw callbacks and AbortSignal conversion ([#3458](https://github.com/napi-rs/napi-rs/pull/3458))
+
 ## [3.12.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.0...napi-v3.12.1) - 2026-08-10
 
 ### Fixed
