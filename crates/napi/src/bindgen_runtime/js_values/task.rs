@@ -8,6 +8,7 @@ use std::{cell::Cell, panic::UnwindSafe};
 use crate::{
   async_work,
   bindgen_prelude::{FromNapiValue, JsObjectValue, ToNapiValue, TypeName, Unknown},
+  bindgen_runtime::{tag_object, type_tag_from_ident, validate_type_tag},
   check_status, sys, Env, Error, JsError, ScopedTask, Value, ValueType,
 };
 
@@ -72,6 +73,19 @@ impl std::panic::RefUnwindSafe for AbortSignal {}
 #[repr(transparent)]
 struct AbortSignalStack(Vec<AbortSignal>);
 
+/// Unforgeable identity stamped on objects wrapped by
+/// `AbortSignal::from_napi_value`, so a later conversion (or an `onabort`
+/// invocation) can tell a genuine AbortSignal stack apart from an arbitrary
+/// wrapped object — e.g. a `#[napi]` class instance, whose wrap payload is a
+/// bare `*mut T` and must never be cast to `AbortSignalStack`
+/// (GHSA-qr54-xrr9-7575). Like the class type tags, stamping and checking are
+/// no-ops on builds without `napi8` and on wasm.
+const ABORT_SIGNAL_TAG: sys::napi_type_tag = type_tag_from_ident(concat!(
+  "napi@",
+  env!("CARGO_PKG_VERSION"),
+  "::bindgen_runtime::AbortSignal"
+));
+
 impl FromNapiValue for AbortSignal {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut signal = Object(
@@ -94,6 +108,35 @@ impl FromNapiValue for AbortSignal {
 
     let mut stack;
     let mut maybe_stack = ptr::null_mut();
+
+    // Distinguish a genuine signal object (unwrapped, or wrapped by a previous
+    // AbortSignal conversion) from an object wrapped by something else — e.g. a
+    // `#[napi]` class instance, whose payload is a bare `*mut T`. Casting the
+    // latter to `AbortSignalStack` is a type confusion, so reject it before
+    // touching the wrap. No-op on builds without `napi8` and on wasm.
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    let needs_tag = {
+      let mut has_our_tag = false;
+      check_status!(
+        unsafe {
+          sys::napi_check_object_type_tag(env, signal.0.value, &ABORT_SIGNAL_TAG, &mut has_our_tag)
+        },
+        "AbortSignal type tag check failed"
+      )?;
+      let mut existing_wrap = ptr::null_mut();
+      let is_wrapped = unsafe { sys::napi_unwrap(env, signal.0.value, &mut existing_wrap) }
+        == sys::Status::napi_ok;
+      if is_wrapped && !has_our_tag {
+        return Err(Error::new(
+          crate::Status::InvalidArg,
+          "Value is not an AbortSignal".to_owned(),
+        ));
+      }
+      !has_our_tag
+    };
+    #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+    let needs_tag = false;
+
     let unwrap_status = unsafe { sys::napi_remove_wrap(env, signal.0.value, &mut maybe_stack) };
     if unwrap_status == sys::Status::napi_ok {
       stack = unsafe { Box::from_raw(maybe_stack as *mut AbortSignalStack) };
@@ -115,6 +158,11 @@ impl FromNapiValue for AbortSignal {
       },
       "Wrap AbortSignal failed"
     )?;
+    // The tag survives `napi_remove_wrap`, so only stamp it when this
+    // conversion created the wrap (stamping an already-tagged object fails).
+    if needs_tag {
+      unsafe { tag_object(env, signal.0.value, &ABORT_SIGNAL_TAG) }?;
+    }
     signal.set_named_property(
       "onabort",
       js_env.create_function::<(), Unknown>("onabort", on_abort)?,
@@ -159,6 +207,10 @@ fn on_abort_impl(
       ),
       "Get callback info in AbortController abort callback failed"
     )?;
+    // `onabort` is an ordinary extractable function value: it can be stolen
+    // and called with an arbitrary receiver. Verify the receiver really wraps
+    // an AbortSignalStack before casting its payload. No-op without `napi8`.
+    validate_type_tag(env, this, &ABORT_SIGNAL_TAG, "AbortSignal")?;
     let mut async_task = ptr::null_mut();
     check_status!(
       sys::napi_unwrap(env, this, &mut async_task),

@@ -1917,6 +1917,39 @@ test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
+// GHSA-qr54-xrr9-7575: a #[napi] class instance must be rejected as the
+// signal, not type-confused with the AbortSignal stack.
+AbortSignalTest('class instance is rejected as AbortSignal', (t) => {
+  const notASignal = new Animal(Kind.Dog, 'rex')
+  t.throws(() => withAbortController(1, 2, notASignal as any), {
+    message: 'Value is not an AbortSignal',
+  })
+  // the instance was not hijacked: its accessors still read class fields
+  t.is(notASignal.name, 'rex')
+})
+
+// The onabort handler is an extractable function value; calling it with a
+// foreign receiver must be rejected instead of casting the receiver's wrap
+// payload to the AbortSignal stack.
+AbortSignalTest('stolen onabort rejects a foreign receiver', async (t) => {
+  const ctrl = new AbortController()
+  await withAbortController(1, 2, ctrl.signal)
+  const stolen = ctrl.signal.onabort as unknown as () => void
+  t.throws(() => stolen.call(new Animal(Kind.Cat, 'felix')), {
+    message: 'Value is not an instance of class `AbortSignal`',
+  })
+})
+
+AbortSignalTest('two tasks can share one AbortSignal', async (t) => {
+  const ctrl = new AbortController()
+  const [a, b] = await Promise.all([
+    withAbortController(1, 2, ctrl.signal),
+    withAbortController(3, 4, ctrl.signal),
+  ])
+  t.is(a, 3)
+  t.is(b, 7)
+})
+
 // schedule async task always start immediately, hard to create a case that async task is scheduled but not started
 test.skip('async task with abort controller', async (t) => {
   const ctrl = new AbortController()
