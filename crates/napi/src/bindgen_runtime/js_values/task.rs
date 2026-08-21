@@ -1,14 +1,16 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 use std::rc::Rc;
+use std::sync::{LazyLock, Mutex};
 use std::{cell::Cell, panic::UnwindSafe};
 
 use crate::{
   async_work,
   bindgen_prelude::{FromNapiValue, JsObjectValue, ToNapiValue, TypeName, Unknown},
-  check_status, sys, Env, Error, JsError, ScopedTask, Value, ValueType,
+  check_status, sys, Env, Error, JsError, ScopedTask, Status, Value, ValueType,
 };
 
 use super::Object;
@@ -72,6 +74,31 @@ impl std::panic::RefUnwindSafe for AbortSignal {}
 #[repr(transparent)]
 struct AbortSignalStack(Vec<AbortSignal>);
 
+/// Registry of live `AbortSignalStack` allocations. `napi_unwrap` and
+/// `napi_remove_wrap` return an untyped payload pointer, so before casting a
+/// wrapped object's payload to `AbortSignalStack` the pointer must be in this
+/// set. Pure-JS code has no way to insert into it, which makes the check
+/// unforgeable on every N-API version and on wasm, where object type tags are
+/// unavailable (GHSA-qr54-xrr9-7575). Entries are inserted after a successful
+/// `napi_wrap` and removed by the wrap finalizer.
+static ABORT_SIGNAL_STACKS: LazyLock<Mutex<HashSet<usize>>> =
+  LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn register_stack(ptr: *mut AbortSignalStack) {
+  ABORT_SIGNAL_STACKS.lock().unwrap().insert(ptr as usize);
+}
+
+fn unregister_stack(ptr: *mut AbortSignalStack) {
+  ABORT_SIGNAL_STACKS.lock().unwrap().remove(&(ptr as usize));
+}
+
+fn is_registered_stack(ptr: *const AbortSignalStack) -> bool {
+  ABORT_SIGNAL_STACKS
+    .lock()
+    .unwrap()
+    .contains(&(ptr as usize))
+}
+
 impl FromNapiValue for AbortSignal {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut signal = Object(
@@ -92,29 +119,50 @@ impl FromNapiValue for AbortSignal {
     };
     let js_env = Env::from_raw(env);
 
-    let mut stack;
+    // If the object is already wrapped, its payload may only be read as an
+    // `AbortSignalStack` when a conversion by THIS addon binary registered
+    // it. A `#[napi]` class instance wraps a bare `*mut T`; casting that is a
+    // type confusion.
+    //
+    // Two deliberate consequences:
+    // - A recognized stack is only BORROWED to push onto it: ownership,
+    //   finalizer, and registry entry stay with the wrap's installer.
+    //   Detaching and re-wrapping would leave the installer's registry entry
+    //   stale after the new owner's finalizer frees the stack.
+    // - A wrap made by a SIBLING addon binary is rejected too: mutating
+    //   another binary's Rust `Vec` (or dropping its `Rc` contents) crosses
+    //   allocator and ABI boundaries that Rust does not stabilize.
     let mut maybe_stack = ptr::null_mut();
-    let unwrap_status = unsafe { sys::napi_remove_wrap(env, signal.0.value, &mut maybe_stack) };
+    let unwrap_status = unsafe { sys::napi_unwrap(env, signal.0.value, &mut maybe_stack) };
     if unwrap_status == sys::Status::napi_ok {
-      stack = unsafe { Box::from_raw(maybe_stack as *mut AbortSignalStack) };
+      if !is_registered_stack(maybe_stack.cast()) {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Value is not an AbortSignal".to_owned(),
+        ));
+      }
+      let stack = unsafe { &mut *maybe_stack.cast::<AbortSignalStack>() };
       stack.0.push(abort_signal);
     } else {
-      stack = Box::new(AbortSignalStack(vec![abort_signal]));
-    }
-    let mut signal_ref = ptr::null_mut();
-    check_status!(
-      unsafe {
+      let stack_ptr = Box::into_raw(Box::new(AbortSignalStack(vec![abort_signal])));
+      let mut signal_ref = ptr::null_mut();
+      let wrap_status = unsafe {
         sys::napi_wrap(
           env,
           signal.0.value,
-          Box::into_raw(stack).cast(),
+          stack_ptr.cast(),
           Some(async_task_abort_controller_finalize),
           ptr::null_mut(),
           &mut signal_ref,
         )
-      },
-      "Wrap AbortSignal failed"
-    )?;
+      };
+      if wrap_status != sys::Status::napi_ok {
+        // The finalizer will never run; reclaim the box here.
+        drop(unsafe { Box::from_raw(stack_ptr) });
+      }
+      check_status!(wrap_status, "Wrap AbortSignal failed")?;
+      register_stack(stack_ptr);
+    }
     signal.set_named_property(
       "onabort",
       js_env.create_function::<(), Unknown>("onabort", on_abort)?,
@@ -164,7 +212,16 @@ fn on_abort_impl(
       sys::napi_unwrap(env, this, &mut async_task),
       "Unwrap async_task from AbortSignal failed"
     )?;
-    let abort_controller_stack = Box::leak(Box::from_raw(async_task as *mut AbortSignalStack));
+    // `onabort` is an ordinary extractable function value: it can be stolen
+    // and called with an arbitrary receiver. Only receivers whose payload this
+    // addon binary registered are genuine AbortSignal stacks.
+    if !is_registered_stack(async_task.cast()) {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Value is not an AbortSignal".to_owned(),
+      ));
+    }
+    let abort_controller_stack = &*(async_task as *const AbortSignalStack);
     for abort_controller in abort_controller_stack.0.iter() {
       // call abort callback
       for cb in abort_controller.abort.borrow().iter() {
@@ -212,5 +269,6 @@ unsafe extern "C" fn async_task_abort_controller_finalize(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
+  unregister_stack(finalize_data.cast());
   drop(unsafe { Box::from_raw(finalize_data as *mut AbortSignalStack) });
 }

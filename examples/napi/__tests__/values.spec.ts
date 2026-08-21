@@ -251,7 +251,9 @@ import {
   ClassWithLifetime,
   uInit8ArrayFromString,
   callThenOnPromise,
+  callThenOnPromiseCapturing,
   callCatchOnPromise,
+  callCatchOnPromiseCapturing,
   callFinallyOnPromise,
   createResolvedPromise,
   createRejectedPromise,
@@ -1069,6 +1071,88 @@ test('promise', async (t) => {
   t.true(spy.calledOnce)
 })
 
+// GHSA-wrm3-6gmv-vpmw: a thenable may invoke the native callback more than
+// once. The second invocation must surface as a JS error, not a double free
+// of the boxed Rust callback.
+test('PromiseRaw callbacks survive a double-invoking thenable', (t) => {
+  const doubleThen = {
+    // oxlint-disable-next-line unicorn/no-thenable
+    then(cb: (v: number) => void) {
+      cb(1)
+      cb(2)
+      return {}
+    },
+  }
+  t.throws(() => callThenOnPromise(doubleThen as any), {
+    message: 'Promise then callback was called more than once',
+  })
+  t.throws(() => callThenOnPromiseCapturing(doubleThen as any, 'tag'), {
+    message: 'Promise then callback was called more than once',
+  })
+
+  const doubleCatch = {
+    catch(cb: (e: unknown) => void) {
+      cb('a')
+      cb('b')
+      return {}
+    },
+  }
+  t.throws(() => callCatchOnPromise(doubleCatch as any), {
+    message: 'Promise catch callback was called more than once',
+  })
+  t.throws(() => callCatchOnPromiseCapturing(doubleCatch as any, 'tag'), {
+    message: 'Promise catch callback was called more than once',
+  })
+
+  const doubleFinally = {
+    finally(cb: () => void) {
+      cb()
+      cb()
+      return {}
+    },
+  }
+  const spy = Sinon.spy()
+  t.throws(() => callFinallyOnPromise(doubleFinally as any, spy), {
+    message: 'Promise finally callback was called more than once',
+  })
+  // the first, legitimate invocation still ran
+  t.true(spy.calledOnce)
+})
+
+// A thenable may stash the callback and invoke it after the object returned
+// from `then` has been garbage collected. The boxed callback must live as
+// long as the callback function itself is reachable.
+test('PromiseRaw callback survives GC of the thenable return value', async (t) => {
+  const { setFlagsFromString } = await import('node:v8')
+  const { runInNewContext } = await import('node:vm')
+  // setFlagsFromString does not update the current context's global; the
+  // exposed gc must be pulled out of a freshly created context.
+  setFlagsFromString('--expose-gc')
+  const gc = runInNewContext('gc') as undefined | (() => void)
+  if (!gc) {
+    t.pass('gc not exposed; skipping')
+    return
+  }
+
+  let stash: ((v: number) => string) | undefined
+  const stashingThenable = {
+    // oxlint-disable-next-line unicorn/no-thenable
+    then(cb: (v: number) => string) {
+      stash = cb
+      return {}
+    },
+  }
+  // the return value (which would carry the finalizer) is intentionally dropped
+  callThenOnPromiseCapturing(stashingThenable as any, 'tag')
+
+  for (let i = 0; i < 10; i++) {
+    gc()
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  t.is(stash!(1), 'tag:1')
+})
+
 test('PromiseRaw::resolve', async (t) => {
   const result = await createResolvedPromise(42)
   t.is(result, 42)
@@ -1836,6 +1920,39 @@ test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
+// GHSA-qr54-xrr9-7575: a #[napi] class instance must be rejected as the
+// signal, not type-confused with the AbortSignal stack.
+AbortSignalTest('class instance is rejected as AbortSignal', (t) => {
+  const notASignal = new Animal(Kind.Dog, 'rex')
+  t.throws(() => withAbortController(1, 2, notASignal as any), {
+    message: 'Value is not an AbortSignal',
+  })
+  // the instance was not hijacked: its accessors still read class fields
+  t.is(notASignal.name, 'rex')
+})
+
+// The onabort handler is an extractable function value; calling it with a
+// foreign receiver must be rejected instead of casting the receiver's wrap
+// payload to the AbortSignal stack.
+AbortSignalTest('stolen onabort rejects a foreign receiver', async (t) => {
+  const ctrl = new AbortController()
+  await withAbortController(1, 2, ctrl.signal)
+  const stolen = ctrl.signal.onabort as unknown as () => void
+  t.throws(() => stolen.call(new Animal(Kind.Cat, 'felix')), {
+    message: 'Value is not an AbortSignal',
+  })
+})
+
+AbortSignalTest('two tasks can share one AbortSignal', async (t) => {
+  const ctrl = new AbortController()
+  const [a, b] = await Promise.all([
+    withAbortController(1, 2, ctrl.signal),
+    withAbortController(3, 4, ctrl.signal),
+  ])
+  t.is(a, 3)
+  t.is(b, 7)
+})
+
 // schedule async task always start immediately, hard to create a case that async task is scheduled but not started
 test.skip('async task with abort controller', async (t) => {
   const ctrl = new AbortController()
@@ -2555,7 +2672,11 @@ test('the JsError wrappers convert a retained value back verbatim', (t) => {
       )
     }
     const real = new TypeError('a real error')
-    t.is(convert(real), real, `${api} should hand a retained Error back verbatim`)
+    t.is(
+      convert(real),
+      real,
+      `${api} should hand a retained Error back verbatim`,
+    )
   }
 })
 

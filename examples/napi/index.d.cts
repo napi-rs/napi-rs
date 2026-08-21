@@ -648,6 +648,12 @@ export declare function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => 
 
 export declare function callCatchOnPromise(input: Promise<number>): Promise<string>
 
+/**
+ * Same as `call_catch_on_promise`, but with a capturing closure; see
+ * `call_then_on_promise_capturing` for why.
+ */
+export declare function callCatchOnPromiseCapturing(input: Promise<number>, tag: string): Promise<string>
+
 export declare function callFinallyOnPromise(input: Promise<number>, onFinally: () => void): Promise<number>
 
 export declare function callFunction(cb: () => number): number
@@ -661,6 +667,13 @@ export declare function callLongThreadsafeFunction(tsfn: ((err: Error | null, ar
 export declare function callRuleHandler(rule: Rule, arg: number): number
 
 export declare function callThenOnPromise(input: Promise<number>): Promise<string>
+
+/**
+ * Same as `call_then_on_promise`, but the closure captures an owned `String`
+ * so the callback box is a real heap allocation (a non-capturing closure is
+ * a ZST and would mask use-after-free of the callback box).
+ */
+export declare function callThenOnPromiseCapturing(input: Promise<number>, tag: string): Promise<string>
 
 export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 

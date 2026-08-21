@@ -7,7 +7,7 @@ use crate::{
   bindgen_prelude::{
     FromNapiValue, JsObjectValue, Result, ToNapiValue, TypeName, ValidateNapiValue,
   },
-  check_status, sys, Env, Error, JsValue, Value, ValueType,
+  check_status, sys, Env, Error, JsValue, Status, Value, ValueType,
 };
 
 #[derive(Clone, Copy)]
@@ -113,21 +113,46 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
       sys::napi_get_named_property(self.env, self.inner, THEN.as_ptr().cast(), &mut then_fn)
     })?;
     let mut then_callback = ptr::null_mut();
-    let executed = Box::into_raw(Box::new(false));
-    let rust_cb = Box::into_raw(Box::new((cb, executed)));
-    check_status!(
-      unsafe {
-        sys::napi_create_function(
-          self.env,
-          THEN.as_ptr().cast(),
-          4,
-          Some(raw_promise_then_callback::<T, U, Callback>),
-          rust_cb.cast(),
-          &mut then_callback,
-        )
-      },
-      "Create then function for PromiseRaw failed"
-    )?;
+    let rust_cb = Box::into_raw(Box::new(Some(cb)));
+    let create_status = unsafe {
+      sys::napi_create_function(
+        self.env,
+        THEN.as_ptr().cast(),
+        4,
+        Some(raw_promise_then_callback::<T, U, Callback>),
+        rust_cb.cast(),
+        &mut then_callback,
+      )
+    };
+    if create_status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(rust_cb) });
+    }
+    check_status!(create_status, "Create then function for PromiseRaw failed")?;
+
+    // Attach the finalizer to the callback function itself, so the boxed
+    // callback lives exactly as long as the callback is callable. Wrapping
+    // the returned promise instead would let a thenable that stashes the
+    // callback invoke it after the box has been freed.
+    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
+    //
+    // The finalizer is attached BEFORE `napi_call_function`, which runs user
+    // JavaScript (the `then` property): if that call fails, the wrap owns the
+    // box and the GC frees it once the callback function is collectable.
+    let wrap_status = unsafe {
+      sys::napi_wrap(
+        self.env,
+        then_callback,
+        rust_cb.cast(),
+        Some(promise_callback_finalizer::<Callback>),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    };
+    if wrap_status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(rust_cb) });
+    }
+    check_status!(wrap_status, "Wrap finalizer for PromiseRaw failed")?;
+
     let mut new_promise = ptr::null_mut();
     check_status!(
       unsafe {
@@ -141,22 +166,6 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
         )
       },
       "Call the PromiseRaw::then failed"
-    )?;
-
-    // use `napi_wrap` to trigger the finalizer after the Promise is GCed
-    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
-    check_status!(
-      unsafe {
-        sys::napi_wrap(
-          self.env,
-          new_promise,
-          executed.cast(),
-          Some(promise_callback_finalizer::<T, U, Callback>),
-          rust_cb.cast(),
-          ptr::null_mut(),
-        )
-      },
-      "Wrap finalizer for PromiseRaw failed"
     )?;
 
     Ok(PromiseRaw::<U> {
@@ -179,21 +188,46 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
       sys::napi_get_named_property(self.env, self.inner, CATCH.as_ptr().cast(), &mut catch_fn)
     })?;
     let mut catch_callback = ptr::null_mut();
-    let executed = Box::into_raw(Box::new(false));
-    let rust_cb = Box::into_raw(Box::new((cb, executed)));
-    check_status!(
-      unsafe {
-        sys::napi_create_function(
-          self.env,
-          CATCH.as_ptr().cast(),
-          5,
-          Some(raw_promise_catch_callback::<E, U, Callback>),
-          rust_cb.cast(),
-          &mut catch_callback,
-        )
-      },
-      "Create catch function for PromiseRaw failed"
-    )?;
+    let rust_cb = Box::into_raw(Box::new(Some(cb)));
+    let create_status = unsafe {
+      sys::napi_create_function(
+        self.env,
+        CATCH.as_ptr().cast(),
+        5,
+        Some(raw_promise_catch_callback::<E, U, Callback>),
+        rust_cb.cast(),
+        &mut catch_callback,
+      )
+    };
+    if create_status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(rust_cb) });
+    }
+    check_status!(create_status, "Create catch function for PromiseRaw failed")?;
+
+    // Attach the finalizer to the callback function itself, so the boxed
+    // callback lives exactly as long as the callback is callable. Wrapping
+    // the returned promise instead would let a thenable that stashes the
+    // callback invoke it after the box has been freed.
+    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
+    //
+    // The finalizer is attached BEFORE `napi_call_function`, which runs user
+    // JavaScript (the `catch` property): if that call fails, the wrap owns
+    // the box and the GC frees it once the callback function is collectable.
+    let wrap_status = unsafe {
+      sys::napi_wrap(
+        self.env,
+        catch_callback,
+        rust_cb.cast(),
+        Some(promise_callback_finalizer::<Callback>),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    };
+    if wrap_status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(rust_cb) });
+    }
+    check_status!(wrap_status, "Wrap finalizer for PromiseRaw failed")?;
+
     let mut new_promise = ptr::null_mut();
     check_status!(
       unsafe {
@@ -207,22 +241,6 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
         )
       },
       "Call the PromiseRaw::catch failed"
-    )?;
-
-    // use `napi_wrap` to trigger the finalizer after the Promise is GCed
-    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
-    check_status!(
-      unsafe {
-        sys::napi_wrap(
-          self.env,
-          new_promise,
-          executed.cast(),
-          Some(promise_callback_finalizer::<E, U, Callback>),
-          rust_cb.cast(),
-          ptr::null_mut(),
-        )
-      },
-      "Wrap finalizer for PromiseRaw failed"
     )?;
 
     Ok(PromiseRaw::<U> {
@@ -245,20 +263,46 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
       sys::napi_get_named_property(self.env, self.inner, FINALLY.as_ptr().cast(), &mut then_fn)
     })?;
     let mut then_callback = ptr::null_mut();
-    let rust_cb = Box::into_raw(Box::new(cb));
-    check_status!(
-      unsafe {
-        sys::napi_create_function(
-          self.env,
-          FINALLY.as_ptr().cast(),
-          7,
-          Some(raw_promise_finally_callback::<U, Callback>),
-          rust_cb.cast(),
-          &mut then_callback,
-        )
-      },
-      "Create then function for PromiseRaw failed"
-    )?;
+    let rust_cb = Box::into_raw(Box::new(Some(cb)));
+    let create_status = unsafe {
+      sys::napi_create_function(
+        self.env,
+        FINALLY.as_ptr().cast(),
+        7,
+        Some(raw_promise_finally_callback::<U, Callback>),
+        rust_cb.cast(),
+        &mut then_callback,
+      )
+    };
+    if create_status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(rust_cb) });
+    }
+    check_status!(create_status, "Create then function for PromiseRaw failed")?;
+
+    // Attach the finalizer to the callback function itself, so the boxed
+    // callback lives exactly as long as the callback is callable. Wrapping
+    // the returned promise instead would let a thenable that stashes the
+    // callback invoke it after the box has been freed.
+    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
+    //
+    // The finalizer is attached BEFORE `napi_call_function`, which runs user
+    // JavaScript (the `finally` property): if that call fails, the wrap owns
+    // the box and the GC frees it once the callback function is collectable.
+    let wrap_status = unsafe {
+      sys::napi_wrap(
+        self.env,
+        then_callback,
+        rust_cb.cast(),
+        Some(promise_callback_finalizer::<Callback>),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    };
+    if wrap_status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(rust_cb) });
+    }
+    check_status!(wrap_status, "Wrap finalizer for PromiseRaw failed")?;
+
     let mut new_promise = ptr::null_mut();
     check_status!(
       unsafe {
@@ -378,14 +422,21 @@ where
     "Get callback info from then callback failed"
   )?;
   let then_value: T = unsafe { FromNapiValue::from_napi_value(env, callback_values[0]) }?;
-  let cb: Box<(Cb, *mut bool)> = unsafe { Box::from_raw(rust_cb.cast()) };
-  let executed = unsafe { Box::leak(Box::from_raw(cb.1)) };
-  *executed = true;
+  // The box is owned by the `napi_wrap` finalizer; only borrow it here and
+  // `take()` the FnOnce out, so a thenable invoking this callback more than
+  // once gets an error instead of a use-after-free.
+  let cb = unsafe { &mut *rust_cb.cast::<Option<Cb>>() };
+  let Some(cb) = cb.take() else {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "Promise then callback was called more than once".to_owned(),
+    ));
+  };
 
   unsafe {
     U::to_napi_value(
       env,
-      cb.0(CallbackContext {
+      cb(CallbackContext {
         env: Env(env),
         value: then_value,
       })?,
@@ -432,15 +483,21 @@ where
     "Get callback info from catch callback failed"
   )?;
   let catch_value: E = unsafe { FromNapiValue::from_napi_value(env, callback_values[0]) }?;
-  let cb: Box<(Cb, *mut bool)> = unsafe { Box::from_raw(rust_cb.cast()) };
-
-  let executed = unsafe { Box::leak(Box::from_raw(cb.1)) };
-  *executed = true;
+  // The box is owned by the `napi_wrap` finalizer; only borrow it here and
+  // `take()` the FnOnce out, so a thenable invoking this callback more than
+  // once gets an error instead of a use-after-free.
+  let cb = unsafe { &mut *rust_cb.cast::<Option<Cb>>() };
+  let Some(cb) = cb.take() else {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "Promise catch callback was called more than once".to_owned(),
+    ));
+  };
 
   unsafe {
     U::to_napi_value(
       env,
-      cb.0(CallbackContext {
+      cb(CallbackContext {
         env: Env(env),
         value: catch_value,
       })?,
@@ -483,7 +540,16 @@ where
     },
     "Get callback info from finally callback failed"
   )?;
-  let cb: Box<Cb> = unsafe { Box::from_raw(rust_cb.cast()) };
+  // The box is owned by the `napi_wrap` finalizer; only borrow it here and
+  // `take()` the FnOnce out, so a thenable invoking this callback more than
+  // once gets an error instead of a use-after-free.
+  let cb = unsafe { &mut *rust_cb.cast::<Option<Cb>>() };
+  let Some(cb) = cb.take() else {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "Promise finally callback was called more than once".to_owned(),
+    ));
+  };
 
   unsafe { U::to_napi_value(env, cb(Env(env))?) }
 }
@@ -534,19 +600,12 @@ fn throw_error(env: sys::napi_env, err: Error, default_msg: &str) -> sys::napi_v
   ptr::null_mut()
 }
 
-extern "C" fn promise_callback_finalizer<T, U, Cb>(
+extern "C" fn promise_callback_finalizer<Cb>(
   _env: sys::napi_env,
   finalize_data: *mut c_void,
-  finalize_hint: *mut c_void,
-) where
-  T: FromNapiValue,
-  U: ToNapiValue,
-  Cb: FnOnce(CallbackContext<T>) -> Result<U>,
-{
-  // Always clean up the executed flag allocation
-  let executed = unsafe { Box::from_raw(finalize_data.cast::<bool>()) };
-  if !*executed {
-    // Callback was never executed, clean up the rust_cb which contains (Cb, *mut bool)
-    drop(unsafe { Box::from_raw(finalize_hint.cast::<(Cb, *mut bool)>()) });
-  }
+  _finalize_hint: *mut c_void,
+) {
+  // The finalizer is the sole owner of the callback box. The trampoline only
+  // borrows it to `take()` the FnOnce out, so this drop is always safe.
+  drop(unsafe { Box::from_raw(finalize_data.cast::<Option<Cb>>()) });
 }
