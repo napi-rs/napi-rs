@@ -44,9 +44,30 @@ pub fn call_then_on_promise(input: PromiseRaw<u32>) -> Result<PromiseRaw<String>
   input.then(|v| Ok(format!("{}", v.value)))
 }
 
+/// Same as `call_then_on_promise`, but the closure captures an owned `String`
+/// so the callback box is a real heap allocation (a non-capturing closure is
+/// a ZST and would mask use-after-free of the callback box).
+#[napi]
+pub fn call_then_on_promise_capturing(
+  input: PromiseRaw<u32>,
+  tag: String,
+) -> Result<PromiseRaw<String>> {
+  input.then(move |v| Ok(format!("{tag}:{}", v.value)))
+}
+
 #[napi]
 pub fn call_catch_on_promise(input: PromiseRaw<'_, u32>) -> Result<PromiseRaw<'_, String>> {
   input.catch(|e: CallbackContext<String>| Ok(e.value))
+}
+
+/// Same as `call_catch_on_promise`, but with a capturing closure; see
+/// `call_then_on_promise_capturing` for why.
+#[napi]
+pub fn call_catch_on_promise_capturing(
+  input: PromiseRaw<'_, u32>,
+  tag: String,
+) -> Result<PromiseRaw<'_, String>> {
+  input.catch(move |e: CallbackContext<String>| Ok(format!("{tag}:{}", e.value)))
 }
 
 #[napi]

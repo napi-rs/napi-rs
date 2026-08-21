@@ -251,7 +251,9 @@ import {
   ClassWithLifetime,
   uInit8ArrayFromString,
   callThenOnPromise,
+  callThenOnPromiseCapturing,
   callCatchOnPromise,
+  callCatchOnPromiseCapturing,
   callFinallyOnPromise,
   createResolvedPromise,
   createRejectedPromise,
@@ -1067,6 +1069,85 @@ test('promise', async (t) => {
   const spy = Sinon.spy()
   await callFinallyOnPromise(Promise.resolve(1), spy)
   t.true(spy.calledOnce)
+})
+
+// GHSA-wrm3-6gmv-vpmw: a thenable may invoke the native callback more than
+// once. The second invocation must surface as a JS error, not a double free
+// of the boxed Rust callback.
+test('PromiseRaw callbacks survive a double-invoking thenable', (t) => {
+  const doubleThen = {
+    // oxlint-disable-next-line unicorn/no-thenable
+    then(cb: (v: number) => void) {
+      cb(1)
+      cb(2)
+      return {}
+    },
+  }
+  t.throws(() => callThenOnPromise(doubleThen as any), {
+    message: 'Promise then callback was called more than once',
+  })
+  t.throws(() => callThenOnPromiseCapturing(doubleThen as any, 'tag'), {
+    message: 'Promise then callback was called more than once',
+  })
+
+  const doubleCatch = {
+    catch(cb: (e: unknown) => void) {
+      cb('a')
+      cb('b')
+      return {}
+    },
+  }
+  t.throws(() => callCatchOnPromise(doubleCatch as any), {
+    message: 'Promise catch callback was called more than once',
+  })
+  t.throws(() => callCatchOnPromiseCapturing(doubleCatch as any, 'tag'), {
+    message: 'Promise catch callback was called more than once',
+  })
+
+  const doubleFinally = {
+    finally(cb: () => void) {
+      cb()
+      cb()
+      return {}
+    },
+  }
+  const spy = Sinon.spy()
+  t.throws(() => callFinallyOnPromise(doubleFinally as any, spy), {
+    message: 'Promise finally callback was called more than once',
+  })
+  // the first, legitimate invocation still ran
+  t.true(spy.calledOnce)
+})
+
+// A thenable may stash the callback and invoke it after the object returned
+// from `then` has been garbage collected. The boxed callback must live as
+// long as the callback function itself is reachable.
+test('PromiseRaw callback survives GC of the thenable return value', async (t) => {
+  const { setFlagsFromString } = await import('node:v8')
+  setFlagsFromString('--expose-gc')
+  const gc = (globalThis as any).gc as undefined | (() => void)
+  if (!gc) {
+    t.pass('gc not exposed; skipping')
+    return
+  }
+
+  let stash: ((v: number) => string) | undefined
+  const stashingThenable = {
+    // oxlint-disable-next-line unicorn/no-thenable
+    then(cb: (v: number) => string) {
+      stash = cb
+      return {}
+    },
+  }
+  // the return value (which would carry the finalizer) is intentionally dropped
+  callThenOnPromiseCapturing(stashingThenable as any, 'tag')
+
+  for (let i = 0; i < 10; i++) {
+    gc()
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  t.is(stash!(1), 'tag:1')
 })
 
 test('PromiseRaw::resolve', async (t) => {
@@ -2555,7 +2636,11 @@ test('the JsError wrappers convert a retained value back verbatim', (t) => {
       )
     }
     const real = new TypeError('a real error')
-    t.is(convert(real), real, `${api} should hand a retained Error back verbatim`)
+    t.is(
+      convert(real),
+      real,
+      `${api} should hand a retained Error back verbatim`,
+    )
   }
 })
 
