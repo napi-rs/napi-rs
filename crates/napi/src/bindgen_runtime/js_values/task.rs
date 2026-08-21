@@ -160,58 +160,48 @@ impl FromNapiValue for AbortSignal {
     };
     let js_env = Env::from_raw(env);
 
-    let mut stack;
-    let mut maybe_stack = ptr::null_mut();
-
-    // If the object is already wrapped, its payload may only be cast to
+    // If the object is already wrapped, its payload may only be read as an
     // `AbortSignalStack` when it is recognized (registered by this addon, or
     // carrying our type tag from a sibling addon). A `#[napi]` class instance
-    // wraps a bare `*mut T`; casting that is a type confusion, and it must be
-    // rejected before `napi_remove_wrap` detaches the victim's own wrap.
+    // wraps a bare `*mut T`; casting that is a type confusion.
+    //
+    // A recognized stack is only BORROWED to push onto it: ownership,
+    // finalizer, and registry entry stay with whichever addon installed the
+    // wrap. Detaching and re-wrapping here would leave the original owner's
+    // registry entry stale after the new owner's finalizer frees the stack.
+    let mut maybe_stack = ptr::null_mut();
     let unwrap_status = unsafe { sys::napi_unwrap(env, signal.0.value, &mut maybe_stack) };
-    let freshly_wrapped = unwrap_status != sys::Status::napi_ok;
-    if !freshly_wrapped {
+    if unwrap_status == sys::Status::napi_ok {
       if !is_abort_signal_stack(env, signal.0.value, maybe_stack.cast()) {
         return Err(Error::new(
           Status::InvalidArg,
           "Value is not an AbortSignal".to_owned(),
         ));
       }
-      let mut removed = ptr::null_mut();
-      check_status!(
-        unsafe { sys::napi_remove_wrap(env, signal.0.value, &mut removed) },
-        "Remove AbortSignal wrap failed"
-      )?;
-      stack = unsafe { Box::from_raw(maybe_stack as *mut AbortSignalStack) };
+      let stack = unsafe { &mut *maybe_stack.cast::<AbortSignalStack>() };
       stack.0.push(abort_signal);
     } else {
-      stack = Box::new(AbortSignalStack(vec![abort_signal]));
-    }
-    let stack_ptr = Box::into_raw(stack);
-    let mut signal_ref = ptr::null_mut();
-    let wrap_status = unsafe {
-      sys::napi_wrap(
-        env,
-        signal.0.value,
-        stack_ptr.cast(),
-        Some(async_task_abort_controller_finalize),
-        ptr::null_mut(),
-        &mut signal_ref,
-      )
-    };
-    if wrap_status != sys::Status::napi_ok {
-      // The finalizer will never run; reclaim the box here.
-      unregister_stack(stack_ptr);
-      drop(unsafe { Box::from_raw(stack_ptr) });
-    }
-    check_status!(wrap_status, "Wrap AbortSignal failed")?;
-    register_stack(stack_ptr);
-    if freshly_wrapped {
-      // Stamp our identity so sibling addon binaries recognize this wrap.
-      // Only fresh wraps need the stamp: the tag survives `napi_remove_wrap`,
-      // and stamping an already-tagged object fails. If stamping fails (the
-      // object carries a foreign tag), roll the wrap back so the object is
-      // not left holding our stack under another owner's identity.
+      let stack_ptr = Box::into_raw(Box::new(AbortSignalStack(vec![abort_signal])));
+      let mut signal_ref = ptr::null_mut();
+      let wrap_status = unsafe {
+        sys::napi_wrap(
+          env,
+          signal.0.value,
+          stack_ptr.cast(),
+          Some(async_task_abort_controller_finalize),
+          ptr::null_mut(),
+          &mut signal_ref,
+        )
+      };
+      if wrap_status != sys::Status::napi_ok {
+        // The finalizer will never run; reclaim the box here.
+        drop(unsafe { Box::from_raw(stack_ptr) });
+      }
+      check_status!(wrap_status, "Wrap AbortSignal failed")?;
+      register_stack(stack_ptr);
+      // Stamp our identity so sibling addon binaries recognize this wrap. If
+      // stamping fails (the object carries a foreign tag), roll the wrap back
+      // so it is not left holding our stack under another owner's identity.
       if let Err(err) = unsafe { tag_object(env, signal.0.value, &ABORT_SIGNAL_TAG) } {
         let mut removed = ptr::null_mut();
         let _ = unsafe { sys::napi_remove_wrap(env, signal.0.value, &mut removed) };
