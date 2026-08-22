@@ -27,6 +27,7 @@ import {
   buildProject,
   generateTypeDef,
   napiCrossToolchainEnvs,
+  resolveBuildFormat,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
   writeJsBinding,
@@ -195,6 +196,95 @@ napi-build = { path = "${napiBuildPath}" }
   t.true(existsSync(jsPath))
   const jsContent = await readFile(jsPath, 'utf-8')
   t.regex(jsContent, /module\.exports\.sum = nativeBinding\.sum/)
+})
+
+test('writeJsBinding uses the explicit format independently of the filename', async (t) => {
+  const { projectDir } = t.context
+  const commonjsPath = join(projectDir, 'binding.cjs')
+  const esmPath = join(projectDir, 'binding.js')
+  const legacyEsmPath = join(projectDir, 'legacy.js')
+
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+    jsBinding: 'binding.cjs',
+    format: 'commonjs',
+  })
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+    jsBinding: 'binding.js',
+    format: 'esm',
+  })
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+    jsBinding: 'legacy.js',
+    esm: true,
+  })
+
+  const [commonjs, esm, legacyEsm] = await Promise.all([
+    readFile(commonjsPath, 'utf8'),
+    readFile(esmPath, 'utf8'),
+    readFile(legacyEsmPath, 'utf8'),
+  ])
+
+  t.regex(commonjs, /module\.exports\.sum = nativeBinding\.sum/)
+  t.regex(esm, /export \{ sum \}/)
+  t.regex(legacyEsm, /export \{ sum \}/)
+})
+
+test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {
+  const validCases = [
+    { options: {}, expected: 'commonjs' },
+    { options: { format: 'esm' }, expected: 'esm' },
+    { options: { format: 'commonjs' }, expected: 'commonjs' },
+    { options: { esm: true }, expected: 'esm' },
+    { options: { commonjs: true }, expected: 'commonjs' },
+  ] as const
+
+  for (const { options, expected } of validCases) {
+    t.is(resolveBuildFormat(options), expected)
+  }
+
+  const invalidCases = [
+    {
+      options: { esm: true, commonjs: true },
+      message: /`--esm` and `--commonjs` cannot be used together/,
+    },
+    {
+      options: { format: 'esm', commonjs: true },
+      message: /`--format esm` cannot be used with `--commonjs`/,
+    },
+    {
+      options: { format: 'commonjs', esm: true },
+      message: /`--format commonjs` cannot be used with `--esm`/,
+    },
+    {
+      options: { format: 'invalid' },
+      message: /Invalid build format "invalid"/,
+    },
+    {
+      options: { format: '' },
+      message: /Invalid build format ""/,
+    },
+  ] as const
+
+  for (const { options, message } of invalidCases) {
+    t.throws(() => resolveBuildFormat(options), { message })
+  }
 })
 
 test('generateTypeDef preserves deterministic file order', async (t) => {

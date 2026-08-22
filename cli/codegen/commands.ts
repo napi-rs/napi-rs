@@ -14,6 +14,7 @@ export interface OptionSchema {
   short?: string[]
   alias?: string[]
   long?: string
+  validator?: string
 }
 
 export interface CommandSchema {
@@ -22,6 +23,7 @@ export interface CommandSchema {
   description: string
   args: ArgSchema[]
   options: OptionSchema[]
+  getOptionsDescription?: string
 }
 
 export type CommandDefineSchema = CommandSchema[]
@@ -118,6 +120,7 @@ const BUILD_OPTIONS: CommandSchema = {
   name: 'build',
   description: 'Build the NAPI-RS project',
   args: [],
+  getOptionsDescription: 'Return the parsed build options.',
   options: [
     {
       name: 'target',
@@ -190,6 +193,7 @@ const BUILD_OPTIONS: CommandSchema = {
       description:
         'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.',
       long: 'js',
+      alias: ['js-binding'],
     },
     {
       name: 'noJsBinding',
@@ -223,10 +227,22 @@ const BUILD_OPTIONS: CommandSchema = {
       default: true,
     },
     {
+      name: 'format',
+      type: "'esm' | 'commonjs'",
+      description:
+        'The module format of the generated JS binding file. Only works with `--platform` flag. Defaults to `commonjs`.',
+      validator:
+        "typanion.isOneOf([typanion.isLiteral('esm'), typanion.isLiteral('commonjs')])",
+    },
+    {
       name: 'esm',
       type: 'boolean',
-      description:
-        'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
+      description: 'Alias for `--format esm`.',
+    },
+    {
+      name: 'commonjs',
+      type: 'boolean',
+      description: 'Alias for `--format commonjs`.',
     },
     {
       name: 'strip',

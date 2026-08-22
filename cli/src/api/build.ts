@@ -84,8 +84,13 @@ type WasiBindingMetadata = {
   bindingTypeDef?: string
 }
 
+export type BuildFormat = 'esm' | 'commonjs'
+
 type BuildOptions = RawBuildOptions & { cargoOptions?: string[] }
-type ParsedBuildOptions = Omit<BuildOptions, 'cwd'> & { cwd: string }
+type ParsedBuildOptions = Omit<BuildOptions, 'cwd' | 'format'> & {
+  cwd: string
+  format: BuildFormat
+}
 
 export const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
 
@@ -569,12 +574,57 @@ function readWasmU32(binary: Uint8Array, start: number) {
   throw new Error('Invalid WebAssembly unsigned LEB128 value')
 }
 
+type BuildFormatOptions = {
+  format?: string
+  esm?: boolean
+  commonjs?: boolean
+}
+
+/**
+ * Resolve the explicit build format and its legacy CLI/API aliases.
+ *
+ * CommonJS is the historical default. The aliases are intentionally kept
+ * separate from `format` because `--esm` and `--commonjs` are boolean flags,
+ * while `--format` takes a value.
+ */
+export function resolveBuildFormat(options: BuildFormatOptions): BuildFormat {
+  let format: BuildFormat | undefined
+  if (options.format !== undefined) {
+    if (options.format === 'esm' || options.format === 'commonjs') {
+      format = options.format
+    } else {
+      throw new Error(
+        `Invalid build format ${JSON.stringify(options.format)}. Expected \`esm\` or \`commonjs\`.`,
+      )
+    }
+  }
+
+  if (options.esm && options.commonjs) {
+    throw new Error('`--esm` and `--commonjs` cannot be used together.')
+  }
+
+  const aliasFormat = options.esm
+    ? 'esm'
+    : options.commonjs
+      ? 'commonjs'
+      : undefined
+  if (format && aliasFormat && format !== aliasFormat) {
+    throw new Error(
+      `\`--format ${format}\` cannot be used with \`--${aliasFormat}\`.`,
+    )
+  }
+
+  return format ?? aliasFormat ?? 'commonjs'
+}
+
+/** Build the configured NAPI-RS crate and generate its output artifacts. */
 export async function buildProject(rawOptions: BuildOptions) {
   debug('napi build command receive options: %O', rawOptions)
 
   const options: ParsedBuildOptions = {
     dtsCache: true,
     ...rawOptions,
+    format: resolveBuildFormat(rawOptions),
     cwd: rawOptions.cwd ?? process.cwd(),
   }
 
@@ -2003,7 +2053,7 @@ class Builder {
       noJsBinding: this.options.noJsBinding,
       idents,
       jsBinding: this.options.jsBinding,
-      esm: this.options.esm,
+      format: this.options.format,
       binaryName: this.config.binaryName,
       packageName: this.options.jsPackageName ?? this.config.packageName,
       version: process.env.npm_new_version ?? this.config.packageJson.version,
@@ -2352,7 +2402,9 @@ export interface WriteJsBindingOptions {
   noJsBinding?: boolean
   idents: string[]
   jsBinding?: string
+  format?: BuildFormat
   esm?: boolean
+  commonjs?: boolean
   binaryName: string
   packageName: string
   version: string
@@ -2366,6 +2418,7 @@ export interface WriteJsBindingOptions {
   wasiFlavors?: string[]
 }
 
+/** Write a platform binding loader in the requested module format. */
 export async function writeJsBinding(
   options: WriteJsBindingOptions,
 ): Promise<Output | undefined> {
@@ -2389,7 +2442,8 @@ export async function writeJsBinding(
     ? localWasiName
     : `./${localWasiName}`
 
-  const createBinding = options.esm ? createEsmBinding : createCjsBinding
+  const createBinding =
+    resolveBuildFormat(options) === 'esm' ? createEsmBinding : createCjsBinding
   const binding = createBinding(
     options.binaryName,
     options.packageName,
