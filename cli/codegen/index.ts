@@ -120,7 +120,9 @@ export abstract class Base${PascalCase(command.name)}Command extends Command {
     switch (opt.type) {
       case 'number':
         optionType = 'String'
-        prepare.push("import * as typanion from 'typanion'")
+        if (!prepare.includes("import * as typanion from 'typanion'")) {
+          prepare.push("import * as typanion from 'typanion'")
+        }
         break
       case 'boolean':
         optionType = 'Boolean'
@@ -155,6 +157,12 @@ export abstract class Base${PascalCase(command.name)}Command extends Command {
 
     if (opt.type === 'number') {
       cmdLines.push('    validator: typanion.isNumber(),')
+    }
+    if (opt.validator) {
+      if (!prepare.includes("import * as typanion from 'typanion'")) {
+        prepare.push("import * as typanion from 'typanion'")
+      }
+      cmdLines.push(`    validator: ${opt.validator},`)
     }
 
     cmdLines.push(`    description: '${opt.description}'`)

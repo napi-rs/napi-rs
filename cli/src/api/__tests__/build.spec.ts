@@ -27,6 +27,7 @@ import {
   buildProject,
   generateTypeDef,
   napiCrossToolchainEnvs,
+  resolveBuildFormat,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
   writeJsBinding,
@@ -195,6 +196,57 @@ napi-build = { path = "${napiBuildPath}" }
   t.true(existsSync(jsPath))
   const jsContent = await readFile(jsPath, 'utf-8')
   t.regex(jsContent, /module\.exports\.sum = nativeBinding\.sum/)
+})
+
+test('writeJsBinding uses the explicit format independently of the filename', async (t) => {
+  const { projectDir } = t.context
+  const commonjsPath = join(projectDir, 'binding.cjs')
+  const esmPath = join(projectDir, 'binding.js')
+  const legacyEsmPath = join(projectDir, 'legacy.js')
+
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+    jsBinding: 'binding.cjs',
+    format: 'commonjs',
+  })
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+    jsBinding: 'binding.js',
+    format: 'esm',
+  })
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+    jsBinding: 'legacy.js',
+    esm: true,
+  })
+
+  const [commonjs, esm, legacyEsm] = await Promise.all([
+    readFile(commonjsPath, 'utf8'),
+    readFile(esmPath, 'utf8'),
+    readFile(legacyEsmPath, 'utf8'),
+  ])
+
+  t.regex(commonjs, /module\.exports\.sum = nativeBinding\.sum/)
+  t.regex(esm, /export \{ sum \}/)
+  t.regex(legacyEsm, /export \{ sum \}/)
+  t.is(resolveBuildFormat({}), 'commonjs')
+  t.is(resolveBuildFormat({ commonjs: true }), 'commonjs')
+  t.is(resolveBuildFormat({ esm: true }), 'esm')
 })
 
 test('generateTypeDef preserves deterministic file order', async (t) => {
