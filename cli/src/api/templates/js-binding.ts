@@ -157,7 +157,6 @@ ${idents.map((ident) => `export { ${ident} }`).join('\n')}`
   return `${bindingHeader}
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
-const __dirname = new URL('.', import.meta.url).pathname
 
 ${createCommonBinding(
   localName,

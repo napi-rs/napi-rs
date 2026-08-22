@@ -294,3 +294,25 @@ test('createEsmBinding is Node 12 compatible', (t) => {
   t.false(code.includes('?.'), 'ESM loader must not use optional chaining')
   t.false(code.includes('??'), 'ESM loader must not use nullish coalescing')
 })
+
+test('createEsmBinding builds native addon loading on portable ESM primitives', (t) => {
+  const code = createEsmBinding('test', '@scope/test', ['sum'])
+  assertValidJS(t, code, 'esm')
+  t.true(
+    code.includes(`import { createRequire } from 'module'`),
+    'ESM loader must import createRequire so native .node addons can be loaded without the CommonJS `require` global',
+  )
+  t.true(
+    code.includes('const require = createRequire(import.meta.url)'),
+    'ESM loader must derive `require` from the current module, not rely on a CommonJS global',
+  )
+  // `@napi-rs/cli` is a valid Node package but is not running under Deno. Deno
+  // rejects `URL.pathname` treated as a filesystem path, which is exactly how a
+  // `__dirname` built from `new URL('.', import.meta.url).pathname` behaves on
+  // Windows (percent-encoded, forward-slash separated). The ESM native loader
+  // never used `__dirname` anyway, so it must not emit that construct at all.
+  t.false(
+    /new URL\(['"]\.['"], import\.meta\.url\)\.pathname/.test(code),
+    'ESM loader must not treat URL.pathname as a filesystem path',
+  )
+})
