@@ -244,9 +244,47 @@ test('writeJsBinding uses the explicit format independently of the filename', as
   t.regex(commonjs, /module\.exports\.sum = nativeBinding\.sum/)
   t.regex(esm, /export \{ sum \}/)
   t.regex(legacyEsm, /export \{ sum \}/)
-  t.is(resolveBuildFormat({}), 'commonjs')
-  t.is(resolveBuildFormat({ commonjs: true }), 'commonjs')
-  t.is(resolveBuildFormat({ esm: true }), 'esm')
+})
+
+test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {
+  const validCases = [
+    { options: {}, expected: 'commonjs' },
+    { options: { format: 'esm' }, expected: 'esm' },
+    { options: { format: 'commonjs' }, expected: 'commonjs' },
+    { options: { esm: true }, expected: 'esm' },
+    { options: { commonjs: true }, expected: 'commonjs' },
+  ] as const
+
+  for (const { options, expected } of validCases) {
+    t.is(resolveBuildFormat(options), expected)
+  }
+
+  const invalidCases = [
+    {
+      options: { esm: true, commonjs: true },
+      message: /`--esm` and `--commonjs` cannot be used together/,
+    },
+    {
+      options: { format: 'esm', commonjs: true },
+      message: /`--format esm` cannot be used with `--commonjs`/,
+    },
+    {
+      options: { format: 'commonjs', esm: true },
+      message: /`--format commonjs` cannot be used with `--esm`/,
+    },
+    {
+      options: { format: 'invalid' },
+      message: /Invalid build format "invalid"/,
+    },
+    {
+      options: { format: '' },
+      message: /Invalid build format ""/,
+    },
+  ] as const
+
+  for (const { options, message } of invalidCases) {
+    t.throws(() => resolveBuildFormat(options), { message })
+  }
 })
 
 test('generateTypeDef preserves deterministic file order', async (t) => {

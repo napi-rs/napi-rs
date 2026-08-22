@@ -78,9 +78,29 @@ function getOptionDescriptor(opt: OptionSchema) {
 }
 
 /**
+ * Return one validator expression for all checks required by an option.
+ */
+export function getOptionValidatorExpression(
+  opt: OptionSchema,
+): string | undefined {
+  const validators = [
+    ...(opt.type === 'number' ? ['typanion.isNumber()'] : []),
+    ...(opt.validator ? [opt.validator] : []),
+  ]
+
+  if (validators.length === 0) {
+    return
+  }
+  if (validators.length === 1) {
+    return validators[0]
+  }
+  return `typanion.cascade(${validators.join(', ')})`
+}
+
+/**
  * Generate the Clipanion command class definition and its option plumbing.
  */
-function generateCommandDef(command: CommandSchema) {
+export function generateCommandDef(command: CommandSchema) {
   const commandPath = kebabCase(command.name)
   const avoidList = ['path', 'name']
 
@@ -123,9 +143,6 @@ export abstract class Base${PascalCase(command.name)}Command extends Command {
     switch (opt.type) {
       case 'number':
         optionType = 'String'
-        if (!prepare.includes("import * as typanion from 'typanion'")) {
-          prepare.push("import * as typanion from 'typanion'")
-        }
         break
       case 'boolean':
         optionType = 'Boolean'
@@ -158,14 +175,12 @@ export abstract class Base${PascalCase(command.name)}Command extends Command {
       )
     }
 
-    if (opt.type === 'number') {
-      cmdLines.push('    validator: typanion.isNumber(),')
-    }
-    if (opt.validator) {
+    const validator = getOptionValidatorExpression(opt)
+    if (validator) {
       if (!prepare.includes("import * as typanion from 'typanion'")) {
         prepare.push("import * as typanion from 'typanion'")
       }
-      cmdLines.push(`    validator: ${opt.validator},`)
+      cmdLines.push(`    validator: ${validator},`)
     }
 
     cmdLines.push(`    description: '${opt.description}'`)
@@ -302,4 +317,6 @@ function codegen() {
   })
 }
 
-codegen()
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  codegen()
+}
