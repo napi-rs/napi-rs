@@ -6,6 +6,21 @@
   target_env = "msvc",
   all(not(target_family = "wasm"), feature = "dyn-symbols")
 ))]
+#[inline(never)]
+unsafe fn load_symbol(
+  host: &libloading::Library,
+  name: &'static [u8],
+) -> Option<*mut std::ffi::c_void> {
+  match unsafe { host.get::<unsafe extern "C" fn()>(name) } {
+    Ok(symbol) => unsafe { symbol.try_as_raw_ptr() },
+    Err(_) => None,
+  }
+}
+
+#[cfg(any(
+  target_env = "msvc",
+  all(not(target_family = "wasm"), feature = "dyn-symbols")
+))]
 macro_rules! generate {
   (@stub_fn $name:ident($($param:ident: $ptype:ty,)*) -> napi_status) => {
     unsafe extern "C" fn $name($(_: $ptype,)*) -> napi_status {
@@ -53,15 +68,26 @@ macro_rules! generate {
     ) -> Result<(), libloading::Error> {
       NAPI = Napi {
         $(
-          $name: {
-            let symbol: Result<libloading::Symbol<unsafe extern "C" fn ($(_: $ptype,)*)$( -> $rtype)*>, libloading::Error> = host.get(stringify!($name).as_bytes());
-            match symbol {
-              Ok(f) => *f,
-              Err(_) => {
-                // ignore error, use the stub function
-                NAPI.$name
+          $name: match unsafe {
+            // SAFETY: every generated name identifies a Node-API function, and `setup` keeps the
+            // host library alive for as long as the loaded function pointers can be called.
+            $crate::load_symbol(
+              host,
+              concat!(stringify!($name), "\0").as_bytes(),
+            )
+          } {
+            Some(symbol) => {
+              // SAFETY: Node-API exports use the signature declared for this field. The host
+              // library remains alive for as long as these function pointers can be called.
+              unsafe {
+                std::mem::transmute::<
+                  *mut std::ffi::c_void,
+                  unsafe extern "C" fn($(_: $ptype,)*)$( -> $rtype)*,
+                >(symbol)
               }
             }
+            // Ignore the lookup error and preserve the existing stub function.
+            None => NAPI.$name,
           },
         )*
       };
