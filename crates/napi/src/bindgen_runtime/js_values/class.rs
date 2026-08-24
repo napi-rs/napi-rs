@@ -254,20 +254,25 @@ pub trait JavaScriptClassExt: Sized {
   fn instance_of<'env, V: JsValue<'env>>(env: &Env, value: &V) -> Result<bool>;
 }
 
-/// # Safety
+/// Non-generic core of [`new_instance`].
 ///
-/// create instance of class
-#[doc(hidden)]
-pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
+/// Constructing and wrapping the JavaScript object does not depend on the
+/// concrete Rust class. Accept the type-dependent finalizer and class name as
+/// values so addons with many classes only emit the N-API and reference-map
+/// setup once.
+#[inline(never)]
+unsafe fn new_instance_raw(
   env: sys::napi_env,
   wrapped_value: *mut std::ffi::c_void,
   ctor_ref: sys::napi_ref,
+  finalize_cb: sys::napi_finalize,
+  class_name: &str,
 ) -> Result<sys::napi_value> {
   let mut ctor = std::ptr::null_mut();
   check_status!(
     sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
     "Failed to get constructor reference of class `{}`",
-    type_name::<T>(),
+    class_name,
   )?;
 
   let mut result = std::ptr::null_mut();
@@ -275,7 +280,7 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
   check_status!(
     sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
     "Failed to construct class `{}`",
-    type_name::<T>(),
+    class_name,
   )?;
   crate::__private::___CALL_FROM_FACTORY.with(|inner| inner.set(false));
   let mut object_ref = std::ptr::null_mut();
@@ -291,19 +296,41 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
       env,
       result,
       wrapped_value,
-      Some(raw_finalize_unchecked::<T>),
+      finalize_cb,
       std::ptr::null_mut(),
       &mut object_ref,
     ),
     "Failed to wrap native object of class `{}`",
-    type_name::<T>(),
+    class_name,
   )?;
 
-  Reference::<T>::add_ref(
+  super::value_ref::add_ref(
     env,
     wrapped_value,
     (wrapped_value, object_ref, finalize_callbacks_ptr),
   );
+
+  Ok(result)
+}
+
+/// # Safety
+///
+/// create instance of class
+#[doc(hidden)]
+pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
+  env: sys::napi_env,
+  wrapped_value: *mut std::ffi::c_void,
+  ctor_ref: sys::napi_ref,
+) -> Result<sys::napi_value> {
+  let result = unsafe {
+    new_instance_raw(
+      env,
+      wrapped_value,
+      ctor_ref,
+      Some(raw_finalize_unchecked::<T>),
+      type_name::<T>(),
+    )
+  }?;
 
   // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
   // napi_ref (see `CallbackInfo::_construct`). Compiled only on napi8 NATIVE
