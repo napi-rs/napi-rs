@@ -1650,9 +1650,7 @@ fn panic_payload_to_error(payload: Box<dyn Any + Send>) -> Error {
       format!("panic from Rust code: {payload:?}")
     }
   };
-  // A payload's Drop may panic; leaking it is preferable to a second panic
-  // crossing the extern "C" trampoline, mirroring `catch_unwind_safely`.
-  std::mem::forget(payload);
+  crate::bindgen_runtime::catch_unwind_safely(|| drop(payload));
   Error::new(Status::GenericFailure, message)
 }
 
