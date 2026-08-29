@@ -33,7 +33,7 @@ use crate::bindgen_runtime::FunctionCallContext;
 ))]
 use crate::bindgen_runtime::PromiseRaw;
 use crate::bindgen_runtime::{
-  FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
+  panic_to_error, FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
 };
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
@@ -1689,11 +1689,15 @@ pub(crate) unsafe extern "C" fn trampoline<
   .and_then(|(raw_this, raw_args, closure_data_ptr, _argc)| {
     let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
     let mut env = Env::from_raw(raw_env);
-    closure(FunctionCallContext {
-      env: &mut env,
-      this: raw_this,
-      args: raw_args.as_slice(),
-    })
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      closure(FunctionCallContext {
+        env: &mut env,
+        this: raw_this,
+        args: raw_args.as_slice(),
+      })
+    }))
+    .map_err(panic_to_error)
+    .and_then(|r| r)
   })
   .and_then(|ret| unsafe { <Return as ToNapiValue>::to_napi_value(raw_env, ret) })
   .unwrap_or_else(|e| {
@@ -1745,11 +1749,15 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
     .ok_or_else(|| Error::new(Status::InvalidArg, "Missing argument in property setter"))
     .and_then(|value| unsafe { V::from_napi_value(raw_env, *value) })
     .and_then(|value| {
-      closure(
-        env,
-        unsafe { This::from_napi_value(raw_env, raw_this)? },
-        value,
-      )
+      std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        closure(
+          env,
+          unsafe { This::from_napi_value(raw_env, raw_this)? },
+          value,
+        )
+      }))
+      .map_err(panic_to_error)
+      .and_then(|r| r)
     })
     .map(|_| std::ptr::null_mut())
     .unwrap_or_else(|e| {
@@ -1792,7 +1800,11 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
   unsafe { crate::bindgen_runtime::This::from_napi_value(raw_env, raw_this) }
-    .and_then(|this| closure(env, this))
+    .and_then(|this| {
+      std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| closure(env, this)))
+        .map_err(panic_to_error)
+        .and_then(|r| r)
+    })
     .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
     .unwrap_or_else(|e| {
       unsafe { JsError::from(e).throw_into(raw_env) };
@@ -1806,5 +1818,7 @@ pub(crate) unsafe extern "C" fn finalize_box_trampoline<F>(
   closure_data_ptr: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
+  })
 }

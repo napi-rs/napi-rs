@@ -840,6 +840,8 @@ export declare function createObjWithProperty(): { value: ArrayBuffer, get gette
 
 export declare function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null
 
+export declare function createPanickingClosureFunction(): FunctionData
+
 export declare function createReadableStream(): ReadableStream<Buffer>
 
 export declare function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<Buffer>
