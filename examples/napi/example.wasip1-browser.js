@@ -733,6 +733,8 @@ export const callbackReturnPromise = __napiModule.exports.callbackReturnPromise
 export const callbackReturnPromiseAndSpawn =
   __napiModule.exports.callbackReturnPromiseAndSpawn
 export const callCatchOnPromise = __napiModule.exports.callCatchOnPromise
+export const callCatchOnPromiseCapturing =
+  __napiModule.exports.callCatchOnPromiseCapturing
 export const callFinallyOnPromise = __napiModule.exports.callFinallyOnPromise
 export const callFunction = __napiModule.exports.callFunction
 export const callFunctionWithArg = __napiModule.exports.callFunctionWithArg
@@ -742,6 +744,8 @@ export const callLongThreadsafeFunction =
   __napiModule.exports.callLongThreadsafeFunction
 export const callRuleHandler = __napiModule.exports.callRuleHandler
 export const callThenOnPromise = __napiModule.exports.callThenOnPromise
+export const callThenOnPromiseCapturing =
+  __napiModule.exports.callThenOnPromiseCapturing
 export const callThreadsafeFunction =
   __napiModule.exports.callThreadsafeFunction
 export const callWithNestedFunctionArg =
@@ -817,6 +821,8 @@ export const createObjectWithClassField =
 export const createObjWithProperty = __napiModule.exports.createObjWithProperty
 export const createOptionalExternal =
   __napiModule.exports.createOptionalExternal
+export const createPanickingClosureFunction =
+  __napiModule.exports.createPanickingClosureFunction
 export const createReadableStream = __napiModule.exports.createReadableStream
 export const createReadableStreamFromClass =
   __napiModule.exports.createReadableStreamFromClass

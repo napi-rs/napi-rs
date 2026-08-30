@@ -1,5 +1,7 @@
 #![allow(deprecated)]
 
+#[cfg(feature = "napi5")]
+use std::any::Any;
 #[cfg(any(feature = "compat-mode", feature = "napi6"))]
 use std::any::{type_name, TypeId};
 use std::convert::TryInto;
@@ -1638,6 +1640,21 @@ unsafe extern "C" fn async_finalize<Arg, F>(
 }
 
 #[cfg(feature = "napi5")]
+fn panic_payload_to_error(payload: Box<dyn Any + Send>) -> Error {
+  let message = {
+    if let Some(string) = payload.downcast_ref::<String>() {
+      string.clone()
+    } else if let Some(string) = payload.downcast_ref::<&str>() {
+      string.to_string()
+    } else {
+      format!("panic from Rust code: {payload:?}")
+    }
+  };
+  crate::bindgen_runtime::catch_unwind_safely(|| drop(payload));
+  Error::new(Status::GenericFailure, message)
+}
+
+#[cfg(feature = "napi5")]
 pub(crate) unsafe extern "C" fn trampoline<
   Return: ToNapiValue,
   F: Fn(FunctionCallContext) -> Result<Return>,
@@ -1689,13 +1706,17 @@ pub(crate) unsafe extern "C" fn trampoline<
   .and_then(|(raw_this, raw_args, closure_data_ptr, _argc)| {
     let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
     let mut env = Env::from_raw(raw_env);
-    closure(FunctionCallContext {
-      env: &mut env,
-      this: raw_this,
-      args: raw_args.as_slice(),
-    })
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      closure(FunctionCallContext {
+        env: &mut env,
+        this: raw_this,
+        args: raw_args.as_slice(),
+      })
+      .and_then(|ret| unsafe { <Return as ToNapiValue>::to_napi_value(raw_env, ret) })
+    }))
+    .map_err(panic_payload_to_error)
+    .and_then(|r| r)
   })
-  .and_then(|ret| unsafe { <Return as ToNapiValue>::to_napi_value(raw_env, ret) })
   .unwrap_or_else(|e| {
     unsafe { JsError::from(e).throw_into(raw_env) };
     ptr::null_mut()
@@ -1743,13 +1764,17 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
   raw_args
     .first()
     .ok_or_else(|| Error::new(Status::InvalidArg, "Missing argument in property setter"))
-    .and_then(|value| unsafe { V::from_napi_value(raw_env, *value) })
     .and_then(|value| {
-      closure(
-        env,
-        unsafe { This::from_napi_value(raw_env, raw_this)? },
-        value,
-      )
+      std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let value = unsafe { V::from_napi_value(raw_env, *value)? };
+        closure(
+          env,
+          unsafe { This::from_napi_value(raw_env, raw_this)? },
+          value,
+        )
+      }))
+      .map_err(panic_payload_to_error)
+      .and_then(|r| r)
     })
     .map(|_| std::ptr::null_mut())
     .unwrap_or_else(|e| {
@@ -1791,13 +1816,16 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
-  unsafe { crate::bindgen_runtime::This::from_napi_value(raw_env, raw_this) }
-    .and_then(|this| closure(env, this))
-    .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
-    .unwrap_or_else(|e| {
-      unsafe { JsError::from(e).throw_into(raw_env) };
-      ptr::null_mut()
-    })
+  std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let this = unsafe { crate::bindgen_runtime::This::from_napi_value(raw_env, raw_this)? };
+    closure(env, this).and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
+  }))
+  .map_err(panic_payload_to_error)
+  .and_then(|r| r)
+  .unwrap_or_else(|e| {
+    unsafe { JsError::from(e).throw_into(raw_env) };
+    ptr::null_mut()
+  })
 }
 
 #[cfg(feature = "napi5")]
@@ -1806,5 +1834,7 @@ pub(crate) unsafe extern "C" fn finalize_box_trampoline<F>(
   closure_data_ptr: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
+  })
 }

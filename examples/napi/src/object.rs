@@ -176,6 +176,15 @@ pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData<'_>> {
 }
 
 #[napi]
+pub fn create_panicking_closure_function(env: &Env) -> Result<FunctionData<'_>> {
+  let handle = env
+    .create_function_from_closure("panicking_handle_function", |_ctx| -> Result<i32> {
+      panic!("boom from closure")
+    })?;
+  Ok(FunctionData { handle })
+}
+
+#[napi]
 pub fn get_null_byte_property(obj: Object) -> Result<Option<String>> {
   obj.get::<String>("\0virtual")
 }

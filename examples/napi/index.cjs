@@ -927,6 +927,7 @@ module.exports.createObjectRef = nativeBinding.createObjectRef
 module.exports.createObjectWithClassField = nativeBinding.createObjectWithClassField
 module.exports.createObjWithProperty = nativeBinding.createObjWithProperty
 module.exports.createOptionalExternal = nativeBinding.createOptionalExternal
+module.exports.createPanickingClosureFunction = nativeBinding.createPanickingClosureFunction
 module.exports.createReadableStream = nativeBinding.createReadableStream
 module.exports.createReadableStreamFromClass = nativeBinding.createReadableStreamFromClass
 module.exports.createReadableStreamWithObject = nativeBinding.createReadableStreamWithObject
