@@ -802,6 +802,118 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: 'static + JsValuesTupleIn
   drop(unsafe { Box::<R>::from_raw(finalize_hint.cast()) });
 }
 
+/// Non-generic core of [`call_js_cb`].
+///
+/// Calling the JavaScript function, following Node's error-first callback
+/// convention and capturing a pending exception do not depend on the concrete
+/// threadsafe-function argument or return types. Keep that work out of the
+/// generic trampoline so addons with many callback signatures only emit it
+/// once.
+#[inline(never)]
+fn call_js_cb_raw(
+  raw_env: sys::napi_env,
+  js_callback: sys::napi_value,
+  recv: sys::napi_value,
+  call: std::result::Result<(Vec<sys::napi_value>, bool), sys::napi_value>,
+  callee_handled: bool,
+) -> (sys::napi_status, Option<Result<sys::napi_value>>) {
+  // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
+  // Check if the Result is okay, if so, pass a null as the first (error) argument automatically.
+  // If the Result is an error, pass that as the first argument.
+  match call {
+    Ok((values, with_callback)) => {
+      let args: Vec<sys::napi_value> = if callee_handled {
+        let mut js_null = ptr::null_mut();
+        unsafe { sys::napi_get_null(raw_env, &mut js_null) };
+        core::iter::once(js_null).chain(values).collect()
+      } else {
+        values
+      };
+      let mut return_value = ptr::null_mut();
+      let mut status = unsafe {
+        sys::napi_call_function(
+          raw_env,
+          recv,
+          js_callback,
+          args.len(),
+          args.as_ptr(),
+          &mut return_value,
+        )
+      };
+      let callback_arg = with_callback.then(|| {
+        if status == sys::Status::napi_pending_exception {
+          let mut exception = ptr::null_mut();
+          unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
+          let raw_status = status;
+          // The exception has been taken out of the env and is about to be handed
+          // to the Rust callback, so it is handled from Node's point of view.
+          status = sys::Status::napi_ok;
+
+          // JavaScript can throw *anything*, so capture the exception the same
+          // way a promise rejection is captured. The previous code did two things
+          // that broke on a non-`Error`:
+          //
+          // * `napi_create_reference` rejects every non-object below Node-API 10
+          //   — and a module without `node_api_module_get_api_version_v1` is
+          //   version 8 — so `throw 'oops'` lost the thrown value outright.
+          // * building `reason` from `napi_coerce_to_string` plus a `[[Get]]` of
+          //   `stack` runs `toString`/`Symbol.toPrimitive` and V8's lazy stack
+          //   formatter while the error is unwinding, and *throws* on a symbol,
+          //   leaving that second exception pending in an env Node has already
+          //   been told is clean.
+          //
+          // `from_unknown_without_coercion` does neither: the value is retained
+          // behind a private holder object every type can be referenced through,
+          // and `reason`/`cause` are read as data properties only.
+          //
+          // The cost is that `reason` no longer carries the stack trace: `stack`
+          // is an own *accessor* on every V8 error, so there is no way to read it
+          // without running a getter. JavaScript is unaffected — it now receives
+          // the original exception object, stack and all.
+          //
+          // `call_js_cb_raw` runs on the env's JS thread, so the `ErrorRef` inside
+          // captures the owning env, its thread and its custom-GC handle; the
+          // returned `Error` is then free to travel to the caller's thread, where
+          // the reference reads as absent and the release is routed back here
+          // (#2975, #3369).
+          //
+          // SAFETY: `raw_env` and `exception` are valid pointers obtained from
+          // `napi_get_and_clear_last_exception` above, which guarantees they are
+          // non-null and live for the duration of this callback.
+          let mut error = Error::from_unknown_without_coercion(unsafe {
+            Unknown::from_raw_unchecked(raw_env, exception)
+          });
+          // Keep reporting *why* the callback failed. `call_async_catch` callers
+          // branch on `PendingException` to tell a JS throw apart from a Rust
+          // error, so the status has to survive the capture.
+          error.status = Status::from(raw_status);
+          Err(error)
+        } else {
+          Ok(return_value)
+        }
+      });
+      (status, callback_arg)
+    }
+    Err(error_value) if !callee_handled => (
+      unsafe { sys::napi_fatal_exception(raw_env, error_value) },
+      None,
+    ),
+    Err(error_value) => (
+      unsafe {
+        sys::napi_call_function(
+          raw_env,
+          recv,
+          js_callback,
+          1,
+          [error_value].as_mut_ptr(),
+          ptr::null_mut(),
+        )
+      },
+      None,
+    ),
+  }
+}
+
 unsafe extern "C" fn call_js_cb<
   T: 'static,
   Return: FromNapiValue,
@@ -841,104 +953,31 @@ unsafe extern "C" fn call_js_cb<
       env: Env::from_raw(raw_env),
       value: v.data,
     })
-    .and_then(|ret| Ok((ret.into_vec(raw_env)?, v.call_variant, v.callback)))
+    .and_then(|ret| {
+      Ok((
+        ret.into_vec(raw_env)?,
+        matches!(v.call_variant, ThreadsafeFunctionCallVariant::WithCallback),
+        v.callback,
+      ))
+    })
     .map_err(|err| Error::new(err.status.into(), err.reason.clone()))
   });
 
-  // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
-  // Check if the Result is okay, if so, pass a null as the first (error) argument automatically.
-  // If the Result is an error, pass that as the first argument.
-  let status = match ret {
-    Ok((values, call_variant, callback)) => {
-      let args: Vec<sys::napi_value> = if CalleeHandled {
-        let mut js_null = ptr::null_mut();
-        unsafe { sys::napi_get_null(raw_env, &mut js_null) };
-        core::iter::once(js_null).chain(values).collect()
-      } else {
-        values
-      };
-      let mut return_value = ptr::null_mut();
-      #[allow(unused_mut)]
-      let mut status = sys::napi_call_function(
-        raw_env,
-        recv,
-        js_callback,
-        args.len(),
-        args.as_ptr(),
-        &mut return_value,
-      );
-      if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
-        // throw Error in JavaScript callback
-        let callback_arg = if status == sys::Status::napi_pending_exception {
-          let mut exception = ptr::null_mut();
-          unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
-          let raw_status = status;
-          // The exception has been taken out of the env and is about to be handed
-          // to the Rust callback, so it is handled from Node's point of view.
-          status = sys::Status::napi_ok;
-
-          // JavaScript can throw *anything*, so capture the exception the same
-          // way a promise rejection is captured. The previous code did two things
-          // that broke on a non-`Error`:
-          //
-          // * `napi_create_reference` rejects every non-object below Node-API 10
-          //   — and a module without `node_api_module_get_api_version_v1` is
-          //   version 8 — so `throw 'oops'` lost the thrown value outright.
-          // * building `reason` from `napi_coerce_to_string` plus a `[[Get]]` of
-          //   `stack` runs `toString`/`Symbol.toPrimitive` and V8's lazy stack
-          //   formatter while the error is unwinding, and *throws* on a symbol,
-          //   leaving that second exception pending in an env Node has already
-          //   been told is clean.
-          //
-          // `from_unknown_without_coercion` does neither: the value is retained
-          // behind a private holder object every type can be referenced through,
-          // and `reason`/`cause` are read as data properties only.
-          //
-          // The cost is that `reason` no longer carries the stack trace: `stack`
-          // is an own *accessor* on every V8 error, so there is no way to read it
-          // without running a getter. JavaScript is unaffected — it now receives
-          // the original exception object, stack and all.
-          //
-          // `call_js_cb` runs on the env's JS thread, so the `ErrorRef` inside
-          // captures the owning env, its thread and its custom-GC handle; the
-          // returned `Error` is then free to travel to the caller's thread, where
-          // the reference reads as absent and the release is routed back here
-          // (#2975, #3369).
-          //
-          // SAFETY: `raw_env` and `exception` are valid pointers obtained from
-          // `napi_get_and_clear_last_exception` above, which guarantees they are
-          // non-null and live for the duration of this callback.
-          let mut error = Error::from_unknown_without_coercion(unsafe {
-            Unknown::from_raw_unchecked(raw_env, exception)
-          });
-          // Keep reporting *why* the callback failed. `call_async_catch` callers
-          // branch on `PendingException` to tell a JS throw apart from a Rust
-          // error, so the status has to survive the capture.
-          error.status = Status::from(raw_status);
-          Err(error)
-        } else {
-          unsafe { Return::from_napi_value(raw_env, return_value) }
-        };
-        if let Err(err) = callback(callback_arg, Env::from_raw(raw_env)) {
-          unsafe { sys::napi_fatal_exception(raw_env, JsError::from(err).into_value(raw_env)) };
-        }
-      }
-      status
-    }
-    Err(e) if !CalleeHandled => unsafe {
-      sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env))
-    },
-    Err(e) => unsafe {
-      sys::napi_call_function(
-        raw_env,
-        recv,
-        js_callback,
-        1,
-        [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-        ptr::null_mut(),
-      )
-    },
+  let (call, callback) = match ret {
+    Ok((values, with_callback, callback)) => (Ok((values, with_callback)), Some(callback)),
+    Err(error) => (
+      Err(unsafe { JsError::from(error).into_value(raw_env) }),
+      None,
+    ),
   };
+  let (status, callback_arg) = call_js_cb_raw(raw_env, js_callback, recv, call, CalleeHandled);
+  if let (Some(callback_arg), Some(callback)) = (callback_arg, callback) {
+    let callback_arg = callback_arg
+      .and_then(|return_value| unsafe { Return::from_napi_value(raw_env, return_value) });
+    if let Err(err) = callback(callback_arg, Env::from_raw(raw_env)) {
+      unsafe { sys::napi_fatal_exception(raw_env, JsError::from(err).into_value(raw_env)) };
+    }
+  }
   handle_call_js_cb_status(status, raw_env)
 }
 
