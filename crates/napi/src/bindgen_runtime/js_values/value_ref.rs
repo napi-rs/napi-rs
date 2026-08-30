@@ -12,11 +12,23 @@ use crate::{
   check_status, Env, Error, Result, Status,
 };
 
-type RefInformation = (
+pub(crate) type RefInformation = (
   /* wrapped_value */ *mut c_void,
   /* napi_ref */ crate::sys::napi_ref,
   /* finalize_callback */ *const Cell<*mut dyn FnOnce()>,
 );
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub(crate) fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
+  REFERENCE_MAP.with(|cell| {
+    cell.borrow_mut(|map| {
+      if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
+        unsafe { Arc::from_raw(previous_rc) };
+        unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
+      }
+    })
+  });
+}
 
 thread_local! {
   pub(crate) static REFERENCE_MAP: LazyCell<
@@ -69,14 +81,7 @@ impl<T: 'static> Reference<T> {
   #[doc(hidden)]
   #[allow(clippy::not_unsafe_ptr_arg_deref)]
   pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
-    REFERENCE_MAP.with(|cell| {
-      cell.borrow_mut(|map| {
-        if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
-          unsafe { Arc::from_raw(previous_rc) };
-          unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
-        }
-      })
-    });
+    add_ref(env, t, value);
   }
 
   #[doc(hidden)]
