@@ -1273,7 +1273,21 @@ fn clear_pending_exception(env: sys::napi_env) {
 #[cfg(feature = "anyhow")]
 impl From<anyhow::Error> for Error {
   fn from(value: anyhow::Error) -> Self {
-    Error::new(Status::GenericFailure, format!("{:?}", value))
+    let mut chain = value.chain();
+
+    let mut error = Error::new(Status::GenericFailure, chain.next().unwrap().to_string());
+
+    let mut current = &mut error;
+
+    for cause in chain {
+      current.cause = Some(Box::new(Error::new(
+        Status::GenericFailure,
+        cause.to_string(),
+      )));
+      current = current.cause.as_deref_mut().unwrap();
+    }
+
+    error
   }
 }
 
