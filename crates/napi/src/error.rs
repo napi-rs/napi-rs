@@ -1542,7 +1542,7 @@ pub struct JsError<S: AsRef<str> = Status>(Error<S>);
 #[cfg(feature = "anyhow")]
 impl From<anyhow::Error> for JsError {
   fn from(value: anyhow::Error) -> Self {
-    JsError(Error::new(Status::GenericFailure, value.to_string()))
+    JsError(Error::from(value))
   }
 }
 
