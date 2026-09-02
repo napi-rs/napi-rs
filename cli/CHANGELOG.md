@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.9.0](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.6...%40napi-rs%2Fcli%403.9.0) (2026-09-02)
+
+### Bug Fixes
+
+- **cli:** drop unsafe URL.pathname __dirname from ESM loader ([#3461](https://github.com/napi-rs/napi-rs/issues/3461)) ([8681902](https://github.com/napi-rs/napi-rs/commit/8681902ce671fc2010a6e40fe4e2c9557ec44fa6))
+
+### Features
+
+- **cli:** add explicit build module format ([#3463](https://github.com/napi-rs/napi-rs/issues/3463)) ([2d40a52](https://github.com/napi-rs/napi-rs/commit/2d40a52c511da30a7690924fc9cca53b5ecb96e7))
+
 ## [3.8.6](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.5...%40napi-rs%2Fcli%403.8.6) (2026-08-12)
 
 ### Bug Fixes
