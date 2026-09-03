@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.4](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.3...napi-derive-v3.6.4) - 2026-09-03
+
+### Fixed
+
+- *(deps)* update rust crate convert_case to 0.12 ([#3469](https://github.com/napi-rs/napi-rs/pull/3469))
+
 ## [3.6.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.2...napi-derive-v3.6.3) - 2026-08-10
 
 ### Other
