@@ -10,6 +10,6 @@
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
     "tinybench": "^6.0.2",
-    "vitest": "^4.1.8"
+    "vitest": "^5.0.0"
   }
 }
