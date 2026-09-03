@@ -26,12 +26,12 @@
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
-    "@vitest/browser-playwright": "^4.1.9",
+    "@vitest/browser-playwright": "^5.0.0",
     "esbuild": "^0.28.1",
     "miniflare": "^4.20260630.0",
     "playwright": "^1.61.1",
     "vite": "^8.1.2",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.0"
   },
   "dependencies": {
     "@emnapi/core": "2.0.0-alpha.4",
