@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.2...napi-v3.12.3) - 2026-09-03
+
+### Fixed
+
+- *(napi)* catch panics in closure trampolines instead of aborting ([#3473](https://github.com/napi-rs/napi-rs/pull/3473))
+
+### Other
+
+- *(napi)* keep anyhow error cause when converting ([#3477](https://github.com/napi-rs/napi-rs/pull/3477))
+- *(napi)* outline threadsafe callback dispatch ([#3465](https://github.com/napi-rs/napi-rs/pull/3465))
+- *(napi)* outline class instance construction ([#3464](https://github.com/napi-rs/napi-rs/pull/3464))
+
 ## [3.12.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.1...napi-v3.12.2) - 2026-08-21
 
 ### Fixed
