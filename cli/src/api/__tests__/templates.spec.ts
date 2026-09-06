@@ -7,7 +7,10 @@ import {
   createWasiBrowserBinding,
   createWasiDeferredBrowserBinding,
 } from '../templates/load-wasi-template.js'
-import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
+import {
+  createWasiBrowserWorkerBinding,
+  WASI_WORKER_TEMPLATE,
+} from '../templates/wasi-worker-template.js'
 
 const test = ava
 
@@ -227,6 +230,35 @@ const wasiLoaderCases: Array<{ name: string; code: string }> = [
   { name: 'browser esm', code: createWasiBrowserBinding('test') },
   { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
 ]
+
+test('Node WASI loader uses an accessible host root on Android', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'Node WASI loader')
+  t.true(
+    code.includes('const __rootDir = __nodePath.parse(process.cwd()).root'),
+  )
+  t.true(
+    code.includes("process.platform === 'android' ? process.cwd() : __rootDir"),
+  )
+  t.true(code.includes('[__rootDir]: __hostRoot'))
+  t.false(code.includes('[__rootDir]: __rootDir'))
+})
+
+test('Node WASI worker uses an accessible host root on Android', (t) => {
+  assertValidJS(t, WASI_WORKER_TEMPLATE, 'Node WASI worker')
+  t.true(
+    WASI_WORKER_TEMPLATE.includes(
+      'const __rootDir = parse(process.cwd()).root',
+    ),
+  )
+  t.true(
+    WASI_WORKER_TEMPLATE.includes(
+      "process.platform === 'android' ? process.cwd() : __rootDir",
+    ),
+  )
+  t.true(WASI_WORKER_TEMPLATE.includes('[__rootDir]: __hostRoot'))
+  t.false(WASI_WORKER_TEMPLATE.includes('[__rootDir]: __rootDir'))
+})
 
 for (const { name, code } of wasiLoaderCases) {
   test(`WASI loader waits for queued settlements before destroy: ${name}`, (t) => {

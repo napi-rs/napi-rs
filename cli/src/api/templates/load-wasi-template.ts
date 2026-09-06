@@ -2020,12 +2020,14 @@ const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 ${workerExecArgv}\
 
 const __rootDir = __nodePath.parse(process.cwd()).root
+const __hostRoot =
+  process.platform === 'android' ? process.cwd() : __rootDir
 
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    [__rootDir]: __rootDir,
+    [__rootDir]: __hostRoot,
   }
 })
 

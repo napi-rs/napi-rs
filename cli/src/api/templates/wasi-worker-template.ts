@@ -38,6 +38,8 @@ Object.assign(globalThis, {
 const emnapiContext = getDefaultContext();
 
 const __rootDir = parse(process.cwd()).root;
+const __hostRoot =
+  process.platform === 'android' ? process.cwd() : __rootDir;
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
@@ -45,7 +47,7 @@ const handler = new MessageHandler({
       version: 'preview1',
       env: process.env,
       preopens: {
-        [__rootDir]: __rootDir,
+        [__rootDir]: __hostRoot,
       },
     });
 
