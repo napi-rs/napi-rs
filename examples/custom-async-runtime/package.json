@@ -34,7 +34,7 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@emnapi/core": "2.0.0-alpha.4",
-    "@emnapi/runtime": "2.0.0-alpha.4"
+    "@emnapi/core": "2.0.0-alpha.5",
+    "@emnapi/runtime": "2.0.0-alpha.5"
   }
 }
