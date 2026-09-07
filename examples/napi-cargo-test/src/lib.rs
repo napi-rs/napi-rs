@@ -21,6 +21,30 @@ pub fn with_fully_qualified_env(_env: napi::Env, a: i32, b: i32) -> i32 {
   a + b
 }
 
+// Regression test: an associated type that happens to be named `Env`,
+// reached through a qualified-self path (`<T as Trait>::Env`), must NOT be
+// treated as napi's special environment parameter. The special-case check
+// only inspects the last path segment's ident, so without also requiring
+// `qself.is_none()` a qualified-self path ending in `Env` would be
+// misdetected and silently skipped instead of being extracted normally via
+// `FromNapiValue`. `HasEnv::Env` here is `i32`, which does implement
+// `FromNapiValue`, so this only compiles if the parameter is extracted
+// normally rather than treated as the special environment parameter.
+pub trait HasEnv {
+  type Env;
+}
+
+pub struct MyEnvHolder;
+
+impl HasEnv for MyEnvHolder {
+  type Env = i32;
+}
+
+#[napi]
+pub fn with_qualified_self_env_associated_type(env: <MyEnvHolder as HasEnv>::Env) -> i32 {
+  env
+}
+
 #[napi]
 #[derive(Debug, PartialEq, Eq)]
 pub enum MyEnum {

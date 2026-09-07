@@ -450,8 +450,8 @@ impl NapiFn {
       match &arg.kind {
         NapiFnArgKind::PatType(pat_type) => {
           let is_env_type = if let syn::Type::Path(syn::TypePath {
+            qself: None,
             path: syn::Path { segments, .. },
-            ..
           }) = pat_type.ty.as_ref()
           {
             segments.last().is_some_and(|s| s.ident == "Env")
