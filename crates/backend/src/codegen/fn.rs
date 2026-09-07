@@ -449,7 +449,16 @@ impl NapiFn {
 
       match &arg.kind {
         NapiFnArgKind::PatType(pat_type) => {
-          if &pat_type.ty.to_token_stream().to_string() == "Env" {
+          let is_env_type = if let syn::Type::Path(syn::TypePath {
+            path: syn::Path { segments, .. },
+            ..
+          }) = pat_type.ty.as_ref()
+          {
+            segments.last().is_some_and(|s| s.ident == "Env")
+          } else {
+            false
+          };
+          if is_env_type {
             args.push(quote! { __wrapped_env });
             skipped_arg_count += 1;
           } else {

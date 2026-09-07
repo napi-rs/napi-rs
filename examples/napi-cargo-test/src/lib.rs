@@ -5,6 +5,22 @@ pub fn plus(a: i32, b: i32) -> napi::Result<i32> {
   Ok(a + b)
 }
 
+// Regression test for https://github.com/napi-rs/napi-rs/issues/1597
+//
+// The macro previously recognized the special-cased `Env` parameter only when
+// the type was spelled as the bare identifier `Env` (matching the whole
+// token stream against the literal string "Env"). Writing the fully
+// qualified path `napi::Env` (as below) produced a different token stream
+// and fell through to normal `FromNapiValue`-based argument extraction,
+// which fails to compile because `Env` does not implement `NapiValue`.
+//
+// This function using the fully-qualified path must expand and compile
+// successfully.
+#[napi]
+pub fn with_fully_qualified_env(_env: napi::Env, a: i32, b: i32) -> i32 {
+  a + b
+}
+
 #[napi]
 #[derive(Debug, PartialEq, Eq)]
 pub enum MyEnum {

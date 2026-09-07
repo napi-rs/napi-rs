@@ -197,9 +197,14 @@ impl NapiFn {
         .iter()
         .filter_map(|arg| match &arg.kind {
           crate::NapiFnArgKind::PatType(path) => {
-            let ty_string = path.ty.to_token_stream().to_string();
-            if ty_string == "Env" {
-              return None;
+            if let syn::Type::Path(syn::TypePath {
+              path: syn::Path { segments, .. },
+              ..
+            }) = path.ty.as_ref()
+            {
+              if segments.last().is_some_and(|s| s.ident == "Env") {
+                return None;
+              }
             }
             if let syn::Type::Reference(syn::TypeReference { elem, .. }) = &*path.ty {
               if let syn::Type::Path(path) = elem.as_ref() {
