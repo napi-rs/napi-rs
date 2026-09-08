@@ -14837,6 +14837,133 @@ mod tests {
       .expect("the healthy host never got a delivery for the later submission");
   }
 
+  /// MultiThread twin of
+  /// `current_thread_shutdown_does_not_drop_in_flight_rejected_runnable_inline`.
+  /// The same wake is in flight when shutdown starts: B's schedule closure
+  /// runs inside `futures::Shared`'s notifier, under its `wakers` mutex, and
+  /// B's future owns a clone of that `Shared`. `MultiThreadExecutor::schedule`
+  /// has no closed-queue branch: the late runnable is pushed to the injector
+  /// (or the worker's LIFO slot) exactly like any other, and the drainer that
+  /// claims it under the published stop cancels it on its own stack
+  /// (`claim_runnable` -> `RunnableClaim::Cancel` -> `cancel_runnable`). That
+  /// stack never holds `wakers`, so the drop only waits for the waker thread
+  /// to leave the notifier. This pins that shape: a closed-queue rejection
+  /// added to `schedule` that dropped the runnable inline would deadlock
+  /// here, exactly as the CurrentThread executor did.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn multi_thread_shutdown_does_not_drop_in_flight_rejected_runnable_inline() {
+    use std::{
+      sync::{Barrier, mpsc},
+      time::Duration,
+    };
+
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let options = RuntimeOptions {
+        flavor: RuntimeFlavor::MultiThread,
+        worker_threads: 2,
+        max_blocking_tasks: 1,
+        thread_name_prefix: "mt-inline-drop".to_string(),
+        park_deadline: None,
+        drain_linger: DEFAULT_DRAIN_LINGER,
+      };
+      let executor = Arc::new(MultiThreadExecutor::new(&options, Arc::clone(&metrics)).unwrap());
+      let backend =
+        RuntimeBackend::from_executor(RuntimeExecutor::MultiThread(Arc::clone(&executor)));
+      let generation = backend.generation();
+
+      // Task A: registered like production work; its JoinHandle is shared.
+      let (abort_a, guard_a) = backend
+        .work
+        .try_register_async()
+        .expect("the backend must accept work");
+      let scheduler_a = Arc::clone(&executor);
+      let (runnable_a, task_a) = async_task::spawn(
+        RegisteredTaskFuture::new(
+          Abortable::new(std::future::pending::<()>(), abort_a),
+          guard_a,
+          generation,
+        ),
+        move |runnable| scheduler_a.schedule(runnable),
+      );
+      let shared = async move { task_a.fallible().await.is_some() }
+        .boxed()
+        .shared();
+      let shared_for_b = shared.clone();
+
+      // Task B: registered and abortable too, awaiting a clone of that Shared.
+      // Its schedule closure pauses before it reaches the executor, exactly
+      // where a waker thread may be descheduled while shutdown runs.
+      let (abort_b, guard_b) = backend
+        .work
+        .try_register_async()
+        .expect("the backend must accept work");
+      let wake_in_flight = Arc::new(Barrier::new(2));
+      let wake_release = Arc::new(Barrier::new(2));
+      let scheduler_b = Arc::clone(&executor);
+      let (runnable_b, task_b) = async_task::spawn(
+        RegisteredTaskFuture::new(
+          Abortable::new(
+            async move {
+              shared_for_b.await;
+            },
+            abort_b,
+          ),
+          guard_b,
+          generation,
+        ),
+        {
+          let wake_in_flight = Arc::clone(&wake_in_flight);
+          let wake_release = Arc::clone(&wake_release);
+          move |runnable| {
+            wake_in_flight.wait();
+            wake_release.wait();
+            scheduler_b.schedule(runnable);
+          }
+        },
+      );
+      // The first poll runs on a pool drainer; wait until B has parked on the
+      // Shared and left the drainer, so the wake below is a real re-schedule
+      // from the notifier rather than a wake-while-running that the drainer
+      // would re-publish from its own stack.
+      executor.schedule(runnable_b);
+      wait_until("B parked after its first poll", || {
+        metrics.runnable_polls.load(Ordering::SeqCst) == 1
+          && metrics.active_runnables.load(Ordering::SeqCst) == 0
+          && metrics.queued_runnables.load(Ordering::SeqCst) == 0
+      });
+
+      // Cancel A on another thread: closing A notifies its awaiter, and the
+      // Shared notifier wakes B while holding `wakers`. B's schedule closure
+      // then parks at the barrier with that lock still held.
+      let waker_thread = std::thread::spawn(move || drop(runnable_a));
+      wake_in_flight.wait();
+
+      // Shutdown: `close_and_abort` aborts B, which is already SCHEDULED, so
+      // the abort wake is a no-op; the stop is then published.
+      backend.begin_shutdown();
+      wake_release.wait();
+      backend.wait_until_idle();
+
+      waker_thread
+        .join()
+        .expect("the waker thread must not panic");
+      assert_eq!(metrics.queued_runnables.load(Ordering::SeqCst), 0);
+      assert!(
+        futures::executor::block_on(task_b.fallible()).is_none(),
+        "B's late wake must still cancel B"
+      );
+      assert_eq!(backend.work.state.lock().unwrap().active, 0);
+      drop(shared);
+      done_tx.send(()).unwrap();
+    });
+    done_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("shutdown deadlocked: inline runnable drop re-entered a waker lock");
+  }
+
   #[cfg(not(target_family = "wasm"))]
   #[test]
   fn current_thread_recovery_reservation_blocks_new_host_publication() {
