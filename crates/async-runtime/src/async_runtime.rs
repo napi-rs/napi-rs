@@ -2704,10 +2704,11 @@ impl GenerationWork {
 
   /// Wait until every registered guard has retired, retiring deferred work
   /// on this stack whenever `has_deferred` reports some. Such work (a runnable
-  /// rejected after the executor queue closed) owns a guard, so the generation
-  /// can only become idle once the waiter drops it; `retire` runs with no
-  /// lock held. `notify_idle_waiters` publishes new deferred work under the
-  /// state lock, so a check made here cannot miss it.
+  /// rejected after the executor queue closed, or a parked cancellation sweep
+  /// and the queued runnables it owns) holds guards, so the generation can
+  /// only become idle once the waiter drops them; `retire` runs with no lock
+  /// held. `notify_idle_waiters` publishes new deferred work under the state
+  /// lock, so a check made here cannot miss it.
   fn wait_until_idle_retiring(&self, has_deferred: impl Fn() -> bool, retire: impl Fn()) {
     let mut state = self
       .state
@@ -2913,6 +2914,12 @@ struct CurrentThreadExecutor {
   /// Terminal dispatch failure temporarily rejects scheduler publications
   /// while the affected runnable and blocking queues are cancelled.
   cancelling_failed_dispatch: AtomicBool,
+  /// A terminal failure whose cancellation sweep was published from inside
+  /// `schedule` (a stack that may belong to a waker invoked under its
+  /// producer's lock) leaves `cancelling_failed_dispatch` set and parks the
+  /// sweep here; `run_pending_failed_dispatch_sweep` reclaims it on a clean
+  /// stack. See `CurrentThreadScheduleScope`.
+  failed_dispatch_sweep_pending: AtomicBool,
   task_dispatch: fn(u64) -> CurrentThreadHostDispatchResult,
   task_drivers: &'static CurrentThreadTaskDriverRegistry,
   metrics: Arc<RuntimeMetrics>,
@@ -2944,9 +2951,10 @@ struct CurrentThreadExecutor {
 
 impl Drop for CurrentThreadExecutor {
   fn drop(&mut self) {
-    // Last drain point for rejected runnables (each still owns its
-    // `GenerationWorkGuard`) when no idle wait ran after the queue closed.
-    self.retire_rejected_runnables();
+    // Last drain point for a parked cancellation sweep and for rejected
+    // runnables (each still owns its `GenerationWorkGuard`) when no idle wait
+    // ran after the queue closed.
+    self.retire_deferred_shutdown_work();
   }
 }
 
@@ -2955,12 +2963,13 @@ struct CurrentThreadQueue {
   runnables: VecDeque<Runnable>,
   /// Runnables whose schedule arrived while a terminal dispatch failure was
   /// cancelling queued work, or after shutdown closed the queue. They are
-  /// cancelled by the sweep that rejected them or by the shutdown side
-  /// (`begin_shutdown`, the generation's idle wait, `wait_until_scheduler_idle`
-  /// and finally the executor's destructor), never inline on the waker's
-  /// thread: that waker may run while its producer holds a mutex
-  /// (`futures::Shared` wakes awaiters under its `wakers` lock) that the
-  /// rejected future's destructor re-locks.
+  /// cancelled by the sweep that rejected them (which itself only ever runs
+  /// on a clean stack, see `CurrentThreadScheduleScope`) or by the shutdown
+  /// side (`begin_shutdown`, the generation's idle wait,
+  /// `wait_until_scheduler_idle` and finally the executor's destructor),
+  /// never inline on the waker's thread: that waker may run while its
+  /// producer holds a mutex (`futures::Shared` wakes awaiters under its
+  /// `wakers` lock) that the rejected future's destructor re-locks.
   rejected: Vec<Runnable>,
 }
 
@@ -3111,7 +3120,72 @@ impl Drop for CurrentThreadDispatchCall<'_> {
   }
 }
 
+thread_local! {
+  /// Depth of `CurrentThreadExecutor::schedule` frames on this thread. Every
+  /// waker reaches the executor through `schedule`, so a nonzero depth marks
+  /// a stack that may belong to a waker invoked while its producer holds a
+  /// mutex (`futures::Shared` wakes under its `wakers` lock). Nothing that
+  /// destroys user futures inline may run on such a stack: their destructors
+  /// can re-lock that same mutex.
+  static CURRENT_THREAD_SCHEDULE_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII marker for one `CurrentThreadExecutor::schedule` frame; see
+/// `CURRENT_THREAD_SCHEDULE_DEPTH`.
+struct CurrentThreadScheduleScope;
+
+impl CurrentThreadScheduleScope {
+  fn enter() -> Self {
+    CURRENT_THREAD_SCHEDULE_DEPTH.with(|depth| {
+      depth.set(
+        depth
+          .get()
+          .checked_add(1)
+          .expect("CurrentThread schedule depth exhausted"),
+      );
+    });
+    Self
+  }
+
+  /// True while this thread is inside `schedule`: the stack may be a waker's.
+  fn is_active() -> bool {
+    CURRENT_THREAD_SCHEDULE_DEPTH.with(|depth| depth.get() != 0)
+  }
+}
+
+impl Drop for CurrentThreadScheduleScope {
+  fn drop(&mut self) {
+    CURRENT_THREAD_SCHEDULE_DEPTH.with(|depth| {
+      depth.set(
+        depth
+          .get()
+          .checked_sub(1)
+          .expect("CurrentThread schedule depth underflow"),
+      );
+    });
+  }
+}
+
 struct CurrentThreadDispatchCancellationGuard<'a>(&'a CurrentThreadExecutor);
+
+impl CurrentThreadDispatchCancellationGuard<'_> {
+  /// Park the sweep this guard authorises instead of running it on this
+  /// stack. The executor stays closed (`cancelling_failed_dispatch` remains
+  /// set, so `schedule` keeps deferring into `queue.rejected` and no host
+  /// dispatch is published) until `run_pending_failed_dispatch_sweep`
+  /// reclaims the guard on a clean stack. Idle waiters are woken because the
+  /// shutdown side retires parked sweeps too.
+  fn defer(self) {
+    let executor = self.0;
+    std::mem::forget(self);
+    executor
+      .failed_dispatch_sweep_pending
+      .store(true, Ordering::Release);
+    if let Some(work) = executor.generation_work.load_full() {
+      work.notify_idle_waiters();
+    }
+  }
+}
 
 impl Drop for CurrentThreadDispatchCancellationGuard<'_> {
   fn drop(&mut self) {
@@ -3267,6 +3341,7 @@ impl CurrentThreadExecutor {
       dispatch_pending: AtomicU64::new(0),
       recovery_dispatch: AtomicU64::new(0),
       cancelling_failed_dispatch: AtomicBool::new(false),
+      failed_dispatch_sweep_pending: AtomicBool::new(false),
       task_dispatch: dispatch_current_thread_tasks,
       task_drivers: &CURRENT_THREAD_TASK_DRIVERS,
       metrics,
@@ -3308,6 +3383,54 @@ impl CurrentThreadExecutor {
     for runnable in rejected {
       let _ = catch_unwind_contained(|| drop(runnable));
     }
+  }
+
+  /// Work the shutdown side must retire on its own stack: a parked
+  /// cancellation sweep (its queued runnables still own their
+  /// `GenerationWorkGuard`s) and closed-queue rejections.
+  fn has_deferred_shutdown_work(&self) -> bool {
+    self.failed_dispatch_sweep_pending.load(Ordering::Acquire) || self.has_rejected_runnables()
+  }
+
+  /// Retire everything `has_deferred_shutdown_work` reports. Runs on the
+  /// caller's stack with no executor lock held; the caller must not be inside
+  /// a waker invocation.
+  fn retire_deferred_shutdown_work(&self) {
+    self.run_pending_failed_dispatch_sweep();
+    self.retire_rejected_runnables();
+  }
+
+  /// Run a cancellation sweep that a terminal failure transition parked
+  /// because it was published from inside `schedule`. Exactly one caller
+  /// reclaims a parked sweep; the reclaimed guard reopens the executor when
+  /// the sweep completes. The caller's stack must not be a waker's.
+  fn run_pending_failed_dispatch_sweep(&self) {
+    if self
+      .failed_dispatch_sweep_pending
+      .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+      .is_err()
+    {
+      return;
+    }
+    debug_assert!(
+      self.cancelling_failed_dispatch.load(Ordering::Acquire),
+      "a parked cancellation sweep must keep the executor closed"
+    );
+    self.cancel_work_after_host_dispatch_failure_claimed(CurrentThreadDispatchCancellationGuard(
+      self,
+    ));
+  }
+
+  /// Host-side entry points (delivery completion, driver registration or
+  /// unregistration, drain requests) reclaim a parked sweep here. They are
+  /// clean stacks unless the host called back synchronously from inside a
+  /// publication that a waker's `schedule` started; that case leaves the
+  /// sweep parked for the next entry.
+  fn run_pending_failed_dispatch_sweep_off_waker_stack(&self) {
+    if CurrentThreadScheduleScope::is_active() {
+      return;
+    }
+    self.run_pending_failed_dispatch_sweep();
   }
 
   fn fresh_owner_token(&self) -> BlockingOwnerToken {
@@ -3626,6 +3749,8 @@ impl CurrentThreadExecutor {
   }
 
   fn schedule(self: &Arc<Self>, runnable: Runnable) {
+    // This frame may be a waker's; see `CurrentThreadScheduleScope`.
+    let _scope = CurrentThreadScheduleScope::enter();
     self.metrics.runnable_scheduled();
     {
       let mut queue = self
@@ -3856,7 +3981,7 @@ impl CurrentThreadExecutor {
           return CurrentThreadDispatchPublicationStep::Republish;
         }
         if let Some(cancelling) = cancelling {
-          self.cancel_work_after_host_dispatch_failure_claimed(cancelling);
+          self.cancel_work_after_host_dispatch_failure(cancelling);
         }
         if let Some(failure) = failure {
           self.run_host_dispatch_failure(failure.action);
@@ -3991,6 +4116,7 @@ impl CurrentThreadExecutor {
   }
 
   fn request_drain_if_queued(self: &Arc<Self>) {
+    self.run_pending_failed_dispatch_sweep_off_waker_stack();
     if !self.has_serviceable_work() {
       return;
     }
@@ -4052,6 +4178,7 @@ impl CurrentThreadExecutor {
     if let Some(failure) = failure {
       self.run_host_dispatch_failure(failure.action);
     }
+    self.run_pending_failed_dispatch_sweep_off_waker_stack();
   }
 
   fn begin_host_dispatch_failure_locked<'a>(
@@ -4140,7 +4267,7 @@ impl CurrentThreadExecutor {
     match failure {
       CurrentThreadDispatchFailureAction::None => {}
       CurrentThreadDispatchFailureAction::Cancel(cancelling) => {
-        self.cancel_work_after_host_dispatch_failure_claimed(cancelling);
+        self.cancel_work_after_host_dispatch_failure(cancelling);
       }
       CurrentThreadDispatchFailureAction::Publish { dispatch, call } => {
         let _ = self.publish_host_dispatch(dispatch, call);
@@ -4184,6 +4311,24 @@ impl CurrentThreadExecutor {
     Some(CurrentThreadDispatchCancellationGuard(self))
   }
 
+  /// Terminal failure transition: cancel queued work now, unless this stack
+  /// may be a waker's (the transition was reached through `schedule`, whose
+  /// publication the host failed synchronously). Dropping runnables there can
+  /// re-enter the lock the waker's producer still holds, so park the sweep
+  /// instead and let a clean stack reclaim it.
+  fn cancel_work_after_host_dispatch_failure(
+    &self,
+    cancelling: CurrentThreadDispatchCancellationGuard<'_>,
+  ) {
+    if CurrentThreadScheduleScope::is_active() {
+      cancelling.defer();
+      return;
+    }
+    self.cancel_work_after_host_dispatch_failure_claimed(cancelling);
+  }
+
+  /// The cancellation sweep itself. Never call this from a stack that may be
+  /// a waker's; see `cancel_work_after_host_dispatch_failure`.
   fn cancel_work_after_host_dispatch_failure_claimed(
     &self,
     cancelling: CurrentThreadDispatchCancellationGuard<'_>,
@@ -4414,6 +4559,9 @@ impl CurrentThreadExecutor {
   fn begin_shutdown(&self) {
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     self.stop.begin_shutdown();
+    // A sweep parked by a waker-stack failure transition still owns the
+    // queued work it was meant to cancel; this is a clean stack, run it.
+    self.run_pending_failed_dispatch_sweep();
     self.close_blocking_admission();
     let (queued, rejected) = {
       let mut queue = self
@@ -4448,8 +4596,9 @@ impl CurrentThreadExecutor {
 
   fn wait_until_scheduler_idle(&self) {
     // Registered work has retired by now on the backend path; this catches
-    // rejections from unregistered tasks (tests) before the executor goes.
-    self.retire_rejected_runnables();
+    // rejections from unregistered tasks (tests) and a sweep parked after the
+    // idle wait before the executor goes.
+    self.retire_deferred_shutdown_work();
     let mut idle = self
       .scheduler_idle_lock
       .lock()
@@ -9960,11 +10109,13 @@ impl RuntimeBackend {
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => {
         // A wake in flight across `begin_shutdown` is rejected by the closed
-        // queue and parked in `queue.rejected` with its guard still held;
-        // retire those here, on this stack, until the generation is idle.
+        // queue and parked in `queue.rejected` with its guard still held, and
+        // a failure transition racing `begin_shutdown` from a waker's stack
+        // parks its sweep with the queued guards; retire both here, on this
+        // stack, until the generation is idle.
         self.work.wait_until_idle_retiring(
-          || executor.has_rejected_runnables(),
-          || executor.retire_rejected_runnables(),
+          || executor.has_deferred_shutdown_work(),
+          || executor.retire_deferred_shutdown_work(),
         );
         executor.wait_until_scheduler_idle();
       }
@@ -10683,6 +10834,12 @@ impl RuntimeController {
     }
   }
 
+  fn run_pending_current_thread_cancellation(&self) {
+    if let Some(executor) = self.running_current_thread_executor() {
+      executor.run_pending_failed_dispatch_sweep_off_waker_stack();
+    }
+  }
+
   fn cancel_current_thread_dispatch(&self, failure: CurrentThreadTaskDispatchFailure) {
     let executor = {
       let state = self
@@ -11107,6 +11264,12 @@ fn complete_current_thread_task_delivery(completion: CurrentThreadTaskDeliveryCo
   if completion.redispatch {
     RUNTIME.request_current_thread_drain();
   }
+  // Every host entry point lands here (delivery acknowledgement or failure,
+  // driver unregistration, explicit dispatch cancellation). A sweep parked by
+  // a waker-stack failure transition is reclaimed on this clean stack even
+  // when the completion itself carried nothing, e.g. an env cleanup hook
+  // unregistering a driver whose deliveries all failed already.
+  RUNTIME.run_pending_current_thread_cancellation();
 }
 
 /// Acknowledge that one exact host delivery callback returned the successful
@@ -11207,6 +11370,9 @@ mod tests {
   static CURRENT_THREAD_SHUTDOWN_REPUBLISH_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
   static CURRENT_THREAD_STALE_FAILURE_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
     LazyLock::new(CurrentThreadTaskDriverRegistry::default);
+  static CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS: LazyLock<
+    CurrentThreadTaskDriverRegistry,
+  > = LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_STOPPED_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
 
   thread_local! {
@@ -11556,6 +11722,12 @@ mod tests {
 
   fn dispatch_stale_failure_current_thread_tasks(dispatch: u64) -> CurrentThreadHostDispatchResult {
     CURRENT_THREAD_STALE_FAILURE_TASK_DRIVERS.dispatch(dispatch)
+  }
+
+  fn dispatch_waker_stack_failure_current_thread_tasks(
+    dispatch: u64,
+  ) -> CurrentThreadHostDispatchResult {
+    CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS.dispatch(dispatch)
   }
 
   fn panic_once_current_thread_host_dispatch(dispatch: u64) -> CurrentThreadHostDispatchResult {
@@ -14327,6 +14499,132 @@ mod tests {
       .expect("shutdown deadlocked: inline runnable drop re-entered a waker lock");
   }
 
+  /// Regression test for the terminal-failure sibling of the two hazards
+  /// above. Task B awaits a `futures::Shared` and parks. Completing the Shared
+  /// wakes B from inside its notifier, which holds `wakers`, and `schedule`
+  /// publishes a host dispatch on that same stack. The host fails the
+  /// delivery before `dispatch` returns, and fails the one replacement the
+  /// same way, so the terminal failure transition runs while the waker's
+  /// stack is still under `wakers`. The cancellation sweep must not run
+  /// there: it drops B, and B's future owns a clone of the same `Shared`,
+  /// whose destructor re-locks `wakers`.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_synchronous_dispatch_failure_does_not_sweep_on_the_waker_stack() {
+    use std::{sync::mpsc, time::Duration};
+
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      {
+        let state = CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(state.entries.is_empty());
+        assert!(state.dispatches.is_empty());
+      }
+      let driver = Arc::new(SynchronouslyFailingCurrentThreadTaskDriver::default());
+      let registration = CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS
+        .register(Arc::clone(&driver) as Arc<dyn CurrentThreadTaskDriver>);
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch_registry(
+        Arc::clone(&metrics),
+        dispatch_waker_stack_failure_current_thread_tasks,
+        &CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS,
+      ));
+
+      // Task B awaits a clone of a Shared and parks after its first poll.
+      let (tx, rx) = futures::channel::oneshot::channel::<()>();
+      let shared = rx.map(|_| ()).boxed().shared();
+      let shared_for_b = shared.clone();
+      let scheduler_b = Arc::clone(&executor);
+      let (runnable_b, task_b) = async_task::spawn(
+        async move {
+          shared_for_b.await;
+        },
+        move |runnable| scheduler_b.schedule(runnable),
+      );
+      executor.schedule(runnable_b);
+
+      // Service the accepted delivery the way `drive_current_thread_tasks`
+      // and `acknowledge_current_thread_task_delivery` do.
+      let delivery = driver.deliveries()[0];
+      let dispatch = CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS
+        .claim_delivery(delivery.capability())
+        .expect("the accepted delivery must be claimable");
+      let mut host_turn = executor
+        .try_admit_host_turn(dispatch)
+        .expect("the claimed delivery must be admitted");
+      CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS.mark_serviced(dispatch);
+      host_turn.drive();
+      drop(host_turn);
+      let completion =
+        CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS.finish_delivery(delivery, false);
+      assert!(completion.failed_dispatches.is_empty());
+      assert!(!completion.redispatch);
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "B must be parked and unscheduled after its first poll"
+      );
+
+      // From now on every accepted delivery fails before `dispatch` returns.
+      driver.fail.store(true, Ordering::SeqCst);
+      // Completing the Shared wakes B from inside its notifier, under
+      // `wakers`; B's schedule publishes the dispatch and its replacement on
+      // this stack, both fail, and the terminal transition runs here.
+      tx.send(()).expect("B must still hold its Shared clone");
+      assert_eq!(
+        driver.deliveries().len(),
+        3,
+        "the wake must publish the dispatch and exactly one replacement"
+      );
+      assert!(
+        executor.cancelling_failed_dispatch.load(Ordering::Acquire),
+        "the terminal failure must be published before the waker returns"
+      );
+      assert!(
+        executor
+          .failed_dispatch_sweep_pending
+          .load(Ordering::Acquire),
+        "the sweep must be parked, not run on the waker's stack"
+      );
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        1,
+        "B must stay queued until a clean stack sweeps it"
+      );
+
+      // A host-side entry point (a registration drain request) sweeps on its
+      // own stack and reopens the executor.
+      executor.request_drain_if_queued();
+      assert!(!executor.cancelling_failed_dispatch.load(Ordering::Acquire));
+      assert!(
+        !executor
+          .failed_dispatch_sweep_pending
+          .load(Ordering::Acquire)
+      );
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      assert!(
+        futures::executor::block_on(task_b.fallible()).is_none(),
+        "the terminal failure must still cancel B"
+      );
+      drop(shared);
+
+      CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS.unregister(registration);
+      let state = CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(state.entries.is_empty());
+      assert!(state.dispatches.is_empty());
+      done_tx.send(()).unwrap();
+    });
+    done_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("terminal cancellation deadlocked: the sweep ran on the waker's stack");
+  }
+
   #[cfg(not(target_family = "wasm"))]
   #[test]
   fn current_thread_recovery_reservation_blocks_new_host_publication() {
@@ -14641,6 +14939,40 @@ mod tests {
   impl CurrentThreadTaskDriver for ManualCurrentThreadTaskDriver {
     fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool {
       self.deliveries.lock().unwrap().push(delivery);
+      true
+    }
+  }
+
+  /// Accepts every delivery; once `fail` is set it also fails the accepted
+  /// delivery before `dispatch` returns, from a helper thread it joins, the
+  /// way a host whose env is tearing down reports a threadsafe-function call
+  /// that cannot land.
+  #[derive(Default)]
+  struct SynchronouslyFailingCurrentThreadTaskDriver {
+    fail: AtomicBool,
+    deliveries: Mutex<Vec<CurrentThreadTaskDelivery>>,
+  }
+
+  impl SynchronouslyFailingCurrentThreadTaskDriver {
+    fn deliveries(&self) -> Vec<CurrentThreadTaskDelivery> {
+      self.deliveries.lock().unwrap().clone()
+    }
+  }
+
+  impl CurrentThreadTaskDriver for SynchronouslyFailingCurrentThreadTaskDriver {
+    fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool {
+      self.deliveries.lock().unwrap().push(delivery);
+      if self.fail.load(Ordering::SeqCst) {
+        let completion = std::thread::spawn(move || {
+          CURRENT_THREAD_WAKER_STACK_FAILURE_TASK_DRIVERS.finish_delivery(delivery, true)
+        })
+        .join()
+        .expect("the failing helper must not panic");
+        assert!(
+          completion.failed_dispatches.is_empty(),
+          "the failed delivery must remain provisional until its publication retires"
+        );
+      }
       true
     }
   }
