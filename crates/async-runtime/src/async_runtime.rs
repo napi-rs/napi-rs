@@ -2699,16 +2699,43 @@ impl GenerationWork {
   }
 
   fn wait_until_idle(&self) {
+    self.wait_until_idle_retiring(|| false, || {});
+  }
+
+  /// Wait until every registered guard has retired, retiring deferred work
+  /// on this stack whenever `has_deferred` reports some. Such work (a runnable
+  /// rejected after the executor queue closed) owns a guard, so the generation
+  /// can only become idle once the waiter drops it; `retire` runs with no
+  /// lock held. `notify_idle_waiters` publishes new deferred work under the
+  /// state lock, so a check made here cannot miss it.
+  fn wait_until_idle_retiring(&self, has_deferred: impl Fn() -> bool, retire: impl Fn()) {
     let mut state = self
       .state
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     while state.active != 0 {
+      if has_deferred() {
+        drop(state);
+        retire();
+        state = self
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        continue;
+      }
       state = self
         .idle
         .wait(state)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
+  }
+
+  fn notify_idle_waiters(&self) {
+    let _state = self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    self.idle.notify_all();
   }
 }
 
@@ -2908,16 +2935,32 @@ struct CurrentThreadExecutor {
   // futures minted for this executor (they insert at first poll and remove on
   // completion/drop).
   host_timers: Arc<HostTimerRegistry>,
+  // The generation this executor serves, attached by its `RuntimeBackend`.
+  // A runnable rejected after the queue closed still owns its
+  // `GenerationWorkGuard`, so `schedule` must wake the generation's idle
+  // waiter, which retires such runnables on its own stack.
+  generation_work: ArcSwapOption<GenerationWork>,
+}
+
+impl Drop for CurrentThreadExecutor {
+  fn drop(&mut self) {
+    // Last drain point for rejected runnables (each still owns its
+    // `GenerationWorkGuard`) when no idle wait ran after the queue closed.
+    self.retire_rejected_runnables();
+  }
 }
 
 struct CurrentThreadQueue {
   closed: bool,
   runnables: VecDeque<Runnable>,
   /// Runnables whose schedule arrived while a terminal dispatch failure was
-  /// cancelling queued work. They are cancelled by the sweep that rejected
-  /// them, never inline on the waker's thread: that waker may run while its
-  /// producer holds a mutex (`futures::Shared` wakes awaiters under its
-  /// `wakers` lock) that the rejected future's destructor re-locks.
+  /// cancelling queued work, or after shutdown closed the queue. They are
+  /// cancelled by the sweep that rejected them or by the shutdown side
+  /// (`begin_shutdown`, the generation's idle wait, `wait_until_scheduler_idle`
+  /// and finally the executor's destructor), never inline on the waker's
+  /// thread: that waker may run while its producer holds a mutex
+  /// (`futures::Shared` wakes awaiters under its `wakers` lock) that the
+  /// rejected future's destructor re-locks.
   rejected: Vec<Runnable>,
 }
 
@@ -3230,6 +3273,40 @@ impl CurrentThreadExecutor {
       threadless,
       park_deadline,
       host_timers: Arc::new(HostTimerRegistry::default()),
+      generation_work: ArcSwapOption::empty(),
+    }
+  }
+
+  fn attach_generation_work(&self, work: &Arc<GenerationWork>) {
+    self.generation_work.store(Some(Arc::clone(work)));
+  }
+
+  fn has_rejected_runnables(&self) -> bool {
+    !self
+      .queue
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .rejected
+      .is_empty()
+  }
+
+  /// Cancel runnables that `schedule` rejected after the queue closed. Runs
+  /// on the caller's stack with no executor lock held; the caller must not be
+  /// inside a waker invocation.
+  fn retire_rejected_runnables(&self) {
+    let rejected = std::mem::take(
+      &mut self
+        .queue
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .rejected,
+    );
+    if rejected.is_empty() {
+      return;
+    }
+    let _generation = RuntimeGenerationGuard::enter(self.generation);
+    for runnable in rejected {
+      let _ = catch_unwind_contained(|| drop(runnable));
     }
   }
 
@@ -3550,39 +3627,44 @@ impl CurrentThreadExecutor {
 
   fn schedule(self: &Arc<Self>, runnable: Runnable) {
     self.metrics.runnable_scheduled();
-    let rejected = {
+    {
       let mut queue = self
         .queue
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+      // Never drop a rejected runnable here: that destroys the future inline
+      // on the waker's thread, and a waker can be invoked while its producer
+      // holds a mutex that this future's destructor needs (`futures::Shared`
+      // wakes under its `wakers` lock and its clone re-locks it on drop).
       if queue.closed {
-        Some(runnable)
-      } else if self.cancelling_failed_dispatch.load(Ordering::Acquire) {
-        // Defer to the cancellation sweep. Dropping here would destroy the
-        // future inline on the waker's thread, and a waker can be invoked
-        // while its producer holds a mutex that this future's destructor
-        // needs (`futures::Shared` wakes under its `wakers` lock and its clone
-        // re-locks it on drop). The sweep drains this list after it releases
-        // every queue lock and before it reopens the executor.
+        // A wake can be in flight when shutdown starts: `async-task` marks
+        // the task SCHEDULED before it invokes this closure, so the abort
+        // that `close_and_abort` issues coalesces with the in-flight wake and
+        // `begin_shutdown` closes the queue without waiting for it to land.
+        // The runnable still owns its `GenerationWorkGuard`; hand it to the
+        // shutdown side and wake the generation's idle waiter to retire it.
+        self
+          .metrics
+          .queued_runnables
+          .fetch_sub(1, Ordering::Relaxed);
+        queue.rejected.push(runnable);
+        drop(queue);
+        if let Some(work) = self.generation_work.load_full() {
+          work.notify_idle_waiters();
+        }
+        return;
+      }
+      if self.cancelling_failed_dispatch.load(Ordering::Acquire) {
+        // Defer to the cancellation sweep, which drains this list after it
+        // releases every queue lock and before it reopens the executor.
         self
           .metrics
           .queued_runnables
           .fetch_sub(1, Ordering::Relaxed);
         queue.rejected.push(runnable);
         return;
-      } else {
-        queue.runnables.push_back(runnable);
-        None
       }
-    };
-    if let Some(runnable) = rejected {
-      self
-        .metrics
-        .queued_runnables
-        .fetch_sub(1, Ordering::Relaxed);
-      let _generation = RuntimeGenerationGuard::enter(self.generation);
-      let _ = catch_unwind_contained(|| drop(runnable));
-      return;
+      queue.runnables.push_back(runnable);
     }
     // Queue work and only then wake an explicit block_on driver. This is still
     // enqueue-only with respect to the wake caller: polling happens on the
@@ -4365,6 +4447,9 @@ impl CurrentThreadExecutor {
   }
 
   fn wait_until_scheduler_idle(&self) {
+    // Registered work has retired by now on the backend path; this catches
+    // rejections from unregistered tasks (tests) before the executor goes.
+    self.retire_rejected_runnables();
     let mut idle = self
       .scheduler_idle_lock
       .lock()
@@ -9758,13 +9843,15 @@ impl RuntimeBackend {
     let stop = Arc::new(GenerationStop::default());
     let executor = match options.flavor {
       RuntimeFlavor::CurrentThread => {
-        RuntimeExecutor::CurrentThread(Arc::new(CurrentThreadExecutor::with_generation(
+        let executor = CurrentThreadExecutor::with_generation(
           metrics,
           THREADLESS_BUILD,
           options.park_deadline,
           work.id,
           Arc::clone(&stop),
-        )))
+        );
+        executor.attach_generation_work(&work);
+        RuntimeExecutor::CurrentThread(Arc::new(executor))
       }
       RuntimeFlavor::MultiThread => {
         #[cfg(not(target_family = "wasm"))]
@@ -9787,10 +9874,11 @@ impl RuntimeBackend {
 
   #[cfg(test)]
   fn from_executor(executor: RuntimeExecutor) -> Self {
-    Self {
-      work: GenerationWork::new(),
-      executor,
+    let work = GenerationWork::new();
+    if let RuntimeExecutor::CurrentThread(executor) = &executor {
+      executor.attach_generation_work(&work);
     }
+    Self { work, executor }
   }
 
   fn generation(&self) -> u64 {
@@ -9869,11 +9957,22 @@ impl RuntimeBackend {
   }
 
   fn wait_until_idle(&self) {
-    self.work.wait_until_idle();
     match &self.executor {
-      RuntimeExecutor::CurrentThread(executor) => executor.wait_until_scheduler_idle(),
+      RuntimeExecutor::CurrentThread(executor) => {
+        // A wake in flight across `begin_shutdown` is rejected by the closed
+        // queue and parked in `queue.rejected` with its guard still held;
+        // retire those here, on this stack, until the generation is idle.
+        self.work.wait_until_idle_retiring(
+          || executor.has_rejected_runnables(),
+          || executor.retire_rejected_runnables(),
+        );
+        executor.wait_until_scheduler_idle();
+      }
       #[cfg(not(target_family = "wasm"))]
-      RuntimeExecutor::MultiThread(executor) => executor.wait_until_scheduler_idle(),
+      RuntimeExecutor::MultiThread(executor) => {
+        self.work.wait_until_idle();
+        executor.wait_until_scheduler_idle();
+      }
     }
   }
 
@@ -14111,6 +14210,121 @@ mod tests {
     done_rx
       .recv_timeout(Duration::from_secs(5))
       .expect("teardown deadlocked: inline runnable drop re-entered a waker lock");
+  }
+
+  /// Regression test for the closed-queue sibling of the hazard above. A wake
+  /// can be in flight on any thread when shutdown starts: `async-task` marks
+  /// the task `SCHEDULED` before it invokes the schedule closure, so the abort
+  /// that `close_and_abort` issues for that task coalesces with the in-flight
+  /// wake and returns, `begin_shutdown` closes the queue without waiting for
+  /// the closure to land, and the resumed closure is rejected by the closed
+  /// queue. That rejection must not drop the runnable inline either: the
+  /// waker here is still inside `futures::Shared`'s notifier, holding its
+  /// `wakers` mutex, and the rejected future owns a clone of the same `Shared`.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_shutdown_does_not_drop_in_flight_rejected_runnable_inline() {
+    use std::{
+      sync::{Barrier, mpsc},
+      time::Duration,
+    };
+
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch(
+        Arc::clone(&metrics),
+        accept_current_thread_host_dispatch,
+      ));
+      let backend =
+        RuntimeBackend::from_executor(RuntimeExecutor::CurrentThread(Arc::clone(&executor)));
+      let generation = backend.generation();
+
+      // Task A: registered like production work; its JoinHandle is shared.
+      let (abort_a, guard_a) = backend
+        .work
+        .try_register_async()
+        .expect("the backend must accept work");
+      let scheduler_a = Arc::clone(&executor);
+      let (runnable_a, task_a) = async_task::spawn(
+        RegisteredTaskFuture::new(
+          Abortable::new(std::future::pending::<()>(), abort_a),
+          guard_a,
+          generation,
+        ),
+        move |runnable| scheduler_a.schedule(runnable),
+      );
+      let shared = async move { task_a.fallible().await.is_some() }
+        .boxed()
+        .shared();
+      let shared_for_b = shared.clone();
+
+      // Task B: registered and abortable too, awaiting a clone of that Shared.
+      // Its schedule closure pauses before it reaches the executor, exactly
+      // where a waker thread may be descheduled while shutdown runs.
+      let (abort_b, guard_b) = backend
+        .work
+        .try_register_async()
+        .expect("the backend must accept work");
+      let wake_in_flight = Arc::new(Barrier::new(2));
+      let wake_release = Arc::new(Barrier::new(2));
+      let scheduler_b = Arc::clone(&executor);
+      let (runnable_b, task_b) = async_task::spawn(
+        RegisteredTaskFuture::new(
+          Abortable::new(
+            async move {
+              shared_for_b.await;
+            },
+            abort_b,
+          ),
+          guard_b,
+          generation,
+        ),
+        {
+          let wake_in_flight = Arc::clone(&wake_in_flight);
+          let wake_release = Arc::clone(&wake_release);
+          move |runnable| {
+            wake_in_flight.wait();
+            wake_release.wait();
+            scheduler_b.schedule(runnable);
+          }
+        },
+      );
+      executor.schedule(runnable_b);
+      executor.drive_host_turn();
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "B must be parked and unscheduled after its first poll"
+      );
+
+      // Cancel A on another thread: closing A notifies its awaiter, and the
+      // Shared notifier wakes B while holding `wakers`. B's schedule closure
+      // then parks at the barrier with that lock still held.
+      let waker_thread = std::thread::spawn(move || drop(runnable_a));
+      wake_in_flight.wait();
+
+      // Shutdown: `close_and_abort` aborts B, which is already SCHEDULED, so
+      // the abort wake is a no-op; the queue then closes.
+      backend.begin_shutdown();
+      wake_release.wait();
+      backend.wait_until_idle();
+
+      waker_thread
+        .join()
+        .expect("the waker thread must not panic");
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      assert!(
+        futures::executor::block_on(task_b.fallible()).is_none(),
+        "B's rejected wake must still cancel B"
+      );
+      assert_eq!(backend.work.state.lock().unwrap().active, 0);
+      drop(shared);
+      done_tx.send(()).unwrap();
+    });
+    done_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("shutdown deadlocked: inline runnable drop re-entered a waker lock");
   }
 
   #[cfg(not(target_family = "wasm"))]
