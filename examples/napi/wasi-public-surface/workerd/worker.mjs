@@ -82,17 +82,24 @@ async function runGrowth() {
   try {
     const binding = await instantiate(wasmModule)
     singletonActive = true
-    const beforeBytes = binding.getBuffer().buffer.byteLength
+    // Threadless wasm Buffers are copies, so `getBuffer().buffer.byteLength`
+    // no longer mirrors the linear memory; read it through the addon.
+    const beforeBytes = binding.wasmMemorySizeBytes()
+    // Held across the grow below: a view over the old, detached memory would
+    // read back as an empty Buffer.
+    const heldOutput = binding.getBuffer()
     const width = 3072
     const height = 4096
     const allocation = new binding.CustomFinalize(width, height)
-    const afterBytes = binding.getBuffer().buffer.byteLength
+    const afterBytes = binding.wasmMemorySizeBytes()
 
     return {
       beforeBytes,
       afterBytes,
       allocationBytes: width * height * 4,
       allocationType: allocation.constructor.name,
+      heldOutput: heldOutput.toString(),
+      heldOutputLength: heldOutput.length,
       addAfterGrowth: binding.add(20, 22),
     }
   } finally {

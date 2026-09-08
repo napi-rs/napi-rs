@@ -16,6 +16,15 @@ export async function run() {
     tokioError = error?.message
   }
 
+  // Regression: a Buffer returned before a `memory.grow` must survive it. On
+  // threadless wasm the memory is not shared, so growing detaches the previous
+  // ArrayBuffer and a view over it would read back as ''.
+  const memoryBeforeGrowth = binding.wasmMemorySizeBytes()
+  const heldOutput = binding.getBuffer()
+  // 512 * 1024 * 4 bytes: far more than the initial dlmalloc arena.
+  const growth = new binding.CustomFinalize(512, 1024)
+  const memoryAfterGrowth = binding.wasmMemorySizeBytes()
+
   return {
     crossOriginIsolated: globalThis.crossOriginIsolated,
     sharedArrayBufferType: typeof globalThis.SharedArrayBuffer,
@@ -28,5 +37,10 @@ export async function run() {
     tokioError,
     expectedTokioError: tokioErrorMessage,
     addAfterTokioError: binding.add(19, 23),
+    memoryBeforeGrowth,
+    memoryAfterGrowth,
+    growthType: growth.constructor.name,
+    heldOutput: heldOutput.toString(),
+    heldOutputLength: heldOutput.length,
   }
 }

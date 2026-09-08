@@ -201,3 +201,46 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     }
   },
 )
+
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'threadless Buffer values survive wasm memory growth',
+  async (t) => {
+    const wasmBytes = await readFile(
+      new URL('../example.wasm32-wasip1.wasm', import.meta.url),
+    )
+    const webAssembly = Reflect.get(globalThis, 'WebAssembly') as {
+      compile(bytes: Uint8Array): Promise<WebAssembly.Module>
+    }
+    const wasmModule = await webAssembly.compile(wasmBytes)
+    const deferred = await import(
+      new URL('../example.wasip1-deferred.js', import.meta.url).href
+    )
+    const instance = await deferred.createInstance(wasmModule)
+
+    try {
+      const { exports } = instance
+      const memoryBefore = exports.wasmMemorySizeBytes()
+      // Threadless wasm memory is not shared: every `memory.grow` detaches the
+      // previous ArrayBuffer. A Buffer that was a view over it would read back
+      // as '' after the grow, so it must be a JS-owned copy.
+      const held = exports.getBuffer()
+      const appended = exports.appendBuffer(NodeBuffer.from('held'))
+      // 512 * 1024 * 4 bytes: far more than the initial dlmalloc arena.
+      const growth = new exports.CustomFinalize(512, 1024)
+      const memoryAfter = exports.wasmMemorySizeBytes()
+
+      t.true(
+        memoryAfter > memoryBefore,
+        `expected memory growth beyond ${memoryBefore}, got ${memoryAfter}`,
+      )
+      t.is(growth.constructor.name, 'CustomFinalize')
+      t.true(NodeBuffer.isBuffer(held))
+      t.is(held.length, 'Hello world'.length)
+      t.is(held.toString(), 'Hello world')
+      t.is(appended.length, 'held!'.length)
+      t.is(appended.toString(), 'held!')
+    } finally {
+      instance.dispose()
+    }
+  },
+)

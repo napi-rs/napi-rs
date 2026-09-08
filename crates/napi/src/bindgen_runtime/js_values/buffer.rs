@@ -33,6 +33,42 @@ pub struct BufferSlice<'env> {
   pub(crate) env: sys::napi_env,
 }
 
+/// `napi_create_external_buffer` wrapper for the three `Buffer` creation paths
+/// below.
+///
+/// emnapi implements `napi_create_external_buffer` as a *view* over wasm linear
+/// memory (`emnapi_create_memory_view`), unlike `napi_create_external_arraybuffer`
+/// which copies into a JS-owned `ArrayBuffer`. On a non-shared wasm memory every
+/// `memory.grow` detaches the previous `ArrayBuffer`, so a `Buffer` that JS is
+/// still holding silently turns into a zero-length view (`toString()` becomes
+/// `""`). Whether a grow lands between the call that returned the `Buffer` and
+/// the read is a layout lottery (data-segment size modulo 64 KiB), which is how
+/// a dependency bump flipped `examples/napi` `getBuffer()` red on
+/// wasm32-wasip1. Threaded wasm targets use a shared memory whose old views
+/// stay valid, so they keep the zero-copy path. On threadless wasm report
+/// `napi_no_external_buffers_allowed` so every caller takes its existing
+/// `napi_create_buffer_copy` fallback (the same path Electron uses), which
+/// yields a JS-owned, growth-immune `Buffer`.
+#[inline]
+unsafe fn create_external_buffer(
+  env: sys::napi_env,
+  length: usize,
+  data: *mut c_void,
+  finalize_cb: sys::napi_finalize,
+  finalize_hint: *mut c_void,
+  result: *mut sys::napi_value,
+) -> sys::napi_status {
+  #[cfg(all(target_family = "wasm", not(target_feature = "atomics")))]
+  {
+    let _ = (env, length, data, finalize_cb, finalize_hint, result);
+    sys::Status::napi_no_external_buffers_allowed
+  }
+  #[cfg(not(all(target_family = "wasm", not(target_feature = "atomics"))))]
+  unsafe {
+    sys::napi_create_external_buffer(env, length, data, finalize_cb, finalize_hint, result)
+  }
+}
+
 impl<'env> BufferSlice<'env> {
   /// Create a new `BufferSlice` from a `Vec<u8>`.
   ///
@@ -55,7 +91,7 @@ impl<'env> BufferSlice<'env> {
     let cap = data.capacity();
     let finalize_hint = Box::into_raw(Box::new((len, cap)));
     let mut status = unsafe {
-      sys::napi_create_external_buffer(
+      create_external_buffer(
         env.0,
         len,
         inner_ptr.cast(),
@@ -138,7 +174,7 @@ impl<'env> BufferSlice<'env> {
     }
     let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
     let mut status = unsafe {
-      sys::napi_create_external_buffer(
+      create_external_buffer(
         env.0,
         len,
         data.cast(),
@@ -553,7 +589,7 @@ impl ToNapiValue for Buffer {
         let value_ptr = val.inner.as_ptr();
         let val_box_ptr = Box::into_raw(Box::new(val));
         let mut status = unsafe {
-          sys::napi_create_external_buffer(
+          create_external_buffer(
             env,
             len,
             value_ptr.cast(),

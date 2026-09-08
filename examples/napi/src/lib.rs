@@ -53,6 +53,26 @@ pub fn shutdown_runtime() {
   }
 }
 
+/// Bytes of wasm linear memory currently owned by this instance, `0` on native
+/// targets.
+///
+/// Threadless wasm `Buffer` values are JS-owned copies (see
+/// `crates/napi/src/bindgen_runtime/js_values/buffer.rs`), so
+/// `getBuffer().buffer.byteLength` no longer mirrors the wasm memory. Fixtures
+/// that assert on memory growth read the size through this export instead.
+#[napi]
+pub fn wasm_memory_size_bytes() -> f64 {
+  #[cfg(target_arch = "wasm32")]
+  {
+    const WASM_PAGE_BYTES: f64 = 65536.0;
+    core::arch::wasm32::memory_size(0) as f64 * WASM_PAGE_BYTES
+  }
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    0.0
+  }
+}
+
 #[napi(module_exports)]
 pub fn exports(mut export: Object) -> Result<()> {
   let symbol = Symbol::for_desc("NAPI_RS_SYMBOL");

@@ -1125,6 +1125,7 @@ export const validateTypedArraySlice =
 export const validateUint8ClampedSlice =
   __napiModule.exports.validateUint8ClampedSlice
 export const validateUndefined = __napiModule.exports.validateUndefined
+export const wasmMemorySizeBytes = __napiModule.exports.wasmMemorySizeBytes
 export const withAbortController = __napiModule.exports.withAbortController
 export const withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
 export const withinAsyncRuntimeIfAvailable =
