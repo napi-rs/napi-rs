@@ -7415,6 +7415,27 @@ pub trait CurrentThreadTaskDriver: Send + Sync + 'static {
   /// [`fail_current_thread_task_delivery`] with this exact value. A successful
   /// acknowledgement is accepted only after
   /// [`drive_current_thread_tasks`] claimed this exact delivery.
+  ///
+  /// `dispatch` must return promptly and must not wait on another thread. In
+  /// particular it must never block on the thread that will acknowledge or
+  /// fail this delivery (for instance by spawning a helper that calls
+  /// [`fail_current_thread_task_delivery`] and joining it). The executor
+  /// calls `dispatch` from `schedule`, which may be a waker's stack: a waker
+  /// can be invoked while its producer holds a mutex (`futures::Shared` wakes
+  /// its awaiters under its `wakers` lock). When a delivery failure turns
+  /// terminal, the rejected work is cancelled on the stack of the thread that
+  /// failed it, and a rejected future's destructor may re-lock the very mutex
+  /// the blocked waker still holds. A `dispatch` that waits on that thread
+  /// therefore deadlocks with it.
+  ///
+  /// Failing the delivery synchronously from inside `dispatch`, on the
+  /// calling thread, is handled: the executor recognises that stack as a
+  /// possible waker's, moves the rejected work aside and cancels it on the
+  /// next clean stack (see `CurrentThreadQueue::rejected`). Failing or
+  /// acknowledging it later, from any thread, is handled too. The Node-API
+  /// driver satisfies this contract: it makes one nonblocking
+  /// threadsafe-function call and returns `false` at once when the
+  /// environment is closing.
   fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool;
 
   fn is_live(&self) -> bool {
