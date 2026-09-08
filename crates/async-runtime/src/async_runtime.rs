@@ -2913,6 +2913,12 @@ struct CurrentThreadExecutor {
 struct CurrentThreadQueue {
   closed: bool,
   runnables: VecDeque<Runnable>,
+  /// Runnables whose schedule arrived while a terminal dispatch failure was
+  /// cancelling queued work. They are cancelled by the sweep that rejected
+  /// them, never inline on the waker's thread: that waker may run while its
+  /// producer holds a mutex (`futures::Shared` wakes awaiters under its
+  /// `wakers` lock) that the rejected future's destructor re-locks.
+  rejected: Vec<Runnable>,
 }
 
 #[derive(Default)]
@@ -3197,6 +3203,7 @@ impl CurrentThreadExecutor {
       queue: Mutex::new(CurrentThreadQueue {
         closed: false,
         runnables: VecDeque::new(),
+        rejected: Vec::new(),
       }),
       blocking_admission: CurrentThreadBlockingAdmission {
         state: Mutex::new(CurrentThreadBlockingAdmissionState {
@@ -3548,8 +3555,21 @@ impl CurrentThreadExecutor {
         .queue
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-      if queue.closed || self.cancelling_failed_dispatch.load(Ordering::Acquire) {
+      if queue.closed {
         Some(runnable)
+      } else if self.cancelling_failed_dispatch.load(Ordering::Acquire) {
+        // Defer to the cancellation sweep. Dropping here would destroy the
+        // future inline on the waker's thread, and a waker can be invoked
+        // while its producer holds a mutex that this future's destructor
+        // needs (`futures::Shared` wakes under its `wakers` lock and its clone
+        // re-locks it on drop). The sweep drains this list after it releases
+        // every queue lock and before it reopens the executor.
+        self
+          .metrics
+          .queued_runnables
+          .fetch_sub(1, Ordering::Relaxed);
+        queue.rejected.push(runnable);
+        return;
       } else {
         queue.runnables.push_back(runnable);
         None
@@ -4084,8 +4104,9 @@ impl CurrentThreadExecutor {
 
   fn cancel_work_after_host_dispatch_failure_claimed(
     &self,
-    _cancelling: CurrentThreadDispatchCancellationGuard<'_>,
+    cancelling: CurrentThreadDispatchCancellationGuard<'_>,
   ) {
+    let mut cancelling = Some(cancelling);
     let queued = {
       let mut queue = self
         .queue
@@ -4114,6 +4135,28 @@ impl CurrentThreadExecutor {
     #[cfg(not(target_family = "wasm"))]
     for job in queued_blocking {
       let _ = catch_unwind_contained(|| drop(job));
+    }
+
+    // Cancelling a runnable can wake a parked task whose schedule `schedule`
+    // then rejects into `queue.rejected` (see the comment there). Drop those
+    // here, outside any lock, until none remain; each drop may reject more.
+    // Reopen while holding the queue lock: `schedule` consults the flag under
+    // that same lock, so no runnable can be rejected after the final sweep.
+    loop {
+      let rejected = {
+        let mut queue = self
+          .queue
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if queue.rejected.is_empty() {
+          drop(cancelling.take());
+          break;
+        }
+        std::mem::take(&mut queue.rejected)
+      };
+      for runnable in rejected {
+        let _ = catch_unwind_contained(|| drop(runnable));
+      }
     }
   }
 
@@ -4290,13 +4333,16 @@ impl CurrentThreadExecutor {
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     self.stop.begin_shutdown();
     self.close_blocking_admission();
-    let queued = {
+    let (queued, rejected) = {
       let mut queue = self
         .queue
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       queue.closed = true;
-      std::mem::take(&mut queue.runnables)
+      (
+        std::mem::take(&mut queue.runnables),
+        std::mem::take(&mut queue.rejected),
+      )
     };
     self.dispatch_pending.store(0, Ordering::Release);
     self.recovery_dispatch.store(0, Ordering::Release);
@@ -4308,6 +4354,11 @@ impl CurrentThreadExecutor {
         .fetch_sub(1, Ordering::Relaxed);
       // Dropping the last runnable cancels its detached async-task and retires
       // the generation guard. Isolate user future destructors from shutdown.
+      let _ = catch_unwind_contained(|| drop(runnable));
+    }
+    // A concurrent failed-dispatch sweep may still own deferred rejections;
+    // whichever side takes them cancels them (already unaccounted above).
+    for runnable in rejected {
       let _ = catch_unwind_contained(|| drop(runnable));
     }
     self.host_timers.shutdown();
@@ -13990,6 +14041,76 @@ mod tests {
     );
     executor.drive_host_turn();
     assert_eq!(futures::executor::block_on(later_task).unwrap(), 2);
+  }
+
+  /// Regression test for the hazard shape rolldown hit when a `worker_threads`
+  /// Worker running watch mode is torn down on the CurrentThread flavor: the
+  /// cleanup-hook dispatch failure cancels the queued coordinator runnable,
+  /// whose JoinHandle is wrapped in `futures::Shared`. `Shared`'s notifier
+  /// wakes its awaiters while holding its `wakers` mutex; the parked awaiter's
+  /// schedule is rejected by the cancellation sweep, and dropping that
+  /// runnable inline destroys the awaiter's `Shared` clone, whose destructor
+  /// re-locks `wakers` on the same thread.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_failed_dispatch_cancellation_does_not_drop_rejected_runnable_inline() {
+    use std::{sync::mpsc, time::Duration};
+
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch(
+        Arc::clone(&metrics),
+        accept_current_thread_host_dispatch,
+      ));
+
+      // Task A: its JoinHandle is shared, exactly like a watcher close handle.
+      let scheduler_a = Arc::clone(&executor);
+      let (runnable_a, task_a) = async_task::spawn(std::future::pending::<()>(), move |runnable| {
+        scheduler_a.schedule(runnable)
+      });
+      let shared = async move { task_a.fallible().await }.boxed().shared();
+      let shared_for_b = shared.clone();
+
+      // Task B: awaits a clone of that Shared and parks after one poll.
+      let scheduler_b = Arc::clone(&executor);
+      let (runnable_b, task_b) = async_task::spawn(
+        async move {
+          shared_for_b.await;
+        },
+        move |runnable| scheduler_b.schedule(runnable),
+      );
+      executor.schedule(runnable_b);
+      executor.drive_host_turn();
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "B must be parked and unscheduled after its first poll"
+      );
+
+      // A's runnable is queued (woken, not yet polled) when the host dispatch
+      // fails twice, so the terminal cancellation sweep drops it.
+      executor.schedule(runnable_a);
+      let failed_dispatch = current_thread_dispatch(&executor);
+      executor.cancel_host_dispatch_for_test(failed_dispatch);
+      let replacement_dispatch = current_thread_dispatch(&executor);
+      executor.cancel_host_dispatch_for_test(replacement_dispatch);
+
+      assert!(
+        !executor.cancelling_failed_dispatch.load(Ordering::Acquire),
+        "the cancellation sweep must reopen the executor"
+      );
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      assert!(
+        futures::executor::block_on(task_b.fallible()).is_none(),
+        "B's rejected wake must still cancel B"
+      );
+      drop(shared);
+      done_tx.send(()).unwrap();
+    });
+    done_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("teardown deadlocked: inline runnable drop re-entered a waker lock");
   }
 
   #[cfg(not(target_family = "wasm"))]
