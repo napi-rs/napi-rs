@@ -3176,6 +3176,38 @@ impl Drop for CurrentThreadScheduleScope {
   }
 }
 
+thread_local! {
+  /// Set while this thread is inside the retirement publication a waker-stack
+  /// terminal failure issues for itself; see
+  /// `CurrentThreadExecutor::request_rejected_work_retirement`. That
+  /// publication calls the host driver again, so a runnable another thread
+  /// queues meanwhile can drive a nested terminal transition on this same
+  /// stack. Without this one-shot the nested transition would publish again,
+  /// and a producer that keeps queueing work could recurse the stack without
+  /// bound. It is thread-local, not per-executor: the bound it enforces is a
+  /// stack bound, and a terminal transition on another thread must keep its
+  /// own continuation.
+  static CURRENT_THREAD_RETIRING_REJECTED_WORK: std::cell::Cell<bool> =
+    const { std::cell::Cell::new(false) };
+}
+
+/// RAII one-shot for the retirement publication; see
+/// `CURRENT_THREAD_RETIRING_REJECTED_WORK`.
+struct CurrentThreadRejectedWorkRetirementScope;
+
+impl CurrentThreadRejectedWorkRetirementScope {
+  /// `None` when this thread is already publishing a retirement turn.
+  fn enter() -> Option<Self> {
+    CURRENT_THREAD_RETIRING_REJECTED_WORK.with(|active| (!active.replace(true)).then_some(Self))
+  }
+}
+
+impl Drop for CurrentThreadRejectedWorkRetirementScope {
+  fn drop(&mut self) {
+    CURRENT_THREAD_RETIRING_REJECTED_WORK.with(|active| active.set(false));
+  }
+}
+
 struct CurrentThreadDispatchCancellationGuard<'a>(&'a CurrentThreadExecutor);
 
 impl Drop for CurrentThreadDispatchCancellationGuard<'_> {
@@ -3421,6 +3453,48 @@ impl CurrentThreadExecutor {
       return;
     }
     self.retire_rejected_work();
+  }
+
+  /// The continuation a terminal failure reached on a waker's stack owes
+  /// itself.
+  ///
+  /// That branch of `cancel_work_after_host_dispatch_failure` may not destroy
+  /// anything where it stands, so it parks the work in `queue.rejected` and
+  /// reopens. Reopening alone is not a continuation: the transition consumed
+  /// the executor's one outstanding host request (`dispatch_pending` is 0) and
+  /// left the queue empty, so `has_serviceable_work` is false and nothing --
+  /// not `request_drain_if_work_remains`, not a wake of an already-parked task
+  /// -- publishes again. A wake that loses both of its publications therefore
+  /// produced no host turn at all, and the parked runnables kept their
+  /// `GenerationWorkGuard`s and their `JoinHandle`s forever.
+  ///
+  /// A host turn is the clean stack that retires them: `drive_admitted_host_turn`
+  /// calls `retire_rejected_work_off_waker_stack` before it polls anything. So
+  /// ask for one. The executor is already reopened, so this takes the ordinary
+  /// publication path; the host is racing its own teardown, not necessarily
+  /// dead, and the transition's own failures said nothing about the driver that
+  /// answers next (a second registered host, or the same one once its delivery
+  /// backlog clears).
+  ///
+  /// When the host never recovers this publication fails or reports no live
+  /// driver, and that failure is terminal by construction: the queue is empty,
+  /// so `begin_host_dispatch_failure_transition_locked` reserves no
+  /// replacement and no further publication follows. The work then waits for
+  /// the next host that registers (`request_drain_if_queued` retires before it
+  /// publishes) or for shutdown (`begin_shutdown`, `wait_until_idle_retiring`,
+  /// `wait_until_scheduler_idle`, `Drop`). That is the honest limit of a
+  /// host-driven executor: with no host there is no stack on which user
+  /// futures may be destroyed. Handing them to a helper thread was rejected
+  /// -- threadless wasm has none, and host-affine futures must be destroyed on
+  /// a host or shutdown thread.
+  fn request_rejected_work_retirement(self: &Arc<Self>) {
+    if !self.has_rejected_work() {
+      return;
+    }
+    let Some(_retirement) = CurrentThreadRejectedWorkRetirementScope::enter() else {
+      return;
+    };
+    self.request_drain();
   }
 
   fn fresh_owner_token(&self) -> BlockingOwnerToken {
@@ -4340,18 +4414,22 @@ impl CurrentThreadExecutor {
   /// * On a waker's stack (reached through `schedule`, whose publication the
   ///   host failed synchronously) nothing may be dropped: the waker's
   ///   producer may hold a lock the destructors re-lock. The executor reopens
-  ///   at once instead, so the next submission takes the ordinary path and
-  ///   publishes its own delivery, and `retire_rejected_work` cancels the
-  ///   moved work on the next clean stack: the host turn that services that
-  ///   delivery, any other host entry point, or shutdown. Staying closed here
-  ///   would leave the executor without a continuation while the driver
-  ///   stays registered.
+  ///   at once instead -- staying closed would leave it without a continuation
+  ///   while the driver stays registered -- and then publishes one fresh host
+  ///   dispatch of its own (`request_rejected_work_retirement`). That turn is
+  ///   the clean stack on which `retire_rejected_work` cancels the moved work;
+  ///   without it a wake that lost both of its publications left no request
+  ///   behind at all, and the moved runnables kept their `JoinHandle`s and
+  ///   `GenerationWorkGuard`s until an unrelated entry happened to arrive.
   ///
-  /// This cannot repeat unboundedly inside one `schedule`: reaching here
-  /// again needs a fresh publication and two more host-failed deliveries,
-  /// and the queue is already empty once the move is done.
+  /// This cannot repeat unboundedly inside one `schedule`. Reaching here
+  /// again needs a fresh publication and two more host-failed deliveries, and
+  /// the queue is already empty once the move is done; the one publication
+  /// this branch makes for itself is the only way such a fresh publication
+  /// can start on this stack, and `CURRENT_THREAD_RETIRING_REJECTED_WORK`
+  /// makes it a one-shot, so a nested transition inside it publishes nothing.
   fn cancel_work_after_host_dispatch_failure(
-    &self,
+    self: &Arc<Self>,
     cancelling: CurrentThreadDispatchCancellationGuard<'_>,
   ) {
     let mut cancelling = Some(cancelling);
@@ -4393,6 +4471,10 @@ impl CurrentThreadExecutor {
         if let Some(work) = self.generation_work.load_full() {
           work.notify_idle_waiters();
         }
+        // During normal operation there is no such waiter, and this branch
+        // published no host delivery. Ask for the host turn that retires the
+        // moved work: it is the only continuation this stack may leave behind.
+        self.request_rejected_work_retirement();
         return;
       }
     }
@@ -11460,6 +11542,8 @@ mod tests {
   > = LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_SUBMISSION_FAILURE_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
     LazyLock::new(CurrentThreadTaskDriverRegistry::default);
+  static CURRENT_THREAD_RETIREMENT_TURN_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
+    LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_STOPPED_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
 
   thread_local! {
@@ -11827,6 +11911,12 @@ mod tests {
     dispatch: u64,
   ) -> CurrentThreadHostDispatchResult {
     CURRENT_THREAD_SUBMISSION_FAILURE_TASK_DRIVERS.dispatch(dispatch)
+  }
+
+  fn dispatch_retirement_turn_current_thread_tasks(
+    dispatch: u64,
+  ) -> CurrentThreadHostDispatchResult {
+    CURRENT_THREAD_RETIREMENT_TURN_TASK_DRIVERS.dispatch(dispatch)
   }
 
   fn panic_once_current_thread_host_dispatch(dispatch: u64) -> CurrentThreadHostDispatchResult {
@@ -14677,8 +14767,9 @@ mod tests {
       tx.send(()).expect("B must still hold its Shared clone");
       assert_eq!(
         driver.deliveries().len(),
-        3,
-        "the wake must publish the dispatch and exactly one replacement"
+        4,
+        "the wake must publish the dispatch, its one replacement, and the one \
+         retirement turn the terminal transition owes itself"
       );
       assert!(
         !executor.cancelling_failed_dispatch.load(Ordering::Acquire),
@@ -14816,7 +14907,10 @@ mod tests {
       // replacement both fail before `dispatch` returns.
       driver.fail.store(true, Ordering::SeqCst);
       tx.send(()).expect("B must still hold its Shared clone");
-      assert_eq!(driver.deliveries().len(), 3);
+      // The dispatch, its one replacement, and the retirement turn the
+      // transition publishes for itself -- which this still-failing host
+      // loses too.
+      assert_eq!(driver.deliveries().len(), 4);
       let mut task_b = task_b.fallible();
       assert!(
         poll_ready_within(&mut task_b, Duration::ZERO).is_none(),
@@ -14833,7 +14927,7 @@ mod tests {
       executor.schedule(runnable_later);
       assert_eq!(
         driver.deliveries().len(),
-        4,
+        5,
         "a submission after the terminal failure must publish a fresh delivery"
       );
       assert!(
@@ -14843,7 +14937,7 @@ mod tests {
 
       // The host services that delivery: the pre-failure work is cancelled
       // and the new task runs.
-      service(3);
+      service(4);
       let mut task_later = task_later.fallible();
       assert_eq!(
         poll_ready_within(&mut task_later, WAIT).expect("the later task must have run"),
@@ -14871,6 +14965,150 @@ mod tests {
     done_rx
       .recv_timeout(WAIT)
       .expect("the healthy host never got a delivery for the later submission");
+  }
+
+  /// Regression test for the continuation a WAKE owes itself.
+  ///
+  /// `6d452174` gave an ordinary submission its own continuation, but a
+  /// genuine wake still had none. B parks on a `futures::Shared`; completing
+  /// the Shared wakes B from inside its notifier, which holds `wakers`, so
+  /// `schedule` publishes on a stack where nothing may be destroyed. The host
+  /// loses that publication and the one replacement before `dispatch`
+  /// returns, and the terminal transition moves B into `queue.rejected` and
+  /// reopens -- correctly dropping nothing.
+  ///
+  /// What was missing is what happens next. The transition consumed the
+  /// executor's one outstanding host request and left the queue empty, so
+  /// `has_serviceable_work` is false and nothing published again: during
+  /// normal operation there is no generation idle waiter, no host turn
+  /// follows the failed publications, and B's `JoinHandle` and
+  /// `GenerationWorkGuard` stayed live forever. Nothing in this test supplies
+  /// an unrelated entry -- no later submission, no drain request, no
+  /// unregistration, no shutdown. The host only services the delivery the
+  /// transition published for ITSELF.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_waker_stack_failure_publishes_its_own_retirement_turn() {
+    use std::{sync::mpsc, time::Duration};
+
+    const WAIT: Duration = Duration::from_secs(5);
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let registry = &*CURRENT_THREAD_RETIREMENT_TURN_TASK_DRIVERS;
+      {
+        let state = registry
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(state.entries.is_empty());
+        assert!(state.dispatches.is_empty());
+      }
+      let driver = Arc::new(BoundedFailureCurrentThreadTaskDriver::new(registry));
+      let registration = registry.register(Arc::clone(&driver) as Arc<dyn CurrentThreadTaskDriver>);
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch_registry(
+        Arc::clone(&metrics),
+        dispatch_retirement_turn_current_thread_tasks,
+        registry,
+      ));
+
+      // Service one accepted delivery the way the host does.
+      let service = |index: usize| {
+        let delivery = driver.deliveries()[index];
+        let dispatch = registry
+          .claim_delivery(delivery.capability())
+          .expect("the accepted delivery must be claimable");
+        let mut host_turn = executor
+          .try_admit_host_turn(dispatch)
+          .expect("the claimed delivery must be admitted");
+        registry.mark_serviced(dispatch);
+        host_turn.drive();
+        drop(host_turn);
+        let completion = registry.finish_delivery(delivery, false);
+        assert!(completion.failed_dispatches.is_empty());
+        assert!(!completion.redispatch);
+      };
+
+      // Task B awaits a clone of a Shared and parks after its first poll.
+      let (tx, rx) = futures::channel::oneshot::channel::<()>();
+      let shared = rx.map(|_| ()).boxed().shared();
+      let shared_for_b = shared.clone();
+      let scheduler_b = Arc::clone(&executor);
+      let (runnable_b, task_b) = async_task::spawn(
+        async move {
+          shared_for_b.await;
+        },
+        move |runnable| scheduler_b.schedule(runnable),
+      );
+      executor.schedule(runnable_b);
+      service(0);
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "B must be parked and unscheduled after its first poll"
+      );
+
+      // Exactly the wake's publication and its one replacement are lost; the
+      // host is healthy again from the third delivery on.
+      driver.fail_budget.store(2, Ordering::SeqCst);
+      tx.send(()).expect("B must still hold its Shared clone");
+
+      assert_eq!(
+        driver.deliveries().len(),
+        4,
+        "the wake must publish the dispatch, its one replacement, and the \
+         retirement turn the terminal transition owes itself; without that \
+         third publication no host turn ever follows and B stays pending \
+         forever"
+      );
+      assert!(
+        !executor.cancelling_failed_dispatch.load(Ordering::Acquire),
+        "the terminal failure must reopen the executor before the waker returns"
+      );
+      assert!(
+        executor.has_rejected_work(),
+        "B must be moved aside, not dropped on the waker's stack"
+      );
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "the moved runnable carries its queued debit"
+      );
+      let mut task_b = task_b.fallible();
+      assert!(
+        poll_ready_within(&mut task_b, Duration::ZERO).is_none(),
+        "B must still be pending: nothing may be dropped on the waker's stack"
+      );
+
+      // The ONLY continuation: the host serves the turn the transition asked
+      // for. No submission, no drain request, no unregistration, no shutdown.
+      service(3);
+      assert!(
+        !executor.has_rejected_work(),
+        "the retirement turn must cancel the moved work on its own stack"
+      );
+      assert!(
+        poll_ready_within(&mut task_b, WAIT)
+          .expect("the retirement turn must cancel B")
+          .is_none(),
+        "the terminal failure must still cancel the work queued when it happened"
+      );
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      drop(shared);
+
+      registry.unregister(registration);
+      let state = registry
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(state.entries.is_empty());
+      assert!(state.dispatches.is_empty());
+      done_tx.send(()).unwrap();
+    });
+    done_rx.recv_timeout(WAIT).expect(
+      "a waker-stack terminal failure published no retirement turn: B's runnable stayed in \
+       `queue.rejected` and its JoinHandle never settled",
+    );
   }
 
   /// Regression test for the continuation an ordinary `spawn` owes itself.
@@ -15435,6 +15673,50 @@ mod tests {
     fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool {
       self.deliveries.lock().unwrap().push(delivery);
       if self.fail.load(Ordering::SeqCst) {
+        let registry = self.registry;
+        let completion = std::thread::spawn(move || registry.finish_delivery(delivery, true))
+          .join()
+          .expect("the failing helper must not panic");
+        assert!(
+          completion.failed_dispatches.is_empty(),
+          "the failed delivery must remain provisional until its publication retires"
+        );
+      }
+      true
+    }
+  }
+
+  /// Accepts every delivery, and fails the first `fail_budget` of them before
+  /// `dispatch` returns -- from a helper thread it joins, exactly like
+  /// `SynchronouslyFailingCurrentThreadTaskDriver`. Once the budget is spent
+  /// the host is healthy again, so the retirement turn a waker-stack terminal
+  /// failure publishes for itself is accepted instead of lost.
+  struct BoundedFailureCurrentThreadTaskDriver {
+    registry: &'static CurrentThreadTaskDriverRegistry,
+    fail_budget: AtomicUsize,
+    deliveries: Mutex<Vec<CurrentThreadTaskDelivery>>,
+  }
+
+  impl BoundedFailureCurrentThreadTaskDriver {
+    fn new(registry: &'static CurrentThreadTaskDriverRegistry) -> Self {
+      Self {
+        registry,
+        fail_budget: AtomicUsize::new(0),
+        deliveries: Mutex::default(),
+      }
+    }
+
+    fn deliveries(&self) -> Vec<CurrentThreadTaskDelivery> {
+      self.deliveries.lock().unwrap().clone()
+    }
+  }
+
+  impl CurrentThreadTaskDriver for BoundedFailureCurrentThreadTaskDriver {
+    fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool {
+      self.deliveries.lock().unwrap().push(delivery);
+      let budget = self.fail_budget.load(Ordering::SeqCst);
+      if budget != 0 {
+        self.fail_budget.store(budget - 1, Ordering::SeqCst);
         let registry = self.registry;
         let completion = std::thread::spawn(move || registry.finish_delivery(delivery, true))
           .join()
