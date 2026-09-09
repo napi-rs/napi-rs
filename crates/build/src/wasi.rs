@@ -1,6 +1,7 @@
 use std::{
   env,
   ffi::OsStr,
+  fs,
   path::{Path, PathBuf},
   process::Command,
 };
@@ -69,6 +70,110 @@ fn emnapi_link_library(has_threads: bool) -> &'static str {
   }
 }
 
+/// Export that the reactor startup object contributes.
+const REACTOR_INIT_EXPORT: &str = "_initialize";
+
+fn read_leb128_u32(bytes: &[u8], cursor: &mut usize) -> Option<u32> {
+  let mut result: u32 = 0;
+  let mut shift = 0;
+  loop {
+    let byte = *bytes.get(*cursor)?;
+    *cursor += 1;
+    result |= u32::from(byte & 0x7f).checked_shl(shift)?;
+    if byte & 0x80 == 0 {
+      return Some(result);
+    }
+    shift += 7;
+    if shift > 31 {
+      return None;
+    }
+  }
+}
+
+/// Whether a wasm module exports `_initialize`.
+///
+/// The name also occurs inside the linked standard library, so searching the
+/// whole module for the string matches whether or not the startup object was
+/// linked. Only the export section answers the question.
+fn wasm_exports_reactor_init(module: &[u8]) -> bool {
+  const EXPORT_SECTION_ID: u8 = 7;
+  if module.len() < 8 || &module[..4] != b"\0asm" {
+    return false;
+  }
+  let mut cursor = 8;
+  while cursor < module.len() {
+    let Some(&section_id) = module.get(cursor) else {
+      return false;
+    };
+    cursor += 1;
+    let Some(section_len) = read_leb128_u32(module, &mut cursor) else {
+      return false;
+    };
+    let section_end = cursor + section_len as usize;
+    if section_end > module.len() {
+      return false;
+    }
+    if section_id == EXPORT_SECTION_ID {
+      let Some(count) = read_leb128_u32(module, &mut cursor) else {
+        return false;
+      };
+      for _ in 0..count {
+        let Some(name_len) = read_leb128_u32(module, &mut cursor) else {
+          return false;
+        };
+        let name_end = cursor + name_len as usize;
+        let Some(name) = module.get(cursor..name_end) else {
+          return false;
+        };
+        if name == REACTOR_INIT_EXPORT.as_bytes() {
+          return true;
+        }
+        // name, then the export kind byte, then the index.
+        cursor = name_end + 1;
+        if read_leb128_u32(module, &mut cursor).is_none() {
+          return false;
+        }
+      }
+      return false;
+    }
+    cursor = section_end;
+  }
+  false
+}
+
+/// Whether `rustc` already contributes the reactor startup object itself.
+///
+/// rust-lang/rust#161421 added `crt1-reactor.o` to the pre-link crt objects
+/// for the dylib output kinds on WASI, landing in Rust 1.100. It was omitted
+/// before that, which is why this crate passes the object by hand to obtain
+/// the conventional `_initialize`. Passing it to a toolchain that already
+/// links it makes `wasm-ld` fail with `duplicate symbol: _initialize`.
+///
+/// Probe instead of comparing versions: link a trivial `cdylib` for the target
+/// and look at its exports. One short `rustc` invocation, exact on every
+/// channel, and no guessing about nightly dates.
+///
+/// Returns `None` when the probe cannot run, so the caller keeps the previous
+/// behaviour rather than dropping a startup object the toolchain needs.
+fn rustc_links_reactor_crt(rustc: &OsStr, target: &str, out_dir: &Path) -> Option<bool> {
+  let source = out_dir.join("napi_build_reactor_probe.rs");
+  let artifact = out_dir.join("napi_build_reactor_probe.wasm");
+  fs::write(&source, b"").ok()?;
+  let output = Command::new(rustc)
+    .args(["--crate-type", "cdylib", "--target", target])
+    .args(["-C", "debuginfo=0"])
+    .arg("-o")
+    .arg(&artifact)
+    .arg(&source)
+    .output()
+    .ok()?;
+  if !output.status.success() {
+    return None;
+  }
+  let module = fs::read(&artifact).ok()?;
+  Some(wasm_exports_reactor_init(&module))
+}
+
 pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
@@ -132,14 +237,21 @@ pub fn setup() {
       "failed to locate crt1-reactor.o for {target}: {error}. Ensure RUSTC points to the compiler Cargo is using"
     )
   });
-  let crt_reactor_path = reactor_crt_path(&sysroot, &target);
-  assert!(
-    crt_reactor_path.is_file(),
-    "failed to locate crt1-reactor.o for {target} at {}. Install the Rust standard library for this target",
-    crt_reactor_path.display()
-  );
-  println!("cargo:rustc-link-arg={}", crt_reactor_path.display());
-  println!("cargo:rustc-link-arg=--export=_initialize");
+  let out_dir = env::var_os("OUT_DIR").map(PathBuf::from);
+  let rustc_supplies_reactor_crt = out_dir
+    .as_deref()
+    .and_then(|out_dir| rustc_links_reactor_crt(&rustc, &target, out_dir))
+    .unwrap_or(false);
+  if !rustc_supplies_reactor_crt {
+    let crt_reactor_path = reactor_crt_path(&sysroot, &target);
+    assert!(
+      crt_reactor_path.is_file(),
+      "failed to locate crt1-reactor.o for {target} at {}. Install the Rust standard library for this target",
+      crt_reactor_path.display()
+    );
+    println!("cargo:rustc-link-arg={}", crt_reactor_path.display());
+    println!("cargo:rustc-link-arg=--export={REACTOR_INIT_EXPORT}");
+  }
 
   if let Ok(wasi_sdk_path) = env::var("WASI_SDK_PATH") {
     let wasi_target = if has_threads {
@@ -178,6 +290,59 @@ mod tests {
         .join("self-contained")
         .join("crt1-reactor.o")
     );
+  }
+
+  fn wasm_with_exports(names: &[&str]) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.push(names.len() as u8);
+    for name in names {
+      payload.push(name.len() as u8);
+      payload.extend_from_slice(name.as_bytes());
+      payload.push(0x00); // function
+      payload.push(0x00); // index
+    }
+    let mut module = b"\0asm\x01\x00\x00\x00".to_vec();
+    module.push(7); // export section
+    module.push(payload.len() as u8);
+    module.extend_from_slice(&payload);
+    module
+  }
+
+  #[test]
+  fn detects_the_reactor_init_export() {
+    assert!(wasm_exports_reactor_init(&wasm_with_exports(&[
+      "memory",
+      "_initialize",
+      "hello"
+    ])));
+  }
+
+  #[test]
+  fn ignores_a_module_without_the_reactor_init_export() {
+    assert!(!wasm_exports_reactor_init(&wasm_with_exports(&[
+      "memory",
+      "hello",
+      "wasi_thread_start"
+    ])));
+  }
+
+  #[test]
+  fn rejects_input_that_is_not_wasm() {
+    assert!(!wasm_exports_reactor_init(b""));
+    assert!(!wasm_exports_reactor_init(b"not a wasm module at all"));
+    // Truncated section length must not panic or read out of bounds.
+    assert!(!wasm_exports_reactor_init(b"\0asm\x01\x00\x00\x00\x07\x7f"));
+  }
+
+  #[test]
+  fn skips_sections_before_the_export_section() {
+    let mut module = b"\0asm\x01\x00\x00\x00".to_vec();
+    // A type section holding a byte that would otherwise look like a name.
+    module.push(1);
+    module.push(1);
+    module.push(0x60);
+    module.extend_from_slice(&wasm_with_exports(&["_initialize"])[8..]);
+    assert!(wasm_exports_reactor_init(&module));
   }
 
   #[test]
