@@ -1923,6 +1923,7 @@ function __createWasiWorker(filename) {
       return new Worker(filename, {
         env: process.env,
         execArgv: __workerExecArgv,
+        workerData: { hostRoot: __hostRoot },
       })
     } catch (error) {
       if (!error || error.code !== 'ERR_WORKER_INVALID_EXEC_ARGV') {
@@ -2019,15 +2020,17 @@ ${workerRuntimeImport}\
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 ${workerExecArgv}\
 
-const __rootDir = __nodePath.parse(process.cwd()).root
+const __cwd = process.cwd()
+const __rootDir = __nodePath.parse(__cwd).root
 const __hostRoot =
-  process.platform === 'android' ? process.cwd() : __rootDir
+  process.platform === 'android' ? __cwd : __rootDir
 
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
     [__rootDir]: __hostRoot,
+    [__hostRoot]: __hostRoot,
   }
 })
 

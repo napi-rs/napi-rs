@@ -234,13 +234,11 @@ const wasiLoaderCases: Array<{ name: string; code: string }> = [
 test('Node WASI loader uses an accessible host root on Android', (t) => {
   const code = createWasiBinding('test', '@scope/test')
   assertValidJS(t, code, 'Node WASI loader')
-  t.true(
-    code.includes('const __rootDir = __nodePath.parse(process.cwd()).root'),
-  )
-  t.true(
-    code.includes("process.platform === 'android' ? process.cwd() : __rootDir"),
-  )
+  t.true(code.includes('const __cwd = process.cwd()'))
+  t.true(code.includes("process.platform === 'android' ? __cwd : __rootDir"))
   t.true(code.includes('[__rootDir]: __hostRoot'))
+  t.true(code.includes('[__hostRoot]: __hostRoot'))
+  t.true(code.includes('workerData: { hostRoot: __hostRoot }'))
   t.false(code.includes('[__rootDir]: __rootDir'))
 })
 
@@ -248,15 +246,11 @@ test('Node WASI worker uses an accessible host root on Android', (t) => {
   assertValidJS(t, WASI_WORKER_TEMPLATE, 'Node WASI worker')
   t.true(
     WASI_WORKER_TEMPLATE.includes(
-      'const __rootDir = parse(process.cwd()).root',
-    ),
-  )
-  t.true(
-    WASI_WORKER_TEMPLATE.includes(
-      "process.platform === 'android' ? process.cwd() : __rootDir",
+      "workerData && typeof workerData.hostRoot === 'string' && workerData.hostRoot",
     ),
   )
   t.true(WASI_WORKER_TEMPLATE.includes('[__rootDir]: __hostRoot'))
+  t.true(WASI_WORKER_TEMPLATE.includes('[__hostRoot]: __hostRoot'))
   t.false(WASI_WORKER_TEMPLATE.includes('[__rootDir]: __rootDir'))
 })
 
