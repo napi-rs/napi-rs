@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -236,17 +236,35 @@ const NEW_FUTEX_ABI_ARCHIVE_MEMBER = 'futex.c.obj'
  * wasi-libc bundled with the Rust standard library, so that copy — not a
  * wasi-sdk — decides the futex ABI.
  *
+ * `cwd` must be the directory Cargo is spawned in, because that is what
+ * selects the toolchain.
+ *
  * Returns `null` when `rustc` cannot be queried or the target is not
  * installed. Never throws: an undetectable sysroot degrades to the legacy
  * archives.
  */
-export function rustBundledWasiLibc(wasiTarget: string): string | null {
+export function rustBundledWasiLibc(
+  wasiTarget: string,
+  cwd?: string,
+): string | null {
   let sysroot: string
   try {
-    sysroot = execSync('rustc --print sysroot', {
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    // `rustc` is a rustup shim: it resolves `rust-toolchain.toml` and any
+    // directory override from its working directory. Cargo is spawned with
+    // the build cwd, so the probe must use the same one or it can read a
+    // different toolchain's wasi-libc than the one that gets linked.
+    // `RUSTC` and `CARGO_BUILD_RUSTC` bypass the shim entirely; Cargo gives
+    // `RUSTC` precedence, so do the same. `build.rustc` from the project's
+    // `.cargo/config.toml` stays out of reach without invoking cargo itself.
+    sysroot = execFileSync(
+      process.env.RUSTC ?? process.env.CARGO_BUILD_RUSTC ?? 'rustc',
+      ['--print', 'sysroot'],
+      {
+        cwd,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    )
       .toString('utf8')
       .trim()
   } catch {

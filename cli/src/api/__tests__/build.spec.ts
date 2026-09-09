@@ -1203,7 +1203,7 @@ test('keeps the legacy emnapi archives when the wasi-libc ABI is unknown', async
       'wasm32-wasip1-threads',
       true,
       undefined,
-      null,
+      { rustWasiLibc: null },
     ),
     {
       linkDirName: 'wasm32-wasip1-threads',
@@ -1227,7 +1227,7 @@ test('keeps the legacy emnapi archives for a pre wasi-sdk 34 Rust toolchain', as
       'wasm32-wasip1-threads',
       true,
       undefined,
-      rustWasiLibc,
+      { rustWasiLibc },
     ),
     {
       linkDirName: 'wasm32-wasip1-threads',
@@ -1253,7 +1253,7 @@ test('selects the wasi-sdk 34 archives for a Rust toolchain that bundles the new
       'wasm32-wasip1-threads',
       true,
       undefined,
-      rustWasiLibc,
+      { rustWasiLibc },
     ),
     {
       linkDirName: EMNAPI_WASI_SDK_34_LINK_DIR,

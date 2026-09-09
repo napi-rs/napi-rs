@@ -267,9 +267,17 @@ export function selectEmnapiLinkDir(
   wasiTarget: string,
   hasThreads: boolean,
   wasiSdkPath: string | undefined,
-  // `undefined` resolves the Rust sysroot lazily, so a configured wasi-sdk
-  // never pays for a `rustc` invocation. Pass `null` to skip the probe.
-  rustWasiLibc?: string | null,
+  {
+    cwd,
+    rustWasiLibc,
+  }: {
+    // The directory Cargo is spawned in. It selects the toolchain, so the
+    // sysroot probe has to use it too.
+    cwd?: string
+    // Omit to resolve the Rust sysroot lazily, so a configured wasi-sdk never
+    // pays for a `rustc` invocation. Pass `null` to skip the probe.
+    rustWasiLibc?: string | null
+  } = {},
 ): EmnapiLinkDirSelection {
   const usingWasiSdk = Boolean(wasiSdkPath) && existsSync(wasiSdkPath!)
   const wasiSdkMajor = usingWasiSdk ? wasiSdkMajorVersion(wasiSdkPath!) : null
@@ -284,7 +292,7 @@ export function selectEmnapiLinkDir(
       ? wasiSdkMajor !== null && wasiSdkMajor >= 34
       : wasiLibcHasNewFutexAbi(
           rustWasiLibc === undefined
-            ? rustBundledWasiLibc(wasiTarget)
+            ? rustBundledWasiLibc(wasiTarget, cwd)
             : rustWasiLibc,
         ) === true)
   const linkDirName =
@@ -1545,6 +1553,7 @@ class Builder {
       wasiTarget,
       hasThreads,
       WASI_SDK_PATH,
+      { cwd: this.options.cwd },
     )
     const emnapi = join(emnapiLibDir, linkDirName)
     // Keep this in sync with `emnapi_link_library` in `crates/build/src/wasi.rs`.
