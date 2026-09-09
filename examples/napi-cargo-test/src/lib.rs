@@ -45,6 +45,31 @@ pub fn with_qualified_self_env_associated_type(env: <MyEnvHolder as HasEnv>::Env
   env
 }
 
+// Same guard for the *borrowed* form: `&<T as Trait>::Env` must go through
+// normal `FromNapiRef` extraction in codegen (and stay a regular argument in
+// the generated TypeScript), not be special-cased as the napi environment.
+// `EnvHolder` is a napi class, so `&EnvHolder` implements `FromNapiRef`; this
+// only compiles if the parameter is extracted as a normal class reference.
+#[napi]
+pub struct EnvHolder {
+  pub value: i32,
+}
+
+pub trait HasEnvRef {
+  type Env;
+}
+
+pub struct MyEnvRefHolder;
+
+impl HasEnvRef for MyEnvRefHolder {
+  type Env = EnvHolder;
+}
+
+#[napi]
+pub fn with_qualified_self_env_ref(env: &<MyEnvRefHolder as HasEnvRef>::Env) -> i32 {
+  env.value
+}
+
 #[napi]
 #[derive(Debug, PartialEq, Eq)]
 pub enum MyEnum {

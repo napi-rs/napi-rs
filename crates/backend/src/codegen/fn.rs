@@ -679,8 +679,10 @@ impl NapiFn {
             }
           }
         } else {
-          if let syn::Type::Path(ele) = &*elem {
-            if let Some(syn::PathSegment { ident, .. }) = ele.path.segments.last() {
+          // `qself: None` keeps qualified-self paths like `&<T as Trait>::Env`
+          // on the normal `FromNapiRef` extraction path, matching typegen.
+          if let syn::Type::Path(syn::TypePath { qself: None, path }) = &*elem {
+            if let Some(syn::PathSegment { ident, .. }) = path.segments.last() {
               if ident == "Env" {
                 return Ok((quote! {}, NapiArgType::Env));
               } else if ident == "str" {
