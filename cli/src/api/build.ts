@@ -275,15 +275,18 @@ export function selectEmnapiLinkDir(
   const wasiSdkMajor = usingWasiSdk ? wasiSdkMajorVersion(wasiSdkPath!) : null
   // Whichever wasi-libc actually gets linked decides the ABI: the wasi-sdk
   // sysroot when one is configured, otherwise the copy bundled with the Rust
-  // standard library.
-  const newFutexAbi = usingWasiSdk
-    ? wasiSdkMajor !== null && wasiSdkMajor >= 34
-    : wasiLibcHasNewFutexAbi(
-        rustWasiLibc === undefined
-          ? rustBundledWasiLibc(wasiTarget)
-          : rustWasiLibc,
-      ) === true
-  const needsWasiSdk34 = hasThreads && newFutexAbi
+  // standard library. Only the threaded target has a second archive set, so
+  // `hasThreads` gates the probe as well as the result — a threadless build
+  // must not pay for a `rustc` invocation and an archive read it cannot use.
+  const needsWasiSdk34 =
+    hasThreads &&
+    (usingWasiSdk
+      ? wasiSdkMajor !== null && wasiSdkMajor >= 34
+      : wasiLibcHasNewFutexAbi(
+          rustWasiLibc === undefined
+            ? rustBundledWasiLibc(wasiTarget)
+            : rustWasiLibc,
+        ) === true)
   const linkDirName =
     needsWasiSdk34 &&
     existsSync(join(emnapiLibDir, EMNAPI_WASI_SDK_34_LINK_DIR))
