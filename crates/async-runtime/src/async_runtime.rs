@@ -3127,17 +3127,21 @@ impl Drop for CurrentThreadDispatchCall<'_> {
 }
 
 thread_local! {
-  /// Depth of `CurrentThreadExecutor::schedule` frames on this thread. Every
-  /// waker reaches the executor through `schedule`, so a nonzero depth marks
-  /// a stack that may belong to a waker invoked while its producer holds a
-  /// mutex (`futures::Shared` wakes under its `wakers` lock). Nothing that
-  /// destroys user futures inline may run on such a stack: their destructors
+  /// Depth of the `CurrentThreadExecutor::schedule` frames on this thread that
+  /// a waker could have entered. `async-task` runs its scheduler callback for
+  /// two different reasons: a wake, which any `Waker` can raise from any stack,
+  /// and the very first schedule of a freshly submitted task, which `spawn`
+  /// makes on its caller's own stack. Only the wake can arrive while a foreign
+  /// mutex is held (`futures::Shared` wakes its awaiters under its `wakers`
+  /// lock), so only `schedule` enters this scope; `schedule_submission` does
+  /// not. A nonzero depth therefore marks a stack that may be a waker's, and
+  /// nothing that destroys user futures inline may run on it: their destructors
   /// can re-lock that same mutex.
   static CURRENT_THREAD_SCHEDULE_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// RAII marker for one `CurrentThreadExecutor::schedule` frame; see
-/// `CURRENT_THREAD_SCHEDULE_DEPTH`.
+/// RAII marker for one waker-reachable `CurrentThreadExecutor::schedule` frame;
+/// see `CURRENT_THREAD_SCHEDULE_DEPTH`.
 struct CurrentThreadScheduleScope;
 
 impl CurrentThreadScheduleScope {
@@ -3734,9 +3738,26 @@ impl CurrentThreadExecutor {
     executor
   }
 
+  /// A wake, or any other schedule whose stack the executor does not own.
+  /// `async-task` hands every `Waker::wake` to this callback, so the frame may
+  /// belong to a producer that is holding its own mutex; see
+  /// `CURRENT_THREAD_SCHEDULE_DEPTH`.
   fn schedule(self: &Arc<Self>, runnable: Runnable) {
-    // This frame may be a waker's; see `CurrentThreadScheduleScope`.
     let _scope = CurrentThreadScheduleScope::enter();
+    self.schedule_runnable(runnable);
+  }
+
+  /// The first schedule of a freshly submitted task, made by the caller of
+  /// `spawn` on its own stack. No waker is involved, so a terminal dispatch
+  /// failure reached from here may cancel the rejected work inline -- and it
+  /// must, because a submission that publishes no host delivery has no other
+  /// continuation: nothing would ever reach `retire_rejected_work`, and the
+  /// returned `JoinHandle` would stay pending with its generation guard held.
+  fn schedule_submission(self: &Arc<Self>, runnable: Runnable) {
+    self.schedule_runnable(runnable);
+  }
+
+  fn schedule_runnable(self: &Arc<Self>, runnable: Runnable) {
     self.metrics.runnable_scheduled();
     {
       let mut queue = self
@@ -4306,12 +4327,16 @@ impl CurrentThreadExecutor {
   /// rejected lists under the queue lock, with its `queued_runnables` debit,
   /// and what happens next depends on the stack:
   ///
-  /// * On a clean stack the rejected work is dropped right here, with the
-  ///   executor still closed so that the tasks those drops wake are rejected
-  ///   and cancelled with it, and the executor reopens under the queue lock
-  ///   once nothing remains. This is the observable behaviour terminal
-  ///   cancellation always had: queued work and everything it wakes settle
-  ///   at once, and no later host work is published.
+  /// * On a clean stack -- a host entry point, or the submission `spawn` made
+  ///   on its caller's own stack -- the rejected work is dropped right here,
+  ///   with the executor still closed so that the tasks those drops wake are
+  ///   rejected and cancelled with it, and the executor reopens under the
+  ///   queue lock once nothing remains. This is the observable behaviour
+  ///   terminal cancellation always had: queued work and everything it wakes
+  ///   settle at once, and no later host work is published. A submission whose
+  ///   two publications both failed has no other continuation -- it produced no
+  ///   host turn -- so cancelling here is what keeps its `JoinHandle` from
+  ///   staying pending forever with its generation guard held.
   /// * On a waker's stack (reached through `schedule`, whose publication the
   ///   host failed synchronously) nothing may be dropped: the waker's
   ///   producer may hold a lock the destructors re-lock. The executor reopens
@@ -10100,9 +10125,12 @@ impl RuntimeBackend {
     }
   }
 
-  fn schedule(&self, runnable: Runnable) {
+  /// First schedule of a freshly submitted task. This runs on the stack of the
+  /// caller of `spawn`, never on a waker's; see
+  /// `CurrentThreadExecutor::schedule_submission`.
+  fn schedule_submission(&self, runnable: Runnable) {
     match &self.executor {
-      RuntimeExecutor::CurrentThread(executor) => executor.schedule(runnable),
+      RuntimeExecutor::CurrentThread(executor) => executor.schedule_submission(runnable),
       #[cfg(not(target_family = "wasm"))]
       RuntimeExecutor::MultiThread(executor) => executor.schedule(runnable),
     }
@@ -11191,7 +11219,7 @@ where
       scheduler.schedule(runnable);
     },
   );
-  backend.schedule(runnable);
+  backend.schedule_submission(runnable);
   JoinHandle(JoinHandleInner::Task {
     task: task.fallible(),
     awaiter: None,
@@ -11430,6 +11458,8 @@ mod tests {
   static CURRENT_THREAD_HEALTHY_AFTER_WAKER_STACK_FAILURE_TASK_DRIVERS: LazyLock<
     CurrentThreadTaskDriverRegistry,
   > = LazyLock::new(CurrentThreadTaskDriverRegistry::default);
+  static CURRENT_THREAD_SUBMISSION_FAILURE_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
+    LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_STOPPED_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
 
   thread_local! {
@@ -11791,6 +11821,12 @@ mod tests {
     dispatch: u64,
   ) -> CurrentThreadHostDispatchResult {
     CURRENT_THREAD_HEALTHY_AFTER_WAKER_STACK_FAILURE_TASK_DRIVERS.dispatch(dispatch)
+  }
+
+  fn dispatch_submission_failure_current_thread_tasks(
+    dispatch: u64,
+  ) -> CurrentThreadHostDispatchResult {
+    CURRENT_THREAD_SUBMISSION_FAILURE_TASK_DRIVERS.dispatch(dispatch)
   }
 
   fn panic_once_current_thread_host_dispatch(dispatch: u64) -> CurrentThreadHostDispatchResult {
@@ -14835,6 +14871,95 @@ mod tests {
     done_rx
       .recv_timeout(WAIT)
       .expect("the healthy host never got a delivery for the later submission");
+  }
+
+  /// Regression test for the continuation an ordinary `spawn` owes itself.
+  /// `async-task` runs one scheduler callback for two different things: a
+  /// wake, which any `Waker` can raise from any stack, and the first schedule
+  /// of a freshly submitted task, which `spawn` makes on its caller's own
+  /// stack. Only the wake can arrive under a foreign lock. When the host fails
+  /// a submission's publication and its one replacement synchronously, the
+  /// terminal transition is that submission's ONLY continuation: it produced
+  /// no host turn, `complete_current_thread_task_delivery` has already run,
+  /// and nothing else will reach `retire_rejected_work`. Treating the frame as
+  /// a waker's parked the runnable in `queue.rejected` with the driver
+  /// registered and healthy again, so the `JoinHandle` stayed pending forever
+  /// and its `GenerationWorkGuard` stayed active. Nothing here supplies a
+  /// later entry: no drain request, no host turn, no unregistration, no
+  /// shutdown.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_submission_dispatch_failure_cancels_on_the_submitter_stack() {
+    use std::time::Duration;
+
+    let registry = &*CURRENT_THREAD_SUBMISSION_FAILURE_TASK_DRIVERS;
+    {
+      let state = registry
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(state.entries.is_empty());
+      assert!(state.dispatches.is_empty());
+    }
+    let driver = Arc::new(SynchronouslyFailingCurrentThreadTaskDriver::new(registry));
+    let registration = registry.register(Arc::clone(&driver) as Arc<dyn CurrentThreadTaskDriver>);
+    let metrics = Arc::new(RuntimeMetrics::default());
+    let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch_registry(
+      Arc::clone(&metrics),
+      dispatch_submission_failure_current_thread_tasks,
+      registry,
+    ));
+    let backend =
+      RuntimeBackend::from_executor(RuntimeExecutor::CurrentThread(Arc::clone(&executor)));
+
+    // Every accepted delivery fails before `dispatch` returns, the way a
+    // closing threadsafe function does.
+    driver.fail.store(true, Ordering::SeqCst);
+
+    let work_registration = backend
+      .work
+      .try_register_async()
+      .expect("the backend must accept work");
+    let task = spawn_registered(
+      &backend,
+      Arc::clone(&metrics),
+      std::future::pending::<()>(),
+      work_registration,
+    );
+
+    assert_eq!(
+      driver.deliveries().len(),
+      2,
+      "the submission must publish the dispatch and exactly one replacement"
+    );
+    assert!(
+      !executor.cancelling_failed_dispatch.load(Ordering::Acquire),
+      "the terminal failure must reopen the executor"
+    );
+    assert!(
+      !executor.has_rejected_work(),
+      "a submission's own stack is not a waker's: the rejected work must be        cancelled here, because nothing else will"
+    );
+    assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+    assert_eq!(backend.work.state.lock().unwrap().active, 0);
+
+    let mut task = Box::pin(task);
+    assert_eq!(
+      poll_ready_within(&mut task, Duration::ZERO)
+        .expect("the submission must settle without any later entry")
+        .unwrap_err()
+        .to_string(),
+      "async runtime stopped before the task completed",
+      "terminal host failure must settle the submitted operation as cancelled"
+    );
+
+    registry.unregister(registration);
+    let state = registry
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(state.entries.is_empty());
+    assert!(state.dispatches.is_empty());
   }
 
   /// MultiThread twin of
