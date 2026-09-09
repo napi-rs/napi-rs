@@ -141,6 +141,55 @@ fn wasm_exports_reactor_init(module: &[u8]) -> bool {
   false
 }
 
+/// The `-C link-self-contained` flags Cargo will use for the real link.
+///
+/// `link-self-contained=no` tells rustc to leave out its own crt objects, so
+/// a probe run without the flag would see `_initialize` and wrongly report
+/// that rustc supplies the startup object. The real link would then have
+/// neither ours nor rustc's, and the module would silently ship without the
+/// export.
+///
+/// Only this one flag is forwarded. Passing the user's whole rustflags would
+/// break the probe on anything that does not apply to an empty crate — a
+/// `-C link-arg=--export=napi_register_wasm_v1` alone makes the probe fail to
+/// link, which turns into `None` and brings back the duplicate symbol on a
+/// toolchain that does supply the object.
+///
+/// Cargo hands build scripts `CARGO_ENCODED_RUSTFLAGS`, never `RUSTFLAGS`,
+/// and separates arguments with a unit separator.
+fn link_self_contained_flags() -> Vec<String> {
+  env::var("CARGO_ENCODED_RUSTFLAGS")
+    .map(|encoded| parse_link_self_contained_flags(&encoded))
+    .unwrap_or_default()
+}
+
+/// Picks the `-C link-self-contained` flags out of `CARGO_ENCODED_RUSTFLAGS`.
+fn parse_link_self_contained_flags(encoded: &str) -> Vec<String> {
+  const FLAG: &str = "link-self-contained=";
+  // Splitting an empty string yields one empty element, not none.
+  if encoded.is_empty() {
+    return Vec::new();
+  }
+  let mut flags = Vec::new();
+  let mut args = encoded.split('\u{1f}').peekable();
+  while let Some(arg) = args.next() {
+    // Cargo emits either `-C` followed by the value, or one glued `-C<value>`.
+    if arg == "-C" {
+      if let Some(value) = args.peek() {
+        if value.starts_with(FLAG) {
+          flags.push("-C".to_owned());
+          flags.push((*value).to_owned());
+        }
+      }
+    } else if let Some(value) = arg.strip_prefix("-C") {
+      if value.starts_with(FLAG) {
+        flags.push(arg.to_owned());
+      }
+    }
+  }
+  flags
+}
+
 /// Whether `rustc` already contributes the reactor startup object itself.
 ///
 /// rust-lang/rust#161421 added `crt1-reactor.o` to the pre-link crt objects
@@ -162,6 +211,7 @@ fn rustc_links_reactor_crt(rustc: &OsStr, target: &str, out_dir: &Path) -> Optio
   let output = Command::new(rustc)
     .args(["--crate-type", "cdylib", "--target", target])
     .args(["-C", "debuginfo=0"])
+    .args(link_self_contained_flags())
     .arg("-o")
     .arg(&artifact)
     .arg(&source)
@@ -182,6 +232,7 @@ pub fn setup() {
     "wasm32-wasi" | "wasm32-wasi-preview1-threads" | "wasm32-wasip1-threads"
   ) || target.ends_with("-threads");
 
+  println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");
   println!("cargo:rerun-if-env-changed=RUSTC");
   println!("cargo:rerun-if-env-changed=TARGET");
@@ -358,5 +409,41 @@ mod tests {
   fn selects_v2_emnapi_archives_by_threading_model() {
     assert_eq!(emnapi_link_library(false), "emnapi-basic-napi-rs");
     assert_eq!(emnapi_link_library(true), "emnapi-napi-rs-mt");
+  }
+
+  #[test]
+  fn parses_no_link_self_contained_flags() {
+    assert!(parse_link_self_contained_flags("").is_empty());
+    assert!(parse_link_self_contained_flags("-C\u{1f}debuginfo=0").is_empty());
+    // A different flag whose value merely mentions the name must not match.
+    assert!(
+      parse_link_self_contained_flags("-C\u{1f}link-arg=--link-self-contained=no").is_empty()
+    );
+  }
+
+  #[test]
+  fn parses_separated_link_self_contained_flag() {
+    assert_eq!(
+      parse_link_self_contained_flags("-C\u{1f}link-self-contained=no"),
+      vec!["-C".to_owned(), "link-self-contained=no".to_owned()]
+    );
+  }
+
+  #[test]
+  fn parses_glued_link_self_contained_flag() {
+    assert_eq!(
+      parse_link_self_contained_flags("-Clink-self-contained=off"),
+      vec!["-Clink-self-contained=off".to_owned()]
+    );
+  }
+
+  #[test]
+  fn keeps_link_self_contained_among_other_flags() {
+    let encoded =
+      "-C\u{1f}opt-level=2\u{1f}-C\u{1f}link-self-contained=no\u{1f}-L\u{1f}/wasi-sdk/lib";
+    assert_eq!(
+      parse_link_self_contained_flags(encoded),
+      vec!["-C".to_owned(), "link-self-contained=no".to_owned()]
+    );
   }
 }
