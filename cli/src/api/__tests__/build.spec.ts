@@ -25,9 +25,11 @@ import ava, { type ExecutionContext, type TestFn } from 'ava'
 
 import {
   buildProject,
+  EMNAPI_WASI_SDK_34_LINK_DIR,
   generateTypeDef,
   napiCrossToolchainEnvs,
   resolveBuildFormat,
+  selectEmnapiLinkDir,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
   writeJsBinding,
@@ -1108,3 +1110,122 @@ const isNapiCrossUnsupportedHost =
     )
   },
 )
+
+async function createEmnapiLibDir(root: string, dirNames: string[]) {
+  const emnapiLibDir = join(root, 'emnapi', 'lib')
+  for (const dirName of dirNames) {
+    await mkdir(join(emnapiLibDir, dirName), { recursive: true })
+  }
+  return emnapiLibDir
+}
+
+async function createWasiSdkDir(root: string, version: string) {
+  const wasiSdkPath = join(root, `wasi-sdk-${version}`)
+  await mkdir(wasiSdkPath, { recursive: true })
+  await writeFile(join(wasiSdkPath, 'VERSION'), `${version}\n`)
+  return wasiSdkPath
+}
+
+test('selects the wasi-sdk 34 emnapi archives for wasi-sdk >= 34', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1',
+    'wasm32-wasip1-threads',
+    EMNAPI_WASI_SDK_34_LINK_DIR,
+  ])
+  const wasiSdkPath = await createWasiSdkDir(projectDir, '34.0')
+
+  t.deepEqual(
+    selectEmnapiLinkDir(
+      emnapiLibDir,
+      'wasm32-wasip1-threads',
+      true,
+      wasiSdkPath,
+    ),
+    {
+      linkDirName: EMNAPI_WASI_SDK_34_LINK_DIR,
+      wasiSdkMajor: 34,
+      needsWasiSdk34: true,
+    },
+  )
+})
+
+test('keeps the legacy emnapi archives for wasi-sdk <= 33', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1-threads',
+    EMNAPI_WASI_SDK_34_LINK_DIR,
+  ])
+  const wasiSdkPath = await createWasiSdkDir(projectDir, '33.0')
+
+  t.deepEqual(
+    selectEmnapiLinkDir(
+      emnapiLibDir,
+      'wasm32-wasip1-threads',
+      true,
+      wasiSdkPath,
+    ),
+    {
+      linkDirName: 'wasm32-wasip1-threads',
+      wasiSdkMajor: 33,
+      needsWasiSdk34: false,
+    },
+  )
+})
+
+test('keeps the legacy emnapi archives without WASI_SDK_PATH', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1-threads',
+    EMNAPI_WASI_SDK_34_LINK_DIR,
+  ])
+
+  t.deepEqual(
+    selectEmnapiLinkDir(emnapiLibDir, 'wasm32-wasip1-threads', true, undefined),
+    {
+      linkDirName: 'wasm32-wasip1-threads',
+      wasiSdkMajor: null,
+      needsWasiSdk34: false,
+    },
+  )
+})
+
+test('never selects the wasi-sdk 34 archives for the threadless target', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1',
+    EMNAPI_WASI_SDK_34_LINK_DIR,
+  ])
+  const wasiSdkPath = await createWasiSdkDir(projectDir, '34.0')
+
+  t.deepEqual(
+    selectEmnapiLinkDir(emnapiLibDir, 'wasm32-wasip1', false, wasiSdkPath),
+    {
+      linkDirName: 'wasm32-wasip1',
+      wasiSdkMajor: 34,
+      needsWasiSdk34: false,
+    },
+  )
+})
+
+test('falls back to the legacy archives when emnapi has no wasi-sdk 34 directory', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1-threads',
+  ])
+  const wasiSdkPath = await createWasiSdkDir(projectDir, '34.0')
+
+  t.deepEqual(
+    selectEmnapiLinkDir(
+      emnapiLibDir,
+      'wasm32-wasip1-threads',
+      true,
+      wasiSdkPath,
+    ),
+    {
+      linkDirName: 'wasm32-wasip1-threads',
+      wasiSdkMajor: 34,
+      needsWasiSdk34: true,
+    },
+  )
+})

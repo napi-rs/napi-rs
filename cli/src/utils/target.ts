@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export type Platform = NodeJS.Platform | 'wasm' | 'wasi' | 'openharmony'
 
@@ -154,6 +156,65 @@ export function wasiTargetHasThreads(
   target: string | Pick<Target, 'triple'>,
 ): boolean {
   return getWasiTarget(target)?.flavor === 'threads'
+}
+
+function readTextFileOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Detect the major version of a wasi-sdk installation.
+ *
+ * wasi-libc dropped the unused `int op` parameter from
+ * `__wasilibc_futex_wait_atomic_wait` and `__wasilibc_futex_wait_maybe_busy`,
+ * and wasi-sdk 34 is the first release that ships the 3-argument signature.
+ * Static archives compiled against the two signatures cannot be mixed, so the
+ * emnapi archives have to be picked by wasi-sdk version, not by target triple
+ * alone.
+ *
+ * `<wasiSdkPath>/VERSION` is the primary signal: every release ships it and
+ * its first line is the version (`27.0`, `33.0+m`, `34.0`, ...). The
+ * `wasi/version.h` header carrying `__wasi_sdk_major__` only appears from
+ * wasi-sdk 30 onwards, so it stays a fallback for trees without a `VERSION`.
+ *
+ * Returns `null` when neither signal is readable or parseable. Detection must
+ * never throw: an unknown wasi-sdk degrades to the legacy archives instead of
+ * failing the build.
+ */
+export function wasiSdkMajorVersion(wasiSdkPath: string): number | null {
+  const version = readTextFileOrNull(join(wasiSdkPath, 'VERSION'))
+  if (version) {
+    // `33.0+m` and friends carry a build suffix, so only the leading integer
+    // of the first line is meaningful.
+    const major = /^\s*(\d+)/.exec(version.split('\n', 1)[0])
+    if (major) {
+      return Number(major[1])
+    }
+  }
+  const versionHeader = readTextFileOrNull(
+    join(
+      wasiSdkPath,
+      'share',
+      'wasi-sysroot',
+      'include',
+      'wasm32-wasip1-threads',
+      'wasi',
+      'version.h',
+    ),
+  )
+  if (versionHeader) {
+    const major = /^\s*#\s*define\s+__wasi_sdk_major__\s+(\d+)/m.exec(
+      versionHeader,
+    )
+    if (major) {
+      return Number(major[1])
+    }
+  }
+  return null
 }
 
 /**
