@@ -238,12 +238,19 @@ test('Node WASI loader uses an accessible host root on Android', (t) => {
   t.true(code.includes("process.platform === 'android' ? __cwd : __rootDir"))
   t.true(code.includes('[__rootDir]: __hostRoot'))
   t.true(code.includes('[__hostRoot]: __hostRoot'))
-  t.true(code.includes('workerData: { hostRoot: __hostRoot }'))
+  t.true(
+    code.includes('workerData: { hostRoot: __hostRoot, rootDir: __rootDir }'),
+  )
   t.false(code.includes('[__rootDir]: __rootDir'))
 })
 
 test('Node WASI worker uses an accessible host root on Android', (t) => {
   assertValidJS(t, WASI_WORKER_TEMPLATE, 'Node WASI worker')
+  t.true(
+    WASI_WORKER_TEMPLATE.includes(
+      "workerData && typeof workerData.rootDir === 'string' && workerData.rootDir",
+    ),
+  )
   t.true(
     WASI_WORKER_TEMPLATE.includes(
       "workerData && typeof workerData.hostRoot === 'string' && workerData.hostRoot",

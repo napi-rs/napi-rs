@@ -1923,7 +1923,7 @@ function __createWasiWorker(filename) {
       return new Worker(filename, {
         env: process.env,
         execArgv: __workerExecArgv,
-        workerData: { hostRoot: __hostRoot },
+        workerData: { hostRoot: __hostRoot, rootDir: __rootDir },
       })
     } catch (error) {
       if (!error || error.code !== 'ERR_WORKER_INVALID_EXEC_ARGV') {

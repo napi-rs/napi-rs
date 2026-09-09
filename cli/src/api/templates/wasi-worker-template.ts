@@ -38,7 +38,9 @@ Object.assign(globalThis, {
 const emnapiContext = getDefaultContext();
 
 const __cwd = process.cwd();
-const __rootDir = parse(__cwd).root;
+const __rootDir =
+  (workerData && typeof workerData.rootDir === 'string' && workerData.rootDir) ||
+  parse(__cwd).root;
 const __hostRoot =
   (workerData && typeof workerData.hostRoot === 'string' && workerData.hostRoot) ||
   (process.platform === 'android' ? __cwd : __rootDir);
