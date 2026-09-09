@@ -69,6 +69,28 @@ unsafe fn create_external_buffer(
   }
 }
 
+/// The pointer to a `Buffer`'s live bytes, read the same way `FromNapiValue`
+/// reads it.
+///
+/// Used by the three `napi_create_buffer_copy` fallbacks instead of that call's
+/// `result_data` out-param. On native and Electron the two agree, but under
+/// emnapi they do not: `napi_create_buffer_copy` allocates the copy as a
+/// JS-owned `ArrayBuffer`, hands back a *lazily mirrored* wasm address for it,
+/// and only then writes the bytes into the `ArrayBuffer` - so `result_data`
+/// still points at a zero-filled mirror. `napi_get_buffer_info` is the call
+/// that refreshes that mirror, so it is the only pointer that is correct on
+/// every target.
+#[inline]
+unsafe fn buffer_data_ptr(env: sys::napi_env, buf: sys::napi_value) -> Result<*mut u8> {
+  let mut data = ptr::null_mut();
+  let mut len = 0usize;
+  check_status!(
+    unsafe { sys::napi_get_buffer_info(env, buf, &mut data, &mut len) },
+    "Failed to get Buffer pointer and length"
+  )?;
+  Ok(data.cast())
+}
+
 impl<'env> BufferSlice<'env> {
   /// Create a new `BufferSlice` from a `Vec<u8>`.
   ///
@@ -100,6 +122,7 @@ impl<'env> BufferSlice<'env> {
         &mut buf,
       )
     };
+    let mut copied = false;
     if status == sys::Status::napi_no_external_buffers_allowed {
       unsafe {
         let _ = Box::from_raw(finalize_hint);
@@ -113,16 +136,26 @@ impl<'env> BufferSlice<'env> {
           &mut buf,
         )
       };
+      // The engine owns the copy; `data` is dropped when this function returns.
+      copied = true;
     } else {
       mem::forget(data);
     }
     check_status!(status, "Failed to create buffer slice from data")?;
 
+    // `inner` must point at the bytes, not at `buf` (the `napi_value`): the
+    // `Vec` the buffer is an external view over, or the engine-owned copy.
+    let data_ptr = if copied {
+      unsafe { buffer_data_ptr(env.0, buf)? }
+    } else {
+      inner_ptr
+    };
+
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -183,22 +216,34 @@ impl<'env> BufferSlice<'env> {
         &mut buf,
       )
     };
+    let mut copied = false;
     status = if status == sys::Status::napi_no_external_buffers_allowed {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       let status =
         unsafe { sys::napi_create_buffer_copy(env.0, len, data.cast(), ptr::null_mut(), &mut buf) };
+      // `finalize` reclaims `data`, so from here on only the copy is live.
       finalize(*env, hint);
+      copied = true;
       status
     } else {
       status
     };
     check_status!(status, "Failed to create buffer slice from data")?;
 
+    // `inner` must point at the bytes, not at `buf` (the `napi_value`): the
+    // caller's `data` while the buffer is an external view over it, or the
+    // engine-owned copy once `finalize` has reclaimed `data`.
+    let data_ptr = if copied {
+      unsafe { buffer_data_ptr(env.0, buf)? }
+    } else {
+      data
+    };
+
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -211,18 +256,21 @@ impl<'env> BufferSlice<'env> {
     let len = data.len();
     let data_ptr = data.as_ptr();
     let mut buf = ptr::null_mut();
-    let mut result_ptr = ptr::null_mut();
     check_status!(
       unsafe {
-        sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), &mut result_ptr, &mut buf)
+        sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), ptr::null_mut(), &mut buf)
       },
       "Faild to create a buffer from copied data"
     )?;
+    // `inner` must point at the engine-owned copy, not at `buf` (the
+    // `napi_value`). The `result_data` out-param above is deliberately unused;
+    // see `buffer_data_ptr`.
+    let copied_ptr = unsafe { buffer_data_ptr(env.0, buf)? };
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(copied_ptr, len) }
       },
       raw_value: buf,
       env: env.0,

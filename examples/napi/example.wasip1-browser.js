@@ -717,6 +717,18 @@ export const bufferGenericConstraint =
 export const bufferGenericShadow = __napiModule.exports.bufferGenericShadow
 export const bufferLenAsync = __napiModule.exports.bufferLenAsync
 export const bufferPassThrough = __napiModule.exports.bufferPassThrough
+export const bufferSliceCopyFromMutated =
+  __napiModule.exports.bufferSliceCopyFromMutated
+export const bufferSliceCopyFromReadBack =
+  __napiModule.exports.bufferSliceCopyFromReadBack
+export const bufferSliceFromDataMutated =
+  __napiModule.exports.bufferSliceFromDataMutated
+export const bufferSliceFromDataReadBack =
+  __napiModule.exports.bufferSliceFromDataReadBack
+export const bufferSliceFromExternalMutated =
+  __napiModule.exports.bufferSliceFromExternalMutated
+export const bufferSliceFromExternalReadBack =
+  __napiModule.exports.bufferSliceFromExternalReadBack
 export const bufferValueBinding = __napiModule.exports.bufferValueBinding
 export const bufferWithAsyncBlock = __napiModule.exports.bufferWithAsyncBlock
 export const buildThreadsafeFunctionFromFunction =

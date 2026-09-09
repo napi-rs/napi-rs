@@ -244,3 +244,44 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     }
   },
 )
+
+// Regression: `BufferSlice`'s three constructors used to point `inner` at the
+// `napi_value` out-param rather than the buffer data - on wasm an emnapi handle
+// id, i.e. a single-digit linear-memory address. This is the only lane that
+// runs the `napi_create_buffer_copy` fallback for all three constructors,
+// because threadless wasm reports `napi_no_external_buffers_allowed`.
+//
+// Only the read direction is asserted here. emnapi allocates the copy as a
+// JS-owned `ArrayBuffer` and exposes it to wasm through a one-way JS-to-wasm
+// mirror that every `napi_get_buffer_info` refreshes, so a `DerefMut` write is
+// dropped on this target - the long-standing "modifications may be lost"
+// caveat. values.spec.ts covers the write direction on native.
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'threadless BufferSlice constructors read back the copied buffer data',
+  async (t) => {
+    const wasmBytes = await readFile(
+      new URL('../example.wasm32-wasip1.wasm', import.meta.url),
+    )
+    const webAssembly = Reflect.get(globalThis, 'WebAssembly') as {
+      compile(bytes: Uint8Array): Promise<WebAssembly.Module>
+    }
+    const wasmModule = await webAssembly.compile(wasmBytes)
+    const deferred = await import(
+      new URL('../example.wasip1-deferred.js', import.meta.url).href
+    )
+    const instance = await deferred.createInstance(wasmModule)
+
+    try {
+      const { exports } = instance
+      for (const [name, readBack] of [
+        ['from_data', exports.bufferSliceFromDataReadBack],
+        ['from_external', exports.bufferSliceFromExternalReadBack],
+        ['copy_from', exports.bufferSliceCopyFromReadBack],
+      ] as const) {
+        t.is(readBack(), 'Hello world', name)
+      }
+    } finally {
+      instance.dispose()
+    }
+  },
+)

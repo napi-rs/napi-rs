@@ -265,6 +265,12 @@ import {
   getBufferSlice,
   createExternalBufferSlice,
   createBufferSliceFromCopiedData,
+  bufferSliceFromDataReadBack,
+  bufferSliceFromExternalReadBack,
+  bufferSliceCopyFromReadBack,
+  bufferSliceFromDataMutated,
+  bufferSliceFromExternalMutated,
+  bufferSliceCopyFromMutated,
   Reader,
   withinAsyncRuntimeIfAvailable,
   errorMessageContainsNullByte,
@@ -1583,6 +1589,32 @@ test('get bigint json value', (t) => {
     getBigintJsonValue(18446744073709551620n)
   })
 })
+
+// Regression: `BufferSlice`'s three constructors used to point `inner` at the
+// `napi_value` out-param rather than the buffer data, so `Deref`/`DerefMut`
+// addressed the V8 handle slot. `FromNapiValue` was already correct, which is
+// why only code that built a `BufferSlice` was affected.
+for (const [name, readBack, mutated] of [
+  ['from_data', bufferSliceFromDataReadBack, bufferSliceFromDataMutated],
+  [
+    'from_external',
+    bufferSliceFromExternalReadBack,
+    bufferSliceFromExternalMutated,
+  ],
+  ['copy_from', bufferSliceCopyFromReadBack, bufferSliceCopyFromMutated],
+] as const) {
+  test(`BufferSlice::${name} points at the buffer data`, (t) => {
+    // Rust reads the bytes back through `Deref`.
+    t.is(readBack(), 'Hello world')
+    // ...and a `DerefMut` write (lowercasing the `H`) reaches the same bytes JS
+    // sees. Native buffers are zero-copy on all three paths, so this holds
+    // here; the threadless wasm lane only asserts the read, see
+    // wasi-buffer-public-api.spec.ts.
+    const value = mutated()
+    t.true(Buffer.isBuffer(value))
+    t.is(value.toString('utf-8'), 'hello world')
+  })
+}
 
 test('buffer', (t) => {
   let buf = getBuffer()

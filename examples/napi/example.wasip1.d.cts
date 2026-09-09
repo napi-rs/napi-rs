@@ -619,6 +619,18 @@ export interface BufferOverrideObject {
 
 export declare function bufferPassThrough(buf: import("buffer").Buffer): Promise<import("buffer").Buffer>
 
+export declare function bufferSliceCopyFromMutated(): import("buffer").Buffer
+
+export declare function bufferSliceCopyFromReadBack(): string
+
+export declare function bufferSliceFromDataMutated(): import("buffer").Buffer
+
+export declare function bufferSliceFromDataReadBack(): string
+
+export declare function bufferSliceFromExternalMutated(): import("buffer").Buffer
+
+export declare function bufferSliceFromExternalReadBack(): string
+
 export declare function bufferValueBinding(Buffer: unknown): typeof Buffer
 
 export declare function bufferWithAsyncBlock(buf: import("buffer").Buffer): Promise<number>
