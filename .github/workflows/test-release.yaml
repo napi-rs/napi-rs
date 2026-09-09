@@ -169,6 +169,7 @@ jobs:
               yarn test
               yarn test:macro
             toolchain: stable
+          # Electron 44 dropped win32-ia32 binaries, so skip Electron on i686.
           - host: windows-latest
             target: i686-pc-windows-msvc
             build: |
@@ -177,9 +178,6 @@ jobs:
             test: |
               export NODE_OPTIONS="--max-old-space-size=3072"
               yarn workspace @examples/napi test -s
-              node ./.github/install-electron.mjs
-              node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron binary missing ('+p+') after install');process.exit(1)}"
-              yarn test:electron
             toolchain: stable
     name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
