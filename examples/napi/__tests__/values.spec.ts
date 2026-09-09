@@ -1604,15 +1604,28 @@ for (const [name, readBack, mutated] of [
   ['copy_from', bufferSliceCopyFromReadBack, bufferSliceCopyFromMutated],
 ] as const) {
   test(`BufferSlice::${name} points at the buffer data`, (t) => {
-    // Rust reads the bytes back through `Deref`.
+    // Rust reads the bytes back through `Deref`. This is the regression being
+    // pinned, so it runs on every lane.
     t.is(readBack(), 'Hello world')
-    // ...and a `DerefMut` write (lowercasing the `H`) reaches the same bytes JS
-    // sees. Native buffers are zero-copy on all three paths, so this holds
-    // here; the threadless wasm lane only asserts the read, see
-    // wasi-buffer-public-api.spec.ts.
     const value = mutated()
     t.true(Buffer.isBuffer(value))
-    t.is(value.toString('utf-8'), 'hello world')
+    if (!process.env.WASI_TEST) {
+      // A `DerefMut` write (lowercasing the `H`) reaches the same bytes JS
+      // sees. Not observable under emnapi: whenever a Buffer's storage is a
+      // JS-owned `ArrayBuffer` rather than `wasmMemory.buffer`,
+      // `napi_get_buffer_info` hands wasm a malloc'd mirror that is refreshed
+      // JS-to-wasm on every call and never copied back, so writes through the
+      // wasm-side pointer are dropped. That is a property of *any*
+      // `BufferSlice` on wasm, not only constructed ones - a slice received as
+      // a function argument through `FromNapiValue` loses the write the same
+      // way, exactly like the WASI-skipped `mutate TypedArray` / `mutate
+      // ArrayBuffer` tests below. Both wasm lanes are affected: `atomics` is an
+      // unstable target feature that rustc never surfaces to `cfg`, so
+      // `create_external_buffer` reports `napi_no_external_buffers_allowed` on
+      // wasm32-wasip1-threads too and all three constructors take the
+      // `napi_create_buffer_copy` fallback.
+      t.is(value.toString('utf-8'), 'hello world')
+    }
   })
 }
 

@@ -247,15 +247,21 @@ test.skipIf(!isThreadlessWasiBufferTest)(
 
 // Regression: `BufferSlice`'s three constructors used to point `inner` at the
 // `napi_value` out-param rather than the buffer data - on wasm an emnapi handle
-// id, i.e. a single-digit linear-memory address. This is the only lane that
-// runs the `napi_create_buffer_copy` fallback for all three constructors,
-// because threadless wasm reports `napi_no_external_buffers_allowed`.
+// id, i.e. a single-digit linear-memory address. All three constructors take
+// the `napi_create_buffer_copy` fallback on *both* wasm lanes, not only this
+// one: `create_external_buffer` gates on `not(target_feature = "atomics")`, and
+// `atomics` is an unstable target feature that rustc never surfaces to `cfg`,
+// so wasm32-wasip1-threads reports `napi_no_external_buffers_allowed` as well.
+// This lane is still the one that exercises the fallback through the deferred
+// threadless loader.
 //
 // Only the read direction is asserted here. emnapi allocates the copy as a
 // JS-owned `ArrayBuffer` and exposes it to wasm through a one-way JS-to-wasm
 // mirror that every `napi_get_buffer_info` refreshes, so a `DerefMut` write is
-// dropped on this target - the long-standing "modifications may be lost"
-// caveat. values.spec.ts covers the write direction on native.
+// dropped on every wasm target - the long-standing "modifications may be lost"
+// caveat, and a property of any `BufferSlice` there, including one received as
+// a function argument. values.spec.ts covers the write direction on native and
+// skips it under `WASI_TEST` for the same reason.
 test.skipIf(!isThreadlessWasiBufferTest)(
   'threadless BufferSlice constructors read back the copied buffer data',
   async (t) => {
