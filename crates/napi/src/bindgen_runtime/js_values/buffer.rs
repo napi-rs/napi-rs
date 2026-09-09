@@ -44,11 +44,23 @@ pub struct BufferSlice<'env> {
 /// `""`). Whether a grow lands between the call that returned the `Buffer` and
 /// the read is a layout lottery (data-segment size modulo 64 KiB), which is how
 /// a dependency bump flipped `examples/napi` `getBuffer()` red on
-/// wasm32-wasip1. Threaded wasm targets use a shared memory whose old views
-/// stay valid, so they keep the zero-copy path. On threadless wasm report
-/// `napi_no_external_buffers_allowed` so every caller takes its existing
+/// wasm32-wasip1. A *shared* wasm memory grows in place and its already
+/// handed-out views stay valid, so those targets keep the zero-copy path.
+/// Only where the memory is not shared do we report
+/// `napi_no_external_buffers_allowed`, so every caller takes its existing
 /// `napi_create_buffer_copy` fallback (the same path Electron uses), which
 /// yields a JS-owned, growth-immune `Buffer`.
+///
+/// "Shared memory" here is `target_feature = "atomics"` -- which covers
+/// wasm32-unknown-unknown built with the atomics RUSTFLAGS -- OR
+/// `napi_wasi_threads`, emitted by this crate's build.rs for the exact cargo
+/// TARGET `wasm32-wasip1-threads`. The second half is load-bearing: rustc
+/// prints an *identical* cfg set for wasm32-wasip1 and wasm32-wasip1-threads,
+/// `atomics` among neither, so gating on `not(target_feature = "atomics")`
+/// alone silently put the threaded lane on the copy path too -- an extra copy
+/// per `Buffer`, and a `BufferSlice` whose `DerefMut` writes stopped reaching
+/// JS because emnapi mirrors a `napi_create_buffer_copy` result into wasm
+/// one-way (JS to wasm) instead of storing it in linear memory.
 #[inline]
 unsafe fn create_external_buffer(
   env: sys::napi_env,
@@ -58,12 +70,20 @@ unsafe fn create_external_buffer(
   finalize_hint: *mut c_void,
   result: *mut sys::napi_value,
 ) -> sys::napi_status {
-  #[cfg(all(target_family = "wasm", not(target_feature = "atomics")))]
+  #[cfg(all(
+    target_family = "wasm",
+    not(target_feature = "atomics"),
+    not(napi_wasi_threads)
+  ))]
   {
     let _ = (env, length, data, finalize_cb, finalize_hint, result);
     sys::Status::napi_no_external_buffers_allowed
   }
-  #[cfg(not(all(target_family = "wasm", not(target_feature = "atomics"))))]
+  #[cfg(not(all(
+    target_family = "wasm",
+    not(target_feature = "atomics"),
+    not(napi_wasi_threads)
+  )))]
   unsafe {
     sys::napi_create_external_buffer(env, length, data, finalize_cb, finalize_hint, result)
   }

@@ -121,7 +121,10 @@ fn buffer_slice_read_back(slice: &BufferSlice<'_>) -> String {
 /// `napi_create_buffer_copy` fallback the bytes belong to the engine and, under
 /// emnapi, the wasm-side pointer is a one-way JS-to-wasm mirror, so writes are
 /// dropped - the long-standing "modifications may be lost" caveat on
-/// `from_external`. The JS assertions on this are native-only for that reason.
+/// `from_external`. That fallback is taken on native only when the engine
+/// refuses external buffers (Electron), and on wasm only where the linear
+/// memory is not shared, so the JS assertion on this write runs everywhere
+/// except the threadless wasm lane.
 fn buffer_slice_mutate(mut slice: BufferSlice<'_>) -> BufferSlice<'_> {
   if let Some(first) = slice.first_mut() {
     *first = first.to_ascii_lowercase();

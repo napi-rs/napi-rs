@@ -1594,6 +1594,14 @@ test('get bigint json value', (t) => {
 // `napi_value` out-param rather than the buffer data, so `Deref`/`DerefMut`
 // addressed the V8 handle slot. `FromNapiValue` was already correct, which is
 // why only code that built a `BufferSlice` was affected.
+//
+// The threadless WASI flavor is the only lane that has to be told apart below,
+// and `NAPI_RS_WASI_FLAVOR` is the only way to reach it: the loader tries
+// `example.wasi.cjs` (wasm32-wasip1-threads) first and never falls through to
+// `example.wasip1.cjs` unless that variable names it. Same discriminator
+// `wasi-eager-before-exit.spec.ts` uses.
+const isThreadlessWasi = process.env.NAPI_RS_WASI_FLAVOR === 'wasm32-wasip1'
+
 for (const [name, readBack, mutated] of [
   ['from_data', bufferSliceFromDataReadBack, bufferSliceFromDataMutated],
   [
@@ -1609,21 +1617,37 @@ for (const [name, readBack, mutated] of [
     t.is(readBack(), 'Hello world')
     const value = mutated()
     t.true(Buffer.isBuffer(value))
-    if (!process.env.WASI_TEST) {
-      // A `DerefMut` write (lowercasing the `H`) reaches the same bytes JS
-      // sees. Not observable under emnapi: whenever a Buffer's storage is a
-      // JS-owned `ArrayBuffer` rather than `wasmMemory.buffer`,
-      // `napi_get_buffer_info` hands wasm a malloc'd mirror that is refreshed
-      // JS-to-wasm on every call and never copied back, so writes through the
-      // wasm-side pointer are dropped. That is a property of *any*
-      // `BufferSlice` on wasm, not only constructed ones - a slice received as
-      // a function argument through `FromNapiValue` loses the write the same
-      // way, exactly like the WASI-skipped `mutate TypedArray` / `mutate
-      // ArrayBuffer` tests below. Both wasm lanes are affected: `atomics` is an
-      // unstable target feature that rustc never surfaces to `cfg`, so
-      // `create_external_buffer` reports `napi_no_external_buffers_allowed` on
-      // wasm32-wasip1-threads too and all three constructors take the
-      // `napi_create_buffer_copy` fallback.
+
+    // A `DerefMut` write (lowercasing the `H`) reaches the same bytes JS sees
+    // only while the buffer is genuinely zero-copy. Under emnapi a Buffer whose
+    // storage is a JS-owned `ArrayBuffer` rather than `wasmMemory.buffer` is
+    // reached from wasm through a malloc'd mirror that `napi_get_buffer_info`
+    // refreshes JS-to-wasm on every call and never copies back, so the write is
+    // dropped. On wasm that covers:
+    //   - every constructor on the threadless flavor, whose linear memory is
+    //     not shared, so `create_external_buffer` reports
+    //     `napi_no_external_buffers_allowed` and each one falls back to
+    //     `napi_create_buffer_copy`;
+    //   - `copy_from` on every flavor, because it calls
+    //     `napi_create_buffer_copy` unconditionally and never goes through
+    //     `create_external_buffer`;
+    //   - any `BufferSlice` *received* from JS through `FromNapiValue`, exactly
+    //     like the WASI-skipped `mutate TypedArray` / `mutate ArrayBuffer`
+    //     tests below.
+    // wasm32-wasip1-threads has a shared memory that `memory.grow` never
+    // detaches, so `from_data` and `from_external` keep the zero-copy external
+    // Buffer there and their write stays visible.
+    const zeroCopy = !isThreadlessWasi && name !== 'copy_from'
+    if (process.env.WASI_TEST) {
+      // Pin the storage itself, so a gate that quietly went back to copying
+      // fails here instead of skipping the assertion below.
+      t.is(
+        value.buffer instanceof SharedArrayBuffer,
+        zeroCopy,
+        `${name}: zero-copy exactly where the wasm memory is shared`,
+      )
+    }
+    if (!process.env.WASI_TEST || zeroCopy) {
       t.is(value.toString('utf-8'), 'hello world')
     }
   })
