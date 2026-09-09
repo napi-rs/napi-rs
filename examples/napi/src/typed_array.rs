@@ -97,6 +97,96 @@ pub fn create_buffer_slice_from_copied_data(env: &Env) -> Result<BufferSlice<'_>
   BufferSlice::copy_from(env, String::from("Hello world").as_bytes())
 }
 
+// Regression coverage for `BufferSlice::inner` pointing at the `napi_value`
+// out-param instead of the buffer's data. See
+// `crates/napi/src/bindgen_runtime/js_values/buffer.rs`: every constructor used
+// to build `inner` from `buf`, so `Deref`/`DerefMut` addressed the V8 handle
+// slot (native) or the emnapi handle id (wasm) rather than the bytes.
+// `FromNapiValue` was already correct, so nothing reading an argument noticed.
+
+const BUFFER_SLICE_PROBE: &[u8] = b"Hello world";
+
+/// What Rust reads back through `Deref` from a freshly built `BufferSlice`.
+///
+/// Correct on every target and every construction path, including the
+/// `napi_create_buffer_copy` fallback that Electron and threadless wasm take.
+fn buffer_slice_read_back(slice: &BufferSlice<'_>) -> String {
+  String::from_utf8_lossy(slice.as_ref()).into_owned()
+}
+
+/// Lowercases the first byte through `DerefMut` so JS can observe the write
+/// (`Hello world` becomes `hello world`).
+///
+/// Only meaningful where the buffer is genuinely zero-copy. On the
+/// `napi_create_buffer_copy` fallback the bytes belong to the engine and, under
+/// emnapi, the wasm-side pointer is a one-way JS-to-wasm mirror, so writes are
+/// dropped - the long-standing "modifications may be lost" caveat on
+/// `from_external`. That fallback is taken on native only when the engine
+/// refuses external buffers (Electron), and on wasm only where the linear
+/// memory is not shared, so the JS assertion on this write runs everywhere
+/// except the threadless wasm lane.
+fn buffer_slice_mutate(mut slice: BufferSlice<'_>) -> BufferSlice<'_> {
+  if let Some(first) = slice.first_mut() {
+    *first = first.to_ascii_lowercase();
+  }
+  slice
+}
+
+fn buffer_slice_from_external(env: &Env) -> Result<BufferSlice<'_>> {
+  let mut data = BUFFER_SLICE_PROBE.to_vec();
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  // Mock the ffi data that is not managed by Rust, like `create_external_buffer_slice`.
+  std::mem::forget(data);
+  unsafe {
+    BufferSlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn buffer_slice_from_data_read_back(env: &Env) -> Result<String> {
+  Ok(buffer_slice_read_back(&BufferSlice::from_data(
+    env,
+    BUFFER_SLICE_PROBE.to_vec(),
+  )?))
+}
+
+#[napi]
+pub fn buffer_slice_from_external_read_back(env: &Env) -> Result<String> {
+  Ok(buffer_slice_read_back(&buffer_slice_from_external(env)?))
+}
+
+#[napi]
+pub fn buffer_slice_copy_from_read_back(env: &Env) -> Result<String> {
+  Ok(buffer_slice_read_back(&BufferSlice::copy_from(
+    env,
+    BUFFER_SLICE_PROBE,
+  )?))
+}
+
+#[napi]
+pub fn buffer_slice_from_data_mutated(env: &Env) -> Result<BufferSlice<'_>> {
+  Ok(buffer_slice_mutate(BufferSlice::from_data(
+    env,
+    BUFFER_SLICE_PROBE.to_vec(),
+  )?))
+}
+
+#[napi]
+pub fn buffer_slice_from_external_mutated(env: &Env) -> Result<BufferSlice<'_>> {
+  Ok(buffer_slice_mutate(buffer_slice_from_external(env)?))
+}
+
+#[napi]
+pub fn buffer_slice_copy_from_mutated(env: &Env) -> Result<BufferSlice<'_>> {
+  Ok(buffer_slice_mutate(BufferSlice::copy_from(
+    env,
+    BUFFER_SLICE_PROBE,
+  )?))
+}
+
 #[napi]
 fn get_empty_typed_array() -> Uint8Array {
   vec![].into()

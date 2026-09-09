@@ -201,3 +201,92 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     }
   },
 )
+
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'threadless Buffer values survive wasm memory growth',
+  async (t) => {
+    const wasmBytes = await readFile(
+      new URL('../example.wasm32-wasip1.wasm', import.meta.url),
+    )
+    const webAssembly = Reflect.get(globalThis, 'WebAssembly') as {
+      compile(bytes: Uint8Array): Promise<WebAssembly.Module>
+    }
+    const wasmModule = await webAssembly.compile(wasmBytes)
+    const deferred = await import(
+      new URL('../example.wasip1-deferred.js', import.meta.url).href
+    )
+    const instance = await deferred.createInstance(wasmModule)
+
+    try {
+      const { exports } = instance
+      const memoryBefore = exports.wasmMemorySizeBytes()
+      // Threadless wasm memory is not shared: every `memory.grow` detaches the
+      // previous ArrayBuffer. A Buffer that was a view over it would read back
+      // as '' after the grow, so it must be a JS-owned copy.
+      const held = exports.getBuffer()
+      const appended = exports.appendBuffer(NodeBuffer.from('held'))
+      // 512 * 1024 * 4 bytes: far more than the initial dlmalloc arena.
+      const growth = new exports.CustomFinalize(512, 1024)
+      const memoryAfter = exports.wasmMemorySizeBytes()
+
+      t.true(
+        memoryAfter > memoryBefore,
+        `expected memory growth beyond ${memoryBefore}, got ${memoryAfter}`,
+      )
+      t.is(growth.constructor.name, 'CustomFinalize')
+      t.true(NodeBuffer.isBuffer(held))
+      t.is(held.length, 'Hello world'.length)
+      t.is(held.toString(), 'Hello world')
+      t.is(appended.length, 'held!'.length)
+      t.is(appended.toString(), 'held!')
+    } finally {
+      instance.dispose()
+    }
+  },
+)
+
+// Regression: `BufferSlice`'s three constructors used to point `inner` at the
+// `napi_value` out-param rather than the buffer data - on wasm an emnapi handle
+// id, i.e. a single-digit linear-memory address. This lane is where all three
+// take the `napi_create_buffer_copy` fallback: threadless wasm memory is not
+// shared, so `create_external_buffer` reports
+// `napi_no_external_buffers_allowed`. On wasm32-wasip1-threads the memory is
+// shared and `from_data` / `from_external` stay zero-copy; only `copy_from`,
+// which calls `napi_create_buffer_copy` unconditionally, copies there too.
+//
+// Only the read direction is asserted here. emnapi allocates the copy as a
+// JS-owned `ArrayBuffer` and exposes it to wasm through a one-way JS-to-wasm
+// mirror that every `napi_get_buffer_info` refreshes, so a `DerefMut` write
+// into a copy is dropped - the long-standing "modifications may be lost"
+// caveat, and a property of any `BufferSlice` backed by one, including a slice
+// received as a function argument on either wasm lane. values.spec.ts covers
+// the write direction wherever the buffer really is zero-copy.
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'threadless BufferSlice constructors read back the copied buffer data',
+  async (t) => {
+    const wasmBytes = await readFile(
+      new URL('../example.wasm32-wasip1.wasm', import.meta.url),
+    )
+    const webAssembly = Reflect.get(globalThis, 'WebAssembly') as {
+      compile(bytes: Uint8Array): Promise<WebAssembly.Module>
+    }
+    const wasmModule = await webAssembly.compile(wasmBytes)
+    const deferred = await import(
+      new URL('../example.wasip1-deferred.js', import.meta.url).href
+    )
+    const instance = await deferred.createInstance(wasmModule)
+
+    try {
+      const { exports } = instance
+      for (const [name, readBack] of [
+        ['from_data', exports.bufferSliceFromDataReadBack],
+        ['from_external', exports.bufferSliceFromExternalReadBack],
+        ['copy_from', exports.bufferSliceCopyFromReadBack],
+      ] as const) {
+        t.is(readBack(), 'Hello world', name)
+      }
+    } finally {
+      instance.dispose()
+    }
+  },
+)

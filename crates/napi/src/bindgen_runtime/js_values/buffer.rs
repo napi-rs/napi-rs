@@ -33,6 +33,84 @@ pub struct BufferSlice<'env> {
   pub(crate) env: sys::napi_env,
 }
 
+/// `napi_create_external_buffer` wrapper for the three `Buffer` creation paths
+/// below.
+///
+/// emnapi implements `napi_create_external_buffer` as a *view* over wasm linear
+/// memory (`emnapi_create_memory_view`), unlike `napi_create_external_arraybuffer`
+/// which copies into a JS-owned `ArrayBuffer`. On a non-shared wasm memory every
+/// `memory.grow` detaches the previous `ArrayBuffer`, so a `Buffer` that JS is
+/// still holding silently turns into a zero-length view (`toString()` becomes
+/// `""`). Whether a grow lands between the call that returned the `Buffer` and
+/// the read is a layout lottery (data-segment size modulo 64 KiB), which is how
+/// a dependency bump flipped `examples/napi` `getBuffer()` red on
+/// wasm32-wasip1. A *shared* wasm memory grows in place and its already
+/// handed-out views stay valid, so those targets keep the zero-copy path.
+/// Only where the memory is not shared do we report
+/// `napi_no_external_buffers_allowed`, so every caller takes its existing
+/// `napi_create_buffer_copy` fallback (the same path Electron uses), which
+/// yields a JS-owned, growth-immune `Buffer`.
+///
+/// "Shared memory" here is `target_feature = "atomics"` -- which covers
+/// wasm32-unknown-unknown built with the atomics RUSTFLAGS -- OR
+/// `napi_wasi_threads`, emitted by this crate's build.rs for the exact cargo
+/// TARGET `wasm32-wasip1-threads`. The second half is load-bearing: rustc
+/// prints an *identical* cfg set for wasm32-wasip1 and wasm32-wasip1-threads,
+/// `atomics` among neither, so gating on `not(target_feature = "atomics")`
+/// alone silently put the threaded lane on the copy path too -- an extra copy
+/// per `Buffer`, and a `BufferSlice` whose `DerefMut` writes stopped reaching
+/// JS because emnapi mirrors a `napi_create_buffer_copy` result into wasm
+/// one-way (JS to wasm) instead of storing it in linear memory.
+#[inline]
+unsafe fn create_external_buffer(
+  env: sys::napi_env,
+  length: usize,
+  data: *mut c_void,
+  finalize_cb: sys::napi_finalize,
+  finalize_hint: *mut c_void,
+  result: *mut sys::napi_value,
+) -> sys::napi_status {
+  #[cfg(all(
+    target_family = "wasm",
+    not(target_feature = "atomics"),
+    not(napi_wasi_threads)
+  ))]
+  {
+    let _ = (env, length, data, finalize_cb, finalize_hint, result);
+    sys::Status::napi_no_external_buffers_allowed
+  }
+  #[cfg(not(all(
+    target_family = "wasm",
+    not(target_feature = "atomics"),
+    not(napi_wasi_threads)
+  )))]
+  unsafe {
+    sys::napi_create_external_buffer(env, length, data, finalize_cb, finalize_hint, result)
+  }
+}
+
+/// The pointer to a `Buffer`'s live bytes, read the same way `FromNapiValue`
+/// reads it.
+///
+/// Used by the three `napi_create_buffer_copy` fallbacks instead of that call's
+/// `result_data` out-param. On native and Electron the two agree, but under
+/// emnapi they do not: `napi_create_buffer_copy` allocates the copy as a
+/// JS-owned `ArrayBuffer`, hands back a *lazily mirrored* wasm address for it,
+/// and only then writes the bytes into the `ArrayBuffer` - so `result_data`
+/// still points at a zero-filled mirror. `napi_get_buffer_info` is the call
+/// that refreshes that mirror, so it is the only pointer that is correct on
+/// every target.
+#[inline]
+unsafe fn buffer_data_ptr(env: sys::napi_env, buf: sys::napi_value) -> Result<*mut u8> {
+  let mut data = ptr::null_mut();
+  let mut len = 0usize;
+  check_status!(
+    unsafe { sys::napi_get_buffer_info(env, buf, &mut data, &mut len) },
+    "Failed to get Buffer pointer and length"
+  )?;
+  Ok(data.cast())
+}
+
 impl<'env> BufferSlice<'env> {
   /// Create a new `BufferSlice` from a `Vec<u8>`.
   ///
@@ -55,7 +133,7 @@ impl<'env> BufferSlice<'env> {
     let cap = data.capacity();
     let finalize_hint = Box::into_raw(Box::new((len, cap)));
     let mut status = unsafe {
-      sys::napi_create_external_buffer(
+      create_external_buffer(
         env.0,
         len,
         inner_ptr.cast(),
@@ -64,6 +142,7 @@ impl<'env> BufferSlice<'env> {
         &mut buf,
       )
     };
+    let mut copied = false;
     if status == sys::Status::napi_no_external_buffers_allowed {
       unsafe {
         let _ = Box::from_raw(finalize_hint);
@@ -77,16 +156,26 @@ impl<'env> BufferSlice<'env> {
           &mut buf,
         )
       };
+      // The engine owns the copy; `data` is dropped when this function returns.
+      copied = true;
     } else {
       mem::forget(data);
     }
     check_status!(status, "Failed to create buffer slice from data")?;
 
+    // `inner` must point at the bytes, not at `buf` (the `napi_value`): the
+    // `Vec` the buffer is an external view over, or the engine-owned copy.
+    let data_ptr = if copied {
+      unsafe { buffer_data_ptr(env.0, buf)? }
+    } else {
+      inner_ptr
+    };
+
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -138,7 +227,7 @@ impl<'env> BufferSlice<'env> {
     }
     let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
     let mut status = unsafe {
-      sys::napi_create_external_buffer(
+      create_external_buffer(
         env.0,
         len,
         data.cast(),
@@ -147,22 +236,34 @@ impl<'env> BufferSlice<'env> {
         &mut buf,
       )
     };
+    let mut copied = false;
     status = if status == sys::Status::napi_no_external_buffers_allowed {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       let status =
         unsafe { sys::napi_create_buffer_copy(env.0, len, data.cast(), ptr::null_mut(), &mut buf) };
+      // `finalize` reclaims `data`, so from here on only the copy is live.
       finalize(*env, hint);
+      copied = true;
       status
     } else {
       status
     };
     check_status!(status, "Failed to create buffer slice from data")?;
 
+    // `inner` must point at the bytes, not at `buf` (the `napi_value`): the
+    // caller's `data` while the buffer is an external view over it, or the
+    // engine-owned copy once `finalize` has reclaimed `data`.
+    let data_ptr = if copied {
+      unsafe { buffer_data_ptr(env.0, buf)? }
+    } else {
+      data
+    };
+
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -175,18 +276,21 @@ impl<'env> BufferSlice<'env> {
     let len = data.len();
     let data_ptr = data.as_ptr();
     let mut buf = ptr::null_mut();
-    let mut result_ptr = ptr::null_mut();
     check_status!(
       unsafe {
-        sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), &mut result_ptr, &mut buf)
+        sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), ptr::null_mut(), &mut buf)
       },
       "Faild to create a buffer from copied data"
     )?;
+    // `inner` must point at the engine-owned copy, not at `buf` (the
+    // `napi_value`). The `result_data` out-param above is deliberately unused;
+    // see `buffer_data_ptr`.
+    let copied_ptr = unsafe { buffer_data_ptr(env.0, buf)? };
     Ok(Self {
       inner: if len == 0 {
         &mut []
       } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+        unsafe { slice::from_raw_parts_mut(copied_ptr, len) }
       },
       raw_value: buf,
       env: env.0,
@@ -553,7 +657,7 @@ impl ToNapiValue for Buffer {
         let value_ptr = val.inner.as_ptr();
         let val_box_ptr = Box::into_raw(Box::new(val));
         let mut status = unsafe {
-          sys::napi_create_external_buffer(
+          create_external_buffer(
             env,
             len,
             value_ptr.cast(),

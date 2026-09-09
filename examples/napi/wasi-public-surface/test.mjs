@@ -225,6 +225,13 @@ async function runBrowserTest(consumerDir) {
     assert.equal(result.appendedIsBuffer, true)
     assert.equal(result.tokioError, result.expectedTokioError)
     assert.equal(result.addAfterTokioError, 42)
+    assert.ok(
+      result.memoryAfterGrowth > result.memoryBeforeGrowth,
+      `expected memory growth beyond ${result.memoryBeforeGrowth}, got ${result.memoryAfterGrowth}`,
+    )
+    assert.equal(result.growthType, 'CustomFinalize')
+    assert.equal(result.heldOutput, 'Hello world')
+    assert.equal(result.heldOutputLength, 'Hello world'.length)
     return result
   } finally {
     await browser?.close()
@@ -345,6 +352,8 @@ async function runWorkerdTests(
   )
   assert.equal(growth.allocationBytes, 48 * 1024 * 1024)
   assert.equal(growth.allocationType, 'CustomFinalize')
+  assert.equal(growth.heldOutput, 'Hello world')
+  assert.equal(growth.heldOutputLength, 'Hello world'.length)
   assert.equal(growth.addAfterGrowth, 42)
   return { lifecycle, growth }
 }

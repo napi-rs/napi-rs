@@ -619,6 +619,18 @@ export interface BufferOverrideObject {
 
 export declare function bufferPassThrough(buf: import("buffer").Buffer): Promise<import("buffer").Buffer>
 
+export declare function bufferSliceCopyFromMutated(): import("buffer").Buffer
+
+export declare function bufferSliceCopyFromReadBack(): string
+
+export declare function bufferSliceFromDataMutated(): import("buffer").Buffer
+
+export declare function bufferSliceFromDataReadBack(): string
+
+export declare function bufferSliceFromExternalMutated(): import("buffer").Buffer
+
+export declare function bufferSliceFromExternalReadBack(): string
+
 export declare function bufferValueBinding(Buffer: unknown): typeof Buffer
 
 export declare function bufferWithAsyncBlock(buf: import("buffer").Buffer): Promise<number>
@@ -1697,6 +1709,17 @@ export interface ViteImportGlobMeta {
 
 export type VoidNullable<T = void> =
   Nullable<T>
+
+/**
+ * Bytes of wasm linear memory currently owned by this instance, `0` on native
+ * targets.
+ *
+ * Threadless wasm `Buffer` values are JS-owned copies (see
+ * `crates/napi/src/bindgen_runtime/js_values/buffer.rs`), so
+ * `getBuffer().buffer.byteLength` no longer mirrors the wasm memory. Fixtures
+ * that assert on memory growth read the size through this export instead.
+ */
+export declare function wasmMemorySizeBytes(): number
 
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
