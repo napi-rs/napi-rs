@@ -1,6 +1,7 @@
 {
   "rules": {
     "no-unused-vars": "warn",
-    "import/named": "allow"
+    "import/named": "allow",
+    "no-eval": "warn"
   }
 }

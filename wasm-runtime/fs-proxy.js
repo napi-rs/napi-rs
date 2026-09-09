@@ -83,7 +83,7 @@ const encodeValue = (memfs, value, type) => {
         processed.add(obj)
 
         const [entry] =
-          Object.entries(memfs).filter(([_, v]) => v === obj.constructor)[0] ??
+          Object.entries(memfs).filter(([_key, v]) => v === obj.constructor)[0] ??
           []
         if (entry) {
           Object.defineProperty(obj, '__constructor__', {

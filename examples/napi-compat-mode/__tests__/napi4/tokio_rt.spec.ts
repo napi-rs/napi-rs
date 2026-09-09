@@ -42,7 +42,7 @@ test.serial('should be able to execute future paralleled', async (t) => {
     return
   }
   const buffers = await Promise.all(
-    Array.from({ length: 50 }).map((_) =>
+    Array.from({ length: 50 }).map(() =>
       bindings.testExecuteTokioReadfile(filepath),
     ),
   )
