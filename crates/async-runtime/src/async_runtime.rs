@@ -3541,10 +3541,28 @@ impl CurrentThreadExecutor {
   ///   delivery is never asked, leaving the `JoinHandle`s pending and their
   ///   `GenerationWorkGuard`s held until unrelated work or shutdown arrives.
   ///
+  /// * One ordinary publication follows an ACCEPTED final offer whose dispatch
+  ///   the host consumed on this stack. A driver may claim, drive and
+  ///   acknowledge the delivery inside `dispatch`, and that turn can do
+  ///   nothing: it is on this waker's stack, so
+  ///   `retire_rejected_work_off_waker_stack` returns at nonzero depth, and the
+  ///   claim is still held, so `take_runnable` returns `None`. All it did was
+  ///   take the continuation. The state it leaves -- work parked, no dispatch
+  ///   outstanding -- is the state a REFUSED offer leaves, so it is owed the
+  ///   same thing, and the same condition
+  ///   (`needs_rejected_work_retirement_dispatch`) says so. The executor is
+  ///   open again by then, which is what `5857092f` reopened it for, so this
+  ///   takes the ordinary path. It is one publication and not a loop: a
+  ///   terminal transition nested inside it finds
+  ///   `CURRENT_THREAD_RETIRING_REJECTED_WORK` held by this frame and publishes
+  ///   nothing, and this frame is returning.
+  ///
   /// So the turns stop at the first of: a dispatch outstanding (a delivery the
   /// host accepted, or one it failed and replaced, is the continuation --
   /// `drive_admitted_host_turn` retires on it), nothing left owed, no live
-  /// host, and the budget -- and the budget is followed by the final offer.
+  /// host, and the budget -- and the budget is followed by the final offer,
+  /// which is followed by one ordinary publication if the host took it without
+  /// leaving the work a stack.
   ///
   /// Nothing is destroyed here: this adds no `retire_rejected_work` call. A
   /// nested transition inside any of these publications still sees the outer
@@ -3552,8 +3570,10 @@ impl CurrentThreadExecutor {
   /// `complete_current_thread_task_delivery` the driver runs there reaches only
   /// `retire_rejected_work_off_waker_stack`, which returns at nonzero depth.
   ///
-  /// When the host refuses the final offer too, that is terminal by
-  /// construction and honest: the work waits for the next host that registers
+  /// When the host refuses the final offer too -- or consumes it and then the
+  /// publication that follows it, never leaving this waker's stack -- that is
+  /// terminal by construction and honest: the work waits for the next host that
+  /// registers
   /// (`request_drain_if_queued` retires before it publishes) or for shutdown
   /// (`begin_shutdown`, `wait_until_idle_retiring`, `wait_until_scheduler_idle`,
   /// `Drop`). With no host that accepts there is no stack on which user futures
@@ -3595,7 +3615,29 @@ impl CurrentThreadExecutor {
         return;
       }
     }
-    self.publish_final_rejected_work_retirement();
+    if self.publish_final_rejected_work_retirement()
+      && self.needs_rejected_work_retirement_dispatch()
+    {
+      // The host ACCEPTED the offer and consumed its dispatch without leaving
+      // the work a stack: a turn it claims and drives inside `dispatch` runs
+      // on this same waker's stack, where `retire_rejected_work_off_waker_stack`
+      // returns at nonzero depth, and it runs with the claim held, where
+      // `take_runnable` returns `None`. Such a turn can do nothing at all; all
+      // it did was take the continuation. The state it left is the state a
+      // refused offer leaves, and the invariant is the same, so it is owed the
+      // same thing: work is parked and no dispatch is outstanding, so publish
+      // one.
+      //
+      // This is the ordinary publication path -- the executor is open again,
+      // which is what `5857092f` reopened it for -- and it is made once, not
+      // looped. It cannot recurse: a terminal transition nested inside it
+      // finds `CURRENT_THREAD_RETIRING_REJECTED_WORK` held by this frame and
+      // publishes nothing, and this frame has already returned its budget. A
+      // host that consumes this one on the waker's stack too has never left
+      // that stack, which is the limit already documented above: with no host
+      // turn on a clean stack there is nowhere to destroy a user future.
+      let _ = self.request_drain_with(next_current_thread_dispatch_id);
+    }
   }
 
   /// The one delivery this stack offers that a producer cannot inflate, made
@@ -3615,14 +3657,23 @@ impl CurrentThreadExecutor {
   /// rather than queued. That is the same outcome the nested terminal
   /// transitions in the turns above give it, and this is reached only after
   /// the host has refused every one of them.
-  fn publish_final_rejected_work_retirement(self: &Arc<Self>) {
+  ///
+  /// Returns whether the host ACCEPTED the offer. An accepted offer is not by
+  /// itself a continuation: a driver may claim, drive and acknowledge the
+  /// delivery inside `dispatch`, and that turn runs on this waker's stack with
+  /// the claim held, so it can neither retire (`retire_rejected_work_off_waker_stack`
+  /// returns at nonzero depth) nor drain (`take_runnable` returns `None` while
+  /// the claim is held) -- it only consumes `dispatch_pending`. The caller
+  /// re-reads `needs_rejected_work_retirement_dispatch` and publishes once more
+  /// when that happened.
+  fn publish_final_rejected_work_retirement(self: &Arc<Self>) -> bool {
     if !self.needs_rejected_work_retirement_dispatch() {
-      return;
+      return false;
     }
     let Some(cancelling) = self.begin_failed_dispatch_cancellation() else {
       // Another terminal transition owns the executor; it carries its own
       // continuation.
-      return;
+      return false;
     };
     let dispatch = next_current_thread_dispatch_id();
     let dispatch_call = {
@@ -3632,7 +3683,7 @@ impl CurrentThreadExecutor {
         .begin_host_dispatch_publication(&mut scheduler, dispatch)
         .expect("a fresh CurrentThread retirement dispatch must own its publication")
     };
-    let _ = self.publish_host_dispatch(dispatch, dispatch_call);
+    let result = self.publish_host_dispatch(dispatch, dispatch_call);
     {
       // Reopen while holding the queue lock, the way the transition does:
       // `schedule` consults the flag under it, so every runnable parked during
@@ -3648,6 +3699,7 @@ impl CurrentThreadExecutor {
     if let Some(work) = self.generation_work.load_full() {
       work.notify_idle_waiters();
     }
+    result == CurrentThreadHostDispatchResult::Accepted
   }
 
   fn fresh_owner_token(&self) -> BlockingOwnerToken {
@@ -11712,6 +11764,8 @@ mod tests {
   static CURRENT_THREAD_FINAL_RETIREMENT_OFFER_TASK_DRIVERS: LazyLock<
     CurrentThreadTaskDriverRegistry,
   > = LazyLock::new(CurrentThreadTaskDriverRegistry::default);
+  static CURRENT_THREAD_INLINE_FINAL_OFFER_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
+    LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_STOPPED_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
 
   thread_local! {
@@ -12109,6 +12163,12 @@ mod tests {
     dispatch: u64,
   ) -> CurrentThreadHostDispatchResult {
     CURRENT_THREAD_FINAL_RETIREMENT_OFFER_TASK_DRIVERS.dispatch(dispatch)
+  }
+
+  fn dispatch_inline_final_offer_current_thread_tasks(
+    dispatch: u64,
+  ) -> CurrentThreadHostDispatchResult {
+    CURRENT_THREAD_INLINE_FINAL_OFFER_TASK_DRIVERS.dispatch(dispatch)
   }
 
   fn panic_once_current_thread_host_dispatch(dispatch: u64) -> CurrentThreadHostDispatchResult {
@@ -16088,6 +16148,196 @@ mod tests {
     done_rx
       .recv_timeout(WAIT)
       .expect("a refused retirement offer left B stranded with a healthy host");
+  }
+
+  /// Regression test for the continuation the FINAL offer owes when the host
+  /// services it from inside `dispatch`.
+  ///
+  /// `6cfe2002` makes one last offer after the attempt budget with the
+  /// terminal-cancellation claim held, so nothing can inflate it, and then
+  /// reopens and returns. A driver may claim, drive and acknowledge a delivery
+  /// inside `dispatch` -- the registry supports that synchronous completion,
+  /// and `RacingTaskDriver` in this module drives one inline -- and such a turn
+  /// on THIS offer can do nothing at all:
+  /// `retire_rejected_work_off_waker_stack` returns at nonzero schedule depth,
+  /// and `take_runnable` returns `None` while `cancelling_failed_dispatch` is
+  /// held. It only consumes `dispatch_pending`. The offer then returned with
+  /// the executor reopened, no dispatch outstanding and `queue.rejected` still
+  /// holding B. Measured before this commit: 11 deliveries during the wake,
+  /// `dispatch_pending` 0, `queued_runnables` 0, B's `JoinHandle` pending, its
+  /// future never dropped, its `GenerationWorkGuard` still active -- and not
+  /// one delivery afterwards, with the driver registered and healthy.
+  ///
+  /// An offer the host ACCEPTED but could not act on leaves exactly the state
+  /// a refused one leaves, and the invariant is the one this branch already
+  /// reads off the executor: while work is parked in `queue.rejected` and no
+  /// dispatch is outstanding, this stack still owes a continuation. So the
+  /// offer reports whether the host accepted it, and an accepted offer whose
+  /// dispatch was consumed is followed by ONE ordinary publication -- the
+  /// executor is open again, so that is the path `5857092f` reopened it for.
+  /// It is one publication and not a loop, and a nested terminal transition
+  /// inside it finds `CURRENT_THREAD_RETIRING_REJECTED_WORK` held and
+  /// publishes nothing.
+  ///
+  /// Nothing here supplies any other entry: no submission after the wake, no
+  /// drain request, no unregistration, no shutdown.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_final_retirement_offer_serviced_inside_dispatch_leaves_a_continuation() {
+    use std::{sync::mpsc, time::Duration};
+
+    const WAIT: Duration = Duration::from_secs(5);
+    /// The wake's publication, its one replacement, and every budgeted turn.
+    const REFUSED_DELIVERIES: usize = 2 + CurrentThreadExecutor::REJECTED_WORK_RETIREMENT_ATTEMPTS;
+
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      struct DropFlag(Arc<AtomicBool>);
+      impl Drop for DropFlag {
+        fn drop(&mut self) {
+          self.0.store(true, Ordering::SeqCst);
+        }
+      }
+
+      let registry = &*CURRENT_THREAD_INLINE_FINAL_OFFER_TASK_DRIVERS;
+      {
+        let state = registry
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(state.entries.is_empty());
+        assert!(state.dispatches.is_empty());
+      }
+      let driver = Arc::new(BoundedFailureCurrentThreadTaskDriver::new(registry));
+      let registration = registry.register(Arc::clone(&driver) as Arc<dyn CurrentThreadTaskDriver>);
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch_registry(
+        Arc::clone(&metrics),
+        dispatch_inline_final_offer_current_thread_tasks,
+        registry,
+      ));
+      let backend =
+        RuntimeBackend::from_executor(RuntimeExecutor::CurrentThread(Arc::clone(&executor)));
+
+      let service = |index: usize| {
+        let delivery = driver.deliveries()[index];
+        let dispatch = registry
+          .claim_delivery(delivery.capability())
+          .expect("the accepted delivery must be claimable");
+        let mut host_turn = executor
+          .try_admit_host_turn(dispatch)
+          .expect("the claimed delivery must be admitted");
+        registry.mark_serviced(dispatch);
+        host_turn.drive();
+        drop(host_turn);
+        let completion = registry.finish_delivery(delivery, false);
+        assert!(completion.failed_dispatches.is_empty());
+        assert!(!completion.redispatch);
+      };
+
+      let dropped = Arc::new(AtomicBool::new(false));
+      let flag = DropFlag(Arc::clone(&dropped));
+      let (tx, rx) = futures::channel::oneshot::channel::<()>();
+      let shared = rx.map(|_| ()).boxed().shared();
+      let shared_for_b = shared.clone();
+      let work_registration = backend
+        .work
+        .try_register_async()
+        .expect("the backend must accept work");
+      let task_b = spawn_registered(
+        &backend,
+        Arc::clone(&metrics),
+        async move {
+          let _flag = flag;
+          shared_for_b.await;
+        },
+        work_registration,
+      );
+      service(0);
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      assert_eq!(backend.work.state.lock().unwrap().active, 1);
+
+      // The wake's publication, its one replacement and every budgeted turn
+      // are refused. The delivery right after them is the final offer, and the
+      // host claims, drives and acknowledges THAT one from inside `dispatch`:
+      // on the waker's stack, with the terminal-cancellation claim held.
+      let before = driver.deliveries().len();
+      let serviced_inline = Arc::new(AtomicBool::new(false));
+      {
+        let executor = Arc::clone(&executor);
+        let hook_driver = Arc::clone(&driver);
+        let serviced_inline = Arc::clone(&serviced_inline);
+        driver.during_delivery(before + REFUSED_DELIVERIES, move || {
+          let delivery = *hook_driver
+            .deliveries()
+            .last()
+            .expect("the final offer must be recorded before the hook runs");
+          let dispatch = registry
+            .claim_delivery(delivery.capability())
+            .expect("the final offer must be claimable");
+          let mut host_turn = executor
+            .try_admit_host_turn(dispatch)
+            .expect("the claimed final offer must be admitted");
+          registry.mark_serviced(dispatch);
+          host_turn.drive();
+          drop(host_turn);
+          let completion = registry.finish_delivery(delivery, false);
+          assert!(completion.failed_dispatches.is_empty());
+          serviced_inline.store(true, Ordering::SeqCst);
+        });
+      }
+      driver
+        .fail_budget
+        .store(REFUSED_DELIVERIES, Ordering::SeqCst);
+      tx.send(()).expect("B must still hold its Shared clone");
+      let during_wake = driver.deliveries().len() - before;
+
+      assert!(
+        serviced_inline.load(Ordering::SeqCst),
+        "the host must have claimed, driven and acknowledged the final offer inside `dispatch`"
+      );
+      assert_eq!(
+        during_wake,
+        REFUSED_DELIVERIES + 2,
+        "an accepted offer whose host turn could not act owes the same continuation a refused \
+         one owes: work parked and no dispatch outstanding"
+      );
+      assert_ne!(
+        executor.dispatch_pending.load(Ordering::Acquire),
+        0,
+        "the publication that follows the consumed offer is the continuation the parked work has"
+      );
+      assert!(executor.has_rejected_work());
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      let mut task_b = Box::pin(task_b);
+      assert!(poll_ready_within(&mut task_b, Duration::ZERO).is_none());
+      assert!(!dropped.load(Ordering::SeqCst));
+
+      // The ONLY continuation: the host serves it on a clean stack.
+      service(driver.deliveries().len() - 1);
+      assert!(!executor.has_rejected_work());
+      assert!(
+        poll_ready_within(&mut task_b, WAIT)
+          .expect("the host turn that follows the consumed offer must cancel B")
+          .is_err()
+      );
+      assert!(dropped.load(Ordering::SeqCst));
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      assert_eq!(backend.work.state.lock().unwrap().active, 0);
+      drop(shared);
+
+      registry.unregister(registration);
+      let state = registry
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(state.entries.is_empty());
+      assert!(state.dispatches.is_empty());
+      done_tx.send(()).unwrap();
+    });
+    done_rx.recv_timeout(WAIT).expect(
+      "a final offer serviced inside `dispatch` left B stranded with a registered, healthy host",
+    );
   }
 
   /// Regression test for the continuation an ordinary `spawn` owes itself.
