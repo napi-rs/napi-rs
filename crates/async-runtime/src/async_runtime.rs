@@ -3329,6 +3329,10 @@ impl CurrentThreadExecutor {
   /// Force one blocking turn after this many consecutive runnable polls.
   #[cfg(not(target_family = "wasm"))]
   const RUNNABLE_FAIRNESS_QUANTUM: usize = 16;
+  /// How many host dispatches one waker-stack terminal failure may publish for
+  /// itself before it hands the remaining requests to the next depth-0 entry;
+  /// see `request_rejected_work_retirement`.
+  const REJECTED_WORK_RETIREMENT_ATTEMPTS: usize = 8;
 
   /// Build-default construction, kept for the pre-existing unit tests
   /// (production goes through [`Self::with_detection`] in
@@ -3530,18 +3534,52 @@ impl CurrentThreadExecutor {
   /// unwound. Discarding it left both runnables in `queue.rejected` with no
   /// delivery outstanding at all.
   ///
-  /// The loop terminates. Each turn makes exactly one publication, and another
-  /// turn happens only if a nested terminal transition ran inside it, which
-  /// needs the host to fail two more deliveries AND at least one runnable or
-  /// blocking job newly queued in that window: with an empty queue the first
-  /// failure reserves no replacement, so no transition and no request follow.
-  /// Rejected work is never re-scheduled while it waits here -- `async-task`
-  /// keeps such a task SCHEDULED because its runnable still exists, so its
-  /// wakers are no-ops -- so every turn consumes one distinct live task or
-  /// blocking job and none of them can supply a second. And the first
-  /// publication the host accepts ends it, because an accepted delivery fails
-  /// nothing. The stack does not grow either way: nested calls return at once
-  /// and the retry is this loop.
+  /// Each turn makes exactly one publication, and another turn happens only if
+  /// a nested terminal transition ran inside it, which needs the host to fail
+  /// two more deliveries AND at least one runnable or blocking job newly
+  /// queued in that window: with an empty queue the first failure reserves no
+  /// replacement, so no transition and no request follow. Rejected work is
+  /// never re-scheduled while it waits here -- `async-task` keeps such a task
+  /// SCHEDULED because its runnable still exists, so its wakers are no-ops --
+  /// so every turn consumes one distinct live task or blocking job. The first
+  /// publication the host accepts also ends it, because an accepted delivery
+  /// fails nothing. The stack does not grow either way: nested calls return at
+  /// once and the retry is this loop.
+  ///
+  /// That bounds the turns by the live tasks, which is no bound at all in wall
+  /// clock: a producer that keeps submitting keeps supplying the runnable each
+  /// nested transition needs. With a host that fails every publication and its
+  /// replacement synchronously and one thread submitting during every one of
+  /// them, the turns tracked the producer exactly -- 32768 submissions gave
+  /// 32769 deliveries inside a single wake, and a producer left running for
+  /// 400ms held that one `schedule` callback, and the `futures::Shared`
+  /// `wakers` mutex under it, for 432ms. So the attempts are capped. This is
+  /// a latency bound, not a correctness one; `REJECTED_WORK_RETIREMENT_ATTEMPTS`
+  /// is 8 because two turns are all the known interleaving needs (one nested
+  /// transition), 8 leaves slack for a short burst of genuinely racing
+  /// submissions, and 16 host callbacks is a small constant to run under a
+  /// foreign lock.
+  ///
+  /// Exhausting the budget cannot strand anything the dead-host case does not
+  /// already. The budget is only reached through a publication the host FAILED
+  /// -- an accepted one leaves no request -- so the end state is the one this
+  /// branch already documents above: the work waits for the next depth-0 entry
+  /// (a host turn, a delivery ack/fail/unregistration, `cancel_host_dispatch`,
+  /// a re-registering host, `begin_shutdown`, the generation's idle wait,
+  /// `wait_until_scheduler_idle`, the destructor), every one of which retires
+  /// rejected work. And the producer that drove the budget to exhaustion
+  /// supplies that entry itself while it keeps running: each submission takes
+  /// the ordinary `schedule_runnable` path, which publishes its own dispatch
+  /// (`draining` is false here), so a host that recovers is found by the next
+  /// submission rather than by a ninth attempt on this stack.
+  ///
+  /// Rejected: a time budget -- it leaves the number of host callbacks open,
+  /// pins nothing an assertion can check, and reads a clock on a stack meant to
+  /// do as little as possible; yielding the thread -- it does not release the
+  /// producer's mutex, which is the thing being held; and parking the leftover
+  /// request on the executor for the next depth-0 entry -- those entries
+  /// already retire `queue.rejected` unconditionally, so the flag would buy
+  /// nothing the producer's own publication does not.
   fn request_rejected_work_retirement(self: &Arc<Self>) {
     if !self.has_rejected_work() {
       return;
@@ -3552,7 +3590,7 @@ impl CurrentThreadExecutor {
       // owns it, which publishes again once this one has unwound.
       return;
     };
-    loop {
+    for _ in 0..Self::REJECTED_WORK_RETIREMENT_ATTEMPTS {
       self.request_drain();
       // Only a nested terminal transition inside that publication sets this,
       // and only after it moved more work into `queue.rejected`.
@@ -4497,8 +4535,10 @@ impl CurrentThreadExecutor {
   /// can start on this stack, and `CURRENT_THREAD_RETIRING_REJECTED_WORK`
   /// keeps a nested transition from publishing there. The nested transition
   /// hands its request back to the frame that owns the publication instead of
-  /// discarding it, so the work it moves aside keeps a continuation too; see
-  /// `request_rejected_work_retirement` for the termination argument.
+  /// discarding it, so the work it moves aside keeps a continuation too, and
+  /// that frame publishes at most `REJECTED_WORK_RETIREMENT_ATTEMPTS` times so
+  /// a sustained producer cannot turn this stack into a service loop; see
+  /// `request_rejected_work_retirement`.
   fn cancel_work_after_host_dispatch_failure(
     self: &Arc<Self>,
     cancelling: CurrentThreadDispatchCancellationGuard<'_>,
@@ -11617,6 +11657,8 @@ mod tests {
     LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_NESTED_RETIREMENT_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
     LazyLock::new(CurrentThreadTaskDriverRegistry::default);
+  static CURRENT_THREAD_SUSTAINED_PRODUCER_TASK_DRIVERS: LazyLock<CurrentThreadTaskDriverRegistry> =
+    LazyLock::new(CurrentThreadTaskDriverRegistry::default);
   static CURRENT_THREAD_STOPPED_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
 
   thread_local! {
@@ -11996,6 +12038,12 @@ mod tests {
     dispatch: u64,
   ) -> CurrentThreadHostDispatchResult {
     CURRENT_THREAD_NESTED_RETIREMENT_TASK_DRIVERS.dispatch(dispatch)
+  }
+
+  fn dispatch_sustained_producer_current_thread_tasks(
+    dispatch: u64,
+  ) -> CurrentThreadHostDispatchResult {
+    CURRENT_THREAD_SUSTAINED_PRODUCER_TASK_DRIVERS.dispatch(dispatch)
   }
 
   fn panic_once_current_thread_host_dispatch(dispatch: u64) -> CurrentThreadHostDispatchResult {
@@ -15385,6 +15433,225 @@ mod tests {
     );
   }
 
+  /// Regression test for the BOUND on the retirement loop `e2a8ed9c` opened.
+  ///
+  /// That commit made the frame owning a waker-stack retirement publication
+  /// loop while nested terminal transitions kept handing requests back. Its
+  /// termination argument -- every turn consumes one distinct live task --
+  /// bounds the turns by the live tasks, which is no bound at all in wall
+  /// clock: a producer that keeps submitting keeps supplying the runnable each
+  /// nested transition needs.
+  ///
+  ///   thread W (waker)                     | thread T (producer)
+  ///   -------------------------------------+---------------------------
+  ///   Shared notifier wakes B -> schedule  |
+  ///   publish D1 ---------------------------+--> schedule(C1) -> runnables
+  ///   host fails D1 synchronously          |    request_drain -> Coalesced
+  ///   publish D2 (replacement) -------------+--> schedule(C2)
+  ///   host fails D2 synchronously          |
+  ///   terminal: C1,C2 -> rejected, reopen  |
+  ///   retirement turn 1: publish D3 --------+--> schedule(C3)   ... and so on
+  ///
+  /// Every turn is two more host callbacks and two more producer submissions,
+  /// so the loop ran for exactly as long as the producer did: measured on
+  /// `e2a8ed9c`, 32768 submissions produced 32769 deliveries inside one wake,
+  /// and a producer left running for 400ms held this single `schedule`
+  /// callback -- and `futures::Shared`'s `wakers` mutex under it -- for 432ms.
+  ///
+  /// The owner frame now publishes at most
+  /// `REJECTED_WORK_RETIREMENT_ATTEMPTS` times and hands what is left to the
+  /// next depth-0 entry. Nothing is stranded by that: the second half of this
+  /// test lets the same producer make one more ordinary submission, which
+  /// publishes its own dispatch, and a host that is healthy again turns it
+  /// into the host turn that retires everything the wake moved aside.
+  #[cfg(not(target_family = "wasm"))]
+  #[test]
+  fn current_thread_rejected_work_retirement_is_bounded_under_a_sustained_producer() {
+    use std::{sync::mpsc, time::Duration};
+
+    const WAIT: Duration = Duration::from_secs(5);
+    /// Far more submissions than the loop may ever spend, so what stops it is
+    /// the executor's budget and not the producer running dry.
+    const PRODUCER_BUDGET: usize = 4096;
+    /// One publication and its one replacement for the wake itself, then two
+    /// more for each retirement turn.
+    const BOUNDED_DELIVERIES: usize =
+      2 + 2 * CurrentThreadExecutor::REJECTED_WORK_RETIREMENT_ATTEMPTS;
+
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let registry = &*CURRENT_THREAD_SUSTAINED_PRODUCER_TASK_DRIVERS;
+      {
+        let state = registry
+          .state
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(state.entries.is_empty());
+        assert!(state.dispatches.is_empty());
+      }
+      let driver = Arc::new(SustainedProducerCurrentThreadTaskDriver::new(registry));
+      let registration = registry.register(Arc::clone(&driver) as Arc<dyn CurrentThreadTaskDriver>);
+      let metrics = Arc::new(RuntimeMetrics::default());
+      let executor = Arc::new(CurrentThreadExecutor::with_task_dispatch_registry(
+        Arc::clone(&metrics),
+        dispatch_sustained_producer_current_thread_tasks,
+        registry,
+      ));
+
+      // Service one accepted delivery the way the host does.
+      let service = |index: usize| {
+        let delivery = driver.deliveries()[index];
+        let dispatch = registry
+          .claim_delivery(delivery.capability())
+          .expect("the accepted delivery must be claimable");
+        let mut host_turn = executor
+          .try_admit_host_turn(dispatch)
+          .expect("the claimed delivery must be admitted");
+        registry.mark_serviced(dispatch);
+        host_turn.drive();
+        drop(host_turn);
+        let completion = registry.finish_delivery(delivery, false);
+        assert!(completion.failed_dispatches.is_empty());
+        assert!(!completion.redispatch);
+      };
+
+      // B awaits a clone of a Shared and parks after its first poll, so its
+      // wake arrives from inside the notifier's `wakers` lock.
+      let (tx, rx) = futures::channel::oneshot::channel::<()>();
+      let shared = rx.map(|_| ()).boxed().shared();
+      let shared_for_b = shared.clone();
+      let scheduler_b = Arc::clone(&executor);
+      let (runnable_b, task_b) = async_task::spawn(
+        async move {
+          shared_for_b.await;
+        },
+        move |runnable| scheduler_b.schedule(runnable),
+      );
+      executor.schedule(runnable_b);
+      service(0);
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "B must be parked and unscheduled after its first poll"
+      );
+
+      // The producer queues one runnable from inside every publication. The
+      // publication already owns `dispatch_pending`, so each of those drain
+      // requests coalesces and adds no delivery of its own -- every delivery
+      // below is one the waker's stack published.
+      let (queue_one_tx, queue_one_rx) = mpsc::channel::<()>();
+      let (queued_tx, queued_rx) = mpsc::channel::<()>();
+      let producer_executor = Arc::clone(&executor);
+      let producer = std::thread::spawn(move || {
+        let mut submissions = 0usize;
+        while queue_one_rx.recv().is_ok() {
+          let scheduler = Arc::clone(&producer_executor);
+          let (runnable, task) = async_task::spawn(std::future::pending::<()>(), move |runnable| {
+            scheduler.schedule(runnable);
+          });
+          task.detach();
+          producer_executor.schedule(runnable);
+          submissions += 1;
+          if queued_tx.send(()).is_err() {
+            break;
+          }
+        }
+        submissions
+      });
+      driver.arm_producer(PRODUCER_BUDGET, queue_one_tx, queued_rx);
+
+      // From here the host fails every delivery synchronously, on the calling
+      // thread, and never recovers.
+      driver.fail.store(true, Ordering::SeqCst);
+      let before = driver.deliveries().len();
+      tx.send(()).expect("B must still hold its Shared clone");
+      let during_wake = driver.deliveries().len() - before;
+      let unspent = driver.disarm_producer();
+      let submissions = producer.join().expect("the producer must not panic");
+
+      assert_eq!(
+        during_wake, BOUNDED_DELIVERIES,
+        "the retirement loop must publish at most \
+         REJECTED_WORK_RETIREMENT_ATTEMPTS times on the waker's stack; without a \
+         budget it services the producer's stream instead and this wake never returns"
+      );
+      assert_eq!(
+        submissions, during_wake,
+        "the producer must have queued a runnable during every publication"
+      );
+      assert!(
+        unspent > 0,
+        "the producer must still have been willing to submit when the loop stopped"
+      );
+      assert!(
+        !executor.cancelling_failed_dispatch.load(Ordering::Acquire),
+        "every terminal failure must reopen the executor before the waker returns"
+      );
+      assert!(
+        executor.has_rejected_work(),
+        "the moved work must be parked, not dropped on the waker's stack"
+      );
+      assert_eq!(
+        metrics.queued_runnables.load(Ordering::Relaxed),
+        0,
+        "the moved runnables carry their queued debit"
+      );
+      let mut task_b = task_b.fallible();
+      assert!(
+        poll_ready_within(&mut task_b, Duration::ZERO).is_none(),
+        "B must still be pending: nothing may be dropped on the waker's stack"
+      );
+
+      // Giving up strands nothing. The producer that drove the budget to
+      // exhaustion is the continuation: its next ordinary submission publishes
+      // a dispatch of its own, and this host is healthy again.
+      driver.fail.store(false, Ordering::SeqCst);
+      let before = driver.deliveries().len();
+      let scheduler_d = Arc::clone(&executor);
+      let (runnable_d, task_d) = async_task::spawn(async {}, move |runnable| {
+        scheduler_d.schedule(runnable);
+      });
+      executor.schedule(runnable_d);
+      assert_eq!(
+        driver.deliveries().len(),
+        before + 1,
+        "a submission made after the budget ran out must publish its own dispatch"
+      );
+      service(before);
+      assert!(
+        !executor.has_rejected_work(),
+        "that host turn is a depth-0 stack and must retire everything the wake moved aside"
+      );
+      assert!(
+        poll_ready_within(&mut task_b, WAIT)
+          .expect("the host turn must cancel B")
+          .is_none(),
+        "the terminal failure must still cancel the work queued when it happened"
+      );
+      assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
+      let mut task_d = task_d.fallible();
+      assert_eq!(
+        poll_ready_within(&mut task_d, WAIT).expect("the host turn must run the later submission"),
+        Some(()),
+        "the executor is open again: the submission that supplied the continuation must also run"
+      );
+      drop(shared);
+
+      registry.unregister(registration);
+      let state = registry
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(state.entries.is_empty());
+      assert!(state.dispatches.is_empty());
+      done_tx.send(()).unwrap();
+    });
+    done_rx.recv_timeout(WAIT).expect(
+      "an unbounded retirement loop serviced the producer's stream on the waker's stack: \
+       the wake never returned",
+    );
+  }
+
   /// Regression test for the continuation an ordinary `spawn` owes itself.
   /// `async-task` runs one scheduler callback for two different things: a
   /// wake, which any `Waker` can raise from any stack, and the first schedule
@@ -16024,6 +16291,91 @@ mod tests {
         let completion = std::thread::spawn(move || registry.finish_delivery(delivery, true))
           .join()
           .expect("the failing helper must not panic");
+        assert!(
+          completion.failed_dispatches.is_empty(),
+          "the failed delivery must remain provisional until its publication retires"
+        );
+      }
+      true
+    }
+  }
+
+  /// Accepts every delivery and, while `fail` is set, fails it synchronously
+  /// from inside `dispatch` on the calling thread -- the option
+  /// [`CurrentThreadTaskDriver::dispatch`] documents for an SPI host. While a
+  /// producer is armed it also rendezvouses with the producer thread from
+  /// inside every delivery, so exactly one runnable is queued while each
+  /// publication is in flight.
+  struct SustainedProducerGate {
+    remaining: usize,
+    queue_one: std::sync::mpsc::Sender<()>,
+    queued: std::sync::mpsc::Receiver<()>,
+  }
+
+  struct SustainedProducerCurrentThreadTaskDriver {
+    registry: &'static CurrentThreadTaskDriverRegistry,
+    fail: AtomicBool,
+    deliveries: Mutex<Vec<CurrentThreadTaskDelivery>>,
+    producer: Mutex<Option<SustainedProducerGate>>,
+  }
+
+  impl SustainedProducerCurrentThreadTaskDriver {
+    fn new(registry: &'static CurrentThreadTaskDriverRegistry) -> Self {
+      Self {
+        registry,
+        fail: AtomicBool::new(false),
+        deliveries: Mutex::default(),
+        producer: Mutex::default(),
+      }
+    }
+
+    fn deliveries(&self) -> Vec<CurrentThreadTaskDelivery> {
+      self.deliveries.lock().unwrap().clone()
+    }
+
+    fn arm_producer(
+      &self,
+      remaining: usize,
+      queue_one: std::sync::mpsc::Sender<()>,
+      queued: std::sync::mpsc::Receiver<()>,
+    ) {
+      *self.producer.lock().unwrap() = Some(SustainedProducerGate {
+        remaining,
+        queue_one,
+        queued,
+      });
+    }
+
+    /// Close the gate and report how many submissions the producer was still
+    /// willing to make.
+    fn disarm_producer(&self) -> usize {
+      self
+        .producer
+        .lock()
+        .unwrap()
+        .take()
+        .map_or(0, |gate| gate.remaining)
+    }
+  }
+
+  impl CurrentThreadTaskDriver for SustainedProducerCurrentThreadTaskDriver {
+    fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool {
+      self.deliveries.lock().unwrap().push(delivery);
+      {
+        let mut slot = self.producer.lock().unwrap();
+        if let Some(gate) = slot.as_mut()
+          && gate.remaining != 0
+        {
+          gate.remaining -= 1;
+          gate.queue_one.send(()).expect("the producer must be live");
+          gate
+            .queued
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the producer must queue one runnable per publication");
+        }
+      }
+      if self.fail.load(Ordering::SeqCst) {
+        let completion = self.registry.finish_delivery(delivery, true);
         assert!(
           completion.failed_dispatches.is_empty(),
           "the failed delivery must remain provisional until its publication retires"
