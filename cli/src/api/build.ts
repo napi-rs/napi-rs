@@ -1533,14 +1533,18 @@ class Builder {
       emnapi,
       hasThreads ? 'libemnapi-napi-rs-mt.a' : 'libemnapi-basic-napi-rs.a',
     )
+    const fellBackToLegacy =
+      needsWasiSdk34 && linkDirName !== EMNAPI_WASI_SDK_34_LINK_DIR
     if (!existsSync(emnapiArchive)) {
       throw new Error(
-        needsWasiSdk34
-          ? `emnapi@${emnapiVersion} is missing the ${linkDirName} archive required by napi-rs at ${emnapiArchive}. wasi-sdk ${wasiSdkMajor} needs the ${EMNAPI_WASI_SDK_34_LINK_DIR} archives, so upgrade emnapi to a version that ships them.`
-          : `emnapi@${emnapiVersion} is missing the ${linkDirName} archive required by napi-rs at ${emnapiArchive}. Install emnapi v2 with support for this target.`,
+        fellBackToLegacy
+          ? `emnapi@${emnapiVersion} does not ship the ${EMNAPI_WASI_SDK_34_LINK_DIR} archives that wasi-sdk ${wasiSdkMajor} requires, and the ${linkDirName} archive it fell back to is missing too at ${emnapiArchive}. Upgrade emnapi to a version that ships the wasi-sdk 34 archives.`
+          : needsWasiSdk34
+            ? `emnapi@${emnapiVersion} is missing the ${linkDirName} archive required by napi-rs at ${emnapiArchive}. wasi-sdk ${wasiSdkMajor} needs those archives, so upgrade emnapi to a version that ships them.`
+            : `emnapi@${emnapiVersion} is missing the ${linkDirName} archive required by napi-rs at ${emnapiArchive}. Install emnapi v2 with support for this target.`,
       )
     }
-    if (needsWasiSdk34 && linkDirName !== EMNAPI_WASI_SDK_34_LINK_DIR) {
+    if (fellBackToLegacy) {
       debug.warn(
         `emnapi@${emnapiVersion} does not ship the ${EMNAPI_WASI_SDK_34_LINK_DIR} archives that wasi-sdk ${wasiSdkMajor} requires. Falling back to ${linkDirName}, which links the legacy wasi-libc futex ABI and may fail with \`wasm-ld: function signature mismatch\`. Upgrade emnapi to fix this.`,
       )
