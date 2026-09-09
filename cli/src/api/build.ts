@@ -45,6 +45,8 @@ import {
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
+  rustBundledWasiLibc,
+  wasiLibcHasNewFutexAbi,
   wasiLoaderSuffix,
   wasiSdkMajorVersion,
   wasiTargetHasThreads,
@@ -234,7 +236,7 @@ export const EMNAPI_WASI_SDK_34_LINK_DIR = 'wasm32-wasip1-threads-wasi-sdk-34'
 export interface EmnapiLinkDirSelection {
   /** Directory name under `emnapi/lib` whose archives should be linked. */
   linkDirName: string
-  /** Detected wasi-sdk major version, `null` when it could not be detected. */
+  /** Detected wasi-sdk major version, `null` when no wasi-sdk is configured. */
   wasiSdkMajor: number | null
   /** `true` when the toolchain needs the wasi-sdk 34 archives. */
   needsWasiSdk34: boolean
@@ -251,23 +253,37 @@ export interface EmnapiLinkDirSelection {
  * wasm module, so emnapi publishes a second archive set for the new ABI and
  * the directory has to be chosen by wasi-sdk version, not by target triple.
  *
- * The legacy directory stays the default. Without `WASI_SDK_PATH`, cargo
- * links through `rust-lld` against the wasi-libc that ships with the Rust
- * standard library, which still uses the 4-argument signature; older emnapi
- * releases also ship the legacy directory alone.
+ * Without `WASI_SDK_PATH`, cargo links through `rust-lld` against the
+ * wasi-libc bundled with the Rust standard library, so that archive is
+ * probed instead. Rust picked up wasi-sdk 34 in rust-lang/rust#161773, which
+ * lands in 1.100, and a toolchain carrying it needs the new archives even
+ * though no wasi-sdk is configured.
+ *
+ * The legacy directory stays the default whenever the ABI cannot be
+ * determined, and older emnapi releases ship it alone.
  */
 export function selectEmnapiLinkDir(
   emnapiLibDir: string,
   wasiTarget: string,
   hasThreads: boolean,
   wasiSdkPath: string | undefined,
+  // `undefined` resolves the Rust sysroot lazily, so a configured wasi-sdk
+  // never pays for a `rustc` invocation. Pass `null` to skip the probe.
+  rustWasiLibc?: string | null,
 ): EmnapiLinkDirSelection {
-  const wasiSdkMajor =
-    wasiSdkPath && existsSync(wasiSdkPath)
-      ? wasiSdkMajorVersion(wasiSdkPath)
-      : null
-  const needsWasiSdk34 =
-    hasThreads && wasiSdkMajor !== null && wasiSdkMajor >= 34
+  const usingWasiSdk = Boolean(wasiSdkPath) && existsSync(wasiSdkPath!)
+  const wasiSdkMajor = usingWasiSdk ? wasiSdkMajorVersion(wasiSdkPath!) : null
+  // Whichever wasi-libc actually gets linked decides the ABI: the wasi-sdk
+  // sysroot when one is configured, otherwise the copy bundled with the Rust
+  // standard library.
+  const newFutexAbi = usingWasiSdk
+    ? wasiSdkMajor !== null && wasiSdkMajor >= 34
+    : wasiLibcHasNewFutexAbi(
+        rustWasiLibc === undefined
+          ? rustBundledWasiLibc(wasiTarget)
+          : rustWasiLibc,
+      ) === true
+  const needsWasiSdk34 = hasThreads && newFutexAbi
   const linkDirName =
     needsWasiSdk34 &&
     existsSync(join(emnapiLibDir, EMNAPI_WASI_SDK_34_LINK_DIR))

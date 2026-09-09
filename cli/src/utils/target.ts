@@ -218,6 +218,76 @@ export function wasiSdkMajorVersion(wasiSdkPath: string): number | null {
 }
 
 /**
+ * Archive member that only exists in a wasi-libc carrying the 3-argument
+ * futex ABI.
+ *
+ * wasi-libc moved the wasi-threads futex helpers out of `__wait.c` and into a
+ * new `futex.c` in the same change that dropped the unused `int op` parameter
+ * (WebAssembly/wasi-libc#846). `__wait.c` still exists afterwards for other
+ * symbols, so the presence of `futex.c` — not the absence of `__wait.c` — is
+ * what separates the two ABIs.
+ */
+const NEW_FUTEX_ABI_ARCHIVE_MEMBER = 'futex.c.obj'
+
+/**
+ * Path to the wasi-libc that cargo links when no wasi-sdk is configured.
+ *
+ * Without `WASI_SDK_PATH` the target links through `rust-lld` against the
+ * wasi-libc bundled with the Rust standard library, so that copy — not a
+ * wasi-sdk — decides the futex ABI.
+ *
+ * Returns `null` when `rustc` cannot be queried or the target is not
+ * installed. Never throws: an undetectable sysroot degrades to the legacy
+ * archives.
+ */
+export function rustBundledWasiLibc(wasiTarget: string): string | null {
+  let sysroot: string
+  try {
+    sysroot = execSync('rustc --print sysroot', {
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString('utf8')
+      .trim()
+  } catch {
+    return null
+  }
+  if (!sysroot) {
+    return null
+  }
+  return join(
+    sysroot,
+    'lib',
+    'rustlib',
+    wasiTarget,
+    'lib',
+    'self-contained',
+    'libc.a',
+  )
+}
+
+/**
+ * Whether a wasi-libc archive carries the 3-argument futex ABI.
+ *
+ * Returns `null` when the archive cannot be read, so callers can tell
+ * "definitely the legacy ABI" apart from "could not tell".
+ */
+export function wasiLibcHasNewFutexAbi(
+  libcArchivePath: string | null,
+): boolean | null {
+  if (!libcArchivePath) {
+    return null
+  }
+  let archive: Buffer
+  try {
+    archive = readFileSync(libcArchivePath)
+  } catch {
+    return null
+  }
+  return archive.includes(NEW_FUTEX_ABI_ARCHIVE_MEMBER, 0, 'latin1')
+}
+
+/**
  * A triple is a specific format for specifying a target architecture.
  * Triples may be referred to as a target triple which is the architecture for the artifact produced, and the host triple which is the architecture that the compiler is running on.
  * The general format of the triple is `<arch><sub>-<vendor>-<sys>-<abi>` where:

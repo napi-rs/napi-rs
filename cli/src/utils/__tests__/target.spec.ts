@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'ava'
 
 import {
+  wasiLibcHasNewFutexAbi,
   parseTriple,
   getSystemDefaultTarget,
   wasiSdkMajorVersion,
@@ -112,4 +113,33 @@ test('should return null instead of throwing on a malformed VERSION', async (t) 
 
 test('should return null when the wasi-sdk path does not exist', (t) => {
   t.is(wasiSdkMajorVersion(join(os.tmpdir(), 'napi-rs-missing-wasi-sdk')), null)
+})
+
+test('should detect the new futex ABI from a wasi-libc archive', async (t) => {
+  const dir = await mkdtemp(join(os.tmpdir(), 'napi-rs-wasi-libc-'))
+  try {
+    // wasi-libc moved the futex helpers into `futex.c` when it dropped the
+    // unused `int op` parameter. `__wait.c` survives either way, so only the
+    // presence of `futex.c` separates the two ABIs.
+    const newAbi = join(dir, 'libc-new.a')
+    const legacyAbi = join(dir, 'libc-legacy.a')
+    await writeFile(newAbi, '!<arch>\n__wait.c.obj\nfutex.c.obj\n')
+    await writeFile(
+      legacyAbi,
+      '!<arch>\n__wait.c.obj\n__wasilibc_busywait.c.obj\n',
+    )
+
+    t.true(wasiLibcHasNewFutexAbi(newAbi))
+    t.false(wasiLibcHasNewFutexAbi(legacyAbi))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('should return null when the wasi-libc archive is unavailable', (t) => {
+  t.is(wasiLibcHasNewFutexAbi(null), null)
+  t.is(
+    wasiLibcHasNewFutexAbi(join(os.tmpdir(), 'napi-rs-missing-libc.a')),
+    null,
+  )
 })

@@ -1126,6 +1126,22 @@ async function createWasiSdkDir(root: string, version: string) {
   return wasiSdkPath
 }
 
+async function createWasiLibcArchive(
+  projectDir: string,
+  abi: 'legacy' | 'new',
+) {
+  const libcPath = join(projectDir, `libc-${abi}.a`)
+  // Only the archive member names matter: wasi-libc moved the futex helpers
+  // into `futex.c` when it dropped the `int op` parameter, and kept `__wait.c`
+  // for other symbols.
+  const members =
+    abi === 'new'
+      ? ['__wait.c.obj', 'futex.c.obj']
+      : ['__wait.c.obj', '__wasilibc_busywait.c.obj']
+  await writeFile(libcPath, `!<arch>\n${members.join('\n')}\n`)
+  return libcPath
+}
+
 test('selects the wasi-sdk 34 emnapi archives for wasi-sdk >= 34', async (t) => {
   const { projectDir } = t.context
   const emnapiLibDir = await createEmnapiLibDir(projectDir, [
@@ -1173,7 +1189,7 @@ test('keeps the legacy emnapi archives for wasi-sdk <= 33', async (t) => {
   )
 })
 
-test('keeps the legacy emnapi archives without WASI_SDK_PATH', async (t) => {
+test('keeps the legacy emnapi archives when the wasi-libc ABI is unknown', async (t) => {
   const { projectDir } = t.context
   const emnapiLibDir = await createEmnapiLibDir(projectDir, [
     'wasm32-wasip1-threads',
@@ -1181,11 +1197,68 @@ test('keeps the legacy emnapi archives without WASI_SDK_PATH', async (t) => {
   ])
 
   t.deepEqual(
-    selectEmnapiLinkDir(emnapiLibDir, 'wasm32-wasip1-threads', true, undefined),
+    // `null` stands in for a Rust sysroot that cannot be probed.
+    selectEmnapiLinkDir(
+      emnapiLibDir,
+      'wasm32-wasip1-threads',
+      true,
+      undefined,
+      null,
+    ),
     {
       linkDirName: 'wasm32-wasip1-threads',
       wasiSdkMajor: null,
       needsWasiSdk34: false,
+    },
+  )
+})
+
+test('keeps the legacy emnapi archives for a pre wasi-sdk 34 Rust toolchain', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1-threads',
+    EMNAPI_WASI_SDK_34_LINK_DIR,
+  ])
+  const rustWasiLibc = await createWasiLibcArchive(projectDir, 'legacy')
+
+  t.deepEqual(
+    selectEmnapiLinkDir(
+      emnapiLibDir,
+      'wasm32-wasip1-threads',
+      true,
+      undefined,
+      rustWasiLibc,
+    ),
+    {
+      linkDirName: 'wasm32-wasip1-threads',
+      wasiSdkMajor: null,
+      needsWasiSdk34: false,
+    },
+  )
+})
+
+test('selects the wasi-sdk 34 archives for a Rust toolchain that bundles the new wasi-libc', async (t) => {
+  const { projectDir } = t.context
+  const emnapiLibDir = await createEmnapiLibDir(projectDir, [
+    'wasm32-wasip1-threads',
+    EMNAPI_WASI_SDK_34_LINK_DIR,
+  ])
+  const rustWasiLibc = await createWasiLibcArchive(projectDir, 'new')
+
+  t.deepEqual(
+    // No wasi-sdk is configured: cargo links Rust's bundled wasi-libc, and
+    // Rust picked up wasi-sdk 34 in rust-lang/rust#161773.
+    selectEmnapiLinkDir(
+      emnapiLibDir,
+      'wasm32-wasip1-threads',
+      true,
+      undefined,
+      rustWasiLibc,
+    ),
+    {
+      linkDirName: EMNAPI_WASI_SDK_34_LINK_DIR,
+      wasiSdkMajor: null,
+      needsWasiSdk34: true,
     },
   )
 })
