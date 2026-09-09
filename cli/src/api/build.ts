@@ -45,7 +45,10 @@ import {
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
+  rustBundledWasiLibc,
+  wasiLibcHasNewFutexAbi,
   wasiLoaderSuffix,
+  wasiSdkMajorVersion,
   wasiTargetHasThreads,
   writeFileAtomic,
   withFileSystemReconciliation,
@@ -221,6 +224,83 @@ export function getTypeDefCacheFolder(options: {
     .substring(0, 16)
 
   return join(options.targetDir, 'napi-rs', `${options.crateName}-${hash}`)
+}
+
+/**
+ * Name of the emnapi archive directory built against the wasi-sdk 34 ABI.
+ * Only the threaded target has one: the signature change it carries lives in
+ * the threads-only futex code.
+ */
+export const EMNAPI_WASI_SDK_34_LINK_DIR = 'wasm32-wasip1-threads-wasi-sdk-34'
+
+export interface EmnapiLinkDirSelection {
+  /** Directory name under `emnapi/lib` whose archives should be linked. */
+  linkDirName: string
+  /** Detected wasi-sdk major version, `null` when no wasi-sdk is configured. */
+  wasiSdkMajor: number | null
+  /** `true` when the toolchain needs the wasi-sdk 34 archives. */
+  needsWasiSdk34: boolean
+}
+
+/**
+ * Pick the emnapi archive directory for a WASI build.
+ *
+ * wasi-libc removed the unused `int op` parameter from
+ * `__wasilibc_futex_wait_atomic_wait` / `__wasilibc_futex_wait_maybe_busy`,
+ * and wasi-sdk 34 is the first release shipping the 3-argument signature.
+ * Linking the legacy 4-argument archives against a wasi-sdk >= 34 sysroot
+ * makes `wasm-ld` report `function signature mismatch` and emit an invalid
+ * wasm module, so emnapi publishes a second archive set for the new ABI and
+ * the directory has to be chosen by wasi-sdk version, not by target triple.
+ *
+ * Without `WASI_SDK_PATH`, cargo links through `rust-lld` against the
+ * wasi-libc bundled with the Rust standard library, so that archive is
+ * probed instead. Rust picked up wasi-sdk 34 in rust-lang/rust#161773, which
+ * lands in 1.100, and a toolchain carrying it needs the new archives even
+ * though no wasi-sdk is configured.
+ *
+ * The legacy directory stays the default whenever the ABI cannot be
+ * determined, and older emnapi releases ship it alone.
+ */
+export function selectEmnapiLinkDir(
+  emnapiLibDir: string,
+  wasiTarget: string,
+  hasThreads: boolean,
+  wasiSdkPath: string | undefined,
+  {
+    cwd,
+    rustWasiLibc,
+  }: {
+    // The directory Cargo is spawned in. It selects the toolchain, so the
+    // sysroot probe has to use it too.
+    cwd?: string
+    // Omit to resolve the Rust sysroot lazily, so a configured wasi-sdk never
+    // pays for a `rustc` invocation. Pass `null` to skip the probe.
+    rustWasiLibc?: string | null
+  } = {},
+): EmnapiLinkDirSelection {
+  const usingWasiSdk = Boolean(wasiSdkPath) && existsSync(wasiSdkPath!)
+  const wasiSdkMajor = usingWasiSdk ? wasiSdkMajorVersion(wasiSdkPath!) : null
+  // Whichever wasi-libc actually gets linked decides the ABI: the wasi-sdk
+  // sysroot when one is configured, otherwise the copy bundled with the Rust
+  // standard library. Only the threaded target has a second archive set, so
+  // `hasThreads` gates the probe as well as the result — a threadless build
+  // must not pay for a `rustc` invocation and an archive read it cannot use.
+  const needsWasiSdk34 =
+    hasThreads &&
+    (usingWasiSdk
+      ? wasiSdkMajor !== null && wasiSdkMajor >= 34
+      : wasiLibcHasNewFutexAbi(
+          rustWasiLibc === undefined
+            ? rustBundledWasiLibc(wasiTarget, cwd)
+            : rustWasiLibc,
+        ) === true)
+  const linkDirName =
+    needsWasiSdk34 &&
+    existsSync(join(emnapiLibDir, EMNAPI_WASI_SDK_34_LINK_DIR))
+      ? EMNAPI_WASI_SDK_34_LINK_DIR
+      : wasiTarget
+  return { linkDirName, wasiSdkMajor, needsWasiSdk34 }
 }
 
 export function createWasiCompilerFlags(
@@ -1461,16 +1541,40 @@ class Builder {
   private setWasiEnv() {
     const hasThreads = wasiTargetHasThreads(this.target)
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
-    const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
+    const emnapiLibDir = join(require.resolve('emnapi'), '..', 'lib')
     const emnapiVersion = require('emnapi/package.json').version
+    const { WASI_SDK_PATH } = process.env
+    // `wasiTarget` stays the real target triple, because it is what the clang
+    // driver is told to build for below. The emnapi archive directory is a
+    // separate choice: emnapi ships two archive sets for the threaded target,
+    // one per wasi-libc futex ABI. See `selectEmnapiLinkDir`.
+    const { linkDirName, wasiSdkMajor, needsWasiSdk34 } = selectEmnapiLinkDir(
+      emnapiLibDir,
+      wasiTarget,
+      hasThreads,
+      WASI_SDK_PATH,
+      { cwd: this.options.cwd },
+    )
+    const emnapi = join(emnapiLibDir, linkDirName)
     // Keep this in sync with `emnapi_link_library` in `crates/build/src/wasi.rs`.
     const emnapiArchive = join(
       emnapi,
       hasThreads ? 'libemnapi-napi-rs-mt.a' : 'libemnapi-basic-napi-rs.a',
     )
+    const fellBackToLegacy =
+      needsWasiSdk34 && linkDirName !== EMNAPI_WASI_SDK_34_LINK_DIR
     if (!existsSync(emnapiArchive)) {
       throw new Error(
-        `emnapi@${emnapiVersion} is missing the ${wasiTarget} archive required by napi-rs at ${emnapiArchive}. Install emnapi v2 with support for this target.`,
+        fellBackToLegacy
+          ? `emnapi@${emnapiVersion} does not ship the ${EMNAPI_WASI_SDK_34_LINK_DIR} archives that wasi-sdk ${wasiSdkMajor} requires, and the ${linkDirName} archive it fell back to is missing too at ${emnapiArchive}. Upgrade emnapi to a version that ships the wasi-sdk 34 archives.`
+          : needsWasiSdk34
+            ? `emnapi@${emnapiVersion} is missing the ${linkDirName} archive required by napi-rs at ${emnapiArchive}. wasi-sdk ${wasiSdkMajor} needs those archives, so upgrade emnapi to a version that ships them.`
+            : `emnapi@${emnapiVersion} is missing the ${linkDirName} archive required by napi-rs at ${emnapiArchive}. Install emnapi v2 with support for this target.`,
+      )
+    }
+    if (fellBackToLegacy) {
+      debug.warn(
+        `emnapi@${emnapiVersion} does not ship the ${EMNAPI_WASI_SDK_34_LINK_DIR} archives that wasi-sdk ${wasiSdkMajor} requires. Falling back to ${linkDirName}, which links the legacy wasi-libc futex ABI and may fail with \`wasm-ld: function signature mismatch\`. Upgrade emnapi to fix this.`,
       )
     }
     this.envs.EMNAPI_LINK_DIR = emnapi
@@ -1499,7 +1603,6 @@ class Builder {
         `emnapi version mismatch: emnapi@${emnapiVersion}, @emnapi/core@${emnapiCoreVersion}, @emnapi/runtime@${emnapiRuntimeVersion}. Please ensure all emnapi packages are the same version.`,
       )
     }
-    const { WASI_SDK_PATH } = process.env
 
     if (WASI_SDK_PATH && existsSync(WASI_SDK_PATH)) {
       this.envs.CARGO_TARGET_WASM32_WASI_PREVIEW1_THREADS_LINKER = join(

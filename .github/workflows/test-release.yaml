@@ -1011,6 +1011,91 @@ jobs:
           yarn workspace @examples/napi playwright install chromium
           yarn workspace @examples/napi vitest
 
+  # `test-node-wasi` above links through `rust-lld` against the wasi-libc that
+  # ships with the Rust standard library. This job links through a real
+  # wasi-sdk instead, which is what `WASI_SDK_PATH` selects.
+  #
+  # wasi-libc dropped the unused `int op` parameter from
+  # `__wasilibc_futex_wait_atomic_wait` / `__wasilibc_futex_wait_maybe_busy`,
+  # and wasi-sdk 34 is the first release shipping the 3-argument signature.
+  # emnapi therefore publishes two archive sets for the threaded target, and
+  # the CLI picks between them by wasi-sdk version. Linking the wrong one makes
+  # `wasm-ld` report `function signature mismatch` and emit an invalid wasm
+  # module, so building against both a pre-34 and a post-34 sdk keeps that
+  # selection honest.
+  wasi-sdk:
+    runs-on: ubuntu-latest
+    name: WASI via wasi-sdk ${{ matrix.wasi-sdk }} on ${{ matrix.toolchain }} Rust
+    timeout-minutes: 20
+    needs: audit
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Legacy 4-argument futex ABI, on the toolchain most users have.
+          # Stable rustc does not link `crt1-reactor.o`, so napi-build still
+          # supplies it, and that `crt1` matches this sysroot.
+          - wasi-sdk: '33'
+            toolchain: stable
+          # 3-argument futex ABI. This lane needs nightly. wasi-sdk 34 deleted
+          # `__wasi_init_tp`, which stable's pre-34 `crt1-reactor.o` still
+          # calls, so a stable build links but cannot instantiate. Nightly
+          # ships an sdk-34 era `crt1` and links it itself, which is the case
+          # `rustc_links_reactor_crt()` detects. Stable gets the same sysroot
+          # in 1.100, via rust-lang/rust#161773. See #3491.
+          - wasi-sdk: '34'
+            toolchain: nightly
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          targets: wasm32-wasip1-threads
+      - name: Setup wasi-sdk ${{ matrix.wasi-sdk }}
+        shell: bash
+        run: |
+          sdk="wasi-sdk-${{ matrix.wasi-sdk }}.0-x86_64-linux"
+          curl -fsSL -o "$sdk.tar.gz" \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ matrix.wasi-sdk }}/$sdk.tar.gz"
+          tar -xf "$sdk.tar.gz"
+          echo "WASI_SDK_PATH=$(pwd)/$sdk" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build
+        shell: bash
+        run: |
+          yarn build
+          yarn workspace @examples/napi build \
+            --target wasm32-wasip1-threads --profile wasi 2>&1 | tee wasi-sdk-build.log
+        env:
+          RUSTFLAGS: '--cfg tokio_unstable'
+      # The build above already fails hard when the archive ABI does not match
+      # the sysroot. This guard catches the quieter case: emnapi without the
+      # wasi-sdk 34 archives, where the CLI warns and falls back to the legacy
+      # set instead of erroring.
+      - name: Assert the emnapi archive selection did not degrade
+        shell: bash
+        run: |
+          if grep -q 'does not ship the wasm32-wasip1-threads-wasi-sdk-34' wasi-sdk-build.log; then
+            echo "::error::The CLI fell back to the legacy emnapi archives for wasi-sdk ${{ matrix.wasi-sdk }}."
+            exit 1
+          fi
+      - name: Test
+        run: yarn workspace @examples/napi test -s
+        env:
+          WASI_TEST: 'true'
+          NODE_OPTIONS: '--max-old-space-size=8192'
+          SKIP_UNWIND_TEST: 1
+
   test-latest-bun:
     runs-on: ubuntu-latest
     name: Test latest bun
@@ -1101,6 +1186,7 @@ jobs:
       - test-custom-async-runtime-wasi
       - test-shared-async-runtime-wasi
       - test-node-wasi
+      - wasi-sdk
       - test-latest-bun
     steps:
       # `skipped` is included because a failed `audit` (or a failed

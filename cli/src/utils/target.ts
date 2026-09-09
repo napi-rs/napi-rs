@@ -1,4 +1,6 @@
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export type Platform = NodeJS.Platform | 'wasm' | 'wasi' | 'openharmony'
 
@@ -154,6 +156,153 @@ export function wasiTargetHasThreads(
   target: string | Pick<Target, 'triple'>,
 ): boolean {
   return getWasiTarget(target)?.flavor === 'threads'
+}
+
+function readTextFileOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Detect the major version of a wasi-sdk installation.
+ *
+ * wasi-libc dropped the unused `int op` parameter from
+ * `__wasilibc_futex_wait_atomic_wait` and `__wasilibc_futex_wait_maybe_busy`,
+ * and wasi-sdk 34 is the first release that ships the 3-argument signature.
+ * Static archives compiled against the two signatures cannot be mixed, so the
+ * emnapi archives have to be picked by wasi-sdk version, not by target triple
+ * alone.
+ *
+ * `<wasiSdkPath>/VERSION` is the primary signal: every release ships it and
+ * its first line is the version (`27.0`, `33.0+m`, `34.0`, ...). The
+ * `wasi/version.h` header carrying `__wasi_sdk_major__` only appears from
+ * wasi-sdk 30 onwards, so it stays a fallback for trees without a `VERSION`.
+ *
+ * Returns `null` when neither signal is readable or parseable. Detection must
+ * never throw: an unknown wasi-sdk degrades to the legacy archives instead of
+ * failing the build.
+ */
+export function wasiSdkMajorVersion(wasiSdkPath: string): number | null {
+  const version = readTextFileOrNull(join(wasiSdkPath, 'VERSION'))
+  if (version) {
+    // `33.0+m` and friends carry a build suffix, so only the leading integer
+    // of the first line is meaningful.
+    const major = /^\s*(\d+)/.exec(version.split('\n', 1)[0])
+    if (major) {
+      return Number(major[1])
+    }
+  }
+  const versionHeader = readTextFileOrNull(
+    join(
+      wasiSdkPath,
+      'share',
+      'wasi-sysroot',
+      'include',
+      'wasm32-wasip1-threads',
+      'wasi',
+      'version.h',
+    ),
+  )
+  if (versionHeader) {
+    const major = /^\s*#\s*define\s+__wasi_sdk_major__\s+(\d+)/m.exec(
+      versionHeader,
+    )
+    if (major) {
+      return Number(major[1])
+    }
+  }
+  return null
+}
+
+/**
+ * Archive member that only exists in a wasi-libc carrying the 3-argument
+ * futex ABI.
+ *
+ * wasi-libc moved the wasi-threads futex helpers out of `__wait.c` and into a
+ * new `futex.c` in the same change that dropped the unused `int op` parameter
+ * (WebAssembly/wasi-libc#846). `__wait.c` still exists afterwards for other
+ * symbols, so the presence of `futex.c` — not the absence of `__wait.c` — is
+ * what separates the two ABIs.
+ */
+const NEW_FUTEX_ABI_ARCHIVE_MEMBER = 'futex.c.obj'
+
+/**
+ * Path to the wasi-libc that cargo links when no wasi-sdk is configured.
+ *
+ * Without `WASI_SDK_PATH` the target links through `rust-lld` against the
+ * wasi-libc bundled with the Rust standard library, so that copy — not a
+ * wasi-sdk — decides the futex ABI.
+ *
+ * `cwd` must be the directory Cargo is spawned in, because that is what
+ * selects the toolchain.
+ *
+ * Returns `null` when `rustc` cannot be queried or the target is not
+ * installed. Never throws: an undetectable sysroot degrades to the legacy
+ * archives.
+ */
+export function rustBundledWasiLibc(
+  wasiTarget: string,
+  cwd?: string,
+): string | null {
+  let sysroot: string
+  try {
+    // `rustc` is a rustup shim: it resolves `rust-toolchain.toml` and any
+    // directory override from its working directory. Cargo is spawned with
+    // the build cwd, so the probe must use the same one or it can read a
+    // different toolchain's wasi-libc than the one that gets linked.
+    // `RUSTC` and `CARGO_BUILD_RUSTC` bypass the shim entirely; Cargo gives
+    // `RUSTC` precedence, so do the same. `build.rustc` from the project's
+    // `.cargo/config.toml` stays out of reach without invoking cargo itself.
+    sysroot = execFileSync(
+      process.env.RUSTC ?? process.env.CARGO_BUILD_RUSTC ?? 'rustc',
+      ['--print', 'sysroot'],
+      {
+        cwd,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    )
+      .toString('utf8')
+      .trim()
+  } catch {
+    return null
+  }
+  if (!sysroot) {
+    return null
+  }
+  return join(
+    sysroot,
+    'lib',
+    'rustlib',
+    wasiTarget,
+    'lib',
+    'self-contained',
+    'libc.a',
+  )
+}
+
+/**
+ * Whether a wasi-libc archive carries the 3-argument futex ABI.
+ *
+ * Returns `null` when the archive cannot be read, so callers can tell
+ * "definitely the legacy ABI" apart from "could not tell".
+ */
+export function wasiLibcHasNewFutexAbi(
+  libcArchivePath: string | null,
+): boolean | null {
+  if (!libcArchivePath) {
+    return null
+  }
+  let archive: Buffer
+  try {
+    archive = readFileSync(libcArchivePath)
+  } catch {
+    return null
+  }
+  return archive.includes(NEW_FUTEX_ABI_ARCHIVE_MEMBER, 0, 'latin1')
 }
 
 /**
