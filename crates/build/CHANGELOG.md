@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.4.1...napi-build-v2.4.2) - 2026-09-10
+
+### Fixed
+
+- *(cli,build)* make wasm32-wasip1-threads link with wasi-sdk 34 and Rust nightly ([#3492](https://github.com/napi-rs/napi-rs/pull/3492))
+
 ## [2.4.1](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.4.0...napi-build-v2.4.1) - 2026-08-10
 
 ### Fixed
