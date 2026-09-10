@@ -19,7 +19,7 @@ export function serializeJson(value: unknown): string {
  * leading blank and keep exactly one trailing newline — no regex rewrite
  * of array contents, which would split commas inside quoted strings.
  */
-export function serializeToml(value: unknown): string {
+export function serializeToml(value: Record<string, unknown>): string {
   let serialized = stringifyToml(value)
   if (serialized.startsWith('\n')) {
     serialized = serialized.slice(1)

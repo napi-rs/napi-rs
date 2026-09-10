@@ -142,6 +142,51 @@ test('no-const-enum string enums keep commas inside variant docs', async (t) => 
   t.false(dts.includes('/** First |'))
 })
 
+test('no-const-enum string enums keep Unicode variant names', async (t) => {
+  const { dts } = await processInlineTypeDef(
+    [
+      {
+        kind: 'string_enum',
+        name: 'Status',
+        def: "成功 = '成功',\n Failed = 'Failed'",
+      },
+    ],
+    false,
+    false,
+  )
+  t.true(dts.includes("export type Status = '成功' | 'Failed'"))
+})
+
+test('no-const-enum string enums keep quoted JS property names', async (t) => {
+  const { dts } = await processInlineTypeDef(
+    [
+      {
+        kind: 'string_enum',
+        name: 'Header',
+        def: "'content-type' = 'content-type',\n Plain = 'plain'",
+      },
+    ],
+    false,
+    false,
+  )
+  t.true(dts.includes("export type Header = 'content-type' | 'plain'"))
+})
+
+test('no-const-enum string enums keep commas and escapes inside values', async (t) => {
+  const { dts } = await processInlineTypeDef(
+    [
+      {
+        kind: 'string_enum',
+        name: 'Label',
+        def: "Csv = 'a,b',\n Quoted = 'say \\'hi\\'',\n Count = 2",
+      },
+    ],
+    false,
+    false,
+  )
+  t.true(dts.includes("export type Label = 'a,b' | 'say \\'hi\\'' | 2"))
+})
+
 test('correctStringIdent keeps nested object-type fields indented', (t) => {
   const input = `export declare function bufferComplexOverride(value: {
   Buffer(): "line"

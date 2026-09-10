@@ -274,9 +274,7 @@ function prettyPrint(
       break
 
     case TypeDefKind.Const:
-      s += ambient
-        ? line.def
-        : line.def.replace(/^export const /, 'export declare const ')
+      s += ambient ? line.def : declareExportedConst(line.def)
       break
 
     default:
@@ -309,15 +307,167 @@ function enumBody(def: string): string {
 }
 
 function unionPart(type: string): string {
-  return /[|&]/.test(type) || type.includes('=>') ? `(${type})` : type
+  return type.includes('|') || type.includes('&') || type.includes('=>')
+    ? `(${type})`
+    : type
 }
 
+const EXPORT_CONST_PREFIX = 'export const '
+
+function declareExportedConst(def: string): string {
+  return def.startsWith(EXPORT_CONST_PREFIX)
+    ? `export declare const ${def.slice(EXPORT_CONST_PREFIX.length)}`
+    : def
+}
+
+function isWhitespace(character: string): boolean {
+  return (
+    character === ' ' ||
+    character === '\t' ||
+    character === '\n' ||
+    character === '\r'
+  )
+}
+
+/**
+ * Walk a rust-emitted string-enum body (`Name = 'value', ...`) and collect
+ * the initializer literals. Comments and commas inside quotes are skipped
+ * by scanning rather than by splitting on `,`.
+ */
 function stringEnumToUnion(def: string): string {
   const values: string[] = []
-  const valueRe = /=\s*('(?:\\'|[^'])*'|-?\d+)\s*(?:,|$)/g
-  for (const match of def.matchAll(valueRe)) {
-    values.push(match[1])
+  let index = 0
+
+  const eof = () => index >= def.length
+  const peek = (offset = 0) => def[index + offset]
+
+  const skipTrivia = () => {
+    while (!eof()) {
+      const character = peek()
+      if (character !== undefined && isWhitespace(character)) {
+        index += 1
+        continue
+      }
+      if (character === '/' && peek(1) === '/') {
+        index += 2
+        while (!eof() && peek() !== '\n') {
+          index += 1
+        }
+        continue
+      }
+      if (character === '/' && peek(1) === '*') {
+        index += 2
+        while (!eof() && !(peek() === '*' && peek(1) === '/')) {
+          index += 1
+        }
+        if (!eof()) {
+          index += 2
+        }
+        continue
+      }
+      return
+    }
   }
+
+  const isNameTerminator = (character: string) =>
+    isWhitespace(character) ||
+    character === '=' ||
+    character === ',' ||
+    character === "'" ||
+    character === '"' ||
+    character === '/'
+
+  const parseName = () => {
+    if (peek() === "'" || peek() === '"') {
+      return parseString() !== undefined
+    }
+    const character = peek()
+    if (
+      character === undefined ||
+      isNameTerminator(character) ||
+      (character >= '0' && character <= '9')
+    ) {
+      return false
+    }
+    index += 1
+    while (!eof()) {
+      const next = peek()
+      if (next === undefined || isNameTerminator(next)) {
+        break
+      }
+      index += 1
+    }
+    return true
+  }
+
+  const parseString = () => {
+    const quote = peek()
+    if (quote !== "'" && quote !== '"') {
+      return
+    }
+    let end = index + 1
+    while (end < def.length) {
+      if (def[end] === '\\') {
+        end += 2
+        continue
+      }
+      if (def[end] === quote) {
+        const literal = def.slice(index, end + 1)
+        index = end + 1
+        return literal
+      }
+      end += 1
+    }
+    return
+  }
+
+  const parseNumber = () => {
+    let end = index
+    if (def[end] === '-') {
+      end += 1
+    }
+    const firstDigit = def[end]
+    if (firstDigit === undefined || firstDigit < '0' || firstDigit > '9') {
+      return
+    }
+    end += 1
+    while (end < def.length) {
+      const digit = def[end]
+      if (digit === undefined || digit < '0' || digit > '9') {
+        break
+      }
+      end += 1
+    }
+    const literal = def.slice(index, end)
+    index = end
+    return literal
+  }
+
+  while (!eof()) {
+    skipTrivia()
+    if (eof()) {
+      break
+    }
+    if (peek() === ',') {
+      index += 1
+      continue
+    }
+    if (!parseName()) {
+      index += 1
+      continue
+    }
+    skipTrivia()
+    if (peek() !== '=') {
+      continue
+    }
+    index += 1
+    skipTrivia()
+    const value = parseString() ?? parseNumber()
+    if (value !== undefined) {
+      values.push(value)
+    }
+  }
+
   return values.join(' | ')
 }
 
