@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.4](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fwasm-runtime%401.2.3...%40napi-rs%2Fwasm-runtime%401.2.4) (2026-09-10)
+
+### Bug Fixes
+
+* **cli:** align generated file formats ([#3501](https://github.com/napi-rs/napi-rs/issues/3501)) ([f772ee0](https://github.com/napi-rs/napi-rs/commit/f772ee0aabf4dbb27250a8df47a73463e8f78cf4))
+
+
 ## [1.2.3](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fwasm-runtime%401.2.2...%40napi-rs%2Fwasm-runtime%401.2.3) (2026-08-12)
 
 ### Bug Fixes

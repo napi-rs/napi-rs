@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.9.1](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.9.0...%40napi-rs%2Fcli%403.9.1) (2026-09-10)
+
+### Bug Fixes
+
+* **cli,build:** make wasm32-wasip1-threads link with wasi-sdk 34 and Rust nightly ([#3492](https://github.com/napi-rs/napi-rs/issues/3492)) ([9097ec1](https://github.com/napi-rs/napi-rs/commit/9097ec16f06a0fdd1be16ad13c531fa0edeb81e5)), closes [WebAssembly/wasi-libc#846](https://github.com/WebAssembly/wasi-libc/issues/846) [#3491](https://github.com/napi-rs/napi-rs/issues/3491) [rust-lang/rust#161773](https://github.com/rust-lang/rust/issues/161773) [rust-lang/rust#161421](https://github.com/rust-lang/rust/issues/161421)
+* **cli:** align generated file formats ([#3501](https://github.com/napi-rs/napi-rs/issues/3501)) ([f772ee0](https://github.com/napi-rs/napi-rs/commit/f772ee0aabf4dbb27250a8df47a73463e8f78cf4))
+* **cli:** use accessible WASI preopen root on Android ([#3485](https://github.com/napi-rs/napi-rs/issues/3485)) ([1cf5ec5](https://github.com/napi-rs/napi-rs/commit/1cf5ec573637d96dddb77b1a0ae6aaf316739bd0))
+* **deps:** update dependency js-yaml to v5 ([#3344](https://github.com/napi-rs/napi-rs/issues/3344)) ([0238e8b](https://github.com/napi-rs/napi-rs/commit/0238e8b1b8fcafa2261d4d1b96e7568dd0fb1fc3))
+
+
 # [3.9.0](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.8.6...%40napi-rs%2Fcli%403.9.0) (2026-09-02)
 
 ### Bug Fixes
