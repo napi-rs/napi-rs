@@ -27,8 +27,9 @@
     "build:bench": "yarn workspace bench build",
     "build:memory": "yarn workspace memory-testing build",
     "build:test": "lerna run build --stream --concurrency 1 --scope=\"@examples/*\"",
-    "format": "run-p format:prettier format:rs format:toml",
-    "format:prettier": "prettier . -w",
+    "format": "run-p format:oxfmt format:rs format:toml",
+    "format:oxfmt": "oxfmt",
+    "format:check": "oxfmt --check",
     "format:rs": "cargo fmt",
     "format:toml": "taplo format",
     "lint": "oxlint --import-plugin --ignore-path=./.oxlintignore --deny-warnings -c oxlint.json",
@@ -45,19 +46,12 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "homepage": "https://github.com/napi-rs/napi-rs#readme",
-  "prettier": {
-    "printWidth": 80,
-    "semi": false,
-    "singleQuote": true,
-    "trailingComma": "all",
-    "arrowParens": "always"
-  },
   "lint-staged": {
     "*.@(js|ts)": [
       "oxlint --import-plugin --ignore-path=./.oxlintignore --deny-warnings -D correctness --fix"
     ],
-    "*.@(js||ts|json|md|yml|yaml)": [
-      "prettier --write"
+    "*.@(js|cjs|mjs|ts|cts|mts|json|md|yml|yaml)": [
+      "oxfmt --no-error-on-unmatched-pattern"
     ],
     "*.toml": [
       "taplo format"
@@ -83,8 +77,8 @@
     "lerna": "^10.0.0",
     "lint-staged": "^17.0.7",
     "npm-run-all2": "^9.0.1",
+    "oxfmt": "^0.67.0",
     "oxlint": "^1.81.0",
-    "prettier": "^3.8.3",
     "shx": "^0.4.0",
     "sinon": "^22.0.0",
     "source-map-support": "^0.5.21",

@@ -102,6 +102,9 @@ jobs:
       - name: 'Lint JS/TS'
         run: yarn lint
 
+      - name: 'Check JS/TS format'
+        run: yarn format:check
+
       - name: Cargo fmt
         run: cargo fmt -- --check
 

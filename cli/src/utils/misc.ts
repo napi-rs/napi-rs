@@ -133,7 +133,8 @@ interface ReconciliationReclaimState {
 }
 
 type ReconciliationMetadataOwner =
-  ReconciliationLockOwner | ReconciliationReclaimOwner
+  | ReconciliationLockOwner
+  | ReconciliationReclaimOwner
 
 interface ReconciliationCandidateState {
   owner: ReconciliationMetadataOwner
