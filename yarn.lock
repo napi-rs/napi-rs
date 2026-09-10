@@ -1631,7 +1631,7 @@ __metadata:
     env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.47.0"
     js-yaml: "npm:^5.0.0"
-    obug: "npm:^2.1.2"
+    obug: "npm:^3.0.0"
     oxc-parser: "npm:^0.149.0"
     semver: "npm:^7.8.2"
     tsdown: "npm:^0.23.0"
@@ -10181,10 +10181,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"obug@npm:^2.1.2, obug@npm:^2.1.4":
+"obug@npm:^2.1.4":
   version: 2.1.4
   resolution: "obug@npm:2.1.4"
   checksum: 10c0/34a0ee97cd88573cfd97d384c2a79f07118ae5680d7e45d1de6e99c74eddefe145e8ca27a2db02195a1ee5fded5aa22b924869c842728c201b9f109a27d0ef19
+  languageName: node
+  linkType: hard
+
+"obug@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "obug@npm:3.0.0"
+  checksum: 10c0/985625b70ea05a39956da94f406040a0c7d27b1699a14af87b1ea75cba915b5957b75c4acdaccaefa2a86eaf40fc968bc00f6c28755a91496fc91a92b1513b38
   languageName: node
   linkType: hard
 
