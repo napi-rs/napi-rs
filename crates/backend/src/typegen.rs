@@ -616,11 +616,11 @@ fn handle_threadsafe_function_type(args: &[(String, bool)]) -> Option<(String, b
     } else {
       format!("(err: Error | null, {fn_args})")
     };
-    Some((format!("{args} => {return_ty}"), false))
+    Some((format!("({args} => {return_ty})"), false))
   } else if fn_args.is_empty() {
-    Some((format!("() => {return_ty}"), false))
+    Some((format!("(() => {return_ty})"), false))
   } else {
-    Some((format!("({fn_args}) => {return_ty}"), false))
+    Some((format!("(({fn_args}) => {return_ty})"), false))
   }
 }
 
@@ -1151,9 +1151,17 @@ mod tests {
     let ty: syn::Type =
       syn::parse_str("ThreadsafeFunction<(), ()>").expect("ThreadsafeFunction<(), ()> must parse");
     let (ts, _) = ty_to_ts_type(&ty, false, false, false);
-    assert_eq!(ts, "(err: Error | null) => void");
+    assert_eq!(ts, "((err: Error | null) => void)");
     assert!(!ts.contains(", )"));
     assert!(!ts.contains(",)"));
+  }
+
+  #[test]
+  fn threadsafe_function_in_either_is_parenthesized() {
+    let ty: syn::Type = syn::parse_str("Either<String, ThreadsafeFunction<i32, i32>>")
+      .expect("Either<String, ThreadsafeFunction<i32, i32>> must parse");
+    let (ts, _) = ty_to_ts_type(&ty, false, false, false);
+    assert_eq!(ts, "string | ((err: Error | null, arg: number) => number)");
   }
 
   #[test]

@@ -313,18 +313,12 @@ function unionPart(type: string): string {
 }
 
 function stringEnumToUnion(def: string): string {
-  return def
-    .split(',')
-    .map((variant) => {
-      const trimmed = variant.trim()
-      if (!trimmed) {
-        return ''
-      }
-      const separator = trimmed.indexOf('=')
-      return separator === -1 ? trimmed : trimmed.slice(separator + 1).trim()
-    })
-    .filter(Boolean)
-    .join(' | ')
+  const values: string[] = []
+  const valueRe = /=\s*('(?:\\'|[^'])*'|-?\d+)\s*(?:,|$)/g
+  for (const match of def.matchAll(valueRe)) {
+    values.push(match[1])
+  }
+  return values.join(' | ')
 }
 
 /**

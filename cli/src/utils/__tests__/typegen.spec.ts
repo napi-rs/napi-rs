@@ -126,6 +126,22 @@ test('no-const-enum string enums emit a spaced union', async (t) => {
   t.false(dts.includes("'Active'|"))
 })
 
+test('no-const-enum string enums keep commas inside variant docs', async (t) => {
+  const { dts } = await processInlineTypeDef(
+    [
+      {
+        kind: 'string_enum',
+        name: 'Status',
+        def: "/** First, documented variant */\n Active = 'Active',\n Inactive = 'Inactive'",
+      },
+    ],
+    false,
+    false,
+  )
+  t.true(dts.includes("export type Status = 'Active' | 'Inactive'"))
+  t.false(dts.includes('/** First |'))
+})
+
 test('correctStringIdent keeps nested object-type fields indented', (t) => {
   const input = `export declare function bufferComplexOverride(value: {
   Buffer(): "line"

@@ -40,12 +40,16 @@ test('serializeYaml always ends with a trailing newline', (t) => {
   t.false(serialized.endsWith('\n\n'))
 })
 
-test('serializeToml puts spaces after commas in arrays', (t) => {
+test('serializeToml does not rewrite commas inside quoted strings', (t) => {
   const serialized = serializeToml({
-    dependencies: {
-      napi: { features: ['napi2', 'serde-json'] },
+    lib: { include: ['src/a,b.rs'] },
+    package: {
+      name: 'demo',
+      description: 'uses = [a,b] in a scalar',
     },
   })
-  t.true(serialized.includes('features = ["napi2", "serde-json"]'))
-  t.false(serialized.includes('["napi2","serde-json"]'))
+  t.true(serialized.includes('include = ["src/a,b.rs"]'))
+  t.true(serialized.includes('description = "uses = [a,b] in a scalar"'))
+  t.false(serialized.includes('src/a, b.rs'))
+  t.false(serialized.includes('= [a, b]'))
 })

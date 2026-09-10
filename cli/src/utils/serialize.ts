@@ -14,25 +14,16 @@ export function serializeJson(value: unknown): string {
 /**
  * Canonical TOML for files the CLI rewrites (Cargo.toml).
  *
- * `@std/toml` stringify inserts a leading blank line, drops comments, and
- * emits `["a","b"]`. We cannot preserve comments through parse→stringify,
- * but we can match taplo/repo style for whitespace: no leading blank,
- * spaces after array commas, exactly one trailing newline.
+ * `@std/toml` stringify inserts a leading blank line and drops comments.
+ * We cannot preserve comments through parse→stringify. We only strip the
+ * leading blank and keep exactly one trailing newline — no regex rewrite
+ * of array contents, which would split commas inside quoted strings.
  */
 export function serializeToml(value: unknown): string {
   let serialized = stringifyToml(value)
   if (serialized.startsWith('\n')) {
     serialized = serialized.slice(1)
   }
-  serialized = serialized.replace(
-    / = \[([^\]]*)\]/g,
-    (_match, inner: string) =>
-      ` = [${inner
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .join(', ')}]`,
-  )
   if (!serialized.endsWith('\n')) {
     serialized += '\n'
   }
