@@ -547,6 +547,8 @@ export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
 
+export declare function arrayBufferFromExternalReadBack(): string
+
 export declare function arrayBufferLenAsync(buf: Uint8Array): Promise<number>
 
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
@@ -1643,6 +1645,10 @@ export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 export declare function uint8ArrayFromData(): Uint8Array
 
 export declare function uint8ArrayFromExternal(): Uint8Array
+
+export declare function uint8ArraySliceFromExternalReadBack(): string
+
+export declare function uint8ClampedSliceFromExternalReadBack(): string
 
 export interface UseNullableStruct {
   requiredNumberField: number

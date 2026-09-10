@@ -486,6 +486,42 @@ pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
   input.arraybuffer.len()
 }
 
+// Regression coverage for the `napi_no_external_buffers_allowed` fallback in
+// the `from_external` constructors (`ArrayBuffer`, `*ArraySlice`,
+// `Uint8ClampedSlice`): the fallback copies into an engine-owned
+// `ArrayBuffer`, runs `finalize` (which reclaims the caller's data), and the
+// returned slice must then point at the copy, not the freed pointer. Native
+// Node takes the zero-copy external path, so these read-backs only exercise
+// the fallback on engines without external buffers (Electron); there a stale
+// pointer reads freed memory instead of the probe bytes.
+
+// Recycle the freed chunk before reading back, so a stale pointer sees the
+// marker bytes instead of (non-deterministically) the not-yet-reused source.
+fn groom_freed_external(len: usize) -> Vec<Vec<u8>> {
+  (0..2000).map(|_| vec![0xFFu8; len]).collect()
+}
+
+#[napi]
+pub fn array_buffer_from_external_read_back(env: &Env) -> Result<String> {
+  let value = array_buffer_from_external(env)?;
+  let _groom = groom_freed_external(value.len());
+  Ok(String::from_utf8_lossy(&value).into_owned())
+}
+
+#[napi]
+pub fn uint8_array_slice_from_external_read_back(env: &Env) -> Result<String> {
+  let value = uint8_array_from_external(env)?;
+  let _groom = groom_freed_external(value.len());
+  Ok(String::from_utf8_lossy(value.as_ref()).into_owned())
+}
+
+#[napi]
+pub fn uint8_clamped_slice_from_external_read_back(env: &Env) -> Result<String> {
+  let value = create_uint8_clamped_array_from_external(env)?;
+  let _groom = groom_freed_external(value.len());
+  Ok(String::from_utf8_lossy(value.as_ref()).into_owned())
+}
+
 #[napi]
 pub fn mutate_arraybuffer(mut buf: ArrayBuffer) {
   for item in unsafe { buf.as_mut() } {

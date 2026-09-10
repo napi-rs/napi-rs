@@ -317,6 +317,9 @@ import {
   uint8ArrayFromData,
   createUint8ClampedArrayFromExternal,
   uint8ArrayFromExternal,
+  arrayBufferFromExternalReadBack,
+  uint8ArraySliceFromExternalReadBack,
+  uint8ClampedSliceFromExternalReadBack,
   Thing,
   ThingList,
   createFunction,
@@ -1652,6 +1655,19 @@ for (const [name, readBack, mutated] of [
     }
   })
 }
+
+// Regression for the `from_external` copy fallback on `ArrayBuffer`,
+// `Uint8ArraySlice` and `Uint8ClampedSlice`: the fallback copies into an
+// engine-owned ArrayBuffer and runs `finalize`, which reclaims the caller's
+// data, so the returned slice must point at the copy. Native Node takes the
+// zero-copy external path, so these read-backs only discriminate on engines
+// without external buffers (Electron) — there a stale pointer reads freed
+// memory instead of the probe bytes.
+test('from_external constructors read back the copied data on the fallback', (t) => {
+  t.is(arrayBufferFromExternalReadBack(), 'Hello world from external')
+  t.is(uint8ArraySliceFromExternalReadBack(), 'Hello world')
+  t.is(uint8ClampedSliceFromExternalReadBack(), 'Hello world')
+})
 
 test('buffer', (t) => {
   let buf = getBuffer()

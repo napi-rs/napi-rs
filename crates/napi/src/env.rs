@@ -583,6 +583,9 @@ impl Env {
   {
     let mut raw_value = ptr::null_mut();
     let hint_ptr = Box::into_raw(Box::new((hint, finalize_callback)));
+    // `finalize` below reclaims `data`; on the copy fallback the value must
+    // point at the engine-owned copy instead.
+    let mut data_ptr: *mut c_void = data.cast();
     unsafe {
       let status = sys::napi_create_external_arraybuffer(
         self.0,
@@ -618,6 +621,9 @@ impl Env {
         // Always call finalize to clean up caller's resources, even on error
         finalize(*self, hint);
         check_status!(status, "Failed to create arraybuffer")?;
+        if length > 0 {
+          data_ptr = underlying_data;
+        }
       } else {
         check_status!(status)?;
       }
@@ -628,7 +634,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data as *mut c_void,
+      data_ptr,
       length,
     ))
   }

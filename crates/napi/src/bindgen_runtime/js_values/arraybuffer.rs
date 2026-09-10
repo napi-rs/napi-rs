@@ -267,6 +267,9 @@ impl<'env> ArrayBuffer<'env> {
         &mut arraybuffer_value,
       )
     };
+    // `finalize` below reclaims `data`; on the copy fallback the slice must
+    // point at the engine-owned copy instead.
+    let mut data_ptr = data;
     if status == sys::Status::napi_no_external_buffers_allowed {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       let mut underlying_data = ptr::null_mut();
@@ -280,6 +283,7 @@ impl<'env> ArrayBuffer<'env> {
       // Always call finalize to clean up caller's resources, even on error
       finalize(*env, hint);
       check_status!(status, "Failed to create arraybuffer from data")?;
+      data_ptr = underlying_data.cast();
     } else {
       check_status!(status, "Failed to create arraybuffer from data")?;
     }
@@ -293,7 +297,7 @@ impl<'env> ArrayBuffer<'env> {
       data: if len == 0 {
         &[]
       } else {
-        unsafe { std::slice::from_raw_parts(data.cast(), len) }
+        unsafe { std::slice::from_raw_parts(data_ptr, len) }
       },
     })
   }
@@ -1125,6 +1129,9 @@ macro_rules! impl_from_slice {
             &mut arraybuffer_value,
           )
         };
+        // `finalize` below reclaims `data`; on the copy fallback `inner` must
+        // point at the engine-owned copy instead.
+        let mut inner_ptr: *mut $rust_type = data;
         if status == sys::Status::napi_no_external_buffers_allowed {
           let (hint, finalize) = *Box::from_raw(hint_ptr);
           let mut underlying_data = ptr::null_mut();
@@ -1145,6 +1152,7 @@ macro_rules! impl_from_slice {
           // Always call finalize to clean up caller's resources, even on error
           finalize(*env, hint);
           check_status!(status, "Failed to create arraybuffer from data")?;
+          inner_ptr = underlying_data.cast();
         } else {
           check_status!(status, "Failed to create arraybuffer from data")?;
         }
@@ -1168,7 +1176,7 @@ macro_rules! impl_from_slice {
           inner: if data_len == 0 {
             NonNull::dangling()
           } else {
-            unsafe { NonNull::new_unchecked(data.cast()) }
+            unsafe { NonNull::new_unchecked(inner_ptr) }
           },
           length: data_len,
           raw_value: napi_val,
@@ -1844,6 +1852,9 @@ impl<'env> Uint8ClampedSlice<'env> {
         &mut arraybuffer_value,
       )
     };
+    // `finalize` below reclaims `data`; on the copy fallback `inner` must
+    // point at the engine-owned copy instead.
+    let mut inner_ptr: *mut u8 = data;
     if status == sys::Status::napi_no_external_buffers_allowed {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       let mut underlying_data = ptr::null_mut();
@@ -1859,6 +1870,7 @@ impl<'env> Uint8ClampedSlice<'env> {
       // Always call finalize to clean up caller's resources, even on error
       finalize(*env, hint);
       check_status!(status, "Failed to create arraybuffer from data")?;
+      inner_ptr = underlying_data.cast();
     } else {
       check_status!(status, "Failed to create arraybuffer from data")?;
     }
@@ -1882,7 +1894,7 @@ impl<'env> Uint8ClampedSlice<'env> {
       inner: if len == 0 {
         NonNull::dangling()
       } else {
-        unsafe { NonNull::new_unchecked(data.cast()) }
+        unsafe { NonNull::new_unchecked(inner_ptr) }
       },
       length: len,
       raw_value: napi_val,

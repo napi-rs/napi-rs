@@ -57,6 +57,9 @@ async function main() {
     uint8ArrayFromData,
     uint8ArrayFromExternal,
     arrayBufferFromData,
+    arrayBufferFromExternalReadBack,
+    uint8ArraySliceFromExternalReadBack,
+    uint8ClampedSliceFromExternalReadBack,
     createExternalTypedArray,
     createReadableStream,
   } = require('./index.cjs')
@@ -102,6 +105,15 @@ async function main() {
     Buffer.from(createUint8ClampedArrayFromExternal()).toString('utf8'),
     'Hello world',
   )
+  // Rust-side read-back of the `from_external` constructors: Electron takes
+  // the `napi_no_external_buffers_allowed` fallback, so a slice still pointing
+  // at the finalized (freed) source reads groomed marker bytes here.
+  assert.strictEqual(
+    arrayBufferFromExternalReadBack(),
+    'Hello world from external',
+  )
+  assert.strictEqual(uint8ArraySliceFromExternalReadBack(), 'Hello world')
+  assert.strictEqual(uint8ClampedSliceFromExternalReadBack(), 'Hello world')
   assert(Buffer.from(arrayBufferFromData()).toString('utf8'), 'Hello world')
   assert(Buffer.from(uint8ArrayFromData()).toString('utf8'), 'Hello world')
   assert(Buffer.from(uint8ArrayFromExternal()).toString('utf8'), 'Hello world')
