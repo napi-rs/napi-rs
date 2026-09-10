@@ -81,8 +81,7 @@ async function main() {
   })
 
   assert(
-    value ===
-      Array.from({ length: 100 }, (_, i) => i).reduce((a, b) => a + b),
+    value === Array.from({ length: 100 }, (_, i) => i).reduce((a, b) => a + b),
   )
   console.info(createExternalTypedArray())
 
@@ -95,8 +94,14 @@ async function main() {
 
   assert(getBufferSlice().toString('utf8'), 'Hello world')
   assert(createExternalBufferSlice().toString('utf8'), 'Hello world')
-  assert(Buffer.from(createUint8ClampedArrayFromData()).toString('utf8'), 'Hello world')
-  assert(Buffer.from(createUint8ClampedArrayFromExternal()).toString('utf8'), 'Hello world')
+  assert(
+    Buffer.from(createUint8ClampedArrayFromData()).toString('utf8'),
+    'Hello world',
+  )
+  assert(
+    Buffer.from(createUint8ClampedArrayFromExternal()).toString('utf8'),
+    'Hello world',
+  )
   assert(Buffer.from(arrayBufferFromData()).toString('utf8'), 'Hello world')
   assert(Buffer.from(uint8ArrayFromData()).toString('utf8'), 'Hello world')
   assert(Buffer.from(uint8ArrayFromExternal()).toString('utf8'), 'Hello world')

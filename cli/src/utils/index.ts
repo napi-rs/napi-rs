@@ -1,5 +1,6 @@
 export * from './log.js'
 export * from './misc.js'
+export * from './serialize.js'
 export * from './target.js'
 export * from './version.js'
 export * from './metadata.js'

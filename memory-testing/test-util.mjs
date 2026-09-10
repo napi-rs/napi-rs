@@ -6,7 +6,10 @@ import prettyBytes from 'pretty-bytes'
 
 const client = new Dockerode()
 
-export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) {
+export async function createSuite(
+  testFile,
+  maxMemoryUsage = 256 * 1024 * 1024,
+) {
   console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({

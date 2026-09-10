@@ -11,7 +11,7 @@ const debug = debugFactory('build')
 export class BuildCommand extends BaseBuildCommand {
   pipe = Option.String('--pipe', {
     description:
-      'Pipe all outputs file to given command. e.g. `napi build --pipe "npx prettier --write"`',
+      'Pipe all outputs file to given command. e.g. `napi build --pipe "npx oxfmt"`',
   })
 
   cargoOptions = Option.Rest()

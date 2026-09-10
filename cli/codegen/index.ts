@@ -313,7 +313,7 @@ function codegen() {
   })
 
   outputs.forEach((output) => {
-    execSync(`yarn prettier -w ${output}`)
+    execSync(`yarn oxfmt ${output}`)
   })
 }
 

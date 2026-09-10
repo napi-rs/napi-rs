@@ -4,8 +4,8 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 
-import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
-import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
+import { parse as parseToml } from '@std/toml'
+import { load as yamlLoad } from 'js-yaml'
 
 import {
   applyDefaultNewOptions,
@@ -15,6 +15,9 @@ import {
   AVAILABLE_TARGETS,
   CLI_VERSION,
   debugFactory,
+  serializeJson,
+  serializeToml,
+  serializeYaml,
   DEFAULT_TARGETS,
   getWasiTarget,
   mkdirAsync,
@@ -347,7 +350,7 @@ async function filterTargetsInPackageJson(
     }
   }
 
-  await fs.writeFile(filePath, JSON.stringify(packageJson, null, 2) + '\n')
+  await fs.writeFile(filePath, serializeJson(packageJson))
   await updateGeneratedWasiAttributes(
     path.join(path.dirname(filePath), '.gitattributes'),
     packageJson.napi.binaryName,
@@ -381,10 +384,10 @@ async function updateGeneratedWasiAttributes(
       generatedFiles.add(`${binaryName}.${suffix}-deferred.d.ts`)
     }
   }
+  while (lines[lines.length - 1] === '') {
+    lines.pop()
+  }
   if (generatedFiles.size > 0) {
-    while (lines[lines.length - 1] === '') {
-      lines.pop()
-    }
     lines.push(
       '',
       ...[...generatedFiles].map((file) => `${file} linguist-detectable=false`),
@@ -429,7 +432,7 @@ async function updateCargoTomlTypeDef(
 
   dependencies['napi-derive'] = dependencyConfig
 
-  await fs.writeFile(filePath, stringifyToml(cargoToml))
+  await fs.writeFile(filePath, serializeToml(cargoToml))
 }
 
 export async function updateCargoTomlNodeApiVersion(
@@ -475,7 +478,7 @@ export async function updateCargoTomlNodeApiVersion(
 
   dependencies.napi = dependencyConfig
 
-  await fs.writeFile(filePath, stringifyToml(cargoToml))
+  await fs.writeFile(filePath, serializeToml(cargoToml))
 }
 
 async function filterTargetsInGithubActions(
@@ -683,12 +686,7 @@ async function filterTargetsInGithubActions(
   }
 
   // Write back the filtered YAML
-  const updatedYaml = yamlDump(yaml, {
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: false,
-  })
-  await fs.writeFile(filePath, updatedYaml)
+  await fs.writeFile(filePath, serializeYaml(yaml))
 }
 
 function processOptions(options: RawNewOptions) {
@@ -853,10 +851,7 @@ export async function newProject(userOptions: RawNewOptions) {
         )
       }
 
-      await fs.writeFile(
-        packageJsonPath,
-        JSON.stringify(pkgJson, null, 2) + '\n',
-      )
+      await fs.writeFile(packageJsonPath, serializeJson(pkgJson))
     } catch (error) {
       throw new Error(`Failed to create project: ${error}`)
     }

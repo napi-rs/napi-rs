@@ -206,23 +206,28 @@ function prettyPrint(
       s += `export interface ${line.name} {\n${line.def}\n}`
       break
 
-    case TypeDefKind.Type:
-      s += `export type ${line.name} = \n${line.def}`
+    case TypeDefKind.Type: {
+      const def = line.def.trim()
+      s +=
+        def.startsWith('|') || def.includes('\n')
+          ? `export type ${line.name} =\n${line.def}`
+          : `export type ${line.name} = ${def}`
       break
+    }
 
     case TypeDefKind.Enum: {
       const enumName = constEnum ? 'const enum' : 'enum'
-      s += `${exportDeclare(ambient)} ${enumName} ${line.name} {\n${line.def}\n}`
+      s += `${exportDeclare(ambient)} ${enumName} ${line.name} ${enumBody(line.def)}`
       break
     }
 
     case TypeDefKind.StringEnum: {
       if (constEnum) {
-        s += `${exportDeclare(ambient)} const enum ${line.name} {\n${line.def}\n}`
+        s += `${exportDeclare(ambient)} const enum ${line.name} ${enumBody(line.def)}`
       } else if (runtimeStringEnum) {
-        s += `${exportDeclare(ambient)} enum ${line.name} {\n${line.def}\n}`
+        s += `${exportDeclare(ambient)} enum ${line.name} ${enumBody(line.def)}`
       } else {
-        s += `export type ${line.name} = ${line.def.replaceAll(/.*=/g, '').replaceAll(',', '|')};`
+        s += `export type ${line.name} = ${stringEnumToUnion(line.def)}`
       }
       break
     }
@@ -238,7 +243,7 @@ function prettyPrint(
         // Runtime instances inherit from Iterator.prototype when it exists,
         // but the generated constructor does not extend the global Iterator.
         const [T, TResult, TNext] = iteratorTypes
-        const resultType = `(${TResult}) | undefined`
+        const resultType = `${unionPart(TResult)} | undefined`
         classDef +=
           `\n[globalThis.Symbol.iterator](): this` +
           `\nnext(...[value]: [] | [${TNext}]): globalThis.IteratorResult<${T}, ${resultType}>` +
@@ -256,7 +261,7 @@ function prettyPrint(
         const [T, TResult, TNext] = line.asyncIterator
         classDef += `\n[globalThis.Symbol.asyncIterator](): globalThis.${asyncGeneratorHelperName}<${line.name}, ${T}, ${TResult}, ${TNext}>`
       }
-      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${classDef}\n}`
+      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} ${blockBody(classDef)}`
       s += iteratorInterface
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
@@ -266,6 +271,10 @@ function prettyPrint(
 
     case TypeDefKind.Fn:
       s += `${exportDeclare(ambient)} ${line.def}`
+      break
+
+    case TypeDefKind.Const:
+      s += ambient ? line.def : declareExportedConst(line.def)
       break
 
     default:
@@ -281,6 +290,185 @@ function exportDeclare(ambient: boolean): string {
   }
 
   return 'export declare'
+}
+
+function blockBody(def: string): string {
+  const body = def.trim()
+  return body ? `{\n${def}\n}` : '{}'
+}
+
+function enumBody(def: string): string {
+  const body = def.trim()
+  if (!body) {
+    return '{}'
+  }
+  const withTrailingComma = body.endsWith(',') ? def : `${def},`
+  return `{\n${withTrailingComma}\n}`
+}
+
+function unionPart(type: string): string {
+  return type.includes('|') || type.includes('&') || type.includes('=>')
+    ? `(${type})`
+    : type
+}
+
+const EXPORT_CONST_PREFIX = 'export const '
+
+function declareExportedConst(def: string): string {
+  return def.startsWith(EXPORT_CONST_PREFIX)
+    ? `export declare const ${def.slice(EXPORT_CONST_PREFIX.length)}`
+    : def
+}
+
+function isWhitespace(character: string): boolean {
+  return (
+    character === ' ' ||
+    character === '\t' ||
+    character === '\n' ||
+    character === '\r'
+  )
+}
+
+/**
+ * Walk a rust-emitted string-enum body (`Name = 'value', ...`) and collect
+ * the initializer literals. Comments and commas inside quotes are skipped
+ * by scanning rather than by splitting on `,`.
+ */
+function stringEnumToUnion(def: string): string {
+  const values: string[] = []
+  let index = 0
+
+  const eof = () => index >= def.length
+  const peek = (offset = 0) => def[index + offset]
+
+  const skipTrivia = () => {
+    while (!eof()) {
+      const character = peek()
+      if (character !== undefined && isWhitespace(character)) {
+        index += 1
+        continue
+      }
+      if (character === '/' && peek(1) === '/') {
+        index += 2
+        while (!eof() && peek() !== '\n') {
+          index += 1
+        }
+        continue
+      }
+      if (character === '/' && peek(1) === '*') {
+        index += 2
+        while (!eof() && !(peek() === '*' && peek(1) === '/')) {
+          index += 1
+        }
+        if (!eof()) {
+          index += 2
+        }
+        continue
+      }
+      return
+    }
+  }
+
+  const isNameTerminator = (character: string) =>
+    isWhitespace(character) ||
+    character === '=' ||
+    character === ',' ||
+    character === "'" ||
+    character === '"' ||
+    character === '/'
+
+  const parseName = () => {
+    if (peek() === "'" || peek() === '"') {
+      return parseString() !== undefined
+    }
+    const character = peek()
+    if (
+      character === undefined ||
+      isNameTerminator(character) ||
+      (character >= '0' && character <= '9')
+    ) {
+      return false
+    }
+    index += 1
+    while (!eof()) {
+      const next = peek()
+      if (next === undefined || isNameTerminator(next)) {
+        break
+      }
+      index += 1
+    }
+    return true
+  }
+
+  const parseString = () => {
+    const quote = peek()
+    if (quote !== "'" && quote !== '"') {
+      return
+    }
+    let end = index + 1
+    while (end < def.length) {
+      if (def[end] === '\\') {
+        end += 2
+        continue
+      }
+      if (def[end] === quote) {
+        const literal = def.slice(index, end + 1)
+        index = end + 1
+        return literal
+      }
+      end += 1
+    }
+    return
+  }
+
+  const parseNumber = () => {
+    let end = index
+    if (def[end] === '-') {
+      end += 1
+    }
+    const firstDigit = def[end]
+    if (firstDigit === undefined || firstDigit < '0' || firstDigit > '9') {
+      return
+    }
+    end += 1
+    while (end < def.length) {
+      const digit = def[end]
+      if (digit === undefined || digit < '0' || digit > '9') {
+        break
+      }
+      end += 1
+    }
+    const literal = def.slice(index, end)
+    index = end
+    return literal
+  }
+
+  while (!eof()) {
+    skipTrivia()
+    if (eof()) {
+      break
+    }
+    if (peek() === ',') {
+      index += 1
+      continue
+    }
+    if (!parseName()) {
+      index += 1
+      continue
+    }
+    skipTrivia()
+    if (peek() !== '=') {
+      continue
+    }
+    index += 1
+    skipTrivia()
+    const value = parseString() ?? parseNumber()
+    if (value !== undefined) {
+      values.push(value)
+    }
+  }
+
+  return values.join(' | ')
 }
 
 /**
@@ -452,7 +640,7 @@ function renderTypeDefs(
         })
         .join('\n\n'),
     )
-    .join('\n')
+    .join('\n\n')
   const globalDeclarations = []
   if (hasIteratorClass) {
     globalDeclarations.push(ITERATOR_OBJECT_COMPATIBILITY_DECLARATION)
@@ -1424,43 +1612,66 @@ export function correctStringIdent(src: string, ident: number): string {
   let bracketDepth = 0
   const result = src
     .split('\n')
-    .map((line) => {
-      line = line.trim()
+    .map((rawLine) => {
+      const line = rawLine.trim()
       if (line === '') {
         return ''
       }
 
       const isInMultilineComment = line.startsWith('*')
-      const isClosingBracket = line.endsWith('}')
-      const isOpeningBracket = line.endsWith('{')
       const isTypeDeclaration = line.endsWith('=')
-      const isTypeVariant = line.startsWith('|')
+      const netBraces = isInMultilineComment ? 0 : netUnquotedBraces(line)
 
-      let rightIndent = ident
-      if ((isOpeningBracket || isTypeDeclaration) && !isInMultilineComment) {
-        bracketDepth += 1
-        rightIndent += (bracketDepth - 1) * 2
-      } else {
-        if (
-          isClosingBracket &&
-          bracketDepth > 0 &&
-          !isInMultilineComment &&
-          !isTypeVariant
-        ) {
-          bracketDepth -= 1
-        }
-        rightIndent += bracketDepth * 2
+      if (netBraces < 0 && !line.startsWith('|')) {
+        bracketDepth = Math.max(0, bracketDepth + netBraces)
       }
 
+      let rightIndent = ident + bracketDepth * 2
       if (isInMultilineComment) {
         rightIndent += 1
       }
 
-      const s = `${' '.repeat(rightIndent)}${line}`
+      if (netBraces > 0) {
+        bracketDepth += netBraces
+      } else if (
+        isTypeDeclaration &&
+        !isInMultilineComment &&
+        netBraces === 0
+      ) {
+        bracketDepth += 1
+      }
 
-      return s
+      return `${' '.repeat(rightIndent)}${line}`
     })
     .join('\n')
 
   return result
+}
+
+function netUnquotedBraces(line: string): number {
+  let net = 0
+  let quote: "'" | '"' | '`' | undefined
+  let escaped = false
+  for (const character of line) {
+    if (quote) {
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === quote) {
+        quote = undefined
+      }
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+    if (character === '{') {
+      net += 1
+    } else if (character === '}') {
+      net -= 1
+    }
+  }
+  return net
 }

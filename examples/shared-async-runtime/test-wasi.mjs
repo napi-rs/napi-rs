@@ -222,10 +222,7 @@ test('dropping a pending sleep drives the timer-host cancel path', async () => {
         .map(({ ms }) => ms)
         .join(', ')})`,
     )
-    while (
-      !cancelledRelayIds.has(longRelay.relayId) &&
-      Date.now() < deadline
-    ) {
+    while (!cancelledRelayIds.has(longRelay.relayId) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     assert.ok(

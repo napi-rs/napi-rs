@@ -131,9 +131,10 @@ test('should omit exports fields from publishConfig in scoped packages', async (
   const scopedPackageJsonPath = join(scopedDir, 'package.json')
   t.true(existsSync(scopedPackageJsonPath))
 
-  const scopedPackageJson = JSON.parse(
-    await readFile(scopedPackageJsonPath, 'utf-8'),
-  )
+  const scopedPackageJsonSource = await readFile(scopedPackageJsonPath, 'utf-8')
+  t.true(scopedPackageJsonSource.endsWith('\n'))
+  t.false(scopedPackageJsonSource.endsWith('\n\n'))
+  const scopedPackageJson = JSON.parse(scopedPackageJsonSource)
 
   // Verify that publishConfig only contains registry and access, not exports
   t.truthy(scopedPackageJson.publishConfig)

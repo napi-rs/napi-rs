@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { format, resolveConfig } from 'prettier'
+import { format as formatWithOxfmt } from 'oxfmt'
 
 const packageDirectory = dirname(fileURLToPath(import.meta.url))
 const napiCli = fileURLToPath(new URL('../../cli/cli.mjs', import.meta.url))
@@ -126,11 +126,12 @@ export async function formatGeneratedOutputs(paths) {
   await Promise.all(
     paths.map(async (path) => {
       const source = await readFile(path, 'utf8')
-      const prettierConfig = await resolveConfig(path)
-      const formatted = await format(source, {
-        ...prettierConfig,
-        filepath: path,
-      })
+      const { code: formatted, errors } = await formatWithOxfmt(path, source)
+      if (errors.length > 0) {
+        throw new Error(
+          `oxfmt failed for ${path}: ${errors.map((error) => error.message).join('; ')}`,
+        )
+      }
       if (formatted !== source) {
         await writeFile(path, formatted)
       }

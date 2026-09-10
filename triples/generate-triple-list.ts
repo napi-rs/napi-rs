@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { groupBy, mapValues } from 'es-toolkit'
+import { format as formatWithOxfmt } from 'oxfmt'
 
 import { parseTriple } from '@napi-rs/cli'
 
@@ -56,4 +57,18 @@ module.exports.platformArchTriples = ${JSON.stringify(
 
 writeFileSync(join(__dirname, 'index.js'), mjsContent)
 
-writeFileSync(join(__dirname, 'index.cjs'), cjsContent)
+const oxfmtConfig = JSON.parse(
+  readFileSync(join(__dirname, '..', '.oxfmtrc.json'), 'utf8'),
+)
+const cjsPath = join(__dirname, 'index.cjs')
+const { code: formattedCjs, errors } = await formatWithOxfmt(
+  cjsPath,
+  cjsContent,
+  oxfmtConfig,
+)
+if (errors.length > 0) {
+  throw new Error(
+    `oxfmt failed for ${cjsPath}: ${errors.map((error) => error.message).join('; ')}`,
+  )
+}
+writeFileSync(cjsPath, formattedCjs)

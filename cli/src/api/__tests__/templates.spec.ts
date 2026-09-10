@@ -317,6 +317,34 @@ function initializationRollbackBody(code: string): string {
   return code.slice(deferredStart, code.indexOf('throw error', deferredStart))
 }
 
+test('createCjsBinding uses one statement dialect', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
+    'wasm32-wasi',
+  ])
+  t.false(
+    code.includes('NAPI_RS_NATIVE_LIBRARY_PATH);'),
+    'native library require must not use a leftover semicolon',
+  )
+  t.true(code.includes("const __napiWasiFlavors = ['wasm32-wasi']"))
+  t.false(code.includes('"wasm32-wasi"'))
+  t.true(code.includes("return require('./test.win32-x64-gnu.node')"))
+  const win32Gnu = code.slice(
+    code.indexOf("process.arch === 'x64'"),
+    code.indexOf("process.arch === 'ia32'"),
+  )
+  t.true(
+    win32Gnu.includes("          return require('./test.win32-x64-gnu.node')"),
+    'win32-x64 gnu local require must be indented inside try',
+  )
+})
+
+test('WASI worker template matches the CJS/ESM quote and semicolon dialect', (t) => {
+  t.true(WASI_WORKER_TEMPLATE.includes("import fs from 'node:fs'"))
+  t.false(WASI_WORKER_TEMPLATE.includes('from "node:fs"'))
+  t.false(WASI_WORKER_TEMPLATE.includes("from 'node:fs';"))
+  t.true(WASI_WORKER_TEMPLATE.includes('memory: wasmMemory,'))
+})
+
 test('createEsmBinding is Node 12 compatible', (t) => {
   const code = createEsmBinding('test', '@scope/test', ['sum'])
   assertValidJS(t, code, 'esm')

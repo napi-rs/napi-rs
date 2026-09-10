@@ -28,6 +28,7 @@ import {
   pick,
   resolvePackageReconciliationPaths,
   restrictWasiNodeEngine,
+  serializeJson,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   withFileSystemReconciliation,
@@ -574,7 +575,7 @@ async function createNpmDirsUnlocked(
 
     const targetPackageJson = join(targetDir, 'package.json')
     pendingWrites.push({
-      content: JSON.stringify(scopedPackageJson, null, 2) + '\n',
+      content: serializeJson(scopedPackageJson),
       destination: targetPackageJson,
     })
     if (wasmModuleTypeDef) {
