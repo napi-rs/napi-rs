@@ -1,7 +1,5 @@
 // napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","Asset","JsAsset","Assets","JsAssets","AsyncDataSource","AsyncFib","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","Dog","EagerReleaseHolder","Fib","Fib2","Fib3","Fib4","GetterSetterWithClosures","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","PackageJsonReader","Reader","ReentrantBorrowOrderTest","RenamedForIssue3427","RenamedForIssue3427Rust","Selector","Thing","ThingList","TypeTagA","TypeTagB","UseNullableClass","Width","acceptArraybuffer","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","add","ALIAS","AliasedEnum","appendBuffer","appendToOsString","apply0","apply1","arrayBufferFromData","arrayBufferFromExternal","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncMultiTwo","asyncPlus100","asyncReduceBuffer","asyncResolveArray","asyncTaskArraybuffer","asyncTaskFinally","asyncTaskOptionalReturn","asyncTaskReadFile","asyncTaskRejectWithCapturedValue","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","bufferSliceCopyFromMutated","bufferSliceCopyFromReadBack","bufferSliceFromDataMutated","bufferSliceFromDataReadBack","bufferSliceFromExternalMutated","bufferSliceFromExternalReadBack","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callCatchOnPromiseCapturing","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThenOnPromiseCapturing","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","cleanupReentrantBorrowOrderTestTargets","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createErrorFromRetainedValue","createErroringReadableStream","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createFunction","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createPanickingClosureFunction","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReentrantBorrowOrderTestTarget","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","DEFAULT_COST","defineClass","derefUint8Array","describeCapturedValue","describePromiseRejection","detachReentrantBorrowOrderTestTarget","drainStreamCount","dropClonedErrorsOnTwoThreads","dropErrorFromValueOffThread","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","Empty","enumToI32","errorMessageContainsNullByte","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","fnReceivedAliased","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getEmptyBuffer","getEmptyTypedArray","getExternal","getGlobal","getIndexMapping","getIndexMappingWithHasher","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoUtf8","issue3427Either","issue3427Option","issue3427Strict","joinPath","jsErrorCallback","jsErrorFromRetainedValue","jsErrorWithoutRetainedValue","jsRangeErrorFromRetainedValue","jsRangeErrorWithoutRetainedValue","jsTypeErrorFromRetainedValue","jsTypeErrorWithoutRetainedValue","Kind","KindInValidate","listObjKeys","makeTypeTagA","mapOption","mergeTupleArray","moduleRetentionRequests","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","objectGetNamedPropertyShouldPerformTypecheck","objectWithCApis","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","plusOne","promiseInEither","promiseRawReturnClassInstance","readFile","readFileAsync","readPackageJson","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","referenceAsCallback","referenceWithTupleArg","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","roundtripStr","runScript","setNullByteProperty","setSymbolInObj","shorterEscapableScope","shorterScope","shutdownRuntime","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashTypedArrayInThreadLocal","Status","StatusInValidate","StringEnum","sumBtreeMapping","sumIndexMapping","sumMapping","sumNums","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeRoundtrip","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint8ArrayFromData","uint8ArrayFromExternal","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","wasmMemorySizeBytes","withAbortController","withAbortSignalHandle","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
 /* eslint-disable */
-/* prettier-ignore */
-
 /* auto-generated by NAPI-RS */
 
 const __nodeFs = require('node:fs')
@@ -91,6 +89,7 @@ function __createWasiWorker(filename) {
       return new Worker(filename, {
         env: process.env,
         execArgv: __workerExecArgv,
+        workerData: { hostRoot: __hostRoot, rootDir: __rootDir },
       })
     } catch (error) {
       if (!error || error.code !== 'ERR_WORKER_INVALID_EXEC_ARGV') {
@@ -106,14 +105,18 @@ function __createWasiWorker(filename) {
   }
 }
 
-const __rootDir = __nodePath.parse(process.cwd()).root
+const __cwd = process.cwd()
+const __rootDir = __nodePath.parse(__cwd).root
+const __hostRoot =
+  process.platform === 'android' ? __cwd : __rootDir
 
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    [__rootDir]: __rootDir,
-  }
+    [__rootDir]: __hostRoot,
+    [__hostRoot]: __hostRoot,
+  },
 })
 
 const __sharedMemory = new WebAssembly.Memory({
@@ -155,11 +158,11 @@ let __emnapiWasmEnvCleanupDrained = false
 let __emnapiWasmEnvCleanupDrainPromise
 let __wasiDisposed = false
 let __wasiDisposePromise
-let __completeWasiDisposal = function() {}
+let __completeWasiDisposal = function () {}
 // Overridden by loader flavors that have a last-resort reclaim for a rollback
 // that stopped short of destroying the context. See
 // `__rollbackWasiInitialization`.
-let __retainWasiRollbackForRetry = function() {}
+let __retainWasiRollbackForRetry = function () {}
 
 function __isThenable(value) {
   return (
@@ -846,7 +849,7 @@ try {
     napiModule: __napiModule,
   } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
     context: __emnapiContext,
-    asyncWorkPoolSize: (function() {
+    asyncWorkPoolSize: (function () {
       const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
       // NaN > 0 is false
       if (threadsSizeFromEnv > 0) {
@@ -871,21 +874,21 @@ try {
       // According to https://github.com/nodejs/node/blob/19e0d472728c79d418b74bddff588bea70a403d0/lib/internal/worker.js#L415,
       // a worker is consist of two handles: kPublicPort and kHandle.
       {
-        const kPublicPort = Object.getOwnPropertySymbols(worker).find(s =>
-          s.toString().includes("kPublicPort")
-        );
+        const kPublicPort = Object.getOwnPropertySymbols(worker).find((s) =>
+          s.toString().includes('kPublicPort'),
+        )
         if (kPublicPort) {
-          worker[kPublicPort].ref = () => {};
+          worker[kPublicPort].ref = () => {}
         }
 
-        const kHandle = Object.getOwnPropertySymbols(worker).find(s =>
-          s.toString().includes("kHandle")
-        );
+        const kHandle = Object.getOwnPropertySymbols(worker).find((s) =>
+          s.toString().includes('kHandle'),
+        )
         if (kHandle) {
-          worker[kHandle].ref = () => {};
+          worker[kHandle].ref = () => {}
         }
 
-        worker.unref();
+        worker.unref()
       }
       return worker
     },
