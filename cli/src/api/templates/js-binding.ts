@@ -314,6 +314,14 @@ function requireNative() {
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on FreeBSD: \${process.arch}\`))
     }
+  } else if (process.platform === 'openbsd') {
+    if (process.arch === 'x64') {
+      ${requireTuple('openbsd-x64')}
+    } else if (process.arch === 'arm64') {
+      ${requireTuple('openbsd-arm64')}
+    } else {
+      loadErrors.push(new Error(\`Unsupported architecture on OpenBSD: \${process.arch}\`))
+    }
   } else if (process.platform === 'linux') {
     if (process.arch === 'x64') {
       if (isMusl()) {
