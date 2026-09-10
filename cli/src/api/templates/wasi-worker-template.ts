@@ -2,7 +2,7 @@ export const WASI_WORKER_TEMPLATE = `import fs from "node:fs";
 import { createRequire } from "node:module";
 import { parse } from "node:path";
 import { WASI } from "node:wasi";
-import { parentPort, Worker } from "node:worker_threads";
+import { parentPort, Worker, workerData } from "node:worker_threads";
 
 const require = createRequire(import.meta.url);
 
@@ -37,7 +37,13 @@ Object.assign(globalThis, {
 
 const emnapiContext = getDefaultContext();
 
-const __rootDir = parse(process.cwd()).root;
+const __cwd = process.cwd();
+const __rootDir =
+  (workerData && typeof workerData.rootDir === 'string' && workerData.rootDir) ||
+  parse(__cwd).root;
+const __hostRoot =
+  (workerData && typeof workerData.hostRoot === 'string' && workerData.hostRoot) ||
+  (process.platform === 'android' ? __cwd : __rootDir);
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
@@ -45,7 +51,8 @@ const handler = new MessageHandler({
       version: 'preview1',
       env: process.env,
       preopens: {
-        [__rootDir]: __rootDir,
+        [__rootDir]: __hostRoot,
+        [__hostRoot]: __hostRoot,
       },
     });
 
