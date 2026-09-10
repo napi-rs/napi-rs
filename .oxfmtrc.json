@@ -7,8 +7,12 @@
   "arrowParens": "always",
   "sortPackageJson": false,
   "ignorePatterns": [
+    "target",
+    "node_modules",
     "scripts",
     "triples/index.js",
+    ".yarn",
+    "yarn.lock",
     "CHANGELOG.md",
     "**/*.toml",
     "**/__snapshots__/**",
