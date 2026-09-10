@@ -71,6 +71,10 @@ test('updatePackageJson merges nested objects instead of overwriting them', asyn
     fsevents: '^2.3.3',
     '@napi-rs/fixture-darwin-arm64': '1.0.1',
   })
+
+  const written = await readFile(packageJsonPath, 'utf8')
+  t.true(written.endsWith('\n'))
+  t.false(written.endsWith('\n\n'))
 })
 
 test('statIdentitiesMatch distinguishes inodes that collide as lossy Numbers', (t) => {

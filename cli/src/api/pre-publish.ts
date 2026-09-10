@@ -58,6 +58,7 @@ import {
   withFileSystemReconciliation,
   AVAILABLE_TARGETS,
   parseTriple,
+  serializeJson,
   type CommonPackageJsonFields,
   type FileSystemTransactionWrite,
   type RootPublisher,
@@ -2267,7 +2268,7 @@ async function registerPublicationWorkspaces(
   } else {
     manifest.workspaces = releaseWorkspaces
   }
-  await writeFileAtomic(manifestPath, JSON.stringify(manifest, null, 2))
+  await writeFileAtomic(manifestPath, serializeJson(manifest))
 }
 
 async function createPublicationExecutionPackage(
@@ -2391,10 +2392,7 @@ async function materializeRootReleasePlan(
     }
   }
   syncThreadlessWasiRootFacadeManifest(updatedPackageJson, plan.packageJson)
-  await writeFileAtomic(
-    packageJsonPath,
-    JSON.stringify(updatedPackageJson, null, 2),
-  )
+  await writeFileAtomic(packageJsonPath, serializeJson(updatedPackageJson))
 
   const generatedFiles = new Set(plan.facade?.generatedFiles ?? [])
   await Promise.all(
@@ -2492,7 +2490,7 @@ async function stageReleasePackage(
   const packageJsonPath = join(stagedPkgDir, 'package.json')
   const packageJson = JSON.parse(await readFileAsync(packageJsonPath, 'utf8'))
   packageJson.version = packageVersion
-  await writeFileAtomic(packageJsonPath, JSON.stringify(packageJson, null, 2))
+  await writeFileAtomic(packageJsonPath, serializeJson(packageJson))
   return {
     pkgDir: options.pkgDir,
     rootDir: options.rootDir,
@@ -2705,10 +2703,7 @@ async function validateReleasePackageContents({
   if (updateManifest) {
     packageFiles.splice(0, packageFiles.length, ...declarationClosure.files)
     packageJson.files = packageFiles
-    await writeFileAtomic(
-      packageJsonPath,
-      `${JSON.stringify(packageJson, null, 2)}\n`,
-    )
+    await writeFileAtomic(packageJsonPath, serializeJson(packageJson))
   }
 
   const publicFiles = new Set<string>(packageFiles)

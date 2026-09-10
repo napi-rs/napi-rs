@@ -1,10 +1,10 @@
-export const WASI_WORKER_TEMPLATE = `import fs from "node:fs";
-import { createRequire } from "node:module";
-import { parse } from "node:path";
-import { WASI } from "node:wasi";
-import { parentPort, Worker, workerData } from "node:worker_threads";
+export const WASI_WORKER_TEMPLATE = `import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import { parse } from 'node:path'
+import { WASI } from 'node:wasi'
+import { parentPort, Worker, workerData } from 'node:worker_threads'
 
-const require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url)
 
 const {
   instantiateNapiModuleSync,
@@ -12,12 +12,12 @@ const {
   getDefaultContext,
   emnapiAsyncWorkPlugin,
   emnapiTSFNPlugin,
-} = require("@napi-rs/wasm-runtime");
+} = require('@napi-rs/wasm-runtime')
 
 if (parentPort) {
-  parentPort.on("message", (data) => {
-    globalThis.onmessage({ data });
-  });
+  parentPort.on('message', (data) => {
+    globalThis.onmessage({ data })
+  })
 }
 
 Object.assign(globalThis, {
@@ -26,24 +26,24 @@ Object.assign(globalThis, {
   Worker,
   importScripts: function (f) {
     // oxlint-disable-next-line no-eval -- WASI importScripts polyfill
-    ;(0, eval)(fs.readFileSync(f, "utf8") + "//# sourceURL=" + f);
+    ;(0, eval)(fs.readFileSync(f, 'utf8') + '//# sourceURL=' + f)
   },
   postMessage: function (msg) {
     if (parentPort) {
-      parentPort.postMessage(msg);
+      parentPort.postMessage(msg)
     }
   },
-});
+})
 
-const emnapiContext = getDefaultContext();
+const emnapiContext = getDefaultContext()
 
-const __cwd = process.cwd();
+const __cwd = process.cwd()
 const __rootDir =
   (workerData && typeof workerData.rootDir === 'string' && workerData.rootDir) ||
-  parse(__cwd).root;
+  parse(__cwd).root
 const __hostRoot =
   (workerData && typeof workerData.hostRoot === 'string' && workerData.hostRoot) ||
-  (process.platform === 'android' ? __cwd : __rootDir);
+  (process.platform === 'android' ? __cwd : __rootDir)
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
@@ -54,7 +54,7 @@ const handler = new MessageHandler({
         [__rootDir]: __hostRoot,
         [__hostRoot]: __hostRoot,
       },
-    });
+    })
 
     return instantiateNapiModuleSync(wasmModule, {
       childThread: true,
@@ -70,16 +70,16 @@ const handler = new MessageHandler({
           ...importObject.env,
           ...importObject.napi,
           ...importObject.emnapi,
-          memory: wasmMemory
-        };
+          memory: wasmMemory,
+        }
       },
-    });
+    })
   },
-});
+})
 
 globalThis.onmessage = function (e) {
-  handler.handle(e);
-};
+  handler.handle(e)
+}
 `
 
 export const createWasiBrowserWorkerBinding = (
@@ -118,10 +118,9 @@ const fs = createFsProxy(__memfsExported)`
         // eslint-disable-next-line no-console
         console.log.apply(console, arguments)
       },
-      printErr: function() {
+      printErr: function () {
         // eslint-disable-next-line no-console
-        console.error.apply(console, arguments)
-        ${errorOutputsAppend}
+        console.error.apply(console, arguments)${errorOutputsAppend}
       },
     })`
     : `const wasi = new WASI({
@@ -129,10 +128,9 @@ const fs = createFsProxy(__memfsExported)`
         // eslint-disable-next-line no-console
         console.log.apply(console, arguments)
       },
-      printErr: function() {
+      printErr: function () {
         // eslint-disable-next-line no-console
-        console.error.apply(console, arguments)
-        ${errorOutputsAppend}
+        console.error.apply(console, arguments)${errorOutputsAppend}
       },
     })`
   const errorHandler = errorEvent
@@ -164,8 +162,7 @@ const handler = new MessageHandler({
         }
       },
     })
-  },
-  ${errorHandler}
+  },${errorHandler ? `\n  ${errorHandler}` : ''}
 })
 
 globalThis.onmessage = function (e) {

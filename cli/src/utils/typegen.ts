@@ -206,23 +206,28 @@ function prettyPrint(
       s += `export interface ${line.name} {\n${line.def}\n}`
       break
 
-    case TypeDefKind.Type:
-      s += `export type ${line.name} = \n${line.def}`
+    case TypeDefKind.Type: {
+      const def = line.def.trim()
+      s +=
+        def.startsWith('|') || def.includes('\n')
+          ? `export type ${line.name} =\n${line.def}`
+          : `export type ${line.name} = ${def}`
       break
+    }
 
     case TypeDefKind.Enum: {
       const enumName = constEnum ? 'const enum' : 'enum'
-      s += `${exportDeclare(ambient)} ${enumName} ${line.name} {\n${line.def}\n}`
+      s += `${exportDeclare(ambient)} ${enumName} ${line.name} ${enumBody(line.def)}`
       break
     }
 
     case TypeDefKind.StringEnum: {
       if (constEnum) {
-        s += `${exportDeclare(ambient)} const enum ${line.name} {\n${line.def}\n}`
+        s += `${exportDeclare(ambient)} const enum ${line.name} ${enumBody(line.def)}`
       } else if (runtimeStringEnum) {
-        s += `${exportDeclare(ambient)} enum ${line.name} {\n${line.def}\n}`
+        s += `${exportDeclare(ambient)} enum ${line.name} ${enumBody(line.def)}`
       } else {
-        s += `export type ${line.name} = ${line.def.replaceAll(/.*=/g, '').replaceAll(',', '|')};`
+        s += `export type ${line.name} = ${stringEnumToUnion(line.def)}`
       }
       break
     }
@@ -238,7 +243,7 @@ function prettyPrint(
         // Runtime instances inherit from Iterator.prototype when it exists,
         // but the generated constructor does not extend the global Iterator.
         const [T, TResult, TNext] = iteratorTypes
-        const resultType = `(${TResult}) | undefined`
+        const resultType = `${unionPart(TResult)} | undefined`
         classDef +=
           `\n[globalThis.Symbol.iterator](): this` +
           `\nnext(...[value]: [] | [${TNext}]): globalThis.IteratorResult<${T}, ${resultType}>` +
@@ -256,7 +261,7 @@ function prettyPrint(
         const [T, TResult, TNext] = line.asyncIterator
         classDef += `\n[globalThis.Symbol.asyncIterator](): globalThis.${asyncGeneratorHelperName}<${line.name}, ${T}, ${TResult}, ${TNext}>`
       }
-      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${classDef}\n}`
+      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} ${blockBody(classDef)}`
       s += iteratorInterface
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
@@ -266,6 +271,12 @@ function prettyPrint(
 
     case TypeDefKind.Fn:
       s += `${exportDeclare(ambient)} ${line.def}`
+      break
+
+    case TypeDefKind.Const:
+      s += ambient
+        ? line.def
+        : line.def.replace(/^export const /, 'export declare const ')
       break
 
     default:
@@ -281,6 +292,39 @@ function exportDeclare(ambient: boolean): string {
   }
 
   return 'export declare'
+}
+
+function blockBody(def: string): string {
+  const body = def.trim()
+  return body ? `{\n${def}\n}` : '{}'
+}
+
+function enumBody(def: string): string {
+  const body = def.trim()
+  if (!body) {
+    return '{}'
+  }
+  const withTrailingComma = body.endsWith(',') ? def : `${def},`
+  return `{\n${withTrailingComma}\n}`
+}
+
+function unionPart(type: string): string {
+  return /[|&]/.test(type) || type.includes('=>') ? `(${type})` : type
+}
+
+function stringEnumToUnion(def: string): string {
+  return def
+    .split(',')
+    .map((variant) => {
+      const trimmed = variant.trim()
+      if (!trimmed) {
+        return ''
+      }
+      const separator = trimmed.indexOf('=')
+      return separator === -1 ? trimmed : trimmed.slice(separator + 1).trim()
+    })
+    .filter(Boolean)
+    .join(' | ')
 }
 
 /**
@@ -452,7 +496,7 @@ function renderTypeDefs(
         })
         .join('\n\n'),
     )
-    .join('\n')
+    .join('\n\n')
   const globalDeclarations = []
   if (hasIteratorClass) {
     globalDeclarations.push(ITERATOR_OBJECT_COMPATIBILITY_DECLARATION)
@@ -1424,43 +1468,66 @@ export function correctStringIdent(src: string, ident: number): string {
   let bracketDepth = 0
   const result = src
     .split('\n')
-    .map((line) => {
-      line = line.trim()
+    .map((rawLine) => {
+      const line = rawLine.trim()
       if (line === '') {
         return ''
       }
 
       const isInMultilineComment = line.startsWith('*')
-      const isClosingBracket = line.endsWith('}')
-      const isOpeningBracket = line.endsWith('{')
       const isTypeDeclaration = line.endsWith('=')
-      const isTypeVariant = line.startsWith('|')
+      const netBraces = isInMultilineComment ? 0 : netUnquotedBraces(line)
 
-      let rightIndent = ident
-      if ((isOpeningBracket || isTypeDeclaration) && !isInMultilineComment) {
-        bracketDepth += 1
-        rightIndent += (bracketDepth - 1) * 2
-      } else {
-        if (
-          isClosingBracket &&
-          bracketDepth > 0 &&
-          !isInMultilineComment &&
-          !isTypeVariant
-        ) {
-          bracketDepth -= 1
-        }
-        rightIndent += bracketDepth * 2
+      if (netBraces < 0 && !line.startsWith('|')) {
+        bracketDepth = Math.max(0, bracketDepth + netBraces)
       }
 
+      let rightIndent = ident + bracketDepth * 2
       if (isInMultilineComment) {
         rightIndent += 1
       }
 
-      const s = `${' '.repeat(rightIndent)}${line}`
+      if (netBraces > 0) {
+        bracketDepth += netBraces
+      } else if (
+        isTypeDeclaration &&
+        !isInMultilineComment &&
+        netBraces === 0
+      ) {
+        bracketDepth += 1
+      }
 
-      return s
+      return `${' '.repeat(rightIndent)}${line}`
     })
     .join('\n')
 
   return result
+}
+
+function netUnquotedBraces(line: string): number {
+  let net = 0
+  let quote: "'" | '"' | '`' | undefined
+  let escaped = false
+  for (const character of line) {
+    if (quote) {
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === quote) {
+        quote = undefined
+      }
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+    if (character === '{') {
+      net += 1
+    } else if (character === '}') {
+      net -= 1
+    }
+  }
+  return net
 }

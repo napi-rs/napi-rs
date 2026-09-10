@@ -255,7 +255,11 @@ impl NapiStruct {
           .collect::<Vec<_>>()
           .join("\n");
         if class.ctor {
-          format!("{}\nconstructor({})", def, ctor_args.join(", "))
+          if def.is_empty() {
+            format!("constructor({})", ctor_args.join(", "))
+          } else {
+            format!("{}\nconstructor({})", def, ctor_args.join(", "))
+          }
         } else {
           def
         }
@@ -288,8 +292,8 @@ impl NapiStruct {
               .filter_map(|f| self.gen_field(f).map(|(field, _)| field)),
           )
           .collect::<Vec<_>>()
-          .join(", ");
-          format!("  | {{ {def} }} ")
+          .join("; ");
+          format!("  | {{ {def} }}")
         })
         .collect::<Vec<_>>()
         .join("\n"),

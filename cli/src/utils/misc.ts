@@ -44,6 +44,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import pkgJson from '../../package.json' with { type: 'json' }
 import { debug } from './log.js'
+import { serializeJson } from './serialize.js'
 
 export const readFileAsync = readFile
 export const writeFileAsync = writeFile
@@ -6153,10 +6154,7 @@ export async function updatePackageJson(
     return
   }
   const old = JSON.parse(await readFileAsync(path, 'utf8'))
-  await writeFileAsync(
-    path,
-    JSON.stringify(mergePackageJson(old, partial), null, 2),
-  )
+  await writeFileAsync(path, serializeJson(mergePackageJson(old, partial)))
 }
 
 export const CLI_VERSION = pkgJson.version

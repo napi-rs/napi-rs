@@ -2,10 +2,24 @@ target
 node_modules
 scripts
 triples/index.js
-examples/napi/index.d.ts
 .yarn
 yarn.lock
-examples/napi/wasi-worker.mjs
+# CLI-generated bindings. The generators emit one house style (single
+# quotes, no statement semicolons, 2-space indent) but do not wrap to
+# printWidth 80. Ignoring the committed artifacts keeps `yarn format`
+# from fighting napi build.
+examples/napi/index.cjs
+examples/napi/index.d.cts
+examples/napi/index.d.ts
 examples/napi/example.wasi.cjs
+examples/napi/example.wasi.d.cts
 examples/napi/example.wasi-browser.js
+examples/napi/example.wasip1.cjs
+examples/napi/example.wasip1.d.cts
+examples/napi/example.wasip1-browser.js
+examples/napi/example.wasip1-deferred.js
+examples/napi/example.wasip1-deferred.d.ts
+examples/napi/wasi-worker.mjs
+examples/napi/wasi-worker-browser.mjs
+examples/napi-compat-mode/index.wasi.cjs
 .script-jail.lock.yml

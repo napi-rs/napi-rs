@@ -12,8 +12,8 @@ import {
   sep,
 } from 'node:path'
 
-import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
-import { load as yamlParse, dump as yamlStringify } from 'js-yaml'
+import { parse as parseToml } from '@std/toml'
+import { load as yamlParse } from 'js-yaml'
 import { isNil, omitBy, pick } from 'es-toolkit'
 
 import { applyDefaultRenameOptions, type RenameOptions } from '../def/rename.js'
@@ -23,6 +23,9 @@ import {
   readFileAsync,
   resolvePackageReconciliationPaths,
   type Target,
+  serializeJson,
+  serializeToml,
+  serializeYaml,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   withPackageFileSystemReconciliation,
@@ -1265,10 +1268,6 @@ function updateNapiConfigRecord(record: JsonRecord, options: RenameOptions) {
   }
 }
 
-function serializeJsonLike(content: string, value: unknown) {
-  return `${JSON.stringify(value, null, 2)}${content.endsWith('\n') ? '\n' : ''}`
-}
-
 function sanitizeCargoPackageName(binaryName: string) {
   return binaryName.replace(/[^A-Za-z0-9_]/g, '_').toLowerCase()
 }
@@ -1458,8 +1457,7 @@ async function renameProjectUnlocked(
   const plan = new RenameTransactionPlan()
   plan.addWrite(
     packageJsonPath,
-    serializeJsonLike(
-      packageJsonContent,
+    serializeJson(
       rewritePackageManifest(
         packageJsonData,
         managedWasiRenames,
@@ -1477,11 +1475,7 @@ async function renameProjectUnlocked(
       throw new Error(`NAPI config must contain a JSON object: ${configPath}`)
     }
     updateNapiConfigRecord(configData, options)
-    plan.addWrite(
-      configPath,
-      serializeJsonLike(configContent, configData),
-      configMode,
-    )
+    plan.addWrite(configPath, serializeJson(configData), configMode)
   }
 
   if (binaryNameChanged) {
@@ -1495,7 +1489,7 @@ async function renameProjectUnlocked(
     const cargoToml = parseToml(tomlContent) as any
     if (cargoToml.package) {
       cargoToml.package.name = sanitizeCargoPackageName(newName)
-      plan.addWrite(cargoTomlPath, stringifyToml(cargoToml), cargoTomlMode)
+      plan.addWrite(cargoTomlPath, serializeToml(cargoToml), cargoTomlMode)
     }
 
     const workflowPath = join(projectRoot, '.github', 'workflows', 'CI.yml')
@@ -1515,11 +1509,7 @@ async function renameProjectUnlocked(
         workflowData.env.APP_NAME = newName
         plan.addWrite(
           canonicalWorkflowPath,
-          yamlStringify(workflowData, {
-            lineWidth: -1,
-            noRefs: true,
-            sortKeys: false,
-          }),
+          serializeYaml(workflowData),
           workflowMode,
         )
       }
@@ -1567,8 +1557,7 @@ async function renameProjectUnlocked(
             `Managed package manifest must contain a JSON object: ${targetPackageJsonPath}`,
           )
         }
-        const updatedContent = serializeJsonLike(
-          content,
+        const updatedContent = serializeJson(
           rewritePackageManifest(
             manifest,
             managedWasiRenames,

@@ -611,12 +611,16 @@ fn handle_threadsafe_function_type(args: &[(String, bool)]) -> Option<(String, b
     .unwrap_or("any".to_owned());
 
   if handled_tsfn {
-    Some((
-      format!("((err: Error | null, {fn_args}) => {return_ty})"),
-      false,
-    ))
+    let args = if fn_args.is_empty() {
+      "(err: Error | null)".to_owned()
+    } else {
+      format!("(err: Error | null, {fn_args})")
+    };
+    Some((format!("{args} => {return_ty}"), false))
+  } else if fn_args.is_empty() {
+    Some((format!("() => {return_ty}"), false))
   } else {
-    Some((format!("(({fn_args}) => {return_ty})"), false))
+    Some((format!("({fn_args}) => {return_ty}"), false))
   }
 }
 
@@ -1142,6 +1146,16 @@ mod tests {
   }
 
   // Tests for format_js_property_name
+  #[test]
+  fn threadsafe_function_empty_args_omits_dangling_comma() {
+    let ty: syn::Type =
+      syn::parse_str("ThreadsafeFunction<(), ()>").expect("ThreadsafeFunction<(), ()> must parse");
+    let (ts, _) = ty_to_ts_type(&ty, false, false, false);
+    assert_eq!(ts, "(err: Error | null) => void");
+    assert!(!ts.contains(", )"));
+    assert!(!ts.contains(",)"));
+  }
+
   #[test]
   fn test_format_js_property_name_valid_identifiers() {
     // Simple ASCII identifiers should not be quoted

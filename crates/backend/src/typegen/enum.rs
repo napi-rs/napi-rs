@@ -41,6 +41,6 @@ impl NapiEnum {
         format!("{}{} = {}", JSDoc::new(&v.comments), v.name, val)
       })
       .collect::<Vec<_>>()
-      .join(",\n ")
+      .join(",\n")
   }
 }
