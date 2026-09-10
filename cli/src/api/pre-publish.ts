@@ -2837,6 +2837,13 @@ function staticModuleSpecifiers(source: string, path: string) {
 
 function loadTypeScript(): TypeScriptModule {
   loadedTypeScript ??= require('typescript') as TypeScriptModule
+  // TypeScript 7's `typescript` package is tsgo and does not export the
+  // compiler API (`ModuleKind`, `createSourceFile`, ...). Keep @napi-rs/cli on 6.x.
+  if (loadedTypeScript.ModuleKind === undefined) {
+    throw new Error(
+      'TypeScript 7 does not ship the compiler API. @napi-rs/cli must depend on typescript@6.',
+    )
+  }
   return loadedTypeScript
 }
 

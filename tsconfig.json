@@ -19,7 +19,6 @@
     "esModuleInterop": true,
     "stripInternal": true,
     "resolveJsonModule": true,
-    "importsNotUsedAsValues": "remove",
     "outDir": "scripts",
     "lib": ["ESNext"]
   },
