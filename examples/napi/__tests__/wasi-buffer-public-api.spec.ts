@@ -159,6 +159,7 @@ void instanceValue
       }
       await typecheck(['threadless-consumer.ts', 'globals.d.ts'])
       await typecheck(['workerd-consumer.ts', 'globals.d.ts'])
+      t.pass()
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
