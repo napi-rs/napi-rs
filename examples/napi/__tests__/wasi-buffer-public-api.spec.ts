@@ -148,18 +148,17 @@ void instanceValue
           { encoding: 'utf8', cwd: directory },
         )
         if (result.status === 0) {
-          return []
+          return
         }
-        return `${result.stdout}\n${result.stderr}`
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
+        const output = `${result.stdout}\n${result.stderr}`.trim()
+        t.fail(
+          `tsc exited status=${result.status} signal=${result.signal}${
+            result.error ? ` error=${result.error.message}` : ''
+          }${output ? `\n${output}` : ''}`,
+        )
       }
-      t.deepEqual(
-        await typecheck(['threadless-consumer.ts', 'globals.d.ts']),
-        [],
-      )
-      t.deepEqual(await typecheck(['workerd-consumer.ts', 'globals.d.ts']), [])
+      await typecheck(['threadless-consumer.ts', 'globals.d.ts'])
+      await typecheck(['workerd-consumer.ts', 'globals.d.ts'])
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
