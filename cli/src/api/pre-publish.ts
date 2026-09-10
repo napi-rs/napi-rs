@@ -2787,7 +2787,7 @@ function resolveReleasePackageContentPath(
   return path
 }
 
-function staticModuleSpecifiers(source: string, path: string) {
+export function staticModuleSpecifiers(source: string, path: string) {
   const typescript = loadTypeScript()
   const sourceFile = typescript.createSourceFile(
     path,
