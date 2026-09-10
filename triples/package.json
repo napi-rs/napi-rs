@@ -46,7 +46,7 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "scripts": {
-    "build": "node --import @oxc-node/core/register ./generate-triple-list.ts && oxfmt ./index.cjs"
+    "build": "node --import @oxc-node/core/register ./generate-triple-list.ts"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
