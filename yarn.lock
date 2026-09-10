@@ -9558,7 +9558,7 @@ __metadata:
     lerna: "npm:^10.0.0"
     lint-staged: "npm:^17.0.7"
     npm-run-all2: "npm:^9.0.1"
-    oxfmt: "npm:0.67.0"
+    oxfmt: "npm:^0.67.0"
     oxlint: "npm:^1.81.0"
     shx: "npm:^0.4.0"
     sinon: "npm:^22.0.0"
@@ -10309,7 +10309,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"oxfmt@npm:0.67.0":
+"oxfmt@npm:^0.67.0":
   version: 0.67.0
   resolution: "oxfmt@npm:0.67.0"
   dependencies:
