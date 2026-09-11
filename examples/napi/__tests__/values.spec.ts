@@ -1588,7 +1588,9 @@ test('serde-buffer-bytes', (t) => {
 // Wrong-shaped `code` values must throw a catchable error, not abort the process.
 test('serde-buffer-bytes rejects non-bytes field values', (t) => {
   const expectBytesTypeError = (input: unknown, typeName: string) => {
-    const err = t.throws(() => testSerdeBufferBytes(input as never)) as Error & {
+    const err = t.throws(() =>
+      testSerdeBufferBytes(input as never),
+    ) as Error & {
       code?: string
     }
     t.is(err.code, 'InvalidArg')
