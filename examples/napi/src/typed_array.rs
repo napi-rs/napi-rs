@@ -430,7 +430,10 @@ pub fn create_uint8_clamped_array_from_external(env: &Env) -> Result<Uint8Clampe
   std::mem::forget(data);
   unsafe {
     Uint8ClampedSlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
-      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+      // Overwrite before freeing so a stale slice can never observe the
+      // original bytes, no matter how the allocator recycles the chunk.
+      let mut source = Vec::from_raw_parts(ptr, len, len);
+      source.fill(0xFF);
     })
   }
 }
@@ -448,7 +451,9 @@ pub fn array_buffer_from_external(env: &Env) -> Result<ArrayBuffer<'_>> {
   std::mem::forget(data);
   unsafe {
     ArrayBuffer::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
-      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+      // See create_uint8_clamped_array_from_external.
+      let mut source = Vec::from_raw_parts(ptr, len, len);
+      source.fill(0xFF);
     })
   }
 }
@@ -466,7 +471,9 @@ pub fn uint8_array_from_external(env: &Env) -> Result<Uint8ArraySlice<'_>> {
   std::mem::forget(data);
   unsafe {
     Uint8ArraySlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
-      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+      // See create_uint8_clamped_array_from_external.
+      let mut source = Vec::from_raw_parts(ptr, len, len);
+      source.fill(0xFF);
     })
   }
 }
@@ -484,6 +491,34 @@ pub fn create_i32_array_from_external(env: &Env) -> Result<Int32ArraySlice<'_>> 
 #[napi]
 pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
   input.arraybuffer.len()
+}
+
+// Regression coverage for the `napi_no_external_buffers_allowed` fallback in
+// the `from_external` constructors (`ArrayBuffer`, `*ArraySlice`,
+// `Uint8ClampedSlice`): the fallback copies into an engine-owned
+// `ArrayBuffer`, runs `finalize` (which reclaims the caller's data), and the
+// returned slice must then point at the copy, not the freed pointer. Native
+// Node takes the zero-copy external path, so these read-backs only exercise
+// the fallback on engines without external buffers (Electron); there a stale
+// pointer reads freed memory instead of the probe bytes.
+//
+// The fixture finalizers overwrite the source bytes with 0xFF before freeing,
+// so on the fallback a stale pointer deterministically fails to observe the
+// original contents regardless of how the allocator recycles the chunk.
+
+#[napi]
+pub fn array_buffer_from_external_read_back(env: &Env) -> Result<String> {
+  Ok(String::from_utf8_lossy(&array_buffer_from_external(env)?).into_owned())
+}
+
+#[napi]
+pub fn uint8_array_slice_from_external_read_back(env: &Env) -> Result<String> {
+  Ok(String::from_utf8_lossy(uint8_array_from_external(env)?.as_ref()).into_owned())
+}
+
+#[napi]
+pub fn uint8_clamped_slice_from_external_read_back(env: &Env) -> Result<String> {
+  Ok(String::from_utf8_lossy(create_uint8_clamped_array_from_external(env)?.as_ref()).into_owned())
 }
 
 #[napi]

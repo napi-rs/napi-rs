@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.12.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.2...napi-v3.12.3) - 2026-09-10
 
+### Security
+
+- `BufferSlice::from_data`, `BufferSlice::copy_from` and `BufferSlice::from_external` built their `Deref`/`DerefMut` slice over the `napi_value` handle instead of the buffer's bytes (OOB read into V8's handle scope, attacker-length OOB write). Fixed as part of [#3489](https://github.com/napi-rs/napi-rs/pull/3489). See [GHSA-3hv5-cch8-c72w](https://github.com/napi-rs/napi-rs/security/advisories/GHSA-3hv5-cch8-c72w).
+
 ### Fixed
 
 - CurrentThread waker-stack deadlocks and threadless-wasm Buffer detachment ([#3489](https://github.com/napi-rs/napi-rs/pull/3489))
