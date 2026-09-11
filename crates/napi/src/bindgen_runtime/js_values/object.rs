@@ -1,7 +1,8 @@
-use std::any::{type_name, TypeId};
 #[cfg(feature = "napi6")]
 use std::convert::TryFrom;
-use std::ffi::{c_char, c_void, CStr, CString};
+#[cfg(feature = "napi5")]
+use std::ffi::c_void;
+use std::ffi::{c_char, CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -533,16 +534,42 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
   fn wrap<T: 'static>(&mut self, native_object: T, size_hint: Option<usize>) -> Result<()> {
     let env = self.value().env;
     let value = self.raw();
-    check_status!(unsafe {
+    let tagged_object = Box::into_raw(Box::new(TaggedObject::new(native_object)));
+    let size_hint_ptr = Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64));
+    if let Err(err) = check_status!(unsafe {
       sys::napi_wrap(
         env,
         value,
-        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
+        tagged_object.cast(),
         Some(raw_finalize::<TaggedObject<T>>),
-        Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64)).cast(),
+        size_hint_ptr.cast(),
         ptr::null_mut(),
       )
-    })
+    }) {
+      drop(unsafe { Box::from_raw(tagged_object) });
+      drop(unsafe { Box::from_raw(size_hint_ptr) });
+      return Err(err);
+    }
+    // Stamp the wrap-identity tag so `unwrap`/`remove_wrapped` can confirm the
+    // payload layout before dereferencing it (no-op without napi8 / on wasm).
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    {
+      let tag = object_wrap_type_tag::<T>();
+      if let Err(err) = unsafe { tag_object(env, value, &tag) } {
+        // Type tags are immutable and survive `napi_remove_wrap`, so an object
+        // re-wrapped after `remove_wrapped` already carries the tag; accept it
+        // if it is ours, otherwise undo the wrap (the `wrap_and_tag` idiom).
+        if unsafe { check_type_tag(env, value, &tag) }.unwrap_or(false) {
+          return Ok(());
+        }
+        let mut detached = ptr::null_mut();
+        let _ = unsafe { sys::napi_remove_wrap(env, value, &mut detached) };
+        drop(unsafe { Box::from_raw(tagged_object) });
+        drop(unsafe { Box::from_raw(size_hint_ptr) });
+        return Err(err);
+      }
+    }
+    Ok(())
   }
 
   /// Get the wrapped native value from the `Object`
@@ -553,30 +580,13 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     let value = self.raw();
     unsafe {
-      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
-      check_status!(
-        sys::napi_unwrap(env, value, &mut unknown_tagged_object),
-        "Failed to unwrap value of the Object"
-      )?;
-
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          )
-        })
-      } else {
-        Err(Error::new(
+      let tagged_object = unwrap_tagged_object::<T>(env, value)?;
+      (*tagged_object).object.as_mut().ok_or_else(|| {
+        Error::new(
           Status::InvalidArg,
-          format!(
-            "Invalid argument, {} on unwrap is not the type of wrapped object",
-            type_name::<T>()
-          ),
-        ))
-      }
+          "Invalid argument, nothing attach to js_object".to_owned(),
+        )
+      })
     }
   }
 
@@ -587,25 +597,13 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     let value = self.raw();
     unsafe {
-      let mut unknown_tagged_object = ptr::null_mut();
-      check_status!(sys::napi_remove_wrap(
-        env,
-        value,
-        &mut unknown_tagged_object,
-      ))?;
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        drop(Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>));
-        Ok(())
-      } else {
-        Err(Error::new(
-          Status::InvalidArg,
-          format!(
-            "Invalid argument, {} on unwrap is not the type of wrapped object",
-            type_name::<T>()
-          ),
-        ))
-      }
+      // Validate before detaching: on mismatch the wrap and its finalizer must
+      // stay intact.
+      unwrap_tagged_object::<T>(env, value)?;
+      let mut detached = ptr::null_mut();
+      check_status!(sys::napi_remove_wrap(env, value, &mut detached))?;
+      drop(Box::from_raw(detached as *mut TaggedObject<T>));
+      Ok(())
     }
   }
 

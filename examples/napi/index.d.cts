@@ -481,6 +481,16 @@ export declare class TypeTagB {
   getValue(): number
 }
 
+/**
+ * The two `pub f64` fields let JS write arbitrary bytes over the first 16
+ * bytes of the native allocation; `unwrap` must still reject the instance.
+ */
+export declare class UnwrapForgerySurface {
+  first: number
+  second: number
+  constructor()
+}
+
 export declare class UseNullableClass {
   requiredNumberField: number
   requiredStringField: string
@@ -1273,7 +1283,13 @@ export interface ObjectOnlyToJs {
   dependencies: any
 }
 
+export declare function objectRewrapAfterRemove(): number
+
 export declare function objectWithCApis(): object
+
+export declare function objectWrapMismatchKeepsWrap(): number
+
+export declare function objectWrapRoundtrip(): number
 
 export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
@@ -1390,6 +1406,8 @@ export declare function receiveString(s: string): string
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
+
+export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
 
 export interface RequestInit {
   method?: string
@@ -1649,6 +1667,12 @@ export declare function uint8ArrayFromExternal(): Uint8Array
 export declare function uint8ArraySliceFromExternalReadBack(): string
 
 export declare function uint8ClampedSliceFromExternalReadBack(): string
+
+/**
+ * `unwrap` on an object that was not produced by `Object::wrap` (e.g. a
+ * `#[napi]` class instance or a plain object) must return a catchable error.
+ */
+export declare function unwrapObjectAsU8Rejected(obj: object): boolean
 
 export interface UseNullableStruct {
   requiredNumberField: number

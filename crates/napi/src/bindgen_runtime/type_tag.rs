@@ -1,4 +1,9 @@
-use crate::sys;
+use std::any::TypeId;
+use std::ffi::c_void;
+use std::ptr;
+use std::sync::OnceLock;
+
+use crate::{sys, TaggedObject};
 
 /// Unforgeable per-class identity for `#[napi]` classes.
 ///
@@ -286,6 +291,125 @@ pub unsafe fn validate_type_tag(
   _class_name: &str,
 ) -> crate::Result<()> {
   Ok(())
+}
+
+/// Per-type identity tag for payloads wrapped by `Object::wrap` / `Env::wrap`.
+///
+/// Those APIs attach a `TaggedObject<T>` whose first field is an in-memory
+/// `TypeId`; stamping the JS object with this tag at wrap time lets
+/// `unwrap`/`remove_wrapped` confirm that layout via
+/// `napi_check_object_type_tag` **before** dereferencing the payload pointer.
+/// The identity string is namespaced (`napi::object_wrap::<type name>`), so it
+/// can never collide with a class content-hash tag
+/// (`crate@version::module_path::ClassName`).
+///
+/// Pure arithmetic over `T`'s type name (no `napi8` dependency), so it is
+/// defined in every build; the result is cached per `T`.
+pub fn object_wrap_type_tag<T: 'static>() -> sys::napi_type_tag {
+  static TAG: OnceLock<sys::napi_type_tag> = OnceLock::new();
+  *TAG.get_or_init(|| {
+    type_tag_from_ident(&format!(
+      "napi::object_wrap::{}",
+      std::any::type_name::<T>()
+    ))
+  })
+}
+
+/// Boolean variant of [`validate_type_tag`]: report whether `obj` carries
+/// `tag` without building a class-oriented error, for callers
+/// (`Object::unwrap` / `remove_wrapped`) that keep their own error text.
+///
+/// Same gating as [`tag_object`]: a real `napi_check_object_type_tag` on
+/// napi8-native builds; everywhere else nothing was ever stamped, so nothing
+/// can mismatch and this is an infallible `Ok(true)` no-op (the in-memory
+/// `TypeId` check stays the only guard there — pre-tag behavior).
+///
+/// # Safety
+///
+/// `env` must be a valid napi env pointer and `obj` a valid js value.
+#[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+pub unsafe fn check_type_tag(
+  env: sys::napi_env,
+  obj: sys::napi_value,
+  tag: &sys::napi_type_tag,
+) -> crate::Result<bool> {
+  let mut matches = false;
+  crate::check_status!(
+    unsafe { sys::napi_check_object_type_tag(env, obj, tag, &mut matches) },
+    "type tag check failed"
+  )?;
+  Ok(matches)
+}
+
+/// No-op fallback for builds without `napi8`, and for **all** wasm builds;
+/// always returns `Ok(true)` (see the real variant for why).
+///
+/// # Safety
+///
+/// Always safe; the arguments are ignored.
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+#[inline(always)]
+pub unsafe fn check_type_tag(
+  _env: sys::napi_env,
+  _obj: sys::napi_value,
+  _tag: &sys::napi_type_tag,
+) -> crate::Result<bool> {
+  Ok(true)
+}
+
+/// Shared validation for `Object::unwrap` / `remove_wrapped` and their
+/// compat-mode `Env` twins: peek the payload wrapped in `obj` and confirm it
+/// is a `TaggedObject<T>` produced by `Object::wrap` / `Env::wrap`, before any
+/// in-memory `TypeId` read on the payload pointer.
+///
+/// On napi8-native builds the confirmation is the wrap tag stamped at wrap
+/// time ([`object_wrap_type_tag`]); a mismatch is rejected without
+/// dereferencing the payload. On pre-napi8 / wasm builds nothing was stamped,
+/// [`check_type_tag`] is a no-op, and the in-memory `TypeId` comparison below
+/// remains the only guard (pre-tag behavior, no worse than before).
+///
+/// The `TypeId` comparison also runs when the tag matches: the tag keys on
+/// `type_name::<T>()`, which cannot tell apart same-named types from different
+/// crate versions; `TypeId` can.
+///
+/// Returns the validated payload pointer. Callers either borrow it (`unwrap`)
+/// or detach it with `napi_remove_wrap` and free it (`remove_wrapped`).
+///
+/// # Safety
+///
+/// `env` must be a valid napi env pointer and `obj` a valid js object. The
+/// returned pointer is owned by the wrap; it must not be freed except after a
+/// successful `napi_remove_wrap`.
+pub(crate) unsafe fn unwrap_tagged_object<T: 'static>(
+  env: sys::napi_env,
+  obj: sys::napi_value,
+) -> crate::Result<*mut TaggedObject<T>> {
+  let mut payload: *mut c_void = ptr::null_mut();
+  crate::check_status!(
+    unsafe { sys::napi_unwrap(env, obj, &mut payload) },
+    "Failed to unwrap value of the Object"
+  )?;
+  let invalid_arg = || {
+    crate::Error::new(
+      crate::Status::InvalidArg,
+      format!(
+        "Invalid argument, {} on unwrap is not the type of wrapped object",
+        std::any::type_name::<T>()
+      ),
+    )
+  };
+  if payload.is_null() {
+    return Err(invalid_arg());
+  }
+  if !unsafe { check_type_tag(env, obj, &object_wrap_type_tag::<T>()) }? {
+    return Err(invalid_arg());
+  }
+  let type_id = payload as *const TypeId;
+  if unsafe { *type_id } == TypeId::of::<T>() {
+    Ok(payload as *mut TaggedObject<T>)
+  } else {
+    Err(invalid_arg())
+  }
 }
 
 #[cfg(test)]
