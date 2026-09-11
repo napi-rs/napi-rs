@@ -1585,6 +1585,24 @@ test('serde-buffer-bytes', (t) => {
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(0) }), 0n)
 })
 
+// Wrong-shaped `code` values must throw a catchable error, not abort the process.
+test('serde-buffer-bytes rejects non-bytes field values', (t) => {
+  const expectBytesTypeError = (input: unknown, typeName: string) => {
+    const err = t.throws(() => testSerdeBufferBytes(input as never)) as Error & {
+      code?: string
+    }
+    t.is(err.code, 'InvalidArg')
+    t.is(err.message, `${typeName} type could not deserialize to bytes`)
+  }
+  expectBytesTypeError({ code: 42 }, 'Number')
+  expectBytesTypeError({ code: 'nope' }, 'String')
+  expectBytesTypeError({ code: null }, 'Null')
+  expectBytesTypeError({ code: undefined }, 'Undefined')
+  expectBytesTypeError({ code: true }, 'Boolean')
+  // Plain objects take the Object arm and fail later in FromNapiValue; still catchable.
+  t.throws(() => testSerdeBufferBytes({ code: {} }))
+})
+
 test('get bigint json value', (t) => {
   t.notThrows(() => {
     getBigintJsonValue(-1n)
