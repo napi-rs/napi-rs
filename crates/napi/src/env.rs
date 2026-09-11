@@ -1,9 +1,11 @@
 #![allow(deprecated)]
 
+#[cfg(feature = "napi6")]
+use std::any::type_name;
 #[cfg(feature = "napi5")]
 use std::any::Any;
 #[cfg(any(feature = "compat-mode", feature = "napi6"))]
-use std::any::{type_name, TypeId};
+use std::any::TypeId;
 use std::convert::TryInto;
 use std::ffi::CString;
 #[cfg(all(
@@ -854,16 +856,25 @@ impl Env {
     native_object: T,
     size_hint: Option<usize>,
   ) -> Result<()> {
-    check_status!(unsafe {
+    let tagged_object = Box::into_raw(Box::new(TaggedObject::new(native_object)));
+    let size_hint_ptr = Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64));
+    if let Err(err) = check_status!(unsafe {
       sys::napi_wrap(
         self.0,
         js_object.0.value,
-        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
-        Some(raw_finalize::<TaggedObject<T>>),
-        Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64)).cast(),
+        tagged_object.cast(),
+        Some(finalize_tagged_object::<T>),
+        size_hint_ptr.cast(),
         ptr::null_mut(),
       )
-    })
+    }) {
+      drop(unsafe { Box::from_raw(tagged_object) });
+      drop(unsafe { Box::from_raw(size_hint_ptr) });
+      return Err(err);
+    }
+    // Same payload registry as `JsObjectValue::wrap`; see that method.
+    register_payload(tagged_object.cast());
+    Ok(())
   }
 
   #[cfg(feature = "compat-mode")]
@@ -871,31 +882,13 @@ impl Env {
   #[allow(clippy::mut_from_ref)]
   pub fn unwrap<T: 'static>(&self, js_object: &JsObject) -> Result<&mut T> {
     unsafe {
-      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
-      check_status!(sys::napi_unwrap(
-        self.0,
-        js_object.0.value,
-        &mut unknown_tagged_object,
-      ))?;
-
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          )
-        })
-      } else {
-        Err(Error::new(
+      let tagged_object = unwrap_tagged_object::<T>(self.0, js_object.0.value)?;
+      (*tagged_object).object.as_mut().ok_or_else(|| {
+        Error::new(
           Status::InvalidArg,
-          format!(
-            "Invalid argument, {} on unwrap is not the type of wrapped object",
-            type_name::<T>()
-          ),
-        ))
-      }
+          "Invalid argument, nothing attach to js_object".to_owned(),
+        )
+      })
     }
   }
 
@@ -906,25 +899,18 @@ impl Env {
   )]
   pub fn drop_wrapped<T: 'static>(&self, js_object: &JsObject) -> Result<()> {
     unsafe {
-      let mut unknown_tagged_object = ptr::null_mut();
+      // Validate before detaching: on mismatch the wrap and its finalizer must
+      // stay intact.
+      unwrap_tagged_object::<T>(self.0, js_object.0.value)?;
+      let mut detached = ptr::null_mut();
       check_status!(sys::napi_remove_wrap(
         self.0,
         js_object.0.value,
-        &mut unknown_tagged_object,
+        &mut detached,
       ))?;
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        drop(Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>));
-        Ok(())
-      } else {
-        Err(Error::new(
-          Status::InvalidArg,
-          format!(
-            "Invalid argument, {} on unwrap is not the type of wrapped object",
-            type_name::<T>()
-          ),
-        ))
-      }
+      unregister_payload(detached);
+      drop(Box::from_raw(detached as *mut TaggedObject<T>));
+      Ok(())
     }
   }
 

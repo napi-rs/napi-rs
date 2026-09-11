@@ -1,12 +1,14 @@
-use std::any::{type_name, TypeId};
 #[cfg(feature = "napi6")]
 use std::convert::TryFrom;
-use std::ffi::{c_char, c_void, CStr, CString};
+#[cfg(feature = "napi5")]
+use std::ffi::c_void;
+use std::ffi::{c_char, CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
 use crate::{
-  bindgen_prelude::*, check_status, raw_finalize, sys, type_of, Callback, TaggedObject, Value,
+  bindgen_prelude::*, check_status, finalize_tagged_object, register_payload, sys, type_of,
+  unregister_payload, unwrap_tagged_object, Callback, TaggedObject, Value,
 };
 #[cfg(feature = "napi5")]
 use crate::{Env, PropertyClosures};
@@ -533,16 +535,26 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
   fn wrap<T: 'static>(&mut self, native_object: T, size_hint: Option<usize>) -> Result<()> {
     let env = self.value().env;
     let value = self.raw();
-    check_status!(unsafe {
+    let tagged_object = Box::into_raw(Box::new(TaggedObject::new(native_object)));
+    let size_hint_ptr = Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64));
+    if let Err(err) = check_status!(unsafe {
       sys::napi_wrap(
         env,
         value,
-        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
-        Some(raw_finalize::<TaggedObject<T>>),
-        Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64)).cast(),
+        tagged_object.cast(),
+        Some(finalize_tagged_object::<T>),
+        size_hint_ptr.cast(),
         ptr::null_mut(),
       )
-    })
+    }) {
+      drop(unsafe { Box::from_raw(tagged_object) });
+      drop(unsafe { Box::from_raw(size_hint_ptr) });
+      return Err(err);
+    }
+    // Register the payload so `unwrap`/`remove_wrapped` can confirm it is a
+    // live `TaggedObject` produced by this API before dereferencing it.
+    register_payload(tagged_object.cast());
+    Ok(())
   }
 
   /// Get the wrapped native value from the `Object`
@@ -553,30 +565,13 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     let value = self.raw();
     unsafe {
-      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
-      check_status!(
-        sys::napi_unwrap(env, value, &mut unknown_tagged_object),
-        "Failed to unwrap value of the Object"
-      )?;
-
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          )
-        })
-      } else {
-        Err(Error::new(
+      let tagged_object = unwrap_tagged_object::<T>(env, value)?;
+      (*tagged_object).object.as_mut().ok_or_else(|| {
+        Error::new(
           Status::InvalidArg,
-          format!(
-            "Invalid argument, {} on unwrap is not the type of wrapped object",
-            type_name::<T>()
-          ),
-        ))
-      }
+          "Invalid argument, nothing attach to js_object".to_owned(),
+        )
+      })
     }
   }
 
@@ -587,25 +582,14 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     let value = self.raw();
     unsafe {
-      let mut unknown_tagged_object = ptr::null_mut();
-      check_status!(sys::napi_remove_wrap(
-        env,
-        value,
-        &mut unknown_tagged_object,
-      ))?;
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        drop(Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>));
-        Ok(())
-      } else {
-        Err(Error::new(
-          Status::InvalidArg,
-          format!(
-            "Invalid argument, {} on unwrap is not the type of wrapped object",
-            type_name::<T>()
-          ),
-        ))
-      }
+      // Validate before detaching: on mismatch the wrap and its finalizer must
+      // stay intact.
+      unwrap_tagged_object::<T>(env, value)?;
+      let mut detached = ptr::null_mut();
+      check_status!(sys::napi_remove_wrap(env, value, &mut detached))?;
+      unregister_payload(detached);
+      drop(Box::from_raw(detached as *mut TaggedObject<T>));
+      Ok(())
     }
   }
 

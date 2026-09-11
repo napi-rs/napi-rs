@@ -194,6 +194,122 @@ pub fn set_null_byte_property(mut obj: Object) -> Result<()> {
   obj.set("\0virtual", "test")
 }
 
+struct WrappedA(u32);
+struct WrappedB(u32);
+
+#[napi]
+pub fn object_wrap_roundtrip(env: &Env) -> Result<u32> {
+  let mut obj = Object::new(env)?;
+  obj.wrap(WrappedA(42), None)?;
+  let value = obj.unwrap::<WrappedA>()?.0;
+  obj.remove_wrapped::<WrappedA>()?;
+  // the wrap is gone now; removing it again must fail
+  if obj.remove_wrapped::<WrappedA>().is_ok() {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "second remove_wrapped should fail",
+    ));
+  }
+  Ok(value)
+}
+
+#[napi]
+pub fn object_wrap_mismatch_keeps_wrap(env: &Env) -> Result<u32> {
+  let mut obj = Object::new(env)?;
+  obj.wrap(WrappedA(7), None)?;
+  if obj.unwrap::<WrappedB>().is_ok() {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "unwrap::<WrappedB> should fail",
+    ));
+  }
+  if obj.remove_wrapped::<WrappedB>().is_ok() {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "remove_wrapped::<WrappedB> should fail",
+    ));
+  }
+  // the failed remove_wrapped must not have detached the payload
+  let value = obj.unwrap::<WrappedA>()?.0;
+  obj.remove_wrapped::<WrappedA>()?;
+  Ok(value)
+}
+
+#[napi]
+pub fn object_rewrap_after_remove(env: &Env) -> Result<u32> {
+  let mut obj = Object::new(env)?;
+  obj.wrap(WrappedA(1), None)?;
+  obj.remove_wrapped::<WrappedA>()?;
+  // re-wrapping the same object must still work
+  obj.wrap(WrappedA(2), None)?;
+  let value = obj.unwrap::<WrappedA>()?.0;
+  obj.remove_wrapped::<WrappedA>()?;
+  Ok(value)
+}
+
+#[napi]
+pub fn object_rewrap_with_different_type(env: &Env) -> Result<u32> {
+  let mut obj = Object::new(env)?;
+  obj.wrap(WrappedA(1), None)?;
+  obj.remove_wrapped::<WrappedA>()?;
+  // re-wrapping with a different type must also work
+  obj.wrap(WrappedB(9), None)?;
+  let value = obj.unwrap::<WrappedB>()?.0;
+  obj.remove_wrapped::<WrappedB>()?;
+  Ok(value)
+}
+
+#[napi]
+pub fn object_wrap_with_a(mut obj: Object) -> Result<()> {
+  obj.wrap(WrappedA(1), None)
+}
+
+#[napi]
+pub fn object_remove_wrapped_a(mut obj: Object) -> Result<()> {
+  obj.remove_wrapped::<WrappedA>()
+}
+
+#[napi]
+pub fn unwrap_object_as_a_rejected(obj: Object) -> bool {
+  obj.unwrap::<WrappedA>().is_err()
+}
+
+#[napi]
+pub fn unwrap_object_as_type_tag_a_rejected(obj: Object) -> bool {
+  obj.unwrap::<crate::type_tag::TypeTagA>().is_err()
+}
+
+/// `unwrap` on an object that was not produced by `Object::wrap` (e.g. a
+/// `#[napi]` class instance or a plain object) must return a catchable error.
+#[napi]
+pub fn unwrap_object_as_u8_rejected(obj: Object) -> bool {
+  obj.unwrap::<u8>().is_err()
+}
+
+#[napi]
+pub fn remove_wrapped_object_as_u8_rejected(mut obj: Object) -> bool {
+  obj.remove_wrapped::<u8>().is_err()
+}
+
+/// The two `pub f64` fields let JS write arbitrary bytes over the first 16
+/// bytes of the native allocation; `unwrap` must still reject the instance.
+#[napi]
+pub struct UnwrapForgerySurface {
+  pub first: f64,
+  pub second: f64,
+}
+
+#[napi]
+impl UnwrapForgerySurface {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self {
+      first: 0.0,
+      second: 0.0,
+    }
+  }
+}
+
 #[napi(object, object_to_js = false)]
 pub struct ViteImportGlobMeta {
   pub is_sub_imports_pattern: Option<bool>,
