@@ -1283,13 +1283,19 @@ export interface ObjectOnlyToJs {
   dependencies: any
 }
 
+export declare function objectRemoveWrappedA(obj: object): void
+
 export declare function objectRewrapAfterRemove(): number
+
+export declare function objectRewrapWithDifferentType(): number
 
 export declare function objectWithCApis(): object
 
 export declare function objectWrapMismatchKeepsWrap(): number
 
 export declare function objectWrapRoundtrip(): number
+
+export declare function objectWrapWithA(obj: object): void
 
 export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
@@ -1667,6 +1673,10 @@ export declare function uint8ArrayFromExternal(): Uint8Array
 export declare function uint8ArraySliceFromExternalReadBack(): string
 
 export declare function uint8ClampedSliceFromExternalReadBack(): string
+
+export declare function unwrapObjectAsARejected(obj: object): boolean
+
+export declare function unwrapObjectAsTypeTagARejected(obj: object): boolean
 
 /**
  * `unwrap` on an object that was not produced by `Object::wrap` (e.g. a

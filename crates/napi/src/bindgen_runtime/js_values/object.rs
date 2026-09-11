@@ -7,7 +7,8 @@ use std::marker::PhantomData;
 use std::ptr;
 
 use crate::{
-  bindgen_prelude::*, check_status, raw_finalize, sys, type_of, Callback, TaggedObject, Value,
+  bindgen_prelude::*, check_status, finalize_tagged_object, register_payload, sys, type_of,
+  unregister_payload, unwrap_tagged_object, Callback, TaggedObject, Value,
 };
 #[cfg(feature = "napi5")]
 use crate::{Env, PropertyClosures};
@@ -541,7 +542,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
         env,
         value,
         tagged_object.cast(),
-        Some(raw_finalize::<TaggedObject<T>>),
+        Some(finalize_tagged_object::<T>),
         size_hint_ptr.cast(),
         ptr::null_mut(),
       )
@@ -550,25 +551,9 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
       drop(unsafe { Box::from_raw(size_hint_ptr) });
       return Err(err);
     }
-    // Stamp the wrap-identity tag so `unwrap`/`remove_wrapped` can confirm the
-    // payload layout before dereferencing it (no-op without napi8 / on wasm).
-    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
-    {
-      let tag = object_wrap_type_tag::<T>();
-      if let Err(err) = unsafe { tag_object(env, value, &tag) } {
-        // Type tags are immutable and survive `napi_remove_wrap`, so an object
-        // re-wrapped after `remove_wrapped` already carries the tag; accept it
-        // if it is ours, otherwise undo the wrap (the `wrap_and_tag` idiom).
-        if unsafe { check_type_tag(env, value, &tag) }.unwrap_or(false) {
-          return Ok(());
-        }
-        let mut detached = ptr::null_mut();
-        let _ = unsafe { sys::napi_remove_wrap(env, value, &mut detached) };
-        drop(unsafe { Box::from_raw(tagged_object) });
-        drop(unsafe { Box::from_raw(size_hint_ptr) });
-        return Err(err);
-      }
-    }
+    // Register the payload so `unwrap`/`remove_wrapped` can confirm it is a
+    // live `TaggedObject` produced by this API before dereferencing it.
+    register_payload(tagged_object.cast());
     Ok(())
   }
 
@@ -602,6 +587,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
       unwrap_tagged_object::<T>(env, value)?;
       let mut detached = ptr::null_mut();
       check_status!(sys::napi_remove_wrap(env, value, &mut detached))?;
+      unregister_payload(detached);
       drop(Box::from_raw(detached as *mut TaggedObject<T>));
       Ok(())
     }

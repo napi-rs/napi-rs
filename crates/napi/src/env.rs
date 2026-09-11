@@ -27,8 +27,6 @@ use serde::Serialize;
 use crate::async_cleanup_hook::AsyncCleanupHook;
 #[cfg(all(feature = "napi6", feature = "compat-mode"))]
 use crate::bindgen_runtime::u128_with_sign_to_napi_value;
-#[cfg(feature = "compat-mode")]
-use crate::bindgen_runtime::unwrap_tagged_object;
 #[cfg(feature = "napi6")]
 use crate::bindgen_runtime::FinalizeContext;
 #[cfg(feature = "napi5")]
@@ -38,12 +36,6 @@ use crate::bindgen_runtime::FunctionCallContext;
   feature = "napi4"
 ))]
 use crate::bindgen_runtime::PromiseRaw;
-#[cfg(all(
-  feature = "compat-mode",
-  feature = "napi8",
-  not(target_family = "wasm")
-))]
-use crate::bindgen_runtime::{check_type_tag, object_wrap_type_tag, tag_object};
 use crate::bindgen_runtime::{
   FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
 };
@@ -871,7 +863,7 @@ impl Env {
         self.0,
         js_object.0.value,
         tagged_object.cast(),
-        Some(raw_finalize::<TaggedObject<T>>),
+        Some(finalize_tagged_object::<T>),
         size_hint_ptr.cast(),
         ptr::null_mut(),
       )
@@ -880,22 +872,8 @@ impl Env {
       drop(unsafe { Box::from_raw(size_hint_ptr) });
       return Err(err);
     }
-    // Same wrap-identity tag as `JsObjectValue::wrap` (no-op without napi8 /
-    // on wasm); see that method for the re-wrap / rollback details.
-    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
-    {
-      let tag = object_wrap_type_tag::<T>();
-      if let Err(err) = unsafe { tag_object(self.0, js_object.0.value, &tag) } {
-        if unsafe { check_type_tag(self.0, js_object.0.value, &tag) }.unwrap_or(false) {
-          return Ok(());
-        }
-        let mut detached = ptr::null_mut();
-        let _ = unsafe { sys::napi_remove_wrap(self.0, js_object.0.value, &mut detached) };
-        drop(unsafe { Box::from_raw(tagged_object) });
-        drop(unsafe { Box::from_raw(size_hint_ptr) });
-        return Err(err);
-      }
-    }
+    // Same payload registry as `JsObjectValue::wrap`; see that method.
+    register_payload(tagged_object.cast());
     Ok(())
   }
 
@@ -930,6 +908,7 @@ impl Env {
         js_object.0.value,
         &mut detached,
       ))?;
+      unregister_payload(detached);
       drop(Box::from_raw(detached as *mut TaggedObject<T>));
       Ok(())
     }

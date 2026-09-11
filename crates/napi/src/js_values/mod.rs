@@ -87,7 +87,9 @@ pub use object_property::*;
 pub use ser::Ser;
 pub use string::*;
 pub use symbol::*;
-pub(crate) use tagged_object::TaggedObject;
+pub(crate) use tagged_object::{
+  finalize_tagged_object, register_payload, unregister_payload, unwrap_tagged_object, TaggedObject,
+};
 #[cfg(feature = "compat-mode")]
 pub use undefined::JsUndefined;
 pub use unknown::{Unknown, UnknownRef};

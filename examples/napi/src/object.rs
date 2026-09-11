@@ -247,6 +247,38 @@ pub fn object_rewrap_after_remove(env: &Env) -> Result<u32> {
   Ok(value)
 }
 
+#[napi]
+pub fn object_rewrap_with_different_type(env: &Env) -> Result<u32> {
+  let mut obj = Object::new(env)?;
+  obj.wrap(WrappedA(1), None)?;
+  obj.remove_wrapped::<WrappedA>()?;
+  // re-wrapping with a different type must also work
+  obj.wrap(WrappedB(9), None)?;
+  let value = obj.unwrap::<WrappedB>()?.0;
+  obj.remove_wrapped::<WrappedB>()?;
+  Ok(value)
+}
+
+#[napi]
+pub fn object_wrap_with_a(mut obj: Object) -> Result<()> {
+  obj.wrap(WrappedA(1), None)
+}
+
+#[napi]
+pub fn object_remove_wrapped_a(mut obj: Object) -> Result<()> {
+  obj.remove_wrapped::<WrappedA>()
+}
+
+#[napi]
+pub fn unwrap_object_as_a_rejected(obj: Object) -> bool {
+  obj.unwrap::<WrappedA>().is_err()
+}
+
+#[napi]
+pub fn unwrap_object_as_type_tag_a_rejected(obj: Object) -> bool {
+  obj.unwrap::<crate::type_tag::TypeTagA>().is_err()
+}
+
 /// `unwrap` on an object that was not produced by `Object::wrap` (e.g. a
 /// `#[napi]` class instance or a plain object) must return a catchable error.
 #[napi]
