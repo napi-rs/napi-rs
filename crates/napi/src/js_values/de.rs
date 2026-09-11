@@ -76,11 +76,12 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
           (false, false) => visitor.visit_u128(js_bigint.get_u128().1),
         }
       }
-      ValueType::External | ValueType::Function | ValueType::Symbol => Err(Error::new(
-        Status::InvalidArg,
-        format!("typeof {js_value_type:?} value could not be deserialized"),
-      )),
-      ValueType::Unknown => unreachable!(),
+      ValueType::External | ValueType::Function | ValueType::Symbol | ValueType::Unknown => {
+        Err(Error::new(
+          Status::InvalidArg,
+          format!("typeof {js_value_type:?} value could not be deserialized"),
+        ))
+      }
     }
   }
 
@@ -88,7 +89,8 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
   where
     V: Visitor<'x>,
   {
-    match type_of!(self.0.env, self.0.value)? {
+    let js_value_type = type_of!(self.0.env, self.0.value)?;
+    match js_value_type {
       ValueType::Object => {
         let js_object = Object::from_raw(self.0.env, self.0.value);
         if js_object.is_buffer()? {
@@ -103,7 +105,10 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
         }
         visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
       }
-      _ => unreachable!(),
+      _ => Err(Error::new(
+        Status::InvalidArg,
+        format!("{js_value_type:?} type could not deserialize to bytes"),
+      )),
     }
   }
 
@@ -111,7 +116,8 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
   where
     V: Visitor<'x>,
   {
-    match type_of!(self.0.env, self.0.value)? {
+    let js_value_type = type_of!(self.0.env, self.0.value)?;
+    match js_value_type {
       ValueType::Object => {
         let js_object = Object::from_raw(self.0.env, self.0.value);
         if js_object.is_buffer()? {
@@ -132,7 +138,10 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
         }
         visitor.visit_byte_buf(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
       }
-      _ => unreachable!(),
+      _ => Err(Error::new(
+        Status::InvalidArg,
+        format!("{js_value_type:?} type could not deserialize to bytes"),
+      )),
     }
   }
 
