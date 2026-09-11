@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.3...napi-v3.12.4) - 2026-09-11
+
+### Fixed
+
+- *(napi)* return errors from the serde deserializer for unexpected JS value shapes ([#3507](https://github.com/napi-rs/napi-rs/pull/3507))
+- *(napi)* validate wrapped payload provenance in Object::unwrap/remove_wrapped ([#3506](https://github.com/napi-rs/napi-rs/pull/3506))
+- *(napi)* point from_external slices at the engine-owned copy after finalize reclaims the source ([#3503](https://github.com/napi-rs/napi-rs/pull/3503))
+
 ## [3.12.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.2...napi-v3.12.3) - 2026-09-10
 
 ### Security
