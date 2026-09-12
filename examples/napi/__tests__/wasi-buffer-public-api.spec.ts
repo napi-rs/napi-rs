@@ -1,13 +1,14 @@
 import { Buffer as NodeBuffer } from 'node:buffer'
+import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
-import typeScript from 'typescript'
 
 const require = createRequire(import.meta.url)
+const tsc = join(dirname(require.resolve('typescript/package.json')), 'bin/tsc')
 const isThreadlessWasiBufferTest = Boolean(
   process.env.NAPI_RS_TEST_THREADLESS_WASI_BUFFER,
 )
@@ -119,35 +120,46 @@ void instanceValue
         ),
       ])
 
-      const compilerOptions: typeScript.CompilerOptions = {
-        baseUrl: directory,
-        ignoreDeprecations: '6.0',
-        lib: ['lib.esnext.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
-        module: typeScript.ModuleKind.NodeNext,
-        moduleResolution: typeScript.ModuleResolutionKind.NodeNext,
-        noEmit: true,
-        paths: {
-          buffer: ['./buffer.d.ts'],
-        },
-        skipLibCheck: false,
-        strict: true,
-        target: typeScript.ScriptTarget.ES2022,
-        typeRoots: [emptyTypesPath],
-        types: [],
+      const typecheck = async (files: string[]) => {
+        const tsconfigPath = join(directory, 'tsconfig.json')
+        await writeFile(
+          tsconfigPath,
+          `${JSON.stringify({
+            compilerOptions: {
+              lib: ['ESNext', 'DOM', 'DOM.Iterable'],
+              module: 'NodeNext',
+              moduleResolution: 'nodenext',
+              noEmit: true,
+              paths: {
+                buffer: ['./buffer.d.ts'],
+              },
+              skipLibCheck: false,
+              strict: true,
+              target: 'ES2022',
+              typeRoots: ['./types'],
+              types: [],
+            },
+            files,
+          })}\n`,
+        )
+        const result = spawnSync(
+          process.execPath,
+          [tsc, '--pretty', 'false', '-p', tsconfigPath],
+          { encoding: 'utf8', cwd: directory },
+        )
+        if (result.status === 0) {
+          return
+        }
+        const output = `${result.stdout}\n${result.stderr}`.trim()
+        t.fail(
+          `tsc exited status=${result.status} signal=${result.signal}${
+            result.error ? ` error=${result.error.message}` : ''
+          }${output ? `\n${output}` : ''}`,
+        )
       }
-      const diagnostics = (roots: string[]) =>
-        typeScript
-          .getPreEmitDiagnostics(
-            typeScript.createProgram(roots, compilerOptions),
-          )
-          .map((diagnostic) =>
-            typeScript.flattenDiagnosticMessageText(
-              diagnostic.messageText,
-              '\n',
-            ),
-          )
-      t.deepEqual(diagnostics([threadlessConsumerPath, globalsPath]), [])
-      t.deepEqual(diagnostics([workerdConsumerPath, globalsPath]), [])
+      await typecheck(['threadless-consumer.ts', 'globals.d.ts'])
+      await typecheck(['workerd-consumer.ts', 'globals.d.ts'])
+      t.pass()
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
