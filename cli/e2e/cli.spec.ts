@@ -1,4 +1,5 @@
 import { exec, type ExecOptions } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 // use posix path to prevent `\` on Windows
 import { join as posixJoin } from 'node:path/posix'
@@ -73,6 +74,32 @@ test('should be able to build a project', async (t) => {
       DEBUG: 'napi:*',
     },
   })
+  t.truthy(existsSync(join(context, 'index.node')))
+})
+
+test('published CLI keeps the compiler API when the project uses TypeScript 7', async (t) => {
+  const { context } = t.context
+  await writePackageJson(context, {
+    dependencies: {
+      typescript: '^7.0.0',
+    },
+  })
+  await execAsync('npm install', { cwd: context })
+
+  const cliRequire = createRequire(
+    join(context, 'node_modules', '@napi-rs', 'cli', 'package.json'),
+  )
+  const projectRequire = createRequire(join(context, 'package.json'))
+  const cliTypeScript = cliRequire('typescript')
+  const projectTypeScript = projectRequire('typescript')
+
+  t.truthy(cliTypeScript.ModuleKind)
+  t.truthy(cliTypeScript.createSourceFile)
+  t.is(projectTypeScript.ModuleKind, undefined)
+
+  await writeCargoToml(context)
+  const bin = join(context, 'node_modules', '.bin')
+  await execAsync(`${bin}/napi build`, { cwd: context })
   t.truthy(existsSync(join(context, 'index.node')))
 })
 

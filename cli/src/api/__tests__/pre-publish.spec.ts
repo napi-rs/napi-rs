@@ -12,6 +12,7 @@ import {
   resolveRootPublisher,
   rootPublisherRewritesRootExports,
   sniffRewritingPublisherFromUserAgent,
+  staticModuleSpecifiers,
   validateRootFacadePacklist,
 } from '../pre-publish.js'
 import { parseTriple } from '../../utils/index.js'
@@ -557,4 +558,35 @@ test('still rejects publishConfig.exports references omitted by npm pack', async
       },
     )
   }
+})
+
+test('scans WASI loader specifiers through the TypeScript compiler API', (t) => {
+  // TypeScript 7's `typescript` package is tsgo and has no createSourceFile.
+  // pre-publish walks WASI JS with that API to find runtime imports.
+  const specifiers = staticModuleSpecifiers(
+    `
+const { WASI } = require('@napi-rs/wasm-runtime')
+const { createContext } = require('@emnapi/runtime')
+import { instantiate } from '@napi-rs/wasm-runtime/fs'
+export { getDefaultContext } from '@emnapi/core'
+const resolved = require.resolve('buffer')
+void import('@emnapi/core')
+require(dynamicName)
+`,
+    'example.wasip1.cjs',
+  )
+  t.deepEqual([...specifiers].sort(), [
+    '@emnapi/core',
+    '@emnapi/runtime',
+    '@napi-rs/wasm-runtime',
+    '@napi-rs/wasm-runtime/fs',
+    'buffer',
+  ])
+})
+
+test('returns no specifiers for loaders without static imports', (t) => {
+  t.deepEqual(
+    [...staticModuleSpecifiers('const wasm = 1\n', 'example.wasip1.cjs')],
+    [],
+  )
 })
