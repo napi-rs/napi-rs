@@ -120,6 +120,29 @@ export interface UserNapiConfig {
     optionalDependency?: boolean
 
     /**
+     * Whether the generated WASI loaders bootstrap the `napi-async-runtime`
+     * CurrentThread JavaScript hosts.
+     *
+     * A binding built with the `napi-async-runtime` crate runs the
+     * `CurrentThread` flavor on every WebAssembly target (it is the only
+     * flavor there). Its futures make no progress until a task host is
+     * registered, and its timers never fire until a timer host is, so the
+     * loader must install both right after instantiation and unregister them
+     * before the environment is destroyed.
+     *
+     * Enabling this emits that bootstrap in the node, browser and deferred
+     * (workerd) loaders, and declares `@napi-rs/async-runtime` in the
+     * generated `<packageName>-wasm32-*` packages. The loader delegates the
+     * whole host contract — the seven exports, contract version 4, the
+     * reservation identity, the liveness probe and the rollback — to that
+     * package, so a binding that does not actually expose the contract fails
+     * loudly at load with `ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH`.
+     *
+     * @default false
+     */
+    asyncRuntime?: boolean
+
+    /**
      * Browser wasm binding configuration
      */
     browser?: {

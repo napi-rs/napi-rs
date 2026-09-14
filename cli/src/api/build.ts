@@ -97,6 +97,18 @@ type ParsedBuildOptions = Omit<BuildOptions, 'cwd' | 'format'> & {
 
 export const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
 
+// The host protocol a binding built with the `napi-async-runtime` crate
+// exposes (contract version 4). See crates/async-runtime/README.md.
+const ASYNC_RUNTIME_HOST_EXPORTS = [
+  'getCurrentThreadTaskHostContractVersion',
+  'isCurrentThreadHostRegistrationActive',
+  'registerCurrentThreadTaskHost',
+  'registerTimerHost',
+  'reserveCurrentThreadHostRegistration',
+  'unregisterCurrentThreadTaskHost',
+  'unregisterTimerHost',
+] as const
+
 type CargoConfigFingerprint = readonly [path: string, hash: string]
 
 export function getCargoDependencyGraphFingerprint(
@@ -2253,6 +2265,20 @@ class Builder {
     metadata: WasiBindingMetadata,
   ): Promise<Output[]> {
     const { exports: idents } = metadata
+    const asyncRuntime = this.config.wasm?.asyncRuntime === true
+    const missingHostExports = ASYNC_RUNTIME_HOST_EXPORTS.filter(
+      (name) => !idents.includes(name),
+    )
+    if (asyncRuntime && missingHostExports.length > 0) {
+      throw new Error(
+        `napi.wasm.asyncRuntime is enabled but ${this.config.packageName} does not export the napi-async-runtime host contract. Missing: ${missingHostExports.join(', ')}. Build the addon against the \`napi-async-runtime\` crate (see crates/async-runtime/README.md) or unset napi.wasm.asyncRuntime.`,
+      )
+    }
+    if (!asyncRuntime && missingHostExports.length === 0) {
+      debug.warn(
+        `${this.config.packageName} exports the napi-async-runtime host contract but napi.wasm.asyncRuntime is not enabled. The generated WASI loaders will not install the CurrentThread task and timer hosts, so async exports will never make progress unless the host is installed by hand.`,
+      )
+    }
     const hasThreads = wasiTargetHasThreads(wasiTarget)
     const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
     // the wasm file stem referenced from inside the loaders
@@ -2293,6 +2319,7 @@ class Builder {
           hasThreads,
           wasiTarget.platformArchABI,
           `${this.config.binaryName}.${wasiTarget.platformArchABI}`,
+          asyncRuntime,
         ) +
         exportsCode +
         '\n',
@@ -2309,6 +2336,7 @@ class Builder {
         this.config.wasm?.browser?.buffer,
         this.config.wasm?.browser?.errorEvent,
         hasThreads,
+        asyncRuntime,
       ) +
         `export default __napiModule.exports\n` +
         idents
@@ -2395,6 +2423,7 @@ export = binding
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.buffer,
+          asyncRuntime,
         ),
         'utf8',
       )

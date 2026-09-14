@@ -175,6 +175,63 @@ override the default in either direction:
 }
 ```
 
+## Shared async runtime hosts
+
+`CurrentThread` is the only async-runtime flavor on WebAssembly, for both
+`wasm32-wasip1` and `wasm32-wasip1-threads`. An addon built with the
+`napi-async-runtime` crate therefore makes no progress until a JavaScript task
+host publishes its runnable turns, and its timers never fire until a timer host
+relays them. Set `napi.wasm.asyncRuntime` and the generated loaders install
+both for you:
+
+```json
+{
+  "napi": {
+    "wasm": {
+      "asyncRuntime": true
+    }
+  }
+}
+```
+
+This affects WASI output only. Native `.node` bindings run the `MultiThread`
+flavor on real threads and need no JavaScript host.
+
+With the flag on:
+
+- The Node CommonJS and browser loaders call
+  `installCurrentThreadHosts(exports)` from `@napi-rs/async-runtime` right after
+  instantiation, and unregister both hosts before the emnapi context is
+  destroyed — on `dispose()`, on the initialization rollback, and at process
+  `exit`.
+- The deferred `./workerd` loader registers one task host and one timer host
+  **per instance** (`registerWorkerdCurrentThreadTaskHost` /
+  `registerWorkerdTimerHost`) and disposes them with that instance, so
+  independent instances never share or cancel each other's registrations.
+- The generated `<packageName>-wasm32-*` packages declare
+  `@napi-rs/async-runtime` as a dependency. Add it to your own
+  `devDependencies` so local `napi build` output can load.
+
+Detection is done at runtime against the instantiated module:
+`@napi-rs/async-runtime` reads the seven host exports off the binding, checks
+the task-host contract version (`4`), validates the reservation identity and
+the liveness probe, and rolls back every registration it created if any step
+fails. A binding that does not actually expose the contract therefore fails at
+load with `ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH` rather than hanging later.
+
+The flag itself is still needed because the loaders `import` the package with a
+bare specifier: bundlers resolve static imports at build time, so an optional
+one is not expressible. Leave it unset and every generated loader is byte-for-
+byte what earlier CLI versions produced.
+
+Only the loader's own thread is bootstrapped. WASI worker threads
+(`wasi-worker.mjs`, `wasi-worker-browser.mjs`) instantiate the module with
+`childThread: true` and do not register a host.
+
+`napi build` cross-checks the flag against the addon's real export list: it
+fails when the flag is set but the host exports are missing, and warns when the
+exports are present but the flag is not set.
+
 `napi.wasm.initialMemory` is measured in 64 KiB WebAssembly pages. The regular
 Node and browser loaders retain the historical 4,000-page (250 MiB) default.
 The deferred `./workerd` loader defaults to 1,024 pages (64 MiB), leaving
