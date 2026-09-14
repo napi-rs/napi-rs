@@ -498,6 +498,107 @@ test.serial(
 )
 
 test.serial(
+  'should declare @napi-rs/async-runtime when napi.wasm.asyncRuntime is enabled',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '0.1.0',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-async-runtime-dep',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-async-runtime-dep',
+        targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+        wasm: {
+          asyncRuntime: true,
+        },
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+        const scopedPackageJson = JSON.parse(
+          await readFile(
+            join(tmpDir, 'npm', packageDir, 'package.json'),
+            'utf-8',
+          ),
+        )
+
+        t.is(scopedPackageJson.dependencies['@napi-rs/async-runtime'], '^0.1.0')
+      }
+      t.deepEqual(registryServer.requests.sort(), [
+        '/npm/@napi-rs/async-runtime',
+        '/npm/@napi-rs/wasm-runtime',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should not resolve @napi-rs/async-runtime when the flag is unset',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '0.1.0',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-async-runtime-dep-off',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-async-runtime-dep-off',
+        targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+        const scopedPackageJson = JSON.parse(
+          await readFile(
+            join(tmpDir, 'npm', packageDir, 'package.json'),
+            'utf-8',
+          ),
+        )
+
+        t.is(
+          scopedPackageJson.dependencies['@napi-rs/async-runtime'],
+          undefined,
+        )
+      }
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
   'should reject an empty latest dist-tag when resolving wasm runtime metadata',
   async (t) => {
     const { tmpDir, packageJsonPath } = t.context

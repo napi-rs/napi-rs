@@ -72,7 +72,55 @@ function __wrapEmnapiContextDestroyForSettlement(
 }
 `
 
-const emnapiContextLifecycle = `
+/**
+ * Host teardown must run while the environment can still accept N-API calls,
+ * and after the settlement drain: the drain is what lets the barrier's queued
+ * promise settlements reach JavaScript, and the task host is what publishes the
+ * CurrentThread turns they may still need. `__destroyEmnapiContext` is the
+ * single funnel every teardown path reaches — `dispose()`, the initialization
+ * rollback, and the CJS 'exit' handler — and it is reached only after
+ * `__startWasiDisposal` / the rollback have already prepared and drained, so
+ * one call there covers all three.
+ */
+const createEmnapiContextLifecycle = (asyncRuntime: boolean) => {
+  const currentThreadHosts = asyncRuntime
+    ? `
+let __currentThreadHostsDisposer
+
+function __reportCurrentThreadHostDisposalError(error) {
+  try {
+    const consoleHost = globalThis.console
+    if (consoleHost && typeof consoleHost.error === 'function') {
+      consoleHost.error(error)
+    }
+  } catch {}
+}
+
+/**
+ * Unregister the CurrentThread task and timer hosts this loader installed.
+ * Idempotent, and never throws: an unregister failure must not abort
+ * \`Context.destroy()\`, which would retain the whole environment over a
+ * bookkeeping error. The failure is reported instead.
+ */
+function __disposeCurrentThreadHosts() {
+  const dispose = __currentThreadHostsDisposer
+  if (dispose === undefined) {
+    return
+  }
+  __currentThreadHostsDisposer = undefined
+  try {
+    dispose()
+  } catch (error) {
+    __reportCurrentThreadHostDisposalError(error)
+  }
+}
+`
+    : ''
+  const disposeCurrentThreadHosts = asyncRuntime
+    ? '  __disposeCurrentThreadHosts()\n'
+    : ''
+
+  return `
 const __wasiDisposeSymbol = Symbol.for('${WASI_DISPOSE_SYMBOL}')
 const __wasiWorkers = new Set()
 let __napiInstance
@@ -90,7 +138,7 @@ let __completeWasiDisposal = function () {}
 // that stopped short of destroying the context. See
 // \`__rollbackWasiInitialization\`.
 let __retainWasiRollbackForRetry = function () {}
-
+${currentThreadHosts}
 function __isThenable(value) {
   return (
     value !== null &&
@@ -343,6 +391,7 @@ function __destroyEmnapiContext() {
     return __emnapiContextDestroyPromise
   }
 
+${disposeCurrentThreadHosts}\
   __prepareWasmEnvCleanup()
   const result = __emnapiContext.destroy()
   if (!__isThenable(result)) {
@@ -597,6 +646,7 @@ function __rollbackWasiInitialization() {
   return __destroyContextForWasiRollback(cleanupErrors)
 }
 `
+}
 
 export const createWasiBrowserBinding = (
   wasiFilename: string,
@@ -607,11 +657,21 @@ export const createWasiBrowserBinding = (
   buffer = false,
   errorEvent = false,
   threads = true,
+  asyncRuntime = false,
 ) => {
   // Threaded builds always get a pre-created worker pool (see
   // `reuseWorkerOption` below), and pool pre-creation is asynchronous, so
   // they always initialize asynchronously.
   const effectiveAsyncInit = asyncInit || threads
+  const asyncRuntimeImport = asyncRuntime
+    ? `import { installCurrentThreadHosts as __installCurrentThreadHosts } from '@napi-rs/async-runtime'\n`
+    : ''
+  const installAsyncRuntimeHosts = asyncRuntime
+    ? `  __currentThreadHostsDisposer = __installCurrentThreadHosts(
+    __napiModule.exports,
+  )
+`
+    : ''
   const fsImport = fs
     ? buffer
       ? `import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'`
@@ -736,6 +796,7 @@ ${workerRuntimeImport}\
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
+${asyncRuntimeImport}\
 ${fsImport}
 ${bufferImport}
 ${wasiCreation}
@@ -761,7 +822,7 @@ ${threads ? '  shared: true,\n' : ''}\
 })
 ${workerPoolSizeBinding}\
 let __emnapiContext
-${emnapiContextLifecycle}
+${createEmnapiContextLifecycle(asyncRuntime)}
 let __wasiModule
 let __napiModule
 
@@ -803,6 +864,7 @@ ${workerOption}\
     },
   }))
   __publishWasiDispose(__napiModule.exports)
+${installAsyncRuntimeHosts}\
 } catch (error) {
   const cleanupErrors = await __rollbackWasiInitialization()
   throw __attachCleanupErrors(error, cleanupErrors)
@@ -818,10 +880,86 @@ export const createWasiDeferredBrowserBinding = (
   initialMemory = 1024,
   maximumMemory = 65536,
   buffer = false,
+  asyncRuntime = false,
 ) => {
   const bufferImport = buffer ? `import { Buffer } from 'buffer'` : ''
   const emnapiInjectBuffer = buffer
     ? '    __emnapiContext.features.Buffer = Buffer\n'
+    : ''
+  // This flavor creates N independent instances per realm, each with its own
+  // emnapi context and its own `napiModule.exports`, so it uses the
+  // per-instance helpers rather than `installCurrentThreadHosts`: those return
+  // exact, idempotent disposers with no realm-global dedup, roll themselves
+  // back on a setup failure, and degrade to a no-op disposer when the realm has
+  // no `setTimeout`/`clearTimeout`.
+  const asyncRuntimeImport = asyncRuntime
+    ? `import {
+  registerWorkerdCurrentThreadTaskHost as __registerWorkerdCurrentThreadTaskHost,
+  registerWorkerdTimerHost as __registerWorkerdTimerHost,
+} from '@napi-rs/async-runtime'
+`
+    : ''
+  // `__createManagedEmnapiContext` calls `__prepareEnvCleanup?.()` on EVERY
+  // destroy path (dispose(), managed beforeExit, module lifecycle), so a second
+  // hook next to it covers them all with one edit.
+  const managedHostDisposeParam = asyncRuntime ? '  __disposeHosts,\n' : ''
+  const managedHostDisposeCall = asyncRuntime
+    ? `      __disposeHosts?.()\n`
+    : ''
+  const instanceHostState = asyncRuntime
+    ? `  let __disposeInstanceHosts
+  const __reportInstanceHostDisposalError = (__error) => {
+    try {
+      const __consoleHost = globalThis.console
+      if (__consoleHost && typeof __consoleHost.error === 'function') {
+        __consoleHost.error(__error)
+      }
+    } catch {}
+  }
+  // Runs between the settlement drain and \`Context.destroy()\`; never throws,
+  // for the same reason the eager loaders' disposer does not.
+  const __disposeHostsBeforeDestroy = () => {
+    const __dispose = __disposeInstanceHosts
+    if (__dispose === undefined) {
+      return
+    }
+    __disposeInstanceHosts = undefined
+    __dispose()
+  }
+`
+    : ''
+  const installInstanceHosts = asyncRuntime
+    ? `    const __disposeTaskHost = __registerWorkerdCurrentThreadTaskHost(
+      __napiModule.exports,
+    )
+    try {
+      const __disposeTimerHost = __registerWorkerdTimerHost(
+        __napiModule.exports,
+      )
+      __disposeInstanceHosts = () => {
+        try {
+          __disposeTimerHost()
+        } catch (__error) {
+          __reportInstanceHostDisposalError(__error)
+        }
+        try {
+          __disposeTaskHost()
+        } catch (__error) {
+          __reportInstanceHostDisposalError(__error)
+        }
+      }
+    } catch (__error) {
+      try {
+        __disposeTaskHost()
+      } catch (__cleanupError) {
+        __attachCleanupError(__error, __cleanupError)
+      }
+      throw __error
+    }
+`
+    : ''
+  const managedHostDisposeArg = asyncRuntime
+    ? '    __disposeHostsBeforeDestroy,\n'
     : ''
   return `import {
   emnapiAsyncWorkPlugin as __emnapiAsyncWorkPlugin,
@@ -830,6 +968,7 @@ export const createWasiDeferredBrowserBinding = (
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
+${asyncRuntimeImport}\
 ${bufferImport}
 
 /**
@@ -1320,7 +1459,7 @@ function __registerManagedEmnapiContext(__process, __destroy) {
 async function __createManagedEmnapiContext(
   __prepareEnvCleanup,
   __isPreparingEnvCleanup,
-) {
+${managedHostDisposeParam}) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -1383,6 +1522,7 @@ async function __createManagedEmnapiContext(
       // Context.destroy() disables JS before cleanup hooks run, so settle
       // runtime-owned promises while this environment can still call JS.
       __prepareEnvCleanup?.()
+${managedHostDisposeCall}\
       __result = __emnapiContext.destroy()
     } catch (error) {
       __finishDestroyInvocation()
@@ -1509,6 +1649,7 @@ async function __createInstance(
   let __destroyOwnedContext
   let __destroyManagedOwnedContext
   let __napiInstance
+${instanceHostState}\
   let __wasmEnvCleanupRan = false
   let __wasmEnvCleanupPrepared = false
   let __wasmEnvCleanupPreparing = false
@@ -1605,7 +1746,7 @@ async function __createInstance(
   } = await __createManagedEmnapiContext(
     __prepareEnvCleanup,
     __isPreparingEnvCleanup,
-  )
+${managedHostDisposeArg}  )
   __destroyEmnapiContext = destroy
   __destroyOwnedContext = () => __destroyEmnapiContext()
   __destroyManagedOwnedContext = destroyForModuleLifecycle
@@ -1642,6 +1783,7 @@ ${emnapiInjectBuffer}\
         }
       },
     }))
+${installInstanceHosts}\
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }
@@ -1950,7 +2092,20 @@ export const createWasiBinding = (
   // wasm artifact.
   platformArchABI = 'wasm32-wasi',
   packageWasmFileName = wasmFileName,
+  asyncRuntime = false,
 ) => {
+  const asyncRuntimeImport = asyncRuntime
+    ? `const {
+  installCurrentThreadHosts: __installCurrentThreadHosts,
+} = require('@napi-rs/async-runtime')
+`
+    : ''
+  const installAsyncRuntimeHosts = asyncRuntime
+    ? `  __currentThreadHostsDisposer = __installCurrentThreadHosts(
+    __napiModule.exports,
+  )
+`
+    : ''
   const workerImports = threads
     ? `const { Worker } = require('node:worker_threads')
 `
@@ -2124,6 +2279,7 @@ ${workerRuntimeImport}\
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
+${asyncRuntimeImport}\
 ${workerExecArgv}\
 
 const __cwd = process.cwd()
@@ -2167,7 +2323,7 @@ if (__nodeFs.existsSync(__wasmDebugFilePath)) {
 
 const __wasmFile = __nodeFs.readFileSync(__wasmFilePath)
 let __emnapiContext
-${emnapiContextLifecycle}
+${createEmnapiContextLifecycle(asyncRuntime)}
 const __wasiRollbackRegistrySymbol = Symbol.for('${WASI_ROLLBACK_REGISTRY_SYMBOL}')
 const __wasiRollbackRegistryKey =
   typeof __filename === 'string' ? __filename : __wasmFilePath
@@ -2385,6 +2541,7 @@ ${workerOption}\
     },
   }))
   __publishWasiDispose(__napiModule.exports)
+${installAsyncRuntimeHosts}\
   __registerWasiExitListener()
 } catch (error) {
   const rollback = {
