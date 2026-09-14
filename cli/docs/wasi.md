@@ -127,6 +127,22 @@ Replacement `instantiate()` calls wait for the complete public cleanup,
 including every retained failed-initialization rollback present before cleanup
 finishes.
 
+Every generated loader shadows `destroy` on the emnapi context it creates, so
+`napi_prepare_wasm_env_cleanup` runs before the environment stops accepting
+JavaScript calls even when `destroy()` is invoked directly — by an embedder
+holding the context, by a test harness, or by emnapi's `beforeExit` auto-destroy
+on a host where `suppressDestroy()` is unavailable. The shadow is best-effort: a
+context whose `destroy` cannot be read or redefined is used unchanged. It does
+not replace `dispose()`, which additionally yields event-loop turns until
+`napi_wasm_env_cleanup_pending` reports zero; a direct `destroy()` still cannot
+wait for a settlement produced on another thread.
+
+The barrier settles the promises it cancels synchronously, so a promise hook
+(`node:v8` `promiseHooks`, or the `async_hooks` hook `AsyncLocalStorage`
+installs) can run while it is still in flight. A `destroy()` called from such a
+hook is a no-op — the frame that started the barrier destroys as soon as it
+returns, and `Context.destroy()` returns `void`, so nothing observable is lost.
+
 The eager CommonJS WASI loader keeps its emnapi context alive for the process
 lifetime. Node.js can emit `beforeExit` repeatedly when a listener schedules
 more work, and cached eager exports must remain usable after every such cycle.

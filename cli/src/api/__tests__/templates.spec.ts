@@ -317,6 +317,168 @@ function initializationRollbackBody(code: string): string {
   return code.slice(deferredStart, code.indexOf('throw error', deferredStart))
 }
 
+// The loaders order their own teardown barrier-then-destroy, but the emnapi
+// context is a live object: an embedder or test harness holding it, or emnapi's
+// own `beforeExit` auto-destroy on a host where `suppressDestroy()` is absent,
+// can call `Context.destroy()` directly. `destroy()` disables JavaScript calls
+// before it runs cleanup hooks, so a raw call discards the very settlements the
+// barrier exists to cancel and deliver. Own the ordering on the object: every
+// flavor shadows `destroy` once, at creation, before anything can reach it.
+const CONTEXT_DESTROY_WRAP_SIGNATURE =
+  'function __wrapEmnapiContextDestroyForSettlement('
+
+// The shared barrier's own in-flight flag, and the probe the wrapper reads it
+// through. It cannot live in the wrapper: `dispose()` runs the barrier itself
+// and only then calls `destroy()`, so a wrapper-local flag would still be clear
+// while the barrier is running and would let a reentrant destroy through.
+const preparingBarrierGuards = {
+  shared: {
+    probe: '__isPreparingWasmEnvCleanup',
+    snippets: [
+      'let __emnapiWasmEnvCleanupPreparing = false',
+      `function __isPreparingWasmEnvCleanup() {
+  return __emnapiWasmEnvCleanupPreparing
+}`,
+      `  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
+    return
+  }`,
+      `    __emnapiWasmEnvCleanupPreparing = true
+    try {
+      prepare()
+    } finally {
+      __emnapiWasmEnvCleanupPreparing = false
+    }`,
+    ],
+  },
+  deferred: {
+    probe: '__isPreparingEnvCleanup',
+    snippets: [
+      'let __wasmEnvCleanupPreparing = false',
+      'const __isPreparingEnvCleanup = () => __wasmEnvCleanupPreparing',
+      `    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
+      return
+    }`,
+      `      __wasmEnvCleanupPreparing = true
+      try {
+        __prepareWasmEnvCleanup()
+      } finally {
+        __wasmEnvCleanupPreparing = false
+      }`,
+    ],
+  },
+} as const
+
+// A nested `destroy()` must answer `undefined` without touching the real one:
+// no fallthrough, no deferral. `Context.destroy()` is typed `void`, so nothing
+// observable is lost, and the frame that started the barrier destroys the
+// moment it returns.
+const NESTED_DESTROY_NO_OP = `        if (isPreparingEnvCleanup?.()) {
+          return
+        }
+        prepareEnvCleanup?.()`
+
+const wrappedContextCreationCases: Array<{
+  name: string
+  code: string
+  prepare: string
+  guard: (typeof preparingBarrierGuards)[keyof typeof preparingBarrierGuards]
+}> = [
+  {
+    name: 'node cjs',
+    code: createWasiBinding('test', '@scope/test'),
+    prepare: '__prepareWasmEnvCleanup',
+    guard: preparingBarrierGuards.shared,
+  },
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding('test', '@scope/test', 4000, 65536, false),
+    prepare: '__prepareWasmEnvCleanup',
+    guard: preparingBarrierGuards.shared,
+  },
+  {
+    name: 'browser esm',
+    code: createWasiBrowserBinding('test'),
+    prepare: '__prepareWasmEnvCleanup',
+    guard: preparingBarrierGuards.shared,
+  },
+  {
+    name: 'deferred/workerd',
+    code: createWasiDeferredBrowserBinding('test'),
+    prepare: '__prepareEnvCleanup',
+    guard: preparingBarrierGuards.deferred,
+  },
+]
+
+for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
+  test(`WASI loader runs the barrier on a raw context.destroy(): ${name}`, (t) => {
+    assertValidJS(t, code, name)
+    t.is(
+      code.split(CONTEXT_DESTROY_WRAP_SIGNATURE).length - 1,
+      1,
+      'loader must define the destroy wrapper exactly once',
+    )
+    // No unwrapped context may escape: there is exactly one createContext call
+    // and it is the wrapper's argument.
+    t.is(
+      code.split('__emnapiCreateContext({ autoDestroy: false })').length - 1,
+      1,
+      'loader must create exactly one emnapi context',
+    )
+    t.true(
+      code
+        .replace(/\s+/g, ' ')
+        .includes(
+          '__emnapiContext = __wrapEmnapiContextDestroyForSettlement( ' +
+            `__emnapiCreateContext({ autoDestroy: false }), ${prepare}, ${guard.probe}, )`,
+        ),
+      'the createContext result must be wrapped before anything can reach it',
+    )
+    // Ordering is the whole point: barrier first, real destroy second.
+    const wrapperStart = code.indexOf(CONTEXT_DESTROY_WRAP_SIGNATURE)
+    const wrapper = code.slice(
+      wrapperStart,
+      code.indexOf('\n}\n', wrapperStart),
+    )
+    t.true(
+      wrapper.indexOf('prepareEnvCleanup?.()') <
+        wrapper.indexOf('Reflect.apply(destroy, this, arguments)'),
+      'the barrier must run before the real destroy, while the env can still call into JavaScript',
+    )
+  })
+
+  // The barrier settles the promises it cancels *synchronously*, under a
+  // lifecycle mutex the addon cannot acquire twice. A `promiseHooks.onSettled`
+  // handler — or the `async_hooks` hook `AsyncLocalStorage` installs — that
+  // calls `destroy()` therefore re-enters the wrapper from inside the barrier,
+  // and a second trip into the export aborts the wasm instance outright. The
+  // flag lives in the barrier, not in the wrapper, so the same guard covers the
+  // `dispose()` path, where the barrier runs before `destroy()` is ever called.
+  test(`WASI loader makes a destroy reentered from the barrier a no-op: ${name}`, (t) => {
+    for (const snippet of guard.snippets) {
+      t.is(
+        code.split(snippet).length - 1,
+        1,
+        `barrier must carry its in-flight guard exactly once: ${snippet}`,
+      )
+    }
+    t.is(
+      code.split(NESTED_DESTROY_NO_OP).length - 1,
+      1,
+      'a destroy reentered while the barrier is in flight must return without running the barrier or the real destroy',
+    )
+    const wrapperStart = code.indexOf(CONTEXT_DESTROY_WRAP_SIGNATURE)
+    const wrapper = code.slice(
+      wrapperStart,
+      code.indexOf('\n}\n', wrapperStart),
+    )
+    t.true(
+      wrapper.indexOf('isPreparingEnvCleanup?.()') <
+        wrapper.indexOf('Reflect.apply(destroy, this, arguments)'),
+      'the reentry check must come before the real destroy',
+    )
+  })
+}
+
 test('createCjsBinding uses one statement dialect', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
     'wasm32-wasi',

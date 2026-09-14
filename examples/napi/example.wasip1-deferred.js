@@ -105,6 +105,39 @@ async function __normalizeModuleForEmnapi(__module) {
   )
 }
 
+function __wrapEmnapiContextDestroyForSettlement(
+  context,
+  prepareEnvCleanup,
+  isPreparingEnvCleanup,
+) {
+  let destroy
+  try {
+    destroy = context.destroy
+  } catch {
+    return context
+  }
+  if (typeof destroy !== 'function') {
+    return context
+  }
+  try {
+    Object.defineProperty(context, 'destroy', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: function () {
+        // Reentered from a promise hook that fired inside the barrier: the
+        // frame running it destroys as soon as it returns.
+        if (isPreparingEnvCleanup?.()) {
+          return
+        }
+        prepareEnvCleanup?.()
+        return Reflect.apply(destroy, this, arguments)
+      },
+    })
+  } catch {}
+  return context
+}
+
 function __captureEmnapiAutoDestroyListener(__process) {
   if (
     !__process ||
@@ -492,7 +525,10 @@ function __registerManagedEmnapiContext(__process, __destroy) {
   }
 }
 
-async function __createManagedEmnapiContext(__prepareEnvCleanup) {
+async function __createManagedEmnapiContext(
+  __prepareEnvCleanup,
+  __isPreparingEnvCleanup,
+) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -501,7 +537,11 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   let __contextInitializationError
   let __contextInitializationFailed = false
   try {
-    __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
+      __emnapiCreateContext({ autoDestroy: false }),
+      __prepareEnvCleanup,
+      __isPreparingEnvCleanup,
+    )
     // emnapi 2.x still registers an unconditional process.once('beforeExit')
     // auto-destroy listener on Node hosts, and suppressDestroy() only
     // neutralizes its callback without removing it. This loader must stay
@@ -679,16 +719,26 @@ async function __createInstance(
   let __napiInstance
   let __wasmEnvCleanupRan = false
   let __wasmEnvCleanupPrepared = false
+  let __wasmEnvCleanupPreparing = false
   let __wasmEnvCleanupDrained = false
   let __wasmEnvCleanupDrainPromise
+  const __isPreparingEnvCleanup = () => __wasmEnvCleanupPreparing
   const __prepareEnvCleanup = () => {
-    if (__wasmEnvCleanupPrepared) {
+    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
       return
     }
     const __prepareWasmEnvCleanup =
       __napiInstance?.exports.napi_prepare_wasm_env_cleanup
     if (typeof __prepareWasmEnvCleanup === 'function') {
-      __prepareWasmEnvCleanup()
+      // The addon settles the promises it cancels synchronously, under a
+      // non-reentrant lifecycle mutex: anything a promise hook calls from in
+      // here must not reach this export again.
+      __wasmEnvCleanupPreparing = true
+      try {
+        __prepareWasmEnvCleanup()
+      } finally {
+        __wasmEnvCleanupPreparing = false
+      }
       __wasmEnvCleanupRan = true
     }
     __wasmEnvCleanupPrepared = true
@@ -760,7 +810,10 @@ async function __createInstance(
     destroy,
     destroyForModuleLifecycle,
     registerCleanup: __registerCleanup,
-  } = await __createManagedEmnapiContext(__prepareEnvCleanup)
+  } = await __createManagedEmnapiContext(
+    __prepareEnvCleanup,
+    __isPreparingEnvCleanup,
+  )
   __destroyEmnapiContext = destroy
   __destroyOwnedContext = () => __destroyEmnapiContext()
   __destroyManagedOwnedContext = destroyForModuleLifecycle

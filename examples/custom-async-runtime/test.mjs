@@ -1146,6 +1146,221 @@ if (isThreadlessWasi) {
       `a turn-limit rejection must not destroy the context out from under the queued settlement:\n${stuckPendingOutput}`,
     )
   }
+
+  // `Context.destroy()` is a live method on an object the loader does not own
+  // exclusively: an embedder or test harness that got hold of the context, or
+  // emnapi's own `beforeExit` auto-destroy on a host where `suppressDestroy()`
+  // is missing, calls it without ever going through `dispose()`. destroy()
+  // disables JavaScript *before* it runs cleanup hooks, and the threadsafe
+  // function's hook then drains its queue with a null env — so a raw destroy
+  // that skips `napi_prepare_wasm_env_cleanup` strands exactly the promises the
+  // barrier exists to cancel and deliver. The generated loader must run the
+  // barrier from the context's own `destroy`, not only from its disposal chain.
+  const rawDestroy = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const timeout = setTimeout(() => {
+        console.error('RAW_DESTROY_TIMEOUT')
+        process.exit(46)
+      }, 30_000)
+      timeout.unref?.()
+
+      // Resolve @emnapi/runtime from the LOADER's own location, so the
+      // intercepted module object is byte-identical to the one the loader
+      // destructures createContext from.
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(eagerLoaderPath)}).href,
+      )
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let captured
+      runtime.createContext = function (options) {
+        captured = realCreateContext(options)
+        return captured
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(eagerLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+      }
+      if (!captured) {
+        console.error('RAW_DESTROY_NO_CONTEXT')
+        process.exit(45)
+      }
+
+      let outcome = 'PENDING'
+      binding.asyncNever().then(
+        () => { outcome = 'RESOLVED' },
+        (error) => { outcome = 'REJECTED: ' + error.message },
+      )
+
+      // The whole point: no dispose(), no barrier by hand. Just destroy().
+      captured.destroy()
+
+      ;(async () => {
+        // Well past the two turns @emnapi/core needs to dispatch its queue: if
+        // the settlement did not land by now, it never will.
+        for (let index = 0; index < 50; index++) {
+          await new Promise((resolve) => setImmediate(resolve))
+        }
+        console.error('RAW_DESTROY_OUTCOME ' + outcome)
+        process.exit(outcome.startsWith('REJECTED: ') ? 0 : 47)
+      })()
+      `,
+    ],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  const rawDestroyOutput = `${rawDestroy.stdout}\n${rawDestroy.stderr}`
+  assert.equal(rawDestroy.error, undefined, rawDestroy.error?.stack)
+  assert.equal(rawDestroy.signal, null, rawDestroyOutput)
+  assert.equal(
+    rawDestroy.status,
+    0,
+    `a raw Context.destroy() must run the loader's teardown barrier: the promise of a task it cancels has to be settled, not discarded with the threadsafe-function queue:\n${rawDestroyOutput}`,
+  )
+  assert.match(rawDestroyOutput, /RAW_DESTROY_OUTCOME REJECTED: /)
+
+  // The barrier settles the promises of the tasks it cancels *synchronously*:
+  // `napi_prepare_wasm_env_cleanup` shuts the backend down while holding a
+  // non-reentrant lifecycle mutex, and a cancelled task whose deferred settles
+  // synchronously rejects its promise from inside that call. V8 runs promise
+  // hooks synchronously too, so a `promiseHooks.onSettled` handler — or the
+  // `async_hooks` `promiseResolve` hook `AsyncLocalStorage` installs — sees the
+  // rejection while the addon is still inside the barrier. If such a handler
+  // destroys the context, it re-enters the loader's `destroy` wrapper, and a
+  // second trip into the export aborts the whole wasm instance:
+  // `cannot recursively acquire mutex` -> `RuntimeError: unreachable`. Both the
+  // raw `destroy()` entry point and `dispose()` run the barrier, so both reach
+  // it. A nested destroy has to answer without touching the environment, and
+  // the outer frame — which destroys as soon as the barrier returns — has to
+  // deliver every settlement the barrier queued, not just the first one.
+  for (const outerTeardown of ['destroy', 'dispose']) {
+    const reentrantDestroy = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+        import { createRequire } from 'node:module'
+        import { pathToFileURL } from 'node:url'
+        import { promiseHooks } from 'node:v8'
+
+        const timeout = setTimeout(() => {
+          console.error('REENTRANT_DESTROY_TIMEOUT')
+          process.exit(46)
+        }, 30_000)
+        timeout.unref?.()
+
+        const loaderRequire = createRequire(
+          pathToFileURL(${JSON.stringify(eagerLoaderPath)}).href,
+        )
+        const runtime = loaderRequire('@emnapi/runtime')
+        const realCreateContext = runtime.createContext
+        let captured
+        runtime.createContext = function (options) {
+          captured = realCreateContext(options)
+          return captured
+        }
+        let binding
+        try {
+          binding = loaderRequire(${JSON.stringify(eagerLoaderPath)})
+        } finally {
+          runtime.createContext = realCreateContext
+        }
+        if (!captured) {
+          console.error('REENTRANT_DESTROY_NO_CONTEXT')
+          process.exit(45)
+        }
+        const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+
+        // More than one, so a nested destroy that tore the environment down
+        // mid-barrier would strand the ones the barrier had not reached yet.
+        const outcomes = ['PENDING', 'PENDING', 'PENDING']
+        for (let index = 0; index < outcomes.length; index++) {
+          binding.asyncNever().then(
+            () => { outcomes[index] = 'RESOLVED' },
+            (error) => { outcomes[index] = 'REJECTED: ' + error.message },
+          )
+        }
+
+        // Armed only for the teardown below, and fires once: the first promise
+        // to settle after this point is one the barrier is cancelling, from
+        // inside the barrier.
+        let armed = false
+        let fired = false
+        const stopHook = promiseHooks.onSettled(() => {
+          if (!armed || fired) {
+            return
+          }
+          fired = true
+          captured.destroy()
+        })
+
+        armed = true
+        ${
+          outerTeardown === 'destroy'
+            ? 'captured.destroy()'
+            : `dispose().then(
+          () => { console.error('REENTRANT_DESTROY_DISPOSE settled') },
+          (error) => {
+            console.error('REENTRANT_DESTROY_DISPOSE rejected: ' + error.message)
+          },
+        )`
+        }
+
+        ;(async () => {
+          for (let index = 0; index < 50; index++) {
+            await new Promise((resolve) => setImmediate(resolve))
+          }
+          stopHook()
+          console.error('REENTRANT_DESTROY_HOOK_FIRED ' + fired)
+          for (const outcome of outcomes) {
+            console.error('REENTRANT_DESTROY_OUTCOME ' + outcome)
+          }
+          process.exit(
+            fired && outcomes.every((outcome) => outcome.startsWith('REJECTED: '))
+              ? 0
+              : 47,
+          )
+        })()
+        `,
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    )
+    const reentrantDestroyOutput = `${reentrantDestroy.stdout}\n${reentrantDestroy.stderr}`
+    const reentrantDestroyMessage = `a context.destroy() reentered from a promise hook that fired inside the teardown barrier (outer teardown: ${outerTeardown}()) must be a no-op, not a second trip into napi_prepare_wasm_env_cleanup:\n${reentrantDestroyOutput}`
+    assert.equal(
+      reentrantDestroy.error,
+      undefined,
+      reentrantDestroy.error?.stack,
+    )
+    assert.equal(reentrantDestroy.signal, null, reentrantDestroyOutput)
+    assert.doesNotMatch(
+      reentrantDestroyOutput,
+      /cannot recursively acquire mutex/,
+      reentrantDestroyMessage,
+    )
+    assert.doesNotMatch(
+      reentrantDestroyOutput,
+      /RuntimeError: unreachable/,
+      reentrantDestroyMessage,
+    )
+    assert.equal(reentrantDestroy.status, 0, reentrantDestroyMessage)
+    assert.match(reentrantDestroyOutput, /REENTRANT_DESTROY_HOOK_FIRED true/)
+    assert.equal(
+      reentrantDestroyOutput.split('REENTRANT_DESTROY_OUTCOME REJECTED: ')
+        .length - 1,
+      3,
+      `every promise the barrier cancelled has to be delivered, not only the one whose settlement reentered destroy():\n${reentrantDestroyOutput}`,
+    )
+  }
 }
 
 if (combinedWasiDirectory) {

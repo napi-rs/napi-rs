@@ -1,6 +1,77 @@
 const WASI_DISPOSE_SYMBOL = 'napi.rs.wasi.dispose'
 const WASI_ROLLBACK_REGISTRY_SYMBOL = 'napi.rs.wasi.rollback.registry.v1'
 
+/**
+ * `Context.destroy()` disables JavaScript calls *before* it runs cleanup hooks
+ * (`setStopping` -> `setCanCallIntoJs(false)` -> `runCleanup`), and the
+ * threadsafe function's cleanup hook then drains its queue with a null env and
+ * discards it. So `napi_prepare_wasm_env_cleanup` has to run while the
+ * environment is still live — before `destroy()`, never from a hook inside it.
+ *
+ * The loaders already order their own teardown that way. A `destroy()` called
+ * by anyone else — an embedder or test harness holding the context, emnapi's
+ * own `beforeExit` auto-destroy on a host where `suppressDestroy()` is absent —
+ * would skip the barrier and discard exactly the settlements it exists to
+ * cancel and deliver. Own the ordering on the object rather than on each call
+ * site: shadow `destroy` once at creation, so every caller gets the barrier.
+ *
+ * The barrier is reentrant-hostile, so the wrapper has to be reentrancy-aware.
+ * `napi_prepare_wasm_env_cleanup` settles the promises it cancels synchronously,
+ * under a non-reentrant lifecycle mutex on the Rust side; a V8 promise hook
+ * (`promiseHooks.onSettled`, or the `async_hooks` hook `AsyncLocalStorage`
+ * installs) that calls `destroy()` therefore re-enters this wrapper from inside
+ * the barrier, and calling the barrier again aborts the whole wasm instance.
+ * While a prepare is in flight the nested `destroy()` is a no-op rather than a
+ * deferred one: the frame that started the barrier destroys the moment it
+ * returns, still synchronously, and `Context.destroy()` is typed `void`, so
+ * answering `undefined` loses nothing a caller could have observed. Letting the
+ * nested call through instead would tear the environment down mid-barrier and
+ * strand every settlement the barrier had not reached yet.
+ *
+ * Defensive, not strict: a context whose `destroy` cannot be read or redefined
+ * is returned unchanged rather than failing the load. A barrier that throws
+ * still propagates, exactly as it does from `__destroyEmnapiContext`.
+ *
+ * This is NOT a replacement for `dispose()`: only the disposal chain yields
+ * event-loop turns until `napi_wasm_env_cleanup_pending` reads zero, so a
+ * direct `destroy()` still cannot wait for a settlement queued by another
+ * thread. It delivers everything the barrier settles on this thread.
+ */
+const emnapiContextDestroyWrapper = `
+function __wrapEmnapiContextDestroyForSettlement(
+  context,
+  prepareEnvCleanup,
+  isPreparingEnvCleanup,
+) {
+  let destroy
+  try {
+    destroy = context.destroy
+  } catch {
+    return context
+  }
+  if (typeof destroy !== 'function') {
+    return context
+  }
+  try {
+    Object.defineProperty(context, 'destroy', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: function () {
+        // Reentered from a promise hook that fired inside the barrier: the
+        // frame running it destroys as soon as it returns.
+        if (isPreparingEnvCleanup?.()) {
+          return
+        }
+        prepareEnvCleanup?.()
+        return Reflect.apply(destroy, this, arguments)
+      },
+    })
+  } catch {}
+  return context
+}
+`
+
 const emnapiContextLifecycle = `
 const __wasiDisposeSymbol = Symbol.for('${WASI_DISPOSE_SYMBOL}')
 const __wasiWorkers = new Set()
@@ -8,6 +79,7 @@ let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiWasmEnvCleanupPrepared = false
+let __emnapiWasmEnvCleanupPreparing = false
 let __emnapiWasmEnvCleanupRan = false
 let __emnapiWasmEnvCleanupDrained = false
 let __emnapiWasmEnvCleanupDrainPromise
@@ -80,14 +152,26 @@ function __attachCleanupErrors(error, cleanupErrors) {
   } catch {}
   return aggregate
 }
+${emnapiContextDestroyWrapper}
+function __isPreparingWasmEnvCleanup() {
+  return __emnapiWasmEnvCleanupPreparing
+}
 
 function __prepareWasmEnvCleanup() {
-  if (__emnapiWasmEnvCleanupPrepared) {
+  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
     return
   }
   const prepare = __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
   if (typeof prepare === 'function') {
-    prepare()
+    // The addon settles the promises it cancels synchronously, under a
+    // non-reentrant lifecycle mutex: anything a promise hook calls from in
+    // here must not reach this export again.
+    __emnapiWasmEnvCleanupPreparing = true
+    try {
+      prepare()
+    } finally {
+      __emnapiWasmEnvCleanupPreparing = false
+    }
     __emnapiWasmEnvCleanupRan = true
   }
   __emnapiWasmEnvCleanupPrepared = true
@@ -682,7 +766,11 @@ let __wasiModule
 let __napiModule
 
 try {
-  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
+    __emnapiCreateContext({ autoDestroy: false }),
+    __prepareWasmEnvCleanup,
+    __isPreparingWasmEnvCleanup,
+  )
   __emnapiContext.suppressDestroy()
   ${emnapiInjectBuffer}
   ;({
@@ -841,7 +929,7 @@ async function __normalizeModuleForEmnapi(__module) {
       'provide structuredClone or MessageChannel support.',
   )
 }
-
+${emnapiContextDestroyWrapper}
 function __captureEmnapiAutoDestroyListener(__process) {
   if (
     !__process ||
@@ -1229,7 +1317,10 @@ function __registerManagedEmnapiContext(__process, __destroy) {
   }
 }
 
-async function __createManagedEmnapiContext(__prepareEnvCleanup) {
+async function __createManagedEmnapiContext(
+  __prepareEnvCleanup,
+  __isPreparingEnvCleanup,
+) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
   const __finishAutoDestroyCapture =
@@ -1238,7 +1329,11 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
   let __contextInitializationError
   let __contextInitializationFailed = false
   try {
-    __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
+      __emnapiCreateContext({ autoDestroy: false }),
+      __prepareEnvCleanup,
+      __isPreparingEnvCleanup,
+    )
     // emnapi 2.x still registers an unconditional process.once('beforeExit')
     // auto-destroy listener on Node hosts, and suppressDestroy() only
     // neutralizes its callback without removing it. This loader must stay
@@ -1416,16 +1511,26 @@ async function __createInstance(
   let __napiInstance
   let __wasmEnvCleanupRan = false
   let __wasmEnvCleanupPrepared = false
+  let __wasmEnvCleanupPreparing = false
   let __wasmEnvCleanupDrained = false
   let __wasmEnvCleanupDrainPromise
+  const __isPreparingEnvCleanup = () => __wasmEnvCleanupPreparing
   const __prepareEnvCleanup = () => {
-    if (__wasmEnvCleanupPrepared) {
+    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
       return
     }
     const __prepareWasmEnvCleanup =
       __napiInstance?.exports.napi_prepare_wasm_env_cleanup
     if (typeof __prepareWasmEnvCleanup === 'function') {
-      __prepareWasmEnvCleanup()
+      // The addon settles the promises it cancels synchronously, under a
+      // non-reentrant lifecycle mutex: anything a promise hook calls from in
+      // here must not reach this export again.
+      __wasmEnvCleanupPreparing = true
+      try {
+        __prepareWasmEnvCleanup()
+      } finally {
+        __wasmEnvCleanupPreparing = false
+      }
       __wasmEnvCleanupRan = true
     }
     __wasmEnvCleanupPrepared = true
@@ -1497,7 +1602,10 @@ async function __createInstance(
     destroy,
     destroyForModuleLifecycle,
     registerCleanup: __registerCleanup,
-  } = await __createManagedEmnapiContext(__prepareEnvCleanup)
+  } = await __createManagedEmnapiContext(
+    __prepareEnvCleanup,
+    __isPreparingEnvCleanup,
+  )
   __destroyEmnapiContext = destroy
   __destroyOwnedContext = () => __destroyEmnapiContext()
   __destroyManagedOwnedContext = destroyForModuleLifecycle
@@ -2233,7 +2341,11 @@ function __captureEmnapiAutoDestroyListener() {
 try {
   const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
   try {
-    __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+    __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
+      __emnapiCreateContext({ autoDestroy: false }),
+      __prepareWasmEnvCleanup,
+      __isPreparingWasmEnvCleanup,
+    )
     // emnapi 2.x still registers an unconditional once-listener for
     // beforeExit that auto-destroys the context, and suppressDestroy() only
     // neutralizes its callback without removing it. This loader owns cleanup
