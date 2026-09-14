@@ -265,6 +265,15 @@ the liveness probe, and rolls back every registration it created if any step
 fails. A binding that does not actually expose the contract therefore fails at
 load with `ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH` rather than hanging later.
 
+The bootstrap runs after instantiation, so it runs after `#[module_init]` and
+any other Rust code that executes during module registration: the host
+registration functions are exports of the binding itself and do not exist
+before registration completes. Code that runs during registration must not
+create timers (`sleep_until` fails loud at creation when no timer host is
+registered) and cannot expect task progress until the loader has returned.
+Register the runtime backend there; create tasks and timers from exports that
+run later.
+
 The flag itself is still needed because the loaders `import` the package with a
 bare specifier: bundlers resolve static imports at build time, so an optional
 one is not expressible. Leave it unset and every generated loader is byte-for-

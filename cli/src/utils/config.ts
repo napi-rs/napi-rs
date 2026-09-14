@@ -159,6 +159,12 @@ export interface UserNapiConfig {
      * package, so a binding that does not actually expose the contract fails
      * loudly at load with `ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH`.
      *
+     * The bootstrap runs after instantiation, so after `#[module_init]`: the
+     * host registration functions are exports of the binding itself. Code that
+     * runs during module registration must not create timers (`sleep_until`
+     * fails loud at creation without a timer host) and cannot expect task
+     * progress until the loader has returned.
+     *
      * @default false
      */
     asyncRuntime?: boolean
