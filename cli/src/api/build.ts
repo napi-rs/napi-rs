@@ -85,6 +85,29 @@ const MANAGED_WASI_FLAVORS = [
   },
 ] as const
 
+/**
+ * Everything a generated loader can report through `__napiBindingTarget`, as a
+ * TypeScript literal union. It lists every WASI flavor napi-rs knows instead of
+ * the flavors one package builds: `NAPI_RS_NATIVE_LIBRARY_PATH` may point at
+ * any generated WASI loader, and the root entry then reports what that loader
+ * loaded. A narrower union would make TypeScript reject the branches the
+ * override can actually reach.
+ */
+const BINDING_TARGET_TYPE_UNION = [
+  "'native'",
+  ...MANAGED_WASI_FLAVORS.map((flavor) => `'${flavor.platformArchABI}'`),
+].join(' | ')
+
+const BINDING_TARGET_TYPE_DECLARATION = `
+/**
+ * Which binding artifact the generated loader actually loaded: \`'native'\` for
+ * a native addon, otherwise the \`platformArchABI\` of the WASI flavor. Every
+ * flavor napi-rs can build is listed, because \`NAPI_RS_NATIVE_LIBRARY_PATH\`
+ * can point the loader at a WASI artifact this package does not build itself.
+ */
+export declare const ${NAPI_BINDING_TARGET_EXPORT}: ${BINDING_TARGET_TYPE_UNION}
+`
+
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = { kind: OutputKind; path: string }
 type WasiBindingMetadata = {
@@ -2158,9 +2181,7 @@ class Builder {
       runtimeStringEnum:
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
-      bindingTargetWasiFlavors: emitsLoader
-        ? this.declaredWasiFlavors()
-        : undefined,
+      declareBindingTarget: emitsLoader,
     })
     this.typeDefWithTypeImports = dtsWithTypeImports
 
@@ -2689,12 +2710,12 @@ export interface GenerateTypeDefOptions {
   runtimeStringEnum?: boolean
   cwd: string
   /**
-   * When set, declare the generated loader's `__napiBindingTarget` export. The
-   * array holds the WASI `platformArchABI`s the loaders can load; `[]` means
-   * native only. `undefined` means no loader is generated for this build, so
-   * nothing is declared.
+   * Declare the generated loader's `__napiBindingTarget` export. Set it for
+   * builds that emit a loader; a build that emits none declares nothing. The
+   * declared union covers every artifact a loader can hand back, not only the
+   * targets this package builds — see {@link BINDING_TARGET_TYPE_UNION}.
    */
-  bindingTargetWasiFlavors?: string[]
+  declareBindingTarget?: boolean
 }
 
 /**
@@ -2795,18 +2816,8 @@ export type TypedArray =
 `
   }
 
-  if (options.bindingTargetWasiFlavors) {
-    const targets = [
-      "'native'",
-      ...options.bindingTargetWasiFlavors.map((flavor) => `'${flavor}'`),
-    ].join(' | ')
-    header += `
-/**
- * Which binding artifact the generated loader actually loaded: \`'native'\` for
- * a native addon, otherwise the \`platformArchABI\` of the WASI flavor.
- */
-export declare const ${NAPI_BINDING_TARGET_EXPORT}: ${targets}
-`
+  if (options.declareBindingTarget) {
+    header += BINDING_TARGET_TYPE_DECLARATION
   }
 
   if (header && !header.endsWith('\n')) {

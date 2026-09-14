@@ -335,6 +335,41 @@ console.log(
   })
 })
 
+const bindingTargetDeclarationOf = (source: string) =>
+  source
+    .split('\n')
+    .find((line) => line.startsWith('export declare const __napiBindingTarget'))
+
+test('the declared binding target covers every loadable artifact', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  // Nothing here declares a WASI target, yet NAPI_RS_NATIVE_LIBRARY_PATH may
+  // still point the loader at a generated WASI loader, which the root entry
+  // then reports. A union of only the configured targets would make TypeScript
+  // reject those comparisons.
+  t.is(
+    bindingTargetDeclarationOf(dts),
+    "export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'",
+  )
+
+  const { dts: withoutLoader } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+  })
+
+  t.false(withoutLoader.includes('__napiBindingTarget'))
+})
+
 test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {
   const validCases = [
     { options: {}, expected: 'commonjs' },

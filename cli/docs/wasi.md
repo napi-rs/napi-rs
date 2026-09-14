@@ -93,8 +93,11 @@ if (binding.__napiBindingTarget !== 'native') {
 ```
 
 When napi-rs type generation is enabled the export is declared in the
-generated `.d.ts` as a literal union of the flavors the package can produce,
-so the check narrows in TypeScript.
+generated `.d.ts` as a literal union, so the check narrows in TypeScript. The
+union lists `'native'` and every WASI flavor napi-rs can build, not only the
+flavors the package itself builds: `NAPI_RS_NATIVE_LIBRARY_PATH` can point the
+root entry at any generated WASI loader, so even a package that ships only a
+native addon can report a WASI flavor.
 
 The root package exposes deferred workerd and Wasm entries. In a Workers
 project built by Wrangler:
