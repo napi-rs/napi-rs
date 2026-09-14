@@ -621,6 +621,32 @@ export function prepareWasiBindingTypeDef(
   return rebaseDeclarationSpecifiers(targetSource, sourcePath, destinationPath)
 }
 
+/**
+ * Add the `__napiBindingTarget` declaration to a WASI declaration file kept
+ * from an earlier build.
+ *
+ * A build that does not target WASI regenerates every declared flavor's loader
+ * from the metadata that flavor's own build left behind, and reuses the
+ * declaration file it wrote verbatim. A file written before the loaders
+ * exported `__napiBindingTarget` would otherwise describe a loader that has it.
+ * The declaration is the same one {@link generateTypeDef} emits, so a later
+ * WASI build regenerating the file from source changes nothing.
+ *
+ * A declaration file that exports by assignment (`export = binding`, what a
+ * build without `napi-derive`'s `type-def` feature emits) cannot carry a named
+ * export declaration, so it is left alone; its exports are untyped anyway.
+ */
+export function ensureBindingTargetDeclaration(typeDef: string) {
+  if (
+    typeDef.includes(NAPI_BINDING_TARGET_EXPORT) ||
+    /^export\s*=/m.test(typeDef)
+  ) {
+    return typeDef
+  }
+  const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
+  return `${typeDef}${separator}${BINDING_TARGET_TYPE_DECLARATION}`
+}
+
 export function collectStaleWasiBuildOutputNames(
   binaryName: string,
   buildTarget: Target,
@@ -2482,6 +2508,10 @@ export = binding
         : hasThreads
           ? selectedSourceTypeDef
           : removeNodeStreamWebTypeImports(selectedSourceTypeDef)
+    } else {
+      // Kept from this flavor's own build, which may predate the
+      // `__napiBindingTarget` export the loader written above now carries.
+      bindingTypeDef = ensureBindingTargetDeclaration(bindingTypeDef)
     }
     await writeFileAtomic(bindingTypeDefPath, bindingTypeDef, 'utf8')
     const outputs: Output[] = [
