@@ -146,6 +146,22 @@ test('createWasiBrowserBinding with errorEvent and fs', (t) => {
   )
 })
 
+test('createWasiBrowserBinding with asyncRuntime hosts', (t) => {
+  t.snapshot(
+    createWasiBrowserBinding(
+      'test-wasi',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ),
+  )
+})
+
 test('createWasiBrowserWorkerBinding default', (t) => {
   t.snapshot(createWasiBrowserWorkerBinding(false, false))
 })
@@ -193,6 +209,14 @@ const browserBindingCases: Array<{
     args: ['test', 4000, 65536, false, true, false, true],
   },
   { name: 'all options', args: ['test', 4000, 65536, true, true, true, true] },
+  {
+    name: 'asyncRuntime',
+    args: ['test', 4000, 65536, false, false, false, false, true, true],
+  },
+  {
+    name: 'all options + asyncRuntime',
+    args: ['test', 4000, 65536, true, true, true, true, true, true],
+  },
 ]
 
 for (const { name, args } of browserBindingCases) {
@@ -271,6 +295,67 @@ for (const { name, code } of cjsBindingCases) {
 // emitted flavors it builds (node cjs threadless, deferred/workerd)
 // behaviorally; the other flavors are never instantiated by any test, so assert
 // the shape here as well.
+// `napi.wasm.asyncRuntime` output. The seven-export / contract-v4 / liveness /
+// rollback checks all live in `@napi-rs/async-runtime`; the loader only has to
+// call it at the right moment and tear it down at the right moment.
+const asyncRuntimeLoaderCases: Array<{
+  name: string
+  code: string
+  install: string
+}> = [
+  {
+    name: 'node cjs',
+    code: createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      true,
+      'wasm32-wasi',
+      'test',
+      true,
+    ),
+    install: "require('@napi-rs/async-runtime')",
+  },
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      false,
+      'wasm32-wasip1',
+      'test',
+      true,
+    ),
+    install: "require('@napi-rs/async-runtime')",
+  },
+  {
+    name: 'browser esm',
+    code: createWasiBrowserBinding(
+      'test',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+    ),
+    install: "from '@napi-rs/async-runtime'",
+  },
+]
+
+const asyncRuntimeDeferredCode = createWasiDeferredBrowserBinding(
+  'test',
+  1024,
+  65536,
+  false,
+  true,
+)
+
 const wasiLoaderCases: Array<{ name: string; code: string }> = [
   { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
   {
@@ -279,7 +364,98 @@ const wasiLoaderCases: Array<{ name: string; code: string }> = [
   },
   { name: 'browser esm', code: createWasiBrowserBinding('test') },
   { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
+  ...asyncRuntimeLoaderCases.map(({ name, code }) => ({
+    name: `${name} + asyncRuntime`,
+    code,
+  })),
+  {
+    name: 'deferred/workerd + asyncRuntime',
+    code: asyncRuntimeDeferredCode,
+  },
 ]
+
+// The flag is off by default, so every existing generated loader keeps its
+// current bytes when a project bumps the CLI. The six template snapshots are
+// the byte-level proof; this is the cheap named regression net.
+for (const { name, code } of [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+  { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
+]) {
+  test(`asyncRuntime is off by default: ${name}`, (t) => {
+    t.false(code.includes('@napi-rs/async-runtime'))
+    t.false(code.includes('__disposeCurrentThreadHosts'))
+    t.false(code.includes('installCurrentThreadHosts'))
+  })
+}
+
+for (const { name, code, install } of asyncRuntimeLoaderCases) {
+  test(`asyncRuntime loader installs and tears down the hosts: ${name}`, (t) => {
+    assertValidJS(t, code, name)
+    t.true(code.includes(install))
+    // The package owns the seven-export / contract-v4 / liveness / rollback
+    // checks; the loader must not re-implement any of them.
+    t.true(code.includes('__installCurrentThreadHosts('))
+    t.false(code.includes('reserveCurrentThreadHostRegistration'))
+    t.false(code.includes('getCurrentThreadTaskHostContractVersion'))
+
+    // Install runs after the dispose symbol is published and INSIDE the try,
+    // so a mismatch throw reaches the existing rollback.
+    const installIndex = code.indexOf(
+      '__currentThreadHostsDisposer = __installCurrentThreadHosts(',
+    )
+    t.true(
+      installIndex > code.indexOf('__publishWasiDispose(__napiModule.exports)'),
+    )
+    t.true(
+      installIndex < code.indexOf('\n} catch (error) {\n', installIndex - 1),
+    )
+
+    // Teardown runs before the context is destroyed, on every path, because
+    // __destroyEmnapiContext is the single funnel dispose()/rollback/'exit'
+    // all reach.
+    const destroyBody = code.slice(
+      code.indexOf('function __destroyEmnapiContext() {'),
+      code.indexOf('function __terminateWasiWorkers() {'),
+    )
+    t.true(destroyBody.includes('__disposeCurrentThreadHosts()'))
+    t.true(
+      destroyBody.indexOf('__disposeCurrentThreadHosts()') <
+        destroyBody.indexOf('__emnapiContext.destroy()'),
+    )
+    // …and after the drain: __startWasiDisposal prepares + drains before it
+    // ever calls __continueWasiDisposal -> __destroyEmnapiContext.
+    t.false(destroyBody.includes('__drainWasmEnvCleanup'))
+  })
+}
+
+test('asyncRuntime deferred loader registers per instance', (t) => {
+  const code = asyncRuntimeDeferredCode
+  assertValidJS(t, code, 'deferred asyncRuntime')
+  // Per-instance helpers, NOT installCurrentThreadHosts: each instance owns
+  // its own env and needs an exact disposer, not a realm-global dedup.
+  t.true(code.includes('__registerWorkerdCurrentThreadTaskHost('))
+  t.true(code.includes('__registerWorkerdTimerHost('))
+  t.false(code.includes('installCurrentThreadHosts'))
+  // Task host first, timer host second; disposal is the reverse.
+  t.true(
+    code.indexOf('const __disposeTaskHost =') <
+      code.indexOf('const __disposeTimerHost ='),
+  )
+  const disposer = code.slice(code.indexOf('__disposeInstanceHosts = () => {'))
+  t.true(
+    disposer.indexOf('__disposeTimerHost()') <
+      disposer.indexOf('__disposeTaskHost()'),
+  )
+  // Hooked next to __prepareEnvCleanup, which every destroy path calls.
+  const managedDestroy = code.slice(
+    code.indexOf('      __prepareEnvCleanup?.()'),
+  )
+  t.true(
+    managedDestroy.indexOf('__disposeHosts?.()') <
+      managedDestroy.indexOf('__result = __emnapiContext.destroy()'),
+  )
+})
 
 test('Node WASI loader uses an accessible host root on Android', (t) => {
   const code = createWasiBinding('test', '@scope/test')

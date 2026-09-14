@@ -13,7 +13,10 @@
     "binaryName": "shared_async_runtime",
     "targets": [
       "wasm32-wasip1"
-    ]
+    ],
+    "wasm": {
+      "asyncRuntime": true
+    }
   },
   "devDependencies": {
     "@napi-rs/async-runtime": "workspace:*",
