@@ -57,7 +57,12 @@ import {
   type CargoWorkspaceMetadata,
 } from '../utils/index.js'
 
-import { createCjsBinding, createEsmBinding } from './templates/index.js'
+import {
+  assertBindingTargetIdentFree,
+  createCjsBinding,
+  createEsmBinding,
+  NAPI_BINDING_TARGET_EXPORT,
+} from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
@@ -486,9 +491,11 @@ export function createWasiBrowserEntry(
 export function createWasiDeferredBindingTypeDef(
   bindingModuleSpecifier: string,
   hasTypeDef: boolean,
+  platformArchABI?: string,
 ) {
   const typeDef = createWasiDeferredBrowserBindingTypeDef(
     bindingModuleSpecifier,
+    platformArchABI,
   )
   if (hasTypeDef) {
     return typeDef
@@ -2069,6 +2076,14 @@ class Builder {
       return []
     }
 
+    // Declare the loader export only for builds that actually emit a loader:
+    // the native root loader (`--platform` without `--no-js-binding`) or any
+    // WASI flavor loader set.
+    const emitsLoader =
+      (Boolean(this.options.platform) && !this.options.noJsBinding) ||
+      this.target.platform === 'wasi' ||
+      this.config.targets.some((target) => target.platform === 'wasi')
+
     const { exports, dts, dtsWithTypeImports } = await generateTypeDef({
       typeDefDir,
       noDtsHeader: this.options.noDtsHeader,
@@ -2079,6 +2094,9 @@ class Builder {
       runtimeStringEnum:
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
+      bindingTargetWasiFlavors: emitsLoader
+        ? this.declaredWasiFlavors()
+        : undefined,
     })
     this.typeDefWithTypeImports = dtsWithTypeImports
 
@@ -2124,10 +2142,13 @@ class Builder {
     return stagedPath
   }
 
-  private async writeJsBinding(idents: string[]) {
-    // Default WASI fallback order: threaded first. The generated root loader
-    // also lets consumers pin one exact declared flavor with
-    // NAPI_RS_WASI_FLAVOR.
+  /**
+   * `platformArchABI`s of every WASI flavor this build's loaders can reference,
+   * in fallback preference order (threaded first). The generated root loader
+   * also lets consumers pin one exact declared flavor with
+   * NAPI_RS_WASI_FLAVOR.
+   */
+  private declaredWasiFlavors(): string[] {
     const declaredWasiTargets = this.config.targets.filter(
       (t) => t.platform === 'wasi',
     )
@@ -2143,7 +2164,7 @@ class Builder {
     ) {
       declaredWasiTargets.push(this.target)
     }
-    const wasiFlavors = [
+    return [
       ...new Set(
         [
           ...declaredWasiTargets.filter(wasiTargetHasThreads),
@@ -2151,6 +2172,11 @@ class Builder {
         ].map((t) => t.platformArchABI),
       ),
     ]
+  }
+
+  private async writeJsBinding(idents: string[]) {
+    assertBindingTargetIdentFree(idents)
+    const wasiFlavors = this.declaredWasiFlavors()
     return writeJsBinding({
       platform: this.options.platform,
       noJsBinding: this.options.noJsBinding,
@@ -2269,13 +2295,14 @@ class Builder {
       dir,
       `${this.config.binaryName}.${loaderSuffix}.d.cts`,
     )
-    const exportsCode =
-      `module.exports = __napiModule.exports\n` +
-      idents
-        .map(
-          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
-        )
-        .join('\n')
+    assertBindingTargetIdentFree(idents)
+    const exportsCode = [
+      `module.exports = __napiModule.exports`,
+      `module.exports.${NAPI_BINDING_TARGET_EXPORT} = __napiBindingTarget`,
+      ...idents.map(
+        (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
+      ),
+    ].join('\n')
     await writeFileAtomic(
       bindingPath,
       createWasiArtifactMetadata(
@@ -2309,6 +2336,7 @@ class Builder {
         this.config.wasm?.browser?.buffer,
         this.config.wasm?.browser?.errorEvent,
         hasThreads,
+        wasiTarget.platformArchABI,
       ) +
         `export default __napiModule.exports\n` +
         idents
@@ -2395,6 +2423,7 @@ export = binding
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.buffer,
+          wasiTarget.platformArchABI,
         ),
         'utf8',
       )
@@ -2403,6 +2432,7 @@ export = binding
         createWasiDeferredBindingTypeDef(
           `./${this.config.binaryName}.${loaderSuffix}.cjs`,
           this.enableTypeDef,
+          wasiTarget.platformArchABI,
         ),
         'utf8',
       )
@@ -2578,6 +2608,13 @@ export interface GenerateTypeDefOptions {
   constEnum?: boolean
   runtimeStringEnum?: boolean
   cwd: string
+  /**
+   * When set, declare the generated loader's `__napiBindingTarget` export. The
+   * array holds the WASI `platformArchABI`s the loaders can load; `[]` means
+   * native only. `undefined` means no loader is generated for this build, so
+   * nothing is declared.
+   */
+  bindingTargetWasiFlavors?: string[]
 }
 
 /**
@@ -2675,6 +2712,20 @@ export type TypedArray =
   | Float64Array
   | BigInt64Array
   | BigUint64Array
+`
+  }
+
+  if (options.bindingTargetWasiFlavors) {
+    const targets = [
+      "'native'",
+      ...options.bindingTargetWasiFlavors.map((flavor) => `'${flavor}'`),
+    ].join(' | ')
+    header += `
+/**
+ * Which binding artifact the generated loader actually loaded: \`'native'\` for
+ * a native addon, otherwise the \`platformArchABI\` of the WASI flavor.
+ */
+export declare const ${NAPI_BINDING_TARGET_EXPORT}: ${targets}
 `
   }
 

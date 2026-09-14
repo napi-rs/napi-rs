@@ -338,6 +338,151 @@ test('createCjsBinding uses one statement dialect', (t) => {
   )
 })
 
+test('native loaders export the artifact that actually loaded', (t) => {
+  const flavors = ['wasm32-wasi', 'wasm32-wasip1']
+  const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
+  assertValidJS(t, cjs, 'cjs binding target')
+  t.true(cjs.includes("let __napiLoadedBindingTarget = 'native'"))
+  t.true(
+    cjs.includes(
+      'module.exports.__napiBindingTarget = __napiLoadedBindingTarget',
+    ),
+  )
+  // one assignment per candidate: 2 flavors x (local loader + flavor package)
+  for (const flavor of flavors) {
+    t.is(
+      cjs.split(`__napiLoadedBindingTarget = '${flavor}'`).length - 1,
+      2,
+      `${flavor} must be recorded on both its local and package candidates`,
+    )
+  }
+  // the target is never read back off the WASI module
+  t.false(cjs.includes('wasiBinding.__napiBindingTarget'))
+
+  const esm = createEsmBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
+  assertValidJS(t, esm, 'esm binding target')
+  t.true(
+    esm.includes(
+      'export const __napiBindingTarget = __napiLoadedBindingTarget',
+    ),
+  )
+  // zero-ident packages take the `export default` branch and must keep it
+  const esmNoIdents = createEsmBinding(
+    'test',
+    '@scope/test',
+    [],
+    '1.0.0',
+    flavors,
+  )
+  assertValidJS(t, esmNoIdents, 'esm binding target without idents')
+  t.true(
+    esmNoIdents.includes(
+      'export const __napiBindingTarget = __napiLoadedBindingTarget',
+    ),
+  )
+})
+
+test('a napi export may not shadow __napiBindingTarget', (t) => {
+  t.throws(
+    () => createEsmBinding('test', '@scope/test', ['__napiBindingTarget']),
+    {
+      message: /reserved by the generated binding loader/,
+    },
+  )
+  t.throws(
+    () => createCjsBinding('test', '@scope/test', ['__napiBindingTarget']),
+    {
+      message: /reserved by the generated binding loader/,
+    },
+  )
+})
+
+test('WASI loaders self-identify their flavor', (t) => {
+  t.true(
+    createWasiBinding('test', '@scope/test').includes(
+      "const __napiBindingTarget = 'wasm32-wasi'",
+    ),
+  )
+  t.true(
+    createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      false,
+      'wasm32-wasip1',
+    ).includes("const __napiBindingTarget = 'wasm32-wasip1'"),
+  )
+  t.true(
+    createWasiBrowserBinding('test').includes(
+      "export const __napiBindingTarget = 'wasm32-wasi'",
+    ),
+  )
+  t.true(
+    createWasiBrowserBinding(
+      'test',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ).includes("export const __napiBindingTarget = 'wasm32-wasip1'"),
+  )
+  t.true(
+    createWasiDeferredBrowserBinding('test').includes(
+      "export const __napiBindingTarget = 'wasm32-wasip1'",
+    ),
+  )
+})
+
+test('browser and deferred loaders carry the flavor on the binding they hand out', (t) => {
+  // `export default __napiModule.exports` and `instantiate()` hand out the raw
+  // emnapi exports object, which a named module export does not travel with.
+  const browser = createWasiBrowserBinding('test')
+  assertValidJS(t, browser, 'browser binding target on exports')
+  t.true(
+    browser.includes(
+      '__napiModule.exports.__napiBindingTarget = __napiBindingTarget',
+    ),
+  )
+  const deferred = createWasiDeferredBrowserBinding('test')
+  assertValidJS(t, deferred, 'deferred binding target on exports')
+  t.is(
+    deferred.split(
+      '__napiModule.exports.__napiBindingTarget = __napiBindingTarget',
+    ).length - 1,
+    1,
+    'every instance created by __createInstance must be marked exactly once',
+  )
+  // the marker is assigned before the instance escapes to the caller
+  t.true(
+    deferred.indexOf(
+      '__napiModule.exports.__napiBindingTarget = __napiBindingTarget',
+    ) < deferred.indexOf('exports: __napiModule.exports'),
+  )
+})
+
+test('NAPI_RS_NATIVE_LIBRARY_PATH keeps the flavor its override reports', (t) => {
+  const adoption = `__napiLoadedBindingTarget =
+        overrideBinding && typeof overrideBinding.__napiBindingTarget === 'string'
+          ? overrideBinding.__napiBindingTarget
+          : 'native'`
+  for (const [name, code] of [
+    ['cjs', createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')],
+    ['esm', createEsmBinding('test', '@scope/test', ['sum'], '1.0.0')],
+  ] as const) {
+    assertValidJS(t, code, `${name} override binding target`)
+    t.true(code.includes(adoption), `${name} must adopt the override's target`)
+    // the override result must not be returned before it is inspected
+    t.false(
+      code.includes('return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH)'),
+      `${name} must bind the override before returning it`,
+    )
+  }
+})
+
 test('WASI worker template matches the CJS/ESM quote and semicolon dialect', (t) => {
   t.true(WASI_WORKER_TEMPLATE.includes("import fs from 'node:fs'"))
   t.false(WASI_WORKER_TEMPLATE.includes('from "node:fs"'))

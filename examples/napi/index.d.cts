@@ -31,6 +31,12 @@ export type TypedArray =
   | BigInt64Array
   | BigUint64Array
 
+/**
+ * Which binding artifact the generated loader actually loaded: `'native'` for
+ * a native addon, otherwise the `platformArchABI` of the WASI flavor.
+ */
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'
+
 declare global {
   interface IteratorObject<T, TReturn = unknown, TNext = unknown>
     extends globalThis.Iterator<T, TReturn, TNext> {

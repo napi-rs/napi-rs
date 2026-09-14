@@ -40,6 +40,62 @@ Without `NAPI_RS_WASI_FLAVOR`, existing behavior is unchanged.
 lazy native fallback, while `NAPI_RS_FORCE_WASI=error` requires some generated
 WASI flavor to load.
 
+## Identifying the loaded artifact
+
+Every generated loader exports `__napiBindingTarget`, a string naming the
+artifact that actually loaded:
+
+| value             | artifact                   |
+| ----------------- | -------------------------- |
+| `'native'`        | a `.node` addon            |
+| `'wasm32-wasi'`   | the threaded WASI flavor   |
+| `'wasm32-wasip1'` | the threadless WASI flavor |
+
+The WASI values are the same flavor identities `NAPI_RS_WASI_FLAVOR` accepts,
+so a pinned flavor round-trips:
+
+```js
+process.env.NAPI_RS_WASI_FLAVOR = 'wasm32-wasip1'
+const binding = require('<package>')
+binding.__napiBindingTarget // 'wasm32-wasip1'
+```
+
+Remember that `wasm32-wasi` is the _threaded_ flavor; see the target aliases at
+the top of this page.
+
+The root Node.js entry sets the value from the fallback candidate it resolved,
+not from anything the WASI loader reports, so it is correct even for a loader
+that fails to initialize its own exports. The one exception is
+`NAPI_RS_NATIVE_LIBRARY_PATH`: that override can point at a generated WASI
+loader, so the root entry adopts the `__napiBindingTarget` the required module
+reports and falls back to `'native'` when it reports none.
+
+Each flavor's own loaders (the CommonJS loader, the browser loader and the
+deferred `./workerd` loader) carry their own fixed flavor identity, and they
+carry it on the binding object they hand out — not only as a module export. So
+the browser loader's default export, `instantiate()`'s result and
+`createInstance().exports` all answer `__napiBindingTarget`, which is what the
+generated declarations promise:
+
+```js
+import { instantiate } from '<package>/workerd'
+const binding = await instantiate(wasmModule)
+binding.__napiBindingTarget // 'wasm32-wasip1'
+```
+
+Use it to branch on capabilities a native addon has and a WASI build does not
+(worker threads, blocking calls, host timers) without probing:
+
+```js
+if (binding.__napiBindingTarget !== 'native') {
+  // running on WebAssembly
+}
+```
+
+When napi-rs type generation is enabled the export is declared in the
+generated `.d.ts` as a literal union of the flavors the package can produce,
+so the check narrows in TypeScript.
+
 The root package exposes deferred workerd and Wasm entries. In a Workers
 project built by Wrangler:
 
@@ -113,7 +169,9 @@ API without a broken import of the declaration-less root package. If
 initialization fails and immediate context rollback also fails, the loader
 retains that cleanup ownership so a later `beforeExit` pass can retry it.
 `dispose()` still attempts those retained rollbacks when singleton cleanup
-fails, while preserving the singleton error as the primary rejection.
+fails, while preserving the singleton error as the primary rejection. The
+deferred loader also exports `__napiBindingTarget` (see "Identifying the loaded
+artifact"), typed as its exact flavor.
 
 `Context.destroy()` is synchronous in emnapi's public contract. The deferred
 loader also contains nonconforming promise-like results defensively. Keep and

@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { exec } from 'node:child_process'
+import { exec, spawnSync } from 'node:child_process'
 import {
   copyFile,
   mkdir,
@@ -246,6 +246,92 @@ test('writeJsBinding uses the explicit format independently of the filename', as
   t.regex(commonjs, /module\.exports\.sum = nativeBinding\.sum/)
   t.regex(esm, /export \{ sum \}/)
   t.regex(legacyEsm, /export \{ sum \}/)
+  t.regex(
+    commonjs,
+    /module\.exports\.__napiBindingTarget = __napiLoadedBindingTarget/,
+  )
+  t.regex(esm, /export const __napiBindingTarget = __napiLoadedBindingTarget/)
+  t.regex(
+    legacyEsm,
+    /export const __napiBindingTarget = __napiLoadedBindingTarget/,
+  )
+})
+
+test('writeJsBinding rejects a napi export named __napiBindingTarget', async (t) => {
+  await t.throwsAsync(
+    writeJsBinding({
+      platform: true,
+      idents: ['__napiBindingTarget'],
+      binaryName: 'build-integration',
+      packageName: 'build-integration',
+      version: '0.1.0',
+      outputDir: t.context.projectDir,
+    }),
+    { message: /reserved by the generated binding loader/ },
+  )
+})
+
+test('the generated loader reports the flavor its library-path override loaded', async (t) => {
+  const { projectDir } = t.context
+  const overridePath = join(projectDir, 'fake-wasip1.cjs')
+  const plainPath = join(projectDir, 'fake-native.cjs')
+  await Promise.all([
+    // a stand-in for a generated WASI loader: it reports its own flavor
+    writeFile(
+      overridePath,
+      `module.exports = { sum: (a, b) => a + b }\nmodule.exports.__napiBindingTarget = 'wasm32-wasip1'\n`,
+    ),
+    writeFile(plainPath, `module.exports = { sum: (a, b) => a + b }\n`),
+  ])
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+  const rootPath = join(projectDir, 'index.js')
+
+  const probe = (libraryPath: string) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        // require the override FIRST: the root loader aliases it, so an
+        // unconditional assignment would rewrite the override's own marker
+        `const override = require(${JSON.stringify(libraryPath)})
+const root = require(${JSON.stringify(rootPath)})
+console.log(
+  JSON.stringify({
+    root: root.__napiBindingTarget,
+    override: override.__napiBindingTarget,
+    aliased: root === override,
+    sum: root.sum(1, 2),
+  }),
+)`,
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: libraryPath },
+      },
+    )
+    t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    return JSON.parse(result.stdout)
+  }
+
+  t.deepEqual(probe(overridePath), {
+    root: 'wasm32-wasip1',
+    override: 'wasm32-wasip1',
+    aliased: true,
+    sum: 3,
+  })
+  t.deepEqual(probe(plainPath), {
+    root: 'native',
+    override: 'native',
+    aliased: true,
+    sum: 3,
+  })
 })
 
 test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {

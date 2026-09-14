@@ -18,7 +18,25 @@ export declare class ExternalObject<T> {
   }
 }
 
-export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
+export type TypedArray =
+  | Int8Array
+  | Uint8Array
+  | Uint8ClampedArray
+  | Int16Array
+  | Uint16Array
+  | Int32Array
+  | Uint32Array
+  | Float32Array
+  | Float64Array
+  | BigInt64Array
+  | BigUint64Array
+
+/**
+ * Which binding artifact the generated loader actually loaded: `'native'` for
+ * a native addon, otherwise the `platformArchABI` of the WASI flavor.
+ */
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'
+
 declare global {
   interface IteratorObject<T, TReturn = unknown, TNext = unknown>
     extends globalThis.Iterator<T, TReturn, TNext> {
@@ -126,7 +144,6 @@ export declare class AsyncFib {
 }
 
 export declare class AsyncThrowClass {
-
   constructor()
   asyncThrowError(): Promise<void>
 }
@@ -146,9 +163,7 @@ export declare class Blake2BHasher {
 }
 export type Blake2bHasher = Blake2BHasher
 
-export declare class Blake2BKey {
-
-}
+export declare class Blake2BKey {}
 export type Blake2bKey = Blake2BKey
 
 export declare class CatchOnConstructor {
@@ -163,9 +178,7 @@ export declare class ClassInArray {
   constructor(value: number)
 }
 
-export declare class ClassReturnInPromise {
-
-}
+export declare class ClassReturnInPromise {}
 
 export declare class ClassWithFactory {
   name: string
@@ -282,12 +295,12 @@ export declare class EagerReleaseHolder {
 export declare class Fib {
   constructor()
   [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
-  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, void | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, void | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, void | undefined>
 }
 
-export interface Fib extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+export interface Fib extends globalThis.Omit<globalThis.IteratorObject<number, void | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -299,12 +312,12 @@ export interface Fib extends globalThis.Omit<globalThis.IteratorObject<number, (
 export declare class Fib2 {
   static create(seed: number): Fib2
   [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
-  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, void | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, void | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, void | undefined>
 }
 
-export interface Fib2 extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+export interface Fib2 extends globalThis.Omit<globalThis.IteratorObject<number, void | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -318,12 +331,12 @@ export declare class Fib3 {
   nextNum: number
   constructor(current: number, nextNum: number)
   [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [number]): globalThis.IteratorResult<number, (void) | undefined>
-  return(...[value]: [] | [void]): globalThis.IteratorResult<number, (void) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<number, (void) | undefined>
+  next(...[value]: [] | [number]): globalThis.IteratorResult<number, void | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<number, void | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<number, void | undefined>
 }
 
-export interface Fib3 extends globalThis.Omit<globalThis.IteratorObject<number, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+export interface Fib3 extends globalThis.Omit<globalThis.IteratorObject<number, void | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 /**
  * This type implements JavaScript's iterable iterator protocol.
@@ -338,12 +351,12 @@ export declare class Fib4 {
   constructor(current: number, nextItem: number)
   toJSON(): Array<number>
   [globalThis.Symbol.iterator](): this
-  next(...[value]: [] | [number]): globalThis.IteratorResult<unknown, (void) | undefined>
-  return(...[value]: [] | [void]): globalThis.IteratorResult<unknown, (void) | undefined>
-  throw(exception?: unknown): globalThis.IteratorResult<unknown, (void) | undefined>
+  next(...[value]: [] | [number]): globalThis.IteratorResult<unknown, void | undefined>
+  return(...[value]: [] | [void]): globalThis.IteratorResult<unknown, void | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<unknown, void | undefined>
 }
 
-export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, (void) | undefined, number>, 'next' | 'return' | 'throw'> {}
+export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown, void | undefined, number>, 'next' | 'return' | 'throw'> {}
 
 export declare class GetterSetterWithClosures {
   constructor()
@@ -414,7 +427,6 @@ export declare class PackageJsonReader {
 }
 
 export declare class Reader {
-
   constructor()
   read(): Buffer
 }
@@ -444,9 +456,7 @@ export declare class Selector {
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
 
-export declare class Thing {
-
-}
+export declare class Thing {}
 
 export declare class ThingList {
   constructor()
@@ -475,6 +485,16 @@ export declare class TypeTagB {
   value: number
   constructor(value: number)
   getValue(): number
+}
+
+/**
+ * The two `pub f64` fields let JS write arbitrary bytes over the first 16
+ * bytes of the native allocation; `unwrap` must still reject the instance.
+ */
+export declare class UnwrapForgerySurface {
+  first: number
+  second: number
+  constructor()
 }
 
 export declare class UseNullableClass {
@@ -518,7 +538,7 @@ export declare function add(a: number, b: number): number
 
 export declare const enum ALIAS {
   A = 0,
-  B = 1
+  B = 1,
 }
 
 export interface AliasedStruct {
@@ -542,6 +562,8 @@ export declare function apply1(ctx: Animal, callback: (arg: string) => void, nam
 export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
+
+export declare function arrayBufferFromExternalReadBack(): string
 
 export declare function arrayBufferLenAsync(buf: Uint8Array): Promise<number>
 
@@ -602,8 +624,8 @@ export declare function bufferAssertionTarget(Buffer: unknown): asserts Buffer i
 
 export declare function bufferComplexOverride<T extends Record<string, unknown>>(value: {
   Buffer(): "line\nnext"
-mapped: { [Buffer in keyof T]: T[Buffer] }
-external: Buffer
+  mapped: { [Buffer in keyof T]: T[Buffer] }
+  external: Buffer
 }, external: Buffer): "line\nnext" | `template\n${Buffer extends Uint8Array ? "buffer" : "other"}`
 
 export declare function bufferDestructureBinding({ Buffer }: { Buffer: string }, value: Buffer): Buffer
@@ -905,7 +927,7 @@ export declare const enum CustomNumEnum {
   Six = 6,
   Eight = 8,
   Nine = 9,
-  Ten = 10
+  Ten = 10,
 }
 
 export declare function customStatusCode(): void
@@ -913,11 +935,10 @@ export declare function customStatusCode(): void
 export declare const enum CustomStringEnum {
   Foo = 'my-custom-value',
   Bar = 'Bar',
-  Baz = 'Baz'
+  Baz = 'Baz',
 }
 
-export type CustomU32 =
-  number
+export type CustomU32 = number
 
 export interface Data {
   data: string | Buffer
@@ -931,7 +952,7 @@ export interface DatesWithTimeZone {
 export declare function dateToNumber(input: Date): number
 
 /** This is a const */
-export const DEFAULT_COST: number
+export declare const DEFAULT_COST: number
 
 export interface DefaultUseNullableStruct {
   requiredNumberField: number
@@ -1025,9 +1046,7 @@ export declare function eitherPromiseInEitherA(input: Promise<number> | number |
 
 export declare function eitherStringOrNumber(input: string | number): number
 
-export declare const enum Empty {
-
-}
+export declare const enum Empty {}
 
 export declare function enumToI32(e: CustomNumEnum): number
 
@@ -1037,11 +1056,9 @@ export declare function esmResolve(next: () => Promise<undefined>): Promise<unde
 
 export declare function extendsJavascriptError(errorClass: any): void
 
-export type ExternalLinterLoadPluginCb =
-  ((arg: string) => PluginLoadResult)
+export type ExternalLinterLoadPluginCb = ((arg: string) => PluginLoadResult)
 
-export type ExternalLinterLoadPluginCb2 =
-  ((arg: string) => PluginLoadResult)
+export type ExternalLinterLoadPluginCb2 = ((arg: string) => PluginLoadResult)
 
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
@@ -1175,7 +1192,7 @@ export declare const enum Kind {
   /** Kills birds */
   Cat = 1,
   /** Tasty */
-  Duck = 2
+  Duck = 2,
 }
 
 /** default enum values are continuos i32s start from 0 */
@@ -1185,7 +1202,7 @@ export declare const enum KindInValidate {
   /** Kills birds */
   Cat = 1,
   /** Tasty */
-  Duck = 2
+  Duck = 2,
 }
 
 export interface Latin1MethodsResult {
@@ -1194,8 +1211,7 @@ export interface Latin1MethodsResult {
   asSlice: Array<number>
 }
 
-export type LifetimeOnlyHandler =
-  (arg: string) => string
+export type LifetimeOnlyHandler = (arg: string) => string
 
 export declare function listObjKeys(obj: object): Array<string>
 
@@ -1233,11 +1249,9 @@ export declare function mutateOptionalExternal(external: ExternalObject<number> 
 
 export declare function mutateTypedArray(input: Float32Array): void
 
-export type MyPromise =
-  string | Promise<string>
+export type MyPromise = string | Promise<string>
 
-export type MyVec =
-  Array<number | string>
+export type MyVec = Array<number | string>
 
 /** Nested metadata for demonstrating object streaming with complex types */
 export interface NestedMetadata {
@@ -1251,8 +1265,7 @@ export interface NotUseNullableStruct {
   optionalStringField?: string
 }
 
-export type Nullable<T> =
-  T | undefined | null
+export type Nullable<T> = T | undefined | null
 
 export interface Obj {
   v: string | number
@@ -1274,7 +1287,19 @@ export interface ObjectOnlyToJs {
   dependencies: any
 }
 
+export declare function objectRemoveWrappedA(obj: object): void
+
+export declare function objectRewrapAfterRemove(): number
+
+export declare function objectRewrapWithDifferentType(): number
+
 export declare function objectWithCApis(): object
+
+export declare function objectWrapMismatchKeepsWrap(): number
+
+export declare function objectWrapRoundtrip(): number
+
+export declare function objectWrapWithA(obj: object): void
 
 export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
@@ -1392,6 +1417,8 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
+
 export declare function returnCString(): string
 
 export declare function returnEither(input: number): string | number
@@ -1417,8 +1444,7 @@ export interface Rule {
   handler: RuleHandler<number, number>
 }
 
-export type RuleHandler<Args, Ret> =
-  (arg: Args) => Ret
+export type RuleHandler<Args, Ret> = (arg: Args) => Ret
 
 export declare function runScript(script: string): unknown
 
@@ -1450,13 +1476,13 @@ export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
 export declare const enum Status {
   Pristine = 'Pristine',
   Loading = 'Loading',
-  Ready = 'Ready'
+  Ready = 'Ready',
 }
 
 export declare const enum StatusInValidate {
   Poll = 'Poll',
   Ready = 'Ready',
-  Done = 'Done'
+  Done = 'Done',
 }
 
 /** Example struct demonstrating object streaming with nested types */
@@ -1473,22 +1499,22 @@ export interface StrictObject {
 export declare const enum StringEnum {
   VariantOne = 'variantone',
   VariantTwo = 'varianttwo',
-  VariantThree = 'variantthree'
+  VariantThree = 'variantthree',
 }
 
 export type StructuredKind =
   | { type2: 'Hello' }
-  | { type2: 'Greeting', name: string }
-  | { type2: 'Optional', name?: string }
-  | { type2: 'Birthday', name: string, age: number }
-  | { type2: 'Tuple', field0: number, field1: number }
+  | { type2: 'Greeting'; name: string }
+  | { type2: 'Optional'; name?: string }
+  | { type2: 'Birthday'; name: string; age: number }
+  | { type2: 'Tuple'; field0: number; field1: number }
 
 export type StructuredKindLowercase =
   | { type: 'hello' }
-  | { type: 'greeting', name: string }
-  | { type: 'optional', name?: string }
-  | { type: 'birthday', name: string, age: number }
-  | { type: 'tuple', field0: number, field1: number }
+  | { type: 'greeting'; name: string }
+  | { type: 'optional'; name?: string }
+  | { type: 'birthday'; name: string; age: number }
+  | { type: 'tuple'; field0: number; field1: number }
 
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
@@ -1514,7 +1540,7 @@ export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
 
-export declare function testWorkers(amount: number, completeCallback: ((err: Error | null, ) => void)): void
+export declare function testWorkers(amount: number, completeCallback: ((err: Error | null) => void)): void
 
 export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
 
@@ -1593,7 +1619,7 @@ export declare function tryCloneErrorOffThreadKeepReference(value: unknown): voi
 
 export declare function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: number) => string): Promise<void>
 
-export declare function tsfnCallWithCallback(tsfn: ((err: Error | null, ) => string)): void
+export declare function tsfnCallWithCallback(tsfn: ((err: Error | null) => string)): void
 
 export declare function tsfnInEither(pet: Pet): void
 
@@ -1627,8 +1653,7 @@ export interface TupleObject {
   field1: number
 }
 
-export type TupleToArray =
-  [field0: string, field1: number, field2?: Meta]
+export type TupleToArray = [field0: string, field1: number, field2?: Meta]
 
 export declare function u16ArrayToArray(input: Uint16Array): Array<number>
 
@@ -1643,6 +1668,20 @@ export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 export declare function uint8ArrayFromData(): Uint8Array
 
 export declare function uint8ArrayFromExternal(): Uint8Array
+
+export declare function uint8ArraySliceFromExternalReadBack(): string
+
+export declare function uint8ClampedSliceFromExternalReadBack(): string
+
+export declare function unwrapObjectAsARejected(obj: object): boolean
+
+export declare function unwrapObjectAsTypeTagARejected(obj: object): boolean
+
+/**
+ * `unwrap` on an object that was not produced by `Object::wrap` (e.g. a
+ * `#[napi]` class instance or a plain object) must return a catchable error.
+ */
+export declare function unwrapObjectAsU8Rejected(obj: object): boolean
 
 export interface UseNullableStruct {
   requiredNumberField: number
@@ -1708,8 +1747,7 @@ export interface ViteImportGlobMeta {
   isSubImportsPattern?: boolean
 }
 
-export type VoidNullable<T = void> =
-  Nullable<T>
+export type VoidNullable<T = void> = Nullable<T>
 
 /**
  * Bytes of wasm linear memory currently owned by this instance, `0` on native
@@ -1750,6 +1788,7 @@ export declare namespace xxh3 {
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
 }
+
 export declare class ComplexClass {
   value: string
   number: number

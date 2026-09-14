@@ -1,5 +1,25 @@
 import { wasiLoaderSuffix } from '../../utils/index.js'
 
+/**
+ * Named export every generated loader uses to report which binding artifact
+ * actually loaded: `'native'` for a `.node` addon, otherwise the
+ * `platformArchABI` of the WASI flavor (`'wasm32-wasi'`, `'wasm32-wasip1'`).
+ */
+export const NAPI_BINDING_TARGET_EXPORT = '__napiBindingTarget'
+
+/**
+ * The generated loader declares {@link NAPI_BINDING_TARGET_EXPORT} itself, so a
+ * napi export of the same name would emit a duplicate `export const` (an ESM
+ * syntax error) or silently overwrite the reported target.
+ */
+export function assertBindingTargetIdentFree(idents: string[]): void {
+  if (idents.indexOf(NAPI_BINDING_TARGET_EXPORT) !== -1) {
+    throw new Error(
+      `\`${NAPI_BINDING_TARGET_EXPORT}\` is reserved by the generated binding loader. Rename the napi export, e.g. #[napi(js_name = "...")].`,
+    )
+  }
+}
+
 function resolveWasiFlavors(wasiFlavors?: string[]): string[] {
   return wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
 }
@@ -62,6 +82,7 @@ function createWasiFallbackChain(
       }
         wasiBinding = require('${specifier}')
         nativeBinding = wasiBinding
+        __napiLoadedBindingTarget = '${flavor}'
         wasiBindingLoaded = true
       }
     } catch (err) {
@@ -126,6 +147,7 @@ export function createCjsBinding(
   wasiFlavors?: string[],
   localWasiName?: string,
 ): string {
+  assertBindingTargetIdentFree(idents)
   return `${bindingHeader}
 ${createCommonBinding(
   localName,
@@ -135,6 +157,7 @@ ${createCommonBinding(
   localWasiName,
 )}
 module.exports = nativeBinding
+module.exports.${NAPI_BINDING_TARGET_EXPORT} = __napiLoadedBindingTarget
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}
@@ -149,11 +172,17 @@ export function createEsmBinding(
   wasiFlavors?: string[],
   localWasiName?: string,
 ): string {
+  assertBindingTargetIdentFree(idents)
+  // Both branches must carry it, or a zero-ident package silently loses the
+  // export.
+  const bindingTargetExport = `export const ${NAPI_BINDING_TARGET_EXPORT} = __napiLoadedBindingTarget`
   const exportsCode =
     idents.length > 0
       ? `const { ${idents.join(', ')} } = nativeBinding
-${idents.map((ident) => `export { ${ident} }`).join('\n')}`
-      : 'export default nativeBinding'
+${idents.map((ident) => `export { ${ident} }`).join('\n')}
+${bindingTargetExport}`
+      : `export default nativeBinding
+${bindingTargetExport}`
   return `${bindingHeader}
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
@@ -213,6 +242,10 @@ ${identLow}}${versionCheck}`
 
   return `const { readFileSync } = require('fs')
 let nativeBinding = null
+// Which artifact actually loaded. The WASI fallback chain overwrites it with
+// the flavor it resolved; the late native retry below leaves it alone because
+// it only runs while no WASI candidate has been loaded.
+let __napiLoadedBindingTarget = 'native'
 const loadErrors = []
 
 const isMusl = () => {
@@ -271,7 +304,16 @@ const isMuslFromChildProcess = () => {
 function requireNative() {
   if (process.env.NAPI_RS_NATIVE_LIBRARY_PATH) {
     try {
-      return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH)
+      const overrideBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH)
+      // The override may be a generated WASI loader, which already reports its
+      // own flavor. Adopt it: \`module.exports\` aliases this object, so claiming
+      // 'native' would both misreport the artifact and overwrite the loader's
+      // marker through the alias.
+      __napiLoadedBindingTarget =
+        overrideBinding && typeof overrideBinding.${NAPI_BINDING_TARGET_EXPORT} === 'string'
+          ? overrideBinding.${NAPI_BINDING_TARGET_EXPORT}
+          : 'native'
+      return overrideBinding
     } catch (err) {
       loadErrors.push(err)
     }

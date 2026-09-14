@@ -6,6 +6,7 @@ import {
 } from '@napi-rs/wasm-runtime'
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { Buffer } from 'buffer'
+export const __napiBindingTarget = 'wasm32-wasip1'
 
 /**
  * Deferred, workerd-safe instantiation: no top-level I/O, no compile-from-bytes.
@@ -795,6 +796,9 @@ async function __createInstance(
           }
         },
       }))
+    // `instantiate()` and `createInstance().exports` hand out this object; a
+    // named module export does not travel with it.
+    __napiModule.exports.__napiBindingTarget = __napiBindingTarget
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }
