@@ -1,8 +1,12 @@
+import { runInNewContext } from 'node:vm'
+
 import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
 import {
+  ASYNC_WORK_POOL_SIZE_DEFAULT,
+  ASYNC_WORK_POOL_SIZE_MAX,
   createWasiBinding,
   createWasiBrowserBinding,
   createWasiDeferredBrowserBinding,
@@ -242,6 +246,183 @@ test('Node WASI loader uses an accessible host root on Android', (t) => {
     code.includes('workerData: { hostRoot: __hostRoot, rootDir: __rootDir }'),
   )
   t.false(code.includes('[__rootDir]: __rootDir'))
+})
+
+const ASYNC_WORK_POOL_HELPER = 'function __normalizeAsyncWorkPoolSize(value) {'
+const ASYNC_WORK_POOL_BINDING =
+  'const __asyncWorkPoolSize = __normalizeAsyncWorkPoolSize('
+
+/**
+ * The emitted normalization block, sliced out of the real generated loader so
+ * the assertions exercise the shipped code — including the env read and its
+ * `??` precedence — rather than a copy of it.
+ */
+function asyncWorkPoolBlock(code: string): string {
+  const start = code.indexOf(ASYNC_WORK_POOL_HELPER)
+  const bindingStart = code.indexOf(ASYNC_WORK_POOL_BINDING, start)
+  return code.slice(start, code.indexOf('\n)\n', bindingStart) + 2)
+}
+
+function asyncWorkPoolSize(env: Record<string, string>): unknown {
+  const block = asyncWorkPoolBlock(createWasiBinding('test', '@scope/test'))
+  return runInNewContext(`${block}\n__asyncWorkPoolSize`, { process: { env } })
+}
+
+const asyncWorkPoolCases: Array<{
+  name: string
+  env: Record<string, string>
+  expected: number
+}> = [
+  { name: 'no env', env: {}, expected: ASYNC_WORK_POOL_SIZE_DEFAULT },
+  {
+    name: 'explicit size',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '8' },
+    expected: 8,
+  },
+  {
+    name: 'UV_THREADPOOL_SIZE fallback',
+    env: { UV_THREADPOOL_SIZE: '6' },
+    expected: 6,
+  },
+  {
+    name: 'NAPI_RS_ASYNC_WORK_POOL_SIZE wins',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '8', UV_THREADPOOL_SIZE: '6' },
+    expected: 8,
+  },
+  // `??` falls through on null/undefined only, so an empty override is still
+  // the override — and an empty string normalizes to the default.
+  {
+    name: 'empty override does not fall back to UV_THREADPOOL_SIZE',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '', UV_THREADPOOL_SIZE: '6' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  // emnapi would truncate with `>> 0` anyway; do it here so the size emnapi
+  // reports through `_emnapi_async_work_pool_size` is the size we chose.
+  {
+    name: 'fractional truncates toward zero',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '8.9' },
+    expected: 8,
+  },
+  // `0.5 >> 0` is `0`, which the in-wasm pool reads as "unset".
+  {
+    name: 'fractional below one falls back to the default',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '0.5' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  // The emnapi ceiling itself survives untouched.
+  {
+    name: 'the emnapi maximum is passed through',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: String(ASYNC_WORK_POOL_SIZE_MAX) },
+    expected: ASYNC_WORK_POOL_SIZE_MAX,
+  },
+  // Above the ceiling emnapi would silently substitute 1024, so use the
+  // default instead of a pool size nobody asked for.
+  {
+    name: 'one above the maximum falls back to the default',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: String(ASYNC_WORK_POOL_SIZE_MAX + 1) },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  {
+    name: 'above the maximum falls back to the default',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '2048' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  // 2**32: `> 0` is true but `>> 0` is `0`, so emnapi would report "unset" to
+  // the in-wasm pool and the requested size would vanish.
+  {
+    name: '2**32 falls back to the default instead of wrapping to zero',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '4294967296' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  // 2**31: `>> 0` is `-2147483648`, which emnapi clamps to `-1024` and then
+  // reports as `1024` — a pool the caller never requested.
+  {
+    name: '2**31 falls back to the default instead of wrapping negative',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '2147483648' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  {
+    name: '1e21 falls back to the default instead of wrapping negative',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '1e21' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  {
+    name: 'Infinity falls back to the default',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: 'Infinity' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  {
+    name: 'non-numeric falls back to the default',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: 'many' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+  {
+    name: 'negative falls back to the default',
+    env: { NAPI_RS_ASYNC_WORK_POOL_SIZE: '-8' },
+    expected: ASYNC_WORK_POOL_SIZE_DEFAULT,
+  },
+]
+
+for (const { name, env, expected } of asyncWorkPoolCases) {
+  test(`Node WASI loader normalizes the async work pool size: ${name}`, (t) => {
+    const size = asyncWorkPoolSize(env)
+    // emnapi throws `options.asyncWorkPoolSize must be a integer` for a
+    // non-number, so the loader must never hand it the raw env string.
+    t.is(typeof size, 'number')
+    t.is(size, expected)
+  })
+}
+
+test('Node WASI loader hands emnapi one normalized pool size', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'Node WASI loader')
+  t.true(code.includes('asyncWorkPoolSize: __asyncWorkPoolSize,'))
+  t.true(
+    code.includes(
+      'process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE',
+    ),
+  )
+  t.false(
+    code.includes('threadsSizeFromEnv'),
+    'the unclamped passthrough IIFE must be gone',
+  )
+  t.is(
+    code.split('process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE').length - 1,
+    1,
+    'the environment must be read exactly once, at module scope',
+  )
+})
+
+test('threadless Node WASI loader never reads the pool env', (t) => {
+  const code = createWasiBinding('test', '@scope/test', 4000, 65536, false)
+  assertValidJS(t, code, 'threadless Node WASI loader')
+  t.true(code.includes('asyncWorkPoolSize: 0,'))
+  t.false(code.includes('__asyncWorkPoolSize'))
+  t.false(code.includes('NAPI_RS_ASYNC_WORK_POOL_SIZE'))
+  t.false(code.includes('UV_THREADPOOL_SIZE'))
+})
+
+test('browser WASI loaders keep a constant pool size', (t) => {
+  const threaded = createWasiBrowserBinding(
+    'test',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    true,
+  )
+  t.true(
+    threaded.includes(
+      `const __asyncWorkPoolSize = ${ASYNC_WORK_POOL_SIZE_DEFAULT}`,
+    ),
+  )
+  t.false(threaded.includes('process.env'), 'the pool env knob is Node-only')
+  t.false(
+    createWasiDeferredBrowserBinding('test').includes('process.env'),
+    'the deferred/workerd loader has no process',
+  )
 })
 
 test('Node WASI worker uses an accessible host root on Android', (t) => {

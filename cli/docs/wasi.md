@@ -195,3 +195,48 @@ would never boot and the caller would deadlock waiting for it. With a
 pre-created pool, spawning is only a message to an already-running worker,
 and if the pool is exhausted the fallback allocates a fresh worker that
 boots once the spawning parent returns to its event loop.
+
+## Async work pool size (Node.js)
+
+The threaded Node.js loader sizes emnapi's async-work worker pool from
+`NAPI_RS_ASYNC_WORK_POOL_SIZE`, falling back to `UV_THREADPOOL_SIZE` and then
+to `4`:
+
+```sh
+NAPI_RS_ASYNC_WORK_POOL_SIZE=16 node app.js
+```
+
+The value is normalized before it reaches emnapi: it is truncated to an
+integer, and anything outside `[1, 1024]` — including an empty, fractional
+below one, negative, `Infinity` or non-numeric value — falls back to `4`.
+
+Normalizing in the loader matters because emnapi does not use the option as
+given. It coerces it with `>> 0` (ToInt32), clamps the result into
+`[-1024, 1024]`, and reports the absolute value to the wasm module. In a
+threaded build that number sizes emnapi's in-wasm libuv threadpool, which
+treats a non-positive request as _unset_ and falls back to `UV_THREADPOOL_SIZE`
+and then to `4`. A value the loader passed through unchanged would therefore
+be wrong in both directions: every multiple of 2^32 — `4294967296` and up —
+coerces to `0` and silently drops the size the caller asked for, while
+`2147483648` coerces negative, clamps to `-1024` and requests a 1,024-thread
+pool nobody asked for. Falling back to the default keeps both cases
+predictable, and guarantees emnapi is never handed a number ToInt32 would
+change.
+
+The `1024` ceiling is emnapi's own (and libuv's `MAX_THREADPOOL_SIZE`), not a
+promise that a pool that large fits. Each pool thread reserves 8 MiB of linear
+memory for its stack (wasi-libc's default thread stack), so a wasm32 module can
+hold at most about 500 threads even at the smallest initial memory, and whether
+a given size fits depends on `napi.wasm.initialMemory` / `napi.wasm.maximumMemory`
+and the thread stack size. The pool is created on the first async-work
+submission and `abort()`s — surfacing as `RuntimeError: unreachable` — if a
+thread cannot be created, both with this normalization and without it.
+
+`NAPI_RS_ASYNC_WORK_POOL_SIZE` is nullish-coalesced, not truthiness-checked, so
+setting it to an empty string suppresses the `UV_THREADPOOL_SIZE` fallback and
+selects the default.
+
+The threadless Node loader and the `./workerd` loader pass
+`asyncWorkPoolSize: 0` and ignore both variables. Browser loaders have no
+`process.env`; their threaded flavor uses a constant reservation of 4 (see the
+reuse-pool note above).

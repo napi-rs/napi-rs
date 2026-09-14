@@ -1,6 +1,30 @@
 const WASI_DISPOSE_SYMBOL = 'napi.rs.wasi.dispose'
 const WASI_ROLLBACK_REGISTRY_SYMBOL = 'napi.rs.wasi.rollback.registry.v1'
 
+// emnapi does not take `asyncWorkPoolSize` as given. `createNapiModule` in
+// @emnapi/core coerces it with `>> 0` (ToInt32), clamps the result into
+// [-1024, 1024], and exposes `Math.abs(...)` of it to the wasm module as the
+// `_emnapi_async_work_pool_size()` import:
+//   emnapiAsyncWorkPoolSize = options.asyncWorkPoolSize >> 0
+//   if (emnapiAsyncWorkPoolSize > 1024) emnapiAsyncWorkPoolSize = 1024
+//   else if (emnapiAsyncWorkPoolSize < -1024) emnapiAsyncWorkPoolSize = -1024
+//   function _emnapi_async_work_pool_size() { return Math.abs(emnapiAsyncWorkPoolSize) }
+// The threaded archive every threaded build links (`emnapi-napi-rs-mt`, see
+// `crates/build/src/wasi.rs`) sizes emnapi's in-wasm libuv threadpool from
+// that import: a positive value is the thread count, a non-positive one means
+// "unset" and falls back to `UV_THREADPOOL_SIZE`, else 4.
+// So a raw env value is wrong in both directions: every multiple of 2**32
+// ToInt32s to `0` and silently drops the setting the user asked for, while
+// `2147483648` ToInt32s negative, clamps to `-1024` and requests a
+// 1024-thread pool nobody asked for — and libuv `abort()`s the module when a
+// requested thread cannot be created. Normalize in the loader instead: never
+// hand emnapi a value ToInt32 would change, and fall back to the default for
+// everything outside [1, ASYNC_WORK_POOL_SIZE_MAX].
+export const ASYNC_WORK_POOL_SIZE_DEFAULT = 4
+// emnapi's own ceiling, and libuv's `MAX_THREADPOOL_SIZE`. Not a promise that
+// a pool this large can be allocated — see `cli/docs/wasi.md`.
+export const ASYNC_WORK_POOL_SIZE_MAX = 1024
+
 const emnapiContextLifecycle = `
 const __wasiDisposeSymbol = Symbol.for('${WASI_DISPOSE_SYMBOL}')
 const __wasiWorkers = new Set()
@@ -1944,16 +1968,32 @@ function __createWasiWorker(filename) {
     ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
     : ''
   const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
+  // `NAPI_RS_ASYNC_WORK_POOL_SIZE`, falling back to `UV_THREADPOOL_SIZE`.
+  // Threadless loaders pass a literal `0` and never read the environment.
+  const asyncWorkPoolSizeBinding = threads
+    ? `
+function __normalizeAsyncWorkPoolSize(value) {
+  // emnapi coerces this option with ToInt32 and clamps it to
+  // [-${ASYNC_WORK_POOL_SIZE_MAX}, ${ASYNC_WORK_POOL_SIZE_MAX}], then hands the absolute value to the in-wasm
+  // libuv threadpool, which reads a non-positive request as "unset" and
+  // falls back to UV_THREADPOOL_SIZE, else ${ASYNC_WORK_POOL_SIZE_DEFAULT}. Anything at or above 2**31 wraps:
+  // a multiple of 2**32 drops the setting, 2**31 asks for ${ASYNC_WORK_POOL_SIZE_MAX} threads.
+  // Fall back to the default rather than hand emnapi a value it would change.
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return ${ASYNC_WORK_POOL_SIZE_DEFAULT}
+  }
+  const integer = Math.trunc(numeric)
+  return integer > 0 && integer <= ${ASYNC_WORK_POOL_SIZE_MAX} ? integer : ${ASYNC_WORK_POOL_SIZE_DEFAULT}
+}
+
+const __asyncWorkPoolSize = __normalizeAsyncWorkPoolSize(
+  process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE,
+)
+`
+    : ''
   const asyncWorkOptions = threads
-    ? `    asyncWorkPoolSize: (function () {
-      const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
-      // NaN > 0 is false
-      if (threadsSizeFromEnv > 0) {
-        return threadsSizeFromEnv
-      } else {
-        return 4
-      }
-    })(),
+    ? `    asyncWorkPoolSize: __asyncWorkPoolSize,
     reuseWorker: true,
     plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
 `
@@ -2017,6 +2057,7 @@ ${workerRuntimeImport}\
 } = require('@napi-rs/wasm-runtime')
 const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 ${workerExecArgv}\
+${asyncWorkPoolSizeBinding}\
 
 const __cwd = process.cwd()
 const __rootDir = __nodePath.parse(__cwd).root

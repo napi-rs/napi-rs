@@ -105,6 +105,25 @@ function __createWasiWorker(filename) {
   }
 }
 
+function __normalizeAsyncWorkPoolSize(value) {
+  // emnapi coerces this option with ToInt32 and clamps it to
+  // [-1024, 1024], then hands the absolute value to the in-wasm
+  // libuv threadpool, which reads a non-positive request as "unset" and
+  // falls back to UV_THREADPOOL_SIZE, else 4. Anything at or above 2**31 wraps:
+  // a multiple of 2**32 drops the setting, 2**31 asks for 1024 threads.
+  // Fall back to the default rather than hand emnapi a value it would change.
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return 4
+  }
+  const integer = Math.trunc(numeric)
+  return integer > 0 && integer <= 1024 ? integer : 4
+}
+
+const __asyncWorkPoolSize = __normalizeAsyncWorkPoolSize(
+  process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE,
+)
+
 const __cwd = process.cwd()
 const __rootDir = __nodePath.parse(__cwd).root
 const __hostRoot =
@@ -849,15 +868,7 @@ try {
     napiModule: __napiModule,
   } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
     context: __emnapiContext,
-    asyncWorkPoolSize: (function () {
-      const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
-      // NaN > 0 is false
-      if (threadsSizeFromEnv > 0) {
-        return threadsSizeFromEnv
-      } else {
-        return 4
-      }
-    })(),
+    asyncWorkPoolSize: __asyncWorkPoolSize,
     reuseWorker: true,
     plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,
