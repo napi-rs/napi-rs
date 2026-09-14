@@ -7,6 +7,100 @@ import {
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { Buffer } from 'buffer'
 
+export const WASM_MEMORY = Object.freeze({
+  initialPages: 16384,
+  maximumPages: 65536,
+  pageBytes: 65536,
+  initialBytes: 16384 * 65536,
+  maximumBytes: 65536 * 65536,
+})
+
+let __createdInstances = 0
+let __liveInstances = 0
+
+/**
+ * Counters for instances created by THIS module evaluation, not process-wide:
+ * a second bundled copy of this loader keeps its own. Only successfully
+ * created instances are counted, and `liveInstances` drops when an instance's
+ * `dispose()` resolves.
+ *
+ * `declaredInitialMemoryBytes` is declared address space, not a host's
+ * committed-memory metric; pair it with host telemetry rather than treating it
+ * as a quota.
+ */
+export function getDeferredRuntimeStats() {
+  return Object.freeze({
+    createdInstances: __createdInstances,
+    liveInstances: __liveInstances,
+    declaredInitialMemoryBytes: WASM_MEMORY.initialBytes,
+  })
+}
+
+const __arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength',
+).get
+const __memoryBufferGetter = Object.getOwnPropertyDescriptor(
+  WebAssembly.Memory.prototype,
+  'buffer',
+).get
+// One managed initialization per Memory, success or failure: an attempt that
+// throws may already have written into linear memory, so the bytes are not a
+// clean slate for a second instance. Module-local, like the counters above.
+const __claimedMemories = new WeakSet()
+
+function __resolveInstanceMemory(__options) {
+  const __provided = __options == null ? undefined : __options.memory
+  if (__provided === undefined || __provided === null) {
+    // Page counts are handed to the engine unvalidated: it already rejects a
+    // negative, over-4GiB or below-maximum value with a precise message, and a
+    // second set of bounds here would only drift from it.
+    return new WebAssembly.Memory({
+      initial:
+        __options != null && __options.initialMemoryPages !== undefined
+          ? __options.initialMemoryPages
+          : WASM_MEMORY.initialPages,
+      maximum:
+        __options != null && __options.maximumMemoryPages !== undefined
+          ? __options.maximumMemoryPages
+          : WASM_MEMORY.maximumPages,
+    })
+  }
+  if (
+    __options.initialMemoryPages !== undefined ||
+    __options.maximumMemoryPages !== undefined
+  ) {
+    throw new TypeError(
+      'Pass either memory or initialMemoryPages/maximumMemoryPages, not both',
+    )
+  }
+  let __buffer
+  try {
+    // Brand check: the getter throws for anything that is not a genuine
+    // WebAssembly.Memory, including a cross-realm look-alike object.
+    __buffer = Reflect.apply(__memoryBufferGetter, __provided, [])
+  } catch {
+    throw new TypeError('memory must be an unshared WebAssembly.Memory')
+  }
+  try {
+    // Throws for a SharedArrayBuffer. This loader has no threads, and shared
+    // growth does not detach: external views handed to the addon would
+    // silently outlive the bytes they describe.
+    Reflect.apply(__arrayBufferByteLengthGetter, __buffer, [])
+  } catch {
+    throw new TypeError(
+      'The deferred loader requires an unshared WebAssembly.Memory',
+    )
+  }
+  if (__claimedMemories.has(__provided)) {
+    throw new TypeError(
+      'This WebAssembly.Memory has already been used for a deferred initialization attempt and cannot be reused, including after a failed initialization or a disposal',
+    )
+  }
+  __claimedMemories.add(__provided)
+  return __provided
+}
+
 /**
  * Deferred, workerd-safe instantiation: no top-level I/O, no compile-from-bytes.
  * Accepts ONLY a precompiled WebAssembly.Module, or a Promise resolving to one
@@ -655,6 +749,7 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup) {
 
 async function __createInstance(
   __wasmInput,
+  __options,
   __beforeExitDestroy,
   __onManagedDestroyer,
 ) {
@@ -664,14 +759,12 @@ async function __createInstance(
     version: 'preview1',
   })
   // The wasm module is linked with `--import-memory`, so a Memory must be
-  // provided. It is allocated here in function scope (workerd bans global
-  // scope allocation) and is not shared (no threads, no SharedArrayBuffer).
-  // Allocate it before the emnapi context so a host memory-limit failure cannot
-  // leak a context that never reaches instantiation.
-  const __wasmMemory = new WebAssembly.Memory({
-    initial: 16384,
-    maximum: 65536,
-  })
+  // provided. It is resolved here in function scope (workerd bans global scope
+  // allocation) and is never shared (no threads, no SharedArrayBuffer).
+  // Resolve it before the emnapi context so a rejected option bag or a host
+  // memory-limit failure cannot leak a context that never reaches
+  // instantiation.
+  const __wasmMemory = __resolveInstanceMemory(__options)
   let __lifecycleState = 'pending'
   let __destroyEmnapiContext
   let __destroyOwnedContext
@@ -798,8 +891,23 @@ async function __createInstance(
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }
+    __createdInstances += 1
+    __liveInstances += 1
+    let __disposed = false
     return {
       exports: __napiModule.exports,
+      get memory() {
+        return __wasmMemory
+      },
+      get memoryBytes() {
+        // The Memory outlives the environment, so this stays readable after a
+        // FAILED dispose() (which leaves the instance undisposed and
+        // retryable). It reports 0 only once disposal has actually completed.
+        return __disposed ? 0 : __wasmMemory.buffer.byteLength
+      },
+      get disposed() {
+        return __disposed
+      },
       async dispose() {
         if (__lifecycleState !== 'failed') {
           __lifecycleState = 'disposal'
@@ -811,9 +919,16 @@ async function __createInstance(
         if (__drained) {
           await __drained
         }
-        return __beforeExitDestroy
+        const __result = await (__beforeExitDestroy
           ? __destroyManagedOwnedContext()
-          : __destroyOwnedContext()
+          : __destroyOwnedContext())
+        // Only a completed destroy retires the instance; a throw above leaves
+        // the counter untouched so a retried dispose() cannot double-decrement.
+        if (!__disposed) {
+          __disposed = true
+          __liveInstances -= 1
+        }
+        return __result
       },
     }
   } catch (error) {
@@ -886,11 +1001,16 @@ async function __createInstance(
 }
 
 /**
- * Create an independent instance. Call dispose() when the instance is no
- * longer needed so emnapi cleanup hooks run deterministically.
+ * Create an independent instance. Call and await dispose() when the instance
+ * is no longer needed so emnapi cleanup hooks run deterministically.
+ *
+ * The optional second argument selects this instance's linear memory: either
+ * `memory` (an unshared, single-use WebAssembly.Memory you allocated) or
+ * `initialMemoryPages` / `maximumMemoryPages`, never both. Omitted, the
+ * loader allocates WASM_MEMORY.initialPages..WASM_MEMORY.maximumPages.
  */
-export async function createInstance(__wasmInput) {
-  return __createInstance(__wasmInput)
+export async function createInstance(__wasmInput, __options) {
+  return __createInstance(__wasmInput, __options)
 }
 
 let __defaultModulePromise
@@ -927,6 +1047,7 @@ export function instantiate(__wasmInput) {
     const __instancePromise = __modulePromise.then((__module) =>
       __createInstance(
         __module,
+        undefined,
         __disposeDefaultInstance,
         (__managedDestroyer) => {
           __defaultManagedDestroyers.set(__instancePromise, __managedDestroyer)

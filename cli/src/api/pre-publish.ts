@@ -113,6 +113,10 @@ const wasiRuntimeDependencies = [
   '@napi-rs/wasm-runtime',
   '@emnapi/core',
   '@emnapi/runtime',
+  // Only the loaders generated for an addon with `napi.wasm.asyncRuntime` set
+  // import it, and only through the `/workerd` subpath, which
+  // `releasePackageRuntimeImports` matches by prefix.
+  '@napi-rs/async-runtime',
   'buffer',
 ]
 const require = createRequire(import.meta.url)
@@ -3009,6 +3013,30 @@ function validateWasiReleasePackageManifest(
   } else if (dependencies.buffer !== undefined) {
     throw new Error(
       `Release package ${packageJson.name} must omit buffer when its loaders do not import it`,
+    )
+  }
+
+  // `create-npm-dirs` resolves the version from the registry rather than
+  // pinning it here, so only the range's shape can be checked. The require /
+  // forbid pair is what matters: an undeclared import breaks the published
+  // package at load, and a declared dependency no loader imports is dead
+  // weight on every consumer of this flavor.
+  if (packagedRuntimeImports.has('@napi-rs/async-runtime')) {
+    const asyncRuntimeVersion = requireStringDependency(
+      packageJson.name,
+      dependencies,
+      '@napi-rs/async-runtime',
+    )
+    try {
+      new Range(asyncRuntimeVersion)
+    } catch {
+      throw new Error(
+        `Release package ${packageJson.name} has invalid @napi-rs/async-runtime dependency ${asyncRuntimeVersion}`,
+      )
+    }
+  } else if (dependencies['@napi-rs/async-runtime'] !== undefined) {
+    throw new Error(
+      `Release package ${packageJson.name} must omit @napi-rs/async-runtime when its loaders do not import it`,
     )
   }
 }

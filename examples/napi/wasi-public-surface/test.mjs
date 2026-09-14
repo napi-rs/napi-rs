@@ -120,15 +120,43 @@ function resolvePnpm(packageJson, consumerDir) {
   )
 }
 
+// The eager loaders inline the page count in their `WebAssembly.Memory`
+// descriptor; the deferred loader publishes it as the `WASM_MEMORY` constant it
+// allocates from. Both carry exactly one occurrence, so each rewrite still
+// proves it edited the descriptor it meant to.
+const memoryDescriptorPatterns = [
+  { find: /initial:\s*16384,/g, replace: `initial: ${initialPages},` },
+  {
+    find: /initialPages:\s*16384,/g,
+    replace: `initialPages: ${initialPages},`,
+  },
+  {
+    find: /initialBytes:\s*16384 \* 65536,/g,
+    replace: `initialBytes: ${initialPages} * 65536,`,
+  },
+]
+
 async function rewriteInitialMemory(path) {
-  const source = await readFile(path, 'utf8')
-  const descriptor = /initial:\s*16384,/g
-  assert.equal(
-    [...source.matchAll(descriptor)].length,
-    1,
-    `${relative(packageDir, path)} must contain one 16,384-page descriptor`,
+  let source = await readFile(path, 'utf8')
+  let rewrites = 0
+  for (const { find, replace } of memoryDescriptorPatterns) {
+    const matches = [...source.matchAll(find)].length
+    if (matches === 0) {
+      continue
+    }
+    assert.equal(
+      matches,
+      1,
+      `${relative(packageDir, path)} must contain at most one ${find.source} descriptor`,
+    )
+    source = source.replace(find, replace)
+    rewrites += 1
+  }
+  assert.ok(
+    rewrites > 0,
+    `${relative(packageDir, path)} must contain a 16,384-page descriptor`,
   )
-  await writeFile(path, source.replace(descriptor, `initial: ${initialPages},`))
+  await writeFile(path, source)
 }
 
 async function stageRelease(releaseDir) {
@@ -183,8 +211,13 @@ async function stageRelease(releaseDir) {
 }
 
 function assertStagedMemory(source, file) {
-  assert.match(source, new RegExp(`initial:\\s*${initialPages},`), file)
-  assert.doesNotMatch(source, /initial:\s*16384,/, file)
+  assert.match(
+    source,
+    new RegExp(`initial(?:Pages)?:\\s*${initialPages},`),
+    file,
+  )
+  assert.doesNotMatch(source, /initial(?:Pages)?:\s*16384,/, file)
+  assert.doesNotMatch(source, /initialBytes:\s*16384 \* 65536,/, file)
 }
 
 async function runBrowserTest(consumerDir) {

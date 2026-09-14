@@ -6,6 +6,7 @@ import {
   createWasiBinding,
   createWasiBrowserBinding,
   createWasiDeferredBrowserBinding,
+  createWasiDeferredBrowserBindingTypeDef,
 } from '../templates/load-wasi-template.js'
 import {
   createWasiBrowserWorkerBinding,
@@ -97,15 +98,22 @@ test('threadless loaders embed the initial memory they are given', (t) => {
   t.true(browserLoader.includes(`const __wasmMemory = ${unshared}`))
   t.false(browserLoader.includes('shared: true'))
 
-  // the deferred loader allocates in function scope (workerd bans global scope)
+  // The deferred loader publishes its descriptor instead of inlining it, and
+  // allocates from it in function scope (workerd bans global scope allocation).
+  const deferred = createWasiDeferredBrowserBinding('test', 1027, 65536)
   t.true(
-    createWasiDeferredBrowserBinding('test', 1027, 65536).includes(
-      `const __wasmMemory = new WebAssembly.Memory({
-    initial: 1027,
-    maximum: 65536,
-  })`,
-    ),
+    deferred.includes(`export const WASM_MEMORY = Object.freeze({
+  initialPages: 1027,
+  maximumPages: 65536,`),
   )
+  t.true(
+    deferred.includes(`    return new WebAssembly.Memory({
+      initial:
+        __options != null && __options.initialMemoryPages !== undefined
+          ? __options.initialMemoryPages
+          : WASM_MEMORY.initialPages,`),
+  )
+  t.false(deferred.includes('shared: true'))
 
   // the threaded loader still gets its own, shared descriptor
   const threaded = createWasiBinding('test', '@scope/test', 16384, 65536, true)
@@ -160,6 +168,23 @@ test('createWasiBrowserBinding with asyncRuntime hosts', (t) => {
       true,
     ),
   )
+})
+
+// The deferred loader is the published `./workerd` entry and the only loader
+// whose module namespace is part of the package's public API, so its bytes get
+// the same snapshot treatment as the browser loaders'.
+test('createWasiDeferredBrowserBinding default', (t) => {
+  t.snapshot(createWasiDeferredBrowserBinding('test-wasi'))
+})
+
+test('createWasiDeferredBrowserBinding with async-runtime hosts and buffer', (t) => {
+  t.snapshot(
+    createWasiDeferredBrowserBinding('test-wasi', 1027, 65536, true, true),
+  )
+})
+
+test('createWasiDeferredBrowserBindingTypeDef', (t) => {
+  t.snapshot(createWasiDeferredBrowserBindingTypeDef('./test-wasi.wasip1.cjs'))
 })
 
 test('createWasiBrowserWorkerBinding default', (t) => {
@@ -455,6 +480,135 @@ test('asyncRuntime deferred loader registers per instance', (t) => {
     managedDestroy.indexOf('__disposeHosts?.()') <
       managedDestroy.indexOf('__result = __emnapiContext.destroy()'),
   )
+})
+
+// The deferred loader's module namespace is the published `./workerd` entry's
+// public API. `WASM_MEMORY` and `getDeferredRuntimeStats` are new names in it,
+// and `createInstance`'s option bag is the only way a host sizes an instance
+// under a hard isolate cap.
+test('deferred loader is syntactically valid in both host modes', (t) => {
+  assertValidJS(t, createWasiDeferredBrowserBinding('test'), 'deferred')
+  assertValidJS(
+    t,
+    createWasiDeferredBrowserBinding('test', 1027, 65536, true, true),
+    'deferred + hosts',
+  )
+})
+
+test('deferred loader publishes the memory floor it was configured with', (t) => {
+  const code = createWasiDeferredBrowserBinding('test', 1027, 40000)
+  t.true(code.includes('export const WASM_MEMORY = Object.freeze({'))
+  t.true(code.includes('initialPages: 1027'))
+  t.true(code.includes('maximumPages: 40000'))
+  t.true(code.includes('initialBytes: 1027 * 65536'))
+  t.true(code.includes('maximumBytes: 40000 * 65536'))
+  t.true(code.includes('export function getDeferredRuntimeStats()'))
+  // workerd bans allocation in global scope, so the single `new
+  // WebAssembly.Memory` stays inside the per-instance resolver.
+  t.is(code.split('new WebAssembly.Memory(').length - 1, 1)
+  t.true(
+    code.indexOf('function __resolveInstanceMemory(') <
+      code.indexOf('new WebAssembly.Memory('),
+  )
+})
+
+test('deferred loader claims caller memory exactly once and rejects shared memory', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  t.true(code.includes('const __claimedMemories = new WeakSet()'))
+  t.true(code.includes('__claimedMemories.add(__provided)'))
+  t.true(
+    code.includes('requires an unshared WebAssembly.Memory'),
+    'a SharedArrayBuffer-backed memory must be rejected, not silently accepted',
+  )
+  t.true(
+    code.includes(
+      'Pass either memory or initialMemoryPages/maximumMemoryPages, not both',
+    ),
+  )
+  // The claim is taken before instantiation can fail, so a failed attempt
+  // cannot hand the same half-written bytes to a second instance.
+  const resolver = code.slice(
+    code.indexOf('function __resolveInstanceMemory('),
+    code.indexOf('\n}\n', code.indexOf('function __resolveInstanceMemory(')),
+  )
+  t.true(resolver.includes('__claimedMemories.add(__provided)'))
+})
+
+test('deferred instance handle reports its memory and retires exactly once', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  const handleStart = code.indexOf(
+    '    return {\n      exports: __napiModule.exports,',
+  )
+  t.true(
+    handleStart !== -1,
+    'the instance handle must be returned as a literal',
+  )
+  const handle = code.slice(
+    handleStart,
+    code.indexOf('  } catch (error) {', handleStart),
+  )
+  t.true(handle.includes('get memory() {'))
+  t.true(handle.includes('get memoryBytes() {'))
+  t.true(handle.includes('get disposed() {'))
+  // The counter moves only after the destroy resolves, so a dispose() that
+  // throws stays retryable without double-decrementing.
+  t.true(
+    handle.indexOf('await (__beforeExitDestroy') <
+      handle.indexOf('__liveInstances -= 1'),
+  )
+  t.true(handle.includes('if (!__disposed) {'))
+})
+
+test('deferred loader keeps the singleton on the loader-owned memory', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  // `instantiate()` takes no option bag, so it must pass the options slot
+  // explicitly rather than shifting `__disposeDefaultInstance` into it.
+  t.true(
+    code.includes(`__createInstance(
+        __module,
+        undefined,
+        __disposeDefaultInstance,`),
+  )
+  t.true(code.includes('return __createInstance(__wasmInput, __options)'))
+})
+
+test('deferred loader pulls its hosts from the isolate-safe subpath', (t) => {
+  const code = createWasiDeferredBrowserBinding(
+    'test',
+    1024,
+    65536,
+    false,
+    true,
+  )
+  // The barrel (`index.cjs`) also requires `current-thread-hosts.cjs`, the
+  // Node-lane relay a worker bundle never runs and CJS cannot tree-shake.
+  t.true(code.includes("} from '@napi-rs/async-runtime/workerd'"))
+  t.false(code.includes("from '@napi-rs/async-runtime'\n"))
+})
+
+test('deferred loader type definition covers the new surface', (t) => {
+  const typeDef = createWasiDeferredBrowserBindingTypeDef('./test.wasip1.cjs')
+  t.true(typeDef.includes('export interface WasiInstanceOptions {'))
+  t.true(typeDef.includes('memory?: WebAssembly.Memory'))
+  t.true(typeDef.includes('initialMemoryPages?: number'))
+  t.true(typeDef.includes('maximumMemoryPages?: number'))
+  t.true(typeDef.includes('readonly memoryBytes: number'))
+  t.true(typeDef.includes('readonly disposed: boolean'))
+  t.true(typeDef.includes('export const WASM_MEMORY: Readonly<{'))
+  t.true(
+    typeDef.includes(
+      'export function getDeferredRuntimeStats(): Readonly<WasiRuntimeStats>',
+    ),
+  )
+  t.true(
+    typeDef.includes(`export function createInstance(
+  wasmInput: WasiModuleInput,
+  options?: WasiInstanceOptions,
+): Promise<WasiInstance>`),
+  )
+  // `createWasiDeferredBindingTypeDef` rewrites this exact string when the
+  // project builds without type definitions.
+  t.true(typeDef.includes("typeof import('./test.wasip1.cjs')"))
 })
 
 test('Node WASI loader uses an accessible host root on Android', (t) => {

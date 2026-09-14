@@ -30,7 +30,10 @@
     "index.d.ts",
     "index.js",
     "workerd-task-host.cjs",
-    "workerd-timer-host.cjs"
+    "workerd-timer-host.cjs",
+    "workerd.cjs",
+    "workerd.d.ts",
+    "workerd.js"
   ],
   "scripts": {
     "test": "node --test"
@@ -44,6 +47,12 @@
       "types": "./index.d.ts",
       "import": "./index.js",
       "require": "./index.cjs"
-    }
+    },
+    "./workerd": {
+      "types": "./workerd.d.ts",
+      "import": "./workerd.js",
+      "require": "./workerd.cjs"
+    },
+    "./package.json": "./package.json"
   }
 }

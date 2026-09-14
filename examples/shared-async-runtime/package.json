@@ -7,7 +7,8 @@
   "scripts": {
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "build:wasi": "napi-raw build --target wasm32-wasip1 --platform --js index.cjs --dts index.d.cts",
-    "test:wasi": "node --test test-wasi.mjs"
+    "test:wasi": "node --test test-wasi.mjs",
+    "test:wasi-workerd": "node --test test-workerd-loader.mjs"
   },
   "napi": {
     "binaryName": "shared_async_runtime",

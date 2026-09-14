@@ -99,9 +99,13 @@ fresh singleton after cleanup rather than exports that are being destroyed. If
 the first singleton is still initializing, cleanup waits for that initialization
 to settle before destroying its context.
 `createInstance()` creates an independent instance and returns
-`{ exports, dispose }`; call and await the returned `dispose()` when that
-instance is no longer needed. It consistently returns a promise, including
-when emnapi cleanup completes synchronously. Independent instances are not
+`{ exports, memory, memoryBytes, disposed, dispose }`; call and await the
+returned `dispose()` when that instance is no longer needed. It consistently
+returns a promise, including when emnapi cleanup completes synchronously.
+`memoryBytes` is that instance's current linear-memory size and reads `0` once
+disposal has completed — it is declared address space, not a host's
+committed-memory metric, so compare it against platform telemetry rather than
+treating it as a quota. Independent instances are not
 automatically disposed at
 `beforeExit`, while initializing or after success, so retained exports remain
 usable if a listener schedules more work; their cleanup ownership stays
@@ -114,6 +118,42 @@ initialization fails and immediate context rollback also fails, the loader
 retains that cleanup ownership so a later `beforeExit` pass can retry it.
 `dispose()` still attempts those retained rollbacks when singleton cleanup
 fails, while preserving the singleton error as the primary rejection.
+
+A second argument to `createInstance()` selects that instance's linear memory:
+
+```js
+const instance = await createInstance(wasmModule, {
+  initialMemoryPages: 1024,
+  maximumMemoryPages: 65536,
+})
+```
+
+or hand it one you allocated yourself:
+
+```js
+const memory = new WebAssembly.Memory({ initial: 1024, maximum: 65536 })
+const instance = await createInstance(wasmModule, { memory })
+```
+
+`memory` and the page options are mutually exclusive. Page counts go straight to
+`new WebAssembly.Memory`, so the engine's own bounds and messages apply. A
+caller-provided `WebAssembly.Memory` must be unshared — this loader has no
+threads, and shared growth does not detach, so external views handed to the
+addon would silently outlive the bytes they describe — and it is **single-use**:
+once a validated initialization attempt begins, passing the same Memory again
+throws, including after that attempt fails and after the instance is disposed. A
+failed initialization may already have written into linear memory, so those
+bytes are not a clean slate. The claim is tracked per evaluated loader module;
+two independently bundled copies of the loader in one isolate do not see each
+other's claims.
+
+`WASM_MEMORY` exports the descriptor compiled into the loader — `initialPages`,
+`maximumPages`, `pageBytes`, `initialBytes`, `maximumBytes` — so a caller can
+size its own Memory from it. `getDeferredRuntimeStats()` reports
+`{ createdInstances, liveInstances, declaredInitialMemoryBytes }` for instances
+created by that loader module evaluation, not process-wide; `liveInstances`
+drops when an instance's `dispose()` resolves, so a `dispose()` that throws
+leaves it counted and retryable.
 
 `Context.destroy()` is synchronous in emnapi's public contract. The deferred
 loader also contains nonconforming promise-like results defensively. Keep and
@@ -207,7 +247,13 @@ With the flag on:
 - The deferred `./workerd` loader registers one task host and one timer host
   **per instance** (`registerWorkerdCurrentThreadTaskHost` /
   `registerWorkerdTimerHost`) and disposes them with that instance, so
-  independent instances never share or cancel each other's registrations.
+  independent instances never share or cancel each other's registrations. It
+  imports them from the `@napi-rs/async-runtime/workerd` subpath rather than the
+  package root: the root entry also pulls in the Node-lane relay
+  (the realm-global installation registry and its timer-handle bookkeeping),
+  which a worker bundle never runs and which a CommonJS entry cannot be
+  tree-shaken out of. Both entries are equally isolate-safe — neither touches a
+  `node:` builtin or `process` — so the subpath is purely about bundle size.
 - The generated `<packageName>-wasm32-*` packages declare
   `@napi-rs/async-runtime` as a dependency. Add it to your own
   `devDependencies` so local `napi build` output can load.
