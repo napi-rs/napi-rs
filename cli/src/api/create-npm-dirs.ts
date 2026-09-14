@@ -49,6 +49,7 @@ export interface PackageMeta {
 }
 
 const WASM_RUNTIME_PACKAGE_NAME = '@napi-rs/wasm-runtime'
+const ASYNC_RUNTIME_PACKAGE_NAME = '@napi-rs/async-runtime'
 
 interface PendingMetadataWrite {
   content: string
@@ -66,25 +67,25 @@ interface OwnedWasiPackage {
   target: Target
 }
 
-async function getLatestWasmRuntimeVersion() {
+async function getLatestPackageVersion(packageName: string) {
   const npmRegistryBase =
     process.env.npm_config_registry?.replace(/\/?$/, '/') ??
     'https://registry.npmjs.org/'
-  const packageMetadataUrl = `${npmRegistryBase}${WASM_RUNTIME_PACKAGE_NAME}`
+  const packageMetadataUrl = `${npmRegistryBase}${packageName}`
   let response: Response
 
   try {
     response = await fetch(packageMetadataUrl)
   } catch (error) {
     throw new Error(
-      `Failed to fetch ${packageMetadataUrl} while resolving ${WASM_RUNTIME_PACKAGE_NAME}. Check your network connection and npm registry availability.`,
+      `Failed to fetch ${packageMetadataUrl} while resolving ${packageName}. Check your network connection and npm registry availability.`,
       { cause: error },
     )
   }
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch ${packageMetadataUrl} while resolving ${WASM_RUNTIME_PACKAGE_NAME}: npm registry responded with ${response.status} ${response.statusText || 'Unknown Status'}`,
+      `Failed to fetch ${packageMetadataUrl} while resolving ${packageName}: npm registry responded with ${response.status} ${response.statusText || 'Unknown Status'}`,
     )
   }
 
@@ -94,7 +95,7 @@ async function getLatestWasmRuntimeVersion() {
     packageMeta = (await response.json()) as PackageMeta
   } catch (error) {
     throw new Error(
-      `Failed to parse npm registry metadata for ${WASM_RUNTIME_PACKAGE_NAME} from ${packageMetadataUrl}`,
+      `Failed to parse npm registry metadata for ${packageName} from ${packageMetadataUrl}`,
       { cause: error },
     )
   }
@@ -103,7 +104,7 @@ async function getLatestWasmRuntimeVersion() {
 
   if (typeof latestVersion !== 'string' || latestVersion.trim().length === 0) {
     throw new Error(
-      `npm registry metadata for ${WASM_RUNTIME_PACKAGE_NAME} from ${packageMetadataUrl} did not include a latest dist-tag`,
+      `npm registry metadata for ${packageName} from ${packageMetadataUrl} did not include a latest dist-tag`,
     )
   }
 
@@ -446,9 +447,15 @@ async function createNpmDirsUnlocked(
       ),
     )
   ).flat()
-  const wasmRuntimeVersion = targets.some((target) => target.arch === 'wasm32')
-    ? await getLatestWasmRuntimeVersion()
-    : undefined
+  const hasWasmTarget = targets.some((target) => target.arch === 'wasm32')
+  const [wasmRuntimeVersion, asyncRuntimeVersion] = await Promise.all([
+    hasWasmTarget
+      ? getLatestPackageVersion(WASM_RUNTIME_PACKAGE_NAME)
+      : undefined,
+    hasWasmTarget && wasm?.asyncRuntime === true
+      ? getLatestPackageVersion(ASYNC_RUNTIME_PACKAGE_NAME)
+      : undefined,
+  ])
   const pendingWrites: PendingMetadataWrite[] = []
 
   for (const target of targets) {
@@ -560,6 +567,11 @@ async function createNpmDirsUnlocked(
         '@napi-rs/wasm-runtime': `~${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
+        // The compatibility axis is the host contract version (4), which is
+        // stable across a semver major, so a caret range is correct here.
+        ...(asyncRuntimeVersion
+          ? { '@napi-rs/async-runtime': `^${asyncRuntimeVersion}` }
+          : {}),
         ...(wasm?.browser?.buffer === true &&
         (wasm.browser.fs !== true || !wasiTargetHasThreads(target))
           ? { buffer: directBufferDependency }

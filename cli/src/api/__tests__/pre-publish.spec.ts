@@ -1,5 +1,6 @@
 import { mkdtempSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -12,6 +13,7 @@ import {
   resolveRootPublisher,
   rootPublisherRewritesRootExports,
   sniffRewritingPublisherFromUserAgent,
+  validateReleasePackageContents,
   validateRootFacadePacklist,
 } from '../pre-publish.js'
 import { parseTriple } from '../../utils/index.js'
@@ -557,4 +559,154 @@ test('still rejects publishConfig.exports references omitted by npm pack', async
       },
     )
   }
+})
+
+// The generated WASI loaders only reach `@napi-rs/async-runtime` when
+// `napi.wasm.asyncRuntime` is on, and `create-npm-dirs` only declares it in the
+// same case. A project that flips the flag without rerunning `create-npm-dirs`
+// therefore publishes a loader importing a package its own manifest never
+// declares, which `npm install` never fetches: the addon then fails at load on
+// every consumer. `pre-publish` has to catch that pair before it ships.
+const requireFromSpec = createRequire(import.meta.url)
+const EMNAPI_VERSION = requireFromSpec('emnapi/package.json').version as string
+const BINARY_NAME = 'pkg'
+const WASI_PLATFORM_ARCH_ABI = 'wasm32-wasi'
+const ASYNC_RUNTIME_PACKAGE = '@napi-rs/async-runtime'
+
+interface WasiReleasePackageOptions {
+  loadersImportAsyncRuntime: boolean
+  declareAsyncRuntime: boolean
+}
+
+async function createWasiReleasePackage({
+  loadersImportAsyncRuntime,
+  declareAsyncRuntime,
+}: WasiReleasePackageOptions) {
+  const rootDir = mkdtempSync(join(tmpdir(), 'napi-wasi-release-spec-'))
+  const pkgDir = join(rootDir, 'npm', 'wasm32-wasi')
+  await mkdir(pkgDir, { recursive: true })
+
+  const artifact = `${BINARY_NAME}.${WASI_PLATFORM_ARCH_ABI}.wasm`
+  const main = `${BINARY_NAME}.wasi.cjs`
+  const types = `${BINARY_NAME}.wasi.d.cts`
+  const browser = `${BINARY_NAME}.wasi-browser.js`
+  const files = [
+    artifact,
+    main,
+    types,
+    browser,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ]
+
+  const cjsLoader = `const { instantiateNapiModuleSync } = require('@napi-rs/wasm-runtime')
+${
+  loadersImportAsyncRuntime
+    ? `const {
+  installCurrentThreadHosts: __installCurrentThreadHosts,
+} = require('${ASYNC_RUNTIME_PACKAGE}')
+`
+    : ''
+}module.exports = { instantiateNapiModuleSync }
+`
+  const browserLoader = `import { instantiateNapiModule } from '@napi-rs/wasm-runtime'
+${
+  loadersImportAsyncRuntime
+    ? `import { installCurrentThreadHosts as __installCurrentThreadHosts } from '${ASYNC_RUNTIME_PACKAGE}'
+`
+    : ''
+}export default instantiateNapiModule
+`
+
+  await writeFile(join(pkgDir, artifact), '\0asm')
+  await writeFile(join(pkgDir, main), cjsLoader)
+  await writeFile(join(pkgDir, types), 'export declare function noop(): void\n')
+  await writeFile(join(pkgDir, browser), browserLoader)
+  await writeFile(join(pkgDir, 'wasi-worker.mjs'), '// worker\n')
+  await writeFile(join(pkgDir, 'wasi-worker-browser.mjs'), '// worker\n')
+
+  await writeFile(
+    join(pkgDir, 'package.json'),
+    JSON.stringify({
+      name: `${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI}`,
+      version: VERSION,
+      type: 'module',
+      main,
+      types,
+      browser,
+      files,
+      dependencies: {
+        '@napi-rs/wasm-runtime': '^1.0.0',
+        '@emnapi/core': EMNAPI_VERSION,
+        '@emnapi/runtime': EMNAPI_VERSION,
+        ...(declareAsyncRuntime ? { [ASYNC_RUNTIME_PACKAGE]: '^0.1.0' } : {}),
+      },
+    }),
+  )
+
+  return { rootDir, pkgDir }
+}
+
+function validateWasiReleasePackage(pkgDir: string, rootDir: string) {
+  return validateReleasePackageContents({
+    pkgDir,
+    rootDir,
+    packageName: PACKAGE_NAME,
+    binaryName: BINARY_NAME,
+    target: WASI_TARGET,
+    requireDirectBufferDependency: false,
+  })
+}
+
+test('rejects a WASI release package whose loaders import @napi-rs/async-runtime without declaring it', async (t) => {
+  const { rootDir, pkgDir } = await createWasiReleasePackage({
+    loadersImportAsyncRuntime: true,
+    declareAsyncRuntime: false,
+  })
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  await t.throwsAsync(() => validateWasiReleasePackage(pkgDir, rootDir), {
+    message: `Release package ${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI} must declare dependency ${ASYNC_RUNTIME_PACKAGE}`,
+  })
+})
+
+test('accepts a WASI release package that declares the @napi-rs/async-runtime its loaders import', async (t) => {
+  const { rootDir, pkgDir } = await createWasiReleasePackage({
+    loadersImportAsyncRuntime: true,
+    declareAsyncRuntime: true,
+  })
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  await t.notThrowsAsync(() => validateWasiReleasePackage(pkgDir, rootDir))
+})
+
+test('rejects a declared @napi-rs/async-runtime that no WASI loader imports', async (t) => {
+  // Mirrors the `buffer` precedent: the dependency is required when a loader
+  // imports it and forbidden when none does, so a flavor never carries an
+  // install every consumer pays for and nothing loads.
+  const { rootDir, pkgDir } = await createWasiReleasePackage({
+    loadersImportAsyncRuntime: false,
+    declareAsyncRuntime: true,
+  })
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  await t.throwsAsync(() => validateWasiReleasePackage(pkgDir, rootDir), {
+    message: `Release package ${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI} must omit ${ASYNC_RUNTIME_PACKAGE} when its loaders do not import it`,
+  })
+})
+
+test('rejects an invalid @napi-rs/async-runtime range', async (t) => {
+  const { rootDir, pkgDir } = await createWasiReleasePackage({
+    loadersImportAsyncRuntime: true,
+    declareAsyncRuntime: true,
+  })
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  const packageJsonPath = join(pkgDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.dependencies[ASYNC_RUNTIME_PACKAGE] = 'not a range'
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+  await t.throwsAsync(() => validateWasiReleasePackage(pkgDir, rootDir), {
+    message: `Release package ${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI} has invalid ${ASYNC_RUNTIME_PACKAGE} dependency not a range`,
+  })
 })
