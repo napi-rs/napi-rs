@@ -25,6 +25,7 @@ import ava, { type ExecutionContext, type TestFn } from 'ava'
 
 import {
   buildProject,
+  checkAsyncRuntimeHostContract,
   EMNAPI_WASI_SDK_34_LINK_DIR,
   generateTypeDef,
   napiCrossToolchainEnvs,
@@ -288,6 +289,95 @@ test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {
   for (const { options, message } of invalidCases) {
     t.throws(() => resolveBuildFormat(options), { message })
   }
+})
+
+const ASYNC_RUNTIME_HOST_EXPORTS = [
+  'getCurrentThreadTaskHostContractVersion',
+  'isCurrentThreadHostRegistrationActive',
+  'registerCurrentThreadTaskHost',
+  'registerTimerHost',
+  'reserveCurrentThreadHostRegistration',
+  'unregisterCurrentThreadTaskHost',
+  'unregisterTimerHost',
+]
+
+test('checkAsyncRuntimeHostContract reports the exports a binding is missing', (t) => {
+  const { error, warning } = checkAsyncRuntimeHostContract({
+    idents: ['plus100', 'registerTimerHost'],
+    asyncRuntime: true,
+    typeDefAvailable: true,
+    packageName: 'missing-host-exports',
+  })
+
+  t.is(warning, undefined)
+  t.truthy(error)
+  t.regex(error!, /missing-host-exports/)
+  for (const name of ASYNC_RUNTIME_HOST_EXPORTS) {
+    if (name === 'registerTimerHost') {
+      t.notRegex(error!, new RegExp(`Missing:[^.]*\\b${name}\\b`))
+    } else {
+      t.regex(error!, new RegExp(`Missing:[^.]*\\b${name}\\b`))
+    }
+  }
+})
+
+test('checkAsyncRuntimeHostContract warns when the contract is exported but the flag is off', (t) => {
+  const { error, warning } = checkAsyncRuntimeHostContract({
+    idents: [...ASYNC_RUNTIME_HOST_EXPORTS, 'plus100'],
+    asyncRuntime: false,
+    typeDefAvailable: true,
+    packageName: 'flag-is-off',
+  })
+
+  t.is(error, undefined)
+  t.truthy(warning)
+  t.regex(warning!, /napi\.wasm\.asyncRuntime is not enabled/)
+})
+
+test('checkAsyncRuntimeHostContract skips the check without type-def metadata', (t) => {
+  const { error, warning } = checkAsyncRuntimeHostContract({
+    idents: [],
+    asyncRuntime: true,
+    typeDefAvailable: false,
+    packageName: 'no-type-def',
+  })
+
+  t.is(error, undefined)
+  t.truthy(warning)
+  t.regex(warning!, /type-def/)
+  t.regex(warning!, /ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH/)
+
+  t.deepEqual(
+    checkAsyncRuntimeHostContract({
+      idents: [],
+      asyncRuntime: false,
+      typeDefAvailable: false,
+      packageName: 'no-type-def',
+    }),
+    {},
+  )
+})
+
+test('checkAsyncRuntimeHostContract stays silent when the flag matches the exports', (t) => {
+  t.deepEqual(
+    checkAsyncRuntimeHostContract({
+      idents: [...ASYNC_RUNTIME_HOST_EXPORTS, 'plus100'],
+      asyncRuntime: true,
+      typeDefAvailable: true,
+      packageName: 'all-good',
+    }),
+    {},
+  )
+
+  t.deepEqual(
+    checkAsyncRuntimeHostContract({
+      idents: ['plus100'],
+      asyncRuntime: false,
+      typeDefAvailable: true,
+      packageName: 'all-good',
+    }),
+    {},
+  )
 })
 
 test('generateTypeDef preserves deterministic file order', async (t) => {

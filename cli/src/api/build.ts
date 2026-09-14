@@ -109,6 +109,58 @@ const ASYNC_RUNTIME_HOST_EXPORTS = [
   'unregisterTimerHost',
 ] as const
 
+export interface AsyncRuntimeHostContractInput {
+  /** The addon's export names, as reported by the type definition pass. */
+  idents: string[]
+  /** Whether `napi.wasm.asyncRuntime` is on. */
+  asyncRuntime: boolean
+  /**
+   * Whether `idents` is real export metadata. `napi-derive` without its
+   * `type-def` feature emits no type definitions, so the ident list is empty
+   * for every such addon — including one that does export the whole host
+   * contract. An empty list is only evidence when this is `true`.
+   */
+  typeDefAvailable: boolean
+  packageName: string
+}
+
+/**
+ * Cross-check `napi.wasm.asyncRuntime` against the addon's export list.
+ *
+ * Returns the message to throw (`error`) or to log (`warning`), if any. With
+ * no type-def metadata there is nothing to check against, so the build says so
+ * and defers to the loader's own runtime detection.
+ */
+export function checkAsyncRuntimeHostContract({
+  idents,
+  asyncRuntime,
+  typeDefAvailable,
+  packageName,
+}: AsyncRuntimeHostContractInput): { error?: string; warning?: string } {
+  if (!typeDefAvailable) {
+    if (!asyncRuntime) {
+      return {}
+    }
+    return {
+      warning: `napi.wasm.asyncRuntime is enabled but ${packageName} is built without the \`type-def\` feature of \`napi-derive\`, so \`napi build\` has no export list to check the napi-async-runtime host contract against. The generated loaders still verify the contract at load time and fail with ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH if the binding does not expose it.`,
+    }
+  }
+  const missingHostExports = ASYNC_RUNTIME_HOST_EXPORTS.filter(
+    (name) => !idents.includes(name),
+  )
+  if (asyncRuntime && missingHostExports.length > 0) {
+    return {
+      error: `napi.wasm.asyncRuntime is enabled but ${packageName} does not export the napi-async-runtime host contract. Missing: ${missingHostExports.join(', ')}. Build the addon against the \`napi-async-runtime\` crate (see crates/async-runtime/README.md) or unset napi.wasm.asyncRuntime.`,
+    }
+  }
+  if (!asyncRuntime && missingHostExports.length === 0) {
+    return {
+      warning: `${packageName} exports the napi-async-runtime host contract but napi.wasm.asyncRuntime is not enabled. The generated WASI loaders will not install the CurrentThread task and timer hosts, so async exports will never make progress unless the host is installed by hand.`,
+    }
+  }
+  return {}
+}
+
 type CargoConfigFingerprint = readonly [path: string, hash: string]
 
 export function getCargoDependencyGraphFingerprint(
@@ -2344,18 +2396,17 @@ class Builder {
   ): Promise<Output[]> {
     const { exports: idents } = metadata
     const asyncRuntime = this.config.wasm?.asyncRuntime === true
-    const missingHostExports = ASYNC_RUNTIME_HOST_EXPORTS.filter(
-      (name) => !idents.includes(name),
-    )
-    if (asyncRuntime && missingHostExports.length > 0) {
-      throw new Error(
-        `napi.wasm.asyncRuntime is enabled but ${this.config.packageName} does not export the napi-async-runtime host contract. Missing: ${missingHostExports.join(', ')}. Build the addon against the \`napi-async-runtime\` crate (see crates/async-runtime/README.md) or unset napi.wasm.asyncRuntime.`,
-      )
+    const hostContract = checkAsyncRuntimeHostContract({
+      idents,
+      asyncRuntime,
+      typeDefAvailable: this.enableTypeDef,
+      packageName: this.config.packageName,
+    })
+    if (hostContract.error) {
+      throw new Error(hostContract.error)
     }
-    if (!asyncRuntime && missingHostExports.length === 0) {
-      debug.warn(
-        `${this.config.packageName} exports the napi-async-runtime host contract but napi.wasm.asyncRuntime is not enabled. The generated WASI loaders will not install the CurrentThread task and timer hosts, so async exports will never make progress unless the host is installed by hand.`,
-      )
+    if (hostContract.warning) {
+      debug.warn(hostContract.warning)
     }
     const hasThreads = wasiTargetHasThreads(wasiTarget)
     const { initialMemory, maximumMemory } = resolveWasmMemory(
