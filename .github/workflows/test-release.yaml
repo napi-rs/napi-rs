@@ -816,6 +816,93 @@ jobs:
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn workspace @examples/napi test-js -s
 
+  test-openbsd:
+    runs-on: ubuntu-latest
+    name: Test openbsd target
+    needs: audit
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      # The OpenBSD libc stubs zig needs were added in 0.16; the 0.15.2 the
+      # freebsd job pins cannot link OpenBSD targets at all.
+      - name: Install ziglang
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      # cargo-zigbuild >= 0.22.2 knows the OpenBSD triples. Older versions fail
+      # with `Error: unsupported target 'x86_64-unknown-openbsd'`.
+      - uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: rust-cross/cargo-zigbuild
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+
+      # x86_64-unknown-openbsd is a tier 3 target, so rustup has no prebuilt
+      # rust-std for it and std is built from source instead (rust-src +
+      # CARGO_UNSTABLE_BUILD_STD in the build step).
+      - name: Install
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/cargo-target
+          key: nightly-cargo-cache-build-openbsd
+
+      - name: 'Install dependencies'
+        run: |
+          yarn config set supportedArchitectures.cpu --json '["current", "x64", "arm64", "wasm32"]'
+          yarn config set supportedArchitectures.os --json '["current", "openbsd"]'
+          yarn install --mode=skip-build --immutable
+
+      - name: Build
+        env:
+          CARGO_UNSTABLE_BUILD_STD: 'std,panic_unwind'
+          # zig's lld does not define the hidden `__guard_local` symbol OpenBSD's
+          # own linker synthesizes, which the C code in `ring` references; zig
+          # also enables the stack protector by default.
+          CFLAGS_x86_64_unknown_openbsd: '-fno-stack-protector'
+          # The whole checkout is synchronized into the VM, so keep the cargo
+          # target directory (and its multiple GB of build-std artifacts) out of
+          # the tree that gets copied.
+          CARGO_BUILD_TARGET_DIR: ${{ runner.temp }}/cargo-target
+        run: |
+          yarn workspace @examples/napi build --target x86_64-unknown-openbsd -x
+          yarn tsc -p examples/napi/tsconfig.json
+          rm -rf examples/napi/__tests__
+          mv examples/napi/dist/__tests__ examples/napi/
+
+      - name: Test
+        uses: cross-platform-actions/action@v1.5.0
+        env:
+          DEBUG: 'napi:*'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          operating_system: openbsd
+          # Newest version the action ships. Zig's OpenBSD libc stubs target
+          # OpenBSD 7.8 and newer, so older images cannot load the artifacts.
+          version: '7.9'
+          memory: 12G
+          cpu_count: 3
+          environment_variables: 'DEBUG GITHUB_TOKEN'
+          shell: bash
+          run: |
+            sudo pkg_add -I node
+            node -v
+            sudo corepack enable
+            yarn --version
+            export NODE_OPTIONS="--max-old-space-size=8192"
+            yarn workspace @examples/napi test-js -s
+
   napi-async-runtime:
     runs-on: ubuntu-latest
     name: Test napi-async-runtime shared scheduler (cargo)
@@ -1183,6 +1270,7 @@ jobs:
       - build_binary_crate
       - check-all-features
       - test-freebsd
+      - test-openbsd
       - napi-async-runtime
       - test-custom-async-runtime-wasi
       - test-shared-async-runtime-wasi
