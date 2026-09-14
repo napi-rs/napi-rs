@@ -219,6 +219,11 @@ the liveness probe, and rolls back every registration it created if any step
 fails. A binding that does not actually expose the contract therefore fails at
 load with `ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH` rather than hanging later.
 
+`napi build` cross-checks the flag against the same seven names up front, but it
+reads them from the type definitions, so the check needs the `type-def` feature
+of `napi-derive`. Without it there is no export list to check against: the build
+prints a warning and leaves the verdict to the runtime detection above.
+
 The bootstrap runs after instantiation, so it runs after `#[module_init]` and
 any other Rust code that executes during module registration: the host
 registration functions are exports of the binding itself and do not exist
