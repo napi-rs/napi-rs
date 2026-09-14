@@ -6,11 +6,13 @@ export type WasiModuleInput =
 
 export interface WasiInstanceOptions {
   /**
-   * A caller-allocated linear memory for this instance. It must be unshared,
-   * and it is single-use: once a validated initialization attempt has begun,
-   * the same Memory cannot be passed again — including after that attempt
-   * failed, and after the instance was disposed. Mutually exclusive with the
-   * page options below.
+   * A caller-allocated linear memory for this instance. It must be unshared
+   * and created in this loader's own realm — the WASI and emnapi layers
+   * underneath identify a Memory with a realm-local `instanceof`, so one from
+   * a `node:vm` context or another frame is rejected. It is single-use: once
+   * a validated initialization attempt has begun, the same Memory cannot be
+   * passed again — including after that attempt failed, and after the instance
+   * was disposed. Mutually exclusive with the page options below.
    */
   memory?: WebAssembly.Memory
   /** @default WASM_MEMORY.initialPages */
@@ -30,6 +32,7 @@ export interface WasiRuntimeStats {
 
 export interface WasiInstance {
   readonly exports: WasiBinding
+  /** This instance's linear memory. Claimed, so it cannot start another one. */
   readonly memory: WebAssembly.Memory
   /** Current linear-memory size; 0 once dispose() has completed. */
   readonly memoryBytes: number

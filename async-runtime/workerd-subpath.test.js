@@ -5,8 +5,18 @@
 // loadable in an isolate that has no `node:` builtins and no `process`.
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 const require = createRequire(import.meta.url)
@@ -67,12 +77,25 @@ test('the workerd host files use no Node builtin and no process', () => {
 
 test('the package exports map points the subpath at those files', () => {
   const manifest = require('./package.json')
+  // `types` is split per condition rather than hoisted: this package is
+  // `type: module`, so the one declaration file would be an ESM declaration for
+  // a `require()` consumer too, and TypeScript rejects that with TS1479.
   assert.deepEqual(manifest.exports['./workerd'], {
-    types: './workerd.d.ts',
-    import: './workerd.js',
-    require: './workerd.cjs',
+    import: {
+      types: './workerd.d.ts',
+      default: './workerd.js',
+    },
+    require: {
+      types: './workerd.d.cts',
+      default: './workerd.cjs',
+    },
   })
-  for (const file of ['workerd.cjs', 'workerd.d.ts', 'workerd.js']) {
+  for (const file of [
+    'workerd.cjs',
+    'workerd.d.cts',
+    'workerd.d.ts',
+    'workerd.js',
+  ]) {
     assert.ok(
       manifest.files.includes(file),
       `${file} must be published with the package`,
@@ -84,4 +107,67 @@ test('the package exports map points the subpath at those files', () => {
     require.resolve('@napi-rs/async-runtime/workerd'),
     require.resolve('./workerd.cjs'),
   )
+})
+
+const TSCONFIG = {
+  compilerOptions: {
+    module: 'node16',
+    moduleResolution: 'node16',
+    target: 'ES2024',
+    strict: true,
+    noEmit: true,
+    skipLibCheck: false,
+    types: [],
+  },
+  files: ['consumer.mts', 'consumer.cts'],
+}
+
+const CONSUMER = `import {
+  registerWorkerdCurrentThreadTaskHost,
+  registerWorkerdTimerHost,
+  type AsyncRuntimeBinding,
+} from '@napi-rs/async-runtime/workerd'
+
+declare const binding: AsyncRuntimeBinding
+export const disposeTaskHost: () => void =
+  registerWorkerdCurrentThreadTaskHost(binding)
+export const disposeTimerHost: () => void = registerWorkerdTimerHost(binding)
+`
+
+// Type-checks what `npm pack` would actually publish — `package.json` plus the
+// `files` list, laid out under `node_modules` — so a declaration left out of
+// `files` fails here rather than in a consumer's install.
+test('both module flavors type-check against the published layout', () => {
+  const project = mkdtempSync(join(tmpdir(), 'napi-workerd-types-'))
+  try {
+    const packageDir = join(
+      project,
+      'node_modules',
+      '@napi-rs',
+      'async-runtime',
+    )
+    mkdirSync(packageDir, { recursive: true })
+    const manifest = require('./package.json')
+    for (const file of ['package.json', ...manifest.files]) {
+      cpSync(new URL(file, import.meta.url), join(packageDir, file))
+    }
+    writeFileSync(
+      join(project, 'package.json'),
+      JSON.stringify({ name: 'workerd-subpath-consumer', version: '0.0.0' }),
+    )
+    writeFileSync(join(project, 'tsconfig.json'), JSON.stringify(TSCONFIG))
+    // `.mts` resolves the subpath through `import`, `.cts` through `require`.
+    // Before the `require` condition had its own CommonJS declaration the
+    // second one failed with TS1479.
+    writeFileSync(join(project, 'consumer.mts'), CONSUMER)
+    writeFileSync(join(project, 'consumer.cts'), CONSUMER)
+    const result = execFileSync(
+      process.execPath,
+      [require.resolve('typescript/bin/tsc'), '--project', project],
+      { cwd: project, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    assert.equal(result.trim(), '')
+  } finally {
+    rmSync(project, { force: true, recursive: true })
+  }
 })

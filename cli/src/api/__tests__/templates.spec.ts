@@ -107,7 +107,7 @@ test('threadless loaders embed the initial memory they are given', (t) => {
   maximumPages: 65536,`),
   )
   t.true(
-    deferred.includes(`    return new WebAssembly.Memory({
+    deferred.includes(`    const __allocated = new WebAssembly.Memory({
       initial:
         __options != null && __options.initialMemoryPages !== undefined
           ? __options.initialMemoryPages
@@ -532,6 +532,37 @@ test('deferred loader claims caller memory exactly once and rejects shared memor
     code.indexOf('\n}\n', code.indexOf('function __resolveInstanceMemory(')),
   )
   t.true(resolver.includes('__claimedMemories.add(__provided)'))
+  // The loader-allocated Memory is claimed too: the handle publishes it as
+  // `instance.memory`, and two live instances on one linear memory each
+  // reinitialize the state the other is running on.
+  t.true(resolver.includes('__claimedMemories.add(__allocated)'))
+})
+
+test('deferred loader rejects a cross-realm memory before claiming it', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  const resolver = code.slice(
+    code.indexOf('function __resolveInstanceMemory('),
+    code.indexOf('\n}\n', code.indexOf('function __resolveInstanceMemory(')),
+  )
+  // The intrinsic getters accept a genuine Memory from any realm, but
+  // `WASI.setMemory` and emnapi identify one with a realm-local `instanceof`.
+  t.true(resolver.includes('if (!(__provided instanceof WebAssembly.Memory))'))
+  t.true(
+    resolver.includes(
+      'memory must be a WebAssembly.Memory created in the same realm as this loader',
+    ),
+  )
+  // Every rejection must precede the claim, or a corrected retry would be
+  // refused as a reuse of a Memory that never ran anything.
+  t.true(
+    resolver.indexOf('__provided instanceof WebAssembly.Memory') <
+      resolver.indexOf('__claimedMemories.add(__provided)'),
+  )
+  t.true(
+    resolver.indexOf(
+      'Pass either memory or initialMemoryPages/maximumMemoryPages, not both',
+    ) < resolver.indexOf('__claimedMemories.add(__provided)'),
+  )
 })
 
 test('deferred instance handle reports its memory and retires exactly once', (t) => {

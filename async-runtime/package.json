@@ -32,6 +32,7 @@
     "workerd-task-host.cjs",
     "workerd-timer-host.cjs",
     "workerd.cjs",
+    "workerd.d.cts",
     "workerd.d.ts",
     "workerd.js"
   ],
@@ -49,9 +50,14 @@
       "require": "./index.cjs"
     },
     "./workerd": {
-      "types": "./workerd.d.ts",
-      "import": "./workerd.js",
-      "require": "./workerd.cjs"
+      "import": {
+        "types": "./workerd.d.ts",
+        "default": "./workerd.js"
+      },
+      "require": {
+        "types": "./workerd.d.cts",
+        "default": "./workerd.cjs"
+      }
     },
     "./package.json": "./package.json"
   }

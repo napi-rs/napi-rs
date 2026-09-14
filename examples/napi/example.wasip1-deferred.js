@@ -55,7 +55,7 @@ function __resolveInstanceMemory(__options) {
     // Page counts are handed to the engine unvalidated: it already rejects a
     // negative, over-4GiB or below-maximum value with a precise message, and a
     // second set of bounds here would only drift from it.
-    return new WebAssembly.Memory({
+    const __allocated = new WebAssembly.Memory({
       initial:
         __options != null && __options.initialMemoryPages !== undefined
           ? __options.initialMemoryPages
@@ -65,6 +65,13 @@ function __resolveInstanceMemory(__options) {
           ? __options.maximumMemoryPages
           : WASM_MEMORY.maximumPages,
     })
+    // Claimed like a caller-provided one. The handle publishes it as
+    // `instance.memory`, so handing it back to `createInstance()` is as easy
+    // as passing your own twice, and it would put two live instances on one
+    // linear memory: each initialization rewrites the emnapi/WASI state the
+    // other is still running on.
+    __claimedMemories.add(__allocated)
+    return __allocated
   }
   if (
     __options.initialMemoryPages !== undefined ||
@@ -92,11 +99,25 @@ function __resolveInstanceMemory(__options) {
       'The deferred loader requires an unshared WebAssembly.Memory',
     )
   }
+  // The intrinsic getters above accept a genuine Memory from ANY realm, but
+  // the loader's dependencies do not: `WASI.setMemory` in
+  // `@napi-rs/wasm-runtime` and emnapi identify a Memory with a realm-local
+  // `instanceof`. A Memory built in another realm (a `node:vm` context, a
+  // same-origin iframe) would pass every check here and only fail deep inside
+  // initialization. Reject it up front, and before the claim below, so the
+  // caller keeps it usable in the realm that made it.
+  if (!(__provided instanceof WebAssembly.Memory)) {
+    throw new TypeError(
+      'memory must be a WebAssembly.Memory created in the same realm as this loader',
+    )
+  }
   if (__claimedMemories.has(__provided)) {
     throw new TypeError(
       'This WebAssembly.Memory has already been used for a deferred initialization attempt and cannot be reused, including after a failed initialization or a disposal',
     )
   }
+  // Last step, after every check: a rejected option bag must leave the Memory
+  // unclaimed, or a caller could not fix the call and retry with it.
   __claimedMemories.add(__provided)
   return __provided
 }
@@ -1008,6 +1029,12 @@ async function __createInstance(
  * `memory` (an unshared, single-use WebAssembly.Memory you allocated) or
  * `initialMemoryPages` / `maximumMemoryPages`, never both. Omitted, the
  * loader allocates WASM_MEMORY.initialPages..WASM_MEMORY.maximumPages.
+ *
+ * A provided Memory must come from this loader's own realm: the WASI and
+ * emnapi layers underneath identify one with a realm-local `instanceof`, so a
+ * Memory built in a `node:vm` context or another frame is rejected. Every
+ * Memory an instance runs on is single-use, the loader-allocated one included:
+ * `instance.memory` cannot be recycled into a second `createInstance()`.
  */
 export async function createInstance(__wasmInput, __options) {
   return __createInstance(__wasmInput, __options)

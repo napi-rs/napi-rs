@@ -139,13 +139,24 @@ const instance = await createInstance(wasmModule, { memory })
 `new WebAssembly.Memory`, so the engine's own bounds and messages apply. A
 caller-provided `WebAssembly.Memory` must be unshared — this loader has no
 threads, and shared growth does not detach, so external views handed to the
-addon would silently outlive the bytes they describe — and it is **single-use**:
-once a validated initialization attempt begins, passing the same Memory again
-throws, including after that attempt fails and after the instance is disposed. A
-failed initialization may already have written into linear memory, so those
-bytes are not a clean slate. The claim is tracked per evaluated loader module;
-two independently bundled copies of the loader in one isolate do not see each
-other's claims.
+addon would silently outlive the bytes they describe — and it must come from the
+**loader's own realm**. The layers underneath it (`WASI.setMemory` in
+`@napi-rs/wasm-runtime`, and emnapi) identify a Memory with a realm-local
+`instanceof`, so a genuine Memory built in a `node:vm` context or another frame
+is rejected up front with a `TypeError` rather than failing somewhere inside
+initialization.
+
+Every Memory an instance runs on is **single-use**, the one the loader allocates
+for you included: once a validated initialization attempt begins, passing the
+same Memory again throws, including after that attempt fails, after the instance
+is disposed, and when it is the `memory` a previous handle published. A failed
+initialization may already have written into linear memory, so those bytes are
+not a clean slate, and two live instances on one Memory would each overwrite the
+emnapi and WASI state the other is still running on. A rejected option bag — a
+foreign Memory, a shared one, `memory` together with the page options — claims
+nothing, so the same Memory is still usable once the call is corrected. The
+claim is tracked per evaluated loader module; two independently bundled copies
+of the loader in one isolate do not see each other's claims.
 
 `WASM_MEMORY` exports the descriptor compiled into the loader — `initialPages`,
 `maximumPages`, `pageBytes`, `initialBytes`, `maximumBytes` — so a caller can

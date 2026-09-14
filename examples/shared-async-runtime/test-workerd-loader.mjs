@@ -11,6 +11,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import vm from 'node:vm'
 
 const loaderUrl = new URL(
   './shared_async_runtime.wasip1-deferred.js',
@@ -167,6 +168,84 @@ test('claims a caller-provided memory exactly once', async () => {
     loader.createInstance(wasmModule, { memory }),
     /already been used/,
   )
+})
+
+test('claims the memory it allocates itself, not just a provided one', async () => {
+  const first = await loader.createInstance(wasmModule)
+  try {
+    // `instance.memory` is published on the handle, so recycling it into a
+    // second instance is the easiest way to put two live instances on one
+    // linear memory — each one reinitializes the emnapi/WASI state the other
+    // is still running on.
+    await assert.rejects(
+      loader.createInstance(wasmModule, { memory: first.memory }),
+      /already been used/,
+    )
+    assert.equal(first.disposed, false)
+    assert.equal(
+      await first.exports.plus100(1),
+      101,
+      'the refused reuse must not disturb the live instance',
+    )
+  } finally {
+    await first.dispose()
+  }
+  assert.equal(first.disposed, true)
+  // Disposal does not release the claim here either.
+  await assert.rejects(
+    loader.createInstance(wasmModule, { memory: first.memory }),
+    /already been used/,
+  )
+})
+
+test('rejects a memory from another realm without claiming it', async () => {
+  const foreign = vm.runInNewContext(
+    `new WebAssembly.Memory({ initial: ${loader.WASM_MEMORY.initialPages}, maximum: ${loader.WASM_MEMORY.maximumPages} })`,
+  )
+  // A genuine Memory, so the intrinsic brand checks pass; it simply belongs to
+  // another realm, and `WASI.setMemory` and emnapi test for one with a
+  // realm-local `instanceof`.
+  assert.equal(
+    Reflect.apply(
+      Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, 'buffer')
+        .get,
+      foreign,
+      [],
+    ).byteLength,
+    loader.WASM_MEMORY.initialBytes,
+  )
+  assert.equal(foreign instanceof WebAssembly.Memory, false)
+  await assert.rejects(
+    loader.createInstance(wasmModule, { memory: foreign }),
+    /same realm/,
+  )
+  // The rejection happens before the claim, so the caller still owns it: a
+  // second attempt reports the realm again, not "already been used".
+  await assert.rejects(
+    loader.createInstance(wasmModule, { memory: foreign }),
+    /same realm/,
+  )
+})
+
+test('a rejected option bag leaves the memory unclaimed', async () => {
+  const memory = new WebAssembly.Memory({
+    initial: loader.WASM_MEMORY.initialPages,
+    maximum: loader.WASM_MEMORY.maximumPages,
+  })
+  await assert.rejects(
+    loader.createInstance(wasmModule, {
+      memory,
+      initialMemoryPages: loader.WASM_MEMORY.initialPages,
+    }),
+    /not both/,
+  )
+  const instance = await loader.createInstance(wasmModule, { memory })
+  try {
+    assert.equal(instance.memory, memory)
+    assert.equal(await instance.exports.plus100(1), 101)
+  } finally {
+    await instance.dispose()
+  }
 })
 
 test('rejects memory that is not an unshared WebAssembly.Memory', async () => {
