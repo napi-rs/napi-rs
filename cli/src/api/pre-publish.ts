@@ -114,8 +114,8 @@ const wasiRuntimeDependencies = [
   '@emnapi/core',
   '@emnapi/runtime',
   // Only the loaders generated for an addon with `napi.wasm.asyncRuntime` set
-  // import it, and only through the `/workerd` subpath, which
-  // `releasePackageRuntimeImports` matches by prefix.
+  // import it. `releasePackageRuntimeImports` matches by prefix, so the package
+  // root and any subpath (`@napi-rs/async-runtime/workerd`) both count.
   '@napi-rs/async-runtime',
   'buffer',
 ]
@@ -2622,7 +2622,7 @@ export async function commitPrePublishFileSystemTransaction({
   await commitFileSystemTransaction(transactionRoot, writes, removals)
 }
 
-async function validateReleasePackageContents({
+export async function validateReleasePackageContents({
   pkgDir,
   rootDir,
   packageName,

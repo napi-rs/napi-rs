@@ -269,6 +269,11 @@ With the flag on:
   `@napi-rs/async-runtime` as a dependency. Add it to your own
   `devDependencies` so local `napi build` output can load.
 
+`napi pre-publish` requires that dependency in every WASI package whose loaders
+import it, so a project that turned the flag on after scaffolding must rerun
+`napi create-npm-dirs` — the root `devDependencies` entry hides a stale
+manifest locally, but consumers of the published package would fail at load.
+
 Detection is done at runtime against the instantiated module:
 `@napi-rs/async-runtime` reads the seven host exports off the binding, checks
 the task-host contract version (`4`), validates the reservation identity and
