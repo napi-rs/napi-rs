@@ -143,6 +143,14 @@ installs) can run while it is still in flight. A `destroy()` called from such a
 hook is a no-op — the frame that started the barrier destroys as soon as it
 returns, and `Context.destroy()` returns `void`, so nothing observable is lost.
 
+`dispose()` is the one frame that does not destroy the moment the barrier
+returns: it yields for the settlement drain first. So a `dispose()` called from
+such a hook joins the disposal already running instead of starting a second
+one — every loader publishes its disposal promise before the barrier runs. A
+second frame would otherwise reach the context destroyer while the first is
+still parked in its drain, and the no-op above would be recorded there as a
+completed destroy, leaving the context retained with its cleanup hooks unrun.
+
 The eager CommonJS WASI loader keeps its emnapi context alive for the process
 lifetime. Node.js can emit `beforeExit` repeatedly when a listener schedules
 more work, and cached eager exports must remain usable after every such cycle.

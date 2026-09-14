@@ -1522,6 +1522,17 @@ ${managedHostDisposeParam}) {
       // Context.destroy() disables JS before cleanup hooks run, so settle
       // runtime-owned promises while this environment can still call JS.
       __prepareEnvCleanup?.()
+      if (__isPreparingEnvCleanup?.()) {
+        // Reached from inside the barrier, so \`Context.destroy()\` below would
+        // hit the wrapper's in-flight no-op. Recording that as a completed
+        // destroy is what makes the frame that *did* start the barrier skip the
+        // real one afterwards, leaving the context retained with its cleanup
+        // hooks unrun. Refuse instead: nothing is flagged, the context stays
+        // registered for managed beforeExit cleanup, and a later destroy still
+        // works. dispose() coalesces reentrancy before it can get here, so this
+        // is the backstop for any other caller that manages to.
+        throw __createLifecycleReentryError('dispose')
+      }
 ${managedHostDisposeCall}\
       __result = __emnapiContext.destroy()
     } catch (error) {
@@ -1718,6 +1729,55 @@ ${instanceHostState}\
     __wasmEnvCleanupDrainPromise = __tracked
     return __tracked
   }
+  const __runInstanceDisposal = async () => {
+    if (__lifecycleState !== 'failed') {
+      __lifecycleState = 'disposal'
+    }
+    // Settle what the barrier cancelled before the environment stops
+    // accepting JavaScript calls. Undefined unless something is queued, so
+    // an idle disposal is not delayed by a single turn.
+    const __drained = __prepareForDisposal()
+    if (__drained) {
+      await __drained
+    }
+    return __beforeExitDestroy
+      ? __destroyManagedOwnedContext()
+      : __destroyOwnedContext()
+  }
+  let __instanceDisposePromise
+  /**
+   * The disposal frame runs the barrier, and the barrier settles the promises it
+   * cancels synchronously — so a promise hook firing inside it can call this
+   * same instance's dispose() again while the first call is still in its drain.
+   * That nested call finds the barrier flagged in flight, prepares nothing,
+   * drains nothing, and falls straight through to the context destroyer, whose
+   * \`Context.destroy()\` hits the wrapper's in-flight no-op. It would record a
+   * destruction that never happened, and the outer frame would then skip the
+   * real one: both disposals resolve, no cleanup hook runs, the context stays
+   * retained.
+   *
+   * Memoize before any of that starts, exactly like the eager loaders'
+   * \`__disposeWasiBinding\`, so there is only ever one disposal frame per
+   * instance and a reentrant caller awaits it instead of racing it. Cleared on
+   * rejection: a drain that failed has to stay retryable.
+   */
+  const __disposeInstance = () => {
+    if (__instanceDisposePromise) {
+      return __instanceDisposePromise
+    }
+    let __resolveDispose
+    let __rejectDispose
+    const __disposePromise = new Promise((__resolve, __reject) => {
+      __resolveDispose = __resolve
+      __rejectDispose = __reject
+    })
+    __instanceDisposePromise = __disposePromise
+    __runInstanceDisposal().then(__resolveDispose, (__error) => {
+      __instanceDisposePromise = undefined
+      __rejectDispose(__error)
+    })
+    return __disposePromise
+  }
   const __destroyBeforeExit = __beforeExitDestroy
     ? async () => {
         if (__lifecycleState === 'failed') {
@@ -1789,21 +1849,7 @@ ${installInstanceHosts}\
     }
     return {
       exports: __napiModule.exports,
-      async dispose() {
-        if (__lifecycleState !== 'failed') {
-          __lifecycleState = 'disposal'
-        }
-        // Settle what the barrier cancelled before the environment stops
-        // accepting JavaScript calls. Undefined unless something is queued, so
-        // an idle disposal is not delayed by a single turn.
-        const __drained = __prepareForDisposal()
-        if (__drained) {
-          await __drained
-        }
-        return __beforeExitDestroy
-          ? __destroyManagedOwnedContext()
-          : __destroyOwnedContext()
-      },
+      dispose: __disposeInstance,
     }
   } catch (error) {
     __lifecycleState = 'failed'

@@ -655,6 +655,99 @@ for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
   })
 }
 
+// The nested-destroy no-op above is only safe because the frame that started
+// the barrier destroys as soon as the barrier returns. The deferred loader's
+// instance `dispose()` is the one frame that does not: it runs the barrier and
+// then yields for the settlement drain. So a promise hook firing inside that
+// barrier can call the same instance's `dispose()` again, reach the context
+// destroyer while the outer frame is still parked in its drain, and have the
+// wrapper's no-op recorded as a completed destroy — after which the outer frame
+// skips the real one and the context is retained with its cleanup hooks unrun.
+// dispose() has to coalesce, the way the eager loaders' `__disposeWasiBinding`
+// does, and the memo has to be in place *before* the barrier runs.
+test('deferred WASI loader coalesces a reentrant instance dispose()', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  assertValidJS(t, code, 'deferred/workerd')
+  t.is(
+    code.split('let __instanceDisposePromise').length - 1,
+    1,
+    'the instance must carry exactly one disposal memo',
+  )
+  const disposeStart = code.indexOf('const __disposeInstance = () => {')
+  t.true(disposeStart > 0, 'dispose() must go through a coalescing wrapper')
+  const disposeWrapper = code.slice(
+    disposeStart,
+    code.indexOf('\n  }\n', disposeStart),
+  )
+  t.true(
+    disposeWrapper.includes(`    if (__instanceDisposePromise) {
+      return __instanceDisposePromise
+    }`),
+    'a reentrant dispose() must join the disposal already running',
+  )
+  // The memo has to be published before the disposal body — and therefore
+  // before the barrier — runs, or a hook that fires inside the barrier still
+  // finds it unset and starts a second frame.
+  t.true(
+    disposeWrapper.indexOf('__instanceDisposePromise = __disposePromise') <
+      disposeWrapper.indexOf('__runInstanceDisposal()'),
+    'the memo must be published before the disposal body runs',
+  )
+  // Still retryable: the drain can reject on its own (a host `setImmediate`
+  // that throws), and dispose() has to be callable again after that.
+  t.true(
+    disposeWrapper.includes(`      __instanceDisposePromise = undefined
+      __rejectDispose(__error)`),
+    'a failed disposal must clear the memo so dispose() stays retryable',
+  )
+  // No second entry point into the disposal body: the instance exposes the
+  // coalescing wrapper itself, not an inline method that re-runs it.
+  t.true(
+    code.includes(`      exports: __napiModule.exports,
+      dispose: __disposeInstance,`),
+    'the instance must expose the coalescing wrapper as its dispose()',
+  )
+  t.is(
+    code.split('__prepareForDisposal()').length - 1,
+    2,
+    'only the disposal body and the initialization rollback may prepare for disposal',
+  )
+})
+
+// Belt and braces for any caller that still reaches the managed destroyer from
+// inside the barrier: a `Context.destroy()` the wrapper skipped must never be
+// recorded as a completed destroy, or every later destroy — the outer disposal
+// frame's and managed beforeExit cleanup's alike — is skipped with it.
+test('deferred WASI loader never records a skipped destroy as completed', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  const destroyStart = code.indexOf('const __destroy = (')
+  t.true(destroyStart > 0, 'deferred loader must define a managed destroyer')
+  const destroyer = code.slice(
+    destroyStart,
+    code.indexOf('\n  const __destroyForModuleLifecycle', destroyStart),
+  )
+  t.true(
+    destroyer.includes(`      if (__isPreparingEnvCleanup?.()) {`),
+    'the managed destroyer must detect that the barrier is in flight',
+  )
+  const guardIndex = destroyer.indexOf('if (__isPreparingEnvCleanup?.()) {')
+  const destroyIndex = destroyer.indexOf('__result = __emnapiContext.destroy()')
+  t.true(
+    guardIndex < destroyIndex,
+    'the in-flight check must come before the destroy it would skip',
+  )
+  t.true(
+    destroyer
+      .slice(guardIndex, destroyIndex)
+      .includes(`throw __createLifecycleReentryError('dispose')`),
+    'a destroy the wrapper would skip must fail loudly instead of flagging the context disposed',
+  )
+  t.true(
+    destroyIndex < destroyer.indexOf('__disposed = true'),
+    'nothing may be flagged disposed before the real destroy is attempted',
+  )
+})
+
 test('createCjsBinding uses one statement dialect', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
     'wasm32-wasi',

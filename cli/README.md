@@ -66,7 +66,9 @@ emnapi's own `beforeExit` auto-destroy gets the barrier too, instead of silently
 discarding the settlements. Prefer the dispose symbol when you can yield — only
 `dispose()` waits for settlements queued from another thread. A `destroy()` that
 re-enters from a promise hook while the barrier is still running is a no-op,
-because the frame that started the barrier destroys the moment it returns.
+because the frame that started the barrier destroys the moment it returns; a
+`dispose()` that re-enters the same way joins the disposal already running,
+since its frame yields for the settlement drain before it destroys.
 
 Concurrent calls share one promise, successful disposal is idempotent, and a
 failed cleanup phase can be retried by calling the same function again. Do not
