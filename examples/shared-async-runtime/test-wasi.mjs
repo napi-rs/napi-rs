@@ -111,11 +111,34 @@ test('configureAsyncRuntime validates and reports before first use', () => {
   assert.equal(config.workerThreads, 1)
 })
 
-let disposeHosts
+test('the generated loader bootstraps the CurrentThread hosts', () => {
+  // `napi.wasm.asyncRuntime` is set in this example's `napi` config, so the
+  // loader owns the registrations: the tests below never install a host.
+  assert.match(loaderSource, /require\('@napi-rs\/async-runtime'\)/)
+  assert.match(
+    loaderSource,
+    /__installCurrentThreadHosts\(\s*__napiModule\.exports,?\s*\)/,
+  )
+  assert.match(loaderSource, /function __disposeCurrentThreadHosts\(\) \{/)
+  // Host teardown runs before the context is destroyed, while the environment
+  // can still accept N-API calls.
+  const destroyBody = loaderSource.slice(
+    loaderSource.indexOf('function __destroyEmnapiContext() {'),
+  )
+  assert.ok(
+    destroyBody.indexOf('__disposeCurrentThreadHosts()') <
+      destroyBody.indexOf('__emnapiContext.destroy()'),
+  )
+})
 
-test('installCurrentThreadHosts installs against the real binding', () => {
-  disposeHosts = installCurrentThreadHosts(binding)
-  assert.equal(typeof disposeHosts, 'function')
+test('a second install against the same binding deduplicates', () => {
+  // The loader already installed; the realm-global registry
+  // (Symbol.for('@napi-rs/async-runtime/current-thread-hosts/v4')) makes this
+  // a no-op that must NOT tear the loader's live hosts down.
+  const dispose = installCurrentThreadHosts(binding)
+  assert.equal(typeof dispose, 'function')
+  dispose()
+  dispose()
 })
 
 test('async exports resolve through the CurrentThread task host', async () => {
@@ -268,12 +291,7 @@ test('metrics observe the exercised runtime and reset cleanly', () => {
   assert.equal(reset.maxActiveRunnables, metrics.maxActiveRunnables)
 })
 
-test('the disposer tears down and a reinstall recovers', async () => {
+test('the loader-owned hosts stay live after a deduplicated disposer runs', async () => {
   assert.equal(await binding.plus100(0), 100)
-  disposeHosts()
-  // Idempotent.
-  disposeHosts()
-  const reinstall = installCurrentThreadHosts(binding)
-  assert.equal(typeof reinstall, 'function')
   assert.equal(await binding.plus100(1), 101)
 })
