@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { join as posixJoin, sep as posixSep } from 'node:path/posix'
 import { sep as win32Sep } from 'node:path/win32'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import ava, { type ExecutionContext, type TestFn } from 'ava'
 
@@ -449,6 +449,67 @@ test('a frozen addon loads without the binding target stamp', async (t) => {
   )
   t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
   t.deepEqual(JSON.parse(result.stdout), { sum: 3, target: null })
+})
+
+// Node's CJS -> ESM named export detection is `cjs-module-lexer`, a static
+// scanner: it reports `__napiBindingTarget` only when it can see
+// `module.exports.__napiBindingTarget =` in the source. A bare guard call is
+// invisible to it, and the import then fails to link at all.
+const importBindingTargetInChild = (rootPath: string) =>
+  spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import { __napiBindingTarget } from ${JSON.stringify(
+        pathToFileURL(rootPath).href,
+      )}
+console.log(JSON.stringify(__napiBindingTarget))`,
+    ],
+    { encoding: 'utf8' },
+  )
+
+test('the CommonJS loader exposes __napiBindingTarget as an ESM named export', async (t) => {
+  const { projectDir } = t.context
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = { sum: (a, b) => a + b }\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = importBindingTargetInChild(join(projectDir, 'index.js'))
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.is(result.stdout.trim(), '"native"')
+})
+
+test('a frozen addon keeps __napiBindingTarget importable, just undefined', async (t) => {
+  const { projectDir } = t.context
+  // The lexer is static, so the name links either way; the runtime skip is what
+  // leaves it undefined. A named import that throws `SyntaxError` at link time
+  // would be a much louder break than a missing value.
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = Object.freeze({ sum: (a, b) => a + b })\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = importBindingTargetInChild(join(projectDir, 'index.js'))
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.is(result.stdout.trim(), 'undefined')
 })
 
 const bindingTargetDeclarationOf = (source: string) =>

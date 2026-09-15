@@ -897,6 +897,17 @@ const STAMP_HELPER_DECL =
   'function __napiStampBindingTarget(exportsObject, target) {'
 const WASI_STAMP_CALL =
   '__napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)'
+// The CJS loaders assign the guard's return value instead of calling it as a
+// statement: `cjs-module-lexer` only reports `__napiBindingTarget` as a named
+// export when it can see `module.exports.<name> =`, and Node's CJS->ESM named
+// export detection is that lexer.
+const ROOT_CJS_STAMP_CALL =
+  'module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)'
+// nothing may write the marker onto a user-controlled exports object without
+// going through the guard, so an assignment is only legal when the guard call
+// is its right-hand side
+const UNGUARDED_MODULE_EXPORTS_STAMP =
+  /module\.exports\.__napiBindingTarget = (?!__napiStampBindingTarget\()/
 
 test('browser and deferred loaders carry the flavor on the binding they hand out', (t) => {
   // `export default __napiModule.exports` and `instantiate()` hand out the raw
@@ -923,13 +934,12 @@ test('every mutating loader stamps the binding target through the guard', (t) =>
     {
       name: 'root cjs',
       code: createCjsBinding('test', '@scope/test', ['sum'], '1.0.0'),
-      call: '__napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)',
+      call: ROOT_CJS_STAMP_CALL,
     },
     {
-      // the call itself is appended by `writeWasiBindingForTarget` (build.ts),
-      // beside its `module.exports = __napiModule.exports`
       name: 'wasi node cjs',
       code: createWasiBinding('test', '@scope/test'),
+      call: WASI_STAMP_CALL,
     },
     {
       name: 'wasi browser esm',
@@ -959,7 +969,7 @@ test('every mutating loader stamps the binding target through the guard', (t) =>
     // an addon's exports object is user-controlled: nothing may write the
     // marker onto it without going through the guard
     t.false(
-      code.includes('module.exports.__napiBindingTarget ='),
+      UNGUARDED_MODULE_EXPORTS_STAMP.test(code),
       `${name} must not assign the marker onto module.exports directly`,
     )
     t.false(
@@ -967,6 +977,26 @@ test('every mutating loader stamps the binding target through the guard', (t) =>
       `${name} must not assign the marker onto the emnapi exports directly`,
     )
   }
+})
+
+test('the node WASI loader stamps inside the rollback boundary', (t) => {
+  // A conflicting `#[napi(module_exports)]` export makes the guard throw. From
+  // outside the initialization `try` that throw escapes with the emnapi context
+  // built and the process 'exit' listener installed, so a failed `require()`
+  // leaks an initialized WASI environment nothing can reach any more.
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'wasi node cjs rollback boundary')
+  const initializationCatch = '\n} catch (error) {'
+  t.is(
+    code.split(initializationCatch).length - 1,
+    1,
+    'the top-level initialization catch must be unambiguous',
+  )
+  const stamp = code.indexOf(WASI_STAMP_CALL)
+  t.true(stamp > code.indexOf('__publishWasiDispose(__napiModule.exports)'))
+  t.true(stamp < code.indexOf(initializationCatch))
+  // and the rollback the catch runs is the one that tears the environment down
+  t.true(code.includes('__runWasiInitializationRollback(rollback)'))
 })
 
 test('the deferred loader marks the binding without requiring an extensible exports object', (t) => {

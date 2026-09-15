@@ -55,20 +55,32 @@ export function assertBindingTargetIdentFree(idents: string[]): void {
  *
  * Four outcomes, in order:
  *
- * | exports object state            | result                              |
- * | ------------------------------- | ----------------------------------- |
- * | own property, same value        | no-op                               |
+ * | exports object state            | result                                    |
+ * | ------------------------------- | ----------------------------------------- |
+ * | own property, same value        | no-op, returns `target`                   |
  * | own property, different value   | throw, `ERR_NAPI_BINDING_TARGET_CONFLICT` |
- * | non-extensible, no own property | skip                                |
- * | otherwise                       | stamp                               |
+ * | non-extensible, no own property | skip, returns `target`                    |
+ * | otherwise                       | stamp, returns `target`                   |
+ *
+ * Every branch that does not throw returns `target`, because the CommonJS emit
+ * sites assign the return value —
+ * `module.exports.__napiBindingTarget = __napiStampBindingTarget(...)` — rather
+ * than calling it as a statement. Node's CJS -> ESM named export detection is
+ * `cjs-module-lexer`, a static scanner: it reports `__napiBindingTarget` as a
+ * named export only when it can see a `module.exports.<name> =` assignment, and
+ * a bare call is invisible to it, so `import { __napiBindingTarget }` from a
+ * generated CJS loader stops linking entirely.
+ *
+ * That assignment is safe because every generated CJS loader is sloppy mode: on
+ * a frozen exports object without the property the guard skips, and the
+ * assignment of its return value is a silent no-op rather than a `TypeError`.
+ * (`Object.defineProperty` is not an alternative shape for the lexer either: it
+ * throws on a sealed or frozen object, so it is strictly harder to satisfy.)
  *
  * The equal-value short circuit is required, not cosmetic: the root CJS loader
  * aliases the object it loaded, so a `NAPI_RS_NATIVE_LIBRARY_PATH` override
  * that is itself a generated WASI loader — and every WASI fallback candidate —
  * hands back an object already carrying the value about to be stamped.
- *
- * `Object.defineProperty` is not a workaround for the non-extensible case: it
- * throws there too, so it is strictly harder to satisfy than an assignment.
  *
  * Node 12 compatible (no optional chaining, no nullish coalescing) and valid in
  * both sloppy CJS and strict ESM, because all four loaders emit it verbatim.
@@ -81,7 +93,7 @@ export const BINDING_TARGET_STAMP_HELPER = `function ${NAPI_BINDING_TARGET_STAMP
       // Already ours: the root entry aliases the object it loaded, so a WASI
       // fallback candidate — or a \`NAPI_RS_NATIVE_LIBRARY_PATH\` override that
       // is a generated loader — arrives already stamped with this same value.
-      return
+      return target
     }
     const error = new Error(
       '\`${NAPI_BINDING_TARGET_EXPORT}\` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
@@ -94,7 +106,11 @@ export const BINDING_TARGET_STAMP_HELPER = `function ${NAPI_BINDING_TARGET_STAMP
     // (\`Object::seal\` / \`Object::freeze\`). Reporting the artifact is metadata,
     // never a reason to fail an otherwise successful load; the loader's own
     // \`${NAPI_BINDING_TARGET_EXPORT}\` module export still reports it.
-    return
+    return target
   }
   exportsObject.${NAPI_BINDING_TARGET_EXPORT} = target
+  // The CommonJS loaders assign this return value so \`cjs-module-lexer\` — and
+  // therefore Node's CJS -> ESM named export detection — can see
+  // \`${NAPI_BINDING_TARGET_EXPORT}\` statically.
+  return target
 }`

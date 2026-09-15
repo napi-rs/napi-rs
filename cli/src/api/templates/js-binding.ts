@@ -145,7 +145,12 @@ ${createCommonBinding(
 )}
 ${BINDING_TARGET_STAMP_HELPER}
 module.exports = nativeBinding
-${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiLoadedBindingTarget)
+// Assigning the guard's return value, rather than calling it as a statement,
+// is what keeps the marker a statically visible CommonJS export:
+// \`cjs-module-lexer\` is Node's CJS -> ESM named export detection, and it
+// cannot see a bare call. On a frozen binding the guard skips and this
+// sloppy-mode assignment is a silent no-op.
+module.exports.${NAPI_BINDING_TARGET_EXPORT} = ${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiLoadedBindingTarget)
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}

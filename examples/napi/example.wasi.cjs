@@ -11,7 +11,7 @@ function __napiStampBindingTarget(exportsObject, target) {
       // Already ours: the root entry aliases the object it loaded, so a WASI
       // fallback candidate — or a `NAPI_RS_NATIVE_LIBRARY_PATH` override that
       // is a generated loader — arrives already stamped with this same value.
-      return
+      return target
     }
     const error = new Error(
       '`__napiBindingTarget` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
@@ -24,9 +24,13 @@ function __napiStampBindingTarget(exportsObject, target) {
     // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
     // never a reason to fail an otherwise successful load; the loader's own
     // `__napiBindingTarget` module export still reports it.
-    return
+    return target
   }
   exportsObject.__napiBindingTarget = target
+  // The CommonJS loaders assign this return value so `cjs-module-lexer` — and
+  // therefore Node's CJS -> ESM named export detection — can see
+  // `__napiBindingTarget` statically.
+  return target
 }
 
 const __nodeFs = require('node:fs')
@@ -988,6 +992,12 @@ try {
     },
   }))
   __publishWasiDispose(__napiModule.exports)
+  // The CommonJS tail below aliases this object; a named module export does not
+  // travel with it, so carry the marker on the binding itself too. It has to
+  // happen inside this `try`: a `#[napi(module_exports)]` hook that claimed the
+  // name makes the guard throw, and only the catch below tears the environment
+  // — context, workers, exit listener — back down.
+  __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
   __registerWasiExitListener()
 } catch (error) {
   const rollback = {
@@ -1001,7 +1011,7 @@ try {
   throw rollback.error
 }
 module.exports = __napiModule.exports
-__napiStampBindingTarget(module.exports, __napiBindingTarget)
+module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiBindingTarget)
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither

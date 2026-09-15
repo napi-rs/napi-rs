@@ -87,11 +87,21 @@ An addon that seals or freezes its exports in a `#[napi(module_exports)]` hook
 keeps only the module-level export: the loader skips the stamp on the binding
 object rather than failing the load.
 
+The CommonJS loaders assign the stamp helper's return value
+(`module.exports.__napiBindingTarget = __napiStampBindingTarget(...)`) rather
+than calling it as a statement, so `cjs-module-lexer` — Node's CommonJS-to-ESM
+named export detection — keeps seeing the name and
+`import { __napiBindingTarget } from '<package>'` goes on working. On a frozen
+binding the import still links; the value is `undefined`, matching the skipped
+stamp.
+
 The name is reserved. `napi build` rejects an export of that name it can see in
 the type-def metadata; a name attached dynamically from a
 `#[napi(module_exports)]` hook is invisible at build time, so the loader rejects
 it at load with `ERR_NAPI_BINDING_TARGET_CONFLICT` instead of silently
-overwriting it.
+overwriting it. In a WASI loader that rejection happens inside the
+initialization boundary, so the conflict rolls the environment back — no
+emnapi context and no `'exit'` listener survive the failed `require()`.
 
 Use it to branch on capabilities a native addon has and a WASI build does not
 (worker threads, blocking calls, host timers) without probing:

@@ -2615,6 +2615,12 @@ ${workerOption}\
     },
   }))
   __publishWasiDispose(__napiModule.exports)
+  // The CommonJS tail below aliases this object; a named module export does not
+  // travel with it, so carry the marker on the binding itself too. It has to
+  // happen inside this \`try\`: a \`#[napi(module_exports)]\` hook that claimed the
+  // name makes the guard throw, and only the catch below tears the environment
+  // — context, workers, exit listener — back down.
+  ${NAPI_BINDING_TARGET_STAMP_FN}(__napiModule.exports, __napiBindingTarget)
 ${installAsyncRuntimeHosts}\
   __registerWasiExitListener()
 } catch (error) {

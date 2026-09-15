@@ -15,7 +15,7 @@ function __napiStampBindingTarget(exportsObject, target) {
       // Already ours: the root entry aliases the object it loaded, so a WASI
       // fallback candidate — or a `NAPI_RS_NATIVE_LIBRARY_PATH` override that
       // is a generated loader — arrives already stamped with this same value.
-      return
+      return target
     }
     const error = new Error(
       '`__napiBindingTarget` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
@@ -28,9 +28,13 @@ function __napiStampBindingTarget(exportsObject, target) {
     // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
     // never a reason to fail an otherwise successful load; the loader's own
     // `__napiBindingTarget` module export still reports it.
-    return
+    return target
   }
   exportsObject.__napiBindingTarget = target
+  // The CommonJS loaders assign this return value so `cjs-module-lexer` — and
+  // therefore Node's CJS -> ESM named export detection — can see
+  // `__napiBindingTarget` statically.
+  return target
 }
 
 /**

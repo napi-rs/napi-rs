@@ -769,7 +769,7 @@ function __napiStampBindingTarget(exportsObject, target) {
       // Already ours: the root entry aliases the object it loaded, so a WASI
       // fallback candidate — or a `NAPI_RS_NATIVE_LIBRARY_PATH` override that
       // is a generated loader — arrives already stamped with this same value.
-      return
+      return target
     }
     const error = new Error(
       '`__napiBindingTarget` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
@@ -782,12 +782,21 @@ function __napiStampBindingTarget(exportsObject, target) {
     // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
     // never a reason to fail an otherwise successful load; the loader's own
     // `__napiBindingTarget` module export still reports it.
-    return
+    return target
   }
   exportsObject.__napiBindingTarget = target
+  // The CommonJS loaders assign this return value so `cjs-module-lexer` — and
+  // therefore Node's CJS -> ESM named export detection — can see
+  // `__napiBindingTarget` statically.
+  return target
 }
 module.exports = nativeBinding
-__napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)
+// Assigning the guard's return value, rather than calling it as a statement,
+// is what keeps the marker a statically visible CommonJS export:
+// `cjs-module-lexer` is Node's CJS -> ESM named export detection, and it
+// cannot see a bare call. On a frozen binding the guard skips and this
+// sloppy-mode assignment is a silent no-op.
+module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)
 module.exports.Animal = nativeBinding.Animal
 module.exports.AnimalWithDefaultConstructor = nativeBinding.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = nativeBinding.AnotherClassForEither

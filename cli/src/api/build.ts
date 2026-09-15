@@ -2546,7 +2546,11 @@ class Builder {
     assertBindingTargetIdentFree(idents)
     const exportsCode = [
       `module.exports = __napiModule.exports`,
-      `${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiBindingTarget)`,
+      // `module.exports` aliases the object the loader already stamped, so the
+      // guard returns that same value here (or skips a frozen one). The line
+      // exists so `cjs-module-lexer` — Node's CJS -> ESM named export detection
+      // — sees `__napiBindingTarget` as a named export.
+      `module.exports.${NAPI_BINDING_TARGET_EXPORT} = ${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiBindingTarget)`,
       ...idents.map(
         (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
       ),
