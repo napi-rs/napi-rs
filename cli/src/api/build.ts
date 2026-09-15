@@ -62,7 +62,6 @@ import {
   createCjsBinding,
   createEsmBinding,
   NAPI_BINDING_TARGET_EXPORT,
-  NAPI_BINDING_TARGET_STAMP_FN,
 } from './templates/index.js'
 import {
   createWasiBinding,
@@ -2544,13 +2543,13 @@ class Builder {
       `${this.config.binaryName}.${loaderSuffix}.d.cts`,
     )
     assertBindingTargetIdentFree(idents)
+    // No stamp here. `createWasiBinding` emits the only one, inside the
+    // initialization `try` that rolls the environment back — both the guard and
+    // the assignment can throw, and neither may escape past that boundary. The
+    // assignment there is what `cjs-module-lexer` reads, so this tail stays
+    // purely declarative.
     const exportsCode = [
       `module.exports = __napiModule.exports`,
-      // `module.exports` aliases the object the loader already stamped, so the
-      // guard returns that same value here (or skips a frozen one). The line
-      // exists so `cjs-module-lexer` — Node's CJS -> ESM named export detection
-      // — sees `__napiBindingTarget` as a named export.
-      `module.exports.${NAPI_BINDING_TARGET_EXPORT} = ${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiBindingTarget)`,
       ...idents.map(
         (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
       ),

@@ -859,12 +859,22 @@ try {
     },
   }))
   __publishWasiDispose(__napiModule.exports)
-  // The CommonJS tail below aliases this object; a named module export does not
-  // travel with it, so carry the marker on the binding itself too. It has to
-  // happen inside this `try`: a `#[napi(module_exports)]` hook that claimed the
-  // name makes the guard throw, and only the catch below tears the environment
-  // — context, workers, exit listener — back down.
-  __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
+  // The CommonJS tail below aliases `__napiModule.exports`; a named module
+  // export does not travel with it, so carry the marker on the binding itself
+  // too. Three things pin the stamp to exactly this spot:
+  //   - inside this `try`, because the guard throws on a
+  //     `#[napi(module_exports)]` hook that claimed the name, and only the
+  //     catch below tears the environment — context, workers, exit listener —
+  //     back down;
+  //   - after the async runtime host install, which hands this same object to
+  //     addon-provided registration functions that may put anything on it;
+  //   - assigning onto the loader's own `module.exports`, which is still the
+  //     original object here, so an addon accessor with a refusing setter is
+  //     never written through. `cjs-module-lexer` — Node's CJS -> ESM named
+  //     export detection — reads the static `module.exports.<name> =` either
+  //     way, and the later `module.exports = __napiModule.exports` does not
+  //     undo that.
+  module.exports.__napiBindingTarget = __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
   __registerWasiExitListener()
 } catch (error) {
   const rollback = {
@@ -878,7 +888,6 @@ try {
   throw rollback.error
 }
 module.exports = __napiModule.exports
-module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiBindingTarget)
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither

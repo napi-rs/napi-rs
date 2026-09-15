@@ -95,6 +95,13 @@ named export detection — keeps seeing the name and
 binding the import still links; the value is `undefined`, matching the skipped
 stamp.
 
+Each loader stamps exactly once. In the WASI CommonJS loader that one stamp runs
+inside the initialization boundary, after the async runtime hosts are installed
+— addon registration functions get the exports object first, so the guard reads
+its final state — and it assigns onto the loader's own `module.exports` rather
+than onto the addon's object, which leaves an addon accessor with a refusing
+setter untouched.
+
 The name is reserved. `napi build` rejects an export of that name it can see in
 the type-def metadata; a name attached dynamically from a
 `#[napi(module_exports)]` hook is invisible at build time, so the loader rejects

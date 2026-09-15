@@ -903,6 +903,11 @@ const WASI_STAMP_CALL =
 // export detection is that lexer.
 const ROOT_CJS_STAMP_CALL =
   'module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)'
+// The node WASI loader stamps the emnapi exports object — the one the CommonJS
+// tail then aliases — while assigning through `module.exports` for the lexer.
+const WASI_CJS_STAMP_LINE = `module.exports.__napiBindingTarget = ${WASI_STAMP_CALL}`
+// the call inside the initialization try, not the function declaration
+const WASI_EXIT_LISTENER_CALL = '\n  __registerWasiExitListener()'
 // nothing may write the marker onto a user-controlled exports object without
 // going through the guard, so an assignment is only legal when the guard call
 // is its right-hand side
@@ -939,7 +944,7 @@ test('every mutating loader stamps the binding target through the guard', (t) =>
     {
       name: 'wasi node cjs',
       code: createWasiBinding('test', '@scope/test'),
-      call: WASI_STAMP_CALL,
+      call: WASI_CJS_STAMP_LINE,
     },
     {
       name: 'wasi browser esm',
@@ -980,10 +985,11 @@ test('every mutating loader stamps the binding target through the guard', (t) =>
 })
 
 test('the node WASI loader stamps inside the rollback boundary', (t) => {
-  // A conflicting `#[napi(module_exports)]` export makes the guard throw. From
-  // outside the initialization `try` that throw escapes with the emnapi context
-  // built and the process 'exit' listener installed, so a failed `require()`
-  // leaks an initialized WASI environment nothing can reach any more.
+  // Anything the guard throws — a conflicting `#[napi(module_exports)]` export,
+  // or an addon accessor whose setter refuses the write — has to land in the
+  // initialization `try`. From outside it the throw escapes with the emnapi
+  // context built and the process 'exit' listener installed, so a failed
+  // `require()` leaks an initialized WASI environment nothing can reach.
   const code = createWasiBinding('test', '@scope/test')
   assertValidJS(t, code, 'wasi node cjs rollback boundary')
   const initializationCatch = '\n} catch (error) {'
@@ -992,11 +998,38 @@ test('the node WASI loader stamps inside the rollback boundary', (t) => {
     1,
     'the top-level initialization catch must be unambiguous',
   )
-  const stamp = code.indexOf(WASI_STAMP_CALL)
+  // exactly one, so nothing can stamp a second time outside the boundary
+  t.is(code.split('module.exports.__napiBindingTarget =').length - 1, 1)
+  const stamp = code.indexOf(WASI_CJS_STAMP_LINE)
   t.true(stamp > code.indexOf('__publishWasiDispose(__napiModule.exports)'))
+  t.true(stamp < code.indexOf(WASI_EXIT_LISTENER_CALL))
   t.true(stamp < code.indexOf(initializationCatch))
   // and the rollback the catch runs is the one that tears the environment down
   t.true(code.includes('__runWasiInitializationRollback(rollback)'))
+})
+
+test('the node WASI loader stamps after the async runtime hosts are installed', (t) => {
+  // `__installCurrentThreadHosts` hands the addon's own exports object to
+  // addon-provided registration functions, which can put anything on it —
+  // including this marker. Stamping before that leaves the guard's view stale,
+  // and a second guarded stamp after it would have to live outside the `try`.
+  const code = createWasiBinding(
+    'test',
+    '@scope/test',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    true,
+  )
+  assertValidJS(t, code, 'wasi node cjs asyncRuntime stamp order')
+  const hostInstall = code.indexOf('__installCurrentThreadHosts(')
+  t.true(hostInstall > -1, 'the asyncRuntime host install must be emitted')
+  const stamp = code.indexOf(WASI_CJS_STAMP_LINE)
+  t.true(stamp > hostInstall)
+  t.true(stamp < code.indexOf(WASI_EXIT_LISTENER_CALL))
+  t.true(stamp < code.indexOf('\n} catch (error) {'))
 })
 
 test('the deferred loader marks the binding without requiring an extensible exports object', (t) => {
