@@ -1800,6 +1800,21 @@ const BINDING_TARGET_EXPORT_FORMS: Array<{
     owns: false,
     hasType: true,
   },
+  // The global scope is visible from every file, so a name a header declares
+  // into it comes back from a scope lookup while colliding with nothing the
+  // file itself adds: an export of the name shadows the global instead of
+  // redeclaring it, and a consumer importing the name needs that export
+  // written or it gets TS2305.
+  {
+    label: 'a global augmentation of the name',
+    body: 'export {}\ndeclare global {\n  var __napiBindingTarget: string\n}',
+    owns: false,
+  },
+  {
+    label: 'a UMD namespace export of the name',
+    body: `export as namespace __napiBindingTarget\n${LOCAL_MODULE_MARKER}`,
+    owns: false,
+  },
   {
     label: 'an export of another name',
     body: "export declare const __napiBindingTargetInfo: 'native'",

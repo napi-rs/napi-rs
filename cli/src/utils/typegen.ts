@@ -5,9 +5,11 @@ import { sortBy } from 'es-toolkit'
 import type {
   CompilerHost,
   CompilerOptions,
+  Declaration,
   Diagnostic,
   EntityName,
   Identifier,
+  Node,
   NodeArray,
   SourceFile,
   Statement,
@@ -1506,7 +1508,10 @@ export interface ExportedNameScan {
    * top-level `declare const name` is a global the generated export would
    * redeclare; inside a module an `import name = …` the file keeps to itself
    * conflicts too. A top-level `type` or `interface` does not, in either
-   * place.
+   * place — and neither does a name the file puts in the *global* scope
+   * rather than its own, through a `declare global { … }` member or the UMD
+   * name of `export as namespace name`: the added export shadows it instead
+   * of colliding with it.
    *
    * `export default` binds `default` rather than a name, and
    * `export * from '…'` is left unresolved on purpose, so it names nothing
@@ -1658,20 +1663,69 @@ function sourceBindsName(
   //
   // Scoped at the source file, so a binding nested inside a namespace or a
   // function body is correctly none of this file's business, and filtered to
-  // declarations written here, so an ambient global from somewhere else is
-  // not mistaken for one.
+  // the declarations that bind in this file's own scope — see
+  // {@link declaresInFileScope}.
   return {
     ownsName: checker
       .getSymbolsInScope(sourceFile, meaning)
       .some(
         (symbol) =>
           symbol.name === name &&
-          symbol.declarations?.some(
-            (declaration) => declaration.getSourceFile() === sourceFile,
+          symbol.declarations?.some((declaration) =>
+            declaresInFileScope(typeScript, declaration, sourceFile),
           ) === true,
       ),
     checked: true,
   }
+}
+
+/**
+ * Whether `declaration` binds its name in `sourceFile`'s own scope — the scope
+ * a generated `export declare const` would land in.
+ *
+ * `getSymbolsInScope` answers what is *visible* at a location, and the global
+ * scope is visible everywhere, so a name a file declares into that scope comes
+ * back from it while colliding with nothing the file itself adds. Written here
+ * is therefore not enough; written here *and at this file's top level* is the
+ * question:
+ *
+ * - A `declare global { … }` member is a global, reached through a
+ *   `ModuleDeclaration`. A module-scoped `export declare const` of the same
+ *   name shadows it rather than redeclaring it. The members of an ambient
+ *   `declare module '…'` block and of a `declare namespace` belong to that
+ *   module or namespace instead of to the file; the checker already keeps
+ *   those out of scope here, and the same walk covers them without depending
+ *   on that.
+ * - `export as namespace name` declares a UMD global for script consumers,
+ *   not a binding in the file. Its `NamespaceExportDeclaration` is a child of
+ *   the source file and so passes the walk, and it too sits happily beside an
+ *   export of the same name.
+ *
+ * Everything else that reaches here does bind at the top level: a script
+ * file's own `declare const` (appending the export makes the file a module and
+ * puts both in the same scope), and a module's unexported `import name = …`.
+ */
+function declaresInFileScope(
+  typeScript: TypeScriptModule,
+  declaration: Declaration,
+  sourceFile: SourceFile,
+): boolean {
+  if (
+    declaration.getSourceFile() !== sourceFile ||
+    typeScript.isNamespaceExportDeclaration(declaration)
+  ) {
+    return false
+  }
+  for (
+    let node: Node | undefined = declaration.parent;
+    node !== undefined && !typeScript.isSourceFile(node);
+    node = node.parent
+  ) {
+    if (typeScript.isModuleDeclaration(node)) {
+      return false
+    }
+  }
+  return true
 }
 
 /**
