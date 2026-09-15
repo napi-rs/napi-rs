@@ -1514,6 +1514,16 @@ export interface ExportedNameScan {
    */
   ownsName: boolean
   /**
+   * Whether the file was bound to answer {@link ownsName}, or whether the
+   * source was settled without it.
+   *
+   * Binding is skipped only for a source that can spell no such name at all —
+   * see {@link scanExportedName}. Nothing in this CLI branches on it: it is
+   * here so a test can hold that shortcut in place without timing anything,
+   * which is the only way to notice it has quietly stopped applying.
+   */
+  checked: boolean
+  /**
    * The exported variable statements that declare `name`, in source order.
    * Only these carry a span a caller can rewrite; the other export forms above
    * have no declaration here to replace.
@@ -1590,17 +1600,15 @@ export function scanExportedName(
       break
     }
   }
-  return {
-    exportsByAssignment,
-    ownsName: sourceBindsName(sourceFile, source, name),
-    declarations,
-  }
+  const { ownsName, checked } = sourceBindsName(sourceFile, source, name)
+  return { exportsByAssignment, ownsName, checked, declarations }
 }
 
 /**
  * Whether anything in this source already binds `name` where a generated
  * `export declare const name` would land — as an export of the file, or as a
- * declaration at its top level that the const would redeclare.
+ * declaration at its top level that the const would redeclare — and whether
+ * the file had to be bound to find out.
  *
  * Both questions are the checker's, and both are answered off the same
  * program. See {@link ExportedNameScan.ownsName}.
@@ -1609,14 +1617,18 @@ function sourceBindsName(
   sourceFile: SourceFile,
   source: string,
   name: string,
-): boolean {
+): { ownsName: boolean; checked: boolean } {
   const typeScript = loadTypeScript()
-  // A binding of `name` in this file has to spell it here. The one form that
-  // could hide it is `export * from '…'`, which the program below leaves
-  // unresolved by design, so this skips nothing and saves binding a file that
-  // never mentions the name.
-  if (!source.includes(name)) {
-    return false
+  // A binding of `name` in this file has to spell it here — but an identifier
+  // may spell any of its characters as a `\uXXXX` or `\u{…}` escape, which
+  // TypeScript resolves to the same name and a text search does not. So the
+  // shortcut only applies to a source that contains neither the name nor any
+  // escape that could become part of one, which is what almost every header
+  // is. The other form a text search would miss is `export * from '…'`, which
+  // the program below leaves unresolved by design, so nothing is skipped
+  // there either.
+  if (!source.includes(name) && !source.includes('\\u')) {
+    return { ownsName: false, checked: false }
   }
   // A value or an alias is what a `const` of the same name cannot be written
   // beside; a type-only declaration is what it merges with.
@@ -1633,7 +1645,7 @@ function sourceBindsName(
           .getExportsOfModule(moduleSymbol)
           .find((symbol) => symbol.name === name)
   if (exported !== undefined && (exported.flags & meaning) !== 0) {
-    return true
+    return { ownsName: true, checked: true }
   }
   // Not every binding that collides is an export. A declaration file that is
   // not a module has no export table at all, and its top-level `declare const`
@@ -1648,15 +1660,18 @@ function sourceBindsName(
   // function body is correctly none of this file's business, and filtered to
   // declarations written here, so an ambient global from somewhere else is
   // not mistaken for one.
-  return checker
-    .getSymbolsInScope(sourceFile, meaning)
-    .some(
-      (symbol) =>
-        symbol.name === name &&
-        symbol.declarations?.some(
-          (declaration) => declaration.getSourceFile() === sourceFile,
-        ) === true,
-    )
+  return {
+    ownsName: checker
+      .getSymbolsInScope(sourceFile, meaning)
+      .some(
+        (symbol) =>
+          symbol.name === name &&
+          symbol.declarations?.some(
+            (declaration) => declaration.getSourceFile() === sourceFile,
+          ) === true,
+      ),
+    checked: true,
+  }
 }
 
 /**
