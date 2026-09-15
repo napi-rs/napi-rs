@@ -18,6 +18,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import ava, { type TestFn } from 'ava'
 
 import {
+  createProcessIncarnationGetter,
   type ProcessExecutionIdentity,
   resolveProcessExecutionIdentityForLocking,
   withFileSystemReconciliation,
@@ -52,6 +53,13 @@ const incompleteIdentity: ProcessExecutionIdentity = {
   machine: null,
   namespace: null,
 }
+
+// Lock acquisition stamps every owner with the current process incarnation,
+// which the default getter probes by spawning a platform command (powershell
+// on Windows) on every call until one succeeds. Unit tests inject a fixture
+// so no acquisition pays a real probe inside its lock-acquisition budget.
+const testIncarnation = 'test-incarnation:1'
+const getProcessIncarnation = async () => testIncarnation
 
 async function collectFileNames(root: string): Promise<string[]> {
   const names: string[] = []
@@ -132,6 +140,113 @@ test('resolveProcessExecutionIdentityForLocking resolves incomplete past the wai
   t.true(reads > 1)
 })
 
+test('createProcessIncarnationGetter caches a successful read forever', async (t) => {
+  let reads = 0
+  const getIncarnation = createProcessIncarnationGetter(async () => {
+    reads += 1
+    return 'probe:1'
+  }, 1_000)
+
+  t.is(await getIncarnation(), 'probe:1')
+  t.is(await getIncarnation(), 'probe:1')
+  t.is(reads, 1)
+})
+
+test('createProcessIncarnationGetter shares one in-flight probe', async (t) => {
+  let reads = 0
+  let resolveProbe!: (value: string | null) => void
+  const getIncarnation = createProcessIncarnationGetter(
+    () =>
+      new Promise<string | null>((resolve) => {
+        reads += 1
+        resolveProbe = resolve
+      }),
+    1_000,
+  )
+
+  const first = getIncarnation()
+  const second = getIncarnation()
+  resolveProbe('probe:shared')
+  t.is(await first, 'probe:shared')
+  t.is(await second, 'probe:shared')
+  t.is(reads, 1)
+})
+
+test('createProcessIncarnationGetter rate-limits failed probes instead of re-spawning per acquisition', async (t) => {
+  let now = 10_000
+  let reads = 0
+  const getIncarnation = createProcessIncarnationGetter(
+    async () => {
+      reads += 1
+      return null
+    },
+    1_000,
+    () => now,
+  )
+
+  t.is(await getIncarnation(), null)
+  t.is(reads, 1)
+  // Within the cooldown a failed probe is reused: back-to-back lock
+  // acquisitions (anchor guard + symlink guards + object lock) pay one probe.
+  now += 999
+  t.is(await getIncarnation(), null)
+  t.is(reads, 1)
+  now += 1
+  t.is(await getIncarnation(), null)
+  t.is(reads, 2)
+})
+
+test('createProcessIncarnationGetter recovers after a failed probe and then stops probing', async (t) => {
+  let now = 0
+  let reads = 0
+  const getIncarnation = createProcessIncarnationGetter(
+    async () => {
+      reads += 1
+      return reads === 1 ? null : 'probe:recovered'
+    },
+    1_000,
+    () => now,
+  )
+
+  t.is(await getIncarnation(), null)
+  now += 1_000
+  t.is(await getIncarnation(), 'probe:recovered')
+  t.is(await getIncarnation(), 'probe:recovered')
+  t.is(reads, 2)
+})
+
+test('withFileSystemReconciliation publishes lock owners stamped with the injected process incarnation', async (t) => {
+  const anchor = join(t.context.tmpDir, 'pkg')
+  await mkdir(anchor)
+
+  const lockNamePattern =
+    /^\.napi-rs-filesystem-reconciliation\.[0-9a-f]{64}\.swp$/
+  const incarnations: unknown[] = []
+  await withFileSystemReconciliation(
+    anchor,
+    async () => {
+      for (const name of await readdir(t.context.tmpDir)) {
+        if (lockNamePattern.test(name)) {
+          const owner = JSON.parse(
+            await readFile(join(t.context.tmpDir, name), 'utf8'),
+          )
+          incarnations.push(owner.incarnation)
+        }
+      }
+    },
+    {
+      getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
+      lockAcquisitionTimeout: 10_000,
+    },
+  )
+
+  t.true(incarnations.length > 0)
+  for (const incarnation of incarnations) {
+    t.is(incarnation, testIncarnation)
+  }
+})
+
 test('#3512: degraded acquisition never publishes an unverifiable owner and still runs', async (t) => {
   const anchor = join(t.context.tmpDir, 'pkg')
   await mkdir(anchor)
@@ -145,6 +260,7 @@ test('#3512: degraded acquisition never publishes an unverifiable owner and stil
     },
     {
       getProcessExecutionIdentity: async () => incompleteIdentity,
+      getProcessIncarnation,
       identityWaitTimeout: 150,
       lockAcquisitionTimeout: 2_000,
     },
@@ -183,6 +299,7 @@ test('withFileSystemReconciliation retries identity probes until complete, then 
         reads += 1
         return reads < 3 ? incompleteIdentity : completeIdentity
       },
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
@@ -216,6 +333,7 @@ test('withFileSystemReconciliation serializes concurrent operations on the same 
       },
       {
         getProcessExecutionIdentity,
+        getProcessIncarnation,
         lockAcquisitionTimeout: 10_000,
       },
     ),
@@ -228,6 +346,7 @@ test('withFileSystemReconciliation serializes concurrent operations on the same 
       },
       {
         getProcessExecutionIdentity,
+        getProcessIncarnation,
         lockAcquisitionTimeout: 10_000,
       },
     ),
@@ -261,6 +380,7 @@ test('degraded acquisition respects an existing lock it cannot evaluate', async 
     },
     {
       getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
@@ -289,6 +409,7 @@ test('degraded acquisition respects an existing lock it cannot evaluate', async 
       },
       {
         getProcessExecutionIdentity: async () => incompleteIdentity,
+        getProcessIncarnation,
         identityWaitTimeout: 150,
         lockAcquisitionTimeout: 600,
       },
@@ -322,16 +443,20 @@ test('degraded acquisition heals when identity probes recover and reclaims a sta
   // identity), never an injected fixture, so only a real-identity owner can
   // become provably stale on this host.
   const recorded: Array<{ name: string; content: string }> = []
-  await withFileSystemReconciliation(anchor, async () => {
-    for (const name of await readdir(t.context.tmpDir)) {
-      if (lockNamePattern.test(name)) {
-        recorded.push({
-          name,
-          content: await readFile(join(t.context.tmpDir, name), 'utf8'),
-        })
+  await withFileSystemReconciliation(
+    anchor,
+    async () => {
+      for (const name of await readdir(t.context.tmpDir)) {
+        if (lockNamePattern.test(name)) {
+          recorded.push({
+            name,
+            content: await readFile(join(t.context.tmpDir, name), 'utf8'),
+          })
+        }
       }
-    }
-  })
+    },
+    { getProcessIncarnation },
+  )
   t.true(recorded.length > 0)
 
   const deadPid = await new Promise<number>((resolvePid, rejectPid) => {
@@ -361,6 +486,7 @@ test('degraded acquisition heals when identity probes recover and reclaims a sta
         reads += 1
         return reads <= 12 ? incompleteIdentity : completeIdentity
       },
+      getProcessIncarnation,
       identityWaitTimeout: 150,
       lockAcquisitionTimeout: 10_000,
     },
@@ -415,6 +541,7 @@ test('degraded acquisition skips transaction journal recovery; locked acquisitio
     async () => 'degraded-sentinel',
     {
       getProcessExecutionIdentity: async () => incompleteIdentity,
+      getProcessIncarnation,
       identityWaitTimeout: 150,
       lockAcquisitionTimeout: 2_000,
     },
@@ -430,6 +557,7 @@ test('degraded acquisition skips transaction journal recovery; locked acquisitio
     async () => 'locked-sentinel',
     {
       getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
@@ -451,6 +579,7 @@ test('#3444: symlink guard whose lock would escape the anchor parent is skipped'
     },
     {
       getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
@@ -479,6 +608,7 @@ test('#3444: symlink guard whose lock stays within the anchor parent is kept', a
     },
     {
       getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
@@ -503,6 +633,7 @@ test('#3444: plain anchor keeps exactly the guard and object locks', async (t) =
     },
     {
       getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
@@ -529,6 +660,7 @@ test('#3444: nested symlink guard lands at the fully-canonical walk-time root', 
     },
     {
       getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation,
       lockAcquisitionTimeout: 10_000,
     },
   )
