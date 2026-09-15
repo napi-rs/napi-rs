@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.4...napi-v3.12.5) - 2026-09-15
+
+### Fixed
+
+- fatal_exception noop in optimized builds ([#3509](https://github.com/napi-rs/napi-rs/pull/3509))
+
 ## [3.12.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.3...napi-v3.12.4) - 2026-09-11
 
 ### Fixed
