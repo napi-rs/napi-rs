@@ -1495,7 +1495,8 @@ export declare const __napiBindingTarget: 'native'
  * TypeScript's own verdict on a set of declaration files written side by side,
  * as a list of codes per file. Every conflict an extra `__napiBindingTarget`
  * export causes — TS2300, TS2323, TS2440, TS2567 — is semantic, so
- * `oxc-parser`'s syntax diagnostics cannot see any of them.
+ * `oxc-parser`'s syntax diagnostics cannot see any of them, and so is the
+ * TS2693 a consumer gets when the export it imports turns out to be a type.
  */
 const semanticDiagnosticCodes = async (
   directory: string,
@@ -1513,6 +1514,7 @@ const semanticDiagnosticCodes = async (
     options: SEMANTIC_CHECK_OPTIONS,
     host: semanticCheckHost,
   })
+
   const diagnostics = ts.getPreEmitDiagnostics(program)
   return Object.fromEntries(
     Object.keys(files).map((name) => [
@@ -1529,18 +1531,24 @@ const semanticDiagnosticCodes = async (
 }
 
 /**
- * Every shape a `--dts-header` can export `__napiBindingTarget` through. Each
- * one makes the project the owner of the name: a generated export beside it is
- * a TypeScript error, and none of them leaves a declaration this CLI could
- * rewrite, so the header comes through untouched and nothing is appended.
+ * Every shape a `--dts-header` can export `__napiBindingTarget` through, and
+ * whether that shape claims the name.
  *
- * `owns: false` rows are the control — the name is free, so the declaration is
- * written.
+ * `owns: true` leaves no room for a generated `export declare const` beside it
+ * — TypeScript rejects the pair — so nothing is appended and the header comes
+ * through untouched. `owns: false` is a declaration that lives only in type
+ * space: the const merges with it, and suppressing it there would take typed
+ * access to a real runtime export away (TS2693 at every value use) while
+ * preventing no collision at all.
+ *
+ * `hasType` rows name a type as well, so the consumer below also uses the
+ * import as one.
  */
 const BINDING_TARGET_EXPORT_FORMS: Array<{
   label: string
   body: string
   owns: boolean
+  hasType?: boolean
 }> = [
   {
     label: 'export declare const',
@@ -1571,35 +1579,43 @@ const BINDING_TARGET_EXPORT_FORMS: Array<{
     label: 'export declare class',
     body: 'export declare class __napiBindingTarget {}',
     owns: true,
+    hasType: true,
   },
   {
     label: 'export declare abstract class',
     body: 'export declare abstract class __napiBindingTarget {}',
     owns: true,
+    hasType: true,
   },
   {
     label: 'export declare enum',
     body: 'export declare enum __napiBindingTarget { A }',
     owns: true,
+    hasType: true,
   },
   {
-    label: 'export declare namespace',
+    label: 'an instantiated namespace',
     body: 'export declare namespace __napiBindingTarget { const a: number }',
     owns: true,
   },
   {
-    label: 'export declare module',
+    label: 'an instantiated module',
     body: 'export declare module __napiBindingTarget { const a: number }',
     owns: true,
   },
   {
-    label: 'export type',
-    body: 'export type __napiBindingTarget = string',
+    label: 'a namespace instantiated by a nested one',
+    body: 'export declare namespace __napiBindingTarget {\n  namespace Inner {\n    const a: number\n  }\n}',
     owns: true,
   },
   {
-    label: 'export interface',
-    body: 'export interface __napiBindingTarget { a: number }',
+    label: 'a dotted instantiated namespace',
+    body: 'export declare namespace __napiBindingTarget.Inner { const a: number }',
+    owns: true,
+  },
+  {
+    label: 'export import name =',
+    body: "declare namespace Legacy {\n  const thing: 'native'\n}\nexport import __napiBindingTarget = Legacy.thing",
     owns: true,
   },
   {
@@ -1642,10 +1658,38 @@ const BINDING_TARGET_EXPORT_FORMS: Array<{
     body: "export type * as __napiBindingTarget from './other.js'",
     owns: true,
   },
+  // type space only: the const merges, and the consumer keeps its value
   {
-    label: 'export import name =',
-    body: "declare namespace Legacy {\n  const thing: 'native'\n}\nexport import __napiBindingTarget = Legacy.thing",
-    owns: true,
+    label: 'export type',
+    body: 'export type __napiBindingTarget = string',
+    owns: false,
+    hasType: true,
+  },
+  {
+    label: 'export interface',
+    body: 'export interface __napiBindingTarget { a: number }',
+    owns: false,
+    hasType: true,
+  },
+  {
+    label: 'a namespace of interfaces',
+    body: 'export declare namespace __napiBindingTarget {\n  interface I {\n    a: number\n  }\n}',
+    owns: false,
+  },
+  {
+    label: 'a namespace of type aliases',
+    body: 'export declare namespace __napiBindingTarget {\n  type T = string\n}',
+    owns: false,
+  },
+  {
+    label: 'an empty namespace',
+    body: 'export declare namespace __napiBindingTarget {}',
+    owns: false,
+  },
+  {
+    label: 'a namespace whose nested one is type-only',
+    body: 'export declare namespace __napiBindingTarget {\n  namespace Inner {\n    interface I {\n      a: number\n    }\n  }\n}',
+    owns: false,
   },
   {
     label: 'an export of another name',
@@ -1667,7 +1711,7 @@ test('every top-level export of the binding target name owns it', async (t) => {
   )
 
   let row = 0
-  for (const { label, body, owns } of BINDING_TARGET_EXPORT_FORMS) {
+  for (const { label, body, owns, hasType } of BINDING_TARGET_EXPORT_FORMS) {
     const dtsHeader = `/* auto-generated by NAPI-RS */\n\n${body}\n`
     const { dts } = await generateTypeDef({
       typeDefDir,
@@ -1690,8 +1734,35 @@ test('every top-level export of the binding target name owns it', async (t) => {
     // the header comes through byte for byte, whatever the build appended
     t.true(dts.startsWith(dtsHeader), label)
 
+    // What a package consumer writes: import the name and use it as the value
+    // the loader really exports.
+    const consumer = (module: string) =>
+      `import { __napiBindingTarget } from '${module}'\n` +
+      `export const value: string = __napiBindingTarget\n` +
+      (hasType ? `export type Named = __napiBindingTarget\n` : '')
+
+    const codes = await semanticDiagnosticCodes(directory, {
+      'baseline.d.ts': dtsHeader,
+      'baseline-consumer.ts': consumer('./baseline.js'),
+      'index.d.ts': dts,
+      'index-consumer.ts': consumer('./index.js'),
+      'flavor.d.cts': flavor,
+      'flavor-consumer.ts': consumer('./flavor.cjs'),
+    })
+
+    // TypeScript's verdict on the declaration files: whatever the header
+    // itself is worth, the generated root declaration and the flavor
+    // declaration derived from it are worth exactly the same — the build
+    // introduced no semantic diagnostic. Compared against the header rather
+    // than against nothing, because a header may carry one of its own (the
+    // deprecated `module` keyword is TS1540).
+    t.deepEqual(codes['index.d.ts'], codes['baseline.d.ts'], label)
+    t.deepEqual(codes['flavor.d.cts'], codes['baseline.d.ts'], label)
+
     if (owns) {
-      // nothing added: the file exports exactly what the header exported
+      // nothing added: the file exports exactly what the header exported, and
+      // the consumer sees exactly what the header alone would give it —
+      // including the failure a type-only re-export clause already causes
       t.deepEqual(
         exportedBindingTargetTypes(dts),
         exportedBindingTargetTypes(dtsHeader),
@@ -1703,7 +1774,19 @@ test('every top-level export of the binding target name owns it', async (t) => {
         exportedBindingTargetTypes(dtsHeader),
         label,
       )
+      t.deepEqual(
+        codes['index-consumer.ts'],
+        codes['baseline-consumer.ts'],
+        label,
+      )
+      t.deepEqual(
+        codes['flavor-consumer.ts'],
+        codes['baseline-consumer.ts'],
+        label,
+      )
     } else {
+      // the declaration is written, and a consumer can use it as a value —
+      // which is the whole point of writing it
       t.deepEqual(
         exportedBindingTargetTypes(dts),
         [ROOT_BINDING_TARGET_TYPE],
@@ -1714,20 +1797,9 @@ test('every top-level export of the binding target name owns it', async (t) => {
         ["'wasm32-wasip1'"],
         label,
       )
+      t.deepEqual(codes['index-consumer.ts'], [], label)
+      t.deepEqual(codes['flavor-consumer.ts'], [], label)
     }
-
-    // TypeScript's verdict: whatever the header itself is worth, the generated
-    // root declaration and the flavor declaration derived from it are worth
-    // exactly the same — the build introduced no semantic diagnostic. Compared
-    // against the header rather than against nothing, because a header may
-    // carry one of its own (the deprecated `module` keyword is TS1540).
-    const codes = await semanticDiagnosticCodes(directory, {
-      'header.d.ts': dtsHeader,
-      'index.d.ts': dts,
-      'flavor.d.cts': flavor,
-    })
-    t.deepEqual(codes['index.d.ts'], codes['header.d.ts'], label)
-    t.deepEqual(codes['flavor.d.cts'], codes['header.d.ts'], label)
   }
 })
 

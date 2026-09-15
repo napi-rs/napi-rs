@@ -9,6 +9,7 @@ import type {
   Diagnostic,
   EntityName,
   Identifier,
+  ModuleDeclaration,
   NodeArray,
   SourceFile,
   Statement,
@@ -1451,14 +1452,26 @@ export interface ExportedNameScan {
    */
   exportsByAssignment: boolean
   /**
-   * Whether any top-level statement binds `name` as an export of this file —
-   * not only the declarations below. Every form counts, because the question
-   * a caller asks is whether it may add an export of that name beside them,
-   * and TypeScript answers no to all of them (TS2300, TS2323, TS2440, TS2567
-   * depending on the pair). `export default` is the one export that binds
-   * `default` rather than a name, and `export * from '…'` names nothing here.
+   * Whether a top-level statement claims `name` in a way that leaves no room
+   * for an added `export declare const name`.
+   *
+   * Not simply "is it exported": TypeScript merges a value with a declaration
+   * that lives only in type space, and a caller that backed off there would
+   * take away typed access to a real runtime export (TS2693 at every value
+   * use) without preventing any collision. So an exported `type`, `interface`
+   * or non-instantiated namespace is *not* an owner, while everything that
+   * occupies value space is — a variable, `function`, `class`, `enum`,
+   * `export import name = …`, and a namespace whose body declares a value.
+   *
+   * Every `export { … }` clause is an owner whatever it re-exports, including
+   * its `export type { … }` and `export * as name from '…'` forms: an alias
+   * collides with a local declaration of the name however it is spelled
+   * (TS2323, TS2440).
+   *
+   * `export default` binds `default` rather than a name, and
+   * `export * from '…'` names nothing here; neither counts.
    */
-  isExported: boolean
+  ownsName: boolean
   /**
    * The exported variable statements that declare `name`, in source order.
    * Only these carry a span a caller can rewrite; the other export forms above
@@ -1481,12 +1494,9 @@ export interface ExportedNameScan {
  * assignment at all.
  *
  * Ownership is read off the shape of the statement rather than off a list of
- * kinds this CLI expects, so a form nobody thought of still counts: anything
- * carrying an `export` modifier whose declared name matches, every specifier
- * of an `export { … }` clause, and the `export * as name from '…'` namespace
- * clause. `const`, `let` and `var` are no more special than `function`,
- * `class`, `enum`, `interface`, `type` or `export import name = …` — what
- * matters is only that a second export of the name beside one is an error.
+ * kinds this CLI expects, so a form nobody thought of still counts — see
+ * {@link ExportedNameScan.ownsName} for which shapes own the name and why the
+ * type-space-only ones do not.
  *
  * One parse answers every question, because every caller asks them together.
  */
@@ -1508,7 +1518,7 @@ export function scanExportedName(
   )
   const declarations: ExportedVariableDeclaration[] = []
   let exportsByAssignment = false
-  let isExported = false
+  let ownsName = false
   for (const statement of sourceFile.statements) {
     if (typeScript.isExportAssignment(statement)) {
       // `export = x`. `export default x` is the same node without the flag,
@@ -1525,7 +1535,7 @@ export function scanExportedName(
       }
       // `export * as name from '…'` (and its `export type *` form) binds the
       // name through a namespace clause rather than a specifier list.
-      isExported ||= typeScript.isNamespaceExport(clause)
+      ownsName ||= typeScript.isNamespaceExport(clause)
         ? clause.name.text === name
         : clause.elements.some((element) => element.name.text === name)
       continue
@@ -1551,7 +1561,7 @@ export function scanExportedName(
         ) {
           continue
         }
-        isExported = true
+        ownsName = true
         declarations.push({
           start: declarationBlockStart(source, sourceFile, statement),
           end: statement.end,
@@ -1564,17 +1574,60 @@ export function scanExportedName(
       }
       continue
     }
-    // Everything else an exported statement can be — `function`, `class`,
-    // `enum`, `interface`, `type`, `namespace` / `module`, and
-    // `export import name = …` — declares exactly one name, and none of them
-    // leaves a declaration this CLI could rewrite.
+    // Everything else an exported statement can be declares exactly one name,
+    // and none of them leaves a declaration this CLI could rewrite. Only the
+    // ones that occupy value space claim the name; `interface` and `type` do
+    // not, and a namespace only does when its body declares a value.
     const declared = typeScript.getNameOfDeclaration(statement as Declaration)
-    isExported ||=
-      declared !== undefined &&
-      typeScript.isIdentifier(declared) &&
-      declared.text === name
+    if (
+      declared === undefined ||
+      !typeScript.isIdentifier(declared) ||
+      declared.text !== name
+    ) {
+      continue
+    }
+    ownsName ||=
+      typeScript.isFunctionDeclaration(statement) ||
+      typeScript.isClassDeclaration(statement) ||
+      typeScript.isEnumDeclaration(statement) ||
+      typeScript.isImportEqualsDeclaration(statement) ||
+      (typeScript.isModuleDeclaration(statement) &&
+        moduleDeclaresValue(statement))
   }
-  return { exportsByAssignment, isExported, declarations }
+  return { exportsByAssignment, ownsName, declarations }
+}
+
+/**
+ * Whether a namespace or module declaration is *instantiated* — whether it
+ * declares anything that exists at runtime, and so occupies value space.
+ *
+ * `declare namespace N { interface I {} }` declares only types, so `N` is a
+ * namespace and nothing else, and `declare const N` merges with it happily.
+ * `declare namespace N { const a: number }` does declare a value, and the same
+ * `const N` beside it is a TS2300 duplicate identifier.
+ *
+ * Recursive twice over: a nested namespace instantiates its parent, and
+ * `namespace A.B { … }` parses as a namespace whose body is another namespace
+ * rather than a block.
+ */
+function moduleDeclaresValue(node: ModuleDeclaration): boolean {
+  const typeScript = loadTypeScript()
+  const body = node.body
+  if (body === undefined) {
+    return false
+  }
+  if (typeScript.isModuleDeclaration(body)) {
+    return moduleDeclaresValue(body)
+  }
+  return body.statements.some(
+    (statement) =>
+      typeScript.isVariableStatement(statement) ||
+      typeScript.isFunctionDeclaration(statement) ||
+      typeScript.isClassDeclaration(statement) ||
+      typeScript.isEnumDeclaration(statement) ||
+      (typeScript.isModuleDeclaration(statement) &&
+        moduleDeclaresValue(statement)),
+  )
 }
 
 /**

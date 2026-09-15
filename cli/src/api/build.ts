@@ -138,6 +138,10 @@ export declare const ${NAPI_BINDING_TARGET_EXPORT}: '${platformArchABI}'
  * unwritten. A longer export such as `__napiBindingTargetInfo` is a different
  * name and never counts — `assertBindingTargetIdentFree` only reserves the
  * exact one.
+ *
+ * {@link scanExportedName} carries the rest of the rule in its `ownsName`
+ * result: which export shapes claim the name, and why the ones that live in
+ * type space alone let the generated declaration merge with them instead.
  */
 const bindingTargetExports = (source: string) =>
   scanExportedName(source, NAPI_BINDING_TARGET_EXPORT)
@@ -782,12 +786,17 @@ export function prepareWasiBindingTypeDef(
  *   `--dts-header` contributed. That covers a statement declaring more names
  *   than this one — the block a refresh replaces spans them too, and this CLI
  *   writes the declaration alone — and it covers every other way a header can
- *   export the name: as a `function`, `class`, `enum`, `interface`, `type` or
+ *   claim the name: as a `function`, `class`, `enum` or instantiated
  *   `namespace`, through an `export { target as __napiBindingTarget }` or
  *   `export * as __napiBindingTarget from '…'` clause, or through
  *   `export import __napiBindingTarget = …`. None of those leaves a
  *   declaration here to rewrite, and an export added beside any of them is a
  *   TypeScript error (TS2300, TS2323, TS2440 or TS2567 by form).
+ *
+ *   A header that exports the name in type space only — a `type`, an
+ *   `interface`, a namespace that declares no value — claims nothing: the
+ *   declaration merges with it, and withholding it would cost a consumer the
+ *   value the loader really exports — see {@link scanExportedName}.
  *
  * A declaration file that exports by assignment (`export = binding`, what a
  * build without `napi-derive`'s `type-def` feature emits) cannot carry a named
@@ -800,7 +809,7 @@ export function ensureBindingTargetDeclaration(
   platformArchABI?: string,
   renderedHeader?: string,
 ) {
-  const { exportsByAssignment, isExported, declarations } =
+  const { exportsByAssignment, ownsName, declarations } =
     bindingTargetExports(typeDef)
   if (exportsByAssignment) {
     return typeDef
@@ -808,7 +817,7 @@ export function ensureBindingTargetDeclaration(
   const declaration = platformArchABI
     ? createBindingTargetFlavorDeclaration(platformArchABI)
     : BINDING_TARGET_TYPE_DECLARATION
-  if (!isExported) {
+  if (!ownsName) {
     const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
     return `${typeDef}${separator}${declaration}`
   }
@@ -3093,7 +3102,7 @@ export async function generateTypeDef(
   // `ensureBindingTargetDeclaration` already applies to a preserved WASI
   // declaration.
   const headerDeclaresBindingTarget =
-    bindingTargetExports(renderedHeader).isExported
+    bindingTargetExports(renderedHeader).ownsName
 
   // A crate can register every export from a `#[napi(module_exports)]` hook
   // and emit no `.type` file, and the loader written for it still exports
