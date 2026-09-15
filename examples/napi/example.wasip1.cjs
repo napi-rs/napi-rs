@@ -106,11 +106,35 @@ let __emnapiContext
 
 const __wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
 const __wasiWorkers = new Set()
-// Flavors that keep an idle binding from holding the process open stub the
-// handle `ref` functions a worker's own `terminate()` uses, which also stops
-// a pending termination from keeping the loop alive long enough to settle.
-// Those flavors register an undo here; it stays empty everywhere else.
-const __wasiWorkerRefRestorers = new WeakMap()
+// The thread manager has to be reachable *before* anything that can throw
+// during load or registration. Initialization can fail after the pool has
+// already spawned workers, and the rollback still has to mark their
+// terminations as expected — but `__napiModule` is assigned only when
+// instantiation RETURNS, so on exactly that path it is still undefined. A
+// plugin factory runs while the emnapi module is being created, before the
+// wasm is loaded and before any registration function runs, and its context
+// carries the very same manager instance.
+let __wasiThreadManager
+
+function __captureWasiThreadManager(context) {
+  if (context && context.PThread) {
+    __wasiThreadManager = context.PThread
+  }
+  return {}
+}
+
+function __getWasiThreadManager() {
+  const manager =
+    __wasiThreadManager !== undefined
+      ? __wasiThreadManager
+      : __napiModule
+        ? __napiModule.PThread
+        : undefined
+  if (manager && typeof manager.terminateWorker === 'function') {
+    return manager
+  }
+  return undefined
+}
 let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
@@ -434,27 +458,46 @@ function __destroyEmnapiContext() {
 }
 
 /**
- * Puts back the `ref` functions this loader stubbed on a worker, so the
- * termination below can hold the event loop open until it settles. Never
- * throws: a worker that cannot be re-referenced still has to be terminated.
+ * Holds the event loop open until `work` settles.
+ *
+ * Nothing else can: the pool workers are deliberately unreferenced so an idle
+ * binding cannot keep a process alive, and referencing them again for the
+ * termination does not hold either — emnapi unreferences a worker the moment it
+ * reports `async-thread-ready`, which for a worker that was still starting
+ * lands *after* the termination began. Without a handle of its own, an
+ * `await dispose()` with nothing else pending exits the process with its
+ * promise unsettled, and everything after the `await` is skipped.
+ *
+ * The timer is cleared as soon as the work settles, so this never outlives the
+ * disposal that asked for it.
  */
-function __restoreWasiWorkerRef(worker) {
-  const restore = __wasiWorkerRefRestorers.get(worker)
-  if (restore === undefined) {
-    return
+function __keepEventLoopAliveUntil(work) {
+  const setTimer = globalThis.setInterval
+  const clearTimer = globalThis.clearInterval
+  if (typeof setTimer !== 'function' || typeof clearTimer !== 'function') {
+    return work
   }
-  __wasiWorkerRefRestorers.delete(worker)
+  let timer
   try {
-    restore()
-  } catch {}
-}
-
-function __unrefWasiWorker(worker) {
-  try {
-    if (typeof worker.unref === 'function') {
-      worker.unref()
-    }
-  } catch {}
+    timer = setTimer(function () {}, 50)
+  } catch {
+    return work
+  }
+  const release = function () {
+    try {
+      clearTimer(timer)
+    } catch {}
+  }
+  return work.then(
+    (value) => {
+      release()
+      return value
+    },
+    (error) => {
+      release()
+      throw error
+    },
+  )
 }
 
 /**
@@ -466,21 +509,22 @@ function __unrefWasiWorker(worker) {
  * promise, so disposal never settles and the process dies with an uncaught
  * exception. Mark the termination through the manager first.
  *
+ * The manager comes from `__getWasiThreadManager`, not from `__napiModule`:
+ * the initialization rollback runs on the one path where instantiation never
+ * returned, so `__napiModule` is still undefined there while the workers it
+ * spawned are already registered and loaded.
+ *
  * Not `terminateAllThreads()`: that one recreates the pool it just shut down.
  */
 function __terminateWasiWorkers() {
   const cleanupErrors = []
   const pending = []
-  const threadManager = __napiModule ? __napiModule.PThread : undefined
-  const canMarkTermination =
-    Boolean(threadManager) &&
-    typeof threadManager.terminateWorker === 'function'
+  const threadManager = __getWasiThreadManager()
 
   for (const worker of __wasiWorkers) {
     let result
-    __restoreWasiWorkerRef(worker)
     try {
-      if (canMarkTermination) {
+      if (threadManager) {
         threadManager.terminateWorker(worker)
         // `terminateWorker` leaves behind a reporter that logs every message
         // still queued on the port, which Node flushes on exit. Nothing is
@@ -489,7 +533,6 @@ function __terminateWasiWorkers() {
       }
       result = worker.terminate()
     } catch (error) {
-      __unrefWasiWorker(worker)
       cleanupErrors.push(error)
       continue
     }
@@ -517,7 +560,9 @@ function __terminateWasiWorkers() {
       )
     }
   }
-  return pending.length > 0 ? Promise.all(pending).then(finish) : finish()
+  return pending.length > 0
+    ? __keepEventLoopAliveUntil(Promise.all(pending)).then(finish)
+    : finish()
 }
 
 function __finishWasiDisposal() {
@@ -910,7 +955,7 @@ try {
   } = __emnapiInstantiateNapiModuleSync(__wasmFile, {
     context: __emnapiContext,
     asyncWorkPoolSize: 0,
-    plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
+    plugins: [__captureWasiThreadManager, __emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
     wasi: __wasi,
     overwriteImports(importObject) {
       importObject.env = {

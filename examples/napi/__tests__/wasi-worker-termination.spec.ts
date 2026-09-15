@@ -77,3 +77,30 @@ test.skipIf(!isThreadedWasi)(
     t.regex(result.stdout, /wasi binding left undisposed/)
   },
 )
+
+/**
+ * The rollback is the one path where instantiation never returned, so the
+ * destructuring that assigns `__napiModule` never ran — while the pool workers
+ * a module-init hook already spawned are registered and loaded. Reading the
+ * thread manager off `__napiModule` there leaves the rollback terminating
+ * workers unmarked, and with their references restored the process now lives
+ * long enough for the manager's unexpected-exit handler to turn a *caught*
+ * initialization error into a fatal one.
+ */
+test.skipIf(!isThreadedWasi)(
+  'a failed initialization tears its pool workers down without going fatal',
+  (t) => {
+    const result = spawnSync(
+      process.execPath,
+      [join(__dirname, 'wasi-init-rollback.js')],
+      { encoding: 'utf8', env: process.env, timeout: 60_000 },
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /caller survived the failed initialization/)
+    t.notRegex(result.stderr, /sent an error!/)
+    t.notRegex(result.stderr, /stopped with exit code/)
+  },
+)

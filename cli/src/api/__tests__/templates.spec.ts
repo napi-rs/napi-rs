@@ -518,45 +518,54 @@ for (const { name, code } of [
     // `terminateWorker` leaves a reporter behind that logs every message still
     // queued on the port, which Node flushes on exit.
     t.true(body.includes('worker.onmessage = undefined'))
-    // The loader's own `ref` stubs are undone before the terminate promise is
-    // created, because `Worker#terminate` references the worker through them.
-    const restore = body.indexOf('__restoreWasiWorkerRef(worker)')
-    t.true(restore > 0 && restore < terminate)
+    // The manager is resolved through the helper, not read off `__napiModule`:
+    // the rollback runs on the one path where that binding was never assigned.
+    t.true(body.includes('const threadManager = __getWasiThreadManager()'))
+    t.false(body.includes('__napiModule.PThread'))
   })
 }
 
-test('the node loader keeps the ref functions it stubs out', (t) => {
+// The pool workers are unreferenced on purpose, and emnapi unreferences them
+// again when one reports `async-thread-ready`, so a pending termination has no
+// handle of its own to hold the loop open with.
+for (const { name, code } of [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+]) {
+  test(`a pending termination holds the event loop open: ${name}`, (t) => {
+    const body = code.slice(
+      code.indexOf('function __terminateWasiWorkers() {'),
+      code.indexOf('function __finishWasiDisposal() {'),
+    )
+    t.true(
+      body.includes(
+        '__keepEventLoopAliveUntil(Promise.all(pending)).then(finish)',
+      ),
+      'the terminate promises have to be awaited under a keep-alive',
+    )
+    // …and the keep-alive is released the moment the work settles, so it can
+    // never outlive the disposal that asked for it.
+    const keepAlive = code.slice(
+      code.indexOf('function __keepEventLoopAliveUntil(work) {'),
+    )
+    t.true(keepAlive.indexOf('clearTimer(timer)') > 0)
+    t.true(keepAlive.indexOf('release()') < keepAlive.indexOf('return value'))
+    // Nothing puts the stubbed `ref` functions back: doing so is what raced
+    // emnapi's own unreference.
+    t.false(code.includes('__wasiWorkerRefRestorers'))
+    t.false(code.includes('__restoreWasiWorkerRef'))
+  })
+}
+
+test('the node loader keeps its pool workers unreferenced for life', (t) => {
   const code = createWasiBinding('test', '@scope/test')
-  t.true(
-    code.includes(
-      'const publicPortRef = kPublicPort ? worker[kPublicPort].ref : undefined',
-    ),
-  )
-  t.true(
-    code.includes(
-      'const handleRef = kHandle ? worker[kHandle].ref : undefined',
-    ),
-  )
-  // Captured before the stubs replace them, and restored by the undo the
-  // disposal path runs.
-  t.true(
-    code.indexOf('const publicPortRef =') <
-      code.indexOf('worker[kPublicPort].ref = () => {}'),
-  )
-  t.true(
-    code.indexOf('const handleRef =') <
-      code.indexOf('worker[kHandle].ref = () => {}'),
-  )
-  const restorer = code.slice(
-    code.indexOf('__wasiWorkerRefRestorers.set(worker, () => {'),
-  )
-  t.true(restorer.includes('worker[kPublicPort].ref = publicPortRef'))
-  t.true(restorer.includes('worker[kHandle].ref = handleRef'))
-  // The idle binding still must not hold the process open.
-  t.true(
-    code.indexOf('worker.unref()') <
-      code.indexOf('__wasiWorkerRefRestorers.set(worker, () => {'),
-  )
+  t.true(code.includes('worker[kPublicPort].ref = () => {}'))
+  t.true(code.includes('worker[kHandle].ref = () => {}'))
+  t.true(code.includes('worker.unref()'))
+  // An idle binding must not hold the process open, and disposal does not
+  // reverse that — `__keepEventLoopAliveUntil` covers the termination instead.
+  t.false(code.includes('.ref = publicPortRef'))
+  t.false(code.includes('.ref = handleRef'))
 })
 
 // `examples/custom-async-runtime` asserts a threadless loader never mentions

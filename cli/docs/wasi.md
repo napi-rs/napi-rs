@@ -340,11 +340,18 @@ Every termination goes through the emnapi thread manager
 (`PThread.terminateWorker`) rather than a bare `worker.terminate()`. The manager
 counts a worker exit as expected only for terminations it performed itself and
 reports any other one as a worker failure — a throw that lands inside Node.js's
-`exit` emit and strands the promise the termination depends on. Disposal also
-puts back the handle `ref` functions the loader stubbed out, so the pending
-terminations keep the event loop alive until they settle and `await dispose()`
-resolves even as the last statement of a script. A binding that is never
-disposed stays unreferenced and does not hold an idle process open.
+`exit` emit and strands the promise the termination depends on. The manager is
+captured while the emnapi module is being created, before the wasm is loaded, so
+it is reachable even from the initialization rollback — the one path where
+instantiation never returned.
+
+Disposal holds the event loop open with a timer of its own until the
+terminations settle, so `await dispose()` resolves even as the last statement of
+a script. The pool workers cannot do that themselves: they are unreferenced so
+an idle binding never keeps a process alive, and emnapi unreferences them again
+whenever one reports that its thread is ready. The timer is released the moment
+the terminations settle, and a binding that is never disposed still does not
+hold an idle process open.
 
 When type generation is disabled, the generated browser root exposes the
 binding as its default export. `napi new` also removes the template's
