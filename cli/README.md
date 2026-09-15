@@ -56,10 +56,23 @@ runtime down while the environment can still call into JavaScript. A registered
 `AsyncRuntime` backend quiesces there and its cancelled tasks reject their
 promises; the built-in Tokio runtime only _starts_ draining, so with it a
 promise whose task is still running can still be left pending. Settle in-flight
-work before disposing if that matters. Concurrent calls share one
-promise, successful disposal is idempotent, and a failed cleanup phase can be
-retried by calling the same function again. Do not call addon exports after
-disposal completes.
+work before disposing if that matters.
+
+The same preparation runs on a direct `Context.destroy()`. `destroy()` disables
+JavaScript calls before it runs its cleanup hooks, and the threadsafe function's
+hook then drops whatever is still queued, so every generated loader shadows
+`destroy` on the emnapi context it creates: an embedder, a test harness, or
+emnapi's own `beforeExit` auto-destroy gets the barrier too, instead of silently
+discarding the settlements. Prefer the dispose symbol when you can yield — only
+`dispose()` waits for settlements queued from another thread. A `destroy()` that
+re-enters from a promise hook while the barrier is still running is a no-op,
+because the frame that started the barrier destroys the moment it returns; a
+`dispose()` that re-enters the same way joins the disposal already running,
+since its frame yields for the settlement drain before it destroys.
+
+Concurrent calls share one promise, successful disposal is idempotent, and a
+failed cleanup phase can be retried by calling the same function again. Do not
+call addon exports after disposal completes.
 
 See [WASI targets and loaders](./docs/wasi.md) for threaded, threadless,
 browser, and workerd packaging behavior.

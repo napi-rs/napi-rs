@@ -815,7 +815,11 @@ impl Env {
   pub fn fatal_exception(&self, err: Error) {
     unsafe {
       let js_error = JsError::from(err).into_value(self.0);
-      debug_assert!(sys::napi_fatal_exception(self.0, js_error) == sys::Status::napi_ok);
+      let status = sys::napi_fatal_exception(self.0, js_error);
+      debug_assert!(
+        status == sys::Status::napi_ok,
+        "napi_fatal_exception failed"
+      );
     };
   }
 
