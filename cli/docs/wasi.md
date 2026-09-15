@@ -336,6 +336,12 @@ Consumers that need deterministic cleanup before process exit should use the
 deferred loader and call its `dispose()` function, or the `dispose` returned by
 `createInstance()`.
 
+Every termination goes through the emnapi thread manager
+(`PThread.terminateWorker`) rather than a bare `worker.terminate()`. The manager
+counts a worker exit as expected only for terminations it performed itself and
+reports any other one as a worker failure — a throw that lands inside Node.js's
+`exit` emit and strands the promise the termination depends on.
+
 When type generation is disabled, the generated browser root exposes the
 binding as its default export. `napi new` also removes the template's
 `index.d.ts` and declaration metadata instead of publishing stale template

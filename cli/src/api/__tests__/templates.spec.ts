@@ -492,6 +492,35 @@ for (const { name, code, install } of asyncRuntimeLoaderCases) {
   })
 }
 
+// `@emnapi/wasi-threads` records a worker exit as expected only when ITS thread
+// manager performed the termination. A bare `worker.terminate()` reaches the
+// manager's own 'exit' listener, which reports the exit as a worker failure and
+// rethrows inside the emit — aborting the `once('exit')` that backs the
+// terminate promise, so `dispose()` never settles.
+for (const { name, code } of [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+]) {
+  test(`pool workers are terminated through the thread manager: ${name}`, (t) => {
+    const start = code.indexOf('function __terminateWasiWorkers() {')
+    t.true(start > 0)
+    const body = code.slice(
+      start,
+      code.indexOf('function __finishWasiDisposal() {'),
+    )
+    const mark = body.indexOf('threadManager.terminateWorker(worker)')
+    const terminate = body.indexOf('result = worker.terminate()')
+    t.true(terminate > 0)
+    t.true(mark > 0, 'the termination has to be marked on the thread manager')
+    t.true(mark < terminate, 'and marked before the worker is terminated')
+    // Not `terminateAllThreads()`: it recreates the pool it just shut down.
+    t.false(body.includes('terminateAllThreads'))
+    // `terminateWorker` leaves a reporter behind that logs every message still
+    // queued on the port, which Node flushes on exit.
+    t.true(body.includes('worker.onmessage = undefined'))
+  })
+}
+
 test('asyncRuntime deferred loader registers per instance', (t) => {
   const code = asyncRuntimeDeferredCode
   assertValidJS(t, code, 'deferred asyncRuntime')

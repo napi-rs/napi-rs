@@ -1,0 +1,45 @@
+import { spawnSync } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import test from 'ava'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const script = join(__dirname, 'wasi-worker-termination.js')
+
+/**
+ * Only the threaded flavor has an async-work worker pool, so only it can hit
+ * any of this. The threadless lanes pin `NAPI_RS_WASI_FLAVOR`.
+ */
+const isThreadedWasi =
+  Boolean(process.env.WASI_TEST) &&
+  process.env.NAPI_RS_WASI_FLAVOR !== 'wasm32-wasip1'
+
+function runMode(mode: string) {
+  return spawnSync(process.execPath, [script, mode], {
+    encoding: 'utf8',
+    env: process.env,
+    timeout: 60_000,
+  })
+}
+
+/**
+ * `@emnapi/wasi-threads` records a worker exit as expected only when its own
+ * thread manager terminated the worker. A bare `worker.terminate()` reaches the
+ * manager's 'exit' listener instead, which reports the exit as a worker failure
+ * and rethrows inside the emit — aborting the `once('exit')` that backs the
+ * terminate promise. Disposal then waits on a promise that can no longer settle,
+ * and the process dies with an uncaught exception.
+ */
+test.skipIf(!isThreadedWasi)(
+  'disposing after async work settles instead of failing the pool workers',
+  (t) => {
+    const result = runMode('keep-alive')
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /wasi dispose settled/)
+    t.notRegex(result.stderr, /sent an error!/)
+  },
+)
