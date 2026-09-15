@@ -98,7 +98,7 @@ let __emnapiContext
 const __wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
 const __wasiWorkers = new Set()
 // Flavors that keep an idle binding from holding the process open stub the
-// handle `ref` functions Node's own `Worker#terminate` uses, which also stops
+// handle `ref` functions a worker's own `terminate()` uses, which also stops
 // a pending termination from keeping the loop alive long enough to settle.
 // Those flavors register an undo here; it stays empty everywhere else.
 const __wasiWorkerRefRestorers = new WeakMap()
@@ -452,7 +452,7 @@ function __unrefWasiWorker(worker) {
  * `@emnapi/wasi-threads` counts a worker exit as expected only when its own
  * thread manager performed the termination. A bare `worker.terminate()` reaches
  * the manager's `exit` listener instead, which reports
- * `worker (tid = N) sent an error! Worker stopped with exit code 1` and rethrows
+ * `worker (tid = N) sent an error! ... stopped with exit code 1` and rethrows
  * inside the emit — aborting the `once('exit')` that backs the terminate
  * promise, so disposal never settles and the process dies with an uncaught
  * exception. Mark the termination through the manager first.

@@ -559,6 +559,35 @@ test('the node loader keeps the ref functions it stubs out', (t) => {
   )
 })
 
+// `examples/custom-async-runtime` asserts a threadless loader never mentions
+// `Worker`, so nothing in the *shared* prelude may name the class — comments
+// included. That lane needs a wasm build to fail; this does not.
+for (const { name, code } of [
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding('test', '@scope/test', 4000, 65536, false),
+  },
+  {
+    name: 'browser esm threadless',
+    code: createWasiBrowserBinding(
+      'test',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ),
+  },
+  { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
+]) {
+  test(`threadless loaders never name Worker: ${name}`, (t) => {
+    t.notRegex(code, /\bWorker\b/)
+    t.notRegex(code, /node:worker_threads/)
+  })
+}
+
 test('asyncRuntime deferred loader registers per instance', (t) => {
   const code = asyncRuntimeDeferredCode
   assertValidJS(t, code, 'deferred asyncRuntime')
