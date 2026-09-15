@@ -626,6 +626,50 @@ export function createWasiDeferredBindingTypeDef(
   return typeDef.replace(rootBindingType, 'Record<string, unknown>')
 }
 
+/**
+ * Normalize a rendered `.d.ts` header. The generated body is concatenated
+ * straight onto it, so it always ends with a blank line — and an empty header
+ * stays empty, so a file with no header keeps no leading whitespace.
+ */
+function finalizeTypeDefHeader(header: string) {
+  let normalized = header
+  if (normalized && !normalized.endsWith('\n')) {
+    normalized += '\n'
+  }
+  if (normalized && !normalized.endsWith('\n\n')) {
+    normalized += '\n'
+  }
+  return normalized
+}
+
+/**
+ * Whether a build's declaration file should declare `__napiBindingTarget`.
+ *
+ * The export exists only on a generated loader, so the declaration has to
+ * follow the loaders a build actually writes. This mirrors both writers:
+ *
+ * - {@link writeJsBinding} writes the root loader for `--platform` without
+ *   `--no-js-binding` (`rootLoaderCandidate`), and then only when the build has
+ *   runtime exports or a WASI flavor to fall back to.
+ * - `Builder.writeWasiBinding` writes a flavor's loader set when that flavor is
+ *   the build target, or when an earlier build of it left metadata on disk
+ *   (`emitsWasiLoader`). A merely configured flavor is skipped, and a build
+ *   that skips every flavor emits no loader to carry the export.
+ *
+ * The export list is only known once typegen has run, and typegen writes the
+ * declaration file itself, so the decision comes back as a predicate over that
+ * list instead of a flag taken up front.
+ */
+export function bindingTargetDeclarationPredicate(input: {
+  rootLoaderCandidate: boolean
+  hasWasiFallback: boolean
+  emitsWasiLoader: boolean
+}): (exports: readonly string[]) => boolean {
+  return (exports) =>
+    input.emitsWasiLoader ||
+    (input.rootLoaderCandidate && (input.hasWasiFallback || exports.length > 0))
+}
+
 export function prepareWasiBindingTypeDef(
   source: string,
   sourcePath: string,
@@ -1483,6 +1527,31 @@ class Builder {
     return entries
   }
 
+  /**
+   * Whether {@link Builder.writeWasiBinding} will actually write a WASI loader
+   * set. A declared WASI target is not enough: a non-WASI build only
+   * regenerates the flavors whose previous loader metadata is still on disk and
+   * skips the rest, so a configured-but-never-built flavor leaves no loader to
+   * carry `__napiBindingTarget`.
+   *
+   * Safe to call from {@link Builder.generateTypeDef}: the metadata probe reads
+   * `finalOutputDir`, which the staging swap never touches, and nothing writes
+   * those files between this probe and `writeWasiBinding`.
+   */
+  private async willEmitWasiLoader() {
+    if (this.target.platform === 'wasi') {
+      return true
+    }
+    for (const wasiTarget of this.config.targets.filter(
+      (target) => target.platform === 'wasi',
+    )) {
+      if (await this.readExistingWasiBindingMetadata(wasiTarget)) {
+        return true
+      }
+    }
+    return false
+  }
+
   private async readExistingWasiBindingMetadata(wasiTarget: Target) {
     const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
     const bindingPath = join(
@@ -2239,12 +2308,17 @@ class Builder {
     }
 
     // Declare the loader export only for builds that actually emit a loader:
-    // the native root loader (`--platform` without `--no-js-binding`) or any
-    // WASI flavor loader set.
-    const emitsLoader =
-      (Boolean(this.options.platform) && !this.options.noJsBinding) ||
-      this.target.platform === 'wasi' ||
-      this.config.targets.some((target) => target.platform === 'wasi')
+    // the native root loader (`--platform` without `--no-js-binding`) or a WASI
+    // flavor loader set this build writes. Whether the root loader is written
+    // also depends on the exports typegen is about to produce, so the decision
+    // travels as a predicate — see `bindingTargetDeclarationPredicate`.
+    const declareBindingTarget = bindingTargetDeclarationPredicate({
+      rootLoaderCandidate:
+        Boolean(this.options.platform) && !this.options.noJsBinding,
+      // the same fallback list `writeJsBinding` is handed
+      hasWasiFallback: this.declaredWasiFlavors().length > 0,
+      emitsWasiLoader: await this.willEmitWasiLoader(),
+    })
 
     const { exports, dts, dtsWithTypeImports } = await generateTypeDef({
       typeDefDir,
@@ -2256,7 +2330,7 @@ class Builder {
       runtimeStringEnum:
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
-      declareBindingTarget: emitsLoader,
+      declareBindingTarget,
     })
     this.typeDefWithTypeImports = dtsWithTypeImports
 
@@ -2799,8 +2873,13 @@ export interface GenerateTypeDefOptions {
    * builds that emit a loader; a build that emits none declares nothing. The
    * declared union covers every artifact a loader can hand back, not only the
    * targets this package builds — see {@link BINDING_TARGET_TYPE_UNION}.
+   *
+   * Whether the root loader is written depends on the exports this build
+   * produced, which only typegen knows, so a predicate may be passed instead
+   * of a flag; it is called with the generated export list. See
+   * {@link bindingTargetDeclarationPredicate}.
    */
-  declareBindingTarget?: boolean
+  declareBindingTarget?: boolean | ((exports: readonly string[]) => boolean)
 }
 
 /**
@@ -2816,13 +2895,14 @@ export async function generateTypeDef(
   dts: string
   dtsWithTypeImports: string
 }> {
-  if (!(await dirExistsAsync(options.typeDefDir))) {
-    return { exports: [], dts: '', dtsWithTypeImports: '' }
-  }
-
   let header = ''
   let dts = ''
   let exports: string[] = []
+
+  const declaresBindingTarget = (generated: readonly string[]) =>
+    typeof options.declareBindingTarget === 'function'
+      ? options.declareBindingTarget(generated)
+      : Boolean(options.declareBindingTarget)
 
   if (!options.noDtsHeader) {
     const dtsHeader = options.dtsHeader ?? options.configDtsHeader
@@ -2842,11 +2922,33 @@ export async function generateTypeDef(
     }
   }
 
+  // A crate can register every export from a `#[napi(module_exports)]` hook
+  // and emit no `.type` file, and the loader written for it still exports
+  // `__napiBindingTarget`. Declare it, so the declaration file describes the
+  // loader that was written rather than staying empty.
+  const bindingTargetOnlyTypeDef = () => {
+    if (!declaresBindingTarget([])) {
+      return { exports: [], dts: '', dtsWithTypeImports: '' }
+    }
+    const declarationOnly = finalizeTypeDefHeader(
+      header + BINDING_TARGET_TYPE_DECLARATION,
+    )
+    return {
+      exports: [],
+      dts: declarationOnly,
+      dtsWithTypeImports: declarationOnly,
+    }
+  }
+
+  if (!(await dirExistsAsync(options.typeDefDir))) {
+    return bindingTargetOnlyTypeDef()
+  }
+
   const files = await readdirAsync(options.typeDefDir, { withFileTypes: true })
 
   if (!files.length) {
     debug('No type def files found. Skip generating dts file.')
-    return { exports: [], dts: '', dtsWithTypeImports: '' }
+    return bindingTargetOnlyTypeDef()
   }
 
   const typeDefFiles = files
@@ -2901,16 +3003,11 @@ export type TypedArray =
 `
   }
 
-  if (options.declareBindingTarget) {
+  if (declaresBindingTarget(exports)) {
     header += BINDING_TARGET_TYPE_DECLARATION
   }
 
-  if (header && !header.endsWith('\n')) {
-    header += '\n'
-  }
-  if (header && !header.endsWith('\n\n')) {
-    header += '\n'
-  }
+  header = finalizeTypeDefHeader(header)
   dts = header + dts
   const dtsWithTypeImports = rewriteTypeImportReferences(
     header + dtsWithTypeImportMarkers,
