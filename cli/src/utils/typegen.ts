@@ -1405,7 +1405,7 @@ export function rewriteUnboundNodeGlobalTypeQueries(source: string): string {
 
 /**
  * One top-level `export … const|let|var <name>` found by
- * {@link findExportedVariableDeclarations}.
+ * {@link scanExportedName}.
  */
 export interface ExportedVariableDeclaration {
   /**
@@ -1438,26 +1438,55 @@ export interface ExportedVariableDeclaration {
   type?: string
 }
 
+/** What {@link scanExportedName} reads out of one declaration source. */
+export interface ExportedNameScan {
+  /**
+   * Whether the file exports by assignment (`export = x`) at the top level,
+   * which is what a build without `napi-derive`'s `type-def` feature emits.
+   * Such a file cannot carry a named export at all.
+   *
+   * `export default x` parses as the same node and does not count: only
+   * `isExportEquals` does.
+   */
+  exportsByAssignment: boolean
+  /**
+   * Whether a consumer of this file can `import { <name> }` from it — the
+   * declarations below, plus the forms that export the name without declaring
+   * it there: `export { name }` over a plain `declare const`, an alias
+   * (`export { other as name }`), and a re-export from another module. A
+   * second export of the name beside any of them is a TS2323/TS2484 conflict.
+   */
+  isExported: boolean
+  /**
+   * The exported variable statements that declare `name`, in source order.
+   * Only these carry a span a caller can rewrite; the other export forms above
+   * have no declaration here to replace.
+   */
+  declarations: ExportedVariableDeclaration[]
+}
+
 /**
- * Every declaration of `name` a consumer of this declaration file can import:
- * a variable statement at the top level of the file carrying an `export`
- * modifier, in source order.
+ * How a declaration source exports `name`, and whether it exports by
+ * assignment instead.
  *
- * Parsed rather than pattern-matched, because a declaration file spells the
- * name in places that are not an export of it. `napi-derive` copies a crate's
- * `js_doc` through verbatim, so a doc comment can name it; a `--dts-header`
- * may carry a commented-out example of the declaration, or a member of a
- * `declare namespace` / `declare module` block, which is an export of that
- * block and not of the file. Importing any of those yields TS2305, so none of
- * them may count as already declaring the name.
+ * Parsed rather than pattern-matched, because a declaration file spells both
+ * in places that are not an export of it. `napi-derive` copies a crate's
+ * `js_doc` through verbatim, so a doc comment can name either; a
+ * `--dts-header` may carry a commented-out example of the declaration or of
+ * `export = binding`, or a member of a `declare namespace` / `declare module`
+ * block, which is an export of that block and not of the file. Importing any
+ * of those yields TS2305, and a commented-out `export =` is not an export
+ * assignment at all.
  *
- * `const`, `let` and `var` all count: what matters is that a second
- * declaration beside one would be a TS2451 redeclaration.
+ * `const`, `let` and `var` all count as declarations: what matters is that a
+ * second declaration beside one would be a TS2451 redeclaration.
+ *
+ * One parse answers both questions, because every caller asks both.
  */
-export function findExportedVariableDeclarations(
+export function scanExportedName(
   source: string,
   name: string,
-): ExportedVariableDeclaration[] {
+): ExportedNameScan {
   const typeScript = loadTypeScript()
   // Parsed leniently, unlike `parseDeclarationSource` below: this runs over
   // whatever a project put in its `--dts-header` and over declaration files
@@ -1471,7 +1500,26 @@ export function findExportedVariableDeclarations(
     typeScript.ScriptKind.TS,
   )
   const declarations: ExportedVariableDeclaration[] = []
+  let exportsByAssignment = false
+  let isExported = false
   for (const statement of sourceFile.statements) {
+    if (
+      typeScript.isExportAssignment(statement) &&
+      statement.isExportEquals === true
+    ) {
+      exportsByAssignment = true
+      continue
+    }
+    if (
+      typeScript.isExportDeclaration(statement) &&
+      statement.exportClause !== undefined &&
+      typeScript.isNamedExports(statement.exportClause)
+    ) {
+      isExported ||= statement.exportClause.elements.some(
+        (element) => element.name.text === name,
+      )
+      continue
+    }
     if (
       !typeScript.isVariableStatement(statement) ||
       !statement.modifiers?.some(
@@ -1498,7 +1546,11 @@ export function findExportedVariableDeclarations(
       break
     }
   }
-  return declarations
+  return {
+    exportsByAssignment,
+    isExported: isExported || declarations.length > 0,
+    declarations,
+  }
 }
 
 /**
