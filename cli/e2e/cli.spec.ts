@@ -25,7 +25,18 @@ const rootDirPosix = posixJoin(
   '..',
 )
 
-test.before(async () => {
+/**
+ * The hooks below `npm install` the packed CLI and the tests run real cargo
+ * builds. On the Windows runners a single step takes minutes while nothing
+ * completes, which trips ava's global 5-minute *inactivity* timer. Bounding
+ * each step with `t.timeout` mutes that timer for the given period (ava emits
+ * `test-timeout-configured`, which the runner's timeout trigger ignores for),
+ * so a slow-but-progressing step no longer fails the whole file.
+ */
+const E2E_STEP_TIMEOUT = 15 * 60 * 1000
+
+test.before(async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   await execAsync(`yarn workspace @napi-rs/cli build`, {
     cwd: rootDir,
   })
@@ -35,6 +46,7 @@ test.before(async () => {
 })
 
 test.beforeEach(async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const random = Math.random().toString(36).slice(2)
   t.context.context = join(tmpdir(), 'napi-rs-cli-e2e', random)
   await mkdir(t.context.context, { recursive: true })
@@ -45,10 +57,12 @@ test.beforeEach(async (t) => {
 })
 
 test.afterEach(async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   await rm(t.context.context, { recursive: true, force: true })
 })
 
 test('should print help', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const bin = join(t.context.context, 'node_modules', '.bin')
   await execAsync(`${bin}/napi --help`)
   await execAsync(`${bin}/napi build --help`)
@@ -62,6 +76,7 @@ test('should print help', async (t) => {
 })
 
 test('should be able to build a project', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const { context } = t.context
   await writeCargoToml(context)
   await writePackageJson(context, {})
@@ -77,6 +92,7 @@ test('should be able to build a project', async (t) => {
 })
 
 test('should exit non-zero when pipe command fails', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const { context } = t.context
   await writeCargoToml(context)
   await writePackageJson(context, {})
@@ -99,6 +115,7 @@ test('should exit non-zero when pipe command fails', async (t) => {
 })
 
 test('should throw error when duplicate targets are provided', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const { context } = t.context
   await writeCargoToml(context)
   await writePackageJson(context, {
@@ -161,6 +178,7 @@ const RESERVED_NAME_ERROR = /reserved by the generated binding loader/
 // `this.error(...)` to `context.stdout`), so that is the stream to match.
 
 test('a build that emits no loader does not reserve __napiBindingTarget', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const { context } = t.context
   await writeCargoToml(context)
   await writeFile(join(context, 'src', 'lib.rs'), BINDING_TARGET_LIB_RS)
@@ -195,6 +213,7 @@ test('a build that emits no loader does not reserve __napiBindingTarget', async 
 })
 
 test('a regenerated WASI loader still reserves __napiBindingTarget', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
   const { context } = t.context
   await writeCargoToml(context)
   await writeFile(join(context, 'src', 'lib.rs'), BINDING_TARGET_LIB_RS)
