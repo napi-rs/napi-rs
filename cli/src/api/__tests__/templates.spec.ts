@@ -801,7 +801,7 @@ test('native loaders export the artifact that actually loaded', (t) => {
   t.true(cjs.includes("let __napiLoadedBindingTarget = 'native'"))
   t.true(
     cjs.includes(
-      'module.exports.__napiBindingTarget = __napiLoadedBindingTarget',
+      '__napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)',
     ),
   )
   // one assignment per candidate: 2 flavors x (local loader + flavor package)
@@ -893,31 +893,95 @@ test('WASI loaders self-identify their flavor', (t) => {
   )
 })
 
+const STAMP_HELPER_DECL =
+  'function __napiStampBindingTarget(exportsObject, target) {'
+const WASI_STAMP_CALL =
+  '__napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)'
+
 test('browser and deferred loaders carry the flavor on the binding they hand out', (t) => {
   // `export default __napiModule.exports` and `instantiate()` hand out the raw
   // emnapi exports object, which a named module export does not travel with.
   const browser = createWasiBrowserBinding('test')
   assertValidJS(t, browser, 'browser binding target on exports')
-  t.true(
-    browser.includes(
-      '__napiModule.exports.__napiBindingTarget = __napiBindingTarget',
-    ),
-  )
+  t.true(browser.includes(WASI_STAMP_CALL))
   const deferred = createWasiDeferredBrowserBinding('test')
   assertValidJS(t, deferred, 'deferred binding target on exports')
   t.is(
-    deferred.split(
-      '__napiModule.exports.__napiBindingTarget = __napiBindingTarget',
-    ).length - 1,
+    deferred.split(WASI_STAMP_CALL).length - 1,
     1,
     'every instance created by __createInstance must be marked exactly once',
   )
   // the marker is assigned before the instance escapes to the caller
   t.true(
-    deferred.indexOf(
-      '__napiModule.exports.__napiBindingTarget = __napiBindingTarget',
-    ) < deferred.indexOf('exports: __napiModule.exports'),
+    deferred.indexOf(WASI_STAMP_CALL) <
+      deferred.indexOf('exports: __napiModule.exports'),
   )
+})
+
+test('every mutating loader stamps the binding target through the guard', (t) => {
+  const cases: Array<{ name: string; code: string; call?: string }> = [
+    {
+      name: 'root cjs',
+      code: createCjsBinding('test', '@scope/test', ['sum'], '1.0.0'),
+      call: '__napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)',
+    },
+    {
+      // the call itself is appended by `writeWasiBindingForTarget` (build.ts),
+      // beside its `module.exports = __napiModule.exports`
+      name: 'wasi node cjs',
+      code: createWasiBinding('test', '@scope/test'),
+    },
+    {
+      name: 'wasi browser esm',
+      code: createWasiBrowserBinding('test'),
+      call: WASI_STAMP_CALL,
+    },
+    {
+      name: 'wasi deferred esm',
+      code: createWasiDeferredBrowserBinding('test'),
+      call: WASI_STAMP_CALL,
+    },
+  ]
+  for (const { name, code, call } of cases) {
+    assertValidJS(t, code, `${name} stamp guard`)
+    t.is(
+      code.split(STAMP_HELPER_DECL).length - 1,
+      1,
+      `${name} must emit the guard exactly once`,
+    )
+    if (call) {
+      t.is(
+        code.split(call).length - 1,
+        1,
+        `${name} must stamp exactly once, through the guard`,
+      )
+    }
+    // an addon's exports object is user-controlled: nothing may write the
+    // marker onto it without going through the guard
+    t.false(
+      code.includes('module.exports.__napiBindingTarget ='),
+      `${name} must not assign the marker onto module.exports directly`,
+    )
+    t.false(
+      code.includes('__napiModule.exports.__napiBindingTarget ='),
+      `${name} must not assign the marker onto the emnapi exports directly`,
+    )
+  }
+})
+
+test('the deferred loader marks the binding without requiring an extensible exports object', (t) => {
+  const deferred = createWasiDeferredBrowserBinding('test')
+  assertValidJS(t, deferred, 'deferred guarded stamp')
+  // a `#[napi(module_exports)]` hook may have sealed or frozen this object
+  t.true(deferred.includes('if (!Object.isExtensible(exportsObject)) {'))
+  // and it may have claimed the name, which is a hard error, not a silent
+  // overwrite — with a stable `code` to branch on
+  t.true(
+    deferred.includes(
+      "Object.prototype.hasOwnProperty.call(exportsObject, '__napiBindingTarget')",
+    ),
+  )
+  t.true(deferred.includes("error.code = 'ERR_NAPI_BINDING_TARGET_CONFLICT'"))
 })
 
 test('NAPI_RS_NATIVE_LIBRARY_PATH keeps the flavor its override reports', (t) => {

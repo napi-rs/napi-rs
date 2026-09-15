@@ -83,6 +83,16 @@ const binding = await instantiate(wasmModule)
 binding.__napiBindingTarget // 'wasm32-wasip1'
 ```
 
+An addon that seals or freezes its exports in a `#[napi(module_exports)]` hook
+keeps only the module-level export: the loader skips the stamp on the binding
+object rather than failing the load.
+
+The name is reserved. `napi build` rejects an export of that name it can see in
+the type-def metadata; a name attached dynamically from a
+`#[napi(module_exports)]` hook is invisible at build time, so the loader rejects
+it at load with `ERR_NAPI_BINDING_TARGET_CONFLICT` instead of silently
+overwriting it.
+
 Use it to branch on capabilities a native addon has and a WASI build does not
 (worker threads, blocking calls, host timers) without probing:
 

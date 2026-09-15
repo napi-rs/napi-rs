@@ -62,6 +62,7 @@ import {
   createCjsBinding,
   createEsmBinding,
   NAPI_BINDING_TARGET_EXPORT,
+  NAPI_BINDING_TARGET_STAMP_FN,
 } from './templates/index.js'
 import {
   createWasiBinding,
@@ -2545,7 +2546,7 @@ class Builder {
     assertBindingTargetIdentFree(idents)
     const exportsCode = [
       `module.exports = __napiModule.exports`,
-      `module.exports.${NAPI_BINDING_TARGET_EXPORT} = __napiBindingTarget`,
+      `${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiBindingTarget)`,
       ...idents.map(
         (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
       ),

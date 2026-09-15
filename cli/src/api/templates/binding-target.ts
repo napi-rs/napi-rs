@@ -1,0 +1,100 @@
+/**
+ * The `__napiBindingTarget` contract, shared by every generated loader.
+ *
+ * This module deliberately imports nothing: both `js-binding.ts` and
+ * `load-wasi-template.ts` depend on it, and `load-wasi-template.ts` otherwise
+ * has no top-level imports at all. Keeping the contract at the bottom of the
+ * graph is what lets both templates emit the same runtime helper without
+ * duplicating its source.
+ */
+
+/**
+ * Named export every generated loader uses to report which binding artifact
+ * actually loaded: `'native'` for a `.node` addon, otherwise the
+ * `platformArchABI` of the WASI flavor (`'wasm32-wasi'`, `'wasm32-wasip1'`).
+ */
+export const NAPI_BINDING_TARGET_EXPORT = '__napiBindingTarget'
+
+/**
+ * `code` on the error the emitted loader throws when the binding it loaded
+ * already owns {@link NAPI_BINDING_TARGET_EXPORT}. Named after the other
+ * loader-thrown codes (`ERR_NAPI_WASI_LIFECYCLE_REENTRY`,
+ * `ERR_NAPI_WASI_CLEANUP_PENDING`, `ERR_NAPI_ASYNC_RUNTIME_BINDING_MISMATCH`)
+ * so a consumer can branch on it instead of on the message.
+ */
+export const ERR_NAPI_BINDING_TARGET_CONFLICT =
+  'ERR_NAPI_BINDING_TARGET_CONFLICT'
+
+/** Name of the runtime helper {@link BINDING_TARGET_STAMP_HELPER} declares. */
+export const NAPI_BINDING_TARGET_STAMP_FN = '__napiStampBindingTarget'
+
+/**
+ * Reject an export of {@link NAPI_BINDING_TARGET_EXPORT} at build time.
+ *
+ * `idents` is the type-def export list, so this only sees what napi-rs type
+ * generation reports. A name attached imperatively by a
+ * `#[napi(module_exports)]` hook emits no type-def entry and is invisible here
+ * — the same blind spot `typeDefAvailable` documents for the sibling check.
+ * {@link BINDING_TARGET_STAMP_HELPER} is what catches those, at load time.
+ *
+ * What this check is load-bearing for: a duplicated ident would emit a
+ * duplicate `export const` in the ESM loader (a syntax error), and would make
+ * the CJS loader overwrite its own reported target.
+ */
+export function assertBindingTargetIdentFree(idents: string[]): void {
+  if (idents.indexOf(NAPI_BINDING_TARGET_EXPORT) !== -1) {
+    throw new Error(
+      `\`${NAPI_BINDING_TARGET_EXPORT}\` is reserved by the generated binding loader. Rename the napi export, e.g. #[napi(js_name = "...")].`,
+    )
+  }
+}
+
+/**
+ * Runtime helper emitted into every loader that stamps
+ * {@link NAPI_BINDING_TARGET_EXPORT} onto an exports object it does not own.
+ *
+ * Four outcomes, in order:
+ *
+ * | exports object state            | result                              |
+ * | ------------------------------- | ----------------------------------- |
+ * | own property, same value        | no-op                               |
+ * | own property, different value   | throw, `ERR_NAPI_BINDING_TARGET_CONFLICT` |
+ * | non-extensible, no own property | skip                                |
+ * | otherwise                       | stamp                               |
+ *
+ * The equal-value short circuit is required, not cosmetic: the root CJS loader
+ * aliases the object it loaded, so a `NAPI_RS_NATIVE_LIBRARY_PATH` override
+ * that is itself a generated WASI loader — and every WASI fallback candidate —
+ * hands back an object already carrying the value about to be stamped.
+ *
+ * `Object.defineProperty` is not a workaround for the non-extensible case: it
+ * throws there too, so it is strictly harder to satisfy than an assignment.
+ *
+ * Node 12 compatible (no optional chaining, no nullish coalescing) and valid in
+ * both sloppy CJS and strict ESM, because all four loaders emit it verbatim.
+ */
+export const BINDING_TARGET_STAMP_HELPER = `function ${NAPI_BINDING_TARGET_STAMP_FN}(exportsObject, target) {
+  if (
+    Object.prototype.hasOwnProperty.call(exportsObject, '${NAPI_BINDING_TARGET_EXPORT}')
+  ) {
+    if (exportsObject.${NAPI_BINDING_TARGET_EXPORT} === target) {
+      // Already ours: the root entry aliases the object it loaded, so a WASI
+      // fallback candidate — or a \`NAPI_RS_NATIVE_LIBRARY_PATH\` override that
+      // is a generated loader — arrives already stamped with this same value.
+      return
+    }
+    const error = new Error(
+      '\`${NAPI_BINDING_TARGET_EXPORT}\` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
+    )
+    error.code = '${ERR_NAPI_BINDING_TARGET_CONFLICT}'
+    throw error
+  }
+  if (!Object.isExtensible(exportsObject)) {
+    // A \`#[napi(module_exports)]\` hook may seal or freeze this object
+    // (\`Object::seal\` / \`Object::freeze\`). Reporting the artifact is metadata,
+    // never a reason to fail an otherwise successful load; the loader's own
+    // \`${NAPI_BINDING_TARGET_EXPORT}\` module export still reports it.
+    return
+  }
+  exportsObject.${NAPI_BINDING_TARGET_EXPORT} = target
+}`

@@ -7,6 +7,31 @@ import {
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { Buffer } from 'buffer'
 export const __napiBindingTarget = 'wasm32-wasip1'
+function __napiStampBindingTarget(exportsObject, target) {
+  if (
+    Object.prototype.hasOwnProperty.call(exportsObject, '__napiBindingTarget')
+  ) {
+    if (exportsObject.__napiBindingTarget === target) {
+      // Already ours: the root entry aliases the object it loaded, so a WASI
+      // fallback candidate — or a `NAPI_RS_NATIVE_LIBRARY_PATH` override that
+      // is a generated loader — arrives already stamped with this same value.
+      return
+    }
+    const error = new Error(
+      '`__napiBindingTarget` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
+    )
+    error.code = 'ERR_NAPI_BINDING_TARGET_CONFLICT'
+    throw error
+  }
+  if (!Object.isExtensible(exportsObject)) {
+    // A `#[napi(module_exports)]` hook may seal or freeze this object
+    // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
+    // never a reason to fail an otherwise successful load; the loader's own
+    // `__napiBindingTarget` module export still reports it.
+    return
+  }
+  exportsObject.__napiBindingTarget = target
+}
 
 /**
  * Deferred, workerd-safe instantiation: no top-level I/O, no compile-from-bytes.
@@ -911,7 +936,7 @@ async function __createInstance(
       }))
     // `instantiate()` and `createInstance().exports` hand out this object; a
     // named module export does not travel with it.
-    __napiModule.exports.__napiBindingTarget = __napiBindingTarget
+    __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }

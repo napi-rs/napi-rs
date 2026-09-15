@@ -9,6 +9,31 @@ import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'
 
 export const __napiBindingTarget = 'wasm32-wasi'
+function __napiStampBindingTarget(exportsObject, target) {
+  if (
+    Object.prototype.hasOwnProperty.call(exportsObject, '__napiBindingTarget')
+  ) {
+    if (exportsObject.__napiBindingTarget === target) {
+      // Already ours: the root entry aliases the object it loaded, so a WASI
+      // fallback candidate — or a `NAPI_RS_NATIVE_LIBRARY_PATH` override that
+      // is a generated loader — arrives already stamped with this same value.
+      return
+    }
+    const error = new Error(
+      '`__napiBindingTarget` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
+    )
+    error.code = 'ERR_NAPI_BINDING_TARGET_CONFLICT'
+    throw error
+  }
+  if (!Object.isExtensible(exportsObject)) {
+    // A `#[napi(module_exports)]` hook may seal or freeze this object
+    // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
+    // never a reason to fail an otherwise successful load; the loader's own
+    // `__napiBindingTarget` module export still reports it.
+    return
+  }
+  exportsObject.__napiBindingTarget = target
+}
 
 export const { fs: __fs, vol: __volume } = memfs()
 
@@ -657,7 +682,7 @@ try {
   __publishWasiDispose(__napiModule.exports)
   // The default export hands out this object; a named module export does not
   // travel with it, so carry the marker on the binding itself too.
-  __napiModule.exports.__napiBindingTarget = __napiBindingTarget
+  __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
 } catch (error) {
   const cleanupErrors = await __rollbackWasiInitialization()
   throw __attachCleanupErrors(error, cleanupErrors)

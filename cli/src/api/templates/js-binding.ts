@@ -1,24 +1,11 @@
 import { wasiLoaderSuffix } from '../../utils/index.js'
 
-/**
- * Named export every generated loader uses to report which binding artifact
- * actually loaded: `'native'` for a `.node` addon, otherwise the
- * `platformArchABI` of the WASI flavor (`'wasm32-wasi'`, `'wasm32-wasip1'`).
- */
-export const NAPI_BINDING_TARGET_EXPORT = '__napiBindingTarget'
-
-/**
- * The generated loader declares {@link NAPI_BINDING_TARGET_EXPORT} itself, so a
- * napi export of the same name would emit a duplicate `export const` (an ESM
- * syntax error) or silently overwrite the reported target.
- */
-export function assertBindingTargetIdentFree(idents: string[]): void {
-  if (idents.indexOf(NAPI_BINDING_TARGET_EXPORT) !== -1) {
-    throw new Error(
-      `\`${NAPI_BINDING_TARGET_EXPORT}\` is reserved by the generated binding loader. Rename the napi export, e.g. #[napi(js_name = "...")].`,
-    )
-  }
-}
+import {
+  assertBindingTargetIdentFree,
+  BINDING_TARGET_STAMP_HELPER,
+  NAPI_BINDING_TARGET_EXPORT,
+  NAPI_BINDING_TARGET_STAMP_FN,
+} from './binding-target.js'
 
 function resolveWasiFlavors(wasiFlavors?: string[]): string[] {
   return wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
@@ -156,8 +143,9 @@ ${createCommonBinding(
   wasiFlavors,
   localWasiName,
 )}
+${BINDING_TARGET_STAMP_HELPER}
 module.exports = nativeBinding
-module.exports.${NAPI_BINDING_TARGET_EXPORT} = __napiLoadedBindingTarget
+${NAPI_BINDING_TARGET_STAMP_FN}(module.exports, __napiLoadedBindingTarget)
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}

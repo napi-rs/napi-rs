@@ -252,7 +252,7 @@ test('writeJsBinding uses the explicit format independently of the filename', as
   t.regex(legacyEsm, /export \{ sum \}/)
   t.regex(
     commonjs,
-    /module\.exports\.__napiBindingTarget = __napiLoadedBindingTarget/,
+    /__napiStampBindingTarget\(module\.exports, __napiLoadedBindingTarget\)/,
   )
   t.regex(esm, /export const __napiBindingTarget = __napiLoadedBindingTarget/)
   t.regex(
@@ -336,6 +336,119 @@ console.log(
     aliased: true,
     sum: 3,
   })
+})
+
+// A stand-in for a `#[napi(module_exports)]` hook: it attaches names to the
+// addon's exports object imperatively, so napi-rs type generation never sees
+// them and `assertBindingTargetIdentFree` cannot either. Only the loader can.
+const writeFakePlatformPackage = async (projectDir: string, source: string) => {
+  const { platformArchABI } = getSystemDefaultTarget()
+  const packageDir = join(
+    projectDir,
+    'node_modules',
+    `build-integration-${platformArchABI}`,
+  )
+  await mkdir(packageDir, { recursive: true })
+  await Promise.all([
+    writeFile(
+      join(packageDir, 'package.json'),
+      `{"name":"build-integration-${platformArchABI}","version":"0.1.0","main":"index.js"}\n`,
+    ),
+    writeFile(join(packageDir, 'index.js'), source),
+  ])
+}
+
+const requireRootLoaderInChild = (rootPath: string, body: string) =>
+  spawnSync(
+    process.execPath,
+    ['-e', `const binding = require(${JSON.stringify(rootPath)})\n${body}`],
+    { encoding: 'utf8' },
+  )
+
+test('a module_exports hook may not claim __napiBindingTarget', async (t) => {
+  const { projectDir } = t.context
+  await writeFakePlatformPackage(
+    projectDir,
+    `const exportsObject = { sum: (a, b) => a + b }
+exportsObject.__napiBindingTarget = 'addon-owned-value'
+module.exports = exportsObject
+`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(binding.__napiBindingTarget)`,
+  )
+  t.not(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.regex(result.stderr, /reserved by the generated binding loader/)
+  t.regex(result.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/)
+})
+
+test('a zero-ident package still rejects a claimed binding target', async (t) => {
+  const { projectDir } = t.context
+  // the `!enableTypeDef` shape: no type-def metadata at all, so the build-time
+  // assertion has an empty list to check and the loader is the only guard left
+  await writeFakePlatformPackage(
+    projectDir,
+    `const exportsObject = { sum: (a, b) => a + b }
+exportsObject.__napiBindingTarget = 'addon-owned-value'
+module.exports = exportsObject
+`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: [],
+    wasiFlavors: ['wasm32-wasi'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(binding.__napiBindingTarget)`,
+  )
+  t.not(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.regex(result.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/)
+})
+
+test('a frozen addon loads without the binding target stamp', async (t) => {
+  const { projectDir } = t.context
+  // `Object::freeze` in a `#[napi(module_exports)]` hook. Reporting the
+  // artifact is metadata; it must never fail an otherwise successful load.
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = Object.freeze({ sum: (a, b) => a + b })\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(
+  JSON.stringify({
+    sum: binding.sum(1, 2),
+    target: binding.__napiBindingTarget ?? null,
+  }),
+)`,
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), { sum: 3, target: null })
 })
 
 const bindingTargetDeclarationOf = (source: string) =>
