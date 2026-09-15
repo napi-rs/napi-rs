@@ -1479,8 +1479,9 @@ export interface ExportedNameScan {
    */
   exportsByAssignment: boolean
   /**
-   * Whether the file already exports `name` in a way that leaves no room for
-   * an added `export declare const name`.
+   * Whether this source already binds `name` in a way that leaves no room for
+   * an added `export declare const name` — as an export, or as a top-level
+   * declaration the const would redeclare.
    *
    * Not simply "is it exported": TypeScript merges a value with a declaration
    * that lives only in type space, and a caller that backed off there would
@@ -1499,6 +1500,13 @@ export interface ExportedNameScan {
    * `export * as name from '…'` forms, and `export import name = …`; an alias
    * collides with a local declaration of the name however it is spelled —
    * TS2323, TS2440).
+   *
+   * The same two flags settle a binding that is not exported at all: a
+   * declaration file that is not a module has no export table, and its
+   * top-level `declare const name` is a global the generated export would
+   * redeclare; inside a module an `import name = …` the file keeps to itself
+   * conflicts too. A top-level `type` or `interface` does not, in either
+   * place.
    *
    * `export default` binds `default` rather than a name, and
    * `export * from '…'` is left unresolved on purpose, so it names nothing
@@ -1584,47 +1592,71 @@ export function scanExportedName(
   }
   return {
     exportsByAssignment,
-    ownsName: exportBindsName(sourceFile, source, name),
+    ownsName: sourceBindsName(sourceFile, source, name),
     declarations,
   }
 }
 
 /**
- * Whether the checker reports an export of `name` that occupies value space or
- * is an alias — the two kinds a generated `export declare const name` cannot
- * be written beside. See {@link ExportedNameScan.ownsName}.
+ * Whether anything in this source already binds `name` where a generated
+ * `export declare const name` would land — as an export of the file, or as a
+ * declaration at its top level that the const would redeclare.
+ *
+ * Both questions are the checker's, and both are answered off the same
+ * program. See {@link ExportedNameScan.ownsName}.
  */
-function exportBindsName(
+function sourceBindsName(
   sourceFile: SourceFile,
   source: string,
   name: string,
 ): boolean {
   const typeScript = loadTypeScript()
-  // An export of `name` from this file has to spell it here. The one form that
+  // A binding of `name` in this file has to spell it here. The one form that
   // could hide it is `export * from '…'`, which the program below leaves
   // unresolved by design, so this skips nothing and saves binding a file that
   // never mentions the name.
   if (!source.includes(name)) {
     return false
   }
+  // A value or an alias is what a `const` of the same name cannot be written
+  // beside; a type-only declaration is what it merges with.
+  const meaning = typeScript.SymbolFlags.Alias | typeScript.SymbolFlags.Value
   const checker = programOverDeclarationSource(
     sourceFile,
     source,
   ).getTypeChecker()
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile)
-  if (moduleSymbol === undefined) {
-    // Not a module: nothing here is exported at all.
-    return false
+  const exported =
+    moduleSymbol === undefined
+      ? undefined
+      : checker
+          .getExportsOfModule(moduleSymbol)
+          .find((symbol) => symbol.name === name)
+  if (exported !== undefined && (exported.flags & meaning) !== 0) {
+    return true
   }
-  const exported = checker
-    .getExportsOfModule(moduleSymbol)
-    .find((symbol) => symbol.name === name)
-  return (
-    exported !== undefined &&
-    (exported.flags &
-      (typeScript.SymbolFlags.Alias | typeScript.SymbolFlags.Value)) !==
-      0
-  )
+  // Not every binding that collides is an export. A declaration file that is
+  // not a module has no export table at all, and its top-level `declare const`
+  // is a global the generated export would redeclare (TS2451, TS2395). Inside
+  // a module, an `import name = …` kept to the file is likewise no export and
+  // still conflicts (TS2440). Ambient declaration files put most top-level
+  // declarations in the export table by themselves, so these are the leftovers
+  // rather than the common case — but they are the ones a rule written around
+  // exports alone would miss.
+  //
+  // Scoped at the source file, so a binding nested inside a namespace or a
+  // function body is correctly none of this file's business, and filtered to
+  // declarations written here, so an ambient global from somewhere else is
+  // not mistaken for one.
+  return checker
+    .getSymbolsInScope(sourceFile, meaning)
+    .some(
+      (symbol) =>
+        symbol.name === name &&
+        symbol.declarations?.some(
+          (declaration) => declaration.getSourceFile() === sourceFile,
+        ) === true,
+    )
 }
 
 /**
