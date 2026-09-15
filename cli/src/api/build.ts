@@ -108,6 +108,34 @@ const BINDING_TARGET_TYPE_DECLARATION = `
 export declare const ${NAPI_BINDING_TARGET_EXPORT}: ${BINDING_TARGET_TYPE_UNION}
 `
 
+/**
+ * The declaration for a file that types one fixed WASI artifact.
+ *
+ * A flavor's own loaders bake their `platformArchABI` in at generation time
+ * and have no override to read — `NAPI_RS_NATIVE_LIBRARY_PATH` exists only in
+ * the root loader — so the union {@link BINDING_TARGET_TYPE_DECLARATION}
+ * declares is unreachable for them, and declaring it would stop a consumer of
+ * a fixed artifact from narrowing. The wording matches the declaration the
+ * deferred `./workerd` entry already emits for the same reason.
+ */
+const createBindingTargetFlavorDeclaration = (platformArchABI: string) => `
+/** The WASI flavor this loader instantiates. */
+export declare const ${NAPI_BINDING_TARGET_EXPORT}: '${platformArchABI}'
+`
+
+/**
+ * The declaration shape a generated `.d.ts` carries, as opposed to a mere
+ * mention of the name. `napi-derive`'s `js_doc` reaches the declaration file
+ * verbatim, so a doc comment can name the export without declaring it, and
+ * `assertBindingTargetIdentFree` only rejects the exact name, so a longer
+ * export such as `__napiBindingTargetInfo` is legal. No `g` flag: `test` on a
+ * shared regex must stay stateless.
+ */
+const BINDING_TARGET_DECLARATION_PATTERN = new RegExp(
+  `^\\s*export\\s+(?:declare\\s+)?const\\s+${NAPI_BINDING_TARGET_EXPORT}\\b`,
+  'm',
+)
+
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = { kind: OutputKind; path: string }
 type WasiBindingMetadata = {
@@ -622,29 +650,50 @@ export function prepareWasiBindingTypeDef(
 }
 
 /**
- * Add the `__napiBindingTarget` declaration to a WASI declaration file kept
- * from an earlier build.
+ * Make a declaration file declare the `__napiBindingTarget` its loader exports.
  *
- * A build that does not target WASI regenerates every declared flavor's loader
- * from the metadata that flavor's own build left behind, and reuses the
- * declaration file it wrote verbatim. A file written before the loaders
- * exported `__napiBindingTarget` would otherwise describe a loader that has it.
- * The declaration is the same one {@link generateTypeDef} emits, so a later
- * WASI build regenerating the file from source changes nothing.
+ * `platformArchABI` names the WASI flavor the file types, and the declaration
+ * is then that flavor's exact literal; without it the file is the root entry's
+ * and keeps the full union, which only the root entry can reach.
+ *
+ * Two kinds of file arrive here. A WASI declaration derived fresh from the root
+ * `index.d.ts` inherits that union and has to be narrowed. A declaration kept
+ * from an earlier build — a build that does not target WASI regenerates every
+ * declared flavor's loader from the metadata that flavor's own build left
+ * behind, and reuses its declaration file verbatim — may predate the export
+ * entirely, or carry a union an earlier version of this branch wrote.
+ *
+ * The union is swapped by exact text, so a file whose union block differs from
+ * the one this version emits keeps it until that flavor is rebuilt. A looser
+ * match would also rewrite a declaration a `--dts-header` contributed.
  *
  * A declaration file that exports by assignment (`export = binding`, what a
  * build without `napi-derive`'s `type-def` feature emits) cannot carry a named
  * export declaration, so it is left alone; its exports are untyped anyway.
  */
-export function ensureBindingTargetDeclaration(typeDef: string) {
-  if (
-    typeDef.includes(NAPI_BINDING_TARGET_EXPORT) ||
-    /^export\s*=/m.test(typeDef)
-  ) {
+export function ensureBindingTargetDeclaration(
+  typeDef: string,
+  platformArchABI?: string,
+) {
+  if (/^export\s*=/m.test(typeDef)) {
+    return typeDef
+  }
+  const declaration = platformArchABI
+    ? createBindingTargetFlavorDeclaration(platformArchABI)
+    : BINDING_TARGET_TYPE_DECLARATION
+  if (typeDef.includes(declaration)) {
+    return typeDef
+  }
+  // Before the already-declared guard below, or a file that carries the union
+  // is never narrowed to the flavor it actually types.
+  if (typeDef.includes(BINDING_TARGET_TYPE_DECLARATION)) {
+    return typeDef.replace(BINDING_TARGET_TYPE_DECLARATION, declaration)
+  }
+  if (BINDING_TARGET_DECLARATION_PATTERN.test(typeDef)) {
     return typeDef
   }
   const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
-  return `${typeDef}${separator}${BINDING_TARGET_TYPE_DECLARATION}`
+  return `${typeDef}${separator}${declaration}`
 }
 
 export function collectStaleWasiBuildOutputNames(
@@ -2508,11 +2557,17 @@ export = binding
         : hasThreads
           ? selectedSourceTypeDef
           : removeNodeStreamWebTypeImports(selectedSourceTypeDef)
-    } else {
-      // Kept from this flavor's own build, which may predate the
-      // `__napiBindingTarget` export the loader written above now carries.
-      bindingTypeDef = ensureBindingTargetDeclaration(bindingTypeDef)
     }
+    // This flavor's loaders report a compile-time-fixed identity, so this file
+    // declares that one literal: the root entry's union exists only for
+    // `NAPI_RS_NATIVE_LIBRARY_PATH`, which no flavor loader reads. On the fresh
+    // path that narrows the union inherited from the root `index.d.ts`; on the
+    // preserved path it refreshes a file kept from an earlier build, which may
+    // predate the `__napiBindingTarget` export the loader written above carries.
+    bindingTypeDef = ensureBindingTargetDeclaration(
+      bindingTypeDef,
+      wasiTarget.platformArchABI,
+    )
     await writeFileAtomic(bindingTypeDefPath, bindingTypeDef, 'utf8')
     const outputs: Output[] = [
       { kind: 'js', path: bindingPath },

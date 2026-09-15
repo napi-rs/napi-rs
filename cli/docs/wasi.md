@@ -92,12 +92,21 @@ if (binding.__napiBindingTarget !== 'native') {
 }
 ```
 
-When napi-rs type generation is enabled the export is declared in the
-generated `.d.ts` as a literal union, so the check narrows in TypeScript. The
-union lists `'native'` and every WASI flavor napi-rs can build, not only the
-flavors the package itself builds: `NAPI_RS_NATIVE_LIBRARY_PATH` can point the
-root entry at any generated WASI loader, so even a package that ships only a
-native addon can report a WASI flavor.
+When napi-rs type generation is enabled the export is declared in the generated
+declaration files, so the check narrows in TypeScript. Which type a declaration
+gives it follows the entry it types:
+
+- The **root entry**'s declaration is a literal union of `'native'` and every
+  WASI flavor napi-rs can build, not only the flavors the package itself
+  builds. `NAPI_RS_NATIVE_LIBRARY_PATH` can point the root entry at any
+  generated WASI loader, so even a package that ships only a native addon can
+  report a WASI flavor, and a narrower union would reject comparisons the
+  override can actually reach.
+- A **flavor's own** declaration — the CommonJS and browser `.d.cts` and the
+  deferred `./workerd` `.d.ts` alike — is that one flavor's exact literal. Those
+  loaders bake their flavor in at generation time and read no override, so a
+  consumer importing a fixed artifact narrows to a single value, which is what
+  the generated declarations promise above.
 
 The root package exposes deferred workerd and Wasm entries. In a Workers
 project built by Wrangler:
