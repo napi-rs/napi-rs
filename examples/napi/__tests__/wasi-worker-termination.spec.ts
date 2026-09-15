@@ -43,3 +43,37 @@ test.skipIf(!isThreadedWasi)(
     t.notRegex(result.stderr, /sent an error!/)
   },
 )
+
+/**
+ * The loader unreferences its pool workers, and stubs the very `ref` functions
+ * Node's `Worker#terminate` uses to observe the exit that resolves its promise.
+ * Without an undo, a `dispose()` with nothing else on the loop is left pending
+ * forever: the process exits 0 and everything after the `await` is skipped.
+ */
+test.skipIf(!isThreadedWasi)(
+  'dispose() resolves even as the last statement of a script',
+  (t) => {
+    const result = runMode('last-statement')
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 21, output)
+    t.regex(result.stdout, /wasi dispose settled as the last statement/)
+    t.notRegex(result.stderr, /sent an error!/)
+  },
+)
+
+/**
+ * …and the reason those stubs exist in the first place still holds.
+ */
+test.skipIf(!isThreadedWasi)(
+  'an undisposed binding does not keep an idle process alive',
+  (t) => {
+    const result = runMode('no-dispose')
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /wasi binding left undisposed/)
+  },
+)

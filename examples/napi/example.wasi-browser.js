@@ -97,6 +97,11 @@ let __emnapiContext
 
 const __wasiDisposeSymbol = Symbol.for('napi.rs.wasi.dispose')
 const __wasiWorkers = new Set()
+// Flavors that keep an idle binding from holding the process open stub the
+// handle `ref` functions Node's own `Worker#terminate` uses, which also stops
+// a pending termination from keeping the loop alive long enough to settle.
+// Those flavors register an undo here; it stays empty everywhere else.
+const __wasiWorkerRefRestorers = new WeakMap()
 let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
@@ -420,6 +425,30 @@ function __destroyEmnapiContext() {
 }
 
 /**
+ * Puts back the `ref` functions this loader stubbed on a worker, so the
+ * termination below can hold the event loop open until it settles. Never
+ * throws: a worker that cannot be re-referenced still has to be terminated.
+ */
+function __restoreWasiWorkerRef(worker) {
+  const restore = __wasiWorkerRefRestorers.get(worker)
+  if (restore === undefined) {
+    return
+  }
+  __wasiWorkerRefRestorers.delete(worker)
+  try {
+    restore()
+  } catch {}
+}
+
+function __unrefWasiWorker(worker) {
+  try {
+    if (typeof worker.unref === 'function') {
+      worker.unref()
+    }
+  } catch {}
+}
+
+/**
  * `@emnapi/wasi-threads` counts a worker exit as expected only when its own
  * thread manager performed the termination. A bare `worker.terminate()` reaches
  * the manager's `exit` listener instead, which reports
@@ -440,6 +469,7 @@ function __terminateWasiWorkers() {
 
   for (const worker of __wasiWorkers) {
     let result
+    __restoreWasiWorkerRef(worker)
     try {
       if (canMarkTermination) {
         threadManager.terminateWorker(worker)
@@ -450,6 +480,7 @@ function __terminateWasiWorkers() {
       }
       result = worker.terminate()
     } catch (error) {
+      __unrefWasiWorker(worker)
       cleanupErrors.push(error)
       continue
     }

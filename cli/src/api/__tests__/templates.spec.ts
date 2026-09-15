@@ -518,8 +518,46 @@ for (const { name, code } of [
     // `terminateWorker` leaves a reporter behind that logs every message still
     // queued on the port, which Node flushes on exit.
     t.true(body.includes('worker.onmessage = undefined'))
+    // The loader's own `ref` stubs are undone before the terminate promise is
+    // created, because `Worker#terminate` references the worker through them.
+    const restore = body.indexOf('__restoreWasiWorkerRef(worker)')
+    t.true(restore > 0 && restore < terminate)
   })
 }
+
+test('the node loader keeps the ref functions it stubs out', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  t.true(
+    code.includes(
+      'const publicPortRef = kPublicPort ? worker[kPublicPort].ref : undefined',
+    ),
+  )
+  t.true(
+    code.includes(
+      'const handleRef = kHandle ? worker[kHandle].ref : undefined',
+    ),
+  )
+  // Captured before the stubs replace them, and restored by the undo the
+  // disposal path runs.
+  t.true(
+    code.indexOf('const publicPortRef =') <
+      code.indexOf('worker[kPublicPort].ref = () => {}'),
+  )
+  t.true(
+    code.indexOf('const handleRef =') <
+      code.indexOf('worker[kHandle].ref = () => {}'),
+  )
+  const restorer = code.slice(
+    code.indexOf('__wasiWorkerRefRestorers.set(worker, () => {'),
+  )
+  t.true(restorer.includes('worker[kPublicPort].ref = publicPortRef'))
+  t.true(restorer.includes('worker[kHandle].ref = handleRef'))
+  // The idle binding still must not hold the process open.
+  t.true(
+    code.indexOf('worker.unref()') <
+      code.indexOf('__wasiWorkerRefRestorers.set(worker, () => {'),
+  )
+})
 
 test('asyncRuntime deferred loader registers per instance', (t) => {
   const code = asyncRuntimeDeferredCode

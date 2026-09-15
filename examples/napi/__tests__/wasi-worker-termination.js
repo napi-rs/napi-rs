@@ -21,6 +21,16 @@ if (mode === 'keep-alive') {
   await dispose()
   process.stdout.write('wasi dispose settled\n')
   clearTimeout(guard)
+} else if (mode === 'last-statement') {
+  // Nothing else keeps the loop alive: only the pending worker terminations
+  // can, and the loader has to reference them for that.
+  await dispose()
+  process.stdout.write('wasi dispose settled as the last statement\n')
+  process.exitCode = 21
+} else if (mode === 'no-dispose') {
+  // The other half of the contract: an undisposed binding must not keep an
+  // otherwise idle process alive.
+  process.stdout.write('wasi binding left undisposed\n')
 } else {
   throw new Error(`unsupported mode: ${mode}`)
 }
