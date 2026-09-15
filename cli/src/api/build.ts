@@ -3096,13 +3096,22 @@ export async function generateTypeDef(
   // the header owns from one this build wrote into a file derived from this
   // one.
   const renderedHeader = header
+  const headerBindingTarget = bindingTargetExports(renderedHeader)
   // That header may declare `__napiBindingTarget` itself, as a workaround for
   // loaders that predate the export. Declaring it again below would be a TS2451
   // redeclaration, so the header's own wins — the rule
   // `ensureBindingTargetDeclaration` already applies to a preserved WASI
   // declaration.
+  //
+  // A header that exports by assignment (`export = binding`, the form a build
+  // without `napi-derive`'s `type-def` feature emits) leaves no room either: an
+  // export assignment cannot sit beside any named export, so appending one is
+  // TS2309 rather than a declaration anybody can use. Its exports are untyped
+  // anyway. `ensureBindingTargetDeclaration` already leaves such a file alone,
+  // and the WASI declaration derived from this one goes through it — reading
+  // the same answer here keeps both ends of that derivation agreeing.
   const headerDeclaresBindingTarget =
-    bindingTargetExports(renderedHeader).ownsName
+    headerBindingTarget.ownsName || headerBindingTarget.exportsByAssignment
 
   // A crate can register every export from a `#[napi(module_exports)]` hook
   // and emit no `.type` file, and the loader written for it still exports
