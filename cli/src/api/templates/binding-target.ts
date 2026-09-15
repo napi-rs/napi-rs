@@ -53,14 +53,27 @@ export function assertBindingTargetIdentFree(idents: string[]): void {
  * Runtime helper emitted into every loader that stamps
  * {@link NAPI_BINDING_TARGET_EXPORT} onto an exports object it does not own.
  *
- * Four outcomes, in order:
+ * Five outcomes, in order:
  *
  * | exports object state            | result                                    |
  * | ------------------------------- | ----------------------------------------- |
  * | own property, same value        | no-op, returns `target`                   |
  * | own property, different value   | throw, `ERR_NAPI_BINDING_TARGET_CONFLICT` |
  * | non-extensible, no own property | skip, returns `target`                    |
+ * | refuses the definition          | skip, returns `target`                    |
  * | otherwise                       | stamp, returns `target`                   |
+ *
+ * The stamp is `Object.defineProperty`, not an assignment. `hasOwnProperty`
+ * above sees own properties only and `Object.isExtensible` only own
+ * extensibility, so an ordinary assignment would still walk the prototype chain
+ * into an inherited accessor on a user-controlled object: its setter can throw,
+ * failing an otherwise successful load, or absorb the write and create nothing,
+ * leaving the named export the generated declaration promises resolving to
+ * `undefined`. `[[Define]]` consults no prototype, and the descriptor is the one
+ * a successful assignment would have produced. The `try` around it covers the
+ * one shape that can still refuse — an exotic object such as a `Proxy` whose
+ * `defineProperty` trap returns `false` — under the same rule as the
+ * non-extensible skip: metadata never fails a load.
  *
  * Every branch that does not throw returns `target`, because the CommonJS emit
  * sites assign the return value —
@@ -74,8 +87,10 @@ export function assertBindingTargetIdentFree(idents: string[]): void {
  * That assignment is safe because every generated CJS loader is sloppy mode: on
  * a frozen exports object without the property the guard skips, and the
  * assignment of its return value is a silent no-op rather than a `TypeError`.
- * (`Object.defineProperty` is not an alternative shape for the lexer either: it
- * throws on a sealed or frozen object, so it is strictly harder to satisfy.)
+ * (`Object.defineProperty` is not an alternative shape for the lexer, whatever
+ * it is inside the guard: the lexer matches a literal `module.exports.<name> =`
+ * and reports nothing for a data-descriptor `defineProperty` call, so the named
+ * import stops linking entirely — measured against Node's own detection.)
  *
  * The assignment target is never the object being stamped. Both CommonJS
  * loaders stamp the addon's exports object but assign onto their own
@@ -122,7 +137,23 @@ export const BINDING_TARGET_STAMP_HELPER = `function ${NAPI_BINDING_TARGET_STAMP
     // \`${NAPI_BINDING_TARGET_EXPORT}\` module export still reports it.
     return target
   }
-  exportsObject.${NAPI_BINDING_TARGET_EXPORT} = target
+  try {
+    // [[Define]], not [[Set]]: an ordinary assignment walks the prototype
+    // chain, so an inherited accessor could swallow the value or throw and
+    // fail an otherwise successful load. The descriptor is what a successful
+    // assignment would have produced.
+    Object.defineProperty(exportsObject, '${NAPI_BINDING_TARGET_EXPORT}', {
+      configurable: true,
+      enumerable: true,
+      value: target,
+      writable: true,
+    })
+  } catch {
+    // Same rule as the non-extensible skip above: reporting the artifact is
+    // metadata, never a reason to fail an otherwise successful load. An exotic
+    // object (a Proxy whose defineProperty trap refuses) is skipped, not
+    // thrown over.
+  }
   // The CommonJS loaders assign this return value so \`cjs-module-lexer\` — and
   // therefore Node's CJS -> ESM named export detection — can see
   // \`${NAPI_BINDING_TARGET_EXPORT}\` statically.

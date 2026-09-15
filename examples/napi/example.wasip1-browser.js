@@ -31,7 +31,23 @@ function __napiStampBindingTarget(exportsObject, target) {
     // `__napiBindingTarget` module export still reports it.
     return target
   }
-  exportsObject.__napiBindingTarget = target
+  try {
+    // [[Define]], not [[Set]]: an ordinary assignment walks the prototype
+    // chain, so an inherited accessor could swallow the value or throw and
+    // fail an otherwise successful load. The descriptor is what a successful
+    // assignment would have produced.
+    Object.defineProperty(exportsObject, '__napiBindingTarget', {
+      configurable: true,
+      enumerable: true,
+      value: target,
+      writable: true,
+    })
+  } catch {
+    // Same rule as the non-extensible skip above: reporting the artifact is
+    // metadata, never a reason to fail an otherwise successful load. An exotic
+    // object (a Proxy whose defineProperty trap refuses) is skipped, not
+    // thrown over.
+  }
   // The CommonJS loaders assign this return value so `cjs-module-lexer` — and
   // therefore Node's CJS -> ESM named export detection — can see
   // `__napiBindingTarget` statically.

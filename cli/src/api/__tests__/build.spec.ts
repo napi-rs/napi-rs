@@ -512,6 +512,133 @@ test('a frozen addon keeps __napiBindingTarget importable, just undefined', asyn
   t.is(result.stdout.trim(), 'undefined')
 })
 
+// `Object.create(proto)` in a `#[napi(module_exports)]` hook — napi-rs itself
+// reaches `Object.setPrototypeOf` off the global, so the prototype an addon's
+// exports object carries is not beyond an addon's reach. `hasOwnProperty` does
+// not see an inherited accessor, so an ordinary assignment would reach its
+// setter.
+const inheritedBindingTargetAccessor = (setterBody: string) =>
+  `const proto = {}
+Object.defineProperty(proto, '__napiBindingTarget', {
+  get() {
+    return undefined
+  },
+  set() {
+    ${setterBody}
+  },
+  configurable: true,
+})
+const exportsObject = Object.create(proto)
+exportsObject.sum = (a, b) => a + b
+module.exports = exportsObject
+`
+
+const REPORT_BINDING_TARGET = `console.log(
+  JSON.stringify({
+    sum: binding.sum(1, 2),
+    target: binding.__napiBindingTarget ?? null,
+    own: Object.prototype.hasOwnProperty.call(binding, '__napiBindingTarget'),
+  }),
+)`
+
+test('an addon whose prototype carries __napiBindingTarget still loads and reports its target', async (t) => {
+  const { projectDir } = t.context
+  // The throwing half: an inherited setter that refuses the write would kill an
+  // otherwise successful load at the stamp — the same regression the frozen
+  // skip above exists to prevent.
+  await writeFakePlatformPackage(
+    projectDir,
+    inheritedBindingTargetAccessor(`throw new Error('addon setter refused')`),
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    REPORT_BINDING_TARGET,
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), {
+    sum: 3,
+    target: 'native',
+    own: true,
+  })
+})
+
+test('an inherited setter does not swallow the binding target', async (t) => {
+  const { projectDir } = t.context
+  // The absorbing half: the setter accepts the write and creates nothing, so
+  // both `require(...).__napiBindingTarget` and the ESM named import resolve to
+  // `undefined` while the generated `.d.ts` promises a literal.
+  await writeFakePlatformPackage(projectDir, inheritedBindingTargetAccessor(''))
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const required = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    REPORT_BINDING_TARGET,
+  )
+  t.is(required.status, 0, `${required.stdout}\n${required.stderr}`)
+  t.deepEqual(JSON.parse(required.stdout), {
+    sum: 3,
+    target: 'native',
+    own: true,
+  })
+
+  // and the value the lexer-linked named import reads is the one on that same
+  // object, so the stamp has to land as an own property for the import to work
+  const imported = importBindingTargetInChild(join(projectDir, 'index.js'))
+  t.is(imported.status, 0, `${imported.stdout}\n${imported.stderr}`)
+  t.is(imported.stdout.trim(), '"native"')
+})
+
+test('an exotic binding object never fails the load', async (t) => {
+  const { projectDir } = t.context
+  // A `Proxy` whose `defineProperty` trap refuses is the one shape the stamp
+  // cannot satisfy. Today's assignment is a sloppy-mode no-op there and a bare
+  // `Object.defineProperty` would throw, so the skip is what keeps the rule the
+  // frozen case states: metadata never fails an otherwise successful load.
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = new Proxy(
+  { sum: (a, b) => a + b },
+  { defineProperty: () => false },
+)
+`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    REPORT_BINDING_TARGET,
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), {
+    sum: 3,
+    target: null,
+    own: false,
+  })
+})
+
 const bindingTargetDeclarationOf = (source: string) =>
   source
     .split('\n')

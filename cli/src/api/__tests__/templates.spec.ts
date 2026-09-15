@@ -985,6 +985,19 @@ test('every mutating loader stamps the binding target through the guard', (t) =>
         `${name} must stamp exactly once, through the guard`,
       )
     }
+    // [[Define]], not [[Set]]: an ordinary assignment walks the prototype
+    // chain, so an inherited accessor on a user-controlled exports object could
+    // swallow the marker or throw and fail an otherwise successful load
+    t.true(
+      code.includes(
+        "Object.defineProperty(exportsObject, '__napiBindingTarget'",
+      ),
+      `${name} must define the marker as an own data property`,
+    )
+    t.false(
+      code.includes('exportsObject.__napiBindingTarget = target'),
+      `${name} must not stamp the marker through an ordinary assignment`,
+    )
     // an addon's exports object is user-controlled: nothing may write the
     // marker onto it without going through the guard
     t.false(
