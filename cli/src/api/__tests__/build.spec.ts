@@ -1169,6 +1169,56 @@ test('the binding target declaration follows the loaders a build emits', (t) => 
   }
 })
 
+test('the binding target reservation asks the same predicate as the declaration', (t) => {
+  // `Builder.generateTypeDef` reserves `__napiBindingTarget` exactly when it
+  // declares it, so the reservation inherits these answers. The predicate reads
+  // only the *length* of the export list, never the names in it — which is what
+  // lets one decision stand for both.
+  const claimed = ['__napiBindingTarget']
+  const shapes = [
+    {
+      name: 'a plain `napi build` reserves nothing',
+      rootLoaderCandidate: false,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: claimed,
+      expected: false,
+    },
+    {
+      name: '`--platform --no-js` reserves nothing',
+      rootLoaderCandidate: false,
+      hasWasiFallback: true,
+      emitsWasiLoader: false,
+      exports: claimed,
+      expected: false,
+    },
+    {
+      name: '`--platform` writes a root loader, so the name is reserved',
+      rootLoaderCandidate: true,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: claimed,
+      expected: true,
+    },
+    {
+      name: 'a regenerated WASI loader set reserves the name on its own',
+      rootLoaderCandidate: false,
+      hasWasiFallback: false,
+      emitsWasiLoader: true,
+      exports: [],
+      expected: true,
+    },
+  ] as const
+
+  for (const shape of shapes) {
+    t.is(
+      bindingTargetDeclarationPredicate(shape)(shape.exports),
+      shape.expected,
+      shape.name,
+    )
+  }
+})
+
 test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {
   const validCases = [
     { options: {}, expected: 'commonjs' },

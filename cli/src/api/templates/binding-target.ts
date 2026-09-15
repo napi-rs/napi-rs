@@ -39,7 +39,13 @@ export const NAPI_BINDING_TARGET_STAMP_FN = '__napiStampBindingTarget'
  *
  * What this check is load-bearing for: a duplicated ident would emit a
  * duplicate `export const` in the ESM loader (a syntax error), and would make
- * the CJS loader overwrite its own reported target.
+ * the CJS loader overwrite its own reported target. It also keeps the generated
+ * `.d.ts` free of a duplicate identifier.
+ *
+ * All three are consequences of emitting something, so callers must only ask
+ * when the build emits it: the loader templates check themselves, and the root
+ * `.d.ts` is checked behind `bindingTargetDeclarationPredicate`. A build that
+ * writes no loader reserves nothing.
  */
 export function assertBindingTargetIdentFree(idents: string[]): void {
   if (idents.indexOf(NAPI_BINDING_TARGET_EXPORT) !== -1) {

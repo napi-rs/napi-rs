@@ -708,6 +708,11 @@ function finalizeTypeDefHeader(header: string) {
  * The export list is only known once typegen has run, and typegen writes the
  * declaration file itself, so the decision comes back as a predicate over that
  * list instead of a flag taken up front.
+ *
+ * It gates the *reservation* of the name too — `Builder.generateTypeDef` calls
+ * {@link assertBindingTargetIdentFree} only when this answers `true`. Declaring
+ * the name and forbidding an addon from exporting it are the same question, and
+ * a build that emits no loader asks neither.
  */
 export function bindingTargetDeclarationPredicate(input: {
   rootLoaderCandidate: boolean
@@ -2418,6 +2423,14 @@ class Builder {
       cwd: this.options.cwd,
       declareBindingTarget,
     })
+    // The name is reserved exactly when a loader reports it and this file
+    // declares it — one condition, so ask the one predicate. A build that emits
+    // no loader (no `--platform`, or `--no-js`, with no WASI loader set
+    // regenerated) declares nothing, and must keep accepting an addon export of
+    // this name the way every release before the export did.
+    if (declareBindingTarget(exports)) {
+      assertBindingTargetIdentFree(exports)
+    }
     this.typeDefWithTypeImports = dtsWithTypeImports
     this.typeDefRenderedHeader = header
 
@@ -2502,7 +2515,9 @@ class Builder {
   }
 
   private async writeJsBinding(idents: string[]) {
-    assertBindingTargetIdentFree(idents)
+    // No reserved-name check here: it belongs to the decision that emits the
+    // declaration, which lives in `generateTypeDef` above. `writeJsBinding`
+    // runs for every cdylib build, including the ones that write no loader.
     const wasiFlavors = this.declaredWasiFlavors()
     return writeJsBinding({
       platform: this.options.platform,
@@ -2635,6 +2650,11 @@ class Builder {
       dir,
       `${this.config.binaryName}.${loaderSuffix}.d.cts`,
     )
+    // A flavor's own export list, not the root type-def's: this is reached only
+    // once `writeWasiBinding` has metadata for the flavor, i.e. only when this
+    // loader set really is written. The root-side check lives in
+    // `Builder.generateTypeDef`, gated on the same predicate as the
+    // declaration — do not re-add an unconditional one here or there.
     assertBindingTargetIdentFree(idents)
     // No stamp here. `createWasiBinding` emits the only one, inside the
     // initialization `try` that rolls the environment back — both the guard and

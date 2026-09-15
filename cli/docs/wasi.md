@@ -110,11 +110,14 @@ than onto the addon's object, which leaves an addon accessor with a refusing
 setter untouched; the root entry stamps before it aliases the binding, for the
 same reason.
 
-The name is reserved. `napi build` rejects an export of that name it can see in
-the type-def metadata; a name attached dynamically from a
-`#[napi(module_exports)]` hook is invisible at build time, so the loader rejects
-it at load with `ERR_NAPI_BINDING_TARGET_CONFLICT` instead of silently
-overwriting it. In a WASI loader that rejection happens inside the
+The name is reserved by the builds that emit a loader. `napi build` rejects an
+export of that name it can see in the type-def metadata, but only when this
+build writes a loader to carry it — a root loader (`--platform` without
+`--no-js`), or a WASI flavor loader set. A plain `.node` build writes neither,
+declares nothing, and is free to export the name itself. A name attached
+dynamically from a `#[napi(module_exports)]` hook is invisible at build time, so
+the loader rejects it at load with `ERR_NAPI_BINDING_TARGET_CONFLICT` instead of
+silently overwriting it. In a WASI loader that rejection happens inside the
 initialization boundary, so the conflict rolls the environment back — no
 emnapi context and no `'exit'` listener survive the failed `require()`.
 

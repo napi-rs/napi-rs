@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { join as posixJoin } from 'node:path/posix'
 import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 
 import ava, { type TestFn } from 'ava'
 
@@ -134,6 +134,100 @@ test('should throw error when duplicate targets are provided', async (t) => {
         'Internal Error: Duplicate targets are not allowed: aarch64-apple-darwin',
       ),
   )
+})
+
+/**
+ * The generated loaders own `__napiBindingTarget`, so an addon export of that
+ * name is rejected — but only for builds that emit a loader. A crate exporting
+ * the name stays buildable as a plain `.node` addon, exactly as it was before
+ * the export existed.
+ */
+const BINDING_TARGET_LIB_RS = `use napi_derive::napi;
+
+#[napi]
+pub fn sum(a: u32, b: u32) -> u32 {
+  a + b
+}
+
+#[napi(js_name = "__napiBindingTarget")]
+pub fn binding_target() -> String {
+  "addon-owned".to_owned()
+}
+`
+
+const RESERVED_NAME_ERROR = /reserved by the generated binding loader/
+
+// clipanion reports a failed command on stdout (`Cli.run` writes
+// `this.error(...)` to `context.stdout`), so that is the stream to match.
+
+test('a build that emits no loader does not reserve __napiBindingTarget', async (t) => {
+  const { context } = t.context
+  await writeCargoToml(context)
+  await writeFile(join(context, 'src', 'lib.rs'), BINDING_TARGET_LIB_RS)
+  await writePackageJson(context, {})
+  const bin = join(context, 'node_modules', '.bin')
+  const env = { ...process.env, FORCE_COLOR: '0' }
+
+  // no `--platform`: a plain `index.node` build writes no loader at all
+  const plain = await execResult(`${bin}/napi build`, { cwd: context, env })
+  t.is(plain.code, 0, plain.stdout + plain.stderr)
+  t.false(existsSync(join(context, 'index.js')))
+  const dts = await readFile(join(context, 'index.d.ts'), 'utf8')
+  // the addon keeps its own declaration, and nothing generated collides with it
+  t.regex(dts, /export declare function __napiBindingTarget\(\): string/)
+  t.false(dts.includes('export declare const __napiBindingTarget'))
+
+  // `--no-js` suppresses the loader as well
+  const noLoader = await execResult(`${bin}/napi build --platform --no-js`, {
+    cwd: context,
+    env,
+  })
+  t.is(noLoader.code, 0, noLoader.stdout + noLoader.stderr)
+  t.false(existsSync(join(context, 'index.js')))
+
+  // a build that does emit a loader still rejects the name
+  const withLoader = await execResult(`${bin}/napi build --platform`, {
+    cwd: context,
+    env,
+  })
+  t.not(withLoader.code, 0)
+  t.regex(withLoader.stdout, RESERVED_NAME_ERROR)
+})
+
+test('a regenerated WASI loader still reserves __napiBindingTarget', async (t) => {
+  const { context } = t.context
+  await writeCargoToml(context)
+  await writeFile(join(context, 'src', 'lib.rs'), BINDING_TARGET_LIB_RS)
+  await writePackageJson(context, {
+    napi: {
+      binaryName: 'napi-rs-cli-e2e',
+      targets: ['wasm32-wasip1'],
+    },
+  })
+  // What an earlier WASI build leaves behind. A native build regenerates that
+  // loader set from this metadata, so the declaration is appended and the name
+  // must stay reserved even though no root loader is written.
+  await writeFile(
+    join(context, 'napi-rs-cli-e2e.wasip1.cjs'),
+    `// napi-rs-artifact-metadata:${JSON.stringify({
+      version: 2,
+      rootEntry: 'index.js',
+      exports: ['sum'],
+      managedRootEntries: ['browser.js', 'index.js'],
+    })}\nmodule.exports = {}\nmodule.exports.sum = () => 0\n`,
+  )
+  await writeFile(
+    join(context, 'napi-rs-cli-e2e.wasip1.d.cts'),
+    'export declare function sum(a: number, b: number): number\n',
+  )
+
+  const bin = join(context, 'node_modules', '.bin')
+  const result = await execResult(`${bin}/napi build`, {
+    cwd: context,
+    env: { ...process.env, FORCE_COLOR: '0' },
+  })
+  t.not(result.code, 0)
+  t.regex(result.stdout, RESERVED_NAME_ERROR)
 })
 
 async function execAsync(command: string, options: ExecOptions = {}) {
