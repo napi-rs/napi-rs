@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.10.0](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.9.1...%40napi-rs%2Fcli%403.10.0) (2026-09-15)
+
+### Bug Fixes
+
+* **cli:** bound symlink-ancestor reconciliation guards to the anchor's parent ([#3522](https://github.com/napi-rs/napi-rs/issues/3522)) ([30ea504](https://github.com/napi-rs/napi-rs/commit/30ea504c3d65e1cb178d3124068257d8df8f3835)), closes [#3444](https://github.com/napi-rs/napi-rs/issues/3444)
+* **cli:** never wedge reconciliation locks when host identity probes fail ([#3521](https://github.com/napi-rs/napi-rs/issues/3521)) ([ccd314b](https://github.com/napi-rs/napi-rs/commit/ccd314bbb5201182311b74dddd61f60b323318f4)), closes [#3512](https://github.com/napi-rs/napi-rs/issues/3512)
+* **cli:** rate-limit failed incarnation probes and let reconciliation tests inject the getter ([#3524](https://github.com/napi-rs/napi-rs/issues/3524)) ([5554591](https://github.com/napi-rs/napi-rs/commit/55545910c2487da38453e6171330e8fc9133213c)), closes [#3444](https://github.com/napi-rs/napi-rs/issues/3444) [#3522](https://github.com/napi-rs/napi-rs/issues/3522)
+* **cli:** run the wasm env cleanup barrier on a raw emnapi `Context.destroy()` ([#3514](https://github.com/napi-rs/napi-rs/issues/3514)) ([ae8f34a](https://github.com/napi-rs/napi-rs/commit/ae8f34a8dc5f629b53d136442e8f614f2d3c17b6))
+* **deps:** update dependency obug to v3 ([#3499](https://github.com/napi-rs/napi-rs/issues/3499)) ([e414c8c](https://github.com/napi-rs/napi-rs/commit/e414c8c21924a4c47bf1c8c5d6ad244dac479578))
+
+### Features
+
+* **cli:** add `napi.wasm.threadlessInitialMemory` for threadless WASI loaders ([#3516](https://github.com/napi-rs/napi-rs/issues/3516)) ([a1bcecb](https://github.com/napi-rs/napi-rs/commit/a1bcecbd1bef2f51f1047f5800d5a312eb2eba3b))
+* **cli:** bootstrap the napi-async-runtime CurrentThread hosts in generated WASI loaders ([#3517](https://github.com/napi-rs/napi-rs/issues/3517)) ([17ec037](https://github.com/napi-rs/napi-rs/commit/17ec037b9f0b3614bdf9dd456f7386822e6bdcba))
+* **cli:** export `__napiBindingTarget` from generated binding loaders ([#3515](https://github.com/napi-rs/napi-rs/issues/3515)) ([0999bab](https://github.com/napi-rs/napi-rs/commit/0999babc1e37ce869b79f59db14f9eb12f6647df))
+* **cli:** make the deferred workerd loader usable by host-driven addons ([#3520](https://github.com/napi-rs/napi-rs/issues/3520)) ([6d10d82](https://github.com/napi-rs/napi-rs/commit/6d10d826c34f5d0009eb1ab47efaa4a2e34f4555)), closes [napi-rs/napi-rs#3517](https://github.com/napi-rs/napi-rs/issues/3517)
+
+
 ## [3.9.1](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.9.0...%40napi-rs%2Fcli%403.9.1) (2026-09-10)
 
 ### Bug Fixes
