@@ -2314,7 +2314,8 @@ export type WasiModuleInput =
   | WebAssembly.Module
   | PromiseLike<WebAssembly.Module>
 
-export interface WasiInstanceOptions {
+/** Run the instance on a linear memory the caller allocated. */
+export interface WasiCallerMemoryOptions {
   /**
    * A caller-allocated linear memory for this instance. It must be unshared
    * and created in this loader's own realm — the WASI and emnapi layers
@@ -2322,14 +2323,33 @@ export interface WasiInstanceOptions {
    * a \`node:vm\` context or another frame is rejected. It is single-use: once
    * a validated initialization attempt has begun, the same Memory cannot be
    * passed again — including after that attempt failed, and after the instance
-   * was disposed. Mutually exclusive with the page options below.
+   * was disposed.
    */
-  memory?: WebAssembly.Memory
+  memory: WebAssembly.Memory
+  /** Not available beside \`memory\`: the loader allocates neither. */
+  initialMemoryPages?: never
+  /** Not available beside \`memory\`: the loader allocates neither. */
+  maximumMemoryPages?: never
+}
+
+/** Let the loader allocate the linear memory, optionally sized. */
+export interface WasiAllocatedMemoryOptions {
+  /** Not available beside the page counts: they size the loader's own Memory. */
+  memory?: never
   /** @default WASM_MEMORY.initialPages */
   initialMemoryPages?: number
   /** @default WASM_MEMORY.maximumPages */
   maximumMemoryPages?: number
 }
+
+/**
+ * Either memory form, never a mix of the two: the loader throws a TypeError
+ * on \`memory\` beside a page count. \`{}\` and an omitted argument select the
+ * loader defaults.
+ */
+export type WasiInstanceOptions =
+  | WasiCallerMemoryOptions
+  | WasiAllocatedMemoryOptions
 
 export interface WasiRuntimeStats {
   /** Instances created by this evaluated loader module, not process-wide. */

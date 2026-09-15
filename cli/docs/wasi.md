@@ -252,7 +252,11 @@ const memory = new WebAssembly.Memory({ initial: 1024, maximum: 65536 })
 const instance = await createInstance(wasmModule, { memory })
 ```
 
-`memory` and the page options are mutually exclusive. Page counts go straight to
+`memory` and the page options are mutually exclusive. The generated
+declaration models that as a union — `WasiInstanceOptions` is
+`WasiCallerMemoryOptions | WasiAllocatedMemoryOptions`, each form declaring the
+other form's properties as `never` — so TypeScript rejects an option bag mixing
+the two before the loader throws. Page counts go straight to
 `new WebAssembly.Memory`, so the engine's own bounds and messages apply. A
 caller-provided `WebAssembly.Memory` must be unshared — this loader has no
 threads, and shared growth does not detach, so external views handed to the
