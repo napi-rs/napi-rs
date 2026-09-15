@@ -1403,6 +1403,109 @@ export function rewriteUnboundNodeGlobalTypeQueries(source: string): string {
   return rewritten
 }
 
+/**
+ * One top-level `export … const|let|var <name>` found by
+ * {@link findExportedVariableDeclarations}.
+ */
+export interface ExportedVariableDeclaration {
+  /**
+   * Where the declaration block starts: the doc comment written directly above
+   * the statement when there is one, so replacing the span swaps the comment
+   * with it instead of stranding it.
+   */
+  start: number
+  /** Just past the statement, trailing trivia excluded. */
+  end: number
+  /** The type annotation as written, or `undefined` when there is none. */
+  type?: string
+}
+
+/**
+ * Every declaration of `name` a consumer of this declaration file can import:
+ * a variable statement at the top level of the file carrying an `export`
+ * modifier, in source order.
+ *
+ * Parsed rather than pattern-matched, because a declaration file spells the
+ * name in places that are not an export of it. `napi-derive` copies a crate's
+ * `js_doc` through verbatim, so a doc comment can name it; a `--dts-header`
+ * may carry a commented-out example of the declaration, or a member of a
+ * `declare namespace` / `declare module` block, which is an export of that
+ * block and not of the file. Importing any of those yields TS2305, so none of
+ * them may count as already declaring the name.
+ *
+ * `const`, `let` and `var` all count: what matters is that a second
+ * declaration beside one would be a TS2451 redeclaration.
+ */
+export function findExportedVariableDeclarations(
+  source: string,
+  name: string,
+): ExportedVariableDeclaration[] {
+  const typeScript = loadTypeScript()
+  // Parsed leniently, unlike `parseDeclarationSource` below: this runs over
+  // whatever a project put in its `--dts-header` and over declaration files
+  // kept from earlier builds, and a syntax error somewhere else in the file is
+  // no reason to refuse to answer.
+  const sourceFile = typeScript.createSourceFile(
+    IN_MEMORY_DECLARATION_FILE,
+    source,
+    typeScript.ScriptTarget.Latest,
+    true,
+    typeScript.ScriptKind.TS,
+  )
+  const declarations: ExportedVariableDeclaration[] = []
+  for (const statement of sourceFile.statements) {
+    if (
+      !typeScript.isVariableStatement(statement) ||
+      !statement.modifiers?.some(
+        (modifier) => modifier.kind === typeScript.SyntaxKind.ExportKeyword,
+      )
+    ) {
+      continue
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !typeScript.isIdentifier(declaration.name) ||
+        declaration.name.text !== name
+      ) {
+        continue
+      }
+      declarations.push({
+        start: declarationBlockStart(source, sourceFile, statement),
+        end: statement.end,
+        type: declaration.type?.getText(sourceFile),
+      })
+      break
+    }
+  }
+  return declarations
+}
+
+/**
+ * Where a statement's block starts for replacement purposes: the doc comment
+ * directly above it when one is there, otherwise the statement itself. Only a
+ * `/** … *\/` comment separated from the statement by nothing but whitespace
+ * counts, so a license banner further up is never swallowed.
+ */
+function declarationBlockStart(
+  source: string,
+  sourceFile: SourceFile,
+  statement: Statement,
+): number {
+  const typeScript = loadTypeScript()
+  const start = statement.getStart(sourceFile)
+  const comments =
+    typeScript.getLeadingCommentRanges(source, statement.getFullStart()) ?? []
+  for (const comment of comments) {
+    if (
+      source.startsWith('/**', comment.pos) &&
+      source.slice(comment.end, start).trim() === ''
+    ) {
+      return comment.pos
+    }
+  }
+  return start
+}
+
 function parseDeclarationSource(source: string) {
   const typeScript = loadTypeScript()
   const parsed = typeScript.createSourceFile(

@@ -26,6 +26,7 @@ import {
   debugFactory,
   DEFAULT_TYPE_DEF_HEADER,
   fileExists,
+  findExportedVariableDeclarations,
   getSystemDefaultTarget,
   getNapiDeriveDependentCrates,
   getPackageReconciliationRoot,
@@ -124,17 +125,21 @@ export declare const ${NAPI_BINDING_TARGET_EXPORT}: '${platformArchABI}'
 `
 
 /**
- * The declaration shape a generated `.d.ts` carries, as opposed to a mere
- * mention of the name. `napi-derive`'s `js_doc` reaches the declaration file
- * verbatim, so a doc comment can name the export without declaring it, and
- * `assertBindingTargetIdentFree` only rejects the exact name, so a longer
- * export such as `__napiBindingTargetInfo` is legal. No `g` flag: `test` on a
- * shared regex must stay stateless.
+ * Every declaration of `__napiBindingTarget` a consumer of `source` can import,
+ * in source order.
+ *
+ * Only a real top-level export counts, and only the parser can tell one from
+ * the other places the name reaches a declaration file: `napi-derive`'s
+ * `js_doc` copies doc comments through verbatim, a `--dts-header` may carry a
+ * commented-out example of the declaration, and a member of a `declare
+ * namespace` or `declare module` block is an export of that block, not of the
+ * file. Importing any of those yields TS2305, so treating one as the
+ * declaration would leave the generated declaration unwritten. A longer export
+ * such as `__napiBindingTargetInfo` is a different name and never counts —
+ * `assertBindingTargetIdentFree` only reserves the exact one.
  */
-const BINDING_TARGET_DECLARATION_PATTERN = new RegExp(
-  `^\\s*export\\s+(?:declare\\s+)?const\\s+${NAPI_BINDING_TARGET_EXPORT}\\b`,
-  'm',
-)
+const bindingTargetDeclarations = (source: string) =>
+  findExportedVariableDeclarations(source, NAPI_BINDING_TARGET_EXPORT)
 
 /**
  * Every literal a declaration this CLI wrote can name. The root entry's union
@@ -152,23 +157,6 @@ const MANAGED_BINDING_TARGET_LITERALS = new Set([
   'native',
   ...MANAGED_WASI_FLAVORS.map((flavor) => flavor.platformArchABI),
 ])
-
-/**
- * Every `__napiBindingTarget` declaration in `source`, each match spanning the
- * doc comment this CLI writes above it when there is one, so replacing a match
- * swaps the whole block instead of stranding its comment. Capture group 1 is
- * the declared type.
- *
- * Built per call because a `g` regex carries `lastIndex` — the same reason
- * {@link BINDING_TARGET_DECLARATION_PATTERN} above has no `g` flag.
- */
-const bindingTargetDeclarationBlocks = (source: string) =>
-  source.matchAll(
-    new RegExp(
-      `\\n(?:/\\*\\*(?:[^*]|\\*(?!/))*\\*/\\n)?export\\s+declare\\s+const\\s+${NAPI_BINDING_TARGET_EXPORT}\\s*:\\s*([^\\n]*)\\n`,
-      'g',
-    ),
-  )
 
 /**
  * Whether a declared type is one this CLI wrote. Keyed on the type rather than
@@ -767,11 +755,22 @@ export function prepareWasiBindingTypeDef(
  *
  * Three cases, decided in this order:
  *
- * - The rendered `.d.ts` header declares it. `renderedHeader` is that header as
- *   this build rendered it, and a declaration inside it is the project's own:
- *   it wins, nothing is appended, and it is never rewritten. Declaring it a
- *   second time would be a TS2451 redeclaration.
- * - A declaration outside the header whose type is built only out of the
+ * - The declaration the rendered `.d.ts` header owns. `renderedHeader` is that
+ *   header as this build rendered it; if it declares the export, the project's
+ *   own declaration wins: nothing is appended, and it is never rewritten.
+ *   Declaring it a second time would be a TS2451 redeclaration.
+ *
+ *   The header is matched by the text of its declaration against the first
+ *   declaration in the file, not by a prefix of the file. A WASI declaration is
+ *   derived through {@link prepareWasiBindingTypeDef}, which rewrites relative
+ *   import specifiers and, for the threadless flavor, drops `node:stream/web`
+ *   imports — a header carrying either stops being a literal prefix of the file
+ *   derived from it, while the declaration statement itself comes through
+ *   untouched and stays the first one, because those rewrites never reorder
+ *   statements. On the preserved path the header in hand is this build's, not
+ *   the one the kept file was written with, and a kept declaration that reads
+ *   differently is correctly not the header's.
+ * - A declaration the header does not own whose type is built only out of the
  *   literals this CLI writes ({@link isGeneratedBindingTargetType}) is one of
  *   ours. Stale — an older union, or the other flavor's literal — it is
  *   replaced in place, comment and all, so a file kept from an earlier build
@@ -795,34 +794,38 @@ export function ensureBindingTargetDeclaration(
   const declaration = platformArchABI
     ? createBindingTargetFlavorDeclaration(platformArchABI)
     : BINDING_TARGET_TYPE_DECLARATION
-  // Split the header off so the refresh below can only ever reach the body.
-  // `prepareWasiBindingTypeDef` rebases relative specifiers, so a header
-  // carrying one no longer matches the text this build rendered; the length
-  // then falls back to 0 and the whole file is scanned, which is what a caller
-  // that passes no header already gets. On the preserved path the header in
-  // hand is this build's, not the one the kept file was written with, and the
-  // same fallback applies.
-  const headerLength =
-    renderedHeader && typeDef.startsWith(renderedHeader)
-      ? renderedHeader.length
-      : 0
-  const header = typeDef.slice(0, headerLength)
-  const body = typeDef.slice(headerLength)
-  if (body.includes(declaration)) {
-    return typeDef
+  const declarations = bindingTargetDeclarations(typeDef)
+  if (declarations.length === 0) {
+    const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
+    return `${typeDef}${separator}${declaration}`
   }
-  // Before the already-declared guard below, or a file that carries a union, or
-  // the other flavor's literal, is never narrowed to the flavor it types.
-  for (const match of bindingTargetDeclarationBlocks(body)) {
-    if (isGeneratedBindingTargetType(match[1])) {
-      return header + body.replace(match[0], declaration)
+  const headerDeclaration = renderedHeader
+    ? bindingTargetDeclarations(renderedHeader).map((found) =>
+        renderedHeader.slice(found.start, found.end),
+      )[0]
+    : undefined
+  const headerOwnsFirst =
+    headerDeclaration !== undefined &&
+    typeDef.slice(declarations[0].start, declarations[0].end) ===
+      headerDeclaration
+  for (const [index, found] of declarations.entries()) {
+    if (headerOwnsFirst && index === 0) {
+      continue
+    }
+    if (found.type !== undefined && isGeneratedBindingTargetType(found.type)) {
+      // Replacing the block instead of appending: a file that carries a union,
+      // or the other flavor's literal, has to be narrowed to the flavor it
+      // types rather than gaining a second, conflicting declaration. The span
+      // covers the doc comment above the statement, so the comment is swapped
+      // with it rather than stranded.
+      return (
+        typeDef.slice(0, found.start) +
+        declaration.trim() +
+        typeDef.slice(found.end)
+      )
     }
   }
-  if (BINDING_TARGET_DECLARATION_PATTERN.test(typeDef)) {
-    return typeDef
-  }
-  const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
-  return `${typeDef}${separator}${declaration}`
+  return typeDef
 }
 
 export function collectStaleWasiBuildOutputNames(
@@ -3047,8 +3050,9 @@ export async function generateTypeDef(
   }
 
   // The header exactly as the project wrote it, captured before the appends
-  // below grow it, so `ensureBindingTargetDeclaration` can split it back off a
-  // file derived from this one.
+  // below grow it, so `ensureBindingTargetDeclaration` can tell a declaration
+  // the header owns from one this build wrote into a file derived from this
+  // one.
   const renderedHeader = header
   // That header may declare `__napiBindingTarget` itself, as a workaround for
   // loaders that predate the export. Declaring it again below would be a TS2451
@@ -3056,7 +3060,7 @@ export async function generateTypeDef(
   // `ensureBindingTargetDeclaration` already applies to a preserved WASI
   // declaration.
   const headerDeclaresBindingTarget =
-    BINDING_TARGET_DECLARATION_PATTERN.test(renderedHeader)
+    bindingTargetDeclarations(renderedHeader).length > 0
 
   // A crate can register every export from a `#[napi(module_exports)]` hook
   // and emit no `.type` file, and the loader written for it still exports
