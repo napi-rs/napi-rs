@@ -1624,15 +1624,19 @@ function sourceBindsName(
   name: string,
 ): { ownsName: boolean; checked: boolean } {
   const typeScript = loadTypeScript()
-  // A binding of `name` in this file has to spell it here — but an identifier
-  // may spell any of its characters as a `\uXXXX` or `\u{…}` escape, which
-  // TypeScript resolves to the same name and a text search does not. So the
-  // shortcut only applies to a source that contains neither the name nor any
-  // escape that could become part of one, which is what almost every header
-  // is. The other form a text search would miss is `export * from '…'`, which
-  // the program below leaves unresolved by design, so nothing is skipped
-  // there either.
-  if (!source.includes(name) && !source.includes('\\u')) {
+  // A binding of `name` in this file has to spell it here — but it need not
+  // spell it in the characters the name is made of. An identifier may write
+  // any of them as a `\uXXXX` or `\u{…}` escape; a string-literal export name
+  // (`export { x as "…" }`) may use `\xXX` as well, and may be broken across
+  // lines with a backslash-newline continuation. TypeScript resolves every one
+  // of those to the same name where a text search sees nothing. Enumerating
+  // the escapes is the game that was already lost once, so the shortcut asks
+  // for less: a source carrying neither the name nor a backslash *anywhere*
+  // cannot spell it, and that is what almost every header is. Everything else
+  // goes to the checker, which has always been able to say. The other form a
+  // text search would miss is `export * from '…'`, which the program below
+  // leaves unresolved by design, so nothing is skipped there either.
+  if (!source.includes(name) && !source.includes('\\')) {
     return { ownsName: false, checked: false }
   }
   // A value or an alias is what a `const` of the same name cannot be written
