@@ -2435,7 +2435,13 @@ class Builder {
       throw new Error(`Failed to write type def file ${dest}`, { cause: e })
     }
 
-    if (exports.length > 0) {
+    // The file is written unconditionally above, so track it whenever this
+    // build filled it. Runtime exports are one reason it has content; the
+    // `__napiBindingTarget` declaration is another, and a crate that registers
+    // everything from a `#[napi(module_exports)]` hook has only the second.
+    // `--pipe` (`cli/src/commands/build.ts`) and the `NapiCli.build` return
+    // value see registered outputs only.
+    if (dts.length > 0) {
       this.outputs.push({ kind: 'dts', path: dest })
     }
 

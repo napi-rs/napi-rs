@@ -1,7 +1,10 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { join as posixJoin, sep as posixSep } from 'node:path/posix'
+import { sep as win32Sep } from 'node:path/win32'
+import { fileURLToPath } from 'node:url'
 
 import ava, { type TestFn } from 'ava'
 
@@ -10,6 +13,8 @@ import {
   generateTypeDef,
   WASI_ARTIFACT_METADATA_PREFIX,
 } from '../build.js'
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -192,6 +197,110 @@ export declare function sum(a: number, b: number): number
         "export declare const __napiBindingTarget: 'wasm32-wasip1'",
       ),
     )
+  },
+)
+
+async function writeDeclarationOnlyProject(projectDir: string) {
+  // `napi-derive` in the dependency graph is the whole of what turns
+  // `enableTypeDef` on, and the crate deliberately uses no `#[napi]` macro, so
+  // the build writes zero `.type` files. That is the shape of a crate that
+  // registers everything from a `#[napi(module_exports)]` hook: a loader is
+  // written, but typegen has no runtime export to describe.
+  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+  await writeFile(
+    join(projectDir, 'Cargo.toml'),
+    `[package]
+name = "declaration_only"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi-derive = { path = "${napiDerivePath}" }
+`,
+  )
+  await writeFile(join(projectDir, 'src', 'lib.rs'), 'pub fn library() {}\n')
+}
+
+function declarationOnlyPackageJson(napi: Record<string, unknown>) {
+  return JSON.stringify({
+    name: 'declaration-only',
+    version: '0.1.0',
+    napi,
+  })
+}
+
+test.serial(
+  'a declaration-only type def is a tracked build output',
+  async (t) => {
+    const { projectDir } = t.context
+    await writeDeclarationOnlyProject(projectDir)
+    // a declared WASI fallback is reason enough to write the root loader, so the
+    // declaration file describes it with `__napiBindingTarget` even though the
+    // export list is empty
+    await writeFile(
+      join(projectDir, 'package.json'),
+      declarationOnlyPackageJson({
+        binaryName: 'declaration-only',
+        targets: ['wasm32-wasip1'],
+      }),
+    )
+
+    const [outputs, emptyOutputs] = await (async () => {
+      const originalCargo = process.env.CARGO
+      delete process.env.CARGO
+      try {
+        const declarationOutputs = await (
+          await buildProject({
+            cwd: projectDir,
+            outputDir: 'dist',
+            platform: true,
+          })
+        ).task
+        // the same crate with nothing to declare: no root loader (`--platform`
+        // writes it) and no WASI fallback, so typegen writes an empty file, and
+        // an empty file is not an output anyone should be asked to post-process
+        await writeFile(
+          join(projectDir, 'package.json'),
+          declarationOnlyPackageJson({ binaryName: 'declaration-only' }),
+        )
+        const emptyDeclarationOutputs = await (
+          await buildProject({ cwd: projectDir, outputDir: 'empty' })
+        ).task
+        return [declarationOutputs, emptyDeclarationOutputs] as const
+      } finally {
+        if (originalCargo === undefined) {
+          delete process.env.CARGO
+        } else {
+          process.env.CARGO = originalCargo
+        }
+      }
+    })()
+
+    const declarationPath = join(projectDir, 'dist', 'index.d.ts')
+    // `--pipe` and the `NapiCli.build` return value only ever see registered
+    // outputs, so a declaration file this build filled has to be registered
+    t.true(
+      outputs.some(
+        (output) => output.kind === 'dts' && output.path === declarationPath,
+      ),
+    )
+    // and the red above is about tracking, not about content: the file itself
+    // has always been written
+    t.true(
+      (await readFile(declarationPath, 'utf8')).includes(
+        'export declare const __napiBindingTarget:',
+      ),
+    )
+
+    t.is(await readFile(join(projectDir, 'empty', 'index.d.ts'), 'utf8'), '')
+    t.false(emptyOutputs.some((output) => output.kind === 'dts'))
   },
 )
 
