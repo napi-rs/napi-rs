@@ -1619,16 +1619,25 @@ async function resolveReconciliationLockIdentities(
   if (!anchorStats.isDirectory()) {
     throw reconciliationAnchorError(anchorPath, 'is not a directory', 'ENOTDIR')
   }
-  const guardKeys = new Set<string>()
+  const guardKeys = new Map<string, string | undefined>()
   if (await directoryIsWritable(dirname(anchorPath))) {
-    guardKeys.add(anchorPath)
+    guardKeys.set(anchorPath, undefined)
   }
   let currentPath = requestedPath
   while (true) {
     const currentStats = await lstatIfExists(currentPath)
     if (currentStats?.isSymbolicLink()) {
-      if (await directoryIsWritable(dirname(currentPath))) {
-        guardKeys.add(currentPath)
+      // Far-ancestor symlink guards scatter locks outside the project (up to
+      // a writable filesystem root, #3444); topology swaps are still caught
+      // fail-safe by the anchor assertions, so a guard is kept only where its
+      // lock stays within the anchor's parent. The lock root is resolved once
+      // here at walk time so the checked root is the root used.
+      const lockRoot = await realpath(dirname(currentPath))
+      if (
+        managedPackagePathIsWithin(dirname(anchorPath), lockRoot) &&
+        (await directoryIsWritable(dirname(currentPath)))
+      ) {
+        guardKeys.set(currentPath, lockRoot)
       }
     }
     const parent = dirname(currentPath)
@@ -1639,8 +1648,8 @@ async function resolveReconciliationLockIdentities(
   }
 
   const pathIdentities = await Promise.all(
-    [...guardKeys].map(async (key) => {
-      const lockRootPath = await realpath(dirname(key))
+    [...guardKeys].map(async ([key, carriedLockRoot]) => {
+      const lockRootPath = carriedLockRoot ?? (await realpath(dirname(key)))
       const lockRootStats = await lstat(lockRootPath, { bigint: true })
       if (!lockRootStats.isDirectory()) {
         throw reconciliationPathCollisionError(

@@ -7,6 +7,56 @@ import {
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'
 
+export const __napiBindingTarget = 'wasm32-wasip1'
+function __napiStampBindingTarget(exportsObject, target) {
+  if (
+    Object.prototype.hasOwnProperty.call(exportsObject, '__napiBindingTarget')
+  ) {
+    if (exportsObject.__napiBindingTarget === target) {
+      // Already ours: the root entry aliases the object it loaded, so a WASI
+      // fallback candidate — or a `NAPI_RS_NATIVE_LIBRARY_PATH` override that
+      // is a generated loader — arrives already stamped with this same value.
+      return target
+    }
+    const error = new Error(
+      '`__napiBindingTarget` is reserved by the generated binding loader, but the loaded binding already exports it. Rename the export, e.g. #[napi(js_name = "...")].',
+    )
+    error.code = 'ERR_NAPI_BINDING_TARGET_CONFLICT'
+    throw error
+  }
+  if (!Object.isExtensible(exportsObject)) {
+    // A `#[napi(module_exports)]` hook may seal or freeze this object
+    // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
+    // never a reason to fail an otherwise successful load, so the stamp is
+    // skipped. What a consumer still sees then follows the entry point: the
+    // browser and deferred loaders declare `__napiBindingTarget` at module
+    // level and go on reporting it, while the CommonJS entries hand back this
+    // very object as `module.exports`, so there the value is absent.
+    return target
+  }
+  try {
+    // [[Define]], not [[Set]]: an ordinary assignment walks the prototype
+    // chain, so an inherited accessor could swallow the value or throw and
+    // fail an otherwise successful load. The descriptor is what a successful
+    // assignment would have produced.
+    Object.defineProperty(exportsObject, '__napiBindingTarget', {
+      configurable: true,
+      enumerable: true,
+      value: target,
+      writable: true,
+    })
+  } catch {
+    // Same rule as the non-extensible skip above: reporting the artifact is
+    // metadata, never a reason to fail an otherwise successful load. An exotic
+    // object (a Proxy whose defineProperty trap refuses) is skipped, not
+    // thrown over.
+  }
+  // The CommonJS loaders assign this return value so `cjs-module-lexer` — and
+  // therefore Node's CJS -> ESM named export detection — can see
+  // `__napiBindingTarget` statically.
+  return target
+}
+
 export const { fs: __fs, vol: __volume } = memfs()
 
 const __wasi = new __WASI({
@@ -631,6 +681,12 @@ try {
     },
   }))
   __publishWasiDispose(__napiModule.exports)
+  // The default export hands out this object; a named module export does not
+  // travel with it, so carry the marker on the binding itself too. After the
+  // host install, which hands the same object to addon-provided registration
+  // functions that may put anything on it, and inside this `try`, so a claimed
+  // name fails the load through the rollback below rather than past it.
+  __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
 } catch (error) {
   const cleanupErrors = await __rollbackWasiInitialization()
   throw __attachCleanupErrors(error, cleanupErrors)
@@ -704,6 +760,7 @@ export const Thing = __napiModule.exports.Thing
 export const ThingList = __napiModule.exports.ThingList
 export const TypeTagA = __napiModule.exports.TypeTagA
 export const TypeTagB = __napiModule.exports.TypeTagB
+export const UnwrapForgerySurface = __napiModule.exports.UnwrapForgerySurface
 export const UseNullableClass = __napiModule.exports.UseNullableClass
 export const Width = __napiModule.exports.Width
 export const acceptArraybuffer = __napiModule.exports.acceptArraybuffer
@@ -733,6 +790,8 @@ export const apply1 = __napiModule.exports.apply1
 export const arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 export const arrayBufferFromExternal =
   __napiModule.exports.arrayBufferFromExternal
+export const arrayBufferFromExternalReadBack =
+  __napiModule.exports.arrayBufferFromExternalReadBack
 export const arrayBufferLenAsync = __napiModule.exports.arrayBufferLenAsync
 export const arrayBufferPassThrough =
   __napiModule.exports.arrayBufferPassThrough
@@ -1022,7 +1081,16 @@ export const mutateOptionalExternal =
 export const mutateTypedArray = __napiModule.exports.mutateTypedArray
 export const objectGetNamedPropertyShouldPerformTypecheck =
   __napiModule.exports.objectGetNamedPropertyShouldPerformTypecheck
+export const objectRemoveWrappedA = __napiModule.exports.objectRemoveWrappedA
+export const objectRewrapAfterRemove =
+  __napiModule.exports.objectRewrapAfterRemove
+export const objectRewrapWithDifferentType =
+  __napiModule.exports.objectRewrapWithDifferentType
 export const objectWithCApis = __napiModule.exports.objectWithCApis
+export const objectWrapMismatchKeepsWrap =
+  __napiModule.exports.objectWrapMismatchKeepsWrap
+export const objectWrapRoundtrip = __napiModule.exports.objectWrapRoundtrip
+export const objectWrapWithA = __napiModule.exports.objectWrapWithA
 export const optionalCallbackTypes = __napiModule.exports.optionalCallbackTypes
 export const optionEnd = __napiModule.exports.optionEnd
 export const optionOnly = __napiModule.exports.optionOnly
@@ -1065,6 +1133,8 @@ export const receiveStrictObject = __napiModule.exports.receiveStrictObject
 export const receiveString = __napiModule.exports.receiveString
 export const referenceAsCallback = __napiModule.exports.referenceAsCallback
 export const referenceWithTupleArg = __napiModule.exports.referenceWithTupleArg
+export const removeWrappedObjectAsU8Rejected =
+  __napiModule.exports.removeWrappedObjectAsU8Rejected
 export const returnCString = __napiModule.exports.returnCString
 export const returnEither = __napiModule.exports.returnEither
 export const returnEitherClass = __napiModule.exports.returnEitherClass
@@ -1159,6 +1229,16 @@ export const uInit8ArrayFromString = __napiModule.exports.uInit8ArrayFromString
 export const uint8ArrayFromData = __napiModule.exports.uint8ArrayFromData
 export const uint8ArrayFromExternal =
   __napiModule.exports.uint8ArrayFromExternal
+export const uint8ArraySliceFromExternalReadBack =
+  __napiModule.exports.uint8ArraySliceFromExternalReadBack
+export const uint8ClampedSliceFromExternalReadBack =
+  __napiModule.exports.uint8ClampedSliceFromExternalReadBack
+export const unwrapObjectAsARejected =
+  __napiModule.exports.unwrapObjectAsARejected
+export const unwrapObjectAsTypeTagARejected =
+  __napiModule.exports.unwrapObjectAsTypeTagARejected
+export const unwrapObjectAsU8Rejected =
+  __napiModule.exports.unwrapObjectAsU8Rejected
 export const validateArray = __napiModule.exports.validateArray
 export const validateBigint = __napiModule.exports.validateBigint
 export const validateBoolean = __napiModule.exports.validateBoolean

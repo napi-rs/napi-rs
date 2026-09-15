@@ -157,6 +157,7 @@ test('createWasiBrowserBinding with asyncRuntime hosts', (t) => {
       false,
       false,
       false,
+      'wasm32-wasip1',
       true,
     ),
   )
@@ -211,11 +212,33 @@ const browserBindingCases: Array<{
   { name: 'all options', args: ['test', 4000, 65536, true, true, true, true] },
   {
     name: 'asyncRuntime',
-    args: ['test', 4000, 65536, false, false, false, false, true, true],
+    args: [
+      'test',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      true,
+      'wasm32-wasi',
+      true,
+    ],
   },
   {
     name: 'all options + asyncRuntime',
-    args: ['test', 4000, 65536, true, true, true, true, true, true],
+    args: [
+      'test',
+      4000,
+      65536,
+      true,
+      true,
+      true,
+      true,
+      true,
+      'wasm32-wasi',
+      true,
+    ],
   },
 ]
 
@@ -342,6 +365,7 @@ const asyncRuntimeLoaderCases: Array<{
       false,
       false,
       true,
+      'wasm32-wasi',
       true,
     ),
     install: "from '@napi-rs/async-runtime'",
@@ -353,6 +377,7 @@ const asyncRuntimeDeferredCode = createWasiDeferredBrowserBinding(
   1024,
   65536,
   false,
+  'wasm32-wasip1',
   true,
 )
 
@@ -817,6 +842,412 @@ test('createCjsBinding uses one statement dialect', (t) => {
     win32Gnu.includes("          return require('./test.win32-x64-gnu.node')"),
     'win32-x64 gnu local require must be indented inside try',
   )
+})
+
+test('the root CommonJS loader stamps before it aliases the addon', (t) => {
+  // The guard is safe against an addon accessor — `hasOwnProperty` and a read —
+  // but an assignment is not: a `#[napi(module_exports)]` hook can expose a
+  // getter reporting the value about to be stamped and a setter that throws.
+  // So the lexer-visible assignment has to land on the loader's own
+  // `module.exports`, while it is still the original object.
+  const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')
+  assertValidJS(t, cjs, 'root cjs stamp before alias')
+  const stamp = cjs.indexOf(ROOT_CJS_STAMP_CALL)
+  t.true(stamp > -1, 'the root loader must stamp through the guard')
+  t.true(
+    stamp < cjs.indexOf('\nmodule.exports = nativeBinding'),
+    'the stamp must precede the alias, or it assigns onto the addon',
+  )
+  // the guard still stamps the object the loader hands out
+  t.false(cjs.includes('__napiStampBindingTarget(module.exports,'))
+})
+
+test('native loaders export the artifact that actually loaded', (t) => {
+  const flavors = ['wasm32-wasi', 'wasm32-wasip1']
+  const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
+  assertValidJS(t, cjs, 'cjs binding target')
+  t.true(cjs.includes("let __napiLoadedBindingTarget = 'native'"))
+  t.true(cjs.includes(ROOT_CJS_STAMP_CALL))
+  // one assignment per candidate: 2 flavors x (local loader + flavor package)
+  for (const flavor of flavors) {
+    t.is(
+      cjs.split(`__napiLoadedBindingTarget = '${flavor}'`).length - 1,
+      2,
+      `${flavor} must be recorded on both its local and package candidates`,
+    )
+  }
+  // the target is never read back off the WASI module
+  t.false(cjs.includes('wasiBinding.__napiBindingTarget'))
+
+  const esm = createEsmBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
+  assertValidJS(t, esm, 'esm binding target')
+  t.true(
+    esm.includes(
+      'export const __napiBindingTarget = __napiLoadedBindingTarget',
+    ),
+  )
+  // zero-ident packages take the `export default` branch and must keep it
+  const esmNoIdents = createEsmBinding(
+    'test',
+    '@scope/test',
+    [],
+    '1.0.0',
+    flavors,
+  )
+  assertValidJS(t, esmNoIdents, 'esm binding target without idents')
+  t.true(
+    esmNoIdents.includes(
+      'export const __napiBindingTarget = __napiLoadedBindingTarget',
+    ),
+  )
+})
+
+test('a napi export may not shadow __napiBindingTarget', (t) => {
+  t.throws(
+    () => createEsmBinding('test', '@scope/test', ['__napiBindingTarget']),
+    {
+      message: /reserved by the generated binding loader/,
+    },
+  )
+  t.throws(
+    () => createCjsBinding('test', '@scope/test', ['__napiBindingTarget']),
+    {
+      message: /reserved by the generated binding loader/,
+    },
+  )
+})
+
+test('WASI loaders self-identify their flavor', (t) => {
+  t.true(
+    createWasiBinding('test', '@scope/test').includes(
+      "const __napiBindingTarget = 'wasm32-wasi'",
+    ),
+  )
+  t.true(
+    createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      false,
+      'wasm32-wasip1',
+    ).includes("const __napiBindingTarget = 'wasm32-wasip1'"),
+  )
+  t.true(
+    createWasiBrowserBinding('test').includes(
+      "export const __napiBindingTarget = 'wasm32-wasi'",
+    ),
+  )
+  t.true(
+    createWasiBrowserBinding(
+      'test',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ).includes("export const __napiBindingTarget = 'wasm32-wasip1'"),
+  )
+  t.true(
+    createWasiDeferredBrowserBinding('test').includes(
+      "export const __napiBindingTarget = 'wasm32-wasip1'",
+    ),
+  )
+})
+
+const STAMP_HELPER_DECL =
+  'function __napiStampBindingTarget(exportsObject, target) {'
+const WASI_STAMP_CALL =
+  '__napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)'
+// The CJS loaders assign the guard's return value instead of calling it as a
+// statement: `cjs-module-lexer` only reports `__napiBindingTarget` as a named
+// export when it can see `module.exports.<name> =`, and Node's CJS->ESM named
+// export detection is that lexer.
+const ROOT_CJS_STAMP_CALL =
+  'module.exports.__napiBindingTarget = __napiStampBindingTarget(nativeBinding, __napiLoadedBindingTarget)'
+// The node WASI loader stamps the emnapi exports object — the one the CommonJS
+// tail then aliases — while assigning through `module.exports` for the lexer.
+const WASI_CJS_STAMP_LINE = `module.exports.__napiBindingTarget = ${WASI_STAMP_CALL}`
+// the call inside the initialization try, not the function declaration
+const WASI_EXIT_LISTENER_CALL = '\n  __registerWasiExitListener()'
+// nothing may write the marker onto a user-controlled exports object without
+// going through the guard, so an assignment is only legal when the guard call
+// is its right-hand side
+const UNGUARDED_MODULE_EXPORTS_STAMP =
+  /module\.exports\.__napiBindingTarget = (?!__napiStampBindingTarget\()/
+
+test('browser and deferred loaders carry the flavor on the binding they hand out', (t) => {
+  // `export default __napiModule.exports` and `instantiate()` hand out the raw
+  // emnapi exports object, which a named module export does not travel with.
+  const browser = createWasiBrowserBinding('test')
+  assertValidJS(t, browser, 'browser binding target on exports')
+  t.true(browser.includes(WASI_STAMP_CALL))
+  const deferred = createWasiDeferredBrowserBinding('test')
+  assertValidJS(t, deferred, 'deferred binding target on exports')
+  t.is(
+    deferred.split(WASI_STAMP_CALL).length - 1,
+    1,
+    'every instance created by __createInstance must be marked exactly once',
+  )
+  // the marker is assigned before the instance escapes to the caller
+  t.true(
+    deferred.indexOf(WASI_STAMP_CALL) <
+      deferred.indexOf('exports: __napiModule.exports'),
+  )
+})
+
+test('every mutating loader stamps the binding target through the guard', (t) => {
+  const cases: Array<{ name: string; code: string; call?: string }> = [
+    {
+      name: 'root cjs',
+      code: createCjsBinding('test', '@scope/test', ['sum'], '1.0.0'),
+      call: ROOT_CJS_STAMP_CALL,
+    },
+    {
+      name: 'wasi node cjs',
+      code: createWasiBinding('test', '@scope/test'),
+      call: WASI_CJS_STAMP_LINE,
+    },
+    {
+      name: 'wasi browser esm',
+      code: createWasiBrowserBinding('test'),
+      call: WASI_STAMP_CALL,
+    },
+    {
+      name: 'wasi deferred esm',
+      code: createWasiDeferredBrowserBinding('test'),
+      call: WASI_STAMP_CALL,
+    },
+  ]
+  for (const { name, code, call } of cases) {
+    assertValidJS(t, code, `${name} stamp guard`)
+    t.is(
+      code.split(STAMP_HELPER_DECL).length - 1,
+      1,
+      `${name} must emit the guard exactly once`,
+    )
+    if (call) {
+      t.is(
+        code.split(call).length - 1,
+        1,
+        `${name} must stamp exactly once, through the guard`,
+      )
+    }
+    // [[Define]], not [[Set]]: an ordinary assignment walks the prototype
+    // chain, so an inherited accessor on a user-controlled exports object could
+    // swallow the marker or throw and fail an otherwise successful load
+    t.true(
+      code.includes(
+        "Object.defineProperty(exportsObject, '__napiBindingTarget'",
+      ),
+      `${name} must define the marker as an own data property`,
+    )
+    t.false(
+      code.includes('exportsObject.__napiBindingTarget = target'),
+      `${name} must not stamp the marker through an ordinary assignment`,
+    )
+    // an addon's exports object is user-controlled: nothing may write the
+    // marker onto it without going through the guard
+    t.false(
+      UNGUARDED_MODULE_EXPORTS_STAMP.test(code),
+      `${name} must not assign the marker onto module.exports directly`,
+    )
+    t.false(
+      code.includes('__napiModule.exports.__napiBindingTarget ='),
+      `${name} must not assign the marker onto the emnapi exports directly`,
+    )
+  }
+})
+
+test('the node WASI loader stamps inside the rollback boundary', (t) => {
+  // Anything the guard throws — a conflicting `#[napi(module_exports)]` export,
+  // or an addon accessor whose setter refuses the write — has to land in the
+  // initialization `try`. From outside it the throw escapes with the emnapi
+  // context built and the process 'exit' listener installed, so a failed
+  // `require()` leaks an initialized WASI environment nothing can reach.
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'wasi node cjs rollback boundary')
+  const initializationCatch = '\n} catch (error) {'
+  t.is(
+    code.split(initializationCatch).length - 1,
+    1,
+    'the top-level initialization catch must be unambiguous',
+  )
+  // exactly one, so nothing can stamp a second time outside the boundary
+  t.is(code.split('module.exports.__napiBindingTarget =').length - 1, 1)
+  const stamp = code.indexOf(WASI_CJS_STAMP_LINE)
+  t.true(stamp > code.indexOf('__publishWasiDispose(__napiModule.exports)'))
+  t.true(stamp < code.indexOf(WASI_EXIT_LISTENER_CALL))
+  t.true(stamp < code.indexOf(initializationCatch))
+  // and the rollback the catch runs is the one that tears the environment down
+  t.true(code.includes('__runWasiInitializationRollback(rollback)'))
+})
+
+/**
+ * Every loader that stamps an addon-owned exports object, with the marker that
+ * ends its initialization guard and the host installation that must precede the
+ * stamp. A host install hands that same object to addon-provided registration
+ * functions, which can put anything on it — including this marker — so a stamp
+ * placed before them reads a state that is not final.
+ */
+const HOST_INSTALL_ORDER_CASES = [
+  {
+    name: 'wasi node cjs',
+    build: (asyncRuntime: boolean) =>
+      createWasiBinding(
+        'test',
+        '@scope/test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        asyncRuntime,
+      ),
+    stamp: WASI_CJS_STAMP_LINE,
+    hostInstall: '__installCurrentThreadHosts(',
+    endOfGuard: WASI_EXIT_LISTENER_CALL,
+  },
+  {
+    name: 'wasi browser esm',
+    build: (asyncRuntime: boolean) =>
+      createWasiBrowserBinding(
+        'test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        asyncRuntime,
+      ),
+    stamp: WASI_STAMP_CALL,
+    hostInstall: '__installCurrentThreadHosts(',
+    endOfGuard: '\n} catch (error) {',
+  },
+  {
+    name: 'wasi deferred esm',
+    build: (asyncRuntime: boolean) =>
+      createWasiDeferredBrowserBinding(
+        'test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        asyncRuntime,
+      ),
+    stamp: WASI_STAMP_CALL,
+    hostInstall: '__registerWorkerdCurrentThreadTaskHost(',
+    endOfGuard: "__lifecycleState === 'pending'",
+  },
+] as const
+
+for (const {
+  name,
+  build,
+  stamp,
+  hostInstall,
+  endOfGuard,
+} of HOST_INSTALL_ORDER_CASES) {
+  test(`${name} stamps the binding object after its host installation`, (t) => {
+    const withHosts = build(true)
+    assertValidJS(t, withHosts, `${name} asyncRuntime stamp order`)
+    const hostInstallAt = withHosts.indexOf(hostInstall)
+    t.true(hostInstallAt > -1, 'the asyncRuntime host install must be emitted')
+    const stampAt = withHosts.indexOf(stamp)
+    t.true(stampAt > hostInstallAt, 'the stamp must follow the host install')
+    t.true(
+      stampAt < withHosts.indexOf(endOfGuard),
+      'the stamp must stay inside the initialization guard',
+    )
+
+    // and without an async runtime the stamp keeps that same place: last thing
+    // before the guard closes, so nothing can reshape the object behind it
+    const withoutHosts = build(false)
+    assertValidJS(t, withoutHosts, `${name} stamp order`)
+    t.is(withoutHosts.indexOf(hostInstall), -1)
+    t.true(withoutHosts.indexOf(stamp) < withoutHosts.indexOf(endOfGuard))
+  })
+}
+
+test('the deferred loader marks the binding without requiring an extensible exports object', (t) => {
+  const deferred = createWasiDeferredBrowserBinding('test')
+  assertValidJS(t, deferred, 'deferred guarded stamp')
+  // a `#[napi(module_exports)]` hook may have sealed or frozen this object
+  t.true(deferred.includes('if (!Object.isExtensible(exportsObject)) {'))
+  // and it may have claimed the name, which is a hard error, not a silent
+  // overwrite — with a stable `code` to branch on
+  t.true(
+    deferred.includes(
+      "Object.prototype.hasOwnProperty.call(exportsObject, '__napiBindingTarget')",
+    ),
+  )
+  t.true(deferred.includes("error.code = 'ERR_NAPI_BINDING_TARGET_CONFLICT'"))
+})
+
+test('every emitted loader says what its own entry reports after a skipped stamp', (t) => {
+  // The runtime is pinned by build.spec.ts (`a frozen addon keeps
+  // __napiBindingTarget importable, just undefined`): both CommonJS entries
+  // replace `module.exports` with the object the stamp was skipped on, so the
+  // value is absent there, while the ESM loaders keep a module-level export.
+  // The comment shipped inside every loader has to describe that split rather
+  // than promise the module export survives everywhere.
+  for (const [name, code] of [
+    ['root cjs', createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')],
+    ['wasi node cjs', createWasiBinding('test', '@scope/test')],
+    ['wasi browser esm', createWasiBrowserBinding('test')],
+    ['wasi deferred esm', createWasiDeferredBrowserBinding('test')],
+  ] as const) {
+    assertValidJS(t, code, `${name} skip contract`)
+    t.false(
+      code.includes('module export still reports it'),
+      `${name} must not claim every entry still reports the target`,
+    )
+    t.true(
+      code.includes('while the CommonJS entries hand back'),
+      `${name} must say the CommonJS entries lose the value`,
+    )
+  }
+
+  // and the root CommonJS loader's own note about its lexer-visible assignment:
+  // that assignment lands on the loader's own `module.exports`, so it always
+  // succeeds and the alias on the next line is what discards it
+  const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')
+  t.false(
+    cjs.includes('is a silent no-op'),
+    'the assignment is not a no-op; its target is extensible',
+  )
+  t.true(
+    cjs.includes('The assignment itself always succeeds'),
+    'the root CommonJS loader must not call its own assignment a no-op',
+  )
+  t.true(
+    cjs.includes('own, still extensible `module.exports`'),
+    'the root CommonJS loader must name its real assignment target',
+  )
+})
+
+test('NAPI_RS_NATIVE_LIBRARY_PATH keeps the flavor its override reports', (t) => {
+  const adoption = `__napiLoadedBindingTarget =
+        overrideBinding && typeof overrideBinding.__napiBindingTarget === 'string'
+          ? overrideBinding.__napiBindingTarget
+          : 'native'`
+  for (const [name, code] of [
+    ['cjs', createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')],
+    ['esm', createEsmBinding('test', '@scope/test', ['sum'], '1.0.0')],
+  ] as const) {
+    assertValidJS(t, code, `${name} override binding target`)
+    t.true(code.includes(adoption), `${name} must adopt the override's target`)
+    // the override result must not be returned before it is inspected
+    t.false(
+      code.includes('return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH)'),
+      `${name} must bind the override before returning it`,
+    )
+  }
 })
 
 test('WASI worker template matches the CJS/ESM quote and semicolon dialect', (t) => {

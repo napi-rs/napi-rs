@@ -1,7 +1,8 @@
 export type WasiBinding = typeof import('./example.wasip1.cjs')
 
 export type WasiModuleInput =
-  WebAssembly.Module | PromiseLike<WebAssembly.Module>
+  | WebAssembly.Module
+  | PromiseLike<WebAssembly.Module>
 
 export interface WasiInstance {
   readonly exports: WasiBinding
@@ -14,3 +15,6 @@ export function createInstance(
 ): Promise<WasiInstance>
 /** Dispose the singleton and retry retained failed-initialization cleanup. */
 export function dispose(): Promise<void>
+
+/** The WASI flavor this deferred loader instantiates. */
+export declare const __napiBindingTarget: 'wasm32-wasip1'
