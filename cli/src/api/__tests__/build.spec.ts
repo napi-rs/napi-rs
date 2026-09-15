@@ -1530,6 +1530,12 @@ const semanticDiagnosticCodes = async (
   )
 }
 
+/** A namespace the rows below alias a member out of. */
+const LEGACY_NAMESPACE = `declare namespace Legacy {
+  const thing: 'native'
+}
+`
+
 /**
  * Every shape a `--dts-header` can export `__napiBindingTarget` through, and
  * whether that shape claims the name.
@@ -1613,6 +1619,23 @@ const BINDING_TARGET_EXPORT_FORMS: Array<{
     body: 'export declare namespace __napiBindingTarget.Inner { const a: number }',
     owns: true,
   },
+  // A namespace is instantiated by an aliased member too, which is exactly
+  // what a hand-written walk over the body kept missing.
+  {
+    label: 'a namespace instantiated by an export import',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  export import thing = Legacy.thing\n}`,
+    owns: true,
+  },
+  {
+    label: 'a namespace instantiated by an export clause',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  export { Legacy }\n}`,
+    owns: true,
+  },
+  {
+    label: 'a namespace instantiated by a nested alias',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  namespace Inner {\n    export import thing = Legacy.thing\n  }\n}`,
+    owns: true,
+  },
   {
     label: 'export import name =',
     body: "declare namespace Legacy {\n  const thing: 'native'\n}\nexport import __napiBindingTarget = Legacy.thing",
@@ -1689,6 +1712,13 @@ const BINDING_TARGET_EXPORT_FORMS: Array<{
   {
     label: 'a namespace whose nested one is type-only',
     body: 'export declare namespace __napiBindingTarget {\n  namespace Inner {\n    interface I {\n      a: number\n    }\n  }\n}',
+    owns: false,
+  },
+  // the control for the three rows above: an alias a namespace keeps to itself
+  // instantiates nothing
+  {
+    label: 'a namespace with an unexported import',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  import thing = Legacy.thing\n}`,
     owns: false,
   },
   {

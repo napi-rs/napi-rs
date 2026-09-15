@@ -5,11 +5,9 @@ import { sortBy } from 'es-toolkit'
 import type {
   CompilerHost,
   CompilerOptions,
-  Declaration,
   Diagnostic,
   EntityName,
   Identifier,
-  ModuleDeclaration,
   NodeArray,
   SourceFile,
   Statement,
@@ -1138,10 +1136,19 @@ function typeImportReferenceMeaning(
   }
 }
 
-function createDeclarationProgram(source: string): {
-  program: import('typescript').Program
-  sourceFile: SourceFile
-} {
+/**
+ * A program over one already-parsed declaration file and nothing else.
+ *
+ * `noLib` and `noResolve` are the point, not an optimization: the answers a
+ * caller takes from this program have to depend on the source alone, never on
+ * what happens to sit next to the output directory. Nothing outside the file
+ * is loaded, so an unresolved import stays unresolved rather than resolving
+ * differently from one machine to the next.
+ */
+function programOverDeclarationSource(
+  sourceFile: SourceFile,
+  source: string,
+): import('typescript').Program {
   const typeScript = loadTypeScript()
   const options: CompilerOptions = {
     module: typeScript.ModuleKind.ESNext,
@@ -1151,13 +1158,6 @@ function createDeclarationProgram(source: string): {
     target: typeScript.ScriptTarget.Latest,
     types: [],
   }
-  const sourceFile = typeScript.createSourceFile(
-    IN_MEMORY_DECLARATION_FILE,
-    source,
-    options.target!,
-    true,
-    typeScript.ScriptKind.TS,
-  )
   const host: CompilerHost = {
     fileExists: (fileName) => fileName === IN_MEMORY_DECLARATION_FILE,
     getCanonicalFileName: (fileName) => fileName,
@@ -1172,16 +1172,43 @@ function createDeclarationProgram(source: string): {
     useCaseSensitiveFileNames: () => true,
     writeFile: () => {},
   }
-  const program = typeScript.createProgram({
+  return typeScript.createProgram({
     rootNames: [IN_MEMORY_DECLARATION_FILE],
     options,
     host,
   })
+}
+
+function createDeclarationProgram(source: string): {
+  program: import('typescript').Program
+  sourceFile: SourceFile
+} {
+  const typeScript = loadTypeScript()
+  const sourceFile = parseDeclarationFile(source)
+  const program = programOverDeclarationSource(sourceFile, source)
   const diagnostics = program.getSyntacticDiagnostics(sourceFile)
   if (diagnostics.length > 0) {
     throwDeclarationDiagnostics(typeScript, sourceFile, diagnostics)
   }
   return { program, sourceFile }
+}
+
+/**
+ * Parse a declaration source without judging it. Unlike
+ * {@link parseDeclarationSource}, a syntax error somewhere else in the file is
+ * no reason to refuse to answer a question about it: this runs over whatever a
+ * project put in its `--dts-header` and over declaration files kept from
+ * earlier builds.
+ */
+function parseDeclarationFile(source: string): SourceFile {
+  const typeScript = loadTypeScript()
+  return typeScript.createSourceFile(
+    IN_MEMORY_DECLARATION_FILE,
+    source,
+    typeScript.ScriptTarget.Latest,
+    true,
+    typeScript.ScriptKind.TS,
+  )
 }
 
 function throwDeclarationDiagnostics(
@@ -1452,24 +1479,30 @@ export interface ExportedNameScan {
    */
   exportsByAssignment: boolean
   /**
-   * Whether a top-level statement claims `name` in a way that leaves no room
-   * for an added `export declare const name`.
+   * Whether the file already exports `name` in a way that leaves no room for
+   * an added `export declare const name`.
    *
    * Not simply "is it exported": TypeScript merges a value with a declaration
    * that lives only in type space, and a caller that backed off there would
    * take away typed access to a real runtime export (TS2693 at every value
-   * use) without preventing any collision. So an exported `type`, `interface`
-   * or non-instantiated namespace is *not* an owner, while everything that
-   * occupies value space is — a variable, `function`, `class`, `enum`,
-   * `export import name = …`, and a namespace whose body declares a value.
+   * use) while preventing no collision at all. So an exported `type`,
+   * `interface` or non-instantiated namespace is *not* an owner.
    *
-   * Every `export { … }` clause is an owner whatever it re-exports, including
-   * its `export type { … }` and `export * as name from '…'` forms: an alias
-   * collides with a local declaration of the name however it is spelled
-   * (TS2323, TS2440).
+   * Which leaves the question of what "value space" means for every shape a
+   * declaration file can take, and that is TypeScript's question to answer,
+   * not this CLI's — see {@link scanExportedName}. An owner is an export the
+   * checker gives `SymbolFlags.Value` (a variable, `function`, `class`,
+   * `enum`, an instantiated namespace — instantiated by the binder's rules,
+   * which count an aliased member such as `export import x = …` that hand-
+   * written recursion over the body kept missing) or `SymbolFlags.Alias`
+   * (every `export { … }` clause, its `export type { … }` and
+   * `export * as name from '…'` forms, and `export import name = …`; an alias
+   * collides with a local declaration of the name however it is spelled —
+   * TS2323, TS2440).
    *
    * `export default` binds `default` rather than a name, and
-   * `export * from '…'` names nothing here; neither counts.
+   * `export * from '…'` is left unresolved on purpose, so it names nothing
+   * here; neither counts.
    */
   ownsName: boolean
   /**
@@ -1493,32 +1526,26 @@ export interface ExportedNameScan {
  * of those yields TS2305, and a commented-out `export =` is not an export
  * assignment at all.
  *
- * Ownership is read off the shape of the statement rather than off a list of
- * kinds this CLI expects, so a form nobody thought of still counts — see
- * {@link ExportedNameScan.ownsName} for which shapes own the name and why the
- * type-space-only ones do not.
+ * Ownership is decided by TypeScript's own binder rather than by a list of
+ * shapes this CLI enumerates. Every attempt at the list missed something —
+ * a namespace export clause, an `export import` member, an alias nested one
+ * level deeper — because the question is really "what does this file export,
+ * and in which declaration space", and only the checker knows. So the file is
+ * bound and {@link ExportedNameScan.ownsName} is read off the export symbol's
+ * flags.
  *
- * One parse answers every question, because every caller asks them together.
+ * The syntax is still what finds the rewritable declaration and its span, and
+ * one parse serves both: the program is built over the source file parsed
+ * here, so binding costs no second parse.
  */
 export function scanExportedName(
   source: string,
   name: string,
 ): ExportedNameScan {
   const typeScript = loadTypeScript()
-  // Parsed leniently, unlike `parseDeclarationSource` below: this runs over
-  // whatever a project put in its `--dts-header` and over declaration files
-  // kept from earlier builds, and a syntax error somewhere else in the file is
-  // no reason to refuse to answer.
-  const sourceFile = typeScript.createSourceFile(
-    IN_MEMORY_DECLARATION_FILE,
-    source,
-    typeScript.ScriptTarget.Latest,
-    true,
-    typeScript.ScriptKind.TS,
-  )
+  const sourceFile = parseDeclarationFile(source)
   const declarations: ExportedVariableDeclaration[] = []
   let exportsByAssignment = false
-  let ownsName = false
   for (const statement of sourceFile.statements) {
     if (typeScript.isExportAssignment(statement)) {
       // `export = x`. `export default x` is the same node without the flag,
@@ -1526,107 +1553,77 @@ export function scanExportedName(
       exportsByAssignment ||= statement.isExportEquals === true
       continue
     }
-    if (typeScript.isExportDeclaration(statement)) {
-      const clause = statement.exportClause
-      if (clause === undefined) {
-        // `export * from '…'` names nothing here, and what it re-exports
-        // cannot be known without resolving the module.
-        continue
-      }
-      // `export * as name from '…'` (and its `export type *` form) binds the
-      // name through a namespace clause rather than a specifier list.
-      ownsName ||= typeScript.isNamespaceExport(clause)
-        ? clause.name.text === name
-        : clause.elements.some((element) => element.name.text === name)
-      continue
-    }
-    const modifiers = typeScript.canHaveModifiers(statement)
-      ? typeScript.getModifiers(statement)
-      : undefined
+    // Only an exported variable statement leaves a declaration a caller can
+    // rewrite in place. Every other owner is found through the checker below,
+    // which has no span to offer and needs none.
     if (
-      !modifiers?.some(
+      !typeScript.isVariableStatement(statement) ||
+      !statement.modifiers?.some(
         (modifier) => modifier.kind === typeScript.SyntaxKind.ExportKeyword,
-      ) ||
-      modifiers.some(
-        (modifier) => modifier.kind === typeScript.SyntaxKind.DefaultKeyword,
       )
     ) {
       continue
     }
-    if (typeScript.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (
-          !typeScript.isIdentifier(declaration.name) ||
-          declaration.name.text !== name
-        ) {
-          continue
-        }
-        ownsName = true
-        declarations.push({
-          start: declarationBlockStart(source, sourceFile, statement),
-          end: statement.end,
-          declaratorStart: declaration.getStart(sourceFile),
-          declaratorEnd: declaration.end,
-          declaratorCount: statement.declarationList.declarations.length,
-          type: declaration.type?.getText(sourceFile),
-        })
-        break
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !typeScript.isIdentifier(declaration.name) ||
+        declaration.name.text !== name
+      ) {
+        continue
       }
-      continue
+      declarations.push({
+        start: declarationBlockStart(source, sourceFile, statement),
+        end: statement.end,
+        declaratorStart: declaration.getStart(sourceFile),
+        declaratorEnd: declaration.end,
+        declaratorCount: statement.declarationList.declarations.length,
+        type: declaration.type?.getText(sourceFile),
+      })
+      break
     }
-    // Everything else an exported statement can be declares exactly one name,
-    // and none of them leaves a declaration this CLI could rewrite. Only the
-    // ones that occupy value space claim the name; `interface` and `type` do
-    // not, and a namespace only does when its body declares a value.
-    const declared = typeScript.getNameOfDeclaration(statement as Declaration)
-    if (
-      declared === undefined ||
-      !typeScript.isIdentifier(declared) ||
-      declared.text !== name
-    ) {
-      continue
-    }
-    ownsName ||=
-      typeScript.isFunctionDeclaration(statement) ||
-      typeScript.isClassDeclaration(statement) ||
-      typeScript.isEnumDeclaration(statement) ||
-      typeScript.isImportEqualsDeclaration(statement) ||
-      (typeScript.isModuleDeclaration(statement) &&
-        moduleDeclaresValue(statement))
   }
-  return { exportsByAssignment, ownsName, declarations }
+  return {
+    exportsByAssignment,
+    ownsName: exportBindsName(sourceFile, source, name),
+    declarations,
+  }
 }
 
 /**
- * Whether a namespace or module declaration is *instantiated* — whether it
- * declares anything that exists at runtime, and so occupies value space.
- *
- * `declare namespace N { interface I {} }` declares only types, so `N` is a
- * namespace and nothing else, and `declare const N` merges with it happily.
- * `declare namespace N { const a: number }` does declare a value, and the same
- * `const N` beside it is a TS2300 duplicate identifier.
- *
- * Recursive twice over: a nested namespace instantiates its parent, and
- * `namespace A.B { … }` parses as a namespace whose body is another namespace
- * rather than a block.
+ * Whether the checker reports an export of `name` that occupies value space or
+ * is an alias — the two kinds a generated `export declare const name` cannot
+ * be written beside. See {@link ExportedNameScan.ownsName}.
  */
-function moduleDeclaresValue(node: ModuleDeclaration): boolean {
+function exportBindsName(
+  sourceFile: SourceFile,
+  source: string,
+  name: string,
+): boolean {
   const typeScript = loadTypeScript()
-  const body = node.body
-  if (body === undefined) {
+  // An export of `name` from this file has to spell it here. The one form that
+  // could hide it is `export * from '…'`, which the program below leaves
+  // unresolved by design, so this skips nothing and saves binding a file that
+  // never mentions the name.
+  if (!source.includes(name)) {
     return false
   }
-  if (typeScript.isModuleDeclaration(body)) {
-    return moduleDeclaresValue(body)
+  const checker = programOverDeclarationSource(
+    sourceFile,
+    source,
+  ).getTypeChecker()
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile)
+  if (moduleSymbol === undefined) {
+    // Not a module: nothing here is exported at all.
+    return false
   }
-  return body.statements.some(
-    (statement) =>
-      typeScript.isVariableStatement(statement) ||
-      typeScript.isFunctionDeclaration(statement) ||
-      typeScript.isClassDeclaration(statement) ||
-      typeScript.isEnumDeclaration(statement) ||
-      (typeScript.isModuleDeclaration(statement) &&
-        moduleDeclaresValue(statement)),
+  const exported = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.name === name)
+  return (
+    exported !== undefined &&
+    (exported.flags &
+      (typeScript.SymbolFlags.Alias | typeScript.SymbolFlags.Value)) !==
+      0
   )
 }
 
