@@ -1,5 +1,12 @@
 import { wasiLoaderSuffix } from '../../utils/index.js'
 
+import {
+  assertBindingTargetIdentFree,
+  BINDING_TARGET_STAMP_HELPER,
+  NAPI_BINDING_TARGET_EXPORT,
+  NAPI_BINDING_TARGET_STAMP_FN,
+} from './binding-target.js'
+
 function resolveWasiFlavors(wasiFlavors?: string[]): string[] {
   return wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
 }
@@ -62,6 +69,7 @@ function createWasiFallbackChain(
       }
         wasiBinding = require('${specifier}')
         nativeBinding = wasiBinding
+        __napiLoadedBindingTarget = '${flavor}'
         wasiBindingLoaded = true
       }
     } catch (err) {
@@ -126,6 +134,7 @@ export function createCjsBinding(
   wasiFlavors?: string[],
   localWasiName?: string,
 ): string {
+  assertBindingTargetIdentFree(idents)
   return `${bindingHeader}
 ${createCommonBinding(
   localName,
@@ -134,6 +143,23 @@ ${createCommonBinding(
   wasiFlavors,
   localWasiName,
 )}
+${BINDING_TARGET_STAMP_HELPER}
+// Stamp before the alias, not after. The guard only reads \`nativeBinding\`
+// (\`hasOwnProperty\` plus a comparison), which is safe against any addon
+// accessor; an assignment is not, because a \`#[napi(module_exports)]\` hook can
+// expose a getter reporting this very value and a setter that throws. So the
+// assignment lands on the loader's own \`module.exports\`, still the original
+// object here, and the alias below replaces it.
+//
+// The assignment is what keeps the marker a statically visible CommonJS export:
+// \`cjs-module-lexer\` is Node's CJS -> ESM named export detection, it cannot see
+// a bare call, and the later \`module.exports = nativeBinding\` does not undo the
+// detection. The assignment itself always succeeds — its target is this
+// loader's own, still extensible \`module.exports\` — and the alias below then
+// discards the value it wrote. What a consumer reads is whatever the guard put
+// on \`nativeBinding\`, so on a frozen binding, where the guard skips, the
+// linked import resolves to \`undefined\`.
+module.exports.${NAPI_BINDING_TARGET_EXPORT} = ${NAPI_BINDING_TARGET_STAMP_FN}(nativeBinding, __napiLoadedBindingTarget)
 module.exports = nativeBinding
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
@@ -149,11 +175,17 @@ export function createEsmBinding(
   wasiFlavors?: string[],
   localWasiName?: string,
 ): string {
+  assertBindingTargetIdentFree(idents)
+  // Both branches must carry it, or a zero-ident package silently loses the
+  // export.
+  const bindingTargetExport = `export const ${NAPI_BINDING_TARGET_EXPORT} = __napiLoadedBindingTarget`
   const exportsCode =
     idents.length > 0
       ? `const { ${idents.join(', ')} } = nativeBinding
-${idents.map((ident) => `export { ${ident} }`).join('\n')}`
-      : 'export default nativeBinding'
+${idents.map((ident) => `export { ${ident} }`).join('\n')}
+${bindingTargetExport}`
+      : `export default nativeBinding
+${bindingTargetExport}`
   return `${bindingHeader}
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
@@ -213,6 +245,10 @@ ${identLow}}${versionCheck}`
 
   return `const { readFileSync } = require('fs')
 let nativeBinding = null
+// Which artifact actually loaded. The WASI fallback chain overwrites it with
+// the flavor it resolved; the late native retry below leaves it alone because
+// it only runs while no WASI candidate has been loaded.
+let __napiLoadedBindingTarget = 'native'
 const loadErrors = []
 
 const isMusl = () => {
@@ -271,7 +307,16 @@ const isMuslFromChildProcess = () => {
 function requireNative() {
   if (process.env.NAPI_RS_NATIVE_LIBRARY_PATH) {
     try {
-      return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH)
+      const overrideBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH)
+      // The override may be a generated WASI loader, which already reports its
+      // own flavor. Adopt it: \`module.exports\` aliases this object, so claiming
+      // 'native' would both misreport the artifact and overwrite the loader's
+      // marker through the alias.
+      __napiLoadedBindingTarget =
+        overrideBinding && typeof overrideBinding.${NAPI_BINDING_TARGET_EXPORT} === 'string'
+          ? overrideBinding.${NAPI_BINDING_TARGET_EXPORT}
+          : 'native'
+      return overrideBinding
     } catch (err) {
       loadErrors.push(err)
     }

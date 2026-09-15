@@ -40,6 +40,121 @@ Without `NAPI_RS_WASI_FLAVOR`, existing behavior is unchanged.
 lazy native fallback, while `NAPI_RS_FORCE_WASI=error` requires some generated
 WASI flavor to load.
 
+## Identifying the loaded artifact
+
+Every generated loader exports `__napiBindingTarget`, a string naming the
+artifact that actually loaded:
+
+| value             | artifact                   |
+| ----------------- | -------------------------- |
+| `'native'`        | a `.node` addon            |
+| `'wasm32-wasi'`   | the threaded WASI flavor   |
+| `'wasm32-wasip1'` | the threadless WASI flavor |
+
+The WASI values are the same flavor identities `NAPI_RS_WASI_FLAVOR` accepts,
+so a pinned flavor round-trips:
+
+```js
+process.env.NAPI_RS_WASI_FLAVOR = 'wasm32-wasip1'
+const binding = require('<package>')
+binding.__napiBindingTarget // 'wasm32-wasip1'
+```
+
+Remember that `wasm32-wasi` is the _threaded_ flavor; see the target aliases at
+the top of this page.
+
+The root Node.js entry sets the value from the fallback candidate it resolved,
+not from anything the WASI loader reports, so it is correct even for a loader
+that fails to initialize its own exports. The one exception is
+`NAPI_RS_NATIVE_LIBRARY_PATH`: that override can point at a generated WASI
+loader, so the root entry adopts the `__napiBindingTarget` the required module
+reports and falls back to `'native'` when it reports none.
+
+Each flavor's own loaders (the CommonJS loader, the browser loader and the
+deferred `./workerd` loader) carry their own fixed flavor identity, and they
+carry it on the binding object they hand out — not only as a module export. So
+the browser loader's default export, `instantiate()`'s result and
+`createInstance().exports` all answer `__napiBindingTarget`, which is what the
+generated declarations promise:
+
+```js
+import { instantiate } from '<package>/workerd'
+const binding = await instantiate(wasmModule)
+binding.__napiBindingTarget // 'wasm32-wasip1'
+```
+
+An addon that seals or freezes its exports in a `#[napi(module_exports)]` hook
+makes the loader skip the stamp on the binding object rather than fail the load,
+and what survives that skip follows the entry point. The browser and the
+deferred `./workerd` entries go on reporting the flavor from their module-level
+`__napiBindingTarget` export; only the copy on the binding object they hand out
+is missing. The CommonJS entries hand back the binding object itself as
+`module.exports`, so there `__napiBindingTarget` reads `undefined` —
+deliberately, because failing an otherwise successful load over a metadata
+string is the worse trade.
+
+The CommonJS loaders assign the stamp helper's return value
+(`module.exports.__napiBindingTarget = __napiStampBindingTarget(...)`) rather
+than calling it as a statement, so `cjs-module-lexer` — Node's CommonJS-to-ESM
+named export detection — keeps seeing the name and
+`import { __napiBindingTarget } from '<package>'` goes on working. On a frozen
+binding the import still links; the value is `undefined`, matching the skipped
+stamp.
+
+Each loader stamps exactly once, and always in the same place: after the async
+runtime hosts are installed — addon registration functions get the exports
+object first, so the guard reads its final state — and inside the initialization
+guard, so a conflict fails the load through the rollback rather than past it.
+The CommonJS loaders additionally assign onto their own `module.exports` rather
+than onto the addon's object, which leaves an addon accessor with a refusing
+setter untouched; the root entry stamps before it aliases the binding, for the
+same reason.
+
+The name is reserved by the builds that emit a loader. `napi build` rejects an
+export of that name it can see in the type-def metadata, but only when this
+build writes a loader to carry it — a root loader (`--platform` without
+`--no-js`), or a WASI flavor loader set. A plain `.node` build writes neither,
+declares nothing, and is free to export the name itself. A name attached
+dynamically from a `#[napi(module_exports)]` hook is invisible at build time, so
+the loader rejects it at load with `ERR_NAPI_BINDING_TARGET_CONFLICT` instead of
+silently overwriting it. In a WASI loader that rejection happens inside the
+initialization boundary, so the conflict rolls the environment back — no
+emnapi context and no `'exit'` listener survive the failed `require()`.
+
+Use it to branch on capabilities a native addon has and a WASI build does not
+(worker threads, blocking calls, host timers) without probing:
+
+```js
+if (binding.__napiBindingTarget !== 'native') {
+  // running on WebAssembly
+}
+```
+
+When napi-rs type generation is enabled the export is declared in the generated
+declaration files, so the check narrows in TypeScript. Which type a declaration
+gives it follows the entry it types:
+
+- The **root entry**'s declaration is a literal union of `'native'` and every
+  WASI flavor napi-rs can build, not only the flavors the package itself
+  builds. `NAPI_RS_NATIVE_LIBRARY_PATH` can point the root entry at any
+  generated WASI loader, so even a package that ships only a native addon can
+  report a WASI flavor, and a narrower union would reject comparisons the
+  override can actually reach.
+- A **flavor's own** declaration — the CommonJS and browser `.d.cts` and the
+  deferred `./workerd` `.d.ts` alike — is that one flavor's exact literal. Those
+  loaders bake their flavor in at generation time and read no override, so a
+  consumer importing a fixed artifact narrows to a single value, which is what
+  the generated declarations promise above.
+
+Both bullets describe an extensible binding. For a sealed or frozen addon the
+root **CommonJS** entry reports `undefined` at runtime — the skipped stamp
+above — which its declaration does not admit. The root ESM entry is unaffected,
+because there the export is a module-level binding the loader never stamps. A
+flavor's own `.d.cts` literal is not exposed either: that loader publishes its
+`Symbol.dispose` implementation with `Object.defineProperty` before it stamps,
+and `Object.defineProperty` throws on a non-extensible object, so a sealed or
+frozen addon fails that load well before the stamp is reached.
+
 The root package exposes deferred workerd and Wasm entries. In a Workers
 project built by Wrangler:
 
@@ -117,7 +232,9 @@ API without a broken import of the declaration-less root package. If
 initialization fails and immediate context rollback also fails, the loader
 retains that cleanup ownership so a later `beforeExit` pass can retry it.
 `dispose()` still attempts those retained rollbacks when singleton cleanup
-fails, while preserving the singleton error as the primary rejection.
+fails, while preserving the singleton error as the primary rejection. The
+deferred loader also exports `__napiBindingTarget` (see "Identifying the loaded
+artifact"), typed as its exact flavor.
 
 A second argument to `createInstance()` selects that instance's linear memory:
 

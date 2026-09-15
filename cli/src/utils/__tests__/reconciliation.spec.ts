@@ -7,10 +7,11 @@ import {
   readdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -65,6 +66,25 @@ async function collectFileNames(root: string): Promise<string[]> {
   }
   await walk(root)
   return names
+}
+
+// Lock file paths relative to root, using '/' separators so dirname() reads
+// naturally ('real/<name>' vs '<name>' at the root). Symlinked directories
+// are not traversed.
+async function collectReconciliationLocks(root: string): Promise<string[]> {
+  const lockName = /^\.napi-rs-filesystem-reconciliation\.[0-9a-f]{64}\.swp$/
+  const locks: string[] = []
+  const walk = async (directory: string, prefix: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        await walk(join(directory, entry.name), `${prefix}${entry.name}/`)
+      } else if (lockName.test(entry.name)) {
+        locks.push(`${prefix}${entry.name}`)
+      }
+    }
+  }
+  await walk(root, '')
+  return locks.sort()
 }
 
 test('resolveProcessExecutionIdentityForLocking returns complete on the first read', async (t) => {
@@ -415,4 +435,110 @@ test('degraded acquisition skips transaction journal recovery; locked acquisitio
   )
   t.is(locked, 'locked-sentinel')
   t.false(existsSync(journalRoot))
+})
+
+test('#3444: symlink guard whose lock would escape the anchor parent is skipped', async (t) => {
+  const realDir = join(t.context.tmpDir, 'real')
+  await mkdir(join(realDir, 'pkg'), { recursive: true })
+  await symlink('real', join(t.context.tmpDir, 'link'), 'dir')
+
+  let locksDuringOp: string[] = []
+  const result = await withFileSystemReconciliation(
+    join(t.context.tmpDir, 'link', 'pkg'),
+    async () => {
+      locksDuringOp = await collectReconciliationLocks(t.context.tmpDir)
+      return 'sentinel'
+    },
+    {
+      getProcessExecutionIdentity: async () => completeIdentity,
+      lockAcquisitionTimeout: 10_000,
+    },
+  )
+
+  t.is(result, 'sentinel')
+  // The guard for tmpDir/link would land its lock in realpath(tmpDir), above
+  // the canonical anchor's parent (tmpDir/real), so it is skipped: only the
+  // canonical anchor guard and the object lock remain, both inside real/.
+  t.is(locksDuringOp.length, 2)
+  t.true(locksDuringOp.every((lock) => dirname(lock) === 'real'))
+  t.false(locksDuringOp.some((lock) => dirname(lock) === '.'))
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('#3444: symlink guard whose lock stays within the anchor parent is kept', async (t) => {
+  const realDir = join(t.context.tmpDir, 'real')
+  await mkdir(join(realDir, 'pkg'), { recursive: true })
+  await symlink('pkg', join(realDir, 'pkglink'), 'dir')
+
+  let locksDuringOp: string[] = []
+  const result = await withFileSystemReconciliation(
+    join(realDir, 'pkglink'),
+    async () => {
+      locksDuringOp = await collectReconciliationLocks(t.context.tmpDir)
+      return 'sentinel'
+    },
+    {
+      getProcessExecutionIdentity: async () => completeIdentity,
+      lockAcquisitionTimeout: 10_000,
+    },
+  )
+
+  t.is(result, 'sentinel')
+  // Anchor guard + object lock + the pkglink spelling guard, whose lock root
+  // is tmpDir/real itself (within-or-equal the anchor's parent).
+  t.is(locksDuringOp.length, 3)
+  t.true(locksDuringOp.every((lock) => dirname(lock) === 'real'))
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('#3444: plain anchor keeps exactly the guard and object locks', async (t) => {
+  await mkdir(join(t.context.tmpDir, 'pkg'))
+
+  let locksDuringOp: string[] = []
+  const result = await withFileSystemReconciliation(
+    join(t.context.tmpDir, 'pkg'),
+    async () => {
+      locksDuringOp = await collectReconciliationLocks(t.context.tmpDir)
+      return 'sentinel'
+    },
+    {
+      getProcessExecutionIdentity: async () => completeIdentity,
+      lockAcquisitionTimeout: 10_000,
+    },
+  )
+
+  t.is(result, 'sentinel')
+  t.is(locksDuringOp.length, 2)
+  t.true(locksDuringOp.every((lock) => dirname(lock) === '.'))
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('#3444: nested symlink guard lands at the fully-canonical walk-time root', async (t) => {
+  await mkdir(join(t.context.tmpDir, 'real', 'sub', 'pkg'), {
+    recursive: true,
+  })
+  await symlink('real', join(t.context.tmpDir, 'outer'), 'dir')
+  await symlink('pkg', join(t.context.tmpDir, 'real', 'sub', 'pkglink'), 'dir')
+
+  let locksDuringOp: string[] = []
+  const result = await withFileSystemReconciliation(
+    join(t.context.tmpDir, 'outer', 'sub', 'pkglink'),
+    async () => {
+      locksDuringOp = await collectReconciliationLocks(t.context.tmpDir)
+      return 'sentinel'
+    },
+    {
+      getProcessExecutionIdentity: async () => completeIdentity,
+      lockAcquisitionTimeout: 10_000,
+    },
+  )
+
+  t.is(result, 'sentinel')
+  // Anchor guard + object lock + the pkglink spelling guard. The guard's
+  // dirname (tmpDir/outer/sub) itself goes through a symlink, so its lock
+  // must land at the walk-time canonical root realpath(.../real/sub); the
+  // tmpDir/outer guard escapes the anchor's parent and is skipped.
+  t.is(locksDuringOp.length, 3)
+  t.true(locksDuringOp.every((lock) => dirname(lock) === 'real/sub'))
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
 })

@@ -41,6 +41,7 @@ import {
   removeNodeStreamWebTypeImports,
   rewriteUnboundNodeGlobalTypeQueries,
   rewriteTypeImportReferences,
+  scanExportedName,
   type Target,
   targetToEnvVar,
   tryInstallCargoBinary,
@@ -57,7 +58,12 @@ import {
   type CargoWorkspaceMetadata,
 } from '../utils/index.js'
 
-import { createCjsBinding, createEsmBinding } from './templates/index.js'
+import {
+  assertBindingTargetIdentFree,
+  createCjsBinding,
+  createEsmBinding,
+  NAPI_BINDING_TARGET_EXPORT,
+} from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
@@ -79,6 +85,98 @@ const MANAGED_WASI_FLAVORS = [
     hasThreads: false,
   },
 ] as const
+
+/**
+ * Everything a generated loader can report through `__napiBindingTarget`, as a
+ * TypeScript literal union. It lists every WASI flavor napi-rs knows instead of
+ * the flavors one package builds: `NAPI_RS_NATIVE_LIBRARY_PATH` may point at
+ * any generated WASI loader, and the root entry then reports what that loader
+ * loaded. A narrower union would make TypeScript reject the branches the
+ * override can actually reach.
+ */
+const BINDING_TARGET_TYPE_UNION = [
+  "'native'",
+  ...MANAGED_WASI_FLAVORS.map((flavor) => `'${flavor.platformArchABI}'`),
+].join(' | ')
+
+const BINDING_TARGET_TYPE_DECLARATION = `
+/**
+ * Which binding artifact the generated loader actually loaded: \`'native'\` for
+ * a native addon, otherwise the \`platformArchABI\` of the WASI flavor. Every
+ * flavor napi-rs can build is listed, because \`NAPI_RS_NATIVE_LIBRARY_PATH\`
+ * can point the loader at a WASI artifact this package does not build itself.
+ */
+export declare const ${NAPI_BINDING_TARGET_EXPORT}: ${BINDING_TARGET_TYPE_UNION}
+`
+
+/**
+ * The declaration for a file that types one fixed WASI artifact.
+ *
+ * A flavor's own loaders bake their `platformArchABI` in at generation time
+ * and have no override to read — `NAPI_RS_NATIVE_LIBRARY_PATH` exists only in
+ * the root loader — so the union {@link BINDING_TARGET_TYPE_DECLARATION}
+ * declares is unreachable for them, and declaring it would stop a consumer of
+ * a fixed artifact from narrowing. The wording matches the declaration the
+ * deferred `./workerd` entry already emits for the same reason.
+ */
+const createBindingTargetFlavorDeclaration = (platformArchABI: string) => `
+/** The WASI flavor this loader instantiates. */
+export declare const ${NAPI_BINDING_TARGET_EXPORT}: '${platformArchABI}'
+`
+
+/**
+ * How `source` exports `__napiBindingTarget`, and whether it exports by
+ * assignment instead.
+ *
+ * Only a real top-level export counts, and only the parser can tell one from
+ * the other places the name reaches a declaration file: `napi-derive`'s
+ * `js_doc` copies doc comments through verbatim, a `--dts-header` may carry a
+ * commented-out example of the declaration — or of `export = binding` — and a
+ * member of a `declare namespace` or `declare module` block is an export of
+ * that block, not of the file. Importing any of those yields TS2305, so
+ * treating one as the declaration would leave the generated declaration
+ * unwritten. A longer export such as `__napiBindingTargetInfo` is a different
+ * name and never counts — `assertBindingTargetIdentFree` only reserves the
+ * exact one.
+ *
+ * {@link scanExportedName} carries the rest of the rule in its `ownsName`
+ * result: which export shapes claim the name, and why the ones that live in
+ * type space alone let the generated declaration merge with them instead.
+ */
+const bindingTargetExports = (source: string) =>
+  scanExportedName(source, NAPI_BINDING_TARGET_EXPORT)
+
+/**
+ * Every literal a declaration this CLI wrote can name. The root entry's union
+ * {@link BINDING_TARGET_TYPE_UNION} and a flavor's own literal
+ * ({@link createBindingTargetFlavorDeclaration}) are both spelled out of this
+ * set, so a declaration whose type is built only from these is one of ours and
+ * may be refreshed in place; anything else belongs to whoever wrote it.
+ *
+ * A flavor dropped from {@link MANAGED_WASI_FLAVORS} stops being recognised,
+ * and its declaration is preserved rather than refreshed: a literal this
+ * version can no longer write is indistinguishable from one a `--dts-header`
+ * contributed.
+ */
+const MANAGED_BINDING_TARGET_LITERALS = new Set([
+  'native',
+  ...MANAGED_WASI_FLAVORS.map((flavor) => flavor.platformArchABI),
+])
+
+/**
+ * Whether a declared type is one this CLI wrote. Keyed on the type rather than
+ * on the doc comment above it, so rewording a comment cannot strand a
+ * declaration this version would otherwise refresh.
+ */
+const isGeneratedBindingTargetType = (type: string) =>
+  type
+    .split('|')
+    .map((member) => member.trim())
+    .every(
+      (member) =>
+        /^'[^']*'$/.test(member) &&
+        MANAGED_BINDING_TARGET_LITERALS.has(member.slice(1, -1)),
+    )
 
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = { kind: OutputKind; path: string }
@@ -550,9 +648,11 @@ export function createWasiBrowserEntry(
 export function createWasiDeferredBindingTypeDef(
   bindingModuleSpecifier: string,
   hasTypeDef: boolean,
+  platformArchABI?: string,
 ) {
   const typeDef = createWasiDeferredBrowserBindingTypeDef(
     bindingModuleSpecifier,
+    platformArchABI,
   )
   if (hasTypeDef) {
     return typeDef
@@ -646,6 +746,55 @@ export function resolveWasmMemory(
   }
 }
 
+/**
+ * Normalize a rendered `.d.ts` header. The generated body is concatenated
+ * straight onto it, so it always ends with a blank line — and an empty header
+ * stays empty, so a file with no header keeps no leading whitespace.
+ */
+function finalizeTypeDefHeader(header: string) {
+  let normalized = header
+  if (normalized && !normalized.endsWith('\n')) {
+    normalized += '\n'
+  }
+  if (normalized && !normalized.endsWith('\n\n')) {
+    normalized += '\n'
+  }
+  return normalized
+}
+
+/**
+ * Whether a build's declaration file should declare `__napiBindingTarget`.
+ *
+ * The export exists only on a generated loader, so the declaration has to
+ * follow the loaders a build actually writes. This mirrors both writers:
+ *
+ * - {@link writeJsBinding} writes the root loader for `--platform` without
+ *   `--no-js-binding` (`rootLoaderCandidate`), and then only when the build has
+ *   runtime exports or a WASI flavor to fall back to.
+ * - `Builder.writeWasiBinding` writes a flavor's loader set when that flavor is
+ *   the build target, or when an earlier build of it left metadata on disk
+ *   (`emitsWasiLoader`). A merely configured flavor is skipped, and a build
+ *   that skips every flavor emits no loader to carry the export.
+ *
+ * The export list is only known once typegen has run, and typegen writes the
+ * declaration file itself, so the decision comes back as a predicate over that
+ * list instead of a flag taken up front.
+ *
+ * It gates the *reservation* of the name too — `Builder.generateTypeDef` calls
+ * {@link assertBindingTargetIdentFree} only when this answers `true`. Declaring
+ * the name and forbidding an addon from exporting it are the same question, and
+ * a build that emits no loader asks neither.
+ */
+export function bindingTargetDeclarationPredicate(input: {
+  rootLoaderCandidate: boolean
+  hasWasiFallback: boolean
+  emitsWasiLoader: boolean
+}): (exports: readonly string[]) => boolean {
+  return (exports) =>
+    input.emitsWasiLoader ||
+    (input.rootLoaderCandidate && (input.hasWasiFallback || exports.length > 0))
+}
+
 export function prepareWasiBindingTypeDef(
   source: string,
   sourcePath: string,
@@ -667,6 +816,136 @@ export function prepareWasiBindingTypeDef(
         removeNodeStreamWebTypeImports(source),
       )
   return rebaseDeclarationSpecifiers(targetSource, sourcePath, destinationPath)
+}
+
+/**
+ * Make a declaration file declare the `__napiBindingTarget` its loader exports.
+ *
+ * `platformArchABI` names the WASI flavor the file types, and the declaration
+ * is then that flavor's exact literal; without it the file is the root entry's
+ * and keeps the full union, which only the root entry can reach.
+ *
+ * Two kinds of file arrive here. A WASI declaration derived fresh from the root
+ * `index.d.ts` inherits that union and has to be narrowed. A declaration kept
+ * from an earlier build — a build that does not target WASI regenerates every
+ * declared flavor's loader from the metadata that flavor's own build left
+ * behind, and reuses its declaration file verbatim — may predate the export
+ * entirely, or carry a union an earlier version of this branch wrote.
+ *
+ * Either may also carry a declaration nobody here wrote, because a project's
+ * own `--dts-header` may declare the export to work around loaders that predate
+ * it. So ownership, not mere presence, decides what happens.
+ *
+ * Three cases, decided in this order:
+ *
+ * - The declaration the rendered `.d.ts` header owns. `renderedHeader` is that
+ *   header as this build rendered it; if it declares the export, the project's
+ *   own declaration wins: nothing is appended, and it is never rewritten.
+ *   Declaring it a second time would be a TS2451 redeclaration.
+ *
+ *   The header is matched by the text of its declaration against the first
+ *   declaration in the file, not by a prefix of the file. A WASI declaration is
+ *   derived through {@link prepareWasiBindingTypeDef}, which rewrites relative
+ *   import specifiers and, for the threadless flavor, drops `node:stream/web`
+ *   imports — a header carrying either stops being a literal prefix of the file
+ *   derived from it, while the declaration statement itself comes through
+ *   untouched and stays the first one, because those rewrites never reorder
+ *   statements. On the preserved path the header in hand is this build's, not
+ *   the one the kept file was written with, and a kept declaration that reads
+ *   differently is correctly not the header's.
+ * - A declaration the header does not own, alone in its statement, whose type
+ *   is built only out of the literals this CLI writes
+ *   ({@link isGeneratedBindingTargetType}), is one of ours. Stale — an older
+ *   union, or the other flavor's literal — it is replaced in place, comment
+ *   and all, so a file kept from an earlier build ends up saying what the
+ *   loader written beside it now reports.
+ * - Any other export of the name is someone else's and is preserved, with
+ *   nothing appended beside it. A looser match would rewrite a declaration a
+ *   `--dts-header` contributed. That covers a statement declaring more names
+ *   than this one — the block a refresh replaces spans them too, and this CLI
+ *   writes the declaration alone — and it covers every other way a header can
+ *   claim the name: as a `function`, `class`, `enum` or instantiated
+ *   `namespace`, through an `export { target as __napiBindingTarget }` or
+ *   `export * as __napiBindingTarget from '…'` clause, or through
+ *   `export import __napiBindingTarget = …`. None of those leaves a
+ *   declaration here to rewrite, and an export added beside any of them is a
+ *   TypeScript error (TS2300, TS2323, TS2440 or TS2567 by form).
+ *
+ *   A header that exports the name in type space only — a `type`, an
+ *   `interface`, a namespace that declares no value — claims nothing: the
+ *   declaration merges with it, and withholding it would cost a consumer the
+ *   value the loader really exports — see {@link scanExportedName}.
+ *
+ * A declaration file that exports by assignment (`export = binding`, what a
+ * build without `napi-derive`'s `type-def` feature emits) cannot carry a named
+ * export declaration, so it is left alone; its exports are untyped anyway.
+ * That, too, is read off the parse — a block comment documenting the CommonJS
+ * form is not an export assignment.
+ */
+export function ensureBindingTargetDeclaration(
+  typeDef: string,
+  platformArchABI?: string,
+  renderedHeader?: string,
+) {
+  const { exportsByAssignment, ownsName, declarations } =
+    bindingTargetExports(typeDef)
+  if (exportsByAssignment) {
+    return typeDef
+  }
+  const declaration = platformArchABI
+    ? createBindingTargetFlavorDeclaration(platformArchABI)
+    : BINDING_TARGET_TYPE_DECLARATION
+  if (!ownsName) {
+    const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
+    return `${typeDef}${separator}${declaration}`
+  }
+  // Compared declarator by declarator rather than statement by statement: one
+  // statement may declare more names, and rebasing a relative inline import in
+  // a sibling's type rewrites the statement without touching this declarator.
+  const headerDeclarator = renderedHeader
+    ? bindingTargetExports(renderedHeader).declarations.map((found) =>
+        renderedHeader.slice(found.declaratorStart, found.declaratorEnd),
+      )[0]
+    : undefined
+  const headerOwnsFirst =
+    headerDeclarator !== undefined &&
+    declarations.length > 0 &&
+    typeDef.slice(
+      declarations[0].declaratorStart,
+      declarations[0].declaratorEnd,
+    ) === headerDeclarator
+  for (const [index, found] of declarations.entries()) {
+    if (headerOwnsFirst && index === 0) {
+      continue
+    }
+    if (
+      // A statement that declares more than this one name belongs to whoever
+      // wrote it whatever its type says: the block a refresh replaces covers
+      // those names too, and this CLI has never written one, so a declaration
+      // with siblings is not a declaration of ours to refresh.
+      found.declaratorCount > 1 ||
+      found.type === undefined ||
+      !isGeneratedBindingTargetType(found.type)
+    ) {
+      continue
+    }
+    // Replacing the block instead of appending: a file that carries a union,
+    // or the other flavor's literal, has to be narrowed to the flavor it
+    // types rather than gaining a second, conflicting declaration. The span
+    // covers the doc comment above the statement, so the comment is swapped
+    // with it rather than stranded — and the statement's own `;`, which has to
+    // come back, or a statement that followed on the same line runs into the
+    // replacement (TS1005).
+    const terminator =
+      typeDef.slice(found.end - 1, found.end) === ';' ? ';' : ''
+    return (
+      typeDef.slice(0, found.start) +
+      declaration.trim() +
+      terminator +
+      typeDef.slice(found.end)
+    )
+  }
+  return typeDef
 }
 
 export function collectStaleWasiBuildOutputNames(
@@ -1197,6 +1476,12 @@ class Builder {
   private readonly enableTypeDef: boolean = false
   private readonly stagedOutputDestinations = new Map<string, string>()
   private typeDefWithTypeImports: string | undefined
+  /**
+   * The `.d.ts` header this build rendered, so `writeWasiBindingForTarget` can
+   * tell a `__napiBindingTarget` declaration the header owns from one typegen
+   * wrote. `undefined` until typegen runs, and for a build with no typegen.
+   */
+  private typeDefRenderedHeader: string | undefined
 
   constructor(
     private readonly metadata: CargoWorkspaceMetadata,
@@ -1454,6 +1739,31 @@ class Builder {
       }
     }
     return entries
+  }
+
+  /**
+   * Whether {@link Builder.writeWasiBinding} will actually write a WASI loader
+   * set. A declared WASI target is not enough: a non-WASI build only
+   * regenerates the flavors whose previous loader metadata is still on disk and
+   * skips the rest, so a configured-but-never-built flavor leaves no loader to
+   * carry `__napiBindingTarget`.
+   *
+   * Safe to call from {@link Builder.generateTypeDef}: the metadata probe reads
+   * `finalOutputDir`, which the staging swap never touches, and nothing writes
+   * those files between this probe and `writeWasiBinding`.
+   */
+  private async willEmitWasiLoader() {
+    if (this.target.platform === 'wasi') {
+      return true
+    }
+    for (const wasiTarget of this.config.targets.filter(
+      (target) => target.platform === 'wasi',
+    )) {
+      if (await this.readExistingWasiBindingMetadata(wasiTarget)) {
+        return true
+      }
+    }
+    return false
   }
 
   private async readExistingWasiBindingMetadata(wasiTarget: Target) {
@@ -2211,7 +2521,20 @@ class Builder {
       return []
     }
 
-    const { exports, dts, dtsWithTypeImports } = await generateTypeDef({
+    // Declare the loader export only for builds that actually emit a loader:
+    // the native root loader (`--platform` without `--no-js-binding`) or a WASI
+    // flavor loader set this build writes. Whether the root loader is written
+    // also depends on the exports typegen is about to produce, so the decision
+    // travels as a predicate — see `bindingTargetDeclarationPredicate`.
+    const declareBindingTarget = bindingTargetDeclarationPredicate({
+      rootLoaderCandidate:
+        Boolean(this.options.platform) && !this.options.noJsBinding,
+      // the same fallback list `writeJsBinding` is handed
+      hasWasiFallback: this.declaredWasiFlavors().length > 0,
+      emitsWasiLoader: await this.willEmitWasiLoader(),
+    })
+
+    const { exports, dts, dtsWithTypeImports, header } = await generateTypeDef({
       typeDefDir,
       noDtsHeader: this.options.noDtsHeader,
       dtsHeader: this.options.dtsHeader,
@@ -2221,8 +2544,18 @@ class Builder {
       runtimeStringEnum:
         this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
+      declareBindingTarget,
     })
+    // The name is reserved exactly when a loader reports it and this file
+    // declares it — one condition, so ask the one predicate. A build that emits
+    // no loader (no `--platform`, or `--no-js`, with no WASI loader set
+    // regenerated) declares nothing, and must keep accepting an addon export of
+    // this name the way every release before the export did.
+    if (declareBindingTarget(exports)) {
+      assertBindingTargetIdentFree(exports)
+    }
     this.typeDefWithTypeImports = dtsWithTypeImports
+    this.typeDefRenderedHeader = header
 
     const typeDefRelativePath = this.options.dts ?? 'index.d.ts'
     const finalDest = join(this.finalOutputDir, typeDefRelativePath)
@@ -2238,7 +2571,13 @@ class Builder {
       throw new Error(`Failed to write type def file ${dest}`, { cause: e })
     }
 
-    if (exports.length > 0) {
+    // The file is written unconditionally above, so track it whenever this
+    // build filled it. Runtime exports are one reason it has content; the
+    // `__napiBindingTarget` declaration is another, and a crate that registers
+    // everything from a `#[napi(module_exports)]` hook has only the second.
+    // `--pipe` (`cli/src/commands/build.ts`) and the `NapiCli.build` return
+    // value see registered outputs only.
+    if (dts.length > 0) {
       this.outputs.push({ kind: 'dts', path: dest })
     }
 
@@ -2266,10 +2605,13 @@ class Builder {
     return stagedPath
   }
 
-  private async writeJsBinding(idents: string[]) {
-    // Default WASI fallback order: threaded first. The generated root loader
-    // also lets consumers pin one exact declared flavor with
-    // NAPI_RS_WASI_FLAVOR.
+  /**
+   * `platformArchABI`s of every WASI flavor this build's loaders can reference,
+   * in fallback preference order (threaded first). The generated root loader
+   * also lets consumers pin one exact declared flavor with
+   * NAPI_RS_WASI_FLAVOR.
+   */
+  private declaredWasiFlavors(): string[] {
     const declaredWasiTargets = this.config.targets.filter(
       (t) => t.platform === 'wasi',
     )
@@ -2285,7 +2627,7 @@ class Builder {
     ) {
       declaredWasiTargets.push(this.target)
     }
-    const wasiFlavors = [
+    return [
       ...new Set(
         [
           ...declaredWasiTargets.filter(wasiTargetHasThreads),
@@ -2293,6 +2635,13 @@ class Builder {
         ].map((t) => t.platformArchABI),
       ),
     ]
+  }
+
+  private async writeJsBinding(idents: string[]) {
+    // No reserved-name check here: it belongs to the decision that emits the
+    // declaration, which lives in `generateTypeDef` above. `writeJsBinding`
+    // runs for every cdylib build, including the ones that write no loader.
+    const wasiFlavors = this.declaredWasiFlavors()
     return writeJsBinding({
       platform: this.options.platform,
       noJsBinding: this.options.noJsBinding,
@@ -2428,13 +2777,23 @@ class Builder {
       dir,
       `${this.config.binaryName}.${loaderSuffix}.d.cts`,
     )
-    const exportsCode =
-      `module.exports = __napiModule.exports\n` +
-      idents
-        .map(
-          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
-        )
-        .join('\n')
+    // A flavor's own export list, not the root type-def's: this is reached only
+    // once `writeWasiBinding` has metadata for the flavor, i.e. only when this
+    // loader set really is written. The root-side check lives in
+    // `Builder.generateTypeDef`, gated on the same predicate as the
+    // declaration — do not re-add an unconditional one here or there.
+    assertBindingTargetIdentFree(idents)
+    // No stamp here. `createWasiBinding` emits the only one, inside the
+    // initialization `try` that rolls the environment back — both the guard and
+    // the assignment can throw, and neither may escape past that boundary. The
+    // assignment there is what `cjs-module-lexer` reads, so this tail stays
+    // purely declarative.
+    const exportsCode = [
+      `module.exports = __napiModule.exports`,
+      ...idents.map(
+        (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
+      ),
+    ].join('\n')
     await writeFileAtomic(
       bindingPath,
       createWasiArtifactMetadata(
@@ -2469,6 +2828,7 @@ class Builder {
         this.config.wasm?.browser?.buffer,
         this.config.wasm?.browser?.errorEvent,
         hasThreads,
+        wasiTarget.platformArchABI,
         asyncRuntime,
       ) +
         `export default __napiModule.exports\n` +
@@ -2516,6 +2876,17 @@ export = binding
           ? selectedSourceTypeDef
           : removeNodeStreamWebTypeImports(selectedSourceTypeDef)
     }
+    // This flavor's loaders report a compile-time-fixed identity, so this file
+    // declares that one literal: the root entry's union exists only for
+    // `NAPI_RS_NATIVE_LIBRARY_PATH`, which no flavor loader reads. On the fresh
+    // path that narrows the union inherited from the root `index.d.ts`; on the
+    // preserved path it refreshes a file kept from an earlier build, which may
+    // predate the `__napiBindingTarget` export the loader written above carries.
+    bindingTypeDef = ensureBindingTargetDeclaration(
+      bindingTypeDef,
+      wasiTarget.platformArchABI,
+      this.typeDefRenderedHeader,
+    )
     await writeFileAtomic(bindingTypeDefPath, bindingTypeDef, 'utf8')
     const outputs: Output[] = [
       { kind: 'js', path: bindingPath },
@@ -2556,6 +2927,7 @@ export = binding
           initialMemory,
           maximumMemory,
           this.config.wasm?.browser?.buffer,
+          wasiTarget.platformArchABI,
           asyncRuntime,
         ),
         'utf8',
@@ -2565,6 +2937,7 @@ export = binding
         createWasiDeferredBindingTypeDef(
           `./${this.config.binaryName}.${loaderSuffix}.cjs`,
           this.enableTypeDef,
+          wasiTarget.platformArchABI,
         ),
         'utf8',
       )
@@ -2740,6 +3113,18 @@ export interface GenerateTypeDefOptions {
   constEnum?: boolean
   runtimeStringEnum?: boolean
   cwd: string
+  /**
+   * Declare the generated loader's `__napiBindingTarget` export. Set it for
+   * builds that emit a loader; a build that emits none declares nothing. The
+   * declared union covers every artifact a loader can hand back, not only the
+   * targets this package builds — see {@link BINDING_TARGET_TYPE_UNION}.
+   *
+   * Whether the root loader is written depends on the exports this build
+   * produced, which only typegen knows, so a predicate may be passed instead
+   * of a flag; it is called with the generated export list. See
+   * {@link bindingTargetDeclarationPredicate}.
+   */
+  declareBindingTarget?: boolean | ((exports: readonly string[]) => boolean)
 }
 
 /**
@@ -2754,14 +3139,21 @@ export async function generateTypeDef(
   exports: string[]
   dts: string
   dtsWithTypeImports: string
+  /**
+   * The `.d.ts` header as rendered, before anything the generated body needs
+   * was appended to it. `ensureBindingTargetDeclaration` takes it to tell a
+   * declaration the header owns from one this build wrote.
+   */
+  header: string
 }> {
-  if (!(await dirExistsAsync(options.typeDefDir))) {
-    return { exports: [], dts: '', dtsWithTypeImports: '' }
-  }
-
   let header = ''
   let dts = ''
   let exports: string[] = []
+
+  const declaresBindingTarget = (generated: readonly string[]) =>
+    typeof options.declareBindingTarget === 'function'
+      ? options.declareBindingTarget(generated)
+      : Boolean(options.declareBindingTarget)
 
   if (!options.noDtsHeader) {
     const dtsHeader = options.dtsHeader ?? options.configDtsHeader
@@ -2781,11 +3173,63 @@ export async function generateTypeDef(
     }
   }
 
+  // The header exactly as the project wrote it, captured before the appends
+  // below grow it, so `ensureBindingTargetDeclaration` can tell a declaration
+  // the header owns from one this build wrote into a file derived from this
+  // one.
+  const renderedHeader = header
+  const headerBindingTarget = bindingTargetExports(renderedHeader)
+  // That header may declare `__napiBindingTarget` itself, as a workaround for
+  // loaders that predate the export. Declaring it again below would be a TS2451
+  // redeclaration, so the header's own wins — the rule
+  // `ensureBindingTargetDeclaration` already applies to a preserved WASI
+  // declaration.
+  //
+  // A header that exports by assignment (`export = binding`, the form a build
+  // without `napi-derive`'s `type-def` feature emits) leaves no room either: an
+  // export assignment cannot sit beside any named export, so appending one is
+  // TS2309 rather than a declaration anybody can use. Its exports are untyped
+  // anyway. `ensureBindingTargetDeclaration` already leaves such a file alone,
+  // and the WASI declaration derived from this one goes through it — reading
+  // the same answer here keeps both ends of that derivation agreeing.
+  const headerDeclaresBindingTarget =
+    headerBindingTarget.ownsName || headerBindingTarget.exportsByAssignment
+
+  // A crate can register every export from a `#[napi(module_exports)]` hook
+  // and emit no `.type` file, and the loader written for it still exports
+  // `__napiBindingTarget`. Declare it, so the declaration file describes the
+  // loader that was written rather than staying empty.
+  const bindingTargetOnlyTypeDef = () => {
+    if (!declaresBindingTarget([])) {
+      return {
+        exports: [],
+        dts: '',
+        dtsWithTypeImports: '',
+        header: renderedHeader,
+      }
+    }
+    const declarationOnly = finalizeTypeDefHeader(
+      headerDeclaresBindingTarget
+        ? header
+        : header + BINDING_TARGET_TYPE_DECLARATION,
+    )
+    return {
+      exports: [],
+      dts: declarationOnly,
+      dtsWithTypeImports: declarationOnly,
+      header: renderedHeader,
+    }
+  }
+
+  if (!(await dirExistsAsync(options.typeDefDir))) {
+    return bindingTargetOnlyTypeDef()
+  }
+
   const files = await readdirAsync(options.typeDefDir, { withFileTypes: true })
 
   if (!files.length) {
     debug('No type def files found. Skip generating dts file.')
-    return { exports: [], dts: '', dtsWithTypeImports: '' }
+    return bindingTargetOnlyTypeDef()
   }
 
   const typeDefFiles = files
@@ -2840,12 +3284,11 @@ export type TypedArray =
 `
   }
 
-  if (header && !header.endsWith('\n')) {
-    header += '\n'
+  if (declaresBindingTarget(exports) && !headerDeclaresBindingTarget) {
+    header += BINDING_TARGET_TYPE_DECLARATION
   }
-  if (header && !header.endsWith('\n\n')) {
-    header += '\n'
-  }
+
+  header = finalizeTypeDefHeader(header)
   dts = header + dts
   const dtsWithTypeImports = rewriteTypeImportReferences(
     header + dtsWithTypeImportMarkers,
@@ -2857,5 +3300,6 @@ export type TypedArray =
     exports,
     dts,
     dtsWithTypeImports,
+    header: renderedHeader,
   }
 }

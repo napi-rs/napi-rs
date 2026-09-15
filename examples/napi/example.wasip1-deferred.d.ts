@@ -58,3 +58,6 @@ export function createInstance(
 ): Promise<WasiInstance>
 /** Dispose the singleton and retry retained failed-initialization cleanup. */
 export function dispose(): Promise<void>
+
+/** The WASI flavor this deferred loader instantiates. */
+export declare const __napiBindingTarget: 'wasm32-wasip1'
