@@ -1,11 +1,16 @@
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
+import ts from 'typescript'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
   createWasiDeferredBrowserBinding,
+  createWasiDeferredBrowserBindingTypeDef,
 } from '../templates/load-wasi-template.js'
 import {
   createWasiBrowserWorkerBinding,
@@ -13,6 +18,8 @@ import {
 } from '../templates/wasi-worker-template.js'
 
 const test = ava
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Snapshot tests for full template output
 
@@ -97,15 +104,22 @@ test('threadless loaders embed the initial memory they are given', (t) => {
   t.true(browserLoader.includes(`const __wasmMemory = ${unshared}`))
   t.false(browserLoader.includes('shared: true'))
 
-  // the deferred loader allocates in function scope (workerd bans global scope)
+  // The deferred loader publishes its descriptor instead of inlining it, and
+  // allocates from it in function scope (workerd bans global scope allocation).
+  const deferred = createWasiDeferredBrowserBinding('test', 1027, 65536)
   t.true(
-    createWasiDeferredBrowserBinding('test', 1027, 65536).includes(
-      `const __wasmMemory = new WebAssembly.Memory({
-    initial: 1027,
-    maximum: 65536,
-  })`,
-    ),
+    deferred.includes(`export const WASM_MEMORY = Object.freeze({
+  initialPages: 1027,
+  maximumPages: 65536,`),
   )
+  t.true(
+    deferred.includes(`    const __allocated = new WebAssembly.Memory({
+      initial:
+        __options != null && __options.initialMemoryPages !== undefined
+          ? __options.initialMemoryPages
+          : WASM_MEMORY.initialPages,`),
+  )
+  t.false(deferred.includes('shared: true'))
 
   // the threaded loader still gets its own, shared descriptor
   const threaded = createWasiBinding('test', '@scope/test', 16384, 65536, true)
@@ -161,6 +175,30 @@ test('createWasiBrowserBinding with asyncRuntime hosts', (t) => {
       true,
     ),
   )
+})
+
+// The deferred loader is the published `./workerd` entry and the only loader
+// whose module namespace is part of the package's public API, so its bytes get
+// the same snapshot treatment as the browser loaders'.
+test('createWasiDeferredBrowserBinding default', (t) => {
+  t.snapshot(createWasiDeferredBrowserBinding('test-wasi'))
+})
+
+test('createWasiDeferredBrowserBinding with async-runtime hosts and buffer', (t) => {
+  t.snapshot(
+    createWasiDeferredBrowserBinding(
+      'test-wasi',
+      1027,
+      65536,
+      true,
+      'wasm32-wasip1',
+      true,
+    ),
+  )
+})
+
+test('createWasiDeferredBrowserBindingTypeDef', (t) => {
+  t.snapshot(createWasiDeferredBrowserBindingTypeDef('./test-wasi.wasip1.cjs'))
 })
 
 test('createWasiBrowserWorkerBinding default', (t) => {
@@ -482,6 +520,300 @@ test('asyncRuntime deferred loader registers per instance', (t) => {
   )
 })
 
+// The deferred loader's module namespace is the published `./workerd` entry's
+// public API. `WASM_MEMORY` and `getDeferredRuntimeStats` are new names in it,
+// and `createInstance`'s option bag is the only way a host sizes an instance
+// under a hard isolate cap.
+test('deferred loader is syntactically valid in both host modes', (t) => {
+  assertValidJS(t, createWasiDeferredBrowserBinding('test'), 'deferred')
+  assertValidJS(
+    t,
+    createWasiDeferredBrowserBinding(
+      'test',
+      1027,
+      65536,
+      true,
+      'wasm32-wasip1',
+      true,
+    ),
+    'deferred + hosts',
+  )
+})
+
+test('deferred loader publishes the memory floor it was configured with', (t) => {
+  const code = createWasiDeferredBrowserBinding('test', 1027, 40000)
+  t.true(code.includes('export const WASM_MEMORY = Object.freeze({'))
+  t.true(code.includes('initialPages: 1027'))
+  t.true(code.includes('maximumPages: 40000'))
+  t.true(code.includes('initialBytes: 1027 * 65536'))
+  t.true(code.includes('maximumBytes: 40000 * 65536'))
+  t.true(code.includes('export function getDeferredRuntimeStats()'))
+  // workerd bans allocation in global scope, so the single `new
+  // WebAssembly.Memory` stays inside the per-instance resolver.
+  t.is(code.split('new WebAssembly.Memory(').length - 1, 1)
+  t.true(
+    code.indexOf('function __resolveInstanceMemory(') <
+      code.indexOf('new WebAssembly.Memory('),
+  )
+})
+
+test('deferred loader claims caller memory exactly once and rejects shared memory', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  t.true(code.includes('const __claimedMemories = new WeakSet()'))
+  t.true(code.includes('__claimedMemories.add(__provided)'))
+  t.true(
+    code.includes('requires an unshared WebAssembly.Memory'),
+    'a SharedArrayBuffer-backed memory must be rejected, not silently accepted',
+  )
+  t.true(
+    code.includes(
+      'Pass either memory or initialMemoryPages/maximumMemoryPages, not both',
+    ),
+  )
+  // The claim is taken before instantiation can fail, so a failed attempt
+  // cannot hand the same half-written bytes to a second instance.
+  const resolver = code.slice(
+    code.indexOf('function __resolveInstanceMemory('),
+    code.indexOf('\n}\n', code.indexOf('function __resolveInstanceMemory(')),
+  )
+  t.true(resolver.includes('__claimedMemories.add(__provided)'))
+  // The loader-allocated Memory is claimed too: the handle publishes it as
+  // `instance.memory`, and two live instances on one linear memory each
+  // reinitialize the state the other is running on.
+  t.true(resolver.includes('__claimedMemories.add(__allocated)'))
+})
+
+test('deferred loader rejects a cross-realm memory before claiming it', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  const resolver = code.slice(
+    code.indexOf('function __resolveInstanceMemory('),
+    code.indexOf('\n}\n', code.indexOf('function __resolveInstanceMemory(')),
+  )
+  // The intrinsic getters accept a genuine Memory from any realm, but
+  // `WASI.setMemory` and emnapi identify one with a realm-local `instanceof`.
+  t.true(resolver.includes('if (!(__provided instanceof WebAssembly.Memory))'))
+  t.true(
+    resolver.includes(
+      'memory must be a WebAssembly.Memory created in the same realm as this loader',
+    ),
+  )
+  // Every rejection must precede the claim, or a corrected retry would be
+  // refused as a reuse of a Memory that never ran anything.
+  t.true(
+    resolver.indexOf('__provided instanceof WebAssembly.Memory') <
+      resolver.indexOf('__claimedMemories.add(__provided)'),
+  )
+  t.true(
+    resolver.indexOf(
+      'Pass either memory or initialMemoryPages/maximumMemoryPages, not both',
+    ) < resolver.indexOf('__claimedMemories.add(__provided)'),
+  )
+})
+
+test('deferred instance handle reports its memory and retires exactly once', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  const handleStart = code.indexOf(
+    '    return {\n      exports: __napiModule.exports,',
+  )
+  t.true(
+    handleStart !== -1,
+    'the instance handle must be returned as a literal',
+  )
+  const handle = code.slice(
+    handleStart,
+    code.indexOf('  } catch (error) {', handleStart),
+  )
+  t.true(handle.includes('get memory() {'))
+  t.true(handle.includes('get memoryBytes() {'))
+  t.true(handle.includes('get disposed() {'))
+  // The handle delegates to the coalescing wrapper, so the retirement
+  // bookkeeping lives in the one disposal body that wrapper runs.
+  t.true(handle.includes('dispose: __disposeInstance,'))
+  const disposalStart = code.indexOf(
+    '  const __runInstanceDisposal = async () => {',
+  )
+  t.true(disposalStart !== -1, 'the disposal body must be a named arrow')
+  const disposal = code.slice(
+    disposalStart,
+    code.indexOf('\n  }\n', disposalStart),
+  )
+  // The counter moves only after the destroy resolves, so a dispose() that
+  // throws stays retryable without double-decrementing.
+  t.true(
+    disposal.indexOf('await (__beforeExitDestroy') <
+      disposal.indexOf('__liveInstances -= 1'),
+  )
+  t.true(disposal.includes('if (!__disposed) {'))
+})
+
+test('deferred loader keeps the singleton on the loader-owned memory', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  // `instantiate()` takes no option bag, so it must pass the options slot
+  // explicitly rather than shifting `__disposeDefaultInstance` into it.
+  t.true(
+    code.includes(`__createInstance(
+        __module,
+        undefined,
+        __disposeDefaultInstance,`),
+  )
+  t.true(code.includes('return __createInstance(__wasmInput, __options)'))
+})
+
+test('deferred loader pulls its hosts from the isolate-safe subpath', (t) => {
+  const code = createWasiDeferredBrowserBinding(
+    'test',
+    1024,
+    65536,
+    false,
+    'wasm32-wasip1',
+    true,
+  )
+  // The barrel (`index.cjs`) also requires `current-thread-hosts.cjs`, the
+  // Node-lane relay a worker bundle never runs and CJS cannot tree-shake.
+  t.true(code.includes("} from '@napi-rs/async-runtime/workerd'"))
+  t.false(code.includes("from '@napi-rs/async-runtime'\n"))
+})
+
+test('deferred loader type definition covers the new surface', (t) => {
+  const typeDef = createWasiDeferredBrowserBindingTypeDef('./test.wasip1.cjs')
+  // The two memory forms are separate interfaces, each declaring the other
+  // form's properties as `never`, so the combination `__resolveInstanceMemory`
+  // always throws on cannot be spelled by a typed caller.
+  t.true(typeDef.includes('export interface WasiCallerMemoryOptions {'))
+  t.true(typeDef.includes('  memory: WebAssembly.Memory'))
+  t.true(typeDef.includes('  initialMemoryPages?: never'))
+  t.true(typeDef.includes('  maximumMemoryPages?: never'))
+  t.true(typeDef.includes('export interface WasiAllocatedMemoryOptions {'))
+  t.true(typeDef.includes('  memory?: never'))
+  t.true(typeDef.includes('  initialMemoryPages?: number'))
+  t.true(typeDef.includes('  maximumMemoryPages?: number'))
+  t.true(
+    typeDef.includes(`export type WasiInstanceOptions =
+  | WasiCallerMemoryOptions
+  | WasiAllocatedMemoryOptions`),
+  )
+  t.false(typeDef.includes('export interface WasiInstanceOptions {'))
+  t.true(typeDef.includes('readonly memoryBytes: number'))
+  t.true(typeDef.includes('readonly disposed: boolean'))
+  t.true(typeDef.includes('export const WASM_MEMORY: Readonly<{'))
+  t.true(
+    typeDef.includes(
+      'export function getDeferredRuntimeStats(): Readonly<WasiRuntimeStats>',
+    ),
+  )
+  t.true(
+    typeDef.includes(`export function createInstance(
+  wasmInput: WasiModuleInput,
+  options?: WasiInstanceOptions,
+): Promise<WasiInstance>`),
+  )
+  // `createWasiDeferredBindingTypeDef` rewrites this exact string when the
+  // project builds without type definitions.
+  t.true(typeDef.includes("typeof import('./test.wasip1.cjs')"))
+})
+
+const DEFERRED_TYPE_CHECK_OPTIONS: ts.CompilerOptions = {
+  strict: true,
+  noEmit: true,
+  // The generated `.d.ts` is the file under test, so it must not be skipped.
+  // Only the default lib is.
+  skipLibCheck: false,
+  skipDefaultLibCheck: true,
+  target: ts.ScriptTarget.ESNext,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+}
+
+/**
+ * A consumer module for the generated deferred `.d.ts`, wrapping the given
+ * `createInstance()` calls in the declarations they need.
+ */
+const deferredConsumerSource = (calls: string) =>
+  `import { createInstance } from './loader.js'
+
+declare const wasmModule: WebAssembly.Module
+declare const memory: WebAssembly.Memory
+
+${calls}
+`
+
+/**
+ * TypeScript's verdict on such a consumer, as a list of diagnostic codes. The
+ * default lib still comes off disk through the real host; the generated
+ * typedef, the binding it imports, and the consumer are served from memory, so
+ * the check needs no temporary directory. Mirrors the semantic-check host in
+ * `build.spec.ts`.
+ */
+const deferredConsumerDiagnostics = (calls: string) => {
+  const root = `${__dirname.replaceAll('\\', '/')}/__deferred_typecheck__`
+  const files = new Map([
+    [
+      `${root}/loader.d.ts`,
+      createWasiDeferredBrowserBindingTypeDef('./test.wasip1.cjs'),
+    ],
+    [`${root}/test.wasip1.d.cts`, 'export declare const binding: number\n'],
+    [`${root}/consumer.ts`, deferredConsumerSource(calls)],
+  ])
+  const host = ts.createCompilerHost(DEFERRED_TYPE_CHECK_OPTIONS, true)
+  const readRealSourceFile = host.getSourceFile.bind(host)
+  const realFileExists = host.fileExists.bind(host)
+  const realReadFile = host.readFile.bind(host)
+  const realDirectoryExists = host.directoryExists?.bind(host)
+  host.getSourceFile = (fileName, languageVersion, ...rest) => {
+    const virtual = files.get(fileName)
+    return virtual === undefined
+      ? readRealSourceFile(fileName, languageVersion, ...rest)
+      : ts.createSourceFile(fileName, virtual, languageVersion, true)
+  }
+  host.fileExists = (fileName) =>
+    files.has(fileName) || realFileExists(fileName)
+  host.readFile = (fileName) => files.get(fileName) ?? realReadFile(fileName)
+  if (realDirectoryExists) {
+    host.directoryExists = (directoryName) =>
+      directoryName === root || realDirectoryExists(directoryName)
+  }
+  const program = ts.createProgram({
+    rootNames: [`${root}/consumer.ts`],
+    options: DEFERRED_TYPE_CHECK_OPTIONS,
+    host,
+  })
+  return ts.getPreEmitDiagnostics(program).map((d) => `TS${d.code}`)
+}
+
+test('deferred createInstance() options type-check per memory form', (t) => {
+  // Every form the loader accepts at runtime. `{}` and an omitted argument
+  // must stay legal: the allocated form is all-optional.
+  t.deepEqual(
+    deferredConsumerDiagnostics(`void createInstance(wasmModule)
+void createInstance(wasmModule, undefined)
+void createInstance(wasmModule, {})
+void createInstance(wasmModule, { memory })
+void createInstance(wasmModule, { initialMemoryPages: 1 })
+void createInstance(wasmModule, { initialMemoryPages: 1, maximumMemoryPages: 2 })`),
+    [],
+  )
+})
+
+test('deferred createInstance() rejects memory beside a page count', (t) => {
+  // `__resolveInstanceMemory` throws a TypeError on either mix, so neither
+  // may type-check. `memory` selects the caller form, whose page properties
+  // are `?: never` — i.e. `undefined` — so the checker rejects the offending
+  // property in place rather than the whole call: TS2322, "Type 'number' is not
+  // assignable to type 'undefined'".
+  t.deepEqual(
+    deferredConsumerDiagnostics(
+      'void createInstance(wasmModule, { memory, initialMemoryPages: 1024 })',
+    ),
+    ['TS2322'],
+  )
+  t.deepEqual(
+    deferredConsumerDiagnostics(
+      'void createInstance(wasmModule, { memory, maximumMemoryPages: 2048 })',
+    ),
+    ['TS2322'],
+  )
+})
+
 test('Node WASI loader uses an accessible host root on Android', (t) => {
   const code = createWasiBinding('test', '@scope/test')
   assertValidJS(t, code, 'Node WASI loader')
@@ -778,9 +1110,12 @@ test('deferred WASI loader coalesces a reentrant instance dispose()', (t) => {
   // No second entry point into the disposal body: the instance exposes the
   // coalescing wrapper itself, not an inline method that re-runs it.
   t.true(
-    code.includes(`      exports: __napiModule.exports,
-      dispose: __disposeInstance,`),
+    code.includes('      dispose: __disposeInstance,'),
     'the instance must expose the coalescing wrapper as its dispose()',
+  )
+  t.false(
+    code.includes('      async dispose() {'),
+    'the instance must not carry a second inline dispose() method',
   )
   t.is(
     code.split('__prepareForDisposal()').length - 1,
