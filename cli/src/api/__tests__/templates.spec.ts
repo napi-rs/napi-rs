@@ -518,6 +518,261 @@ function initializationRollbackBody(code: string): string {
   return code.slice(deferredStart, code.indexOf('throw error', deferredStart))
 }
 
+// The loaders order their own teardown barrier-then-destroy, but the emnapi
+// context is a live object: an embedder or test harness holding it, or emnapi's
+// own `beforeExit` auto-destroy on a host where `suppressDestroy()` is absent,
+// can call `Context.destroy()` directly. `destroy()` disables JavaScript calls
+// before it runs cleanup hooks, so a raw call discards the very settlements the
+// barrier exists to cancel and deliver. Own the ordering on the object: every
+// flavor shadows `destroy` once, at creation, before anything can reach it.
+const CONTEXT_DESTROY_WRAP_SIGNATURE =
+  'function __wrapEmnapiContextDestroyForSettlement('
+
+// The shared barrier's own in-flight flag, and the probe the wrapper reads it
+// through. It cannot live in the wrapper: `dispose()` runs the barrier itself
+// and only then calls `destroy()`, so a wrapper-local flag would still be clear
+// while the barrier is running and would let a reentrant destroy through.
+const preparingBarrierGuards = {
+  shared: {
+    probe: '__isPreparingWasmEnvCleanup',
+    snippets: [
+      'let __emnapiWasmEnvCleanupPreparing = false',
+      `function __isPreparingWasmEnvCleanup() {
+  return __emnapiWasmEnvCleanupPreparing
+}`,
+      `  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
+    return
+  }`,
+      `    __emnapiWasmEnvCleanupPreparing = true
+    try {
+      prepare()
+    } finally {
+      __emnapiWasmEnvCleanupPreparing = false
+    }`,
+    ],
+  },
+  deferred: {
+    probe: '__isPreparingEnvCleanup',
+    snippets: [
+      'let __wasmEnvCleanupPreparing = false',
+      'const __isPreparingEnvCleanup = () => __wasmEnvCleanupPreparing',
+      `    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
+      return
+    }`,
+      `      __wasmEnvCleanupPreparing = true
+      try {
+        __prepareWasmEnvCleanup()
+      } finally {
+        __wasmEnvCleanupPreparing = false
+      }`,
+    ],
+  },
+} as const
+
+// A nested `destroy()` must answer `undefined` without touching the real one:
+// no fallthrough, no deferral. `Context.destroy()` is typed `void`, so nothing
+// observable is lost, and the frame that started the barrier destroys the
+// moment it returns.
+const NESTED_DESTROY_NO_OP = `        if (isPreparingEnvCleanup?.()) {
+          return
+        }
+        prepareEnvCleanup?.()`
+
+const wrappedContextCreationCases: Array<{
+  name: string
+  code: string
+  prepare: string
+  guard: (typeof preparingBarrierGuards)[keyof typeof preparingBarrierGuards]
+}> = [
+  {
+    name: 'node cjs',
+    code: createWasiBinding('test', '@scope/test'),
+    prepare: '__prepareWasmEnvCleanup',
+    guard: preparingBarrierGuards.shared,
+  },
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding('test', '@scope/test', 4000, 65536, false),
+    prepare: '__prepareWasmEnvCleanup',
+    guard: preparingBarrierGuards.shared,
+  },
+  {
+    name: 'browser esm',
+    code: createWasiBrowserBinding('test'),
+    prepare: '__prepareWasmEnvCleanup',
+    guard: preparingBarrierGuards.shared,
+  },
+  {
+    name: 'deferred/workerd',
+    code: createWasiDeferredBrowserBinding('test'),
+    prepare: '__prepareEnvCleanup',
+    guard: preparingBarrierGuards.deferred,
+  },
+]
+
+for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
+  test(`WASI loader runs the barrier on a raw context.destroy(): ${name}`, (t) => {
+    assertValidJS(t, code, name)
+    t.is(
+      code.split(CONTEXT_DESTROY_WRAP_SIGNATURE).length - 1,
+      1,
+      'loader must define the destroy wrapper exactly once',
+    )
+    // No unwrapped context may escape: there is exactly one createContext call
+    // and it is the wrapper's argument.
+    t.is(
+      code.split('__emnapiCreateContext({ autoDestroy: false })').length - 1,
+      1,
+      'loader must create exactly one emnapi context',
+    )
+    t.true(
+      code
+        .replace(/\s+/g, ' ')
+        .includes(
+          '__emnapiContext = __wrapEmnapiContextDestroyForSettlement( ' +
+            `__emnapiCreateContext({ autoDestroy: false }), ${prepare}, ${guard.probe}, )`,
+        ),
+      'the createContext result must be wrapped before anything can reach it',
+    )
+    // Ordering is the whole point: barrier first, real destroy second.
+    const wrapperStart = code.indexOf(CONTEXT_DESTROY_WRAP_SIGNATURE)
+    const wrapper = code.slice(
+      wrapperStart,
+      code.indexOf('\n}\n', wrapperStart),
+    )
+    t.true(
+      wrapper.indexOf('prepareEnvCleanup?.()') <
+        wrapper.indexOf('Reflect.apply(destroy, this, arguments)'),
+      'the barrier must run before the real destroy, while the env can still call into JavaScript',
+    )
+  })
+
+  // The barrier settles the promises it cancels *synchronously*, under a
+  // lifecycle mutex the addon cannot acquire twice. A `promiseHooks.onSettled`
+  // handler — or the `async_hooks` hook `AsyncLocalStorage` installs — that
+  // calls `destroy()` therefore re-enters the wrapper from inside the barrier,
+  // and a second trip into the export aborts the wasm instance outright. The
+  // flag lives in the barrier, not in the wrapper, so the same guard covers the
+  // `dispose()` path, where the barrier runs before `destroy()` is ever called.
+  test(`WASI loader makes a destroy reentered from the barrier a no-op: ${name}`, (t) => {
+    for (const snippet of guard.snippets) {
+      t.is(
+        code.split(snippet).length - 1,
+        1,
+        `barrier must carry its in-flight guard exactly once: ${snippet}`,
+      )
+    }
+    t.is(
+      code.split(NESTED_DESTROY_NO_OP).length - 1,
+      1,
+      'a destroy reentered while the barrier is in flight must return without running the barrier or the real destroy',
+    )
+    const wrapperStart = code.indexOf(CONTEXT_DESTROY_WRAP_SIGNATURE)
+    const wrapper = code.slice(
+      wrapperStart,
+      code.indexOf('\n}\n', wrapperStart),
+    )
+    t.true(
+      wrapper.indexOf('isPreparingEnvCleanup?.()') <
+        wrapper.indexOf('Reflect.apply(destroy, this, arguments)'),
+      'the reentry check must come before the real destroy',
+    )
+  })
+}
+
+// The nested-destroy no-op above is only safe because the frame that started
+// the barrier destroys as soon as the barrier returns. The deferred loader's
+// instance `dispose()` is the one frame that does not: it runs the barrier and
+// then yields for the settlement drain. So a promise hook firing inside that
+// barrier can call the same instance's `dispose()` again, reach the context
+// destroyer while the outer frame is still parked in its drain, and have the
+// wrapper's no-op recorded as a completed destroy — after which the outer frame
+// skips the real one and the context is retained with its cleanup hooks unrun.
+// dispose() has to coalesce, the way the eager loaders' `__disposeWasiBinding`
+// does, and the memo has to be in place *before* the barrier runs.
+test('deferred WASI loader coalesces a reentrant instance dispose()', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  assertValidJS(t, code, 'deferred/workerd')
+  t.is(
+    code.split('let __instanceDisposePromise').length - 1,
+    1,
+    'the instance must carry exactly one disposal memo',
+  )
+  const disposeStart = code.indexOf('const __disposeInstance = () => {')
+  t.true(disposeStart > 0, 'dispose() must go through a coalescing wrapper')
+  const disposeWrapper = code.slice(
+    disposeStart,
+    code.indexOf('\n  }\n', disposeStart),
+  )
+  t.true(
+    disposeWrapper.includes(`    if (__instanceDisposePromise) {
+      return __instanceDisposePromise
+    }`),
+    'a reentrant dispose() must join the disposal already running',
+  )
+  // The memo has to be published before the disposal body — and therefore
+  // before the barrier — runs, or a hook that fires inside the barrier still
+  // finds it unset and starts a second frame.
+  t.true(
+    disposeWrapper.indexOf('__instanceDisposePromise = __disposePromise') <
+      disposeWrapper.indexOf('__runInstanceDisposal()'),
+    'the memo must be published before the disposal body runs',
+  )
+  // Still retryable: the drain can reject on its own (a host `setImmediate`
+  // that throws), and dispose() has to be callable again after that.
+  t.true(
+    disposeWrapper.includes(`      __instanceDisposePromise = undefined
+      __rejectDispose(__error)`),
+    'a failed disposal must clear the memo so dispose() stays retryable',
+  )
+  // No second entry point into the disposal body: the instance exposes the
+  // coalescing wrapper itself, not an inline method that re-runs it.
+  t.true(
+    code.includes(`      exports: __napiModule.exports,
+      dispose: __disposeInstance,`),
+    'the instance must expose the coalescing wrapper as its dispose()',
+  )
+  t.is(
+    code.split('__prepareForDisposal()').length - 1,
+    2,
+    'only the disposal body and the initialization rollback may prepare for disposal',
+  )
+})
+
+// Belt and braces for any caller that still reaches the managed destroyer from
+// inside the barrier: a `Context.destroy()` the wrapper skipped must never be
+// recorded as a completed destroy, or every later destroy — the outer disposal
+// frame's and managed beforeExit cleanup's alike — is skipped with it.
+test('deferred WASI loader never records a skipped destroy as completed', (t) => {
+  const code = createWasiDeferredBrowserBinding('test')
+  const destroyStart = code.indexOf('const __destroy = (')
+  t.true(destroyStart > 0, 'deferred loader must define a managed destroyer')
+  const destroyer = code.slice(
+    destroyStart,
+    code.indexOf('\n  const __destroyForModuleLifecycle', destroyStart),
+  )
+  t.true(
+    destroyer.includes(`      if (__isPreparingEnvCleanup?.()) {`),
+    'the managed destroyer must detect that the barrier is in flight',
+  )
+  const guardIndex = destroyer.indexOf('if (__isPreparingEnvCleanup?.()) {')
+  const destroyIndex = destroyer.indexOf('__result = __emnapiContext.destroy()')
+  t.true(
+    guardIndex < destroyIndex,
+    'the in-flight check must come before the destroy it would skip',
+  )
+  t.true(
+    destroyer
+      .slice(guardIndex, destroyIndex)
+      .includes(`throw __createLifecycleReentryError('dispose')`),
+    'a destroy the wrapper would skip must fail loudly instead of flagging the context disposed',
+  )
+  t.true(
+    destroyIndex < destroyer.indexOf('__disposed = true'),
+    'nothing may be flagged disposed before the real destroy is attempted',
+  )
+})
+
 test('createCjsBinding uses one statement dialect', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
     'wasm32-wasi',

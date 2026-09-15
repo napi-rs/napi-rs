@@ -64,10 +64,18 @@ const reconciliationLockKind = 'napi-rs-filesystem-reconciliation-lock'
 const reconciliationReclaimKind = 'napi-rs-filesystem-reconciliation-reclaim'
 const reconciliationStateVersion = 1
 const reconciliationLockAcquisitionTimeout = 120_000
+// Bounds how long acquisition rides out fast probe failures before degrading
+// to lock-free operation. Slow-but-working probes are unaffected: a read that
+// returns a complete identity always wins, regardless of this budget.
+const reconciliationIdentityWaitTimeout = 10_000
 const reconciliationLockCleanupTimeout = 5_000
 const reconciliationLockCleanupRetryInterval = 250
 const reconciliationMetadataMaximumSize = 64 * 1024
 const processIncarnationCommandTimeout = 2_000
+// One-shot host identity probes run once per process and must outlive slow
+// first-start tools (e.g. powershell cold start on fresh CI VMs); per-PID
+// incarnation probes run in poll loops and keep the shorter timeout.
+const processExecutionIdentityCommandTimeout = 15_000
 const incompleteProcessExecutionIdentityCacheDuration =
   processIncarnationCommandTimeout
 const processIncarnationObservationCacheDuration = 1_000
@@ -149,11 +157,17 @@ interface ProcessIncarnationObservation {
   incarnation: string | null
 }
 
-interface ProcessExecutionIdentity {
+export interface ProcessExecutionIdentity {
   boot: string | null
   bootSession: string | null
   machine: string | null
   namespace: string | null
+}
+
+export interface FileSystemReconciliationOptions {
+  getProcessExecutionIdentity?: () => Promise<ProcessExecutionIdentity>
+  identityWaitTimeout?: number
+  lockAcquisitionTimeout?: number
 }
 
 interface ProcessOwnerState {
@@ -347,6 +361,7 @@ export async function copyFileAtomic(
 export async function withFileSystemReconciliation<T>(
   path: string,
   operation: () => Promise<T>,
+  options?: FileSystemReconciliationOptions,
 ): Promise<T> {
   const localKey = resolve(path)
   const previous = reconciliationTails.get(localKey) ?? Promise.resolve()
@@ -358,21 +373,51 @@ export async function withFileSystemReconciliation<T>(
   reconciliationTails.set(localKey, tail)
 
   const releaseCrossProcessLocks: Array<() => Promise<void>> = []
+  let lockAcquisitionDegraded = false
   let operationFailed = false
   let operationError: unknown
   let result!: T
   try {
     await previous.catch(() => {})
     const identities = await resolveReconciliationLockIdentities(path)
+    const injectedIdentityGetter = options?.getProcessExecutionIdentity
+    const identityWaitTimeout =
+      options?.identityWaitTimeout ?? reconciliationIdentityWaitTimeout
+    // Injected getters bypass the degraded-decision memo entirely; only the
+    // default singleton path memoizes so one build pays the wait once.
+    const resolveExecutionIdentity =
+      (): Promise<ProcessExecutionIdentityResolution> =>
+        injectedIdentityGetter === undefined
+          ? resolveDefaultProcessExecutionIdentityForLocking(
+              identityWaitTimeout,
+            )
+          : resolveProcessExecutionIdentityForLocking(
+              injectedIdentityGetter,
+              createReconciliationLockDeadline(identityWaitTimeout),
+            )
+    const getProcessExecutionIdentity =
+      injectedIdentityGetter ?? getCurrentProcessExecutionIdentity
     const acquisitionDeadline = createReconciliationLockDeadline(
-      reconciliationLockAcquisitionTimeout,
+      options?.lockAcquisitionTimeout ?? reconciliationLockAcquisitionTimeout,
     )
     for (const identity of identities) {
-      releaseCrossProcessLocks.push(
-        await acquireReconciliationLock(identity, acquisitionDeadline),
+      const acquisition = await acquireReconciliationLock(
+        identity,
+        acquisitionDeadline,
+        resolveExecutionIdentity,
+        getProcessExecutionIdentity,
       )
+      releaseCrossProcessLocks.push(acquisition.release)
+      lockAcquisitionDegraded ||= acquisition.degraded
     }
-    await recoverFileSystemTransaction(identities[0].anchorPath)
+    if (!lockAcquisitionDegraded) {
+      // Recovery assumes cross-process exclusivity: without a verifiable lock
+      // it could roll back a live transaction, so degraded (lock-free) hosts
+      // keep pre-3.8.0 behavior and skip it. A genuinely crashed journal then
+      // fails the next transaction publish loudly and is recovered by the
+      // next run whose identity probes succeed.
+      await recoverFileSystemTransaction(identities[0].anchorPath)
+    }
     const currentCapability = fileSystemReconciliationCapability.getStore()
     const roots = new Set(currentCapability?.roots)
     roots.add(fileSystemReconciliationCapabilityRoot(identities[0].anchorPath))
@@ -563,13 +608,18 @@ export async function withPackageFileSystemReconciliation<T>(
     'boundary' | 'cwd' | 'packageRoot'
   >,
   operation: () => Promise<T>,
+  options?: FileSystemReconciliationOptions,
 ): Promise<T> {
   const roots = getPackageReconciliationRoots(paths)
   const acquire = (index: number): Promise<T> => {
     if (index === roots.length) {
       return operation()
     }
-    return withFileSystemReconciliation(roots[index], () => acquire(index + 1))
+    return withFileSystemReconciliation(
+      roots[index],
+      () => acquire(index + 1),
+      options,
+    )
   }
 
   // Build takes the package lock before widening to its transaction root.
@@ -1786,11 +1836,13 @@ function reconciliationRetiredPath(path: string) {
 async function acquireReconciliationLock(
   identity: ReconciliationLockIdentity,
   acquisitionDeadline: ReconciliationLockDeadline,
+  resolveExecutionIdentity: () => Promise<ProcessExecutionIdentityResolution>,
+  getProcessExecutionIdentity: () => Promise<ProcessExecutionIdentity>,
 ) {
   const { key } = identity
-  const [incarnation, executionIdentity] = await Promise.all([
+  const [incarnation, identityResolution] = await Promise.all([
     getCurrentProcessIncarnation(),
-    getCurrentProcessExecutionIdentity(),
+    resolveExecutionIdentity(),
   ])
   const lockPath = reconciliationLockPath(identity)
   await assertReconciliationAnchorUnchanged(identity)
@@ -1806,6 +1858,53 @@ async function acquireReconciliationLock(
     reconciliationReclaimPath(identity),
     isReconciliationReclaimOwner,
   )
+
+  let executionIdentity = identityResolution.identity
+  if (!identityResolution.complete) {
+    // Degraded (lock-free) wait: on hosts that cannot provide a complete
+    // execution identity (FreeBSD, containers without /etc/machine-id,
+    // policy-blocked Windows tools), skipping the owner write preserves
+    // pre-reconciliation (3.7.4) behavior for uncontended builds; an owner we
+    // cannot write verifiably could never be reclaimed. An existing lock is
+    // still respected fail-closed: never bypassed, and an error only if it
+    // outlives the acquisition deadline.
+    while (true) {
+      await waitForReconciliationReclaim(identity, acquisitionDeadline)
+      const state = await inspectReconciliationLock(identity, lockPath)
+      if (state === undefined) {
+        debug.warn(
+          `Skipping cross-process filesystem reconciliation lock for ${key}: the system did not provide a complete machine, boot-session, and process-namespace identity (missing: ${missingProcessExecutionIdentityComponents(executionIdentity)})`,
+        )
+        return { release: async () => {}, degraded: true }
+      }
+      // Re-probe with the raw getter every iteration: a transient probe
+      // failure heals here, and the existing lock can then be evaluated and
+      // reclaimed through the normal path instead of failing at the deadline.
+      const healedIdentity = await getProcessExecutionIdentity()
+      if (isCompleteProcessExecutionIdentity(healedIdentity)) {
+        degradedProcessExecutionIdentityMemo = undefined
+        executionIdentity = healedIdentity
+        break
+      }
+      if (performance.now() >= acquisitionDeadline.expiresAt) {
+        throw reconciliationExecutionIdentityUnavailableError(
+          key,
+          healedIdentity,
+        )
+      }
+      try {
+        await delayReconciliationLockRetry(acquisitionDeadline, key)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+          throw reconciliationExecutionIdentityUnavailableError(
+            key,
+            healedIdentity,
+          )
+        }
+        throw error
+      }
+    }
+  }
 
   while (true) {
     assertReconciliationLockAcquisitionTimeRemaining(acquisitionDeadline, key)
@@ -1856,7 +1955,13 @@ async function acquireReconciliationLock(
       if (
         state?.owner &&
         state.stale &&
-        (await tryReclaimStaleReconciliationLock(identity, lockPath, state))
+        (await tryReclaimStaleReconciliationLock(
+          identity,
+          lockPath,
+          state,
+          getProcessExecutionIdentity,
+          acquisitionDeadline,
+        ))
       ) {
         continue
       }
@@ -1878,7 +1983,15 @@ async function acquireReconciliationLock(
           `Lost filesystem reconciliation lock ownership before initialization: ${key}`,
         )
       }
-      return maintainReconciliationLock(identity, lockPath, lockStats, token)
+      return {
+        release: maintainReconciliationLock(
+          identity,
+          lockPath,
+          lockStats,
+          token,
+        ),
+        degraded: false,
+      }
     } catch (error) {
       await cleanupFailedReconciliationLock(
         identity,
@@ -2387,13 +2500,25 @@ async function tryReclaimStaleReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
   expectedState: ReconciliationLockState,
+  getProcessExecutionIdentity: () => Promise<ProcessExecutionIdentity>,
+  acquisitionDeadline: ReconciliationLockDeadline,
 ) {
   const reclaimPath = reconciliationReclaimPath(identity)
   const token = randomUUID()
-  const [incarnation, executionIdentity] = await Promise.all([
+  const [incarnation, identityResolution] = await Promise.all([
     getCurrentProcessIncarnation(),
-    getCurrentProcessExecutionIdentity(),
+    resolveProcessExecutionIdentityForLocking(
+      getProcessExecutionIdentity,
+      acquisitionDeadline,
+    ),
   ])
+  // Never publish a reclaim owner with incomplete identity; an unverifiable
+  // reclaim owner could never be reclaimed itself. Reachable in practice only
+  // when the current side already proved complete (state.stale requires it).
+  if (!identityResolution.complete) {
+    return false
+  }
+  const executionIdentity = identityResolution.identity
   const reclaimOwner: ReconciliationReclaimOwner = {
     candidate: reconciliationCandidateName(reclaimPath, token),
     createdAt: Date.now(),
@@ -3133,6 +3258,32 @@ function reconciliationHardLinkRequiredError(path: string, cause: unknown) {
   return error
 }
 
+function missingProcessExecutionIdentityComponents(
+  identity: ProcessExecutionIdentity,
+) {
+  return (
+    [
+      ['machine', identity.machine],
+      ['boot', identity.boot],
+      ['namespace', identity.namespace],
+    ] as const
+  )
+    .filter(([, value]) => value === null)
+    .map(([name]) => name)
+    .join(', ')
+}
+
+function reconciliationExecutionIdentityUnavailableError(
+  key: string,
+  identity: ProcessExecutionIdentity,
+) {
+  const error = new Error(
+    `Filesystem reconciliation lock was not created for ${key}: the system did not provide a complete machine, boot-session, and process-namespace identity (missing: ${missingProcessExecutionIdentityComponents(identity)}), and an existing reconciliation lock cannot be evaluated without it. On Windows this means reg.exe or powershell.exe was blocked or too slow; retry the build or unblock those tools`,
+  ) as NodeJS.ErrnoException
+  error.code = 'EAGAIN'
+  return error
+}
+
 function reconciliationOwnerCannotBeVerifiedError(
   path: string,
   owner: ReconciliationMetadataOwner,
@@ -3442,10 +3593,73 @@ function isCompleteProcessExecutionIdentity(
   )
 }
 
+// An owner written with an incomplete identity can never be verified or
+// reclaimed (processOwnerState fails closed), so publishing one would wedge
+// the lock until manual cleanup. Re-probe within the wait budget instead, then
+// report the outcome: callers degrade to lock-free operation rather than fail.
+// Slow-but-working probes win on the first read regardless of the budget; the
+// budget only bounds riding out fast probe failures.
+export async function resolveProcessExecutionIdentityForLocking(
+  getIdentity: () => Promise<ProcessExecutionIdentity>,
+  waitBudget: ReconciliationLockDeadline,
+): Promise<
+  | { complete: true; identity: ProcessExecutionIdentity }
+  | { complete: false; identity: ProcessExecutionIdentity }
+> {
+  while (true) {
+    const identity = await getIdentity()
+    if (isCompleteProcessExecutionIdentity(identity)) {
+      return { complete: true, identity }
+    }
+    if (performance.now() >= waitBudget.expiresAt) {
+      return { complete: false, identity }
+    }
+    await delay(
+      Math.max(0, Math.min(20, waitBudget.expiresAt - performance.now())),
+    )
+  }
+}
+
+type ProcessExecutionIdentityResolution = Awaited<
+  ReturnType<typeof resolveProcessExecutionIdentityForLocking>
+>
+
 const getCurrentProcessExecutionIdentity = createProcessExecutionIdentityGetter(
   readProcessExecutionIdentity,
   incompleteProcessExecutionIdentityCacheDuration,
 )
+
+const degradedProcessExecutionIdentityMemoDuration = 30_000
+// One build pays the probe-failure wait once: a degraded outcome is memoized
+// briefly so later acquisitions in this process skip the wait loop. 30s
+// outlives a single build but not separate invocations.
+let degradedProcessExecutionIdentityMemo: { decidedAt: number } | undefined
+
+async function resolveDefaultProcessExecutionIdentityForLocking(
+  identityWaitTimeout: number,
+): Promise<ProcessExecutionIdentityResolution> {
+  const memo = degradedProcessExecutionIdentityMemo
+  if (
+    memo !== undefined &&
+    performance.now() - memo.decidedAt <
+      degradedProcessExecutionIdentityMemoDuration
+  ) {
+    const identity = await getCurrentProcessExecutionIdentity()
+    if (isCompleteProcessExecutionIdentity(identity)) {
+      degradedProcessExecutionIdentityMemo = undefined
+      return { complete: true, identity }
+    }
+    return { complete: false, identity }
+  }
+  const resolution = await resolveProcessExecutionIdentityForLocking(
+    getCurrentProcessExecutionIdentity,
+    createReconciliationLockDeadline(identityWaitTimeout),
+  )
+  degradedProcessExecutionIdentityMemo = resolution.complete
+    ? undefined
+    : { decidedAt: performance.now() }
+  return resolution
+}
 
 async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity> {
   if (process.platform === 'linux') {
@@ -3483,19 +3697,29 @@ async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity>
         )
       : 'powershell.exe'
     const [machineOutput, boot] = await Promise.all([
-      executeProcessIncarnationCommand(reg, [
-        'query',
-        String.raw`HKLM\SOFTWARE\Microsoft\Cryptography`,
-        '/v',
-        'MachineGuid',
-      ]),
-      executeProcessIncarnationCommand(powershell, [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        '(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().Ticks',
-      ]),
+      executeProcessIncarnationCommand(
+        reg,
+        [
+          'query',
+          String.raw`HKLM\SOFTWARE\Microsoft\Cryptography`,
+          '/v',
+          'MachineGuid',
+        ],
+        process.env,
+        processExecutionIdentityCommandTimeout,
+      ),
+      executeProcessIncarnationCommand(
+        powershell,
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          '(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().Ticks',
+        ],
+        process.env,
+        processExecutionIdentityCommandTimeout,
+      ),
     ])
     const machineGuid = machineOutput?.match(
       /\bMachineGuid\s+REG_SZ\s+([0-9a-f-]+)\s*$/i,
@@ -3512,19 +3736,24 @@ async function readProcessExecutionIdentity(): Promise<ProcessExecutionIdentity>
   if (process.platform === 'darwin') {
     const [machineOutput, bootSessionOutput, bootTimeOutput] =
       await Promise.all([
-        executeProcessIncarnationCommand('/usr/sbin/ioreg', [
-          '-rd1',
-          '-c',
-          'IOPlatformExpertDevice',
-        ]),
-        executeProcessIncarnationCommand('/usr/sbin/sysctl', [
-          '-n',
-          'kern.bootsessionuuid',
-        ]),
-        executeProcessIncarnationCommand('/usr/sbin/sysctl', [
-          '-n',
-          'kern.boottime',
-        ]),
+        executeProcessIncarnationCommand(
+          '/usr/sbin/ioreg',
+          ['-rd1', '-c', 'IOPlatformExpertDevice'],
+          process.env,
+          processExecutionIdentityCommandTimeout,
+        ),
+        executeProcessIncarnationCommand(
+          '/usr/sbin/sysctl',
+          ['-n', 'kern.bootsessionuuid'],
+          process.env,
+          processExecutionIdentityCommandTimeout,
+        ),
+        executeProcessIncarnationCommand(
+          '/usr/sbin/sysctl',
+          ['-n', 'kern.boottime'],
+          process.env,
+          processExecutionIdentityCommandTimeout,
+        ),
       ])
     const platformUuid = machineOutput?.match(
       /"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"/i,
@@ -3687,6 +3916,7 @@ function executeProcessIncarnationCommand(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
+  timeout: number = processIncarnationCommandTimeout,
 ): Promise<string | null> {
   return new Promise((resolveCommand) => {
     execFile(
@@ -3695,7 +3925,7 @@ function executeProcessIncarnationCommand(
       {
         encoding: 'utf8',
         env,
-        timeout: processIncarnationCommandTimeout,
+        timeout,
         windowsHide: true,
       },
       (error, stdout) => {

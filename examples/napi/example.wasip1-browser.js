@@ -45,6 +45,7 @@ let __napiInstance
 let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiWasmEnvCleanupPrepared = false
+let __emnapiWasmEnvCleanupPreparing = false
 let __emnapiWasmEnvCleanupRan = false
 let __emnapiWasmEnvCleanupDrained = false
 let __emnapiWasmEnvCleanupDrainPromise
@@ -115,13 +116,58 @@ function __attachCleanupErrors(error, cleanupErrors) {
   return aggregate
 }
 
+function __wrapEmnapiContextDestroyForSettlement(
+  context,
+  prepareEnvCleanup,
+  isPreparingEnvCleanup,
+) {
+  let destroy
+  try {
+    destroy = context.destroy
+  } catch {
+    return context
+  }
+  if (typeof destroy !== 'function') {
+    return context
+  }
+  try {
+    Object.defineProperty(context, 'destroy', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: function () {
+        // Reentered from a promise hook that fired inside the barrier: the
+        // frame running it destroys as soon as it returns.
+        if (isPreparingEnvCleanup?.()) {
+          return
+        }
+        prepareEnvCleanup?.()
+        return Reflect.apply(destroy, this, arguments)
+      },
+    })
+  } catch {}
+  return context
+}
+
+function __isPreparingWasmEnvCleanup() {
+  return __emnapiWasmEnvCleanupPreparing
+}
+
 function __prepareWasmEnvCleanup() {
-  if (__emnapiWasmEnvCleanupPrepared) {
+  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
     return
   }
   const prepare = __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
   if (typeof prepare === 'function') {
-    prepare()
+    // The addon settles the promises it cancels synchronously, under a
+    // non-reentrant lifecycle mutex: anything a promise hook calls from in
+    // here must not reach this export again.
+    __emnapiWasmEnvCleanupPreparing = true
+    try {
+      prepare()
+    } finally {
+      __emnapiWasmEnvCleanupPreparing = false
+    }
     __emnapiWasmEnvCleanupRan = true
   }
   __emnapiWasmEnvCleanupPrepared = true
@@ -551,7 +597,11 @@ let __wasiModule
 let __napiModule
 
 try {
-  __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
+    __emnapiCreateContext({ autoDestroy: false }),
+    __prepareWasmEnvCleanup,
+    __isPreparingWasmEnvCleanup,
+  )
   __emnapiContext.suppressDestroy()
   __emnapiContext.features.Buffer = Buffer
 
