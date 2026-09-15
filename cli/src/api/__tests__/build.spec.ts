@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { exec } from 'node:child_process'
+import { exec, spawnSync } from 'node:child_process'
 import {
   copyFile,
   mkdir,
@@ -19,23 +19,28 @@ import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { join as posixJoin, sep as posixSep } from 'node:path/posix'
 import { sep as win32Sep } from 'node:path/win32'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import ava, { type ExecutionContext, type TestFn } from 'ava'
+import { parseSync } from 'oxc-parser'
+import ts from 'typescript'
 
 import {
+  bindingTargetDeclarationPredicate,
   buildProject,
   checkAsyncRuntimeHostContract,
   EMNAPI_WASI_SDK_34_LINK_DIR,
+  ensureBindingTargetDeclaration,
   generateTypeDef,
   napiCrossToolchainEnvs,
+  prepareWasiBindingTypeDef,
   resolveBuildFormat,
   selectEmnapiLinkDir,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
   writeJsBinding,
 } from '../build.js'
-import { getSystemDefaultTarget } from '../../utils/index.js'
+import { getSystemDefaultTarget, scanExportedName } from '../../utils/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../../..')
@@ -247,6 +252,1963 @@ test('writeJsBinding uses the explicit format independently of the filename', as
   t.regex(commonjs, /module\.exports\.sum = nativeBinding\.sum/)
   t.regex(esm, /export \{ sum \}/)
   t.regex(legacyEsm, /export \{ sum \}/)
+  t.regex(
+    commonjs,
+    /module\.exports\.__napiBindingTarget = __napiStampBindingTarget\(nativeBinding, __napiLoadedBindingTarget\)/,
+  )
+  t.regex(esm, /export const __napiBindingTarget = __napiLoadedBindingTarget/)
+  t.regex(
+    legacyEsm,
+    /export const __napiBindingTarget = __napiLoadedBindingTarget/,
+  )
+})
+
+test('writeJsBinding rejects a napi export named __napiBindingTarget', async (t) => {
+  await t.throwsAsync(
+    writeJsBinding({
+      platform: true,
+      idents: ['__napiBindingTarget'],
+      binaryName: 'build-integration',
+      packageName: 'build-integration',
+      version: '0.1.0',
+      outputDir: t.context.projectDir,
+    }),
+    { message: /reserved by the generated binding loader/ },
+  )
+})
+
+test('the generated loader reports the flavor its library-path override loaded', async (t) => {
+  const { projectDir } = t.context
+  const overridePath = join(projectDir, 'fake-wasip1.cjs')
+  const plainPath = join(projectDir, 'fake-native.cjs')
+  await Promise.all([
+    // a stand-in for a generated WASI loader: it reports its own flavor
+    writeFile(
+      overridePath,
+      `module.exports = { sum: (a, b) => a + b }\nmodule.exports.__napiBindingTarget = 'wasm32-wasip1'\n`,
+    ),
+    writeFile(plainPath, `module.exports = { sum: (a, b) => a + b }\n`),
+  ])
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+  const rootPath = join(projectDir, 'index.js')
+
+  const probe = (libraryPath: string) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        // require the override FIRST: the root loader aliases it, so an
+        // unconditional assignment would rewrite the override's own marker
+        `const override = require(${JSON.stringify(libraryPath)})
+const root = require(${JSON.stringify(rootPath)})
+console.log(
+  JSON.stringify({
+    root: root.__napiBindingTarget,
+    override: override.__napiBindingTarget,
+    aliased: root === override,
+    sum: root.sum(1, 2),
+  }),
+)`,
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: libraryPath },
+      },
+    )
+    t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    return JSON.parse(result.stdout)
+  }
+
+  t.deepEqual(probe(overridePath), {
+    root: 'wasm32-wasip1',
+    override: 'wasm32-wasip1',
+    aliased: true,
+    sum: 3,
+  })
+  t.deepEqual(probe(plainPath), {
+    root: 'native',
+    override: 'native',
+    aliased: true,
+    sum: 3,
+  })
+})
+
+// A stand-in for a `#[napi(module_exports)]` hook: it attaches names to the
+// addon's exports object imperatively, so napi-rs type generation never sees
+// them and `assertBindingTargetIdentFree` cannot either. Only the loader can.
+const writeFakePlatformPackage = async (projectDir: string, source: string) => {
+  const { platformArchABI } = getSystemDefaultTarget()
+  const packageDir = join(
+    projectDir,
+    'node_modules',
+    `build-integration-${platformArchABI}`,
+  )
+  await mkdir(packageDir, { recursive: true })
+  await Promise.all([
+    writeFile(
+      join(packageDir, 'package.json'),
+      `{"name":"build-integration-${platformArchABI}","version":"0.1.0","main":"index.js"}\n`,
+    ),
+    writeFile(join(packageDir, 'index.js'), source),
+  ])
+}
+
+const requireRootLoaderInChild = (rootPath: string, body: string) =>
+  spawnSync(
+    process.execPath,
+    ['-e', `const binding = require(${JSON.stringify(rootPath)})\n${body}`],
+    { encoding: 'utf8' },
+  )
+
+test('a module_exports hook may not claim __napiBindingTarget', async (t) => {
+  const { projectDir } = t.context
+  await writeFakePlatformPackage(
+    projectDir,
+    `const exportsObject = { sum: (a, b) => a + b }
+exportsObject.__napiBindingTarget = 'addon-owned-value'
+module.exports = exportsObject
+`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(binding.__napiBindingTarget)`,
+  )
+  t.not(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.regex(result.stderr, /reserved by the generated binding loader/)
+  t.regex(result.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/)
+})
+
+test('a zero-ident package still rejects a claimed binding target', async (t) => {
+  const { projectDir } = t.context
+  // the `!enableTypeDef` shape: no type-def metadata at all, so the build-time
+  // assertion has an empty list to check and the loader is the only guard left
+  await writeFakePlatformPackage(
+    projectDir,
+    `const exportsObject = { sum: (a, b) => a + b }
+exportsObject.__napiBindingTarget = 'addon-owned-value'
+module.exports = exportsObject
+`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: [],
+    wasiFlavors: ['wasm32-wasi'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(binding.__napiBindingTarget)`,
+  )
+  t.not(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.regex(result.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/)
+})
+
+test('a frozen addon loads without the binding target stamp', async (t) => {
+  const { projectDir } = t.context
+  // `Object::freeze` in a `#[napi(module_exports)]` hook. Reporting the
+  // artifact is metadata; it must never fail an otherwise successful load.
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = Object.freeze({ sum: (a, b) => a + b })\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(
+  JSON.stringify({
+    sum: binding.sum(1, 2),
+    target: binding.__napiBindingTarget ?? null,
+  }),
+)`,
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), { sum: 3, target: null })
+})
+
+// Node's CJS -> ESM named export detection is `cjs-module-lexer`, a static
+// scanner: it reports `__napiBindingTarget` only when it can see
+// `module.exports.__napiBindingTarget =` in the source. A bare guard call is
+// invisible to it, and the import then fails to link at all.
+const importBindingTargetInChild = (rootPath: string) =>
+  spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import { __napiBindingTarget } from ${JSON.stringify(
+        pathToFileURL(rootPath).href,
+      )}
+console.log(JSON.stringify(__napiBindingTarget))`,
+    ],
+    { encoding: 'utf8' },
+  )
+
+test('the CommonJS loader exposes __napiBindingTarget as an ESM named export', async (t) => {
+  const { projectDir } = t.context
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = { sum: (a, b) => a + b }\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = importBindingTargetInChild(join(projectDir, 'index.js'))
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.is(result.stdout.trim(), '"native"')
+})
+
+test('a frozen addon keeps __napiBindingTarget importable, just undefined', async (t) => {
+  const { projectDir } = t.context
+  // The lexer is static, so the name links either way; the runtime skip is what
+  // leaves it undefined. A named import that throws `SyntaxError` at link time
+  // would be a much louder break than a missing value.
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = Object.freeze({ sum: (a, b) => a + b })\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = importBindingTargetInChild(join(projectDir, 'index.js'))
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.is(result.stdout.trim(), 'undefined')
+})
+
+// `Object.create(proto)` in a `#[napi(module_exports)]` hook — napi-rs itself
+// reaches `Object.setPrototypeOf` off the global, so the prototype an addon's
+// exports object carries is not beyond an addon's reach. `hasOwnProperty` does
+// not see an inherited accessor, so an ordinary assignment would reach its
+// setter.
+const inheritedBindingTargetAccessor = (setterBody: string) =>
+  `const proto = {}
+Object.defineProperty(proto, '__napiBindingTarget', {
+  get() {
+    return undefined
+  },
+  set() {
+    ${setterBody}
+  },
+  configurable: true,
+})
+const exportsObject = Object.create(proto)
+exportsObject.sum = (a, b) => a + b
+module.exports = exportsObject
+`
+
+const REPORT_BINDING_TARGET = `console.log(
+  JSON.stringify({
+    sum: binding.sum(1, 2),
+    target: binding.__napiBindingTarget ?? null,
+    own: Object.prototype.hasOwnProperty.call(binding, '__napiBindingTarget'),
+  }),
+)`
+
+test('an addon whose prototype carries __napiBindingTarget still loads and reports its target', async (t) => {
+  const { projectDir } = t.context
+  // The throwing half: an inherited setter that refuses the write would kill an
+  // otherwise successful load at the stamp — the same regression the frozen
+  // skip above exists to prevent.
+  await writeFakePlatformPackage(
+    projectDir,
+    inheritedBindingTargetAccessor(`throw new Error('addon setter refused')`),
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    REPORT_BINDING_TARGET,
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), {
+    sum: 3,
+    target: 'native',
+    own: true,
+  })
+})
+
+test('an inherited setter does not swallow the binding target', async (t) => {
+  const { projectDir } = t.context
+  // The absorbing half: the setter accepts the write and creates nothing, so
+  // both `require(...).__napiBindingTarget` and the ESM named import resolve to
+  // `undefined` while the generated `.d.ts` promises a literal.
+  await writeFakePlatformPackage(projectDir, inheritedBindingTargetAccessor(''))
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const required = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    REPORT_BINDING_TARGET,
+  )
+  t.is(required.status, 0, `${required.stdout}\n${required.stderr}`)
+  t.deepEqual(JSON.parse(required.stdout), {
+    sum: 3,
+    target: 'native',
+    own: true,
+  })
+
+  // and the value the lexer-linked named import reads is the one on that same
+  // object, so the stamp has to land as an own property for the import to work
+  const imported = importBindingTargetInChild(join(projectDir, 'index.js'))
+  t.is(imported.status, 0, `${imported.stdout}\n${imported.stderr}`)
+  t.is(imported.stdout.trim(), '"native"')
+})
+
+test('an exotic binding object never fails the load', async (t) => {
+  const { projectDir } = t.context
+  // A `Proxy` whose `defineProperty` trap refuses is the one shape the stamp
+  // cannot satisfy. Today's assignment is a sloppy-mode no-op there and a bare
+  // `Object.defineProperty` would throw, so the skip is what keeps the rule the
+  // frozen case states: metadata never fails an otherwise successful load.
+  await writeFakePlatformPackage(
+    projectDir,
+    `module.exports = new Proxy(
+  { sum: (a, b) => a + b },
+  { defineProperty: () => false },
+)
+`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    REPORT_BINDING_TARGET,
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), {
+    sum: 3,
+    target: null,
+    own: false,
+  })
+})
+
+const bindingTargetDeclarationOf = (source: string) =>
+  source
+    .split('\n')
+    .find((line) => line.startsWith('export declare const __napiBindingTarget'))
+
+test('the declared binding target covers every loadable artifact', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  // Nothing here declares a WASI target, yet NAPI_RS_NATIVE_LIBRARY_PATH may
+  // still point the loader at a generated WASI loader, which the root entry
+  // then reports. A union of only the configured targets would make TypeScript
+  // reject those comparisons.
+  t.is(
+    bindingTargetDeclarationOf(dts),
+    "export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'",
+  )
+
+  const { dts: withoutLoader } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+  })
+
+  t.false(withoutLoader.includes('__napiBindingTarget'))
+})
+
+test('a preserved WASI declaration gains the binding target declaration', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  // what a WASI build before `__napiBindingTarget` left on disk
+  const preserved = `/* auto-generated by NAPI-RS */
+
+export declare function sum(a: number, b: number): number
+`
+  const refreshed = ensureBindingTargetDeclaration(preserved)
+
+  t.true(refreshed.startsWith(preserved))
+  t.is(bindingTargetDeclarationOf(refreshed), bindingTargetDeclarationOf(dts))
+  // a second build must not append a second declaration
+  t.is(ensureBindingTargetDeclaration(refreshed), refreshed)
+  // an already declared file is left untouched wherever it declares it
+  t.is(ensureBindingTargetDeclaration(dts), dts)
+
+  // a declaration file without type generation exports by assignment, which
+  // cannot carry a named export declaration
+  const exportAssignment = `declare const binding: Record<string, unknown>
+export = binding
+`
+  t.is(ensureBindingTargetDeclaration(exportAssignment), exportAssignment)
+})
+
+test('a WASI flavor declaration names only that flavor', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  // a flavor's loaders report a compile-time-fixed identity, so the union the
+  // root entry inherits from `NAPI_RS_NATIVE_LIBRARY_PATH` is unreachable here
+  const threaded = ensureBindingTargetDeclaration(dts, 'wasm32-wasi')
+  t.is(
+    bindingTargetDeclarationOf(threaded),
+    "export declare const __napiBindingTarget: 'wasm32-wasi'",
+  )
+  const threadless = ensureBindingTargetDeclaration(dts, 'wasm32-wasip1')
+  t.is(
+    bindingTargetDeclarationOf(threadless),
+    "export declare const __napiBindingTarget: 'wasm32-wasip1'",
+  )
+  // narrowing replaces the inherited union instead of declaring the name twice
+  t.is(threaded.split('__napiBindingTarget').length - 1, 1)
+
+  // a second build must not append a second declaration
+  t.is(ensureBindingTargetDeclaration(threadless, 'wasm32-wasip1'), threadless)
+
+  // a preserved file that never declared it gains the flavor literal, not the
+  // union
+  const preserved = `/* auto-generated by NAPI-RS */
+
+export declare function sum(a: number, b: number): number
+`
+  t.is(
+    bindingTargetDeclarationOf(
+      ensureBindingTargetDeclaration(preserved, 'wasm32-wasi'),
+    ),
+    "export declare const __napiBindingTarget: 'wasm32-wasi'",
+  )
+
+  // the root entry keeps the union (see `NAPI_RS_NATIVE_LIBRARY_PATH`)
+  t.is(ensureBindingTargetDeclaration(dts), dts)
+
+  // a build without `napi-derive`'s `type-def` feature exports by assignment,
+  // which cannot carry a named export declaration
+  const exportAssignment = `declare const binding: Record<string, unknown>
+export = binding
+`
+  t.is(
+    ensureBindingTargetDeclaration(exportAssignment, 'wasm32-wasip1'),
+    exportAssignment,
+  )
+})
+
+test('a mention of __napiBindingTarget is not a declaration of it', (t) => {
+  // napi-derive copies `js_doc` into the `.d.ts` verbatim, so a doc comment can
+  // name the export without declaring it
+  const mentionOnly = `/* auto-generated by NAPI-RS */
+
+/**
+ * Mirrors the loader's \`__napiBindingTarget\` export.
+ */
+export declare function bindingTarget(): string
+`
+  t.is(
+    bindingTargetDeclarationOf(
+      ensureBindingTargetDeclaration(mentionOnly, 'wasm32-wasip1'),
+    ),
+    "export declare const __napiBindingTarget: 'wasm32-wasip1'",
+  )
+
+  // `assertBindingTargetIdentFree` only rejects the exact name, so a longer
+  // identifier is a legal export and not this declaration
+  const longerIdent = `/* auto-generated by NAPI-RS */
+
+export declare const __napiBindingTargetInfo: string
+`
+  const refreshed = ensureBindingTargetDeclaration(longerIdent, 'wasm32-wasi')
+  t.true(refreshed.startsWith(longerIdent))
+  t.true(
+    refreshed.includes(
+      "export declare const __napiBindingTarget: 'wasm32-wasi'\n",
+    ),
+  )
+})
+
+test('a fresh WASI declaration narrows the inherited root union', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  // the fresh path derives the flavor declaration from the root `index.d.ts`,
+  // which carries the union
+  const prepared = prepareWasiBindingTypeDef(
+    dts,
+    join(projectDir, 'index.d.ts'),
+    join(projectDir, 'pkg.wasip1.d.cts'),
+    false,
+  )
+  t.is(
+    bindingTargetDeclarationOf(
+      ensureBindingTargetDeclaration(prepared, 'wasm32-wasip1'),
+    ),
+    "export declare const __napiBindingTarget: 'wasm32-wasip1'",
+  )
+})
+
+const ROOT_BINDING_TARGET_DECLARATION =
+  "export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'"
+
+test('a crate without type defs still declares the binding target', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  // A crate can register every export from a `#[napi(module_exports)]` hook and
+  // emit no `.type` file at all. A loader is still written for it, and that
+  // loader still exports `__napiBindingTarget`.
+  const { exports, dts, dtsWithTypeImports } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  t.is(exports.length, 0)
+  t.is(bindingTargetDeclarationOf(dts), ROOT_BINDING_TARGET_DECLARATION)
+  t.true(dts.startsWith('/* auto-generated by NAPI-RS */'))
+  t.is(dtsWithTypeImports, dts)
+})
+
+test('a missing type def directory still declares the binding target', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  const { exports, dts, dtsWithTypeImports } = await generateTypeDef({
+    typeDefDir: join(typeDefDir, 'missing'),
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  t.is(exports.length, 0)
+  t.is(bindingTargetDeclarationOf(dts), ROOT_BINDING_TARGET_DECLARATION)
+  t.true(dts.startsWith('/* auto-generated by NAPI-RS */'))
+  t.is(dtsWithTypeImports, dts)
+})
+
+test('a build that emits no loader declares nothing without type defs', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  const empty = await generateTypeDef({ typeDefDir, cwd: projectDir })
+  t.is(empty.dts, '')
+  t.is(empty.dtsWithTypeImports, '')
+
+  const missing = await generateTypeDef({
+    typeDefDir: join(typeDefDir, 'missing'),
+    cwd: projectDir,
+  })
+  t.is(missing.dts, '')
+  t.is(missing.dtsWithTypeImports, '')
+})
+
+test('the declaration-only type def honours the header options', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  const { dts: headerless } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    noDtsHeader: true,
+  })
+  t.false(headerless.includes('/* auto-generated by NAPI-RS */'))
+  t.is(bindingTargetDeclarationOf(headerless), ROOT_BINDING_TARGET_DECLARATION)
+
+  const { dts: custom } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader: '/* custom */\n',
+  })
+  t.true(custom.startsWith('/* custom */\n'))
+  t.is(bindingTargetDeclarationOf(custom), ROOT_BINDING_TARGET_DECLARATION)
+})
+
+const countBindingTargetDeclarations = (source: string) =>
+  source
+    .split('\n')
+    .filter((line) =>
+      line.startsWith('export declare const __napiBindingTarget'),
+    ).length
+
+test('a header that already declares the binding target is not declared twice', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  // a project that worked around loaders predating the export by declaring it
+  // in its own header; a second declaration beside it is a TS2451 redeclaration
+  const headerDeclaration =
+    "export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'"
+  const dtsHeader = `/* auto-generated by NAPI-RS */
+
+${headerDeclaration}
+`
+
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  const { dts, dtsWithTypeImports, header } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader,
+  })
+  t.is(countBindingTargetDeclarations(dts), 1)
+  t.is(countBindingTargetDeclarations(dtsWithTypeImports), 1)
+  t.is(bindingTargetDeclarationOf(dts), headerDeclaration)
+  // the rendered header comes back, so the WASI writer can tell a declaration
+  // the header owns from one this build appended
+  t.is(header, dtsHeader)
+
+  // the same header with no `.type` files at all: the declaration-only path
+  const emptyTypeDefDir = join(projectDir, 'empty-type-defs')
+  await mkdir(emptyTypeDefDir, { recursive: true })
+  const { dts: declarationOnly } = await generateTypeDef({
+    typeDefDir: emptyTypeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader,
+  })
+  t.is(countBindingTargetDeclarations(declarationOnly), 1)
+
+  // every route a header reaches the build through
+  const headerFile = 'napi-header.d.ts'
+  await writeFile(join(projectDir, headerFile), dtsHeader)
+  const { dts: fromFile } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeaderFile: headerFile,
+  })
+  t.is(countBindingTargetDeclarations(fromFile), 1)
+
+  const { dts: fromConfig } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    configDtsHeader: dtsHeader,
+  })
+  t.is(countBindingTargetDeclarations(fromConfig), 1)
+
+  // the WASI flavor file derived from that root declaration keeps the one
+  // declaration instead of gaining a second with a conflicting type
+  const wasi = ensureBindingTargetDeclaration(
+    prepareWasiBindingTypeDef(
+      dts,
+      join(projectDir, 'index.d.ts'),
+      join(projectDir, 'pkg.wasip1.d.cts'),
+      false,
+    ),
+    'wasm32-wasip1',
+    dtsHeader,
+  )
+  t.is(countBindingTargetDeclarations(wasi), 1)
+  t.is(bindingTargetDeclarationOf(wasi), headerDeclaration)
+
+  // a header that declares nothing still gains the union
+  const { dts: generated, header: defaultHeader } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+  t.is(bindingTargetDeclarationOf(generated), ROOT_BINDING_TARGET_DECLARATION)
+  t.is(countBindingTargetDeclarations(generated), 1)
+  t.true(defaultHeader.startsWith('/* auto-generated by NAPI-RS */'))
+
+  const { header: headerless } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    noDtsHeader: true,
+  })
+  t.is(headerless, '')
+})
+
+test('an export-assignment header is left alone without type defs', async (t) => {
+  const { tmpDir, projectDir, typeDefDir } = t.context
+
+  // What a package whose header describes the whole module by assignment ships
+  // — the form a build without `napi-derive`'s `type-def` feature emits. An
+  // export assignment cannot sit beside a named export (TS2309), so the
+  // declaration this build would otherwise append has nowhere to go, and the
+  // export it describes is unreachable through `export =` anyway. The same
+  // rule `ensureBindingTargetDeclaration` applies to the derived WASI file.
+  //
+  // Kept out of the export-form table below: every row there is generated with
+  // a `.type` file, and the generated body is itself a named export, so an
+  // `export =` row would carry the header's own TS2309 rather than this
+  // branch's — and that table's consumer imports a named export the form has
+  // none of.
+  const dtsHeader = `declare const binding: { foo(): number }
+export = binding
+`
+
+  const { exports, dts, dtsWithTypeImports, header } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader,
+  })
+
+  t.is(exports.length, 0)
+  t.is(header, dtsHeader)
+  t.true(dts.startsWith(dtsHeader))
+  t.is(dts.trim(), dtsHeader.trim())
+  t.deepEqual(exportedBindingTargetTypes(dts), [])
+  t.is(countBindingTargetDeclarations(dts), 0)
+  t.is(dtsWithTypeImports, dts)
+
+  const directory = join(tmpDir, 'export-assignment-header')
+  const flavor = ensureBindingTargetDeclaration(
+    prepareWasiBindingTypeDef(
+      dts,
+      join(directory, 'index.d.ts'),
+      join(directory, 'flavor.d.cts'),
+      false,
+    ),
+    'wasm32-wasip1',
+    header,
+  )
+  t.true(flavor.startsWith(dtsHeader))
+  t.deepEqual(exportedBindingTargetTypes(flavor), [])
+
+  // TypeScript's own verdict: what this build wrote is worth exactly what the
+  // header alone is worth, which is nothing at all.
+  const codes = await semanticDiagnosticCodes(directory, {
+    'baseline.d.ts': dtsHeader,
+    'index.d.ts': dts,
+    'flavor.d.cts': flavor,
+  })
+  t.deepEqual(codes['baseline.d.ts'], [])
+  t.deepEqual(codes['index.d.ts'], [])
+  t.deepEqual(codes['flavor.d.cts'], [])
+})
+
+test('a stale generated binding target declaration is refreshed, a custom one is preserved', (t) => {
+  const preamble = '/* auto-generated by NAPI-RS */\n'
+
+  // what an earlier version of this branch wrote, before `wasm32-wasip1`
+  const stale = `${preamble}
+/** The artifact this loader loaded. */
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasi'
+
+export declare function sum(a: number, b: number): number
+`
+  const refreshedRoot = ensureBindingTargetDeclaration(stale)
+  t.is(
+    bindingTargetDeclarationOf(refreshedRoot),
+    ROOT_BINDING_TARGET_DECLARATION,
+  )
+  t.is(countBindingTargetDeclarations(refreshedRoot), 1)
+  // the stale block's doc comment is replaced with it, not stranded above it
+  t.false(refreshedRoot.includes('The artifact this loader loaded.'))
+
+  const refreshedFlavor = ensureBindingTargetDeclaration(stale, 'wasm32-wasip1')
+  t.is(
+    bindingTargetDeclarationOf(refreshedFlavor),
+    "export declare const __napiBindingTarget: 'wasm32-wasip1'",
+  )
+  t.is(countBindingTargetDeclarations(refreshedFlavor), 1)
+
+  // a file kept from a build of the other flavor now types this one
+  const wrongFlavor = `${preamble}
+/** The WASI flavor this loader instantiates. */
+export declare const __napiBindingTarget: 'wasm32-wasi'
+`
+  t.is(
+    bindingTargetDeclarationOf(
+      ensureBindingTargetDeclaration(wrongFlavor, 'wasm32-wasip1'),
+    ),
+    "export declare const __napiBindingTarget: 'wasm32-wasip1'",
+  )
+
+  // a type this CLI could never have written belongs to whoever wrote it
+  const custom = `${preamble}
+export declare const __napiBindingTarget: string
+`
+  t.is(ensureBindingTargetDeclaration(custom, 'wasm32-wasip1'), custom)
+  t.is(ensureBindingTargetDeclaration(custom), custom)
+
+  // and neither is a declaration the build's own header owns, even though it
+  // is spelled out of the literals this CLI writes
+  const headerOwned = `${preamble}
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'
+`
+  t.is(
+    ensureBindingTargetDeclaration(headerOwned, 'wasm32-wasip1', headerOwned),
+    headerOwned,
+  )
+
+  // refreshing is a fixed point
+  t.is(
+    ensureBindingTargetDeclaration(refreshedFlavor, 'wasm32-wasip1'),
+    refreshedFlavor,
+  )
+  t.is(ensureBindingTargetDeclaration(refreshedRoot), refreshedRoot)
+})
+
+const ROOT_BINDING_TARGET_TYPE = "'native' | 'wasm32-wasi' | 'wasm32-wasip1'"
+
+/**
+ * The type of every `__napiBindingTarget` a consumer of `source` can import,
+ * in source order, read back with `oxc-parser` — a different parser from the
+ * one `build.ts` uses, so these assertions cannot agree with the code by
+ * sharing its idea of what a declaration is.
+ */
+const exportedBindingTargetTypes = (source: string) => {
+  const { program } = parseSync('index.d.ts', source)
+  const types: string[] = []
+  for (const node of program.body) {
+    if (
+      node.type !== 'ExportNamedDeclaration' ||
+      node.declaration?.type !== 'VariableDeclaration'
+    ) {
+      continue
+    }
+    for (const declaration of node.declaration.declarations) {
+      if (
+        declaration.id.type !== 'Identifier' ||
+        declaration.id.name !== '__napiBindingTarget'
+      ) {
+        continue
+      }
+      const annotation = declaration.id.typeAnnotation
+      types.push(
+        annotation
+          ? source.slice(
+              annotation.typeAnnotation.start,
+              annotation.typeAnnotation.end,
+            )
+          : '',
+      )
+    }
+  }
+  return types
+}
+
+test('a header-owned binding target declaration survives the WASI transforms', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  // A header that declares the export itself and imports its own types
+  // relatively. `--dts types/index.d.ts` puts the derived `.d.cts` in another
+  // directory, so `prepareWasiBindingTypeDef` rebases that specifier and the
+  // header stops being a literal prefix of the file derived from it — the
+  // declaration it owns must still be recognised as its own.
+  const rebasedHeader = `/* auto-generated by NAPI-RS */
+
+import type { Thing } from './thing.js'
+
+${ROOT_BINDING_TARGET_DECLARATION}
+export declare function useThing(thing: Thing): void
+`
+  const { dts: rebasedRoot } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader: rebasedHeader,
+  })
+  const rebased = ensureBindingTargetDeclaration(
+    prepareWasiBindingTypeDef(
+      rebasedRoot,
+      join(projectDir, 'types', 'index.d.ts'),
+      join(projectDir, 'pkg.wasip1.d.cts'),
+      false,
+    ),
+    'wasm32-wasip1',
+    rebasedHeader,
+  )
+  t.true(rebased.includes("from './types/thing.js'"))
+  t.deepEqual(exportedBindingTargetTypes(rebased), [ROOT_BINDING_TARGET_TYPE])
+
+  // The threadless flavor drops `node:stream/web` type imports so the DOM
+  // globals can take over, which moves the header's declaration just the same.
+  const streamHeader = `/* auto-generated by NAPI-RS */
+
+import type { ReadableStream } from 'node:stream/web'
+
+${ROOT_BINDING_TARGET_DECLARATION}
+export declare function readAll(stream: ReadableStream): void
+`
+  const { dts: streamRoot } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader: streamHeader,
+  })
+  const threadless = ensureBindingTargetDeclaration(
+    prepareWasiBindingTypeDef(
+      streamRoot,
+      join(projectDir, 'index.d.ts'),
+      join(projectDir, 'pkg.wasip1.d.cts'),
+      false,
+    ),
+    'wasm32-wasip1',
+    streamHeader,
+  )
+  t.false(threadless.includes('node:stream/web'))
+  t.deepEqual(exportedBindingTargetTypes(threadless), [
+    ROOT_BINDING_TARGET_TYPE,
+  ])
+})
+
+test('only a top-level export declares the binding target', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  // A commented-out example of the declaration exports nothing, and a member
+  // of a `declare namespace` or `declare module` block is an export of that
+  // block, not of the file. Taking any of them for the declaration leaves the
+  // generated one unwritten and `import { __napiBindingTarget }` at TS2305.
+  const headers = {
+    'a commented-out example': `/* auto-generated by NAPI-RS */
+/* Example:
+${ROOT_BINDING_TARGET_DECLARATION}
+*/
+`,
+    'a nested namespace member': `/* auto-generated by NAPI-RS */
+declare namespace Legacy {
+  export const __napiBindingTarget: string
+}
+`,
+    'a module augmentation member': `/* auto-generated by NAPI-RS */
+declare module 'legacy' {
+  export const __napiBindingTarget: string
+}
+`,
+  }
+
+  for (const [what, dtsHeader] of Object.entries(headers)) {
+    const { dts } = await generateTypeDef({
+      typeDefDir,
+      cwd: projectDir,
+      declareBindingTarget: true,
+      dtsHeader,
+    })
+    t.deepEqual(
+      exportedBindingTargetTypes(dts),
+      [ROOT_BINDING_TARGET_TYPE],
+      `${what} still owes the root declaration`,
+    )
+
+    const wasi = ensureBindingTargetDeclaration(
+      prepareWasiBindingTypeDef(
+        dts,
+        join(projectDir, 'index.d.ts'),
+        join(projectDir, 'pkg.wasip1.d.cts'),
+        false,
+      ),
+      'wasm32-wasip1',
+      dtsHeader,
+    )
+    t.deepEqual(
+      exportedBindingTargetTypes(wasi),
+      ["'wasm32-wasip1'"],
+      `${what} still owes the flavor declaration`,
+    )
+    // whatever the header said is left exactly as it wrote it
+    t.true(wasi.startsWith(dtsHeader), what)
+  }
+
+  // The refresh is held to the same rule: a commented-out example of a
+  // declaration this CLI writes is not a declaration to rewrite.
+  const commentedStale = `/* auto-generated by NAPI-RS */
+
+/* an earlier build wrote:
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasi'
+*/
+
+export declare function sum(a: number, b: number): number
+`
+  const refreshed = ensureBindingTargetDeclaration(
+    commentedStale,
+    'wasm32-wasip1',
+  )
+  t.true(refreshed.startsWith(commentedStale))
+  t.deepEqual(exportedBindingTargetTypes(refreshed), ["'wasm32-wasip1'"])
+})
+
+/**
+ * Syntax errors in a generated declaration file, read back with `oxc-parser`.
+ * A refresh splices text into a file the CLI did not write all of, so what it
+ * leaves behind has to still parse.
+ */
+const declarationDiagnostics = (source: string) =>
+  parseSync('index.d.ts', source).errors.map((error) => error.message)
+
+test('a multi-declarator binding target statement is never rewritten', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  // A statement that declares more names than this one is not one this CLI
+  // wrote — it never writes a sibling — and the block a refresh replaces spans
+  // them, so narrowing it would drop `keepMe` and hand every consumer of that
+  // name a TS2305.
+  const preserved = `/* auto-generated by NAPI-RS */
+
+export declare const __napiBindingTarget: 'native', keepMe: number
+
+export declare function sum(a: number, b: number): number
+`
+  t.is(ensureBindingTargetDeclaration(preserved, 'wasm32-wasip1'), preserved)
+  t.is(ensureBindingTargetDeclaration(preserved), preserved)
+  // it still counts as declared, so nothing is appended beside it either
+  t.deepEqual(exportedBindingTargetTypes(preserved), ["'native'"])
+
+  // A header that declares a sibling whose type carries a relative inline
+  // import. `prepareWasiBindingTypeDef` rebases that specifier, so the
+  // statement stops reading as the header wrote it — the declaration itself
+  // still does, which is what decides ownership.
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+  const dtsHeader = `/* auto-generated by NAPI-RS */
+
+export declare const __napiBindingTarget: ${ROOT_BINDING_TARGET_TYPE},
+  thing: import('./thing.js').Thing
+`
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+    dtsHeader,
+  })
+  const wasi = ensureBindingTargetDeclaration(
+    prepareWasiBindingTypeDef(
+      dts,
+      join(projectDir, 'types', 'index.d.ts'),
+      join(projectDir, 'pkg.wasip1.d.cts'),
+      false,
+    ),
+    'wasm32-wasip1',
+    dtsHeader,
+  )
+  t.true(wasi.includes("thing: import('./types/thing.js').Thing"))
+  t.deepEqual(exportedBindingTargetTypes(wasi), [ROOT_BINDING_TARGET_TYPE])
+  t.deepEqual(declarationDiagnostics(wasi), [])
+})
+
+test('a refreshed binding target declaration keeps the statement terminator', (t) => {
+  // The replaced span ends past the statement's own `;`, so a replacement that
+  // drops it runs whatever followed on the same line into the declaration.
+  const sameLine = `/* auto-generated by NAPI-RS */
+
+export declare const __napiBindingTarget: 'native'; export declare function keepMe(): void;
+`
+  const refreshed = ensureBindingTargetDeclaration(sameLine, 'wasm32-wasip1')
+  t.deepEqual(declarationDiagnostics(refreshed), [])
+  t.deepEqual(exportedBindingTargetTypes(refreshed), ["'wasm32-wasip1'"])
+  t.true(refreshed.includes('export declare function keepMe(): void;'))
+
+  // and a declaration with no doc comment above it keeps its terminator too
+  const ownLine = `/* auto-generated by NAPI-RS */
+
+export declare const __napiBindingTarget: 'native';
+export declare function keepMe(): void;
+`
+  const refreshedOwnLine = ensureBindingTargetDeclaration(
+    ownLine,
+    'wasm32-wasip1',
+  )
+  t.deepEqual(declarationDiagnostics(refreshedOwnLine), [])
+  t.deepEqual(exportedBindingTargetTypes(refreshedOwnLine), ["'wasm32-wasip1'"])
+  t.true(
+    refreshedOwnLine.includes(
+      "/** The WASI flavor this loader instantiates. */\nexport declare const __napiBindingTarget: 'wasm32-wasip1';\n",
+    ),
+  )
+})
+
+test('a header that re-exports the binding target under the name owns it', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  // Declaring the name and exporting it are two statements in these headers,
+  // so there is no `export declare const` to find — but a consumer imports the
+  // name all the same, and a second export of it is a TS2323/TS2484 conflict.
+  // Neither form leaves a declaration this build could rewrite, so both are
+  // preserved exactly as written.
+  const headers = {
+    'an aliased re-export': `/* auto-generated by NAPI-RS */
+
+declare const target: ${ROOT_BINDING_TARGET_TYPE}
+export { target as __napiBindingTarget }
+`,
+    'a plain re-export': `/* auto-generated by NAPI-RS */
+
+declare const __napiBindingTarget: ${ROOT_BINDING_TARGET_TYPE}
+export { __napiBindingTarget }
+`,
+  }
+
+  for (const [what, dtsHeader] of Object.entries(headers)) {
+    const { dts } = await generateTypeDef({
+      typeDefDir,
+      cwd: projectDir,
+      declareBindingTarget: true,
+      dtsHeader,
+    })
+    t.true(dts.startsWith(dtsHeader), what)
+    t.deepEqual(exportedBindingTargetTypes(dts), [], what)
+    t.false(dts.includes('export declare const __napiBindingTarget'), what)
+    t.deepEqual(declarationDiagnostics(dts), [], what)
+
+    // and the flavor file derived from it gains nothing either
+    const wasi = ensureBindingTargetDeclaration(
+      prepareWasiBindingTypeDef(
+        dts,
+        join(projectDir, 'index.d.ts'),
+        join(projectDir, 'pkg.wasip1.d.cts'),
+        false,
+      ),
+      'wasm32-wasip1',
+      dtsHeader,
+    )
+    t.false(wasi.includes('export declare const __napiBindingTarget'), what)
+    t.deepEqual(declarationDiagnostics(wasi), [], what)
+  }
+})
+
+test('a commented-out export assignment is not an export assignment', (t) => {
+  // A declaration file that really exports by assignment carries no named
+  // export, so nothing is declared in it — but documentation showing that form
+  // inside a block comment must not make an ordinary file look like one.
+  const commented = `/* auto-generated by NAPI-RS */
+/*
+export = binding
+*/
+
+/** The artifact this loader loaded. */
+export declare const __napiBindingTarget: ${ROOT_BINDING_TARGET_TYPE}
+
+export declare function sum(a: number, b: number): number
+`
+  const refreshed = ensureBindingTargetDeclaration(commented, 'wasm32-wasip1')
+  t.deepEqual(exportedBindingTargetTypes(refreshed), ["'wasm32-wasip1'"])
+  t.true(refreshed.includes('export = binding'))
+  t.deepEqual(declarationDiagnostics(refreshed), [])
+
+  // the same comment in a file that declares nothing still owes a declaration
+  const undeclared = `/* auto-generated by NAPI-RS */
+/*
+export = binding
+*/
+
+export declare function sum(a: number, b: number): number
+`
+  t.deepEqual(
+    exportedBindingTargetTypes(
+      ensureBindingTargetDeclaration(undeclared, 'wasm32-wasip1'),
+    ),
+    ["'wasm32-wasip1'"],
+  )
+
+  // a real top-level export assignment is still left alone
+  const exportAssignment = `declare const binding: Record<string, unknown>
+export = binding
+`
+  t.is(
+    ensureBindingTargetDeclaration(exportAssignment, 'wasm32-wasip1'),
+    exportAssignment,
+  )
+  // `export default` is the same node with a different flag and is not one
+  const exportDefault = `/* auto-generated by NAPI-RS */
+
+declare const binding: Record<string, unknown>
+export default binding
+`
+  t.deepEqual(
+    exportedBindingTargetTypes(
+      ensureBindingTargetDeclaration(exportDefault, 'wasm32-wasip1'),
+    ),
+    ["'wasm32-wasip1'"],
+  )
+})
+
+const SEMANTIC_CHECK_OPTIONS: ts.CompilerOptions = {
+  strict: true,
+  noEmit: true,
+  // `.d.ts` files are the ones under test, and `skipLibCheck` would skip every
+  // one of them — including this file. Only the default lib is skipped.
+  skipLibCheck: false,
+  skipDefaultLibCheck: true,
+  target: ts.ScriptTarget.ESNext,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+}
+
+// One host for every check, so the default lib is read and parsed once instead
+// of once per row.
+const semanticCheckHost = (() => {
+  const host = ts.createCompilerHost(SEMANTIC_CHECK_OPTIONS, true)
+  const readSourceFile = host.getSourceFile.bind(host)
+  const libraryFiles = new Map<string, ts.SourceFile | undefined>()
+  host.getSourceFile = (fileName, ...rest) => {
+    if (!fileName.includes('/typescript/lib/')) {
+      return readSourceFile(fileName, ...rest)
+    }
+    if (!libraryFiles.has(fileName)) {
+      libraryFiles.set(fileName, readSourceFile(fileName, ...rest))
+    }
+    return libraryFiles.get(fileName)
+  }
+  return host
+})()
+
+/**
+ * The module the re-export rows below import from. It exports the binding
+ * target name itself, so `export { __napiBindingTarget } from './other.js'`
+ * has something to re-export.
+ */
+const SEMANTIC_CHECK_SIBLING = `export declare const thing: 'native'
+export type Thing = string
+export declare const __napiBindingTarget: 'native'
+`
+
+/**
+ * TypeScript's own verdict on a set of declaration files written side by side,
+ * as a list of codes per file. Every conflict an extra `__napiBindingTarget`
+ * export causes — TS2300, TS2323, TS2440, TS2567 — is semantic, so
+ * `oxc-parser`'s syntax diagnostics cannot see any of them, and so is the
+ * TS2693 a consumer gets when the export it imports turns out to be a type.
+ */
+const semanticDiagnosticCodes = async (
+  directory: string,
+  files: Record<string, string>,
+) => {
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'other.d.ts'), SEMANTIC_CHECK_SIBLING)
+  await Promise.all(
+    Object.entries(files).map(([name, source]) =>
+      writeFile(join(directory, name), source),
+    ),
+  )
+  const program = ts.createProgram({
+    rootNames: Object.keys(files).map((name) => join(directory, name)),
+    options: SEMANTIC_CHECK_OPTIONS,
+    host: semanticCheckHost,
+  })
+
+  const diagnostics = ts.getPreEmitDiagnostics(program)
+  return Object.fromEntries(
+    Object.keys(files).map((name) => [
+      name,
+      diagnostics
+        .filter(
+          (diagnostic) =>
+            diagnostic.file?.fileName ===
+            join(directory, name).replaceAll(win32Sep, '/'),
+        )
+        .map((diagnostic) => `TS${diagnostic.code}`),
+    ]),
+  )
+}
+
+/**
+ * `__napiBindingTarget` with its final `t` written as a unicode escape. A
+ * TypeScript identifier may spell any character that way, and the checker
+ * resolves it to the same name — a search of the source text does not.
+ */
+const ESCAPED_BINDING_TARGET = '__napiBindingTarge\\u0074'
+
+/** The same name, spelled plainly. */
+const BINDING_TARGET_NAME = '__napiBindingTarget'
+
+/** What makes a header with no export of its own a module. */
+const LOCAL_MODULE_MARKER = 'export declare const marker: number'
+
+/** A namespace the rows below alias a member out of. */
+const LEGACY_NAMESPACE = `declare namespace Legacy {
+  const thing: 'native'
+}
+`
+
+/**
+ * Every shape a `--dts-header` can export `__napiBindingTarget` through, and
+ * whether that shape claims the name.
+ *
+ * `owns: true` leaves no room for a generated `export declare const` beside it
+ * — TypeScript rejects the pair — so nothing is appended and the header comes
+ * through untouched. `owns: false` is a declaration that lives only in type
+ * space: the const merges with it, and suppressing it there would take typed
+ * access to a real runtime export away (TS2693 at every value use) while
+ * preventing no collision at all.
+ *
+ * `hasType` rows name a type as well, so the consumer below also uses the
+ * import as one.
+ */
+const BINDING_TARGET_EXPORT_FORMS: Array<{
+  label: string
+  body: string
+  owns: boolean
+  hasType?: boolean
+  /**
+   * What the consumer of the generated files should report. Defaults to the
+   * header's own verdict when the header owns the name and to nothing when the
+   * declaration is written; a row sets it only where the header alone is not a
+   * comparable module.
+   */
+  consumer?: 'baseline' | 'clean'
+}> = [
+  {
+    label: 'export declare const',
+    body: "export declare const __napiBindingTarget: 'native'",
+    owns: true,
+  },
+  {
+    label: 'export declare let',
+    body: "export declare let __napiBindingTarget: 'native'",
+    owns: true,
+  },
+  {
+    label: 'export declare var',
+    body: "export declare var __napiBindingTarget: 'native'",
+    owns: true,
+  },
+  {
+    label: 'a multi-declarator statement',
+    body: "export declare const __napiBindingTarget: 'native', keepMe: number",
+    owns: true,
+  },
+  {
+    label: 'export declare function',
+    body: 'export declare function __napiBindingTarget(): void',
+    owns: true,
+  },
+  {
+    label: 'export declare class',
+    body: 'export declare class __napiBindingTarget {}',
+    owns: true,
+    hasType: true,
+  },
+  {
+    label: 'export declare abstract class',
+    body: 'export declare abstract class __napiBindingTarget {}',
+    owns: true,
+    hasType: true,
+  },
+  {
+    label: 'export declare enum',
+    body: 'export declare enum __napiBindingTarget { A }',
+    owns: true,
+    hasType: true,
+  },
+  {
+    label: 'an instantiated namespace',
+    body: 'export declare namespace __napiBindingTarget { const a: number }',
+    owns: true,
+  },
+  {
+    label: 'an instantiated module',
+    body: 'export declare module __napiBindingTarget { const a: number }',
+    owns: true,
+  },
+  {
+    label: 'a namespace instantiated by a nested one',
+    body: 'export declare namespace __napiBindingTarget {\n  namespace Inner {\n    const a: number\n  }\n}',
+    owns: true,
+  },
+  {
+    label: 'a dotted instantiated namespace',
+    body: 'export declare namespace __napiBindingTarget.Inner { const a: number }',
+    owns: true,
+  },
+  // A namespace is instantiated by an aliased member too, which is exactly
+  // what a hand-written walk over the body kept missing.
+  {
+    label: 'a namespace instantiated by an export import',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  export import thing = Legacy.thing\n}`,
+    owns: true,
+  },
+  {
+    label: 'a namespace instantiated by an export clause',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  export { Legacy }\n}`,
+    owns: true,
+  },
+  {
+    label: 'a namespace instantiated by a nested alias',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  namespace Inner {\n    export import thing = Legacy.thing\n  }\n}`,
+    owns: true,
+  },
+  {
+    label: 'export import name =',
+    body: "declare namespace Legacy {\n  const thing: 'native'\n}\nexport import __napiBindingTarget = Legacy.thing",
+    owns: true,
+  },
+  {
+    label: 'export { local as name }',
+    body: "declare const target: 'native'\nexport { target as __napiBindingTarget }",
+    owns: true,
+  },
+  {
+    label: 'export { name }',
+    body: "declare const __napiBindingTarget: 'native'\nexport { __napiBindingTarget }",
+    owns: true,
+  },
+  {
+    label: 'export { local as name } from',
+    body: "export { thing as __napiBindingTarget } from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export { name } from',
+    body: "export { __napiBindingTarget } from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export type { local as name }',
+    body: 'declare type Target = string\nexport type { Target as __napiBindingTarget }',
+    owns: true,
+  },
+  {
+    label: 'export type { local as name } from',
+    body: "export type { Thing as __napiBindingTarget } from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export * as name from',
+    body: "export * as __napiBindingTarget from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export type * as name from',
+    body: "export type * as __napiBindingTarget from './other.js'",
+    owns: true,
+  },
+  // type space only: the const merges, and the consumer keeps its value
+  {
+    label: 'export type',
+    body: 'export type __napiBindingTarget = string',
+    owns: false,
+    hasType: true,
+  },
+  {
+    label: 'export interface',
+    body: 'export interface __napiBindingTarget { a: number }',
+    owns: false,
+    hasType: true,
+  },
+  {
+    label: 'a namespace of interfaces',
+    body: 'export declare namespace __napiBindingTarget {\n  interface I {\n    a: number\n  }\n}',
+    owns: false,
+  },
+  {
+    label: 'a namespace of type aliases',
+    body: 'export declare namespace __napiBindingTarget {\n  type T = string\n}',
+    owns: false,
+  },
+  {
+    label: 'an empty namespace',
+    body: 'export declare namespace __napiBindingTarget {}',
+    owns: false,
+  },
+  {
+    label: 'a namespace whose nested one is type-only',
+    body: 'export declare namespace __napiBindingTarget {\n  namespace Inner {\n    interface I {\n      a: number\n    }\n  }\n}',
+    owns: false,
+  },
+  // the control for the three rows above: an alias a namespace keeps to itself
+  // instantiates nothing
+  {
+    label: 'a namespace with an unexported import',
+    body: `${LEGACY_NAMESPACE}export declare namespace __napiBindingTarget {\n  import thing = Legacy.thing\n}`,
+    owns: false,
+  },
+  // An escaped spelling is the same name to TypeScript, whatever a text search
+  // of the header says.
+  {
+    label: 'an escaped spelling',
+    body: `export declare const ${ESCAPED_BINDING_TARGET}: 'native'`,
+    owns: true,
+  },
+  {
+    label: 'an escaped export alias',
+    body: `declare const target: 'native'\nexport { target as ${ESCAPED_BINDING_TARGET} }`,
+    owns: true,
+  },
+  {
+    label: 'an escaped local binding',
+    body: `declare const ${ESCAPED_BINDING_TARGET}: 'native'\n${LOCAL_MODULE_MARKER}`,
+    owns: true,
+  },
+  // A string-literal export name is not an identifier, so it spells the same
+  // name through the string escapes too — and a string may be broken across
+  // lines with a backslash-newline continuation that no `\u` search finds.
+  {
+    label: 'a hexadecimal escape in a string export name',
+    body: `declare const target: 'native'\nexport { target as "__napiBindingTarg\\x65t" }`,
+    owns: true,
+  },
+  {
+    label: 'a string export name continued across lines',
+    body: `declare const target: 'native'\nexport { target as "__napiBindingTarge\\\nt" }`,
+    owns: true,
+  },
+  // Not every binding that collides is an export. An ambient declaration file
+  // puts most top-level declarations in its export table by itself, but not
+  // all of them, and a file that is not a module has no export table at all.
+  {
+    label: 'a local value binding',
+    body: `declare const __napiBindingTarget: 'native'\n${LOCAL_MODULE_MARKER}`,
+    owns: true,
+  },
+  {
+    label: 'a local function binding',
+    body: `declare function __napiBindingTarget(): void\n${LOCAL_MODULE_MARKER}`,
+    owns: true,
+  },
+  {
+    label: 'a local import alias',
+    body: `${LEGACY_NAMESPACE}import __napiBindingTarget = Legacy.thing\n${LOCAL_MODULE_MARKER}`,
+    owns: true,
+  },
+  {
+    // A header that is not a module at all. Its `declare const` is a global
+    // the generated export would redeclare (TS2451, TS2395), so nothing is
+    // written — and the generated body then makes the file a module, which by
+    // the ambient declaration file rule turns that same `declare const` into
+    // the export a consumer reads. So the consumer compiles here where it
+    // cannot even import from the header alone (TS2306).
+    label: 'a script header claiming the name',
+    body: "declare const __napiBindingTarget: 'native'",
+    owns: true,
+    consumer: 'clean',
+  },
+  {
+    label: 'a local type',
+    body: `type __napiBindingTarget = string\n${LOCAL_MODULE_MARKER}`,
+    owns: false,
+    hasType: true,
+  },
+  {
+    label: 'a local interface',
+    body: `interface __napiBindingTarget {\n  a: number\n}\n${LOCAL_MODULE_MARKER}`,
+    owns: false,
+    hasType: true,
+  },
+  // The global scope is visible from every file, so a name a header declares
+  // into it comes back from a scope lookup while colliding with nothing the
+  // file itself adds: an export of the name shadows the global instead of
+  // redeclaring it, and a consumer importing the name needs that export
+  // written or it gets TS2305.
+  {
+    label: 'a global augmentation of the name',
+    body: 'export {}\ndeclare global {\n  var __napiBindingTarget: string\n}',
+    owns: false,
+  },
+  {
+    label: 'a UMD namespace export of the name',
+    body: `export as namespace __napiBindingTarget\n${LOCAL_MODULE_MARKER}`,
+    owns: false,
+  },
+  {
+    label: 'an export of another name',
+    body: "export declare const __napiBindingTargetInfo: 'native'",
+    owns: false,
+  },
+  {
+    label: 'export default',
+    body: 'declare const binding: Record<string, unknown>\nexport default binding',
+    owns: false,
+  },
+]
+
+test('every top-level export of the binding target name owns it', async (t) => {
+  const { tmpDir, projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  let row = 0
+  for (const {
+    label,
+    body,
+    owns,
+    hasType,
+    consumer: expectedConsumer = owns ? 'baseline' : 'clean',
+  } of BINDING_TARGET_EXPORT_FORMS) {
+    const dtsHeader = `/* auto-generated by NAPI-RS */\n\n${body}\n`
+    const { dts } = await generateTypeDef({
+      typeDefDir,
+      cwd: projectDir,
+      declareBindingTarget: true,
+      dtsHeader,
+    })
+    const directory = join(tmpDir, `export-form-${row++}`)
+    const flavor = ensureBindingTargetDeclaration(
+      prepareWasiBindingTypeDef(
+        dts,
+        join(directory, 'index.d.ts'),
+        join(directory, 'flavor.d.cts'),
+        false,
+      ),
+      'wasm32-wasip1',
+      dtsHeader,
+    )
+
+    // the header comes through byte for byte, whatever the build appended
+    t.true(dts.startsWith(dtsHeader), label)
+
+    // What a package consumer writes: import the name and use it as the value
+    // the loader really exports.
+    const consumer = (module: string) =>
+      `import { __napiBindingTarget } from '${module}'\n` +
+      `export const value: string = __napiBindingTarget\n` +
+      (hasType ? `export type Named = __napiBindingTarget\n` : '')
+
+    const codes = await semanticDiagnosticCodes(directory, {
+      'baseline.d.ts': dtsHeader,
+      'baseline-consumer.ts': consumer('./baseline.js'),
+      'index.d.ts': dts,
+      'index-consumer.ts': consumer('./index.js'),
+      'flavor.d.cts': flavor,
+      'flavor-consumer.ts': consumer('./flavor.cjs'),
+    })
+
+    // TypeScript's verdict on the declaration files: whatever the header
+    // itself is worth, the generated root declaration and the flavor
+    // declaration derived from it are worth exactly the same — the build
+    // introduced no semantic diagnostic. Compared against the header rather
+    // than against nothing, because a header may carry one of its own (the
+    // deprecated `module` keyword is TS1540).
+    t.deepEqual(codes['index.d.ts'], codes['baseline.d.ts'], label)
+    t.deepEqual(codes['flavor.d.cts'], codes['baseline.d.ts'], label)
+
+    if (owns) {
+      // nothing added: the file exports exactly what the header exported
+      t.deepEqual(
+        exportedBindingTargetTypes(dts),
+        exportedBindingTargetTypes(dtsHeader),
+        label,
+      )
+      t.true(flavor.startsWith(dtsHeader), label)
+      t.deepEqual(
+        exportedBindingTargetTypes(flavor),
+        exportedBindingTargetTypes(dtsHeader),
+        label,
+      )
+    } else {
+      // the declaration is written, and a consumer can use it as a value —
+      // which is the whole point of writing it
+      t.deepEqual(
+        exportedBindingTargetTypes(dts),
+        [ROOT_BINDING_TARGET_TYPE],
+        label,
+      )
+      t.deepEqual(
+        exportedBindingTargetTypes(flavor),
+        ["'wasm32-wasip1'"],
+        label,
+      )
+    }
+
+    // What the consumer sees: either exactly what the header alone would give
+    // it — including the failure a type-only re-export clause already causes —
+    // or nothing at all where the declaration was written for it.
+    const expected =
+      expectedConsumer === 'baseline' ? codes['baseline-consumer.ts'] : []
+    t.deepEqual(codes['index-consumer.ts'], expected, label)
+    t.deepEqual(codes['flavor-consumer.ts'], expected, label)
+  }
+})
+
+test('a header that cannot spell the binding target skips the checker', (t) => {
+  // Binding the file is what answers ownership, and almost no header needs it
+  // asked: one that contains neither the name nor a backslash anywhere cannot
+  // spell it, and the parse alone settles the question. `checked` reports
+  // whether that shortcut applied, so this holds it in place by observation
+  // rather than by timing anything.
+  const scan = (body: string) =>
+    scanExportedName(
+      `/* auto-generated by NAPI-RS */\n\n${body}\n`,
+      BINDING_TARGET_NAME,
+    )
+
+  const free = scan('export declare function sum(a: number, b: number): number')
+  t.false(free.checked)
+  t.false(free.ownsName)
+
+  const literal = scan(`export declare const ${BINDING_TARGET_NAME}: 'native'`)
+  t.true(literal.checked)
+  t.true(literal.ownsName)
+
+  // the same name written so that no search of the source text finds it
+  const escaped = scan(
+    `export declare const ${ESCAPED_BINDING_TARGET}: 'native'`,
+  )
+  t.true(escaped.checked)
+  t.true(escaped.ownsName)
+
+  // a string-literal export name spells the same name through the string
+  // escapes, which a search for `\u` alone would have walked straight past
+  const hexEscaped = scan(
+    `declare const target: 'native'\nexport { target as "__napiBindingTarg\\x65t" }`,
+  )
+  t.true(hexEscaped.checked)
+  t.true(hexEscaped.ownsName)
+
+  // and so does one broken across lines with a backslash-newline continuation
+  const continued = scan(
+    `declare const target: 'native'\nexport { target as "__napiBindingTarge\\\nt" }`,
+  )
+  t.true(continued.checked)
+  t.true(continued.ownsName)
+
+  // any backslash gives up the shortcut, whatever it turns out to spell:
+  // whether one could have built the name is exactly the question the parse
+  // cannot answer, so it is not guessed at here
+  const unrelatedEscape = scan("export declare const nam\\u0065: 'native'")
+  t.true(unrelatedEscape.checked)
+  t.false(unrelatedEscape.ownsName)
+
+  const unrelatedBackslash = scan("export declare const pattern: '\\\\d+'")
+  t.true(unrelatedBackslash.checked)
+  t.false(unrelatedBackslash.ownsName)
+})
+
+test('a WASI flavor without type defs declares its own binding target', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  const prepared = prepareWasiBindingTypeDef(
+    dts,
+    join(projectDir, 'index.d.ts'),
+    join(projectDir, 'pkg.wasip1.d.cts'),
+    false,
+  )
+  t.is(
+    bindingTargetDeclarationOf(
+      ensureBindingTargetDeclaration(prepared, 'wasm32-wasip1'),
+    ),
+    "export declare const __napiBindingTarget: 'wasm32-wasip1'",
+  )
+})
+
+test('the binding target declaration follows the loaders a build emits', (t) => {
+  // Each row is a build shape, named by what reaches the CLI. `expected` is
+  // whether any loader carrying `__napiBindingTarget` is written for it.
+  const shapes = [
+    {
+      name: 'no --platform, a WASI flavor configured but never built',
+      rootLoaderCandidate: false,
+      hasWasiFallback: true,
+      emitsWasiLoader: false,
+      exports: ['sum'],
+      expected: false,
+    },
+    {
+      name: 'no --platform, no WASI flavor',
+      rootLoaderCandidate: false,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: ['sum'],
+      expected: false,
+    },
+    {
+      name: '--platform with a WASI flavor configured',
+      rootLoaderCandidate: true,
+      hasWasiFallback: true,
+      emitsWasiLoader: false,
+      exports: ['sum'],
+      expected: true,
+    },
+    {
+      name: '--platform --no-js-binding',
+      rootLoaderCandidate: false,
+      hasWasiFallback: true,
+      emitsWasiLoader: false,
+      exports: ['sum'],
+      expected: false,
+    },
+    {
+      name: '--platform with type defs but zero runtime exports',
+      rootLoaderCandidate: true,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: [],
+      expected: false,
+    },
+    {
+      name: 'no --platform, zero runtime exports',
+      rootLoaderCandidate: false,
+      hasWasiFallback: true,
+      emitsWasiLoader: false,
+      exports: [],
+      expected: false,
+    },
+    {
+      name: 'a native build over WASI loaders an earlier build left behind',
+      rootLoaderCandidate: true,
+      hasWasiFallback: true,
+      emitsWasiLoader: true,
+      exports: ['sum'],
+      expected: true,
+    },
+    {
+      name: '--target wasm32-wasip1 without --platform',
+      rootLoaderCandidate: false,
+      hasWasiFallback: true,
+      emitsWasiLoader: true,
+      exports: [],
+      expected: true,
+    },
+    {
+      name: 'a plain native-only package',
+      rootLoaderCandidate: true,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: ['sum'],
+      expected: true,
+    },
+  ] as const
+
+  for (const shape of shapes) {
+    const declares = bindingTargetDeclarationPredicate(shape)
+    t.is(declares(shape.exports), shape.expected, shape.name)
+  }
+})
+
+test('the binding target reservation asks the same predicate as the declaration', (t) => {
+  // `Builder.generateTypeDef` reserves `__napiBindingTarget` exactly when it
+  // declares it, so the reservation inherits these answers. The predicate reads
+  // only the *length* of the export list, never the names in it — which is what
+  // lets one decision stand for both.
+  const claimed = ['__napiBindingTarget']
+  const shapes = [
+    {
+      name: 'a plain `napi build` reserves nothing',
+      rootLoaderCandidate: false,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: claimed,
+      expected: false,
+    },
+    {
+      name: '`--platform --no-js` reserves nothing',
+      rootLoaderCandidate: false,
+      hasWasiFallback: true,
+      emitsWasiLoader: false,
+      exports: claimed,
+      expected: false,
+    },
+    {
+      name: '`--platform` writes a root loader, so the name is reserved',
+      rootLoaderCandidate: true,
+      hasWasiFallback: false,
+      emitsWasiLoader: false,
+      exports: claimed,
+      expected: true,
+    },
+    {
+      name: 'a regenerated WASI loader set reserves the name on its own',
+      rootLoaderCandidate: false,
+      hasWasiFallback: false,
+      emitsWasiLoader: true,
+      exports: [],
+      expected: true,
+    },
+  ] as const
+
+  for (const shape of shapes) {
+    t.is(
+      bindingTargetDeclarationPredicate(shape)(shape.exports),
+      shape.expected,
+      shape.name,
+    )
+  }
 })
 
 test('resolveBuildFormat handles defaults, aliases, and conflicts', (t) => {
