@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.6...napi-derive-v3.7.0) - 2026-09-15
+
+### Added
+
+- unforgeable `#[napi]` class identity via Node object type tags ([#3405](https://github.com/napi-rs/napi-rs/pull/3405))
+
+### Fixed
+
+- *(deps)* update rust crate convert_case to 0.12 ([#3469](https://github.com/napi-rs/napi-rs/pull/3469))
+
+### Other
+
+- release ([#3508](https://github.com/napi-rs/napi-rs/pull/3508))
+- release ([#3502](https://github.com/napi-rs/napi-rs/pull/3502))
+- release ([#3470](https://github.com/napi-rs/napi-rs/pull/3470))
+- release ([#3448](https://github.com/napi-rs/napi-rs/pull/3448))
+- release ([#3433](https://github.com/napi-rs/napi-rs/pull/3433))
+- release ([#3414](https://github.com/napi-rs/napi-rs/pull/3414))
+- release ([#3401](https://github.com/napi-rs/napi-rs/pull/3401))
+
 ## [3.6.6](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.5...napi-derive-v3.6.6) - 2026-09-15
 
 ### Other
