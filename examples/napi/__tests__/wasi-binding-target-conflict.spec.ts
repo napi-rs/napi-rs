@@ -197,9 +197,69 @@ test.skipIf(!isWasiLane || !loaderPath)(
       'accessor',
       (source) => {
         t.true(source.includes(INSTANTIATE_ANCHOR))
-        return source.replace(
-          INSTANTIATE_ANCHOR,
-          `  }))
+        return ACCESSOR_PATCH(source)
+      },
+    )
+    t.is(status, 0, output)
+    t.deepEqual(attempts, [
+      { code: null, exitListeners: 1, target: expectedTarget, sum: 3 },
+    ])
+  },
+)
+
+/**
+ * `NAPI_RS_NATIVE_LIBRARY_PATH` may point at a generated WASI loader, which the
+ * root CommonJS entry then aliases — so whatever the root does to the marker, it
+ * does to the addon's own exports object.
+ */
+const requireRootWithOverride = async (
+  t: { true: (value: boolean, message?: string) => void },
+  name: string,
+  patch: (source: string) => string,
+) => {
+  const source = await readFile(loaderPath!, 'utf8')
+  const probePath = join(
+    packageDirectory,
+    `.binding-target-${name}-${process.pid}.cjs`,
+  )
+  const patched = patch(source)
+  t.true(patched !== source, `the ${name} probe patched nothing`)
+  await writeFile(probePath, patched, 'utf8')
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `let code = null
+let target
+try {
+  target = require(${JSON.stringify(join(packageDirectory, 'index.cjs'))}).__napiBindingTarget
+} catch (error) {
+  code = (error && error.code) || (error && error.message) || 'unknown'
+}
+console.log(JSON.stringify({ code, target }))
+process.exit(0)`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 120_000,
+        env: { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: probePath },
+      },
+    )
+    return {
+      status: result.status,
+      output: `${result.stdout}\n${result.stderr}`,
+      result: result.stdout.trim() ? JSON.parse(result.stdout) : null,
+    }
+  } finally {
+    await rm(probePath, { force: true })
+  }
+}
+
+const ACCESSOR_PATCH = (source: string) =>
+  source.replace(
+    INSTANTIATE_ANCHOR,
+    `  }))
   Object.defineProperty(__napiModule.exports, '__napiBindingTarget', {
     configurable: true,
     get() {
@@ -212,13 +272,44 @@ test.skipIf(!isWasiLane || !loaderPath)(
     },
   })
   __publishWasiDispose(__napiModule.exports)`,
-        )
-      },
+  )
+
+test.skipIf(!isWasiLane || !loaderPath)(
+  'the root entry does not write through an addon accessor',
+  async (t) => {
+    // The root entry aliases whatever the override returned, so stamping after
+    // the alias put the assignment on the addon's object and called its setter.
+    // Loading that same loader directly always worked; only the root broke.
+    const { status, output, result } = await requireRootWithOverride(
+      t,
+      'root-accessor',
+      ACCESSOR_PATCH,
     )
     t.is(status, 0, output)
-    t.deepEqual(attempts, [
-      { code: null, exitListeners: 1, target: expectedTarget, sum: 3 },
-    ])
+    t.deepEqual(result, { code: null, target: expectedTarget })
+  },
+)
+
+test.skipIf(!isWasiLane || !loaderPath)(
+  'a conflicting override is a failed candidate, not a fatal error',
+  async (t) => {
+    // Pre-existing, unchanged here and pinned so it stays deliberate: the root
+    // entry's `NAPI_RS_NATIVE_LIBRARY_PATH` branch catches a throwing override
+    // and falls through to the normal candidate chain, exactly like any other
+    // candidate that fails to load. The conflict does not surface from the root.
+    const { status, output, result } = await requireRootWithOverride(
+      t,
+      'root-claimed',
+      (source) =>
+        source.replace(
+          INSTANTIATE_ANCHOR,
+          `  }))\n  __napiModule.exports.__napiBindingTarget = 'claimed-by-addon'\n  __publishWasiDispose(__napiModule.exports)`,
+        ),
+    )
+    t.is(status, 0, output)
+    t.is(result.code, null)
+    t.not(result.target, 'claimed-by-addon')
+    t.is(typeof result.target, 'string')
   },
 )
 

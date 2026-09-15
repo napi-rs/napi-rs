@@ -252,7 +252,7 @@ test('writeJsBinding uses the explicit format independently of the filename', as
   t.regex(legacyEsm, /export \{ sum \}/)
   t.regex(
     commonjs,
-    /__napiStampBindingTarget\(module\.exports, __napiLoadedBindingTarget\)/,
+    /module\.exports\.__napiBindingTarget = __napiStampBindingTarget\(nativeBinding, __napiLoadedBindingTarget\)/,
   )
   t.regex(esm, /export const __napiBindingTarget = __napiLoadedBindingTarget/)
   t.regex(

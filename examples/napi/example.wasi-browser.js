@@ -685,7 +685,10 @@ try {
   }))
   __publishWasiDispose(__napiModule.exports)
   // The default export hands out this object; a named module export does not
-  // travel with it, so carry the marker on the binding itself too.
+  // travel with it, so carry the marker on the binding itself too. After the
+  // host install, which hands the same object to addon-provided registration
+  // functions that may put anything on it, and inside this `try`, so a claimed
+  // name fails the load through the rollback below rather than past it.
   __napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)
 } catch (error) {
   const cleanupErrors = await __rollbackWasiInitialization()

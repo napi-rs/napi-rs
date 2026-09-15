@@ -912,6 +912,7 @@ jobs:
         run: |
           yarn workspace @examples/napi test \
             __tests__/wasi-binding-target-conflict.spec.ts \
+            __tests__/wasi-host-install-binding-target.spec.ts \
             __tests__/wasi-buffer-public-api.spec.ts \
             __tests__/wasi-deferred-before-exit.spec.ts \
             __tests__/wasi-env-cleanup-export.spec.ts

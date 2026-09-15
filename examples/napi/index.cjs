@@ -790,13 +790,20 @@ function __napiStampBindingTarget(exportsObject, target) {
   // `__napiBindingTarget` statically.
   return target
 }
+// Stamp before the alias, not after. The guard only reads `nativeBinding`
+// (`hasOwnProperty` plus a comparison), which is safe against any addon
+// accessor; an assignment is not, because a `#[napi(module_exports)]` hook can
+// expose a getter reporting this very value and a setter that throws. So the
+// assignment lands on the loader's own `module.exports`, still the original
+// object here, and the alias below replaces it.
+//
+// The assignment is what keeps the marker a statically visible CommonJS export:
+// `cjs-module-lexer` is Node's CJS -> ESM named export detection, it cannot see
+// a bare call, and the later `module.exports = nativeBinding` does not undo the
+// detection. On a frozen binding the guard skips and this sloppy-mode
+// assignment is a silent no-op.
+module.exports.__napiBindingTarget = __napiStampBindingTarget(nativeBinding, __napiLoadedBindingTarget)
 module.exports = nativeBinding
-// Assigning the guard's return value, rather than calling it as a statement,
-// is what keeps the marker a statically visible CommonJS export:
-// `cjs-module-lexer` is Node's CJS -> ESM named export detection, and it
-// cannot see a bare call. On a frozen binding the guard skips and this
-// sloppy-mode assignment is a silent no-op.
-module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)
 module.exports.Animal = nativeBinding.Animal
 module.exports.AnimalWithDefaultConstructor = nativeBinding.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = nativeBinding.AnotherClassForEither

@@ -77,14 +77,19 @@ export function assertBindingTargetIdentFree(idents: string[]): void {
  * (`Object.defineProperty` is not an alternative shape for the lexer either: it
  * throws on a sealed or frozen object, so it is strictly harder to satisfy.)
  *
- * The assignment target is not always the object being stamped. The WASI
- * CommonJS loader stamps the addon's exports object but assigns onto its own
- * `module.exports`, which it replaces with that object afterwards: an addon
+ * The assignment target is never the object being stamped. Both CommonJS
+ * loaders stamp the addon's exports object but assign onto their own
+ * `module.exports`, which they replace with that object afterwards: an addon
  * accessor can report the expected value from a getter and still throw from its
- * setter, and only the guard's `hasOwnProperty` path is safe to run against it.
- * Each loader emits exactly one stamp, inside whatever boundary can undo a
- * failed load — for the WASI loaders, the initialization `try` that rolls the
- * environment back.
+ * setter, and only the guard's `hasOwnProperty`-and-read path is safe to run
+ * against it.
+ *
+ * Placement is the same rule in every loader that stamps a binding object:
+ * exactly one stamp, after the async runtime host installation — which hands
+ * that object to addon-provided registration functions that may reshape it —
+ * and inside the initialization guard that can undo a failed load: the `try`
+ * that rolls the WASI environment back, or the one that marks a deferred
+ * instance failed.
  *
  * The equal-value short circuit is required, not cosmetic: the root CJS loader
  * aliases the object it loaded, so a `NAPI_RS_NATIVE_LIBRARY_PATH` override

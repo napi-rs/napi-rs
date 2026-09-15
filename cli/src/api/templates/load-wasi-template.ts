@@ -875,10 +875,13 @@ ${workerOption}\
     },
   }))
   __publishWasiDispose(__napiModule.exports)
-  // The default export hands out this object; a named module export does not
-  // travel with it, so carry the marker on the binding itself too.
-  ${NAPI_BINDING_TARGET_STAMP_FN}(__napiModule.exports, __napiBindingTarget)
 ${installAsyncRuntimeHosts}\
+  // The default export hands out this object; a named module export does not
+  // travel with it, so carry the marker on the binding itself too. After the
+  // host install, which hands the same object to addon-provided registration
+  // functions that may put anything on it, and inside this \`try\`, so a claimed
+  // name fails the load through the rollback below rather than past it.
+  ${NAPI_BINDING_TARGET_STAMP_FN}(__napiModule.exports, __napiBindingTarget)
 } catch (error) {
   const cleanupErrors = await __rollbackWasiInitialization()
   throw __attachCleanupErrors(error, cleanupErrors)
@@ -1862,10 +1865,14 @@ ${emnapiInjectBuffer}\
         }
       },
     }))
-    // \`instantiate()\` and \`createInstance().exports\` hand out this object; a
-    // named module export does not travel with it.
-    ${NAPI_BINDING_TARGET_STAMP_FN}(__napiModule.exports, __napiBindingTarget)
 ${installInstanceHosts}\
+    // \`instantiate()\` and \`createInstance().exports\` hand out this object; a
+    // named module export does not travel with it. After the instance host
+    // install, which hands the same object to addon-provided registration
+    // functions that may put anything on it, and inside this \`try\`, so a
+    // claimed name flips \`__lifecycleState\` to 'failed' and tears the instance
+    // down rather than escaping a half-built one.
+    ${NAPI_BINDING_TARGET_STAMP_FN}(__napiModule.exports, __napiBindingTarget)
     if (__lifecycleState === 'pending') {
       __lifecycleState = 'succeeded'
     }

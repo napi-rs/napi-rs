@@ -794,16 +794,30 @@ test('createCjsBinding uses one statement dialect', (t) => {
   )
 })
 
+test('the root CommonJS loader stamps before it aliases the addon', (t) => {
+  // The guard is safe against an addon accessor — `hasOwnProperty` and a read —
+  // but an assignment is not: a `#[napi(module_exports)]` hook can expose a
+  // getter reporting the value about to be stamped and a setter that throws.
+  // So the lexer-visible assignment has to land on the loader's own
+  // `module.exports`, while it is still the original object.
+  const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')
+  assertValidJS(t, cjs, 'root cjs stamp before alias')
+  const stamp = cjs.indexOf(ROOT_CJS_STAMP_CALL)
+  t.true(stamp > -1, 'the root loader must stamp through the guard')
+  t.true(
+    stamp < cjs.indexOf('\nmodule.exports = nativeBinding'),
+    'the stamp must precede the alias, or it assigns onto the addon',
+  )
+  // the guard still stamps the object the loader hands out
+  t.false(cjs.includes('__napiStampBindingTarget(module.exports,'))
+})
+
 test('native loaders export the artifact that actually loaded', (t) => {
   const flavors = ['wasm32-wasi', 'wasm32-wasip1']
   const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
   assertValidJS(t, cjs, 'cjs binding target')
   t.true(cjs.includes("let __napiLoadedBindingTarget = 'native'"))
-  t.true(
-    cjs.includes(
-      '__napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)',
-    ),
-  )
+  t.true(cjs.includes(ROOT_CJS_STAMP_CALL))
   // one assignment per candidate: 2 flavors x (local loader + flavor package)
   for (const flavor of flavors) {
     t.is(
@@ -902,7 +916,7 @@ const WASI_STAMP_CALL =
 // export when it can see `module.exports.<name> =`, and Node's CJS->ESM named
 // export detection is that lexer.
 const ROOT_CJS_STAMP_CALL =
-  'module.exports.__napiBindingTarget = __napiStampBindingTarget(module.exports, __napiLoadedBindingTarget)'
+  'module.exports.__napiBindingTarget = __napiStampBindingTarget(nativeBinding, __napiLoadedBindingTarget)'
 // The node WASI loader stamps the emnapi exports object — the one the CommonJS
 // tail then aliases — while assigning through `module.exports` for the lexer.
 const WASI_CJS_STAMP_LINE = `module.exports.__napiBindingTarget = ${WASI_STAMP_CALL}`
@@ -1008,29 +1022,94 @@ test('the node WASI loader stamps inside the rollback boundary', (t) => {
   t.true(code.includes('__runWasiInitializationRollback(rollback)'))
 })
 
-test('the node WASI loader stamps after the async runtime hosts are installed', (t) => {
-  // `__installCurrentThreadHosts` hands the addon's own exports object to
-  // addon-provided registration functions, which can put anything on it —
-  // including this marker. Stamping before that leaves the guard's view stale,
-  // and a second guarded stamp after it would have to live outside the `try`.
-  const code = createWasiBinding(
-    'test',
-    '@scope/test',
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    true,
-  )
-  assertValidJS(t, code, 'wasi node cjs asyncRuntime stamp order')
-  const hostInstall = code.indexOf('__installCurrentThreadHosts(')
-  t.true(hostInstall > -1, 'the asyncRuntime host install must be emitted')
-  const stamp = code.indexOf(WASI_CJS_STAMP_LINE)
-  t.true(stamp > hostInstall)
-  t.true(stamp < code.indexOf(WASI_EXIT_LISTENER_CALL))
-  t.true(stamp < code.indexOf('\n} catch (error) {'))
-})
+/**
+ * Every loader that stamps an addon-owned exports object, with the marker that
+ * ends its initialization guard and the host installation that must precede the
+ * stamp. A host install hands that same object to addon-provided registration
+ * functions, which can put anything on it — including this marker — so a stamp
+ * placed before them reads a state that is not final.
+ */
+const HOST_INSTALL_ORDER_CASES = [
+  {
+    name: 'wasi node cjs',
+    build: (asyncRuntime: boolean) =>
+      createWasiBinding(
+        'test',
+        '@scope/test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        asyncRuntime,
+      ),
+    stamp: WASI_CJS_STAMP_LINE,
+    hostInstall: '__installCurrentThreadHosts(',
+    endOfGuard: WASI_EXIT_LISTENER_CALL,
+  },
+  {
+    name: 'wasi browser esm',
+    build: (asyncRuntime: boolean) =>
+      createWasiBrowserBinding(
+        'test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        asyncRuntime,
+      ),
+    stamp: WASI_STAMP_CALL,
+    hostInstall: '__installCurrentThreadHosts(',
+    endOfGuard: '\n} catch (error) {',
+  },
+  {
+    name: 'wasi deferred esm',
+    build: (asyncRuntime: boolean) =>
+      createWasiDeferredBrowserBinding(
+        'test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        asyncRuntime,
+      ),
+    stamp: WASI_STAMP_CALL,
+    hostInstall: '__registerWorkerdCurrentThreadTaskHost(',
+    endOfGuard: "__lifecycleState === 'pending'",
+  },
+] as const
+
+for (const {
+  name,
+  build,
+  stamp,
+  hostInstall,
+  endOfGuard,
+} of HOST_INSTALL_ORDER_CASES) {
+  test(`${name} stamps the binding object after its host installation`, (t) => {
+    const withHosts = build(true)
+    assertValidJS(t, withHosts, `${name} asyncRuntime stamp order`)
+    const hostInstallAt = withHosts.indexOf(hostInstall)
+    t.true(hostInstallAt > -1, 'the asyncRuntime host install must be emitted')
+    const stampAt = withHosts.indexOf(stamp)
+    t.true(stampAt > hostInstallAt, 'the stamp must follow the host install')
+    t.true(
+      stampAt < withHosts.indexOf(endOfGuard),
+      'the stamp must stay inside the initialization guard',
+    )
+
+    // and without an async runtime the stamp keeps that same place: last thing
+    // before the guard closes, so nothing can reshape the object behind it
+    const withoutHosts = build(false)
+    assertValidJS(t, withoutHosts, `${name} stamp order`)
+    t.is(withoutHosts.indexOf(hostInstall), -1)
+    t.true(withoutHosts.indexOf(stamp) < withoutHosts.indexOf(endOfGuard))
+  })
+}
 
 test('the deferred loader marks the binding without requiring an extensible exports object', (t) => {
   const deferred = createWasiDeferredBrowserBinding('test')
