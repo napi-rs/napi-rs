@@ -1,54 +1,45 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { rm, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import test from 'ava'
 
-import {
-  createWasiBrowserBinding,
-  createWasiDeferredBrowserBinding,
-} from '../../../cli/src/api/templates/load-wasi-template.js'
-
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageDirectory = join(__dirname, '..')
 
 /** Both loaders under test are the threadless flavor's. */
-const WASM = 'example.wasm32-wasip1.wasm'
 const TARGET = 'wasm32-wasip1'
-const wasmPath = join(packageDirectory, WASM)
+const wasmPath = join(packageDirectory, `example.${TARGET}.wasm`)
+const browserLoaderPath = join(packageDirectory, 'example.wasip1-browser.js')
+const deferredLoaderPath = join(packageDirectory, 'example.wasip1-deferred.js')
 
 const isWasiLane = Boolean(
   process.env.WASI_TEST ?? process.env.NAPI_RS_TEST_THREADLESS_WASI_BUFFER,
 )
-const runnable = isWasiLane && existsSync(wasmPath)
+const runnable =
+  isWasiLane &&
+  [wasmPath, browserLoaderPath, deferredLoaderPath].every((file) =>
+    existsSync(file),
+  )
 
 /**
- * `installCurrentThreadHosts` (browser) and the workerd task/timer hosts
- * (deferred) hand the addon's own exports object to registration functions the
- * addon provides, so those can put anything on it — including the reserved
- * marker. The loaders must therefore stamp *after* the host install: a stamp
- * before it reads a state that is not final, and the mismatch is silent.
+ * The statement the async runtime host installation is emitted directly in
+ * front of, in both loaders. `installCurrentThreadHosts` (browser) and the
+ * workerd task/timer hosts (deferred) hand the addon's own exports object to
+ * registration functions the addon provides, so those can put anything on it —
+ * including the reserved marker. Patching in front of this line is what a
+ * registration hook doing exactly that looks like.
  *
- * `@napi-rs/async-runtime` is stubbed because examples/napi is not built with
- * the async runtime; only the ordering of the template's own statements is
- * under test, not what the real hosts do.
+ * examples/napi is not built with the async runtime, so the committed loaders
+ * emit no host block to patch inside; the stamp's placement *relative* to that
+ * block is pinned by the template tests in `cli/src/api/__tests__`, and what
+ * these tests add is that the guard's throw is caught by the loader's own
+ * initialization rollback rather than escaping a half-built environment.
  */
-const HOST_STUB = `export const installCurrentThreadHosts = (exportsObject) => {
-  if (process.env.NAPI_TEST_HOST_CLAIMS_TARGET) {
-    exportsObject.__napiBindingTarget = 'native'
-  }
-  return () => {}
-}
-export const registerWorkerdCurrentThreadTaskHost = (exportsObject) => {
-  if (process.env.NAPI_TEST_HOST_CLAIMS_TARGET) {
-    exportsObject.__napiBindingTarget = 'native'
-  }
-  return () => {}
-}
-export const registerWorkerdTimerHost = () => () => {}
-`
+const STAMP_CALL =
+  '__napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)'
 
 interface Outcome {
   code?: string | null
@@ -58,46 +49,46 @@ interface Outcome {
 }
 
 /**
- * Write the generated loader beside the `.wasm` (the browser loader resolves it
- * against `import.meta.url`) with its `@napi-rs/async-runtime` import pointed at
- * the stub, run `body` against it in a child, and clean both files up.
+ * Copy a committed loader beside its `.wasm` — the browser loader resolves the
+ * artifact against `import.meta.url` — optionally with a host hook that claims
+ * the marker, then run `body` against it in a child.
  */
-const withGeneratedLoader = async (
+const withLoader = async (
+  t: { true: (value: boolean, message?: string) => void },
   name: string,
-  source: string,
+  sourcePath: string,
   body: (loaderUrl: string) => string,
   claimsTarget: boolean,
 ): Promise<{ status: number | null; output: string; outcome: Outcome[] }> => {
-  const stubPath = join(
-    packageDirectory,
-    `.host-stub-${name}-${process.pid}.mjs`,
+  const source = await readFile(sourcePath, 'utf8')
+  t.true(
+    source.split(STAMP_CALL).length - 1 === 1,
+    'the loader must stamp exactly once, at the line this test patches',
   )
-  const loaderPath = join(
+  const probePath = join(
     packageDirectory,
-    `.loader-${name}-${process.pid}.mjs`,
+    `.host-hook-${name}-${process.pid}.mjs`,
   )
-  await Promise.all([
-    writeFile(stubPath, HOST_STUB, 'utf8'),
-    writeFile(
-      loaderPath,
-      source.replace(
-        `from '@napi-rs/async-runtime'`,
-        `from './${stubPath.slice(packageDirectory.length + 1)}'`,
-      ),
-      'utf8',
-    ),
-  ])
+  const indent = ' '.repeat(
+    source.indexOf(STAMP_CALL) -
+      source.lastIndexOf('\n', source.indexOf(STAMP_CALL)) -
+      1,
+  )
+  await writeFile(
+    probePath,
+    claimsTarget
+      ? source.replace(
+          `${indent}${STAMP_CALL}`,
+          `${indent}__napiModule.exports.__napiBindingTarget = 'native'\n${indent}${STAMP_CALL}`,
+        )
+      : source,
+    'utf8',
+  )
   try {
     const result = spawnSync(
       process.execPath,
-      ['--input-type=module', '-e', body(pathToFileURL(loaderPath).href)],
-      {
-        encoding: 'utf8',
-        timeout: 120_000,
-        env: claimsTarget
-          ? { ...process.env, NAPI_TEST_HOST_CLAIMS_TARGET: '1' }
-          : process.env,
-      },
+      ['--input-type=module', '-e', body(pathToFileURL(probePath).href)],
+      { encoding: 'utf8', env: process.env, timeout: 120_000 },
     )
     return {
       status: result.status,
@@ -105,10 +96,7 @@ const withGeneratedLoader = async (
       outcome: result.stdout.trim() ? JSON.parse(result.stdout) : [],
     }
   } finally {
-    await Promise.all([
-      rm(stubPath, { force: true }),
-      rm(loaderPath, { force: true }),
-    ])
+    await rm(probePath, { force: true })
   }
 }
 
@@ -164,37 +152,13 @@ for (let index = 0; index < 2; index += 1) {
 console.log(JSON.stringify(outcome))
 process.exit(0)`
 
-// `writeWasiBindingForTarget` appends the exports; the template alone has none.
-const browserLoader = () =>
-  createWasiBrowserBinding(
-    'example.wasm32-wasip1',
-    16384,
-    65536,
-    true,
-    undefined,
-    true,
-    undefined,
-    false,
-    TARGET,
-    true,
-  ) + 'export default __napiModule.exports\n'
-
-const deferredLoader = () =>
-  createWasiDeferredBrowserBinding(
-    'example.wasm32-wasip1',
-    16384,
-    65536,
-    true,
-    TARGET,
-    true,
-  )
-
 test.skipIf(!runnable)(
   'the browser loader rejects a host installation that claims the binding target',
   async (t) => {
-    const { status, output, outcome } = await withGeneratedLoader(
+    const { status, output, outcome } = await withLoader(
+      t,
       'browser-claims',
-      browserLoader(),
+      browserLoaderPath,
       BROWSER_BODY,
       true,
     )
@@ -206,9 +170,10 @@ test.skipIf(!runnable)(
 test.skipIf(!runnable)(
   'the browser loader reports one target on the module and the binding',
   async (t) => {
-    const { status, output, outcome } = await withGeneratedLoader(
+    const { status, output, outcome } = await withLoader(
+      t,
       'browser-benign',
-      browserLoader(),
+      browserLoaderPath,
       BROWSER_BODY,
       false,
     )
@@ -222,9 +187,10 @@ test.skipIf(!runnable)(
 test.skipIf(!runnable)(
   'the deferred loader rejects a host installation that claims the binding target',
   async (t) => {
-    const { status, output, outcome } = await withGeneratedLoader(
+    const { status, output, outcome } = await withLoader(
+      t,
       'deferred-claims',
-      deferredLoader(),
+      deferredLoaderPath,
       DEFERRED_BODY,
       true,
     )
@@ -240,9 +206,10 @@ test.skipIf(!runnable)(
 test.skipIf(!runnable)(
   'the deferred loader reports one target on the module and the instance',
   async (t) => {
-    const { status, output, outcome } = await withGeneratedLoader(
+    const { status, output, outcome } = await withLoader(
+      t,
       'deferred-benign',
-      deferredLoader(),
+      deferredLoaderPath,
       DEFERRED_BODY,
       false,
     )
