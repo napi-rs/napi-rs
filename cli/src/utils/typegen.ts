@@ -1414,8 +1414,26 @@ export interface ExportedVariableDeclaration {
    * with it instead of stranding it.
    */
   start: number
-  /** Just past the statement, trailing trivia excluded. */
+  /**
+   * Just past the statement, the statement's own `;` included and trailing
+   * trivia excluded. A caller that replaces `[start, end)` therefore has to
+   * put that terminator back, or whatever followed on the same line runs
+   * straight into the replacement.
+   */
   end: number
+  /**
+   * Where this declarator starts: the name, without the `export declare const`
+   * in front of it.
+   */
+  declaratorStart: number
+  /** Just past this declarator, before any `,` that separates it from a sibling. */
+  declaratorEnd: number
+  /**
+   * How many names the statement declares in all. More than one and
+   * `[start, end)` covers names besides this one, so replacing that span would
+   * delete them.
+   */
+  declaratorCount: number
   /** The type annotation as written, or `undefined` when there is none. */
   type?: string
 }
@@ -1472,6 +1490,9 @@ export function findExportedVariableDeclarations(
       declarations.push({
         start: declarationBlockStart(source, sourceFile, statement),
         end: statement.end,
+        declaratorStart: declaration.getStart(sourceFile),
+        declaratorEnd: declaration.end,
+        declaratorCount: statement.declarationList.declarations.length,
         type: declaration.type?.getText(sourceFile),
       })
       break

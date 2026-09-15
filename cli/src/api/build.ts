@@ -770,14 +770,18 @@ export function prepareWasiBindingTypeDef(
  *   statements. On the preserved path the header in hand is this build's, not
  *   the one the kept file was written with, and a kept declaration that reads
  *   differently is correctly not the header's.
- * - A declaration the header does not own whose type is built only out of the
- *   literals this CLI writes ({@link isGeneratedBindingTargetType}) is one of
- *   ours. Stale — an older union, or the other flavor's literal — it is
- *   replaced in place, comment and all, so a file kept from an earlier build
- *   ends up saying what the loader written beside it now reports.
+ * - A declaration the header does not own, alone in its statement, whose type
+ *   is built only out of the literals this CLI writes
+ *   ({@link isGeneratedBindingTargetType}), is one of ours. Stale — an older
+ *   union, or the other flavor's literal — it is replaced in place, comment
+ *   and all, so a file kept from an earlier build ends up saying what the
+ *   loader written beside it now reports.
  * - Any other declaration is someone else's and is preserved, with nothing
  *   appended beside it. A looser match would rewrite a declaration a
- *   `--dts-header` contributed.
+ *   `--dts-header` contributed. That covers a statement that declares more
+ *   names than this one: the block a refresh replaces spans them too, and this
+ *   CLI writes the declaration alone, so siblings mean the statement is not
+ *   ours to touch.
  *
  * A declaration file that exports by assignment (`export = binding`, what a
  * build without `napi-derive`'s `type-def` feature emits) cannot carry a named
@@ -799,31 +803,50 @@ export function ensureBindingTargetDeclaration(
     const separator = typeDef.length === 0 || typeDef.endsWith('\n') ? '' : '\n'
     return `${typeDef}${separator}${declaration}`
   }
-  const headerDeclaration = renderedHeader
+  // Compared declarator by declarator rather than statement by statement: one
+  // statement may declare more names, and rebasing a relative inline import in
+  // a sibling's type rewrites the statement without touching this declarator.
+  const headerDeclarator = renderedHeader
     ? bindingTargetDeclarations(renderedHeader).map((found) =>
-        renderedHeader.slice(found.start, found.end),
+        renderedHeader.slice(found.declaratorStart, found.declaratorEnd),
       )[0]
     : undefined
   const headerOwnsFirst =
-    headerDeclaration !== undefined &&
-    typeDef.slice(declarations[0].start, declarations[0].end) ===
-      headerDeclaration
+    headerDeclarator !== undefined &&
+    typeDef.slice(
+      declarations[0].declaratorStart,
+      declarations[0].declaratorEnd,
+    ) === headerDeclarator
   for (const [index, found] of declarations.entries()) {
     if (headerOwnsFirst && index === 0) {
       continue
     }
-    if (found.type !== undefined && isGeneratedBindingTargetType(found.type)) {
-      // Replacing the block instead of appending: a file that carries a union,
-      // or the other flavor's literal, has to be narrowed to the flavor it
-      // types rather than gaining a second, conflicting declaration. The span
-      // covers the doc comment above the statement, so the comment is swapped
-      // with it rather than stranded.
-      return (
-        typeDef.slice(0, found.start) +
-        declaration.trim() +
-        typeDef.slice(found.end)
-      )
+    if (
+      // A statement that declares more than this one name belongs to whoever
+      // wrote it whatever its type says: the block a refresh replaces covers
+      // those names too, and this CLI has never written one, so a declaration
+      // with siblings is not a declaration of ours to refresh.
+      found.declaratorCount > 1 ||
+      found.type === undefined ||
+      !isGeneratedBindingTargetType(found.type)
+    ) {
+      continue
     }
+    // Replacing the block instead of appending: a file that carries a union,
+    // or the other flavor's literal, has to be narrowed to the flavor it
+    // types rather than gaining a second, conflicting declaration. The span
+    // covers the doc comment above the statement, so the comment is swapped
+    // with it rather than stranded — and the statement's own `;`, which has to
+    // come back, or a statement that followed on the same line runs into the
+    // replacement (TS1005).
+    const terminator =
+      typeDef.slice(found.end - 1, found.end) === ';' ? ';' : ''
+    return (
+      typeDef.slice(0, found.start) +
+      declaration.trim() +
+      terminator +
+      typeDef.slice(found.end)
+    )
   }
   return typeDef
 }
