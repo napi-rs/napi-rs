@@ -1139,6 +1139,48 @@ test('the deferred loader marks the binding without requiring an extensible expo
   t.true(deferred.includes("error.code = 'ERR_NAPI_BINDING_TARGET_CONFLICT'"))
 })
 
+test('every emitted loader says what its own entry reports after a skipped stamp', (t) => {
+  // The runtime is pinned by build.spec.ts (`a frozen addon keeps
+  // __napiBindingTarget importable, just undefined`): both CommonJS entries
+  // replace `module.exports` with the object the stamp was skipped on, so the
+  // value is absent there, while the ESM loaders keep a module-level export.
+  // The comment shipped inside every loader has to describe that split rather
+  // than promise the module export survives everywhere.
+  for (const [name, code] of [
+    ['root cjs', createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')],
+    ['wasi node cjs', createWasiBinding('test', '@scope/test')],
+    ['wasi browser esm', createWasiBrowserBinding('test')],
+    ['wasi deferred esm', createWasiDeferredBrowserBinding('test')],
+  ] as const) {
+    assertValidJS(t, code, `${name} skip contract`)
+    t.false(
+      code.includes('module export still reports it'),
+      `${name} must not claim every entry still reports the target`,
+    )
+    t.true(
+      code.includes('while the CommonJS entries hand back'),
+      `${name} must say the CommonJS entries lose the value`,
+    )
+  }
+
+  // and the root CommonJS loader's own note about its lexer-visible assignment:
+  // that assignment lands on the loader's own `module.exports`, so it always
+  // succeeds and the alias on the next line is what discards it
+  const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')
+  t.false(
+    cjs.includes('is a silent no-op'),
+    'the assignment is not a no-op; its target is extensible',
+  )
+  t.true(
+    cjs.includes('The assignment itself always succeeds'),
+    'the root CommonJS loader must not call its own assignment a no-op',
+  )
+  t.true(
+    cjs.includes('own, still extensible `module.exports`'),
+    'the root CommonJS loader must name its real assignment target',
+  )
+})
+
 test('NAPI_RS_NATIVE_LIBRARY_PATH keeps the flavor its override reports', (t) => {
   const adoption = `__napiLoadedBindingTarget =
         overrideBinding && typeof overrideBinding.__napiBindingTarget === 'string'

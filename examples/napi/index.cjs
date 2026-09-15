@@ -780,8 +780,11 @@ function __napiStampBindingTarget(exportsObject, target) {
   if (!Object.isExtensible(exportsObject)) {
     // A `#[napi(module_exports)]` hook may seal or freeze this object
     // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
-    // never a reason to fail an otherwise successful load; the loader's own
-    // `__napiBindingTarget` module export still reports it.
+    // never a reason to fail an otherwise successful load, so the stamp is
+    // skipped. What a consumer still sees then follows the entry point: the
+    // browser and deferred loaders declare `__napiBindingTarget` at module
+    // level and go on reporting it, while the CommonJS entries hand back this
+    // very object as `module.exports`, so there the value is absent.
     return target
   }
   try {
@@ -816,8 +819,11 @@ function __napiStampBindingTarget(exportsObject, target) {
 // The assignment is what keeps the marker a statically visible CommonJS export:
 // `cjs-module-lexer` is Node's CJS -> ESM named export detection, it cannot see
 // a bare call, and the later `module.exports = nativeBinding` does not undo the
-// detection. On a frozen binding the guard skips and this sloppy-mode
-// assignment is a silent no-op.
+// detection. The assignment itself always succeeds — its target is this
+// loader's own, still extensible `module.exports` — and the alias below then
+// discards the value it wrote. What a consumer reads is whatever the guard put
+// on `nativeBinding`, so on a frozen binding, where the guard skips, the
+// linked import resolves to `undefined`.
 module.exports.__napiBindingTarget = __napiStampBindingTarget(nativeBinding, __napiLoadedBindingTarget)
 module.exports = nativeBinding
 module.exports.Animal = nativeBinding.Animal

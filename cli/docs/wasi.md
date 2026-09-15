@@ -84,8 +84,14 @@ binding.__napiBindingTarget // 'wasm32-wasip1'
 ```
 
 An addon that seals or freezes its exports in a `#[napi(module_exports)]` hook
-keeps only the module-level export: the loader skips the stamp on the binding
-object rather than failing the load.
+makes the loader skip the stamp on the binding object rather than fail the load,
+and what survives that skip follows the entry point. The browser and the
+deferred `./workerd` entries go on reporting the flavor from their module-level
+`__napiBindingTarget` export; only the copy on the binding object they hand out
+is missing. The CommonJS entries hand back the binding object itself as
+`module.exports`, so there `__napiBindingTarget` reads `undefined` —
+deliberately, because failing an otherwise successful load over a metadata
+string is the worse trade.
 
 The CommonJS loaders assign the stamp helper's return value
 (`module.exports.__napiBindingTarget = __napiStampBindingTarget(...)`) rather
@@ -136,6 +142,15 @@ gives it follows the entry it types:
   loaders bake their flavor in at generation time and read no override, so a
   consumer importing a fixed artifact narrows to a single value, which is what
   the generated declarations promise above.
+
+Both bullets describe an extensible binding. For a sealed or frozen addon the
+root **CommonJS** entry reports `undefined` at runtime — the skipped stamp
+above — which its declaration does not admit. The root ESM entry is unaffected,
+because there the export is a module-level binding the loader never stamps. A
+flavor's own `.d.cts` literal is not exposed either: that loader publishes its
+`Symbol.dispose` implementation with `Object.defineProperty` before it stamps,
+and `Object.defineProperty` throws on a non-extensible object, so a sealed or
+frozen addon fails that load well before the stamp is reached.
 
 The root package exposes deferred workerd and Wasm entries. In a Workers
 project built by Wrangler:

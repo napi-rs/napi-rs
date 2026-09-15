@@ -22,8 +22,11 @@ function __napiStampBindingTarget(exportsObject, target) {
   if (!Object.isExtensible(exportsObject)) {
     // A `#[napi(module_exports)]` hook may seal or freeze this object
     // (`Object::seal` / `Object::freeze`). Reporting the artifact is metadata,
-    // never a reason to fail an otherwise successful load; the loader's own
-    // `__napiBindingTarget` module export still reports it.
+    // never a reason to fail an otherwise successful load, so the stamp is
+    // skipped. What a consumer still sees then follows the entry point: the
+    // browser and deferred loaders declare `__napiBindingTarget` at module
+    // level and go on reporting it, while the CommonJS entries hand back this
+    // very object as `module.exports`, so there the value is absent.
     return target
   }
   try {

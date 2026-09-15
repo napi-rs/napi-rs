@@ -84,9 +84,15 @@ export function assertBindingTargetIdentFree(idents: string[]): void {
  * a bare call is invisible to it, so `import { __napiBindingTarget }` from a
  * generated CJS loader stops linking entirely.
  *
- * That assignment is safe because every generated CJS loader is sloppy mode: on
- * a frozen exports object without the property the guard skips, and the
- * assignment of its return value is a silent no-op rather than a `TypeError`.
+ * That assignment always succeeds, and it is never what a consumer reads: its
+ * target is the loader's own `module.exports`, an ordinary extensible object,
+ * and the alias on the next line replaces it with the binding itself. The value
+ * an import resolves to is therefore the one the stamp put on the binding, so
+ * when the guard skips — a sealed or frozen exports object — the CommonJS
+ * entries report `undefined`. `build.spec.ts` pins exactly that, in `a frozen
+ * addon keeps __napiBindingTarget importable, just undefined`. The ESM loaders
+ * are unaffected: theirs is a module-level `export const`, not a property of
+ * the object they hand out.
  * (`Object.defineProperty` is not an alternative shape for the lexer, whatever
  * it is inside the guard: the lexer matches a literal `module.exports.<name> =`
  * and reports nothing for a data-descriptor `defineProperty` call, so the named
@@ -133,8 +139,11 @@ export const BINDING_TARGET_STAMP_HELPER = `function ${NAPI_BINDING_TARGET_STAMP
   if (!Object.isExtensible(exportsObject)) {
     // A \`#[napi(module_exports)]\` hook may seal or freeze this object
     // (\`Object::seal\` / \`Object::freeze\`). Reporting the artifact is metadata,
-    // never a reason to fail an otherwise successful load; the loader's own
-    // \`${NAPI_BINDING_TARGET_EXPORT}\` module export still reports it.
+    // never a reason to fail an otherwise successful load, so the stamp is
+    // skipped. What a consumer still sees then follows the entry point: the
+    // browser and deferred loaders declare \`${NAPI_BINDING_TARGET_EXPORT}\` at module
+    // level and go on reporting it, while the CommonJS entries hand back this
+    // very object as \`module.exports\`, so there the value is absent.
     return target
   }
   try {

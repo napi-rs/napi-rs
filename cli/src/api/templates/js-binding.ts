@@ -154,8 +154,11 @@ ${BINDING_TARGET_STAMP_HELPER}
 // The assignment is what keeps the marker a statically visible CommonJS export:
 // \`cjs-module-lexer\` is Node's CJS -> ESM named export detection, it cannot see
 // a bare call, and the later \`module.exports = nativeBinding\` does not undo the
-// detection. On a frozen binding the guard skips and this sloppy-mode
-// assignment is a silent no-op.
+// detection. The assignment itself always succeeds — its target is this
+// loader's own, still extensible \`module.exports\` — and the alias below then
+// discards the value it wrote. What a consumer reads is whatever the guard put
+// on \`nativeBinding\`, so on a frozen binding, where the guard skips, the
+// linked import resolves to \`undefined\`.
 module.exports.${NAPI_BINDING_TARGET_EXPORT} = ${NAPI_BINDING_TARGET_STAMP_FN}(nativeBinding, __napiLoadedBindingTarget)
 module.exports = nativeBinding
 ${idents
