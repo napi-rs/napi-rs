@@ -79,6 +79,10 @@ const processExecutionIdentityCommandTimeout = 15_000
 const incompleteProcessExecutionIdentityCacheDuration =
   processIncarnationCommandTimeout
 const processIncarnationObservationCacheDuration = 1_000
+// A failed current-process incarnation probe (e.g. powershell hitting its
+// kill timeout on a loaded host) is retried at most this often, so a burst
+// of sequential lock acquisitions pays one probe instead of one each.
+const processIncarnationProbeRetryCooldown = 1_000
 const fileSystemTransactionJournalName = '.napi-rs-filesystem-transaction.swp'
 const fileSystemTransactionCandidateMarker = '.candidate.'
 const fileSystemTransactionRetiredMarker = '.retired.'
@@ -166,6 +170,7 @@ export interface ProcessExecutionIdentity {
 
 export interface FileSystemReconciliationOptions {
   getProcessExecutionIdentity?: () => Promise<ProcessExecutionIdentity>
+  getProcessIncarnation?: () => Promise<string | null>
   identityWaitTimeout?: number
   lockAcquisitionTimeout?: number
 }
@@ -199,8 +204,6 @@ const processIncarnationObservations = new Map<
   number,
   ProcessIncarnationObservation
 >()
-let currentProcessIncarnation: string | undefined
-let currentProcessIncarnationProbe: Promise<string | null> | undefined
 let linuxBootId: string | undefined
 
 interface TransactionParentIdentity {
@@ -397,6 +400,8 @@ export async function withFileSystemReconciliation<T>(
             )
     const getProcessExecutionIdentity =
       injectedIdentityGetter ?? getCurrentProcessExecutionIdentity
+    const getProcessIncarnation =
+      options?.getProcessIncarnation ?? getCurrentProcessIncarnation
     const acquisitionDeadline = createReconciliationLockDeadline(
       options?.lockAcquisitionTimeout ?? reconciliationLockAcquisitionTimeout,
     )
@@ -406,6 +411,7 @@ export async function withFileSystemReconciliation<T>(
         acquisitionDeadline,
         resolveExecutionIdentity,
         getProcessExecutionIdentity,
+        getProcessIncarnation,
       )
       releaseCrossProcessLocks.push(acquisition.release)
       lockAcquisitionDegraded ||= acquisition.degraded
@@ -1847,10 +1853,11 @@ async function acquireReconciliationLock(
   acquisitionDeadline: ReconciliationLockDeadline,
   resolveExecutionIdentity: () => Promise<ProcessExecutionIdentityResolution>,
   getProcessExecutionIdentity: () => Promise<ProcessExecutionIdentity>,
+  getProcessIncarnation: () => Promise<string | null>,
 ) {
   const { key } = identity
   const [incarnation, identityResolution] = await Promise.all([
-    getCurrentProcessIncarnation(),
+    getProcessIncarnation(),
     resolveExecutionIdentity(),
   ])
   const lockPath = reconciliationLockPath(identity)
@@ -1969,6 +1976,7 @@ async function acquireReconciliationLock(
           lockPath,
           state,
           getProcessExecutionIdentity,
+          getProcessIncarnation,
           acquisitionDeadline,
         ))
       ) {
@@ -2510,12 +2518,13 @@ async function tryReclaimStaleReconciliationLock(
   lockPath: string,
   expectedState: ReconciliationLockState,
   getProcessExecutionIdentity: () => Promise<ProcessExecutionIdentity>,
+  getProcessIncarnation: () => Promise<string | null>,
   acquisitionDeadline: ReconciliationLockDeadline,
 ) {
   const reclaimPath = reconciliationReclaimPath(identity)
   const token = randomUUID()
   const [incarnation, identityResolution] = await Promise.all([
-    getCurrentProcessIncarnation(),
+    getProcessIncarnation(),
     resolveProcessExecutionIdentityForLocking(
       getProcessExecutionIdentity,
       acquisitionDeadline,
@@ -3497,33 +3506,58 @@ function processExists(pid: number) {
   }
 }
 
-function getCurrentProcessIncarnation() {
-  if (currentProcessIncarnation !== undefined) {
-    return Promise.resolve(currentProcessIncarnation)
+export function createProcessIncarnationGetter(
+  readIncarnation: () => Promise<string | null>,
+  failureRetryCooldown: number,
+  now: () => number = () => performance.now(),
+) {
+  // The current process incarnation is fixed for the process lifetime; only
+  // the probe reading it can fail. A success is cached forever and an
+  // in-flight probe is shared. A failure is reused for the cooldown window
+  // so a burst of sequential lock acquisitions on a probe-failing host (e.g.
+  // powershell hitting its kill timeout under load) spawns one probe instead
+  // of one per acquisition.
+  let incarnation: string | undefined
+  let activeProbe: Promise<string | null> | undefined
+  let retryAt = 0
+  return function getProcessIncarnation() {
+    if (incarnation !== undefined) {
+      return Promise.resolve(incarnation)
+    }
+    if (activeProbe !== undefined) {
+      return activeProbe
+    }
+    if (now() < retryAt) {
+      return Promise.resolve(null)
+    }
+    const probe = readIncarnation()
+    activeProbe = probe
+    void probe.then(
+      (observed) => {
+        if (observed !== null) {
+          incarnation = observed
+        } else {
+          retryAt = now() + failureRetryCooldown
+        }
+        if (activeProbe === probe) {
+          activeProbe = undefined
+        }
+      },
+      () => {
+        retryAt = now() + failureRetryCooldown
+        if (activeProbe === probe) {
+          activeProbe = undefined
+        }
+      },
+    )
+    return probe
   }
-  if (currentProcessIncarnationProbe !== undefined) {
-    return currentProcessIncarnationProbe
-  }
-
-  const probe = readProcessIncarnation(process.pid)
-  currentProcessIncarnationProbe = probe
-  void probe.then(
-    (incarnation) => {
-      if (incarnation !== null) {
-        currentProcessIncarnation = incarnation
-      }
-      if (currentProcessIncarnationProbe === probe) {
-        currentProcessIncarnationProbe = undefined
-      }
-    },
-    () => {
-      if (currentProcessIncarnationProbe === probe) {
-        currentProcessIncarnationProbe = undefined
-      }
-    },
-  )
-  return probe
 }
+
+const getCurrentProcessIncarnation = createProcessIncarnationGetter(
+  () => readProcessIncarnation(process.pid),
+  processIncarnationProbeRetryCooldown,
+)
 
 export function createProcessExecutionIdentityGetter(
   readIdentity: () => Promise<ProcessExecutionIdentity>,
