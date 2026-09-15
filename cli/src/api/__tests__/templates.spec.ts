@@ -68,6 +68,56 @@ test('createWasiBrowserBinding threadless keeps sync init and no pool', (t) => {
   t.true(binding.includes('__emnapiInstantiateNapiModuleSync(__wasmFile'))
 })
 
+test('threadless loaders embed the initial memory they are given', (t) => {
+  const unshared = `new WebAssembly.Memory({
+  initial: 1027,
+  maximum: 65536,
+})`
+
+  const nodeLoader = createWasiBinding(
+    'test',
+    '@scope/test',
+    1027,
+    65536,
+    false,
+  )
+  t.true(nodeLoader.includes(`const __wasmMemory = ${unshared}`))
+  t.false(nodeLoader.includes('shared: true'))
+
+  const browserLoader = createWasiBrowserBinding(
+    'test-wasi',
+    1027,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    false,
+  )
+  t.true(browserLoader.includes(`const __wasmMemory = ${unshared}`))
+  t.false(browserLoader.includes('shared: true'))
+
+  // the deferred loader allocates in function scope (workerd bans global scope)
+  t.true(
+    createWasiDeferredBrowserBinding('test', 1027, 65536).includes(
+      `const __wasmMemory = new WebAssembly.Memory({
+    initial: 1027,
+    maximum: 65536,
+  })`,
+    ),
+  )
+
+  // the threaded loader still gets its own, shared descriptor
+  const threaded = createWasiBinding('test', '@scope/test', 16384, 65536, true)
+  t.true(
+    threaded.includes(`const __sharedMemory = new WebAssembly.Memory({
+  initial: 16384,
+  maximum: 65536,
+  shared: true,
+})`),
+  )
+})
+
 test('createWasiBrowserBinding with errorEvent', (t) => {
   t.snapshot(
     createWasiBrowserBinding(

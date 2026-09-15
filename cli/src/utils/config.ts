@@ -96,6 +96,27 @@ export interface UserNapiConfig {
      */
     initialMemory?: number
     /**
+     * Initial linear memory, in 64 KiB pages, for the **threadless**
+     * (`wasm32-wasip1`) loaders only: the Node CJS loader, the browser loader
+     * and the deferred `./workerd` loader.
+     *
+     * The threaded loaders allocate one `shared: true` memory that every
+     * wasi-threads worker maps, so every worker stack and every thread's
+     * allocations come out of it and growing it is a cross-thread event; it is
+     * sized for the whole pool up front. The threadless loaders drive a single
+     * thread through a plain growable `ArrayBuffer`: they only have to clear
+     * the module's own link-time floor (`-zstack-size` plus static data) and
+     * grow on demand, which is what lets the same build fit a host with a hard
+     * isolate cap such as workerd's 128 MiB.
+     *
+     * Falls back to `initialMemory` when unset, so existing projects are
+     * unaffected.
+     *
+     * @default `initialMemory` (4000 pages), or 1024 pages for the deferred
+     *   `./workerd` loader
+     */
+    threadlessInitialMemory?: number
+    /**
      * @default 65536 pages (4GiB)
      */
     maximumMemory?: number

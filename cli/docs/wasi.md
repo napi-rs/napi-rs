@@ -399,6 +399,42 @@ headroom under workerd's 128 MiB isolate limit. An explicit
 `napi.wasm.initialMemory` value applies to every loader, so keep it within the
 target isolate's limit after measuring the addon's actual requirements.
 
+`napi.wasm.threadlessInitialMemory` overrides that value for the threadless
+(`wasm32-wasip1`) loaders only — the Node CJS loader, the browser loader, and
+the deferred `./workerd` loader. The two flavors want different floors:
+
+- The threaded loader allocates one `shared: true` memory and hands it to every
+  wasi-threads worker, so every worker stack and every thread's allocations are
+  carved out of it and growing it is a cross-thread event. Browser builds
+  pre-create `asyncWorkPoolSize + hardwareConcurrency` workers, so this is
+  sized for the whole pool up front.
+- The threadless loader has one thread and a plain growable `ArrayBuffer`. Its
+  only hard floor is the module's own `env.memory` minimum — the link-time
+  `-zstack-size` plus static data, both fixed by `napi-build` — and it grows on
+  demand. That is what lets the same addon fit a host with a hard isolate cap.
+
+```json
+{
+  "napi": {
+    "wasm": {
+      "initialMemory": 16384,
+      "threadlessInitialMemory": 1027,
+      "maximumMemory": 65536
+    }
+  }
+}
+```
+
+Without the key the threadless loaders keep following `napi.wasm.initialMemory`,
+so nothing changes for an existing project.
+
+Both values must be integers in `1..=65536` pages — memory32 tops out at 4 GiB,
+which is also the `--max-memory` the WASI link uses — and neither may exceed
+`napi.wasm.maximumMemory`. `napi build` fails the WASI target otherwise. An
+`initial` _below_ the module's own `env.memory` minimum is **not** caught by the
+CLI: it surfaces as a `LinkError` at instantiation, so re-measure whenever the
+addon's static data or stack size grows.
+
 Threaded browser loaders always pre-create a pool of wasi-threads workers at
 module initialization, sized as `asyncWorkPoolSize + hardwareConcurrency`
 (logical cores, floored at 2, with a fallback for privacy-fuzzed values),

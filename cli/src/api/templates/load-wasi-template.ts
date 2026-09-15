@@ -891,6 +891,7 @@ ${installAsyncRuntimeHosts}\
 
 export const createWasiDeferredBrowserBinding = (
   wasiFilename: string,
+  // Fed by `napi.wasm.threadlessInitialMemory ?? napi.wasm.initialMemory`.
   // 64 MiB leaves headroom for JS/runtime state under workerd's 128 MiB
   // isolate limit. The regular Node/browser loaders retain their historical
   // 4,000-page default.

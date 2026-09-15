@@ -35,6 +35,7 @@ import {
   napiCrossToolchainEnvs,
   prepareWasiBindingTypeDef,
   resolveBuildFormat,
+  resolveWasmMemory,
   selectEmnapiLinkDir,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
@@ -3353,4 +3354,87 @@ test('falls back to the legacy archives when emnapi has no wasi-sdk 34 directory
       needsWasiSdk34: true,
     },
   )
+})
+
+test('resolveWasmMemory keeps the template defaults when nothing is configured', (t) => {
+  t.deepEqual(resolveWasmMemory(undefined, true), {
+    initialMemory: undefined,
+    maximumMemory: undefined,
+  })
+  t.deepEqual(resolveWasmMemory({}, false), {
+    initialMemory: undefined,
+    maximumMemory: undefined,
+  })
+})
+
+test('resolveWasmMemory applies initialMemory to both flavors without the threadless key', (t) => {
+  const wasm = { initialMemory: 16384, maximumMemory: 65536 }
+  t.deepEqual(resolveWasmMemory(wasm, true), {
+    initialMemory: 16384,
+    maximumMemory: 65536,
+  })
+  t.deepEqual(resolveWasmMemory(wasm, false), {
+    initialMemory: 16384,
+    maximumMemory: 65536,
+  })
+})
+
+test('resolveWasmMemory gives the threadless flavor its own floor', (t) => {
+  const wasm = { initialMemory: 16384, threadlessInitialMemory: 1027 }
+  t.is(resolveWasmMemory(wasm, true).initialMemory, 16384)
+  t.is(resolveWasmMemory(wasm, false).initialMemory, 1027)
+  // the threadless key alone leaves the threaded loader on its template default
+  t.is(
+    resolveWasmMemory({ threadlessInitialMemory: 1027 }, true).initialMemory,
+    undefined,
+  )
+})
+
+test('resolveWasmMemory rejects an initial memory above the maximum', (t) => {
+  t.throws(
+    () =>
+      resolveWasmMemory(
+        {
+          initialMemory: 4000,
+          threadlessInitialMemory: 2048,
+          maximumMemory: 1024,
+        },
+        false,
+      ),
+    {
+      message:
+        'napi.wasm.initialMemory (4000 pages) must not exceed napi.wasm.maximumMemory (1024 pages)',
+    },
+  )
+  t.throws(
+    () =>
+      resolveWasmMemory(
+        { threadlessInitialMemory: 2048, maximumMemory: 1024 },
+        false,
+      ),
+    {
+      message:
+        'napi.wasm.threadlessInitialMemory (2048 pages) must not exceed napi.wasm.maximumMemory (1024 pages)',
+    },
+  )
+  // no maximumMemory => the implicit memory32 ceiling still applies
+  t.throws(() => resolveWasmMemory({ threadlessInitialMemory: 65537 }, false), {
+    message: /between 1 and 65536 pages/,
+  })
+})
+
+test('resolveWasmMemory rejects non-page values', (t) => {
+  for (const value of [0, -1, 1.5, Number.NaN, 65537]) {
+    t.throws(
+      () => resolveWasmMemory({ threadlessInitialMemory: value }, false),
+      {
+        message:
+          /napi\.wasm\.threadlessInitialMemory must be an integer between 1 and 65536 pages/,
+      },
+    )
+  }
+  t.throws(() => resolveWasmMemory({ maximumMemory: 65537 }, true), {
+    message:
+      /napi\.wasm\.maximumMemory must be an integer between 1 and 65536 pages/,
+  })
 })

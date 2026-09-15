@@ -668,6 +668,84 @@ export function createWasiDeferredBindingTypeDef(
   return typeDef.replace(rootBindingType, 'Record<string, unknown>')
 }
 
+/** memory32 tops out at 4 GiB, which is also `--max-memory` in `crates/build/src/wasi.rs`. */
+const WASM32_MAX_MEMORY_PAGES = 65536
+
+function validateWasmMemoryPages(
+  value: number | undefined,
+  key: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > WASM32_MAX_MEMORY_PAGES
+  ) {
+    throw new Error(
+      `${key} must be an integer between 1 and ${WASM32_MAX_MEMORY_PAGES} pages; received ${value}`,
+    )
+  }
+  return value
+}
+
+export interface ResolvedWasmMemory {
+  /** `undefined` keeps each template's own default (4000, or 1024 for `./workerd`). */
+  initialMemory?: number
+  /** `undefined` keeps the template default (65536). */
+  maximumMemory?: number
+}
+
+/**
+ * Resolve the `WebAssembly.Memory` descriptor the generated loaders embed, for
+ * one WASI flavor.
+ *
+ * The threaded loaders share one `shared: true` memory with every wasi-threads
+ * worker, so it is sized for the whole pool. The threadless loaders have a
+ * single thread and a plain growable `ArrayBuffer`, so they only need to clear
+ * the module's link-time floor (`-zstack-size` plus static data) and grow on
+ * demand. `napi.wasm.threadlessInitialMemory` sizes the threadless loaders
+ * without shrinking the threaded one; unset, it falls back to
+ * `napi.wasm.initialMemory` and nothing changes.
+ */
+export function resolveWasmMemory(
+  wasm: NapiConfig['wasm'],
+  hasThreads: boolean,
+): ResolvedWasmMemory {
+  const initialMemory = validateWasmMemoryPages(
+    wasm?.initialMemory,
+    'napi.wasm.initialMemory',
+  )
+  const threadlessInitialMemory = validateWasmMemoryPages(
+    wasm?.threadlessInitialMemory,
+    'napi.wasm.threadlessInitialMemory',
+  )
+  const maximumMemory = validateWasmMemoryPages(
+    wasm?.maximumMemory,
+    'napi.wasm.maximumMemory',
+  )
+  const ceiling = maximumMemory ?? WASM32_MAX_MEMORY_PAGES
+  for (const [key, value] of [
+    ['napi.wasm.initialMemory', initialMemory],
+    ['napi.wasm.threadlessInitialMemory', threadlessInitialMemory],
+  ] as const) {
+    if (value !== undefined && value > ceiling) {
+      throw new Error(
+        `${key} (${value} pages) must not exceed napi.wasm.maximumMemory (${ceiling} pages)`,
+      )
+    }
+  }
+  return {
+    // The deferred `./workerd` loader is only emitted for threadless flavors
+    // (see `writeWasiBindingForTarget`), so it receives this same value.
+    initialMemory: hasThreads
+      ? initialMemory
+      : (threadlessInitialMemory ?? initialMemory),
+    maximumMemory,
+  }
+}
+
 /**
  * Normalize a rendered `.d.ts` header. The generated body is concatenated
  * straight onto it, so it always ends with a blank line — and an empty header
@@ -2680,6 +2758,10 @@ class Builder {
       debug.warn(hostContract.warning)
     }
     const hasThreads = wasiTargetHasThreads(wasiTarget)
+    const { initialMemory, maximumMemory } = resolveWasmMemory(
+      this.config.wasm,
+      hasThreads,
+    )
     const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
     // the wasm file stem referenced from inside the loaders
     const name = `${this.config.binaryName}.${wasiTarget.platformArchABI}`
@@ -2724,8 +2806,8 @@ class Builder {
         createWasiBinding(
           name,
           this.config.packageName,
-          this.config.wasm?.initialMemory,
-          this.config.wasm?.maximumMemory,
+          initialMemory,
+          maximumMemory,
           hasThreads,
           wasiTarget.platformArchABI,
           `${this.config.binaryName}.${wasiTarget.platformArchABI}`,
@@ -2739,8 +2821,8 @@ class Builder {
       browserBindingPath,
       createWasiBrowserBinding(
         name,
-        this.config.wasm?.initialMemory,
-        this.config.wasm?.maximumMemory,
+        initialMemory,
+        maximumMemory,
         this.config.wasm?.browser?.fs,
         this.config.wasm?.browser?.asyncInit,
         this.config.wasm?.browser?.buffer,
@@ -2842,8 +2924,8 @@ export = binding
         deferredBindingPath,
         createWasiDeferredBrowserBinding(
           name,
-          this.config.wasm?.initialMemory,
-          this.config.wasm?.maximumMemory,
+          initialMemory,
+          maximumMemory,
           this.config.wasm?.browser?.buffer,
           wasiTarget.platformArchABI,
           asyncRuntime,
