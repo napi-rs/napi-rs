@@ -781,10 +781,13 @@ export function prepareWasiBindingTypeDef(
  *   nothing appended beside it. A looser match would rewrite a declaration a
  *   `--dts-header` contributed. That covers a statement declaring more names
  *   than this one — the block a refresh replaces spans them too, and this CLI
- *   writes the declaration alone — and it covers a header that declares the
- *   name in one statement and exports it in another (`export { target as
- *   __napiBindingTarget }`), where there is no declaration here to rewrite and
- *   a second export of the name would be a TS2323/TS2484 conflict.
+ *   writes the declaration alone — and it covers every other way a header can
+ *   export the name: as a `function`, `class`, `enum`, `interface`, `type` or
+ *   `namespace`, through an `export { target as __napiBindingTarget }` or
+ *   `export * as __napiBindingTarget from '…'` clause, or through
+ *   `export import __napiBindingTarget = …`. None of those leaves a
+ *   declaration here to rewrite, and an export added beside any of them is a
+ *   TypeScript error (TS2300, TS2323, TS2440 or TS2567 by form).
  *
  * A declaration file that exports by assignment (`export = binding`, what a
  * build without `napi-derive`'s `type-def` feature emits) cannot carry a named

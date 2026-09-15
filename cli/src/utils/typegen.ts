@@ -5,6 +5,7 @@ import { sortBy } from 'es-toolkit'
 import type {
   CompilerHost,
   CompilerOptions,
+  Declaration,
   Diagnostic,
   EntityName,
   Identifier,
@@ -1450,11 +1451,12 @@ export interface ExportedNameScan {
    */
   exportsByAssignment: boolean
   /**
-   * Whether a consumer of this file can `import { <name> }` from it — the
-   * declarations below, plus the forms that export the name without declaring
-   * it there: `export { name }` over a plain `declare const`, an alias
-   * (`export { other as name }`), and a re-export from another module. A
-   * second export of the name beside any of them is a TS2323/TS2484 conflict.
+   * Whether any top-level statement binds `name` as an export of this file —
+   * not only the declarations below. Every form counts, because the question
+   * a caller asks is whether it may add an export of that name beside them,
+   * and TypeScript answers no to all of them (TS2300, TS2323, TS2440, TS2567
+   * depending on the pair). `export default` is the one export that binds
+   * `default` rather than a name, and `export * from '…'` names nothing here.
    */
   isExported: boolean
   /**
@@ -1478,10 +1480,15 @@ export interface ExportedNameScan {
  * of those yields TS2305, and a commented-out `export =` is not an export
  * assignment at all.
  *
- * `const`, `let` and `var` all count as declarations: what matters is that a
- * second declaration beside one would be a TS2451 redeclaration.
+ * Ownership is read off the shape of the statement rather than off a list of
+ * kinds this CLI expects, so a form nobody thought of still counts: anything
+ * carrying an `export` modifier whose declared name matches, every specifier
+ * of an `export { … }` clause, and the `export * as name from '…'` namespace
+ * clause. `const`, `let` and `var` are no more special than `function`,
+ * `class`, `enum`, `interface`, `type` or `export import name = …` — what
+ * matters is only that a second export of the name beside one is an error.
  *
- * One parse answers both questions, because every caller asks both.
+ * One parse answers every question, because every caller asks them together.
  */
 export function scanExportedName(
   source: string,
@@ -1503,54 +1510,71 @@ export function scanExportedName(
   let exportsByAssignment = false
   let isExported = false
   for (const statement of sourceFile.statements) {
-    if (
-      typeScript.isExportAssignment(statement) &&
-      statement.isExportEquals === true
-    ) {
-      exportsByAssignment = true
+    if (typeScript.isExportAssignment(statement)) {
+      // `export = x`. `export default x` is the same node without the flag,
+      // and it binds `default`, never `name`.
+      exportsByAssignment ||= statement.isExportEquals === true
       continue
     }
-    if (
-      typeScript.isExportDeclaration(statement) &&
-      statement.exportClause !== undefined &&
-      typeScript.isNamedExports(statement.exportClause)
-    ) {
-      isExported ||= statement.exportClause.elements.some(
-        (element) => element.name.text === name,
-      )
-      continue
-    }
-    if (
-      !typeScript.isVariableStatement(statement) ||
-      !statement.modifiers?.some(
-        (modifier) => modifier.kind === typeScript.SyntaxKind.ExportKeyword,
-      )
-    ) {
-      continue
-    }
-    for (const declaration of statement.declarationList.declarations) {
-      if (
-        !typeScript.isIdentifier(declaration.name) ||
-        declaration.name.text !== name
-      ) {
+    if (typeScript.isExportDeclaration(statement)) {
+      const clause = statement.exportClause
+      if (clause === undefined) {
+        // `export * from '…'` names nothing here, and what it re-exports
+        // cannot be known without resolving the module.
         continue
       }
-      declarations.push({
-        start: declarationBlockStart(source, sourceFile, statement),
-        end: statement.end,
-        declaratorStart: declaration.getStart(sourceFile),
-        declaratorEnd: declaration.end,
-        declaratorCount: statement.declarationList.declarations.length,
-        type: declaration.type?.getText(sourceFile),
-      })
-      break
+      // `export * as name from '…'` (and its `export type *` form) binds the
+      // name through a namespace clause rather than a specifier list.
+      isExported ||= typeScript.isNamespaceExport(clause)
+        ? clause.name.text === name
+        : clause.elements.some((element) => element.name.text === name)
+      continue
     }
+    const modifiers = typeScript.canHaveModifiers(statement)
+      ? typeScript.getModifiers(statement)
+      : undefined
+    if (
+      !modifiers?.some(
+        (modifier) => modifier.kind === typeScript.SyntaxKind.ExportKeyword,
+      ) ||
+      modifiers.some(
+        (modifier) => modifier.kind === typeScript.SyntaxKind.DefaultKeyword,
+      )
+    ) {
+      continue
+    }
+    if (typeScript.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (
+          !typeScript.isIdentifier(declaration.name) ||
+          declaration.name.text !== name
+        ) {
+          continue
+        }
+        isExported = true
+        declarations.push({
+          start: declarationBlockStart(source, sourceFile, statement),
+          end: statement.end,
+          declaratorStart: declaration.getStart(sourceFile),
+          declaratorEnd: declaration.end,
+          declaratorCount: statement.declarationList.declarations.length,
+          type: declaration.type?.getText(sourceFile),
+        })
+        break
+      }
+      continue
+    }
+    // Everything else an exported statement can be — `function`, `class`,
+    // `enum`, `interface`, `type`, `namespace` / `module`, and
+    // `export import name = …` — declares exactly one name, and none of them
+    // leaves a declaration this CLI could rewrite.
+    const declared = typeScript.getNameOfDeclaration(statement as Declaration)
+    isExported ||=
+      declared !== undefined &&
+      typeScript.isIdentifier(declared) &&
+      declared.text === name
   }
-  return {
-    exportsByAssignment,
-    isExported: isExported || declarations.length > 0,
-    declarations,
-  }
+  return { exportsByAssignment, isExported, declarations }
 }
 
 /**

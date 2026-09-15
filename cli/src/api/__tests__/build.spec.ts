@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import ava, { type ExecutionContext, type TestFn } from 'ava'
 import { parseSync } from 'oxc-parser'
+import ts from 'typescript'
 
 import {
   bindingTargetDeclarationPredicate,
@@ -1448,6 +1449,286 @@ export default binding
     ),
     ["'wasm32-wasip1'"],
   )
+})
+
+const SEMANTIC_CHECK_OPTIONS: ts.CompilerOptions = {
+  strict: true,
+  noEmit: true,
+  // `.d.ts` files are the ones under test, and `skipLibCheck` would skip every
+  // one of them — including this file. Only the default lib is skipped.
+  skipLibCheck: false,
+  skipDefaultLibCheck: true,
+  target: ts.ScriptTarget.ESNext,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+}
+
+// One host for every check, so the default lib is read and parsed once instead
+// of once per row.
+const semanticCheckHost = (() => {
+  const host = ts.createCompilerHost(SEMANTIC_CHECK_OPTIONS, true)
+  const readSourceFile = host.getSourceFile.bind(host)
+  const libraryFiles = new Map<string, ts.SourceFile | undefined>()
+  host.getSourceFile = (fileName, ...rest) => {
+    if (!fileName.includes('/typescript/lib/')) {
+      return readSourceFile(fileName, ...rest)
+    }
+    if (!libraryFiles.has(fileName)) {
+      libraryFiles.set(fileName, readSourceFile(fileName, ...rest))
+    }
+    return libraryFiles.get(fileName)
+  }
+  return host
+})()
+
+/**
+ * The module the re-export rows below import from. It exports the binding
+ * target name itself, so `export { __napiBindingTarget } from './other.js'`
+ * has something to re-export.
+ */
+const SEMANTIC_CHECK_SIBLING = `export declare const thing: 'native'
+export type Thing = string
+export declare const __napiBindingTarget: 'native'
+`
+
+/**
+ * TypeScript's own verdict on a set of declaration files written side by side,
+ * as a list of codes per file. Every conflict an extra `__napiBindingTarget`
+ * export causes — TS2300, TS2323, TS2440, TS2567 — is semantic, so
+ * `oxc-parser`'s syntax diagnostics cannot see any of them.
+ */
+const semanticDiagnosticCodes = async (
+  directory: string,
+  files: Record<string, string>,
+) => {
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'other.d.ts'), SEMANTIC_CHECK_SIBLING)
+  await Promise.all(
+    Object.entries(files).map(([name, source]) =>
+      writeFile(join(directory, name), source),
+    ),
+  )
+  const program = ts.createProgram({
+    rootNames: Object.keys(files).map((name) => join(directory, name)),
+    options: SEMANTIC_CHECK_OPTIONS,
+    host: semanticCheckHost,
+  })
+  const diagnostics = ts.getPreEmitDiagnostics(program)
+  return Object.fromEntries(
+    Object.keys(files).map((name) => [
+      name,
+      diagnostics
+        .filter(
+          (diagnostic) =>
+            diagnostic.file?.fileName ===
+            join(directory, name).replaceAll(win32Sep, '/'),
+        )
+        .map((diagnostic) => `TS${diagnostic.code}`),
+    ]),
+  )
+}
+
+/**
+ * Every shape a `--dts-header` can export `__napiBindingTarget` through. Each
+ * one makes the project the owner of the name: a generated export beside it is
+ * a TypeScript error, and none of them leaves a declaration this CLI could
+ * rewrite, so the header comes through untouched and nothing is appended.
+ *
+ * `owns: false` rows are the control — the name is free, so the declaration is
+ * written.
+ */
+const BINDING_TARGET_EXPORT_FORMS: Array<{
+  label: string
+  body: string
+  owns: boolean
+}> = [
+  {
+    label: 'export declare const',
+    body: "export declare const __napiBindingTarget: 'native'",
+    owns: true,
+  },
+  {
+    label: 'export declare let',
+    body: "export declare let __napiBindingTarget: 'native'",
+    owns: true,
+  },
+  {
+    label: 'export declare var',
+    body: "export declare var __napiBindingTarget: 'native'",
+    owns: true,
+  },
+  {
+    label: 'a multi-declarator statement',
+    body: "export declare const __napiBindingTarget: 'native', keepMe: number",
+    owns: true,
+  },
+  {
+    label: 'export declare function',
+    body: 'export declare function __napiBindingTarget(): void',
+    owns: true,
+  },
+  {
+    label: 'export declare class',
+    body: 'export declare class __napiBindingTarget {}',
+    owns: true,
+  },
+  {
+    label: 'export declare abstract class',
+    body: 'export declare abstract class __napiBindingTarget {}',
+    owns: true,
+  },
+  {
+    label: 'export declare enum',
+    body: 'export declare enum __napiBindingTarget { A }',
+    owns: true,
+  },
+  {
+    label: 'export declare namespace',
+    body: 'export declare namespace __napiBindingTarget { const a: number }',
+    owns: true,
+  },
+  {
+    label: 'export declare module',
+    body: 'export declare module __napiBindingTarget { const a: number }',
+    owns: true,
+  },
+  {
+    label: 'export type',
+    body: 'export type __napiBindingTarget = string',
+    owns: true,
+  },
+  {
+    label: 'export interface',
+    body: 'export interface __napiBindingTarget { a: number }',
+    owns: true,
+  },
+  {
+    label: 'export { local as name }',
+    body: "declare const target: 'native'\nexport { target as __napiBindingTarget }",
+    owns: true,
+  },
+  {
+    label: 'export { name }',
+    body: "declare const __napiBindingTarget: 'native'\nexport { __napiBindingTarget }",
+    owns: true,
+  },
+  {
+    label: 'export { local as name } from',
+    body: "export { thing as __napiBindingTarget } from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export { name } from',
+    body: "export { __napiBindingTarget } from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export type { local as name }',
+    body: 'declare type Target = string\nexport type { Target as __napiBindingTarget }',
+    owns: true,
+  },
+  {
+    label: 'export type { local as name } from',
+    body: "export type { Thing as __napiBindingTarget } from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export * as name from',
+    body: "export * as __napiBindingTarget from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export type * as name from',
+    body: "export type * as __napiBindingTarget from './other.js'",
+    owns: true,
+  },
+  {
+    label: 'export import name =',
+    body: "declare namespace Legacy {\n  const thing: 'native'\n}\nexport import __napiBindingTarget = Legacy.thing",
+    owns: true,
+  },
+  {
+    label: 'an export of another name',
+    body: "export declare const __napiBindingTargetInfo: 'native'",
+    owns: false,
+  },
+  {
+    label: 'export default',
+    body: 'declare const binding: Record<string, unknown>\nexport default binding',
+    owns: false,
+  },
+]
+
+test('every top-level export of the binding target name owns it', async (t) => {
+  const { tmpDir, projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+
+  let row = 0
+  for (const { label, body, owns } of BINDING_TARGET_EXPORT_FORMS) {
+    const dtsHeader = `/* auto-generated by NAPI-RS */\n\n${body}\n`
+    const { dts } = await generateTypeDef({
+      typeDefDir,
+      cwd: projectDir,
+      declareBindingTarget: true,
+      dtsHeader,
+    })
+    const directory = join(tmpDir, `export-form-${row++}`)
+    const flavor = ensureBindingTargetDeclaration(
+      prepareWasiBindingTypeDef(
+        dts,
+        join(directory, 'index.d.ts'),
+        join(directory, 'flavor.d.cts'),
+        false,
+      ),
+      'wasm32-wasip1',
+      dtsHeader,
+    )
+
+    // the header comes through byte for byte, whatever the build appended
+    t.true(dts.startsWith(dtsHeader), label)
+
+    if (owns) {
+      // nothing added: the file exports exactly what the header exported
+      t.deepEqual(
+        exportedBindingTargetTypes(dts),
+        exportedBindingTargetTypes(dtsHeader),
+        label,
+      )
+      t.true(flavor.startsWith(dtsHeader), label)
+      t.deepEqual(
+        exportedBindingTargetTypes(flavor),
+        exportedBindingTargetTypes(dtsHeader),
+        label,
+      )
+    } else {
+      t.deepEqual(
+        exportedBindingTargetTypes(dts),
+        [ROOT_BINDING_TARGET_TYPE],
+        label,
+      )
+      t.deepEqual(
+        exportedBindingTargetTypes(flavor),
+        ["'wasm32-wasip1'"],
+        label,
+      )
+    }
+
+    // TypeScript's verdict: whatever the header itself is worth, the generated
+    // root declaration and the flavor declaration derived from it are worth
+    // exactly the same — the build introduced no semantic diagnostic. Compared
+    // against the header rather than against nothing, because a header may
+    // carry one of its own (the deprecated `module` keyword is TS1540).
+    const codes = await semanticDiagnosticCodes(directory, {
+      'header.d.ts': dtsHeader,
+      'index.d.ts': dts,
+      'flavor.d.cts': flavor,
+    })
+    t.deepEqual(codes['index.d.ts'], codes['header.d.ts'], label)
+    t.deepEqual(codes['flavor.d.cts'], codes['header.d.ts'], label)
+  }
 })
 
 test('a WASI flavor without type defs declares its own binding target', async (t) => {
