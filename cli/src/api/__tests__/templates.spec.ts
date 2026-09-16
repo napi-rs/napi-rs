@@ -1018,13 +1018,61 @@ const DISPOSAL_START_SIGNATURE = 'function __startWasiDisposal() {'
 
 /**
  * `napi_async_work` is the one thing the settlement barrier above does not
- * cover, and the loaders that share the eager prelude are the ones that can do
- * something about it. The deferred/workerd loader carries its own lifecycle and
- * is excluded deliberately — the prelude is inert there.
+ * cover. The eager loaders drain it from the shared prelude; the
+ * deferred/workerd loader carries its own per-instance lifecycle and drains it
+ * there, so both are asserted — just against different function names.
  */
 const eagerWasiLoaderCases = wasiLoaderCases.filter(({ code }) =>
   code.includes(EAGER_ROLLBACK_SIGNATURE),
 )
+const deferredWasiLoaderCases = wasiLoaderCases.filter(
+  ({ code }) => !code.includes(EAGER_ROLLBACK_SIGNATURE),
+)
+
+test('every WASI loader case is either eager or deferred', (t) => {
+  t.is(
+    eagerWasiLoaderCases.length + deferredWasiLoaderCases.length,
+    wasiLoaderCases.length,
+  )
+  t.true(deferredWasiLoaderCases.length >= 2)
+})
+
+for (const { name, code } of deferredWasiLoaderCases) {
+  test(`deferred WASI loader drains outstanding async work before teardown: ${name}`, (t) => {
+    t.true(
+      code.includes('napi_wasm_async_work_pending'),
+      'the deferred loader instantiates the same async-work plugin, so it strands the same work',
+    )
+    t.true(
+      code.includes('napi_wasm_cancel_pending_async_work'),
+      'threadless work is always queued rather than executing, so cancellation is what bounds the wait',
+    )
+    t.regex(
+      code,
+      /typeof __pending !== 'function' \|\|\s*typeof __cancelPending !== 'function'/,
+      'loader must feature-detect both exports',
+    )
+    // Per instance, from that instance's own exports: two instances have
+    // separate registries and must not wait on each other.
+    t.true(
+      code.includes('__drainInstanceAsyncWork(__napiInstance)'),
+      'the drain must read the disposing instance, not a module-global one',
+    )
+    // Both teardown paths destroy the environment those completions need.
+    const disposal = code.slice(
+      code.indexOf('const __runInstanceDisposal'),
+      code.indexOf('let __instanceDisposePromise'),
+    )
+    t.true(
+      disposal.includes('__drainInstanceAsyncWork'),
+      'per-instance disposal must drain outstanding async work',
+    )
+    t.true(
+      initializationRollbackBody(code).includes('__drainInstanceAsyncWork'),
+      'the initialization-failure path must drain it too',
+    )
+  })
+}
 
 test('the eager loader cases are the ones that share the disposal prelude', (t) => {
   // Guards the filter above: a prelude change that stopped emitting the eager

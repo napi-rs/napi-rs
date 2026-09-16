@@ -1,6 +1,6 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const mode = process.argv[2]
@@ -34,7 +34,73 @@ function report() {
   process.stdout.write('drain complete\n')
 }
 
-if (mode === 'rollback') {
+if (mode.startsWith('deferred-')) {
+  // The deferred (workerd) loader is a WASI loader too, with its own
+  // per-instance lifecycle: it instantiates the same async-work plugin, and its
+  // disposal destroyed the context without draining. It is threadless, so
+  // `compute` runs on the JavaScript thread and outstanding work is always
+  // queued rather than executing while this runs.
+  const loaderUrl = new URL(`../${loaderFile}`, import.meta.url)
+  const wasm = new WebAssembly.Module(
+    await readFile(
+      fileURLToPath(new URL('../example.wasm32-wasip1.wasm', import.meta.url)),
+    ),
+  )
+
+  if (mode === 'deferred-rollback') {
+    // Reproduce the one state the rollback exists for: registration has run
+    // with a live environment, a module-init hook started async work whose
+    // promise escaped into JavaScript, and only then did the load fail.
+    const copyPath = fileURLToPath(
+      new URL(`../.deferred-rollback-${process.pid}.js`, import.meta.url),
+    )
+    const source = await readFile(fileURLToPath(loaderUrl), 'utf8')
+    const anchor =
+      '__napiStampBindingTarget(__napiModule.exports, __napiBindingTarget)\n'
+    if (source.split(anchor).length - 1 !== 1) {
+      throw new Error('the deferred loader no longer stamps exactly once')
+    }
+    await writeFile(
+      copyPath,
+      source.replace(
+        anchor,
+        `${anchor}globalThis.__rollbackTask = __napiModule.exports.asyncTaskVoidReturn()
+    throw new Error('injected initialization failure')
+`,
+      ),
+    )
+    try {
+      const loader = await import(pathToFileURL(copyPath).href)
+      await loader.createInstance(wasm).then(
+        () => {
+          throw new Error('expected the injected failure to reject')
+        },
+        () => {
+          process.stdout.write('caller survived the failed initialization\n')
+        },
+      )
+      await track('t0', globalThis.__rollbackTask)
+      report()
+    } finally {
+      await rm(copyPath, { force: true })
+    }
+  } else {
+    const loader = await import(loaderUrl.href)
+    const instance = await loader.createInstance(wasm)
+    if (mode === 'deferred-settles') {
+      track('t0', instance.exports.asyncTaskVoidReturn())
+    } else if (mode === 'deferred-cancel-queued') {
+      for (let index = 0; index < 16; index += 1) {
+        track(`t${index}`, instance.exports.asyncTaskVoidReturn())
+      }
+    } else {
+      throw new Error(`unsupported mode: ${mode}`)
+    }
+    await instance.dispose()
+    process.stdout.write(`disposed ${instance.disposed}\n`)
+    report()
+  }
+} else if (mode === 'rollback') {
   // The rollback runs on the one path where instantiation never returned, so
   // `__napiModule` was never assigned — while the async work a module-init hook
   // started is already outstanding. Reproduce exactly that, the way #3526's

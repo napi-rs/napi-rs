@@ -183,3 +183,79 @@ for (const flavor of FLAVORS) {
     },
   )
 }
+
+/**
+ * The deferred (workerd) loader is a WASI loader too, with its own per-instance
+ * lifecycle rather than the shared prelude — and the same hole: it instantiates
+ * the same `emnapiAsyncWorkPlugin`, but its disposal only drained
+ * environment-cleanup settlements before destroying the context, so an
+ * `AsyncTask` still outstanding was silently stranded.
+ *
+ * Threadless, so `compute` runs on the JavaScript thread: outstanding work is
+ * always queued rather than executing while the test runs.
+ */
+const deferredBuilt = () =>
+  existsSync(join(packageDirectory, 'example.wasm32-wasip1.wasm')) &&
+  existsSync(join(packageDirectory, 'example.wasip1-deferred.js'))
+const skipDeferred = !inWasiLane || !deferredBuilt()
+const DEFERRED_LOADER = 'example.wasip1-deferred.js'
+
+test.skipIf(skipDeferred)(
+  'the deferred loader settles outstanding async work on dispose',
+  (t) => {
+    const result = runMode('deferred-settles', DEFERRED_LOADER)
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /^disposed true$/m, output)
+    t.regex(result.stdout, /settled \["t0:resolved"\]/, output)
+    t.regex(result.stdout, /^ports 0$/m, output)
+  },
+)
+
+test.skipIf(skipDeferred)(
+  'the deferred loader cancels queued async work rather than waiting for it',
+  (t) => {
+    const result = runMode('deferred-cancel-queued', DEFERRED_LOADER)
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    const settled = JSON.parse(
+      /settled (\[.*\])/.exec(result.stdout)?.[1] ?? '[]',
+    ) as string[]
+    t.is(settled.length, 16, output)
+    t.true(
+      settled.some((entry) => entry.endsWith(':rejected:AbortError')),
+      output,
+    )
+    t.true(
+      settled.every(
+        (entry) =>
+          entry.endsWith(':resolved') || entry.endsWith(':rejected:AbortError'),
+      ),
+      output,
+    )
+  },
+)
+
+/**
+ * Its initialization-failure path destroys the same environment those
+ * completions need, so it drains too. Reproduced in the one state that path
+ * exists for: registration has run, a module-init hook started async work whose
+ * promise already escaped into JavaScript, and only then did the load fail.
+ */
+test.skipIf(skipDeferred)(
+  'the deferred loader settles outstanding async work on initialization rollback',
+  (t) => {
+    const result = runMode('deferred-rollback', DEFERRED_LOADER)
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /caller survived the failed initialization/)
+    t.regex(result.stdout, /settled \["t0:(resolved|rejected:AbortError)"\]/)
+    t.regex(result.stdout, /^ports 0$/m, output)
+  },
+)
