@@ -111,15 +111,25 @@ module.exports = __rollbackTestExports
     // that frame: the promise would never settle and `finally` would never run.
     const hooks = {}
     let disposal
+    // Wait for the setter itself, never for a clock: how long the completion
+    // callback takes to arrive is a property of the machine, and a wait that is
+    // long enough on one is too short on another — where the setter has not run
+    // yet, `disposal` is still undefined, and awaiting it would pass
+    // vacuously while the work is in fact still outstanding.
+    let disposalStarted
+    const started = new Promise((resolve) => {
+      disposalStarted = resolve
+    })
     Object.defineProperty(hooks, 'resolve', {
       configurable: true,
       get: () => true,
       set() {
         disposal = dispose()
+        disposalStarted()
       },
     })
     track('t0', binding.asyncTaskFinally(hooks))
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await started
     await disposal
     // `finally` unrefs the ObjectRef the task holds; without it the addon also
     // reports a leak on the way out.
