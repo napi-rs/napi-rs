@@ -492,6 +492,111 @@ for (const { name, code, install } of asyncRuntimeLoaderCases) {
   })
 }
 
+// `@emnapi/wasi-threads` records a worker exit as expected only when ITS thread
+// manager performed the termination. A bare `worker.terminate()` reaches the
+// manager's own 'exit' listener, which reports the exit as a worker failure and
+// rethrows inside the emit — aborting the `once('exit')` that backs the
+// terminate promise, so `dispose()` never settles.
+for (const { name, code } of [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+]) {
+  test(`pool workers are terminated through the thread manager: ${name}`, (t) => {
+    const start = code.indexOf('function __terminateWasiWorkers() {')
+    t.true(start > 0)
+    const body = code.slice(
+      start,
+      code.indexOf('function __finishWasiDisposal() {'),
+    )
+    const mark = body.indexOf('threadManager.terminateWorker(worker)')
+    const terminate = body.indexOf('result = worker.terminate()')
+    t.true(terminate > 0)
+    t.true(mark > 0, 'the termination has to be marked on the thread manager')
+    t.true(mark < terminate, 'and marked before the worker is terminated')
+    // Not `terminateAllThreads()`: it recreates the pool it just shut down.
+    t.false(body.includes('terminateAllThreads'))
+    // `terminateWorker` leaves a reporter behind that logs every message still
+    // queued on the port, which Node flushes on exit.
+    t.true(body.includes('worker.onmessage = undefined'))
+    // The manager is resolved through the helper, not read off `__napiModule`:
+    // the rollback runs on the one path where that binding was never assigned.
+    t.true(body.includes('const threadManager = __getWasiThreadManager()'))
+    t.false(body.includes('__napiModule.PThread'))
+  })
+}
+
+// The pool workers are unreferenced on purpose, and emnapi unreferences them
+// again when one reports `async-thread-ready`, so a pending termination has no
+// handle of its own to hold the loop open with.
+for (const { name, code } of [
+  { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+  { name: 'browser esm', code: createWasiBrowserBinding('test') },
+]) {
+  test(`a pending termination holds the event loop open: ${name}`, (t) => {
+    const body = code.slice(
+      code.indexOf('function __terminateWasiWorkers() {'),
+      code.indexOf('function __finishWasiDisposal() {'),
+    )
+    t.true(
+      body.includes(
+        '__keepEventLoopAliveUntil(Promise.all(pending)).then(finish)',
+      ),
+      'the terminate promises have to be awaited under a keep-alive',
+    )
+    // …and the keep-alive is released the moment the work settles, so it can
+    // never outlive the disposal that asked for it.
+    const keepAlive = code.slice(
+      code.indexOf('function __keepEventLoopAliveUntil(work) {'),
+    )
+    t.true(keepAlive.indexOf('clearTimer(timer)') > 0)
+    t.true(keepAlive.indexOf('release()') < keepAlive.indexOf('return value'))
+    // Nothing puts the stubbed `ref` functions back: doing so is what raced
+    // emnapi's own unreference.
+    t.false(code.includes('__wasiWorkerRefRestorers'))
+    t.false(code.includes('__restoreWasiWorkerRef'))
+  })
+}
+
+test('the node loader keeps its pool workers unreferenced for life', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  t.true(code.includes('worker[kPublicPort].ref = () => {}'))
+  t.true(code.includes('worker[kHandle].ref = () => {}'))
+  t.true(code.includes('worker.unref()'))
+  // An idle binding must not hold the process open, and disposal does not
+  // reverse that — `__keepEventLoopAliveUntil` covers the termination instead.
+  t.false(code.includes('.ref = publicPortRef'))
+  t.false(code.includes('.ref = handleRef'))
+})
+
+// `examples/custom-async-runtime` asserts a threadless loader never mentions
+// `Worker`, so nothing in the *shared* prelude may name the class — comments
+// included. That lane needs a wasm build to fail; this does not.
+for (const { name, code } of [
+  {
+    name: 'node cjs threadless',
+    code: createWasiBinding('test', '@scope/test', 4000, 65536, false),
+  },
+  {
+    name: 'browser esm threadless',
+    code: createWasiBrowserBinding(
+      'test',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ),
+  },
+  { name: 'deferred/workerd', code: createWasiDeferredBrowserBinding('test') },
+]) {
+  test(`threadless loaders never name Worker: ${name}`, (t) => {
+    t.notRegex(code, /\bWorker\b/)
+    t.notRegex(code, /node:worker_threads/)
+  })
+}
+
 test('asyncRuntime deferred loader registers per instance', (t) => {
   const code = asyncRuntimeDeferredCode
   assertValidJS(t, code, 'deferred asyncRuntime')
