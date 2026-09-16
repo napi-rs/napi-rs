@@ -4353,7 +4353,81 @@ export async function retireFailedSnapshotLeftover(
   return { outcome: 'kept' }
 }
 
-async function snapshotFileSystemTransactionInput(
+interface FileSystemTransactionSourceDrift {
+  /**
+   * Differences that make the copy an unfaithful image of the opened file, or
+   * that mean the path no longer names it. Always fatal.
+   */
+  hard: string[]
+  /**
+   * Inode attribute differences on an otherwise identical file. Retryable.
+   */
+  soft: string[]
+}
+
+/**
+ * Compare the source as it was before the copy against the pinned descriptor
+ * and the path after it, and name every field that moved.
+ *
+ * One message used to stand for eight independent conditions, which made a
+ * failure from a platform the author cannot reach (a FreeBSD CI VM, say)
+ * impossible to diagnose: a truncated read, a chmod, a timestamp re-stamp and a
+ * replaced path all read identically.
+ */
+function describeFileSystemTransactionSourceDrift(
+  before: BigIntStats,
+  after: BigIntStats,
+  bytesRead: number,
+  pathStats: BigIntStats | undefined,
+): FileSystemTransactionSourceDrift {
+  const hard: string[] = []
+  const soft: string[] = []
+  const note = (
+    into: string[],
+    field: string,
+    beforeValue: bigint,
+    afterValue: bigint,
+  ) => {
+    if (beforeValue !== afterValue) {
+      into.push(`${field} ${beforeValue} -> ${afterValue}`)
+    }
+  }
+  note(hard, 'dev', before.dev, after.dev)
+  note(hard, 'ino', before.ino, after.ino)
+  note(hard, 'size', before.size, after.size)
+  if (after.size !== BigInt(bytesRead)) {
+    hard.push(`bytesRead ${bytesRead} != size ${after.size}`)
+  }
+  note(soft, 'mode', before.mode, after.mode)
+  note(soft, 'mtimeNs', before.mtimeNs, after.mtimeNs)
+  note(soft, 'ctimeNs', before.ctimeNs, after.ctimeNs)
+  if (pathStats === undefined) {
+    hard.push('path identity vanished')
+  } else if (!pathStats.isFile()) {
+    hard.push('path identity is no longer a regular file')
+  } else if (!statIdentitiesMatch(before, pathStats)) {
+    hard.push(
+      `path identity ${before.dev}/${before.ino} -> ${pathStats.dev}/${pathStats.ino}`,
+    )
+  }
+  return { hard, soft }
+}
+
+/**
+ * How many times a snapshot re-copies a source whose metadata was re-stamped
+ * underneath it before giving up. See the drift classification comment inside
+ * {@link snapshotFileSystemTransactionInput}.
+ */
+const fileSystemTransactionSnapshotAttempts = 3
+
+/**
+ * Exported for unit tests; not part of the supported `@napi-rs/cli` surface.
+ *
+ * @param onAfterCopy test seam invoked with the 1-based attempt number after
+ * each copy pass and before the post-copy re-verification, so a test can mutate
+ * the source deterministically instead of racing a timer against the copy.
+ */
+export async function snapshotFileSystemTransactionInput(
   source: string,
   destination: string,
   mode?: number,
@@ -4364,6 +4438,7 @@ async function snapshotFileSystemTransactionInput(
   recordDestinationIdentity?: (
     identity: FileSystemTransactionFileIdentity,
   ) => Promise<void>,
+  onAfterCopy?: (attempt: number) => Promise<void>,
 ): Promise<FileSystemTransactionJournalFileState> {
   // All stats in this flow are bigint so every path-vs-handle continuity check
   // below compares exact 64-bit identity, never the lossy Number dev/ino: a
@@ -4416,7 +4491,6 @@ async function snapshotFileSystemTransactionInput(
         'changed before it could be snapshotted',
       )
     }
-    const finalMode = mode ?? Number(sourceStats.mode & 0o7777n)
     if (createDestinationParent) {
       await mkdir(dirname(destination), { recursive: true })
     }
@@ -4463,50 +4537,100 @@ async function snapshotFileSystemTransactionInput(
         }
         await recordDestinationIdentity(destinationIdentity)
       }
-      const hash = createHash('sha256')
       const buffer = Buffer.allocUnsafe(64 * 1024)
+      // A snapshot's job is to record a *consistent* copy, so the source is
+      // re-verified after the copy against the stats taken before it. Drift
+      // splits in two:
+      //
+      //   hard — dev, ino, size, bytes-read, path identity. The copy is not a
+      //     faithful image of the file that was opened, or the path no longer
+      //     names it. Never tolerated.
+      //   soft — mode, mtimeNs, ctimeNs on an otherwise identical inode. This
+      //     is a metadata re-stamp: a kernel, a permission normalization or a
+      //     stray `utimes` moves these without touching a byte, and it is a
+      //     routine thing to happen to a file this process itself just wrote
+      //     into its own staging directory. Failing a release build over it is
+      //     wrong — the recorded sha256 plus dev/ino/size already guarantee the
+      //     content — so redo the snapshot instead.
+      //
+      // A torn concurrent write is not tolerated by the retry: it keeps moving
+      // mtime, so it either re-drifts until the attempt bound is spent and the
+      // named-field error is thrown anyway, or it settles, in which case the
+      // retry copied the settled bytes. The source descriptor is deliberately
+      // *not* re-opened between attempts — it pins the inode validated on the
+      // way in, so a retry can never adopt a successor swapped into the path.
+      let baselineStats = sourceStats
+      let sourceHash = ''
       let position = 0
-      while (true) {
-        const { bytesRead } = await sourceHandle.read(
-          buffer,
-          0,
-          buffer.length,
+      let drift: FileSystemTransactionSourceDrift | undefined
+      for (
+        let attempt = 1;
+        attempt <= fileSystemTransactionSnapshotAttempts;
+        attempt++
+      ) {
+        if (attempt > 1) {
+          // Discard the previous attempt's bytes. The destination inode is
+          // transaction-owned and unpublished, and its identity — already
+          // recorded above — is unaffected by a truncate.
+          await destinationHandle.truncate(0)
+        }
+        const hash = createHash('sha256')
+        position = 0
+        while (true) {
+          const { bytesRead } = await sourceHandle.read(
+            buffer,
+            0,
+            buffer.length,
+            position,
+          )
+          if (bytesRead === 0) {
+            break
+          }
+          hash.update(buffer.subarray(0, bytesRead))
+          let written = 0
+          while (written < bytesRead) {
+            const result = await destinationHandle.write(
+              buffer,
+              written,
+              bytesRead - written,
+              position + written,
+            )
+            written += result.bytesWritten
+          }
+          position += bytesRead
+        }
+        sourceHash = hash.digest('hex')
+        await onAfterCopy?.(attempt)
+        const [finalSourceStats, finalPathStats] = await Promise.all([
+          sourceHandle.stat({ bigint: true }),
+          lstatIfExists(source, { bigint: true }),
+        ])
+        drift = describeFileSystemTransactionSourceDrift(
+          baselineStats,
+          finalSourceStats,
           position,
+          finalPathStats,
         )
-        if (bytesRead === 0) {
+        // Rebase on what was just observed either way: on success it is the
+        // settled metadata the journal should record, and on soft drift it is
+        // the baseline the next attempt has to hold still against.
+        baselineStats = finalSourceStats
+        if (drift.hard.length > 0 || drift.soft.length === 0) {
           break
         }
-        hash.update(buffer.subarray(0, bytesRead))
-        let written = 0
-        while (written < bytesRead) {
-          const result = await destinationHandle.write(
-            buffer,
-            written,
-            bytesRead - written,
-            position + written,
-          )
-          written += result.bytesWritten
-        }
-        position += bytesRead
       }
-      const [finalSourceStats, finalPathStats] = await Promise.all([
-        sourceHandle.stat({ bigint: true }),
-        lstatIfExists(source, { bigint: true }),
-      ])
-      if (
-        !statIdentitiesMatch(sourceStats, finalSourceStats) ||
-        finalSourceStats.size !== sourceStats.size ||
-        finalSourceStats.size !== BigInt(position) ||
-        finalSourceStats.mode !== sourceStats.mode ||
-        finalSourceStats.mtimeNs !== sourceStats.mtimeNs ||
-        finalSourceStats.ctimeNs !== sourceStats.ctimeNs ||
-        finalPathStats?.isFile() !== true ||
-        !statIdentitiesMatch(sourceStats, finalPathStats)
-      ) {
+      if (drift && (drift.hard.length > 0 || drift.soft.length > 0)) {
+        const reasons = [...drift.hard, ...drift.soft]
+        if (drift.hard.length === 0) {
+          reasons.push(
+            `still drifting after ${fileSystemTransactionSnapshotAttempts} snapshot attempts`,
+          )
+        }
         throw new Error(
-          `Filesystem transaction source changed while it was snapshotted: ${source}`,
+          `Filesystem transaction source changed while it was snapshotted: ${source} (${reasons.join('; ')})`,
         )
       }
+      const finalMode = mode ?? Number(baselineStats.mode & 0o7777n)
       await applyFileSystemTransactionMode(destinationHandle, destinationMode)
       await destinationHandle.sync()
       const finalDestinationStats = await destinationHandle.stat({
@@ -4538,7 +4662,7 @@ async function snapshotFileSystemTransactionInput(
       const sourceIdentityStats = await sourceHandle.stat({ bigint: true })
       return {
         dev: String(sourceIdentityStats.dev),
-        hash: hash.digest('hex'),
+        hash: sourceHash,
         ino: String(sourceIdentityStats.ino),
         mode: finalMode,
       }
