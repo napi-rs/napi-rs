@@ -589,10 +589,22 @@ function __drainWasiAsyncWork() {
   const readPending = () => {
     try {
       return pending()
-    } catch {
-      // An addon that cannot answer cannot be waited for either. Treat it as
-      // drained rather than waiting forever on a count that will never arrive.
-      return 0
+    } catch (error) {
+      // A trap is the only way this call fails: it reads a counter and cannot
+      // allocate or call back into JavaScript. A trapped instance can no longer
+      // run anything, so its outstanding work is unreachable by definition —
+      // there is nothing left to wait for, and refusing to dispose would only
+      // keep a dead instance and its stuck counter alive. Best-effort here is
+      // the honest answer, and it is what disposal did before this drain
+      // existed.
+      //
+      // Only a trap. Anything else means the export is not what this loader
+      // thinks it is, which is a defect worth surfacing rather than disposing
+      // over.
+      if (error instanceof globalThis.WebAssembly.RuntimeError) {
+        return 0
+      }
+      throw error
     }
   }
 
@@ -621,8 +633,15 @@ function __drainWasiAsyncWork() {
     () => {
       __wasiAsyncWorkDrainPromise = undefined
     },
-    () => {
+    (error) => {
+      // A wait that could not run is not a wait that finished. The only way
+      // here is a host whose timers and macrotask primitives all refuse, and
+      // the work is still outstanding — reporting success would destroy the
+      // environment over it, which is the stranding this exists to prevent.
+      // Reject instead: disposal stays retryable, and the context is not
+      // destroyed. Clearing the memo first is what makes the retry re-run this.
       __wasiAsyncWorkDrainPromise = undefined
+      throw error
     },
   )
   __wasiAsyncWorkDrainPromise = drainPromise
@@ -911,13 +930,24 @@ function __rollbackWasiInitialization() {
   // what those completions need. Settle them while everything is still live,
   // before the barrier and the teardown above take that away.
   //
-  // `__drainWasiAsyncWork` never rejects, so this needs no rejection handler
-  // of its own — the rollback's own error collection starts inside the nested
-  // teardown.
-  const asyncWorkResult = __drainWasiAsyncWork()
+  // A drain that could not finish leaves async work possibly outstanding, and
+  // destroying the context over it would strand exactly what this rollback is
+  // there to settle. Stop short and retain instead — the same trade
+  // `__rollbackWasmEnvForWasiInitialization` makes for the settlement drain, so
+  // the context stays reclaimable by a retry or by this flavor's own
+  // last-resort teardown.
+  const __retainAfterAsyncWorkDrainFailure = (cleanupError) =>
+    __retainFailedWasiRollback([cleanupError])
+  let asyncWorkResult
+  try {
+    asyncWorkResult = __drainWasiAsyncWork()
+  } catch (cleanupError) {
+    return __retainAfterAsyncWorkDrainFailure(cleanupError)
+  }
   if (__isThenable(asyncWorkResult)) {
     return Promise.resolve(asyncWorkResult).then(
       __rollbackWasmEnvForWasiInitialization,
+      __retainAfterAsyncWorkDrainFailure,
     )
   }
   return __rollbackWasmEnvForWasiInitialization()
