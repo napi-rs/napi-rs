@@ -216,6 +216,23 @@ const snapshotSourceHash = createHash('sha256')
   .update(snapshotSourceBytes)
   .digest('hex')
 
+/**
+ * An in-place rewrite of exactly the same length as {@link snapshotSourceBytes}.
+ * Every field the snapshot compares — `dev`, `ino`, `size`, `bytesRead`, `mode`
+ * and, once the timestamps are restamped, `mtimeNs` — survives it untouched, so
+ * only the content moves. That is the shape a coarse or coalesced filesystem
+ * clock hides, and the only thing that can catch it is the hash.
+ */
+function rewrittenSourceBytes(revision: number) {
+  const bytes = Buffer.from(snapshotSourceBytes)
+  bytes.writeUInt8(0x30 + (revision % 10), bytes.length - 1)
+  return bytes
+}
+
+function sourceHashOf(bytes: Buffer) {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
 // Two of the mutations below have no Windows equivalent — see the comment on
 // each test for which Windows behavior rules it out.
 const posixTest = process.platform === 'win32' ? test.skip : test
@@ -257,6 +274,9 @@ function snapshotInput(
   )
 }
 
+// The legitimate FreeBSD case, and the other side of the content-hash rule
+// below: a re-stamp that leaves the bytes alone is accepted on the very next
+// attempt, because that attempt reproduces the hash of the one before it.
 test('snapshot retries a source whose timestamps were re-stamped mid-copy', async (t) => {
   const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
   const mode = await sourceMode(source)
@@ -428,6 +448,70 @@ test('snapshot gives up after the attempt bound and names the drifted fields', a
     ),
   )
   t.regex(error?.message ?? '', /mtimeNs \d+ -> \d+/)
+  t.true(
+    error?.message.endsWith('still drifting after 3 snapshot attempts)'),
+    error?.message,
+  )
+  t.false(existsSync(destination))
+})
+
+// Codex review of napi-rs/napi-rs#3530: the retry rebases its baseline purely on
+// metadata, so a writer rewriting the file in place at the same length inside
+// one timestamp tick could hand back a mixed copy that every stat field calls
+// settled. Two attempts now have to agree on the hash before one is accepted.
+test('snapshot re-copies until two attempts agree on the source content', async (t) => {
+  const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
+  const mode = await sourceMode(source)
+  const settled = rewrittenSourceBytes(1)
+  const attempts: number[] = []
+
+  const state = await snapshotInput(source, destination, async (attempt) => {
+    attempts.push(attempt)
+    if (attempt === 1) {
+      // Same length, different bytes, and the timestamps pinned to a fixed
+      // second so the second attempt sees metadata that looks perfectly
+      // settled. Only the content betrays the writer.
+      await writeFile(source, settled)
+      await restampSource(source, 1)
+    }
+  })
+
+  // The second attempt copies the settled bytes but cannot know they are
+  // settled — its hash is the first one that differs. Only the third attempt,
+  // which reproduces it, is accepted.
+  t.deepEqual(attempts, [1, 2, 3])
+  t.is(state.hash, sourceHashOf(settled))
+  t.is(state.mode, mode)
+  t.deepEqual(await readFile(destination), settled)
+})
+
+test('snapshot gives up when the source content never settles and names the hash', async (t) => {
+  const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
+  const attempts: number[] = []
+  const copied: Buffer[] = [snapshotSourceBytes]
+
+  const error = await t.throwsAsync(
+    snapshotInput(source, destination, async (attempt) => {
+      attempts.push(attempt)
+      const next = rewrittenSourceBytes(attempt)
+      copied.push(next)
+      await writeFile(source, next)
+      await restampSource(source, attempt)
+    }),
+  )
+
+  t.deepEqual(attempts, [1, 2, 3])
+  t.true(
+    error?.message.startsWith(
+      `Filesystem transaction source changed while it was snapshotted: ${source} (`,
+    ),
+  )
+  t.true(
+    error?.message.includes(
+      `contentHash ${sourceHashOf(copied[1])} -> ${sourceHashOf(copied[2])}`,
+    ),
+    error?.message,
+  )
   t.true(
     error?.message.endsWith('still drifting after 3 snapshot attempts)'),
     error?.message,

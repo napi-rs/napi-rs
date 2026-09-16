@@ -4360,7 +4360,9 @@ interface FileSystemTransactionSourceDrift {
    */
   hard: string[]
   /**
-   * Inode attribute differences on an otherwise identical file. Retryable.
+   * Differences a re-copy can settle: an inode attribute re-stamp on an
+   * otherwise identical file, or content that has not stopped moving yet.
+   * Retryable.
    */
   soft: string[]
 }
@@ -4414,8 +4416,8 @@ function describeFileSystemTransactionSourceDrift(
 }
 
 /**
- * How many times a snapshot re-copies a source whose metadata was re-stamped
- * underneath it before giving up. See the drift classification comment inside
+ * How many times a snapshot re-copies a source that moved underneath it before
+ * giving up. See the drift classification comment inside
  * {@link snapshotFileSystemTransactionInput}.
  */
 const fileSystemTransactionSnapshotAttempts = 3
@@ -4553,14 +4555,26 @@ export async function snapshotFileSystemTransactionInput(
       //     wrong — the recorded sha256 plus dev/ino/size already guarantee the
       //     content — so redo the snapshot instead.
       //
-      // A torn concurrent write is not tolerated by the retry: it keeps moving
-      // mtime, so it either re-drifts until the attempt bound is spent and the
-      // named-field error is thrown anyway, or it settles, in which case the
-      // retry copied the settled bytes. The source descriptor is deliberately
-      // *not* re-opened between attempts — it pins the inode validated on the
-      // way in, so a retry can never adopt a successor swapped into the path.
+      // Metadata alone cannot decide that, though, so a retry also has to
+      // reproduce the bytes. Each attempt rebases the baseline on what it just
+      // observed, and a timestamp only moves as far as its filesystem can
+      // express: where the clock is coarse, or where several writes land in one
+      // tick, a writer that rewrites the file in place at the same length moves
+      // no field this function compares. Metadata would read as settled while
+      // the copy mixed two versions of the file, and the hash of that mixture
+      // would be recorded as the authoritative one — nothing downstream ever
+      // reads the source again to notice. So an attempt that follows drift is
+      // accepted only when it hashes to exactly what the attempt before it
+      // hashed to: two passes in a row agreeing on the content is the evidence
+      // the source is settled. A hash that keeps moving is named as
+      // `contentHash` drift and spends the attempt bound like any other.
+      //
+      // The source descriptor is deliberately *not* re-opened between attempts
+      // — it pins the inode validated on the way in, so a retry can never adopt
+      // a successor swapped into the path.
       let baselineStats = sourceStats
       let sourceHash = ''
+      let previousHash: string | undefined
       let position = 0
       let drift: FileSystemTransactionSourceDrift | undefined
       for (
@@ -4615,6 +4629,10 @@ export async function snapshotFileSystemTransactionInput(
         // settled metadata the journal should record, and on soft drift it is
         // the baseline the next attempt has to hold still against.
         baselineStats = finalSourceStats
+        if (previousHash !== undefined && previousHash !== sourceHash) {
+          drift.soft.push(`contentHash ${previousHash} -> ${sourceHash}`)
+        }
+        previousHash = sourceHash
         if (drift.hard.length > 0 || drift.soft.length === 0) {
           break
         }
