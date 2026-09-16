@@ -1053,11 +1053,14 @@ export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
 export const asyncResolveArray = __napiModule.exports.asyncResolveArray
 export const asyncTaskArraybuffer = __napiModule.exports.asyncTaskArraybuffer
 export const asyncTaskFinally = __napiModule.exports.asyncTaskFinally
+export const asyncTaskIsExecuting = __napiModule.exports.asyncTaskIsExecuting
 export const asyncTaskOptionalReturn =
   __napiModule.exports.asyncTaskOptionalReturn
 export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
 export const asyncTaskRejectWithCapturedValue =
   __napiModule.exports.asyncTaskRejectWithCapturedValue
+export const asyncTaskSignalWhenExecuting =
+  __napiModule.exports.asyncTaskSignalWhenExecuting
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
 export const awaitRejectionOffThread =
   __napiModule.exports.awaitRejectionOffThread

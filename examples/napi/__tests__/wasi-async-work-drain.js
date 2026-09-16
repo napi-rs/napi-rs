@@ -88,11 +88,17 @@ module.exports = __rollbackTestExports
       track(`t${index}`, binding.asyncTaskVoidReturn())
     }
   } else if (mode === 'executing') {
-    // `withoutAbortController` sleeps 100ms in `compute`. Yield first so a pool
-    // thread has actually picked it up: cancellation then refuses, and the
-    // drain has to wait for it to finish instead.
-    track('d0', binding.withoutAbortController(1, 2))
-    await new Promise((resolve) => setTimeout(resolve, 60))
+    // Wait for the real transition, not for a guessed delay: how long a pool
+    // thread takes to pick work up is a property of the machine, and a sleep
+    // that is long enough here can be too short on a slow runner — where the
+    // work is still queued, the cancel succeeds, and the task rejects instead.
+    // `asyncTaskIsExecuting` flips inside `compute`, which is strictly after
+    // the point `napi_cancel_async_work` can still take the work, so disposal
+    // from here always has to wait rather than cancel.
+    track('d0', binding.asyncTaskSignalWhenExecuting(100))
+    while (!binding.asyncTaskIsExecuting()) {
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
   } else {
     throw new Error(`unsupported mode: ${mode}`)
   }

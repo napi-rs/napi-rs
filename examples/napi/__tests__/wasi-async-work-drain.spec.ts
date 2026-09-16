@@ -115,8 +115,16 @@ for (const flavor of FLAVORS) {
   /**
    * The other half: work already executing refuses cancellation, so the drain
    * has to keep the pool threads and the environment alive until it finishes.
+   *
+   * Threaded only, because only there can a task be *observed* executing. The
+   * threadless archive runs `compute` on the JavaScript thread itself, inside
+   * the macrotask that dequeued it, so no JavaScript can run while a task is in
+   * flight: it is either not started yet or already past `compute`. The same
+   * property is still covered for that flavor by the cancellation test above —
+   * the tasks that resolve there are exactly the ones whose cancel was refused
+   * because they had already started, and the drain waited for them.
    */
-  test.skipIf(skip)(
+  test.skipIf(skip || flavor.name !== 'threaded')(
     `executing async work is awaited, not cancelled: ${flavor.name}`,
     (t) => {
       const result = runMode('executing', flavor.loader)

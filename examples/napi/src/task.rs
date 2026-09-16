@@ -1,6 +1,21 @@
-use std::{sync::mpsc, thread::sleep};
+use std::{
+  sync::atomic::{AtomicBool, Ordering},
+  sync::mpsc,
+  thread::sleep,
+};
 
 use napi::{bindgen_prelude::*, ScopedTask};
+
+/// Set by [`SignalWhenExecuting::compute`] as it starts.
+///
+/// A test that needs an `AsyncTask` to be genuinely in flight — rather than
+/// merely queued — cannot get there by sleeping: how long a pool thread takes
+/// to pick work up is a property of the machine, and guessing it is what makes
+/// such a test flaky on a slow runner. This flag lets the test wait for the
+/// real transition instead. On a threaded wasm build the flag lives in the
+/// shared linear memory, so a store from a pool thread is visible to the
+/// JavaScript thread.
+static ASYNC_TASK_EXECUTING: AtomicBool = AtomicBool::new(false);
 
 pub struct SimpleTask {
   receiver: mpsc::Receiver<i32>,
@@ -53,6 +68,45 @@ impl napi::Task for DelaySum {
 #[napi]
 pub fn without_abort_controller(a: u32, b: u32) -> AsyncTask<DelaySum> {
   AsyncTask::new(DelaySum(a, b))
+}
+
+pub struct SignalWhenExecuting(u32);
+
+#[napi]
+impl napi::Task for SignalWhenExecuting {
+  type Output = u32;
+  type JsValue = u32;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    ASYNC_TASK_EXECUTING.store(true, Ordering::SeqCst);
+    sleep(std::time::Duration::from_millis(u64::from(self.0)));
+    Ok(self.0)
+  }
+
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output)
+  }
+}
+
+/// An `AsyncTask` that announces the start of its own `compute`, then runs for
+/// `duration_ms`.
+///
+/// Poll [`async_task_is_executing`] until it answers `true` to know the task is
+/// past the point where `napi_cancel_async_work` can still take it — the
+/// transition a test would otherwise have to guess with a sleep.
+#[napi]
+pub fn async_task_signal_when_executing(duration_ms: u32) -> AsyncTask<SignalWhenExecuting> {
+  // Cleared before the task is queued, so a previous run cannot answer for this
+  // one.
+  ASYNC_TASK_EXECUTING.store(false, Ordering::SeqCst);
+  AsyncTask::new(SignalWhenExecuting(duration_ms))
+}
+
+/// Whether the most recent [`async_task_signal_when_executing`] task has
+/// entered its `compute`.
+#[napi]
+pub fn async_task_is_executing() -> bool {
+  ASYNC_TASK_EXECUTING.load(Ordering::SeqCst)
 }
 
 #[napi]
