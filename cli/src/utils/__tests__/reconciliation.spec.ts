@@ -117,7 +117,11 @@ test('resolveProcessExecutionIdentityForLocking re-probes until the identity is 
       reads += 1
       return reads < 3 ? incompleteIdentity : completeIdentity
     },
-    { expiresAt: performance.now() + 150, timeout: 150 },
+    // A sub-second budget flakes on loaded CI runners: two 20ms retry delays
+    // plus event-loop lag can exceed it before the third read (seen on
+    // windows-msvc with ~300ms timer starvation). The nominal runtime stays
+    // ~40ms; the budget only bounds how long failures are ridden out.
+    { expiresAt: performance.now() + 2_000, timeout: 2_000 },
   )
 
   t.true(resolution.complete)
@@ -132,7 +136,10 @@ test('resolveProcessExecutionIdentityForLocking resolves incomplete past the wai
       reads += 1
       return incompleteIdentity
     },
-    { expiresAt: performance.now() + 150, timeout: 150 },
+    // Reads past the first happen on 20ms retry delays; the budget must
+    // tolerate event-loop lag on loaded CI runners so at least one re-probe
+    // (reads > 1 below) is guaranteed.
+    { expiresAt: performance.now() + 1_000, timeout: 1_000 },
   )
 
   t.false(resolution.complete)
