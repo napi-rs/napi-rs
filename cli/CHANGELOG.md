@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.10.1](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.0...%40napi-rs%2Fcli%403.10.1) (2026-09-16)
+
+### Bug Fixes
+
+* **cli:** give reconciliation identity-resolver tests realistic time budgets ([#3527](https://github.com/napi-rs/napi-rs/issues/3527)) ([98ed126](https://github.com/napi-rs/napi-rs/commit/98ed1263b51218b0c91087925b042efbd57b5b6d))
+* **cli:** settle threaded WASI disposal after async work ([#3526](https://github.com/napi-rs/napi-rs/issues/3526)) ([f9be941](https://github.com/napi-rs/napi-rs/commit/f9be94150477772db122a7e3ea278e1325cc5537))
+
+
 # [3.10.0](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.9.1...%40napi-rs%2Fcli%403.10.0) (2026-09-15)
 
 ### Bug Fixes
