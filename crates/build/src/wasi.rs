@@ -267,6 +267,13 @@ pub fn setup() {
   // barrier queued have actually been dispatched, instead of destroying the environment while
   // they are still in the threadsafe-function queue. Conditional for the same reason.
   println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_env_cleanup_pending");
+  // The async-work half of the same teardown handshake: `napi_async_work` is not covered by the
+  // barrier above, and a loader that destroys the environment — or terminates the pool threads —
+  // with one outstanding strands its promise and leaves the emnapi waiting-request counter above
+  // zero. The loaders cancel what has not started, then poll the count to zero before
+  // destroying. Conditional for the same reason as the two above.
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_async_work_pending");
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_cancel_pending_async_work");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {

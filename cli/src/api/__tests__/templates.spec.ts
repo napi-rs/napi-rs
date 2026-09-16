@@ -1005,6 +1005,124 @@ function initializationRollbackBody(code: string): string {
   return code.slice(deferredStart, code.indexOf('throw error', deferredStart))
 }
 
+/**
+ * The body of `__startWasiDisposal`, sliced so that "the drain runs on the
+ * disposal path" cannot be satisfied by a call somewhere else in the file.
+ */
+function disposalStartBody(code: string): string {
+  const start = code.indexOf(DISPOSAL_START_SIGNATURE)
+  return start === -1 ? '' : code.slice(start, code.indexOf('\n}', start))
+}
+
+const DISPOSAL_START_SIGNATURE = 'function __startWasiDisposal() {'
+
+/**
+ * `napi_async_work` is the one thing the settlement barrier above does not
+ * cover. The eager loaders drain it from the shared prelude; the
+ * deferred/workerd loader carries its own per-instance lifecycle and drains it
+ * there, so both are asserted — just against different function names.
+ */
+const eagerWasiLoaderCases = wasiLoaderCases.filter(({ code }) =>
+  code.includes(EAGER_ROLLBACK_SIGNATURE),
+)
+const deferredWasiLoaderCases = wasiLoaderCases.filter(
+  ({ code }) => !code.includes(EAGER_ROLLBACK_SIGNATURE),
+)
+
+test('every WASI loader case is either eager or deferred', (t) => {
+  t.is(
+    eagerWasiLoaderCases.length + deferredWasiLoaderCases.length,
+    wasiLoaderCases.length,
+  )
+  t.true(deferredWasiLoaderCases.length >= 2)
+})
+
+for (const { name, code } of deferredWasiLoaderCases) {
+  test(`deferred WASI loader drains outstanding async work before teardown: ${name}`, (t) => {
+    t.true(
+      code.includes('napi_wasm_async_work_pending'),
+      'the deferred loader instantiates the same async-work plugin, so it strands the same work',
+    )
+    t.true(
+      code.includes('napi_wasm_cancel_pending_async_work'),
+      'threadless work is always queued rather than executing, so cancellation is what bounds the wait',
+    )
+    t.regex(
+      code,
+      /typeof __pending !== 'function' \|\|\s*typeof __cancelPending !== 'function'/,
+      'loader must feature-detect both exports',
+    )
+    // Per instance, from that instance's own exports: two instances have
+    // separate registries and must not wait on each other.
+    t.true(
+      code.includes('__drainInstanceAsyncWork(__napiInstance)'),
+      'the drain must read the disposing instance, not a module-global one',
+    )
+    // Both teardown paths destroy the environment those completions need.
+    const disposal = code.slice(
+      code.indexOf('const __runInstanceDisposal'),
+      code.indexOf('let __instanceDisposePromise'),
+    )
+    t.true(
+      disposal.includes('__drainInstanceAsyncWork'),
+      'per-instance disposal must drain outstanding async work',
+    )
+    t.true(
+      initializationRollbackBody(code).includes('__drainInstanceAsyncWork'),
+      'the initialization-failure path must drain it too',
+    )
+  })
+}
+
+test('the eager loader cases are the ones that share the disposal prelude', (t) => {
+  // Guards the filter above: a prelude change that stopped emitting the eager
+  // rollback would silently empty the loop below instead of failing.
+  t.true(eagerWasiLoaderCases.length >= 4)
+})
+
+for (const { name, code } of eagerWasiLoaderCases) {
+  test(`WASI loader drains outstanding async work before teardown: ${name}`, (t) => {
+    t.true(
+      code.includes('napi_wasm_async_work_pending'),
+      'loader must poll the addon for outstanding async work; nothing about it is observable from JavaScript in a threaded build',
+    )
+    t.true(
+      code.includes('napi_wasm_cancel_pending_async_work'),
+      'loader must cancel work that has not started, or disposal waits for the whole queue instead of only what is running',
+    )
+    // Both exports are optional, exactly like the settlement handshake: an
+    // addon built against a napi crate that predates them must keep loading and
+    // disposing as it does today.
+    t.regex(
+      code,
+      /typeof pending !== 'function' \|\| typeof cancelPending !== 'function'/,
+      'loader must feature-detect both exports',
+    )
+    // The wait is a real referenced timer, not a macrotask spin: the addon is
+    // polled, so a zero-delay turn would burn the loop instead of yielding it.
+    t.true(
+      code.includes(
+        '__scheduleTimer(resolve, __WASI_ASYNC_WORK_POLL_INTERVAL_MS)',
+      ),
+      'the async-work wait must yield with a real timer',
+    )
+    t.true(
+      disposalStartBody(code).includes('__drainWasiAsyncWork'),
+      'disposal must drain outstanding async work',
+    )
+    // Ordering is the whole point: the completion callbacks run addon code, and
+    // the barrier, `Context.destroy()` and the termination each take that away.
+    t.false(
+      disposalStartBody(code).includes('__prepareWasmEnvCleanup'),
+      'the async-work drain must run before the barrier, not beside it',
+    )
+    t.true(
+      initializationRollbackBody(code).includes('__drainWasiAsyncWork'),
+      'initialization rollback tears down the same things and needs the same drain',
+    )
+  })
+}
+
 // The loaders order their own teardown barrier-then-destroy, but the emnapi
 // context is a live object: an embedder or test harness holding it, or emnapi's
 // own `beforeExit` auto-destroy on a host where `suppressDestroy()` is absent,

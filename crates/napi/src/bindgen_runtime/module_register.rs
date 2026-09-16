@@ -449,6 +449,51 @@ extern "C" fn napi_wasm_env_cleanup_pending() -> u32 {
   }
 }
 
+/// How many `napi_async_work` this addon has queued that have not completed yet.
+///
+/// The async-work half of the same teardown handshake as
+/// [`napi_wasm_env_cleanup_pending`]. That counter covers promise settlements sitting in the
+/// threadsafe-function queue; it says nothing about `napi_async_work`, which
+/// [`napi_prepare_wasm_env_cleanup`] does not touch at all. A loader that destroys the
+/// environment — or terminates the pool threads — with a work still outstanding strands it:
+/// the completion callback can no longer run, so the promise never settles and the emnapi
+/// waiting-request counter that brackets the work never returns to zero, which on Node keeps a
+/// `MessageChannel` port referenced and the process alive.
+///
+/// So the generated loaders drain first: cancel with
+/// [`napi_wasm_cancel_pending_async_work`], then poll this until it reads zero, and only then
+/// run the barrier and destroy. Unlike the settlement drain this one has no bound — reaching
+/// zero is not merely the success condition, it is the only outcome that is not the stranding
+/// it exists to prevent, and a task whose `execute` never returns would keep an *undisposed*
+/// process alive in exactly the same way.
+///
+/// Counts work that is merely queued as well as work already executing: both still owe a
+/// completion callback.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_wasm_async_work_pending() -> u32 {
+  crate::async_work::pending_async_work()
+}
+
+/// Cancels every outstanding `napi_async_work`, and answers how many cancellations were
+/// accepted.
+///
+/// The cancelling half of the handshake above, so that a drain waits only for work that is
+/// actually running. `napi_cancel_async_work` succeeds only for a work no thread has started;
+/// its completion callback then runs with `napi_cancelled`, which this crate turns into a
+/// promise rejected with an `AbortError`. A refused cancellation means the work is already
+/// executing and is left to finish normally — which it can, because a loader calls this before
+/// terminating anything.
+///
+/// Either way the work reaches the same completion callback as an ordinary one, so the
+/// registry behind [`napi_wasm_async_work_pending`] and the emnapi waiting-request counter
+/// balance themselves. The return value is informational; a loader still polls the count.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_wasm_cancel_pending_async_work() -> u32 {
+  crate::async_work::cancel_pending_async_work()
+}
+
 #[cfg(not(feature = "noop"))]
 #[no_mangle]
 /// Register the n-api module exports.

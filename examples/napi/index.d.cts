@@ -587,11 +587,27 @@ export declare function asyncTaskArraybuffer(data: Array<number>): Promise<Array
 
 export declare function asyncTaskFinally(inner: object): Promise<void>
 
+/**
+ * Whether the most recent [`async_task_signal_when_executing`] task has
+ * entered its `compute`.
+ */
+export declare function asyncTaskIsExecuting(): boolean
+
 export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
+
+/**
+ * An `AsyncTask` that announces the start of its own `compute`, then runs for
+ * `duration_ms`.
+ *
+ * Poll [`async_task_is_executing`] until it answers `true` to know the task is
+ * past the point where `napi_cancel_async_work` can still take it — the
+ * transition a test would otherwise have to guess with a sleep.
+ */
+export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
