@@ -71,6 +71,18 @@ fn register_outstanding_async_work(env: sys::napi_env, work: sys::napi_async_wor
   }
 }
 
+/// Keeps a work registered for as long as its completion callback is running, and unregisters
+/// it however that callback leaves — including through one of its several `?` paths.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+struct OutstandingAsyncWorkGuard(sys::napi_async_work);
+
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+impl Drop for OutstandingAsyncWorkGuard {
+  fn drop(&mut self) {
+    unregister_outstanding_async_work(self.0);
+  }
+}
+
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
 fn unregister_outstanding_async_work(work: sys::napi_async_work) {
   if let Ok(mut outstanding) = OUTSTANDING_ASYNC_WORK.lock() {
@@ -217,12 +229,20 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
 ) -> Result<()> {
   let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
-  // Here, not beside the `napi_delete_async_work` below: every `?` between the two would skip
-  // it, and an entry left behind makes a loader's drain wait for a work that already completed
-  // — forever, since the drain has no deadline. This runs inside the completion callback, so
-  // the promise is settled before the loader's next poll can observe the count either way.
+  // A work stops being outstanding when this callback *finishes*, not when it starts. Settling
+  // the deferred and running the task's own `resolve`/`finally` can re-enter JavaScript — a
+  // setter on the value being handed back, a threadsafe-function callback — and that JavaScript
+  // can call `dispose()`. Unregistering up front would let such a disposal read zero and tear
+  // the environment down from inside this frame, before the promise is settled and before
+  // `finally` runs: the promise then hangs forever, which is the very thing the registry
+  // exists to prevent.
+  //
+  // A guard rather than a call at the end, so the `?` paths below still unregister: an entry
+  // left behind would make a drain wait for a work that already completed, and the drain has
+  // no deadline. Dropped explicitly before `napi_delete_async_work` frees the handle, so a
+  // cancel sweep can never be handed a dangling one.
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]
-  unregister_outstanding_async_work(napi_async_work);
+  let outstanding_entry = OutstandingAsyncWorkGuard(napi_async_work);
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   if status == sys::Status::napi_cancelled {
     const ABORT_ERROR_NAME: &str = "AbortError";
@@ -283,6 +303,10 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
     work.status.set(1);
   }
   work.inner_task.finally(Env::from_raw(env))?;
+  // Everything that can re-enter JavaScript has run. Leave the registry before the handle is
+  // freed below.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  drop(outstanding_entry);
   check_status!(
     unsafe { sys::napi_delete_async_work(env, napi_async_work) },
     "Delete async work failed"

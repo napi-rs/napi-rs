@@ -651,6 +651,22 @@ const __WASI_ASYNC_WORK_POLL_INTERVAL_MS = 1
  * this exists to prevent. A task whose `execute` never returns already keeps an
  * *undisposed* process alive in exactly the same way, so disposal inherits that
  * rather than inventing a bound it cannot honor.
+ *
+ * Safe to call from inside a completion callback, which is reachable: settling
+ * a task runs addon code that can re-enter JavaScript — a setter on the value
+ * being handed back, a threadsafe-function callback — and that JavaScript can
+ * call `dispose()`. Two things make it terminate rather than wait on itself:
+ *
+ *   - The addon keeps a work registered until its completion callback
+ *     *finishes*, so the count read here is at least one and this takes the
+ *     polling path instead of declaring the environment drained and tearing it
+ *     down from inside the frame that is still settling a promise.
+ *   - The poll is a timer, so it cannot run until the callback has returned to
+ *     the host — by which time that work has left the registry. The count the
+ *     next poll reads is the one taken after the callback finished.
+ *
+ * `__disposeWasiBinding` hands every caller the same in-flight promise, so the
+ * nested call joins this disposal rather than starting a second one.
  */
 function __drainWasiAsyncWork() {
   if (__wasiAsyncWorkDrainPromise !== undefined) {

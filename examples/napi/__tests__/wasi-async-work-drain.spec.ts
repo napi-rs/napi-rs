@@ -138,6 +138,31 @@ for (const flavor of FLAVORS) {
   )
 
   /**
+   * A work stops being outstanding when its completion callback finishes, not
+   * when it starts. Settling a task runs addon code that can re-enter
+   * JavaScript, and that JavaScript can call `dispose()` — from inside the very
+   * callback that is still settling the promise. A drain that counted the work
+   * as already gone would read zero there, destroy the environment mid-frame,
+   * and leave the promise unsettled and `finally` unrun: the exact stranding
+   * this whole change exists to prevent, reached from the other direction.
+   */
+  test.skipIf(skip)(
+    `a dispose() started from a completion callback still settles it: ${flavor.name}`,
+    (t) => {
+      const result = runMode('dispose-from-completion', flavor.loader)
+      const output = `${result.stdout}\n${result.stderr}`
+      t.is(result.error, undefined, result.error?.stack)
+      t.is(result.signal, null, output)
+      t.is(result.status, 0, output)
+      t.regex(result.stdout, /settled \["t0:resolved"\]/, output)
+      t.regex(result.stdout, /^finally true$/m, output)
+      t.regex(result.stdout, /^ports 0$/m, output)
+      // `finally` is what unrefs the object the task holds.
+      t.notRegex(result.stderr, /considered as a memory leak/)
+    },
+  )
+
+  /**
    * Initialization rollback is the same hazard one step earlier: registration
    * runs with a live environment, so a module-init hook can start async work
    * and *then* fail the load. The rollback tears down exactly what that work's

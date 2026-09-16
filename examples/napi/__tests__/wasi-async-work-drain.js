@@ -77,6 +77,8 @@ module.exports = __rollbackTestExports
 } else {
   const binding = require(loaderPath)
   const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
+  // Set by a mode that disposes on its own schedule.
+  let disposed = false
 
   if (mode === 'settles') {
     // One task, never awaited: outstanding at the moment disposal starts.
@@ -99,10 +101,36 @@ module.exports = __rollbackTestExports
     while (!binding.asyncTaskIsExecuting()) {
       await new Promise((resolve) => setTimeout(resolve, 1))
     }
+  } else if (mode === 'dispose-from-completion') {
+    // Settling a task runs addon code that can re-enter JavaScript, and that
+    // JavaScript can dispose. `AsyncTaskFinally::resolve` does
+    // `obj.set("resolve", true)`, so this setter runs synchronously inside the
+    // completion callback — before the deferred is settled and before the
+    // task's `finally` hook. A disposal started from here must not conclude
+    // that nothing is outstanding and tear the environment down from inside
+    // that frame: the promise would never settle and `finally` would never run.
+    const hooks = {}
+    let disposal
+    Object.defineProperty(hooks, 'resolve', {
+      configurable: true,
+      get: () => true,
+      set() {
+        disposal = dispose()
+      },
+    })
+    track('t0', binding.asyncTaskFinally(hooks))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await disposal
+    // `finally` unrefs the ObjectRef the task holds; without it the addon also
+    // reports a leak on the way out.
+    process.stdout.write(`finally ${hooks.finally === true}\n`)
+    disposed = true
   } else {
     throw new Error(`unsupported mode: ${mode}`)
   }
 
-  await dispose()
+  if (!disposed) {
+    await dispose()
+  }
   report()
 }
