@@ -35,6 +35,90 @@ pub struct AsyncWorkPromise<T> {
 impl<T> UnwindSafe for AsyncWorkPromise<T> {}
 impl<T> std::panic::RefUnwindSafe for AsyncWorkPromise<T> {}
 
+/// The `napi_async_work` this addon has queued and whose completion callback has not run yet,
+/// as `(napi_env, napi_async_work)` addresses.
+///
+/// On wasm a loader disposes the binding by destroying the emnapi context and terminating the
+/// pool threads. Neither can run a completion callback, so a work still outstanding at that
+/// point never settles its promise — and it also never balances the emnapi waiting-request
+/// counter, which brackets every queued work. On Node a nonzero counter keeps a
+/// `MessageChannel` port referenced, so the process cannot exit either.
+///
+/// Nothing observable from JavaScript can stand in for this registry. The threadless archive
+/// (`emnapi-basic-napi-rs`) resolves `napi_*_async_work` through the `@emnapi/core` JavaScript
+/// plugins, but the threaded one (`emnapi-napi-rs-mt`) links the C `async_work.c` backed by the
+/// uv threadpool — see `emnapi_link_library` in `crates/build/src/wasi.rs` — so there the wasm
+/// neither imports nor exports those symbols, and the only brackets a loader could see
+/// (`_emnapi_ctx_*_waiting_request_counter`) are shared with threadsafe functions. This crate is
+/// the one choke point both flavors go through.
+///
+/// Exported to the loader as [`napi_wasm_async_work_pending`] and
+/// [`napi_wasm_cancel_pending_async_work`], the async-work half of the
+/// `napi_wasm_env_cleanup_pending` handshake.
+///
+/// A `Mutex` rather than a thread local: queueing and completing both happen on the JavaScript
+/// thread, but the registry is process-wide and this keeps it sound without depending on that.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+static OUTSTANDING_ASYNC_WORK: std::sync::Mutex<Vec<(usize, usize)>> =
+  std::sync::Mutex::new(Vec::new());
+
+/// A lock this addon poisoned is not worth aborting a teardown over: the registry only ever
+/// makes disposal wait *longer*, so a failure to read it degrades to today's behavior.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+fn register_outstanding_async_work(env: sys::napi_env, work: sys::napi_async_work) {
+  if let Ok(mut outstanding) = OUTSTANDING_ASYNC_WORK.lock() {
+    outstanding.push((env as usize, work as usize));
+  }
+}
+
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+fn unregister_outstanding_async_work(work: sys::napi_async_work) {
+  if let Ok(mut outstanding) = OUTSTANDING_ASYNC_WORK.lock() {
+    let handle = work as usize;
+    if let Some(index) = outstanding.iter().position(|(_, queued)| *queued == handle) {
+      outstanding.swap_remove(index);
+    }
+  }
+}
+
+/// How many `napi_async_work` are queued and have not completed yet.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn pending_async_work() -> u32 {
+  OUTSTANDING_ASYNC_WORK
+    .lock()
+    .map(|outstanding| outstanding.len() as u32)
+    .unwrap_or(0)
+}
+
+/// Cancels every outstanding `napi_async_work`, returning how many cancellations were accepted.
+///
+/// `napi_cancel_async_work` succeeds only for a work no thread has started. The completion
+/// callback then runs with `napi_cancelled`, which [`complete_impl`] turns into an `AbortError`
+/// rejection — so a cancelled work leaves this registry and balances the waiting-request counter
+/// through exactly the same path an ordinary completion does. A refused cancellation means the
+/// work is already executing; it is left alone to finish normally, which it can, because the
+/// loader calls this *before* terminating anything.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn cancel_pending_async_work() -> u32 {
+  // Snapshot and release: cancelling is the host's call, and holding the registry lock across
+  // it would deadlock the moment a host delivered the cancelled completion synchronously.
+  let Ok(outstanding) = OUTSTANDING_ASYNC_WORK.lock().map(|guard| guard.clone()) else {
+    return 0;
+  };
+  let mut cancelled = 0;
+  for (env, work) in outstanding {
+    // SAFETY: both addresses were handed to us by `napi_create_async_work` / the `napi_env` it
+    // was created with, and an entry is removed from the registry by `complete_impl` before
+    // `napi_delete_async_work` frees the work — so a registered handle is always still live.
+    if unsafe { sys::napi_cancel_async_work(env as sys::napi_env, work as sys::napi_async_work) }
+      == sys::Status::napi_ok
+    {
+      cancelled += 1;
+    }
+  }
+  cancelled
+}
+
 impl<T> AsyncWorkPromise<T> {
   pub fn promise_object<'env>(&self) -> PromiseRaw<'env, T> {
     PromiseRaw::new(self.env, self.raw_promise)
@@ -92,6 +176,9 @@ pub fn run<'task, T: ScopedTask<'task>>(
     unsafe { sys::napi_queue_async_work(env, result.napi_async_work) },
     "Queue async work failed in async_work::run"
   )?;
+  // Only a queue that succeeded holds a waiting-request reference for a teardown to balance.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  register_outstanding_async_work(env, result.napi_async_work);
   Ok(AsyncWorkPromise {
     napi_async_work: result.napi_async_work,
     raw_promise,
@@ -130,6 +217,12 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
 ) -> Result<()> {
   let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
+  // Here, not beside the `napi_delete_async_work` below: every `?` between the two would skip
+  // it, and an entry left behind makes a loader's drain wait for a work that already completed
+  // — forever, since the drain has no deadline. This runs inside the completion callback, so
+  // the promise is settled before the loader's next poll can observe the count either way.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  unregister_outstanding_async_work(napi_async_work);
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   if status == sys::Status::napi_cancelled {
     const ABORT_ERROR_NAME: &str = "AbortError";
