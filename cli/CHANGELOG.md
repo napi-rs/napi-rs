@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.10.2](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.1...%40napi-rs%2Fcli%403.10.2) (2026-09-16)
+
+### Bug Fixes
+
+* **cli:** drain outstanding async work before disposing a WASI binding ([#3528](https://github.com/napi-rs/napi-rs/issues/3528)) ([1391704](https://github.com/napi-rs/napi-rs/commit/13917041087adfaaad3d1c0f2f949b6dbe193bf4))
+
+
 ## [3.10.1](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.0...%40napi-rs%2Fcli%403.10.1) (2026-09-16)
 
 ### Bug Fixes
