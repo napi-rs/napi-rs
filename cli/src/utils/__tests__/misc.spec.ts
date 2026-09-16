@@ -195,15 +195,48 @@ test('retireFailedSnapshotLeftover restores a successor swapped in during the ra
 // `onAfterCopy` is the seam these tests drive: it runs after each copy pass and
 // before the post-copy stats, so drift is injected deterministically rather than
 // by racing a timer against a large copy.
+//
+// Every mutation below has to be deterministic on the Windows lanes too
+// (`.github/workflows/test-release.yaml` runs `yarn test:cli` on both
+// `windows-latest` and `windows-11-arm`), which rules out two tempting ones:
+//
+//   * an identical-mode `chmod` to move `ctime` alone. On Windows that is an
+//     attribute no-op and nothing documents it advancing the NTFS ChangeTime
+//     that libuv reports as `ctimeNs`.
+//   * asserting a full POSIX mode. Node documents that on Windows "only the
+//     write permission can be changed, and the distinction among the
+//     permissions of group, owner, or others is not implemented", so a mode
+//     round-trips as read-only or writable and nothing else.
+//
+// So timestamp drift is forced with `utimes`, whose `mtime` write is defined on
+// every supported platform, and mode drift toggles only the owner write bit and
+// asserts against the mode actually observed afterwards.
 const snapshotSourceBytes = Buffer.from('snapshot source contents')
 const snapshotSourceHash = createHash('sha256')
   .update(snapshotSourceBytes)
   .digest('hex')
 
+// Two of the mutations below have no Windows equivalent — see the comment on
+// each test for which Windows behavior rules it out.
+const posixTest = process.platform === 'win32' ? test.skip : test
+
 async function writeSnapshotSource(tmpDir: string) {
   const source = join(tmpDir, 'source.node')
   await writeFile(source, snapshotSourceBytes)
   return { destination: join(tmpDir, 'snapshot.input'), source }
+}
+
+async function sourceMode(source: string) {
+  return Number((await stat(source, { bigint: true })).mode & 0o7777n)
+}
+
+/**
+ * Move `mtime` to a fixed whole second, so the drift is the same on a
+ * filesystem with nanosecond stamps and on one with a coarser clock.
+ */
+async function restampSource(source: string, second: number) {
+  const when = new Date(1_700_000_000_000 + second * 1_000)
+  await utimes(source, when, when)
 }
 
 function snapshotInput(
@@ -224,16 +257,16 @@ function snapshotInput(
   )
 }
 
-test('snapshot retries a source whose ctime was re-stamped mid-copy', async (t) => {
+test('snapshot retries a source whose timestamps were re-stamped mid-copy', async (t) => {
   const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
-  const mode = Number((await stat(source, { bigint: true })).mode & 0o7777n)
+  const mode = await sourceMode(source)
   const attempts: number[] = []
 
   const state = await snapshotInput(source, destination, async (attempt) => {
     attempts.push(attempt)
     if (attempt === 1) {
-      // Same mode, so only ctime moves. Nothing observed this file's content.
-      await chmod(source, mode)
+      // Not one byte of content changes: only the inode's timestamps move.
+      await restampSource(source, 1)
     }
   })
 
@@ -243,6 +276,30 @@ test('snapshot retries a source whose ctime was re-stamped mid-copy', async (t) 
   t.deepEqual(await readFile(destination), snapshotSourceBytes)
 })
 
+posixTest(
+  'snapshot retries a source whose ctime alone was re-stamped mid-copy',
+  async (t) => {
+    const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
+    const mode = await sourceMode(source)
+    const attempts: number[] = []
+
+    const state = await snapshotInput(source, destination, async (attempt) => {
+      attempts.push(attempt)
+      if (attempt === 1) {
+        // Re-applying the same mode is the narrowest possible re-stamp: size,
+        // mtime and mode all hold still and only ctime moves. This is the
+        // FreeBSD symptom in its purest form.
+        await chmod(source, mode)
+      }
+    })
+
+    t.deepEqual(attempts, [1, 2])
+    t.is(state.hash, snapshotSourceHash)
+    t.is(state.mode, mode)
+    t.deepEqual(await readFile(destination), snapshotSourceBytes)
+  },
+)
+
 test('snapshot retries mtime drift until the source settles', async (t) => {
   const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
   const attempts: number[] = []
@@ -250,11 +307,7 @@ test('snapshot retries mtime drift until the source settles', async (t) => {
   const state = await snapshotInput(source, destination, async (attempt) => {
     attempts.push(attempt)
     if (attempt < 3) {
-      await utimes(
-        source,
-        new Date(1_700_000_000_000 + attempt * 1000),
-        new Date(1_700_000_000_000 + attempt * 1000),
-      )
+      await restampSource(source, attempt)
     }
   })
 
@@ -266,14 +319,26 @@ test('snapshot retries mtime drift until the source settles', async (t) => {
 
 test('snapshot records the settled mode after a mode re-stamp', async (t) => {
   const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
+  // Start read-only and hand back the write bit mid-copy. That is the only
+  // mode transition Windows can represent, and it leaves the file writable so
+  // the fixture teardown never meets a read-only inode.
+  await chmod(source, 0o444)
+  const readOnlyMode = await sourceMode(source)
+  const attempts: number[] = []
 
   const state = await snapshotInput(source, destination, async (attempt) => {
+    attempts.push(attempt)
     if (attempt === 1) {
-      await chmod(source, 0o640)
+      await chmod(source, 0o644)
     }
   })
 
-  t.is(state.mode, 0o640)
+  // Assert against the mode the platform actually reports, never a literal:
+  // POSIX settles on 0o644 and Windows on 0o666.
+  const writableMode = await sourceMode(source)
+  t.not(readOnlyMode, writableMode, 'the chmod must produce real mode drift')
+  t.deepEqual(attempts, [1, 2])
+  t.is(state.mode, writableMode)
   t.is(state.hash, snapshotSourceHash)
 })
 
@@ -312,39 +377,47 @@ test('snapshot still fails on a size change and names the field', async (t) => {
   t.false(existsSync(destination))
 })
 
-test('snapshot still fails when the path is replaced and names the identity', async (t) => {
-  const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
-  const successor = join(t.context.tmpDir, 'successor.node')
-  await writeFile(successor, snapshotSourceBytes)
-  const before = await lstat(source, { bigint: true })
-  const after = await lstat(successor, { bigint: true })
+// Swapping a successor onto a path the snapshot still holds open is POSIX-only:
+// Windows refuses to replace a file with a live handle, and the rename itself
+// fails before the assertion is reached with
+//   EPERM: operation not permitted, rename '...\\successor.node' -> '...\\source.node'
+// The size-change test above already covers a hard field on the Windows lanes.
+posixTest(
+  'snapshot still fails when the path is replaced and names the identity',
+  async (t) => {
+    const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
+    const successor = join(t.context.tmpDir, 'successor.node')
+    await writeFile(successor, snapshotSourceBytes)
+    const before = await lstat(source, { bigint: true })
+    const after = await lstat(successor, { bigint: true })
 
-  const error = await t.throwsAsync(
-    snapshotInput(source, destination, async (attempt) => {
-      if (attempt === 1) {
-        await rename(successor, source)
-      }
-    }),
-  )
+    const error = await t.throwsAsync(
+      snapshotInput(source, destination, async (attempt) => {
+        if (attempt === 1) {
+          await rename(successor, source)
+        }
+      }),
+    )
 
-  t.true(
-    error?.message.includes(
-      `path identity ${before.dev}/${before.ino} -> ${after.dev}/${after.ino}`,
-    ),
-    error?.message,
-  )
-  t.false(existsSync(destination))
-})
+    t.true(
+      error?.message.includes(
+        `path identity ${before.dev}/${before.ino} -> ${after.dev}/${after.ino}`,
+      ),
+      error?.message,
+    )
+    t.false(existsSync(destination))
+  },
+)
 
 test('snapshot gives up after the attempt bound and names the drifted fields', async (t) => {
   const { destination, source } = await writeSnapshotSource(t.context.tmpDir)
-  const mode = Number((await stat(source, { bigint: true })).mode & 0o7777n)
   const attempts: number[] = []
 
   const error = await t.throwsAsync(
     snapshotInput(source, destination, async (attempt) => {
       attempts.push(attempt)
-      await chmod(source, mode)
+      // Never settles: every attempt observes a different mtime.
+      await restampSource(source, attempt)
     }),
   )
 
@@ -354,7 +427,7 @@ test('snapshot gives up after the attempt bound and names the drifted fields', a
       `Filesystem transaction source changed while it was snapshotted: ${source} (`,
     ),
   )
-  t.regex(error?.message ?? '', /ctimeNs \d+ -> \d+/)
+  t.regex(error?.message ?? '', /mtimeNs \d+ -> \d+/)
   t.true(
     error?.message.endsWith('still drifting after 3 snapshot attempts)'),
     error?.message,
