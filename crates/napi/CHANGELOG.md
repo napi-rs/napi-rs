@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.6](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.5...napi-v3.12.6) - 2026-09-16
+
+### Fixed
+
+- *(cli)* drain outstanding async work before disposing a WASI binding ([#3528](https://github.com/napi-rs/napi-rs/pull/3528))
+
 ## [3.12.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.4...napi-v3.12.5) - 2026-09-15
 
 ### Fixed
