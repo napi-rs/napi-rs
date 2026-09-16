@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.10.3](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.2...%40napi-rs%2Fcli%403.10.3) (2026-09-16)
+
+### Bug Fixes
+
+* **cli:** retry a filesystem snapshot whose source only changed metadata and name the drifted fields ([#3530](https://github.com/napi-rs/napi-rs/issues/3530)) ([43ddfac](https://github.com/napi-rs/napi-rs/commit/43ddfacd06290290a3c8c1c53bc0841a856f90ab)), closes [rolldown/rolldown#10268](https://github.com/rolldown/rolldown/issues/10268)
+
+
 ## [3.10.2](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.1...%40napi-rs%2Fcli%403.10.2) (2026-09-16)
 
 ### Bug Fixes
