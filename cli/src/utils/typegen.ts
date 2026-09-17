@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, parse, relative, resolve } from 'node:path'
 
 import { sortBy } from 'es-toolkit'
 import type {
@@ -1026,10 +1026,10 @@ export function commonJsDeclarationBarrier(source: string): string | undefined {
     if (!literal.text.startsWith('.')) {
       return undefined
     }
-    const extension = /\.([a-z0-9]+)$/i.exec(literal.text)?.[1]?.toLowerCase()
+    const extension = parse(literal.text).ext.toLowerCase()
     if (
-      extension !== undefined &&
-      !['js', 'jsx', 'ts', 'tsx'].includes(extension)
+      extension !== '' &&
+      !['.js', '.jsx', '.ts', '.tsx'].includes(extension)
     ) {
       return undefined
     }
