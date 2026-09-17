@@ -831,6 +831,263 @@ test('a fresh WASI declaration narrows the inherited root union', async (t) => {
 const ROOT_BINDING_TARGET_DECLARATION =
   "export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'"
 
+test('an ESM root declaration derives the WASI declaration unless it cannot cross', async (t) => {
+  const { tmpDir, projectDir, typeDefDir } = t.context
+  await writeFile(
+    join(typeDefDir, 'sum.type'),
+    '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}\n',
+  )
+  const { dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+    declareBindingTarget: true,
+  })
+
+  // A `"type": "module"` package's `index.d.ts` is an ESM declaration, and so
+  // is an explicit `.d.mts` — but the generated typedef carries nothing a
+  // `.d.cts` cannot re-declare, so the WASI declaration derives verbatim.
+  // (napi-rs#3531: an unconditional refusal failed every WASI build in a
+  // module package, including `--esm` ones.)
+  const sourcePath = join(projectDir, 'index.d.ts')
+  const destinationPath = join(projectDir, 'pkg.wasi.d.cts')
+  for (const esmSourcePath of [sourcePath, join(projectDir, 'index.d.mts')]) {
+    t.is(
+      prepareWasiBindingTypeDef(
+        dts,
+        esmSourcePath,
+        destinationPath,
+        true,
+        'module',
+      ),
+      dts,
+    )
+  }
+
+  // The threadless flavor still gets its node-global rewrites on the way, and
+  // what it emits is valid TypeScript beside the ESM source it came from.
+  const threadless = prepareWasiBindingTypeDef(
+    dts,
+    sourcePath,
+    destinationPath,
+    false,
+    'module',
+  )
+  const codes = await semanticDiagnosticCodes(join(tmpDir, 'esm-derived'), {
+    'index.d.ts': dts,
+    'pkg.wasi.d.cts': threadless,
+  })
+  t.deepEqual(codes['pkg.wasi.d.cts'], [])
+
+  // Only the constructs a CommonJS declaration cannot carry still refuse —
+  // each one named in the error, from `.d.ts` and `.d.mts` sources alike.
+  const hazards: Array<[what: string, source: string, barrier: string]> = [
+    [
+      'an `export default` declaration',
+      'export declare function sum(a: number): number\nexport default sum\n',
+      'an `export default` declaration',
+    ],
+    [
+      'a default class declaration',
+      'export default class Sum {}\n',
+      'an `export default` declaration',
+    ],
+    [
+      'a default function declaration',
+      'export default function sum(a: number): number\n',
+      'an `export default` declaration',
+    ],
+    [
+      'a default interface declaration',
+      'export default interface Sum { a: number }\n',
+      'an `export default` declaration',
+    ],
+    [
+      'a default namespace declaration',
+      'export default namespace Sum { const a: number }\n',
+      'an `export default` declaration',
+    ],
+    [
+      'a `default` re-export',
+      'declare const sum: number\nexport { sum as default }\n',
+      'a `default` re-export',
+    ],
+    [
+      'a `default` re-export from a package',
+      "export { sum as default } from 'sums'\n",
+      'a `default` re-export',
+    ],
+    [
+      'a type-only `default` re-export',
+      'type Sum = number\nexport type { Sum as default }\n',
+      'a `default` re-export',
+    ],
+    [
+      'a `default` namespace re-export',
+      "export * as default from 'sums'\n",
+      'a `default` re-export',
+    ],
+    [
+      'a relative import specifier',
+      "import { sum } from './sum.js'\nexport declare function f(): typeof sum\n",
+      "a relative './sum.js' specifier",
+    ],
+    [
+      'an extensionless relative specifier',
+      "import { sum } from './sum'\nexport declare function f(): typeof sum\n",
+      "a relative './sum' specifier",
+    ],
+    [
+      'a relative export specifier',
+      "export { sum } from './sum.js'\n",
+      "a relative './sum.js' specifier",
+    ],
+    [
+      'a relative export-star specifier',
+      "export * from './sums.js'\n",
+      "a relative './sums.js' specifier",
+    ],
+    [
+      'a relative import type specifier',
+      "import type { Sum } from './sum.js'\nexport declare function f(s: Sum): void\n",
+      "a relative './sum.js' specifier",
+    ],
+    [
+      'a relative import() type',
+      "export declare function f(): import('./sum.js').Sum\n",
+      "a relative './sum.js' specifier",
+    ],
+    [
+      'a relative import-equals specifier',
+      "import sum = require('./sum.js')\nexport declare function f(): typeof sum\n",
+      "a relative './sum.js' specifier",
+    ],
+    [
+      'a relative ambient module specifier',
+      "declare module './sum.js' { export const sum: number }\n",
+      "a relative './sum.js' specifier",
+    ],
+    [
+      'a relative types reference',
+      "/// <reference types='./sum' />\nexport declare const sum: number\n",
+      'a relative \'/// <reference types="./sum" />\' directive',
+    ],
+    [
+      'attributes on a runtime statement',
+      "import sum from './sum.json' with { type: 'json' }\nexport declare const s: typeof sum\n",
+      '`with` attributes on a runtime module statement',
+    ],
+  ]
+  const esmSources: Array<
+    [path: string, packageType: 'module' | 'commonjs' | undefined]
+  > = [
+    [sourcePath, 'module'],
+    [join(projectDir, 'index.d.mts'), undefined],
+  ]
+  for (const [what, source, barrier] of hazards) {
+    for (const [esmSourcePath, packageType] of esmSources) {
+      const error = t.throws(
+        () =>
+          prepareWasiBindingTypeDef(
+            source,
+            esmSourcePath,
+            destinationPath,
+            true,
+            packageType,
+          ),
+        { instanceOf: Error },
+      )
+      t.true(
+        error?.message.includes(barrier),
+        `${what} names the offending construct, got: ${error?.message}`,
+      )
+    }
+  }
+
+  // Everything else a module package can write crosses honestly.
+  const honest: Record<string, string> = {
+    'bare and node: imports':
+      "import { Buffer } from 'buffer'\nimport type { ReadableStream } from 'node:stream/web'\nexport declare function f(b: Buffer, s: ReadableStream): void\n",
+    '.mjs specifiers':
+      "import { sum } from './sum.mjs'\nexport declare function f(): typeof sum\n",
+    '.cjs specifiers':
+      "import { sum } from './sum.cjs'\nexport declare function f(): typeof sum\n",
+    'an export assignment':
+      'declare const binding: { sum(a: number): number }\nexport = binding\n',
+    'a declare global block':
+      'declare global { namespace Legacy { const v: number } }\nexport {}\n',
+    'a bare ambient module':
+      "declare module 'legacy' { export const sum: number }\n",
+    'a .mjs ambient module':
+      "declare module './sum.mjs' { export const sum: number }\n",
+    'a default inside an ambient module':
+      "declare module 'legacy' { const sum: number\nexport default sum }\n",
+    'a type-only import with resolution-mode':
+      "import type { Sum } from './sum.js' with { 'resolution-mode': 'import' }\nexport declare function f(s: Sum): void\n",
+    'a type-only import pinned to require mode':
+      "import type { Sum } from './sum.js' with { 'resolution-mode': 'require' }\nexport declare function f(s: Sum): void\n",
+    'a type-only export with resolution-mode':
+      "export type { Sum } from './sum.js' with { 'resolution-mode': 'import' }\n",
+    'a json specifier':
+      "import sum from './sum.json'\nexport declare const s: typeof sum\n",
+    'a path reference':
+      "/// <reference path='./sum.d.ts' />\nexport declare const sum: number\n",
+    'a bare import() type':
+      "export declare function f(): import('buffer').Buffer\n",
+    'an import() type pinned to import mode':
+      "export declare function f(): import('./sum.js', { with: { 'resolution-mode': 'import' } }).Sum\n",
+    'a namespace export':
+      'export declare namespace Legacy { const sum: number }\n',
+  }
+  for (const [what, source] of Object.entries(honest)) {
+    t.notThrows(
+      () =>
+        prepareWasiBindingTypeDef(
+          source,
+          sourcePath,
+          destinationPath,
+          true,
+          'module',
+        ),
+      what,
+    )
+  }
+
+  // Nothing is scanned when the source is already CommonJS — a `.d.cts` (or a
+  // `.d.ts` in a `commonjs` package) reads the same beside its destination, so
+  // every hazard above carries over verbatim.
+  for (const [, source] of hazards) {
+    for (const [cjsSourcePath, packageType] of [
+      [join(projectDir, 'index.d.cts'), 'module'],
+      [sourcePath, 'commonjs'],
+      [sourcePath, undefined],
+    ] as const) {
+      t.notThrows(() =>
+        prepareWasiBindingTypeDef(
+          source,
+          cjsSourcePath,
+          destinationPath,
+          true,
+          packageType,
+        ),
+      )
+    }
+  }
+
+  // A specifier that can cross still rebases onto the destination directory
+  // — including a `declare module` augmentation name, which targets the file
+  // it spells out.
+  const relocated = prepareWasiBindingTypeDef(
+    "/// <reference path='./sum.d.ts' />\ndeclare module './sum.mjs' { export const sum: number }\nexport declare function f(): import('./sum.mjs').Sum\nexport { sum } from './sum.mjs'\n",
+    join(projectDir, 'types', 'index.d.mts'),
+    destinationPath,
+    true,
+  )
+  t.true(relocated.includes("declare module './types/sum.mjs'"))
+  t.true(relocated.includes("import('./types/sum.mjs')"))
+  t.true(relocated.includes("from './types/sum.mjs'"))
+  t.true(relocated.includes("reference path='./types/sum.d.ts'"))
+})
+
 test('a crate without type defs still declares the binding target', async (t) => {
   const { projectDir, typeDefDir } = t.context
 

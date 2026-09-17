@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, parse, relative, resolve } from 'node:path'
 
 import { sortBy } from 'es-toolkit'
 import type {
@@ -971,6 +971,220 @@ export function collectRelativeDeclarationSpecifiers(source: string): string[] {
   ]
 }
 
+/**
+ * The first construct in `source` a CommonJS declaration file cannot carry,
+ * or `undefined` when copying `source` into a `.d.cts` is honest.
+ *
+ * A `.d.cts` is read under `require` module-resolution mode, so a declaration
+ * that means one thing in an ESM file can mean another — or be a syntax error
+ * — once it lands there. The generated typedef needs none of those forms: its
+ * imports name packages or `node:` builtins, and everything it exports is a
+ * named `export declare`. A `--dts-header` can carry any declaration a module
+ * package can write, though, and silently copying one that resolves
+ * differently produces a `.d.cts` describing a module the loader is not.
+ * Those sources keep refusing, with the offending construct named, so the
+ * header can be fixed or `--dts` pointed at a `.d.cts` source instead.
+ *
+ * What refuses, and why:
+ *
+ * - `export default`, in any of its spellings — `export default x`,
+ *   `export default class`/`function`/`interface`/`enum`/`namespace`,
+ *   `export { x as default }`, `export * as default`. In a `.d.cts` `default`
+ *   is `module.exports.default` — a property the generated loader never
+ *   assigns — not the whole-callable shape a default export is in ESM. Inside
+ *   a `declare module` block `export default` describes that module's own
+ *   shape and carries over honestly, so only top-level defaults refuse.
+ * - A relative specifier that can land on a mode-dependent declaration:
+ *   `.js`-family spellings (`.js`, `.jsx`, `.ts`, `.tsx`) or extensionless
+ *   ones, which resolve `.d.cts`-first under `require` mode and
+ *   `.d.mts`-first under `import` mode — possibly a different file, and
+ *   certainly a different interpretation of the file they find. Explicit
+ *   module-format extensions (`.mjs`, `.mts`, `.cjs`, `.cts`) and non-script
+ *   targets (`.json`, `.wasm`, `.node`, assets) resolve identically either
+ *   way. Bare specifiers (`buffer`, `node:stream/web`, package names) are
+ *   allowed — a dual-condition package's `types` entry can still diverge
+ *   (`import` vs `require` condition), but refusing them would defeat the
+ *   derivation: the generated typedef's own imports are all bare.
+ * - `with { … }` attributes on a runtime `import`/`export … from` statement:
+ *   TS2856 in a `.cts` file. Type-only statements may keep theirs, and a
+ *   `resolution-mode` attribute pins the specifier to one mode — either way
+ *   the same mode `.d.cts` or the source's own — so it is honest again.
+ *
+ * Everything else — `export declare`, interfaces, enums, namespaces,
+ * `export =`, `declare global`, `/// <reference path>` — reads the same on
+ * both sides. One deliberate gap: `import('…')` types inside JSDoc comments
+ * are not scanned — they need a separate JSDoc parse for a source class the
+ * generator never emits.
+ */
+export function commonJsDeclarationBarrier(source: string): string | undefined {
+  const typeScript = loadTypeScript()
+  const sourceFile = parseDeclarationFile(source)
+
+  const specifierBarrier = (
+    literal: import('typescript').StringLiteralLike,
+  ): string | undefined => {
+    if (!literal.text.startsWith('.')) {
+      return undefined
+    }
+    const extension = parse(literal.text).ext.toLowerCase()
+    if (
+      extension !== '' &&
+      !['.js', '.jsx', '.ts', '.tsx'].includes(extension)
+    ) {
+      return undefined
+    }
+    return `a relative '${literal.text}' specifier`
+  }
+
+  const hasResolutionMode = (
+    attributes: import('typescript').ImportAttributes | undefined,
+  ) =>
+    attributes?.elements.some(
+      (element) =>
+        element.name.text === 'resolution-mode' &&
+        typeScript.isStringLiteral(element.value) &&
+        (element.value.text === 'import' || element.value.text === 'require'),
+    ) === true
+
+  const hasDefaultModifier = (node: Node) =>
+    typeScript.canHaveModifiers(node) === true &&
+    typeScript
+      .getModifiers(node)
+      ?.some(
+        (modifier) => modifier.kind === typeScript.SyntaxKind.DefaultKeyword,
+      ) === true
+
+  const isTypeOnlyStatement = (
+    node:
+      | import('typescript').ImportDeclaration
+      | import('typescript').ExportDeclaration,
+  ) =>
+    typeScript.isImportDeclaration(node)
+      ? node.importClause?.isTypeOnly === true
+      : node.isTypeOnly === true
+
+  let barrier: string | undefined
+  const visit = (node: Node, insideModuleDeclaration: boolean): void => {
+    if (barrier !== undefined) {
+      return
+    }
+    if (!insideModuleDeclaration && hasDefaultModifier(node)) {
+      barrier = 'an `export default` declaration'
+      return
+    }
+    if (typeScript.isModuleDeclaration(node)) {
+      if (typeScript.isStringLiteralLike(node.name)) {
+        barrier = specifierBarrier(node.name)
+      }
+      if (barrier === undefined) {
+        // A `declare module`/`declare global` block's statements describe that
+        // module's own shape, so a `default` export inside one is honest; its
+        // specifiers still resolve relative to this file.
+        typeScript.forEachChild(node, (child) => visit(child, true))
+      }
+      return
+    }
+    if (
+      typeScript.isImportDeclaration(node) ||
+      typeScript.isExportDeclaration(node)
+    ) {
+      if (node.attributes !== undefined && !isTypeOnlyStatement(node)) {
+        barrier = '`with` attributes on a runtime module statement'
+        return
+      }
+      if (
+        node.moduleSpecifier !== undefined &&
+        typeScript.isStringLiteralLike(node.moduleSpecifier) &&
+        !hasResolutionMode(node.attributes)
+      ) {
+        barrier = specifierBarrier(node.moduleSpecifier)
+        if (barrier !== undefined) {
+          return
+        }
+      }
+      if (
+        !insideModuleDeclaration &&
+        typeScript.isExportDeclaration(node) &&
+        node.exportClause !== undefined &&
+        ((typeScript.isNamedExports(node.exportClause) &&
+          node.exportClause.elements.some(
+            (element) => element.name.text === 'default',
+          )) ||
+          (typeScript.isNamespaceExport(node.exportClause) &&
+            node.exportClause.name.text === 'default'))
+      ) {
+        barrier = 'a `default` re-export'
+      }
+      return
+    }
+    if (typeScript.isImportEqualsDeclaration(node)) {
+      if (
+        typeScript.isExternalModuleReference(node.moduleReference) &&
+        typeScript.isStringLiteralLike(node.moduleReference.expression)
+      ) {
+        barrier = specifierBarrier(node.moduleReference.expression)
+      }
+      return
+    }
+    if (typeScript.isExportAssignment(node)) {
+      if (node.isExportEquals !== true && !insideModuleDeclaration) {
+        barrier = 'an `export default` declaration'
+      }
+      return
+    }
+    if (typeScript.isImportTypeNode(node)) {
+      if (
+        typeScript.isLiteralTypeNode(node.argument) &&
+        typeScript.isStringLiteralLike(node.argument.literal) &&
+        !hasResolutionMode(node.attributes)
+      ) {
+        barrier = specifierBarrier(node.argument.literal)
+      }
+      // `import('pkg').T<import('./x.js').U>` nests another specifier in the
+      // type arguments — keep descending.
+      if (barrier === undefined) {
+        typeScript.forEachChild(node, (child) =>
+          visit(child, insideModuleDeclaration),
+        )
+      }
+      return
+    }
+    if (
+      typeScript.isCallExpression(node) &&
+      node.arguments.length >= 1 &&
+      typeScript.isStringLiteralLike(node.arguments[0]) &&
+      (node.expression.kind === typeScript.SyntaxKind.ImportKeyword ||
+        (typeScript.isIdentifier(node.expression) &&
+          node.expression.text === 'require'))
+    ) {
+      barrier = specifierBarrier(node.arguments[0])
+      return
+    }
+    typeScript.forEachChild(node, (child) =>
+      visit(child, insideModuleDeclaration),
+    )
+  }
+  for (const statement of sourceFile.statements) {
+    visit(statement, false)
+  }
+  if (barrier === undefined) {
+    // `/// <reference types>` resolves through module resolution — a relative
+    // name can diverge the same way a relative specifier can. `path`
+    // references are file-path resolution and carry over honestly.
+    for (const reference of typeScript.preProcessFile(source, true, true)
+      .typeReferenceDirectives) {
+      if (
+        reference.fileName.startsWith('.') &&
+        reference.resolutionMode === undefined
+      ) {
+        barrier = `a relative '/// <reference types="${reference.fileName}" />' directive`
+        break
+      }
+    }
+  }
+  return barrier
+}
+
 function collectRelativeDeclarationSpecifierReferences(
   source: string,
 ): DeclarationSpecifierReference[] {
@@ -1008,6 +1222,11 @@ function collectRelativeDeclarationSpecifierReferences(
     ) {
       addStringLiteral(node.argument.literal)
     } else if (
+      typeScript.isModuleDeclaration(node) &&
+      typeScript.isStringLiteralLike(node.name)
+    ) {
+      addStringLiteral(node.name)
+    } else if (
       typeScript.isExternalModuleReference(node) &&
       node.expression &&
       typeScript.isStringLiteralLike(node.expression)
@@ -1015,7 +1234,7 @@ function collectRelativeDeclarationSpecifierReferences(
       addStringLiteral(node.expression)
     } else if (
       typeScript.isCallExpression(node) &&
-      node.arguments.length === 1 &&
+      node.arguments.length >= 1 &&
       typeScript.isStringLiteralLike(node.arguments[0]) &&
       (node.expression.kind === typeScript.SyntaxKind.ImportKeyword ||
         (typeScript.isIdentifier(node.expression) &&
