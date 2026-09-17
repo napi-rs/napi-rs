@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.10.4](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.3...%40napi-rs%2Fcli%403.10.4) (2026-09-17)
+
+### Bug Fixes
+
+* **cli:** derive WASI `.d.cts` from ESM sources when nothing blocks it ([#3532](https://github.com/napi-rs/napi-rs/issues/3532)) ([5f5c289](https://github.com/napi-rs/napi-rs/commit/5f5c289e7a1fa8b41f6f2c3cfa409605b3b65513)), closes [#3531](https://github.com/napi-rs/napi-rs/issues/3531)
+
+
 ## [3.10.3](https://github.com/napi-rs/napi-rs/compare/%40napi-rs%2Fcli%403.10.2...%40napi-rs%2Fcli%403.10.3) (2026-09-16)
 
 ### Bug Fixes
