@@ -21,6 +21,7 @@ import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
   commitFileSystemTransaction,
+  commonJsDeclarationBarrier,
   copyFileAtomic,
   type Crate,
   debugFactory,
@@ -795,6 +796,16 @@ export function bindingTargetDeclarationPredicate(input: {
     (input.rootLoaderCandidate && (input.hasWasiFallback || exports.length > 0))
 }
 
+/**
+ * The `.d.cts` content for a WASI flavor loader, derived from the root
+ * declaration this build wrote.
+ *
+ * An ESM source (`*.d.mts`, or `*.d.ts` in a `"type": "module"` package) is
+ * re-declared verbatim when nothing in it changes meaning under CommonJS
+ * interpretation — which is everything a generated typedef and most
+ * `--dts-header`s contain. {@link commonJsDeclarationBarrier} names the
+ * constructs that still refuse, and why.
+ */
 export function prepareWasiBindingTypeDef(
   source: string,
   sourcePath: string,
@@ -803,12 +814,15 @@ export function prepareWasiBindingTypeDef(
   packageType?: 'module' | 'commonjs',
 ) {
   if (
-    sourcePath.endsWith('.d.mts') ||
-    (sourcePath.endsWith('.d.ts') && packageType === 'module')
+    sourcePath.endsWith('.mts') ||
+    (sourcePath.endsWith('.ts') && packageType === 'module')
   ) {
-    throw new Error(
-      `Cannot emit the CommonJS WASI declaration ${destinationPath} from the ESM declaration ${sourcePath}. Use a .d.cts --dts path for WASI builds in module packages.`,
-    )
+    const barrier = commonJsDeclarationBarrier(source)
+    if (barrier !== undefined) {
+      throw new Error(
+        `Cannot emit the CommonJS WASI declaration ${destinationPath} from the ESM declaration ${sourcePath}: ${barrier} cannot be re-declared in a CommonJS declaration. Use a .d.cts --dts path for WASI builds from ESM sources.`,
+      )
+    }
   }
   const targetSource = hasThreads
     ? source
