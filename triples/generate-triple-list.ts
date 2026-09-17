@@ -19,6 +19,7 @@ const SUPPORTED_PLATFORM = new Set([
   'win32',
   'linux',
   'freebsd',
+  'openbsd',
 ])
 
 const tripleLists = RAW_LIST.trim()
