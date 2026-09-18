@@ -3626,7 +3626,7 @@ export function createProcessExecutionIdentityGetter(
   }
 }
 
-function isCompleteProcessExecutionIdentity(
+export function isCompleteProcessExecutionIdentity(
   identity: ProcessExecutionIdentity,
 ) {
   return (
@@ -3667,10 +3667,11 @@ type ProcessExecutionIdentityResolution = Awaited<
   ReturnType<typeof resolveProcessExecutionIdentityForLocking>
 >
 
-const getCurrentProcessExecutionIdentity = createProcessExecutionIdentityGetter(
-  readProcessExecutionIdentity,
-  incompleteProcessExecutionIdentityCacheDuration,
-)
+export const getCurrentProcessExecutionIdentity =
+  createProcessExecutionIdentityGetter(
+    readProcessExecutionIdentity,
+    incompleteProcessExecutionIdentityCacheDuration,
+  )
 
 const degradedProcessExecutionIdentityMemoDuration = 30_000
 // One build pays the probe-failure wait once: a degraded outcome is memoized
