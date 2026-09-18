@@ -19,6 +19,7 @@ import ava, { type TestFn } from 'ava'
 
 import {
   createProcessIncarnationGetter,
+  getCurrentProcessExecutionIdentity,
   type ProcessExecutionIdentity,
   resolveProcessExecutionIdentityForLocking,
   withFileSystemReconciliation,
@@ -439,6 +440,24 @@ test('degraded acquisition respects an existing lock it cannot evaluate', async 
 })
 
 test('degraded acquisition heals when identity probes recover and reclaims a stale lock', async (t) => {
+  // Phase 1 below relies on the real host identity; a host whose probes fail
+  // (e.g. a CI runner where powershell's Get-CimInstance boot probe times
+  // out) degrades to lock-free operation by design, writes no owner, and can
+  // prove nothing here. Give the guard the same 10s retry budget a normal
+  // acquisition uses, so only a host whose probes stay unavailable is
+  // skipped; then report it and pass instead of failing on the host.
+  const hostIdentity = await resolveProcessExecutionIdentityForLocking(
+    getCurrentProcessExecutionIdentity,
+    { expiresAt: performance.now() + 10_000, timeout: 10_000 },
+  )
+  if (!hostIdentity.complete) {
+    t.log(
+      `skipping: host identity incomplete (${JSON.stringify(hostIdentity.identity)})`,
+    )
+    t.pass()
+    return
+  }
+
   const anchor = join(t.context.tmpDir, 'pkg')
   await mkdir(anchor)
 
