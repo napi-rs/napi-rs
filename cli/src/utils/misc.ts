@@ -3626,7 +3626,7 @@ export function createProcessExecutionIdentityGetter(
   }
 }
 
-export function isCompleteProcessExecutionIdentity(
+function isCompleteProcessExecutionIdentity(
   identity: ProcessExecutionIdentity,
 ) {
   return (

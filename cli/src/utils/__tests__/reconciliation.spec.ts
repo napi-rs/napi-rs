@@ -20,7 +20,6 @@ import ava, { type TestFn } from 'ava'
 import {
   createProcessIncarnationGetter,
   getCurrentProcessExecutionIdentity,
-  isCompleteProcessExecutionIdentity,
   type ProcessExecutionIdentity,
   resolveProcessExecutionIdentityForLocking,
   withFileSystemReconciliation,
@@ -444,11 +443,16 @@ test('degraded acquisition heals when identity probes recover and reclaims a sta
   // Phase 1 below relies on the real host identity; a host whose probes fail
   // (e.g. a CI runner where powershell's Get-CimInstance boot probe times
   // out) degrades to lock-free operation by design, writes no owner, and can
-  // prove nothing here. Report it and pass instead of failing on the host.
-  const hostIdentity = await getCurrentProcessExecutionIdentity()
-  if (!isCompleteProcessExecutionIdentity(hostIdentity)) {
+  // prove nothing here. Give the guard the same 10s retry budget a normal
+  // acquisition uses, so only a host whose probes stay unavailable is
+  // skipped; then report it and pass instead of failing on the host.
+  const hostIdentity = await resolveProcessExecutionIdentityForLocking(
+    getCurrentProcessExecutionIdentity,
+    { expiresAt: performance.now() + 10_000, timeout: 10_000 },
+  )
+  if (!hostIdentity.complete) {
     t.log(
-      `skipping: host identity incomplete (${JSON.stringify(hostIdentity)})`,
+      `skipping: host identity incomplete (${JSON.stringify(hostIdentity.identity)})`,
     )
     t.pass()
     return
