@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.8](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.7...napi-derive-v3.6.8) - 2026-09-19
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [3.6.7](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.6...napi-derive-v3.6.7) - 2026-09-16
 
 ### Other
