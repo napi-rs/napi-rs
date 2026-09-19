@@ -30,8 +30,6 @@ pub enum Status {
   DetachableArraybufferExpected,
   WouldDeadlock,
   NoExternalBuffersAllowed,
-  /// The environment can no longer run JavaScript (Node-API 10+, env teardown)
-  CannotRunJs,
   Unknown = 1024, // unknown status. for example, using napi3 module in napi7 Node.js, and generate an invalid napi3 status
 }
 
@@ -68,7 +66,6 @@ impl AsRef<str> for Status {
       Status::DetachableArraybufferExpected => "DetachableArraybufferExpected",
       Status::WouldDeadlock => "WouldDeadlock",
       Status::NoExternalBuffersAllowed => "NoExternalBuffersAllowed",
-      Status::CannotRunJs => "CannotRunJs",
       _ => "Unknown",
     }
   }
@@ -100,7 +97,6 @@ impl From<i32> for Status {
       sys::Status::napi_detachable_arraybuffer_expected => Status::DetachableArraybufferExpected,
       sys::Status::napi_would_deadlock => Status::WouldDeadlock,
       sys::Status::napi_no_external_buffers_allowed => Status::NoExternalBuffersAllowed,
-      sys::Status::napi_cannot_run_js => Status::CannotRunJs,
       _ => Status::Unknown,
     }
   }
@@ -132,7 +128,6 @@ impl From<Status> for i32 {
       Status::DetachableArraybufferExpected => sys::Status::napi_detachable_arraybuffer_expected,
       Status::WouldDeadlock => sys::Status::napi_would_deadlock,
       Status::NoExternalBuffersAllowed => sys::Status::napi_no_external_buffers_allowed,
-      Status::CannotRunJs => sys::Status::napi_cannot_run_js,
       Status::Unknown => sys::Status::napi_generic_failure,
     }
   }
