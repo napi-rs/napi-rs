@@ -137,6 +137,12 @@ impl<T> AsyncWorkPromise<T> {
   }
 
   pub fn cancel(&mut self) -> Result<()> {
+    // The complete callback frees the `napi_async_work` handle once it has run;
+    // after that there is nothing left to cancel and `napi_cancel_async_work`
+    // would touch freed memory.
+    if self.status.get() == 1 {
+      return Ok(());
+    }
     // must be happened in the main thread, relaxed is enough
     self.status.set(2);
     check_status!(
@@ -222,7 +228,8 @@ unsafe extern "C" fn complete<'task, T: ScopedTask<'task>>(
   }
 }
 
-/// Checks the status of `napi_resolve_deferred`/`napi_reject_deferred`.
+/// Checks the status of `napi_resolve_deferred`/`napi_reject_deferred`,
+/// reporting whether the deferred was actually settled.
 ///
 /// Both refuse to run JavaScript once the environment starts tearing down —
 /// Worker exit can outlive a queued completion callback (#3535) — reporting
@@ -230,23 +237,27 @@ unsafe extern "C" fn complete<'task, T: ScopedTask<'task>>(
 /// API >= 10. The deferred is already dead in that state, so those statuses
 /// settle as a no-op instead of propagating: handing them to `throw_into` would
 /// fail the same way, and its debug assertion would abort the process.
-fn check_settle_status(status: sys::napi_status, message: &str) -> Result<()> {
+fn check_settle_status(status: sys::napi_status, message: &str) -> Result<bool> {
   match status {
-    sys::Status::napi_ok
-    | sys::Status::napi_pending_exception
-    | sys::Status::napi_cannot_run_js => Ok(()),
+    sys::Status::napi_ok => Ok(true),
+    sys::Status::napi_pending_exception | sys::Status::napi_cannot_run_js => Ok(false),
     _ => Err(Error::new(Status::from(status), message.to_owned())),
   }
 }
 
 /// The JavaScript-facing half of [`complete_impl`]: settle the deferred and
 /// hand the task's output or error back to it.
+///
+/// Returns whether settlement ran its course. `Ok(false)` means the
+/// environment refused every attempt — teardown — so the deferred was left
+/// alone; callers then skip `finally` just as they do after a settlement
+/// error, because there is no JavaScript left for it to run against.
 fn settle<'task, T: ScopedTask<'task>>(
   env: sys::napi_env,
   status: sys::napi_status,
   work: &mut AsyncWork<'task, T>,
   deferred: sys::napi_deferred,
-) -> Result<()> {
+) -> Result<bool> {
   if status == sys::Status::napi_cancelled {
     const ABORT_ERROR_NAME: &str = "AbortError";
     let wrapped_env = Env::from_raw(env);
@@ -272,16 +283,14 @@ fn settle<'task, T: ScopedTask<'task>>(
     ),
   };
   if work.status.get() != 2 {
-    match check_status!(status)
+    return match check_status!(status)
       .and_then(move |_| value)
       .and_then(|v| unsafe { ToNapiValue::to_napi_value(env, v) })
     {
-      Ok(v) => {
-        check_settle_status(
-          unsafe { sys::napi_resolve_deferred(env, deferred, v) },
-          "Resolve promise failed",
-        )?;
-      }
+      Ok(v) => check_settle_status(
+        unsafe { sys::napi_resolve_deferred(env, deferred, v) },
+        "Resolve promise failed",
+      ),
       Err(e) => {
         // `ToNapiValue for Error` hands the retained value back verbatim —
         // the completion callback runs on the owning env/thread, exactly
@@ -299,12 +308,14 @@ fn settle<'task, T: ScopedTask<'task>>(
         check_settle_status(
           unsafe { sys::napi_reject_deferred(env, deferred, rejection) },
           "Reject promise failed",
-        )?;
+        )
       }
     };
   }
-  work.status.set(1);
-  Ok(())
+  // The promise was cancelled through `AsyncWorkPromise`/`AbortSignal`: the
+  // deferred is deliberately left alone, but settlement ran its course, so
+  // `finally` still applies.
+  Ok(true)
 }
 
 fn complete_impl<'task, T: ScopedTask<'task>>(
@@ -329,12 +340,19 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]
   let outstanding_entry = OutstandingAsyncWorkGuard(napi_async_work);
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
-  // `finally` runs only when settlement did — an error there skips it, same as
-  // before.
-  let mut result = settle::<T>(env, status, &mut work, deferred);
-  if result.is_ok() {
-    result = work.inner_task.finally(Env::from_raw(env));
-  }
+  let settle_result = settle::<T>(env, status, &mut work, deferred);
+  // The handle is freed below no matter how settlement went, so the shared
+  // status must read terminal on every path: `on_abort` and
+  // `AsyncWorkPromise::cancel` only refrain from `napi_cancel_async_work` once
+  // it reads 1, and a stale status would send them to freed memory.
+  work.status.set(1);
+  // `finally` runs only when settlement ran — an error or a dead env skips it,
+  // same as before.
+  let result = match settle_result {
+    Ok(true) => work.inner_task.finally(Env::from_raw(env)),
+    Ok(false) => Ok(()),
+    Err(e) => Err(e),
+  };
   // Everything that can re-enter JavaScript has run. Leave the registry before the handle is
   // freed below.
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]

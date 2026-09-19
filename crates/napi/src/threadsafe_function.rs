@@ -994,7 +994,11 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
 
     // When shutting down, napi_fatal_exception sometimes returns another exception
     let stat = unsafe { sys::napi_fatal_exception(raw_env, error_result) };
-    assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
+    assert!(
+      stat == sys::Status::napi_ok
+        || stat == sys::Status::napi_pending_exception
+        || stat == sys::Status::napi_cannot_run_js
+    );
   } else {
     // During environment shutdown (e.g. Ctrl+C in a worker thread), any NAPI call
     // can fail. Bail out gracefully instead of panicking if we can't construct the
@@ -1034,7 +1038,11 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
     }
     // When shutting down, napi_fatal_exception sometimes returns another exception
     let stat = unsafe { sys::napi_fatal_exception(raw_env, error_value) };
-    assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
+    assert!(
+      stat == sys::Status::napi_ok
+        || stat == sys::Status::napi_pending_exception
+        || stat == sys::Status::napi_cannot_run_js
+    );
   }
 }
 
