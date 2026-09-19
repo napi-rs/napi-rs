@@ -1345,7 +1345,7 @@ impl ConvertToAST for syn::ItemStruct {
             ..
           }) = path.segments.last()
           {
-            if let Some(GenericArgument::Lifetime(syn::Lifetime { ident: _, .. })) = args.first() {
+            if let Some(GenericArgument::Lifetime(syn::Lifetime { .. })) = args.first() {
               // has lifetime and type name matched with known js value types
               if KNOWN_JS_VALUE_TYPES_WITH_LIFETIME.contains(ident.to_string().as_str()) {
                 // TODO: add link for more information

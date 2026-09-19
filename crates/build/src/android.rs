@@ -11,6 +11,6 @@ pub fn setup() -> Result<(), Error> {
   let mut libgcc = fs::File::create(&dist)?;
   let _ = libgcc.write(b"INPUT(-lunwind)")?;
   drop(libgcc);
-  println!("cargo:rustc-link-search={}", &out_dir);
+  println!("cargo:rustc-link-search={}", out_dir);
   Ok(())
 }

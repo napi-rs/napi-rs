@@ -220,7 +220,7 @@ impl NapiEnum {
     }
 
     let name_str = self.name.to_string();
-    let js_name_lit = Literal::string(&format!("{}\0", &self.js_name));
+    let js_name_lit = Literal::string(&format!("{}\0", self.js_name));
     let register_name = &self.register_name;
 
     let mut value_conversions = vec![];

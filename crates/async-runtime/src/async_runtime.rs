@@ -10858,10 +10858,10 @@ impl RuntimeController {
   ) -> Option<(Arc<RuntimeBackend>, R)> {
     let guard = self.current_backend.load();
     let backend = guard.as_ref()?; // None => Initial/Stopping/Stopped => slow path
-    if let Some(active) = active_runtime_generation() {
-      if active != backend.generation() {
-        return None; // retired generation => slow path yields exact error
-      }
+    if let Some(active) = active_runtime_generation()
+      && active != backend.generation()
+    {
+      return None; // retired generation => slow path yields exact error
     }
     let registration = register(&backend.work)?; // closed => None => slow path rejects
     // Hand back the already-loaded Arc (one refcount bump) rather than deep-

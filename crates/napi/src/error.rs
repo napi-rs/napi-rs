@@ -607,7 +607,9 @@ struct ReflectIntrinsics {
   // it (pre-napi3, or a hook call that failed) an embedder can tear the env
   // down and receive the same `napi_env` address for a new one — and deleting
   // the superseded reference through that recycled pointer would hand a dead
-  // ref to a live env.
+  // ref to a live env. Only `cache_reflect_intrinsics_for_env` reads it, so it
+  // goes dead when `noop` compiles that registration out.
+  #[cfg_attr(feature = "noop", allow(dead_code))]
   cleanup_hook_installed: bool,
 }
 
