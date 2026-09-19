@@ -222,6 +222,91 @@ unsafe extern "C" fn complete<'task, T: ScopedTask<'task>>(
   }
 }
 
+/// Checks the status of `napi_resolve_deferred`/`napi_reject_deferred`.
+///
+/// Both refuse to run JavaScript once the environment starts tearing down —
+/// Worker exit can outlive a queued completion callback (#3535) — reporting
+/// `napi_pending_exception` for module API < 10 or `napi_cannot_run_js` for
+/// API >= 10. The deferred is already dead in that state, so those statuses
+/// settle as a no-op instead of propagating: handing them to `throw_into` would
+/// fail the same way, and its debug assertion would abort the process.
+fn check_settle_status(status: sys::napi_status, message: &str) -> Result<()> {
+  match status {
+    sys::Status::napi_ok
+    | sys::Status::napi_pending_exception
+    | sys::Status::napi_cannot_run_js => Ok(()),
+    _ => Err(Error::new(Status::from(status), message.to_owned())),
+  }
+}
+
+/// The JavaScript-facing half of [`complete_impl`]: settle the deferred and
+/// hand the task's output or error back to it.
+fn settle<'task, T: ScopedTask<'task>>(
+  env: sys::napi_env,
+  status: sys::napi_status,
+  work: &mut AsyncWork<'task, T>,
+  deferred: sys::napi_deferred,
+) -> Result<()> {
+  if status == sys::Status::napi_cancelled {
+    const ABORT_ERROR_NAME: &str = "AbortError";
+    let wrapped_env = Env::from_raw(env);
+    let mut error =
+      wrapped_env.create_error(Error::new(Status::Cancelled, ABORT_ERROR_NAME.to_owned()))?;
+    error.set_named_property("name", ABORT_ERROR_NAME)?;
+    return check_settle_status(
+      unsafe { sys::napi_reject_deferred(env, deferred, error.0.value) },
+      "Reject AbortError failed",
+    );
+  }
+  let value_ptr = unsafe { work.value.assume_init_read() };
+  let value = match value_ptr {
+    Ok(output) => work.inner_task.resolve(
+      // SAFETY: `Env` is long lived
+      unsafe { std::mem::transmute::<&Env, &'task Env>(&Env::from_raw(env)) },
+      output,
+    ),
+    Err(e) => work.inner_task.reject(
+      // SAFETY: `Env` is long lived
+      unsafe { std::mem::transmute::<&Env, &'task Env>(&Env::from_raw(env)) },
+      e,
+    ),
+  };
+  if work.status.get() != 2 {
+    match check_status!(status)
+      .and_then(move |_| value)
+      .and_then(|v| unsafe { ToNapiValue::to_napi_value(env, v) })
+    {
+      Ok(v) => {
+        check_settle_status(
+          unsafe { sys::napi_resolve_deferred(env, deferred, v) },
+          "Resolve promise failed",
+        )?;
+      }
+      Err(e) => {
+        // `ToNapiValue for Error` hands the retained value back verbatim —
+        // the completion callback runs on the owning env/thread, exactly
+        // where the retained reference is restorable — and synthesizes a
+        // fresh `Error` from `status`/`reason`/`cause` when there is nothing
+        // to hand back (an error built on the libuv thread holds no
+        // reference; one captured on a foreign env or thread fails the owner
+        // gates in `referenced_value` and falls back to synthesis instead of
+        // dereferencing a foreign reference). `JsError::into_value` cannot
+        // be used here: it gates reuse on `napi_is_error`, so a task
+        // rejecting with a retained primitive or plain object — same
+        // contract as the deferred settlement path — would settle with a
+        // synthesized `Error` instead of the captured value.
+        let rejection = unsafe { ToNapiValue::to_napi_value(env, e) }?;
+        check_settle_status(
+          unsafe { sys::napi_reject_deferred(env, deferred, rejection) },
+          "Reject promise failed",
+        )?;
+      }
+    };
+  }
+  work.status.set(1);
+  Ok(())
+}
+
 fn complete_impl<'task, T: ScopedTask<'task>>(
   env: sys::napi_env,
   status: sys::napi_status,
@@ -244,72 +329,20 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]
   let outstanding_entry = OutstandingAsyncWorkGuard(napi_async_work);
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
-  if status == sys::Status::napi_cancelled {
-    const ABORT_ERROR_NAME: &str = "AbortError";
-    let wrapped_env = Env::from_raw(env);
-    let mut error =
-      wrapped_env.create_error(Error::new(Status::Cancelled, ABORT_ERROR_NAME.to_owned()))?;
-    error.set_named_property("name", ABORT_ERROR_NAME)?;
-    check_status!(
-      unsafe { sys::napi_reject_deferred(env, deferred, error.0.value) },
-      "Reject AbortError failed"
-    )?;
-  } else {
-    let value_ptr = unsafe { work.value.assume_init() };
-    let value = match value_ptr {
-      Ok(output) => work.inner_task.resolve(
-        // SAFETY: `Env` is long lived
-        unsafe { std::mem::transmute::<&Env, &'task Env>(&Env::from_raw(env)) },
-        output,
-      ),
-      Err(e) => work.inner_task.reject(
-        // SAFETY: `Env` is long lived
-        unsafe { std::mem::transmute::<&Env, &'task Env>(&Env::from_raw(env)) },
-        e,
-      ),
-    };
-    if work.status.get() != 2 {
-      match check_status!(status)
-        .and_then(move |_| value)
-        .and_then(|v| unsafe { ToNapiValue::to_napi_value(env, v) })
-      {
-        Ok(v) => {
-          check_status!(
-            unsafe { sys::napi_resolve_deferred(env, deferred, v) },
-            "Resolve promise failed"
-          )?;
-        }
-        Err(e) => {
-          // `ToNapiValue for Error` hands the retained value back verbatim —
-          // the completion callback runs on the owning env/thread, exactly
-          // where the retained reference is restorable — and synthesizes a
-          // fresh `Error` from `status`/`reason`/`cause` when there is nothing
-          // to hand back (an error built on the libuv thread holds no
-          // reference; one captured on a foreign env or thread fails the owner
-          // gates in `referenced_value` and falls back to synthesis instead of
-          // dereferencing a foreign reference). `JsError::into_value` cannot
-          // be used here: it gates reuse on `napi_is_error`, so a task
-          // rejecting with a retained primitive or plain object — same
-          // contract as the deferred settlement path — would settle with a
-          // synthesized `Error` instead of the captured value.
-          let rejection = unsafe { ToNapiValue::to_napi_value(env, e) }?;
-          check_status!(
-            unsafe { sys::napi_reject_deferred(env, deferred, rejection) },
-            "Reject promise failed"
-          )?;
-        }
-      };
-    }
-    work.status.set(1);
+  // `finally` runs only when settlement did — an error there skips it, same as
+  // before.
+  let mut result = settle::<T>(env, status, &mut work, deferred);
+  if result.is_ok() {
+    result = work.inner_task.finally(Env::from_raw(env));
   }
-  work.inner_task.finally(Env::from_raw(env))?;
   // Everything that can re-enter JavaScript has run. Leave the registry before the handle is
   // freed below.
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]
   drop(outstanding_entry);
-  check_status!(
+  // `napi_delete_async_work` runs no JavaScript and stays legal on a torn-down
+  // env, so the handle is freed on every path — an error above must not leak it.
+  result.and(check_status!(
     unsafe { sys::napi_delete_async_work(env, napi_async_work) },
     "Delete async work failed"
-  )?;
-  Ok(())
+  ))
 }

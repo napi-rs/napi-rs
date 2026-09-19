@@ -1590,35 +1590,47 @@ macro_rules! impl_object_methods {
         let mut error_code = ptr::null_mut();
         let mut reason_string = ptr::null_mut();
         let mut js_error = ptr::null_mut();
-        let create_code_status = unsafe {
+        // Every step below can fail while the environment is tearing down —
+        // e.g. the async-work `complete` callback runs during Worker exit, when
+        // the isolate can no longer serve these calls. Bail out with null
+        // instead of asserting: `throw_into` reads null as "the env could not
+        // build an error object" and skips the throw, because there is nothing
+        // left that could receive one.
+        if unsafe {
           sys::napi_create_string_utf8(
             env,
             error_status.as_ptr().cast(),
             status_len as isize,
             &mut error_code,
           )
-        };
-        debug_assert!(create_code_status == sys::Status::napi_ok);
-        let create_reason_status = unsafe {
+        } != sys::Status::napi_ok
+        {
+          return ptr::null_mut();
+        }
+        if unsafe {
           sys::napi_create_string_utf8(
             env,
             self.0.reason.as_ptr().cast(),
             reason_len as isize,
             &mut reason_string,
           )
-        };
-        debug_assert!(create_reason_status == sys::Status::napi_ok);
-        let create_error_status = unsafe { $kind(env, error_code, reason_string, &mut js_error) };
-        debug_assert!(create_error_status == sys::Status::napi_ok);
+        } != sys::Status::napi_ok
+        {
+          return ptr::null_mut();
+        }
+        if unsafe { $kind(env, error_code, reason_string, &mut js_error) } != sys::Status::napi_ok {
+          return ptr::null_mut();
+        }
         if let Some(cause_error) = self.0.cause.take() {
-          let cause = ToNapiValue::to_napi_value(env, *cause_error)
-            .expect("Convert cause Error to napi_value should never error");
-          let set_cause_status =
-            unsafe { sys::napi_set_named_property(env, js_error, c"cause".as_ptr().cast(), cause) };
-          debug_assert!(
-            set_cause_status == sys::Status::napi_ok,
-            "Set cause property failed"
-          );
+          // Best-effort for the same reason: a failing conversion or property
+          // write leaves the error standing without its `cause`.
+          if let Ok(cause) = unsafe { ToNapiValue::to_napi_value(env, *cause_error) } {
+            if !cause.is_null() {
+              unsafe {
+                sys::napi_set_named_property(env, js_error, c"cause".as_ptr().cast(), cause)
+              };
+            }
+          }
         }
         js_error
       }
@@ -1638,11 +1650,13 @@ macro_rules! impl_object_methods {
         // Detect whether the env actually has a pending exception before
         // deciding how to surface this error.
         let mut is_pending_exception = false;
-        assert_eq!(
-          unsafe { $crate::sys::napi_is_exception_pending(env, &mut is_pending_exception) },
-          $crate::sys::Status::napi_ok,
-          "Check exception status failed"
-        );
+        if unsafe { $crate::sys::napi_is_exception_pending(env, &mut is_pending_exception) }
+          != $crate::sys::Status::napi_ok
+        {
+          // The env cannot even report its exception state — it is tearing
+          // down — so there is nothing that could receive this error.
+          return;
+        }
         // Skip re-throwing only when the exception is genuinely pending. An
         // error tagged `PendingException` can be a detached (reference-less)
         // clone — e.g. one produced by `try_clone` off the owning JS thread —
@@ -1655,21 +1669,36 @@ macro_rules! impl_object_methods {
         let js_error = match is_pending_exception {
           true => {
             let mut error_result = std::ptr::null_mut();
-            assert_eq!(
-              unsafe { $crate::sys::napi_get_and_clear_last_exception(env, &mut error_result) },
-              $crate::sys::Status::napi_ok,
-              "Get and clear last exception failed"
-            );
+            if unsafe { $crate::sys::napi_get_and_clear_last_exception(env, &mut error_result) }
+              != $crate::sys::Status::napi_ok
+            {
+              return;
+            }
             error_result
           }
           false => unsafe { self.into_value(env) },
         };
+        // `into_value` returns null when the tearing-down env could not build
+        // an error object; throwing null would fail the same way.
+        if js_error.is_null() {
+          return;
+        }
+        // `napi_throw` refuses to run while the environment is tearing down
+        // (Worker exit): `napi_pending_exception` for module API < 10,
+        // `napi_cannot_run_js` for API >= 10. Neither is deliverable — the
+        // statuses are tolerated here and asserted against only in debug, where
+        // this used to throw twice and panic on the first call's status.
         #[cfg(debug_assertions)]
         let throw_status = unsafe { sys::napi_throw(env, js_error) };
-        unsafe { sys::napi_throw(env, js_error) };
+        #[cfg(not(debug_assertions))]
+        unsafe {
+          sys::napi_throw(env, js_error)
+        };
         #[cfg(debug_assertions)]
         assert!(
-          throw_status == sys::Status::napi_ok,
+          throw_status == sys::Status::napi_ok
+            || throw_status == sys::Status::napi_pending_exception
+            || throw_status == sys::Status::napi_cannot_run_js,
           "Throw error failed, status: [{}], raw message: \"{}\", raw status: [{}]",
           Status::from(throw_status),
           reason,
