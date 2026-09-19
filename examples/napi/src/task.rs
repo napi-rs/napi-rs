@@ -109,6 +109,47 @@ pub fn async_task_is_executing() -> bool {
   ASYNC_TASK_EXECUTING.load(Ordering::SeqCst)
 }
 
+/// Rejecting counterpart of [`ASYNC_TASK_EXECUTING`], set by
+/// [`SignalWhenExecutingReject::compute`] as it starts.
+static ASYNC_TASK_REJECT_EXECUTING: AtomicBool = AtomicBool::new(false);
+
+pub struct SignalWhenExecutingReject(u32);
+
+#[napi]
+impl napi::Task for SignalWhenExecutingReject {
+  type Output = u32;
+  type JsValue = u32;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    ASYNC_TASK_REJECT_EXECUTING.store(true, Ordering::SeqCst);
+    sleep(std::time::Duration::from_millis(u64::from(self.0)));
+    Err(Error::from_reason("reject during teardown"))
+  }
+
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output)
+  }
+}
+
+/// The rejecting counterpart of [`async_task_signal_when_executing`]: the task
+/// stays in `compute` for `duration_ms`, then rejects — so a test that waits on
+/// [`async_task_reject_is_executing`] knows the rejection is still pending, not
+/// already settled.
+#[napi]
+pub fn async_task_signal_when_executing_reject(
+  duration_ms: u32,
+) -> AsyncTask<SignalWhenExecutingReject> {
+  ASYNC_TASK_REJECT_EXECUTING.store(false, Ordering::SeqCst);
+  AsyncTask::new(SignalWhenExecutingReject(duration_ms))
+}
+
+/// Whether the most recent [`async_task_signal_when_executing_reject`] task has
+/// entered its `compute`.
+#[napi]
+pub fn async_task_reject_is_executing() -> bool {
+  ASYNC_TASK_REJECT_EXECUTING.load(Ordering::SeqCst)
+}
+
 #[napi]
 pub fn with_abort_controller(a: u32, b: u32, signal: AbortSignal) -> AsyncTask<DelaySum> {
   AsyncTask::with_signal(DelaySum(a, b), signal)

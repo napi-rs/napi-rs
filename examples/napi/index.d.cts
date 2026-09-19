@@ -597,6 +597,12 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
+/**
+ * Whether the most recent [`async_task_signal_when_executing_reject`] task has
+ * entered its `compute`.
+ */
+export declare function asyncTaskRejectIsExecuting(): boolean
+
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
 
 /**
@@ -608,6 +614,14 @@ export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promis
  * transition a test would otherwise have to guess with a sleep.
  */
 export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promise<number>
+
+/**
+ * The rejecting counterpart of [`async_task_signal_when_executing`]: the task
+ * stays in `compute` for `duration_ms`, then rejects — so a test that waits on
+ * [`async_task_reject_is_executing`] knows the rejection is still pending, not
+ * already settled.
+ */
+export declare function asyncTaskSignalWhenExecutingReject(durationMs: number): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 

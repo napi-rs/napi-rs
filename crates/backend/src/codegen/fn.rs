@@ -944,7 +944,7 @@ impl NapiFn {
       quote! {}
     } else {
       let name_str = self.name.to_string();
-      let js_name = format!("{}\0", &self.js_name);
+      let js_name = format!("{}\0", self.js_name);
       let name_len = self.js_name.len();
       let module_register_name = &self.register_name;
       let intermediate_ident = get_intermediate_ident(&name_str);

@@ -216,10 +216,10 @@ impl NapiStruct {
     let js_name = format_js_property_name(&f.js_name);
 
     let arg = match is_optional {
-      false => format!("{}: {}", &js_name, arg),
+      false => format!("{}: {}", js_name, arg),
       true => match self.use_nullable {
-        false => format!("{}?: {}", &js_name, arg),
-        true => format!("{}: {} | null", &js_name, arg),
+        false => format!("{}?: {}", js_name, arg),
+        true => format!("{}: {} | null", js_name, arg),
       },
     };
     field_str.push_str(&arg);
