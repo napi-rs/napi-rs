@@ -12,4 +12,11 @@ native
   .catch(() => {})
 native.asyncTaskSignalWhenExecuting(300).catch(() => {})
 native.withoutAbortController(1, 2).catch(() => {})
+
+// `asyncTaskIsExecuting` flips inside `compute`, which is strictly past the
+// point where termination can still cancel the queued work — so `started`
+// goes out only once teardown is guaranteed to interrupt a running task.
+while (!native.asyncTaskIsExecuting()) {
+  await new Promise((resolve) => setTimeout(resolve, 1))
+}
 parentPort.postMessage('started')

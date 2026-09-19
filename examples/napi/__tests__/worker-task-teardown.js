@@ -18,9 +18,9 @@ async function main() {
         env: process.env,
       },
     )
-    await new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
       worker.once('message', resolve)
-      worker.once('error', resolve)
+      worker.once('error', reject)
     })
     await worker.terminate()
   }
