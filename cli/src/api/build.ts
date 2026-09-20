@@ -2470,29 +2470,26 @@ class Builder {
         artifactReplaced = true
         // OpenHarmony devices refuse to load unsigned `.so` files, so inject
         // the fs-verity `.codesign` self-signature unless `--no-ohos-sign`.
-        // The algorithm only supports ELF64 — 32-bit ohos targets like
-        // armv7-unknown-linux-ohos produce ELF32, so warn and skip rather
-        // than fail the build.
         if (
           this.target.platform === 'openharmony' &&
           this.options.ohosSign !== false
         ) {
-          const artifact = await readFileAsync(dest)
-          const isElf64 =
-            artifact.length >= 64 &&
-            artifact[0] === 0x7f &&
-            artifact[1] === 0x45 &&
-            artifact[2] === 0x4c &&
-            artifact[3] === 0x46 &&
-            artifact[4] === 2
-          if (isElf64) {
-            debug('Self-signing OpenHarmony artifact:')
-            debug('  %i', dest)
+          debug('Self-signing OpenHarmony artifact:')
+          debug('  %i', dest)
+          try {
             signFileAtomic(dest)
-          } else {
-            debug.warn(
-              `Skip OpenHarmony self-signing: ${dest} is not an ELF64 binary`,
-            )
+          } catch (e) {
+            // The self-sign algorithm only supports ELF64 — 32-bit ohos
+            // targets like armv7-unknown-linux-ohos produce ELF32, so warn
+            // and skip rather than fail the build. signElf rejects before
+            // writing anything, so `dest` still holds the copied artifact.
+            if ((e as Error).message === 'not ELF64') {
+              debug.warn(
+                `Skip OpenHarmony self-signing: ${dest} is not an ELF64 binary`,
+              )
+            } else {
+              throw e
+            }
           }
         }
       }
