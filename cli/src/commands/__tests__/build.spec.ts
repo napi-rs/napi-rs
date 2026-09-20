@@ -22,3 +22,9 @@ test('build rejects unsupported formats', (t) => {
     message: /Invalid value for --format/,
   })
 })
+
+test('build self-signs OpenHarmony artifacts unless --no-ohos-sign', (t) => {
+  t.true(createBuildCommand([]).ohosSign)
+  t.true(createBuildCommand(['--ohos-sign']).ohosSign)
+  t.false(createBuildCommand(['--no-ohos-sign']).ohosSign)
+})

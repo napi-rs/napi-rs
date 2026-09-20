@@ -43,6 +43,7 @@ import {
   rewriteUnboundNodeGlobalTypeQueries,
   rewriteTypeImportReferences,
   scanExportedName,
+  signFileAtomic,
   type Target,
   targetToEnvVar,
   tryInstallCargoBinary,
@@ -1138,6 +1139,7 @@ export async function buildProject(rawOptions: BuildOptions) {
 
   const options: ParsedBuildOptions = {
     dtsCache: true,
+    ohosSign: true,
     ...rawOptions,
     format: resolveBuildFormat(rawOptions),
     cwd: rawOptions.cwd ?? process.cwd(),
@@ -2466,6 +2468,16 @@ class Builder {
       } else {
         await copyFileAtomic(src, dest)
         artifactReplaced = true
+        // OpenHarmony devices refuse to load unsigned `.so` files, so inject
+        // the fs-verity `.codesign` self-signature unless `--no-ohos-sign`.
+        if (
+          this.target.platform === 'openharmony' &&
+          this.options.ohosSign !== false
+        ) {
+          debug('Self-signing OpenHarmony artifact:')
+          debug('  %i', dest)
+          signFileAtomic(dest)
+        }
       }
       this.outputs.push({
         kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
