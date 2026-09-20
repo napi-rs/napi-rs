@@ -137,11 +137,15 @@ test('signFileAtomic signs in place and preserves the file mode', async (t) => {
   try {
     const path = join(dir, 'libfoo.so')
     await writeFile(path, makeElf64())
+    // 0o755 takes effect on POSIX; on Windows chmod only maps the
+    // read-only bit, so assert the mode survives signing rather than
+    // asserting the absolute value.
     await chmod(path, 0o755)
+    const { mode: modeBefore } = await stat(path)
     const signed = signElf(makeElf64())
     signFileAtomic(path)
     const { mode } = await stat(path)
-    t.is(mode & 0o777, 0o755)
+    t.is(mode & 0o777, modeBefore & 0o777)
     t.deepEqual(await readFile(path), signed)
   } finally {
     await rm(dir, { recursive: true, force: true })
