@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.7](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.6...napi-v3.12.7) - 2026-09-20
+
+### Fixed
+
+- *(napi)* guard AsyncTask completion against env teardown ([#3536](https://github.com/napi-rs/napi-rs/pull/3536))
+
 ## [3.12.6](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.5...napi-v3.12.6) - 2026-09-16
 
 ### Fixed
