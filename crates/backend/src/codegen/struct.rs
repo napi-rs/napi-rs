@@ -299,6 +299,7 @@ fn gen_named_property_descriptor(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gen_raw_field_getter(
   value_ident: &Ident,
   raw_ident: &Ident,
@@ -604,7 +605,7 @@ impl NapiStruct {
   fn gen_to_napi_value_ctor_impl(&self, class: &NapiClass) -> TokenStream {
     let name = &self.name;
     let js_name_without_null = &self.js_name;
-    let js_name_str = format!("{}\0", &self.js_name);
+    let js_name_str = format!("{}\0", self.js_name);
 
     let mut field_conversions = vec![];
     let mut field_destructions = vec![];

@@ -88,8 +88,8 @@ impl ToTypeDef for NapiFn {
       Some(ts_type) => format!("{prefix} {name}{ts_type}", name = self.js_name),
       None => format!(
         r#"{prefix} {name}{generic}({args}){ret}"#,
-        name = &self.js_name,
-        generic = &self
+        name = self.js_name,
+        generic = self
           .ts_generic_types
           .as_ref()
           .map(|g| format!("<{g}>"))
@@ -120,7 +120,7 @@ impl ToTypeDef for NapiFn {
 fn gen_callback_type(callback: &CallbackArg) -> String {
   format!(
     "({args}) => {ret}",
-    args = &callback
+    args = callback
       .args
       .iter()
       .enumerate()
