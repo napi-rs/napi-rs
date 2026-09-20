@@ -12,8 +12,6 @@
 //   signElf(buffer, force?)        — sign an ELF buffer, returns signed bytes
 //   stripCodesign(buffer)          — remove the `.codesign` section
 //   selfsignMain(argv)             — standalone entry: `selfsignMain(['--force', 'in.so'])`
-//
-// Only Node.js built-in modules are used.
 
 import { createHash } from 'node:crypto'
 import {
@@ -24,6 +22,10 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
+
+import { debugFactory } from './log.js'
+
+const debug = debugFactory('ohos-selfsign')
 
 const DESC_SIZE = 256
 const PAGE_SIZE = 4096
@@ -466,9 +468,9 @@ export function selfsignMain(argv: string[]): number {
     else positional.push(a)
   }
   if (positional.length < 1 || positional.length > 2) {
-    process.stderr.write(
+    debug.error(
       'usage: selfsign <input_elf> [output_elf] [--force] [--strip]\n' +
-        '  (output defaults to input, in-place)\n',
+        '  (output defaults to input, in-place)',
     )
     return 1
   }
@@ -480,29 +482,29 @@ export function selfsignMain(argv: string[]): number {
       const raw = readFileSync(in_path)
       const { removed, out } = stripCodesign(Buffer.from(raw))
       if (!removed) {
-        console.log(`no .codesign section to strip: ${in_path}`)
+        debug.info(`no .codesign section to strip: ${in_path}`)
         return 0
       }
       writeFileSync(out_path, out)
-      console.log(`strip ok: ${in_path} → ${out_path} (${out.length} bytes)`)
+      debug.info(`strip ok: ${in_path} → ${out_path} (${out.length} bytes)`)
       return 0
     }
 
     if (in_path === out_path) {
       signFileAtomic(in_path, force)
-      console.log(
+      debug.info(
         `selfsign ok: ${in_path} (in-place, ${force ? 'force' : 'append-only'})`,
       )
     } else {
       const raw = readFileSync(in_path)
       const signed = signElf(raw, force)
       writeFileSync(out_path, signed)
-      console.log(
+      debug.info(
         `selfsign ok: ${in_path} → ${out_path} (${signed.length} bytes)`,
       )
     }
   } catch (e) {
-    process.stderr.write(`error: ${(e as Error).message}\n`)
+    debug.error(e)
     return 2
   }
   return 0
