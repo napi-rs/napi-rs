@@ -1343,7 +1343,7 @@ impl Env {
     }
     // Register the payload so `get_instance_data` can confirm it is live data
     // set by this API before dereferencing it.
-    register_native_payload::<T>(instance_data.cast());
+    register_native_payload::<InstanceDataTag<T>>(instance_data.cast());
     Ok(())
   }
 
@@ -1368,7 +1368,7 @@ impl Env {
       // in the process; registry membership proves the pointer is a live
       // `InstanceData<T>` payload set by `Env::set_instance_data` in this
       // binary before any dereference.
-      if !is_registered_native_payload::<T>(unknown_tagged_object) {
+      if !is_registered_native_payload::<InstanceDataTag<T>>(unknown_tagged_object) {
         return Err(Error::new(
           Status::InvalidArg,
           format!(
@@ -1613,6 +1613,16 @@ struct InstanceData<T: 'static, F> {
   tagged_object: TaggedObject<T>,
   finalize_cb: F,
 }
+
+/// Registration marker for instance-data payloads in `NATIVE_PAYLOADS` — never
+/// instantiated. `set_instance_data` cannot tag entries with the payload's own
+/// `T`: the registry shares its key space with external payloads registered as
+/// `External<U>`/`TaggedObject<U>`, so a `T = External<U>` entry would let a
+/// foreign-installed external payload pointer satisfy `get_instance_data` and
+/// be read through the wrong layout. A dedicated tag keeps instance-data
+/// entries disjoint from every other registration kind.
+#[cfg(feature = "napi6")]
+struct InstanceDataTag<T>(std::marker::PhantomData<T>);
 
 #[cfg(feature = "napi6")]
 unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(

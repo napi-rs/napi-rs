@@ -25,12 +25,12 @@ test('external ref round-trip still works', (t) => {
 })
 
 test('foreign external payload is rejected for &External<T>', (t) => {
-  const foreign = createForeignExternal()
+  const foreign = createForeignExternal() as never
   t.throws(() => getExternal(foreign), { code: 'InvalidArg' })
 })
 
 test('foreign external payload is rejected for ExternalRef<T>', (t) => {
-  const foreign = createForeignExternal()
+  const foreign = createForeignExternal() as never
   t.throws(() => getExternalRef(foreign), { code: 'InvalidArg' })
 })
 
