@@ -34,6 +34,7 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
 
   exports.create_named_method("setInstanceData", set_instance_data)?;
   exports.create_named_method("getInstanceData", get_instance_data)?;
+  exports.create_named_method("setForeignInstanceData", set_foreign_instance_data)?;
   exports.create_named_method("getWrongTypeInstanceData", get_wrong_type_instance_data)?;
   Ok(())
 }

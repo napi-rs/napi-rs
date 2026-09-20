@@ -87,8 +87,12 @@ pub use object_property::*;
 pub use ser::Ser;
 pub use string::*;
 pub use symbol::*;
+#[cfg(feature = "napi6")]
+pub(crate) use tagged_object::unregister_native_payload;
 pub(crate) use tagged_object::{
-  finalize_tagged_object, register_payload, unregister_payload, unwrap_tagged_object, TaggedObject,
+  finalize_external_payload, finalize_tagged_object, is_registered_native_payload,
+  register_native_payload, register_payload, unregister_payload, unwrap_tagged_object,
+  TaggedObject,
 };
 #[cfg(feature = "compat-mode")]
 pub use undefined::JsUndefined;

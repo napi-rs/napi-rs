@@ -10,7 +10,8 @@ use crate::{
     sys, Env, FromNapiMutRef, FromNapiRef, FromNapiValue, Result, Status, ToNapiValue, TypeName,
     Unknown, ValidateNapiValue,
   },
-  check_status, check_status_or_throw, Error, JsExternal,
+  check_status, check_status_or_throw, finalize_external_payload, is_registered_native_payload,
+  register_native_payload, Error, JsExternal,
 };
 
 #[repr(C)]
@@ -68,13 +69,17 @@ impl<T: 'static> External<T> {
   pub(crate) unsafe fn from_raw_impl(
     unknown_tagged_object: *mut c_void,
   ) -> Option<&'static mut Self> {
-    let type_id = unknown_tagged_object as *const TypeId;
-    if unsafe { *type_id } == TypeId::of::<T>() {
-      let tagged_object = unknown_tagged_object as *mut External<T>;
-      Some(Box::leak(unsafe { Box::from_raw(tagged_object) }))
-    } else {
-      None
+    // `napi_get_value_external` hands back whatever `data` pointer the external
+    // was created with, and externals produced by foreign native code can carry
+    // arbitrary payloads. Registry membership proves the pointer is a live
+    // `External<T>` created by `to_napi_value_impl` in this binary, so it may be
+    // dereferenced without reading the payload first.
+    if unknown_tagged_object.is_null()
+      || !is_registered_native_payload::<External<T>>(unknown_tagged_object)
+    {
+      return None;
     }
+    Some(unsafe { &mut *(unknown_tagged_object as *mut External<T>) })
   }
 
   /// Turn a raw pointer (from napi) pointing to an External into a mutable reference to the inner object.
@@ -128,18 +133,25 @@ impl<T: 'static> External<T> {
     let size_hint = self.size_hint as i64;
     let size_hint_ptr = Box::into_raw(Box::new(size_hint));
     let obj_ptr = Box::into_raw(Box::new(self));
-    check_status!(
+    if let Err(err) = check_status!(
       unsafe {
         sys::napi_create_external(
           env,
           obj_ptr.cast(),
-          Some(crate::raw_finalize::<External<T>>),
+          Some(finalize_external_payload::<External<T>>),
           size_hint_ptr.cast(),
           &mut napi_value,
         )
       },
       "Create external value failed"
-    )?;
+    ) {
+      drop(unsafe { Box::from_raw(obj_ptr) });
+      drop(unsafe { Box::from_raw(size_hint_ptr) });
+      return Err(err);
+    }
+    // Register the payload so `from_raw_impl` can confirm it is a live
+    // `External<T>` produced by this binary before dereferencing it.
+    register_native_payload::<External<T>>(obj_ptr.cast());
 
     #[cfg(not(target_family = "wasm"))]
     {
@@ -298,18 +310,17 @@ impl<T: 'static> FromNapiValue for ExternalRef<T> {
       "Failed to get external value"
     )?;
 
-    let type_id = unknown_tagged_object as *const TypeId;
-    let external = if unsafe { *type_id } == TypeId::of::<T>() {
-      let tagged_object = unknown_tagged_object as *mut External<T>;
-      Box::leak(unsafe { Box::from_raw(tagged_object) })
-    } else {
-      return Err(Error::new(
-        Status::InvalidArg,
-        format!(
-          "<{}> on `External` is not the type of wrapped object",
-          std::any::type_name::<T>()
-        ),
-      ));
+    let external = match unsafe { External::from_raw_impl(unknown_tagged_object) } {
+      Some(external) => external,
+      None => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          format!(
+            "<{}> on `External` is not the type of wrapped object",
+            std::any::type_name::<T>()
+          ),
+        ));
+      }
     };
 
     let mut ref_ptr = ptr::null_mut();

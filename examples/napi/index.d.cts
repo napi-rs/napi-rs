@@ -890,6 +890,13 @@ export declare function createExternalTypedArray(): Uint32Array
 
 export declare function createExternalUtf16String(): string
 
+/**
+ * Create a `napi_external` whose payload is a foreign 1-byte allocation — not
+ * an `External<T>` produced by this crate. Passing it to APIs expecting
+ * `External<T>` must fail instead of dereferencing the foreign payload.
+ */
+export declare function createForeignExternal(): object
+
 export declare function createFunction(): (arg: number) => number
 
 export declare function createI32ArrayFromExternal(): Int32Array
@@ -1125,6 +1132,8 @@ export declare function getEmptyBuffer(): Buffer
 export declare function getEmptyTypedArray(): Uint8Array
 
 export declare function getExternal(external: ExternalObject<number>): number
+
+export declare function getExternalRef(external: ExternalObject<number>): number
 
 export declare function getGlobal(): typeof global
 

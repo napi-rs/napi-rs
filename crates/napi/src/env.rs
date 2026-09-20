@@ -4,8 +4,6 @@
 use std::any::type_name;
 #[cfg(feature = "napi5")]
 use std::any::Any;
-#[cfg(any(feature = "compat-mode", feature = "napi6"))]
-use std::any::TypeId;
 use std::convert::TryInto;
 use std::ffi::CString;
 #[cfg(all(
@@ -973,15 +971,24 @@ impl Env {
     size_hint: Option<i64>,
   ) -> Result<JsExternal<'env>> {
     let mut object_value = ptr::null_mut();
-    check_status!(unsafe {
+    let tagged_object = Box::into_raw(Box::new(TaggedObject::new(native_object)));
+    let size_hint_ptr = Box::into_raw(Box::new(size_hint.unwrap_or(0)));
+    if let Err(err) = check_status!(unsafe {
       sys::napi_create_external(
         self.0,
-        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
-        Some(raw_finalize::<TaggedObject<T>>),
-        Box::into_raw(Box::new(size_hint.unwrap_or(0))).cast(),
+        tagged_object.cast(),
+        Some(finalize_external_payload::<TaggedObject<T>>),
+        size_hint_ptr.cast(),
         &mut object_value,
       )
-    })?;
+    }) {
+      drop(unsafe { Box::from_raw(tagged_object) });
+      drop(unsafe { Box::from_raw(size_hint_ptr) });
+      return Err(err);
+    }
+    // Register the payload so `get_value_external` can confirm it is a live
+    // `TaggedObject` produced by this API before dereferencing it.
+    register_native_payload::<TaggedObject<T>>(tagged_object.cast());
     if let Some(changed) = size_hint {
       if changed != 0 {
         let mut adjusted_value = 0i64;
@@ -1005,21 +1012,24 @@ impl Env {
         &mut unknown_tagged_object,
       ))?;
 
-      let type_id = unknown_tagged_object as *const TypeId;
-      if *type_id == TypeId::of::<T>() {
-        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "nothing attach to js_external".to_owned(),
-          )
-        })
-      } else {
-        Err(Error::new(
+      // The payload pointer is untyped; registry membership proves it is a
+      // live `TaggedObject<T>` produced by `Env::create_external` in this
+      // binary before any dereference.
+      if unknown_tagged_object.is_null()
+        || !is_registered_native_payload::<TaggedObject<T>>(unknown_tagged_object)
+      {
+        return Err(Error::new(
           Status::InvalidArg,
           "T on get_value_external is not the type of wrapped object".to_owned(),
-        ))
+        ));
       }
+      let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+      (*tagged_object).object.as_mut().ok_or_else(|| {
+        Error::new(
+          Status::InvalidArg,
+          "nothing attach to js_external".to_owned(),
+        )
+      })
     }
   }
 
@@ -1307,10 +1317,15 @@ impl Env {
     Hint: 'static,
     F: FnOnce(FinalizeContext<T, Hint>),
   {
-    check_status!(unsafe {
+    let instance_data = Box::into_raw(Box::new(InstanceData {
+      tagged_object: TaggedObject::new(native),
+      finalize_cb,
+    }));
+    let hint_ptr = Box::into_raw(Box::new(hint));
+    if let Err(err) = check_status!(unsafe {
       sys::napi_set_instance_data(
         self.0,
-        Box::into_raw(Box::new((TaggedObject::new(native), finalize_cb))).cast(),
+        instance_data.cast(),
         Some(
           set_instance_finalize_callback::<T, Hint, F>
             as unsafe extern "C" fn(
@@ -1319,9 +1334,17 @@ impl Env {
               finalize_hint: *mut c_void,
             ),
         ),
-        Box::into_raw(Box::new(hint)).cast(),
+        hint_ptr.cast(),
       )
-    })
+    }) {
+      drop(unsafe { Box::from_raw(instance_data) });
+      drop(unsafe { Box::from_raw(hint_ptr) });
+      return Err(err);
+    }
+    // Register the payload so `get_instance_data` can confirm it is live data
+    // set by this API before dereferencing it.
+    register_native_payload::<T>(instance_data.cast());
+    Ok(())
   }
 
   /// This API retrieves data that was previously associated with the currently running Agent via `Env::set_instance_data()`.
@@ -1338,27 +1361,29 @@ impl Env {
         self.0,
         &mut unknown_tagged_object
       ))?;
-      let type_id = unknown_tagged_object as *const TypeId;
       if unknown_tagged_object.is_null() {
         return Ok(None);
       }
-      if *type_id == TypeId::of::<T>() {
-        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().map(Some).ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          )
-        })
-      } else {
-        Err(Error::new(
+      // The instance-data slot is per-env and can be overwritten by any code
+      // in the process; registry membership proves the pointer is a live
+      // `InstanceData<T>` payload set by `Env::set_instance_data` in this
+      // binary before any dereference.
+      if !is_registered_native_payload::<T>(unknown_tagged_object) {
+        return Err(Error::new(
           Status::InvalidArg,
           format!(
             "Invalid argument, {} on unwrap is not the type of wrapped object",
             type_name::<T>()
           ),
-        ))
+        ));
       }
+      let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+      (*tagged_object).object.as_mut().map(Some).ok_or_else(|| {
+        Error::new(
+          Status::InvalidArg,
+          "Invalid argument, nothing attach to js_object".to_owned(),
+        )
+      })
     }
   }
 
@@ -1579,6 +1604,16 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   };
 }
 
+/// `set_instance_data` payload layout: `#[repr(C)]` keeps `tagged_object` at
+/// offset zero so `get_instance_data` can borrow it through a
+/// `*mut TaggedObject<T>` regardless of how `F` would reorder a plain tuple.
+#[cfg(feature = "napi6")]
+#[repr(C)]
+struct InstanceData<T: 'static, F> {
+  tagged_object: TaggedObject<T>,
+  finalize_cb: F,
+}
+
 #[cfg(feature = "napi6")]
 unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   raw_env: sys::napi_env,
@@ -1589,11 +1624,15 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   Hint: 'static,
   F: FnOnce(FinalizeContext<T, Hint>),
 {
-  let (value, callback) = unsafe { *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F)) };
+  unregister_native_payload(finalize_data);
+  let InstanceData {
+    tagged_object,
+    finalize_cb,
+  } = unsafe { *Box::from_raw(finalize_data as *mut InstanceData<T, F>) };
   let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
   let env = Env::from_raw(raw_env);
-  callback(FinalizeContext {
-    value: value.object.unwrap(),
+  finalize_cb(FinalizeContext {
+    value: tagged_object.object.unwrap(),
     hint,
     env,
   });

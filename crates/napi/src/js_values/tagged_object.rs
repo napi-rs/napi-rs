@@ -1,5 +1,5 @@
 use std::any::{type_name, TypeId};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
@@ -48,6 +48,57 @@ fn is_registered_payload(ptr: *const c_void) -> bool {
     .lock()
     .unwrap()
     .contains(&(ptr as usize))
+}
+
+/// Live payloads this binary handed to napi as untyped `data` pointers through
+/// `napi_create_external` or `napi_set_instance_data`. `napi_get_value_external`
+/// and `napi_get_instance_data` hand such a pointer back untyped, and the value
+/// it hangs off can come from foreign native code — another addon, or a sibling
+/// copy of this crate — carrying an arbitrary `data` pointer that may be
+/// misaligned, dangling, or point into an allocation too small for the expected
+/// payload header. Before a returned pointer may be cast to `Payload`, an entry
+/// for it must exist here carrying `TypeId::of::<Payload>()`; pure-JS code has
+/// no way to insert into the map, so a hit proves the pointer is a live
+/// allocation of exactly `Payload` owned by this binary, and no in-memory
+/// header read is needed. Entries are inserted after the napi call succeeds and
+/// removed by the payload's finalizer (`finalize_external_payload` /
+/// `set_instance_finalize_callback`), so the registry never outlives the
+/// allocation; instance-data payloads overwritten by a later
+/// `napi_set_instance_data` stay registered, mirroring the leaked payload box.
+static NATIVE_PAYLOADS: LazyLock<Mutex<HashMap<usize, TypeId>>> =
+  LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) fn register_native_payload<Payload: 'static>(ptr: *mut c_void) {
+  NATIVE_PAYLOADS
+    .lock()
+    .unwrap()
+    .insert(ptr as usize, TypeId::of::<Payload>());
+}
+
+pub(crate) fn unregister_native_payload(ptr: *mut c_void) {
+  NATIVE_PAYLOADS.lock().unwrap().remove(&(ptr as usize));
+}
+
+/// `true` only while `ptr` is a live payload this binary registered as
+/// `Payload` — so casting it to `*mut Payload` stays inside a live allocation.
+pub(crate) fn is_registered_native_payload<Payload: 'static>(ptr: *const c_void) -> bool {
+  NATIVE_PAYLOADS
+    .lock()
+    .unwrap()
+    .get(&(ptr as usize))
+    .is_some_and(|type_id| *type_id == TypeId::of::<Payload>())
+}
+
+/// `napi_create_external` finalizer for payloads registered in
+/// `NATIVE_PAYLOADS`: deregisters the payload before freeing it, so the
+/// registry never outlives the allocation.
+pub(crate) unsafe extern "C" fn finalize_external_payload<Payload>(
+  env: sys::napi_env,
+  finalize_data: *mut c_void,
+  finalize_hint: *mut c_void,
+) {
+  unregister_native_payload(finalize_data);
+  unsafe { crate::raw_finalize::<Payload>(env, finalize_data, finalize_hint) }
 }
 
 /// Wrap finalizer for `Object::wrap`/`Env::wrap` payloads: deregister the
