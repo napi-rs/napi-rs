@@ -56,6 +56,23 @@ pub enum RuntimeFlavor {
 #[derive(Debug, Clone)]
 pub struct RuntimeOptions {
   pub flavor: RuntimeFlavor,
+  /// Physical worker count for [`RuntimeFlavor::MultiThread`]; forced to 1 on
+  /// [`RuntimeFlavor::CurrentThread`]. Validation clamps it to
+  /// `2..=max_async_runtime_worker_threads()`, so MultiThread always has at
+  /// least two lanes.
+  ///
+  /// The scheduler NEVER probes the CPU count on a wasm target, because there
+  /// is nothing truthful to probe: `std::thread::available_parallelism()`
+  /// answers `Ok(1)` on `wasm32-wasip1-threads`, so the default lands on the
+  /// clamped minimum of two. The host has the real number
+  /// (`os.availableParallelism()` in Node, `navigator.hardwareConcurrency` in
+  /// a browser) and must pass it through [`configure`] or
+  /// [`configure_partial`] before the first async call.
+  ///
+  /// Peak thread count is `worker_threads + 1`: [`sleep_until`] lazily spawns
+  /// one non-Rayon timekeeper thread on the first timer registration. Under
+  /// `wasm32-wasip1-threads` each of those is a Node Worker, so budget for
+  /// `worker_threads + 1` of them, not `worker_threads`.
   pub worker_threads: usize,
   pub max_blocking_tasks: usize,
   pub thread_name_prefix: String,
@@ -11544,6 +11561,13 @@ where
 ///
 /// Lifecycle owners can retain the returned future and retry it after
 /// [`start`] completes a runtime restart.
+///
+/// **On a wasm target, prefer this over [`spawn`].** Building the MultiThread
+/// pool is lazy and fail-loud: the first async call is what calls
+/// `wasi.thread-spawn`, and whether that works is a JavaScript fact the crate
+/// cannot observe up front. Here the failure is an `Err` you can act on; the
+/// infallible helpers turn it into a panic, which `panic = "abort"` then turns
+/// into a dead instance.
 pub fn try_spawn<F, T>(future: F) -> Result<JoinHandle<T>, (RuntimeConfigError, F)>
 where
   F: Future<Output = T> + Send + 'static,
@@ -11578,6 +11602,9 @@ where
 ///
 /// Lifecycle owners can retain the returned closure and retry it after [`start`]
 /// completes a runtime restart.
+///
+/// **On a wasm target, prefer this over [`spawn_blocking`]** -- see
+/// [`try_spawn`] for why.
 pub fn try_spawn_blocking<F, T>(function: F) -> Result<JoinHandle<T>, (RuntimeConfigError, F)>
 where
   F: FnOnce() -> T + Send + 'static,
@@ -11624,6 +11651,14 @@ pub fn block_on_dyn(future: Pin<&mut dyn Future<Output = ()>>) {
 }
 
 /// Drive a borrowed future without consuming it when admission or shutdown fails.
+///
+/// **On a wasm target, prefer this over [`block_on`] / [`block_on_dyn`]** --
+/// see [`try_spawn`] for why.
+///
+/// Under [`RuntimeFlavor::MultiThread`] this parks the CALLING thread on
+/// `memory.atomic.wait32`, which a browser main thread is forbidden to do
+/// (emnapi answers `napi_would_deadlock` there). The threaded wasm artifact is
+/// a Node / WebContainer target today; inside a Worker it is fine.
 pub fn try_block_on_dyn(
   future: Pin<&mut dyn Future<Output = ()>>,
 ) -> Result<(), RuntimeConfigError> {

@@ -82,6 +82,42 @@ CurrentThread builds.
   every wasm target: selecting `MultiThread` there is always an explicit host
   act.
 
+## Running MultiThread on `wasm32-wasip1-threads`
+
+Everything below is the host's job; the crate adds no wasm-specific API.
+
+- **Pass a worker count.** `available_parallelism()` answers `Ok(1)` inside a
+  WASI host, so a host that flips only the flavor gets MultiThread's clamped
+  minimum: `worker_threads = 2`, `max_blocking_tasks = 1`. That is truthful,
+  not useful. Read the real number in JavaScript
+  (`os.availableParallelism()`, `navigator.hardwareConcurrency`) and pass it
+  through `configure` / `configure_partial` before the first async call. The
+  crate never probes the CPU count on wasm.
+- **Budget `worker_threads + 1` threads.** The first `sleep_until` lazily
+  spawns one non-Rayon timekeeper thread — one more Node Worker than the pool
+  size suggests.
+- **Route through the `try_*` family.** `try_spawn`, `try_spawn_blocking` and
+  `try_block_on_dyn` return the pool-build failure (`EAGAIN`, no SAB, a Worker
+  that never boots) as an `Err`. The infallible helpers panic instead, and
+  `panic = "abort"` makes that a dead instance.
+- **Never from a browser main thread.** Under MultiThread, `block_on`,
+  shutdown's idle barrier and the worker join all park the calling thread on
+  `memory.atomic.wait32`. A browser main thread may not do that — emnapi
+  answers `napi_would_deadlock` — so the threaded artifact is a Node /
+  WebContainer target today. Inside a Worker it is fine.
+- **Panics abort.** Both WASI targets are `panic = "abort"`, so this crate's
+  containment (`catch_unwind` around task polls, closure drops and host
+  callbacks) never catches anything there: a user panic takes the instance
+  down instead of becoming a `JoinError`. That is true on threadless wasm too;
+  MultiThread only widens the surface to every worker plus the timekeeper.
+- **`shutdown` joins, without a bound.** It waits for every worker to exit
+  before returning, and on the WASI loader path it runs inside a synchronous
+  wasm export — so the JS thread sits in `pthread_join` for its duration, and
+  a blocking closure waiting on a JS turn cannot finish while it does. A
+  bounded join would be worse: it would leave a live thread running over
+  memory the loader is about to destroy. Use `RuntimeOptions::park_deadline`
+  if you need a park to fail loudly instead.
+
 The scheduler and adapter were extracted from rolldown's shared async runtime
 (rolldown#9977/#9978) and generalized; the wire behavior of the host protocol
 is byte-compatible with the rolldown hosts at contract version 4.
