@@ -819,7 +819,8 @@ jobs:
   napi-async-runtime:
     runs-on: ubuntu-latest
     name: Test napi-async-runtime shared scheduler (cargo)
-    timeout-minutes: 15
+    # The wasm test binary is large and runs under an interpreter-grade host.
+    timeout-minutes: 25
     needs: audit
     steps:
       - uses: actions/checkout@v7
@@ -851,11 +852,30 @@ jobs:
       - name: Test napi-async-runtime (scheduler only)
         run: cargo test -p napi-async-runtime --no-default-features
       - name: Check napi-async-runtime on the WASI targets
+        # `--tests` on both triples: the two WASI targets now compile
+        # DIFFERENT code (`napi_runtime_os_threads`), and a gate typo that
+        # only shows under `cfg(test)` is otherwise invisible until someone
+        # runs the suite on one of them.
         run: |
-          cargo check -p napi-async-runtime --target wasm32-wasip1
-          cargo check -p napi-async-runtime --target wasm32-wasip1-threads
-          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1
-          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1-threads
+          cargo check -p napi-async-runtime --tests --target wasm32-wasip1
+          cargo check -p napi-async-runtime --tests --target wasm32-wasip1-threads
+          cargo check -p napi-async-runtime --tests --no-default-features --target wasm32-wasip1
+          cargo check -p napi-async-runtime --tests --no-default-features --target wasm32-wasip1-threads
+      - name: Install a pinned wasmtime (-S threads is version-fragile)
+        # 42.0.0 and 44.0.0 accept the flag and then fail with "shared memory
+        # support is disabled for this engine"; 48.0.2 removed it while its
+        # `-S help` still lists it. Bump this pin only with a run.
+        run: |
+          curl -sSfL https://github.com/bytecodealliance/wasmtime/releases/download/v35.0.0/wasmtime-v35.0.0-x86_64-linux.tar.xz \
+            | sudo tar -xJ --strip-components=1 -C /usr/local/bin wasmtime-v35.0.0-x86_64-linux/wasmtime
+          wasmtime --version
+      - name: Test napi-async-runtime on the WASI targets
+        # The runners live in `.cargo/config.toml`. Only the napi-free lane
+        # runs: a default-features wasm test build would need a Node-API host,
+        # and wasmtime is not one.
+        run: |
+          cargo test -p napi-async-runtime --no-default-features --target wasm32-wasip1
+          cargo test -p napi-async-runtime --no-default-features --target wasm32-wasip1-threads
       - name: Test the shared-async-runtime example (native)
         run: cargo test -p napi-shared-async-runtime-example
 
