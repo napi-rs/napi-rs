@@ -21,7 +21,8 @@ use arc_swap::ArcSwapOption;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
-#[cfg(test)]
+// Both users are MultiThread pool tests.
+#[cfg(all(test, napi_runtime_os_threads))]
 use async_task::Task;
 use async_task::{FallibleTask, Runnable};
 use futures::{
@@ -808,6 +809,9 @@ struct WorkerTlsDropProbe {
 // Destructor actions may only RECORD (atomic stores, non-blocking sends);
 // ordering invariants are asserted from OUTSIDE, after `shutdown()` returns.
 #[cfg(all(test, napi_runtime_os_threads))]
+// `ReenterLifecycle`'s only constructor re-execs the test binary, which WASI
+// cannot do, so on wasm the variant is declared but never built.
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 enum WorkerTlsDropAction {
   /// Record-only: bump the shared counter so the harness can assert -- the
   /// instant `shutdown()` returns -- that every worker TLS destructor had
@@ -11711,8 +11715,36 @@ pub fn metrics() -> RuntimeMetricsSnapshot {
 }
 
 #[cfg(test)]
+// The wasm lanes gate out whole classes of tests (see the three rules below),
+// which strands their helper fns, statics and driver registries. That is the
+// point of the gates, not a defect, and 100+ dead-code warnings would bury a
+// real one in the `cargo check --tests` guard CI runs on both WASI triples.
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 mod tests {
   use super::*;
+
+  // Three gates in here do NOT mean "can this build create OS threads?", so
+  // the `napi_runtime_os_threads` rewrite deliberately does not reach them.
+  // Each was verified by running the suite on `wasm32-wasip1-threads`:
+  //
+  // * `#[cfg(not(target_family = "wasm"))]` on a test that re-execs itself
+  //   through `std::process::Command`: `std::env::current_exe()` is
+  //   `Unsupported` on WASI (22 tests).
+  // * `#[cfg(not(target_family = "wasm"))]` on a test that asserts the
+  //   DEFAULT flavor is MultiThread: every wasm target keeps CurrentThread by
+  //   default, which `RuntimeOptions::default` still decides with
+  //   `cfg!(target_family = "wasm")` (2 tests).
+  // * `panic = "unwind"` on a test that drives a panic through
+  //   `catch_unwind`: both WASI targets are `panic = "abort"`, so every
+  //   containment path this crate has is inert there and the panic takes the
+  //   process down instead of becoming a `JoinError` (43 tests). The
+  //   containment code itself still compiles and runs; only the tests that
+  //   PROVE containment need an unwinding target.
+  //
+  // `napi_runtime_os_threads` itself is also the right gate for a test whose
+  // HARNESS spawns a `std::thread` even though the code under test does not:
+  // threadless WASI answers `thread_spawn` with `Os { code: 58, Unsupported }`
+  // (13 tests).
 
   static CURRENT_THREAD_ADMISSION_HOST_DISPATCHES: AtomicUsize = AtomicUsize::new(0);
   static CURRENT_THREAD_ARMED_PANIC_PUBLICATION_DISPATCHES: LazyLock<Mutex<Vec<u64>>> =
@@ -11935,6 +11967,7 @@ mod tests {
     });
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn unique_ids_fail_before_wraparound() {
     let counter = AtomicU64::new(u64::MAX - 1);
@@ -11950,6 +11983,7 @@ mod tests {
     assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn generation_task_ids_fail_before_reusing_an_abort_handle_key() {
     let work = GenerationWork::new();
@@ -11967,6 +12001,7 @@ mod tests {
     assert!(state.abort_handles.is_empty());
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn caught_panic_payload_destructor_runs() {
     struct DropSignal(Arc<AtomicBool>);
@@ -11990,6 +12025,7 @@ mod tests {
     );
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn hostile_caught_panic_payload_destructor_remains_contained() {
     struct PanicOnDrop(Arc<AtomicBool>);
@@ -12669,6 +12705,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_host_dispatch_does_not_poll_inline_from_shared_wake() {
     use std::{sync::mpsc, time::Duration};
@@ -12721,6 +12758,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_hostless_wake_is_enqueue_only() {
     use std::{sync::mpsc, time::Duration};
@@ -13533,6 +13571,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_dispatch_publication_unwind_releases_owner_and_can_republish() {
     CURRENT_THREAD_PANICKING_PUBLICATION_DISPATCHES
@@ -13588,7 +13627,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn current_thread_publication_unwind_services_armed_republish_before_resuming_panic() {
     use std::sync::mpsc;
@@ -13670,7 +13709,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn current_thread_first_panic_survives_failed_republish_and_nested_recovery_panic() {
     use std::sync::mpsc;
@@ -14534,7 +14573,7 @@ mod tests {
     assert!(state.dispatches.is_empty());
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn current_thread_nested_replacement_unwind_finalizes_old_dispatch_and_retries_same_replacement()
   {
@@ -17268,6 +17307,7 @@ mod tests {
     }
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_task_driver_panics_fall_back_to_a_live_host() {
     let registry = CurrentThreadTaskDriverRegistry::default();
@@ -17293,6 +17333,7 @@ mod tests {
     assert!(fallback.dispatched.load(Ordering::SeqCst));
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_registry_publication_unwind_releases_barrier_and_can_retry() {
     let registry = CurrentThreadTaskDriverRegistry::default();
@@ -18089,6 +18130,7 @@ mod tests {
     assert!(state.dispatches.is_empty());
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_task_driver_callbacks_and_drops_run_outside_registry_lock() {
     use std::{sync::mpsc, time::Duration};
@@ -18146,6 +18188,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn current_thread_task_driver_registry_snapshot_contains_each_driver_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TASK_DRIVER_SNAPSHOT_DROP_PANIC_CHILD";
@@ -18214,6 +18257,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn current_thread_task_driver_dispatch_contains_each_delivery_driver_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TASK_DRIVER_DELIVERY_DROP_PANIC_CHILD";
@@ -18309,7 +18353,7 @@ mod tests {
     assert!(completed.load(Ordering::SeqCst));
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn join_handle_completion_contains_panicking_awaiter_wake_and_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_JOIN_HANDLE_COMPLETION_PANIC_CHILD";
@@ -18368,7 +18412,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn join_handle_shutdown_contains_panicking_awaiter_wake_and_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_JOIN_HANDLE_SHUTDOWN_PANIC_CHILD";
@@ -19759,7 +19803,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn cooperative_panic_forwards_pending_owner_handoff() {
     use std::sync::mpsc;
@@ -19843,7 +19887,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn cooperative_panic_flushes_lifo_slot() {
     struct ScheduleThenPanic {
@@ -19904,7 +19948,7 @@ mod tests {
     executor.active_drainers.store(0, Ordering::SeqCst);
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn cooperative_panic_compensates_absorbed_queue_wake() {
     use std::sync::mpsc;
@@ -22597,7 +22641,7 @@ mod tests {
     assert_eq!(queue.tail, None);
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn dependency_lending_keeps_public_blocking_metrics_within_cap() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEPENDENCY_LENDING_METRICS_CHILD";
@@ -23313,7 +23357,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn deep_dependency_liveness_chain_is_iterative() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEEP_DEPENDENCY_CHAIN_CHILD";
@@ -23348,7 +23392,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn task_dependency_set_contains_panicking_waiter() {
     struct PanicWake;
@@ -23377,7 +23421,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn task_dependency_clear_contains_panicking_waiter() {
     struct PanicWake;
@@ -23406,7 +23450,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn task_dependency_clear_if_contains_panicking_waiter() {
     struct PanicWake;
@@ -23436,7 +23480,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn task_dependency_waiter_replacement_contains_panicking_drop() {
     use std::sync::mpsc;
@@ -23488,7 +23532,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn task_dependency_retirement_contains_stored_waiter_drop() {
     use std::sync::mpsc;
@@ -23719,7 +23763,7 @@ mod tests {
     drop(runnable);
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn dependency_waker_and_buffered_result_drop_panics_are_independently_contained() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEPENDENCY_WAKER_DOUBLE_PANIC_CHILD";
@@ -25659,7 +25703,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn current_thread_blocking_result_panic_payload_retains_generation_identity() {
     use std::{panic::panic_any, sync::mpsc};
@@ -25734,6 +25778,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_detached_blocking_result_drop_is_contained() {
     use std::sync::mpsc;
@@ -25976,7 +26021,7 @@ mod tests {
     assert_eq!(executor.drain_linger, None, "ZERO must disable lingering");
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn runtime_controller_default_reserves_one_worker_from_blocking_admission() {
     let controller = RuntimeController::new();
@@ -26280,7 +26325,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn try_block_on_dyn_rejects_stopped_runtime_without_polling() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TRY_BLOCK_ON_DYN_STOPPED_CHILD";
@@ -26339,7 +26384,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn try_block_on_dyn_reports_concurrent_shutdown() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TRY_BLOCK_ON_DYN_SHUTDOWN_CHILD";
@@ -26775,6 +26820,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn failed_initial_submission_destructor_cannot_reenter_start() {
     use std::sync::mpsc;
@@ -26880,6 +26926,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn failed_initial_block_on_destruction_blocks_retry_and_shutdown() {
     use std::sync::mpsc;
@@ -26982,6 +27029,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn public_block_on_contains_poll_and_drop_double_panic() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_BLOCK_ON_DOUBLE_PANIC_CHILD";
@@ -27554,6 +27602,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn spawn_racing_shutdown_cannot_recreate_backend() {
     use std::sync::mpsc;
@@ -27983,7 +28032,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn worker_tls_destructor_lifecycle_reentry_fails_fast_without_self_join() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_WORKER_TLS_LIFECYCLE_REENTRY_CHILD";
@@ -28445,7 +28494,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn shutdown_cancels_nested_block_on_within_deadline() {
     use std::sync::mpsc;
@@ -28477,7 +28526,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn stopped_public_block_on_drops_future_before_generation_retirement() {
     use std::sync::mpsc;
@@ -28568,7 +28617,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn shutdown_contains_panicking_nested_block_on_future_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_NESTED_BLOCK_ON_DROP_PANIC_CHILD";
@@ -28640,6 +28689,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn panicking_future_drop_is_contained_before_async_task_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_PANICKING_FUTURE_DROP_CHILD";
@@ -28682,6 +28732,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn panicking_detached_output_drop_is_contained_before_async_task_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_PANICKING_TASK_OUTPUT_CHILD";
@@ -29030,7 +29081,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn shutdown_contains_hostile_caught_panic_payload() {
     use std::{panic::panic_any, sync::mpsc};
@@ -29156,7 +29207,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_shutdown_contains_panicking_queued_blocking_destructor_and_restarts() {
     use std::sync::mpsc;
@@ -29218,7 +29269,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_dropped_blocking_result_panic_does_not_strand_shutdown() {
     use std::{panic::panic_any, sync::mpsc};
@@ -29297,7 +29348,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_completed_blocking_result_drop_panic_is_contained() {
     use std::sync::mpsc;
@@ -29348,7 +29399,7 @@ mod tests {
       .expect("dropping the receiver must reclaim the buffered result");
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_closed_queue_contains_panicking_blocking_destructor() {
     use std::sync::mpsc;
@@ -29379,7 +29430,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_shutdown_contains_panicking_timer_waker_and_restarts() {
     struct PanicWake;
@@ -29717,7 +29768,7 @@ mod tests {
     }
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_spawned_panic_surfaces_as_join_error() {
     // A panicking spawned future must surface as `Err(JoinError)` carrying the
@@ -29773,6 +29824,7 @@ mod tests {
     assert_eq!(error.to_string(), "x");
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn concurrent_runtime_metrics_reset_preserves_live_and_high_water_gauges() {
     use std::sync::mpsc;
@@ -29869,6 +29921,7 @@ mod tests {
     assert_eq!(metrics.blocking_tasks_completed.load(Ordering::Relaxed), 1);
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn runtime_metrics_snapshot_clamps_high_water_marks_to_loaded_live_gauges() {
     use std::sync::mpsc;
@@ -29953,6 +30006,7 @@ mod tests {
     blocking_writer.join().unwrap();
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn runtime_metrics_reset_fails_before_generation_wraparound() {
     let metrics = RuntimeMetrics::default();
@@ -30013,6 +30067,7 @@ mod tests {
     }
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_threadless_park_with_no_pending_wake_panics_with_typed_diagnostic() {
     // Shape (1): on a threadless build a CT park decision with an empty queue
@@ -30059,6 +30114,7 @@ mod tests {
     }
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_threadless_self_waking_pending_future_does_not_panic() {
     // Shape (2), pinning panic-at-PARK-DECISION: a future that returns
@@ -30105,7 +30161,7 @@ mod tests {
     }
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn current_thread_native_park_deadline_fires_with_typed_diagnostic() {
     // Threaded CT is NOT provably dead at the park decision (another OS thread
@@ -30218,7 +30274,7 @@ mod tests {
     }
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_cooperative_park_past_deadline_with_no_progress_panics_with_typed_diagnostic() {
     // Shape (3): the MT deadline applies to the DriverParker inside
@@ -31165,7 +31221,7 @@ mod tests {
     );
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn multi_thread_gated_verdict_linearizes_before_shutdown_publication() {
     // Complement the publication-wins race above. The verdict owns both its
@@ -31271,7 +31327,7 @@ mod tests {
     shutdown_result.unwrap();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn multi_thread_deadlock_panic_hook_can_submit_scheduler_work() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEADLOCK_PANIC_HOOK_CHILD";
@@ -31370,6 +31426,7 @@ mod tests {
   // driver) and run hang-prone workloads on a child thread bounded by
   // `recv_timeout`, so a regression fails loudly instead of wedging the suite.
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn contained_waker_separates_wake_and_drop_panics() {
     struct PanicWakeAndDrop;
@@ -32210,7 +32267,7 @@ mod tests {
     executor.timers.join();
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
   #[test]
   fn timer_registration_is_transactional_when_timekeeper_start_fails() {
     let executor = multi_thread_executor(2, None, "timer-start-failure");
@@ -32764,7 +32821,7 @@ mod tests {
       .expect("dropping the final executor Arc on the timer thread attempted to join itself");
   }
 
-  #[cfg(napi_runtime_os_threads)]
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn multi_thread_shutdown_with_pending_timers_drain_fires() {
     // Shutdown invariant: `shutdown()` with armed timers must drain-fire the
@@ -32991,6 +33048,7 @@ mod tests {
     }
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_sleep_without_host_driver_fails_loud() {
     // Missing-driver invariant: a CT runtime without a registered host driver
@@ -33064,6 +33122,7 @@ mod tests {
     );
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn timer_driver_registry_contains_callback_panics_and_falls_back() {
     let registry = TimerDriverRegistry::default();
@@ -33089,6 +33148,7 @@ mod tests {
     );
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn timer_driver_registry_callbacks_and_drops_run_outside_registry_lock() {
     use std::{sync::mpsc, time::Duration};
@@ -33239,6 +33299,7 @@ mod tests {
     drop(dead);
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn timer_driver_registry_snapshot_contains_each_driver_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TIMER_DRIVER_SNAPSHOT_DROP_PANIC_CHILD";
@@ -33309,6 +33370,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn timer_driver_registry_live_result_contains_each_driver_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TIMER_DRIVER_LIVE_DROP_PANIC_CHILD";
@@ -33371,6 +33433,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn timer_driver_registry_drop_contains_each_driver_destructor() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TIMER_DRIVER_REGISTRY_DROP_PANIC_CHILD";
@@ -33487,6 +33550,7 @@ mod tests {
     assert!(!executor.host_timers.has_pending());
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn host_sleep_register_unwind_preserves_every_possible_arm_for_cancellation() {
     let metrics = Arc::new(RuntimeMetrics::default());
@@ -33538,6 +33602,7 @@ mod tests {
     assert!(!executor.host_timers.has_pending());
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn host_sleep_register_unwind_contains_later_unregistered_driver_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_HOST_TIMER_SNAPSHOT_DROP_PANIC_CHILD";
@@ -33620,6 +33685,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn host_sleep_cancel_contains_each_callback_and_driver_drop_independently() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_HOST_TIMER_CANCEL_DROP_PANIC_CHILD";
@@ -33684,6 +33750,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn host_sleep_first_poll_clone_and_drop_panics_do_not_double_panic() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_HOST_TIMER_WAKER_CLONE_DROP_PANIC_CHILD";
@@ -33743,6 +33810,7 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
   fn host_sleep_register_unwind_contains_unretained_waker_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_HOST_TIMER_REGISTER_WAKER_DROP_PANIC_CHILD";
@@ -33881,6 +33949,7 @@ mod tests {
     );
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn host_sleep_races_live_timer_drivers_and_cancels_the_starved_arm() {
     let metrics = Arc::new(RuntimeMetrics::default());
@@ -33943,6 +34012,7 @@ mod tests {
     );
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn host_sleep_repolls_all_pending_timers_onto_a_late_registered_driver() {
     use std::sync::mpsc;
@@ -34118,6 +34188,7 @@ mod tests {
     assert!(!executor.host_timers.has_pending());
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn host_sleep_panics_loud_when_every_driver_dies_mid_flight() {
     // With NO live registrant left mid-flight there is nothing to re-arm on:
@@ -34207,6 +34278,7 @@ mod tests {
     );
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_sleep_fires_through_stub_host_driver() {
     // CT delegation: a registered host driver's fire must complete a sleep
@@ -34271,6 +34343,7 @@ mod tests {
     assert_eq!(driver.cancels.lock().unwrap().as_slice(), &[timer_id]);
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_drain_fires_active_host_timer_block_on() {
     use std::sync::mpsc;
@@ -34318,6 +34391,7 @@ mod tests {
     assert_eq!(driver.cancels.lock().unwrap().len(), 1);
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_threadless_park_with_pending_host_timer_is_still_certain_deadlock() {
     // Threadless pending-timer invariant: on a
@@ -34382,6 +34456,7 @@ mod tests {
     }
   }
 
+  #[cfg(panic = "unwind")]
   #[test]
   fn current_thread_threadless_certain_check_ignores_unpolled_sleep() {
     // Unpolled-sleep invariant: the registry entry only exists once the host
@@ -34526,5 +34601,224 @@ mod tests {
     let expected = diagnostic.to_string();
     let payload: Box<dyn Any + Send> = Box::new(diagnostic);
     assert_eq!(JoinError::from_panic(&*payload).to_string(), expected);
+  }
+  // --- wasm32-wasip1-threads ------------------------------------------------
+  //
+  // `rustc --print cfg` is identical for the two WASI targets, so these pin
+  // what the build script's cfgs are supposed to mean. They run only where
+  // `napi_runtime_wasi_threads` holds; the threadless complement is pinned by
+  // `threadless_wasm_still_rejects_multi_thread` below.
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_reports_a_thread_capable_worker_ceiling() {
+    // Rayon's `THREADS_BITS` is 8 on 32-bit, so its ceiling is 255 and the
+    // production cap of 256 never binds here. The `>= 2` half is what
+    // `validate()` needs to accept MultiThread at all.
+    let ceiling = crate::max_async_runtime_worker_threads();
+    assert_eq!(
+      ceiling, 255,
+      "the threaded WASI target must report Rayon's realizable ceiling"
+    );
+    assert!(
+      ceiling >= 2,
+      "a ceiling below two would make MultiThread unconfigurable"
+    );
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_default_flavor_is_still_current_thread() {
+    // Availability is not a default. Selecting MultiThread on a wasm target
+    // stays an explicit host act, so a host that changes nothing sees no
+    // change at all.
+    assert_eq!(
+      RuntimeOptions::default().flavor,
+      RuntimeFlavor::CurrentThread,
+      "the threaded WASI target must not silently default to MultiThread"
+    );
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_multi_thread_validates_to_the_two_worker_minimum() {
+    // `available_parallelism()` returns Ok(1) under a WASI host, so a host
+    // that flips only the flavor gets MultiThread's truthful minimum -- two
+    // workers, one blocking lane -- rather than an error or a pool worth
+    // having. Hosts that want parallelism must pass a worker count they got
+    // from JavaScript.
+    let validated = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      ..RuntimeOptions::default()
+    }
+    .validate()
+    .expect("MultiThread must validate on the threaded WASI target");
+    assert_eq!(validated.worker_threads, 2);
+    assert_eq!(validated.max_blocking_tasks, 1);
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn threadless_build_is_false_on_the_threads_target() {
+    // `THREADLESS_BUILD` and `napi_runtime_os_threads` are orthogonal cfgs
+    // that must agree on this one target, or the CurrentThread park logic and
+    // the MultiThread machinery would disagree about whether a second thread
+    // can deliver a wake.
+    assert!(
+      !THREADLESS_BUILD,
+      "the threaded WASI target has real OS threads"
+    );
+    assert!(
+      cfg!(napi_runtime_os_threads),
+      "the threaded WASI target must build the OS-thread machinery"
+    );
+  }
+
+  // `not(napi_runtime_os_threads)` is exactly "wasm and not the threaded WASI
+  // target": the build script sets the cfg for every non-wasm target plus
+  // `wasm32-wasip1-threads`.
+  #[cfg(not(napi_runtime_os_threads))]
+  #[test]
+  fn threadless_wasm_still_rejects_multi_thread() {
+    let error = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      ..RuntimeOptions::default()
+    }
+    .validate()
+    .expect_err("threadless WebAssembly cannot run the multi-thread runtime");
+    let message = error.to_string();
+    assert!(
+      message.contains("threadless"),
+      "the rejection must name the property that causes it, not the family: {message}"
+    );
+    assert!(
+      message.contains("wasm32-wasip1-threads"),
+      "the rejection must name the target that does work: {message}"
+    );
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn multi_thread_pool_starts_and_joins_every_worker() {
+    // The disposal order the WASI loader depends on, as a unit test: every
+    // worker is joined BEFORE anything tears the environment down, so no
+    // thread can still be running over memory that is about to disappear.
+    let options = RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads: 3,
+      max_blocking_tasks: 2,
+      thread_name_prefix: "rd-os-threads-join".to_string(),
+      park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
+    };
+    let executor = Arc::new(
+      MultiThreadExecutor::new(&options, Arc::new(RuntimeMetrics::default()))
+        .expect("a three-worker pool must build"),
+    );
+    assert_eq!(executor.pool.current_num_threads(), 3);
+
+    let ran = Arc::new(AtomicBool::new(false));
+    let task_ran = Arc::clone(&ran);
+    let (runnable, task) = async_task::spawn(
+      async move {
+        task_ran.store(true, Ordering::SeqCst);
+      },
+      |_| {},
+    );
+    executor.schedule(runnable);
+    futures::executor::block_on(task);
+    assert!(
+      ran.load(Ordering::SeqCst),
+      "the pool must run scheduled work"
+    );
+
+    let lifecycle = Arc::clone(&executor.worker_lifecycle);
+    executor.begin_shutdown();
+    executor.wait_until_scheduler_idle();
+    // A drainer's Rayon job decrements `active_drainers` before its closure
+    // is dropped, so the last reference can lag the idle barrier by a moment.
+    // Spin for it under a deadline: taking the value out is what proves the
+    // pool really goes away here, and turns a leaked reference into a
+    // failure rather than a hang in the join below.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Arc::strong_count(&executor) > 1 && Instant::now() < deadline {
+      std::thread::yield_now();
+    }
+    let executor = Arc::into_inner(executor)
+      .expect("no drainer may outlive `wait_until_scheduler_idle` for long");
+    drop(executor);
+    lifecycle.wait_for_all_workers();
+    assert_eq!(
+      lifecycle.remaining(),
+      0,
+      "every physical worker must have exited before the join returns"
+    );
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn current_thread_queues_concurrent_blocking_admission() {
+    // A second OS thread submitting `spawn_blocking` while the lane owner
+    // runs, carrying no `ambient_owner`. The gate that decides this used to
+    // read `target_family = "wasm"` while its comment argued "threadless", so
+    // on a threaded wasm build the closure was dropped and the handle
+    // resolved to "the async runtime stopped before the blocking task could
+    // start". It must be QUEUED and serviced on a later host turn.
+    use std::sync::mpsc;
+
+    let executor = Arc::new(CurrentThreadExecutor::new(Arc::new(
+      RuntimeMetrics::default(),
+    )));
+    let work = GenerationWork::new();
+    let (outcome_tx, outcome_rx) = mpsc::channel();
+
+    let owner_registration = work
+      .try_register_work()
+      .expect("the lane owner's blocking job must be accepted");
+    let concurrent_work = Arc::clone(&work);
+    let concurrent_executor = Arc::clone(&executor);
+    let task_executor = Arc::clone(&executor);
+    let wake_executor = Arc::clone(&executor);
+    let (runnable, task) = async_task::spawn(
+      async move {
+        let concurrent = task_executor
+          .schedule_blocking(
+            move || {
+              std::thread::spawn(move || {
+                let registration = concurrent_work
+                  .try_register_work()
+                  .expect("the concurrent blocking job must be accepted");
+                concurrent_executor.schedule_blocking(|| 7usize, registration)
+              })
+              .join()
+              .expect("the concurrent submitter thread must finish")
+            },
+            owner_registration,
+          )
+          .await
+          .expect("the lane owner's blocking job must finish");
+        let _ = outcome_tx.send(concurrent.await);
+      },
+      move |runnable| wake_executor.schedule(runnable),
+    );
+
+    executor.schedule(runnable);
+    let mut turns = 0usize;
+    let outcome = loop {
+      executor.drive_host_turn();
+      if let Ok(outcome) = outcome_rx.try_recv() {
+        break outcome;
+      }
+      turns += 1;
+      assert!(
+        turns <= 8,
+        "queued blocking admission must make bounded host-turn progress"
+      );
+    };
+    futures::executor::block_on(task);
+    assert_eq!(
+      outcome.expect("a concurrent blocking submission must be queued, not rejected"),
+      7
+    );
   }
 }
