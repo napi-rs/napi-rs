@@ -177,7 +177,9 @@ impl RuntimeOptions {
     } else {
       let Some(rayon_max_threads) = rayon_max_threads else {
         return Err(RuntimeConfigError(
-          "the multi-thread runtime is unavailable in this WebAssembly build".to_string(),
+          "the multi-thread runtime is unavailable in this threadless WebAssembly build \
+           (wasm32-wasip1 / wasm32-unknown-unknown); build for wasm32-wasip1-threads to use it"
+            .to_string(),
         ));
       };
       if rayon_max_threads < 2 {
@@ -3813,9 +3815,12 @@ impl CurrentThreadExecutor {
           }
           #[cfg(not(napi_runtime_os_threads))]
           {
-            // A threadless CurrentThread executor cannot reach unrelated
-            // concurrent admission. Same-stack nesting carries `ambient_owner`
-            // and takes the borrowing branch above.
+            // This arm is threadless by construction: without
+            // `napi_runtime_os_threads` no second thread exists to reach
+            // unrelated concurrent admission. Same-stack nesting carries
+            // `ambient_owner` and takes the borrowing branch above. On
+            // `wasm32-wasip1-threads` a second thread DOES reach here, which
+            // is why that target takes the queueing branch instead.
             rejected = true;
           }
         }
@@ -10385,7 +10390,9 @@ impl RuntimeBackend {
         {
           let _ = metrics;
           return Err(RuntimeConfigError(
-            "the multi-thread runtime is unavailable in this WebAssembly build".to_string(),
+            "the multi-thread runtime is unavailable in this threadless WebAssembly build \
+             (wasm32-wasip1 / wasm32-unknown-unknown); build for wasm32-wasip1-threads to use it"
+              .to_string(),
           ));
         }
       }
