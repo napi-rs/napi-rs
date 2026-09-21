@@ -41,9 +41,11 @@ CurrentThread builds.
 
 ## Implementation notes
 
-- **Flavors.** `MultiThread` (native only) runs futures on a Rayon-backed
-  worker pool; `CurrentThread` (the only flavor on WebAssembly) never creates
-  threads and instead publishes _host turns_ through registered
+- **Flavors.** `MultiThread` runs futures on a Rayon-backed worker pool; it is
+  available on native targets and on `wasm32-wasip1-threads`, and is rejected
+  on threadless WebAssembly. `CurrentThread` (the default on every wasm target
+  and the only flavor on threadless ones) never creates threads and instead
+  publishes _host turns_ through registered
   `CurrentThreadTaskDriver`s — on Node that driver is a native threadsafe
   function installed by `registerCurrentThreadTaskHost` (contract version
   **4**: a registration capability is reserved and validated before host
@@ -67,11 +69,18 @@ CurrentThread builds.
   tokio: dropping a `JoinHandle` detaches, and shutdown may cancel accepted
   work by dropping futures.
 - **Threadless wasm** (`wasm32-wasip1`, `wasm32-unknown-unknown`): no threads,
-  no `Atomics.wait`. A `block_on` park that provably can never be woken fails
-  loudly with the typed `BlockOnDeadlock` panic instead of hanging the JS
-  event loop. The `wasm32-wasip1-threads` target is discriminated by this
-  crate's build.rs (`napi_runtime_wasi_threads` cfg) because rustc exposes
-  identical cfg sets for both WASI targets.
+  no `Atomics.wait`. `MultiThread` is rejected at `validate()` there. A
+  `block_on` park that provably can never be woken fails loudly with the typed
+  `BlockOnDeadlock` panic instead of hanging the JS event loop.
+- **Threaded wasm** (`wasm32-wasip1-threads`): `wasi.thread-spawn` gives std a
+  real `pthread_create`, so both flavors work exactly as on native. rustc
+  exposes identical cfg sets for the two WASI targets, so this crate's
+  build.rs discriminates them from the exact cargo `TARGET`, emitting
+  `napi_runtime_wasi_threads` (the threaded WASI target) and
+  `napi_runtime_os_threads` (native **or** the threaded WASI target — "this
+  build can create OS threads"). The default flavor stays `CurrentThread` on
+  every wasm target: selecting `MultiThread` there is always an explicit host
+  act.
 
 The scheduler and adapter were extracted from rolldown's shared async runtime
 (rolldown#9977/#9978) and generalized; the wire behavior of the host protocol

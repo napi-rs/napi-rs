@@ -4,8 +4,9 @@
 //!
 //! - **Scheduler** (always compiled, napi-free): a pluggable async/CPU/blocking
 //!   scheduler with a MultiThread flavor (Rayon-backed worker pool on native
-//!   targets) and a CurrentThread flavor (host-driven turns; the only flavor on
-//!   WebAssembly). Exposed at the crate root: [`spawn`], [`spawn_blocking`],
+//!   targets and on `wasm32-wasip1-threads`) and a CurrentThread flavor
+//!   (host-driven turns; the only flavor on threadless WebAssembly targets).
+//!   Exposed at the crate root: [`spawn`], [`spawn_blocking`],
 //!   [`block_on`], [`sleep_until`], [`configure`], [`start`], [`shutdown`],
 //!   the host driver SPIs ([`CurrentThreadTaskDriver`], [`TimerDriver`]), and
 //!   the metrics/introspection helpers.
@@ -23,13 +24,17 @@ pub const MAX_ASYNC_RUNTIME_WORKER_THREADS: usize = 256;
 
 /// Platform-realizable worker ceiling after applying this crate's production
 /// cap.
-#[cfg(not(target_family = "wasm"))]
+///
+/// On `wasm32-wasip1-threads` Rayon reports 255 (`THREADS_BITS = 8` on 32-bit),
+/// so this returns 255 there rather than the native cap of 256.
+#[cfg(napi_runtime_os_threads)]
 pub fn max_async_runtime_worker_threads() -> usize {
   MAX_ASYNC_RUNTIME_WORKER_THREADS.min(::rayon::max_num_threads())
 }
 
-/// WebAssembly builds use the current-thread executor.
-#[cfg(target_family = "wasm")]
+/// Threadless WebAssembly builds (`wasm32-wasip1`, `wasm32-unknown-unknown`)
+/// use the current-thread executor and can never create a worker.
+#[cfg(not(napi_runtime_os_threads))]
 pub const fn max_async_runtime_worker_threads() -> usize {
   1
 }
