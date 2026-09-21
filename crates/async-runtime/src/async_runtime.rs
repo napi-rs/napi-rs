@@ -29,13 +29,13 @@ use futures::{
   future::{AbortHandle, AbortRegistration, Abortable},
 };
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 use crossbeam_deque::{Injector, Steal};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 use futures::channel::oneshot;
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 use rayon::max_num_threads;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 /// Stable scheduler identities are equality capabilities. Exhaustion must fail
@@ -143,9 +143,9 @@ impl Default for RuntimeOptions {
 
 impl RuntimeOptions {
   fn validate(self) -> Result<Self, RuntimeConfigError> {
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(napi_runtime_os_threads))]
     let rayon_max_threads = None;
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let rayon_max_threads = Some(crate::max_async_runtime_worker_threads());
     self.validate_with_rayon_max_threads(rayon_max_threads)
   }
@@ -270,12 +270,12 @@ const MAX_DRAIN_LINGER: Duration = Duration::from_micros(MAX_DRAIN_LINGER_MICROS
 /// the exit-and-respawn through rayon's queue is exactly the interleaving
 /// point that lets pending raw rayon work (par_iter splits, `pool.spawn`
 /// jobs) take the worker before the re-armed FIFO drain.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 const DRAIN_LINGER_FRAME_FACTOR: u32 = 16;
 
 /// Ceiling on the frame residence bound so an absurd [`DRAIN_LINGER_ENV`]
 /// value cannot arm a deadline beyond the platform's representable range.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 const MAX_DRAIN_LINGER_FRAME_RESIDENCE: Duration = Duration::from_secs(60);
 
 /// True on builds where no second thread can EVER deliver a wake to a parked
@@ -369,7 +369,7 @@ impl BlockOnDeadlock {
 
   // The MultiThread executor (and thus this constructor's caller) does not
   // exist on wasm builds.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn multi_thread_cooperative(deadline: Duration) -> Self {
     Self {
       kind: BlockOnDeadlockKind::MultiThreadCooperativeDeadline,
@@ -740,14 +740,14 @@ impl<T> Drop for ContainedTaskOutput<T> {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct BlockingJobId(u64);
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 static NEXT_BLOCKING_JOB_ID: AtomicU64 = AtomicU64::new(1);
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEPENDENCY_CLAIM_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
@@ -787,7 +787,7 @@ thread_local! {
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 struct WorkerTlsDropProbe {
   action: Option<WorkerTlsDropAction>,
 }
@@ -805,7 +805,7 @@ struct WorkerTlsDropProbe {
 // the CI step timeout (Windows x64 jobs, runs 29195160953 / 86662331487).
 // Destructor actions may only RECORD (atomic stores, non-blocking sends);
 // ordering invariants are asserted from OUTSIDE, after `shutdown()` returns.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 enum WorkerTlsDropAction {
   /// Record-only: bump the shared counter so the harness can assert -- the
   /// instant `shutdown()` returns -- that every worker TLS destructor had
@@ -817,7 +817,7 @@ enum WorkerTlsDropAction {
   },
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 impl Drop for WorkerTlsDropProbe {
   fn drop(&mut self) {
     match self
@@ -844,14 +844,14 @@ impl Drop for WorkerTlsDropProbe {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_dependency_claim_test_hook() {
   if let Some(hook) = DEPENDENCY_CLAIM_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_dispatch_claim_test_hook() {
   if let Some(hook) = CURRENT_THREAD_DISPATCH_CLAIM_TEST_HOOK.with(|slot| slot.borrow_mut().take())
   {
@@ -859,7 +859,7 @@ fn run_current_thread_dispatch_claim_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_dispatch_publication_blocked_test_hook() {
   if let Some(hook) =
     CURRENT_THREAD_DISPATCH_PUBLICATION_BLOCKED_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -868,7 +868,7 @@ fn run_current_thread_dispatch_publication_blocked_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_dispatch_recovery_test_hook() {
   if let Some(hook) =
     CURRENT_THREAD_DISPATCH_RECOVERY_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -877,7 +877,7 @@ fn run_current_thread_dispatch_recovery_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_failed_publication_retired_test_hook() {
   if let Some(hook) =
     CURRENT_THREAD_FAILED_PUBLICATION_RETIRED_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -886,14 +886,14 @@ fn run_current_thread_failed_publication_retired_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_dispatch_call_test_hook() {
   if let Some(hook) = CURRENT_THREAD_DISPATCH_CALL_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_dispatch_returned_test_hook() {
   if let Some(hook) =
     CURRENT_THREAD_DISPATCH_RETURNED_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -902,7 +902,7 @@ fn run_current_thread_dispatch_returned_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_blocking_claim_test_hook() {
   if let Some(hook) = CURRENT_THREAD_BLOCKING_CLAIM_TEST_HOOK.with(|slot| slot.borrow_mut().take())
   {
@@ -910,7 +910,7 @@ fn run_current_thread_blocking_claim_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_current_thread_runnable_claim_test_hook() {
   if let Some(hook) = CURRENT_THREAD_RUNNABLE_CLAIM_TEST_HOOK.with(|slot| slot.borrow_mut().take())
   {
@@ -918,28 +918,28 @@ fn run_current_thread_runnable_claim_test_hook() {
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_multi_thread_work_claimed_test_hook() {
   if let Some(hook) = MULTI_THREAD_WORK_CLAIMED_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_multi_thread_work_started_test_hook() {
   if let Some(hook) = MULTI_THREAD_WORK_STARTED_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_dependency_predicate_test_hook() {
   if let Some(hook) = DEPENDENCY_PREDICATE_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_before_owned_blocking_queue_claim_test_hook() {
   if let Some(hook) =
     BEFORE_OWNED_BLOCKING_QUEUE_CLAIM_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -948,21 +948,21 @@ fn run_before_owned_blocking_queue_claim_test_hook() {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct BlockingDependency {
   job: BlockingJobId,
   owner: Option<BlockingOwnerToken>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Debug)]
 struct DependencyClaim {
   claimed: AtomicBool,
   transition: Mutex<()>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl DependencyClaim {
   fn new() -> Self {
     Self {
@@ -998,14 +998,14 @@ impl DependencyClaim {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Debug)]
 struct DependencyLink {
   live: AtomicBool,
   parent: Option<Weak<DependencyLink>>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl DependencyLink {
   fn root() -> Arc<Self> {
     Arc::new(Self {
@@ -1050,7 +1050,7 @@ impl DependencyLink {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct DependencyPublicationIdentity {
   job: BlockingJobId,
@@ -1058,7 +1058,7 @@ struct DependencyPublicationIdentity {
   link: *const DependencyLink,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Clone, Debug)]
 struct DependencyPublication {
   dependency: BlockingDependency,
@@ -1066,7 +1066,7 @@ struct DependencyPublication {
   link: Arc<DependencyLink>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl DependencyPublication {
   fn owned(dependency: BlockingDependency) -> Self {
     Self {
@@ -1131,26 +1131,26 @@ impl DependencyPublication {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct TaskDependencyEntry {
   sequence: u64,
   publication: DependencyPublication,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct SelectedDependencyPublication {
   sequence: u64,
   publication: DependencyPublication,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Clone, Copy)]
 enum OwnerDependencyMode {
   Available,
   Exact,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Default)]
 struct TaskDependencyState {
   current: VecDeque<TaskDependencyEntry>,
@@ -1169,7 +1169,7 @@ struct TaskDependencyState {
   waiter: Option<Waker>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl TaskDependencyState {
   /// Publish `publication` and return the sequence it was filed under, so the
   /// publisher can retire exactly this entry later in O(1).
@@ -1245,7 +1245,7 @@ impl TaskDependencyState {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct TaskDependency {
   state: Mutex<TaskDependencyState>,
   owner_hint: Option<BlockingOwnerToken>,
@@ -1255,14 +1255,14 @@ struct TaskDependency {
   entry_visits: AtomicUsize,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Default for TaskDependency {
   fn default() -> Self {
     Self::new(u64::MAX, None)
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl TaskDependency {
   fn new(generation: u64, owner_hint: Option<BlockingOwnerToken>) -> Self {
     Self {
@@ -1582,7 +1582,7 @@ impl TaskDependency {
     owner: BlockingOwnerToken,
     mode: OwnerDependencyMode,
   ) -> bool {
-    #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg(all(test, napi_runtime_os_threads))]
     run_dependency_predicate_test_hook();
     let mut state = self
       .state
@@ -1711,7 +1711,7 @@ impl TaskDependency {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for TaskDependency {
   fn drop(&mut self) {
     let state = self
@@ -1728,16 +1728,16 @@ impl Drop for TaskDependency {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 thread_local! {
   static CURRENT_DEPENDENCY_STACK: std::cell::RefCell<Vec<Arc<TaskDependency>>> =
     const { std::cell::RefCell::new(Vec::new()) };
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct TaskDependencyGuard(Arc<TaskDependency>);
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl TaskDependencyGuard {
   fn enter(dependency: &Arc<TaskDependency>) -> Self {
     let dependency = Arc::clone(dependency);
@@ -1746,7 +1746,7 @@ impl TaskDependencyGuard {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for TaskDependencyGuard {
   fn drop(&mut self) {
     CURRENT_DEPENDENCY_STACK.with(|stack| {
@@ -1759,13 +1759,13 @@ impl Drop for TaskDependencyGuard {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct BlockOnDependencyGuard {
   dependency: Arc<TaskDependency>,
   _context: TaskDependencyGuard,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl BlockOnDependencyGuard {
   fn enter(generation: u64) -> Self {
     let owner = BLOCKING_OWNER.with(std::cell::Cell::get);
@@ -1796,7 +1796,7 @@ impl BlockOnDependencyGuard {
 /// frames over its life, and holding each one alive to remember it would retain
 /// one dead `TaskDependency`, with its deque and index maps, per frame the
 /// handle has ever seen.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct PublishedBlockingDependency {
   state: Weak<TaskDependency>,
   sequence: u64,
@@ -1820,14 +1820,14 @@ struct PublishedBlockingDependency {
 /// in the frame it was called on, so nothing was forgotten; a handle that
 /// remembered only its newest publication would forget both a repeat poll in
 /// one frame and a poll under a nested frame.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Default)]
 struct PublishedBlockingDependencies {
   first: Option<PublishedBlockingDependency>,
   rest: Vec<PublishedBlockingDependency>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl PublishedBlockingDependency {
   /// Whether this publication is still worth remembering.
   ///
@@ -1851,7 +1851,7 @@ impl PublishedBlockingDependency {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl PublishedBlockingDependencies {
   /// Forget publications whose frame is gone.
   ///
@@ -1955,7 +1955,7 @@ impl PublishedBlockingDependencies {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 fn record_blocking_dependency(
   published: &mut PublishedBlockingDependencies,
   dependency: BlockingDependency,
@@ -1972,7 +1972,7 @@ fn record_blocking_dependency(
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 fn propagate_blocking_dependency(publication: DependencyPublication) {
   let current = CURRENT_DEPENDENCY_STACK.with(|stack| stack.borrow().last().cloned());
   if let Some(current) = current {
@@ -1982,7 +1982,7 @@ fn propagate_blocking_dependency(publication: DependencyPublication) {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 fn clear_blocking_dependency(published: PublishedBlockingDependencies) {
   // Retire against the states that were published to, NOT against whatever
   // frame happens to be on top of the stack at drop time. The frame that
@@ -1990,7 +1990,7 @@ fn clear_blocking_dependency(published: PublishedBlockingDependencies) {
   published.retire_all();
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 fn clear_propagated_blocking_dependencies(publications: &[DependencyPublication]) {
   let current = CURRENT_DEPENDENCY_STACK.with(|stack| stack.borrow().last().cloned());
   if let Some(current) = current {
@@ -2002,10 +2002,10 @@ enum JoinHandleInner<T> {
   Task {
     task: FallibleTask<Result<ContainedTaskOutput<T>, JoinError>>,
     awaiter: Option<PanicContainedWakerCache>,
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     dependency: Arc<TaskDependency>,
   },
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   Blocking {
     receiver: oneshot::Receiver<Result<ContainedTaskOutput<T>, JoinError>>,
     dependency: BlockingDependency,
@@ -2027,15 +2027,15 @@ impl<T> JoinHandle<T> {
       JoinHandleInner::Task {
         task,
         awaiter: _,
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         dependency,
       } => {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         let current_dependencies = dependency.snapshot_all_live();
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         dependency.clear_waiter();
         task.detach();
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         // Dependency cleanup may wake an arbitrary caller-provided waker.
         // Retire the task first, then contain the notification boundary so
         // reentrant wake code cannot observe a half-detached handle.
@@ -2043,7 +2043,7 @@ impl<T> JoinHandle<T> {
           clear_propagated_blocking_dependencies(&current_dependencies);
         });
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       JoinHandleInner::Blocking {
         receiver,
         dependency: _,
@@ -2085,7 +2085,7 @@ impl<T> Future for JoinHandle<T> {
       JoinHandleInner::Task {
         task,
         awaiter: awaiter_slot,
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         dependency,
       } => {
         let awaiter = match awaiter_slot {
@@ -2098,7 +2098,7 @@ impl<T> Future for JoinHandle<T> {
         let contained_waker = awaiter.contained();
         let mut contained_cx = Context::from_waker(contained_waker);
         let poll = Pin::new(task).poll(&mut contained_cx);
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         if poll.is_pending() {
           for current_dependency in dependency.register_waiter_and_get(contained_waker) {
             propagate_blocking_dependency(current_dependency);
@@ -2117,7 +2117,7 @@ impl<T> Future for JoinHandle<T> {
           Poll::Pending => Poll::Pending,
         }
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       JoinHandleInner::Blocking {
         receiver,
         dependency,
@@ -2230,7 +2230,7 @@ impl RuntimeMetrics {
     ActiveRunnableGuard { metrics: self }
   }
 
-  #[cfg(any(not(target_family = "wasm"), test))]
+  #[cfg(any(napi_runtime_os_threads, test))]
   fn runnable_cancelled(&self) {
     self.queued_runnables.fetch_sub(1, Ordering::Relaxed);
   }
@@ -2496,7 +2496,7 @@ impl GenerationStop {
   }
 
   fn publication_guard(&self) -> GenerationStopPublicationGuard<'_> {
-    #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg(all(test, napi_runtime_os_threads))]
     run_before_generation_stop_publication_lock_test_hook();
     self.runnable_claim_guard()
   }
@@ -2812,14 +2812,14 @@ impl<F> Drop for RegisteredTaskFuture<F> {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct RegisteredBlockingFunction<F> {
   function: Option<F>,
   registration: Option<GenerationWorkGuard>,
   generation: u64,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl<F> RegisteredBlockingFunction<F> {
   fn new(function: F, registration: GenerationWorkGuard, generation: u64) -> Self {
     Self {
@@ -2845,7 +2845,7 @@ impl<F> RegisteredBlockingFunction<F> {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl<F> Drop for RegisteredBlockingFunction<F> {
   fn drop(&mut self) {
     let _generation = RuntimeGenerationGuard::enter(self.generation);
@@ -2864,7 +2864,7 @@ fn run_runnable(metrics: &RuntimeMetrics, runnable: Runnable) {
   let _ = catch_unwind_contained(|| runnable.run());
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 enum RunnableClaim {
   Empty,
   Run(Runnable),
@@ -2890,7 +2890,7 @@ struct CurrentThreadBlockingAdmission {
 struct CurrentThreadBlockingAdmissionState {
   owner: Option<BlockingOwnerToken>,
   closed: bool,
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   queue: BlockingQueue,
 }
 
@@ -2975,7 +2975,7 @@ struct CurrentThreadQueue {
   /// Blocking jobs queued when a terminal dispatch failure happened. Same
   /// contract as `rejected`: dropping a job destroys its closure and its
   /// result sender, which wakes the awaiting task.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   rejected_blocking: Vec<Box<dyn FnOnce() + Send + 'static>>,
 }
 
@@ -3315,7 +3315,7 @@ impl CurrentThreadExecutor {
   /// JavaScript event loop. Remaining work is continued in a fresh host turn.
   const HOST_TURN_RUNNABLE_BUDGET: usize = 64;
   /// Force one blocking turn after this many consecutive runnable polls.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   const RUNNABLE_FAIRNESS_QUANTUM: usize = 16;
   /// How many retirement turns one waker-stack terminal failure may take --
   /// the turns another thread's submissions can inflate. The one offer nothing
@@ -3368,14 +3368,14 @@ impl CurrentThreadExecutor {
         closed: false,
         runnables: VecDeque::new(),
         rejected: Vec::new(),
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         rejected_blocking: Vec::new(),
       }),
       blocking_admission: CurrentThreadBlockingAdmission {
         state: Mutex::new(CurrentThreadBlockingAdmissionState {
           owner: None,
           closed: false,
-          #[cfg(not(target_family = "wasm"))]
+          #[cfg(napi_runtime_os_threads)]
           queue: BlockingQueue {
             closed: false,
             head: None,
@@ -3411,9 +3411,9 @@ impl CurrentThreadExecutor {
       .queue
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let has_rejected_blocking = !queue.rejected_blocking.is_empty();
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(napi_runtime_os_threads))]
     let has_rejected_blocking = false;
     !queue.rejected.is_empty() || has_rejected_blocking
   }
@@ -3432,7 +3432,7 @@ impl CurrentThreadExecutor {
     }
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     loop {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       let (rejected, rejected_blocking) = {
         let mut queue = self
           .queue
@@ -3446,7 +3446,7 @@ impl CurrentThreadExecutor {
           std::mem::take(&mut queue.rejected_blocking),
         )
       };
-      #[cfg(target_family = "wasm")]
+      #[cfg(not(napi_runtime_os_threads))]
       let rejected = {
         let mut queue = self
           .queue
@@ -3460,7 +3460,7 @@ impl CurrentThreadExecutor {
       for runnable in rejected {
         let _ = catch_unwind_contained(|| drop(runnable));
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       for job in rejected_blocking {
         let _ = catch_unwind_contained(|| drop(job));
       }
@@ -3746,9 +3746,9 @@ impl CurrentThreadExecutor {
     let mut owns_lane = false;
     let mut rejected = false;
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let (sender, receiver) = oneshot::channel();
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let dependency = BlockingDependency {
       job: BlockingJobId(next_unique_id(
         &NEXT_BLOCKING_JOB_ID,
@@ -3756,7 +3756,7 @@ impl CurrentThreadExecutor {
       )),
       owner: ambient_owner,
     };
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let mut queued = false;
 
     {
@@ -3765,7 +3765,7 @@ impl CurrentThreadExecutor {
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-      #[cfg(all(test, not(target_family = "wasm")))]
+      #[cfg(all(test, napi_runtime_os_threads))]
       run_current_thread_blocking_claim_test_hook();
       // Shutdown publishes generation stop before taking this mutex. Recheck
       // it while admission is serialized so work cannot claim or queue for the
@@ -3778,9 +3778,9 @@ impl CurrentThreadExecutor {
       } else if ambient_owner.is_some() && state.owner == ambient_owner {
         run_owner = ambient_owner;
       } else {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         let queue_empty = state.queue.is_empty();
-        #[cfg(target_family = "wasm")]
+        #[cfg(not(napi_runtime_os_threads))]
         let queue_empty = true;
 
         if state.owner.is_none() && queue_empty {
@@ -3789,7 +3789,7 @@ impl CurrentThreadExecutor {
           run_owner = Some(owner);
           owns_lane = true;
         } else {
-          #[cfg(not(target_family = "wasm"))]
+          #[cfg(napi_runtime_os_threads)]
           {
             let function = function
               .take()
@@ -3811,7 +3811,7 @@ impl CurrentThreadExecutor {
             });
             queued = true;
           }
-          #[cfg(target_family = "wasm")]
+          #[cfg(not(napi_runtime_os_threads))]
           {
             // A threadless CurrentThread executor cannot reach unrelated
             // concurrent admission. Same-stack nesting carries `ambient_owner`
@@ -3822,7 +3822,7 @@ impl CurrentThreadExecutor {
       }
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     if queued {
       self.stop.wake_all();
       if self.has_serviceable_blocking_work() && !self.draining.load(Ordering::Acquire) {
@@ -3860,7 +3860,7 @@ impl CurrentThreadExecutor {
     }
     .map(|output| ContainedTaskOutput::new(output, self.generation));
     drop(blocking);
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     if owns_lane && !self.draining.load(Ordering::Acquire) {
       // An admitted host turn already owns a bounded queue driver. Let its
       // outer loop service the released FIFO so blocking work cannot bypass
@@ -3870,7 +3870,7 @@ impl CurrentThreadExecutor {
     JoinHandle(JoinHandleInner::Ready(Some(result)))
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn take_queued_blocking(
     &self,
   ) -> Option<(
@@ -3883,7 +3883,7 @@ impl CurrentThreadExecutor {
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-      #[cfg(all(test, not(target_family = "wasm")))]
+      #[cfg(all(test, napi_runtime_os_threads))]
       run_current_thread_blocking_claim_test_hook();
       if self.stop.is_stopping()
         || state.closed
@@ -3900,7 +3900,7 @@ impl CurrentThreadExecutor {
     Some((job, self.enter_blocking_owner(owner, true)))
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn run_one_blocking(&self) -> bool {
     let Some((job, blocking)) = self.take_queued_blocking() else {
       return false;
@@ -3914,12 +3914,12 @@ impl CurrentThreadExecutor {
     true
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn service_queued_blocking_work(&self) {
     while self.run_one_blocking() {}
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn has_serviceable_blocking_work(&self) -> bool {
     let state = self
       .blocking_admission
@@ -3929,7 +3929,7 @@ impl CurrentThreadExecutor {
     !state.closed && state.owner.is_none() && !state.queue.is_empty()
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn try_run_owned_blocking(&self, dependency: &TaskDependency) -> bool {
     let Some(ambient_owner) = BLOCKING_OWNER
       .with(std::cell::Cell::get)
@@ -3946,7 +3946,7 @@ impl CurrentThreadExecutor {
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-      #[cfg(all(test, not(target_family = "wasm")))]
+      #[cfg(all(test, napi_runtime_os_threads))]
       run_current_thread_blocking_claim_test_hook();
       if self.stop.is_stopping()
         || state.closed
@@ -3971,7 +3971,7 @@ impl CurrentThreadExecutor {
   }
 
   fn close_blocking_admission(&self) {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let queued = {
       let mut state = self
         .blocking_admission
@@ -3982,7 +3982,7 @@ impl CurrentThreadExecutor {
       state.queue.closed = true;
       state.queue.take_all()
     };
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(napi_runtime_os_threads))]
     {
       let mut state = self
         .blocking_admission
@@ -3991,7 +3991,7 @@ impl CurrentThreadExecutor {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       state.closed = true;
     }
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     for job in queued {
       let _ = catch_unwind_contained(|| drop(job));
     }
@@ -4102,7 +4102,7 @@ impl CurrentThreadExecutor {
   fn lock_scheduler_for_publication(
     &self,
   ) -> std::sync::MutexGuard<'_, CurrentThreadSchedulerState> {
-    #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg(all(test, napi_runtime_os_threads))]
     match self.scheduler_idle_lock.try_lock() {
       Ok(scheduler) => scheduler,
       Err(std::sync::TryLockError::WouldBlock) => {
@@ -4202,10 +4202,10 @@ impl CurrentThreadExecutor {
     let mut panic_payload = RetainedPanicPayload::default();
     loop {
       let result = match catch_unwind(AssertUnwindSafe(|| {
-        #[cfg(all(test, not(target_family = "wasm")))]
+        #[cfg(all(test, napi_runtime_os_threads))]
         run_current_thread_dispatch_call_test_hook();
         let result = (self.task_dispatch)(dispatch);
-        #[cfg(all(test, not(target_family = "wasm")))]
+        #[cfg(all(test, napi_runtime_os_threads))]
         run_current_thread_dispatch_returned_test_hook();
         result
       })) {
@@ -4241,7 +4241,7 @@ impl CurrentThreadExecutor {
           } else {
             dispatch_call.finish_publication(&mut scheduler);
             let failure = if let Some(CurrentThreadHostDispatchResult::Failed(failure)) = result {
-              #[cfg(all(test, not(target_family = "wasm")))]
+              #[cfg(all(test, napi_runtime_os_threads))]
               run_current_thread_failed_publication_retired_test_hook();
               self.begin_host_dispatch_failure_locked(&mut scheduler, failure)
             } else {
@@ -4325,7 +4325,7 @@ impl CurrentThreadExecutor {
     {
       return None;
     }
-    #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg(all(test, napi_runtime_os_threads))]
     run_current_thread_dispatch_claim_test_hook();
     let _ =
       self
@@ -4373,10 +4373,10 @@ impl CurrentThreadExecutor {
     // A host turn is the continuation a terminal failure on a waker's stack
     // relies on: cancel the work it moved aside before polling anything new.
     self.retire_rejected_work_off_waker_stack();
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let mut runnable_streak = 0usize;
     for _ in 0..Self::HOST_TURN_RUNNABLE_BUDGET {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       if runnable_streak >= Self::RUNNABLE_FAIRNESS_QUANTUM {
         runnable_streak = 0;
         if self.run_one_blocking() {
@@ -4384,13 +4384,13 @@ impl CurrentThreadExecutor {
         }
       }
       if self.drain_one() {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         {
           runnable_streak += 1;
         }
         continue;
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       if self.run_one_blocking() {
         runnable_streak = 0;
         continue;
@@ -4501,7 +4501,7 @@ impl CurrentThreadExecutor {
     {
       return CurrentThreadDispatchFailureAction::None;
     }
-    #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg(all(test, napi_runtime_os_threads))]
     run_current_thread_dispatch_recovery_test_hook();
 
     if self
@@ -4573,9 +4573,9 @@ impl CurrentThreadExecutor {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       !queue.closed && !queue.runnables.is_empty()
     };
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let has_queued_blocking = self.has_serviceable_blocking_work();
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(napi_runtime_os_threads))]
     let has_queued_blocking = false;
     has_queued_runnable || has_queued_blocking
   }
@@ -4646,7 +4646,7 @@ impl CurrentThreadExecutor {
     let mut cancelling = Some(cancelling);
     // Blocking work first: the claimed flag blocks admission and claims, so
     // nothing can join or leave the FIFO between this take and the reopen.
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let queued_blocking = {
       let mut state = self
         .blocking_admission
@@ -4668,7 +4668,7 @@ impl CurrentThreadExecutor {
         .fetch_sub(moved, Ordering::Relaxed);
       let runnables = std::mem::take(&mut queue.runnables);
       queue.rejected.extend(runnables);
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       queue.rejected_blocking.extend(queued_blocking);
       if CurrentThreadScheduleScope::is_active() {
         // Reopen while holding the queue lock: `schedule` consults the flag
@@ -4697,7 +4697,7 @@ impl CurrentThreadExecutor {
     // after the final pass.
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     loop {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       let (rejected, rejected_blocking) = {
         let mut queue = self
           .queue
@@ -4712,7 +4712,7 @@ impl CurrentThreadExecutor {
           std::mem::take(&mut queue.rejected_blocking),
         )
       };
-      #[cfg(target_family = "wasm")]
+      #[cfg(not(napi_runtime_os_threads))]
       let rejected = {
         let mut queue = self
           .queue
@@ -4727,7 +4727,7 @@ impl CurrentThreadExecutor {
       for runnable in rejected {
         let _ = catch_unwind_contained(|| drop(runnable));
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       for job in rejected_blocking {
         let _ = catch_unwind_contained(|| drop(job));
       }
@@ -4743,7 +4743,7 @@ impl CurrentThreadExecutor {
       .scheduler_idle_lock
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
-    #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg(all(test, napi_runtime_os_threads))]
     run_current_thread_runnable_claim_test_hook();
     let stop_publication = self.stop.publication_guard();
     if stop_publication.is_stopping() || self.cancelling_failed_dispatch.load(Ordering::Acquire) {
@@ -4768,7 +4768,7 @@ impl CurrentThreadExecutor {
   fn drain_one(&self) -> bool {
     let runnable = self.take_runnable();
     if let Some(runnable) = runnable {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       let _non_owner = BlockingOwnerGuard::enter(None);
       run_runnable(&self.metrics, runnable);
       true
@@ -4801,17 +4801,17 @@ impl CurrentThreadExecutor {
   fn block_on(self: &Arc<Self>, mut future: Pin<&mut dyn Future<Output = ()>>) -> BlockOnOutcome {
     let parker = Arc::new(DriverParker::default());
     let _stop_registration = self.stop.register(&parker);
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let dependency = BlockOnDependencyGuard::enter(self.generation);
     let waker = std::task::Waker::from(Arc::clone(&parker));
     let mut cx = Context::from_waker(&waker);
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let mut runnable_streak = 0usize;
     loop {
       if self.stop.is_stopping() {
         return BlockOnOutcome::Stopped;
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       dependency.clear();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
@@ -4822,7 +4822,7 @@ impl CurrentThreadExecutor {
       if self.stop.is_stopping() {
         return BlockOnOutcome::Stopped;
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       if runnable_streak >= Self::RUNNABLE_FAIRNESS_QUANTUM {
         runnable_streak = 0;
         if self.try_run_owned_blocking(&dependency.dependency) || self.run_one_blocking() {
@@ -4830,18 +4830,18 @@ impl CurrentThreadExecutor {
         }
       }
       if self.drain_one() {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         {
           runnable_streak += 1;
         }
         continue;
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       if self.try_run_owned_blocking(&dependency.dependency) || self.run_one_blocking() {
         runnable_streak = 0;
         continue;
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       {
         runnable_streak = 0;
       }
@@ -4913,10 +4913,10 @@ impl CurrentThreadExecutor {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       queue.closed = true;
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       let rejected_blocking = std::mem::take(&mut queue.rejected_blocking);
       let rejected = std::mem::take(&mut queue.rejected);
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       let rejected = (rejected, rejected_blocking);
       (std::mem::take(&mut queue.runnables), rejected)
     };
@@ -4934,12 +4934,12 @@ impl CurrentThreadExecutor {
     }
     // Rejected work (already unaccounted above) is cancelled by whichever
     // side takes it first: this one, or a host entry that got there earlier.
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let (rejected, rejected_blocking) = rejected;
     for runnable in rejected {
       let _ = catch_unwind_contained(|| drop(runnable));
     }
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     for job in rejected_blocking {
       let _ = catch_unwind_contained(|| drop(job));
     }
@@ -4979,7 +4979,7 @@ impl CurrentThreadExecutor {
 // global executor used in production these ids always match, so this is a
 // defensive scoping gate (consistent with the blocking-owner machinery), not a
 // reachable production change.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 thread_local! {
   static ON_POOL_WORKER: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
   /// Identifies the dedicated timer thread for lifecycle self-wait
@@ -4993,14 +4993,14 @@ thread_local! {
 // arbitrary nested Rayon jobs need cooperative `block_on` classification, but
 // must not place work in the per-thread LIFO slot because no drain frame may
 // remain to consume it after the Rayon job returns.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SchedulerDriverRole {
   executor_id: u64,
   can_run_blocking: bool,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 thread_local! {
   static IN_SCHEDULER_DRIVER: std::cell::Cell<Option<SchedulerDriverRole>> =
     const { std::cell::Cell::new(None) };
@@ -5022,19 +5022,19 @@ thread_local! {
 // pre-park flush in `cooperative_block_on`, and `LifoSlotFlushGuard` for
 // unwinds. A runnable left here while the thread returns to rayon would be a
 // silently lost task and a `queued_runnables` leak.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 thread_local! {
   static LIFO_SLOT: std::cell::Cell<Option<(u64, Runnable)>> =
     const { std::cell::Cell::new(None) };
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct OnPoolWorkerGuard {
   previous_worker: Option<u64>,
   previous_driver: Option<SchedulerDriverRole>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl OnPoolWorkerGuard {
   // Save the previous marker and install `id`, so nested/re-entrant drains
   // (possibly from different executors on the same thread) restore the exact
@@ -5056,7 +5056,7 @@ impl OnPoolWorkerGuard {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for OnPoolWorkerGuard {
   fn drop(&mut self) {
     IN_SCHEDULER_DRIVER.with(|flag| flag.set(self.previous_driver));
@@ -5082,7 +5082,7 @@ struct BlockingOwnerToken {
   frame: u64,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 enum OwnedBlockingOutcome {
   Ineligible,
   OwnerBusy(BlockingOwnerToken),
@@ -5095,7 +5095,7 @@ enum OwnedBlockingOutcome {
 // Process-global owner-frame source for per-frame dependency-lending
 // isolation. Executor ids use `NEXT_RUNTIME_EXECUTOR_ID` above on every target.
 static NEXT_BLOCKING_FRAME: AtomicU64 = AtomicU64::new(1);
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 static NEXT_OWNER_RESERVATION: AtomicU64 = AtomicU64::new(1);
 
 // The owner frame (if any) currently running a counted blocking closure on THIS
@@ -5111,24 +5111,24 @@ thread_local! {
 // runnable an owner happens to drive via `run_one` is a logical non-owner and
 // must not inherit the owner's over-cap privilege). Restored on drop, so the
 // pattern is panic-safe even though `run_runnable` already catches panics.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct BlockingOwnerGuard(Option<BlockingOwnerToken>);
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl BlockingOwnerGuard {
   fn enter(token: Option<BlockingOwnerToken>) -> Self {
     Self(BLOCKING_OWNER.with(|cell| cell.replace(token)))
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for BlockingOwnerGuard {
   fn drop(&mut self) {
     BLOCKING_OWNER.with(|cell| cell.set(self.0));
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Default)]
 struct ActiveBlockingOwners {
   // `None` is available; `Some(id)` is reserved by exactly that lending
@@ -5137,7 +5137,7 @@ struct ActiveBlockingOwners {
   owners: Mutex<FxHashMap<BlockingOwnerToken, Option<u64>>>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl ActiveBlockingOwners {
   fn register(&self, owner: BlockingOwnerToken) {
     let previous = self
@@ -5196,13 +5196,13 @@ impl ActiveBlockingOwners {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct ActiveBlockingOwnerGuard<'a> {
   owners: &'a ActiveBlockingOwners,
   owner: BlockingOwnerToken,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl<'a> ActiveBlockingOwnerGuard<'a> {
   fn enter(owners: &'a ActiveBlockingOwners, owner: BlockingOwnerToken) -> Self {
     owners.register(owner);
@@ -5210,21 +5210,21 @@ impl<'a> ActiveBlockingOwnerGuard<'a> {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for ActiveBlockingOwnerGuard<'_> {
   fn drop(&mut self) {
     self.owners.unregister(self.owner);
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct OwnerLaneReservation<'a> {
   owners: &'a ActiveBlockingOwners,
   owner: BlockingOwnerToken,
   reservation: u64,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl<'a> OwnerLaneReservation<'a> {
   fn try_acquire(owners: &'a ActiveBlockingOwners, owner: BlockingOwnerToken) -> Option<Self> {
     let reservation = owners.reserve(owner)?;
@@ -5236,7 +5236,7 @@ impl<'a> OwnerLaneReservation<'a> {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for OwnerLaneReservation<'_> {
   fn drop(&mut self) {
     self.owners.release(self.owner, self.reservation);
@@ -5246,23 +5246,23 @@ impl Drop for OwnerLaneReservation<'_> {
 // A blocking job queued for the pool. Its stable id is copied into the returned
 // JoinHandle and propagated through async JoinHandle dependencies, allowing a
 // saturated owner to run exactly the job its nested block_on awaits.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 type BlockingClosure = Box<dyn FnOnce() + Send + 'static>;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct QueuedBlocking {
   id: BlockingJobId,
   run: BlockingClosure,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct BlockingQueueNode {
   previous: Option<BlockingJobId>,
   next: Option<BlockingJobId>,
   run: Box<dyn FnOnce() + Send + 'static>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct BlockingQueue {
   closed: bool,
   head: Option<BlockingJobId>,
@@ -5270,7 +5270,7 @@ struct BlockingQueue {
   jobs: FxHashMap<BlockingJobId, BlockingQueueNode>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl BlockingQueue {
   fn push(&mut self, job: QueuedBlocking) {
     let previous = self.tail;
@@ -5338,13 +5338,13 @@ impl BlockingQueue {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct WorkerLifecycle {
   remaining: Mutex<usize>,
   handles: Mutex<Option<Vec<std::thread::JoinHandle<()>>>>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl WorkerLifecycle {
   fn new(worker_threads: usize) -> Arc<Self> {
     Arc::new(Self {
@@ -5396,7 +5396,7 @@ impl WorkerLifecycle {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct MultiThreadExecutor {
   generation: u64,
   stop: Arc<GenerationStop>,
@@ -5472,7 +5472,7 @@ struct MultiThreadExecutor {
   metrics: Arc<RuntimeMetrics>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl MultiThreadExecutor {
   /// Max work units before a drainer yields. Cooperative drivers use the same
   /// value as the LIFO streak cap.
@@ -6797,7 +6797,7 @@ impl MultiThreadExecutor {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct MultiThreadDeadlockState {
   enabled: bool,
   verdict_closed: AtomicBool,
@@ -6806,7 +6806,7 @@ struct MultiThreadDeadlockState {
   owner_handoff_publication: Mutex<()>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl MultiThreadDeadlockState {
   fn new(enabled: bool) -> Self {
     Self {
@@ -6872,20 +6872,20 @@ impl MultiThreadDeadlockState {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct MultiThreadDeadlockAdmissionGuard {
   state: Arc<MultiThreadDeadlockState>,
   published: bool,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl MultiThreadDeadlockAdmissionGuard {
   fn mark_published(&mut self) {
     self.published = true;
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for MultiThreadDeadlockAdmissionGuard {
   fn drop(&mut self) {
     if self.published {
@@ -6897,10 +6897,10 @@ impl Drop for MultiThreadDeadlockAdmissionGuard {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct MultiThreadDeadlockVerdictGuard(Arc<MultiThreadDeadlockState>);
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for MultiThreadDeadlockVerdictGuard {
   fn drop(&mut self) {
     self.0.verdict_closed.store(false, Ordering::SeqCst);
@@ -6912,14 +6912,14 @@ impl Drop for MultiThreadDeadlockVerdictGuard {
 /// owner handoff, or filled its thread-local LIFO slot. Retire each obligation
 /// independently so one cleanup failure cannot suppress the others or
 /// double-panic the process.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct CooperativeDriverExitGuard<'a> {
   executor: &'a Arc<MultiThreadExecutor>,
   parker: &'a Arc<DriverParker>,
   can_run_blocking: bool,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for CooperativeDriverExitGuard<'_> {
   fn drop(&mut self) {
     let _ = catch_unwind_contained(|| self.executor.parked_drivers.deregister(self.parker));
@@ -6938,10 +6938,10 @@ impl Drop for CooperativeDriverExitGuard<'_> {
 /// thread-local slot of a thread that is about to return to rayon. Normal
 /// drain exits flush explicitly BEFORE `finish_draining`; this drop is then a
 /// no-op (the slot is already empty).
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct LifoSlotFlushGuard<'a>(&'a Arc<MultiThreadExecutor>);
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for LifoSlotFlushGuard<'_> {
   fn drop(&mut self) {
     self.0.flush_lifo_slot();
@@ -6954,13 +6954,13 @@ impl Drop for LifoSlotFlushGuard<'_> {
 /// generation-stop registration so `begin_shutdown` cuts a linger short
 /// instead of `wait_until_scheduler_idle` waiting out the idle budget. The
 /// registration guard deregisters on drop when the drain frame exits.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct DrainLinger {
   parker: Arc<DriverParker>,
   _stop_registration: GenerationStopGuard,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl DrainLinger {
   fn new(executor: &MultiThreadExecutor) -> Self {
     let parker = Arc::new(DriverParker::default());
@@ -7007,14 +7007,14 @@ struct DriverParker {
   state: AtomicUsize,
   lock: Mutex<()>,
   condvar: std::sync::Condvar,
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   owner_handoff_pending: AtomicBool,
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   owner_handoff: Mutex<Option<BlockingOwnerToken>>,
 }
 
 impl DriverParker {
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn grant_owner_handoff(&self, owner: BlockingOwnerToken) {
     let mut pending = self
       .owner_handoff
@@ -7025,7 +7025,7 @@ impl DriverParker {
     self.owner_handoff_pending.store(true, Ordering::Release);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn take_owner_handoff(&self) -> Option<BlockingOwnerToken> {
     if !self.owner_handoff_pending.swap(false, Ordering::AcqRel) {
       return None;
@@ -7037,7 +7037,7 @@ impl DriverParker {
       .take()
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn has_owner_handoff(&self) -> bool {
     self.owner_handoff_pending.load(Ordering::Acquire)
   }
@@ -7281,13 +7281,13 @@ fn park_with_deadline(
 // exact window in which a racing `wake_one` can pop the parker, store its
 // permit and report the wake as delivered. Lets a test interleave that race
 // deterministically instead of wall-clock lottery.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLINE_EXPIRY_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadline_expiry_test_hook() {
   if let Some(hook) = DEADLINE_EXPIRY_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
@@ -7300,13 +7300,13 @@ fn run_deadline_expiry_test_hook() {
 // verdict -- the window in which an enqueue is invisible to every earlier
 // re-check and only its ENQUEUE counter in the fingerprint can prevent a
 // false BlockOnDeadlock.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLINE_VERDICT_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadline_verdict_test_hook() {
   if let Some(hook) = DEADLINE_VERDICT_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
@@ -7317,13 +7317,13 @@ fn run_deadline_verdict_test_hook() {
 // timer check from the legacy verdict and immediately before the synchronized
 // admission gate closes. A separate OS thread can complete a publication here
 // to prove the final verdict recheck has a real cross-thread ordering edge.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLINE_FINAL_VERDICT_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadline_final_verdict_test_hook() {
   if let Some(hook) = DEADLINE_FINAL_VERDICT_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
@@ -7334,13 +7334,13 @@ fn run_deadline_final_verdict_test_hook() {
 // takes the stop-publication mutex for its final rechecks. A test can pause
 // here while shutdown publishes generation stop and its abort wake reaches the
 // closed admission gate.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLINE_GATED_VERDICT_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadline_gated_verdict_test_hook() {
   if let Some(hook) = DEADLINE_GATED_VERDICT_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
@@ -7350,13 +7350,13 @@ fn run_deadline_gated_verdict_test_hook() {
 // Fired after the final verdict has acquired the stop-publication mutex. A
 // shutdown test can retain that guard while another thread reaches the
 // lifecycle -> stop-publication lock edge.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLINE_SYNCHRONIZED_STOP_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadline_synchronized_stop_test_hook() {
   if let Some(hook) = DEADLINE_SYNCHRONIZED_STOP_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
@@ -7366,17 +7366,17 @@ fn run_deadline_synchronized_stop_test_hook() {
 // Fired after the final verdict owns exact-owner publication and before it
 // checks handoff/lane predicates. Tests can remove unrelated saving predicates
 // while retaining the synchronized owner state under examination.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 type DeadlineExactOwnerVerdictTestHook = Box<dyn FnOnce(&DriverParker)>;
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLINE_EXACT_OWNER_VERDICT_TEST_HOOK:
     std::cell::RefCell<Option<DeadlineExactOwnerVerdictTestHook>> =
       const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadline_exact_owner_verdict_test_hook(parker: &DriverParker) {
   if let Some(hook) = DEADLINE_EXACT_OWNER_VERDICT_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook(parker);
@@ -7386,14 +7386,14 @@ fn run_deadline_exact_owner_verdict_test_hook(parker: &DriverParker) {
 // Fired immediately before a test thread takes the stop-publication mutex.
 // Installed only on the shutdown thread, this proves the controller still
 // holds the lifecycle in Running while waiting for a verdict-owned guard.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static BEFORE_GENERATION_STOP_PUBLICATION_LOCK_TEST_HOOK:
     std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
       const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_before_generation_stop_publication_lock_test_hook() {
   if let Some(hook) =
     BEFORE_GENERATION_STOP_PUBLICATION_LOCK_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -7405,14 +7405,14 @@ fn run_before_generation_stop_publication_lock_test_hook() {
 // Fired on an admission thread after it observes a closed verdict gate. The
 // hook is thread-local so a shutdown test can prove that an abort wake reached
 // this exact wait without affecting unrelated scheduler threads.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static DEADLOCK_CLOSED_GATE_ADMISSION_TEST_HOOK:
     std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
       const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_deadlock_closed_gate_admission_test_hook() {
   if let Some(hook) = DEADLOCK_CLOSED_GATE_ADMISSION_TEST_HOOK.with(|slot| slot.borrow_mut().take())
   {
@@ -7423,26 +7423,26 @@ fn run_deadlock_closed_gate_admission_test_hook() {
 // Timer registration enters the shared verdict admission before this seam.
 // Tests can pause there to prove the timer remains an announced publication
 // until its heap entry becomes visible.
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static TIMER_REGISTRATION_ADMISSION_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_timer_registration_admission_test_hook() {
   if let Some(hook) = TIMER_REGISTRATION_ADMISSION_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 thread_local! {
   static OWNER_HANDOFF_SELECTED_TEST_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
     const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, napi_runtime_os_threads))]
 fn run_owner_handoff_selected_test_hook() {
   if let Some(hook) = OWNER_HANDOFF_SELECTED_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
@@ -7451,7 +7451,7 @@ fn run_owner_handoff_selected_test_hook() {
 
 /// Registry of parked (or committed-to-parking) cooperative drivers, used by
 /// queue-wakes to wake exactly one of them.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Default)]
 struct ParkedDrivers {
   parked: Mutex<Vec<ParkedDriver>>,
@@ -7460,14 +7460,14 @@ struct ParkedDrivers {
   count: AtomicUsize,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct ParkedDriver {
   parker: Arc<DriverParker>,
   can_run_blocking: bool,
   dependency: Option<Arc<TaskDependency>>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl ParkedDrivers {
   /// Register `parker` as parked-or-parking. MUST precede the caller's final
   /// work re-check -- see the lost-wakeup argument at [`Self::wake_one`].
@@ -9410,7 +9410,7 @@ impl Drop for HostTimerPendingGuard {
 /// The timekeeper is a dedicated lifecycle-managed OS thread. It never enters
 /// Rayon and therefore cannot consume one of the configured CPU workers while
 /// a long timer is armed.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct TimerHeap {
   inner: Arc<Mutex<TimerHeapInner>>,
   parker: Arc<DriverParker>,
@@ -9423,7 +9423,7 @@ struct TimerHeap {
   thread_name: String,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Default)]
 struct TimerHeapInner {
   /// Indexed min-heap of `(deadline, id)`. Cancellation removes its node in
@@ -9441,7 +9441,7 @@ struct TimerHeapInner {
   closed: bool,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct HeapTimerEntry {
   waker: Waker,
   /// Shared with the owning [`Sleep`]: set (under the heap lock) when this
@@ -9451,14 +9451,14 @@ struct HeapTimerEntry {
   fired: Arc<AtomicBool>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 #[derive(Default)]
 struct TimerDeadlineQueue {
   nodes: Vec<(Instant, TimerId)>,
   positions: FxHashMap<TimerId, usize>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl TimerDeadlineQueue {
   #[cfg(test)]
   fn len(&self) -> usize {
@@ -9558,14 +9558,14 @@ impl TimerDeadlineQueue {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl TimerHeapInner {
   fn next_deadline(&self) -> Option<Instant> {
     self.queue.peek().map(|(deadline, _)| deadline)
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl TimerHeap {
   fn new(
     generation: u64,
@@ -9706,7 +9706,7 @@ impl TimerHeap {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl Drop for TimerHeap {
   fn drop(&mut self) {
     let mut admission = self.deadlock_state.begin_admission();
@@ -9725,7 +9725,7 @@ impl Drop for TimerHeap {
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 fn timer_timekeeper_main(
   inner: &Mutex<TimerHeapInner>,
   parker: &Arc<DriverParker>,
@@ -9786,7 +9786,7 @@ fn timer_timekeeper_main(
   }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 impl MultiThreadExecutor {
   /// Arm (or waker-refresh) heap timer `id` at `deadline`. `fired` is the
   /// owning `Sleep`'s completion flag: set under the heap lock on fire and on
@@ -10027,12 +10027,12 @@ pub struct Sleep {
 }
 
 enum SleepInner {
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   Heap(HeapSleep),
   Host(HostSleep),
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(napi_runtime_os_threads)]
 struct HeapSleep {
   id: TimerId,
   executor: Weak<MultiThreadExecutor>,
@@ -10086,7 +10086,7 @@ impl Future for Sleep {
     let deadline = self.deadline;
     let this = self.get_mut();
     match &mut this.inner {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       SleepInner::Heap(heap) => {
         if heap.fired.load(Ordering::SeqCst) || Instant::now() >= deadline {
           if heap.registered {
@@ -10227,7 +10227,7 @@ impl Future for Sleep {
 impl Drop for Sleep {
   fn drop(&mut self) {
     match &mut self.inner {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       SleepInner::Heap(heap) => {
         if heap.registered
           && let Some(executor) = heap.executor.upgrade()
@@ -10264,7 +10264,7 @@ fn make_sleep(
 ) -> Sleep {
   let id = next_unique_id(&NEXT_TIMER_ID, "timer id space exhausted");
   match &backend.executor {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     RuntimeExecutor::MultiThread(executor) => Sleep {
       deadline,
       inner: SleepInner::Heap(HeapSleep {
@@ -10314,13 +10314,13 @@ fn make_sleep(
 #[derive(Clone)]
 enum RuntimeExecutor {
   CurrentThread(Arc<CurrentThreadExecutor>),
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   MultiThread(Arc<MultiThreadExecutor>),
 }
 
 enum WeakRuntimeExecutor {
   CurrentThread(Weak<CurrentThreadExecutor>),
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   MultiThread(Weak<MultiThreadExecutor>),
 }
 
@@ -10332,7 +10332,7 @@ impl WeakRuntimeExecutor {
           executor.schedule(runnable);
         }
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       Self::MultiThread(executor) => {
         if let Some(executor) = executor.upgrade() {
           executor.schedule(runnable);
@@ -10375,13 +10375,13 @@ impl RuntimeBackend {
         RuntimeExecutor::CurrentThread(Arc::new(executor))
       }
       RuntimeFlavor::MultiThread => {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         {
           RuntimeExecutor::MultiThread(Arc::new(MultiThreadExecutor::new_for_generation(
             options, metrics, work.id, stop,
           )?))
         }
-        #[cfg(target_family = "wasm")]
+        #[cfg(not(napi_runtime_os_threads))]
         {
           let _ = metrics;
           return Err(RuntimeConfigError(
@@ -10411,7 +10411,7 @@ impl RuntimeBackend {
       RuntimeExecutor::CurrentThread(executor) => {
         WeakRuntimeExecutor::CurrentThread(Arc::downgrade(executor))
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => {
         WeakRuntimeExecutor::MultiThread(Arc::downgrade(executor))
       }
@@ -10424,7 +10424,7 @@ impl RuntimeBackend {
   fn schedule_submission(&self, runnable: Runnable) {
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => executor.schedule_submission(runnable),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => executor.schedule(runnable),
     }
   }
@@ -10444,7 +10444,7 @@ impl RuntimeBackend {
         let _ = metrics;
         executor.schedule_blocking(function, registration)
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => {
         let generation = self.generation();
         let _ = metrics;
@@ -10457,7 +10457,7 @@ impl RuntimeBackend {
   fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) -> BlockOnOutcome {
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => executor.block_on(future),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => executor.block_on(future),
     }
   }
@@ -10465,7 +10465,7 @@ impl RuntimeBackend {
   fn generation_stop(&self) -> Arc<GenerationStop> {
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => Arc::clone(&executor.stop),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => Arc::clone(&executor.stop),
     }
   }
@@ -10475,7 +10475,7 @@ impl RuntimeBackend {
     self.work.close_and_abort();
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => executor.begin_shutdown(),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => executor.begin_shutdown(),
     }
   }
@@ -10494,7 +10494,7 @@ impl RuntimeBackend {
         );
         executor.wait_until_scheduler_idle();
       }
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => {
         self.work.wait_until_idle();
         executor.wait_until_scheduler_idle();
@@ -10502,7 +10502,7 @@ impl RuntimeBackend {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn worker_lifecycle(&self) -> Option<Arc<WorkerLifecycle>> {
     match &self.executor {
       RuntimeExecutor::CurrentThread(_) => None,
@@ -10513,7 +10513,7 @@ impl RuntimeBackend {
   fn stop_identity(&self) -> RuntimeStopIdentity {
     RuntimeStopIdentity {
       generation: self.generation(),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       executor_id: match &self.executor {
         RuntimeExecutor::CurrentThread(_) => None,
         RuntimeExecutor::MultiThread(executor) => Some(executor.id),
@@ -10529,7 +10529,7 @@ impl RuntimeBackend {
 #[derive(Clone, Copy)]
 struct RuntimeStopIdentity {
   generation: u64,
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   executor_id: Option<u64>,
 }
 
@@ -10538,7 +10538,7 @@ impl RuntimeStopIdentity {
     if ACTIVE_RUNTIME_GENERATION.with(std::cell::Cell::get) == Some(self.generation) {
       return true;
     }
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     if let Some(executor_id) = self.executor_id
       && (ON_POOL_WORKER.with(std::cell::Cell::get) == Some(executor_id)
         || ON_TIMER_THREAD.with(std::cell::Cell::get) == Some(executor_id))
@@ -11198,7 +11198,7 @@ impl RuntimeController {
     };
     match &backend.executor {
       RuntimeExecutor::CurrentThread(executor) => Some(Arc::clone(executor)),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(_) => None,
     }
   }
@@ -11226,7 +11226,7 @@ impl RuntimeController {
       };
       match &backend.executor {
         RuntimeExecutor::CurrentThread(executor) => Arc::clone(executor),
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         RuntimeExecutor::MultiThread(_) => return,
       }
     };
@@ -11245,7 +11245,7 @@ impl RuntimeController {
       };
       match &backend.executor {
         RuntimeExecutor::CurrentThread(executor) => Arc::clone(executor),
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         RuntimeExecutor::MultiThread(_) => return,
       }
     };
@@ -11272,7 +11272,7 @@ impl RuntimeController {
       };
       let executor = match &backend.executor {
         RuntimeExecutor::CurrentThread(executor) => executor,
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(napi_runtime_os_threads)]
         RuntimeExecutor::MultiThread(_) => return None,
       };
       let host_turn = executor.try_admit_host_turn(dispatch)?;
@@ -11417,11 +11417,11 @@ impl RuntimeController {
     backend.begin_shutdown();
     backend.wait_until_idle();
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     let worker_lifecycle = backend.worker_lifecycle();
     drop(backend);
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     if let Some(worker_lifecycle) = worker_lifecycle {
       worker_lifecycle.wait_for_all_workers();
     }
@@ -11474,17 +11474,17 @@ where
   metrics.tasks_spawned.fetch_add(1, Ordering::Relaxed);
   let generation = backend.generation();
   let (abort_registration, work_registration) = registration;
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   let dependency = Arc::new(TaskDependency::new_task(generation));
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   let task_dependency = Arc::clone(&dependency);
   let wrapped = async move {
     let abortable = Abortable::new(ContainedFuture::new(future, generation), abort_registration);
     let mut abortable = std::pin::pin!(abortable);
     let polled = futures::future::poll_fn(|cx| {
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       task_dependency.begin_poll();
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       let _dependency = TaskDependencyGuard::enter(&task_dependency);
       abortable.as_mut().poll(cx)
     });
@@ -11516,7 +11516,7 @@ where
   JoinHandle(JoinHandleInner::Task {
     task: task.fallible(),
     awaiter: None,
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(napi_runtime_os_threads)]
     dependency,
   })
 }
@@ -11775,13 +11775,13 @@ mod tests {
       const { std::cell::Cell::new(0) };
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct StopPollProbe {
     polls: Arc<AtomicUsize>,
     first_poll: Option<std::sync::mpsc::Sender<()>>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl Future for StopPollProbe {
     type Output = ();
 
@@ -11794,13 +11794,13 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct PanickingJoinAwaiter {
     wakes: Arc<AtomicUsize>,
     drops: Arc<AtomicUsize>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl std::task::Wake for PanickingJoinAwaiter {
     fn wake(self: Arc<Self>) {
       self.wakes.fetch_add(1, Ordering::SeqCst);
@@ -11813,7 +11813,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl Drop for PanickingJoinAwaiter {
     fn drop(&mut self) {
       self.drops.fetch_add(1, Ordering::SeqCst);
@@ -11821,12 +11821,12 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn panicking_join_awaiter_waker(wakes: Arc<AtomicUsize>, drops: Arc<AtomicUsize>) -> Waker {
     Waker::from(Arc::new(PanickingJoinAwaiter { wakes, drops }))
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[derive(Clone, Copy, Debug, PartialEq, Eq)]
   enum JoinAwaiterWakerEventKind {
     Clone,
@@ -11835,12 +11835,12 @@ mod tests {
     Drop,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct JoinAwaiterWakerState {
     events: Mutex<Vec<(JoinAwaiterWakerEventKind, Option<u64>)>>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl JoinAwaiterWakerState {
     fn record(&self, kind: JoinAwaiterWakerEventKind) {
       self
@@ -11867,12 +11867,12 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct JoinAwaiterWakerToken {
     state: Arc<JoinAwaiterWakerState>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   unsafe fn clone_join_awaiter_waker(data: *const ()) -> std::task::RawWaker {
     let token = unsafe { &*data.cast::<JoinAwaiterWakerToken>() };
     token.state.record(JoinAwaiterWakerEventKind::Clone);
@@ -11882,25 +11882,25 @@ mod tests {
     std::task::RawWaker::new(Box::into_raw(clone).cast(), &JOIN_AWAITER_WAKER_VTABLE)
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   unsafe fn wake_join_awaiter_waker(data: *const ()) {
     let token = unsafe { Box::from_raw(data.cast_mut().cast::<JoinAwaiterWakerToken>()) };
     token.state.record(JoinAwaiterWakerEventKind::Wake);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   unsafe fn wake_join_awaiter_waker_by_ref(data: *const ()) {
     let token = unsafe { &*data.cast::<JoinAwaiterWakerToken>() };
     token.state.record(JoinAwaiterWakerEventKind::WakeByRef);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   unsafe fn drop_join_awaiter_waker(data: *const ()) {
     let token = unsafe { Box::from_raw(data.cast_mut().cast::<JoinAwaiterWakerToken>()) };
     token.state.record(JoinAwaiterWakerEventKind::Drop);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   static JOIN_AWAITER_WAKER_VTABLE: std::task::RawWakerVTable = std::task::RawWakerVTable::new(
     clone_join_awaiter_waker,
     wake_join_awaiter_waker,
@@ -11908,14 +11908,14 @@ mod tests {
     drop_join_awaiter_waker,
   );
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn join_awaiter_waker(state: Arc<JoinAwaiterWakerState>) -> Waker {
     let token = Box::new(JoinAwaiterWakerToken { state });
     let raw = std::task::RawWaker::new(Box::into_raw(token).cast(), &JOIN_AWAITER_WAKER_VTABLE);
     unsafe { Waker::from_raw(raw) }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn wait_for_generation_parker_to_sleep(stop: &GenerationStop) {
     wait_until("the block_on driver to sleep", || {
       stop
@@ -12311,7 +12311,7 @@ mod tests {
     assert_eq!(metrics.active_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_wake_does_not_repoll_user_future() {
     use std::sync::mpsc;
@@ -12352,7 +12352,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_admitted_host_turn_does_not_poll_after_stop_publication() {
     use std::sync::mpsc;
@@ -12408,7 +12408,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_terminal_dispatch_cancellation_outranks_runnable_claim() {
     use std::sync::mpsc;
@@ -12480,7 +12480,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_parking_shutdown_wake_does_not_repoll_user_future() {
     use std::sync::mpsc;
@@ -12517,7 +12517,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_cooperative_shutdown_wake_does_not_repoll_user_future() {
     use std::sync::mpsc;
@@ -12574,7 +12574,7 @@ mod tests {
     assert_eq!(executor.dispatch_pending.load(Ordering::Acquire), pending);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_stopped_dispatch_claim_is_rejected_under_scheduler_lock() {
     use std::sync::mpsc;
@@ -12614,7 +12614,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_stopped_dispatch_publication_is_rejected_under_scheduler_lock() {
     use std::sync::mpsc;
@@ -12777,7 +12777,7 @@ mod tests {
     assert!(completed.load(Ordering::SeqCst));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_hostless_submission_wakes_sleeping_block_on_driver() {
     use std::sync::mpsc;
@@ -12837,7 +12837,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_submission_wakes_older_driver_when_newer_is_blocked_in_poll() {
     use std::sync::mpsc;
@@ -13077,7 +13077,7 @@ mod tests {
     assert_eq!(futures::executor::block_on(task), 17);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_host_admission_serializes_dispatch_publication() {
     use std::sync::mpsc;
@@ -13211,7 +13211,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_host_turn_yields_after_inline_blocking_releases_queued_fifo() {
     const QUEUED_BLOCKING_JOBS: usize = CurrentThreadExecutor::HOST_TURN_RUNNABLE_BUDGET + 1;
@@ -13320,7 +13320,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_waits_for_continuation_dispatch_publication() {
     use std::sync::mpsc;
@@ -13426,7 +13426,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_waits_for_initial_dispatch_publication() {
     use std::sync::mpsc;
@@ -13581,7 +13581,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_publication_unwind_services_armed_republish_before_resuming_panic() {
     use std::sync::mpsc;
@@ -13663,7 +13663,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_first_panic_survives_failed_republish_and_nested_recovery_panic() {
     use std::sync::mpsc;
@@ -13815,7 +13815,7 @@ mod tests {
     assert!(state.dispatches.is_empty());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_suppresses_queued_republish() {
     use std::sync::mpsc;
@@ -13886,7 +13886,7 @@ mod tests {
     assert_eq!(futures::executor::block_on(task.fallible()), None);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_republish_bit_rearms_across_successive_broadcasts() {
     use std::sync::mpsc;
@@ -13987,7 +13987,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_initial_unavailable_cannot_retire_later_accepted_publication() {
     use std::sync::mpsc;
@@ -14052,7 +14052,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_replacement_unavailable_cannot_cancel_later_accepted_publication() {
     use std::sync::mpsc;
@@ -14132,7 +14132,7 @@ mod tests {
     assert_eq!(metrics.queued_runnables.load(Ordering::Relaxed), 0);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_replacement_failed_retries_armed_republish_before_cancellation() {
     use std::sync::mpsc;
@@ -14265,7 +14265,7 @@ mod tests {
     assert!(state.dispatches.is_empty());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_delayed_failure_cannot_cancel_successfully_rearmed_epoch() {
     use std::sync::mpsc;
@@ -14397,7 +14397,7 @@ mod tests {
     assert!(state.dispatches.is_empty());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_failed_replacement_closes_ownerless_registration_gap() {
     use std::sync::mpsc;
@@ -14527,7 +14527,7 @@ mod tests {
     assert!(state.dispatches.is_empty());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_nested_replacement_unwind_finalizes_old_dispatch_and_retries_same_replacement()
   {
@@ -14763,7 +14763,7 @@ mod tests {
   /// schedule is rejected by the cancellation sweep, and dropping that
   /// runnable inline destroys the awaiter's `Shared` clone, whose destructor
   /// re-locks `wakers` on the same thread.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_failed_dispatch_cancellation_does_not_drop_rejected_runnable_inline() {
     use std::{sync::mpsc, time::Duration};
@@ -14834,7 +14834,7 @@ mod tests {
   /// queue. That rejection must not drop the runnable inline either: the
   /// waker here is still inside `futures::Shared`'s notifier, holding its
   /// `wakers` mutex, and the rejected future owns a clone of the same `Shared`.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_does_not_drop_in_flight_rejected_runnable_inline() {
     use std::{
@@ -14949,7 +14949,7 @@ mod tests {
   /// stack is still under `wakers`. Nothing may be dropped there: B's future
   /// owns a clone of the same `Shared`, whose destructor re-locks `wakers`.
   /// The transition moves B aside and reopens; the next host turn cancels B.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_synchronous_dispatch_failure_does_not_sweep_on_the_waker_stack() {
     use std::{sync::mpsc, time::Duration};
@@ -15075,7 +15075,7 @@ mod tests {
   /// Poll `future` with a no-op waker until it is ready or `timeout` passes.
   /// The tests below drive the executor by hand, so readiness is produced on
   /// this thread and a wait can only fail by design, never by scheduling.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn poll_ready_within<F: Future + Unpin>(
     future: &mut F,
     timeout: std::time::Duration,
@@ -15100,7 +15100,7 @@ mod tests {
   /// was queued when the failure happened (B) before it runs the new task.
   /// Nothing else prompts the executor: no drain request, no re-registration,
   /// no shutdown.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_submission_after_waker_stack_failure_is_delivered_to_a_healthy_host() {
     use std::{sync::mpsc, time::Duration};
@@ -15243,7 +15243,7 @@ mod tests {
   /// an unrelated entry -- no later submission, no drain request, no
   /// unregistration, no shutdown. The host only services the delivery the
   /// transition published for ITSELF.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_waker_stack_failure_publishes_its_own_retirement_turn() {
     use std::{sync::mpsc, time::Duration};
@@ -15397,7 +15397,7 @@ mod tests {
   /// the frame that owns the publication, which publishes a fifth delivery for
   /// it once D3 has unwound. Nothing in this test supplies an unrelated entry:
   /// no later submission, no drain request, no unregistration, no shutdown.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_nested_retirement_failure_keeps_its_continuation() {
     use std::{sync::mpsc, time::Duration};
@@ -15597,7 +15597,7 @@ mod tests {
   /// drain request, no unregistration -- and that is what
   /// `current_thread_final_retirement_offer_outlives_a_producer_that_spends_the_budget`
   /// pins from the other side, where the host accepts the final offer.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_rejected_work_retirement_is_bounded_under_a_sustained_producer() {
     use std::{sync::mpsc, time::Duration};
@@ -15818,7 +15818,7 @@ mod tests {
   /// is the depth-0 stack that retires everything the wake moved aside.
   /// Nothing here supplies any other entry: no submission after the wake, no
   /// drain request, no unregistration, no shutdown.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_final_retirement_offer_outlives_a_producer_that_spends_the_budget() {
     use std::{sync::mpsc, time::Duration};
@@ -16025,7 +16025,7 @@ mod tests {
   /// dispatch outstanding. Reading that instead of a flag makes both routes
   /// one route, and this host -- which refuses the wake's publication, its
   /// replacement and the first offer, and accepts the second -- is served.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_rejected_work_retirement_offers_again_when_the_host_refuses() {
     use std::{sync::mpsc, time::Duration};
@@ -16181,7 +16181,7 @@ mod tests {
   ///
   /// Nothing here supplies any other entry: no submission after the wake, no
   /// drain request, no unregistration, no shutdown.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_final_retirement_offer_serviced_inside_dispatch_leaves_a_continuation() {
     use std::{sync::mpsc, time::Duration};
@@ -16354,7 +16354,7 @@ mod tests {
   /// and its `GenerationWorkGuard` stayed active. Nothing here supplies a
   /// later entry: no drain request, no host turn, no unregistration, no
   /// shutdown.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_submission_dispatch_failure_cancels_on_the_submitter_stack() {
     use std::time::Duration;
@@ -16442,7 +16442,7 @@ mod tests {
   /// to leave the notifier. This pins that shape: a closed-queue rejection
   /// added to `schedule` that dropped the runnable inline would deadlock
   /// here, exactly as the CurrentThread executor did.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_does_not_drop_in_flight_rejected_runnable_inline() {
     use std::{
@@ -16556,7 +16556,7 @@ mod tests {
       .expect("shutdown deadlocked: inline runnable drop re-entered a waker lock");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_recovery_reservation_blocks_new_host_publication() {
     use std::sync::mpsc;
@@ -16681,7 +16681,7 @@ mod tests {
     assert_eq!(futures::executor::block_on(later_task).unwrap(), 2);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_terminal_dispatch_failure_keeps_blocking_capture_registered_until_drop() {
     use std::sync::mpsc;
@@ -18299,7 +18299,7 @@ mod tests {
     assert!(completed.load(Ordering::SeqCst));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn join_handle_completion_contains_panicking_awaiter_wake_and_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_JOIN_HANDLE_COMPLETION_PANIC_CHILD";
@@ -18358,7 +18358,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn join_handle_shutdown_contains_panicking_awaiter_wake_and_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_JOIN_HANDLE_SHUTDOWN_PANIC_CHILD";
@@ -18400,7 +18400,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn join_handle_awaiter_completion_retains_its_registered_generation_after_restart() {
     let controller = multi_thread_controller("join-awaiter-completion-generation", 2, 1);
@@ -18457,7 +18457,7 @@ mod tests {
       .expect("the replacement generation must stop");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dropping_join_handle_retains_awaiter_generation_after_restart() {
     let controller = multi_thread_controller("join-awaiter-drop-generation", 2, 1);
@@ -18509,7 +18509,7 @@ mod tests {
       .expect("the replacement generation must stop");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn every_rayon_worker_is_classified_without_enabling_the_lifo_slot() {
     use std::{sync::mpsc, time::Duration};
@@ -18547,7 +18547,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_does_not_park_pool_worker() {
     // Pool-worker reentrancy invariant: a task that calls `block_on` on an inner
@@ -18610,7 +18610,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lingering_drainer_periodic_work_does_not_starve_rayon_jobs() {
     // Idle-linger residence bound (adversarial rayon-starvation shape).
@@ -18743,7 +18743,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   #[ignore = "microbenchmark: run explicitly in release mode"]
   fn parked_drivers_registry_cycle_microbench() {
@@ -18797,7 +18797,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_from_caller_thread_still_parks() {
     // The non-pool (napi caller) path must keep using the plain parking
@@ -18821,7 +18821,7 @@ mod tests {
     assert_eq!(output, Some(42));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_from_caller_thread_receives_pool_produced_value() {
     // Cross-thread liveness guard for the NON-pool (napi-caller) path of
@@ -18942,7 +18942,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_wakes_parked_driver_after_workers_park() {
     // Parked-driver wake invariant: a pool-worker task may park in `block_on`
@@ -19021,7 +19021,7 @@ mod tests {
   /// registered as parked") without sleeps. The bound is a HANG detector,
   /// not a latency assertion: starved CI runners can stall fresh threads for
   /// hundreds of milliseconds, so it is deliberately generous.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn wait_until(what: &str, condition: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while !condition() {
@@ -19041,7 +19041,7 @@ mod tests {
   /// on Windows in run 29195160953: several park-deadline-family tests never
   /// completed while every in-test assertion had already passed). Fail loudly
   /// and NAME the awaited phase instead.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn join_within(what: &str, handle: std::thread::JoinHandle<()>, timeout: Duration) {
     let deadline = std::time::Instant::now() + timeout;
     while !handle.is_finished() {
@@ -19054,7 +19054,7 @@ mod tests {
     handle.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn run_claim_with_deadlock_gate_assertion<T: Send + 'static>(
     executor: &Arc<MultiThreadExecutor>,
     start_counter: &AtomicU64,
@@ -19127,7 +19127,7 @@ mod tests {
     output
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_runnable_claims_hold_deadlock_admission_until_start() {
     let executor =
@@ -19217,7 +19217,7 @@ mod tests {
     executor.wait_until_scheduler_idle();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_blocking_claims_hold_deadlock_admission_until_start() {
     let executor =
@@ -19285,7 +19285,7 @@ mod tests {
     executor.wait_until_scheduler_idle();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn parked_drivers_wake_one_with_no_parked_drivers_skips_the_lock() {
     // Empty-registry behavior: with nothing registered, `wake_one` must return
@@ -19352,7 +19352,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn driver_parker_permit_granted_while_running_is_not_lost() {
     // Stored-permit behavior: a wake delivered while the driver is RUNNING (not
@@ -19395,7 +19395,7 @@ mod tests {
     driver.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn driver_parker_unrepresentable_timeout_remains_wakeable() {
     use std::sync::mpsc;
@@ -19434,7 +19434,7 @@ mod tests {
     driver.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn parked_drivers_wake_one_wakes_exactly_one() {
     // Single-wake behavior: 2 parked drivers + 1 wake -> exactly one wakes, the
@@ -19487,7 +19487,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn parked_driver_dependency_retirement_drops_waiter_outside_registry_lock() {
     use std::sync::mpsc;
@@ -19537,7 +19537,7 @@ mod tests {
     retiring.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn owner_handoff_dependency_predicate_runs_outside_registry_lock() {
     use std::sync::mpsc;
@@ -19586,7 +19586,7 @@ mod tests {
     assert_eq!(parker.take_owner_handoff(), Some(owner));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn owner_handoff_skips_newer_untagged_dependency() {
     let registry = ParkedDrivers::default();
@@ -19624,7 +19624,7 @@ mod tests {
     registry.deregister(&untagged);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn withdrawn_owner_handoff_rearms_next_same_owner_dependency() {
     let executor = multi_thread_executor(2, None, "withdrawn-owner-handoff");
@@ -19669,7 +19669,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn direct_future_wake_cannot_overtake_owner_handoff_publication() {
     use std::sync::mpsc;
@@ -19749,7 +19749,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_panic_forwards_pending_owner_handoff() {
     use std::sync::mpsc;
@@ -19833,7 +19833,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_panic_flushes_lifo_slot() {
     struct ScheduleThenPanic {
@@ -19894,7 +19894,7 @@ mod tests {
     executor.active_drainers.store(0, Ordering::SeqCst);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_panic_compensates_absorbed_queue_wake() {
     use std::sync::mpsc;
@@ -19976,7 +19976,7 @@ mod tests {
     executor.active_drainers.store(0, Ordering::SeqCst);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_future_wake_targets_its_own_parked_driver() {
     // Future-wake targeting invariant: a future-wake must reach the driver that
@@ -20104,7 +20104,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_cooperative_exit_hands_absorbed_wake_to_parked_driver() {
     // Miss-compensation invariant: a driver that exits `cooperative_block_on`
@@ -20186,7 +20186,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_exit_compensates_blocking_only_residue() {
     use std::sync::mpsc;
@@ -20303,7 +20303,7 @@ mod tests {
     futures::executor::block_on(timer_task);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_exit_compensation_does_not_start_blocking_after_stop() {
     let options = RuntimeOptions {
@@ -20348,7 +20348,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn wake_path_wake_one_vs_park_interleaving_loses_no_wakeups() {
     // Targeted-wake stress: N rounds of {producer: publish work,
@@ -20410,7 +20410,7 @@ mod tests {
     consumer.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_same_worker_schedule_runs_before_older_fifo_work() {
     // LIFO locality invariant: a runnable scheduled from a pool worker of the SAME
@@ -20471,7 +20471,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn drain_fifo_runnable_does_not_inherit_blocking_owner() {
     let options = RuntimeOptions {
@@ -20513,7 +20513,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_drain_runs_slot_before_older_fifo_work() {
     // Drain integration: with one worker, task P scheduling
@@ -20597,7 +20597,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_displaced_occupant_falls_back_to_fifo() {
     // Single-slot displacement invariant: two same-executor schedules from one worker -- the
@@ -20653,7 +20653,7 @@ mod tests {
     executor.active_drainers.store(0, Ordering::SeqCst);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_is_executor_scoped() {
     // Executor-scoping invariant: the slot is tagged with the executor id (mirroring the
@@ -20734,7 +20734,7 @@ mod tests {
     exec2.active_drainers.store(0, Ordering::SeqCst);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_flushed_on_budget_exhaustion_completes_long_chains() {
     // LIFO chain flush invariant: a 200-link chain in which each task schedules the
@@ -20807,7 +20807,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_flush_moves_slot_runnable_to_shared_fifo() {
     // Direct flush primitive test: pin the flush behavior used at drain
@@ -20865,7 +20865,7 @@ mod tests {
     executor.active_drainers.store(0, Ordering::SeqCst);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_runnable_does_not_inherit_blocking_owner() {
     // Blocking-owner isolation must cover the LIFO slot path: a runnable
@@ -20927,7 +20927,7 @@ mod tests {
   // that worker's LIFO slot, keeping the slot hot indefinitely. A task
   // finishes when `stop` is raised (or `stop_after` polls happened), releasing
   // its partner's stored waker so both complete.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct PingPongShared {
     count: AtomicU64,
     stop: AtomicBool,
@@ -20935,13 +20935,13 @@ mod tests {
     wakers: Mutex<[Option<std::task::Waker>; 2]>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct PingPong {
     shared: Arc<PingPongShared>,
     me: usize,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl Future for PingPong {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -20964,7 +20964,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn spawn_ping_pong_pair(
     executor: &Arc<MultiThreadExecutor>,
     shared: &Arc<PingPongShared>,
@@ -20985,7 +20985,7 @@ mod tests {
     tasks
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn lifo_slot_ping_pong_does_not_starve_queued_fifo_task() {
     // LIFO streak-cap invariant: slot pops share `drain`'s RUNNABLE_BUDGET, so
@@ -21062,7 +21062,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_hot_lifo_pair_does_not_wedge_queued_blocking_job() {
     // Runnable/blocking fairness invariant: runnables (slot included) outrank blocking work per
@@ -21121,7 +21121,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn infinite_hot_runnable_yields_to_blocking_fifo() {
     use std::sync::mpsc;
@@ -21186,7 +21186,7 @@ mod tests {
     assert!(executor.run_one_fair(&mut runnable_streak));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_hot_runnable_yields_to_exact_blocking_dependency() {
     use std::sync::mpsc;
@@ -21266,7 +21266,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_exact_dependency_precedes_last_slot_fifo_admission() {
     use std::sync::mpsc;
@@ -21434,7 +21434,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn blocking_saturation_preserves_a_runnable_execution_lane() {
     use std::{sync::mpsc, time::Duration};
@@ -21491,7 +21491,7 @@ mod tests {
       .expect("queued blocking work must run after the occupied slot is released");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_exit_flushes_slot_work_spawned_by_final_poll() {
     // Final-poll slot-flush invariant: the awaited future's FINAL poll can
@@ -21570,7 +21570,7 @@ mod tests {
   /// Perpetual same-executor chain: each link schedules its successor from
   /// the pool worker (so every link lands in the LIFO slot) until `stop` is
   /// raised. `hops` counts executed links.
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn spawn_hot_chain(
     executor: &Arc<MultiThreadExecutor>,
     stop: Arc<AtomicBool>,
@@ -21590,7 +21590,7 @@ mod tests {
     task.detach();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_block_on_budget_prevents_slot_chain_starving_fifo() {
     // Runnable-budget invariant: `cooperative_block_on`'s loop must mirror
@@ -21674,7 +21674,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cooperative_budget_forces_fifo_after_future_refills_lifo_slot() {
     use std::sync::mpsc;
@@ -21748,7 +21748,7 @@ mod tests {
     runner.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn blocking_closure_spawn_is_not_stranded_in_slot() {
     // Blocking-closure scheduling invariant: ON_POOL_WORKER spans the whole
@@ -21824,7 +21824,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_nested_spawn_blocking_does_not_deadlock_when_saturated() {
     // Saturated nested-blocking invariant: a blocking closure re-enters
@@ -21883,7 +21883,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn scheduler_unclaimed_worker_cannot_infer_sole_blocking_owner() {
     let executor = multi_thread_executor(2, None, "no-owner-cardinality-inference");
@@ -21920,7 +21920,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn owner_lending_is_exact_frame_scoped_with_two_saturated_owners() {
     use std::sync::{Barrier, mpsc};
@@ -22018,7 +22018,7 @@ mod tests {
     futures::executor::block_on(unrelated).unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn parked_unrelated_rayon_worker_cannot_block_later_lending_or_idle() {
     use std::sync::{Mutex, mpsc};
@@ -22105,7 +22105,7 @@ mod tests {
     idle_waiter.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn same_owner_lending_rearms_one_parked_dependency_per_completion() {
     use std::sync::{Condvar, Mutex, mpsc};
@@ -22213,7 +22213,7 @@ mod tests {
     assert_eq!(results, vec![0, 1]);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn failed_exact_claim_rearms_parked_same_owner_dependency() {
     let executor = multi_thread_executor(2, None, "failed-claim-owner-handoff");
@@ -22257,7 +22257,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn exact_owner_lending_does_not_start_blocking_after_stop() {
     use std::sync::mpsc;
@@ -22328,7 +22328,7 @@ mod tests {
     assert!(!ran.load(Ordering::SeqCst));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn exact_owner_lending_attempts_scale_linearly_with_topology() {
     const DEPENDENCY_COUNT: usize = 1024;
@@ -22382,7 +22382,7 @@ mod tests {
     assert_eq!(queue.tail, None);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn one_dependency_interspersed_owner_publications_stays_linear() {
     const PUBLICATION_COUNT: usize = 1024;
@@ -22459,7 +22459,7 @@ mod tests {
     assert!(executor.blocking_queue.lock().unwrap().is_empty());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn binding_unowned_dependency_updates_exact_owner_predicate() {
     let owner = BlockingOwnerToken {
@@ -22494,7 +22494,7 @@ mod tests {
     assert!(!dependency.has_live_owner_dependency(owner, OwnerDependencyMode::Exact));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn owner_selection_preserves_unowned_and_exact_publication_order() {
     let owner = BlockingOwnerToken {
@@ -22531,7 +22531,7 @@ mod tests {
     assert_eq!(selected.publication.dependency, second);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn blocking_queue_exact_removal_reclaims_fifo_links() {
     const JOB_COUNT: u64 = 4096;
@@ -22587,7 +22587,7 @@ mod tests {
     assert_eq!(queue.tail, None);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dependency_lending_keeps_public_blocking_metrics_within_cap() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEPENDENCY_LENDING_METRICS_CHILD";
@@ -22641,7 +22641,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn nested_blocking_runs_exact_awaited_job_before_same_owner_sibling() {
     use std::sync::mpsc;
@@ -22699,7 +22699,7 @@ mod tests {
     runner.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn blocking_dependency_propagates_through_async_join_lineage() {
     use std::sync::mpsc;
@@ -22748,7 +22748,7 @@ mod tests {
     runner.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn blocking_dependency_does_not_escape_a_serviced_runnable() {
     use std::sync::mpsc;
@@ -22805,7 +22805,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dropping_pending_join_handle_clears_parent_blocking_dependency() {
     let parent = Arc::new(TaskDependency::default());
@@ -22834,7 +22834,7 @@ mod tests {
     drop(sender);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dropping_owner_enriched_blocking_handle_clears_parent_dependency() {
     let owner = BlockingOwnerToken {
@@ -22874,7 +22874,7 @@ mod tests {
     drop(sender);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn one_poll_preserves_every_observed_blocking_dependency() {
     let parent = Arc::new(TaskDependency::default());
@@ -22918,7 +22918,7 @@ mod tests {
     drop(second_sender);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn double_polled_then_detached_handle_does_not_outrank_a_live_dependency() {
     let owner = BlockingOwnerToken {
@@ -22980,7 +22980,7 @@ mod tests {
     drop((s1, s2));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn handle_polled_under_a_nested_frame_retires_both_publications() {
     let owner = BlockingOwnerToken {
@@ -23039,7 +23039,7 @@ mod tests {
     drop((s1, s2));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn a_pending_handle_does_not_retain_the_frames_it_has_left() {
     const FRAME_COUNT: usize = 64;
@@ -23077,7 +23077,7 @@ mod tests {
     drop(sender);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn repolling_a_handle_does_not_reorder_it_behind_a_later_dependency() {
     // H1 -> H2 -> H1 in one poll pass. `select_for_owner` picks the LOWEST live
@@ -23128,7 +23128,7 @@ mod tests {
     drop((h1, h2, s1, s2));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn a_handle_carried_through_reused_frames_keeps_a_bounded_history() {
     // Frames here are RETAINED (as a completed task's `JoinHandle` retains its
@@ -23170,7 +23170,7 @@ mod tests {
     drop(sender);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn mass_detach_of_pending_blocking_handles_stays_linear() {
     // A cancelled fan-out: N blocking handles are polled Pending inside ONE
@@ -23234,7 +23234,7 @@ mod tests {
     drop(senders);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dependency_tls_borrow_is_released_before_reentrant_wake() {
     use std::sync::mpsc;
@@ -23278,7 +23278,7 @@ mod tests {
       .expect("dependency clearing must permit reentrant TLS context access");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dependency_free_begin_poll_does_not_lock_state() {
     use std::sync::mpsc;
@@ -23303,7 +23303,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn deep_dependency_liveness_chain_is_iterative() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEEP_DEPENDENCY_CHAIN_CHILD";
@@ -23338,7 +23338,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn task_dependency_set_contains_panicking_waiter() {
     struct PanicWake;
@@ -23367,7 +23367,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn task_dependency_clear_contains_panicking_waiter() {
     struct PanicWake;
@@ -23396,7 +23396,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn task_dependency_clear_if_contains_panicking_waiter() {
     struct PanicWake;
@@ -23426,7 +23426,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn task_dependency_waiter_replacement_contains_panicking_drop() {
     use std::sync::mpsc;
@@ -23478,7 +23478,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn task_dependency_retirement_contains_stored_waiter_drop() {
     use std::sync::mpsc;
@@ -23527,7 +23527,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn detaching_task_clears_dependency_waiter_parent_retention() {
     struct RetainingWake {
@@ -23570,7 +23570,7 @@ mod tests {
     drop(runnable);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn detaching_task_clears_many_parent_publications_linearly() {
     const PUBLICATION_COUNT: usize = 1024;
@@ -23709,7 +23709,7 @@ mod tests {
     drop(runnable);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dependency_waker_and_buffered_result_drop_panics_are_independently_contained() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEPENDENCY_WAKER_DOUBLE_PANIC_CHILD";
@@ -23777,7 +23777,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_respects_blocking_cap_for_non_owner_driver() {
     // Non-owner blocking-cap invariant: a plain pool-worker runnable driver
@@ -23877,7 +23877,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_runnable_driven_by_owner_respects_cap() {
     // Blocking-owner isolation invariant: a counted blocking OWNER that
@@ -23976,7 +23976,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_over_cap_escape_runs_only_owner_job_not_unrelated() {
     // The over-cap fallback must select the exact pending JoinHandle job, not
@@ -24080,7 +24080,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_over_cap_escape_is_dependency_and_executor_scoped() {
     use std::sync::{Barrier, mpsc};
@@ -24182,7 +24182,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn ambiguous_active_owners_do_not_authorize_untagged_dependency() {
     let executor = multi_thread_executor(2, None, "untagged-owner-dependency");
@@ -24221,7 +24221,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn owner_lending_claims_live_dependency_not_stale_snapshot() {
     let executor = multi_thread_executor(2, None, "live-parked-dependency");
@@ -24283,7 +24283,7 @@ mod tests {
     assert_eq!(remaining, vec![stale]);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cancelled_child_publication_cannot_be_claimed_after_parent_publish() {
     let executor = multi_thread_executor(2, None, "cancelled-child-publication");
@@ -24333,7 +24333,7 @@ mod tests {
     assert!(ran.load(Ordering::SeqCst));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn intermediate_repoll_does_not_cancel_child_source_claim() {
     let executor = multi_thread_executor(2, None, "intermediate-repoll-source-claim");
@@ -24390,7 +24390,7 @@ mod tests {
     assert!(ran.load(Ordering::SeqCst));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn exact_claim_linearizes_before_concurrent_source_withdrawal() {
     use std::sync::mpsc;
@@ -24459,7 +24459,7 @@ mod tests {
     assert!(ran.load(Ordering::SeqCst));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_block_on_cooperative_branch_is_executor_scoped() {
     // Pool-worker-marker scoping invariant: `block_on` may take the cooperative
@@ -24569,7 +24569,7 @@ mod tests {
     while exec2.steal_one().is_some() {}
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_rd2_long_lived_blocking_consumer_does_not_starve_async_producers() {
     // A long-lived blocking consumer may consume the entire configured
@@ -24667,7 +24667,7 @@ mod tests {
     assert_eq!(metrics.blocking_tasks_completed.load(Ordering::Relaxed), 1);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_blocking_work_obeys_single_lane_across_callers() {
     use std::sync::mpsc;
@@ -24759,7 +24759,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_nested_blocking_reuses_the_active_lane() {
     use std::sync::mpsc;
@@ -24821,7 +24821,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_hot_runnable_yields_to_exact_blocking_dependency() {
     use std::sync::mpsc;
@@ -24929,7 +24929,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_cross_driver_dependency_reuses_the_owner_lane() {
     use std::sync::mpsc;
@@ -25081,7 +25081,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_blocking_admission_rechecks_stop_under_lock() {
     use std::sync::mpsc;
@@ -25156,7 +25156,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_fifo_blocking_claim_rechecks_stop_under_lock() {
     use std::sync::mpsc;
@@ -25235,7 +25235,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_fifo_blocking_claim_rechecks_terminal_cancellation_under_lock() {
     use std::sync::mpsc;
@@ -25331,7 +25331,7 @@ mod tests {
     assert!(!executor.cancelling_failed_dispatch.load(Ordering::Acquire));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_owned_blocking_claim_rechecks_stop_under_lock() {
     use std::sync::mpsc;
@@ -25426,7 +25426,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_owned_blocking_claim_rechecks_terminal_cancellation_under_lock() {
     use std::sync::mpsc;
@@ -25532,7 +25532,7 @@ mod tests {
     assert!(!executor.cancelling_failed_dispatch.load(Ordering::Acquire));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_cancels_waiting_blocking_work() {
     use std::sync::mpsc;
@@ -25649,7 +25649,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_blocking_result_panic_payload_retains_generation_identity() {
     use std::{panic::panic_any, sync::mpsc};
@@ -25813,9 +25813,10 @@ mod tests {
     assert_eq!(validated.max_blocking_tasks, 1);
   }
 
-  // Native-only: `validate()` rejects `MultiThread` under `cfg(target_family = "wasm")`
-  // (after applying the clamp), so this success assertion is valid off-wasm only.
-  #[cfg(not(target_family = "wasm"))]
+  // `validate()` rejects `MultiThread` on builds that cannot create OS threads
+  // (after applying the clamp), so this success assertion is valid only where
+  // `napi_runtime_os_threads` holds: native and `wasm32-wasip1-threads`.
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn validate_reserves_one_worker_from_blocking_admission() {
     let validated = RuntimeOptions {
@@ -25832,7 +25833,7 @@ mod tests {
     assert_eq!(validated.max_blocking_tasks, 1);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn validate_promotes_multi_thread_one_to_truthful_two_worker_minimum() {
     let validated = RuntimeOptions {
@@ -25849,7 +25850,7 @@ mod tests {
     assert_eq!(validated.max_blocking_tasks, 1);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn validate_applies_worker_caps_before_blocking_reserve_and_reporting() {
     let simulated_32_bit = RuntimeOptions {
@@ -25892,7 +25893,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn drain_linger_extreme_values_are_clamped_and_zero_disables() {
     // u64::MAX microseconds (the exact value an unvalidated
@@ -25965,7 +25966,7 @@ mod tests {
     assert_eq!(executor.drain_linger, None, "ZERO must disable lingering");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn runtime_controller_default_reserves_one_worker_from_blocking_admission() {
     let controller = RuntimeController::new();
@@ -25978,7 +25979,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn concurrent_partial_configuration_merges_from_latest_committed_options() {
     use std::{sync::mpsc, time::Duration};
@@ -26060,7 +26061,7 @@ mod tests {
     assert_eq!(options.thread_name_prefix, "partial-config-race");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn invalid_concurrent_partial_configuration_cannot_overwrite_a_valid_peer() {
     use std::{sync::mpsc, time::Duration};
@@ -26206,7 +26207,7 @@ mod tests {
     controller
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn multi_thread_controller(
     thread_name_prefix: &str,
     worker_threads: usize,
@@ -26269,7 +26270,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn try_block_on_dyn_rejects_stopped_runtime_without_polling() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TRY_BLOCK_ON_DYN_STOPPED_CHILD";
@@ -26328,7 +26329,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn try_block_on_dyn_reports_concurrent_shutdown() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TRY_BLOCK_ON_DYN_SHUTDOWN_CHILD";
@@ -26492,7 +26493,7 @@ mod tests {
     assert!(matches!(&state.lifecycle, RuntimeLifecycle::Initial));
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn failed_initial_submission_destruction_blocks_retry_and_shutdown() {
     use std::sync::mpsc;
@@ -26608,7 +26609,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn stopped_shutdown_blocks_restart_until_rejected_destruction_retires() {
     use std::sync::mpsc;
@@ -27281,7 +27282,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn retained_current_thread_outputs_cannot_access_a_restarted_generation() {
     use std::sync::mpsc;
@@ -27388,7 +27389,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn retained_blocking_output_cannot_wait_on_replacement_shutdown() {
     use std::sync::mpsc;
@@ -27485,7 +27486,7 @@ mod tests {
     futures::executor::block_on(holder).unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn admitted_current_thread_host_turn_holds_shutdown_until_it_retires() {
     use std::sync::mpsc;
@@ -27600,7 +27601,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn accepted_current_thread_submission_destruction_blocks_shutdown_and_restart() {
     use std::sync::mpsc;
@@ -27734,7 +27735,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn accepted_multi_thread_blocking_destruction_blocks_shutdown_and_restart() {
     use std::sync::mpsc;
@@ -27872,7 +27873,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_controller_reports_its_exact_physical_worker_count() {
     let controller = multi_thread_controller("lifecycle-physical", 1, 8);
@@ -27895,7 +27896,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_waits_for_worker_tls_destructors() {
     // Invariant: `shutdown()`'s worker retirement is a JOIN barrier that
@@ -27972,7 +27973,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn worker_tls_destructor_lifecycle_reentry_fails_fast_without_self_join() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_WORKER_TLS_LIFECYCLE_REENTRY_CHILD";
@@ -28073,7 +28074,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_cancels_an_accepted_pending_task() {
     use std::sync::mpsc;
@@ -28107,7 +28108,7 @@ mod tests {
       .expect("shutdown must drop the accepted task future before returning");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_outranks_perpetual_self_wake() {
     use std::sync::mpsc;
@@ -28165,7 +28166,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_fifo_claim_after_stop_publication_cancels_without_polling() {
     use std::sync::mpsc;
@@ -28249,7 +28250,7 @@ mod tests {
     drop(handle);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_lifo_claim_after_stop_publication_cancels_without_polling() {
     use std::sync::mpsc;
@@ -28332,7 +28333,7 @@ mod tests {
     drop(task);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_publishes_stop_before_queued_destructor_cleanup() {
     use std::sync::mpsc;
@@ -28434,7 +28435,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn shutdown_cancels_nested_block_on_within_deadline() {
     use std::sync::mpsc;
@@ -28466,7 +28467,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn stopped_public_block_on_drops_future_before_generation_retirement() {
     use std::sync::mpsc;
@@ -28557,7 +28558,7 @@ mod tests {
     shutdown.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn shutdown_contains_panicking_nested_block_on_future_drop() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_NESTED_BLOCK_ON_DROP_PANIC_CHILD";
@@ -28712,7 +28713,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_shutdown_waits_for_host_driven_detached_output_drop() {
     use std::sync::mpsc;
@@ -28842,7 +28843,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn queued_destructor_reentrant_shutdown_is_generation_rejected() {
     use std::sync::mpsc;
@@ -28900,7 +28901,7 @@ mod tests {
     assert!(futures::executor::block_on(queued).is_err());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn rejected_destructor_holds_stopping_generation_until_drop_finishes() {
     use std::sync::mpsc;
@@ -29019,7 +29020,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn shutdown_contains_hostile_caught_panic_payload() {
     use std::{panic::panic_any, sync::mpsc};
@@ -29076,7 +29077,7 @@ mod tests {
     assert!(futures::executor::block_on(queued).is_err());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_drops_queued_blocking_and_waits_for_running_blocking() {
     use std::sync::mpsc;
@@ -29145,7 +29146,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_contains_panicking_queued_blocking_destructor_and_restarts() {
     use std::sync::mpsc;
@@ -29207,7 +29208,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_dropped_blocking_result_panic_does_not_strand_shutdown() {
     use std::{panic::panic_any, sync::mpsc};
@@ -29286,7 +29287,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_completed_blocking_result_drop_panic_is_contained() {
     use std::sync::mpsc;
@@ -29337,7 +29338,7 @@ mod tests {
       .expect("dropping the receiver must reclaim the buffered result");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_closed_queue_contains_panicking_blocking_destructor() {
     use std::sync::mpsc;
@@ -29368,7 +29369,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_contains_panicking_timer_waker_and_restarts() {
     struct PanicWake;
@@ -29402,7 +29403,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_restart_waits_for_old_generation_worker_exit() {
     use std::sync::mpsc;
@@ -29482,7 +29483,7 @@ mod tests {
     controller.shutdown().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn shutdown_from_runtime_work_is_rejected_instead_of_self_deadlocking() {
     let controller = Arc::new(multi_thread_controller("lifecycle-self-stop", 2, 1));
@@ -29506,7 +29507,7 @@ mod tests {
   // `recv_timeout`, so a regression that hangs is reported as a failure instead of
   // wedging the whole suite.
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_blocking_active_never_exceeds_max_blocking() {
     // Blocking-cap invariant: `take_blocking` refuses to pop or run a queued
@@ -29631,7 +29632,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_drain_budget_completes_large_runnable_batch() {
     // `drain` processes at most `RUNNABLE_BUDGET` (64) runnables per pass, then
@@ -29706,7 +29707,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_spawned_panic_surfaces_as_join_error() {
     // A panicking spawned future must surface as `Err(JoinError)` carrying the
@@ -29979,13 +29980,13 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct ReadyAfterOwnerLanePublication {
     dependency: BlockingDependency,
     ready: Arc<AtomicBool>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl Future for ReadyAfterOwnerLanePublication {
     type Output = ();
 
@@ -30094,7 +30095,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_native_park_deadline_fires_with_typed_diagnostic() {
     // Threaded CT is NOT provably dead at the park decision (another OS thread
@@ -30138,7 +30139,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_native_park_deadline_resets_on_runtime_progress() {
     // PROGRESS-BASED RESET, CT side: metrics advancing while parked means the
@@ -30207,7 +30208,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_cooperative_park_past_deadline_with_no_progress_panics_with_typed_diagnostic() {
     // Shape (3): the MT deadline applies to the DriverParker inside
@@ -30270,7 +30271,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_cooperative_park_deadline_resets_on_executor_progress() {
     // Shape (4), MT side of the progress reset: a legitimately slow wake under
@@ -30361,7 +30362,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_foreign_block_on_long_park_is_excluded_from_deadline() {
     // Shape (5): the foreign/napi caller thread parks in
@@ -30425,7 +30426,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_wake_delivered_at_deadline_expiry_edge_is_not_reported_as_deadlock() {
     // Deadline-expiry wake race, pinned DETERMINISTICALLY via the expiry test
@@ -30526,7 +30527,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_blocking_enqueue_between_queue_recheck_and_verdict_is_not_reported_as_deadlock() {
     // Enqueue/fingerprint invariant: both runnable and blocking submissions
@@ -30613,7 +30614,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_cross_thread_publication_epoch_at_final_verdict_prevents_deadlock() {
     // Publish only through the deadlock-admission protocol after every legacy
@@ -30740,7 +30741,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_selected_owner_handoff_before_unpark_vetoes_gated_deadlock() {
     // The exact owner lane is saturated and reserved while the cooperative
@@ -30901,7 +30902,7 @@ mod tests {
     executor.wait_until_scheduler_idle();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_owner_release_after_parker_deregistration_vetoes_gated_deadlock() {
     // Release begins only after the deadline path has deregistered its parker
@@ -31002,7 +31003,7 @@ mod tests {
     executor.wait_until_scheduler_idle();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_stop_precedes_abort_wake_at_gated_deadlock_verdict() {
     // Pin the shutdown race after the final verdict gate has closed:
@@ -31154,7 +31155,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_gated_verdict_linearizes_before_shutdown_publication() {
     // Complement the publication-wins race above. The verdict owns both its
@@ -31260,7 +31261,7 @@ mod tests {
     shutdown_result.unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_deadlock_panic_hook_can_submit_scheduler_work() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_DEADLOCK_PANIC_HOOK_CHILD";
@@ -31760,7 +31761,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn multi_thread_executor(
     workers: usize,
     park_deadline: Option<Duration>,
@@ -31785,7 +31786,7 @@ mod tests {
     registry
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn heap_sleep(executor: &Arc<MultiThreadExecutor>, deadline: Instant) -> Sleep {
     // The MultiThread arm never touches the driver registry; empty is fine.
     make_sleep(
@@ -31795,7 +31796,7 @@ mod tests {
     )
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_timer_registration_holds_deadlock_admission_until_heap_publication() {
     use std::sync::mpsc;
@@ -31844,7 +31845,7 @@ mod tests {
     executor.wait_until_scheduler_idle();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[derive(Clone, Copy, Debug)]
   enum TimerFireAdmissionPath {
     Timekeeper,
@@ -31852,7 +31853,7 @@ mod tests {
     Shutdown,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   struct ScheduleAfterTimerWakeRelease {
     executor: Arc<MultiThreadExecutor>,
     runnable: Mutex<Option<Runnable>>,
@@ -31861,7 +31862,7 @@ mod tests {
     scheduled: std::sync::mpsc::Sender<()>,
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl ScheduleAfterTimerWakeRelease {
     fn publish(&self) {
       self.entered.send(()).unwrap();
@@ -31883,7 +31884,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   impl std::task::Wake for ScheduleAfterTimerWakeRelease {
     fn wake(self: Arc<Self>) {
       self.publish();
@@ -31894,7 +31895,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn insert_timer_for_fire_admission_test(
     executor: &MultiThreadExecutor,
     id: TimerId,
@@ -31911,7 +31912,7 @@ mod tests {
     inner.queue.push(deadline, id);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   fn assert_timer_fire_path_holds_deadlock_admission(path: TimerFireAdmissionPath) {
     use std::sync::mpsc;
 
@@ -31993,7 +31994,7 @@ mod tests {
     executor.wait_until_scheduler_idle();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_timer_fire_paths_hold_deadlock_admission_through_wake_publication() {
     for path in [
@@ -32005,7 +32006,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_sleep_fires_from_foreign_block_on() {
     // The napi-caller shape: a NON-pool thread parks in
@@ -32037,7 +32038,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn pending_timer_does_not_reduce_single_worker_scheduler_capacity() {
     // A long timer waits on the dedicated timer thread, leaving the sole
@@ -32109,7 +32110,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_timekeeper_starts_only_after_a_timer_is_polled() {
     let executor = multi_thread_executor(2, None, "timer-lazy-start");
@@ -32132,7 +32133,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn closed_timer_heap_does_not_wait_for_the_thread_handle_mutex() {
     use std::sync::mpsc;
@@ -32156,7 +32157,7 @@ mod tests {
     ensure.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cancelling_non_earliest_timers_keeps_the_deadline_heap_bounded() {
     const TIMERS: u64 = 4096;
@@ -32199,7 +32200,7 @@ mod tests {
     executor.timers.join();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn timer_registration_is_transactional_when_timekeeper_start_fails() {
     let executor = multi_thread_executor(2, None, "timer-start-failure");
@@ -32279,7 +32280,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn pending_timer_preserves_every_configured_rayon_worker() {
     use std::sync::mpsc;
@@ -32347,7 +32348,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn timekeeper_never_enters_a_blocking_closure() {
     use std::{
@@ -32394,7 +32395,7 @@ mod tests {
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_ready());
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn nested_block_on_services_timer_wake_while_other_worker_is_blocked() {
     use std::sync::mpsc;
@@ -32489,7 +32490,7 @@ mod tests {
     futures::executor::block_on(timer_task);
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_rearming_to_earlier_deadline_rewakes_timekeeper() {
     // Task requirement: a NEW earliest deadline (heap peek changes) must
@@ -32551,7 +32552,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_sleep_cancels_registration_on_drop() {
     // `tokio::select!` losing-arm semantics: dropping the Sleep must retire
@@ -32594,7 +32595,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn cancelling_last_timer_rearms_timekeeper_to_idle_immediately() {
     let executor = multi_thread_executor(2, None, "timer-cancel-retire");
@@ -32632,7 +32633,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn timer_waker_replacement_drops_outside_heap_lock() {
     use std::sync::mpsc;
@@ -32687,7 +32688,7 @@ mod tests {
     runner.join().unwrap();
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn timer_thread_can_drop_the_final_executor_arc_from_a_waker() {
     use std::sync::mpsc;
@@ -32753,7 +32754,7 @@ mod tests {
       .expect("dropping the final executor Arc on the timer thread attempted to join itself");
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_shutdown_with_pending_timers_drain_fires() {
     // Shutdown invariant: `shutdown()` with armed timers must drain-fire the
@@ -32828,7 +32829,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_pending_timer_longer_than_park_deadline_does_not_panic() {
     // Timer-wait/deadline invariant: the park deadline is armed
@@ -32884,7 +32885,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn multi_thread_timer_registered_at_verdict_edge_is_not_reported_as_deadlock() {
     // Timer-registration/verdict race, deterministic via the verdict hook: a
@@ -33432,7 +33433,7 @@ mod tests {
     let timer_id = drivers[0].registers.lock().unwrap()[0].0;
     match &sleep.inner {
       SleepInner::Host(host) => assert_eq!(host.armed.len(), DRIVERS),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       SleepInner::Heap(_) => panic!("CurrentThread sleep must use host timers"),
     }
     for driver in &drivers {
@@ -33449,7 +33450,7 @@ mod tests {
     assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
     match &sleep.inner {
       SleepInner::Host(host) => assert_eq!(host.armed.len(), DRIVERS / 2),
-      #[cfg(not(target_family = "wasm"))]
+      #[cfg(napi_runtime_os_threads)]
       SleepInner::Heap(_) => panic!("CurrentThread sleep must use host timers"),
     }
     for (index, driver) in drivers.iter().enumerate() {
@@ -34419,7 +34420,7 @@ mod tests {
     }
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn current_thread_park_deadline_with_live_host_timer_does_not_panic() {
     // CurrentThread timer/deadline invariant: deadline armed (30ms) shorter than a pending
