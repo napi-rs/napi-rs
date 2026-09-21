@@ -4114,7 +4114,7 @@ impl CurrentThreadExecutor {
       }
       Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
     }
-    #[cfg(any(not(test), target_family = "wasm"))]
+    #[cfg(any(not(test), not(napi_runtime_os_threads)))]
     self
       .scheduler_idle_lock
       .lock()
@@ -18277,6 +18277,9 @@ mod tests {
     );
   }
 
+  // Builds the `JoinHandleInner::Task` literal directly, whose `dependency`
+  // field only exists where the MultiThread machinery is compiled in.
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn dropping_join_handle_detaches_task_like_tokio() {
     let completed = Arc::new(AtomicBool::new(false));
@@ -34503,6 +34506,9 @@ mod tests {
     registry.remove(1);
   }
 
+  // `BlockOnDeadlock::multi_thread_cooperative` only exists where the
+  // MultiThread machinery is compiled in.
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn block_on_deadlock_panic_payload_surfaces_through_join_error() {
     // A deadline firing inside a spawned task's poll unwinds into the spawn
