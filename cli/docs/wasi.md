@@ -616,24 +616,52 @@ stable either. Until that is resolved there are two options:
   publishes it as `lock_api-napi` 0.4.15, `parking_lot_core-napi` 0.9.13 and
   `parking_lot-napi` 0.12.6; each keeps the upstream `[lib] name`, so
   `use parking_lot::Mutex` still compiles. A transitive user such as
-  `dashmap` is only reachable through `[patch.crates-io]`, and the single
-  form cargo accepts is the git branch, which still carries the _upstream_
-  package names:
+  `dashmap` is only reachable through `[patch.crates-io]`, and the only
+  form cargo accepts is a git pin on the fork's `wasi-threads-parker`
+  branch, which still carries the _upstream_ package names. Pin the exact
+  revision rather than the branch, so the lock stays reproducible:
 
   ```toml
   [patch.crates-io.parking_lot_core]
   git = "https://github.com/napi-rs/parking_lot"
-  branch = "wasi-threads-parker"
+  rev = "ac046ba44e72159e90e36b7323b1058ba1d48ad2"
   ```
 
-  Pin `rev = "<sha>"` instead of `branch` to keep the lock reproducible. The
-  published crates themselves cannot be named in a patch entry at all: the
-  crates.io rename form is refused outright, cargo answering that
-  `patches must point to different sources`, and a `package =` key inside a
-  patch entry is never matched, because cargo keys a patch on the
-  replacement's real name. The fork's `master`, whose manifests carry the
-  renamed names, is ignored as `[[patch.unused]]` for that same reason — only
-  `wasi-threads-parker` resolves.
+  The published `*-napi` crates cannot be named in such an entry. Cargo
+  rejects a crates.io package replacing another crates.io package, because
+  a patch must point to a different source:
+
+  ```toml
+  [patch.crates-io]
+  parking_lot_core = { package = "parking_lot_core-napi", version = "0.9.13" }
+  ```
+
+  ```text
+  error: patch for `parking_lot_core-napi` points to the same source, but
+  patches must point to different sources
+  ```
+
+  Over a path or git source the entry resolves, and is then dropped. Cargo
+  does honour `package =` — it selects that package from the replacement
+  source — but the selected package keeps its own name, and a dependency on
+  `parking_lot_core` is satisfied only by a package named
+  `parking_lot_core`. The fork's `master` carries the renamed manifests
+  (`name = "parking_lot_core-napi"`), so pointing the rename at it gives:
+
+  ```toml
+  [patch.crates-io.parking_lot_core]
+  git = "https://github.com/napi-rs/parking_lot"
+  rev = "e243c6c43832c151bce2887fcb209b5b8b72ac61" # master
+  package = "parking_lot_core-napi"
+  ```
+
+  ```text
+  warning: patch `parking_lot_core-napi v0.9.13 (…?rev=e243c6c4…)` was not
+  used in the crate graph
+  ```
+
+  The lock then records it under `[[patch.unused]]` and `dashmap` keeps
+  building against stock `parking_lot_core` 0.9.12 — the panicking parker.
 
 Verified on the patched core: a contended probe under `wasmtime run -S
 threads` — `Mutex`, `Condvar`, `RwLock`, `park_until`, `notify_all`, `DashMap`
