@@ -1274,6 +1274,26 @@ for (const { name, code } of wasiLoaderCases) {
       stallBackup.includes('pace.settleTurn'),
       'and the backup must end whichever turn is parked, not the one that armed it',
     )
+    // By due time, never by how long the parked turn has been waiting. A host
+    // runs its timers in due order, so a backup that runs while a turn due a
+    // window earlier is still parked proves that turn's timer was dropped —
+    // and a healthy turn, whose timer runs first and clears `settleTurn`, is
+    // never touched. Measuring the wait instead has a phase hole: arms spaced
+    // further apart than the window leave the turn that parks between them
+    // with no backup young enough to rescue it.
+    t.regex(
+      stallBackup,
+      /pace\.turnTimerDueAt > (?:__)?dueAt - __WASM_RUNTIME_WORK_POLL_STALL_MS/,
+      'the backup must judge by due time, so there is no phase to fall through',
+    )
+    t.false(
+      stallBackup.includes('Date.now() -'),
+      'and it must not measure how long the parked turn has waited',
+    )
+    t.true(
+      yieldTurn.includes('pace.settleTurn = undefined'),
+      'a turn that ends must stop being the parked one, or a later backup reads a due time already answered',
+    )
     t.regex(
       yieldTurn,
       /if \(__settled\??\) \{\s*return\s*\}|if \(settled\) \{\s*return\s*\}/,
