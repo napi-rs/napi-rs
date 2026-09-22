@@ -169,6 +169,13 @@ pub(crate) fn leave_wasm_env_cleanup_barrier() {
 /// and it cannot leave a stuck barrier behind if that ever stops being true. Registration runs on
 /// the main thread, the same thread phase 1 ran on, so this is that thread's counter; on any
 /// other thread it is already zero and this is a no-op.
+///
+/// It runs on both of that unwind's outcomes, including the one that refuses the registration and
+/// leaves the owed `finish` standing. A barrier left raised would outlive the environment that
+/// raised it and make every later settle on this thread bypass the queue for the rest of the
+/// process; a barrier lowered early costs that owed `finish` only the direct delivery of what it
+/// replays, which by then is an empty mailbox. The lowering is saturating, so the `finish` that
+/// arrives later cannot push the counter below zero.
 #[cfg(all(
   target_family = "wasm",
   not(feature = "noop"),

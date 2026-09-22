@@ -1983,6 +1983,188 @@ if (isThreadedWasi) {
     /EXIT_WINDOW_REAL_DESTROYS 1/,
     `the 'exit' teardown must reach the real Context.destroy(): skipping it over a raised barrier retains the environment with its cleanup hooks unrun, and records the destroy as done anyway:\n${exitInWindowOutput}`,
   )
+
+  // Re-registration over a cleanup that was abandoned with backend work still
+  // pending. The threadless counterpart of this case (below, `isThreadlessWasi`)
+  // exercises the outcome where phase 2 has nothing left to wait for and
+  // registration completes it; this is the other outcome, and the reason
+  // registration must never simply call phase 2.
+  //
+  // Here the work phase 1 left running is the parked-task worker, and it can
+  // only leave its loop once JavaScript calls `releaseParkedWorker()` — the very
+  // thread module registration is running on. Joining it from registration would
+  // be the deadlock the two-phase split exists to avoid, so napi refuses the
+  // registration instead, leaving the owed `…_finish` and the disposal latch
+  // standing so the host can still recover.
+  const abandonedPending = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const timeout = setTimeout(() => {
+        console.error('ABANDONED_PENDING_TIMEOUT')
+        process.exit(46)
+      }, 60_000)
+      timeout.unref?.()
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+
+      // The context and env emnapi builds for this instance, captured so the
+      // re-registration below goes through \`napi_register_wasm_v1\` exactly the
+      // way emnapi's own module init does.
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let context
+      let envObject
+      runtime.createContext = function (options) {
+        context = realCreateContext(options)
+        const realCreateEnv = context.createEnv.bind(context)
+        context.createEnv = (...environmentArguments) =>
+          (envObject = realCreateEnv(...environmentArguments))
+        return context
+      }
+      // And the instance, for its raw cleanup exports.
+      const wasmRuntime = loaderRequire('@napi-rs/wasm-runtime')
+      const realInstantiate = wasmRuntime.instantiateNapiModuleSync
+      let instance
+      wasmRuntime.instantiateNapiModuleSync = function (source, options) {
+        const userBeforeInit = options.beforeInit
+        return realInstantiate.call(this, source, {
+          ...options,
+          beforeInit(argument) {
+            instance = argument.instance
+            return userBeforeInit ? userBeforeInit.call(this, argument) : undefined
+          },
+        })
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+        wasmRuntime.instantiateNapiModuleSync = realInstantiate
+      }
+      const exports = instance.exports
+
+      const reregister = () => {
+        const scope = context.openScope(envObject)
+        try {
+          envObject.callIntoModule(() => {
+            exports.napi_register_wasm_v1(
+              envObject.bridge.address,
+              scope.add({}),
+            )
+          })
+        } catch (error) {
+          return error.message
+        } finally {
+          context.closeScope(envObject, scope)
+        }
+        return 'NONE'
+      }
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('ABANDONED_PENDING_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      // Phase 1, and then the host walks away with the worker still held.
+      exports.napi_prepare_wasm_env_cleanup_begin()
+      console.error(
+        'ABANDONED_PENDING_POLL ' + exports.napi_wasm_runtime_work_pending(),
+      )
+
+      // The registration that must return — with an error, not a join.
+      console.error('ABANDONED_PENDING_REGISTERING')
+      console.error('ABANDONED_PENDING_ERROR ' + reregister())
+
+      // The worker is released only now, from a host turn: its cancellation
+      // takes the ordinary queue path (the mailbox is closed and the barrier is
+      // down) into an environment that is still alive, so the promise settles.
+      binding.releaseParkedWorker()
+      for (let index = 0; index < 100; index++) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      console.error('ABANDONED_PENDING_TASK ' + task)
+      console.error(
+        'ABANDONED_PENDING_POLL_AFTER ' +
+          exports.napi_wasm_runtime_work_pending(),
+      )
+
+      // The remedy the error names. It still joins the real backend, because the
+      // refused registration left the owed phase 2 standing.
+      const shutdownsBeforeFinish = binding.getRuntimeMetrics().shutdownCalls
+      exports.napi_prepare_wasm_env_cleanup_finish()
+      console.error(
+        'ABANDONED_PENDING_FINISHED ' +
+          (binding.getRuntimeMetrics().shutdownCalls - shutdownsBeforeFinish),
+      )
+      console.error('ABANDONED_PENDING_RETRY ' + reregister())
+      console.error(
+        'ABANDONED_PENDING_STARTS ' + binding.getRuntimeMetrics().startCalls,
+      )
+      process.exit(0)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const abandonedPendingOutput = `${abandonedPending.stdout}\n${abandonedPending.stderr}`
+  assert.equal(abandonedPending.error, undefined, abandonedPending.error?.stack)
+  assert.equal(abandonedPending.signal, null, abandonedPendingOutput)
+  assert.equal(abandonedPending.status, 0, abandonedPendingOutput)
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_POLL 1/,
+    `the case only means something while phase 2 would still have to wait:\n${abandonedPendingOutput}`,
+  )
+  assert.doesNotMatch(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_TIMEOUT/,
+    `module registration must never join an abandoned cleanup: the work it would wait for is waiting for the JavaScript turn registration itself is holding, so the join never returns:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_ERROR Cannot register a new environment over this addon image: .*napi_prepare_wasm_env_cleanup_finish/,
+    `a registration that cannot unwind the abandoned cleanup must fail loudly and name the call the host skipped, not come up over a backend that is still stopping:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_TASK REJECTED: /,
+    `the cancellation of the released worker's task must still settle its promise — the refused registration closed the mailbox, so it takes the ordinary threadsafe-function queue path:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_FINISHED 1/,
+    `the refused registration must leave the owed phase 2 standing, or the host's remedy is a no-op and the backend never joins:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_RETRY NONE/,
+    `once the abandoned phase 2 has run, re-registration must go through:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_STARTS 2/,
+    `the registration that went through must start a backend again, or the new environment inherits the stopped one:\n${abandonedPendingOutput}`,
+  )
 }
 
 if (isThreadlessWasi) {

@@ -274,27 +274,40 @@ pub(crate) fn drain_wasm_cancel_mailbox() {
   }
 }
 
-/// Close the mailbox and drop everything parked in it, without invoking any of it.
+/// Close the mailbox and put everything parked in it beyond reach, without invoking any of it —
+/// and without dropping it either.
 ///
 /// Runs on: the JavaScript thread, from module registration, when a new environment takes over
 /// an image whose two-phase cleanup was begun and never finished
 /// (`bindgen_runtime::module_register::unwind_abandoned_wasm_env_cleanup`). Every parked callback
 /// rejects a `JsDeferred` created by the environment that went away, so replaying them the way
-/// [`drain_wasm_cancel_mailbox`] does would call into a destroyed environment. Dropping one drops
-/// an `Arc<DeferredHandle>` and nothing else — no napi call — and leaves a promise no longer
-/// reachable from JavaScript pending.
+/// [`drain_wasm_cancel_mailbox`] does would call into an environment that may be destroyed.
+///
+/// # Why it leaks instead of dropping
+///
+/// A parked entry is a callback *and* an [`Error`], and neither is inert. `Error` carries
+/// `maybe_ref: Option<Arc<ErrorRef>>`, whose `Drop` calls `napi_delete_reference` on the owning
+/// thread (`error.rs`) — this thread — against exactly the environment that must not be touched.
+/// The callback owns the task's `JsDeferred`, whose `DeferredHandle` has no `Drop` at all, so
+/// dropping it would not settle or release anything anyway. So each entry is `mem::forget`ed:
+/// the leak is bounded by the cancellations of one abandoned teardown, it happens only on this
+/// path, and it buys the guarantee that unwinding an abandoned cleanup makes no napi call.
+///
+/// The promises those entries would have rejected stay pending. That is the same outcome the
+/// entry's own `Drop` would produce, without the napi call.
 #[cfg(all(
   target_family = "wasm",
   feature = "async-runtime",
   not(feature = "noop")
 ))]
 pub(crate) fn discard_wasm_cancel_mailbox() {
-  drop(
-    WASM_CANCEL_MAILBOX
-      .lock()
-      .unwrap_or_else(PoisonError::into_inner)
-      .take(),
-  );
+  let parked = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner)
+    .take();
+  for entry in parked.into_iter().flatten() {
+    std::mem::forget(entry);
+  }
 }
 
 /// Park a cancellation for the barrier thread, or hand it back to be invoked here.
