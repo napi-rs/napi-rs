@@ -10663,40 +10663,40 @@ struct RuntimeState {
   /// Scoped to the generation the phase 1 was opened against: a successful
   /// `start` publishes a fresh one and drops it
   /// (`forget_shutdown_handoff`).
+  ///
+  /// Whoever finds it takes it, drains it and publishes the stop; everybody
+  /// else answers off the lifecycle. It carries no owner and no credit -- see
+  /// `phase_ever_opened`.
   draining: Option<ShutdownDrain>,
-  /// How many opened phase 1s have not been paired off yet. Every
-  /// `begin_shutdown` that OPENS a phase (any arm that parks a handoff,
-  /// `Backend` or `Settled`) counts one; every *consuming* `finish_shutdown`
-  /// pairs one off. A `begin_shutdown` that only re-reports an outstanding
-  /// handoff opens nothing and counts nothing.
+  /// Sticky: `true` once any `begin_shutdown` has OPENED a phase (any arm that
+  /// parks a handoff, `Backend` or `Settled`). Never cleared -- not by a
+  /// finish, not by a `start`, not by a restart.
   ///
-  /// `draining` alone cannot answer `finish_shutdown`, because two different
-  /// threads can empty that slot before the caller that opened the phase gets
-  /// to phase 2: whoever reaches phase 2 first TAKES the handoff, and a racing
-  /// `start` DROPS it. Either way the opener would find `None` and could not
-  /// tell "the shutdown I asked for was delivered" (owed `Ok(())`) from "no
-  /// phase 1 was ever begun" (owed the no-phase error).
+  /// It answers the one question `finish_shutdown` cannot answer from
+  /// `draining` and the lifecycle alone. An empty handoff slot on a runtime
+  /// that has never announced a stop is a host bug (phase 2 called on its
+  /// own); an empty slot on a runtime that has announced one only means
+  /// somebody else already completed, dropped or superseded it, which phase 2
+  /// reports as `Ok(())`.
   ///
-  /// A `start` deliberately leaves this count alone: it must drop the stale
-  /// handoff, but it cannot cancel a pairing the host -- or a single-call
-  /// `shutdown` halfway through its own two halves -- is still holding.
-  outstanding_phases: u32,
+  /// A counter was tried here and is wrong by construction: the credit is
+  /// spent by whichever thread performs the join, NOT by the thread that
+  /// opened the phase. A concurrent in-protocol `finish_shutdown` therefore
+  /// pairs off a single-call `shutdown`'s own phase, and that `shutdown` is
+  /// then told its stop was never started -- 8.2% of the time on
+  /// CurrentThread, after it had already published the stop. `(begin, start)`
+  /// pairs leak credits on top of that, turning later orphan finishes into
+  /// `Ok`. A bool can neither race nor leak.
+  phase_ever_opened: bool,
 }
 
 impl RuntimeState {
-  /// Park an accepted phase 1's handoff and count the opening. Exactly one
-  /// consuming `finish_shutdown` pairs that opening off -- whichever thread
-  /// performs the join, and even if a racing `start` drops the handoff first.
+  /// Park an accepted phase 1's handoff and record that a stop has been
+  /// announced. Both halves are set under the one lock every opening arm
+  /// already holds, so no phase can be open without the flag.
   fn open_phase_one(&mut self, drain: ShutdownDrain) {
-    self.outstanding_phases = self.outstanding_phases.saturating_add(1);
+    self.phase_ever_opened = true;
     self.draining = Some(drain);
-  }
-
-  /// Pair one opened phase 1 off. Saturating: a `finish_shutdown` that merely
-  /// reports a shutdown somebody else already delivered can arrive when the
-  /// count is already 0.
-  fn close_phase_one(&mut self) {
-    self.outstanding_phases = self.outstanding_phases.saturating_sub(1);
   }
 
   /// Drop any parked handoff. Called by every path that publishes a
@@ -10711,10 +10711,10 @@ impl RuntimeState {
   /// success while this generation kept running, kept accepting work and kept
   /// its MultiThread workers unjoined.
   ///
-  /// It does NOT touch `outstanding_phases`. Dropping the handoff answers the
-  /// stale-handoff question completely; the pairing question is a different
-  /// one, and the caller that opened the phase still has to be told what
-  /// became of it.
+  /// It does NOT clear `phase_ever_opened`. Dropping the handoff answers the
+  /// stale-handoff question completely; whether phase 2 may be called at all
+  /// is a different question, and a `start` does not turn an outstanding phase
+  /// 2 into a host bug -- it turns it into a no-op.
   fn forget_shutdown_handoff(&mut self) {
     // Only a settled handoff can ever reach here: `ShutdownDrain::Backend` is
     // parked together with the published `Stopping`, and every `start` arm
@@ -10736,15 +10736,6 @@ enum ShutdownDrain {
   /// Phase 1 completed a zero-backend transition (`Initial`, or an already
   /// stopped runtime): phase 2 has nothing left to drain.
   Settled,
-}
-
-/// What an accepted phase 1 did. `opened` is `false` for a `begin_shutdown`
-/// that found a handoff already outstanding and only re-reported it: such a
-/// call starts nothing, counts nothing, and owes its pairing to nobody.
-#[derive(Clone, Copy)]
-struct PhaseOneOutcome {
-  work_pending: bool,
-  opened: bool,
 }
 
 #[cfg(test)]
@@ -10912,7 +10903,7 @@ impl RuntimeController {
         lifecycle: RuntimeLifecycle::Initial,
         rejected_drops: 0,
         draining: None,
-        outstanding_phases: 0,
+        phase_ever_opened: false,
       }),
       lifecycle_changed: Condvar::new(),
       metrics: Arc::new(RuntimeMetrics::default()),
@@ -11308,8 +11299,9 @@ impl RuntimeController {
         RuntimeLifecycle::Initial => {
           if state.rejected_drops == 0 {
             // A started runtime owes nothing to a handoff parked against an
-            // earlier generation; the pairing that handoff belongs to is a
-            // separate question and stays open.
+            // earlier generation. The stop that handoff announced still
+            // happened, so `phase_ever_opened` stays set and a phase 2 that
+            // arrives afterwards is a no-op instead of an error.
             state.forget_shutdown_handoff();
             return Ok(());
           }
@@ -11512,28 +11504,21 @@ impl RuntimeController {
   /// thread, so a blocking closure that still needs a JS turn could never get
   /// one while that thread sat in `wait_until_idle`.
   ///
-  /// Every phase 1 this OPENS is paired off by exactly one consuming
-  /// `finish_shutdown`. A `begin_shutdown` while one is outstanding opens no
-  /// second phase and never waits: it answers with the current work-pending
-  /// verdict, so the thread that owns the shutdown may re-enter it from a host
-  /// turn, and it owes no pairing of its own.
+  /// A `begin_shutdown` while one is outstanding opens no second phase and
+  /// never waits: it answers with the current work-pending verdict, so the
+  /// thread that owns the shutdown may re-enter it from a host turn. Phase 1s
+  /// and phase 2s do not have to balance -- `finish_shutdown` completes the
+  /// most recently announced stop and is idempotent.
   ///
   /// `start()` between the phases is NOT allowed -- it waits in `Stopping`
   /// until phase 2 publishes `Stopped`, and is rejected outright when it comes
   /// from work in the generation being stopped. Admission needs no guard of
   /// its own: `backend_locked` already rejects every submission under
   /// `Stopping`. A `start` that does land in the window of a zero-backend
-  /// phase 1 (nothing published to wait in) drops the handoff but not the
-  /// pairing, so `finish_shutdown` still reports the phase this call opened.
+  /// phase 1 (nothing published to wait in) drops the handoff, and the
+  /// `finish_shutdown` that follows finds the fresh generation running and is
+  /// a no-op `Ok(())`.
   fn begin_shutdown(&self) -> Result<bool, RuntimeConfigError> {
-    Ok(self.begin_shutdown_inner()?.work_pending)
-  }
-
-  /// `begin_shutdown`, plus whether this call opened the phase or only
-  /// re-reported one that was already outstanding. Only the single-call
-  /// `shutdown` needs the difference: it must not pair off a phase whose
-  /// opener is another thread.
-  fn begin_shutdown_inner(&self) -> Result<PhaseOneOutcome, RuntimeConfigError> {
     let backend = {
       let mut state = self
         .state
@@ -11544,21 +11529,17 @@ impl RuntimeController {
           ShutdownDrain::Backend(backend) => Some(backend.clone()),
           ShutdownDrain::Settled => None,
         };
-        // A second phase 1 opens nothing, so it counts nothing: the thread
-        // that opened the outstanding handshake owns its pairing, and this
-        // caller is owed the same `Ok(())` off the back of it. Answering from
-        // the handoff can never skip stopping a live generation: the handoff
-        // belongs to the generation it was opened against, and
-        // `forget_shutdown_handoff` drops it at every `start`.
+        // A second phase 1 opens nothing: the stop this handoff carries has
+        // already been announced, and one `finish_shutdown` completes it for
+        // every caller. Answering from the handoff can never skip stopping a
+        // live generation: the handoff belongs to the generation it was opened
+        // against, and `forget_shutdown_handoff` drops it at every `start`.
         //
         // Answer off the lifecycle lock: probing a backend takes the
         // generation and executor locks, and the same re-entry must not
         // nest them under this one.
         drop(state);
-        return Ok(PhaseOneOutcome {
-          work_pending: outstanding.is_some_and(|backend| backend.work_pending()),
-          opened: false,
-        });
+        return Ok(outstanding.is_some_and(|backend| backend.work_pending()));
       }
       loop {
         Self::ensure_active_generation_current(&state)?;
@@ -11586,10 +11567,7 @@ impl RuntimeController {
             state.lifecycle = target.into_lifecycle();
             state.open_phase_one(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
-            return Ok(PhaseOneOutcome {
-              work_pending: false,
-              opened: true,
-            });
+            return Ok(false);
           }
           RuntimeLifecycle::Running(backend) => {
             if backend.is_current() {
@@ -11648,10 +11626,7 @@ impl RuntimeController {
           RuntimeLifecycle::StoppedBeforeFirstUse | RuntimeLifecycle::Stopped => {
             if state.rejected_drops == 0 {
               state.open_phase_one(ShutdownDrain::Settled);
-              return Ok(PhaseOneOutcome {
-                work_pending: false,
-                opened: true,
-              });
+              return Ok(false);
             }
             if RejectedSubmissionDropContext::is_current() {
               return Err(RuntimeConfigError(
@@ -11679,10 +11654,7 @@ impl RuntimeController {
             state.lifecycle = target.into_lifecycle();
             state.open_phase_one(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
-            return Ok(PhaseOneOutcome {
-              work_pending: false,
-              opened: true,
-            });
+            return Ok(false);
           }
         }
       }
@@ -11691,10 +11663,7 @@ impl RuntimeController {
     #[cfg(test)]
     run_after_generation_stop_publication_test_hook();
     backend.begin_shutdown();
-    Ok(PhaseOneOutcome {
-      work_pending: backend.work_pending(),
-      opened: true,
-    })
+    Ok(backend.work_pending())
   }
 
   /// Non-blocking poll for the window between the phases: `false` means
@@ -11723,70 +11692,32 @@ impl RuntimeController {
   /// join the workers and publish `Stopped`. Everything after
   /// `begin_shutdown`, in the same order the single call runs it.
   ///
-  /// Pairs off exactly one opened phase 1 and returns `Ok(())` once the
-  /// runtime has reached a stopped state for it, whoever performed the join:
-  /// a caller that finds another thread already draining waits for its
-  /// publication, and a caller that arrives after that publication reports
-  /// the shutdown that was already delivered. It completes the shutdown that
-  /// was outstanding when it was called and never adopts a generation started
-  /// after that.
+  /// It completes the most recently announced stop, and it is IDEMPOTENT. It
+  /// owns no phase and counts none: whoever finds the handoff takes it, drains
+  /// it and publishes the stop, and every other caller answers off the
+  /// lifecycle -- waiting out a join that is still in flight, then reporting
+  /// `Ok(())` for the stop that was delivered. Phase 1s and phase 2s therefore
+  /// do not have to balance, and two threads completing the same shutdown both
+  /// get `Ok(())` instead of one of them being told its own stop never
+  /// happened.
   ///
-  /// Errors only when there is no opened phase 1 left to pair (the host
-  /// called phase 2 on its own, or called it once more than it called phase
-  /// 1), and -- like `shutdown` -- when the caller is work of the generation
-  /// being stopped, which could only wait for itself.
+  /// It never stops a generation it did not begin. A `start` between the
+  /// phases -- or any later restart -- drops the parked handoff and publishes a
+  /// fresh generation; a `finish_shutdown` that arrives afterwards with nothing
+  /// outstanding is a no-op `Ok(())` and does NOT adopt that generation.
   ///
-  /// A `start` between the phases does NOT turn the pairing into an error. It
-  /// drops the parked handoff, so the new generation is never reported
-  /// stopped by a stale one, but the phase 1 that was opened is still owed
-  /// its one answer.
+  /// The only missing-phase error left is phase 2 on a runtime that has never
+  /// begun a shutdown at all (`phase_ever_opened == false`): the host called
+  /// the second half without ever calling the first. Like `shutdown`, it also
+  /// rejects a caller that is work of the generation being stopped, which could
+  /// only wait for itself.
   fn finish_shutdown(&self) -> Result<(), RuntimeConfigError> {
-    self.finish_shutdown_inner(true)
-  }
-
-  /// `finish_shutdown`, with the pairing made explicit. `consume` is `false`
-  /// for the second half of a single-call `shutdown` whose phase 1 only
-  /// re-reported an already outstanding handoff: that call opened nothing, so
-  /// it must neither pair off another caller's phase nor be rejected for not
-  /// having one.
-  fn finish_shutdown_inner(&self, consume: bool) -> Result<(), RuntimeConfigError> {
     const STOPPING_WAIT_ERROR: &str =
       "cannot wait for async runtime shutdown from work in the generation being stopped";
     const REJECTED_DROP_ERROR: &str =
       "cannot shut down the async runtime while a rejected submission is being destroyed";
     const NO_PHASE_ERROR: &str =
       "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown";
-
-    /// The terminal question once the handoff slot is empty: is an opened
-    /// phase 1 still unpaired, so that this caller owns the answer to it?
-    fn pair_off_or_reject(
-      state: &mut RuntimeState,
-      consume: bool,
-      waited: bool,
-    ) -> Result<(), RuntimeConfigError> {
-      if waited {
-        // This caller sat through the publication it was waiting for, so the
-        // shutdown it asked for has been delivered whoever performed it.
-        if consume {
-          state.close_phase_one();
-        }
-        return Ok(());
-      }
-      if consume && state.outstanding_phases > 0 {
-        // An opened phase 1 is still unpaired: either a concurrent `shutdown`
-        // drained this caller's handoff before it got here, or a `start`
-        // dropped it. Either way this is the finish that pairs it off.
-        state.close_phase_one();
-        return Ok(());
-      }
-      if !consume {
-        // A single call whose phase 1 only re-reported an outstanding
-        // handshake: the thread that opened that phase owns its pairing, and
-        // the drain this call was owed has been performed.
-        return Ok(());
-      }
-      Err(RuntimeConfigError(NO_PHASE_ERROR.to_string()))
-    }
 
     let backend = {
       let mut state = self
@@ -11799,9 +11730,6 @@ impl RuntimeController {
         Some(ShutdownDrain::Settled) => {
           // Phase 1 completed a zero-backend transition; nothing to drain.
           state.draining = None;
-          if consume {
-            state.close_phase_one();
-          }
           return Ok(());
         }
         Some(ShutdownDrain::Backend(backend)) => {
@@ -11810,13 +11738,19 @@ impl RuntimeController {
           }
         }
         None => {
-          // Another caller already took the outstanding phase 1 (a
-          // concurrent `shutdown`, or a second `finish_shutdown`). Wait for
-          // its publication and report its success -- a concurrent
+          if !state.phase_ever_opened {
+            // No shutdown has ever been announced on this runtime, so there is
+            // nothing for this call to complete: the host called the second
+            // half without the first.
+            return Err(RuntimeConfigError(NO_PHASE_ERROR.to_string()));
+          }
+          // A stop WAS announced. The slot is empty because another caller
+          // took the handoff (a concurrent `shutdown`, or another
+          // `finish_shutdown`) or because a `start` dropped it. Wait out a
+          // join still in flight and report its publication -- a concurrent
           // `shutdown` waits in exactly this place today. Waiting inside this
-          // arm, instead of re-entering the match, also keeps this caller
-          // from adopting a phase 1 that was opened after it woke.
-          let mut waited = false;
+          // arm, instead of re-entering the match, also keeps this caller from
+          // adopting a phase 1 that was opened after it woke.
           loop {
             match &state.lifecycle {
               RuntimeLifecycle::Stopping(identity) => {
@@ -11829,19 +11763,15 @@ impl RuntimeController {
                   return Err(RuntimeConfigError(REJECTED_DROP_ERROR.to_string()));
                 }
               }
-              // Stopped/StoppedBeforeFirstUse: the publication an opened
-              // phase 1 was owed has happened -- by the concurrent `shutdown`
-              // (or second `finish_shutdown`) that took the handoff.
-              // Initial/Running: a `start` got here first; it dropped the
-              // handoff, but the phase it dropped is still owed its answer.
+              // Stopped/StoppedBeforeFirstUse: the publication an announced
+              // stop was owed has happened, whichever thread performed the
+              // join. Initial/Running: a `start` superseded that generation --
+              // this call must report the stop, not stop the new generation.
               RuntimeLifecycle::StoppedBeforeFirstUse
               | RuntimeLifecycle::Stopped
               | RuntimeLifecycle::Initial
-              | RuntimeLifecycle::Running(_) => {
-                return pair_off_or_reject(&mut state, consume, waited);
-              }
+              | RuntimeLifecycle::Running(_) => return Ok(()),
             }
-            waited = true;
             state = self
               .lifecycle_changed
               .wait(state)
@@ -11882,9 +11812,6 @@ impl RuntimeController {
     }
     debug_assert!(matches!(state.lifecycle, RuntimeLifecycle::Stopping(_)));
     state.lifecycle = RuntimeLifecycle::Stopped;
-    if consume {
-      state.close_phase_one();
-    }
     self.lifecycle_changed.notify_all();
     Ok(())
   }
@@ -11895,16 +11822,17 @@ impl RuntimeController {
   /// `wait_until_idle`, with nothing in between.
   ///
   /// It takes the lifecycle lock twice, so a `start` (or another shutdown) can
-  /// land between the halves. Phase 2 therefore pairs off the phase this call
-  /// OPENED, and only that: a phase 1 that merely re-reported an outstanding
-  /// handoff leaves the pairing to the thread that opened it, and a phase this
-  /// call opened is reported `Ok(())` even if a racing `start` dropped the
-  /// handoff in between -- this call really did stop the generation it found.
+  /// land between the halves. Phase 2 being idempotent is what makes that
+  /// window free: whether the stop this call announced is published by this
+  /// thread, by a concurrent `finish_shutdown` that took the handoff first, or
+  /// superseded by a racing `start`, this call reports `Ok(())` for the stop it
+  /// performed -- it never has to be told that its own shutdown was never
+  /// started.
   fn shutdown(&self) -> Result<(), RuntimeConfigError> {
-    let opened = self.begin_shutdown_inner()?.opened;
+    self.begin_shutdown()?;
     #[cfg(test)]
     run_between_shutdown_phases_test_hook();
-    self.finish_shutdown_inner(opened)
+    self.finish_shutdown()
   }
 }
 
@@ -12115,9 +12043,9 @@ pub fn start() -> Result<(), RuntimeConfigError> {
 /// wait for what is running, join the workers.
 ///
 /// Equivalent to [`begin_shutdown`] followed by [`finish_shutdown`], and
-/// unchanged in ordering and semantics. It completes the phase it began and
-/// no other, so it reports the shutdown it performed even when another thread
-/// restarts the runtime between the two.
+/// unchanged in ordering and semantics. It reports the shutdown it performed
+/// even when another thread completes that shutdown, or restarts the runtime,
+/// between the two halves.
 pub fn shutdown() -> Result<(), RuntimeConfigError> {
   RUNTIME.shutdown()
 }
@@ -12138,9 +12066,9 @@ pub fn shutdown() -> Result<(), RuntimeConfigError> {
 /// Submissions are rejected between the phases, and [`start`] must not be
 /// called there: it waits for phase 2 to publish the stop. A second
 /// `begin_shutdown` before [`finish_shutdown`] neither waits nor starts a
-/// second shutdown; it just re-reports [`runtime_work_pending`] -- and so it
-/// is not a phase of its own, one [`finish_shutdown`] still completes the
-/// handshake.
+/// second shutdown; it just re-reports [`runtime_work_pending`]. Calls of the
+/// two phases do not have to balance: [`finish_shutdown`] completes the most
+/// recently announced stop and is idempotent.
 pub fn begin_shutdown() -> Result<bool, RuntimeConfigError> {
   RUNTIME.begin_shutdown()
 }
@@ -12156,12 +12084,15 @@ pub fn runtime_work_pending() -> bool {
 /// Phase 2 of a two-phase shutdown: wait for the generation to go idle, join
 /// the workers and publish the stop.
 ///
-/// Completes exactly one [`begin_shutdown`], whichever thread performed the
-/// join. Errors when there is no such phase left to complete -- phase 2 on its
-/// own, or one more phase 2 than there were phases 1 -- and when called from
-/// work of the generation being stopped. Calling it while
-/// [`runtime_work_pending`] still answers `true` is allowed -- it then blocks,
-/// which is what [`shutdown`] does.
+/// Completes the most recently announced stop, whichever thread performs the
+/// join, and is idempotent: extra calls, and calls that race another thread
+/// completing the same shutdown, answer `Ok(())`. A call that arrives after a
+/// [`start`] finds nothing outstanding and is a no-op -- it never stops the
+/// generation that restart published. It errors only when no [`begin_shutdown`]
+/// has EVER been called on this runtime, and when called from work of the
+/// generation being stopped. Calling it while [`runtime_work_pending`] still
+/// answers `true` is allowed -- it then blocks, which is what [`shutdown`]
+/// does.
 pub fn finish_shutdown() -> Result<(), RuntimeConfigError> {
   RUNTIME.finish_shutdown()
 }
@@ -30167,10 +30098,6 @@ mod tests {
         state.draining.is_none(),
         "phase 2 must consume the phase-1 handoff"
       );
-      assert_eq!(
-        state.outstanding_phases, 0,
-        "the one opened phase must be paired off by the one finish"
-      );
     }
 
     // The split leaves the restart path exactly as the single call does.
@@ -30321,17 +30248,25 @@ mod tests {
       .expect("the thread that began phase 1 must still be told its shutdown completed");
     assert_eq!(futures::executor::block_on(handle).unwrap(), 3usize);
 
-    // A fresh start forgets the completed handshake, so an orphan phase 2 is
-    // an error again.
+    // Flipped with the idempotent model (it used to expect the orphan error
+    // here): a phase 2 after a restart finds nothing outstanding, so it is a
+    // no-op `Ok(())` -- and it must NOT adopt the generation the restart
+    // published.
     controller.start().expect("a stopped runtime must restart");
     drop(controller.backend());
-    let error = controller
+    controller
       .finish_shutdown()
-      .expect_err("phase 2 after a restart must be rejected");
-    assert_eq!(
-      error.to_string(),
-      "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown"
-    );
+      .expect("phase 2 after a restart is a no-op, not an error");
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(
+        matches!(&state.lifecycle, RuntimeLifecycle::Running(_)),
+        "the no-op phase 2 must not stop the restarted generation"
+      );
+    }
     controller
       .shutdown()
       .expect("the single call must still shut the restarted runtime down");
@@ -30343,8 +30278,9 @@ mod tests {
     // the phases. A second phase 1 must answer from the outstanding one --
     // taking the `Stopping` arm instead would park this thread on the condvar
     // forever, so a regression hangs this test rather than failing it. It
-    // also OPENS nothing, so the pairing stays one-to-one: the first phase 2
-    // completes the handshake and the second is an orphan.
+    // also OPENS nothing -- and, flipped with the idempotent model, the second
+    // phase 2 is no longer an orphan error: the stop it was asked to complete
+    // has been completed, so it answers `Ok(())`.
     let controller = current_thread_controller("two-phase-reentrant-begin");
     drop(controller.backend());
 
@@ -30377,19 +30313,22 @@ mod tests {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
-      assert_eq!(
-        state.outstanding_phases, 0,
-        "the re-reporting phase 1 must not have opened a second phase"
-      );
+      assert!(state.draining.is_none());
     }
 
-    let error = controller
+    controller
       .finish_shutdown()
-      .expect_err("the second phase 2 has no opened phase left to complete");
-    assert_eq!(
-      error.to_string(),
-      "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown"
-    );
+      .expect("a second phase 2 repeats the completed stop instead of erroring");
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(
+        matches!(&state.lifecycle, RuntimeLifecycle::Stopped),
+        "the repeated phase 2 must change nothing"
+      );
+    }
   }
 
   #[test]
@@ -30511,14 +30450,15 @@ mod tests {
   }
 
   #[test]
-  fn a_settled_phase_one_still_pairs_with_one_finish_across_a_restart() {
-    // Flipped deliberately (it used to expect the orphan error here): a
-    // `start` between the phases DROPS the settled handoff -- so it can never
-    // answer for the new generation -- but it does not cancel the pairing. The
-    // caller that opened phase 1 is still owed exactly one answer, and the
-    // finish AFTER that pairing is the orphan. Without this, a single-call
-    // `shutdown` racing a `start` reports `Err` for a shutdown it performed.
-    let controller = current_thread_controller("two-phase-settled-pairing");
+  fn a_settled_phase_one_is_reported_by_every_finish_across_a_restart() {
+    // Renamed and flipped again with the idempotent model (it counted phases
+    // before, and errored before that): a `start` between the phases DROPS the
+    // settled handoff -- so it can never answer for the new generation -- but
+    // the stop that was announced still happened, so EVERY phase 2 that
+    // follows reports it, and none of them touches the restarted generation.
+    // Without this, a single-call `shutdown` racing a `start` reports `Err`
+    // for a shutdown it performed.
+    let controller = current_thread_controller("two-phase-settled-idempotent");
     drop(controller.backend());
     controller
       .shutdown()
@@ -30538,22 +30478,18 @@ mod tests {
         state.draining.is_none(),
         "the restart must drop the settled handoff"
       );
-      assert_eq!(
-        state.outstanding_phases, 1,
-        "the restart must not cancel the pairing the opener still holds"
+      assert!(
+        state.phase_ever_opened,
+        "the restart must not erase the fact that a stop was announced"
       );
     }
 
     controller
       .finish_shutdown()
-      .expect("the opened phase 1 must pair with exactly one phase 2");
-    let error = controller
+      .expect("the announced stop must be reported to the caller that opened it");
+    controller
       .finish_shutdown()
-      .expect_err("the phase 2 after that pairing is an orphan");
-    assert_eq!(
-      error.to_string(),
-      "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown"
-    );
+      .expect("and to every phase 2 after it -- the call is idempotent");
     {
       let state = controller
         .state
@@ -30567,18 +30503,18 @@ mod tests {
     drop(controller.backend());
     controller
       .shutdown()
-      .expect("the rejected phase 2 must leave the runtime shuttable");
+      .expect("the no-op phase 2s must leave the runtime shuttable");
   }
 
   #[test]
   fn shutdown_racing_a_start_still_reports_ok() {
-    // The defect this whole pairing model exists for. The single call takes
+    // The defect this whole rule exists for. The single call takes
     // the lifecycle lock twice; on an already stopped runtime phase 1 settles
     // with no backend and publishes no `Stopping` for a `start` to wait in,
     // so a `start` can land in the window and drop the parked handoff. Phase 2
-    // then finds an empty slot and a `Running` lifecycle. Counting the opened
-    // phase is what lets it answer `Ok(())` for the shutdown this call really
-    // did perform, instead of "shutdown was not started".
+    // then finds an empty slot and a `Running` lifecycle. `phase_ever_opened`
+    // is what lets it answer `Ok(())` for the shutdown this call really did
+    // perform, instead of "shutdown was not started".
     //
     // Deterministic, not stressed: the hook runs the `start` inside the window
     // itself. In the wild the same interleaving shows up as a flaky
@@ -30621,10 +30557,6 @@ mod tests {
         state.draining.is_none(),
         "the start must have dropped the settled handoff"
       );
-      assert_eq!(
-        state.outstanding_phases, 0,
-        "the opened phase must be paired off exactly once"
-      );
     }
 
     // The generation the start published is a real one: it accepts work, and
@@ -30647,7 +30579,126 @@ mod tests {
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
-    assert_eq!(state.outstanding_phases, 0);
+    assert!(state.draining.is_none());
+  }
+
+  // The runtime FLAVOR under test is CurrentThread -- that is where the race
+  // this pins was 8.2% -- but the probe itself needs a second OS thread, so it
+  // cannot run on the threadless `wasm32-wasip1` lane.
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn concurrent_split_finish_racing_a_single_call_shutdown() {
+    // The interleaving the counting model got wrong (8.2% on CurrentThread in
+    // a 100k-iteration probe, and the reason phases are no longer counted): a
+    // single call opens the phase and a SECOND thread, using the documented
+    // split pair, completes it. With a count, the split thread's finish spent
+    // the opener's credit and the single call was then told "shutdown was not
+    // started" -- for a stop it had already published.
+    //
+    // Deterministic, not stressed: the hook parks the single call between its
+    // halves and runs the split pair to completion there.
+    let controller = Arc::new(current_thread_controller("split-finish-vs-single"));
+    drop(controller.backend());
+
+    let split_controller = Arc::clone(&controller);
+    let (tx, rx) = std::sync::mpsc::channel();
+    BETWEEN_SHUTDOWN_PHASES_TEST_HOOK.with(|slot| {
+      *slot.borrow_mut() = Some(Box::new(move || {
+        let split = std::thread::spawn(move || {
+          let pending = split_controller
+            .begin_shutdown()
+            .expect("a second phase 1 must re-report the outstanding handoff");
+          split_controller
+            .finish_shutdown()
+            .expect("an in-protocol phase 2 must complete the outstanding stop");
+          pending
+        });
+        tx.send(
+          split
+            .join()
+            .expect("the split shutdown thread must not panic"),
+        )
+        .expect("the test thread must still be waiting for the split result");
+      }));
+    });
+
+    controller
+      .shutdown()
+      .expect("the single call must report the stop it announced, whoever joined it");
+    assert!(
+      !rx
+        .try_recv()
+        .expect("the hook must have run the split pair inside the window"),
+      "an idle generation has nothing for the host to wait for"
+    );
+
+    let state = controller
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(
+      matches!(&state.lifecycle, RuntimeLifecycle::Stopped),
+      "the generation must really be stopped, not reported stopped"
+    );
+    assert!(state.draining.is_none());
+  }
+
+  #[test]
+  fn repeated_begin_start_pairs_leave_no_residue() {
+    // The other half of what the count got wrong: `k x (begin, start)` parked
+    // `k` credits that nothing ever drained, so the next `k` stray phase 2s
+    // reported success off a leaked count. A sticky bool cannot accumulate --
+    // the behaviour is the same at every `k`.
+    const PAIRS: usize = 50;
+    let controller = current_thread_controller("begin-start-residue");
+    drop(controller.backend());
+    for _ in 0..PAIRS {
+      controller
+        .shutdown()
+        .expect("each shutdown must stop the live generation");
+      assert!(
+        !controller
+          .begin_shutdown()
+          .expect("phase 1 on a stopped runtime must be accepted"),
+        "a stopped runtime has no work for the host to wait for"
+      );
+      controller
+        .start()
+        .expect("a zero-backend window must let a restart through");
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(
+        state.draining.is_none(),
+        "the restart must drop the settled handoff"
+      );
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Running(_)));
+    }
+
+    controller
+      .finish_shutdown()
+      .expect("a phase 2 with nothing outstanding is a no-op Ok");
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(
+        matches!(&state.lifecycle, RuntimeLifecycle::Running(_)),
+        "the no-op phase 2 must not stop the generation the last restart published"
+      );
+    }
+
+    controller
+      .shutdown()
+      .expect("a full shutdown after the begin/start pairs must still work");
+    let state = controller
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+    assert!(state.draining.is_none());
   }
 
   #[cfg(napi_runtime_os_threads)]
