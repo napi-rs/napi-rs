@@ -474,8 +474,10 @@ extern "C" fn napi_prepare_wasm_env_cleanup_begin() -> u32 {
   }
 }
 
-/// Whether [`napi_prepare_wasm_env_cleanup_finish`] would still have to wait for backend-owned
-/// work: 1 yes, 0 no.
+/// Whether the announced stop still owes a wait that
+/// [`napi_prepare_wasm_env_cleanup_finish`] would have to make — backend-owned work that is
+/// still live, or a rejected submission whose destructor is still running on another thread:
+/// 1 yes, 0 no.
 ///
 /// The poll for the window between the two phases. Never blocks and is safe to call at any
 /// time, including before any `begin` and after `finish` — it then answers for the runtime as it

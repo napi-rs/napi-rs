@@ -10664,15 +10664,21 @@ struct RuntimeState {
   /// `start` publishes a fresh one and drops it
   /// (`forget_shutdown_handoff`).
   ///
-  /// Whoever finds it takes it, drains it and publishes the stop; everybody
-  /// else answers off the lifecycle. It carries no owner and no credit -- see
-  /// `phase_ever_opened`.
+  /// A `ShutdownDrain::Backend` handoff is taken: whoever finds it takes it,
+  /// drains it and publishes the stop; everybody else answers off the
+  /// lifecycle. A `ShutdownDrain::ZeroBackend` handoff is not -- there is no
+  /// backend to own. Nobody takes it. Every `finish_shutdown` that finds it
+  /// waits on `rejected_drops`, and the one that observes zero clears the
+  /// slot together with the publication, under one lock hold. Either way the
+  /// handoff carries no owner and no credit -- see `phase_ever_opened`.
   ///
-  /// The slot never goes empty while a stop is still owed: the taker swaps
-  /// the handoff for `ShutdownDrain::Joining`, which stays until `Stopped` is
-  /// published under this same lock. That keeps the non-blocking surfaces
+  /// The slot never goes empty while a stop is still owed. For `Backend` the
+  /// taker swaps the handoff for `ShutdownDrain::Joining`, which stays until
+  /// `Stopped` is published under this same lock. For `ZeroBackend` the
+  /// handoff itself stays, untouched, until the target lifecycle is published
+  /// under that lock. That keeps the non-blocking surfaces
   /// (`begin_shutdown`'s re-entry arm, `runtime_work_pending`) truthful for
-  /// the whole join instead of reading like a runtime with nothing pending.
+  /// the whole wait instead of reading like a runtime with nothing pending.
   draining: Option<ShutdownDrain>,
   /// Sticky: `true` once any `begin_shutdown` has OPENED a phase (any arm that
   /// parks a handoff, `Backend` or `Settled`). Never cleared -- not by a
@@ -11787,19 +11793,27 @@ impl RuntimeController {
   /// `begin_shutdown`, in the same order the single call runs it.
   ///
   /// It completes the most recently announced stop, and it is IDEMPOTENT. It
-  /// owns no phase and counts none: whoever finds the handoff takes it, swaps
-  /// it for `ShutdownDrain::Joining`, drains it and publishes the stop while
-  /// retiring that marker, and every other caller answers off the
-  /// lifecycle -- waiting out a join that is still in flight, then reporting
-  /// `Ok(())` for the stop that was delivered. Phase 1s and phase 2s therefore
-  /// do not have to balance, and two threads completing the same shutdown both
-  /// get `Ok(())` instead of one of them being told its own stop never
-  /// happened.
+  /// owns no phase and counts none: whoever finds a `ShutdownDrain::Backend`
+  /// handoff takes it, swaps it for `ShutdownDrain::Joining`, drains it and
+  /// publishes the stop while retiring that marker, and every other caller
+  /// answers off the lifecycle -- waiting out a join that is still in flight,
+  /// then reporting `Ok(())` for the stop that was delivered. A
+  /// `ShutdownDrain::ZeroBackend` handoff is never taken and never swapped:
+  /// every caller that finds it waits on the outstanding rejected
+  /// destruction, the one that observes it retired publishes the target and
+  /// clears the slot, and the rest wake to that published stop and report it
+  /// the same way. Phase 1s and phase 2s therefore do not have to balance,
+  /// and two threads completing the same shutdown both get `Ok(())` instead
+  /// of one of them being told its own stop never happened.
   ///
   /// It never stops a generation it did not begin. A `start` between the
-  /// phases -- or any later restart -- drops the parked handoff and publishes a
-  /// fresh generation; a `finish_shutdown` that arrives afterwards with nothing
-  /// outstanding is a no-op `Ok(())` and does NOT adopt that generation.
+  /// phases -- or any later restart -- drops a handoff that published nothing
+  /// to wait in (`ShutdownDrain::Settled`) and publishes a fresh generation; a
+  /// `finish_shutdown` that arrives afterwards with nothing outstanding is a
+  /// no-op `Ok(())` and does NOT adopt that generation. A `ZeroBackend`
+  /// handoff is never dropped that way: it publishes `StoppingWithoutBackend`
+  /// for its whole window, so a `start` waits there until phase 2 publishes
+  /// the target.
   ///
   /// The only missing-phase error left is phase 2 on a runtime that has never
   /// begun a shutdown at all (`phase_ever_opened == false`): the host called
@@ -31362,6 +31376,76 @@ mod tests {
     controller
       .shutdown()
       .expect("the restarted generation must still shut down");
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn zero_backend_phase_one_settles_through_the_poll_before_finish() {
+    // The order the production WASI loader actually runs, which the three
+    // tests above never do: `begin` -> turn the host loop, polling
+    // `runtime_work_pending` until it answers `false` -> only THEN call
+    // `finish`. They park phase 2 on a thread BEFORE releasing the
+    // destructor, so they prove the wait; this proves the way out of it. The
+    // poll must stop reporting work once the rejected destructor retires, and
+    // the `finish` entered after that must not block -- a loader that polled
+    // to zero and then found phase 2 parked would wedge the disposal on the
+    // JavaScript thread, which is the whole failure the split API avoids.
+    use std::sync::mpsc;
+
+    let controller = Arc::new(current_thread_controller("two-phase-zero-backend-poll"));
+    drop(controller.backend());
+    controller
+      .shutdown()
+      .expect("the first shutdown must complete");
+
+    let (submitter, release_drop_tx) = park_a_rejected_destructor(&controller, false);
+    assert!(
+      begin_shutdown_within(
+        &controller,
+        "phase 1 before the loader's poll loop",
+        Duration::from_secs(2),
+      )
+      .expect("phase 1 on a stopped runtime must be accepted"),
+      "the outstanding rejected destruction is a wait phase 2 still owes"
+    );
+    assert!(
+      controller.runtime_work_pending(),
+      "the loader gates its poll loop on this, so it must report the destruction first"
+    );
+
+    release_drop_tx.send(()).unwrap();
+    join_within("the rejected submitter", submitter, Duration::from_secs(2));
+
+    // The host's turns, bounded: a handoff that never clears fails here
+    // instead of spinning for the length of the CI step.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while controller.runtime_work_pending() {
+      assert!(
+        std::time::Instant::now() < deadline,
+        "the poll must stop reporting work once the rejected destructor retires"
+      );
+      std::thread::sleep(Duration::from_millis(1));
+    }
+
+    let (finish_tx, finish_rx) = mpsc::channel();
+    let finish_controller = Arc::clone(&controller);
+    let finisher = std::thread::spawn(move || {
+      finish_tx.send(finish_controller.finish_shutdown()).unwrap();
+    });
+    finish_rx
+      .recv_timeout(Duration::from_millis(200))
+      .expect("phase 2 entered after the poll cleared must not block")
+      .expect("phase 2 must complete the announced stop");
+    join_within("the phase 2 thread", finisher, Duration::from_secs(2));
+
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+      assert!(state.draining.is_none());
+    }
   }
 
   // ---- MultiThread blocking cap, drain budget, and panic propagation ---------

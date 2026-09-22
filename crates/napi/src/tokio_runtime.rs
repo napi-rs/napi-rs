@@ -599,9 +599,10 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// Optional hook: phase 1 of a two-phase [`shutdown`](AsyncRuntime::shutdown).
   ///
   /// **Never wait here.** Publish the stop, close admission, cancel and drop everything that is
-  /// merely queued, wake whatever is parked — and return. `Ok(true)` reports that backend-owned
-  /// work is still live, so the host should let its event loop turn and poll
-  /// [`shutdown_work_pending`](AsyncRuntime::shutdown_work_pending) before calling
+  /// merely queued, wake whatever is parked — and return. `Ok(true)` reports that the announced
+  /// stop still owes a wait: backend work that is still live, or a rejected submission whose
+  /// destructor is still running on another thread. The host should then let its event loop turn
+  /// and poll [`shutdown_work_pending`](AsyncRuntime::shutdown_work_pending) before calling
   /// [`finish_shutdown`](AsyncRuntime::finish_shutdown); `Ok(false)` reports that
   /// `finish_shutdown` has nothing to wait for.
   ///
@@ -634,10 +635,11 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// [`begin_shutdown`](AsyncRuntime::begin_shutdown) and
   /// [`finish_shutdown`](AsyncRuntime::finish_shutdown).
   ///
-  /// `false` means `finish_shutdown` will not wait for backend-owned work. Must never block and
-  /// must be safe to call at any time, including with no shutdown outstanding. The default
-  /// answers `false`, which is correct for a backend whose `begin_shutdown` already finished the
-  /// teardown.
+  /// `true` means the announced stop still owes a wait: backend work, or a rejected submission
+  /// whose destructor is still running on another thread. `false` means `finish_shutdown` will
+  /// not wait. Must never block and must be safe to call at any time, including with no shutdown
+  /// outstanding. The default answers `false`, which is correct for a backend whose
+  /// `begin_shutdown` already finished the teardown.
   fn shutdown_work_pending(&self) -> bool {
     false
   }
@@ -1498,9 +1500,10 @@ fn drain_tokio_peer_after_backend_shutdown() {
 /// Phase 1 of [`shutdown_async_runtime`], for the wasm environment cleanup exports: everything
 /// that never waits.
 ///
-/// Answers whether backend-owned work is still live, so the `napi_prepare_wasm_env_cleanup_begin`
-/// export can tell its loader to turn the event loop before calling
-/// [`finish_shutdown_async_runtime`].
+/// Answers whether the announced stop still owes a wait — backend work that is still live, or a
+/// rejected submission whose destructor is still running on another thread — so the
+/// `napi_prepare_wasm_env_cleanup_begin` export can tell its loader to turn the event loop before
+/// calling [`finish_shutdown_async_runtime`].
 ///
 /// Call it once per teardown: the cleanup exports hold the latch that makes a repeated `begin`
 /// re-report the poll instead of reaching this.
@@ -1523,8 +1526,9 @@ pub(crate) fn begin_shutdown_async_runtime() -> bool {
   false
 }
 
-/// Non-blocking poll for the window between the two phases: `false` means
-/// [`finish_shutdown_async_runtime`] will not wait for backend work.
+/// Non-blocking poll for the window between the two phases: `true` means the announced stop still
+/// owes a wait — backend work, or a rejected submission whose destructor is still running on
+/// another thread — and `false` means [`finish_shutdown_async_runtime`] will not wait.
 ///
 /// Safe to call at any time, including with no teardown outstanding.
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
