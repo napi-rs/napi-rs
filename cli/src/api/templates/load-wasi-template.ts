@@ -163,6 +163,15 @@ let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiWasmEnvCleanupPrepared = false
 let __emnapiWasmEnvCleanupPreparing = false
+// The closer for a barrier that is parked between \`…_begin\` and \`…_finish\`,
+// set only while that window is open. \`__emnapiWasmEnvCleanupPreparing\` cannot
+// tell those two apart on its own: it is raised both for a purely synchronous
+// frame — which must not be re-entered, and which nothing outside it can
+// finish — and across this window, which spans real event-loop turns, so a
+// caller that cannot yield can land in the middle of one. That caller can close
+// this window, because \`…_finish\` is idempotent and joins, which is exactly
+// what the single call does. See \`__prepareWasmEnvCleanup\`.
+let __finishParkedWasmEnvCleanup
 // Raised while a caller that can still yield is driving the barrier, so the
 // queue it leaves behind is expected rather than lost. See
 // \`__reportUnreachedWasmEnvSettlements\`.
@@ -247,7 +256,24 @@ function __isPreparingWasmEnvCleanup() {
 }
 
 function __prepareWasmEnvCleanup() {
-  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
+  if (__emnapiWasmEnvCleanupPrepared) {
+    return
+  }
+  // A handshake parked between its two halves is one this frame can close, and
+  // must: every caller of this function is about to destroy the context, and
+  // the turns the poll is waiting for will not come — an 'exit' teardown is
+  // the last thing the process runs, and \`Context.destroy()\` takes the
+  // environment away. Closing it here runs \`…_finish\`, which is the call that joins, so
+  // this degrades to exactly the single call below. Leaving it open instead
+  // destroys the context with the barrier still raised, the runtime never
+  // joined and the workers never drained.
+  const finishParked = __finishParkedWasmEnvCleanup
+  if (finishParked !== undefined) {
+    finishParked()
+    __reportUnreachedWasmEnvSettlements()
+    return
+  }
+  if (__emnapiWasmEnvCleanupPreparing) {
     return
   }
   const prepare = __napiInstance?.exports?.napi_prepare_wasm_env_cleanup
@@ -362,18 +388,55 @@ function __scheduleTimer(callback, delay) {
   }
 }
 
-// Turns to spend polling \`napi_wasm_runtime_work_pending\` between the two
-// halves of the environment cleanup, one real timer turn each. Same order as
-// the settlement drain below, but bounded for the opposite reason: this wait is
-// an optimization, not a guarantee. \`napi_prepare_wasm_env_cleanup_finish\` runs
-// either way and is the call that joins, so running out of turns degrades to
-// exactly today's blocking teardown — never to a stranded promise.
-const __WASM_RUNTIME_DRAIN_TURNS = 128
 // A real, referenced timer rather than a zero-delay macrotask, for the same
 // reason the async-work drain uses one: this polls the addon instead of
 // interleaving with the @emnapi/core dispatch, so a zero-delay turn would spin
 // the loop instead of yielding it.
 const __WASM_RUNTIME_WORK_POLL_INTERVAL_MS = 1
+// Set once a timer scheduled by the poll has actually arrived. See
+// \`__yieldWasmRuntimePollTurn\`.
+let __wasmRuntimePollTimerArrived = false
+
+/**
+ * One turn of the runtime-work poll.
+ *
+ * \`__scheduleTimer\` falls back to the macrotask scheduler when \`setTimeout\` is
+ * missing or throws, but not when it is present, returns a handle and never
+ * fires — fake timers in a test suite that disposes from an \`afterEach\`, or a
+ * host whose timers belong to an IO context that is already gone. That host
+ * would park this poll forever, and the poll is unbounded, so nothing would
+ * ever call \`…_finish\`.
+ *
+ * Arm both primitives until a timer has been seen to arrive, and let whichever
+ * lands first end the turn; the loser resolves nothing. A host with working
+ * timers therefore pays the double arming for the first turn or two — the
+ * macrotask wins the race, but the timer behind it still arrives and is
+ * recorded — and paces on the timer alone from then on, instead of spinning the
+ * loop on a zero-delay queue. A host whose timers never arrive keeps both, and
+ * the macrotask is what keeps the poll moving.
+ */
+function __yieldWasmRuntimePollTurn() {
+  if (__wasmRuntimePollTimerArrived) {
+    return new Promise((resolve) => {
+      __scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
+    })
+  }
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      resolve()
+    }
+    __scheduleTimer(() => {
+      __wasmRuntimePollTimerArrived = true
+      settle()
+    }, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
+    __scheduleMacrotask(settle)
+  })
+}
 
 /**
  * The barrier for callers that can yield: \`__prepareWasmEnvCleanup\` with real
@@ -389,9 +452,16 @@ const __WASM_RUNTIME_WORK_POLL_INTERVAL_MS = 1
  * without blocking, and \`…_finish\` joins. The turns yielded in between are the
  * entire point.
  *
- * Bounded, and \`…_finish\` runs either way: a poll that runs out of turns — or a
- * host whose timers refuse — simply blocks in \`…_finish\` the way the single
- * call always did.
+ * The poll has no deadline, for the same reason the async-work drain below has
+ * none: giving up means calling \`…_finish\`, which joins on this thread, and the
+ * work it would join is the work that is waiting for a turn from this thread —
+ * so a bound does not end the wait, it only moves it somewhere the JavaScript
+ * thread can no longer be reached. A blocking closure that never returns keeps
+ * the disposal promise pending instead, exactly as a task whose \`execute\` never
+ * returns already keeps an *undisposed* process alive. The host contract is in
+ * \`crates/async-runtime/README.md\`: a blocking closure must never wait on a
+ * JavaScript turn. The process-exit path still blocks in \`…_finish\`, because it
+ * has no turns left to give (see \`__prepareWasmEnvCleanup\`).
  *
  * Feature-detected like every other export in this teardown, so an addon built
  * against a napi crate that predates the split keeps the single blocking call.
@@ -431,6 +501,14 @@ function __prepareWasmEnvCleanupWithTurns() {
   }
   __emnapiWasmEnvCleanupRan = true
   const finishCleanup = () => {
+    if (__emnapiWasmEnvCleanupPrepared) {
+      // Already closed by a caller that could not yield — the 'exit' teardown
+      // reached \`__prepareWasmEnvCleanup\` while this poll was parked. \`…_finish\`
+      // is idempotent, but the flags it lowers are not: running it again here
+      // would clear a \`preparing\` some later barrier had raised.
+      return
+    }
+    __finishParkedWasmEnvCleanup = undefined
     try {
       finish()
     } finally {
@@ -442,11 +520,15 @@ function __prepareWasmEnvCleanupWithTurns() {
     finishCleanup()
     return
   }
+  // Publish the closer before yielding: from here until \`finishCleanup\` runs,
+  // a caller that cannot yield is entitled to end this handshake itself.
+  __finishParkedWasmEnvCleanup = finishCleanup
   return (async () => {
-    for (let turn = 0; turn < __WASM_RUNTIME_DRAIN_TURNS; turn++) {
-      await new Promise((resolve) => {
-        __scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
-      })
+    // Unbounded, exactly like the async-work drain below. The wait ends when
+    // the addon reports its runtime work finished; the turns spent here are
+    // what let that happen at all.
+    for (;;) {
+      await __yieldWasmRuntimePollTurn()
       try {
         if (!workPending()) {
           return
@@ -597,6 +679,19 @@ function __destroyEmnapiContext() {
 
 ${disposeCurrentThreadHosts}\
   __prepareWasmEnvCleanup()
+  if (__isPreparingWasmEnvCleanup()) {
+    // Reached from inside the synchronous barrier — a promise hook one of the
+    // settlements above ran, which is the reentrancy the destroy wrapper
+    // exists for. \`Context.destroy()\` below would hit that wrapper's in-flight
+    // no-op and answer \`undefined\`, and recording that as a completed destroy
+    // is what makes the frame that *did* start the barrier skip the real one
+    // afterwards, leaving the context retained with its cleanup hooks unrun.
+    // Refuse instead: nothing is flagged, and that frame destroys for real the
+    // moment it returns. The deferred loader carries the same backstop. A
+    // parked handshake cannot get here — \`__prepareWasmEnvCleanup\` closes one
+    // rather than skipping it.
+    return
+  }
   const result = __emnapiContext.destroy()
   if (!__isThenable(result)) {
     __emnapiContextDestroyed = true
@@ -1893,33 +1988,75 @@ function __scheduleTimer(__callback, __delay) {
   }
 }
 
-// Turns to spend polling \`napi_wasm_runtime_work_pending\` between the two
-// halves of the environment cleanup, one real timer turn each. Same order as
-// the settlement drain above, but bounded for the opposite reason: this wait is
-// an optimization, not a guarantee. \`napi_prepare_wasm_env_cleanup_finish\` runs
-// either way and is the call that joins, so running out of turns degrades to
-// exactly today's blocking teardown — never to a stranded promise.
-const __WASM_RUNTIME_DRAIN_TURNS = 128
 // A real, referenced timer rather than a zero-delay macrotask, for the same
 // reason the async-work wait uses one: this polls the addon instead of
 // interleaving with the @emnapi/core dispatch, so a zero-delay turn would spin
 // the loop instead of yielding it.
 const __WASM_RUNTIME_WORK_POLL_INTERVAL_MS = 1
+// Set once a timer scheduled by the poll has actually arrived. See
+// \`__yieldWasmRuntimePollTurn\`.
+let __wasmRuntimePollTimerArrived = false
 
 /**
- * Yield event-loop turns until the addon reports its runtime work finished, or
- * the bound runs out.
+ * One turn of the runtime-work poll.
+ *
+ * \`__scheduleTimer\` falls back to the macrotask scheduler when \`setTimeout\` is
+ * missing or throws, but not when it is present, returns a handle and never
+ * fires — fake timers in a test suite that disposes from an \`afterEach\`, or a
+ * host whose timers belong to an IO context that is already gone, which is
+ * reachable for this flavor in particular. That host would park this poll
+ * forever, and the poll is unbounded, so nothing would ever call \`…_finish\`.
+ *
+ * Arm both primitives until a timer has been seen to arrive, and let whichever
+ * lands first end the turn; the loser resolves nothing. A host with working
+ * timers therefore pays the double arming for the first turn or two — the
+ * macrotask wins the race, but the timer behind it still arrives and is
+ * recorded — and paces on the timer alone from then on, instead of spinning the
+ * loop on a zero-delay queue. A host whose timers never arrive keeps both, and
+ * the macrotask is what keeps the poll moving.
+ */
+function __yieldWasmRuntimePollTurn() {
+  if (__wasmRuntimePollTimerArrived) {
+    return new Promise((resolve) => {
+      __scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
+    })
+  }
+  return new Promise((resolve) => {
+    let __settled = false
+    const __settle = () => {
+      if (__settled) {
+        return
+      }
+      __settled = true
+      resolve()
+    }
+    __scheduleTimer(() => {
+      __wasmRuntimePollTimerArrived = true
+      __settle()
+    }, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
+    __scheduleMacrotask(__settle)
+  })
+}
+
+/**
+ * Yield event-loop turns until the addon reports its runtime work finished.
  *
  * The window between \`napi_prepare_wasm_env_cleanup_begin\` and
  * \`…_finish\` — the turns are the entire point of splitting the barrier, because
  * on a threaded artifact the work \`…_finish\` joins can itself be waiting for a
  * JavaScript turn from this very thread.
+ *
+ * Unbounded, for the same reason the async-work wait above is: giving up means
+ * calling \`…_finish\`, which joins on this thread, and the work it would join is
+ * the work waiting for a turn from this thread — so a bound does not end the
+ * wait, it only moves it somewhere the JavaScript thread can no longer be
+ * reached. A blocking closure that never returns keeps the disposal promise
+ * pending instead. The host contract is in \`crates/async-runtime/README.md\`: a
+ * blocking closure must never wait on a JavaScript turn.
  */
 async function __pollWasmRuntimeWork(__workPending) {
-  for (let __turn = 0; __turn < __WASM_RUNTIME_DRAIN_TURNS; __turn++) {
-    await new Promise((resolve) => {
-      __scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
-    })
+  for (;;) {
+    await __yieldWasmRuntimePollTurn()
     try {
       if (!__workPending()) {
         return
@@ -2303,7 +2440,9 @@ ${managedHostDisposeParam}) {
         // hooks unrun. Refuse instead: nothing is flagged, the context stays
         // registered for managed beforeExit cleanup, and a later destroy still
         // works. dispose() coalesces reentrancy before it can get here, so this
-        // is the backstop for any other caller that manages to.
+        // is the backstop for any other caller that manages to. A handshake
+        // parked between the two halves of the barrier does not reach here —
+        // \`__prepareEnvCleanup\` closes one rather than skipping it.
         throw __createLifecycleReentryError('dispose')
       }
 ${managedHostDisposeCall}\
@@ -2436,6 +2575,13 @@ ${instanceHostState}\
   let __wasmEnvCleanupRan = false
   let __wasmEnvCleanupPrepared = false
   let __wasmEnvCleanupPreparing = false
+  // The closer for a barrier parked between \`…_begin\` and \`…_finish\`, set only
+  // while that window is open. \`__wasmEnvCleanupPreparing\` cannot tell that
+  // apart from a purely synchronous frame, which must not be re-entered and
+  // which nothing outside it can finish; this window spans real event-loop
+  // turns, so a caller that cannot yield — the managed beforeExit teardown —
+  // can land inside it, and can close it. See \`__prepareEnvCleanup\`.
+  let __finishParkedEnvCleanup
   // Raised while a caller that can still yield is driving the barrier, so the
   // queue it leaves behind is expected rather than lost.
   let __wasmEnvCleanupYielding = false
@@ -2489,7 +2635,22 @@ ${instanceHostState}\
     } catch {}
   }
   const __prepareEnvCleanup = () => {
-    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
+    if (__wasmEnvCleanupPrepared) {
+      return
+    }
+    // A handshake parked between its two halves is one this frame can close,
+    // and must: every caller of this is about to destroy the context, and the
+    // turns the poll is waiting for will not come. Closing it runs \`…_finish\`,
+    // which is the call that joins, so this degrades to exactly the single
+    // call below. Leaving it open destroys the context with the barrier still
+    // raised and the runtime never joined.
+    const __finishParked = __finishParkedEnvCleanup
+    if (__finishParked !== undefined) {
+      __finishParked()
+      __reportUnreachedSettlements()
+      return
+    }
+    if (__wasmEnvCleanupPreparing) {
       return
     }
     const __prepareWasmEnvCleanup =
@@ -2520,8 +2681,9 @@ ${instanceHostState}\
    * anything is still live, \`napi_wasm_runtime_work_pending\` answers that again
    * without blocking, and \`…_finish\` joins.
    *
-   * Bounded, and \`…_finish\` runs either way, so running out of turns degrades
-   * to exactly the single call's blocking teardown. Feature-detected like every
+   * The poll is unbounded — see \`__pollWasmRuntimeWork\` — but a caller that
+   * cannot yield closes the handshake itself rather than waiting for it, so
+   * \`…_finish\` still runs on every teardown path. Feature-detected like every
    * other export here, and returns nothing whenever the handshake finished
    * without yielding.
    */
@@ -2559,6 +2721,12 @@ ${instanceHostState}\
     }
     __wasmEnvCleanupRan = true
     const __finishEnvCleanup = () => {
+      if (__wasmEnvCleanupPrepared) {
+        // Already closed by a caller that could not yield. \`…_finish\` is
+        // idempotent, but the flags it lowers are not.
+        return
+      }
+      __finishParkedEnvCleanup = undefined
       try {
         __finish()
       } finally {
@@ -2570,6 +2738,9 @@ ${instanceHostState}\
       __finishEnvCleanup()
       return
     }
+    // Publish the closer before yielding: from here until \`__finishEnvCleanup\`
+    // runs, a caller that cannot yield is entitled to end this handshake.
+    __finishParkedEnvCleanup = __finishEnvCleanup
     return __pollWasmRuntimeWork(__workPending).then(
       __finishEnvCleanup,
       __finishEnvCleanup,
@@ -3530,7 +3701,10 @@ function __disposeWasiBindingAtExit() {
   // settlements the way __startWasiDisposal does — the process is leaving and
   // those promises have no observer left anyway. Run the synchronous teardown
   // directly. Every step is idempotent, which also makes this the synchronous
-  // finish for a disposal that is still waiting for its drain.
+  // finish for a disposal that is still waiting for its drain — and, through
+  // __prepareWasmEnvCleanup, for one still parked between the two halves of
+  // the environment cleanup barrier: there are no turns left to poll with, so
+  // this closes that handshake with \`…_finish\`, which joins.
   try {
     __destroyEmnapiContext()
   } catch {}

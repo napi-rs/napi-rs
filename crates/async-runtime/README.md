@@ -140,9 +140,16 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   matching `finish_shutdown` re-reports the poll and never waits. The cli's
   WASI loader drives the pair through napi's
   `napi_prepare_wasm_env_cleanup_begin` / `napi_wasm_runtime_work_pending` /
-  `…_finish` exports, polling for a bounded 128 one-millisecond timer turns;
-  running out of them only means `finish_shutdown` blocks the way the single
-  call always did.
+  `…_finish` exports, polling on one-millisecond timer turns for as long as the
+  poll keeps answering 1. That poll is **unbounded**, and deliberately so: the
+  only way to end it early is to call `finish_shutdown`, which joins on the
+  JavaScript thread — the very thread the work it joins may be waiting for a
+  turn from. A bound would not end that wait, it would only move it somewhere
+  the JavaScript thread can no longer be reached. So a host that breaks the rule
+  above keeps its disposal promise pending, with its event loop still turning,
+  instead of wedging the thread. The process-exit teardown is the one path with
+  no turns left to give: it closes the handshake with `…_finish` and blocks
+  there, exactly as the single call always did.
 - **The JavaScript hosts go inert, not away.** The cli's
   `napi.wasm.asyncRuntime` loaders install a CurrentThread task host and a
   timer host unconditionally — they cannot know the flavor. MultiThread never

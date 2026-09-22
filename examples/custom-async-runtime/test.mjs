@@ -1859,6 +1859,130 @@ if (isThreadedWasi) {
     /REENTRANT_TASK REJECTED: /,
     `the parked task's promise must still be settled by the cancellation the teardown delivers:\n${reentrantOutput}`,
   )
+
+  // A process exit that lands inside the same window.
+  //
+  // The turns the loader yields between the halves are real event-loop turns,
+  // so the process can leave during one: `process.exit()` from a watchdog or a
+  // signal handler, an uncaught error, a test runner's force-exit. Node then
+  // runs the loader's 'exit' teardown with the barrier raised, the runtime
+  // stopped but not joined, and no turn left to poll with.
+  //
+  // That teardown cannot wait — but it can finish. `…_finish` is idempotent and
+  // is the call that joins, so the teardown closes the parked handshake with it
+  // and then destroys, which is exactly what the single call always did. Skip
+  // that and `Context.destroy()` hits the barrier's in-flight no-op, the
+  // context is never really destroyed, its cleanup hooks never run, and the
+  // loader records the destroy as done anyway.
+  //
+  // The listener below releases the held worker, and it is registered *before*
+  // the loader is required, so it runs before the loader's own teardown: at
+  // exit there is no later turn that could make that call, and joining a worker
+  // only a JavaScript turn can release would block here forever — the single
+  // call's behaviour, kept on purpose. The report listener is registered after
+  // the load, so reaching it at all is the proof that the teardown returned.
+  const exitInWindow = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+
+      let releaseHeldWorker
+      process.on('exit', () => {
+        releaseHeldWorker?.()
+      })
+
+      // Shadow destroy on the context itself, before the loader wraps it, so
+      // the loader's wrapper delegates here: a destroy the wrapper turns into
+      // an in-flight no-op never reaches this counter.
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let realDestroys = 0
+      runtime.createContext = function (options) {
+        const context = realCreateContext(options)
+        const realDestroy = context.destroy
+        Object.defineProperty(context, 'destroy', {
+          configurable: true,
+          enumerable: false,
+          writable: true,
+          value: function () {
+            realDestroys += 1
+            return Reflect.apply(realDestroy, this, arguments)
+          },
+        })
+        return context
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+      }
+      releaseHeldWorker = () => {
+        binding.releaseParkedWorker()
+      }
+
+      process.on('exit', () => {
+        console.error('EXIT_WINDOW_REAL_DESTROYS ' + realDestroys)
+      })
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('EXIT_WINDOW_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      binding[Symbol.for('napi.rs.wasi.dispose')]().then(
+        () => {},
+        () => {},
+      )
+      // dispose() has returned, so phase 1 has run and the poll is parked
+      // between the halves. Land the exit squarely inside that window.
+      setTimeout(() => {
+        console.error('EXIT_WINDOW_EXITING')
+        process.exit(0)
+      }, 10)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const exitInWindowOutput = `${exitInWindow.stdout}\n${exitInWindow.stderr}`
+  assert.equal(exitInWindow.error, undefined, exitInWindow.error?.stack)
+  assert.equal(
+    exitInWindow.signal,
+    null,
+    `the 'exit' teardown must close a parked cleanup handshake and return, not hang:\n${exitInWindowOutput}`,
+  )
+  assert.equal(exitInWindow.status, 0, exitInWindowOutput)
+  assert.match(
+    exitInWindowOutput,
+    /EXIT_WINDOW_EXITING/,
+    `the exit has to land inside the window, after dispose() returned:\n${exitInWindowOutput}`,
+  )
+  assert.match(
+    exitInWindowOutput,
+    /EXIT_WINDOW_REAL_DESTROYS 1/,
+    `the 'exit' teardown must reach the real Context.destroy(): skipping it over a raised barrier retains the environment with its cleanup hooks unrun, and records the destroy as done anyway:\n${exitInWindowOutput}`,
+  )
 }
 
 if (isThreadlessWasi) {

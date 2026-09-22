@@ -1139,6 +1139,11 @@ const TWO_PHASE_BARRIER_BY_FLAVOR = {
     finish: '.then(finishCleanup, finishCleanup)',
     fallback: '__prepareWasmEnvCleanup()',
     report: '__reportUnreachedWasmEnvSettlements()',
+    // The closer a caller that cannot yield uses to end a parked handshake,
+    // and the point at which the poll publishes it.
+    parked: '__finishParkedWasmEnvCleanup',
+    publishParked: '__finishParkedWasmEnvCleanup = finishCleanup',
+    clearParked: '__finishParkedWasmEnvCleanup = undefined',
   },
   deferred: {
     detect:
@@ -1150,6 +1155,9 @@ const TWO_PHASE_BARRIER_BY_FLAVOR = {
     )`,
     fallback: '__prepareEnvCleanup()',
     report: '__reportUnreachedSettlements()',
+    parked: '__finishParkedEnvCleanup',
+    publishParked: '__finishParkedEnvCleanup = __finishEnvCleanup',
+    clearParked: '__finishParkedEnvCleanup = undefined',
   },
 } as const
 
@@ -1179,16 +1187,53 @@ for (const { name, code } of wasiLoaderCases) {
       code.includes(barrier.fallback),
       'a loader that finds no split must fall back to the single call',
     )
-    // Bounded, and finish runs on both settle paths: a poll that runs out of
-    // turns (or a host whose timers refuse) degrades to the single call's
-    // blocking teardown, never to a stranded promise.
-    t.true(
-      code.includes('const __WASM_RUNTIME_DRAIN_TURNS = 128'),
-      'the poll must be bounded',
+    // Unbounded, and deliberately so. The only way to end the poll early is to
+    // call `…_finish`, which joins on the JavaScript thread — the very thread
+    // the work it joins may be waiting for a turn from — so a budget would not
+    // end that wait, it would only move it somewhere the thread can no longer
+    // be reached. Same reason the async-work drain has no deadline. A host that
+    // breaks the "no blocking closure may wait on a JavaScript turn" rule keeps
+    // its disposal promise pending instead of wedging the thread.
+    t.false(
+      code.includes('__WASM_RUNTIME_DRAIN_TURNS'),
+      'the poll must not carry a turn budget',
+    )
+    t.is(
+      code.split('for (;;) {').length - 1,
+      1,
+      'the poll must be an unbounded loop',
     )
     t.true(
       code.includes(barrier.poll),
       'the poll must yield with a real referenced timer, not a macrotask spin',
+    )
+    // `__scheduleTimer` falls back to the macrotask scheduler when `setTimeout`
+    // is missing or throws — but not when it is present, returns a handle and
+    // never fires (fake timers; a host whose timers belong to an IO context
+    // that is gone). With no budget left to bail the poll out, that host would
+    // park it forever. Arm both until a timer has actually arrived, then pace
+    // on the timer alone rather than spinning the zero-delay queue.
+    t.is(
+      code.split('let __wasmRuntimePollTimerArrived = false').length - 1,
+      1,
+      'the poll must record whether its timers ever arrive',
+    )
+    const yieldStart = code.indexOf('function __yieldWasmRuntimePollTurn() {')
+    t.true(yieldStart > 0, 'the poll must yield through one shared turn helper')
+    const yieldTurn = code.slice(yieldStart, code.indexOf('\n}\n', yieldStart))
+    t.true(
+      yieldTurn.includes('__scheduleTimer(') &&
+        yieldTurn.includes('__scheduleMacrotask('),
+      'an undecided turn must arm both primitives, so an inert setTimeout cannot park the poll',
+    )
+    t.true(
+      yieldTurn.includes('__wasmRuntimePollTimerArrived = true'),
+      'the timer callback must record that timers work on this host',
+    )
+    t.regex(
+      yieldTurn,
+      /if \(__settled\??\) \{\s*return\s*\}|if \(settled\) \{\s*return\s*\}/,
+      'whichever primitive loses the race must resolve nothing: one poll per turn',
     )
     t.true(
       code.includes(barrier.finish),
@@ -1200,6 +1245,51 @@ for (const { name, code } of wasiLoaderCases) {
     t.true(
       code.includes(barrier.report),
       'the single-call barrier must report settlements nothing can reach any more',
+    )
+    // The window between the halves spans real event-loop turns, so a caller
+    // that cannot yield — the CJS 'exit' teardown, the managed beforeExit one —
+    // can land in the middle of one. It cannot wait for the poll; it has to
+    // close the handshake itself, because `…_finish` is the call that joins and
+    // lowers the barrier. Without this the context is destroyed with the
+    // barrier still raised, the runtime never joined and the destroy recorded
+    // as done.
+    t.is(
+      code.split(barrier.publishParked).length - 1,
+      1,
+      'the poll must publish a closer before it yields',
+    )
+    t.is(
+      code.split(barrier.clearParked).length - 1,
+      1,
+      'finishing the handshake must retract that closer exactly once',
+    )
+    const parkedIndex = code.indexOf(`const ${barrier.parked}`)
+    t.true(
+      parkedIndex > 0 || code.includes(`let ${barrier.parked}`),
+      'the closer must live outside the barrier, where a non-yielding caller can reach it',
+    )
+    // And the single call is where it is reached: every teardown path runs the
+    // barrier through it before destroying, so closing a parked handshake there
+    // covers all of them at once.
+    const isEager = barrier.parked === '__finishParkedWasmEnvCleanup'
+    const prepareStart = code.indexOf(
+      isEager
+        ? `function ${barrier.fallback.replace('()', '')}() {`
+        : `const ${barrier.fallback.replace('()', '')} = () => {`,
+    )
+    t.true(prepareStart > 0, 'the single-call barrier must be one function')
+    const prepareBody = code.slice(
+      prepareStart,
+      code.indexOf(isEager ? '\n}\n' : '\n  }\n', prepareStart),
+    )
+    const closerIndex = prepareBody.indexOf(barrier.parked)
+    t.true(
+      closerIndex > 0,
+      'the single call must close a parked handshake instead of skipping the barrier',
+    )
+    t.true(
+      closerIndex < prepareBody.indexOf('napi_prepare_wasm_env_cleanup'),
+      'and it must close it before looking the single-call export up: a parked handshake is already begun',
     )
   })
 }
@@ -1222,8 +1312,14 @@ const preparingBarrierGuards = {
   shared: {
     probe: '__isPreparingWasmEnvCleanup',
     // Both barrier entry points read it: the single call and the two-phase
-    // form, which keeps it raised across the turns it yields.
-    entryGuard: `  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
+    // form, which keeps it raised across the turns it yields. The single call
+    // splits the check in two, because a handshake parked between the halves is
+    // one it closes rather than refuses — see the two-phase test above — so the
+    // shape below is the reentrancy half alone.
+    entryGuard: `  if (__emnapiWasmEnvCleanupPreparing) {
+    return
+  }`,
+    twoPhaseEntryGuard: `  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
     return
   }`,
     snippets: [
@@ -1241,7 +1337,10 @@ const preparingBarrierGuards = {
   },
   deferred: {
     probe: '__isPreparingEnvCleanup',
-    entryGuard: `    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
+    entryGuard: `    if (__wasmEnvCleanupPreparing) {
+      return
+    }`,
+    twoPhaseEntryGuard: `    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
       return
     }`,
     snippets: [
@@ -1350,13 +1449,19 @@ for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
         `barrier must carry its in-flight guard exactly once: ${snippet}`,
       )
     }
-    // One per barrier entry point — the single call and the two-phase form —
-    // and no more: a third entry point would be one that can run the barrier
-    // without checking whether it is already in flight.
+    // Both barrier entry points — the single call and the two-phase form —
+    // refuse to re-enter a barrier already in flight. The two-phase form still
+    // tests the pair in one condition; the single call tests the reentrancy
+    // half on its own, after it has dealt with a parked handshake.
     t.is(
       code.split(guard.entryGuard).length - 1,
-      2,
-      'both barrier entry points must refuse to re-enter a barrier already in flight',
+      1,
+      'the single call must refuse to re-enter a barrier already in flight',
+    )
+    t.is(
+      code.split(guard.twoPhaseEntryGuard).length - 1,
+      1,
+      'the two-phase barrier must refuse to re-enter a barrier already in flight',
     )
     t.is(
       code.split(NESTED_DESTROY_NO_OP).length - 1,
