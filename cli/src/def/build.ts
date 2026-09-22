@@ -163,6 +163,11 @@ export abstract class BaseBuildCommand extends Command {
     description: 'Do not activate the `default` feature',
   })
 
+  ohosSign = Option.Boolean('--ohos-sign', true, {
+    description:
+      'Whether to self-sign the built binary for OpenHarmony targets by injecting a `.codesign` fs-verity section, so the `.so` can be loaded on HarmonyOS devices. Only works with `*-unknown-linux-ohos` targets',
+  })
+
   /**
    * Return the parsed build options.
    */
@@ -201,6 +206,7 @@ export abstract class BaseBuildCommand extends Command {
       features: this.features,
       allFeatures: this.allFeatures,
       noDefaultFeatures: this.noDefaultFeatures,
+      ohosSign: this.ohosSign,
     }
   }
 }
@@ -343,11 +349,18 @@ export interface BuildOptions {
    * Do not activate the `default` feature
    */
   noDefaultFeatures?: boolean
+  /**
+   * Whether to self-sign the built binary for OpenHarmony targets by injecting a `.codesign` fs-verity section, so the `.so` can be loaded on HarmonyOS devices. Only works with `*-unknown-linux-ohos` targets
+   *
+   * @default true
+   */
+  ohosSign?: boolean
 }
 
 export function applyDefaultBuildOptions(options: BuildOptions) {
   return {
     dtsCache: true,
+    ohosSign: true,
     ...options,
   }
 }

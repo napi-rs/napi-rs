@@ -42,7 +42,9 @@ import {
   removeNodeStreamWebTypeImports,
   rewriteUnboundNodeGlobalTypeQueries,
   rewriteTypeImportReferences,
+  checkSelfsign,
   scanExportedName,
+  signFileAtomic,
   type Target,
   targetToEnvVar,
   tryInstallCargoBinary,
@@ -1138,6 +1140,7 @@ export async function buildProject(rawOptions: BuildOptions) {
 
   const options: ParsedBuildOptions = {
     dtsCache: true,
+    ohosSign: true,
     ...rawOptions,
     format: resolveBuildFormat(rawOptions),
     cwd: rawOptions.cwd ?? process.cwd(),
@@ -2466,6 +2469,40 @@ class Builder {
       } else {
         await copyFileAtomic(src, dest)
         artifactReplaced = true
+        // OpenHarmony devices refuse to load unsigned `.so` files, so inject
+        // the fs-verity `.codesign` self-signature unless `--no-ohos-sign`.
+        if (
+          this.target.platform === 'openharmony' &&
+          this.options.ohosSign !== false
+        ) {
+          debug('Self-signing OpenHarmony artifact:')
+          debug('  %i', dest)
+          try {
+            // Force mode: the OHOS SDK linker can already self-sign artifacts
+            // when its opt-in code-signing is enabled — strip that signature
+            // and re-sign rather than failing on the existing `.codesign`
+            // section.
+            signFileAtomic(dest, true)
+            // Re-verify the signature we just wrote so a corrupt or
+            // mis-injected `.codesign` section is surfaced immediately.
+            const { ok, reason } = checkSelfsign(readFileSync(dest))
+            if (!ok) {
+              debug.warn(
+                `OpenHarmony self-sign verification failed: ${dest}: ${reason}`,
+              )
+            }
+          } catch (e) {
+            // Self-signing is best-effort: HarmonyOS only ships on aarch64,
+            // and the algorithm (like the official binary-sign-tool) is only
+            // exercised against aarch64 artifacts — warn instead of failing
+            // the whole build when e.g. an x86_64 artifact cannot be signed.
+            // signElf rejects before writing anything, so `dest` still holds
+            // the copied artifact.
+            debug.warn(
+              `Skip OpenHarmony self-signing: ${dest}: ${(e as Error).message}`,
+            )
+          }
+        }
       }
       this.outputs.push({
         kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',

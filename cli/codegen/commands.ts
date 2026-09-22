@@ -320,6 +320,13 @@ const BUILD_OPTIONS: CommandSchema = {
       type: 'boolean',
       description: 'Do not activate the `default` feature',
     },
+    {
+      name: 'ohosSign',
+      type: 'boolean',
+      description:
+        'Whether to self-sign the built binary for OpenHarmony targets by injecting a `.codesign` fs-verity section, so the `.so` can be loaded on HarmonyOS devices. Only works with `*-unknown-linux-ohos` targets',
+      default: true,
+    },
   ],
 }
 
