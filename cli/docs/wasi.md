@@ -611,14 +611,31 @@ stable either. Until that is resolved there are two options:
 
 - Keep `parking_lot` and `dashmap` out of the `wasm32-wasip1-threads`
   dependency graph, or
-- carry a `[patch.crates-io]` entry pointing at a `parking_lot_core` that
-  detects the triple in its own `build.rs`, exactly as above:
+- route the whole graph through a `parking_lot_core` that detects the triple
+  in its own `build.rs`, exactly as above. napi-rs maintains that fork and
+  publishes it as `lock_api-napi` 0.4.15, `parking_lot_core-napi` 0.9.13 and
+  `parking_lot-napi` 0.12.6; each keeps the upstream `[lib] name`, so
+  `use parking_lot::Mutex` still compiles. A transitive user such as
+  `dashmap` is only reachable through `[patch.crates-io]`, and the single
+  form cargo accepts is the git branch, which still carries the _upstream_
+  package names:
 
   ```toml
   [patch.crates-io.parking_lot_core]
-  git = "https://github.com/<your fork>/parking_lot"
-  branch = "<your branch>"
+  git = "https://github.com/napi-rs/parking_lot"
+  branch = "wasi-threads-parker"
   ```
 
-  The fork has to keep `version = "0.9.12"`, or cargo ignores the patch and
-  reports it as `[[patch.unused]]`.
+  Pin `rev = "<sha>"` instead of `branch` to keep the lock reproducible. The
+  published crates themselves cannot be named in a patch entry at all: the
+  crates.io rename form is refused outright, cargo answering that
+  `patches must point to different sources`, and a `package =` key inside a
+  patch entry is never matched, because cargo keys a patch on the
+  replacement's real name. The fork's `master`, whose manifests carry the
+  renamed names, is ignored as `[[patch.unused]]` for that same reason — only
+  `wasi-threads-parker` resolves.
+
+Verified on the patched core: a contended probe under `wasmtime run -S
+threads` — `Mutex`, `Condvar`, `RwLock`, `park_until`, `notify_all`, `DashMap`
+— reports `ALL OK` with zero parking stubs left in the module, and rolldown's
+threaded WASI artifact passed its stability lane 3 of 3.
