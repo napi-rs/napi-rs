@@ -11630,9 +11630,11 @@ impl RuntimeController {
   /// after that.
   ///
   /// Errors when no phase 1 has been begun since the last `start` (the host
-  /// called phase 2 on its own, or restarted in between), and -- like
-  /// `shutdown` -- when the caller is work of the generation being stopped,
-  /// which could only wait for itself.
+  /// called phase 2 on its own, or restarted in between -- except after a
+  /// phase 1 that settled with no backend, whose handoff a `start` leaves
+  /// standing for exactly one more phase 2), and -- like `shutdown` -- when
+  /// the caller is work of the generation being stopped, which could only wait
+  /// for itself.
   fn finish_shutdown(&self) -> Result<(), RuntimeConfigError> {
     const STOPPING_WAIT_ERROR: &str =
       "cannot wait for async runtime shutdown from work in the generation being stopped";

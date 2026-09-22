@@ -433,8 +433,9 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
 ///
 /// Returns 1 while backend-owned work is still live and 0 when
 /// [`napi_prepare_wasm_env_cleanup_finish`] will not block. A loader that can yield calls this,
-/// then turns its event loop — polling [`napi_wasm_runtime_work_pending`] — up to a bound of its
-/// choosing, then calls `finish` unconditionally. Those turns are the whole point: on
+/// then turns its event loop — polling [`napi_wasm_runtime_work_pending`] — until it reports the
+/// work finished, and calls `finish` then; the poll carries no bound, because a bound would not
+/// end the wait, only move it out of reach. Those turns are the whole point: on
 /// `wasm32-wasip1-threads` this export is entered from the JavaScript thread, which is also the
 /// only thread that can give a running blocking closure the JavaScript turn *it* is waiting for,
 /// so joining inside a single call waits for work that can never finish.

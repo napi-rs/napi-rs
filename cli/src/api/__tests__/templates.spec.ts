@@ -1135,7 +1135,7 @@ const TWO_PHASE_BARRIER_BY_FLAVOR = {
   eager: {
     detect:
       /if \(typeof begin !== 'function' \|\|\s*typeof finish !== 'function'\) \{/,
-    poll: '__scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)',
+    poll: '}, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)',
     finish: '.then(finishCleanup, finishCleanup)',
     fallback: '__prepareWasmEnvCleanup()',
     report: '__reportUnreachedWasmEnvSettlements()',
@@ -1148,7 +1148,7 @@ const TWO_PHASE_BARRIER_BY_FLAVOR = {
   deferred: {
     detect:
       /if \(typeof __begin !== 'function' \|\|\s*typeof __finish !== 'function'\) \{/,
-    poll: '__scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)',
+    poll: '}, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)',
     finish: `return __pollWasmRuntimeWork(__workPending).then(
       __finishEnvCleanup,
       __finishEnvCleanup,
@@ -1211,14 +1211,28 @@ for (const { name, code } of wasiLoaderCases) {
     // is missing or throws — but not when it is present, returns a handle and
     // never fires (fake timers; a host whose timers belong to an IO context
     // that is gone). With no budget left to bail the poll out, that host would
-    // park it forever. Arm both until a timer has actually arrived, then pace
+    // park it forever. Arm both until timers have actually arrived, then pace
     // on the timer alone rather than spinning the zero-delay queue.
-    t.is(
-      code.split('let __wasmRuntimePollTimerArrived = false').length - 1,
-      1,
-      'the poll must record whether its timers ever arrive',
+    //
+    // Whether they arrive is a property of the poll, never of the module: a
+    // host can lose its timers between two disposals, and in the deferred
+    // shape every instance shares this module — one healthy instance must not
+    // disarm the fallback for the next one.
+    t.false(
+      code.includes('let __wasmRuntimePollTimerArrived'),
+      'the pacing state must not outlive the poll that learned it',
     )
-    const yieldStart = code.indexOf('function __yieldWasmRuntimePollTurn() {')
+    t.is(
+      code.split('function __createWasmRuntimePollPace()').length - 1,
+      1,
+      'one definition of the pacing state',
+    )
+    t.is(
+      code.split('__createWasmRuntimePollPace()').length - 1,
+      2,
+      'and exactly one caller: the poll loop, which owns it for its own run',
+    )
+    const yieldStart = code.indexOf('function __yieldWasmRuntimePollTurn(')
     t.true(yieldStart > 0, 'the poll must yield through one shared turn helper')
     const yieldTurn = code.slice(yieldStart, code.indexOf('\n}\n', yieldStart))
     t.true(
@@ -1227,8 +1241,38 @@ for (const { name, code } of wasiLoaderCases) {
       'an undecided turn must arm both primitives, so an inert setTimeout cannot park the poll',
     )
     t.true(
-      yieldTurn.includes('__wasmRuntimePollTimerArrived = true'),
-      'the timer callback must record that timers work on this host',
+      yieldTurn.includes('pace.arrivals++'),
+      'the timer callback must count that timers work on this host',
+    )
+    t.true(
+      yieldTurn.includes(
+        'pace.arrivals < __WASM_RUNTIME_WORK_POLL_TRUSTED_ARRIVALS',
+      ),
+      'and one arrival must not be enough: it can be a timer armed before the host stopped running them',
+    )
+    // A poll that has settled onto the timer alone has nothing left to fall
+    // back on if the timers stop mid-poll — the turn that armed the dead timer
+    // is the turn that parks, and a parked poll schedules nothing that could
+    // notice. Every turn keeps a longer timer outstanding for that.
+    t.true(
+      yieldTurn.includes('__armWasmRuntimePollStallBackup('),
+      'every turn must keep a stall backup outstanding, armed while the timers still work',
+    )
+    const backupStart = code.indexOf(
+      'function __armWasmRuntimePollStallBackup(',
+    )
+    t.true(backupStart > 0, 'the backup must be one shared helper')
+    const stallBackup = code.slice(
+      backupStart,
+      code.indexOf('\n}\n', backupStart),
+    )
+    t.true(
+      stallBackup.includes('pace.arrivals = 0'),
+      'a turn the backup has to end proves the timers stopped: the poll goes back to arming both',
+    )
+    t.true(
+      stallBackup.includes('pace.settleTurn'),
+      'and the backup must end whichever turn is parked, not the one that armed it',
     )
     t.regex(
       yieldTurn,
