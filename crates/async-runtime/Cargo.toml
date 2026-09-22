@@ -22,14 +22,19 @@ rustc-hash = "2"
 
 [dependencies.napi]
 path = "../napi"
-version = "3"
+# Precise, not caret: the adapter implements `AsyncRuntime::begin_shutdown` /
+# `shutdown_work_pending` / `finish_shutdown`, so an older 3.x napi fails to compile
+# with E0407. release-plz lifts precise requirements on every release (see how
+# `napi-sys` / `napi-build` are pinned in ../napi/Cargo.toml), so this floor rises to
+# the release that carries those hooks.
+version = "3.12.7"
 default-features = false
 features = ["napi4", "async-runtime"]
 optional = true
 
 [dependencies.napi-derive]
 path = "../macro"
-version = "3"
+version = "3.6.8"
 default-features = false
 features = ["type-def"]
 optional = true
@@ -53,6 +58,6 @@ crossbeam-deque = "0.8"
 # never reference this crate, so it is excluded there rather than compiled and
 # then dropped by the linker.
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-napi = { path = "../napi", version = "3", default-features = false, features = [
+napi = { path = "../napi", version = "3.12.7", default-features = false, features = [
   "dyn-symbols",
 ] }
