@@ -360,6 +360,20 @@ impl RuntimeState {
     }
   }
 
+  /// Stop accepting new work on every lane, without waiting for anything already accepted.
+  ///
+  /// [`Self::quiesce_scheduler`] clears `SchedulerState::accepting` too, but that is the call
+  /// that waits, so it belongs to phase 2 of the two-phase teardown. Phase 1 has to close
+  /// admission by itself: the host turns its event loop between the phases, and for that whole
+  /// window `AsyncRuntime::begin_shutdown` requires the backend to keep rejecting submissions.
+  /// The `RuntimeState::accepting` atomic alone does not do it — the blocking lane and the
+  /// parked-task hand-off read it, but an ordinary `spawn` is admitted by `register_task`,
+  /// which gates on the scheduler's own flag.
+  fn close_admission(&self) {
+    self.accepting.store(false, Ordering::Release);
+    lock(&self.scheduler).accepting = false;
+  }
+
   fn quiesce_scheduler(&self) -> SchedulerQuiescence {
     self.accepting.store(false, Ordering::Release);
     let (tasks, queued, task_refs, block_on_refs) = {
@@ -1133,7 +1147,7 @@ unsafe impl AsyncRuntime for TestRuntime {
 
   fn shutdown(&self) -> Result<()> {
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
-    self.state.accepting.store(false, Ordering::Release);
+    self.state.close_admission();
     // Before the scheduler quiesces, so a task parked on the worker is cancelled inside the
     // same `shutdown` call as every scheduler-owned one.
     #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
@@ -1158,7 +1172,9 @@ unsafe impl AsyncRuntime for TestRuntime {
   /// event-loop turns between the phases does not.
   #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
   fn begin_shutdown(&self) -> Result<bool> {
-    self.state.accepting.store(false, Ordering::Release);
+    // Admission closes here, not in the `quiesce_scheduler` that phase 2 runs: the window
+    // between the phases is a host event loop, and a backend owes rejections for all of it.
+    self.state.close_admission();
     self.state.begin_parked_task_worker_shutdown();
     Ok(self.shutdown_work_pending())
   }
@@ -1941,6 +1957,47 @@ mod tests {
     drop(task);
 
     runtime.shutdown_scheduler();
+  }
+
+  /// Phase 1 of the two-phase teardown has to close admission on its own.
+  ///
+  /// `quiesce_scheduler` clears `SchedulerState::accepting` too, but it runs in
+  /// `finish_shutdown`, and the host turns its event loop between the phases: for that whole
+  /// window `AsyncRuntime::begin_shutdown` requires the backend to keep rejecting submissions,
+  /// and `register_task` — the admission gate every ordinary `spawn` goes through — reads that
+  /// flag, not the `RuntimeState::accepting` atomic.
+  #[test]
+  fn closing_admission_stops_the_scheduler_before_it_quiesces() {
+    let runtime = Arc::new(RuntimeState::default());
+    runtime.start_scheduler().unwrap();
+    let polls = Arc::new(AtomicUsize::new(0));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let waker = Arc::new(Mutex::new(None));
+    let task = schedule_test_future(
+      &runtime,
+      CapturedWakeFuture {
+        polls: Arc::clone(&polls),
+        dropped: Arc::clone(&dropped),
+        waker: Arc::clone(&waker),
+      },
+    );
+
+    runtime.close_admission();
+
+    assert!(
+      !lock(&runtime.scheduler).accepting,
+      "a closed admission must be visible to `register_task`, which gates on this flag"
+    );
+    runtime.drain();
+    assert_eq!(
+      polls.load(Ordering::SeqCst),
+      0,
+      "a scheduler whose admission is closed must not drain"
+    );
+
+    drop(task);
+    runtime.shutdown_scheduler();
+    assert!(dropped.load(Ordering::SeqCst));
   }
 
   struct BlockingPollFuture {
