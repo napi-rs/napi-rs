@@ -2378,6 +2378,30 @@ if (isThreadlessWasi) {
     /^REJECTED: /,
     'the task the re-registered environment submitted must be cancelled by its own teardown',
   )
+  // `abandonedTask` settled on this thread because the barrier was up for its
+  // teardown. The declined spawn settled with the barrier down, so its
+  // rejection went into the threadsafe-function queue instead and needs real
+  // event-loop turns — @emnapi/core coalesces and dispatches that queue from a
+  // macrotask, two turns later even for a call made on this thread. Polled and
+  // bounded, exactly like the loader's disposal drain, which yields these same
+  // turns before `Context.destroy()` discards whatever is still queued.
+  for (
+    let index = 0;
+    index < 128 && abandonedExports.napi_wasm_env_cleanup_pending() !== 0;
+    index++
+  ) {
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  assert.equal(
+    abandonedDeclined,
+    'REJECTED: custom runtime rejected the async task',
+    'the spawn the re-registered environment refused must reject through the queue it was parked in; a promise still pending here is one the disposal drain can never deliver',
+  )
+  assert.equal(
+    abandonedExports.napi_wasm_env_cleanup_pending(),
+    0,
+    'the queued settlement must leave the counter, or every later disposal drain waits out its bound over a queue that is already empty',
+  )
   abandonedContext.destroy()
 }
 
