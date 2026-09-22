@@ -538,3 +538,87 @@ would never boot and the caller would deadlock waiting for it. With a
 pre-created pool, spawning is only a message to an already-running worker,
 and if the pool is exhausted the fallback allocates a fresh worker that
 boots once the spawning parent returns to its event loop.
+
+## Detecting the threaded target from Rust
+
+rustc gives you nothing to tell the two WASI targets apart. `rustc --print
+cfg` emits an _identical_ set for `wasm32-wasip1` and
+`wasm32-wasip1-threads` — same `target_arch`, same `target_os`, same
+`target_env = "p1"` — and `target_feature = "atomics"` is set for neither,
+because the wasm `atomics` feature is still unstable and the stable channel
+keeps unstable target features out of the cfg set
+([rust-lang/rust#77839](https://github.com/rust-lang/rust/issues/77839)).
+Passing `-C target-feature=+atomics` does not change that: rustc warns that
+the feature is unstable and the cfg still does not appear. Only the exact
+cargo `TARGET` answers the question, and only a build script can read it.
+
+An addon crate gets the answer for free. `napi_build::setup()` emits
+`cfg(napi_wasi_threads)` when — and only when — the crate is being compiled
+for `wasm32-wasip1-threads`, so the addon can write:
+
+```rust
+#[cfg(napi_wasi_threads)]
+const WORKERS: usize = 4;
+#[cfg(not(napi_wasi_threads))]
+const WORKERS: usize = 1;
+```
+
+`setup()` also prints the matching `cargo::rustc-check-cfg` line on _every_
+target, so `#[cfg(napi_wasi_threads)]` is a known cfg everywhere and never
+trips the `unexpected_cfgs` lint on the targets where it is not set.
+
+A build-script cfg is crate-local: it reaches the crate whose `build.rs`
+printed it and nothing else. Another crate in the same graph that needs the
+distinction therefore needs its own build script — which is why `napi` and
+`napi-async-runtime` each carry one:
+
+```rust
+// build.rs
+fn main() {
+  println!("cargo::rustc-check-cfg=cfg(my_wasi_threads)");
+  if std::env::var("TARGET").as_deref() == Ok("wasm32-wasip1-threads") {
+    println!("cargo::rustc-cfg=my_wasi_threads");
+  }
+}
+```
+
+Use the older single-colon `cargo:` form if the crate's `rust-version` is
+below 1.77.
+
+Absence has to be the conservative branch. The cfg is permission to use
+shared memory and real threads, never a requirement that something be
+configured: a plain `cargo build`, `cargo test`, or rust-analyzer run — no
+`napi build`, no CLI, no `RUSTFLAGS` — must still compile a correct crate on
+the `not(...)` side. Nothing outside the build script can set it, so a
+mistake there is silent.
+
+### Third-party locks
+
+`parking_lot_core`, the lock core under `parking_lot` and `dashmap`, does not
+follow this rule, and an addon can pull it in without ever naming it. Its
+only threaded-wasm parker is gated on the crate's `nightly` feature _and_
+`target_feature = "atomics"` (0.9.12, `src/thread_parker/mod.rs:69`), so on
+stable the cascade falls through to the wasm stub, whose `prepare_park` is
+`panic!("Parking not supported on this platform")`
+(`src/thread_parker/wasm.rs:26`). The build succeeds and the addon dies at the
+first _contended_ lock, on a target whose `std` has fully working threads.
+
+Upstream
+[Amanieu/parking_lot#529](https://github.com/Amanieu/parking_lot/pull/529)
+adds a `std::sync::Mutex` and `Condvar` parker for WASI, but its selection arm
+keys on `target_feature = "atomics"` as well, so it cannot be reached on
+stable either. Until that is resolved there are two options:
+
+- Keep `parking_lot` and `dashmap` out of the `wasm32-wasip1-threads`
+  dependency graph, or
+- carry a `[patch.crates-io]` entry pointing at a `parking_lot_core` that
+  detects the triple in its own `build.rs`, exactly as above:
+
+  ```toml
+  [patch.crates-io.parking_lot_core]
+  git = "https://github.com/<your fork>/parking_lot"
+  branch = "<your branch>"
+  ```
+
+  The fork has to keep `version = "0.9.12"`, or cargo ignores the patch and
+  reports it as `[[patch.unused]]`.
