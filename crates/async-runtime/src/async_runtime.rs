@@ -10660,6 +10660,23 @@ struct RuntimeState {
   /// backend, so the single-call `shutdown` keeps it on its own stack; the
   /// split needs somewhere to park it across the host's yield window.
   draining: Option<ShutdownDrain>,
+  /// Set by every accepted `begin_shutdown`, cleared by every successful
+  /// `start`. `draining` alone cannot answer `finish_shutdown`: whoever
+  /// reaches phase 2 first TAKES the handoff, so the thread that opened the
+  /// handshake would find `None` and could not tell "my phase 1 was drained
+  /// by a concurrent `shutdown`" (owed `Ok(())`) from "no phase 1 was ever
+  /// begun" (owed the no-phase error).
+  phase_one_begun: bool,
+}
+
+impl RuntimeState {
+  /// Park an accepted phase 1's handoff and record the handshake. The two
+  /// always move together, so phase 2 can report success to a caller whose
+  /// handoff someone else drained.
+  fn open_phase_one(&mut self, drain: ShutdownDrain) {
+    self.phase_one_begun = true;
+    self.draining = Some(drain);
+  }
 }
 
 /// What `RuntimeController::finish_shutdown` still owes an outstanding
@@ -10686,6 +10703,8 @@ thread_local! {
   static BEFORE_INITIAL_START_WAIT_TEST_HOOK:
     std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
   static AFTER_GENERATION_STOP_PUBLICATION_TEST_HOOK:
+    std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+  static AFTER_SHUTDOWN_DRAIN_TAKEN_TEST_HOOK:
     std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
   static FAIL_NEXT_RUNTIME_BACKEND_CREATION:
     std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -10737,6 +10756,16 @@ fn run_after_generation_stop_publication_test_hook() {
   if let Some(hook) =
     AFTER_GENERATION_STOP_PUBLICATION_TEST_HOOK.with(|slot| slot.borrow_mut().take())
   {
+    hook();
+  }
+}
+
+/// Runs on the thread that TOOK the outstanding phase 1, after the handoff is
+/// out of the state and before it waits: anything a test starts from here
+/// provably arrives at the handshake second.
+#[cfg(test)]
+fn run_after_shutdown_drain_taken_test_hook() {
+  if let Some(hook) = AFTER_SHUTDOWN_DRAIN_TAKEN_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
@@ -10814,6 +10843,7 @@ impl RuntimeController {
         lifecycle: RuntimeLifecycle::Initial,
         rejected_drops: 0,
         draining: None,
+        phase_one_begun: false,
       }),
       lifecycle_changed: Condvar::new(),
       metrics: Arc::new(RuntimeMetrics::default()),
@@ -10910,6 +10940,7 @@ impl RuntimeController {
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
     state.lifecycle = RuntimeLifecycle::Running(backend.clone());
+    state.phase_one_begun = false;
     self.current_backend.store(Some(Arc::new(backend.clone())));
     Ok(backend)
   }
@@ -11207,6 +11238,9 @@ impl RuntimeController {
         // until the first async binding call.
         RuntimeLifecycle::Initial => {
           if state.rejected_drops == 0 {
+            // A started runtime owes nothing to an earlier handshake: a
+            // `finish_shutdown` with no phase 1 of its own is an error again.
+            state.phase_one_begun = false;
             return Ok(());
           }
           if RejectedSubmissionDropContext::is_current() {
@@ -11222,7 +11256,10 @@ impl RuntimeController {
             .wait(state)
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        RuntimeLifecycle::Running(_) => return Ok(()),
+        RuntimeLifecycle::Running(_) => {
+          state.phase_one_begun = false;
+          return Ok(());
+        }
         RuntimeLifecycle::Stopping(identity) => {
           if identity.is_current() {
             return Err(RuntimeConfigError(
@@ -11251,6 +11288,7 @@ impl RuntimeController {
           if state.rejected_drops == 0 {
             if matches!(&state.lifecycle, RuntimeLifecycle::StoppedBeforeFirstUse) {
               state.lifecycle = RuntimeLifecycle::Initial;
+              state.phase_one_begun = false;
               return Ok(());
             }
             break;
@@ -11271,6 +11309,7 @@ impl RuntimeController {
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
     self.current_backend.store(Some(Arc::new(backend.clone())));
     state.lifecycle = RuntimeLifecycle::Running(backend);
+    state.phase_one_begun = false;
     Ok(())
   }
 
@@ -11424,6 +11463,10 @@ impl RuntimeController {
           ShutdownDrain::Backend(backend) => Some(backend.clone()),
           ShutdownDrain::Settled => None,
         };
+        // A second phase 1 records itself too: it starts nothing new, but
+        // its caller is owed the same `Ok(())` from phase 2 as the thread
+        // that opened the outstanding handshake.
+        state.phase_one_begun = true;
         // Answer off the lifecycle lock: probing a backend takes the
         // generation and executor locks, and the same re-entry must not
         // nest them under this one.
@@ -11454,7 +11497,7 @@ impl RuntimeController {
               RuntimeLifecycle::StoppingWithoutBackend(current) if current == target
             ));
             state.lifecycle = target.into_lifecycle();
-            state.draining = Some(ShutdownDrain::Settled);
+            state.open_phase_one(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
             return Ok(false);
           }
@@ -11481,7 +11524,7 @@ impl RuntimeController {
             // Park the backend for phase 2. `Stopping` carries only an
             // identity, so without this slot the backend would live on this
             // stack and phase 1 could not return.
-            state.draining = Some(ShutdownDrain::Backend(backend.clone()));
+            state.open_phase_one(ShutdownDrain::Backend(backend.clone()));
             // Release before aborting tasks or running any user destruction.
             // Neither path may retain the publication mutex across scheduler
             // admission, lifecycle reentry, or a panic boundary.
@@ -11514,7 +11557,7 @@ impl RuntimeController {
           }
           RuntimeLifecycle::StoppedBeforeFirstUse | RuntimeLifecycle::Stopped => {
             if state.rejected_drops == 0 {
-              state.draining = Some(ShutdownDrain::Settled);
+              state.open_phase_one(ShutdownDrain::Settled);
               return Ok(false);
             }
             if RejectedSubmissionDropContext::is_current() {
@@ -11541,7 +11584,7 @@ impl RuntimeController {
               RuntimeLifecycle::StoppingWithoutBackend(current) if current == target
             ));
             state.lifecycle = target.into_lifecycle();
-            state.draining = Some(ShutdownDrain::Settled);
+            state.open_phase_one(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
             return Ok(false);
           }
@@ -11578,13 +11621,18 @@ impl RuntimeController {
   /// join the workers and publish `Stopped`. Everything after
   /// `begin_shutdown`, in the same order the single call runs it.
   ///
-  /// Errors when no phase 1 is outstanding, and -- like `shutdown` -- when the
-  /// caller is work of the generation being stopped, which could only wait for
-  /// itself. A caller that finds another thread already draining the
-  /// outstanding phase 1 waits for its publication and reports its success,
-  /// exactly as a concurrent `shutdown` does today; it completes the shutdown
-  /// that was outstanding when it was called and never adopts a generation
-  /// started after that.
+  /// Returns `Ok(())` once the runtime has reached a stopped state for a
+  /// phase 1 begun since the last `start`, whoever performed the join: a
+  /// caller that finds another thread already draining waits for its
+  /// publication, and a caller that arrives after that publication reports
+  /// the shutdown that was already delivered. It completes the shutdown that
+  /// was outstanding when it was called and never adopts a generation started
+  /// after that.
+  ///
+  /// Errors when no phase 1 has been begun since the last `start` (the host
+  /// called phase 2 on its own, or restarted in between), and -- like
+  /// `shutdown` -- when the caller is work of the generation being stopped,
+  /// which could only wait for itself.
   fn finish_shutdown(&self) -> Result<(), RuntimeConfigError> {
     const STOPPING_WAIT_ERROR: &str =
       "cannot wait for async runtime shutdown from work in the generation being stopped";
@@ -11631,10 +11679,20 @@ impl RuntimeController {
                   return Err(RuntimeConfigError(REJECTED_DROP_ERROR.to_string()));
                 }
               }
-              RuntimeLifecycle::Initial
-              | RuntimeLifecycle::Running(_)
-              | RuntimeLifecycle::StoppedBeforeFirstUse
-              | RuntimeLifecycle::Stopped => {
+              RuntimeLifecycle::StoppedBeforeFirstUse | RuntimeLifecycle::Stopped => {
+                // The runtime is stopped. If a phase 1 was begun since the
+                // last start, this caller's handshake HAS been delivered --
+                // by the concurrent `shutdown` (or second `finish_shutdown`)
+                // that took the handoff -- so it owes nothing more.
+                if waited || state.phase_one_begun {
+                  return Ok(());
+                }
+                return Err(RuntimeConfigError(NO_PHASE_ERROR.to_string()));
+              }
+              // Running/Initial: any handshake was cleared by the start that
+              // got here, so only a caller that waited through this
+              // shutdown's publication may report success.
+              RuntimeLifecycle::Initial | RuntimeLifecycle::Running(_) => {
                 if waited {
                   return Ok(());
                 }
@@ -11657,6 +11715,8 @@ impl RuntimeController {
       backend
     };
 
+    #[cfg(test)]
+    run_after_shutdown_drain_taken_test_hook();
     backend.wait_until_idle();
 
     #[cfg(napi_runtime_os_threads)]
@@ -29958,47 +30018,69 @@ mod tests {
   #[test]
   fn concurrent_shutdown_during_two_phase_still_reports_success() {
     // A `shutdown` from a second thread must still answer `Ok(())` while a
-    // handshake is in flight, and neither thread may wedge the other. Which
-    // phase of the second call waits is left racing on purpose: its phase 1
-    // waits in the `Stopping` arm when the handoff has already been taken,
-    // its phase 2 waits for the publication when it has not, and it drains
-    // the handoff itself when it gets there first. Both threads commit before
-    // the parked closure is let go -- the closure watches the same counter --
-    // so neither can be the only one in flight.
+    // handshake is in flight, and neither thread may wedge the other. THIS
+    // test pins the interleaving where the phase-1 OWNER drains: the
+    // concurrent call is started from the owner's own
+    // `AFTER_SHUTDOWN_DRAIN_TAKEN_TEST_HOOK`, i.e. after the handoff is out
+    // of the state and before the owner waits, so the second thread provably
+    // arrives at an already-taken handshake and must report the owner's
+    // publication. The mirror image (the concurrent call drains, the owner
+    // finishes afterwards) is
+    // `phase_one_owner_finishes_after_a_concurrent_shutdown_drains`.
     let controller = Arc::new(multi_thread_controller("two-phase-concurrent", 2, 1));
     let entered = Arc::new(AtomicBool::new(false));
-    let committed = Arc::new(AtomicUsize::new(0));
+    let committed = Arc::new(AtomicBool::new(false));
     let job_entered = Arc::clone(&entered);
     let job_committed = Arc::clone(&committed);
+    // The closure retires only once the concurrent call has committed, so the
+    // owner's drain cannot run to completion before the second thread is in
+    // flight: both are always overlapped, as before.
     let handle = controller
       .try_spawn_blocking(move || {
         job_entered.store(true, Ordering::SeqCst);
-        while job_committed.load(Ordering::SeqCst) < 2 {
+        while !job_committed.load(Ordering::SeqCst) {
           std::hint::spin_loop();
         }
         3usize
       })
       .unwrap_or_else(|_| panic!("running runtime must accept the blocking job"));
-    while !entered.load(Ordering::SeqCst) {
-      std::thread::yield_now();
-    }
+    wait_until("the blocking closure to park", || {
+      entered.load(Ordering::SeqCst)
+    });
     assert!(
       controller
         .begin_shutdown()
         .expect("phase 1 must be accepted")
     );
 
-    let single_call = Arc::clone(&controller);
-    let single_call_committed = Arc::clone(&committed);
-    let concurrent = std::thread::spawn(move || {
-      single_call_committed.fetch_add(1, Ordering::SeqCst);
-      single_call.shutdown()
+    let (concurrent_tx, concurrent_rx) = std::sync::mpsc::channel();
+    let hook_controller = Arc::clone(&controller);
+    let hook_committed = Arc::clone(&committed);
+    let owner_took_the_drain = Arc::new(AtomicBool::new(false));
+    let hook_took_the_drain = Arc::clone(&owner_took_the_drain);
+    AFTER_SHUTDOWN_DRAIN_TAKEN_TEST_HOOK.with(|slot| {
+      *slot.borrow_mut() = Some(Box::new(move || {
+        hook_took_the_drain.store(true, Ordering::SeqCst);
+        let concurrent = std::thread::spawn(move || {
+          hook_committed.store(true, Ordering::SeqCst);
+          hook_controller.shutdown()
+        });
+        concurrent_tx
+          .send(concurrent)
+          .expect("the test thread must still be waiting for the concurrent handle");
+      }));
     });
-    committed.fetch_add(1, Ordering::SeqCst);
+
     controller
       .finish_shutdown()
       .expect("phase 2 must complete the handshake");
-    concurrent
+    assert!(
+      owner_took_the_drain.load(Ordering::SeqCst),
+      "the phase-1 owner must be the thread that took the handoff"
+    );
+    concurrent_rx
+      .recv()
+      .expect("the hook must have started the concurrent shutdown")
       .join()
       .expect("the concurrent shutdown thread must not panic")
       .expect("a concurrent single-call shutdown must still succeed");
@@ -30010,6 +30092,82 @@ mod tests {
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
     assert!(state.draining.is_none());
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn phase_one_owner_finishes_after_a_concurrent_shutdown_drains() {
+    // The other half of the race above, hand-sequenced by a join: a
+    // concurrent single-call `shutdown` takes the outstanding handoff AND
+    // completes the whole shutdown, and only then does the thread that opened
+    // phase 1 call its own phase 2. The runtime is already `Stopped`, so the
+    // join that caller is owed has happened -- phase 2 owes it `Ok(())`, not
+    // "shutdown was not started", whoever performed that join.
+    let controller = Arc::new(multi_thread_controller("two-phase-owner-finish", 2, 1));
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let job_entered = Arc::clone(&entered);
+    let job_release = Arc::clone(&release);
+    let handle = controller
+      .try_spawn_blocking(move || {
+        job_entered.store(true, Ordering::SeqCst);
+        while !job_release.load(Ordering::SeqCst) {
+          std::hint::spin_loop();
+        }
+        3usize
+      })
+      .unwrap_or_else(|_| panic!("running runtime must accept the blocking job"));
+    wait_until("the blocking closure to park", || {
+      entered.load(Ordering::SeqCst)
+    });
+    assert!(
+      controller
+        .begin_shutdown()
+        .expect("phase 1 must be accepted"),
+      "the parked closure must be reported as live"
+    );
+
+    let single_call = Arc::clone(&controller);
+    let concurrent = std::thread::spawn(move || single_call.shutdown());
+    release.store(true, Ordering::SeqCst);
+    concurrent
+      .join()
+      .expect("the concurrent shutdown thread must not panic")
+      .expect("a concurrent single-call shutdown must still succeed");
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(
+        matches!(&state.lifecycle, RuntimeLifecycle::Stopped),
+        "the concurrent call must have published the stop"
+      );
+      assert!(
+        state.draining.is_none(),
+        "the concurrent call must have consumed the phase-1 handoff"
+      );
+    }
+
+    controller
+      .finish_shutdown()
+      .expect("the thread that began phase 1 must still be told its shutdown completed");
+    assert_eq!(futures::executor::block_on(handle).unwrap(), 3usize);
+
+    // A fresh start forgets the completed handshake, so an orphan phase 2 is
+    // an error again.
+    controller.start().expect("a stopped runtime must restart");
+    drop(controller.backend());
+    let error = controller
+      .finish_shutdown()
+      .expect_err("phase 2 after a restart must be rejected");
+    assert_eq!(
+      error.to_string(),
+      "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown"
+    );
+    controller
+      .shutdown()
+      .expect("the single call must still shut the restarted runtime down");
   }
 
   #[test]
