@@ -42,6 +42,7 @@ import {
   removeNodeStreamWebTypeImports,
   rewriteUnboundNodeGlobalTypeQueries,
   rewriteTypeImportReferences,
+  checkSelfsign,
   scanExportedName,
   signFileAtomic,
   type Target,
@@ -2477,19 +2478,29 @@ class Builder {
           debug('Self-signing OpenHarmony artifact:')
           debug('  %i', dest)
           try {
-            signFileAtomic(dest)
-          } catch (e) {
-            // The self-sign algorithm only supports ELF64 — 32-bit ohos
-            // targets like armv7-unknown-linux-ohos produce ELF32, so warn
-            // and skip rather than fail the build. signElf rejects before
-            // writing anything, so `dest` still holds the copied artifact.
-            if ((e as Error).message === 'not ELF64') {
+            // Force mode: the OHOS SDK linker can already self-sign artifacts
+            // when its opt-in code-signing is enabled — strip that signature
+            // and re-sign rather than failing on the existing `.codesign`
+            // section.
+            signFileAtomic(dest, true)
+            // Re-verify the signature we just wrote so a corrupt or
+            // mis-injected `.codesign` section is surfaced immediately.
+            const { ok, reason } = checkSelfsign(readFileSync(dest))
+            if (!ok) {
               debug.warn(
-                `Skip OpenHarmony self-signing: ${dest} is not an ELF64 binary`,
+                `OpenHarmony self-sign verification failed: ${dest}: ${reason}`,
               )
-            } else {
-              throw e
             }
+          } catch (e) {
+            // Self-signing is best-effort: HarmonyOS only ships on aarch64,
+            // and the algorithm (like the official binary-sign-tool) is only
+            // exercised against aarch64 artifacts — warn instead of failing
+            // the whole build when e.g. an x86_64 artifact cannot be signed.
+            // signElf rejects before writing anything, so `dest` still holds
+            // the copied artifact.
+            debug.warn(
+              `Skip OpenHarmony self-signing: ${dest}: ${(e as Error).message}`,
+            )
           }
         }
       }
