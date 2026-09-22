@@ -616,6 +616,48 @@ fn wasm_env_cleanup_finish() {
   crate::js_values::leave_wasm_env_cleanup_barrier();
 }
 
+/// Unwind a phase 1 whose phase 2 never ran, at the only point where a new environment can take
+/// over this image: [`napi_register_module_v1`].
+///
+/// Phase 1 leaves four pieces of state behind — [`WASM_ENV_CLEANUP_BEGUN`], the registry's phase
+/// (`begin_deactivate` does not reset it; only `finish_deactivate` does), the cancel mailbox and
+/// the cleanup barrier on this thread. A host that walked away between the phases and then
+/// registered a new environment over the same linear memory would otherwise inherit all four:
+/// its first dispatch would spawn into a backend that already stopped and that nothing will
+/// start again, every `JsDeferred` settled on this thread would bypass the threadsafe-function
+/// queue for the rest of the process, and the next teardown's drain would invoke cancellation
+/// callbacks belonging to the environment that went away. So complete what can be completed and
+/// explicitly unwind the rest.
+///
+/// Runs on the JavaScript thread: emnapi registers modules on the main thread only, which is the
+/// same thread phase 1 ran on, so the barrier lowered here is the one that was raised.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn unwind_abandoned_wasm_env_cleanup() {
+  if !WASM_ENV_CLEANUP_BEGUN.swap(false, Ordering::SeqCst) {
+    return;
+  }
+  // Lower the barrier *first*, before the teardown below can produce a single cancellation. A
+  // cancellation raised on this thread while the barrier is up is invoked on the spot
+  // (`tokio_runtime::park_cancel_for_js_thread`), and "on the spot" now means rejecting a
+  // deferred whose environment is gone. With the barrier down, a cancellation from any thread
+  // is parked in the still-open mailbox instead — and dropped with it, two lines below.
+  crate::js_values::reset_wasm_env_cleanup_barrier();
+  // Phase 2, for real: it delivers the quiescence the abandoned disposal owed and resets the
+  // registry to `Idle`, which is what lets the new environment start the backend again.
+  crate::tokio_runtime::finish_shutdown_async_runtime();
+  // Drop what is parked instead of replaying it. Each parked callback rejects a `JsDeferred`
+  // created by the environment that went away; invoking it here would call into that dead
+  // environment. Dropping one only drops an `Arc<DeferredHandle>` — no napi call — and leaves a
+  // promise nobody can observe any more pending.
+  #[cfg(feature = "async-runtime")]
+  crate::tokio_runtime::discard_wasm_cancel_mailbox();
+}
+
 /// How many promise settlements are queued in the threadsafe-function queue and have not been
 /// dispatched back into JavaScript yet.
 ///
@@ -720,18 +762,20 @@ pub unsafe extern "C" fn napi_register_module_v1(
     feature = "napi4"
   ))]
   crate::tokio_runtime::release_wasm_env_disposal_latch();
-  // Same reasoning for the two-phase handshake's own latch: a disposal that began and was never
-  // finished (a host that walked away between the phases) must not make the new environment's
-  // first `begin` a no-op. This is the only state the split adds that could outlive a disposal —
-  // the barrier depth is a thread local the same thread will raise again, and neither phase
-  // holds a lock across the window.
+  // Same reasoning for the two-phase handshake, whose own state is wider than one latch: a
+  // disposal that began and was never finished (a host that walked away between the phases) must
+  // not make the new environment's first `begin` a no-op, leave it dispatching into a backend
+  // that already stopped, or hand it a raised barrier and a mailbox holding the previous
+  // environment's cancellations. See `unwind_abandoned_wasm_env_cleanup`. It runs here, straight
+  // after the latch release above and before any module-init callback, so no addon code can
+  // observe the half-unwound state in between.
   #[cfg(all(
     target_family = "wasm",
     not(feature = "noop"),
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
   ))]
-  WASM_ENV_CLEANUP_BEGUN.store(false, Ordering::SeqCst);
+  unwind_abandoned_wasm_env_cleanup();
   #[cfg(feature = "node_version_detect")]
   {
     NODE_VERSION.get_or_init(|| {

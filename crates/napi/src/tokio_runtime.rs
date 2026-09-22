@@ -274,6 +274,29 @@ pub(crate) fn drain_wasm_cancel_mailbox() {
   }
 }
 
+/// Close the mailbox and drop everything parked in it, without invoking any of it.
+///
+/// Runs on: the JavaScript thread, from module registration, when a new environment takes over
+/// an image whose two-phase cleanup was begun and never finished
+/// (`bindgen_runtime::module_register::unwind_abandoned_wasm_env_cleanup`). Every parked callback
+/// rejects a `JsDeferred` created by the environment that went away, so replaying them the way
+/// [`drain_wasm_cancel_mailbox`] does would call into a destroyed environment. Dropping one drops
+/// an `Arc<DeferredHandle>` and nothing else — no napi call — and leaves a promise no longer
+/// reachable from JavaScript pending.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+pub(crate) fn discard_wasm_cancel_mailbox() {
+  drop(
+    WASM_CANCEL_MAILBOX
+      .lock()
+      .unwrap_or_else(PoisonError::into_inner)
+      .take(),
+  );
+}
+
 /// Park a cancellation for the barrier thread, or hand it back to be invoked here.
 ///
 /// Runs on: the thread that dropped the task. Returns `Err` — meaning "invoke it yourself" —

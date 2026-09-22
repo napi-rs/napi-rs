@@ -2094,6 +2094,109 @@ if (isThreadlessWasi) {
     'the cancelled task must still be rejected when the teardown is driven as two calls',
   )
   splitContext.destroy()
+
+  // A host that abandons the split — `…_begin` with no `…_finish` — and then registers a new
+  // environment over the same image. Registration is the only place napi can unwind what
+  // phase 1 left behind: the backend is stopped and `begin_deactivate` leaves the registry
+  // phase `Started`, so nothing would ever start it again, and the cleanup barrier phase 1
+  // raised would stay raised for the rest of the process. Driven on a fresh instance, because
+  // the state under test is exactly the state a *completed* teardown does not leave.
+  const abandonedContext = createContext({ autoDestroy: false })
+  abandonedContext.suppressDestroy()
+  // The env emnapi creates for this instance, captured so the re-registration below can go
+  // through `napi_register_wasm_v1` exactly the way emnapi's own module init does.
+  let abandonedEnv
+  const abandonedCreateEnv = abandonedContext.createEnv.bind(abandonedContext)
+  abandonedContext.createEnv = (...environmentArguments) =>
+    (abandonedEnv = abandonedCreateEnv(...environmentArguments))
+  let abandonedInstance
+  const { napiModule: abandonedModule } = instantiateNapiModuleSync(
+    await readFile(wasmPath),
+    {
+      context: abandonedContext,
+      asyncWorkPoolSize: 0,
+      plugins: [emnapiAsyncWorkPlugin, emnapiTSFNPlugin],
+      wasi: new WASI({ version: 'preview1', env: process.env }),
+      overwriteImports(importObject) {
+        importObject.env = {
+          ...importObject.env,
+          ...importObject.napi,
+          ...importObject.emnapi,
+          memory: new WebAssembly.Memory({ initial: 4000, maximum: 65536 }),
+        }
+        return importObject
+      },
+      beforeInit({ instance }) {
+        abandonedInstance = instance
+        for (const name of Object.keys(instance.exports)) {
+          if (name.startsWith('__napi_register__')) {
+            instance.exports[name]()
+          }
+        }
+      },
+    },
+  )
+  const abandonedExports = abandonedInstance.exports
+  const startCallsBeforeAbandon =
+    abandonedModule.exports.getRuntimeMetrics().startCalls
+  // Phase 1, and then the host walks away.
+  abandonedExports.napi_prepare_wasm_env_cleanup_begin()
+  const abandonedScope = abandonedContext.openScope(abandonedEnv)
+  try {
+    abandonedEnv.callIntoModule(() => {
+      abandonedExports.napi_register_wasm_v1(
+        abandonedEnv.bridge.address,
+        abandonedScope.add({}),
+      )
+    })
+  } finally {
+    abandonedContext.closeScope(abandonedEnv, abandonedScope)
+  }
+  assert.equal(
+    abandonedModule.exports.getRuntimeMetrics().startCalls,
+    startCallsBeforeAbandon + 1,
+    'registration must complete the abandoned teardown, or the registry phase stays `Started` over a backend that already stopped and the new environment never starts one',
+  )
+  abandonedModule.exports.rejectNextSpawn()
+  let abandonedDeclined = 'PENDING'
+  abandonedModule.exports.asyncNever().then(
+    () => {
+      abandonedDeclined = 'RESOLVED'
+    },
+    (error) => {
+      abandonedDeclined = `REJECTED: ${error.message}`
+    },
+  )
+  assert.equal(
+    abandonedExports.napi_wasm_env_cleanup_pending(),
+    1,
+    'the barrier phase 1 raised must be down again: a settle made on this thread with no teardown outstanding has to go into the threadsafe-function queue, where a loader drain can see it',
+  )
+  let abandonedTask = 'PENDING'
+  abandonedModule.exports.asyncNever().then(
+    () => {
+      abandonedTask = 'RESOLVED'
+    },
+    (error) => {
+      abandonedTask = `REJECTED: ${error.message}`
+    },
+  )
+  await Promise.resolve()
+  assert.equal(
+    abandonedTask,
+    'PENDING',
+    'the re-registered environment must reach a live backend; a task rejected on the spot means the abandoned teardown was inherited',
+  )
+  // And the new environment's own disposal still works, both phases of it.
+  abandonedExports.napi_prepare_wasm_env_cleanup_begin()
+  abandonedExports.napi_prepare_wasm_env_cleanup_finish()
+  await Promise.resolve()
+  assert.match(
+    abandonedTask,
+    /^REJECTED: /,
+    'the task the re-registered environment submitted must be cancelled by its own teardown',
+  )
+  abandonedContext.destroy()
 }
 
 if (combinedWasiDirectory) {

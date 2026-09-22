@@ -160,6 +160,24 @@ pub(crate) fn leave_wasm_env_cleanup_barrier() {
   WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
 }
 
+/// Force the barrier on this thread back down, for the one caller that has no raise to pair with:
+/// module registration unwinding a wasm environment cleanup that began and never finished
+/// (`bindgen_runtime::module_register::unwind_abandoned_wasm_env_cleanup`).
+///
+/// A [`leave_wasm_env_cleanup_barrier`] would do here too — phase 1 raises the counter exactly
+/// once and a repeated phase 1 returns without raising it again — but this says what it means,
+/// and it cannot leave a stuck barrier behind if that ever stops being true. Registration runs on
+/// the main thread, the same thread phase 1 ran on, so this is that thread's counter; on any
+/// other thread it is already zero and this is a no-op.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime")
+))]
+pub(crate) fn reset_wasm_env_cleanup_barrier() {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(0));
+}
+
 #[cfg(feature = "deferred_trace")]
 use crate::{bindgen_runtime::JsObjectValue, JsValue};
 use crate::{
