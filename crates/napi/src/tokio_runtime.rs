@@ -167,8 +167,136 @@ type AsyncRuntimeTaskCancelCallback = Box<dyn FnOnce(Error) + Send + 'static>;
 /// rejection instead of unwinding into backend code.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn invoke_cancel_callback(on_cancel: AsyncRuntimeTaskCancelCallback, error: Error) {
+  // On wasm the environment cleanup barrier may want this rejection settled on the JavaScript
+  // thread instead of here; see [`WASM_CANCEL_MAILBOX`]. Everywhere else — and whenever the
+  // mailbox is closed — this is the unchanged direct invocation.
+  #[cfg(target_family = "wasm")]
+  let (on_cancel, error) = match park_cancel_for_js_thread(on_cancel, error) {
+    Ok(()) => return,
+    Err(returned) => returned,
+  };
+  invoke_cancel_callback_now(on_cancel, error);
+}
+
+/// Invoke a cancellation callback on *this* thread, with panic containment.
+///
+/// Runs on: whichever thread dropped the task — a backend worker in the ordinary case, the
+/// JavaScript thread when [`drain_wasm_cancel_mailbox`] replays a parked cancellation.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn invoke_cancel_callback_now(on_cancel: AsyncRuntimeTaskCancelCallback, error: Error) {
   if let Err(payload) = catch_unwind(AssertUnwindSafe(move || on_cancel(error))) {
     drop_contained(payload);
+  }
+}
+
+/// Cancellations raised off the JavaScript thread while the wasm environment cleanup barrier is
+/// running, waiting for that thread to invoke them.
+///
+/// Runs on: written by backend worker threads (`wasm32-wasip1-threads`), opened and drained by
+/// the JavaScript thread inside `napi_prepare_wasm_env_cleanup`. `None` means closed, which is
+/// every moment outside that barrier — so nothing is ever parked that the barrier will not
+/// immediately replay.
+///
+/// # Why it exists
+///
+/// `AsyncRuntime::shutdown` may drop a task on one of its own worker threads (with the
+/// `napi-async-runtime` crate's MultiThread flavor it routinely does, and that crate's shutdown
+/// joins those workers, so the drop strictly precedes the shutdown call's return). The task's
+/// `Drop` rejects its `JsDeferred` from that worker, where
+/// [`crate::js_values::in_wasm_env_cleanup`] is false and the deferred's owner thread is
+/// somebody else — so the rejection goes into the threadsafe-function queue, which
+/// `@emnapi/core` dispatches from a macrotask two turns later. A host that calls the raw,
+/// synchronous `Context.destroy()` never reaches that dispatch: `destroy()` disables JavaScript
+/// calls and then runs the threadsafe function's cleanup hook, which drains the queue with a
+/// null env and discards the item. The promise never settles.
+///
+/// Parking the callback and invoking it on the JavaScript thread while the barrier is still
+/// raised turns that queued settle into a synchronous one
+/// (`js_values::deferred::settles_synchronously`), which is exactly how the threadless
+/// `wasm32-wasip1` artifact has always behaved.
+///
+/// Moving the callback across threads is sound by its own bound:
+/// [`AsyncRuntimeTaskCancelCallback`] is `Send + 'static`, and so is [`Error`].
+///
+/// See `crates/async-runtime/README.md` ("`shutdown` joins, without a bound") for the shutdown
+/// contract this relies on.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+static WASM_CANCEL_MAILBOX: Mutex<Option<Vec<(AsyncRuntimeTaskCancelCallback, Error)>>> =
+  Mutex::new(None);
+
+/// Open the mailbox so cancellations raised off the JavaScript thread are parked instead of
+/// queued.
+///
+/// Runs on: the JavaScript thread, from `napi_prepare_wasm_env_cleanup`, before the backend
+/// shutdown that produces those cancellations.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+pub(crate) fn open_wasm_cancel_mailbox() {
+  let mut mailbox = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner);
+  if mailbox.is_none() {
+    *mailbox = Some(Vec::new());
+  }
+}
+
+/// Close the mailbox and invoke everything parked in it here and now.
+///
+/// Runs on: the JavaScript thread, from `napi_prepare_wasm_env_cleanup`, after the backend
+/// shutdown returned and while the `WasmEnvCleanupBarrier` guard is still alive — that guard is
+/// what makes each replayed rejection settle its promise directly instead of queueing it again.
+///
+/// Taking the `Vec` out under the lock is also the close, so a cancellation that races this
+/// (a worker the backend's shutdown did not join) finds the mailbox closed and falls through to
+/// the queue, which is exactly today's behaviour.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+pub(crate) fn drain_wasm_cancel_mailbox() {
+  let parked = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner)
+    .take();
+  for (on_cancel, error) in parked.into_iter().flatten() {
+    invoke_cancel_callback_now(on_cancel, error);
+  }
+}
+
+/// Park a cancellation for the barrier thread, or hand it back to be invoked here.
+///
+/// Runs on: the thread that dropped the task. Returns `Err` — meaning "invoke it yourself" —
+/// when the mailbox is closed (every moment outside the barrier) and when this *is* the barrier
+/// thread, whose cancellations already settle synchronously.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+fn park_cancel_for_js_thread(
+  on_cancel: AsyncRuntimeTaskCancelCallback,
+  error: Error,
+) -> std::result::Result<(), (AsyncRuntimeTaskCancelCallback, Error)> {
+  if crate::js_values::in_wasm_env_cleanup() {
+    return Err((on_cancel, error));
+  }
+  let mut mailbox = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner);
+  match mailbox.as_mut() {
+    Some(parked) => {
+      parked.push((on_cancel, error));
+      Ok(())
+    }
+    None => Err((on_cancel, error)),
   }
 }
 

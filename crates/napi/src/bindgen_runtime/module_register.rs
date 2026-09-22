@@ -415,9 +415,21 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
     // otherwise restart the very runtime that just quiesced — behind the back of a drain that
     // cannot see the restarted work. Runtime-backed calls made from here on reject with a
     // defined error instead.
+    // Park, then replay on this thread: a backend that drops a cancelled task on one of its own
+    // worker threads (the `napi-async-runtime` crate's MultiThread flavor on
+    // `wasm32-wasip1-threads` routinely does) would otherwise reject that task's promise from
+    // the worker, where the settle can only go into the threadsafe-function queue — and a host
+    // that calls the raw, synchronous `Context.destroy()` drains that queue with a null env and
+    // discards it. Opening before the shutdown covers every cancellation it produces; draining
+    // right after it returns, still inside `_deliver_settlements`, is what makes each of those
+    // rejections settle its promise directly. See `tokio_runtime::WASM_CANCEL_MAILBOX`.
+    #[cfg(feature = "async-runtime")]
+    crate::tokio_runtime::open_wasm_cancel_mailbox();
     crate::tokio_runtime::latch_wasm_env_disposal();
     let _deliver_settlements = crate::js_values::WasmEnvCleanupBarrier::enter();
     crate::tokio_runtime::shutdown_async_runtime();
+    #[cfg(feature = "async-runtime")]
+    crate::tokio_runtime::drain_wasm_cancel_mailbox();
   }
 }
 

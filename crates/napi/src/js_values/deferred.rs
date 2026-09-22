@@ -57,6 +57,26 @@ fn settles_synchronously(owner_thread: std::thread::ThreadId) -> bool {
     && WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.get() != 0)
 }
 
+/// Whether *this* thread is the one running `napi_prepare_wasm_env_cleanup`.
+///
+/// Runs on: any thread. The JavaScript thread answers `true` for as long as it is inside the
+/// barrier; a `wasm32-wasip1-threads` backend worker always answers `false`, because the depth
+/// counter is a thread local.
+///
+/// [`settles_synchronously`] asks the same question *and* whether the deferred belongs to this
+/// thread. The cancel mailbox in `tokio_runtime` needs only the first half: it parks a
+/// cancellation raised on a worker so the JavaScript thread can invoke it later, and a
+/// cancellation raised on the barrier thread itself must never be parked — that one already
+/// settles straight through, and parking it would defer it past the drain that is calling it.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  feature = "async-runtime"
+))]
+pub(crate) fn in_wasm_env_cleanup() -> bool {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.get() != 0)
+}
+
 /// A `napi_handle_scope` held for the duration of a settle that the host is not dispatching.
 ///
 /// The threadsafe-function dispatch opens one around the callback; a settle delivered straight

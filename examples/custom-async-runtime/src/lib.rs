@@ -104,6 +104,25 @@ impl SchedulerState {
   }
 }
 
+/// Tasks handed to a background worker thread that simply holds them until shutdown.
+///
+/// Only the threaded WASI build has a background thread of its own, and this is the only way
+/// this example can put a task somewhere other than the JavaScript thread: everywhere else on
+/// wasm it polls tasks inline and runs blocking work inline too. A task parked here is dropped
+/// by the worker, on the worker, which is the cross-thread cancellation the napi cancel mailbox
+/// exists for (`crates/napi/src/tokio_runtime.rs`, `WASM_CANCEL_MAILBOX`).
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[derive(Default)]
+struct ParkedTaskState {
+  /// Written by the JavaScript thread, taken by the worker.
+  inbox: Vec<AsyncRuntimeTask>,
+  /// How many tasks the worker thread currently owns. Observable from JavaScript so a test can
+  /// wait for the hand-off to have actually happened instead of guessing a turn count.
+  holding: usize,
+  shutting_down: bool,
+  worker: Option<thread::JoinHandle<()>>,
+}
+
 #[cfg(not(target_family = "wasm"))]
 #[derive(Default)]
 struct BlockingPoolState {
@@ -122,6 +141,12 @@ struct RuntimeState {
   blocking_pool: Mutex<BlockingPoolState>,
   #[cfg(not(target_family = "wasm"))]
   blocking_ready: Condvar,
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  parked_tasks: Mutex<ParkedTaskState>,
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  parked_tasks_ready: Condvar,
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  park_next_spawn_on_worker: AtomicBool,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
   reject_next_blocking_spawn: AtomicBool,
@@ -452,6 +477,94 @@ impl RuntimeState {
         ));
       }
     }
+  }
+
+  /// Hand a task to the parked-task worker, starting that worker on first use.
+  ///
+  /// Runs on: the JavaScript thread (this is reached from `spawn`). The task itself is never
+  /// polled — it only has to exist somewhere other than here until shutdown drops it.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn park_task_on_worker(
+    self: &Arc<Self>,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    let mut parked = lock(&self.parked_tasks);
+    if parked.shutting_down || !self.accepting.load(Ordering::Acquire) {
+      return Err(AsyncRuntimeRejection::new(
+        task,
+        Error::new(Status::Cancelled, "custom runtime is not accepting tasks"),
+      ));
+    }
+    if parked.worker.is_none() {
+      let state = Arc::clone(self);
+      match thread::Builder::new()
+        .name("napi-custom-runtime-parked-tasks".to_owned())
+        .spawn(move || state.parked_task_worker_loop())
+      {
+        Ok(worker) => parked.worker = Some(worker),
+        Err(error) => {
+          return Err(AsyncRuntimeRejection::new(
+            task,
+            Error::new(
+              Status::GenericFailure,
+              format!("failed to start custom runtime parked-task worker: {error}"),
+            ),
+          ));
+        }
+      }
+    }
+    parked.inbox.push(task);
+    self.parked_tasks_ready.notify_all();
+    self.spawn_calls.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+  }
+
+  /// Runs on: the parked-task worker thread. Owns every parked task on its own stack, so the
+  /// drop at the end — and with it the cancellation that rejects each task's promise — happens
+  /// on this thread, not on the JavaScript thread that is meanwhile inside
+  /// `napi_prepare_wasm_env_cleanup`.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn parked_task_worker_loop(self: Arc<Self>) {
+    let mut held: Vec<AsyncRuntimeTask> = Vec::new();
+    let mut parked = lock(&self.parked_tasks);
+    loop {
+      held.append(&mut parked.inbox);
+      parked.holding = held.len();
+      if parked.shutting_down {
+        break;
+      }
+      parked = self
+        .parked_tasks_ready
+        .wait(parked)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    }
+    // Drop outside the lock: a cancellation calls back into napi, which must never run while
+    // this example holds one of its own mutexes.
+    drop(parked);
+    held.clear();
+  }
+
+  /// Runs on: the JavaScript thread, from `shutdown`. Joins the worker, so every parked task is
+  /// already destroyed — and its cancellation already parked in napi's mailbox — by the time
+  /// `AsyncRuntime::shutdown` returns.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn shutdown_parked_task_worker(&self) {
+    let worker = {
+      let mut parked = lock(&self.parked_tasks);
+      parked.shutting_down = true;
+      self.parked_tasks_ready.notify_all();
+      parked.worker.take()
+    };
+    if let Some(worker) = worker {
+      let _ = worker.join();
+    }
+    let leftover = {
+      let mut parked = lock(&self.parked_tasks);
+      parked.shutting_down = false;
+      parked.holding = 0;
+      std::mem::take(&mut parked.inbox)
+    };
+    drop(leftover);
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -903,6 +1016,14 @@ unsafe impl AsyncRuntime for TestRuntime {
         Error::new(Status::QueueFull, "custom runtime rejected the async task"),
       ));
     }
+    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+    if self
+      .state
+      .park_next_spawn_on_worker
+      .swap(false, Ordering::AcqRel)
+    {
+      return self.state.park_task_on_worker(task);
+    }
     let task = self.state.register_task(task).map_err(|task| {
       AsyncRuntimeRejection::new(
         task,
@@ -972,6 +1093,10 @@ unsafe impl AsyncRuntime for TestRuntime {
   fn shutdown(&self) -> Result<()> {
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
     self.state.accepting.store(false, Ordering::Release);
+    // Before the scheduler quiesces, so a task parked on the worker is cancelled inside the
+    // same `shutdown` call as every scheduler-owned one.
+    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+    self.state.shutdown_parked_task_worker();
     let scheduler_quiescence = self.state.quiesce_scheduler();
     #[cfg(not(target_family = "wasm"))]
     let blocking_shutdown = self.state.shutdown_blocking_pool();
@@ -1347,6 +1472,28 @@ pub async fn retain_task_waker() {
 #[napi]
 pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
+}
+
+/// Make the next `spawn` hand its task to a background worker thread that parks it until
+/// shutdown, instead of registering it with the inline scheduler.
+///
+/// Only the threaded WASI build has such a thread; it is the only configuration of this example
+/// in which a task's cancellation can land on a thread that is not the JavaScript thread.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn park_next_spawn_on_worker() {
+  state()
+    .park_next_spawn_on_worker
+    .store(true, Ordering::Release);
+}
+
+/// How many tasks the parked-task worker thread currently owns.
+///
+/// A test polls this so it destroys the environment only once the hand-off has really happened.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn parked_tasks_on_worker() -> u32 {
+  lock(&state().parked_tasks).holding as u32
 }
 
 #[napi]

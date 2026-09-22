@@ -961,6 +961,40 @@ jobs:
       - name: Test threadless WASI environment teardown barrier
         run: yarn workspace @examples/custom-async-runtime test:wasi
 
+  # The threaded sibling of the job above, and the only CI gate for the
+  # example's `wasi-threads` mode — nothing else runs it. wasm32-wasip1-threads
+  # is the one configuration of this example in which a backend can cancel a
+  # task on a thread that is not the JavaScript thread, which is the case a raw,
+  # synchronous `Context.destroy()` used to strand: the cross-thread settle can
+  # only enter the threadsafe-function queue, and destroy() drains that queue
+  # with a null env. No wasi-sdk is needed; the CLI ships the emnapi archives
+  # for this target, exactly as `test-node-wasi` relies on.
+  test-custom-async-runtime-wasi-threads:
+    runs-on: ubuntu-latest
+    name: Test custom async runtime on wasm32-wasip1-threads
+    timeout-minutes: 15
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1-threads
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build
+        run: yarn workspace @napi-rs/wasm-runtime build
+      - name: Test
+        run: yarn workspace @examples/custom-async-runtime test:wasi-threads
+
   # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
   # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`
   # JavaScript hosts. The browser lane stays out of scope (the
@@ -1211,6 +1245,7 @@ jobs:
       - test-freebsd
       - napi-async-runtime
       - test-custom-async-runtime-wasi
+      - test-custom-async-runtime-wasi-threads
       - test-shared-async-runtime-wasi
       - test-node-wasi
       - wasi-sdk

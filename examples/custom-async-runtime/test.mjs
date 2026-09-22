@@ -1501,6 +1501,120 @@ if (isThreadlessWasi) {
   )
 }
 
+if (isThreadedWasi) {
+  // The threaded counterpart of the raw-`Context.destroy()` case above.
+  //
+  // On threadless wasm32-wasip1 every task is cancelled on the JavaScript
+  // thread, inside the barrier, so its deferred settles synchronously and a raw
+  // destroy() finds nothing left queued. On wasm32-wasip1-threads a backend can
+  // drop a cancelled task on one of its own worker threads — which is what the
+  // `napi-async-runtime` crate's MultiThread flavor does routinely, and what
+  // `parkNextSpawnOnWorker()` makes this example do on purpose. A settle from a
+  // worker can only go into the threadsafe-function queue, and `destroy()`
+  // disables JavaScript calls *before* running the cleanup hook that drains
+  // that queue — with a null env, discarding the item. The promise would never
+  // settle.
+  //
+  // napi parks those cross-thread cancellations while the barrier is up and
+  // replays them on the JavaScript thread before the barrier is lowered
+  // (`crates/napi/src/tokio_runtime.rs`, `WASM_CANCEL_MAILBOX`), so the
+  // rejection lands the same way it does on the threadless artifact.
+  const packageDirectory = dirname(fileURLToPath(import.meta.url))
+  const threadedLoaderPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasi.cjs',
+  )
+  await access(threadedLoaderPath)
+
+  const rawDestroy = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const timeout = setTimeout(() => {
+        console.error('THREADED_RAW_DESTROY_TIMEOUT')
+        process.exit(46)
+      }, 30_000)
+      timeout.unref?.()
+
+      // Resolve @emnapi/runtime from the LOADER's own location, so the
+      // intercepted module object is byte-identical to the one the loader
+      // destructures createContext from.
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let captured
+      runtime.createContext = function (options) {
+        captured = realCreateContext(options)
+        return captured
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+      }
+      if (!captured) {
+        console.error('THREADED_RAW_DESTROY_NO_CONTEXT')
+        process.exit(45)
+      }
+
+      let outcome = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { outcome = 'RESOLVED' },
+        (error) => { outcome = 'REJECTED: ' + error.message },
+      )
+
+      // The hand-off crosses a real thread boundary — the worker is a wasi
+      // pthread, so it only starts once its Worker has booted, which takes real
+      // time rather than a number of turns. Wait for the task to actually be
+      // owned by that thread: without this the test could destroy while the
+      // task is still on the JavaScript thread, where it would settle
+      // synchronously and pass for the wrong reason.
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('THREADED_RAW_DESTROY_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+
+      // The whole point: no dispose(), no barrier by hand. Just destroy().
+      captured.destroy()
+
+      ;(async () => {
+        // Well past the two turns @emnapi/core needs to dispatch its queue: if
+        // the settlement did not land by now, it never will.
+        for (let index = 0; index < 50; index++) {
+          await new Promise((resolve) => setImmediate(resolve))
+        }
+        console.error('THREADED_RAW_DESTROY_OUTCOME ' + outcome)
+        process.exit(outcome.startsWith('REJECTED: ') ? 0 : 47)
+      })()
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const rawDestroyOutput = `${rawDestroy.stdout}\n${rawDestroy.stderr}`
+  assert.equal(rawDestroy.error, undefined, rawDestroy.error?.stack)
+  assert.equal(rawDestroy.signal, null, rawDestroyOutput)
+  assert.equal(
+    rawDestroy.status,
+    0,
+    `a raw Context.destroy() must settle the promise of a task the backend cancelled on one of its own worker threads: the rejection has to be replayed on the JavaScript thread while the cleanup barrier is still up, not left in the threadsafe-function queue for the null-env drain to discard:\n${rawDestroyOutput}`,
+  )
+  assert.match(rawDestroyOutput, /THREADED_RAW_DESTROY_OUTCOME REJECTED: /)
+}
+
 if (combinedWasiDirectory) {
   // A combined `async-runtime` + `tokio_rt` build is the configuration in which
   // napi's Tokio compatibility helpers (`napi::spawn`, `napi::block_on`,
