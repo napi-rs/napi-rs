@@ -2725,6 +2725,16 @@ impl GenerationWork {
     self.wait_until_idle_retiring(|| false, || {});
   }
 
+  /// Non-blocking read of the predicate `wait_until_idle` sleeps on.
+  fn has_active_work(&self) -> bool {
+    self
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .active
+      != 0
+  }
+
   /// Wait until every registered guard has retired, retiring deferred work
   /// on this stack whenever `has_deferred` reports some. Such work (a runnable
   /// rejected after the executor queue closed, or the runnables a terminal
@@ -3439,6 +3449,15 @@ impl CurrentThreadExecutor {
     #[cfg(not(napi_runtime_os_threads))]
     let has_rejected_blocking = false;
     !queue.rejected.is_empty() || has_rejected_blocking
+  }
+
+  /// Non-blocking read of the predicate `wait_until_scheduler_idle` sleeps on.
+  fn scheduler_work_pending(&self) -> bool {
+    let idle = self
+      .scheduler_idle_lock
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    idle.active_host_turns != 0 || idle.active_dispatch_calls != 0
   }
 
   /// Cancel every rejected runnable and blocking job. Runs on the caller's
@@ -10021,6 +10040,13 @@ impl MultiThreadExecutor {
     self.shutdown_timers();
   }
 
+  /// Non-blocking read of the predicate `wait_until_scheduler_idle` sleeps on.
+  /// The timer join is deliberately excluded: it is a thread lifetime, not
+  /// work a host can let finish by yielding.
+  fn scheduler_work_pending(&self) -> bool {
+    self.active_drainers.load(Ordering::Acquire) != 0
+  }
+
   fn wait_until_scheduler_idle(&self) {
     self.timers.join();
     let mut idle = self
@@ -10530,6 +10556,30 @@ impl RuntimeBackend {
     }
   }
 
+  /// Non-blocking counterpart of `wait_until_idle`: whether that call would
+  /// have to wait for anything. Same sources, read without sleeping --
+  /// registered async/blocking work, work the executor still owes a
+  /// cancellation, and an in-flight drain or host turn.
+  ///
+  /// Joining the worker threads (phase 2's `wait_for_all_workers`) is NOT a
+  /// source here: a Rayon worker exits when the last backend handle is
+  /// dropped, which only phase 2 does, so `WorkerLifecycle::remaining` is
+  /// non-zero for the whole window between the phases by construction and
+  /// would make this poll never answer `false`. That join waits on thread
+  /// teardown, never on user work, so yielding to the host cannot help it.
+  fn work_pending(&self) -> bool {
+    if self.work.has_active_work() {
+      return true;
+    }
+    match &self.executor {
+      RuntimeExecutor::CurrentThread(executor) => {
+        executor.has_rejected_work() || executor.scheduler_work_pending()
+      }
+      #[cfg(napi_runtime_os_threads)]
+      RuntimeExecutor::MultiThread(executor) => executor.scheduler_work_pending(),
+    }
+  }
+
   #[cfg(napi_runtime_os_threads)]
   fn worker_lifecycle(&self) -> Option<Arc<WorkerLifecycle>> {
     match &self.executor {
@@ -10605,6 +10655,22 @@ struct RuntimeState {
   options: RuntimeOptions,
   lifecycle: RuntimeLifecycle,
   rejected_drops: usize,
+  /// Handoff between the two shutdown phases, `None` unless a
+  /// `begin_shutdown` is outstanding. `RuntimeLifecycle::Stopping` carries no
+  /// backend, so the single-call `shutdown` keeps it on its own stack; the
+  /// split needs somewhere to park it across the host's yield window.
+  draining: Option<ShutdownDrain>,
+}
+
+/// What `RuntimeController::finish_shutdown` still owes an outstanding
+/// `begin_shutdown`.
+enum ShutdownDrain {
+  /// `Stopping(identity)` is published and this backend is waiting to be
+  /// drained and joined.
+  Backend(RuntimeBackend),
+  /// Phase 1 completed a zero-backend transition (`Initial`, or an already
+  /// stopped runtime): phase 2 has nothing left to drain.
+  Settled,
 }
 
 #[cfg(test)]
@@ -10747,6 +10813,7 @@ impl RuntimeController {
         options,
         lifecycle: RuntimeLifecycle::Initial,
         rejected_drops: 0,
+        draining: None,
       }),
       lifecycle_changed: Condvar::new(),
       metrics: Arc::new(RuntimeMetrics::default()),
@@ -11322,12 +11389,47 @@ impl RuntimeController {
       .is_some()
   }
 
-  fn shutdown(&self) -> Result<(), RuntimeConfigError> {
+  /// Phase 1 of the two-phase shutdown: publish `Stopping`, close admission,
+  /// abort registered tasks, drop queued work, drain-fire timers and wake
+  /// parkers -- then return WITHOUT waiting for work that is already running.
+  ///
+  /// `Ok(true)` = registered work is still live, so the caller should let its
+  /// host loop turn and poll [`Self::runtime_work_pending`] before phase 2.
+  /// `Ok(false)` = the generation is already idle and `finish_shutdown` will
+  /// not block on it.
+  ///
+  /// This exists for a host that cannot yield inside a single-call
+  /// `shutdown`: the threaded WASI artifact enters shutdown from the JS
+  /// thread, so a blocking closure that still needs a JS turn could never get
+  /// one while that thread sat in `wait_until_idle`.
+  ///
+  /// One outstanding phase 1 is completed by exactly one `finish_shutdown`.
+  /// A `begin_shutdown` while one is outstanding starts no second phase and
+  /// never waits: it answers with the current work-pending verdict, so the
+  /// thread that owns the shutdown may re-enter it from a host turn.
+  ///
+  /// `start()` between the phases is NOT allowed -- it waits in `Stopping`
+  /// until phase 2 publishes `Stopped`, and is rejected outright when it comes
+  /// from work in the generation being stopped. Admission needs no guard of
+  /// its own: `backend_locked` already rejects every submission under
+  /// `Stopping`.
+  fn begin_shutdown(&self) -> Result<bool, RuntimeConfigError> {
     let backend = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+      if let Some(drain) = &state.draining {
+        let outstanding = match drain {
+          ShutdownDrain::Backend(backend) => Some(backend.clone()),
+          ShutdownDrain::Settled => None,
+        };
+        // Answer off the lifecycle lock: probing a backend takes the
+        // generation and executor locks, and the same re-entry must not
+        // nest them under this one.
+        drop(state);
+        return Ok(outstanding.is_some_and(|backend| backend.work_pending()));
+      }
       loop {
         Self::ensure_active_generation_current(&state)?;
         match &state.lifecycle {
@@ -11352,8 +11454,9 @@ impl RuntimeController {
               RuntimeLifecycle::StoppingWithoutBackend(current) if current == target
             ));
             state.lifecycle = target.into_lifecycle();
+            state.draining = Some(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
-            return Ok(());
+            return Ok(false);
           }
           RuntimeLifecycle::Running(backend) => {
             if backend.is_current() {
@@ -11375,6 +11478,10 @@ impl RuntimeController {
               unreachable!();
             };
             self.current_backend.store(None);
+            // Park the backend for phase 2. `Stopping` carries only an
+            // identity, so without this slot the backend would live on this
+            // stack and phase 1 could not return.
+            state.draining = Some(ShutdownDrain::Backend(backend.clone()));
             // Release before aborting tasks or running any user destruction.
             // Neither path may retain the publication mutex across scheduler
             // admission, lifecycle reentry, or a panic boundary.
@@ -11407,7 +11514,8 @@ impl RuntimeController {
           }
           RuntimeLifecycle::StoppedBeforeFirstUse | RuntimeLifecycle::Stopped => {
             if state.rejected_drops == 0 {
-              return Ok(());
+              state.draining = Some(ShutdownDrain::Settled);
+              return Ok(false);
             }
             if RejectedSubmissionDropContext::is_current() {
               return Err(RuntimeConfigError(
@@ -11433,8 +11541,9 @@ impl RuntimeController {
               RuntimeLifecycle::StoppingWithoutBackend(current) if current == target
             ));
             state.lifecycle = target.into_lifecycle();
+            state.draining = Some(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
-            return Ok(());
+            return Ok(false);
           }
         }
       }
@@ -11443,6 +11552,111 @@ impl RuntimeController {
     #[cfg(test)]
     run_after_generation_stop_publication_test_hook();
     backend.begin_shutdown();
+    Ok(backend.work_pending())
+  }
+
+  /// Non-blocking poll for the window between the phases: `false` means
+  /// `finish_shutdown` will not have to wait for user work. Reads the running
+  /// generation when no phase 1 is outstanding, so a host may also use it to
+  /// decide whether a shutdown would block at all.
+  fn runtime_work_pending(&self) -> bool {
+    let backend = {
+      let state = self
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      match (&state.draining, &state.lifecycle) {
+        (Some(ShutdownDrain::Backend(backend)), _) => backend.clone(),
+        (None, RuntimeLifecycle::Running(backend)) => backend.clone(),
+        (Some(ShutdownDrain::Settled), _) | (None, _) => return false,
+      }
+    };
+    backend.work_pending()
+  }
+
+  /// Phase 2 of the two-phase shutdown: wait for the generation to go idle,
+  /// join the workers and publish `Stopped`. Everything after
+  /// `begin_shutdown`, in the same order the single call runs it.
+  ///
+  /// Errors when no phase 1 is outstanding, and -- like `shutdown` -- when the
+  /// caller is work of the generation being stopped, which could only wait for
+  /// itself. A caller that finds another thread already draining the
+  /// outstanding phase 1 waits for its publication and reports its success,
+  /// exactly as a concurrent `shutdown` does today; it completes the shutdown
+  /// that was outstanding when it was called and never adopts a generation
+  /// started after that.
+  fn finish_shutdown(&self) -> Result<(), RuntimeConfigError> {
+    const STOPPING_WAIT_ERROR: &str =
+      "cannot wait for async runtime shutdown from work in the generation being stopped";
+    const REJECTED_DROP_ERROR: &str =
+      "cannot shut down the async runtime while a rejected submission is being destroyed";
+    const NO_PHASE_ERROR: &str =
+      "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown";
+
+    let backend = {
+      let mut state = self
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      // Every arm but `Backend` leaves this function; only that one falls
+      // through to the take below.
+      match &state.draining {
+        Some(ShutdownDrain::Settled) => {
+          // Phase 1 completed a zero-backend transition; nothing to drain.
+          state.draining = None;
+          return Ok(());
+        }
+        Some(ShutdownDrain::Backend(backend)) => {
+          if backend.is_current() {
+            return Err(RuntimeConfigError(STOPPING_WAIT_ERROR.to_string()));
+          }
+        }
+        None => {
+          // Another caller already took the outstanding phase 1 (a
+          // concurrent `shutdown`, or a second `finish_shutdown`). Wait for
+          // its publication and report its success -- a concurrent
+          // `shutdown` waits in exactly this place today. Waiting inside this
+          // arm, instead of re-entering the match, also keeps this caller
+          // from adopting a phase 1 that was opened after it woke.
+          let mut waited = false;
+          loop {
+            match &state.lifecycle {
+              RuntimeLifecycle::Stopping(identity) => {
+                if identity.is_current() {
+                  return Err(RuntimeConfigError(STOPPING_WAIT_ERROR.to_string()));
+                }
+              }
+              RuntimeLifecycle::StoppingWithoutBackend(_) => {
+                if RejectedSubmissionDropContext::is_current() {
+                  return Err(RuntimeConfigError(REJECTED_DROP_ERROR.to_string()));
+                }
+              }
+              RuntimeLifecycle::Initial
+              | RuntimeLifecycle::Running(_)
+              | RuntimeLifecycle::StoppedBeforeFirstUse
+              | RuntimeLifecycle::Stopped => {
+                if waited {
+                  return Ok(());
+                }
+                return Err(RuntimeConfigError(NO_PHASE_ERROR.to_string()));
+              }
+            }
+            waited = true;
+            state = self
+              .lifecycle_changed
+              .wait(state)
+              .unwrap_or_else(std::sync::PoisonError::into_inner);
+          }
+        }
+      }
+      // Take the backend so this thread owns the drain and the slot can
+      // never be taken twice.
+      let Some(ShutdownDrain::Backend(backend)) = state.draining.take() else {
+        unreachable!();
+      };
+      backend
+    };
+
     backend.wait_until_idle();
 
     #[cfg(napi_runtime_os_threads)]
@@ -11468,6 +11682,15 @@ impl RuntimeController {
     state.lifecycle = RuntimeLifecycle::Stopped;
     self.lifecycle_changed.notify_all();
     Ok(())
+  }
+
+  /// Single-call shutdown: the two phases back to back. Ordering and
+  /// semantics are exactly what this function has always done -- phase 1 ends
+  /// at `RuntimeBackend::begin_shutdown` and phase 2 resumes at
+  /// `wait_until_idle`, with nothing in between.
+  fn shutdown(&self) -> Result<(), RuntimeConfigError> {
+    self.begin_shutdown()?;
+    self.finish_shutdown()
   }
 }
 
@@ -11674,8 +11897,53 @@ pub fn start() -> Result<(), RuntimeConfigError> {
   RUNTIME.start()
 }
 
+/// Shut the async runtime down: stop accepting work, cancel what is queued,
+/// wait for what is running, join the workers.
+///
+/// Equivalent to [`begin_shutdown`] followed by [`finish_shutdown`], and
+/// unchanged in ordering and semantics.
 pub fn shutdown() -> Result<(), RuntimeConfigError> {
   RUNTIME.shutdown()
+}
+
+/// Phase 1 of a two-phase shutdown. Publishes the stop, closes admission,
+/// aborts registered tasks, drops queued work, drain-fires timers and wakes
+/// parkers -- and never waits.
+///
+/// `Ok(true)` means registered work is still live: let the host loop turn,
+/// poll [`runtime_work_pending`] until it answers `false` (or a bound
+/// expires), then call [`finish_shutdown`]. `Ok(false)` means
+/// [`finish_shutdown`] has nothing to wait for.
+///
+/// For a host that cannot yield inside [`shutdown`] -- on the threaded WASI
+/// artifact the call comes from the JS thread, which is also the only thread
+/// that can give a running blocking closure the turn it is waiting for.
+///
+/// Submissions are rejected between the phases, and [`start`] must not be
+/// called there: it waits for phase 2 to publish the stop. A second
+/// `begin_shutdown` before [`finish_shutdown`] neither waits nor starts a
+/// second shutdown; it just re-reports [`runtime_work_pending`].
+pub fn begin_shutdown() -> Result<bool, RuntimeConfigError> {
+  RUNTIME.begin_shutdown()
+}
+
+/// Non-blocking poll for the window between [`begin_shutdown`] and
+/// [`finish_shutdown`]: `false` means phase 2 will not wait for user work.
+///
+/// Answers for the running generation when no shutdown is outstanding.
+pub fn runtime_work_pending() -> bool {
+  RUNTIME.runtime_work_pending()
+}
+
+/// Phase 2 of a two-phase shutdown: wait for the generation to go idle, join
+/// the workers and publish the stop.
+///
+/// Errors when no [`begin_shutdown`] is outstanding, and when called from work
+/// of the generation being stopped. Calling it while
+/// [`runtime_work_pending`] still answers `true` is allowed -- it then blocks,
+/// which is what [`shutdown`] does.
+pub fn finish_shutdown() -> Result<(), RuntimeConfigError> {
+  RUNTIME.finish_shutdown()
 }
 
 fn complete_current_thread_task_delivery(completion: CurrentThreadTaskDeliveryCompletion) {
@@ -29595,6 +29863,245 @@ mod tests {
     let message = futures::executor::block_on(handle).unwrap();
     assert!(message.contains("cannot shut down"));
     controller.shutdown().unwrap();
+  }
+
+  // ---- two-phase shutdown handshake ----------------------------------------
+  // `shutdown` is `begin_shutdown` + `finish_shutdown`, so every existing
+  // shutdown test above also covers the composition. These four cover the
+  // window the split opens: phase 1 must return while work is still running,
+  // the poll must eventually answer `false`, a re-entered phase 1 must never
+  // wait, and an orphan phase 2 must be rejected.
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn two_phase_shutdown_matches_single_call() {
+    // The threaded WASI artifact enters shutdown from the JS thread, so phase
+    // 1 has to come back while a blocking closure is still running; phase 2
+    // then does exactly what the single call does once the closure retires.
+    let controller = multi_thread_controller("two-phase-shutdown", 2, 1);
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let job_entered = Arc::clone(&entered);
+    let job_release = Arc::clone(&release);
+    let handle = controller
+      .try_spawn_blocking(move || {
+        job_entered.store(true, Ordering::SeqCst);
+        while !job_release.load(Ordering::SeqCst) {
+          std::hint::spin_loop();
+        }
+        7usize
+      })
+      .unwrap_or_else(|_| panic!("running runtime must accept the blocking job"));
+    while !entered.load(Ordering::SeqCst) {
+      std::thread::yield_now();
+    }
+
+    assert!(
+      controller
+        .begin_shutdown()
+        .expect("phase 1 on a running generation must be accepted"),
+      "phase 1 must report the still-running blocking closure instead of waiting for it"
+    );
+    assert!(
+      controller.runtime_work_pending(),
+      "the parked closure holds its generation guard"
+    );
+    // Admission is closed by `backend_locked` the moment `Stopping` is
+    // published; phase 1 adds no admission code of its own.
+    let Err((error, _work)) = controller.try_spawn_blocking(|| 0usize) else {
+      panic!("a submission between the phases must be rejected");
+    };
+    assert_eq!(
+      error.to_string(),
+      "the async runtime is stopped; call start before submitting work"
+    );
+
+    release.store(true, Ordering::SeqCst);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while controller.runtime_work_pending() {
+      assert!(
+        Instant::now() < deadline,
+        "the released closure must retire and the poll must answer false"
+      );
+      std::thread::yield_now();
+    }
+    assert_eq!(
+      futures::executor::block_on(handle).unwrap(),
+      7usize,
+      "the closure that phase 1 refused to wait for still delivers its result"
+    );
+
+    controller
+      .finish_shutdown()
+      .expect("phase 2 must complete the outstanding phase 1");
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+      assert!(
+        state.draining.is_none(),
+        "phase 2 must consume the phase-1 handoff"
+      );
+    }
+
+    // The split leaves the restart path exactly as the single call does.
+    controller.start().expect("a stopped runtime must restart");
+    drop(controller.backend());
+    controller
+      .shutdown()
+      .expect("the single call must still shut the restarted runtime down");
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn concurrent_shutdown_during_two_phase_still_reports_success() {
+    // A `shutdown` from a second thread must still answer `Ok(())` while a
+    // handshake is in flight, and neither thread may wedge the other. Which
+    // phase of the second call waits is left racing on purpose: its phase 1
+    // waits in the `Stopping` arm when the handoff has already been taken,
+    // its phase 2 waits for the publication when it has not, and it drains
+    // the handoff itself when it gets there first. Both threads commit before
+    // the parked closure is let go -- the closure watches the same counter --
+    // so neither can be the only one in flight.
+    let controller = Arc::new(multi_thread_controller("two-phase-concurrent", 2, 1));
+    let entered = Arc::new(AtomicBool::new(false));
+    let committed = Arc::new(AtomicUsize::new(0));
+    let job_entered = Arc::clone(&entered);
+    let job_committed = Arc::clone(&committed);
+    let handle = controller
+      .try_spawn_blocking(move || {
+        job_entered.store(true, Ordering::SeqCst);
+        while job_committed.load(Ordering::SeqCst) < 2 {
+          std::hint::spin_loop();
+        }
+        3usize
+      })
+      .unwrap_or_else(|_| panic!("running runtime must accept the blocking job"));
+    while !entered.load(Ordering::SeqCst) {
+      std::thread::yield_now();
+    }
+    assert!(
+      controller
+        .begin_shutdown()
+        .expect("phase 1 must be accepted")
+    );
+
+    let single_call = Arc::clone(&controller);
+    let single_call_committed = Arc::clone(&committed);
+    let concurrent = std::thread::spawn(move || {
+      single_call_committed.fetch_add(1, Ordering::SeqCst);
+      single_call.shutdown()
+    });
+    committed.fetch_add(1, Ordering::SeqCst);
+    controller
+      .finish_shutdown()
+      .expect("phase 2 must complete the handshake");
+    concurrent
+      .join()
+      .expect("the concurrent shutdown thread must not panic")
+      .expect("a concurrent single-call shutdown must still succeed");
+
+    assert_eq!(futures::executor::block_on(handle).unwrap(), 3usize);
+    let state = controller
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+    assert!(state.draining.is_none());
+  }
+
+  #[test]
+  fn begin_shutdown_twice_does_not_block() {
+    // The host thread may re-enter the handshake from a turn it took between
+    // the phases. A second phase 1 must answer from the outstanding one --
+    // taking the `Stopping` arm instead would park this thread on the condvar
+    // forever, so a regression hangs this test rather than failing it.
+    let controller = current_thread_controller("two-phase-reentrant-begin");
+    drop(controller.backend());
+
+    assert!(
+      !controller
+        .begin_shutdown()
+        .expect("phase 1 on an idle generation must be accepted"),
+      "an idle generation has nothing for the host to wait for"
+    );
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopping(_)));
+    }
+    assert!(
+      !controller
+        .begin_shutdown()
+        .expect("a second phase 1 must answer immediately"),
+      "the second phase 1 must report the same verdict"
+    );
+
+    controller
+      .finish_shutdown()
+      .expect("one phase 2 completes the single outstanding phase 1");
+    let state = controller
+      .state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+  }
+
+  #[test]
+  fn current_thread_two_phase_is_idle_immediately() {
+    // No cfg gate: this is the threadless `wasm32-wasip1` shape, where the
+    // handshake must degrade to two cheap calls.
+    let controller = current_thread_controller("two-phase-current-thread");
+    drop(controller.backend());
+    assert!(
+      !controller.runtime_work_pending(),
+      "an idle running generation has no pending work"
+    );
+
+    assert!(
+      !controller
+        .begin_shutdown()
+        .expect("phase 1 must be accepted"),
+      "phase 1 on an idle generation must report nothing to wait for"
+    );
+    assert!(
+      !controller.runtime_work_pending(),
+      "the poll must stay false across the window"
+    );
+    controller.finish_shutdown().expect("phase 2 must complete");
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+    }
+
+    controller.start().expect("a stopped runtime must restart");
+    drop(controller.backend());
+    controller
+      .shutdown()
+      .expect("the single call must still work");
+  }
+
+  #[test]
+  fn finish_shutdown_without_begin_is_an_error() {
+    let controller = current_thread_controller("two-phase-orphan-finish");
+    drop(controller.backend());
+    let error = controller
+      .finish_shutdown()
+      .expect_err("phase 2 without an outstanding phase 1 must be rejected");
+    assert_eq!(
+      error.to_string(),
+      "the async runtime shutdown was not started; call begin_shutdown before finish_shutdown"
+    );
+    controller
+      .shutdown()
+      .expect("the rejected phase 2 must leave the runtime shuttable");
   }
 
   // ---- MultiThread blocking cap, drain budget, and panic propagation ---------
