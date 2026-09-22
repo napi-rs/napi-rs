@@ -116,7 +116,33 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   a blocking closure waiting on a JS turn cannot finish while it does. A
   bounded join would be worse: it would leave a live thread running over
   memory the loader is about to destroy. Use `RuntimeOptions::park_deadline`
-  if you need a park to fail loudly instead. The same applies before the join: `shutdown` first waits for every accepted blocking closure to return, and `park_deadline` does not bound that wait; it bounds parks, not a closure that is running. So the rule for hosts is: a blocking closure must never wait on a JavaScript turn (no threadsafe-function call, no napi promise, no channel fed by JS). Route that work through `spawn` instead, where the await yields. This is the same contract native addons already live under (`thread_cleanup` runs `shutdown` synchronously on the JS thread); MultiThread on threaded WASI is only the first configuration where a closure can be running on another thread while it happens. A two-phase shutdown handshake with the loader (close admission, let the JS loop turn, then join) is a possible follow-up across the crate, napi and the cli template.
+  if you need a park to fail loudly instead. The same applies before the join:
+  `shutdown` first waits for every accepted blocking closure to return, and
+  `park_deadline` does not bound that wait; it bounds parks, not a closure that
+  is running. So the rule for hosts is: a blocking closure must never wait on a
+  JavaScript turn (no threadsafe-function call, no napi promise, no channel fed
+  by JS). Route that work through `spawn` instead, where the await yields. This
+  is the same contract native addons already live under (`thread_cleanup` runs
+  `shutdown` synchronously on the JS thread); MultiThread on threaded WASI is
+  only the first configuration where a closure can be running on another thread
+  while it happens.
+- **A host that can yield splits the join in two.** `begin_shutdown` publishes
+  the stop, closes admission, cancels and drops what is only queued, wakes what
+  is parked — and returns without waiting. It answers `true` while
+  backend-owned work is still live. `runtime_work_pending` re-answers that
+  question at any time, without blocking. `finish_shutdown` is the call that
+  waits, joins the workers and publishes `Stopped`, so it is the one that owes
+  the quiescence guarantee. `shutdown` is unchanged and is exactly the two in
+  sequence, so nothing that calls it behaves differently. Between the phases
+  the host may turn its event loop — that is the point, because that turn is
+  what a blocking closure is waiting for — but it may not call `start`: a
+  restart belongs after `finish_shutdown`. A second `begin_shutdown` before the
+  matching `finish_shutdown` re-reports the poll and never waits. The cli's
+  WASI loader drives the pair through napi's
+  `napi_prepare_wasm_env_cleanup_begin` / `napi_wasm_runtime_work_pending` /
+  `…_finish` exports, polling for a bounded 128 one-millisecond timer turns;
+  running out of them only means `finish_shutdown` blocks the way the single
+  call always did.
 - **The JavaScript hosts go inert, not away.** The cli's
   `napi.wasm.asyncRuntime` loaders install a CurrentThread task host and a
   timer host unconditionally — they cannot know the flavor. MultiThread never

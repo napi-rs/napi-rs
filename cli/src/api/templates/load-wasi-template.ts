@@ -163,6 +163,11 @@ let __emnapiContextDestroyed = false
 let __emnapiContextDestroyPromise
 let __emnapiWasmEnvCleanupPrepared = false
 let __emnapiWasmEnvCleanupPreparing = false
+// Raised while a caller that can still yield is driving the barrier, so the
+// queue it leaves behind is expected rather than lost. See
+// \`__reportUnreachedWasmEnvSettlements\`.
+let __emnapiWasmEnvCleanupYielding = false
+let __emnapiWasmEnvSettlementLossReported = false
 let __emnapiWasmEnvCleanupRan = false
 let __emnapiWasmEnvCleanupDrained = false
 let __emnapiWasmEnvCleanupDrainPromise
@@ -257,8 +262,55 @@ function __prepareWasmEnvCleanup() {
       __emnapiWasmEnvCleanupPreparing = false
     }
     __emnapiWasmEnvCleanupRan = true
+    __reportUnreachedWasmEnvSettlements()
   }
   __emnapiWasmEnvCleanupPrepared = true
+}
+
+/**
+ * Say so when the barrier leaves settlements queued and nothing is left that
+ * could deliver them.
+ *
+ * Only the disposal chain yields the event-loop turns @emnapi/core needs to
+ * dispatch its queue. Every other caller of the barrier destroys in the same
+ * turn — a raw \`Context.destroy()\`, the 'exit' teardown — and
+ * \`Context.destroy()\` runs the threadsafe function's cleanup hook, which drains
+ * that queue with a null env and discards it. The promises those settlements
+ * were for then hang forever, silently.
+ *
+ * Loud, once, and never throwing: this runs from inside \`Context.destroy()\`,
+ * emnapi's own beforeExit destroy included, where throwing would take the whole
+ * teardown down with it. Destroying anyway is still the right trade — the queue
+ * is already unreachable by then.
+ */
+function __reportUnreachedWasmEnvSettlements() {
+  if (__emnapiWasmEnvCleanupYielding || __emnapiWasmEnvSettlementLossReported) {
+    return
+  }
+  const pending = __napiInstance?.exports?.napi_wasm_env_cleanup_pending
+  if (typeof pending !== 'function') {
+    return
+  }
+  let queued
+  try {
+    queued = pending()
+  } catch {
+    return
+  }
+  if (!queued) {
+    return
+  }
+  __emnapiWasmEnvSettlementLossReported = true
+  try {
+    const consoleHost = globalThis.console
+    if (consoleHost && typeof consoleHost.error === 'function') {
+      consoleHost.error(
+        "napi-rs: the wasm environment is being destroyed with " +
+          queued +
+          " queued promise settlement(s). Context.destroy() discards them, so those promises never settle. Dispose with binding[Symbol.for('${WASI_DISPOSE_SYMBOL}')]() instead: only it yields the event-loop turns the settlements need.",
+      )
+    }
+  } catch {}
 }
 
 // Mirror the primitive @emnapi/core schedules its threadsafe-function dispatch
@@ -308,6 +360,104 @@ function __scheduleTimer(callback, delay) {
   } catch {
     __scheduleMacrotask(callback)
   }
+}
+
+// Turns to spend polling \`napi_wasm_runtime_work_pending\` between the two
+// halves of the environment cleanup, one real timer turn each. Same order as
+// the settlement drain below, but bounded for the opposite reason: this wait is
+// an optimization, not a guarantee. \`napi_prepare_wasm_env_cleanup_finish\` runs
+// either way and is the call that joins, so running out of turns degrades to
+// exactly today's blocking teardown — never to a stranded promise.
+const __WASM_RUNTIME_DRAIN_TURNS = 128
+// A real, referenced timer rather than a zero-delay macrotask, for the same
+// reason the async-work drain uses one: this polls the addon instead of
+// interleaving with the @emnapi/core dispatch, so a zero-delay turn would spin
+// the loop instead of yielding it.
+const __WASM_RUNTIME_WORK_POLL_INTERVAL_MS = 1
+
+/**
+ * The barrier for callers that can yield: \`__prepareWasmEnvCleanup\` with real
+ * event-loop turns in the middle.
+ *
+ * \`napi_prepare_wasm_env_cleanup\` waits — it returns only once the addon's
+ * async runtime has quiesced, and on \`wasm32-wasip1-threads\` the thread it
+ * waits on is this one, the only thread that can give a running blocking
+ * closure the JavaScript turn *it* is waiting for. A single call there can wait
+ * for work that can never finish. The addon's two-phase form splits that:
+ * \`…_begin\` stops the runtime without joining and reports whether anything is
+ * still live, \`napi_wasm_runtime_work_pending\` answers that question again
+ * without blocking, and \`…_finish\` joins. The turns yielded in between are the
+ * entire point.
+ *
+ * Bounded, and \`…_finish\` runs either way: a poll that runs out of turns — or a
+ * host whose timers refuse — simply blocks in \`…_finish\` the way the single
+ * call always did.
+ *
+ * Feature-detected like every other export in this teardown, so an addon built
+ * against a napi crate that predates the split keeps the single blocking call.
+ * Returns nothing whenever the handshake finished without yielding, which keeps
+ * an idle disposal synchronous.
+ */
+function __prepareWasmEnvCleanupWithTurns() {
+  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
+    return
+  }
+  const exports = __napiInstance?.exports
+  const begin = exports?.napi_prepare_wasm_env_cleanup_begin
+  const finish = exports?.napi_prepare_wasm_env_cleanup_finish
+  if (typeof begin !== 'function' || typeof finish !== 'function') {
+    // No split to use. The settlement drain still follows this, so the queue
+    // the single call leaves behind is expected rather than lost.
+    __emnapiWasmEnvCleanupYielding = true
+    try {
+      __prepareWasmEnvCleanup()
+    } finally {
+      __emnapiWasmEnvCleanupYielding = false
+    }
+    return
+  }
+  const workPending = exports?.napi_wasm_runtime_work_pending
+  // The in-flight flag stays raised across the turns below, so a \`destroy()\`
+  // from one of the JavaScript handlers they run is the same no-op it is inside
+  // the single call: the barrier is up and the runtime is mid-teardown, and
+  // destroying between the halves would strand exactly what this delivers.
+  __emnapiWasmEnvCleanupPreparing = true
+  let live
+  try {
+    live = begin()
+  } catch (error) {
+    __emnapiWasmEnvCleanupPreparing = false
+    throw error
+  }
+  __emnapiWasmEnvCleanupRan = true
+  const finishCleanup = () => {
+    try {
+      finish()
+    } finally {
+      __emnapiWasmEnvCleanupPreparing = false
+    }
+    __emnapiWasmEnvCleanupPrepared = true
+  }
+  if (!live || typeof workPending !== 'function') {
+    finishCleanup()
+    return
+  }
+  return (async () => {
+    for (let turn = 0; turn < __WASM_RUNTIME_DRAIN_TURNS; turn++) {
+      await new Promise((resolve) => {
+        __scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
+      })
+      try {
+        if (!workPending()) {
+          return
+        }
+      } catch {
+        // A trap is the only way this fails, and a trapped instance has no
+        // reachable work left. Stop polling and finish.
+        return
+      }
+    }
+  })().then(finishCleanup, finishCleanup)
 }
 
 // Turns to wait for while the addon still reports queued settlements. Reaching
@@ -720,16 +870,24 @@ function __continueWasiDisposal() {
   return __finishWasiDisposal()
 }
 
-function __cleanUpWasmEnvForWasiDisposal() {
-  // Run the pre-teardown barrier, then let the settlements it queued actually
-  // reach JavaScript, and only then destroy the environment. Doing these two
-  // back to back is what strands them.
-  __prepareWasmEnvCleanup()
+function __drainWasmEnvForWasiDisposal() {
   const drainResult = __drainWasmEnvCleanup()
   if (__isThenable(drainResult)) {
     return Promise.resolve(drainResult).then(__continueWasiDisposal)
   }
   return __continueWasiDisposal()
+}
+
+function __cleanUpWasmEnvForWasiDisposal() {
+  // Run the pre-teardown barrier — yielding the turns its two-phase form asks
+  // for, when the addon has one — then let the settlements it queued actually
+  // reach JavaScript, and only then destroy the environment. Doing any two of
+  // these back to back is what strands them.
+  const prepareResult = __prepareWasmEnvCleanupWithTurns()
+  if (__isThenable(prepareResult)) {
+    return Promise.resolve(prepareResult).then(__drainWasmEnvForWasiDisposal)
+  }
+  return __drainWasmEnvForWasiDisposal()
 }
 
 function __startWasiDisposal() {
@@ -892,14 +1050,36 @@ function __rollbackWasiInitialization() {
   // be reached without the async-work drain below running first.
   function __rollbackWasmEnvForWasiInitialization() {
     const cleanupErrors = []
-    let drainResult
-    let settlementsUnreached = false
+    let prepareResult
     try {
-      __prepareWasmEnvCleanup()
+      prepareResult = __prepareWasmEnvCleanupWithTurns()
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError)
+      return __retainFailedWasiRollback(cleanupErrors)
+    }
+    if (__isThenable(prepareResult)) {
+      return Promise.resolve(prepareResult).then(
+        () => __drainWasmEnvForWasiRollback(cleanupErrors),
+        (cleanupError) => {
+          cleanupErrors.push(cleanupError)
+          return __retainFailedWasiRollback(cleanupErrors)
+        },
+      )
+    }
+    return __drainWasmEnvForWasiRollback(cleanupErrors)
+  }
+
+  // The settlement drain of the rollback above, reached either straight away or
+  // after the barrier's two-phase form has yielded its turns. A barrier that
+  // did not finish never gets here: it retains instead, exactly as a drain that
+  // did not finish does.
+  function __drainWasmEnvForWasiRollback(cleanupErrors) {
+    let drainResult
+    try {
       drainResult = __drainWasmEnvCleanup()
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError)
-      settlementsUnreached = true
+      return __retainFailedWasiRollback(cleanupErrors)
     }
     if (__isThenable(drainResult)) {
       return Promise.resolve(drainResult).then(
@@ -909,9 +1089,6 @@ function __rollbackWasiInitialization() {
           return __retainFailedWasiRollback(cleanupErrors)
         },
       )
-    }
-    if (settlementsUnreached) {
-      return __retainFailedWasiRollback(cleanupErrors)
     }
     return __destroyContextForWasiRollback(cleanupErrors)
   }
@@ -1716,6 +1893,45 @@ function __scheduleTimer(__callback, __delay) {
   }
 }
 
+// Turns to spend polling \`napi_wasm_runtime_work_pending\` between the two
+// halves of the environment cleanup, one real timer turn each. Same order as
+// the settlement drain above, but bounded for the opposite reason: this wait is
+// an optimization, not a guarantee. \`napi_prepare_wasm_env_cleanup_finish\` runs
+// either way and is the call that joins, so running out of turns degrades to
+// exactly today's blocking teardown — never to a stranded promise.
+const __WASM_RUNTIME_DRAIN_TURNS = 128
+// A real, referenced timer rather than a zero-delay macrotask, for the same
+// reason the async-work wait uses one: this polls the addon instead of
+// interleaving with the @emnapi/core dispatch, so a zero-delay turn would spin
+// the loop instead of yielding it.
+const __WASM_RUNTIME_WORK_POLL_INTERVAL_MS = 1
+
+/**
+ * Yield event-loop turns until the addon reports its runtime work finished, or
+ * the bound runs out.
+ *
+ * The window between \`napi_prepare_wasm_env_cleanup_begin\` and
+ * \`…_finish\` — the turns are the entire point of splitting the barrier, because
+ * on a threaded artifact the work \`…_finish\` joins can itself be waiting for a
+ * JavaScript turn from this very thread.
+ */
+async function __pollWasmRuntimeWork(__workPending) {
+  for (let __turn = 0; __turn < __WASM_RUNTIME_DRAIN_TURNS; __turn++) {
+    await new Promise((resolve) => {
+      __scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)
+    })
+    try {
+      if (!__workPending()) {
+        return
+      }
+    } catch {
+      // A trap is the only way this fails, and a trapped instance has no
+      // reachable work left. Stop polling and finish.
+      return
+    }
+  }
+}
+
 // How often to re-read \`napi_wasm_async_work_pending\` while waiting. The wait
 // ends when the addon reports zero, so this only decides how promptly disposal
 // notices — not how long it waits.
@@ -2220,9 +2436,58 @@ ${instanceHostState}\
   let __wasmEnvCleanupRan = false
   let __wasmEnvCleanupPrepared = false
   let __wasmEnvCleanupPreparing = false
+  // Raised while a caller that can still yield is driving the barrier, so the
+  // queue it leaves behind is expected rather than lost.
+  let __wasmEnvCleanupYielding = false
+  let __wasmEnvSettlementLossReported = false
   let __wasmEnvCleanupDrained = false
   let __wasmEnvCleanupDrainPromise
   const __isPreparingEnvCleanup = () => __wasmEnvCleanupPreparing
+  /**
+   * Say so when the barrier leaves settlements queued and nothing is left that
+   * could deliver them.
+   *
+   * Only \`dispose()\` and the initialization rollback yield the event-loop turns
+   * @emnapi/core needs to dispatch its queue. Every other caller of the barrier
+   * destroys in the same turn — a raw \`Context.destroy()\`, the managed
+   * beforeExit teardown — and \`Context.destroy()\` runs the threadsafe
+   * function's cleanup hook, which drains that queue with a null env and
+   * discards it. The promises those settlements were for then hang forever,
+   * silently.
+   *
+   * Loud, once, and never throwing: this runs from inside \`Context.destroy()\`,
+   * where throwing would take the whole teardown down with it. Destroying
+   * anyway is still the right trade — the queue is already unreachable by then.
+   */
+  const __reportUnreachedSettlements = () => {
+    if (__wasmEnvCleanupYielding || __wasmEnvSettlementLossReported) {
+      return
+    }
+    const __pending = __napiInstance?.exports.napi_wasm_env_cleanup_pending
+    if (typeof __pending !== 'function') {
+      return
+    }
+    let __queued
+    try {
+      __queued = __pending()
+    } catch {
+      return
+    }
+    if (!__queued) {
+      return
+    }
+    __wasmEnvSettlementLossReported = true
+    try {
+      const __consoleHost = globalThis.console
+      if (__consoleHost && typeof __consoleHost.error === 'function') {
+        __consoleHost.error(
+          'napi-rs: the wasm environment is being destroyed with ' +
+            __queued +
+            ' queued promise settlement(s). Context.destroy() discards them, so those promises never settle. Dispose the instance instead: only dispose() yields the event-loop turns the settlements need.',
+        )
+      }
+    } catch {}
+  }
   const __prepareEnvCleanup = () => {
     if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
       return
@@ -2240,8 +2505,75 @@ ${instanceHostState}\
         __wasmEnvCleanupPreparing = false
       }
       __wasmEnvCleanupRan = true
+      __reportUnreachedSettlements()
     }
     __wasmEnvCleanupPrepared = true
+  }
+  /**
+   * The barrier for the callers that can yield: \`__prepareEnvCleanup\` with real
+   * event-loop turns in the middle.
+   *
+   * \`napi_prepare_wasm_env_cleanup\` waits — it returns only once the addon's
+   * async runtime has quiesced, and the work it waits for can itself be waiting
+   * for a JavaScript turn from this thread. The addon's two-phase form splits
+   * that: \`…_begin\` stops the runtime without joining and reports whether
+   * anything is still live, \`napi_wasm_runtime_work_pending\` answers that again
+   * without blocking, and \`…_finish\` joins.
+   *
+   * Bounded, and \`…_finish\` runs either way, so running out of turns degrades
+   * to exactly the single call's blocking teardown. Feature-detected like every
+   * other export here, and returns nothing whenever the handshake finished
+   * without yielding.
+   */
+  const __prepareEnvCleanupWithTurns = () => {
+    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
+      return
+    }
+    const __exports = __napiInstance?.exports
+    const __begin = __exports?.napi_prepare_wasm_env_cleanup_begin
+    const __finish = __exports?.napi_prepare_wasm_env_cleanup_finish
+    if (typeof __begin !== 'function' || typeof __finish !== 'function') {
+      // No split to use. The settlement drain still follows this, so the queue
+      // the single call leaves behind is expected rather than lost.
+      __wasmEnvCleanupYielding = true
+      try {
+        __prepareEnvCleanup()
+      } finally {
+        __wasmEnvCleanupYielding = false
+      }
+      return
+    }
+    const __workPending = __exports?.napi_wasm_runtime_work_pending
+    // The in-flight flag stays raised across the turns below, so a \`destroy()\`
+    // from one of the JavaScript handlers they run is the same no-op it is
+    // inside the single call: the barrier is up and the runtime is
+    // mid-teardown, and destroying between the halves would strand exactly what
+    // this delivers.
+    __wasmEnvCleanupPreparing = true
+    let __live
+    try {
+      __live = __begin()
+    } catch (__error) {
+      __wasmEnvCleanupPreparing = false
+      throw __error
+    }
+    __wasmEnvCleanupRan = true
+    const __finishEnvCleanup = () => {
+      try {
+        __finish()
+      } finally {
+        __wasmEnvCleanupPreparing = false
+      }
+      __wasmEnvCleanupPrepared = true
+    }
+    if (!__live || typeof __workPending !== 'function') {
+      __finishEnvCleanup()
+      return
+    }
+    return __pollWasmRuntimeWork(__workPending).then(
+      __finishEnvCleanup,
+      __finishEnvCleanup,
+    )
   }
   // The barrier + settlement drain, hoisted out of the context destroyer so the
   // drain can yield without widening the destroyer's reentry window. Both
@@ -2255,14 +2587,7 @@ ${instanceHostState}\
   // is enough — and dispose() stays retryable after it rejects, so marking the
   // drain complete up front would make the retry skip it and destroy the context
   // with the barrier's settlements still queued.
-  const __prepareForDisposal = () => {
-    if (__wasmEnvCleanupDrained) {
-      return
-    }
-    if (__wasmEnvCleanupDrainPromise) {
-      return __wasmEnvCleanupDrainPromise
-    }
-    __prepareEnvCleanup()
+  const __drainAfterEnvCleanup = () => {
     if (!__wasmEnvCleanupRan) {
       return
     }
@@ -2271,9 +2596,31 @@ ${instanceHostState}\
       __wasmEnvCleanupDrained = true
       return
     }
-    const __tracked = __drained.then(
+    return __drained.then((__value) => {
+      __wasmEnvCleanupDrained = true
+      return __value
+    })
+  }
+  const __prepareForDisposal = () => {
+    if (__wasmEnvCleanupDrained) {
+      return
+    }
+    if (__wasmEnvCleanupDrainPromise) {
+      return __wasmEnvCleanupDrainPromise
+    }
+    // The barrier itself can yield now, so the memo below has to cover it too:
+    // a reentrant caller must join this handshake rather than start a second
+    // one while the first is parked between the two halves.
+    const __prepared = __prepareEnvCleanupWithTurns()
+    const __settled =
+      __prepared && typeof __prepared.then === 'function'
+        ? __prepared.then(__drainAfterEnvCleanup)
+        : __drainAfterEnvCleanup()
+    if (!__settled || typeof __settled.then !== 'function') {
+      return
+    }
+    const __tracked = __settled.then(
       (__value) => {
-        __wasmEnvCleanupDrained = true
         __wasmEnvCleanupDrainPromise = undefined
         return __value
       },

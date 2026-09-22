@@ -120,6 +120,18 @@ struct ParkedTaskState {
   /// wait for the hand-off to have actually happened instead of guessing a turn count.
   holding: usize,
   shutting_down: bool,
+  /// Keep the worker inside its loop after the shutdown was published, until JavaScript calls
+  /// `releaseParkedWorker()`.
+  ///
+  /// The whole point of the two-phase teardown, made reproducible: work that cannot finish
+  /// without a JavaScript turn, on a thread the teardown joins. A single-call
+  /// `napi_prepare_wasm_env_cleanup` joins this worker from the JavaScript thread, so the turn
+  /// it is waiting for can never come; the two-phase form yields that turn between
+  /// `napi_prepare_wasm_env_cleanup_begin` and `…_finish`.
+  hold_until_released: bool,
+  /// Set by the worker as it leaves its loop, so `shutdown_work_pending` can answer without
+  /// joining anything.
+  finished: bool,
   worker: Option<thread::JoinHandle<()>>,
 }
 
@@ -501,7 +513,10 @@ impl RuntimeState {
         .name("napi-custom-runtime-parked-tasks".to_owned())
         .spawn(move || state.parked_task_worker_loop())
       {
-        Ok(worker) => parked.worker = Some(worker),
+        Ok(worker) => {
+          parked.finished = false;
+          parked.worker = Some(worker);
+        }
         Err(error) => {
           return Err(AsyncRuntimeRejection::new(
             task,
@@ -530,7 +545,9 @@ impl RuntimeState {
     loop {
       held.append(&mut parked.inbox);
       parked.holding = held.len();
-      if parked.shutting_down {
+      // `hold_until_released` is the JavaScript turn this thread is waiting for: nothing but a
+      // `releaseParkedWorker()` call from the JavaScript thread clears it.
+      if parked.shutting_down && !parked.hold_until_released {
         break;
       }
       parked = self
@@ -538,10 +555,30 @@ impl RuntimeState {
         .wait(parked)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
+    // Before the lock is released, so a `shutdown_work_pending` poll cannot see this thread as
+    // still live once it has left the loop.
+    parked.finished = true;
     // Drop outside the lock: a cancellation calls back into napi, which must never run while
     // this example holds one of its own mutexes.
     drop(parked);
     held.clear();
+  }
+
+  /// Runs on: the JavaScript thread, from `begin_shutdown`. Publishes the shutdown and wakes the
+  /// worker without joining it, so the caller can go back to its event loop.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn begin_parked_task_worker_shutdown(&self) {
+    let mut parked = lock(&self.parked_tasks);
+    parked.shutting_down = true;
+    self.parked_tasks_ready.notify_all();
+  }
+
+  /// Whether the parked-task worker is still inside its loop: the non-blocking poll for the
+  /// window between the two shutdown phases.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn parked_task_worker_running(&self) -> bool {
+    let parked = lock(&self.parked_tasks);
+    parked.worker.is_some() && !parked.finished
   }
 
   /// Runs on: the JavaScript thread, from `shutdown`. Joins the worker, so every parked task is
@@ -561,6 +598,10 @@ impl RuntimeState {
     let leftover = {
       let mut parked = lock(&self.parked_tasks);
       parked.shutting_down = false;
+      // Only after the join: clearing the hold before it would release a worker JavaScript
+      // never released, which is exactly the wait this fixture exists to reproduce.
+      parked.hold_until_released = false;
+      parked.finished = false;
       parked.holding = 0;
       std::mem::take(&mut parked.inbox)
     };
@@ -1107,6 +1148,33 @@ unsafe impl AsyncRuntime for TestRuntime {
     blocking_shutdown?;
     Ok(())
   }
+
+  /// Phase 1 of the two-phase teardown: publish the stop and wake the parked-task worker, then
+  /// return without joining anything.
+  ///
+  /// The reported work is that worker. It can only leave its loop once JavaScript calls
+  /// `releaseParkedWorker()`, and the thread that would have to make that call is the one
+  /// inside this teardown — so a host that joins here waits forever, and a host that yields
+  /// event-loop turns between the phases does not.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn begin_shutdown(&self) -> Result<bool> {
+    self.state.accepting.store(false, Ordering::Release);
+    self.state.begin_parked_task_worker_shutdown();
+    Ok(self.shutdown_work_pending())
+  }
+
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn shutdown_work_pending(&self) -> bool {
+    self.state.parked_task_worker_running()
+  }
+
+  /// Phase 2: the whole of [`shutdown`], which is where the join lives. Phase 1 only woke the
+  /// worker, so this is the same sequence a single-call teardown runs — it just usually has
+  /// nothing left to wait for by the time it gets here.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn finish_shutdown(&self) -> Result<()> {
+    self.shutdown()
+  }
 }
 
 struct TestRuntimeGuard {
@@ -1494,6 +1562,31 @@ pub fn park_next_spawn_on_worker() {
 #[napi]
 pub fn parked_tasks_on_worker() -> u32 {
   lock(&state().parked_tasks).holding as u32
+}
+
+/// Make the parked-task worker wait for [`release_parked_worker`] before it finishes, even
+/// after the shutdown has been published.
+///
+/// Turns that worker into work that cannot complete without a JavaScript turn — the case the
+/// two-phase wasm environment cleanup exists for. The runtime's `shutdown` joins that thread,
+/// so with a single-call teardown the JavaScript thread blocks inside the join while the only
+/// call that could release it would have to come from that same thread.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn hold_parked_worker_until_released() {
+  lock(&state().parked_tasks).hold_until_released = true;
+}
+
+/// Let a held parked-task worker finish.
+///
+/// Called from JavaScript between `napi_prepare_wasm_env_cleanup_begin` and `…_finish`, which
+/// is only reachable at all because the loader yields real event-loop turns there.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn release_parked_worker() {
+  let state = state();
+  lock(&state.parked_tasks).hold_until_released = false;
+  state.parked_tasks_ready.notify_all();
 }
 
 #[napi]

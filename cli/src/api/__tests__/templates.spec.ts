@@ -1123,6 +1123,87 @@ for (const { name, code } of eagerWasiLoaderCases) {
   })
 }
 
+// `napi_prepare_wasm_env_cleanup` waits: it returns only once the addon's async
+// runtime has quiesced, and on a threaded artifact the work it waits for can be
+// waiting for a JavaScript turn from the very thread the export runs on — which
+// never comes, because that thread is inside the export. The addon exposes the
+// same teardown as `…_begin` / `napi_wasm_runtime_work_pending` / `…_finish` so
+// a loader can put real turns in the middle. Every shape that can yield has to
+// use it, and every shape has to keep working against an addon that has no such
+// exports.
+const TWO_PHASE_BARRIER_BY_FLAVOR = {
+  eager: {
+    detect:
+      /if \(typeof begin !== 'function' \|\|\s*typeof finish !== 'function'\) \{/,
+    poll: '__scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)',
+    finish: '.then(finishCleanup, finishCleanup)',
+    fallback: '__prepareWasmEnvCleanup()',
+    report: '__reportUnreachedWasmEnvSettlements()',
+  },
+  deferred: {
+    detect:
+      /if \(typeof __begin !== 'function' \|\|\s*typeof __finish !== 'function'\) \{/,
+    poll: '__scheduleTimer(resolve, __WASM_RUNTIME_WORK_POLL_INTERVAL_MS)',
+    finish: `return __pollWasmRuntimeWork(__workPending).then(
+      __finishEnvCleanup,
+      __finishEnvCleanup,
+    )`,
+    fallback: '__prepareEnvCleanup()',
+    report: '__reportUnreachedSettlements()',
+  },
+} as const
+
+for (const { name, code } of wasiLoaderCases) {
+  const barrier =
+    TWO_PHASE_BARRIER_BY_FLAVOR[
+      code.includes(EAGER_ROLLBACK_SIGNATURE) ? 'eager' : 'deferred'
+    ]
+  test(`WASI loader polls the two-phase wasm env cleanup: ${name}`, (t) => {
+    t.true(
+      code.includes('napi_prepare_wasm_env_cleanup_begin'),
+      'loader must start the teardown without joining',
+    )
+    t.true(
+      code.includes('napi_wasm_runtime_work_pending'),
+      'loader must poll the runtime between the two halves; without it there is nothing to wait on',
+    )
+    t.true(
+      code.includes('napi_prepare_wasm_env_cleanup_finish'),
+      'loader must still join: finish is the call that owes quiescence',
+    )
+    // Optional, exactly like every other export in this teardown: an addon
+    // built against a napi crate that predates the split keeps the single
+    // blocking call.
+    t.regex(code, barrier.detect, 'the split must be feature-detected')
+    t.true(
+      code.includes(barrier.fallback),
+      'a loader that finds no split must fall back to the single call',
+    )
+    // Bounded, and finish runs on both settle paths: a poll that runs out of
+    // turns (or a host whose timers refuse) degrades to the single call's
+    // blocking teardown, never to a stranded promise.
+    t.true(
+      code.includes('const __WASM_RUNTIME_DRAIN_TURNS = 128'),
+      'the poll must be bounded',
+    )
+    t.true(
+      code.includes(barrier.poll),
+      'the poll must yield with a real referenced timer, not a macrotask spin',
+    )
+    t.true(
+      code.includes(barrier.finish),
+      'finish must run whether the poll ended, timed out or could not run at all',
+    )
+    // The one caller that cannot yield is the raw `Context.destroy()` the
+    // wrapper intercepts, and the queue it leaves behind is discarded by the
+    // destroy that follows. Say so, once, without throwing.
+    t.true(
+      code.includes(barrier.report),
+      'the single-call barrier must report settlements nothing can reach any more',
+    )
+  })
+}
+
 // The loaders order their own teardown barrier-then-destroy, but the emnapi
 // context is a live object: an embedder or test harness holding it, or emnapi's
 // own `beforeExit` auto-destroy on a host where `suppressDestroy()` is absent,
@@ -1140,14 +1221,16 @@ const CONTEXT_DESTROY_WRAP_SIGNATURE =
 const preparingBarrierGuards = {
   shared: {
     probe: '__isPreparingWasmEnvCleanup',
+    // Both barrier entry points read it: the single call and the two-phase
+    // form, which keeps it raised across the turns it yields.
+    entryGuard: `  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
+    return
+  }`,
     snippets: [
       'let __emnapiWasmEnvCleanupPreparing = false',
       `function __isPreparingWasmEnvCleanup() {
   return __emnapiWasmEnvCleanupPreparing
 }`,
-      `  if (__emnapiWasmEnvCleanupPrepared || __emnapiWasmEnvCleanupPreparing) {
-    return
-  }`,
       `    __emnapiWasmEnvCleanupPreparing = true
     try {
       prepare()
@@ -1158,12 +1241,12 @@ const preparingBarrierGuards = {
   },
   deferred: {
     probe: '__isPreparingEnvCleanup',
+    entryGuard: `    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
+      return
+    }`,
     snippets: [
       'let __wasmEnvCleanupPreparing = false',
       'const __isPreparingEnvCleanup = () => __wasmEnvCleanupPreparing',
-      `    if (__wasmEnvCleanupPrepared || __wasmEnvCleanupPreparing) {
-      return
-    }`,
       `      __wasmEnvCleanupPreparing = true
       try {
         __prepareWasmEnvCleanup()
@@ -1267,6 +1350,14 @@ for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
         `barrier must carry its in-flight guard exactly once: ${snippet}`,
       )
     }
+    // One per barrier entry point — the single call and the two-phase form —
+    // and no more: a third entry point would be one that can run the barrier
+    // without checking whether it is already in flight.
+    t.is(
+      code.split(guard.entryGuard).length - 1,
+      2,
+      'both barrier entry points must refuse to re-enter a barrier already in flight',
+    )
     t.is(
       code.split(NESTED_DESTROY_NO_OP).length - 1,
       1,
