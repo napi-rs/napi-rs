@@ -57,6 +57,26 @@ fn settles_synchronously(owner_thread: std::thread::ThreadId) -> bool {
     && WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.get() != 0)
 }
 
+/// Whether *this* thread is the one running `napi_prepare_wasm_env_cleanup`.
+///
+/// Runs on: any thread. The JavaScript thread answers `true` for as long as it is inside the
+/// barrier; a `wasm32-wasip1-threads` backend worker always answers `false`, because the depth
+/// counter is a thread local.
+///
+/// [`settles_synchronously`] asks the same question *and* whether the deferred belongs to this
+/// thread. The cancel mailbox in `tokio_runtime` needs only the first half: it parks a
+/// cancellation raised on a worker so the JavaScript thread can invoke it later, and a
+/// cancellation raised on the barrier thread itself must never be parked — that one already
+/// settles straight through, and parking it would defer it past the drain that is calling it.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  feature = "async-runtime"
+))]
+pub(crate) fn in_wasm_env_cleanup() -> bool {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.get() != 0)
+}
+
 /// A `napi_handle_scope` held for the duration of a settle that the host is not dispatching.
 ///
 /// The threadsafe-function dispatch opens one around the callback; a settle delivered straight
@@ -92,10 +112,11 @@ impl Drop for WasmHandleScope {
   }
 }
 
-/// Makes `JsDeferred` settle on the current thread deliver instead of queue, for as long as it
-/// is alive.
+/// Raise the wasm environment cleanup barrier on *this* thread: from here until the matching
+/// [`leave_wasm_env_cleanup_barrier`], a `JsDeferred` settled on this thread delivers instead
+/// of queueing.
 ///
-/// `napi_prepare_wasm_env_cleanup` holds one across the backend shutdown. The tasks that
+/// `napi_prepare_wasm_env_cleanup` raises it across the backend shutdown. The tasks that
 /// shutdown cancels reject their deferreds from inside it, on this very thread, and
 /// `napi_call_threadsafe_function` would merely *append* those rejections to a queue
 /// `@emnapi/core` dispatches from a macrotask two turns later — which a host that destroys the
@@ -103,34 +124,65 @@ impl Drop for WasmHandleScope {
 /// environment is still fully alive, is what makes a purely synchronous `Context.destroy()`
 /// work. Those settles never enter the queue, so they never enter
 /// [`PENDING_DEFERRED_SETTLES`] either, and the loader's drain sees zero and returns at once.
+///
+/// # Why this is a pair of calls and not a stack guard
+///
+/// The two-phase handshake (`napi_prepare_wasm_env_cleanup_begin` /
+/// `napi_prepare_wasm_env_cleanup_finish`) splits the shutdown across two separate bare wasm
+/// exports so the host can turn its event loop in between. The barrier has to span *both*, and
+/// a guard whose lifetime is a single Rust stack frame cannot: each export returns to
+/// JavaScript. The counter is the state that outlives the frame, so it is raised and lowered
+/// explicitly. The single-call export is the same two calls back to back, so it behaves exactly
+/// as the guard did.
+///
+/// Every caller is on the JavaScript thread (the exports are entered from it), and the counter
+/// is a thread local, so nesting is per-thread and a `wasm32-wasip1-threads` worker never
+/// observes a raised barrier. Both wasm targets build `panic = "abort"`, so there is no unwind
+/// path that could skip the lowering.
 #[cfg(all(
   target_family = "wasm",
   not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime")
 ))]
-pub(crate) struct WasmEnvCleanupBarrier(());
-
-#[cfg(all(
-  target_family = "wasm",
-  not(feature = "noop"),
-  any(feature = "tokio_rt", feature = "async-runtime")
-))]
-impl WasmEnvCleanupBarrier {
-  pub(crate) fn enter() -> Self {
-    WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-    Self(())
-  }
+pub(crate) fn enter_wasm_env_cleanup_barrier() {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
 }
 
+/// Lower the barrier [`enter_wasm_env_cleanup_barrier`] raised on this thread.
+///
+/// Saturating, so an unpaired lowering cannot wrap the counter and leave the barrier stuck up.
 #[cfg(all(
   target_family = "wasm",
   not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime")
 ))]
-impl Drop for WasmEnvCleanupBarrier {
-  fn drop(&mut self) {
-    WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-  }
+pub(crate) fn leave_wasm_env_cleanup_barrier() {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+}
+
+/// Force the barrier on this thread back down, for the one caller that has no raise to pair with:
+/// module registration unwinding a wasm environment cleanup that began and never finished
+/// (`bindgen_runtime::module_register::unwind_abandoned_wasm_env_cleanup`).
+///
+/// A [`leave_wasm_env_cleanup_barrier`] would do here too — phase 1 raises the counter exactly
+/// once and a repeated phase 1 returns without raising it again — but this says what it means,
+/// and it cannot leave a stuck barrier behind if that ever stops being true. Registration runs on
+/// the main thread, the same thread phase 1 ran on, so this is that thread's counter; on any
+/// other thread it is already zero and this is a no-op.
+///
+/// It runs on both of that unwind's outcomes, including the one that refuses the registration and
+/// leaves the owed `finish` standing. A barrier left raised would outlive the environment that
+/// raised it and make every later settle on this thread bypass the queue for the rest of the
+/// process; a barrier lowered early costs that owed `finish` only the direct delivery of what it
+/// replays, which by then is an empty mailbox. The lowering is saturating, so the `finish` that
+/// arrives later cannot push the counter below zero.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime")
+))]
+pub(crate) fn reset_wasm_env_cleanup_barrier() {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(0));
 }
 
 #[cfg(feature = "deferred_trace")]

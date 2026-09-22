@@ -104,6 +104,37 @@ impl SchedulerState {
   }
 }
 
+/// Tasks handed to a background worker thread that simply holds them until shutdown.
+///
+/// Only the threaded WASI build has a background thread of its own, and this is the only way
+/// this example can put a task somewhere other than the JavaScript thread: everywhere else on
+/// wasm it polls tasks inline and runs blocking work inline too. A task parked here is dropped
+/// by the worker, on the worker, which is the cross-thread cancellation the napi cancel mailbox
+/// exists for (`crates/napi/src/tokio_runtime.rs`, `WASM_CANCEL_MAILBOX`).
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[derive(Default)]
+struct ParkedTaskState {
+  /// Written by the JavaScript thread, taken by the worker.
+  inbox: Vec<AsyncRuntimeTask>,
+  /// How many tasks the worker thread currently owns. Observable from JavaScript so a test can
+  /// wait for the hand-off to have actually happened instead of guessing a turn count.
+  holding: usize,
+  shutting_down: bool,
+  /// Keep the worker inside its loop after the shutdown was published, until JavaScript calls
+  /// `releaseParkedWorker()`.
+  ///
+  /// The whole point of the two-phase teardown, made reproducible: work that cannot finish
+  /// without a JavaScript turn, on a thread the teardown joins. A single-call
+  /// `napi_prepare_wasm_env_cleanup` joins this worker from the JavaScript thread, so the turn
+  /// it is waiting for can never come; the two-phase form yields that turn between
+  /// `napi_prepare_wasm_env_cleanup_begin` and `…_finish`.
+  hold_until_released: bool,
+  /// Set by the worker as it leaves its loop, so `shutdown_work_pending` can answer without
+  /// joining anything.
+  finished: bool,
+  worker: Option<thread::JoinHandle<()>>,
+}
+
 #[cfg(not(target_family = "wasm"))]
 #[derive(Default)]
 struct BlockingPoolState {
@@ -122,6 +153,12 @@ struct RuntimeState {
   blocking_pool: Mutex<BlockingPoolState>,
   #[cfg(not(target_family = "wasm"))]
   blocking_ready: Condvar,
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  parked_tasks: Mutex<ParkedTaskState>,
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  parked_tasks_ready: Condvar,
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  park_next_spawn_on_worker: AtomicBool,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
   reject_next_blocking_spawn: AtomicBool,
@@ -323,6 +360,20 @@ impl RuntimeState {
     }
   }
 
+  /// Stop accepting new work on every lane, without waiting for anything already accepted.
+  ///
+  /// [`Self::quiesce_scheduler`] clears `SchedulerState::accepting` too, but that is the call
+  /// that waits, so it belongs to phase 2 of the two-phase teardown. Phase 1 has to close
+  /// admission by itself: the host turns its event loop between the phases, and for that whole
+  /// window `AsyncRuntime::begin_shutdown` requires the backend to keep rejecting submissions.
+  /// The `RuntimeState::accepting` atomic alone does not do it — the blocking lane and the
+  /// parked-task hand-off read it, but an ordinary `spawn` is admitted by `register_task`,
+  /// which gates on the scheduler's own flag.
+  fn close_admission(&self) {
+    self.accepting.store(false, Ordering::Release);
+    lock(&self.scheduler).accepting = false;
+  }
+
   fn quiesce_scheduler(&self) -> SchedulerQuiescence {
     self.accepting.store(false, Ordering::Release);
     let (tasks, queued, task_refs, block_on_refs) = {
@@ -452,6 +503,123 @@ impl RuntimeState {
         ));
       }
     }
+  }
+
+  /// Hand a task to the parked-task worker, starting that worker on first use.
+  ///
+  /// Runs on: the JavaScript thread (this is reached from `spawn`). The task itself is never
+  /// polled — it only has to exist somewhere other than here until shutdown drops it.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn park_task_on_worker(
+    self: &Arc<Self>,
+    task: AsyncRuntimeTask,
+  ) -> std::result::Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
+    let mut parked = lock(&self.parked_tasks);
+    if parked.shutting_down || !self.accepting.load(Ordering::Acquire) {
+      return Err(AsyncRuntimeRejection::new(
+        task,
+        Error::new(Status::Cancelled, "custom runtime is not accepting tasks"),
+      ));
+    }
+    if parked.worker.is_none() {
+      let state = Arc::clone(self);
+      match thread::Builder::new()
+        .name("napi-custom-runtime-parked-tasks".to_owned())
+        .spawn(move || state.parked_task_worker_loop())
+      {
+        Ok(worker) => {
+          parked.finished = false;
+          parked.worker = Some(worker);
+        }
+        Err(error) => {
+          return Err(AsyncRuntimeRejection::new(
+            task,
+            Error::new(
+              Status::GenericFailure,
+              format!("failed to start custom runtime parked-task worker: {error}"),
+            ),
+          ));
+        }
+      }
+    }
+    parked.inbox.push(task);
+    self.parked_tasks_ready.notify_all();
+    self.spawn_calls.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+  }
+
+  /// Runs on: the parked-task worker thread. Owns every parked task on its own stack, so the
+  /// drop at the end — and with it the cancellation that rejects each task's promise — happens
+  /// on this thread, not on the JavaScript thread that is meanwhile inside
+  /// `napi_prepare_wasm_env_cleanup`.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn parked_task_worker_loop(self: Arc<Self>) {
+    let mut held: Vec<AsyncRuntimeTask> = Vec::new();
+    let mut parked = lock(&self.parked_tasks);
+    loop {
+      held.append(&mut parked.inbox);
+      parked.holding = held.len();
+      // `hold_until_released` is the JavaScript turn this thread is waiting for: nothing but a
+      // `releaseParkedWorker()` call from the JavaScript thread clears it.
+      if parked.shutting_down && !parked.hold_until_released {
+        break;
+      }
+      parked = self
+        .parked_tasks_ready
+        .wait(parked)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    }
+    // Before the lock is released, so a `shutdown_work_pending` poll cannot see this thread as
+    // still live once it has left the loop.
+    parked.finished = true;
+    // Drop outside the lock: a cancellation calls back into napi, which must never run while
+    // this example holds one of its own mutexes.
+    drop(parked);
+    held.clear();
+  }
+
+  /// Runs on: the JavaScript thread, from `begin_shutdown`. Publishes the shutdown and wakes the
+  /// worker without joining it, so the caller can go back to its event loop.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn begin_parked_task_worker_shutdown(&self) {
+    let mut parked = lock(&self.parked_tasks);
+    parked.shutting_down = true;
+    self.parked_tasks_ready.notify_all();
+  }
+
+  /// Whether the parked-task worker is still inside its loop: the non-blocking poll for the
+  /// window between the two shutdown phases.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn parked_task_worker_running(&self) -> bool {
+    let parked = lock(&self.parked_tasks);
+    parked.worker.is_some() && !parked.finished
+  }
+
+  /// Runs on: the JavaScript thread, from `shutdown`. Joins the worker, so every parked task is
+  /// already destroyed — and its cancellation already parked in napi's mailbox — by the time
+  /// `AsyncRuntime::shutdown` returns.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn shutdown_parked_task_worker(&self) {
+    let worker = {
+      let mut parked = lock(&self.parked_tasks);
+      parked.shutting_down = true;
+      self.parked_tasks_ready.notify_all();
+      parked.worker.take()
+    };
+    if let Some(worker) = worker {
+      let _ = worker.join();
+    }
+    let leftover = {
+      let mut parked = lock(&self.parked_tasks);
+      parked.shutting_down = false;
+      // Only after the join: clearing the hold before it would release a worker JavaScript
+      // never released, which is exactly the wait this fixture exists to reproduce.
+      parked.hold_until_released = false;
+      parked.finished = false;
+      parked.holding = 0;
+      std::mem::take(&mut parked.inbox)
+    };
+    drop(leftover);
   }
 
   #[cfg(not(target_family = "wasm"))]
@@ -903,6 +1071,14 @@ unsafe impl AsyncRuntime for TestRuntime {
         Error::new(Status::QueueFull, "custom runtime rejected the async task"),
       ));
     }
+    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+    if self
+      .state
+      .park_next_spawn_on_worker
+      .swap(false, Ordering::AcqRel)
+    {
+      return self.state.park_task_on_worker(task);
+    }
     let task = self.state.register_task(task).map_err(|task| {
       AsyncRuntimeRejection::new(
         task,
@@ -971,7 +1147,11 @@ unsafe impl AsyncRuntime for TestRuntime {
 
   fn shutdown(&self) -> Result<()> {
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
-    self.state.accepting.store(false, Ordering::Release);
+    self.state.close_admission();
+    // Before the scheduler quiesces, so a task parked on the worker is cancelled inside the
+    // same `shutdown` call as every scheduler-owned one.
+    #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+    self.state.shutdown_parked_task_worker();
     let scheduler_quiescence = self.state.quiesce_scheduler();
     #[cfg(not(target_family = "wasm"))]
     let blocking_shutdown = self.state.shutdown_blocking_pool();
@@ -981,6 +1161,35 @@ unsafe impl AsyncRuntime for TestRuntime {
     #[cfg(not(target_family = "wasm"))]
     blocking_shutdown?;
     Ok(())
+  }
+
+  /// Phase 1 of the two-phase teardown: publish the stop and wake the parked-task worker, then
+  /// return without joining anything.
+  ///
+  /// The reported work is that worker. It can only leave its loop once JavaScript calls
+  /// `releaseParkedWorker()`, and the thread that would have to make that call is the one
+  /// inside this teardown — so a host that joins here waits forever, and a host that yields
+  /// event-loop turns between the phases does not.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn begin_shutdown(&self) -> Result<bool> {
+    // Admission closes here, not in the `quiesce_scheduler` that phase 2 runs: the window
+    // between the phases is a host event loop, and a backend owes rejections for all of it.
+    self.state.close_admission();
+    self.state.begin_parked_task_worker_shutdown();
+    Ok(self.shutdown_work_pending())
+  }
+
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn shutdown_work_pending(&self) -> bool {
+    self.state.parked_task_worker_running()
+  }
+
+  /// Phase 2: the whole of [`shutdown`], which is where the join lives. Phase 1 only woke the
+  /// worker, so this is the same sequence a single-call teardown runs — it just usually has
+  /// nothing left to wait for by the time it gets here.
+  #[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+  fn finish_shutdown(&self) -> Result<()> {
+    self.shutdown()
   }
 }
 
@@ -1349,6 +1558,53 @@ pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
 }
 
+/// Make the next `spawn` hand its task to a background worker thread that parks it until
+/// shutdown, instead of registering it with the inline scheduler.
+///
+/// Only the threaded WASI build has such a thread; it is the only configuration of this example
+/// in which a task's cancellation can land on a thread that is not the JavaScript thread.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn park_next_spawn_on_worker() {
+  state()
+    .park_next_spawn_on_worker
+    .store(true, Ordering::Release);
+}
+
+/// How many tasks the parked-task worker thread currently owns.
+///
+/// A test polls this so it destroys the environment only once the hand-off has really happened.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn parked_tasks_on_worker() -> u32 {
+  lock(&state().parked_tasks).holding as u32
+}
+
+/// Make the parked-task worker wait for [`release_parked_worker`] before it finishes, even
+/// after the shutdown has been published.
+///
+/// Turns that worker into work that cannot complete without a JavaScript turn — the case the
+/// two-phase wasm environment cleanup exists for. The runtime's `shutdown` joins that thread,
+/// so with a single-call teardown the JavaScript thread blocks inside the join while the only
+/// call that could release it would have to come from that same thread.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn hold_parked_worker_until_released() {
+  lock(&state().parked_tasks).hold_until_released = true;
+}
+
+/// Let a held parked-task worker finish.
+///
+/// Called from JavaScript between `napi_prepare_wasm_env_cleanup_begin` and `…_finish`, which
+/// is only reachable at all because the loader yields real event-loop turns there.
+#[cfg(all(target_family = "wasm", custom_runtime_wasi_threads))]
+#[napi]
+pub fn release_parked_worker() {
+  let state = state();
+  lock(&state.parked_tasks).hold_until_released = false;
+  state.parked_tasks_ready.notify_all();
+}
+
 #[napi]
 pub fn reject_next_blocking_spawn() {
   state()
@@ -1701,6 +1957,47 @@ mod tests {
     drop(task);
 
     runtime.shutdown_scheduler();
+  }
+
+  /// Phase 1 of the two-phase teardown has to close admission on its own.
+  ///
+  /// `quiesce_scheduler` clears `SchedulerState::accepting` too, but it runs in
+  /// `finish_shutdown`, and the host turns its event loop between the phases: for that whole
+  /// window `AsyncRuntime::begin_shutdown` requires the backend to keep rejecting submissions,
+  /// and `register_task` — the admission gate every ordinary `spawn` goes through — reads that
+  /// flag, not the `RuntimeState::accepting` atomic.
+  #[test]
+  fn closing_admission_stops_the_scheduler_before_it_quiesces() {
+    let runtime = Arc::new(RuntimeState::default());
+    runtime.start_scheduler().unwrap();
+    let polls = Arc::new(AtomicUsize::new(0));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let waker = Arc::new(Mutex::new(None));
+    let task = schedule_test_future(
+      &runtime,
+      CapturedWakeFuture {
+        polls: Arc::clone(&polls),
+        dropped: Arc::clone(&dropped),
+        waker: Arc::clone(&waker),
+      },
+    );
+
+    runtime.close_admission();
+
+    assert!(
+      !lock(&runtime.scheduler).accepting,
+      "a closed admission must be visible to `register_task`, which gates on this flag"
+    );
+    runtime.drain();
+    assert_eq!(
+      polls.load(Ordering::SeqCst),
+      0,
+      "a scheduler whose admission is closed must not drain"
+    );
+
+    drop(task);
+    runtime.shutdown_scheduler();
+    assert!(dropped.load(Ordering::SeqCst));
   }
 
   struct BlockingPollFuture {

@@ -390,12 +390,16 @@ override the default in either direction:
 
 ## Shared async runtime hosts
 
-`CurrentThread` is the only async-runtime flavor on WebAssembly, for both
-`wasm32-wasip1` and `wasm32-wasip1-threads`. An addon built with the
-`napi-async-runtime` crate therefore makes no progress until a JavaScript task
-host publishes its runnable turns, and its timers never fire until a timer host
-relays them. Set `napi.wasm.asyncRuntime` and the generated loaders install
-both for you:
+`CurrentThread` is the default async-runtime flavor on every WebAssembly
+target, and the only flavor on threadless `wasm32-wasip1`. On
+`wasm32-wasip1-threads` an addon may select `MultiThread` instead — always an
+explicit host act, never a default (see the crate's "Running MultiThread on
+`wasm32-wasip1-threads`" section).
+
+A `CurrentThread` addon built with the `napi-async-runtime` crate makes no
+progress until a JavaScript task host publishes its runnable turns, and its
+timers never fire until a timer host relays them. Set `napi.wasm.asyncRuntime`
+and the generated loaders install both for you:
 
 ```json
 {
@@ -407,8 +411,16 @@ both for you:
 }
 ```
 
-This affects WASI output only. Native `.node` bindings run the `MultiThread`
-flavor on real threads and need no JavaScript host.
+This affects WASI output only. Native `.node` bindings default to the
+`MultiThread` flavor on real threads and need no JavaScript host.
+
+Keep the flag on even for a `wasm32-wasip1-threads` addon that configures
+`MultiThread`. The loaders cannot see the flavor, so they install both hosts
+unconditionally — and a `MultiThread` runtime never uses either: its futures
+run on the Rayon pool instead of published host turns, and its timers come from
+the executor-owned heap plus a timekeeper thread. The installed task host is an
+unref'd threadsafe function, so it does not hold the event loop open. That is
+what lets one artifact choose its flavor at runtime.
 
 With the flag on:
 
@@ -526,3 +538,132 @@ would never boot and the caller would deadlock waiting for it. With a
 pre-created pool, spawning is only a message to an already-running worker,
 and if the pool is exhausted the fallback allocates a fresh worker that
 boots once the spawning parent returns to its event loop.
+
+## Detecting the threaded target from Rust
+
+rustc gives you nothing to tell the two WASI targets apart. `rustc --print
+cfg` emits an _identical_ set for `wasm32-wasip1` and
+`wasm32-wasip1-threads` — same `target_arch`, same `target_os`, same
+`target_env = "p1"` — and `target_feature = "atomics"` is set for neither,
+because the wasm `atomics` feature is still unstable and the stable channel
+keeps unstable target features out of the cfg set
+([rust-lang/rust#77839](https://github.com/rust-lang/rust/issues/77839)).
+Passing `-C target-feature=+atomics` does not change that: rustc warns that
+the feature is unstable and the cfg still does not appear. Only the exact
+cargo `TARGET` answers the question, and only a build script can read it.
+
+An addon crate gets the answer for free. `napi_build::setup()` emits
+`cfg(napi_wasi_threads)` when — and only when — the crate is being compiled
+for `wasm32-wasip1-threads`, so the addon can write:
+
+```rust
+#[cfg(napi_wasi_threads)]
+const WORKERS: usize = 4;
+#[cfg(not(napi_wasi_threads))]
+const WORKERS: usize = 1;
+```
+
+`setup()` also prints the matching `cargo::rustc-check-cfg` line on _every_
+target, so `#[cfg(napi_wasi_threads)]` is a known cfg everywhere and never
+trips the `unexpected_cfgs` lint on the targets where it is not set.
+
+A build-script cfg is crate-local: it reaches the crate whose `build.rs`
+printed it and nothing else. Another crate in the same graph that needs the
+distinction therefore needs its own build script — which is why `napi` and
+`napi-async-runtime` each carry one:
+
+```rust
+// build.rs
+fn main() {
+  println!("cargo::rustc-check-cfg=cfg(my_wasi_threads)");
+  if std::env::var("TARGET").as_deref() == Ok("wasm32-wasip1-threads") {
+    println!("cargo::rustc-cfg=my_wasi_threads");
+  }
+}
+```
+
+Use the older single-colon `cargo:` form if the crate's `rust-version` is
+below 1.77.
+
+Absence has to be the conservative branch. The cfg is permission to use
+shared memory and real threads, never a requirement that something be
+configured: a plain `cargo build`, `cargo test`, or rust-analyzer run — no
+`napi build`, no CLI, no `RUSTFLAGS` — must still compile a correct crate on
+the `not(...)` side. Nothing outside the build script can set it, so a
+mistake there is silent.
+
+### Third-party locks
+
+`parking_lot_core`, the lock core under `parking_lot` and `dashmap`, does not
+follow this rule, and an addon can pull it in without ever naming it. Its
+only threaded-wasm parker is gated on the crate's `nightly` feature _and_
+`target_feature = "atomics"` (0.9.12, `src/thread_parker/mod.rs:69`), so on
+stable the cascade falls through to the wasm stub, whose `prepare_park` is
+`panic!("Parking not supported on this platform")`
+(`src/thread_parker/wasm.rs:26`). The build succeeds and the addon dies at the
+first _contended_ lock, on a target whose `std` has fully working threads.
+
+Upstream
+[Amanieu/parking_lot#529](https://github.com/Amanieu/parking_lot/pull/529)
+adds a `std::sync::Mutex` and `Condvar` parker for WASI, but its selection arm
+keys on `target_feature = "atomics"` as well, so it cannot be reached on
+stable either. Until that is resolved there are two options:
+
+- Keep `parking_lot` and `dashmap` out of the `wasm32-wasip1-threads`
+  dependency graph, or
+- route the whole graph through a `parking_lot_core` that detects the triple
+  in its own `build.rs`, exactly as above. napi-rs maintains that fork and
+  publishes it as `lock_api-napi` 0.4.15, `parking_lot_core-napi` 0.9.13 and
+  `parking_lot-napi` 0.12.6; each keeps the upstream `[lib] name`, so
+  `use parking_lot::Mutex` still compiles. A transitive user such as
+  `dashmap` is only reachable through `[patch.crates-io]`, and the only
+  form cargo accepts is a git pin on the fork's `wasi-threads-parker`
+  branch, which still carries the _upstream_ package names. Pin the exact
+  revision rather than the branch, so the lock stays reproducible:
+
+  ```toml
+  [patch.crates-io.parking_lot_core]
+  git = "https://github.com/napi-rs/parking_lot"
+  rev = "ac046ba44e72159e90e36b7323b1058ba1d48ad2"
+  ```
+
+  The published `*-napi` crates cannot be named in such an entry. Cargo
+  rejects a crates.io package replacing another crates.io package, because
+  a patch must point to a different source:
+
+  ```toml
+  [patch.crates-io]
+  parking_lot_core = { package = "parking_lot_core-napi", version = "0.9.13" }
+  ```
+
+  ```text
+  error: patch for `parking_lot_core-napi` points to the same source, but
+  patches must point to different sources
+  ```
+
+  Over a path or git source the entry resolves, and is then dropped. Cargo
+  does honour `package =` — it selects that package from the replacement
+  source — but the selected package keeps its own name, and a dependency on
+  `parking_lot_core` is satisfied only by a package named
+  `parking_lot_core`. The fork's `master` carries the renamed manifests
+  (`name = "parking_lot_core-napi"`), so pointing the rename at it gives:
+
+  ```toml
+  [patch.crates-io.parking_lot_core]
+  git = "https://github.com/napi-rs/parking_lot"
+  rev = "e243c6c43832c151bce2887fcb209b5b8b72ac61" # master
+  package = "parking_lot_core-napi"
+  ```
+
+  ```text
+  warning: patch `parking_lot_core-napi v0.9.13 (…?rev=e243c6c4…)` was not
+  used in the crate graph
+  ```
+
+  The lock then records it under `[[patch.unused]]` and `dashmap` keeps
+  building against stock `parking_lot_core` 0.9.12 — the panicking parker.
+
+Verified on the patched core: a contended probe under `wasmtime run -S
+threads` — `Mutex`, `Condvar`, `RwLock`, `park_until`, `notify_all`, `DashMap`
+— reports `ALL OK` with zero parking stubs left in the module, and rolldown's
+threaded WASI artifact passed its stability lane 3 of 3.

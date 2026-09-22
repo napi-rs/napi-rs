@@ -1501,6 +1501,910 @@ if (isThreadlessWasi) {
   )
 }
 
+if (isThreadedWasi) {
+  // The threaded counterpart of the raw-`Context.destroy()` case above.
+  //
+  // On threadless wasm32-wasip1 every task is cancelled on the JavaScript
+  // thread, inside the barrier, so its deferred settles synchronously and a raw
+  // destroy() finds nothing left queued. On wasm32-wasip1-threads a backend can
+  // drop a cancelled task on one of its own worker threads — which is what the
+  // `napi-async-runtime` crate's MultiThread flavor does routinely, and what
+  // `parkNextSpawnOnWorker()` makes this example do on purpose. A settle from a
+  // worker can only go into the threadsafe-function queue, and `destroy()`
+  // disables JavaScript calls *before* running the cleanup hook that drains
+  // that queue — with a null env, discarding the item. The promise would never
+  // settle.
+  //
+  // napi parks those cross-thread cancellations while the barrier is up and
+  // replays them on the JavaScript thread before the barrier is lowered
+  // (`crates/napi/src/tokio_runtime.rs`, `WASM_CANCEL_MAILBOX`), so the
+  // rejection lands the same way it does on the threadless artifact.
+  const packageDirectory = dirname(fileURLToPath(import.meta.url))
+  const threadedLoaderPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasi.cjs',
+  )
+  await access(threadedLoaderPath)
+
+  const rawDestroy = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const timeout = setTimeout(() => {
+        console.error('THREADED_RAW_DESTROY_TIMEOUT')
+        process.exit(46)
+      }, 30_000)
+      timeout.unref?.()
+
+      // Resolve @emnapi/runtime from the LOADER's own location, so the
+      // intercepted module object is byte-identical to the one the loader
+      // destructures createContext from.
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let captured
+      runtime.createContext = function (options) {
+        captured = realCreateContext(options)
+        return captured
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+      }
+      if (!captured) {
+        console.error('THREADED_RAW_DESTROY_NO_CONTEXT')
+        process.exit(45)
+      }
+
+      let outcome = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { outcome = 'RESOLVED' },
+        (error) => { outcome = 'REJECTED: ' + error.message },
+      )
+
+      // The hand-off crosses a real thread boundary — the worker is a wasi
+      // pthread, so it only starts once its Worker has booted, which takes real
+      // time rather than a number of turns. Wait for the task to actually be
+      // owned by that thread: without this the test could destroy while the
+      // task is still on the JavaScript thread, where it would settle
+      // synchronously and pass for the wrong reason.
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('THREADED_RAW_DESTROY_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+
+      // The whole point: no dispose(), no barrier by hand. Just destroy().
+      captured.destroy()
+
+      ;(async () => {
+        // Well past the two turns @emnapi/core needs to dispatch its queue: if
+        // the settlement did not land by now, it never will.
+        for (let index = 0; index < 50; index++) {
+          await new Promise((resolve) => setImmediate(resolve))
+        }
+        console.error('THREADED_RAW_DESTROY_OUTCOME ' + outcome)
+        process.exit(outcome.startsWith('REJECTED: ') ? 0 : 47)
+      })()
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const rawDestroyOutput = `${rawDestroy.stdout}\n${rawDestroy.stderr}`
+  assert.equal(rawDestroy.error, undefined, rawDestroy.error?.stack)
+  assert.equal(rawDestroy.signal, null, rawDestroyOutput)
+  assert.equal(
+    rawDestroy.status,
+    0,
+    `a raw Context.destroy() must settle the promise of a task the backend cancelled on one of its own worker threads: the rejection has to be replayed on the JavaScript thread while the cleanup barrier is still up, not left in the threadsafe-function queue for the null-env drain to discard:\n${rawDestroyOutput}`,
+  )
+  assert.match(rawDestroyOutput, /THREADED_RAW_DESTROY_OUTCOME REJECTED: /)
+
+  // Disposal while backend work is waiting for a JavaScript turn.
+  //
+  // `napi_prepare_wasm_env_cleanup` waits for the backend to quiesce, and on a
+  // threaded artifact it does that on the JavaScript thread — the only thread
+  // that can give that work the turn it is waiting for. This fixture makes that
+  // literal: `holdParkedWorkerUntilReleased()` keeps the parked-task worker
+  // inside its loop after the shutdown is published, until
+  // `releaseParkedWorker()` is called from JavaScript, and the runtime's
+  // `shutdown` joins that worker. One synchronous export cannot get there.
+  //
+  // The loader's two-phase handshake can: `napi_prepare_wasm_env_cleanup_begin`
+  // publishes the stop without joining and reports work still live, the loader
+  // yields real timer turns while polling `napi_wasm_runtime_work_pending`, and
+  // only `…_finish` joins. The release below is scheduled *after* dispose() has
+  // returned its promise — so begin has already run — which makes the run
+  // itself the proof that the loader yielded between the halves: without those
+  // turns the timer never fires, the join never returns and this subprocess is
+  // killed on its spawn timeout.
+  const handshake = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+      const binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+
+      const loaderSource = loaderRequire('node:fs').readFileSync(
+        ${JSON.stringify(threadedLoaderPath)},
+        'utf8',
+      )
+      for (const exportName of [
+        'napi_prepare_wasm_env_cleanup_begin',
+        'napi_wasm_runtime_work_pending',
+        'napi_prepare_wasm_env_cleanup_finish',
+      ]) {
+        if (!loaderSource.includes(exportName)) {
+          console.error('HANDSHAKE_LOADER_MISSING ' + exportName)
+          process.exit(43)
+        }
+      }
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+
+      // The hand-off crosses a real thread boundary: the worker is a wasi
+      // pthread, so it only exists once its Worker has booted. Hold it only
+      // once it really owns the task, or the wait below is for nothing.
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('HANDSHAKE_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      let released = false
+      const disposal = binding[Symbol.for('napi.rs.wasi.dispose')]()
+      // Scheduled after dispose() returned, so phase 1 has already run and the
+      // worker is already waiting for this call. Only a loader that yields
+      // between the phases ever lets this timer fire.
+      setTimeout(() => {
+        released = true
+        binding.releaseParkedWorker()
+      }, 0)
+
+      let outcome = 'RESOLVED'
+      try {
+        await disposal
+      } catch (error) {
+        outcome = 'REJECTED: ' + error.message
+      }
+      const releasedFirst = released
+      for (let index = 0; index < 50; index++) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      console.error('HANDSHAKE_RELEASED_BEFORE_DISPOSAL ' + releasedFirst)
+      console.error('HANDSHAKE_DISPOSAL ' + outcome)
+      console.error('HANDSHAKE_TASK ' + task)
+      process.exit(0)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const handshakeOutput = `${handshake.stdout}\n${handshake.stderr}`
+  assert.equal(handshake.error, undefined, handshake.error?.stack)
+  assert.equal(
+    handshake.signal,
+    null,
+    `dispose() must not join backend work from inside one synchronous export: the loader has to call napi_prepare_wasm_env_cleanup_begin, yield event-loop turns while napi_wasm_runtime_work_pending reports work, and only then call …_finish. A killed subprocess here means it blocked instead:\n${handshakeOutput}`,
+  )
+  assert.equal(handshake.status, 0, handshakeOutput)
+  assert.match(
+    handshakeOutput,
+    /HANDSHAKE_RELEASED_BEFORE_DISPOSAL true/,
+    `the JavaScript turn that released the worker has to run between the two halves of the cleanup, not after the disposal settled:\n${handshakeOutput}`,
+  )
+  assert.match(
+    handshakeOutput,
+    /HANDSHAKE_DISPOSAL RESOLVED/,
+    `disposal itself must still settle:\n${handshakeOutput}`,
+  )
+  assert.match(
+    handshakeOutput,
+    /HANDSHAKE_TASK REJECTED: /,
+    `the parked task's promise must be settled by the cancellation the teardown delivers:\n${handshakeOutput}`,
+  )
+
+  // An addon export that reaches `napi::shutdown_async_runtime()` from a
+  // JavaScript turn the loader yields *between* the two phases.
+  //
+  // Those turns are the whole point of the split, and they run arbitrary
+  // JavaScript: any export the host calls from one lands in the middle of a
+  // disposal whose `…_finish` — the call that joins — has not run yet.
+  // `shutdownRuntime()` is such an export. Unguarded it performs that join
+  // itself, on the JavaScript thread, waiting for the same held worker that is
+  // waiting for a JavaScript turn this very call is preventing: the release
+  // timer below never fires, the disposal never settles and the subprocess has
+  // to be killed.
+  //
+  // Past the barrier the loader owns the teardown, so napi makes the public
+  // `shutdown_async_runtime` a no-op there — mirroring `start_async_runtime`,
+  // which is already a no-op past the same barrier. The call has to return
+  // straight away, the release timer has to still fire, and the disposal has to
+  // settle with the parked task rejected, exactly as in the case above.
+  const reentrantShutdown = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+      const binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('REENTRANT_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      const disposal = binding[Symbol.for('napi.rs.wasi.dispose')]()
+
+      // Scheduled after dispose() returned, so phase 1 has run and the loader
+      // is polling on its own timers: this lands inside the window.
+      setTimeout(() => {
+        const started = Date.now()
+        binding.shutdownRuntime()
+        console.error('REENTRANT_SHUTDOWN_RETURNED ' + (Date.now() - started))
+      }, 0)
+
+      // Reachable only while the JavaScript thread is still turning its event
+      // loop — which the call above must not have taken away from it.
+      let released = false
+      setTimeout(() => {
+        released = true
+        binding.releaseParkedWorker()
+      }, 50)
+
+      let outcome = 'RESOLVED'
+      let disposalTimer
+      try {
+        await Promise.race([
+          disposal,
+          new Promise((_, reject) => {
+            disposalTimer = setTimeout(
+              () => reject(new Error('the disposal did not settle in 30s')),
+              30_000,
+            )
+          }),
+        ])
+      } catch (error) {
+        outcome = 'REJECTED: ' + error.message
+      }
+      clearTimeout(disposalTimer)
+
+      const releasedFirst = released
+      for (let index = 0; index < 50; index++) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      console.error('REENTRANT_RELEASED_BEFORE_DISPOSAL ' + releasedFirst)
+      console.error('REENTRANT_DISPOSAL ' + outcome)
+      console.error('REENTRANT_TASK ' + task)
+      process.exit(0)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const reentrantOutput = `${reentrantShutdown.stdout}\n${reentrantShutdown.stderr}`
+  const reentrantBlocked = `shutdown_async_runtime() must not join the backend from a JavaScript turn inside the two-phase window: the loader owns that join, and the thread this call would block on is the only one that can give the held worker its turn. A subprocess killed on its spawn timeout here means it blocked instead:\n${reentrantOutput}`
+  assert.equal(
+    reentrantShutdown.error,
+    undefined,
+    `${reentrantBlocked}\n${reentrantShutdown.error?.stack}`,
+  )
+  assert.equal(reentrantShutdown.signal, null, reentrantBlocked)
+  assert.equal(reentrantShutdown.status, 0, reentrantOutput)
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_SHUTDOWN_RETURNED \d+/,
+    `the reentrant shutdown_async_runtime() call has to return to its caller:\n${reentrantOutput}`,
+  )
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_RELEASED_BEFORE_DISPOSAL true/,
+    `the JavaScript turn that released the held worker still has to run between the two halves:\n${reentrantOutput}`,
+  )
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_DISPOSAL RESOLVED/,
+    `the disposal must still settle after the reentrant call:\n${reentrantOutput}`,
+  )
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_TASK REJECTED: /,
+    `the parked task's promise must still be settled by the cancellation the teardown delivers:\n${reentrantOutput}`,
+  )
+
+  // A process exit that lands inside the same window.
+  //
+  // The turns the loader yields between the halves are real event-loop turns,
+  // so the process can leave during one: `process.exit()` from a watchdog or a
+  // signal handler, an uncaught error, a test runner's force-exit. Node then
+  // runs the loader's 'exit' teardown with the barrier raised, the runtime
+  // stopped but not joined, and no turn left to poll with.
+  //
+  // That teardown cannot wait — but it can finish. `…_finish` is idempotent and
+  // is the call that joins, so the teardown closes the parked handshake with it
+  // and then destroys, which is exactly what the single call always did. Skip
+  // that and `Context.destroy()` hits the barrier's in-flight no-op, the
+  // context is never really destroyed, its cleanup hooks never run, and the
+  // loader records the destroy as done anyway.
+  //
+  // The listener below releases the held worker, and it is registered *before*
+  // the loader is required, so it runs before the loader's own teardown: at
+  // exit there is no later turn that could make that call, and joining a worker
+  // only a JavaScript turn can release would block here forever — the single
+  // call's behaviour, kept on purpose. The report listener is registered after
+  // the load, so reaching it at all is the proof that the teardown returned.
+  const exitInWindow = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+
+      let releaseHeldWorker
+      process.on('exit', () => {
+        releaseHeldWorker?.()
+      })
+
+      // Shadow destroy on the context itself, before the loader wraps it, so
+      // the loader's wrapper delegates here: a destroy the wrapper turns into
+      // an in-flight no-op never reaches this counter.
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let realDestroys = 0
+      runtime.createContext = function (options) {
+        const context = realCreateContext(options)
+        const realDestroy = context.destroy
+        Object.defineProperty(context, 'destroy', {
+          configurable: true,
+          enumerable: false,
+          writable: true,
+          value: function () {
+            realDestroys += 1
+            return Reflect.apply(realDestroy, this, arguments)
+          },
+        })
+        return context
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+      }
+      releaseHeldWorker = () => {
+        binding.releaseParkedWorker()
+      }
+
+      process.on('exit', () => {
+        console.error('EXIT_WINDOW_REAL_DESTROYS ' + realDestroys)
+      })
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('EXIT_WINDOW_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      binding[Symbol.for('napi.rs.wasi.dispose')]().then(
+        () => {},
+        () => {},
+      )
+      // dispose() has returned, so phase 1 has run and the poll is parked
+      // between the halves. Land the exit squarely inside that window.
+      setTimeout(() => {
+        console.error('EXIT_WINDOW_EXITING')
+        process.exit(0)
+      }, 10)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const exitInWindowOutput = `${exitInWindow.stdout}\n${exitInWindow.stderr}`
+  assert.equal(exitInWindow.error, undefined, exitInWindow.error?.stack)
+  assert.equal(
+    exitInWindow.signal,
+    null,
+    `the 'exit' teardown must close a parked cleanup handshake and return, not hang:\n${exitInWindowOutput}`,
+  )
+  assert.equal(exitInWindow.status, 0, exitInWindowOutput)
+  assert.match(
+    exitInWindowOutput,
+    /EXIT_WINDOW_EXITING/,
+    `the exit has to land inside the window, after dispose() returned:\n${exitInWindowOutput}`,
+  )
+  assert.match(
+    exitInWindowOutput,
+    /EXIT_WINDOW_REAL_DESTROYS 1/,
+    `the 'exit' teardown must reach the real Context.destroy(): skipping it over a raised barrier retains the environment with its cleanup hooks unrun, and records the destroy as done anyway:\n${exitInWindowOutput}`,
+  )
+
+  // Re-registration over a cleanup that was abandoned with backend work still
+  // pending. The threadless counterpart of this case (below, `isThreadlessWasi`)
+  // exercises the outcome where phase 2 has nothing left to wait for and
+  // registration completes it; this is the other outcome, and the reason
+  // registration must never simply call phase 2.
+  //
+  // Here the work phase 1 left running is the parked-task worker, and it can
+  // only leave its loop once JavaScript calls `releaseParkedWorker()` — the very
+  // thread module registration is running on. Joining it from registration would
+  // be the deadlock the two-phase split exists to avoid, so napi refuses the
+  // registration instead, leaving the owed `…_finish` and the disposal latch
+  // standing so the host can still recover.
+  const abandonedPending = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const timeout = setTimeout(() => {
+        console.error('ABANDONED_PENDING_TIMEOUT')
+        process.exit(46)
+      }, 60_000)
+      timeout.unref?.()
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+
+      // The context and env emnapi builds for this instance, captured so the
+      // re-registration below goes through \`napi_register_wasm_v1\` exactly the
+      // way emnapi's own module init does.
+      const runtime = loaderRequire('@emnapi/runtime')
+      const realCreateContext = runtime.createContext
+      let context
+      let envObject
+      runtime.createContext = function (options) {
+        context = realCreateContext(options)
+        const realCreateEnv = context.createEnv.bind(context)
+        context.createEnv = (...environmentArguments) =>
+          (envObject = realCreateEnv(...environmentArguments))
+        return context
+      }
+      // And the instance, for its raw cleanup exports.
+      const wasmRuntime = loaderRequire('@napi-rs/wasm-runtime')
+      const realInstantiate = wasmRuntime.instantiateNapiModuleSync
+      let instance
+      wasmRuntime.instantiateNapiModuleSync = function (source, options) {
+        const userBeforeInit = options.beforeInit
+        return realInstantiate.call(this, source, {
+          ...options,
+          beforeInit(argument) {
+            instance = argument.instance
+            return userBeforeInit ? userBeforeInit.call(this, argument) : undefined
+          },
+        })
+      }
+      let binding
+      try {
+        binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+      } finally {
+        runtime.createContext = realCreateContext
+        wasmRuntime.instantiateNapiModuleSync = realInstantiate
+      }
+      const exports = instance.exports
+
+      const reregister = () => {
+        const scope = context.openScope(envObject)
+        try {
+          envObject.callIntoModule(() => {
+            exports.napi_register_wasm_v1(
+              envObject.bridge.address,
+              scope.add({}),
+            )
+          })
+        } catch (error) {
+          return error.message
+        } finally {
+          context.closeScope(envObject, scope)
+        }
+        return 'NONE'
+      }
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('ABANDONED_PENDING_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      // Phase 1, and then the host walks away with the worker still held.
+      exports.napi_prepare_wasm_env_cleanup_begin()
+      console.error(
+        'ABANDONED_PENDING_POLL ' + exports.napi_wasm_runtime_work_pending(),
+      )
+
+      // The registration that must return — with an error, not a join.
+      console.error('ABANDONED_PENDING_REGISTERING')
+      console.error('ABANDONED_PENDING_ERROR ' + reregister())
+
+      // The worker is released only now, from a host turn: its cancellation
+      // takes the ordinary queue path (the mailbox is closed and the barrier is
+      // down) into an environment that is still alive, so the promise settles.
+      binding.releaseParkedWorker()
+      for (let index = 0; index < 100; index++) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      console.error('ABANDONED_PENDING_TASK ' + task)
+      console.error(
+        'ABANDONED_PENDING_POLL_AFTER ' +
+          exports.napi_wasm_runtime_work_pending(),
+      )
+
+      // The remedy the error names. It still joins the real backend, because the
+      // refused registration left the owed phase 2 standing.
+      const shutdownsBeforeFinish = binding.getRuntimeMetrics().shutdownCalls
+      exports.napi_prepare_wasm_env_cleanup_finish()
+      console.error(
+        'ABANDONED_PENDING_FINISHED ' +
+          (binding.getRuntimeMetrics().shutdownCalls - shutdownsBeforeFinish),
+      )
+      console.error('ABANDONED_PENDING_RETRY ' + reregister())
+      console.error(
+        'ABANDONED_PENDING_STARTS ' + binding.getRuntimeMetrics().startCalls,
+      )
+      process.exit(0)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const abandonedPendingOutput = `${abandonedPending.stdout}\n${abandonedPending.stderr}`
+  assert.equal(abandonedPending.error, undefined, abandonedPending.error?.stack)
+  assert.equal(abandonedPending.signal, null, abandonedPendingOutput)
+  assert.equal(abandonedPending.status, 0, abandonedPendingOutput)
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_POLL 1/,
+    `the case only means something while phase 2 would still have to wait:\n${abandonedPendingOutput}`,
+  )
+  assert.doesNotMatch(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_TIMEOUT/,
+    `module registration must never join an abandoned cleanup: the work it would wait for is waiting for the JavaScript turn registration itself is holding, so the join never returns:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_ERROR Cannot register a new environment over this addon image: .*napi_prepare_wasm_env_cleanup_finish/,
+    `a registration that cannot unwind the abandoned cleanup must fail loudly and name the call the host skipped, not come up over a backend that is still stopping:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_TASK REJECTED: /,
+    `the cancellation of the released worker's task must still settle its promise — the refused registration closed the mailbox, so it takes the ordinary threadsafe-function queue path:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_FINISHED 1/,
+    `the refused registration must leave the owed phase 2 standing, or the host's remedy is a no-op and the backend never joins:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_RETRY NONE/,
+    `once the abandoned phase 2 has run, re-registration must go through:\n${abandonedPendingOutput}`,
+  )
+  assert.match(
+    abandonedPendingOutput,
+    /ABANDONED_PENDING_STARTS 2/,
+    `the registration that went through must start a backend again, or the new environment inherits the stopped one:\n${abandonedPendingOutput}`,
+  )
+}
+
+if (isThreadlessWasi) {
+  // The same split on the threadless artifact, where it is inert by
+  // construction: this build has no thread to join, the example backend does
+  // not implement the two-phase hooks there, and napi's default
+  // `begin_shutdown` performs the whole teardown and reports nothing pending.
+  //
+  // So the exports must exist, `…_begin` must answer 0, the poll must answer 0
+  // and `…_finish` must return — which together are what make the loader's
+  // handshake collapse back to one synchronous call, with no turn spent on a
+  // disposal that had nothing to wait for. Driven against the exports directly,
+  // because that is the only place the answers are observable.
+  const { WASI } = require('node:wasi')
+  const { createContext } = require('@emnapi/runtime')
+  const {
+    emnapiAsyncWorkPlugin,
+    emnapiTSFNPlugin,
+    instantiateNapiModuleSync,
+  } = require('@napi-rs/wasm-runtime')
+  const packageDirectory = dirname(fileURLToPath(import.meta.url))
+  const wasmPath = join(
+    packageDirectory,
+    'custom_async_runtime.wasm32-wasip1.wasm',
+  )
+  await access(wasmPath)
+
+  const splitContext = createContext({ autoDestroy: false })
+  splitContext.suppressDestroy()
+  let splitInstance
+  const { napiModule: splitModule } = instantiateNapiModuleSync(
+    await readFile(wasmPath),
+    {
+      context: splitContext,
+      asyncWorkPoolSize: 0,
+      plugins: [emnapiAsyncWorkPlugin, emnapiTSFNPlugin],
+      wasi: new WASI({ version: 'preview1', env: process.env }),
+      overwriteImports(importObject) {
+        importObject.env = {
+          ...importObject.env,
+          ...importObject.napi,
+          ...importObject.emnapi,
+          memory: new WebAssembly.Memory({ initial: 4000, maximum: 65536 }),
+        }
+        return importObject
+      },
+      beforeInit({ instance }) {
+        splitInstance = instance
+        for (const name of Object.keys(instance.exports)) {
+          if (name.startsWith('__napi_register__')) {
+            instance.exports[name]()
+          }
+        }
+      },
+    },
+  )
+  const splitExports = splitInstance.exports
+  for (const exportName of [
+    'napi_prepare_wasm_env_cleanup_begin',
+    'napi_wasm_runtime_work_pending',
+    'napi_prepare_wasm_env_cleanup_finish',
+  ]) {
+    assert.equal(
+      typeof splitExports[exportName],
+      'function',
+      `the threadless artifact must export ${exportName} too, or its loader silently keeps the single blocking call`,
+    )
+  }
+
+  let splitTask = 'PENDING'
+  splitModule.exports.asyncNever().then(
+    () => {
+      splitTask = 'RESOLVED'
+    },
+    (error) => {
+      splitTask = `REJECTED: ${error.message}`
+    },
+  )
+  assert.equal(
+    splitExports.napi_wasm_runtime_work_pending(),
+    0,
+    'the poll must be answerable before any teardown, and this backend never owns work off this thread',
+  )
+  assert.equal(
+    splitExports.napi_prepare_wasm_env_cleanup_begin(),
+    0,
+    'a backend that does not split reports no pending work, so the loader spends no turn here',
+  )
+  assert.equal(
+    splitExports.napi_wasm_runtime_work_pending(),
+    0,
+    'nothing can be pending once phase 1 has performed the whole teardown',
+  )
+  assert.equal(
+    splitExports.napi_prepare_wasm_env_cleanup_finish(),
+    undefined,
+    'phase 2 must return, not wait',
+  )
+  assert.equal(
+    splitExports.napi_wasm_env_cleanup_pending(),
+    0,
+    'the barrier spans both halves, so the cancellation settled on this thread and nothing was queued for a dispatch destroy() would discard',
+  )
+  // The settle itself was synchronous; its handler is a microtask.
+  await Promise.resolve()
+  assert.match(
+    splitTask,
+    /^REJECTED: /,
+    'the cancelled task must still be rejected when the teardown is driven as two calls',
+  )
+  splitContext.destroy()
+
+  // A host that abandons the split — `…_begin` with no `…_finish` — and then registers a new
+  // environment over the same image. Registration is the only place napi can unwind what
+  // phase 1 left behind: the backend is stopped and `begin_deactivate` leaves the registry
+  // phase `Started`, so nothing would ever start it again, and the cleanup barrier phase 1
+  // raised would stay raised for the rest of the process. Driven on a fresh instance, because
+  // the state under test is exactly the state a *completed* teardown does not leave.
+  const abandonedContext = createContext({ autoDestroy: false })
+  abandonedContext.suppressDestroy()
+  // The env emnapi creates for this instance, captured so the re-registration below can go
+  // through `napi_register_wasm_v1` exactly the way emnapi's own module init does.
+  let abandonedEnv
+  const abandonedCreateEnv = abandonedContext.createEnv.bind(abandonedContext)
+  abandonedContext.createEnv = (...environmentArguments) =>
+    (abandonedEnv = abandonedCreateEnv(...environmentArguments))
+  let abandonedInstance
+  const { napiModule: abandonedModule } = instantiateNapiModuleSync(
+    await readFile(wasmPath),
+    {
+      context: abandonedContext,
+      asyncWorkPoolSize: 0,
+      plugins: [emnapiAsyncWorkPlugin, emnapiTSFNPlugin],
+      wasi: new WASI({ version: 'preview1', env: process.env }),
+      overwriteImports(importObject) {
+        importObject.env = {
+          ...importObject.env,
+          ...importObject.napi,
+          ...importObject.emnapi,
+          memory: new WebAssembly.Memory({ initial: 4000, maximum: 65536 }),
+        }
+        return importObject
+      },
+      beforeInit({ instance }) {
+        abandonedInstance = instance
+        for (const name of Object.keys(instance.exports)) {
+          if (name.startsWith('__napi_register__')) {
+            instance.exports[name]()
+          }
+        }
+      },
+    },
+  )
+  const abandonedExports = abandonedInstance.exports
+  const startCallsBeforeAbandon =
+    abandonedModule.exports.getRuntimeMetrics().startCalls
+  // Phase 1, and then the host walks away.
+  abandonedExports.napi_prepare_wasm_env_cleanup_begin()
+  const abandonedScope = abandonedContext.openScope(abandonedEnv)
+  try {
+    abandonedEnv.callIntoModule(() => {
+      abandonedExports.napi_register_wasm_v1(
+        abandonedEnv.bridge.address,
+        abandonedScope.add({}),
+      )
+    })
+  } finally {
+    abandonedContext.closeScope(abandonedEnv, abandonedScope)
+  }
+  assert.equal(
+    abandonedModule.exports.getRuntimeMetrics().startCalls,
+    startCallsBeforeAbandon + 1,
+    'registration must complete the abandoned teardown, or the registry phase stays `Started` over a backend that already stopped and the new environment never starts one',
+  )
+  abandonedModule.exports.rejectNextSpawn()
+  let abandonedDeclined = 'PENDING'
+  abandonedModule.exports.asyncNever().then(
+    () => {
+      abandonedDeclined = 'RESOLVED'
+    },
+    (error) => {
+      abandonedDeclined = `REJECTED: ${error.message}`
+    },
+  )
+  assert.equal(
+    abandonedExports.napi_wasm_env_cleanup_pending(),
+    1,
+    'the barrier phase 1 raised must be down again: a settle made on this thread with no teardown outstanding has to go into the threadsafe-function queue, where a loader drain can see it',
+  )
+  let abandonedTask = 'PENDING'
+  abandonedModule.exports.asyncNever().then(
+    () => {
+      abandonedTask = 'RESOLVED'
+    },
+    (error) => {
+      abandonedTask = `REJECTED: ${error.message}`
+    },
+  )
+  await Promise.resolve()
+  assert.equal(
+    abandonedTask,
+    'PENDING',
+    'the re-registered environment must reach a live backend; a task rejected on the spot means the abandoned teardown was inherited',
+  )
+  // And the new environment's own disposal still works, both phases of it.
+  abandonedExports.napi_prepare_wasm_env_cleanup_begin()
+  abandonedExports.napi_prepare_wasm_env_cleanup_finish()
+  await Promise.resolve()
+  assert.match(
+    abandonedTask,
+    /^REJECTED: /,
+    'the task the re-registered environment submitted must be cancelled by its own teardown',
+  )
+  // `abandonedTask` settled on this thread because the barrier was up for its
+  // teardown. The declined spawn settled with the barrier down, so its
+  // rejection went into the threadsafe-function queue instead and needs real
+  // event-loop turns — @emnapi/core coalesces and dispatches that queue from a
+  // macrotask, two turns later even for a call made on this thread. Polled and
+  // bounded, exactly like the loader's disposal drain, which yields these same
+  // turns before `Context.destroy()` discards whatever is still queued.
+  for (
+    let index = 0;
+    index < 128 && abandonedExports.napi_wasm_env_cleanup_pending() !== 0;
+    index++
+  ) {
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  assert.equal(
+    abandonedDeclined,
+    'REJECTED: custom runtime rejected the async task',
+    'the spawn the re-registered environment refused must reject through the queue it was parked in; a promise still pending here is one the disposal drain can never deliver',
+  )
+  assert.equal(
+    abandonedExports.napi_wasm_env_cleanup_pending(),
+    0,
+    'the queued settlement must leave the counter, or every later disposal drain waits out its bound over a queue that is already empty',
+  )
+  abandonedContext.destroy()
+}
+
 if (combinedWasiDirectory) {
   // A combined `async-runtime` + `tokio_rt` build is the configuration in which
   // napi's Tokio compatibility helpers (`napi::spawn`, `napi::block_on`,

@@ -1,0 +1,16 @@
+# `cargo test --target wasm32-wasip1-threads` needs a host implementing
+# `wasi.thread-spawn` and shared memory. This is version-fragile: wasmtime
+# 35.0.0 works; 42.0.0 and 44.0.0 accept the flag and then fail with "shared
+# memory support is disabled for this engine"; 48.0.2 removed the flag (its
+# `-S help` still lists it, so help text is not evidence). Pin a known-good
+# wasmtime on PATH, or override with
+# CARGO_TARGET_WASM32_WASIP1_THREADS_RUNNER. Bump the pin only with a run,
+# never by version number.
+#
+# A `runner` affects only `cargo test` / `cargo run`, never `cargo check` /
+# `cargo build`, so contributors without wasmtime are unaffected.
+[target.wasm32-wasip1-threads]
+runner = "wasmtime run -S threads --"
+
+[target.wasm32-wasip1]
+runner = "wasmtime run --"

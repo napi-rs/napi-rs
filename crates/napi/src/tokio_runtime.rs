@@ -167,8 +167,175 @@ type AsyncRuntimeTaskCancelCallback = Box<dyn FnOnce(Error) + Send + 'static>;
 /// rejection instead of unwinding into backend code.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn invoke_cancel_callback(on_cancel: AsyncRuntimeTaskCancelCallback, error: Error) {
+  // On wasm the environment cleanup barrier may want this rejection settled on the JavaScript
+  // thread instead of here; see [`WASM_CANCEL_MAILBOX`]. Everywhere else — and whenever the
+  // mailbox is closed — this is the unchanged direct invocation.
+  #[cfg(target_family = "wasm")]
+  let (on_cancel, error) = match park_cancel_for_js_thread(on_cancel, error) {
+    Ok(()) => return,
+    Err(returned) => returned,
+  };
+  invoke_cancel_callback_now(on_cancel, error);
+}
+
+/// Invoke a cancellation callback on *this* thread, with panic containment.
+///
+/// Runs on: whichever thread dropped the task — a backend worker in the ordinary case, the
+/// JavaScript thread when [`drain_wasm_cancel_mailbox`] replays a parked cancellation.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn invoke_cancel_callback_now(on_cancel: AsyncRuntimeTaskCancelCallback, error: Error) {
   if let Err(payload) = catch_unwind(AssertUnwindSafe(move || on_cancel(error))) {
     drop_contained(payload);
+  }
+}
+
+/// Cancellations raised off the JavaScript thread while the wasm environment cleanup barrier is
+/// running, waiting for that thread to invoke them.
+///
+/// Runs on: written by backend worker threads (`wasm32-wasip1-threads`), opened and drained by
+/// the JavaScript thread inside `napi_prepare_wasm_env_cleanup`. `None` means closed, which is
+/// every moment outside that barrier — so nothing is ever parked that the barrier will not
+/// immediately replay.
+///
+/// # Why it exists
+///
+/// `AsyncRuntime::shutdown` may drop a task on one of its own worker threads (with the
+/// `napi-async-runtime` crate's MultiThread flavor it routinely does, and that crate's shutdown
+/// joins those workers, so the drop strictly precedes the shutdown call's return). The task's
+/// `Drop` rejects its `JsDeferred` from that worker, where
+/// [`crate::js_values::in_wasm_env_cleanup`] is false and the deferred's owner thread is
+/// somebody else — so the rejection goes into the threadsafe-function queue, which
+/// `@emnapi/core` dispatches from a macrotask two turns later. A host that calls the raw,
+/// synchronous `Context.destroy()` never reaches that dispatch: `destroy()` disables JavaScript
+/// calls and then runs the threadsafe function's cleanup hook, which drains the queue with a
+/// null env and discards the item. The promise never settles.
+///
+/// Parking the callback and invoking it on the JavaScript thread while the barrier is still
+/// raised turns that queued settle into a synchronous one
+/// (`js_values::deferred::settles_synchronously`), which is exactly how the threadless
+/// `wasm32-wasip1` artifact has always behaved.
+///
+/// Moving the callback across threads is sound by its own bound:
+/// [`AsyncRuntimeTaskCancelCallback`] is `Send + 'static`, and so is [`Error`].
+///
+/// See `crates/async-runtime/README.md` ("`shutdown` joins, without a bound") for the shutdown
+/// contract this relies on.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+static WASM_CANCEL_MAILBOX: Mutex<Option<Vec<(AsyncRuntimeTaskCancelCallback, Error)>>> =
+  Mutex::new(None);
+
+/// Open the mailbox so cancellations raised off the JavaScript thread are parked instead of
+/// queued.
+///
+/// Runs on: the JavaScript thread, from `napi_prepare_wasm_env_cleanup`, before the backend
+/// shutdown that produces those cancellations.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+pub(crate) fn open_wasm_cancel_mailbox() {
+  let mut mailbox = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner);
+  if mailbox.is_none() {
+    *mailbox = Some(Vec::new());
+  }
+}
+
+/// Close the mailbox and invoke everything parked in it here and now.
+///
+/// Runs on: the JavaScript thread, from the `finish` half of the wasm environment cleanup,
+/// after the backend shutdown returned and while the cleanup barrier is still raised
+/// (`js_values::enter_wasm_env_cleanup_barrier`) — that raised barrier is what makes each
+/// replayed rejection settle its promise directly instead of queueing it again. The barrier
+/// spans both phases of the split teardown, so a cancellation raised while the host was turning
+/// its event loop between them is replayed here too.
+///
+/// Taking the `Vec` out under the lock is also the close, so a cancellation that races this
+/// (a worker the backend's shutdown did not join) finds the mailbox closed and falls through to
+/// the queue, which is exactly today's behaviour.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+pub(crate) fn drain_wasm_cancel_mailbox() {
+  let parked = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner)
+    .take();
+  for (on_cancel, error) in parked.into_iter().flatten() {
+    invoke_cancel_callback_now(on_cancel, error);
+  }
+}
+
+/// Close the mailbox and put everything parked in it beyond reach, without invoking any of it —
+/// and without dropping it either.
+///
+/// Runs on: the JavaScript thread, from module registration, when a new environment takes over
+/// an image whose two-phase cleanup was begun and never finished
+/// (`bindgen_runtime::module_register::unwind_abandoned_wasm_env_cleanup`). Every parked callback
+/// rejects a `JsDeferred` created by the environment that went away, so replaying them the way
+/// [`drain_wasm_cancel_mailbox`] does would call into an environment that may be destroyed.
+///
+/// # Why it leaks instead of dropping
+///
+/// A parked entry is a callback *and* an [`Error`], and neither is inert. `Error` carries
+/// `maybe_ref: Option<Arc<ErrorRef>>`, whose `Drop` calls `napi_delete_reference` on the owning
+/// thread (`error.rs`) — this thread — against exactly the environment that must not be touched.
+/// The callback owns the task's `JsDeferred`, whose `DeferredHandle` has no `Drop` at all, so
+/// dropping it would not settle or release anything anyway. So each entry is `mem::forget`ed:
+/// the leak is bounded by the cancellations of one abandoned teardown, it happens only on this
+/// path, and it buys the guarantee that unwinding an abandoned cleanup makes no napi call.
+///
+/// The promises those entries would have rejected stay pending. That is the same outcome the
+/// entry's own `Drop` would produce, without the napi call.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+pub(crate) fn discard_wasm_cancel_mailbox() {
+  let parked = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner)
+    .take();
+  for entry in parked.into_iter().flatten() {
+    std::mem::forget(entry);
+  }
+}
+
+/// Park a cancellation for the barrier thread, or hand it back to be invoked here.
+///
+/// Runs on: the thread that dropped the task. Returns `Err` — meaning "invoke it yourself" —
+/// when the mailbox is closed (every moment outside the barrier) and when this *is* the barrier
+/// thread, whose cancellations already settle synchronously.
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+fn park_cancel_for_js_thread(
+  on_cancel: AsyncRuntimeTaskCancelCallback,
+  error: Error,
+) -> std::result::Result<(), (AsyncRuntimeTaskCancelCallback, Error)> {
+  if crate::js_values::in_wasm_env_cleanup() {
+    return Err((on_cancel, error));
+  }
+  let mut mailbox = WASM_CANCEL_MAILBOX
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner);
+  match mailbox.as_mut() {
+    Some(parked) => {
+      parked.push((on_cancel, error));
+      Ok(())
+    }
+    None => Err((on_cancel, error)),
   }
 }
 
@@ -428,6 +595,66 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// `start`, after a partial failed `start`, and repeatedly without an intervening `start`. If
   /// this returns an error, the same quiescence guarantee still applies.
   fn shutdown(&self) -> Result<()>;
+
+  /// Optional hook: phase 1 of a two-phase [`shutdown`](AsyncRuntime::shutdown).
+  ///
+  /// **Never wait here.** Publish the stop, close admission, cancel and drop everything that is
+  /// merely queued, wake whatever is parked — and return. `Ok(true)` reports that the announced
+  /// stop still owes a wait: backend work that is still live, or a rejected submission whose
+  /// destructor is still running on another thread. The host should then let its event loop turn
+  /// and poll [`shutdown_work_pending`](AsyncRuntime::shutdown_work_pending) before calling
+  /// [`finish_shutdown`](AsyncRuntime::finish_shutdown); `Ok(false)` reports that
+  /// `finish_shutdown` has nothing to wait for.
+  ///
+  /// # The contract across the two phases
+  ///
+  /// Between the phases the host may run arbitrary event-loop turns — that is the entire point:
+  /// on the threaded WASI artifact the shutdown is entered from the JavaScript thread, which is
+  /// also the only thread that can give a running blocking closure the JavaScript turn it is
+  /// waiting for, so a single-call `shutdown` there waits for work that can never finish. The
+  /// backend must therefore keep rejecting submissions for the whole window, and must tolerate
+  /// its own cancellation callbacks running JavaScript in it. napi does not call
+  /// [`start`](AsyncRuntime::start) between the phases and a backend need not support it.
+  ///
+  /// Only `finish_shutdown` joins, so only it may block; the quiescence guarantee
+  /// [`shutdown`](AsyncRuntime::shutdown) documents is owed by `finish_shutdown`, not by this
+  /// hook. A second `begin_shutdown` before the matching `finish_shutdown` must neither start a
+  /// second shutdown nor wait — re-reporting `shutdown_work_pending` is the expected answer.
+  ///
+  /// # Not splitting is a valid implementation
+  ///
+  /// The default performs the whole of [`shutdown`](AsyncRuntime::shutdown) here and reports no
+  /// pending work, which makes `finish_shutdown` a no-op — so a backend that does not opt in
+  /// behaves exactly as it does today: the host's `begin` blocks for the full teardown and its
+  /// `finish` returns immediately.
+  fn begin_shutdown(&self) -> Result<bool> {
+    self.shutdown().map(|()| false)
+  }
+
+  /// Optional hook: non-blocking poll for the window between
+  /// [`begin_shutdown`](AsyncRuntime::begin_shutdown) and
+  /// [`finish_shutdown`](AsyncRuntime::finish_shutdown).
+  ///
+  /// `true` means the announced stop still owes a wait: backend work, or a rejected submission
+  /// whose destructor is still running on another thread. `false` means `finish_shutdown` will
+  /// not wait. Must never block and must be safe to call at any time, including with no shutdown
+  /// outstanding. The default answers `false`, which is correct for a backend whose
+  /// `begin_shutdown` already finished the teardown.
+  fn shutdown_work_pending(&self) -> bool {
+    false
+  }
+
+  /// Optional hook: phase 2 of a two-phase [`shutdown`](AsyncRuntime::shutdown).
+  ///
+  /// Wait for the work [`begin_shutdown`](AsyncRuntime::begin_shutdown) reported, join
+  /// backend-owned threads, release resources. This is the call that owes the quiescence
+  /// guarantee in [`shutdown`](AsyncRuntime::shutdown): return `Ok(())` only once every
+  /// backend-owned thread, task and blocking closure has quiesced, and deliver that guarantee
+  /// even when returning an error. napi calls it exactly once per `begin_shutdown`, on the same
+  /// thread. The default is a no-op, because the default `begin_shutdown` already did all of it.
+  fn finish_shutdown(&self) -> Result<()> {
+    Ok(())
+  }
 
   /// Optional hook: run `work` on the backend's blocking-capable lane.
   ///
@@ -778,6 +1005,91 @@ impl AsyncRuntimeRegistry {
   }
 }
 
+#[cfg(all(
+  target_family = "wasm",
+  feature = "async-runtime",
+  not(feature = "noop")
+))]
+impl AsyncRuntimeRegistry {
+  /// Phase 1 of [`Self::deactivate`]: everything up to and including the backend's
+  /// [`AsyncRuntime::begin_shutdown`], which never waits.
+  ///
+  /// `None` means no custom backend owns the lifecycle, so the caller falls through to the
+  /// built-in Tokio teardown exactly as [`shutdown_async_runtime`] does. `Some(pending)` means
+  /// phase 1 ran and `pending` reports whether [`Self::finish_deactivate`] still has work to
+  /// wait for.
+  ///
+  /// # Why the lifecycle lock is released between the phases
+  ///
+  /// [`Self::deactivate`] holds it across its single call so a teardown never reports quiescence
+  /// while a `start` may still be creating resources. Each phase takes it for itself instead of
+  /// one phase parking it for the other, because the window between them is a *host event loop*:
+  /// arbitrary JavaScript runs in it, and an addon export reaching `shutdown_async_runtime` while
+  /// this thread held a non-reentrant lock would hang the instance rather than merely misbehave.
+  /// Nothing is lost by releasing it — the exclusion is against `run_claimed_start`, whose two
+  /// callers (`start_async_runtime` and [`Self::ensure_started`]) both return early on wasm for
+  /// the whole window, because phase 1 sets the disposal latch before it takes the lock. See
+  /// [`WASM_ENV_DISPOSING`].
+  ///
+  /// Whether a phase 1 is outstanding is tracked by the caller (the cleanup exports in
+  /// `bindgen_runtime::module_register`), which is the one latch for it; this function does not
+  /// second-guess it.
+  fn begin_deactivate(&self) -> Option<bool> {
+    let backend = self.backend.get()?;
+    let _lifecycle = self.lock_lifecycle();
+    match catch_unwind(AssertUnwindSafe(|| backend.begin_shutdown())) {
+      Ok(Ok(pending)) => Some(pending),
+      // Phase 1 owes no quiescence — phase 2 does — so a reported error is not fatal here: it
+      // is disposed of with `Drop`-panic containment and the poll answers for the backend
+      // instead. Phase 2 still runs, and still has to deliver the guarantee.
+      Ok(Err(error)) => {
+        drop_contained(error);
+        Some(backend.shutdown_work_pending())
+      }
+      // Same rationale as [`Self::deactivate`]: an unwinding lifecycle hook leaves the backend
+      // unprovably live while Node may unload the addon image, and nothing may drop before the
+      // mandated abort, so the payload is leaked instead.
+      Err(payload) => {
+        std::mem::forget(payload);
+        std::process::abort();
+      }
+    }
+  }
+
+  /// Non-blocking poll for the window between the phases: `true` means
+  /// [`Self::finish_deactivate`] still has backend work to wait for.
+  fn deactivate_work_pending(&self) -> bool {
+    self
+      .backend
+      .get()
+      .is_some_and(|backend| backend.shutdown_work_pending())
+  }
+
+  /// Phase 2 of [`Self::deactivate`]: the backend's [`AsyncRuntime::finish_shutdown`] — the call
+  /// that owes quiescence — and then the `Idle` phase reset, under the lifecycle lock and in the
+  /// order [`Self::deactivate`] does them.
+  ///
+  /// Returns `true` when a custom backend owned the lifecycle, like [`Self::deactivate`]. The
+  /// caller only calls this for a phase 1 it started.
+  fn finish_deactivate(&self) -> bool {
+    let Some(backend) = self.backend.get() else {
+      return false;
+    };
+    let _lifecycle = self.lock_lifecycle();
+    match catch_unwind(AssertUnwindSafe(|| backend.finish_shutdown())) {
+      // Like [`Self::deactivate`]: a hook that returned has delivered quiescence even when it
+      // reports an error; dispose of that error with `Drop`-panic containment.
+      Ok(finish_result) => drop_contained(finish_result),
+      Err(payload) => {
+        std::mem::forget(payload);
+        std::process::abort();
+      }
+    }
+    self.lock_state().phase = LifecyclePhase::Idle;
+    true
+  }
+}
+
 /// Dispose of a value recovered from a backend hook — a caught panic payload or a returned
 /// [`Error`] — without letting a panicking `Drop` escape containment. A panic payload is
 /// arbitrary user data, and an [`Error`] can own a JS reference whose release asserts; if the
@@ -1114,37 +1426,27 @@ pub fn start_async_runtime() {
 /// compatibility helpers called after this shutdown but before either of those still panic on
 /// the empty slot, exactly as they do after a `tokio_rt`-only shutdown. Otherwise the built-in
 /// Tokio runtime is shut down in the background.
+///
+/// On wasm targets this is a no-op past the environment cleanup barrier, mirroring
+/// [`start_async_runtime`]: from the moment `napi_prepare_wasm_env_cleanup`(`_begin`) latches the
+/// disposal, the loader owns the teardown and its `…_finish` call is the one that joins.
 pub fn shutdown_async_runtime() {
+  // Past the wasm environment cleanup barrier the loader owns the teardown, so this must not
+  // perform the join itself. The two-phase handshake yields real event-loop turns between
+  // `napi_prepare_wasm_env_cleanup_begin` and `…_finish`, and an addon export called from one of
+  // those turns would otherwise wait for backend work on the JavaScript thread — the same thread
+  // a parked blocking closure needs a turn from — wedging the disposal that was split apart to
+  // avoid exactly that. Returning here loses nothing: phase 1 already published the stop, and the
+  // `finish` the loader still owes performs the join. The cleanup exports never reach this
+  // function (they call `begin_shutdown_async_runtime` / `finish_shutdown_async_runtime`
+  // directly), so the guard cannot disarm the teardown it protects. See `WASM_ENV_DISPOSING`.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    return;
+  }
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.deactivate() {
-    // The custom backend owns the runtime lifecycle, but the Tokio compatibility helpers
-    // (`spawn`, `block_on`, `spawn_blocking`, `within_runtime_if_available`) stay Tokio-backed
-    // in combined builds and may have constructed the built-in runtime lazily AFTER the
-    // backend was selected. Drain it too — gated on `RT_CONSTRUCTED` so this never forces a
-    // construction, preserving the "selecting a custom backend never constructs Tokio"
-    // promise.
-    #[cfg(feature = "tokio_rt")]
-    if let Some(rt) = RT_CONSTRUCTED
-      .load(Ordering::SeqCst)
-      .then(|| RT.write().ok().and_then(|mut rt| rt.take()))
-      .flatten()
-    {
-      rt.shutdown_background();
-    }
-    // Also drain a user-supplied runtime that `create_custom_tokio_runtime` parked in
-    // `USER_DEFINED_RT` but no Tokio helper ever forced into `RT` (so `RT_CONSTRUCTED` is
-    // false and the drain above was a no-op). Unlike the `tokio_rt`-only fall-through below,
-    // this early-return path is reached without ever constructing `RT`, so that runtime's
-    // worker threads would otherwise outlive the env. Idempotent: once `RT` was built,
-    // `create_runtime` already took `USER_DEFINED_RT`, so this is `None`; and like the drain
-    // above it never forces `RT`, preserving the "never constructs Tokio" promise.
-    #[cfg(feature = "tokio_rt")]
-    if let Some(user_rt) = USER_DEFINED_RT
-      .get()
-      .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
-    {
-      user_rt.shutdown_background();
-    }
+    drain_tokio_peer_after_backend_shutdown();
     // The return only exists to skip the built-in Tokio teardown below, which is
     // `tokio_rt`-only; in a pure `async-runtime` build there is nothing to skip.
     #[cfg(feature = "tokio_rt")]
@@ -1153,6 +1455,104 @@ pub fn shutdown_async_runtime() {
   #[cfg(feature = "tokio_rt")]
   if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
     rt.shutdown_background();
+  }
+}
+
+/// Drain a built-in Tokio runtime that lives *beside* a custom backend, after that backend's
+/// teardown has run.
+///
+/// The custom backend owns the runtime lifecycle, but the Tokio compatibility helpers
+/// (`spawn`, `block_on`, `spawn_blocking`, `within_runtime_if_available`) stay Tokio-backed in
+/// combined builds and may have constructed the built-in runtime lazily AFTER the backend was
+/// selected.
+///
+/// Called from [`shutdown_async_runtime`] and, on wasm, from the second phase of the split
+/// teardown — the same position in the sequence either way: after the backend's shutdown
+/// returned.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn drain_tokio_peer_after_backend_shutdown() {
+  // Gated on `RT_CONSTRUCTED` so this never forces a construction, preserving the "selecting a
+  // custom backend never constructs Tokio" promise.
+  #[cfg(feature = "tokio_rt")]
+  if let Some(rt) = RT_CONSTRUCTED
+    .load(Ordering::SeqCst)
+    .then(|| RT.write().ok().and_then(|mut rt| rt.take()))
+    .flatten()
+  {
+    rt.shutdown_background();
+  }
+  // Also drain a user-supplied runtime that `create_custom_tokio_runtime` parked in
+  // `USER_DEFINED_RT` but no Tokio helper ever forced into `RT` (so `RT_CONSTRUCTED` is
+  // false and the drain above was a no-op). Unlike the `tokio_rt`-only fall-through in
+  // [`shutdown_async_runtime`], this path is reached without ever constructing `RT`, so that
+  // runtime's worker threads would otherwise outlive the env. Idempotent: once `RT` was built,
+  // `create_runtime` already took `USER_DEFINED_RT`, so this is `None`; and like the drain
+  // above it never forces `RT`, preserving the "never constructs Tokio" promise.
+  #[cfg(feature = "tokio_rt")]
+  if let Some(user_rt) = USER_DEFINED_RT
+    .get()
+    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
+  {
+    user_rt.shutdown_background();
+  }
+}
+
+/// Phase 1 of [`shutdown_async_runtime`], for the wasm environment cleanup exports: everything
+/// that never waits.
+///
+/// Answers whether the announced stop still owes a wait — backend work that is still live, or a
+/// rejected submission whose destructor is still running on another thread — so the
+/// `napi_prepare_wasm_env_cleanup_begin` export can tell its loader to turn the event loop before
+/// calling [`finish_shutdown_async_runtime`].
+///
+/// Call it once per teardown: the cleanup exports hold the latch that makes a repeated `begin`
+/// re-report the poll instead of reaching this.
+///
+/// With no custom backend the built-in Tokio teardown is `shutdown_background`, which never
+/// waits either, so it belongs entirely to this phase and phase 2 has nothing left to do — the
+/// `tokio_rt`-only path keeps its exact current behaviour.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn begin_shutdown_async_runtime() -> bool {
+  #[cfg(feature = "async-runtime")]
+  if let Some(pending) = ASYNC_RUNTIME_REGISTRY.begin_deactivate() {
+    // The Tokio peer is drained in phase 2, which is where `shutdown_async_runtime` drains it:
+    // after the backend's teardown.
+    return pending;
+  }
+  #[cfg(feature = "tokio_rt")]
+  if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
+    rt.shutdown_background();
+  }
+  false
+}
+
+/// Non-blocking poll for the window between the two phases: `true` means the announced stop still
+/// owes a wait — backend work, or a rejected submission whose destructor is still running on
+/// another thread — and `false` means [`finish_shutdown_async_runtime`] will not wait.
+///
+/// Safe to call at any time, including with no teardown outstanding.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn async_runtime_work_pending() -> bool {
+  #[cfg(feature = "async-runtime")]
+  {
+    ASYNC_RUNTIME_REGISTRY.deactivate_work_pending()
+  }
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    false
+  }
+}
+
+/// Phase 2 of [`shutdown_async_runtime`], for the wasm environment cleanup exports: the part
+/// that waits and joins, plus the Tokio peer drain that follows it.
+///
+/// Only for a phase 1 the caller started — the cleanup exports hold that latch, and an unpaired
+/// `finish` never reaches here.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+pub(crate) fn finish_shutdown_async_runtime() {
+  #[cfg(feature = "async-runtime")]
+  if ASYNC_RUNTIME_REGISTRY.finish_deactivate() {
+    drain_tokio_peer_after_backend_shutdown();
   }
 }
 

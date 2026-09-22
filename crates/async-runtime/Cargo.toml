@@ -22,14 +22,19 @@ rustc-hash = "2"
 
 [dependencies.napi]
 path = "../napi"
-version = "3"
+# Precise, not caret: the adapter implements `AsyncRuntime::begin_shutdown` /
+# `shutdown_work_pending` / `finish_shutdown`, so an older 3.x napi fails to compile
+# with E0407. release-plz lifts precise requirements on every release (see how
+# `napi-sys` / `napi-build` are pinned in ../napi/Cargo.toml), so this floor rises to
+# the release that carries those hooks.
+version = "3.12.7"
 default-features = false
 features = ["napi4", "async-runtime"]
 optional = true
 
 [dependencies.napi-derive]
 path = "../macro"
-version = "3"
+version = "3.6.8"
 default-features = false
 features = ["type-def"]
 optional = true
@@ -38,10 +43,21 @@ optional = true
 rayon = "1.12"
 crossbeam-deque = "0.8"
 
-[dev-dependencies]
+# Cargo resolves target tables from `rustc --print cfg`, which is IDENTICAL for
+# the two WASI targets (see build.rs), so no `cfg()` table can name the threads
+# triple. The exact triple is the only spelling that gives it rayon without
+# dragging rayon into the threadless `wasm32-wasip1` artifact.
+[target.wasm32-wasip1-threads.dependencies]
+rayon = "1.12"
+crossbeam-deque = "0.8"
+
 # The in-crate test binaries are plain executables rather than Node-loaded
 # cdylibs; `dyn-symbols` resolves Node-API symbols at runtime so those
 # binaries can link. Shipped builds keep the minimal feature set above.
-napi = { path = "../napi", version = "3", default-features = false, features = [
+# wasm test binaries run under a bare WASI host with no Node-API at all and
+# never reference this crate, so it is excluded there rather than compiled and
+# then dropped by the linker.
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+napi = { path = "../napi", version = "3.12.7", default-features = false, features = [
   "dyn-symbols",
 ] }

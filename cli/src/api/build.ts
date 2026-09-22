@@ -254,7 +254,7 @@ export function checkAsyncRuntimeHostContract({
   }
   if (!asyncRuntime && missingHostExports.length === 0) {
     return {
-      warning: `${packageName} exports the napi-async-runtime host contract but napi.wasm.asyncRuntime is not enabled. The generated WASI loaders will not install the CurrentThread task and timer hosts, so async exports will never make progress unless the host is installed by hand.`,
+      warning: `${packageName} exports the napi-async-runtime host contract but napi.wasm.asyncRuntime is not enabled. The generated WASI loaders will not install the CurrentThread task and timer hosts, so a binding running the CurrentThread flavor (the default on every wasm target) will make no progress unless the hosts are installed by hand. A wasm32-wasip1-threads binding that configures MultiThread does not need them.`,
     }
   }
   return {}

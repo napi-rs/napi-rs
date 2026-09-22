@@ -395,6 +395,21 @@ unsafe extern "C" fn napi_register_wasm_v1(
 ///
 /// Repeated calls are harmless — the loaders guard against them anyway, and the finalizer that
 /// still fires later performs the same idempotent teardown.
+///
+/// # The two-phase form
+///
+/// This export waits: step 2 above returns only once the backend has quiesced, and on
+/// `wasm32-wasip1-threads` the thread it waits on is the same JavaScript thread a running
+/// blocking closure may be waiting for a turn from. [`napi_prepare_wasm_env_cleanup_begin`],
+/// [`napi_wasm_runtime_work_pending`] and [`napi_prepare_wasm_env_cleanup_finish`] are the same
+/// teardown split so a loader can put real event-loop turns between the two halves. This export
+/// is exactly `begin(); finish();` — a host that cannot yield keeps calling it and keeps
+/// today's behaviour, and a loader that has not been taught the split keeps working unchanged.
+/// The barrier spans both halves, so the delivery guarantee above is the same either way.
+///
+/// A loader must feature-detect the split (`typeof … === 'function'`) and fall back to this
+/// export, for the same reason it already feature-detects this one: `napi-build` and `napi` are
+/// versioned independently.
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
 #[no_mangle]
 extern "C" fn napi_prepare_wasm_env_cleanup() {
@@ -403,22 +418,279 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
     feature = "napi4"
   ))]
   {
-    // Deliver, do not queue: for as long as this guard is alive, a `JsDeferred` settled on this
-    // thread settles its promise directly instead of appending to a queue the host dispatches
-    // two macrotasks later — which a caller that destroys the environment synchronously never
-    // reaches. The guard is scoped to the shutdown, so ordinary settles after this returns go
-    // back through the queue.
-    //
-    // Latch *before* the shutdown, and leave it latched after this returns: the drain below is
-    // an event loop, so the rejections this shutdown delivers run their JavaScript handlers
-    // while the environment is still alive, and an addon export called from one of them would
-    // otherwise restart the very runtime that just quiesced — behind the back of a drain that
-    // cannot see the restarted work. Runtime-backed calls made from here on reject with a
-    // defined error instead.
-    crate::tokio_runtime::latch_wasm_env_disposal();
-    let _deliver_settlements = crate::js_values::WasmEnvCleanupBarrier::enter();
-    crate::tokio_runtime::shutdown_async_runtime();
+    // Byte for byte the sequence this export has always run, now expressed as its two halves
+    // back to back with nothing in between: open the mailbox, latch, raise the barrier, shut the
+    // backend down, drain the mailbox, lower the barrier. The split exports exist so a loader
+    // can put event-loop turns in the middle; a host that cannot yield calls this one and gets
+    // exactly today's behaviour.
+    let _ = wasm_env_cleanup_begin();
+    wasm_env_cleanup_finish();
   }
+}
+
+/// Phase 1 of [`napi_prepare_wasm_env_cleanup`]: shut the addon's async runtime down without
+/// waiting for the work that is still running, and report whether any is.
+///
+/// Returns 1 while the announced stop still owes a wait — backend-owned work that is still
+/// live, or a rejected submission whose destructor is still running on another thread — and 0
+/// when [`napi_prepare_wasm_env_cleanup_finish`] will not block. A loader that can yield calls this,
+/// then turns its event loop — polling [`napi_wasm_runtime_work_pending`] — until it reports the
+/// work finished, and calls `finish` then; the poll carries no bound, because a bound would not
+/// end the wait, only move it out of reach. Those turns are the whole point: on
+/// `wasm32-wasip1-threads` this export is entered from the JavaScript thread, which is also the
+/// only thread that can give a running blocking closure the JavaScript turn *it* is waiting for,
+/// so joining inside a single call waits for work that can never finish.
+///
+/// Everything [`napi_prepare_wasm_env_cleanup`] documents about the barrier, the disposal latch
+/// and the runtime staying down applies from here — the barrier is raised by this call and stays
+/// raised until `finish`, which is what keeps the cancellations the backend produces *during the
+/// host's turns* settling straight into their promises instead of into a queue a synchronous
+/// `Context.destroy()` would discard.
+///
+/// A second call before `finish` starts no second teardown and never waits: it just re-reports
+/// the poll, so a loader may call it again from a host turn. A backend that does not implement
+/// [`AsyncRuntime::begin_shutdown`](crate::bindgen_prelude::AsyncRuntime::begin_shutdown)
+/// performs its whole teardown here and reports 0, which is exactly the single-call behaviour.
+///
+/// Calling `finish` is not optional. It is the call that joins, so a loader that gives up on the
+/// poll must still make it — the degradation is back to today's blocking teardown, never to a
+/// stranded promise.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_prepare_wasm_env_cleanup_begin() -> u32 {
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  {
+    wasm_env_cleanup_begin()
+  }
+  #[cfg(not(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  )))]
+  {
+    0
+  }
+}
+
+/// Whether the announced stop still owes a wait that
+/// [`napi_prepare_wasm_env_cleanup_finish`] would have to make — backend-owned work that is
+/// still live, or a rejected submission whose destructor is still running on another thread:
+/// 1 yes, 0 no.
+///
+/// The poll for the window between the two phases. Never blocks and is safe to call at any
+/// time, including before any `begin` and after `finish` — it then answers for the runtime as it
+/// stands. It reports the *runtime's* work, which is a different question from
+/// [`napi_wasm_env_cleanup_pending`] (settlements already queued for dispatch) and from
+/// [`napi_wasm_async_work_pending`] (`napi_async_work` items); a full disposal drains all three.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_wasm_runtime_work_pending() -> u32 {
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  {
+    wasm_env_cleanup_work_pending()
+  }
+  #[cfg(not(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  )))]
+  {
+    0
+  }
+}
+
+/// Phase 2 of [`napi_prepare_wasm_env_cleanup`]: join what
+/// [`napi_prepare_wasm_env_cleanup_begin`] left running, replay the cancellations that were
+/// parked for this thread, and lower the barrier.
+///
+/// This is the call that delivers the quiescence guarantee, so it may block — a loader that
+/// exhausted its poll budget still has to make it, and simply blocks as a single-call teardown
+/// would have. Afterwards the addon is in exactly the state one `napi_prepare_wasm_env_cleanup`
+/// leaves it in, and the loader continues with the settlement drain
+/// ([`napi_wasm_env_cleanup_pending`]) and `Context.destroy()`.
+///
+/// Idempotent: a `finish` with no `begin` outstanding is a no-op — it tears nothing down,
+/// replays nothing and lowers no barrier — so an unpaired or repeated call cannot leave the
+/// barrier counter below zero or shut a restarted runtime down behind a loader's back.
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_prepare_wasm_env_cleanup_finish() {
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  {
+    wasm_env_cleanup_finish();
+  }
+}
+
+/// Whether a [`wasm_env_cleanup_begin`] is outstanding — that is, whether the barrier is raised
+/// and a [`wasm_env_cleanup_finish`] is owed.
+///
+/// A plain static rather than a thread local: the cleanup exports are entered from the
+/// JavaScript thread only (emnapi runs module registration, and therefore the whole disposal
+/// handshake, on the main thread), and this also has to be observable from the module
+/// registration that releases it.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+static WASM_ENV_CLEANUP_BEGUN: AtomicBool = AtomicBool::new(false);
+
+/// The shared body of `napi_prepare_wasm_env_cleanup_begin` and the first half of
+/// `napi_prepare_wasm_env_cleanup`.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn wasm_env_cleanup_begin() -> u32 {
+  // A second phase 1 re-reports the poll and does nothing else: it must not raise the barrier
+  // again (the matching `finish` lowers it once), must not re-open the mailbox, and must not
+  // start a second backend teardown over the one already outstanding.
+  if WASM_ENV_CLEANUP_BEGUN.load(Ordering::SeqCst) {
+    return wasm_env_cleanup_work_pending();
+  }
+  // Park, then replay on this thread: a backend that drops a cancelled task on one of its own
+  // worker threads (the `napi-async-runtime` crate's MultiThread flavor on
+  // `wasm32-wasip1-threads` routinely does) would otherwise reject that task's promise from
+  // the worker, where the settle can only go into the threadsafe-function queue — and a host
+  // that calls the raw, synchronous `Context.destroy()` drains that queue with a null env and
+  // discards it. Opening before the shutdown covers every cancellation it produces; draining in
+  // `finish`, still inside the barrier, is what makes each of those rejections settle its
+  // promise directly. See `tokio_runtime::WASM_CANCEL_MAILBOX`.
+  #[cfg(feature = "async-runtime")]
+  crate::tokio_runtime::open_wasm_cancel_mailbox();
+  // Latch *before* the shutdown, and leave it latched after this returns: the drain that
+  // follows is an event loop, so the rejections this shutdown delivers run their JavaScript
+  // handlers while the environment is still alive, and an addon export called from one of them
+  // would otherwise restart the very runtime that just quiesced — behind the back of a drain
+  // that cannot see the restarted work. Runtime-backed calls made from here on reject with a
+  // defined error instead.
+  crate::tokio_runtime::latch_wasm_env_disposal();
+  // Deliver, do not queue: for as long as the barrier is raised, a `JsDeferred` settled on this
+  // thread settles its promise directly instead of appending to a queue the host dispatches two
+  // macrotasks later — which a caller that destroys the environment synchronously never
+  // reaches. It stays raised across the host's turns and is lowered by `finish`, so ordinary
+  // settles after the teardown go back through the queue.
+  crate::js_values::enter_wasm_env_cleanup_barrier();
+  // Record the outstanding phase BEFORE the backend call: that call runs cancellation callbacks,
+  // and anything they reach must see a handshake in progress.
+  WASM_ENV_CLEANUP_BEGUN.store(true, Ordering::SeqCst);
+  u32::from(crate::tokio_runtime::begin_shutdown_async_runtime())
+}
+
+/// The shared body of `napi_wasm_runtime_work_pending`.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn wasm_env_cleanup_work_pending() -> u32 {
+  u32::from(crate::tokio_runtime::async_runtime_work_pending())
+}
+
+/// The shared body of `napi_prepare_wasm_env_cleanup_finish` and the second half of
+/// `napi_prepare_wasm_env_cleanup`.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn wasm_env_cleanup_finish() {
+  // No phase 1 outstanding: tear nothing down and, crucially, lower no barrier — the counter
+  // this would decrement belongs to whoever raised it.
+  if !WASM_ENV_CLEANUP_BEGUN.swap(false, Ordering::SeqCst) {
+    return;
+  }
+  crate::tokio_runtime::finish_shutdown_async_runtime();
+  // Still inside the barrier, so every parked rejection settles its promise directly.
+  #[cfg(feature = "async-runtime")]
+  crate::tokio_runtime::drain_wasm_cancel_mailbox();
+  crate::js_values::leave_wasm_env_cleanup_barrier();
+}
+
+/// Unwind a phase 1 whose phase 2 never ran, at the only point where a new environment can take
+/// over this image: [`napi_register_module_v1`].
+///
+/// Phase 1 leaves four pieces of state behind — [`WASM_ENV_CLEANUP_BEGUN`], the registry's phase
+/// (`begin_deactivate` does not reset it; only `finish_deactivate` does), the cancel mailbox and
+/// the cleanup barrier on this thread. A host that walked away between the phases and then
+/// registered a new environment over the same linear memory would otherwise inherit all four:
+/// its first dispatch would spawn into a backend that already stopped and that nothing will
+/// start again, every `JsDeferred` settled on this thread would bypass the threadsafe-function
+/// queue for the rest of the process, and the next teardown's drain would invoke cancellation
+/// callbacks belonging to the environment that went away.
+///
+/// # Two outcomes, and neither of them joins
+///
+/// Registration must never block. It runs on the JavaScript thread with no host turn available
+/// until it returns, which is the very thing phase 2 may need: on `wasm32-wasip1-threads` the
+/// backend work phase 1 left running can be waiting for a JavaScript turn of its own (see
+/// `examples/custom-async-runtime/src/lib.rs`, `begin_shutdown`). Joining here would wait for
+/// work that only this thread could release — the deadlock the two-phase split exists to avoid.
+/// So the poll decides:
+///
+/// * **[`crate::tokio_runtime::async_runtime_work_pending`] reads false** — phase 2 has nothing
+///   to wait for, so run it. It delivers the quiescence the abandoned disposal owed and resets
+///   the registry to `Idle`, which is what lets the new environment start the backend again.
+///   Registration continues normally.
+/// * **It reads true** — do not join. Lower the barrier, take the mailbox out of the way, leave
+///   the registry phase, the owed `finish` ([`WASM_ENV_CLEANUP_BEGUN`] stays set) and the
+///   disposal latch exactly as phase 1 left them, and refuse the registration with an error
+///   naming the call the host skipped. The image stays in the state a loader can still finish:
+///   once the work is released, `napi_prepare_wasm_env_cleanup_finish` joins it from a real host
+///   turn and the next registration takes the branch above.
+///
+/// The barrier comes down in both, and neither replays what is parked: see
+/// [`crate::tokio_runtime::discard_wasm_cancel_mailbox`].
+///
+/// Runs on the JavaScript thread: emnapi registers modules on the main thread only, which is the
+/// same thread phase 1 ran on, so the barrier lowered here is the one that was raised — and the
+/// same thread the cleanup exports are entered from, so the non-atomic read/write pair below
+/// races with nobody.
+#[cfg(all(
+  target_family = "wasm",
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn unwind_abandoned_wasm_env_cleanup() -> std::result::Result<(), &'static CStr> {
+  if !WASM_ENV_CLEANUP_BEGUN.load(Ordering::SeqCst) {
+    return Ok(());
+  }
+  // Lower the barrier *first*, before anything below can produce a single cancellation. A
+  // cancellation raised on this thread while the barrier is up is invoked on the spot
+  // (`tokio_runtime::park_cancel_for_js_thread`), and "on the spot" now means rejecting a
+  // deferred whose environment is gone. With the barrier down, a cancellation from any thread
+  // is parked in the still-open mailbox instead — and taken out of the way below.
+  crate::js_values::reset_wasm_env_cleanup_barrier();
+  if crate::tokio_runtime::async_runtime_work_pending() {
+    // The abandoned teardown still owes a join, and this is the one place that must not perform
+    // it. Everything that outlives this call is left standing on purpose: the registry phase, so
+    // a later `finish` still joins the real backend; `WASM_ENV_CLEANUP_BEGUN`, so that `finish`
+    // is not a no-op; and the disposal latch, so nothing restarts a runtime that is still
+    // stopping. Only the mailbox goes, because its entries belong to the environment that walked
+    // away.
+    #[cfg(feature = "async-runtime")]
+    crate::tokio_runtime::discard_wasm_cancel_mailbox();
+    return Err(c"Cannot register a new environment over this addon image: the previous environment's two-phase wasm env cleanup was abandoned with async runtime work still pending, and finishing it here would join work that is waiting for a JavaScript turn this registration is holding. Call napi_prepare_wasm_env_cleanup_finish (once napi_wasm_runtime_work_pending reads 0) before re-registering.");
+  }
+  // Phase 2 for real — it cannot wait, because nothing is pending — and the handshake is over.
+  WASM_ENV_CLEANUP_BEGUN.store(false, Ordering::SeqCst);
+  crate::tokio_runtime::finish_shutdown_async_runtime();
+  #[cfg(feature = "async-runtime")]
+  crate::tokio_runtime::discard_wasm_cancel_mailbox();
+  Ok(())
 }
 
 /// How many promise settlements are queued in the threadsafe-function queue and have not been
@@ -513,6 +785,27 @@ pub unsafe extern "C" fn napi_register_module_v1(
   ))]
   unsafe {
     sys::setup();
+  }
+  // A disposal that began and was never finished (a host that walked away between the phases)
+  // must not make the new environment's first `begin` a no-op, leave it dispatching into a
+  // backend that already stopped, or hand it a raised barrier and a mailbox holding the previous
+  // environment's cancellations. This runs before any module-init callback, so no addon code can
+  // observe the half-unwound state in between — and before the latch release below, so the
+  // runtime stays refused for the whole of it (see `tokio_runtime::WASM_ENV_DISPOSING`).
+  //
+  // Two outcomes, neither of which joins: with no backend work pending it completes the
+  // abandoned phase 2 and registration continues; with work still pending it cannot complete
+  // anything without blocking this thread forever, so it leaves the owed `finish` standing and
+  // registration fails loudly instead. See `unwind_abandoned_wasm_env_cleanup`.
+  #[cfg(all(
+    target_family = "wasm",
+    not(feature = "noop"),
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  if let Err(message) = unwind_abandoned_wasm_env_cleanup() {
+    unsafe { sys::napi_throw_error(env, ptr::null_mut(), message.as_ptr()) };
+    return ptr::null_mut();
   }
   // A new environment is registering this addon image, so whatever disposal latched the runtime
   // against restart is over. This is the only release point, and the only one that is safe:

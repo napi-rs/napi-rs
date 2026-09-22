@@ -819,7 +819,8 @@ jobs:
   napi-async-runtime:
     runs-on: ubuntu-latest
     name: Test napi-async-runtime shared scheduler (cargo)
-    timeout-minutes: 15
+    # The wasm test binary is large and runs under an interpreter-grade host.
+    timeout-minutes: 25
     needs: audit
     steps:
       - uses: actions/checkout@v7
@@ -851,11 +852,41 @@ jobs:
       - name: Test napi-async-runtime (scheduler only)
         run: cargo test -p napi-async-runtime --no-default-features
       - name: Check napi-async-runtime on the WASI targets
+        # `--tests` on both triples: the two WASI targets now compile
+        # DIFFERENT code (`napi_runtime_os_threads`), and a gate typo that
+        # only shows under `cfg(test)` is otherwise invisible until someone
+        # runs the suite on one of them.
         run: |
-          cargo check -p napi-async-runtime --target wasm32-wasip1
-          cargo check -p napi-async-runtime --target wasm32-wasip1-threads
-          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1
-          cargo check -p napi-async-runtime --no-default-features --target wasm32-wasip1-threads
+          cargo check -p napi-async-runtime --tests --target wasm32-wasip1
+          cargo check -p napi-async-runtime --tests --target wasm32-wasip1-threads
+          cargo check -p napi-async-runtime --tests --no-default-features --target wasm32-wasip1
+          cargo check -p napi-async-runtime --tests --no-default-features --target wasm32-wasip1-threads
+      - name: Install a pinned wasmtime (-S threads is version-fragile)
+        # 42.0.0 and 44.0.0 accept the flag and then fail with "shared memory
+        # support is disabled for this engine"; 48.0.2 removed it while its
+        # `-S help` still lists it. Bump this pin only with a run.
+        run: |
+          asset=wasmtime-v35.0.0-x86_64-linux
+          # The v35.0.0 release publishes no SHA256SUMS/.sha256 asset, so this
+          # digest comes from two independent downloads of the same asset on
+          # 2026-09-22, which agreed. Recompute it the same way on a pin bump.
+          sha256=e3d2aae710a5cef548ab13f7e4ed23adc4fa1e9b4797049f4459320f32224011
+          curl -sSfL -o "$asset.tar.xz" \
+            "https://github.com/bytecodealliance/wasmtime/releases/download/v35.0.0/$asset.tar.xz"
+          if ! sha256sum -c --strict - <<<"$sha256  $asset.tar.xz"; then
+            echo "wasmtime tarball does not match the pinned SHA-256; refusing to extract" >&2
+            exit 1
+          fi
+          sudo tar -xJf "$asset.tar.xz" --strip-components=1 -C /usr/local/bin "$asset/wasmtime"
+          rm -f "$asset.tar.xz"
+          wasmtime --version
+      - name: Test napi-async-runtime on the WASI targets
+        # The runners live in `.cargo/config.toml`. Only the napi-free lane
+        # runs: a default-features wasm test build would need a Node-API host,
+        # and wasmtime is not one.
+        run: |
+          cargo test -p napi-async-runtime --no-default-features --target wasm32-wasip1
+          cargo test -p napi-async-runtime --no-default-features --target wasm32-wasip1-threads
       - name: Test the shared-async-runtime example (native)
         run: cargo test -p napi-shared-async-runtime-example
 
@@ -940,6 +971,40 @@ jobs:
       # still alive.
       - name: Test threadless WASI environment teardown barrier
         run: yarn workspace @examples/custom-async-runtime test:wasi
+
+  # The threaded sibling of the job above, and the only CI gate for the
+  # example's `wasi-threads` mode — nothing else runs it. wasm32-wasip1-threads
+  # is the one configuration of this example in which a backend can cancel a
+  # task on a thread that is not the JavaScript thread, which is the case a raw,
+  # synchronous `Context.destroy()` used to strand: the cross-thread settle can
+  # only enter the threadsafe-function queue, and destroy() drains that queue
+  # with a null env. No wasi-sdk is needed; the CLI ships the emnapi archives
+  # for this target, exactly as `test-node-wasi` relies on.
+  test-custom-async-runtime-wasi-threads:
+    runs-on: ubuntu-latest
+    name: Test custom async runtime on wasm32-wasip1-threads
+    timeout-minutes: 15
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1-threads
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build
+        run: yarn workspace @napi-rs/wasm-runtime build
+      - name: Test
+        run: yarn workspace @examples/custom-async-runtime test:wasi-threads
 
   # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
   # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`
@@ -1191,6 +1256,7 @@ jobs:
       - test-freebsd
       - napi-async-runtime
       - test-custom-async-runtime-wasi
+      - test-custom-async-runtime-wasi-threads
       - test-shared-async-runtime-wasi
       - test-node-wasi
       - wasi-sdk
