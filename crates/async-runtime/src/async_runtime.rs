@@ -10725,11 +10725,14 @@ impl RuntimeState {
     // Only a settled handoff can ever reach here: `ShutdownDrain::Backend` is
     // parked together with the published `Stopping` and `Joining` replaces it
     // until `Stopped` is published, and every `start` arm waits out
-    // `Stopping` instead of publishing over it.
+    // `Stopping` instead of publishing over it. `ZeroBackend` is the same
+    // argument one lifecycle over: it is parked together with the published
+    // `StoppingWithoutBackend`, every `start` arm waits that out, and
+    // `backend_locked` refuses to build a backend under it.
     debug_assert!(
       !matches!(
         self.draining,
-        Some(ShutdownDrain::Backend(_) | ShutdownDrain::Joining(_))
+        Some(ShutdownDrain::Backend(_) | ShutdownDrain::Joining(_) | ShutdownDrain::ZeroBackend(_))
       ),
       "a start must never publish over an outstanding backend drain"
     );
@@ -10766,6 +10769,23 @@ enum ShutdownDrain {
   /// Phase 1 completed a zero-backend transition (`Initial`, or an already
   /// stopped runtime): phase 2 has nothing left to drain.
   Settled,
+  /// Phase 1 announced a zero-backend stop (`Initial`, or an already stopped
+  /// runtime) that still owes the retirement of one or more
+  /// rejected-submission destructors before `target` may be published.
+  ///
+  /// Those destructors are arbitrary user `Drop` code running on the
+  /// REJECTING thread, so waiting for them is exactly what phase 1 must not
+  /// do: on the threaded WASI artifact that thread can be waiting for a
+  /// JavaScript turn the phase-1 caller can only give by returning. The
+  /// lifecycle reads `StoppingWithoutBackend(target)` for the whole window,
+  /// exactly as `Stopping` + `Backend` do for a generation with a backend, and
+  /// phase 2 does the wait and publishes the target.
+  ///
+  /// It is NOT taken out of the slot the way `Backend` is -- there is nothing
+  /// to own -- so every `finish_shutdown` that finds it re-reads the slot
+  /// after each wake and only the one that observes `rejected_drops == 0`
+  /// under the published target publishes it.
+  ZeroBackend(ZeroBackendShutdownTarget),
 }
 
 #[cfg(test)]
@@ -11524,10 +11544,13 @@ impl RuntimeController {
   /// abort registered tasks, drop queued work, drain-fire timers and wake
   /// parkers -- then return WITHOUT waiting for work that is already running.
   ///
-  /// `Ok(true)` = registered work is still live, so the caller should let its
-  /// host loop turn and poll [`Self::runtime_work_pending`] before phase 2.
-  /// `Ok(false)` = the generation is already idle and `finish_shutdown` will
-  /// not block on it.
+  /// `Ok(true)` = the announced stop still owes a wait, so the caller should
+  /// let its host loop turn and poll [`Self::runtime_work_pending`] before
+  /// phase 2. That is registered work of a generation with a backend, and --
+  /// on a zero-backend stop -- a rejected submission still being destroyed on
+  /// another thread, which phase 1 parks as `ShutdownDrain::ZeroBackend`
+  /// rather than wait out. `Ok(false)` = there is nothing left and
+  /// `finish_shutdown` will not block.
   ///
   /// This exists for a host that cannot yield inside a single-call
   /// `shutdown`: the threaded WASI artifact enters shutdown from the JS
@@ -11548,10 +11571,13 @@ impl RuntimeController {
   /// until phase 2 publishes `Stopped`, and is rejected outright when it comes
   /// from work in the generation being stopped. Admission needs no guard of
   /// its own: `backend_locked` already rejects every submission under
-  /// `Stopping`. A `start` that does land in the window of a zero-backend
-  /// phase 1 (nothing published to wait in) drops the handoff, and the
-  /// `finish_shutdown` that follows finds the fresh generation running and is
-  /// a no-op `Ok(())`.
+  /// `Stopping`. The same holds for a zero-backend stop that still owes a
+  /// rejected destruction: it publishes `StoppingWithoutBackend` for the whole
+  /// window, and `start` waits there until phase 2 publishes the target. Only
+  /// a zero-backend phase 1 that settled outright (`ShutdownDrain::Settled`,
+  /// nothing published to wait in) lets a `start` through -- it drops the
+  /// handoff, and the `finish_shutdown` that follows finds the fresh
+  /// generation running and is a no-op `Ok(())`.
   fn begin_shutdown(&self) -> Result<bool, RuntimeConfigError> {
     let backend = {
       let mut state = self
@@ -11571,6 +11597,22 @@ impl RuntimeController {
           // nothing to open and nothing to wait for -- only a verdict to give.
           ShutdownDrain::Backend(backend) => Some(backend.clone()),
           ShutdownDrain::Joining(backend) => backend.clone(),
+          // A zero-backend stop that still owes a rejected destruction. The
+          // verdict lives in `state`, not in a backend, so it is answered
+          // here -- under this lock, before the `drop(state)` below -- and,
+          // like every other arm of this re-entry, it never waits. The
+          // drop-context error keeps the surface identical to the
+          // `StoppingWithoutBackend` and `Stopped` arms below: a destructor
+          // can never drive the shutdown of the state it is blocking.
+          ShutdownDrain::ZeroBackend(_) => {
+            if RejectedSubmissionDropContext::is_current() {
+              return Err(RuntimeConfigError(
+                "cannot shut down the async runtime while a rejected submission is being destroyed"
+                  .to_string(),
+              ));
+            }
+            return Ok(state.rejected_drops != 0);
+          }
           ShutdownDrain::Settled => None,
         };
         // A second phase 1 opens nothing: the stop this handoff carries has
@@ -11597,17 +11639,17 @@ impl RuntimeController {
             }
             let target = ZeroBackendShutdownTarget::StoppedBeforeFirstUse;
             state.lifecycle = RuntimeLifecycle::StoppingWithoutBackend(target);
-            self.lifecycle_changed.notify_all();
-            while state.rejected_drops != 0 {
-              state = self
-                .lifecycle_changed
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.rejected_drops != 0 {
+              // Phase 1 NEVER waits. The outstanding retirement is another
+              // thread's user `Drop`, and that thread may be waiting for a
+              // host turn this one can only give by returning. Park the
+              // announced stop for phase 2 and report it as pending work, so
+              // the host keeps turning its loop -- the turn that destructor
+              // may be waiting for.
+              state.open_phase_one(ShutdownDrain::ZeroBackend(target));
+              self.lifecycle_changed.notify_all();
+              return Ok(true);
             }
-            debug_assert!(matches!(
-              state.lifecycle,
-              RuntimeLifecycle::StoppingWithoutBackend(current) if current == target
-            ));
             state.lifecycle = target.into_lifecycle();
             state.open_phase_one(ShutdownDrain::Settled);
             self.lifecycle_changed.notify_all();
@@ -11683,22 +11725,13 @@ impl RuntimeController {
             } else {
               ZeroBackendShutdownTarget::Stopped
             };
+            // Same rule as the `Initial` arm: announce the stop, hand the
+            // wait to phase 2, and return without waiting on another thread's
+            // destructor.
             state.lifecycle = RuntimeLifecycle::StoppingWithoutBackend(target);
+            state.open_phase_one(ShutdownDrain::ZeroBackend(target));
             self.lifecycle_changed.notify_all();
-            while state.rejected_drops != 0 {
-              state = self
-                .lifecycle_changed
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            }
-            debug_assert!(matches!(
-              state.lifecycle,
-              RuntimeLifecycle::StoppingWithoutBackend(current) if current == target
-            ));
-            state.lifecycle = target.into_lifecycle();
-            state.open_phase_one(ShutdownDrain::Settled);
-            self.lifecycle_changed.notify_all();
-            return Ok(false);
+            return Ok(true);
           }
         }
       }
@@ -11730,6 +11763,12 @@ impl RuntimeController {
         (Some(ShutdownDrain::Backend(backend) | ShutdownDrain::Joining(Some(backend))), _) => {
           backend.clone()
         }
+        // A zero-backend stop that still owes a rejected destruction: that
+        // destruction IS the pending work, and reporting it is what makes the
+        // host keep turning its event loop -- the turn the destructor may be
+        // waiting for. `false` here would send the loader straight into the
+        // phase-2 join in the same synchronous turn.
+        (Some(ShutdownDrain::ZeroBackend(_)), _) => return state.rejected_drops != 0,
         (None, RuntimeLifecycle::Running(backend)) => backend.clone(),
         // `Settled` is a handoff for a generation that had no backend, and
         // `forget_shutdown_handoff` drops it at every `start`, so it never
@@ -11793,6 +11832,46 @@ impl RuntimeController {
             return Err(RuntimeConfigError(STOPPING_WAIT_ERROR.to_string()));
           }
         }
+        // Phase 1 announced a zero-backend stop that still owed the
+        // retirement of a rejected submission's destructor. This is the wait
+        // phase 1 refused to do. The marker is NOT taken -- there is nothing
+        // to own -- so the slot is re-read after every wake: only the caller
+        // that observes `rejected_drops == 0` while the slot still carries
+        // this target publishes it, and a second finisher that wakes to an
+        // already-published stop reports it like any other completed phase 2.
+        Some(ShutdownDrain::ZeroBackend(_)) => loop {
+          let target = match (&state.draining, &state.lifecycle) {
+            (
+              Some(ShutdownDrain::ZeroBackend(parked)),
+              RuntimeLifecycle::StoppingWithoutBackend(published),
+            ) if published == parked => *parked,
+            // Another finisher published it, or a `start` superseded it.
+            // Either way the stop this call was asked to complete has been
+            // delivered.
+            _ => return Ok(()),
+          };
+          if state.rejected_drops == 0 {
+            // Retire the marker and publish the stop under the ONE lock
+            // acquisition, exactly as the backend path does below: no
+            // observer may ever see `StoppingWithoutBackend` without a drain,
+            // or the terminal lifecycle with one.
+            state.draining = None;
+            state.lifecycle = target.into_lifecycle();
+            self.lifecycle_changed.notify_all();
+            return Ok(());
+          }
+          if RejectedSubmissionDropContext::is_current() {
+            return Err(RuntimeConfigError(REJECTED_DROP_ERROR.to_string()));
+          }
+          // `rejected_drops` can flicker 1 -> 0 -> 1 across the host's turns:
+          // a fresh submission under `StoppingWithoutBackend` is rejected and
+          // increments it again. Re-observe, exactly as the backend path's
+          // tail wait does.
+          state = self
+            .lifecycle_changed
+            .wait(state)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        },
         // `Joining`: another caller took the handoff and is inside the join.
         // Same answer as an empty slot on a runtime that announced a stop --
         // wait out the publication and report it. `phase_ever_opened` is
@@ -12144,11 +12223,14 @@ pub fn shutdown() -> Result<(), RuntimeConfigError> {
 
 /// Phase 1 of a two-phase shutdown. Publishes the stop, closes admission,
 /// aborts registered tasks, drops queued work, drain-fires timers and wakes
-/// parkers -- and never waits.
+/// parkers -- and never waits. Never, including for a rejected submission
+/// whose destructor is still running on another thread: that wait belongs to
+/// [`finish_shutdown`] too.
 ///
-/// `Ok(true)` means registered work is still live: let the host loop turn,
-/// poll [`runtime_work_pending`] until it answers `false` (or a bound
-/// expires), then call [`finish_shutdown`]. `Ok(false)` means
+/// `Ok(true)` means the announced stop still owes a wait -- registered work
+/// that is still live, or a rejected submission still being destroyed: let
+/// the host loop turn, poll [`runtime_work_pending`] until it answers `false`
+/// (or a bound expires), then call [`finish_shutdown`]. `Ok(false)` means
 /// [`finish_shutdown`] has nothing to wait for.
 ///
 /// For a host that cannot yield inside [`shutdown`] -- on the threaded WASI
@@ -30963,6 +31045,323 @@ mod tests {
       error.to_string(),
       "the async runtime is stopped; call start before submitting work"
     );
+  }
+
+  /// A rejected submission whose destructor is parked until `release` is sent.
+  /// The counted window (`rejected_drops`) stays open for the whole of that
+  /// `Drop`, which is the state phase 1 must refuse to wait on.
+  #[cfg(napi_runtime_os_threads)]
+  struct ParkedRejectedDropFuture {
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  impl Future for ParkedRejectedDropFuture {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+      Poll::Pending
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  impl Drop for ParkedRejectedDropFuture {
+    fn drop(&mut self) {
+      self.entered.send(()).unwrap();
+      self.release.recv().unwrap();
+    }
+  }
+
+  /// Reject one submission on a spawned thread and return once its destructor
+  /// has been entered, so the caller runs with `rejected_drops != 0` held open
+  /// by a thread that is not it.
+  #[cfg(napi_runtime_os_threads)]
+  fn park_a_rejected_destructor(
+    controller: &Arc<RuntimeController>,
+    fail_backend_creation: bool,
+  ) -> (std::thread::JoinHandle<()>, std::sync::mpsc::Sender<()>) {
+    use std::sync::mpsc;
+
+    let (drop_entered_tx, drop_entered_rx) = mpsc::channel();
+    let (release_drop_tx, release_drop_rx) = mpsc::channel();
+    let submit_controller = Arc::clone(controller);
+    let submitter = std::thread::spawn(move || {
+      if fail_backend_creation {
+        FAIL_NEXT_RUNTIME_BACKEND_CREATION.with(|fail| fail.set(true));
+      }
+      let result = futures::executor::block_on(submit_controller.spawn(ParkedRejectedDropFuture {
+        entered: drop_entered_tx,
+        release: release_drop_rx,
+      }));
+      assert!(
+        result.is_err(),
+        "the submission must be rejected, not accepted"
+      );
+    });
+    drop_entered_rx
+      .recv_timeout(Duration::from_secs(2))
+      .expect("the rejected future destructor must start");
+    (submitter, release_drop_tx)
+  }
+
+  /// Run phase 1 on a spawned thread and answer within `timeout`.
+  ///
+  /// A regression HANGS inside `begin_shutdown` instead of returning a wrong
+  /// value, so the call cannot be made inline: the `recv_timeout` is what
+  /// turns the hang into a failure.
+  #[cfg(napi_runtime_os_threads)]
+  fn begin_shutdown_within(
+    controller: &Arc<RuntimeController>,
+    what: &str,
+    timeout: Duration,
+  ) -> Result<bool, RuntimeConfigError> {
+    use std::sync::mpsc;
+
+    let (tx, rx) = mpsc::channel();
+    let begin_controller = Arc::clone(controller);
+    let beginner = std::thread::spawn(move || {
+      tx.send(begin_controller.begin_shutdown()).unwrap();
+    });
+    let answer = rx
+      .recv_timeout(timeout)
+      .unwrap_or_else(|_| panic!("phase 1 must not wait: {what}"));
+    join_within(what, beginner, Duration::from_secs(2));
+    answer
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn begin_shutdown_does_not_wait_for_rejected_destruction_on_a_stopped_runtime() {
+    // Phase 1 never waits -- including for a rejected submission whose
+    // destructor is running on ANOTHER thread. That destructor is arbitrary
+    // user `Drop` code; on the threaded WASI artifact the thread running it
+    // may be waiting for the very host turn the phase-1 caller can only give
+    // by returning, so waiting here is the deadlock the split API exists to
+    // avoid. The wait belongs to phase 2, and the window must report itself
+    // as pending work so the host keeps turning its loop.
+    use std::sync::mpsc;
+
+    let controller = Arc::new(current_thread_controller("two-phase-zero-backend-stopped"));
+    drop(controller.backend());
+    controller
+      .shutdown()
+      .expect("the first shutdown must complete");
+
+    let (submitter, release_drop_tx) = park_a_rejected_destructor(&controller, false);
+
+    assert!(
+      begin_shutdown_within(
+        &controller,
+        "phase 1 on a stopped runtime with a rejected destructor outstanding",
+        Duration::from_secs(2),
+      )
+      .expect("phase 1 on a stopped runtime must be accepted"),
+      "the outstanding rejected destruction is a wait phase 2 still owes"
+    );
+    assert!(
+      controller.runtime_work_pending(),
+      "the poll must report the destruction, or the host stops turning the loop that frees it"
+    );
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(
+        &state.lifecycle,
+        RuntimeLifecycle::StoppingWithoutBackend(ZeroBackendShutdownTarget::Stopped)
+      ));
+      assert!(matches!(
+        &state.draining,
+        Some(ShutdownDrain::ZeroBackend(
+          ZeroBackendShutdownTarget::Stopped
+        ))
+      ));
+    }
+
+    assert!(
+      begin_shutdown_within(
+        &controller,
+        "a second phase 1 inside the zero-backend window",
+        Duration::from_secs(2),
+      )
+      .expect("a second phase 1 must answer from the outstanding handoff"),
+      "the second phase 1 must repeat the same verdict"
+    );
+
+    let (finish_tx, finish_rx) = mpsc::channel();
+    let finish_controller = Arc::clone(&controller);
+    let finisher = std::thread::spawn(move || {
+      finish_tx.send(finish_controller.finish_shutdown()).unwrap();
+    });
+    assert!(
+      finish_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+      "phase 2 owns the wait phase 1 refused"
+    );
+
+    release_drop_tx.send(()).unwrap();
+    join_within("the rejected submitter", submitter, Duration::from_secs(2));
+    finish_rx
+      .recv_timeout(Duration::from_secs(2))
+      .expect("phase 2 must return once the destructor retires")
+      .expect("phase 2 must complete the announced stop");
+    join_within("the phase 2 thread", finisher, Duration::from_secs(2));
+
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+      assert!(state.draining.is_none());
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn begin_shutdown_does_not_wait_for_rejected_destruction_on_an_initial_runtime() {
+    // The `Initial` twin of the test above: a backend creation that fails
+    // leaves the lifecycle `Initial` with the destructor of the rejected
+    // submission still running, and phase 1 must publish and return there
+    // too. The target it parks is `StoppedBeforeFirstUse`, and phase 2 is
+    // what publishes it.
+    use std::sync::mpsc;
+
+    let controller = Arc::new(current_thread_controller("two-phase-zero-backend-initial"));
+    let (submitter, release_drop_tx) = park_a_rejected_destructor(&controller, true);
+
+    assert!(
+      begin_shutdown_within(
+        &controller,
+        "phase 1 on an initial runtime with a rejected destructor outstanding",
+        Duration::from_secs(2),
+      )
+      .expect("phase 1 on an initial runtime must be accepted"),
+      "the outstanding rejected destruction is a wait phase 2 still owes"
+    );
+    assert!(controller.runtime_work_pending());
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(
+        &state.lifecycle,
+        RuntimeLifecycle::StoppingWithoutBackend(ZeroBackendShutdownTarget::StoppedBeforeFirstUse)
+      ));
+      assert!(matches!(
+        &state.draining,
+        Some(ShutdownDrain::ZeroBackend(
+          ZeroBackendShutdownTarget::StoppedBeforeFirstUse
+        ))
+      ));
+    }
+    assert!(
+      controller.try_spawn_detached(async {}).is_err(),
+      "the announced stop must keep first-generation admission closed"
+    );
+
+    let (finish_tx, finish_rx) = mpsc::channel();
+    let finish_controller = Arc::clone(&controller);
+    let finisher = std::thread::spawn(move || {
+      finish_tx.send(finish_controller.finish_shutdown()).unwrap();
+    });
+    assert!(
+      finish_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+      "phase 2 owns the wait phase 1 refused"
+    );
+
+    release_drop_tx.send(()).unwrap();
+    join_within("the rejected submitter", submitter, Duration::from_secs(2));
+    finish_rx
+      .recv_timeout(Duration::from_secs(2))
+      .expect("phase 2 must return once the destructor retires")
+      .expect("phase 2 must complete the announced stop");
+    join_within("the phase 2 thread", finisher, Duration::from_secs(2));
+
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(
+        matches!(&state.lifecycle, RuntimeLifecycle::StoppedBeforeFirstUse),
+        "a generation that never had a backend must stop before first use"
+      );
+      assert!(state.draining.is_none());
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn start_waits_out_a_zero_backend_phase_one() {
+    // Phase 1 no longer waits, so the `StoppingWithoutBackend` window now
+    // lasts until phase 2 publishes instead of only for the length of phase
+    // 1's internal wait. `start` must wait that whole window out: the
+    // destructor still runs under the RETIRED generation's guard, so a
+    // restart admitted before phase 2 would publish a fresh backend on top of
+    // it. The existing coverage only drives the single-call `shutdown`; this
+    // pins the invariant on the split API.
+    use std::sync::mpsc;
+
+    let controller = Arc::new(current_thread_controller("two-phase-zero-backend-start"));
+    let old_generation = controller.backend().generation();
+    controller
+      .shutdown()
+      .expect("the first shutdown must complete");
+
+    let (submitter, release_drop_tx) = park_a_rejected_destructor(&controller, false);
+    assert!(
+      begin_shutdown_within(
+        &controller,
+        "phase 1 before the restart",
+        Duration::from_secs(2),
+      )
+      .expect("phase 1 on a stopped runtime must be accepted")
+    );
+
+    let (start_tx, start_rx) = mpsc::channel();
+    let start_controller = Arc::clone(&controller);
+    let starter = std::thread::spawn(move || {
+      start_tx.send(start_controller.start()).unwrap();
+    });
+    assert!(
+      start_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+      "a restart must wait for the announced zero-backend stop to be published"
+    );
+
+    let (finish_tx, finish_rx) = mpsc::channel();
+    let finish_controller = Arc::clone(&controller);
+    let finisher = std::thread::spawn(move || {
+      finish_tx.send(finish_controller.finish_shutdown()).unwrap();
+    });
+    assert!(
+      finish_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+      "phase 2 must still be waiting on the destructor"
+    );
+
+    release_drop_tx.send(()).unwrap();
+    join_within("the rejected submitter", submitter, Duration::from_secs(2));
+    finish_rx
+      .recv_timeout(Duration::from_secs(2))
+      .expect("phase 2 must return once the destructor retires")
+      .expect("phase 2 must complete the announced stop");
+    join_within("the phase 2 thread", finisher, Duration::from_secs(2));
+    start_rx
+      .recv_timeout(Duration::from_secs(2))
+      .expect("the restart must be admitted once phase 2 has published")
+      .expect("a stopped runtime must restart after phase 2");
+    join_within("the restart thread", starter, Duration::from_secs(2));
+
+    let new_generation = controller.backend().generation();
+    assert_ne!(
+      new_generation, old_generation,
+      "the restart must publish a fresh generation"
+    );
+    controller
+      .shutdown()
+      .expect("the restarted generation must still shut down");
   }
 
   // ---- MultiThread blocking cap, drain budget, and panic propagation ---------

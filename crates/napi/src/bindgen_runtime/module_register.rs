@@ -431,8 +431,9 @@ extern "C" fn napi_prepare_wasm_env_cleanup() {
 /// Phase 1 of [`napi_prepare_wasm_env_cleanup`]: shut the addon's async runtime down without
 /// waiting for the work that is still running, and report whether any is.
 ///
-/// Returns 1 while backend-owned work is still live and 0 when
-/// [`napi_prepare_wasm_env_cleanup_finish`] will not block. A loader that can yield calls this,
+/// Returns 1 while the announced stop still owes a wait — backend-owned work that is still
+/// live, or a rejected submission whose destructor is still running on another thread — and 0
+/// when [`napi_prepare_wasm_env_cleanup_finish`] will not block. A loader that can yield calls this,
 /// then turns its event loop — polling [`napi_wasm_runtime_work_pending`] — until it reports the
 /// work finished, and calls `finish` then; the poll carries no bound, because a bound would not
 /// end the wait, only move it out of reach. Those turns are the whole point: on

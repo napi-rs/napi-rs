@@ -128,9 +128,19 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   while it happens.
 - **A host that can yield splits the join in two.** `begin_shutdown` publishes
   the stop, closes admission, cancels and drops what is only queued, wakes what
-  is parked — and returns without waiting. It answers `true` while
-  backend-owned work is still live. `runtime_work_pending` re-answers that
-  question at any time, without blocking. `finish_shutdown` is the call that
+  is parked — and returns without waiting. Never, including on a runtime with
+  no backend at all (`Initial`, or already stopped) whose last rejected
+  submission is still being destroyed on another thread: that destructor is
+  arbitrary user `Drop` code, and on threaded WASI the thread running it may be
+  waiting for the very JavaScript turn the phase-1 caller can only give by
+  returning. So phase 1 announces the stop, parks it, and hands that wait to
+  phase 2 as well. It answers `true` while the announced stop still owes a
+  wait — backend-owned work that is still live, or such a rejected destruction.
+  `runtime_work_pending` re-answers that question at any time, without
+  blocking. Note that the window is open-ended by the same rule the join is:
+  submissions are rejected for the whole of it, and each rejection starts
+  another destructor, so a host that keeps submitting from a worker during its
+  poll turns keeps extending phase 2. `finish_shutdown` is the call that
   waits, joins the workers and publishes `Stopped`, so it is the one that owes
   the quiescence guarantee. `shutdown` is unchanged and is exactly the two in
   sequence, so nothing that calls it behaves differently. Between the phases
