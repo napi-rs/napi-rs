@@ -20,11 +20,12 @@ use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
 use crate::async_runtime::{
   CurrentThreadTaskDelivery, CurrentThreadTaskDriver, CurrentThreadTaskDriverId, RuntimeFlavor,
   RuntimeMetricsSnapshot, RuntimeOptions, RuntimeOptionsPatch, TimerDriver, TimerDriverId, TimerId,
-  acknowledge_current_thread_task_delivery, configure, configure_partial, configured_options,
-  drive_current_thread_tasks, fail_current_thread_task_delivery, metrics,
-  register_current_thread_task_driver, register_timer_driver, request_current_thread_task_drain,
-  reset_metrics, shutdown, start, try_block_on_dyn, try_spawn, try_spawn_blocking,
-  try_spawn_detached, unregister_current_thread_task_driver, unregister_timer_driver,
+  acknowledge_current_thread_task_delivery, begin_shutdown, configure, configure_partial,
+  configured_options, drive_current_thread_tasks, fail_current_thread_task_delivery,
+  finish_shutdown, metrics, register_current_thread_task_driver, register_timer_driver,
+  request_current_thread_task_drain, reset_metrics, runtime_work_pending, shutdown, start,
+  try_block_on_dyn, try_spawn, try_spawn_blocking, try_spawn_detached,
+  unregister_current_thread_task_driver, unregister_timer_driver,
 };
 use crate::js_callback::{InvalidReturnValue, JsCallback};
 
@@ -80,6 +81,24 @@ unsafe impl AsyncRuntime for SharedAsyncRuntime {
 
   fn shutdown(&self) -> napi::Result<()> {
     shutdown().map_err(|error| napi::Error::from_reason(error.to_string()))
+  }
+
+  // Two-phase teardown. `shutdown` above is still `begin_shutdown` followed by
+  // `finish_shutdown`, so a host that calls it gets the same ordering it always did; these
+  // three let a host that can turn its event loop put those turns between the phases. That
+  // matters on the threaded WASI artifact, where the teardown is entered from the JavaScript
+  // thread -- the only thread that can give a running blocking closure the turn it is waiting
+  // for, so joining inside one call waits for work that can never finish.
+  fn begin_shutdown(&self) -> napi::Result<bool> {
+    begin_shutdown().map_err(|error| napi::Error::from_reason(error.to_string()))
+  }
+
+  fn shutdown_work_pending(&self) -> bool {
+    runtime_work_pending()
+  }
+
+  fn finish_shutdown(&self) -> napi::Result<()> {
+    finish_shutdown().map_err(|error| napi::Error::from_reason(error.to_string()))
   }
 }
 

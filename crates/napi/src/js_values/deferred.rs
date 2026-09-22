@@ -112,10 +112,11 @@ impl Drop for WasmHandleScope {
   }
 }
 
-/// Makes `JsDeferred` settle on the current thread deliver instead of queue, for as long as it
-/// is alive.
+/// Raise the wasm environment cleanup barrier on *this* thread: from here until the matching
+/// [`leave_wasm_env_cleanup_barrier`], a `JsDeferred` settled on this thread delivers instead
+/// of queueing.
 ///
-/// `napi_prepare_wasm_env_cleanup` holds one across the backend shutdown. The tasks that
+/// `napi_prepare_wasm_env_cleanup` raises it across the backend shutdown. The tasks that
 /// shutdown cancels reject their deferreds from inside it, on this very thread, and
 /// `napi_call_threadsafe_function` would merely *append* those rejections to a queue
 /// `@emnapi/core` dispatches from a macrotask two turns later — which a host that destroys the
@@ -123,34 +124,40 @@ impl Drop for WasmHandleScope {
 /// environment is still fully alive, is what makes a purely synchronous `Context.destroy()`
 /// work. Those settles never enter the queue, so they never enter
 /// [`PENDING_DEFERRED_SETTLES`] either, and the loader's drain sees zero and returns at once.
+///
+/// # Why this is a pair of calls and not a stack guard
+///
+/// The two-phase handshake (`napi_prepare_wasm_env_cleanup_begin` /
+/// `napi_prepare_wasm_env_cleanup_finish`) splits the shutdown across two separate bare wasm
+/// exports so the host can turn its event loop in between. The barrier has to span *both*, and
+/// a guard whose lifetime is a single Rust stack frame cannot: each export returns to
+/// JavaScript. The counter is the state that outlives the frame, so it is raised and lowered
+/// explicitly. The single-call export is the same two calls back to back, so it behaves exactly
+/// as the guard did.
+///
+/// Every caller is on the JavaScript thread (the exports are entered from it), and the counter
+/// is a thread local, so nesting is per-thread and a `wasm32-wasip1-threads` worker never
+/// observes a raised barrier. Both wasm targets build `panic = "abort"`, so there is no unwind
+/// path that could skip the lowering.
 #[cfg(all(
   target_family = "wasm",
   not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime")
 ))]
-pub(crate) struct WasmEnvCleanupBarrier(());
-
-#[cfg(all(
-  target_family = "wasm",
-  not(feature = "noop"),
-  any(feature = "tokio_rt", feature = "async-runtime")
-))]
-impl WasmEnvCleanupBarrier {
-  pub(crate) fn enter() -> Self {
-    WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-    Self(())
-  }
+pub(crate) fn enter_wasm_env_cleanup_barrier() {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
 }
 
+/// Lower the barrier [`enter_wasm_env_cleanup_barrier`] raised on this thread.
+///
+/// Saturating, so an unpaired lowering cannot wrap the counter and leave the barrier stuck up.
 #[cfg(all(
   target_family = "wasm",
   not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime")
 ))]
-impl Drop for WasmEnvCleanupBarrier {
-  fn drop(&mut self) {
-    WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-  }
+pub(crate) fn leave_wasm_env_cleanup_barrier() {
+  WASM_ENV_CLEANUP_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
 }
 
 #[cfg(feature = "deferred_trace")]
