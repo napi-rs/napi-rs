@@ -10667,6 +10667,12 @@ struct RuntimeState {
   /// Whoever finds it takes it, drains it and publishes the stop; everybody
   /// else answers off the lifecycle. It carries no owner and no credit -- see
   /// `phase_ever_opened`.
+  ///
+  /// The slot never goes empty while a stop is still owed: the taker swaps
+  /// the handoff for `ShutdownDrain::Joining`, which stays until `Stopped` is
+  /// published under this same lock. That keeps the non-blocking surfaces
+  /// (`begin_shutdown`'s re-entry arm, `runtime_work_pending`) truthful for
+  /// the whole join instead of reading like a runtime with nothing pending.
   draining: Option<ShutdownDrain>,
   /// Sticky: `true` once any `begin_shutdown` has OPENED a phase (any arm that
   /// parks a handoff, `Backend` or `Settled`). Never cleared -- not by a
@@ -10717,10 +10723,14 @@ impl RuntimeState {
   /// 2 into a host bug -- it turns it into a no-op.
   fn forget_shutdown_handoff(&mut self) {
     // Only a settled handoff can ever reach here: `ShutdownDrain::Backend` is
-    // parked together with the published `Stopping`, and every `start` arm
-    // waits out `Stopping` instead of publishing over it.
+    // parked together with the published `Stopping` and `Joining` replaces it
+    // until `Stopped` is published, and every `start` arm waits out
+    // `Stopping` instead of publishing over it.
     debug_assert!(
-      !matches!(self.draining, Some(ShutdownDrain::Backend(_))),
+      !matches!(
+        self.draining,
+        Some(ShutdownDrain::Backend(_) | ShutdownDrain::Joining(_))
+      ),
       "a start must never publish over an outstanding backend drain"
     );
     self.draining = None;
@@ -10731,8 +10741,28 @@ impl RuntimeState {
 /// `begin_shutdown`.
 enum ShutdownDrain {
   /// `Stopping(identity)` is published and this backend is waiting to be
-  /// drained and joined.
+  /// drained and joined. Nobody owns it yet, so it is still up for grabs.
   Backend(RuntimeBackend),
+  /// A `finish_shutdown` has TAKEN the handoff above and is inside the join.
+  /// The marker stays until that thread publishes `Stopped`: the lifecycle
+  /// reads `Stopping` for the whole window, so an empty slot would make a
+  /// re-entering phase 1 park on `lifecycle_changed` and
+  /// `runtime_work_pending` answer `false` about work the finisher is
+  /// demonstrably still waiting for.
+  ///
+  /// The backend rides along only for the FIRST half of that window
+  /// (`wait_until_idle`), which is the half that can still report work. The
+  /// drainer clears it to `None` before releasing its own last reference,
+  /// because that release is what drops the executor and lets the workers
+  /// exit -- a marker that kept a clone alive would wedge the worker join
+  /// forever (observed: `wait_for_all_workers` never returning). By then
+  /// `wait_until_idle` has returned, so `None` is the truthful verdict for
+  /// the remaining half.
+  ///
+  /// It is NOT up for grabs -- a second `finish_shutdown` that finds it waits
+  /// for the publication and reports it, exactly as it does for an empty slot
+  /// on a runtime that has announced a stop.
+  Joining(Option<RuntimeBackend>),
   /// Phase 1 completed a zero-backend transition (`Initial`, or an already
   /// stopped runtime): phase 2 has nothing left to drain.
   Settled,
@@ -11506,9 +11536,13 @@ impl RuntimeController {
   ///
   /// A `begin_shutdown` while one is outstanding opens no second phase and
   /// never waits: it answers with the current work-pending verdict, so the
-  /// thread that owns the shutdown may re-enter it from a host turn. Phase 1s
-  /// and phase 2s do not have to balance -- `finish_shutdown` completes the
-  /// most recently announced stop and is idempotent.
+  /// thread that owns the shutdown may re-enter it from a host turn. That
+  /// holds for the whole of an outstanding stop, including the window in
+  /// which another thread is already inside the join -- the handoff slot
+  /// carries `ShutdownDrain::Joining` there rather than going empty, so this
+  /// call answers from it instead of parking on the published `Stopping`.
+  /// Phase 1s and phase 2s do not have to balance -- `finish_shutdown`
+  /// completes the most recently announced stop and is idempotent.
   ///
   /// `start()` between the phases is NOT allowed -- it waits in `Stopping`
   /// until phase 2 publishes `Stopped`, and is rejected outright when it comes
@@ -11524,9 +11558,19 @@ impl RuntimeController {
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+      // Before the outstanding-handoff arm, not only inside the loop below:
+      // that arm returns early, and work of a RETIRED generation must be told
+      // so rather than be handed the current stop's verdict. The window it
+      // covers is the whole of an outstanding stop, join included, so the
+      // guard cannot sit behind it.
+      Self::ensure_active_generation_current(&state)?;
       if let Some(drain) = &state.draining {
         let outstanding = match drain {
+          // `Joining` answers exactly like `Backend`: the stop it carries has
+          // been announced and is being completed right now, so this call has
+          // nothing to open and nothing to wait for -- only a verdict to give.
           ShutdownDrain::Backend(backend) => Some(backend.clone()),
+          ShutdownDrain::Joining(backend) => backend.clone(),
           ShutdownDrain::Settled => None,
         };
         // A second phase 1 opens nothing: the stop this handoff carries has
@@ -11670,6 +11714,10 @@ impl RuntimeController {
   /// `finish_shutdown` will not have to wait for user work. Reads the running
   /// generation when no phase 1 is outstanding, so a host may also use it to
   /// decide whether a shutdown would block at all.
+  ///
+  /// It stays truthful while a `finish_shutdown` is inside the join: that
+  /// thread leaves `ShutdownDrain::Joining` in the slot, so this poll reports
+  /// the very work the join is waiting for instead of `false`.
   fn runtime_work_pending(&self) -> bool {
     let backend = {
       let state = self
@@ -11677,12 +11725,19 @@ impl RuntimeController {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       match (&state.draining, &state.lifecycle) {
-        (Some(ShutdownDrain::Backend(backend)), _) => backend.clone(),
+        // `Joining` is the in-flight drain: while it still carries the
+        // backend, report the work the finisher is waiting for, not `false`.
+        (Some(ShutdownDrain::Backend(backend) | ShutdownDrain::Joining(Some(backend))), _) => {
+          backend.clone()
+        }
         (None, RuntimeLifecycle::Running(backend)) => backend.clone(),
         // `Settled` is a handoff for a generation that had no backend, and
         // `forget_shutdown_handoff` drops it at every `start`, so it never
-        // shadows a running generation.
-        (Some(ShutdownDrain::Settled), _) | (None, _) => return false,
+        // shadows a running generation. A backend-less `Joining` is a drain
+        // past `wait_until_idle`: no user work can be left to report.
+        (Some(ShutdownDrain::Joining(None) | ShutdownDrain::Settled), _) | (None, _) => {
+          return false;
+        }
       }
     };
     backend.work_pending()
@@ -11693,8 +11748,9 @@ impl RuntimeController {
   /// `begin_shutdown`, in the same order the single call runs it.
   ///
   /// It completes the most recently announced stop, and it is IDEMPOTENT. It
-  /// owns no phase and counts none: whoever finds the handoff takes it, drains
-  /// it and publishes the stop, and every other caller answers off the
+  /// owns no phase and counts none: whoever finds the handoff takes it, swaps
+  /// it for `ShutdownDrain::Joining`, drains it and publishes the stop while
+  /// retiring that marker, and every other caller answers off the
   /// lifecycle -- waiting out a join that is still in flight, then reporting
   /// `Ok(())` for the stop that was delivered. Phase 1s and phase 2s therefore
   /// do not have to balance, and two threads completing the same shutdown both
@@ -11737,16 +11793,20 @@ impl RuntimeController {
             return Err(RuntimeConfigError(STOPPING_WAIT_ERROR.to_string()));
           }
         }
-        None => {
+        // `Joining`: another caller took the handoff and is inside the join.
+        // Same answer as an empty slot on a runtime that announced a stop --
+        // wait out the publication and report it. `phase_ever_opened` is
+        // necessarily set here, so the orphan check below never fires.
+        Some(ShutdownDrain::Joining(_)) | None => {
           if !state.phase_ever_opened {
             // No shutdown has ever been announced on this runtime, so there is
             // nothing for this call to complete: the host called the second
             // half without the first.
             return Err(RuntimeConfigError(NO_PHASE_ERROR.to_string()));
           }
-          // A stop WAS announced. The slot is empty because another caller
-          // took the handoff (a concurrent `shutdown`, or another
-          // `finish_shutdown`) or because a `start` dropped it. Wait out a
+          // A stop WAS announced. The slot holds an in-flight drain, or is
+          // empty because a `start` dropped the handoff or the joining thread
+          // has already published and retired its marker. Wait out a
           // join still in flight and report its publication -- a concurrent
           // `shutdown` waits in exactly this place today. Waiting inside this
           // arm, instead of re-entering the match, also keeps this caller from
@@ -11780,10 +11840,16 @@ impl RuntimeController {
         }
       }
       // Take the backend so this thread owns the drain and the slot can
-      // never be taken twice.
+      // never be taken twice -- but leave an explicit in-flight marker behind
+      // instead of emptying the slot, so the non-blocking surfaces keep
+      // telling the truth until `Stopped` is published below. Nothing can
+      // overwrite it in between: `open_phase_one` is only reached with an
+      // empty slot, and every `start` arm waits out the `Stopping` this
+      // marker is published alongside.
       let Some(ShutdownDrain::Backend(backend)) = state.draining.take() else {
         unreachable!();
       };
+      state.draining = Some(ShutdownDrain::Joining(Some(backend.clone())));
       backend
     };
 
@@ -11793,6 +11859,24 @@ impl RuntimeController {
 
     #[cfg(napi_runtime_os_threads)]
     let worker_lifecycle = backend.worker_lifecycle();
+    // Hand the backend back out of the marker BEFORE dropping this thread's
+    // own reference: `drop(backend)` below has to be the LAST one, because
+    // releasing the executor is what lets the workers exit and what
+    // `wait_for_all_workers` then joins. The marker itself stays -- phase 1
+    // and the poll must keep answering without waiting for the rest of the
+    // join -- it just stops carrying a backend, which `wait_until_idle`
+    // having returned already makes the truthful answer.
+    {
+      let mut state = self
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      debug_assert!(
+        matches!(state.draining, Some(ShutdownDrain::Joining(Some(_)))),
+        "nothing may disturb an in-flight drain marker before its publication"
+      );
+      state.draining = Some(ShutdownDrain::Joining(None));
+    }
     drop(backend);
 
     #[cfg(napi_runtime_os_threads)]
@@ -11811,6 +11895,14 @@ impl RuntimeController {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
     debug_assert!(matches!(state.lifecycle, RuntimeLifecycle::Stopping(_)));
+    debug_assert!(
+      matches!(state.draining, Some(ShutdownDrain::Joining(None))),
+      "nothing may retire an in-flight drain marker but its own publication"
+    );
+    // Retire the marker and publish the stop under the ONE lock acquisition:
+    // no observer may ever see `Stopping` without a drain, or `Stopped` with
+    // one.
+    state.draining = None;
     state.lifecycle = RuntimeLifecycle::Stopped;
     self.lifecycle_changed.notify_all();
     Ok(())
@@ -30186,6 +30278,124 @@ mod tests {
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
     assert!(state.draining.is_none());
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn a_phase_one_during_the_in_flight_drain_answers_without_waiting() {
+    // The handoff slot must never go empty while the join is still running.
+    // `finish_shutdown` takes the backend out of the state and only then
+    // waits; for the whole of that window the lifecycle still reads
+    // `Stopping`. If the slot were left `None` there, a re-entering phase 1
+    // would fall through to the lifecycle loop and PARK on `lifecycle_changed`
+    // until the join it is racing publishes `Stopped` -- breaking the
+    // documented "a `begin_shutdown` while one is outstanding never waits"
+    // contract -- and `runtime_work_pending` would answer `false` about work
+    // that is demonstrably still parked. On a host that drives both calls from
+    // the same thread pool that the drained work needs, that park is a
+    // deadlock.
+    //
+    // The probe is started from `AFTER_SHUTDOWN_DRAIN_TAKEN_TEST_HOOK`, i.e.
+    // provably after the handoff has left the slot and before the finisher
+    // waits, and the closure it must see is released only once the probe has
+    // answered (or a bounded watchdog gives up), so a parking probe FAILS the
+    // test instead of hanging it.
+    let controller = Arc::new(multi_thread_controller("two-phase-inflight-drain", 2, 1));
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let job_entered = Arc::clone(&entered);
+    let job_release = Arc::clone(&release);
+    let handle = controller
+      .try_spawn_blocking(move || {
+        job_entered.store(true, Ordering::SeqCst);
+        while !job_release.load(Ordering::SeqCst) {
+          std::hint::spin_loop();
+        }
+        11usize
+      })
+      .unwrap_or_else(|_| panic!("running runtime must accept the blocking job"));
+    wait_until("the blocking closure to park", || {
+      entered.load(Ordering::SeqCst)
+    });
+    assert!(
+      controller
+        .begin_shutdown()
+        .expect("phase 1 must be accepted"),
+      "the parked closure must be reported as live"
+    );
+
+    let (probe_tx, probe_rx) = std::sync::mpsc::channel();
+    let hook_controller = Arc::clone(&controller);
+    let hook_release = Arc::clone(&release);
+    AFTER_SHUTDOWN_DRAIN_TAKEN_TEST_HOOK.with(|slot| {
+      *slot.borrow_mut() = Some(Box::new(move || {
+        let probe_controller = Arc::clone(&hook_controller);
+        let probe = std::thread::spawn(move || {
+          let pending = probe_controller.runtime_work_pending();
+          (pending, probe_controller.begin_shutdown())
+        });
+        let watchdog = std::thread::spawn(move || {
+          let deadline = Instant::now() + Duration::from_secs(5);
+          while !probe.is_finished() && Instant::now() < deadline {
+            std::thread::yield_now();
+          }
+          // Whether the probe answered BEFORE the drained closure retired is
+          // the whole verdict: releasing afterwards would let a parked probe
+          // be woken by the `Stopped` publication and look healthy.
+          let answered_during_the_drain = probe.is_finished();
+          hook_release.store(true, Ordering::SeqCst);
+          (answered_during_the_drain, probe.join())
+        });
+        probe_tx
+          .send(watchdog)
+          .expect("the test thread must still be waiting for the probe handle");
+      }));
+    });
+
+    controller
+      .finish_shutdown()
+      .expect("phase 2 must complete the outstanding phase 1");
+    let (answered_during_the_drain, probe) = probe_rx
+      .recv()
+      .expect("the hook must have started the probe")
+      .join()
+      .expect("the watchdog thread must not panic");
+    let (pending, verdict) = probe.expect("the probe thread must not panic");
+    assert!(
+      answered_during_the_drain,
+      "a phase 1 re-entered during the in-flight drain must answer without waiting for the join"
+    );
+    assert!(
+      pending,
+      "the poll must still see the parked closure while the drain that is waiting for it runs"
+    );
+    assert!(
+      verdict.expect("a phase 1 during the in-flight drain must be accepted"),
+      "the re-entering phase 1 must report the parked closure as live"
+    );
+
+    assert_eq!(futures::executor::block_on(handle).unwrap(), 11usize);
+    {
+      let state = controller
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
+      assert!(
+        state.draining.is_none(),
+        "publishing `Stopped` must retire the in-flight drain marker too"
+      );
+    }
+    assert!(
+      !controller.runtime_work_pending(),
+      "a stopped runtime has no pending work"
+    );
+
+    controller.start().expect("a stopped runtime must restart");
+    drop(controller.backend());
+    controller
+      .shutdown()
+      .expect("the single call must still shut the restarted runtime down");
   }
 
   #[cfg(napi_runtime_os_threads)]
