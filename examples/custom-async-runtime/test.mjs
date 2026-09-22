@@ -1733,6 +1733,132 @@ if (isThreadedWasi) {
     /HANDSHAKE_TASK REJECTED: /,
     `the parked task's promise must be settled by the cancellation the teardown delivers:\n${handshakeOutput}`,
   )
+
+  // An addon export that reaches `napi::shutdown_async_runtime()` from a
+  // JavaScript turn the loader yields *between* the two phases.
+  //
+  // Those turns are the whole point of the split, and they run arbitrary
+  // JavaScript: any export the host calls from one lands in the middle of a
+  // disposal whose `…_finish` — the call that joins — has not run yet.
+  // `shutdownRuntime()` is such an export. Unguarded it performs that join
+  // itself, on the JavaScript thread, waiting for the same held worker that is
+  // waiting for a JavaScript turn this very call is preventing: the release
+  // timer below never fires, the disposal never settles and the subprocess has
+  // to be killed.
+  //
+  // Past the barrier the loader owns the teardown, so napi makes the public
+  // `shutdown_async_runtime` a no-op there — mirroring `start_async_runtime`,
+  // which is already a no-op past the same barrier. The call has to return
+  // straight away, the release timer has to still fire, and the disposal has to
+  // settle with the parked task rejected, exactly as in the case above.
+  const reentrantShutdown = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { createRequire } from 'node:module'
+      import { pathToFileURL } from 'node:url'
+
+      const loaderRequire = createRequire(
+        pathToFileURL(${JSON.stringify(threadedLoaderPath)}).href,
+      )
+      const binding = loaderRequire(${JSON.stringify(threadedLoaderPath)})
+
+      let task = 'PENDING'
+      binding.parkNextSpawnOnWorker()
+      binding.asyncNever().then(
+        () => { task = 'RESOLVED' },
+        (error) => { task = 'REJECTED: ' + error.message },
+      )
+
+      let parked = 0
+      for (let index = 0; index < 200 && parked === 0; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        parked = binding.parkedTasksOnWorker()
+      }
+      if (parked !== 1) {
+        console.error('REENTRANT_NOT_PARKED ' + parked)
+        process.exit(44)
+      }
+      binding.holdParkedWorkerUntilReleased()
+
+      const disposal = binding[Symbol.for('napi.rs.wasi.dispose')]()
+
+      // Scheduled after dispose() returned, so phase 1 has run and the loader
+      // is polling on its own timers: this lands inside the window.
+      setTimeout(() => {
+        const started = Date.now()
+        binding.shutdownRuntime()
+        console.error('REENTRANT_SHUTDOWN_RETURNED ' + (Date.now() - started))
+      }, 0)
+
+      // Reachable only while the JavaScript thread is still turning its event
+      // loop — which the call above must not have taken away from it.
+      let released = false
+      setTimeout(() => {
+        released = true
+        binding.releaseParkedWorker()
+      }, 50)
+
+      let outcome = 'RESOLVED'
+      let disposalTimer
+      try {
+        await Promise.race([
+          disposal,
+          new Promise((_, reject) => {
+            disposalTimer = setTimeout(
+              () => reject(new Error('the disposal did not settle in 30s')),
+              30_000,
+            )
+          }),
+        ])
+      } catch (error) {
+        outcome = 'REJECTED: ' + error.message
+      }
+      clearTimeout(disposalTimer)
+
+      const releasedFirst = released
+      for (let index = 0; index < 50; index++) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      console.error('REENTRANT_RELEASED_BEFORE_DISPOSAL ' + releasedFirst)
+      console.error('REENTRANT_DISPOSAL ' + outcome)
+      console.error('REENTRANT_TASK ' + task)
+      process.exit(0)
+      `,
+    ],
+    { encoding: 'utf8', timeout: 120_000 },
+  )
+  const reentrantOutput = `${reentrantShutdown.stdout}\n${reentrantShutdown.stderr}`
+  const reentrantBlocked = `shutdown_async_runtime() must not join the backend from a JavaScript turn inside the two-phase window: the loader owns that join, and the thread this call would block on is the only one that can give the held worker its turn. A subprocess killed on its spawn timeout here means it blocked instead:\n${reentrantOutput}`
+  assert.equal(
+    reentrantShutdown.error,
+    undefined,
+    `${reentrantBlocked}\n${reentrantShutdown.error?.stack}`,
+  )
+  assert.equal(reentrantShutdown.signal, null, reentrantBlocked)
+  assert.equal(reentrantShutdown.status, 0, reentrantOutput)
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_SHUTDOWN_RETURNED \d+/,
+    `the reentrant shutdown_async_runtime() call has to return to its caller:\n${reentrantOutput}`,
+  )
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_RELEASED_BEFORE_DISPOSAL true/,
+    `the JavaScript turn that released the held worker still has to run between the two halves:\n${reentrantOutput}`,
+  )
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_DISPOSAL RESOLVED/,
+    `the disposal must still settle after the reentrant call:\n${reentrantOutput}`,
+  )
+  assert.match(
+    reentrantOutput,
+    /REENTRANT_TASK REJECTED: /,
+    `the parked task's promise must still be settled by the cancellation the teardown delivers:\n${reentrantOutput}`,
+  )
 }
 
 if (isThreadlessWasi) {

@@ -1388,7 +1388,24 @@ pub fn start_async_runtime() {
 /// compatibility helpers called after this shutdown but before either of those still panic on
 /// the empty slot, exactly as they do after a `tokio_rt`-only shutdown. Otherwise the built-in
 /// Tokio runtime is shut down in the background.
+///
+/// On wasm targets this is a no-op past the environment cleanup barrier, mirroring
+/// [`start_async_runtime`]: from the moment `napi_prepare_wasm_env_cleanup`(`_begin`) latches the
+/// disposal, the loader owns the teardown and its `…_finish` call is the one that joins.
 pub fn shutdown_async_runtime() {
+  // Past the wasm environment cleanup barrier the loader owns the teardown, so this must not
+  // perform the join itself. The two-phase handshake yields real event-loop turns between
+  // `napi_prepare_wasm_env_cleanup_begin` and `…_finish`, and an addon export called from one of
+  // those turns would otherwise wait for backend work on the JavaScript thread — the same thread
+  // a parked blocking closure needs a turn from — wedging the disposal that was split apart to
+  // avoid exactly that. Returning here loses nothing: phase 1 already published the stop, and the
+  // `finish` the loader still owes performs the join. The cleanup exports never reach this
+  // function (they call `begin_shutdown_async_runtime` / `finish_shutdown_async_runtime`
+  // directly), so the guard cannot disarm the teardown it protects. See `WASM_ENV_DISPOSING`.
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  if wasm_env_disposing() {
+    return;
+  }
   #[cfg(feature = "async-runtime")]
   if ASYNC_RUNTIME_REGISTRY.deactivate() {
     drain_tokio_peer_after_backend_shutdown();
