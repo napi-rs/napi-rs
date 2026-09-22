@@ -274,6 +274,15 @@ pub fn setup() {
   // destroying. Conditional for the same reason as the two above.
   println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_async_work_pending");
   println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_cancel_pending_async_work");
+  // The two-phase form of the first barrier, for a loader that can yield: `…_begin` shuts the
+  // async runtime down without joining, `napi_wasm_runtime_work_pending` answers whether
+  // `…_finish` would still have to block, and `…_finish` joins and replays the cancellations.
+  // The loaders feature-detect the trio and fall back to the single blocking
+  // `napi_prepare_wasm_env_cleanup`, so these are conditional for the same reason as the ones
+  // above.
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_prepare_wasm_env_cleanup_begin");
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_wasm_runtime_work_pending");
+  println!("cargo:rustc-link-arg=--export-if-defined=napi_prepare_wasm_env_cleanup_finish");
   println!("cargo:rustc-link-arg=--export-if-defined=node_api_module_get_api_version_v1");
   println!("cargo:rustc-link-arg=--export-table");
   if has_threads {
