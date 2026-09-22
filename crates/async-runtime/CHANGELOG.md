@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.2...napi-async-runtime-v0.2.3) - 2026-09-22
+
+### Added
+
+- *(async-runtime)* offer the MultiThread flavor on wasm32-wasip1-threads ([#3541](https://github.com/napi-rs/napi-rs/pull/3541))
+
 ## [0.2.2](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.1...napi-async-runtime-v0.2.2) - 2026-09-20
 
 ### Fixed

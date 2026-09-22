@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.13.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.7...napi-v3.13.0) - 2026-09-22
+
+### Added
+
+- *(async-runtime)* offer the MultiThread flavor on wasm32-wasip1-threads ([#3541](https://github.com/napi-rs/napi-rs/pull/3541))
+
+### Fixed
+
+- *(napi)* validate native payload provenance for External and instance data ([#3540](https://github.com/napi-rs/napi-rs/pull/3540))
+
 ## [3.12.7](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.6...napi-v3.12.7) - 2026-09-20
 
 ### Fixed
