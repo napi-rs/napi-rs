@@ -117,6 +117,12 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   bounded join would be worse: it would leave a live thread running over
   memory the loader is about to destroy. Use `RuntimeOptions::park_deadline`
   if you need a park to fail loudly instead. The same applies before the join: `shutdown` first waits for every accepted blocking closure to return, and `park_deadline` does not bound that wait; it bounds parks, not a closure that is running. So the rule for hosts is: a blocking closure must never wait on a JavaScript turn (no threadsafe-function call, no napi promise, no channel fed by JS). Route that work through `spawn` instead, where the await yields. This is the same contract native addons already live under (`thread_cleanup` runs `shutdown` synchronously on the JS thread); MultiThread on threaded WASI is only the first configuration where a closure can be running on another thread while it happens. A two-phase shutdown handshake with the loader (close admission, let the JS loop turn, then join) is a possible follow-up across the crate, napi and the cli template.
+- **The JavaScript hosts go inert, not away.** The cli's
+  `napi.wasm.asyncRuntime` loaders install a CurrentThread task host and a
+  timer host unconditionally — they cannot know the flavor. MultiThread never
+  publishes a host turn and never consults a `TimerDriver`, so both
+  registrations simply sit unused, and the task host is an unref'd threadsafe
+  function that does not hold the event loop. Leave the flag on.
 
 The scheduler and adapter were extracted from rolldown's shared async runtime
 (rolldown#9977/#9978) and generalized; the wire behavior of the host protocol

@@ -1,3 +1,11 @@
+/// Emit this crate's two first-party target cfgs.
+///
+/// - `napi_runtime_wasi_threads` -- exactly the threaded WASI target, which is
+///   what `THREADLESS_BUILD` discriminates on.
+/// - `napi_runtime_os_threads` -- "this build can create OS threads": every
+///   non-wasm target plus `wasm32-wasip1-threads`.
+///
+/// Neither can be derived from a built-in cfg; see the note in the body.
 fn main() {
   // The two WASI targets are indistinguishable at cfg level on current rustc:
   // `rustc --print cfg` emits IDENTICAL sets for wasm32-wasip1 and

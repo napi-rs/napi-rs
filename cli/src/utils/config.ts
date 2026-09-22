@@ -144,12 +144,16 @@ export interface UserNapiConfig {
      * Whether the generated WASI loaders bootstrap the `napi-async-runtime`
      * CurrentThread JavaScript hosts.
      *
-     * A binding built with the `napi-async-runtime` crate runs the
-     * `CurrentThread` flavor on every WebAssembly target (it is the only
-     * flavor there). Its futures make no progress until a task host is
-     * registered, and its timers never fire until a timer host is, so the
-     * loader must install both right after instantiation and unregister them
-     * before the environment is destroyed.
+     * A binding built with the `napi-async-runtime` crate defaults to the
+     * `CurrentThread` flavor on every WebAssembly target. It is the only
+     * flavor on threadless `wasm32-wasip1`; `wasm32-wasip1-threads` also
+     * accepts an explicitly configured `MultiThread`. Under `CurrentThread`
+     * its futures make no progress until a task host is registered, and its
+     * timers never fire until a timer host is, so the loader must install
+     * both right after instantiation and unregister them before the
+     * environment is destroyed. A `MultiThread` binding uses neither host and
+     * the installed task host is unref'd, so leaving this enabled is also
+     * correct for an addon that picks its flavor at runtime.
      *
      * Enabling this emits that bootstrap in the node, browser and deferred
      * (workerd) loaders, and declares `@napi-rs/async-runtime` in the

@@ -390,12 +390,16 @@ override the default in either direction:
 
 ## Shared async runtime hosts
 
-`CurrentThread` is the only async-runtime flavor on WebAssembly, for both
-`wasm32-wasip1` and `wasm32-wasip1-threads`. An addon built with the
-`napi-async-runtime` crate therefore makes no progress until a JavaScript task
-host publishes its runnable turns, and its timers never fire until a timer host
-relays them. Set `napi.wasm.asyncRuntime` and the generated loaders install
-both for you:
+`CurrentThread` is the default async-runtime flavor on every WebAssembly
+target, and the only flavor on threadless `wasm32-wasip1`. On
+`wasm32-wasip1-threads` an addon may select `MultiThread` instead — always an
+explicit host act, never a default (see the crate's "Running MultiThread on
+`wasm32-wasip1-threads`" section).
+
+A `CurrentThread` addon built with the `napi-async-runtime` crate makes no
+progress until a JavaScript task host publishes its runnable turns, and its
+timers never fire until a timer host relays them. Set `napi.wasm.asyncRuntime`
+and the generated loaders install both for you:
 
 ```json
 {
@@ -407,8 +411,16 @@ both for you:
 }
 ```
 
-This affects WASI output only. Native `.node` bindings run the `MultiThread`
-flavor on real threads and need no JavaScript host.
+This affects WASI output only. Native `.node` bindings default to the
+`MultiThread` flavor on real threads and need no JavaScript host.
+
+Keep the flag on even for a `wasm32-wasip1-threads` addon that configures
+`MultiThread`. The loaders cannot see the flavor, so they install both hosts
+unconditionally — and a `MultiThread` runtime never uses either: its futures
+run on the Rayon pool instead of published host turns, and its timers come from
+the executor-owned heap plus a timekeeper thread. The installed task host is an
+unref'd threadsafe function, so it does not hold the event loop open. That is
+what lets one artifact choose its flavor at runtime.
 
 With the flag on:
 
