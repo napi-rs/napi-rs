@@ -1818,6 +1818,15 @@ export declare function withoutAbortController(a: number, b: number): Promise<nu
 
 export declare function xxh64Alias(input: Buffer): bigint
 
+export declare namespace nested.inner {
+  export class NestedCounter {
+    constructor()
+    increment(): number
+  }
+  export const NESTED_ANSWER: number
+  export function nestedDouble(input: number): number
+}
+
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number
   export function xxh3Xxh64Alias(input: Buffer): bigint
@@ -1835,6 +1844,10 @@ export declare namespace xxh3 {
   /** xxh128 function */
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
+}
+
+export declare namespace xxh3.nested {
+  export function xxh3NestedPlus(a: number, b: number): number
 }
 
 export declare class ComplexClass {

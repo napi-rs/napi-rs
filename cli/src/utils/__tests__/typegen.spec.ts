@@ -120,6 +120,22 @@ test('empty classes do not contain a blank body', async (t) => {
   t.false(dts.includes('class Blake2BKey {\n\n}'))
 })
 
+test('dotted namespaces export only their first segment', async (t) => {
+  const { dts, exports } = await processInlineTypeDef([
+    { kind: 'fn', name: 'one', def: 'function one(): number', js_mod: 'a' },
+    { kind: 'fn', name: 'two', def: 'function two(): number', js_mod: 'a.b' },
+    {
+      kind: 'fn',
+      name: 'three',
+      def: 'function three(): number',
+      js_mod: 'c.d',
+    },
+  ])
+  t.true(dts.includes('export declare namespace a.b {'))
+  t.true(dts.includes('export declare namespace c.d {'))
+  t.deepEqual(exports.slice().sort(), ['a', 'c'])
+})
+
 test('no-const-enum string enums emit a spaced union', async (t) => {
   const { dts } = await processTypeDef(flagFixture, false, false)
   t.true(dts.includes("export type Status = 'Active' | 'Inactive'"))

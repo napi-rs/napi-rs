@@ -81,3 +81,39 @@ use napi::bindgen_prelude::Buffer;
 pub fn xxh64_alias(input: Buffer) -> u64 {
   xxh3::xxh64(input)
 }
+
+// A dotted namespace nests one object inside another. `xxh3.nested` hangs off
+// the `xxh3` object above; `nested.inner` has no parent of its own, so both
+// levels are created at registration.
+#[napi(namespace = "xxh3.nested")]
+pub fn xxh3_nested_plus(a: u32, b: u32) -> u32 {
+  a + b
+}
+
+#[napi(namespace = "nested.inner")]
+pub const NESTED_ANSWER: u32 = 42;
+
+#[napi(namespace = "nested.inner")]
+pub fn nested_double(input: u32) -> u32 {
+  input * 2
+}
+
+#[napi(namespace = "nested.inner")]
+pub struct NestedCounter {
+  count: u32,
+}
+
+#[napi(namespace = "nested.inner")]
+impl NestedCounter {
+  #[napi(constructor)]
+  #[allow(clippy::new_without_default)]
+  pub fn new() -> Self {
+    NestedCounter { count: 0 }
+  }
+
+  #[napi]
+  pub fn increment(&mut self) -> u32 {
+    self.count += 1;
+    self.count
+  }
+}

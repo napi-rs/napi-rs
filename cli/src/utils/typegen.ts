@@ -622,7 +622,12 @@ function renderTypeDefs(
               })
               .join('\n\n')
           } else {
-            exports.push(namespace)
+            // A dotted namespace (`a.b`) is nested at runtime, so only its
+            // first segment is an export of the binding.
+            const exportName = namespace.split('.')[0]
+            if (!exports.includes(exportName)) {
+              exports.push(exportName)
+            }
             let declaration = ''
             declaration += `export declare namespace ${namespace} {\n`
             for (const def of defs) {

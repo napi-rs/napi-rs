@@ -150,6 +150,7 @@ import {
   xxh2,
   xxh3,
   xxh64Alias,
+  nested,
   tsRename,
   acceptArraybuffer,
   acceptSlice,
@@ -2183,6 +2184,14 @@ BigIntTest('js mod test', (t) => {
   const xx3 = new xxh3.Xxh3()
   xx3.update(Buffer.from('hello world'))
   t.is(xx3.digest(), BigInt('1116'))
+})
+
+test('dotted namespace creates nested objects', (t) => {
+  t.is(xxh3.nested.xxh3NestedPlus(1, 2), 3)
+  t.is(nested.inner.NESTED_ANSWER, 42)
+  t.is(nested.inner.nestedDouble(21), 42)
+  const counter = new nested.inner.NestedCounter()
+  t.is(counter.increment(), 1)
 })
 
 BigIntTest('from i128 i64', (t) => {
