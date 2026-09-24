@@ -4216,15 +4216,20 @@ console.log(JSON.stringify({ foo: binding.foo(), bar: binding.bar }))`,
 })
 
 test('direct multi loader requires its resolved ABI exactly once', async (t) => {
-  // Same-key ABI pairs only exist on linux (gnu/musl) and Windows (msvc/gnu).
-  const pair =
-    process.platform === 'linux'
-      ? (['x86_64-unknown-linux-gnu', 'x86_64-unknown-linux-musl'] as const)
-      : process.platform === 'win32'
-        ? (['x86_64-pc-windows-msvc', 'x86_64-pc-windows-gnu'] as const)
-        : null
+  // Same-key ABI pairs only exist for some platform/arch combos: linux
+  // gnu/musl (x64, arm64, arm) and Windows x64 (msvc/gnu).
+  const pairByHost: Record<string, readonly [string, string] | undefined> = {
+    'linux-x64': ['x86_64-unknown-linux-gnu', 'x86_64-unknown-linux-musl'],
+    'linux-arm64': ['aarch64-unknown-linux-gnu', 'aarch64-unknown-linux-musl'],
+    'linux-arm': [
+      'armv7-unknown-linux-gnueabihf',
+      'armv7-unknown-linux-musleabihf',
+    ],
+    'win32-x64': ['x86_64-pc-windows-msvc', 'x86_64-pc-windows-gnu'],
+  }
+  const pair = pairByHost[`${process.platform}-${process.arch}`]
   if (!pair) {
-    t.pass('no same-key ABI pair exists on this platform')
+    t.pass('no same-key ABI pair exists on this platform/arch')
     return
   }
   const { projectDir } = t.context
