@@ -66,7 +66,10 @@ import {
   createCjsBinding,
   createDirectCjsBinding,
   createDirectEsmBinding,
+  createDirectMultiCjsBinding,
+  createDirectMultiEsmBinding,
   createEsmBinding,
+  type DirectLoaderCandidate,
   NAPI_BINDING_TARGET_EXPORT,
 } from './templates/index.js'
 import {
@@ -1168,6 +1171,52 @@ export function assertDirectLoaderNativeTarget(target: Target): void {
       `The direct binding loader currently supports native \`.node\` artifacts only (got target ${target.triple}).`,
     )
   }
+}
+
+const DIRECT_NO_TARGET_ERROR =
+  'Direct binding loader requires at least one native target artifact, but no build target was provided.'
+
+/**
+ * Resolve the native targets a `direct` loader covers: the configured
+ * targets plus the target being built, deduplicated by artifact name.
+ *
+ * WASI siblings are skipped (a `direct` loader only names `.node` files),
+ * while a WASI build target itself is rejected outright. Appending the build
+ * target keeps ad-hoc builds (`napi build --target …` outside the configured
+ * list, or a config without `napi.targets`) covered by their own loader. In
+ * the standard CI flow the build target is already configured, so every job
+ * resolves the identical list and reuses the identical loader file.
+ */
+export function resolveDirectLoaderTargets(options: {
+  target?: Target | string
+  targets?: (Target | string)[]
+}): Target[] {
+  const buildTarget = options.target
+    ? typeof options.target === 'string'
+      ? parseTriple(options.target)
+      : options.target
+    : undefined
+  if (!buildTarget) {
+    throw new Error(DIRECT_NO_TARGET_ERROR)
+  }
+  assertDirectLoaderNativeTarget(buildTarget)
+  const list: Target[] = []
+  const seen = new Set<string>()
+  const push = (target: Target) => {
+    if (target.platform === 'wasi' || target.platform === 'wasm') {
+      return
+    }
+    if (seen.has(target.platformArchABI)) {
+      return
+    }
+    seen.add(target.platformArchABI)
+    list.push(target)
+  }
+  for (const target of options.targets ?? []) {
+    push(typeof target === 'string' ? parseTriple(target) : target)
+  }
+  push(buildTarget)
+  return list
 }
 
 /** Build the configured NAPI-RS crate and generate its output artifacts. */
@@ -2749,6 +2798,7 @@ class Builder {
       format: this.options.format,
       bindingLoader: this.options.bindingLoader,
       target: this.target,
+      targets: this.config.targets,
       binaryName: this.config.binaryName,
       packageName: this.options.jsPackageName ?? this.config.packageName,
       version: process.env.npm_new_version ?? this.config.packageJson.version,
@@ -3151,6 +3201,13 @@ export interface WriteJsBindingOptions {
    * `bindingLoader` is `direct`; ignored by the `node` loader.
    */
   target?: Target | string
+  /**
+   * Full target list (typically `napi.targets`) the `direct` loader covers.
+   * One effective target renders a single `require`; several render a small
+   * `platform-arch` lookup table so every CI job reuses the identical file.
+   * The build `target` is always included. Ignored by the `node` loader.
+   */
+  targets?: (Target | string)[]
   binaryName: string
   packageName: string
   version: string
@@ -3174,16 +3231,18 @@ export interface BindingGenerationContext {
   wasiFlavors?: string[]
   localWasiSpecifier?: string
   /**
-   * Relative `require` specifier of the build-time-selected `.node` artifact,
-   * e.g. `./example.linux-x64-gnu.node`. Required when `loader` is `direct`.
+   * Build-time-known `.node` artifacts the `direct` loader may require.
+   * Required when `loader` is `direct`: one candidate renders a single
+   * `require` with no runtime detection, several render a small
+   * `platform-arch` lookup table.
    */
-  artifactSpecifier?: string
+  directCandidates?: DirectLoaderCandidate[]
 }
 
 /**
  * Render a binding loader for the given strategy. `node` keeps the historical
- * runtime platform detection; `direct` requires the exact artifact specifier
- * up front and performs no runtime target detection.
+ * runtime platform detection; `direct` names only build-time-known artifacts,
+ * without npm fallbacks, `child_process`, musl probing, or WASI chains.
  */
 export function createBinding(
   loader: BindingLoader,
@@ -3191,14 +3250,18 @@ export function createBinding(
 ): string {
   switch (loader) {
     case 'direct': {
-      if (!context.artifactSpecifier) {
-        throw new Error(
-          'Direct binding loader requires exactly one native target artifact, but no build target was provided.',
-        )
+      const candidates = context.directCandidates ?? []
+      if (candidates.length === 0) {
+        throw new Error(DIRECT_NO_TARGET_ERROR)
+      }
+      if (candidates.length === 1) {
+        return context.format === 'esm'
+          ? createDirectEsmBinding(candidates[0].specifier, context.idents)
+          : createDirectCjsBinding(candidates[0].specifier, context.idents)
       }
       return context.format === 'esm'
-        ? createDirectEsmBinding(context.artifactSpecifier, context.idents)
-        : createDirectCjsBinding(context.artifactSpecifier, context.idents)
+        ? createDirectMultiEsmBinding(candidates, context.idents)
+        : createDirectMultiCjsBinding(candidates, context.idents)
     }
     case 'node':
       return context.format === 'esm'
@@ -3247,34 +3310,32 @@ export async function writeJsBinding(
   const dest = join(options.outputDir, name)
   const format = resolveBuildFormat(options)
 
-  let artifactSpecifier: string | undefined
+  let directCandidates: DirectLoaderCandidate[] | undefined
   let localWasiSpecifier: string | undefined
   if (loader === 'direct') {
-    const target = options.target
-      ? typeof options.target === 'string'
-        ? parseTriple(options.target)
-        : options.target
-      : undefined
-    if (!target) {
-      throw new Error(
-        'Direct binding loader requires exactly one native target artifact, but no build target was provided.',
-      )
-    }
-    assertDirectLoaderNativeTarget(target)
     // Reuse the canonical artifact naming so the loader always points at the
-    // file `copyArtifact` produced for this target. The source name only
-    // selects the `.node` extension here; native builds never emit `.wasm`.
-    const artifactFileName = createArtifactDestinationName(
-      options.binaryName,
-      target,
-      'binding.so',
-      true,
-    )
-    const specifier = relative(
-      dirname(dest),
-      join(options.outputDir, artifactFileName),
-    ).replaceAll('\\', '/')
-    artifactSpecifier = specifier.startsWith('.') ? specifier : `./${specifier}`
+    // files `copyArtifact` produced. The source name only selects the `.node`
+    // extension here; native builds never emit `.wasm`.
+    directCandidates = resolveDirectLoaderTargets({
+      target: options.target,
+      targets: options.targets,
+    }).map((directTarget) => {
+      const artifactFileName = createArtifactDestinationName(
+        options.binaryName,
+        directTarget,
+        'binding.so',
+        true,
+      )
+      const specifier = relative(
+        dirname(dest),
+        join(options.outputDir, artifactFileName),
+      ).replaceAll('\\', '/')
+      return {
+        platform: directTarget.platform,
+        arch: directTarget.arch,
+        specifier: specifier.startsWith('.') ? specifier : `./${specifier}`,
+      }
+    })
   } else {
     const localWasiName = relative(
       dirname(dest),
@@ -3294,7 +3355,7 @@ export async function writeJsBinding(
     version: options.version,
     wasiFlavors: options.wasiFlavors,
     localWasiSpecifier,
-    artifactSpecifier,
+    directCandidates,
   })
 
   try {

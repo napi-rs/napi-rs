@@ -37,6 +37,7 @@ import {
   prepareWasiBindingTypeDef,
   resolveBindingLoader,
   resolveBuildFormat,
+  resolveDirectLoaderTargets,
   resolveWasmMemory,
   selectEmnapiLinkDir,
   validateCrossCompileFlags,
@@ -3869,7 +3870,7 @@ test('writeJsBinding rejects direct mode without a target', async (t) => {
     }),
     {
       message:
-        /Direct binding loader requires exactly one native target artifact/,
+        /Direct binding loader requires at least one native target artifact/,
     },
   )
 })
@@ -3956,4 +3957,225 @@ console.log(JSON.stringify({ foo: binding.foo(), bar: binding.bar, target: bindi
     bar: 42,
     target: 'native',
   })
+})
+
+test('resolveDirectLoaderTargets covers config targets plus the build target', (t) => {
+  const resolved = resolveDirectLoaderTargets({
+    target: 'x86_64-unknown-linux-gnu',
+    targets: [
+      'x86_64-pc-windows-msvc',
+      'x86_64-unknown-linux-gnu',
+      'aarch64-apple-darwin',
+    ],
+  }).map((target) => target.platformArchABI)
+  // Config order wins; the already-listed build target is not duplicated.
+  t.deepEqual(resolved, ['win32-x64-msvc', 'linux-x64-gnu', 'darwin-arm64'])
+
+  // A build target outside the configured list is appended, so its own
+  // artifact stays covered.
+  t.deepEqual(
+    resolveDirectLoaderTargets({
+      target: 'aarch64-apple-darwin',
+      targets: ['x86_64-pc-windows-msvc'],
+    }).map((target) => target.platformArchABI),
+    ['win32-x64-msvc', 'darwin-arm64'],
+  )
+
+  // WASI siblings are skipped; a WASI build target is rejected outright.
+  t.deepEqual(
+    resolveDirectLoaderTargets({
+      target: 'x86_64-unknown-linux-gnu',
+      targets: ['wasm32-wasip1', 'x86_64-unknown-linux-gnu'],
+    }).map((target) => target.platformArchABI),
+    ['linux-x64-gnu'],
+  )
+  t.throws(
+    () =>
+      resolveDirectLoaderTargets({
+        target: 'wasm32-wasip1',
+        targets: ['x86_64-unknown-linux-gnu'],
+      }),
+    {
+      message:
+        /The direct binding loader currently supports native `\.node` artifacts only/,
+    },
+  )
+  t.throws(() => resolveDirectLoaderTargets({}), {
+    message:
+      /Direct binding loader requires at least one native target artifact/,
+  })
+})
+
+test('writeJsBinding generates a multi-target direct loader', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo', 'bar'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'multi.js',
+    bindingLoader: 'direct',
+    target: 'x86_64-unknown-linux-gnu',
+    targets: [
+      'x86_64-pc-windows-msvc',
+      'x86_64-unknown-linux-gnu',
+      'aarch64-apple-darwin',
+    ],
+  })
+
+  const binding = await readFile(join(projectDir, 'multi.js'), 'utf8')
+  // Every configured artifact is named; selection is a small lookup table.
+  t.true(binding.includes(`'linux-x64': ['./example.linux-x64-gnu.node']`))
+  t.true(binding.includes(`'win32-x64': ['./example.win32-x64-msvc.node']`))
+  t.true(binding.includes(`'darwin-arm64': ['./example.darwin-arm64.node']`))
+  t.true(binding.includes('process.platform'))
+  t.true(binding.includes('process.arch'))
+  t.true(binding.includes('module.exports.foo = nativeBinding.foo'))
+  t.true(binding.includes('module.exports.bar = nativeBinding.bar'))
+  // ...and nothing else: no npm fallbacks, musl probing, or WASI chains.
+  t.false(binding.includes('child_process'))
+  t.false(binding.includes('isMusl'))
+  t.false(binding.includes('loadErrors'))
+  t.false(binding.includes('NAPI_RS_ENFORCE_VERSION_CHECK'))
+  t.false(binding.includes(`require('example-`))
+  t.false(binding.includes('NAPI_RS_WASI_FLAVOR'))
+})
+
+test('writeJsBinding generates a multi-target direct ESM loader', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'multi.mjs',
+    format: 'esm',
+    bindingLoader: 'direct',
+    target: 'x86_64-unknown-linux-gnu',
+    targets: ['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu'],
+  })
+
+  const binding = await readFile(join(projectDir, 'multi.mjs'), 'utf8')
+  t.true(binding.includes('createRequire'))
+  t.true(binding.includes(`'win32-x64': ['./example.win32-x64-msvc.node']`))
+  t.true(binding.includes('export { foo }'))
+  t.true(binding.includes("export const __napiBindingTarget = 'native'"))
+  t.false(binding.includes('export default'))
+  t.false(binding.includes('child_process'))
+  t.false(binding.includes('isMusl'))
+})
+
+test('direct multi loader tries same-platform artifacts in config order', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'abi.js',
+    bindingLoader: 'direct',
+    target: 'x86_64-unknown-linux-musl',
+    targets: ['x86_64-unknown-linux-gnu', 'x86_64-unknown-linux-musl'],
+  })
+
+  const binding = await readFile(join(projectDir, 'abi.js'), 'utf8')
+  // One runtime key, both ABIs in config order: no musl probing needed.
+  t.true(
+    binding.includes(
+      `'linux-x64': ['./example.linux-x64-gnu.node', './example.linux-x64-musl.node']`,
+    ),
+  )
+  t.false(binding.includes('isMusl'))
+})
+
+test('every CI job reuses the identical direct loader file', async (t) => {
+  const { projectDir } = t.context
+  const targets = [
+    'x86_64-pc-windows-msvc',
+    'x86_64-unknown-linux-gnu',
+    'aarch64-apple-darwin',
+  ]
+  // Two matrix jobs building different targets from the same config.
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'job-win.js',
+    bindingLoader: 'direct',
+    target: 'x86_64-pc-windows-msvc',
+    targets,
+  })
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'job-linux.js',
+    bindingLoader: 'direct',
+    target: 'x86_64-unknown-linux-gnu',
+    targets,
+  })
+
+  const [winJob, linuxJob] = await Promise.all([
+    readFile(join(projectDir, 'job-win.js'), 'utf8'),
+    readFile(join(projectDir, 'job-linux.js'), 'utf8'),
+  ])
+  t.is(winJob, linuxJob)
+})
+
+test('direct multi loader loads the artifact for the current host', async (t) => {
+  const { projectDir } = t.context
+  const host = getSystemDefaultTarget()
+  const otherTriple =
+    host.triple === 'x86_64-pc-windows-msvc'
+      ? 'x86_64-unknown-linux-gnu'
+      : 'x86_64-pc-windows-msvc'
+  const otherABI = parseTriple(otherTriple).platformArchABI
+  await writeFile(
+    join(projectDir, `example.${host.platformArchABI}.node`),
+    `module.exports = { foo: () => 'host', bar: 7 }\n`,
+  )
+  await writeFile(
+    join(projectDir, `example.${otherABI}.node`),
+    `module.exports = { foo: () => 'other', bar: 8 }\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo', 'bar'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'multi-index.js',
+    bindingLoader: 'direct',
+    target: host.triple,
+    targets: [otherTriple, host.triple],
+  })
+
+  // `.node` files are binary addons; teach this probe process to load the
+  // stand-ins as JavaScript instead.
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `require.extensions['.node'] = require.extensions['.js']
+const binding = require(${JSON.stringify(join(projectDir, 'multi-index.js'))})
+console.log(JSON.stringify({ foo: binding.foo(), bar: binding.bar }))`,
+    ],
+    { encoding: 'utf8' },
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  // The lookup table resolves the stand-in for this host's platform/arch.
+  t.deepEqual(JSON.parse(result.stdout), { foo: 'host', bar: 7 })
 })

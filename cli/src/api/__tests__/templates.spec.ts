@@ -8,6 +8,9 @@ import ts from 'typescript'
 import {
   createDirectCjsBinding,
   createDirectEsmBinding,
+  createDirectMultiCjsBinding,
+  createDirectMultiEsmBinding,
+  type DirectLoaderCandidate,
 } from '../templates/direct-js-binding.js'
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
 import {
@@ -2235,6 +2238,111 @@ test('direct loaders reject a napi export named __napiBindingTarget', (t) => {
       createDirectEsmBinding('./example.linux-x64-gnu.node', [
         '__napiBindingTarget',
       ]),
+    { message: /reserved by the generated binding loader/ },
+  )
+})
+
+const MULTI_CANDIDATES: DirectLoaderCandidate[] = [
+  { platform: 'linux', arch: 'x64', specifier: './example.linux-x64-gnu.node' },
+  {
+    platform: 'linux',
+    arch: 'x64',
+    specifier: './example.linux-x64-musl.node',
+  },
+  {
+    platform: 'win32',
+    arch: 'x64',
+    specifier: './example.win32-x64-msvc.node',
+  },
+]
+
+test('createDirectMultiCjsBinding maps platforms through a small lookup table', (t) => {
+  const code = createDirectMultiCjsBinding(MULTI_CANDIDATES, ['foo', 'bar'])
+  assertValidJS(t, code, 'direct multi cjs')
+  t.true(
+    code.includes(
+      `'linux-x64': ['./example.linux-x64-gnu.node', './example.linux-x64-musl.node']`,
+    ),
+  )
+  t.true(code.includes(`'win32-x64': ['./example.win32-x64-msvc.node']`))
+  // Minimal runtime selection only: a platform-arch key, nothing heavier.
+  t.true(code.includes('process.platform'))
+  t.true(code.includes('process.arch'))
+  t.true(code.includes('module.exports.foo = nativeBinding.foo'))
+  t.true(code.includes('module.exports.bar = nativeBinding.bar'))
+  t.true(code.includes('__napiBindingTarget'))
+  t.false(code.includes('child_process'))
+  t.false(code.includes('isMusl'))
+  t.false(code.includes('loadErrors'))
+  t.false(code.includes('process.env'))
+  t.false(
+    code.includes('?.'),
+    'direct CJS loader must not use optional chaining',
+  )
+  t.false(
+    code.includes('??'),
+    'direct CJS loader must not use nullish coalescing',
+  )
+  t.false(
+    NODE_SCHEME_RE.test(code),
+    'direct CJS loader must not use the node: scheme',
+  )
+})
+
+test('createDirectMultiEsmBinding exposes named exports over the table', (t) => {
+  const code = createDirectMultiEsmBinding(MULTI_CANDIDATES, ['foo', 'bar'])
+  assertValidJS(t, code, 'direct multi esm')
+  t.true(code.includes('createRequire'))
+  t.true(
+    code.includes(
+      `'linux-x64': ['./example.linux-x64-gnu.node', './example.linux-x64-musl.node']`,
+    ),
+  )
+  t.true(code.includes('const { foo, bar } = nativeBinding'))
+  t.true(code.includes('export { foo }'))
+  t.true(code.includes('export { bar }'))
+  t.true(code.includes("export const __napiBindingTarget = 'native'"))
+  t.false(code.includes('export default'))
+  t.false(code.includes('child_process'))
+  t.false(code.includes('isMusl'))
+})
+
+test('direct multi offers a universal binary first on every arch', (t) => {
+  const code = createDirectMultiCjsBinding(
+    [
+      {
+        platform: 'darwin',
+        arch: 'x64',
+        specifier: './example.darwin-x64.node',
+      },
+      {
+        platform: 'darwin',
+        arch: 'universal',
+        specifier: './example.darwin-universal.node',
+      },
+    ],
+    ['foo'],
+  )
+  assertValidJS(t, code, 'direct multi universal')
+  // Config order would list x64 first; the universal binary jumps the queue.
+  t.true(
+    code.includes(
+      `'darwin-x64': ['./example.darwin-universal.node', './example.darwin-x64.node']`,
+    ),
+  )
+  t.true(code.includes(`'darwin-arm64': ['./example.darwin-universal.node']`))
+  t.false(code.includes(`'darwin-universal':`))
+})
+
+test('direct multi loaders reject a napi export named __napiBindingTarget', (t) => {
+  t.throws(
+    () =>
+      createDirectMultiCjsBinding(MULTI_CANDIDATES, ['__napiBindingTarget']),
+    { message: /reserved by the generated binding loader/ },
+  )
+  t.throws(
+    () =>
+      createDirectMultiEsmBinding(MULTI_CANDIDATES, ['__napiBindingTarget']),
     { message: /reserved by the generated binding loader/ },
   )
 })
