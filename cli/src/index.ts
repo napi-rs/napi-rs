@@ -95,6 +95,7 @@ export function createNewCommand(args: string[]): NewCommand {
 
 export { parseTriple } from './utils/target.js'
 export {
+  type BindingLoader,
   type GenerateTypeDefOptions,
   type WriteJsBindingOptions,
   writeJsBinding,

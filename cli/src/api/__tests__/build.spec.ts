@@ -29,11 +29,13 @@ import {
   bindingTargetDeclarationPredicate,
   buildProject,
   checkAsyncRuntimeHostContract,
+  createArtifactDestinationName,
   EMNAPI_WASI_SDK_34_LINK_DIR,
   ensureBindingTargetDeclaration,
   generateTypeDef,
   napiCrossToolchainEnvs,
   prepareWasiBindingTypeDef,
+  resolveBindingLoader,
   resolveBuildFormat,
   resolveWasmMemory,
   selectEmnapiLinkDir,
@@ -41,7 +43,11 @@ import {
   validateNapiCrossSupport,
   writeJsBinding,
 } from '../build.js'
-import { getSystemDefaultTarget, scanExportedName } from '../../utils/index.js'
+import {
+  getSystemDefaultTarget,
+  parseTriple,
+  scanExportedName,
+} from '../../utils/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../../..')
@@ -3693,5 +3699,261 @@ test('resolveWasmMemory rejects non-page values', (t) => {
   t.throws(() => resolveWasmMemory({ maximumMemory: 65537 }, true), {
     message:
       /napi\.wasm\.maximumMemory must be an integer between 1 and 65536 pages/,
+  })
+})
+
+test('resolveBindingLoader defaults to node and validates input', (t) => {
+  t.is(resolveBindingLoader({}), 'node')
+  t.is(resolveBindingLoader({ bindingLoader: undefined }), 'node')
+  t.is(resolveBindingLoader({ bindingLoader: 'node' }), 'node')
+  t.is(resolveBindingLoader({ bindingLoader: 'direct' }), 'direct')
+  t.throws(() => resolveBindingLoader({ bindingLoader: 'unknown' }), {
+    message: /Invalid binding loader "unknown"/,
+  })
+  t.throws(() => resolveBindingLoader({ bindingLoader: '' }), {
+    message: /Invalid binding loader ""/,
+  })
+})
+
+test('writeJsBinding defaults to the node loader', async (t) => {
+  const { projectDir } = t.context
+  const base = {
+    platform: true,
+    idents: ['sum'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  }
+
+  await writeJsBinding({ ...base, jsBinding: 'default.js' })
+  await writeJsBinding({
+    ...base,
+    jsBinding: 'explicit-node.js',
+    bindingLoader: 'node',
+  })
+
+  const [implicit, explicit] = await Promise.all([
+    readFile(join(projectDir, 'default.js'), 'utf8'),
+    readFile(join(projectDir, 'explicit-node.js'), 'utf8'),
+  ])
+
+  // The new option must not change current users: omitting it renders the
+  // historical loader byte for byte.
+  t.is(implicit, explicit)
+  t.true(implicit.includes('process.platform'))
+  t.true(implicit.includes('process.arch'))
+})
+
+test('writeJsBinding generates a direct CommonJS loader', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo', 'bar'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    bindingLoader: 'direct',
+    target: 'x86_64-pc-windows-msvc',
+  })
+
+  const binding = await readFile(join(projectDir, 'index.js'), 'utf8')
+  t.true(binding.includes(`require('./example.win32-x64-msvc.node')`))
+  t.true(binding.includes('module.exports = nativeBinding'))
+  t.true(binding.includes('module.exports.foo = nativeBinding.foo'))
+  t.true(binding.includes('module.exports.bar = nativeBinding.bar'))
+  t.true(binding.includes('__napiBindingTarget'))
+  t.false(binding.includes('process.platform'))
+  t.false(binding.includes('process.arch'))
+  t.false(binding.includes('process.report'))
+  t.false(binding.includes('process.config'))
+  t.false(binding.includes('child_process'))
+  t.false(binding.includes('isMusl'))
+  t.false(binding.includes('process.env'))
+})
+
+test('writeJsBinding generates a direct ESM loader', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo', 'bar'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'index.mjs',
+    format: 'esm',
+    bindingLoader: 'direct',
+    target: 'x86_64-unknown-linux-gnu',
+  })
+
+  const binding = await readFile(join(projectDir, 'index.mjs'), 'utf8')
+  t.true(binding.includes('createRequire'))
+  t.true(binding.includes(`require('./example.linux-x64-gnu.node')`))
+  t.true(binding.includes('const { foo, bar } = nativeBinding'))
+  t.true(binding.includes('export { foo }'))
+  t.true(binding.includes('export { bar }'))
+  t.true(binding.includes("export const __napiBindingTarget = 'native'"))
+  t.false(binding.includes('process.platform'))
+  t.false(binding.includes('process.arch'))
+  t.false(binding.includes('child_process'))
+  t.false(binding.includes('isMusl'))
+})
+
+test('direct loader uses the canonical artifact name for each target', async (t) => {
+  const { projectDir } = t.context
+  const fixtures = [
+    ['x86_64-pc-windows-msvc', 'win32-x64-msvc'],
+    ['x86_64-unknown-linux-gnu', 'linux-x64-gnu'],
+    ['aarch64-apple-darwin', 'darwin-arm64'],
+  ] as const
+
+  for (const [index, [triple, platformArchABI]] of fixtures.entries()) {
+    // The fixture itself must agree with napi-rs target parsing; the loader
+    // assertion below then pins the canonical artifact name.
+    t.is(parseTriple(triple).platformArchABI, platformArchABI)
+    const expected = createArtifactDestinationName(
+      'example',
+      parseTriple(triple),
+      'binding.so',
+      true,
+    )
+    t.is(expected, `example.${platformArchABI}.node`)
+
+    const jsBinding = `direct-${index}.js`
+    await writeJsBinding({
+      platform: true,
+      idents: ['foo'],
+      binaryName: 'example',
+      packageName: 'example',
+      version: '1.0.0',
+      outputDir: projectDir,
+      jsBinding,
+      bindingLoader: 'direct',
+      target: triple,
+    })
+    const binding = await readFile(join(projectDir, jsBinding), 'utf8')
+    t.true(binding.includes(`require('./${expected}')`))
+  }
+})
+
+test('direct loader resolves the artifact relative to a nested js binding', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'nested/index.js',
+    bindingLoader: 'direct',
+    target: 'aarch64-apple-darwin',
+  })
+
+  const binding = await readFile(join(projectDir, 'nested', 'index.js'), 'utf8')
+  t.true(binding.includes(`require('../example.darwin-arm64.node')`))
+})
+
+test('writeJsBinding rejects direct mode without a target', async (t) => {
+  await t.throwsAsync(
+    writeJsBinding({
+      platform: true,
+      idents: ['foo'],
+      binaryName: 'example',
+      packageName: 'example',
+      version: '1.0.0',
+      outputDir: t.context.projectDir,
+      bindingLoader: 'direct',
+    }),
+    {
+      message:
+        /Direct binding loader requires exactly one native target artifact/,
+    },
+  )
+})
+
+test('writeJsBinding rejects direct mode for WASI targets', async (t) => {
+  for (const triple of ['wasm32-wasip1', 'wasm32-wasip1-threads']) {
+    await t.throwsAsync(
+      writeJsBinding({
+        platform: true,
+        idents: ['foo'],
+        binaryName: 'example',
+        packageName: 'example',
+        version: '1.0.0',
+        outputDir: t.context.projectDir,
+        bindingLoader: 'direct',
+        target: triple,
+      }),
+      {
+        message:
+          /The direct binding loader currently supports native `\.node` artifacts only/,
+      },
+    )
+  }
+})
+
+test('buildProject rejects direct mode for WASI targets before building', async (t) => {
+  const { projectDir } = t.context
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+  await writeFile(join(projectDir, 'Cargo.toml'), '[package]\nname = "x"\n')
+  await writeFile(
+    join(projectDir, 'package.json'),
+    JSON.stringify({ name: 'x', version: '0.1.0' }),
+  )
+
+  await t.throwsAsync(
+    buildProject({
+      cwd: projectDir,
+      target: 'wasm32-wasip1',
+      bindingLoader: 'direct',
+    }),
+    {
+      message:
+        /The direct binding loader currently supports native `\.node` artifacts only/,
+    },
+  )
+})
+
+test('direct loader loads the build-time-selected artifact', async (t) => {
+  const { projectDir } = t.context
+  // The artifact is selected at build time, so the host running this test
+  // does not need to match the target triple.
+  const triple = 'x86_64-pc-windows-msvc'
+  const artifact = 'example.win32-x64-msvc.node'
+  await writeFile(
+    join(projectDir, artifact),
+    `module.exports = { foo: () => 'foo', bar: 42 }\n`,
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo', 'bar'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    bindingLoader: 'direct',
+    target: triple,
+  })
+
+  // `.node` files are binary addons; teach this probe process to load the
+  // stand-in as JavaScript instead.
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `require.extensions['.node'] = require.extensions['.js']
+const binding = require(${JSON.stringify(join(projectDir, 'index.js'))})
+console.log(JSON.stringify({ foo: binding.foo(), bar: binding.bar, target: binding.__napiBindingTarget }))`,
+    ],
+    { encoding: 'utf8' },
+  )
+  t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.deepEqual(JSON.parse(result.stdout), {
+    foo: 'foo',
+    bar: 42,
+    target: 'native',
   })
 })

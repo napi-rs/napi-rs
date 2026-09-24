@@ -107,6 +107,15 @@ export abstract class BaseBuildCommand extends Command {
     description: 'Alias for `--format commonjs`.',
   })
 
+  bindingLoader?: 'node' | 'direct' = Option.String('--binding-loader', {
+    validator: typanion.isOneOf([
+      typanion.isLiteral('node'),
+      typanion.isLiteral('direct'),
+    ]),
+    description:
+      'Select the generated JavaScript native binding loader: `node` (full runtime platform detection and npm native package fallback) or `direct` (load the native artifact selected at build time directly). Only works with `--platform` flag. Defaults to `node`.',
+  })
+
   strip?: boolean = Option.Boolean('--strip,-s', {
     description: 'Whether strip the library to achieve the minimum file size',
   })
@@ -193,6 +202,7 @@ export abstract class BaseBuildCommand extends Command {
       format: this.format,
       esm: this.esm,
       commonjs: this.commonjs,
+      bindingLoader: this.bindingLoader,
       strip: this.strip,
       release: this.release,
       verbose: this.verbose,
@@ -297,6 +307,10 @@ export interface BuildOptions {
    * Alias for `--format commonjs`.
    */
   commonjs?: boolean
+  /**
+   * Select the generated JavaScript native binding loader: `node` (full runtime platform detection and npm native package fallback) or `direct` (load the native artifact selected at build time directly). Only works with `--platform` flag. Defaults to `node`.
+   */
+  bindingLoader?: 'node' | 'direct'
   /**
    * Whether strip the library to achieve the minimum file size
    */

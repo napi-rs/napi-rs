@@ -245,6 +245,14 @@ const BUILD_OPTIONS: CommandSchema = {
       description: 'Alias for `--format commonjs`.',
     },
     {
+      name: 'bindingLoader',
+      type: "'node' | 'direct'",
+      description:
+        'Select the generated JavaScript native binding loader: `node` (full runtime platform detection and npm native package fallback) or `direct` (load the native artifact selected at build time directly). Only works with `--platform` flag. Defaults to `node`.',
+      validator:
+        "typanion.isOneOf([typanion.isLiteral('node'), typanion.isLiteral('direct')])",
+    },
+    {
       name: 'strip',
       type: 'boolean',
       description: 'Whether strip the library to achieve the minimum file size',

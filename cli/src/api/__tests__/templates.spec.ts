@@ -5,6 +5,10 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 import ts from 'typescript'
 
+import {
+  createDirectCjsBinding,
+  createDirectEsmBinding,
+} from '../templates/direct-js-binding.js'
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
 import {
   createWasiBinding,
@@ -2105,5 +2109,132 @@ test('createEsmBinding builds native addon loading on portable ESM primitives', 
   t.false(
     /new URL\(['"]\.['"], import\.meta\.url\)\.pathname/.test(code),
     'ESM loader must not treat URL.pathname as a filesystem path',
+  )
+})
+
+// The `direct` loader knows its artifact at build time, so it must not emit
+// any runtime target detection: no process.platform/arch/report/config reads,
+// no child_process or ldd probing, no musl checks, and no fallback chains.
+const DIRECT_FORBIDDEN_SNIPPETS = [
+  'process.platform',
+  'process.arch',
+  'process.report',
+  'process.config',
+  // Any env read would be runtime selection; the bare
+  // `NAPI_RS_NATIVE_LIBRARY_PATH` identifier still appears in the shared
+  // stamp helper's comments, so only the functional read is forbidden.
+  'process.env',
+  'child_process',
+  'isMusl',
+  'loadErrors',
+]
+
+const assertNoRuntimeDetection = (
+  t: ExecutionContext,
+  code: string,
+  label: string,
+) => {
+  for (const snippet of DIRECT_FORBIDDEN_SNIPPETS) {
+    t.false(code.includes(snippet), `${label} must not contain ${snippet}`)
+  }
+}
+
+test('createDirectCjsBinding points at the exact artifact without runtime detection', (t) => {
+  const code = createDirectCjsBinding('./example.win32-x64-msvc.node', [
+    'foo',
+    'bar',
+  ])
+  assertValidJS(t, code, 'direct cjs')
+  t.true(code.includes(`require('./example.win32-x64-msvc.node')`))
+  t.true(code.includes('module.exports = nativeBinding'))
+  t.true(code.includes('module.exports.foo = nativeBinding.foo'))
+  t.true(code.includes('module.exports.bar = nativeBinding.bar'))
+  t.true(code.includes('__napiBindingTarget'))
+  assertNoRuntimeDetection(t, code, 'direct CJS loader')
+})
+
+test('createDirectCjsBinding is Node 12 compatible', (t) => {
+  const code = createDirectCjsBinding('./example.linux-x64-gnu.node', ['sum'])
+  assertValidJS(t, code, 'direct cjs')
+  t.false(
+    NODE_SCHEME_RE.test(code),
+    'direct CJS loader must not use the node: scheme',
+  )
+  t.false(
+    code.includes('?.'),
+    'direct CJS loader must not use optional chaining',
+  )
+  t.false(
+    code.includes('??'),
+    'direct CJS loader must not use nullish coalescing',
+  )
+})
+
+test('createDirectEsmBinding exposes named exports without runtime detection', (t) => {
+  const code = createDirectEsmBinding('./example.linux-x64-gnu.node', [
+    'foo',
+    'bar',
+  ])
+  assertValidJS(t, code, 'direct esm')
+  t.true(code.includes('createRequire'))
+  t.true(code.includes(`require('./example.linux-x64-gnu.node')`))
+  t.true(code.includes('const { foo, bar } = nativeBinding'))
+  t.true(code.includes('export { foo }'))
+  t.true(code.includes('export { bar }'))
+  t.true(code.includes("export const __napiBindingTarget = 'native'"))
+  // Mirrors createEsmBinding: no default export when named exports exist.
+  t.false(code.includes('export default'))
+  assertNoRuntimeDetection(t, code, 'direct ESM loader')
+})
+
+test('createDirectEsmBinding with zero idents exports a default', (t) => {
+  const code = createDirectEsmBinding('./example.darwin-arm64.node', [])
+  assertValidJS(t, code, 'direct esm empty')
+  t.true(code.includes('export default nativeBinding'))
+  t.true(code.includes("export const __napiBindingTarget = 'native'"))
+  assertNoRuntimeDetection(t, code, 'direct ESM loader')
+})
+
+test('direct loaders expose the same runtime names as node loaders', (t) => {
+  const idents = ['foo', 'bar', 'Baz']
+  const nodeCjs = createCjsBinding('example', '@scope/example', idents)
+  const directCjs = createDirectCjsBinding(
+    './example.linux-x64-gnu.node',
+    idents,
+  )
+  for (const ident of idents) {
+    const assignment = `module.exports.${ident} = nativeBinding.${ident}`
+    t.true(nodeCjs.includes(assignment), `node CJS exposes ${ident}`)
+    t.true(directCjs.includes(assignment), `direct CJS exposes ${ident}`)
+  }
+
+  const nodeEsm = createEsmBinding('example', '@scope/example', idents)
+  const directEsm = createDirectEsmBinding(
+    './example.linux-x64-gnu.node',
+    idents,
+  )
+  for (const ident of idents) {
+    t.true(nodeEsm.includes(`export { ${ident} }`), `node ESM exposes ${ident}`)
+    t.true(
+      directEsm.includes(`export { ${ident} }`),
+      `direct ESM exposes ${ident}`,
+    )
+  }
+})
+
+test('direct loaders reject a napi export named __napiBindingTarget', (t) => {
+  t.throws(
+    () =>
+      createDirectCjsBinding('./example.linux-x64-gnu.node', [
+        '__napiBindingTarget',
+      ]),
+    { message: /reserved by the generated binding loader/ },
+  )
+  t.throws(
+    () =>
+      createDirectEsmBinding('./example.linux-x64-gnu.node', [
+        '__napiBindingTarget',
+      ]),
+    { message: /reserved by the generated binding loader/ },
   )
 })
