@@ -4026,17 +4026,20 @@ test('writeJsBinding generates a multi-target direct loader', async (t) => {
   })
 
   const binding = await readFile(join(projectDir, 'multi.js'), 'utf8')
-  // Every configured artifact is named; selection is a small lookup table.
-  t.true(binding.includes(`'linux-x64': ['./example.linux-x64-gnu.node']`))
-  t.true(binding.includes(`'win32-x64': ['./example.win32-x64-msvc.node']`))
-  t.true(binding.includes(`'darwin-arm64': ['./example.darwin-arm64.node']`))
+  // Every configured artifact is named under its full ABI key; each base
+  // here has one ABI, so resolution is fully static with no detector.
+  t.true(binding.includes(`'linux-x64-gnu': './example.linux-x64-gnu.node'`))
+  t.true(binding.includes(`'win32-x64-msvc': './example.win32-x64-msvc.node'`))
+  t.true(binding.includes(`'darwin-arm64': './example.darwin-arm64.node'`))
   t.true(binding.includes('process.platform'))
   t.true(binding.includes('process.arch'))
+  t.true(binding.includes('require(__napiDirectSpecifier)'))
   t.true(binding.includes('module.exports.foo = nativeBinding.foo'))
   t.true(binding.includes('module.exports.bar = nativeBinding.bar'))
-  // ...and nothing else: no npm fallbacks, musl probing, or WASI chains.
+  // ...and nothing else: no detectors, npm fallbacks, or WASI chains.
+  t.false(binding.includes('__napiIsMusl'))
+  t.false(binding.includes('__napiIsWindowsGnu'))
   t.false(binding.includes('child_process'))
-  t.false(binding.includes('isMusl'))
   t.false(binding.includes('loadErrors'))
   t.false(binding.includes('NAPI_RS_ENFORCE_VERSION_CHECK'))
   t.false(binding.includes(`require('example-`))
@@ -4061,15 +4064,15 @@ test('writeJsBinding generates a multi-target direct ESM loader', async (t) => {
 
   const binding = await readFile(join(projectDir, 'multi.mjs'), 'utf8')
   t.true(binding.includes('createRequire'))
-  t.true(binding.includes(`'win32-x64': ['./example.win32-x64-msvc.node']`))
+  t.true(binding.includes(`'win32-x64-msvc': './example.win32-x64-msvc.node'`))
   t.true(binding.includes('export { foo }'))
   t.true(binding.includes("export const __napiBindingTarget = 'native'"))
   t.false(binding.includes('export default'))
   t.false(binding.includes('child_process'))
-  t.false(binding.includes('isMusl'))
+  t.false(binding.includes('__napiIsMusl'))
 })
 
-test('direct multi loader tries same-platform artifacts in config order', async (t) => {
+test('direct multi loader resolves same-platform ABIs before requiring', async (t) => {
   const { projectDir } = t.context
   await writeJsBinding({
     platform: true,
@@ -4085,13 +4088,45 @@ test('direct multi loader tries same-platform artifacts in config order', async 
   })
 
   const binding = await readFile(join(projectDir, 'abi.js'), 'utf8')
-  // One runtime key, both ABIs in config order: no musl probing needed.
+  // One runtime base, two full ABI keys: musl detection picks the exact
+  // file up front instead of trying files until one loads.
+  t.true(binding.includes(`'linux-x64-gnu': './example.linux-x64-gnu.node'`))
+  t.true(binding.includes(`'linux-x64-musl': './example.linux-x64-musl.node'`))
   t.true(
     binding.includes(
-      `'linux-x64': ['./example.linux-x64-gnu.node', './example.linux-x64-musl.node']`,
+      `return __napiIsMusl() ? 'linux-x64-musl' : 'linux-x64-gnu'`,
     ),
   )
-  t.false(binding.includes('isMusl'))
+  t.true(binding.includes('require(__napiDirectSpecifier)'))
+  t.false(binding.includes('child_process'))
+  t.false(binding.includes('__napiIsWindowsGnu'))
+})
+
+test('direct multi loader resolves win32 ABIs through node config', async (t) => {
+  const { projectDir } = t.context
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'abi-win.js',
+    bindingLoader: 'direct',
+    target: 'x86_64-pc-windows-msvc',
+    targets: ['x86_64-pc-windows-msvc', 'x86_64-pc-windows-gnu'],
+  })
+
+  const binding = await readFile(join(projectDir, 'abi-win.js'), 'utf8')
+  t.true(binding.includes(`'win32-x64-msvc': './example.win32-x64-msvc.node'`))
+  t.true(binding.includes(`'win32-x64-gnu': './example.win32-x64-gnu.node'`))
+  t.true(
+    binding.includes(
+      `return __napiIsWindowsGnu() ? 'win32-x64-gnu' : 'win32-x64-msvc'`,
+    ),
+  )
+  t.false(binding.includes('__napiIsMusl'))
+  t.false(binding.includes('child_process'))
 })
 
 test('every CI job reuses the identical direct loader file', async (t) => {
@@ -4178,4 +4213,71 @@ console.log(JSON.stringify({ foo: binding.foo(), bar: binding.bar }))`,
   t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
   // The lookup table resolves the stand-in for this host's platform/arch.
   t.deepEqual(JSON.parse(result.stdout), { foo: 'host', bar: 7 })
+})
+
+test('direct multi loader requires its resolved ABI exactly once', async (t) => {
+  // Same-key ABI pairs only exist on linux (gnu/musl) and Windows (msvc/gnu).
+  const pair =
+    process.platform === 'linux'
+      ? (['x86_64-unknown-linux-gnu', 'x86_64-unknown-linux-musl'] as const)
+      : process.platform === 'win32'
+        ? (['x86_64-pc-windows-msvc', 'x86_64-pc-windows-gnu'] as const)
+        : null
+  if (!pair) {
+    t.pass('no same-key ABI pair exists on this platform')
+    return
+  }
+  const { projectDir } = t.context
+  for (const triple of pair) {
+    await writeFile(
+      join(
+        projectDir,
+        createArtifactDestinationName(
+          'example',
+          parseTriple(triple),
+          'binding.so',
+          true,
+        ),
+      ),
+      `module.exports = {}\n`,
+    )
+  }
+  await writeJsBinding({
+    platform: true,
+    idents: ['foo'],
+    binaryName: 'example',
+    packageName: 'example',
+    version: '1.0.0',
+    outputDir: projectDir,
+    jsBinding: 'abi-once.js',
+    bindingLoader: 'direct',
+    target: pair[0],
+    targets: [...pair],
+  })
+
+  // Every `.node` require attempt appends here, then throws: the loader must
+  // resolve its ABI first and attempt exactly one file, so a real init error
+  // can never be hidden by falling through to the other ABI.
+  const counterFile = join(projectDir, 'attempts.log')
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `const fs = require('fs')
+const path = require('path')
+require.extensions['.node'] = function (module, filename) {
+  fs.appendFileSync(process.env.NAPI_CLI_TEST_DIRECT_ATTEMPTS, path.basename(filename) + '\\n')
+  throw new Error('init-boom:' + path.basename(filename))
+}
+require(${JSON.stringify(join(projectDir, 'abi-once.js'))})`,
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, NAPI_CLI_TEST_DIRECT_ATTEMPTS: counterFile },
+    },
+  )
+  t.not(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  t.regex(result.stderr, /init-boom:/)
+  const attempts = (await readFile(counterFile, 'utf8')).trim().split('\n')
+  t.is(attempts.length, 1)
 })

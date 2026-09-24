@@ -1145,8 +1145,11 @@ export function resolveBuildFormat(options: BuildFormatOptions): BuildFormat {
  * Resolve which JavaScript native binding loader to generate.
  *
  * `node` (the default) keeps the historical runtime platform detection and
- * npm native package fallback. `direct` loads the one native artifact selected
- * at build time without any runtime target detection.
+ * npm native package fallback. `direct` names only build-time-known
+ * artifacts: one target renders a single `require` with no runtime
+ * detection, while several targets render a small lookup over
+ * `process.platform`/`process.arch` that resolves the exact file (plus a
+ * musl/Windows-gnu check only when two ABIs share a base) before requiring.
  */
 export function resolveBindingLoader(options: {
   bindingLoader?: unknown
@@ -3242,7 +3245,9 @@ export interface BindingGenerationContext {
 /**
  * Render a binding loader for the given strategy. `node` keeps the historical
  * runtime platform detection; `direct` names only build-time-known artifacts,
- * without npm fallbacks, `child_process`, musl probing, or WASI chains.
+ * without npm fallbacks, `child_process`, WASI chains, or version checks. A
+ * musl/Windows-gnu check is emitted only when two ABIs share a base, and the
+ * resolved file is required exactly once so load errors always propagate.
  */
 export function createBinding(
   loader: BindingLoader,
@@ -3331,8 +3336,10 @@ export async function writeJsBinding(
         join(options.outputDir, artifactFileName),
       ).replaceAll('\\', '/')
       return {
+        platformArchABI: directTarget.platformArchABI,
         platform: directTarget.platform,
         arch: directTarget.arch,
+        abi: directTarget.abi,
         specifier: specifier.startsWith('.') ? specifier : `./${specifier}`,
       }
     })

@@ -16,11 +16,14 @@ const bindingHeader = `/* eslint-disable */
  * One build-time-known `.node` artifact a `direct` loader may require.
  *
  * `platform` and `arch` use Node.js runtime names (`process.platform` /
- * `process.arch`), so the multi-target loader can key on them directly.
+ * `process.arch`); `platformArchABI` is the canonical artifact key and `abi`
+ * the canonical ABI the multi-target loader resolves before requiring.
  */
 export interface DirectLoaderCandidate {
+  platformArchABI: string
   platform: string
   arch: string
+  abi: string | null
   /** Relative `require` specifier, e.g. `./example.linux-x64-gnu.node`. */
   specifier: string
 }
@@ -92,101 +95,247 @@ ${createDirectEsmExports(idents, bindingTarget)}
 `
 }
 
-/**
- * Group build-time-known artifacts by runtime key (`platform-arch`).
- *
- * Several artifacts may share one key (e.g. `linux-x64-gnu` and
- * `linux-x64-musl`): the loader tries them in this order until one loads, so
- * no musl/glibc probing, `child_process`, or filesystem reads are needed.
- * A `universal` binary loads on every arch of its platform and is offered
- * first on each, mirroring the node loader's darwin-universal-first order.
- * Insertion order follows the configured targets, keeping every CI job's
- * generated file identical.
- */
-function groupDirectCandidates(
-  candidates: DirectLoaderCandidate[],
-): [key: string, specifiers: string[]][] {
-  const groups = new Map<string, string[]>()
-  const append = (key: string, specifier: string) => {
-    const list = groups.get(key)
-    if (list) {
-      if (!list.includes(specifier)) {
-        list.push(specifier)
-      }
-    } else {
-      groups.set(key, [specifier])
-    }
-  }
-  const prepend = (key: string, specifier: string) => {
-    const list = groups.get(key)
-    if (list) {
-      if (!list.includes(specifier)) {
-        list.unshift(specifier)
-      }
-    } else {
-      groups.set(key, [specifier])
-    }
-  }
-  for (const { platform, arch, specifier } of candidates) {
-    if (arch === 'universal') {
-      for (const uniArch of UniArchsByPlatform[platform as Platform] ?? [
-        'x64',
-        'arm64',
-      ]) {
-        prepend(`${platform}-${uniArch}`, specifier)
-      }
-    } else {
-      append(`${platform}-${arch}`, specifier)
-    }
-  }
-  return [...groups.entries()]
+interface DirectTablePlan {
+  /** Full ABI key to specifier, in configured-target order. */
+  table: [fullKey: string, specifier: string][]
+  /** Runtime base to full key, for bases needing no ABI detection. */
+  base: [base: string, fullKey: string][]
+  /** Bases with several ABIs, resolved by the named detector. */
+  branches: {
+    base: string
+    detector: 'musl' | 'windowsGnu'
+    altKey: string
+    defaultKey: string
+  }[]
 }
 
 /**
- * Render the lookup table plus the tiny loader that reads it. Shared
+ * Plan how the multi loader resolves `process.platform`/`process.arch` to
+ * one exact file. The loader decides first and requires once: a real init
+ * error always propagates instead of falling through to another ABI.
+ *
+ * A `universal` binary loads on every arch of its platform and statically
+ * covers each one (mirroring the node loader's darwin-universal-first
+ * order); arch-specific files it shadows are omitted as unreachable. A base
+ * with exactly one ABI resolves statically with no detector; a base with
+ * two (linux gnu/musl, win32 msvc/gnu) resolves through a detector emitted
+ * only for that ambiguity. Anything else cannot resolve exactly and fails
+ * the build loudly rather than generating a lossy loader.
+ */
+function planDirectTable(candidates: DirectLoaderCandidate[]): DirectTablePlan {
+  const byFullKey = new Map<string, DirectLoaderCandidate>()
+  for (const candidate of candidates) {
+    if (!byFullKey.has(candidate.platformArchABI)) {
+      byFullKey.set(candidate.platformArchABI, candidate)
+    }
+  }
+  const universals = [...byFullKey.values()].filter(
+    (candidate) => candidate.arch === 'universal',
+  )
+  const universalBase = new Map<string, string>()
+  for (const universal of universals) {
+    for (const uniArch of UniArchsByPlatform[
+      universal.platform as Platform
+    ] ?? ['x64', 'arm64']) {
+      const base = `${universal.platform}-${uniArch}`
+      if (!universalBase.has(base)) {
+        universalBase.set(base, universal.platformArchABI)
+      }
+    }
+  }
+  const variantsByBase = new Map<string, DirectLoaderCandidate[]>()
+  for (const candidate of byFullKey.values()) {
+    if (candidate.arch === 'universal') {
+      continue
+    }
+    const base = `${candidate.platform}-${candidate.arch}`
+    const variants = variantsByBase.get(base)
+    if (variants) {
+      variants.push(candidate)
+    } else {
+      variantsByBase.set(base, [candidate])
+    }
+  }
+  const plan: DirectTablePlan = { table: [], base: [], branches: [] }
+  const tableKeys = new Set<string>()
+  const emitTable = (fullKey: string) => {
+    if (!tableKeys.has(fullKey)) {
+      tableKeys.add(fullKey)
+      plan.table.push([fullKey, byFullKey.get(fullKey)!.specifier])
+    }
+  }
+  // Table order follows first use, which tracks the configured targets;
+  // only reachable entries are emitted, so every CI job's file stays
+  // byte-identical.
+  const basesInOrder: string[] = []
+  for (const candidate of byFullKey.values()) {
+    if (candidate.arch === 'universal') {
+      continue
+    }
+    const base = `${candidate.platform}-${candidate.arch}`
+    if (!basesInOrder.includes(base)) {
+      basesInOrder.push(base)
+    }
+  }
+  for (const base of universalBase.keys()) {
+    if (!basesInOrder.includes(base)) {
+      basesInOrder.push(base)
+    }
+  }
+  for (const base of basesInOrder) {
+    const universalKey = universalBase.get(base)
+    if (universalKey) {
+      plan.base.push([base, universalKey])
+      emitTable(universalKey)
+      continue
+    }
+    const variants = variantsByBase.get(base) ?? []
+    if (variants.length === 1) {
+      plan.base.push([base, variants[0].platformArchABI])
+      emitTable(variants[0].platformArchABI)
+      continue
+    }
+    if (variants.length === 2) {
+      const [first, second] = variants
+      const branchFor = (
+        detector: 'musl' | 'windowsGnu',
+        alt: DirectLoaderCandidate,
+      ) => {
+        const other = first === alt ? second : first
+        plan.branches.push({
+          base,
+          detector,
+          altKey: alt.platformArchABI,
+          defaultKey: other.platformArchABI,
+        })
+        emitTable(other.platformArchABI)
+        emitTable(alt.platformArchABI)
+      }
+      if (first.platform === 'win32') {
+        const gnuVariants = variants.filter((variant) =>
+          variant.abi?.startsWith('gnu'),
+        )
+        if (gnuVariants.length === 1) {
+          branchFor('windowsGnu', gnuVariants[0])
+          continue
+        }
+      } else {
+        const muslVariants = variants.filter((variant) =>
+          variant.abi?.includes('musl'),
+        )
+        if (muslVariants.length === 1) {
+          branchFor('musl', muslVariants[0])
+          continue
+        }
+      }
+    }
+    throw new Error(
+      `Direct binding loader cannot resolve an exact file for '${base}': ` +
+        `expected one artifact or an exact ABI pair (linux gnu/musl, win32 msvc/gnu), ` +
+        `got ${variants.map((variant) => variant.platformArchABI).join(', ') || 'none'}.`,
+    )
+  }
+  return plan
+}
+
+/**
+ * Whether the runtime links musl libc. Only the ldd file and `process.report`
+ * tiers: unlike the node loader there is no `child_process` fallback, so an
+ * undetectable libc resolves to gnu and a genuinely musl-only miss surfaces
+ * as the concrete `require` error instead of a spawned probe.
+ */
+const DIRECT_IS_MUSL_SOURCE = `function __napiIsMusl() {
+  try {
+    return require('fs').readFileSync('/usr/bin/ldd', 'utf8').includes('musl')
+  } catch {}
+  let report = null
+  if (process.report && typeof process.report.getReport === 'function') {
+    process.report.excludeNetwork = true
+    report = process.report.getReport()
+  }
+  if (report && report.header && report.header.glibcVersionRuntime) {
+    return false
+  }
+  if (report && Array.isArray(report.sharedObjects)) {
+    return report.sharedObjects.some((file) => file.includes('libc.musl-') || file.includes('ld-musl-'))
+  }
+  return false
+}`
+
+/**
+ * Whether the running Node itself is MinGW-built (same signal the node
+ * loader uses), in which case native addons must be gnu-built too.
+ */
+const DIRECT_IS_WINDOWS_GNU_SOURCE = `function __napiIsWindowsGnu() {
+  const variables = process.config && process.config.variables
+  return !!(
+    variables &&
+    (variables.shlib_suffix === 'dll.a' ||
+      variables.node_target_type === 'shared_library')
+  )
+}`
+
+/**
+ * Render the lookup table plus the tiny resolver that reads it. Shared
  * verbatim by the CJS and ESM multi loaders (`require` is the CommonJS
- * global in one and a `createRequire` handle in the other). Node 12
- * compatible: no optional chaining, no nullish coalescing, no `node:`
- * scheme.
+ * global in one and a `createRequire` handle in the other). The resolver
+ * computes one exact table key and requires once, so any load error names
+ * the real file. Node 12 compatible: no optional chaining, no nullish
+ * coalescing, no `node:` scheme.
  */
 function createDirectTableSource(candidates: DirectLoaderCandidate[]): string {
-  const table = groupDirectCandidates(candidates)
-    .map(
-      ([key, specifiers]) =>
-        `  '${key}': [${specifiers.map((specifier) => `'${specifier}'`).join(', ')}],`,
-    )
+  const plan = planDirectTable(candidates)
+  const table = plan.table
+    .map(([fullKey, specifier]) => `  '${fullKey}': '${specifier}',`)
     .join('\n')
+  const base = plan.base
+    .map(([baseKey, fullKey]) => `  '${baseKey}': '${fullKey}',`)
+    .join('\n')
+  const branches = plan.branches
+    .map(({ base: baseKey, detector, altKey, defaultKey }) => {
+      const test =
+        detector === 'musl' ? '__napiIsMusl()' : '__napiIsWindowsGnu()'
+      return `  if (base === '${baseKey}') {\n    return ${test} ? '${altKey}' : '${defaultKey}'\n  }`
+    })
+    .join('\n')
+  const detectors = [
+    plan.branches.some(({ detector }) => detector === 'musl')
+      ? DIRECT_IS_MUSL_SOURCE
+      : null,
+    plan.branches.some(({ detector }) => detector === 'windowsGnu')
+      ? DIRECT_IS_WINDOWS_GNU_SOURCE
+      : null,
+  ]
+    .filter((source): source is string => source !== null)
+    .join('\n\n')
   return `const __napiDirectTable = {
 ${table}
 }
 
-function __napiLoadDirect() {
-  const runtimeKey = process.platform + '-' + process.arch
-  const candidates = __napiDirectTable[runtimeKey]
-  if (!candidates) {
-    throw new Error('Unsupported platform/arch: ' + runtimeKey + ' (supported: ' + Object.keys(__napiDirectTable).join(', ') + ')')
-  }
-  let lastError = null
-  for (let index = 0; index < candidates.length; index++) {
-    try {
-      return require(candidates[index])
-    } catch (error) {
-      lastError = error
-    }
-  }
-  throw lastError
+const __napiDirectBase = {
+${base}
+}
+${detectors ? `\n${detectors}\n` : ''}
+function __napiDirectKey() {
+  const base = process.platform + '-' + process.arch
+${branches ? `${branches}\n` : ''}  return __napiDirectBase[base]
 }
 
-const nativeBinding = __napiLoadDirect()`
+const __napiDirectSpecifier = __napiDirectTable[__napiDirectKey()]
+if (!__napiDirectSpecifier) {
+  throw new Error('Unsupported platform/arch: ' + process.platform + '-' + process.arch + ' (supported: ' + Object.keys(__napiDirectTable).join(', ') + ')')
+}
+const nativeBinding = require(__napiDirectSpecifier)`
 }
 
 /**
  * Generate a small CommonJS loader covering several known `.node` artifacts
  * (typically every `napi.targets` entry, so each CI job reuses the identical
- * file). Selection is a `platform-arch` lookup table over build-time-known
- * filenames: no npm native package fallback, no `child_process`, no musl
- * probing, no WASI chain, no version checks, and no
- * `NAPI_RS_NATIVE_LIBRARY_PATH` override.
+ * file). The runtime resolves one exact table key from
+ * `process.platform`/`process.arch` (plus a musl/Windows-gnu check only when
+ * two ABIs share a base) and requires once: a real init error always
+ * propagates. No npm native package fallback, no `child_process`, no WASI
+ * chain, no version checks, and no `NAPI_RS_NATIVE_LIBRARY_PATH` override.
  */
 export function createDirectMultiCjsBinding(
   candidates: DirectLoaderCandidate[],
@@ -212,7 +361,7 @@ ${idents
 
 /**
  * Generate a small ESM loader covering several known `.node` artifacts.
- * Resolution is the same lookup table as `createDirectMultiCjsBinding`;
+ * Resolution is the same exact-key table as `createDirectMultiCjsBinding`;
  * exports mirror `createEsmBinding`.
  */
 export function createDirectMultiEsmBinding(

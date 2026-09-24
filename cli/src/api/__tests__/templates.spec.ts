@@ -2243,36 +2243,54 @@ test('direct loaders reject a napi export named __napiBindingTarget', (t) => {
 })
 
 const MULTI_CANDIDATES: DirectLoaderCandidate[] = [
-  { platform: 'linux', arch: 'x64', specifier: './example.linux-x64-gnu.node' },
   {
+    platformArchABI: 'linux-x64-gnu',
     platform: 'linux',
     arch: 'x64',
+    abi: 'gnu',
+    specifier: './example.linux-x64-gnu.node',
+  },
+  {
+    platformArchABI: 'linux-x64-musl',
+    platform: 'linux',
+    arch: 'x64',
+    abi: 'musl',
     specifier: './example.linux-x64-musl.node',
   },
   {
+    platformArchABI: 'win32-x64-msvc',
     platform: 'win32',
     arch: 'x64',
+    abi: 'msvc',
     specifier: './example.win32-x64-msvc.node',
   },
 ]
 
-test('createDirectMultiCjsBinding maps platforms through a small lookup table', (t) => {
+test('createDirectMultiCjsBinding resolves one exact file per platform', (t) => {
   const code = createDirectMultiCjsBinding(MULTI_CANDIDATES, ['foo', 'bar'])
   assertValidJS(t, code, 'direct multi cjs')
+  // Full ABI keys, each naming exactly one file.
+  t.true(code.includes(`'linux-x64-gnu': './example.linux-x64-gnu.node'`))
+  t.true(code.includes(`'linux-x64-musl': './example.linux-x64-musl.node'`))
+  t.true(code.includes(`'win32-x64-msvc': './example.win32-x64-msvc.node'`))
+  // The shared base resolves through musl detection; the single-ABI base is
+  // a static entry with no detector.
+  t.true(code.includes(`if (base === 'linux-x64') {`))
   t.true(
-    code.includes(
-      `'linux-x64': ['./example.linux-x64-gnu.node', './example.linux-x64-musl.node']`,
-    ),
+    code.includes(`return __napiIsMusl() ? 'linux-x64-musl' : 'linux-x64-gnu'`),
   )
-  t.true(code.includes(`'win32-x64': ['./example.win32-x64-msvc.node']`))
-  // Minimal runtime selection only: a platform-arch key, nothing heavier.
+  t.true(code.includes(`'win32-x64': 'win32-x64-msvc'`))
+  t.false(code.includes('__napiIsWindowsGnu'))
+  // Exactly one require: a real init error propagates instead of falling
+  // through to another ABI.
+  t.true(code.includes('require(__napiDirectSpecifier)'))
+  t.false(code.includes('__napiLoadDirect'))
   t.true(code.includes('process.platform'))
   t.true(code.includes('process.arch'))
   t.true(code.includes('module.exports.foo = nativeBinding.foo'))
   t.true(code.includes('module.exports.bar = nativeBinding.bar'))
   t.true(code.includes('__napiBindingTarget'))
   t.false(code.includes('child_process'))
-  t.false(code.includes('isMusl'))
   t.false(code.includes('loadErrors'))
   t.false(code.includes('process.env'))
   t.false(
@@ -2289,49 +2307,111 @@ test('createDirectMultiCjsBinding maps platforms through a small lookup table', 
   )
 })
 
+test('createDirectMultiCjsBinding resolves win32 gnu through node config', (t) => {
+  const code = createDirectMultiCjsBinding(
+    [
+      {
+        platformArchABI: 'win32-x64-msvc',
+        platform: 'win32',
+        arch: 'x64',
+        abi: 'msvc',
+        specifier: './example.win32-x64-msvc.node',
+      },
+      {
+        platformArchABI: 'win32-x64-gnu',
+        platform: 'win32',
+        arch: 'x64',
+        abi: 'gnu',
+        specifier: './example.win32-x64-gnu.node',
+      },
+    ],
+    ['foo'],
+  )
+  assertValidJS(t, code, 'direct multi win32')
+  t.true(code.includes(`if (base === 'win32-x64') {`))
+  t.true(
+    code.includes(
+      `return __napiIsWindowsGnu() ? 'win32-x64-gnu' : 'win32-x64-msvc'`,
+    ),
+  )
+  t.true(code.includes('node_target_type'))
+  t.false(code.includes('__napiIsMusl'))
+  t.false(code.includes('child_process'))
+})
+
 test('createDirectMultiEsmBinding exposes named exports over the table', (t) => {
   const code = createDirectMultiEsmBinding(MULTI_CANDIDATES, ['foo', 'bar'])
   assertValidJS(t, code, 'direct multi esm')
   t.true(code.includes('createRequire'))
+  t.true(code.includes(`'linux-x64-gnu': './example.linux-x64-gnu.node'`))
   t.true(
-    code.includes(
-      `'linux-x64': ['./example.linux-x64-gnu.node', './example.linux-x64-musl.node']`,
-    ),
+    code.includes(`return __napiIsMusl() ? 'linux-x64-musl' : 'linux-x64-gnu'`),
   )
+  t.true(code.includes('require(__napiDirectSpecifier)'))
   t.true(code.includes('const { foo, bar } = nativeBinding'))
   t.true(code.includes('export { foo }'))
   t.true(code.includes('export { bar }'))
   t.true(code.includes("export const __napiBindingTarget = 'native'"))
   t.false(code.includes('export default'))
   t.false(code.includes('child_process'))
-  t.false(code.includes('isMusl'))
+  t.false(code.includes('loadErrors'))
 })
 
-test('direct multi offers a universal binary first on every arch', (t) => {
+test('direct multi covers every arch statically with a universal binary', (t) => {
   const code = createDirectMultiCjsBinding(
     [
       {
+        platformArchABI: 'darwin-x64',
         platform: 'darwin',
         arch: 'x64',
+        abi: null,
         specifier: './example.darwin-x64.node',
       },
       {
+        platformArchABI: 'darwin-universal',
         platform: 'darwin',
         arch: 'universal',
+        abi: null,
         specifier: './example.darwin-universal.node',
       },
     ],
     ['foo'],
   )
   assertValidJS(t, code, 'direct multi universal')
-  // Config order would list x64 first; the universal binary jumps the queue.
-  t.true(
-    code.includes(
-      `'darwin-x64': ['./example.darwin-universal.node', './example.darwin-x64.node']`,
-    ),
+  // The universal binary statically covers both arches; the shadowed
+  // arch-specific file is omitted as unreachable, and no detector is needed.
+  t.true(code.includes(`'darwin-x64': 'darwin-universal'`))
+  t.true(code.includes(`'darwin-arm64': 'darwin-universal'`))
+  t.true(code.includes(`'darwin-universal': './example.darwin-universal.node'`))
+  t.false(code.includes('darwin-x64.node'))
+  t.false(code.includes('__napiIsMusl'))
+  t.false(code.includes('__napiIsWindowsGnu'))
+})
+
+test('direct multi fails the build on unresolvable ABI ambiguity', (t) => {
+  t.throws(
+    () =>
+      createDirectMultiCjsBinding(
+        [
+          {
+            platformArchABI: 'linux-x64-gnu',
+            platform: 'linux',
+            arch: 'x64',
+            abi: 'gnu',
+            specifier: './example.linux-x64-gnu.node',
+          },
+          {
+            platformArchABI: 'linux-x64-gnueabihf',
+            platform: 'linux',
+            arch: 'x64',
+            abi: 'gnueabihf',
+            specifier: './example.linux-x64-gnueabihf.node',
+          },
+        ],
+        ['foo'],
+      ),
+    { message: /cannot resolve an exact file for 'linux-x64'/ },
   )
-  t.true(code.includes(`'darwin-arm64': ['./example.darwin-universal.node']`))
-  t.false(code.includes(`'darwin-universal':`))
 })
 
 test('direct multi loaders reject a napi export named __napiBindingTarget', (t) => {
