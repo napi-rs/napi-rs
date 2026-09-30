@@ -927,7 +927,9 @@ test('Node WASI loader uses an accessible host root on Android', (t) => {
   t.true(code.includes('[__rootDir]: __hostRoot'))
   t.true(code.includes('[__hostRoot]: __hostRoot'))
   t.true(
-    code.includes('workerData: { hostRoot: __hostRoot, rootDir: __rootDir }'),
+    code.includes(
+      'workerData: {\n          hostRoot: __hostRoot,\n          rootDir: __rootDir,\n',
+    ),
   )
   t.false(code.includes('[__rootDir]: __rootDir'))
 })
@@ -2106,4 +2108,163 @@ test('createEsmBinding builds native addon loading on portable ESM primitives', 
     /new URL\(['"]\.['"], import\.meta\.url\)\.pathname/.test(code),
     'ESM loader must not treat URL.pathname as a filesystem path',
   )
+})
+
+/**
+ * A top-level `function <name>(` of generated code, through its closing brace
+ * at column zero.
+ */
+function generatedFunction(code: string, name: string): string {
+  const start = code.indexOf(`function ${name}(`)
+  if (start === -1) {
+    return ''
+  }
+  return code.slice(start, code.indexOf('\n}\n', start) + 2)
+}
+
+/**
+ * Runs the node loader's 'exit' listener against stubbed teardown steps, with
+ * the crash latch in the given state, and returns the steps it took.
+ */
+function runWasiExitListener(
+  code: string,
+  crash: { flag?: boolean; errorEvent?: boolean; fatalError?: boolean },
+): string[] {
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const steps: string[] = []
+  const run = new Function(
+    'steps',
+    'crash',
+    `
+let __wasiExitListenerRegistered = true
+${latchState}
+function __getWasiThreadManager() {
+  return {
+    terminateWorker() {},
+    _fatalError: crash.fatalError ? new Error('worker died') : undefined,
+  }
+}
+function __isThenable(value) {
+  return value !== null && typeof value === 'object' && typeof value.then === 'function'
+}
+function __destroyEmnapiContext() {
+  steps.push('destroy')
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate')
+}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__disposeWasiBindingAtExit')}
+if (crash.flag) Atomics.store(__wasiThreadCrashFlag, 0, 1)
+if (crash.errorEvent) __wasiThreadCrashed = true
+__disposeWasiBindingAtExit()
+if (__wasiExitListenerRegistered) steps.push('still registered')
+`,
+  )
+  run(steps, crash)
+  return steps
+}
+
+// A wasm thread that died can leave the shared state half-updated: a lock it
+// held stays held, and the async runtime's shutdown waits for its work to go
+// idle. The 'exit' teardown re-enters wasm on the JavaScript thread and blocks
+// there in a raw atomic wait that no signal can interrupt, so the process hangs
+// for good. After a crash the listener must only stop the workers.
+test('node WASI loader skips the wasm teardown at exit after a thread crash', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'node cjs')
+  t.true(code.includes('function __hasWasiThreadCrashed() {'))
+
+  // No crash: the teardown is exactly what it was.
+  t.deepEqual(runWasiExitListener(code, {}), ['destroy', 'terminate'])
+
+  // Each of the three signals is enough on its own: the flag the worker sets
+  // before it reports, the worker's 'error' event, and emnapi's fatal error.
+  for (const crash of [
+    { flag: true },
+    { errorEvent: true },
+    { fatalError: true },
+  ]) {
+    t.deepEqual(
+      runWasiExitListener(code, crash),
+      ['terminate'],
+      JSON.stringify(crash),
+    )
+  }
+})
+
+test('node WASI loader shares the crash flag with its pool workers', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const createWorker = generatedFunction(code, '__createWasiWorker')
+  t.true(createWorker.includes('crashFlag: __wasiThreadCrashFlag,'))
+  const onCreateWorker = code.slice(
+    code.indexOf('onCreateWorker() {'),
+    code.indexOf('return worker\n', code.indexOf('onCreateWorker() {')),
+  )
+  t.true(
+    onCreateWorker.includes("worker.on('error', () => {"),
+    'the loader has to see a worker error even when the worker never set the flag',
+  )
+  t.true(onCreateWorker.includes('__wasiThreadCrashed = true'))
+})
+
+// The threadless flavor has no pool workers and must not reference the latch:
+// a name the exit listener cannot resolve would throw on every process exit.
+test('threadless node WASI loader keeps its exit teardown unconditional', (t) => {
+  const code = createWasiBinding('test', '@scope/test', 4000, 65536, false)
+  t.false(code.includes('__hasWasiThreadCrashed'))
+  t.false(code.includes('__wasiThreadCrash'))
+  t.false(code.includes('SharedArrayBuffer'))
+  t.true(generatedFunction(code, '__disposeWasiBindingAtExit').length > 0)
+})
+
+test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
+  assertValidJS(t, WASI_WORKER_TEMPLATE, 'Node WASI worker')
+  const start = WASI_WORKER_TEMPLATE.indexOf(
+    'if (workerData && workerData.crashFlag instanceof Int32Array) {',
+  )
+  t.true(start > 0)
+  t.true(
+    start < WASI_WORKER_TEMPLATE.indexOf('globalThis.onmessage = function'),
+    'the hook has to be in place before the first message is handled',
+  )
+  const latch = WASI_WORKER_TEMPLATE.slice(
+    start,
+    WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
+  )
+
+  const run = (workerData: { crashFlag?: Int32Array } & object) => {
+    const reports: string[] = []
+    const handler = {
+      // emnapi's own hook, which lets the main thread start exiting.
+      beforeReportError(this: unknown, error: Error, type: string) {
+        const flag = workerData.crashFlag
+          ? Atomics.load(workerData.crashFlag, 0)
+          : 'none'
+        reports.push(
+          `${error.message} ${type} flag=${flag} ${this === handler}`,
+        )
+      },
+    }
+    const original = handler.beforeReportError
+    new Function('workerData', 'handler', latch)(workerData, handler)
+    return { handler, original, reports }
+  }
+
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const crashed = run({ crashFlag })
+  t.not(crashed.handler.beforeReportError, crashed.original)
+  crashed.handler.beforeReportError(new Error('trap'), 'start')
+  // Set before emnapi's hook runs, and emnapi's hook still runs on the handler.
+  t.deepEqual(crashed.reports, ['trap start flag=1 true'])
+  t.is(Atomics.load(crashFlag, 0), 1)
+
+  // A loader that predates the flag passes none: the hook stays emnapi's own.
+  const legacy = run({ hostRoot: '/', rootDir: '/' } as object)
+  t.is(legacy.handler.beforeReportError, legacy.original)
 })
