@@ -91,6 +91,15 @@
 //! - A thread that crashes while it holds `LOCK` leaves the others spinning, as a crash inside
 //!   dlmalloc's own lock always did.
 //!
+//! # Cost
+//!
+//! Measured in rolldown on its copy of this code, before napi took it over (release wasm, Node
+//! 24.21 on arm64, 10 interleaved rounds, medians): the lock and the break cost about 8% on 16
+//! builds, 5% on 16 builds with a JS plugin, 10-11% on parse loads and 3% on transform, against
+//! the code before them, which already grew [`GROW_AHEAD`] at a time. That grow-ahead had made the
+//! same loads 1.6-3.2x faster than growing in dlmalloc's own small steps, so most of that gain
+//! stays. Other workloads and hosts are not measured. The table is in `cli/docs/wasi.md`.
+//!
 //! # Opting out
 //!
 //! `--cfg napi_wasi_no_heap_sync` in the target rustflags (for example
@@ -176,9 +185,19 @@ fn store_pages(index: usize, pages: usize) {
   STATS[index].store(u32::try_from(pages).unwrap_or(u32::MAX), Ordering::Relaxed);
 }
 
-/// Test-only view of the heap-sync counters: 0-4 are this module's (see [`stat`]), 5 is
-/// napi-async-runtime's scheduler-handoff refreshes, and any other index reads `u32::MAX`.
-/// Exported from the wasm module (a `#[no_mangle]` function in a cdylib), not through napi.
+/// Test-only view of the heap-sync counters. Exported from the wasm module (a `#[no_mangle]`
+/// function in a cdylib), not through napi.
+///
+/// - 0: heap growths (`memory.grow(n > 0)` by [`__wrap_sbrk`]);
+/// - 1: refreshes after taking `LOCK`, including each thread's first;
+/// - 2: blocks past the thread's refreshed size when dlmalloc returned them; the invariant says 0;
+/// - 3: the break, in pages (rounded up); 0 before the first `sbrk`;
+/// - 4: `__heap_end`, in pages; 0 before the first `sbrk`;
+/// - 5: handoff refreshes (napi-async-runtime's scheduler and napi's own cross-thread entries);
+/// - any other index: `u32::MAX`.
+///
+/// Downstream stress tests (rolldown's) read these by index, so an index keeps its meaning; a
+/// new counter takes a new index.
 #[no_mangle]
 pub extern "C" fn napi_wasm_heap_sync_stat(index: u32) -> u32 {
   if index == HANDOFF_REFRESHES_STAT {

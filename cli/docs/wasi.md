@@ -667,3 +667,152 @@ Verified on the patched core: a contended probe under `wasmtime run -S
 threads` — `Mutex`, `Condvar`, `RwLock`, `park_until`, `notify_all`, `DashMap`
 — reports `ALL OK` with zero parking stubs left in the module, and rolldown's
 threaded WASI artifact passed its stability lane 3 of 3.
+
+## Shared memory growth on `wasm32-wasip1-threads`
+
+Every thread of a threaded WASI addon runs on one shared `WebAssembly.Memory`.
+V8 updates that memory's size only on the thread that grew it. Every other
+thread keeps checking `memory.fill`, `memory.copy` and atomics against its old
+size until it handles V8's grow interrupt, and on a host without V8's wasm trap
+handler (`--disable-wasm-trap-handler`, or `--wasm-enforce-bounds-checks`) it
+checks every load and store that way. Such a thread traps with `memory access
+out of bounds` on heap pages another thread just grew. V8 fixed this in
+[v8/v8@3424101](https://github.com/v8/v8/commit/34241014663390c72e08c123faef6fedf395be8e);
+napi-rs works around it until the hosts it supports ship that fix.
+
+The workaround is on for every addon built for exactly `wasm32-wasip1-threads`
+with `napi` and `napi_build::setup()`. There is nothing to call or configure:
+
+```text
+malloc / free / calloc / realloc / ...   (Rust's System, wasi-libc, emnapi's `malloc` export)
+  -> napi's __wrap_* (napi-build links with --wrap)
+       LOCK (spin; sched_yield every 64 spins; never memory.atomic.wait)
+         another thread saw a larger memory? memory.grow(0)   refresh this thread
+         dlmalloc
+           -> __wrap_sbrk: the reserve first, else grow >= 16 MiB,
+                           refresh and publish the new size
+       UNLOCK
+
+task poll, block_on poll, blocking closure      (napi-async-runtime)
+AsyncTask compute, AsyncRuntimeTask poll,       (napi)
+napi's default Tokio runtime and spawn_blocking
+  -> another thread saw a larger memory? memory.grow(0)   one atomic load + one thread-local load
+```
+
+- **The allocator lock.** `napi_build::setup()` links with `--wrap` for the 10
+  entries of wasi-libc's dlmalloc and for `sbrk`, so every allocation reaches a
+  `__wrap_*` function in `napi`. It takes one lock, refreshes the thread's size
+  when another thread has seen a larger memory, and runs the real call. The
+  thread that grows the memory publishes the new size before it unlocks, so
+  every thread is current before dlmalloc touches a byte for it. The lock also
+  covers calloc's zero fill and realloc's copy. It spins like dlmalloc's own
+  lock, so it is safe on a browser main thread, where `memory.atomic.wait`
+  traps.
+- **The handoff refresh.** Memory can reach a thread without an allocation
+  there: a task that allocated on one thread resumes on another, or a closure
+  runs on a pool thread. `napi-async-runtime` and napi's own cross-thread
+  entries check the size before they run such work.
+- **The heap break.** dlmalloc first uses the pages between the module's own
+  memory and the memory the loader created (`napi.wasm.initialMemory`): they
+  exist on every thread from the start, so they never need a refresh, and
+  nothing grows until they are used. Past them it only uses pages it grew
+  itself, at least 16 MiB at a time, so pages another allocator grew never
+  reach dlmalloc. The heap never reaches 2 GiB: an allocation that would pass
+  it fails. Node's `node:wasi` (v24 and later) answers `EINVAL` to
+  `clock_time_get` and `fd_seek` when a pointer is at or above 2 GiB.
+
+The threaded `.wasm` exports `malloc` and `free` as before (`@emnapi/core`
+calls them); they now go through the lock. It also exports the 11 `__wrap_*`
+functions, `napi_wasm_heap_sync_stat` and `napi_wasm_thread_crashed`, because
+Rust exports every `#[no_mangle]` function of a cdylib. They are not an API.
+The threadless `wasm32-wasip1` artifact has none of this.
+
+### Test counters
+
+`napi_wasm_heap_sync_stat(index)` returns one counter as a `u32`. It is for
+tests and diagnosis; `examples/wasi-heap-sync/stress.mjs` and rolldown's
+threaded stress test read it by index, so an index keeps its meaning.
+
+| index     | value                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------- |
+| 0         | heap growths: `memory.grow(n > 0)` calls by `__wrap_sbrk`                                   |
+| 1         | refreshes after taking the lock (including each thread's first)                             |
+| 2         | blocks that ended past the thread's refreshed size when dlmalloc returned them; must stay 0 |
+| 3         | the heap break, in pages (rounded up); 0 before the first `sbrk`                            |
+| 4         | `__heap_end` (where the break starts), in pages; 0 before the first `sbrk`                  |
+| 5         | refreshes at handoffs (napi-async-runtime and napi's cross-thread entries)                  |
+| any other | `u32::MAX`                                                                                  |
+
+With the loader's default memory a small load reads 0 at index 0: the heap fits
+in the reserve and never grows.
+
+### Cost
+
+Measured in rolldown on its copy of this code, before napi-rs took it over:
+the same lock and break. napi's copy adds the check that keeps other
+allocators' pages out of the break, and keeps the shared size in a cache line
+of its own. Release wasm, Node 24.21 on arm64, 10 interleaved rounds, medians
+in ms:
+
+| load                              | before the lock | with the lock | cost |
+| --------------------------------- | --------------- | ------------- | ---- |
+| MultiThread, 16 builds            | 310.5           | 334.5         | 8%   |
+| MultiThread, 16 builds, JS plugin | 1518            | 1589.5        | 5%   |
+| MultiThread, parse 16x3           | 218.5           | 241           | 10%  |
+| CurrentThread, parse 16x3         | 216.5           | 240.5         | 11%  |
+| CurrentThread, transform 16x3     | 623.5           | 640           | 3%   |
+
+"Before the lock" already grew the heap at least 16 MiB at a time. That part
+of the workaround had made the same loads 1.6-3.2x faster than growing in
+dlmalloc's own small steps (transform: no change), and the lock keeps most of
+that gain. The handoff check alone measured at noise level. Other workloads,
+x64, Linux, Windows and browsers are not measured.
+
+### Opting out
+
+Pass `--cfg napi_wasi_no_heap_sync` in the target rustflags, for example
+`RUSTFLAGS="--cfg napi_wasi_no_heap_sync" napi build --target
+wasm32-wasip1-threads`. `napi` then leaves out the wrappers and its handoff
+checks, and `napi-build` leaves out the `--wrap` link arguments; both read the
+same cfg, so they cannot come apart. `napi-async-runtime`'s check stays, but it
+never fires: nothing publishes a larger size. `napi_build::setup()` declares
+the cfg, so addon code can test `#[cfg(napi_wasi_no_heap_sync)]` too. Without
+the workaround the trap above comes back on hosts without the V8 fix.
+
+### What it does not cover
+
+- A `#[global_allocator]` that calls `memory.grow` itself (mimalloc's WASI
+  build, talc, lol_alloc, the `dlmalloc` crate) is not locked, and its growth
+  is never published. One that ends in libc `malloc`, like std's `System`, is
+  locked.
+- C code that calls `sbrk` directly runs `__wrap_sbrk` outside the lock.
+- Memory that reaches a running thread mid-poll (a channel message, an `Arc`,
+  a threadsafe-function call on the JavaScript thread) and is touched there
+  before that thread's next allocation or handoff, after another thread grew
+  the memory. Below the reserve nothing grows.
+- Work on threads the addon starts or runs itself: a runtime passed to
+  `create_custom_tokio_runtime`, direct `tokio::task::spawn_blocking` calls,
+  and a host's own threads outside `napi-async-runtime`'s scheduler.
+- A thread that crashes while it holds the lock leaves the others spinning, as
+  a crash inside dlmalloc's own lock always did.
+
+## Shutdown polls never wait
+
+A loader's `dispose()` runs the environment cleanup in two phases with a poll
+between them: `napi_prepare_wasm_env_cleanup_begin`, then
+`napi_wasm_runtime_work_pending` once per event-loop turn until it answers 0,
+then `napi_prepare_wasm_env_cleanup_finish`. The poll never blocks, and that
+includes locks: when a lock the answer is read under is held by another
+thread, it answers 1 and the loader polls again on its next turn. On
+`wasm32-wasip1-threads` a thread that traps unwinds nothing, so a lock it held
+stays held; a poll that waited for it would park the JavaScript thread in
+`memory.atomic.wait32` for good, before the loader can see the crash. A custom
+`AsyncRuntime` backend must keep the same rule in `shutdown_work_pending`. The
+process-exit teardown has no turns to give and makes the single blocking call,
+`napi_prepare_wasm_env_cleanup`.
+
+The two phases themselves may wait. With `napi-async-runtime` on
+`wasm32-wasip1-threads` they wait in 1 ms slices on the JavaScript thread.
+When a worker's wasm thread dies, the generated worker raises the loader's
+crash flag and then calls `napi_wasm_thread_crashed`; the next slice then
+traps, and the loader reports the crash instead of hanging.

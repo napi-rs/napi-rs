@@ -45,3 +45,6 @@ wrapped entries (source: `src/wasi_heap_sync_exports.c`).
 - A `#[global_allocator]` is locked only when it ends in libc `malloc`, as
   std's `System` does. An allocator that calls `memory.grow` itself (the
   mimalloc WASI build, talc, lol_alloc, the `dlmalloc` crate) bypasses the lock.
+
+The cost, the `napi_wasm_heap_sync_stat` test counters and the other gaps are
+in [the WASI docs](https://github.com/napi-rs/napi-rs/blob/main/cli/docs/wasi.md#shared-memory-growth-on-wasm32-wasip1-threads).
