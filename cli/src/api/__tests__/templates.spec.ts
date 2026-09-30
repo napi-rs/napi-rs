@@ -2202,6 +2202,12 @@ test('node WASI loader skips the wasm teardown at exit after a thread crash', (t
  * Runs the node loader's public disposer, and then its 'exit' listener, against
  * stubbed wasm steps with the crash latch in the given state. Every stub
  * records its name, so the steps show exactly what re-entered wasm.
+ *
+ * `__emnapiContext` is a stub shaped like emnapi's Node `Context`: its
+ * `refCounter.refHandle` records 'port ref' / 'port unref', and every other
+ * member records its name, so a step that touched the context shows up too.
+ * `context` picks a context without a counter, one whose counter getter
+ * throws, or no context at all.
  */
 async function runWasiPublicDisposer(
   code: string,
@@ -2210,6 +2216,7 @@ async function runWasiPublicDisposer(
     errorEvent?: boolean
     fatalError?: boolean
     terminateThrows?: boolean
+    context?: 'no counter' | 'throwing counter' | 'none'
   },
   calls = 1,
 ): Promise<{
@@ -2217,6 +2224,7 @@ async function runWasiPublicDisposer(
   results: Array<{ value?: unknown; error?: any }>
   samePromise: boolean
   exitError?: unknown
+  count?: number
 }> {
   const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
   const latchState = code.slice(
@@ -2226,11 +2234,49 @@ async function runWasiPublicDisposer(
   )
   const steps: string[] = []
   const fatalError = new Error('worker died')
+  // Two requests still in flight on the dead thread.
+  const refCounter = {
+    count: 2,
+    refHandle: {
+      ref() {
+        steps.push('port ref')
+      },
+      unref() {
+        steps.push('port unref')
+      },
+    },
+  }
+  let context: object | undefined
+  if (crash.context === 'no counter') {
+    context = {}
+  } else if (crash.context === 'throwing counter') {
+    context = {
+      get refCounter() {
+        throw new Error('private field')
+      },
+    }
+  } else if (crash.context !== 'none') {
+    context = { refCounter }
+  }
+  if (context) {
+    // Anything but the counter port touching the context is a wasm re-entry
+    // (destroy runs the cleanup hooks) or a JS state change this path must not
+    // make; record it.
+    context = new Proxy(context, {
+      get(target, key, receiver) {
+        if (key !== 'refCounter') {
+          steps.push(`context.${String(key)}`)
+        }
+        return Reflect.get(target, key, receiver)
+      },
+    })
+  }
   const run = new Function(
     'steps',
     'crash',
     'fatalError',
     'calls',
+    '__emnapiContext',
     `
 let __wasiExitListenerRegistered = true
 let __wasiDisposed = false
@@ -2271,6 +2317,7 @@ function __terminateWasiWorkers() {
 ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__attachCleanupErrors')}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
 ${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
 ${generatedFunction(code, '__finishWasiDisposal')}
 ${generatedFunction(code, '__continueWasiDisposal')}
@@ -2308,8 +2355,8 @@ return (async () => {
 })()
 `,
   )
-  const outcome = await run(steps, crash, fatalError, calls)
-  return { steps, ...outcome }
+  const outcome = await run(steps, crash, fatalError, calls, context)
+  return { steps, ...outcome, count: refCounter.count }
 }
 
 // The published disposer runs the same wasm teardown as the 'exit' listener,
@@ -2349,7 +2396,7 @@ test('node WASI public disposer skips the wasm teardown after a thread crash', a
     // terminated once by the disposer and once more by the 'exit' listener,
     // which still takes its short path and does not throw.
     const crashed = await runWasiPublicDisposer(code, crash, 3)
-    t.deepEqual(crashed.steps, ['terminate', 'terminate'], label)
+    t.deepEqual(crashed.steps, ['port unref', 'terminate', 'terminate'], label)
     t.true(crashed.samePromise, label)
     t.is(crashed.exitError, undefined, label)
     for (const result of crashed.results) {
@@ -2371,10 +2418,57 @@ test('node WASI public disposer skips the wasm teardown after a thread crash', a
     flag: true,
     terminateThrows: true,
   })
-  t.deepEqual(failed.steps, ['terminate', 'terminate'])
+  t.deepEqual(failed.steps, ['port unref', 'terminate', 'terminate'])
   t.regex(failed.results[0].error.message, /worker thread crashed/)
   t.is(failed.results[0].error.cause.message, 'terminate failed')
   t.is(failed.exitError, undefined)
+})
+
+// emnapi's Node Context refs a MessagePort (refCounter.refHandle) while async
+// work or threadsafe-function requests are in flight. The dead thread's requests
+// never finish, so after the crash disposal rejected nothing else was left
+// running and the port alone kept the process from exiting. The crash path
+// unrefs it without touching anything else on the context; the no-crash path
+// never touches it.
+test('node WASI crash disposal releases the waiting-request port', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const release = generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')
+  t.true(release.length > 0)
+  t.true(
+    generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
+      '  __releaseEmnapiWaitingRequestHandle()\n  let workerResult\n',
+    ),
+    'released before the workers are terminated',
+  )
+  // It must not destroy the context: that runs the cleanup hooks in wasm.
+  t.false(release.includes('destroy'))
+
+  // No crash: the port is left to emnapi's own count.
+  const clean = await runWasiPublicDisposer(code, {})
+  t.false(clean.steps.includes('port unref'))
+  t.false(clean.steps.includes('port ref'))
+  t.is(clean.count, 2)
+
+  // Crash: unrefed exactly once across three disposer calls and the 'exit'
+  // listener, never re-refed, and the count is left above zero so a later
+  // request cannot ref the port again. No other context member is read.
+  const crashed = await runWasiPublicDisposer(code, { flag: true }, 3)
+  t.deepEqual(
+    crashed.steps.filter((step) => step.startsWith('port ')),
+    ['port unref'],
+  )
+  t.false(crashed.steps.some((step) => step.startsWith('context.')))
+  t.is(crashed.count, 2)
+
+  // A context without the counter (a non-Node host, a future emnapi), one
+  // whose field cannot be read, or no context at all: the disposer still
+  // rejects with the crash error and terminates the workers.
+  for (const context of ['no counter', 'throwing counter', 'none'] as const) {
+    const outcome = await runWasiPublicDisposer(code, { flag: true, context })
+    t.deepEqual(outcome.steps, ['terminate', 'terminate'], context)
+    t.regex(outcome.results[0].error.message, /worker thread crashed/, context)
+    t.is(outcome.exitError, undefined, context)
+  }
 })
 
 test('node WASI loader shares the crash flag with its pool workers', (t) => {
@@ -2401,6 +2495,7 @@ test('threadless node WASI loader keeps its exit teardown unconditional', (t) =>
   t.false(code.includes('SharedArrayBuffer'))
   t.true(generatedFunction(code, '__disposeWasiBindingAtExit').length > 0)
   t.false(code.includes('__disposeWasiBindingAfterThreadCrash'))
+  t.false(code.includes('__releaseEmnapiWaitingRequestHandle'))
   t.true(
     generatedFunction(code, '__disposeWasiBinding').startsWith(
       'function __disposeWasiBinding() {\n  if (__wasiDisposePromise) {\n',
