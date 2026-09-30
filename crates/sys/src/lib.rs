@@ -123,6 +123,9 @@ macro_rules! generate {
 
 mod functions;
 mod types;
+#[cfg(any(napi_wasi_threads, test))]
+#[doc(hidden)]
+pub mod wasi_heap_sync;
 
 pub use functions::*;
 pub use types::*;
