@@ -125,7 +125,7 @@ napi = "3"
 napi-derive = "3"
 
 [build-dependencies]
-napi-build = "1"
+napi-build = "2"
 ```
 
 And create `build.rs` in your own project:

@@ -727,6 +727,12 @@ functions, `napi_wasm_heap_sync_stat` and `napi_wasm_thread_crashed`, because
 Rust exports every `#[no_mangle]` function of a cdylib. They are not an API.
 The threadless `wasm32-wasip1` artifact has none of this.
 
+The addon's `napi-build` must be the same package as `napi`'s own
+build-dependency (a path or git `napi` needs `napi-build` from the same
+checkout). With two copies, the addon's `setup()` does not wrap the allocator,
+and the link fails with an undefined symbol,
+`napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync`.
+
 ### Test counters
 
 `napi_wasm_heap_sync_stat(index)` returns one counter as a `u32`. It is for

@@ -39,6 +39,12 @@ wrapped entries (source: `src/wasi_heap_sync_exports.c`).
 
 - The feature is off by default. `napi` turns it on through its
   build-dependency; an addon does not enable it by hand.
+- The addon's `napi-build` must be the same package as `napi`'s
+  build-dependency: the same major version from the same source (a path or git
+  `napi` needs `napi-build` from the same checkout). Otherwise Cargo builds two
+  copies, the addon's `setup()` runs the one without the feature, and the link
+  fails with an undefined symbol,
+  `napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync`.
 - Opt out with `--cfg napi_wasi_no_heap_sync` in the target rustflags, e.g.
   `RUSTFLAGS="--cfg napi_wasi_no_heap_sync"`. `napi-build` and `napi` both read
   it, and `setup()` declares it, so addon code can test it too.

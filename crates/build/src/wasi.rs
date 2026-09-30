@@ -268,9 +268,21 @@ const HEAP_SYNC_WRAPPED_SYMBOLS: [&str; 11] = [
 /// A relocatable wasm object whose two functions are exported as `malloc` and
 /// `free` and call `malloc` and `free`, which `--wrap` turns into
 /// `__wrap_malloc` and `__wrap_free`. `@emnapi/core` needs the two exports, and
-/// under `--wrap` the link has no other way to produce them. Source and the
-/// exact build command: `wasi_heap_sync_exports.c`.
+/// under `--wrap` the link has no other way to produce them. It also defines
+/// [`HEAP_SYNC_LINK_CHECK_SYMBOL`]. Source and the exact build command:
+/// `wasi_heap_sync_exports.c`.
 const HEAP_SYNC_EXPORTS_OBJECT: &[u8] = include_bytes!("wasi_heap_sync_exports.o");
+
+/// A data symbol that [`HEAP_SYNC_EXPORTS_OBJECT`] defines and `napi`'s
+/// `__wrap_sbrk` reads. A link with `napi`'s wrappers but without this crate's
+/// wrap (an addon whose `setup()` runs a napi-build without the
+/// `wasi-heap-sync` feature, next to the copy `napi` builds with) then fails
+/// with `undefined symbol` naming it. `--import-undefined` never imports data,
+/// while it would import the wrappers' `__real_*` calls and leave a module
+/// that fails to load.
+#[cfg(test)]
+const HEAP_SYNC_LINK_CHECK_SYMBOL: &str =
+  "napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync";
 
 /// The file name [`HEAP_SYNC_EXPORTS_OBJECT`] is written to, in `OUT_DIR`.
 const HEAP_SYNC_EXPORTS_OBJECT_FILE: &str = "napi_wasi_heap_sync_exports.o";
@@ -661,12 +673,16 @@ mod tests {
   /// The object must turn into `malloc` / `free` exports that forward to the
   /// references `--wrap` redirects: an export named `malloc` whose body passes
   /// its argument to an undefined `malloc` through a relocation, and the same
-  /// for `free`. Parsed by hand, so the test needs no wasm toolchain.
+  /// for `free`. It must also define the global data symbol `napi` reads to
+  /// fail a link without the wrap. Parsed by hand, so the test needs no wasm
+  /// toolchain.
   #[test]
   fn exports_object_forwards_malloc_and_free_to_undefined_symbols() {
     const SYMBOL_TABLE: u8 = 8;
     const SYMBOL_KIND_FUNCTION: u8 = 0;
+    const SYMBOL_KIND_DATA: u8 = 1;
     const SYMBOL_KIND_TABLE: u8 = 5;
+    const SYMBOL_BINDING_LOCAL: u32 = 0x02;
     const SYMBOL_UNDEFINED: u32 = 0x10;
     const SYMBOL_EXPORTED: u32 = 0x20;
     const SYMBOL_EXPLICIT_NAME: u32 = 0x40;
@@ -743,7 +759,10 @@ mod tests {
 
     let mut linking = WasmReader::new(sections[section(0, "linking")].2);
     assert_eq!(linking.u32(), 2, "linking section version");
+    // Every symbol in table order, since relocations refer to them by position;
+    // `index` is `u32::MAX` for data symbols, which have none.
     let mut symbols = Vec::new();
+    let mut data_symbols = Vec::new();
     while !linking.is_done() {
       let id = linking.byte();
       let len = linking.u32() as usize;
@@ -753,17 +772,37 @@ mod tests {
       }
       for _ in 0..subsection.u32() {
         let (kind, flags) = (subsection.byte(), subsection.u32());
-        assert!(
-          kind == SYMBOL_KIND_FUNCTION || kind == SYMBOL_KIND_TABLE,
-          "unexpected symbol kind {kind}"
-        );
-        let index = subsection.u32();
-        if flags & SYMBOL_UNDEFINED == 0 || flags & SYMBOL_EXPLICIT_NAME != 0 {
-          subsection.name();
+        match kind {
+          SYMBOL_KIND_FUNCTION | SYMBOL_KIND_TABLE => {
+            let index = subsection.u32();
+            if flags & SYMBOL_UNDEFINED == 0 || flags & SYMBOL_EXPLICIT_NAME != 0 {
+              subsection.name();
+            }
+            symbols.push((kind, flags, index));
+          }
+          SYMBOL_KIND_DATA => {
+            let name = subsection.name();
+            // A defined data symbol: segment index, offset, size.
+            let size = if flags & SYMBOL_UNDEFINED == 0 {
+              subsection.u32();
+              subsection.u32();
+              Some(subsection.u32())
+            } else {
+              None
+            };
+            data_symbols.push((name, flags, size));
+            symbols.push((kind, flags, u32::MAX));
+          }
+          kind => panic!("unexpected symbol kind {kind}"),
         }
-        symbols.push((kind, flags, index));
       }
     }
+
+    assert_eq!(data_symbols.len(), 1, "{data_symbols:?}");
+    let (name, flags, size) = data_symbols[0];
+    assert_eq!(name, HEAP_SYNC_LINK_CHECK_SYMBOL);
+    assert_eq!(size, Some(1), "{name} is defined, one byte");
+    assert_eq!(flags & SYMBOL_BINDING_LOCAL, 0, "{name} is a global symbol");
 
     let mut reloc = WasmReader::new(sections[section(0, "reloc.CODE")].2);
     assert_eq!(reloc.u32() as usize, code_section);

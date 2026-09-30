@@ -26,6 +26,13 @@
 //! UNLOCK (Release)                                    the next holder's Acquire sees it
 //! ```
 //!
+//! The wrappers call `__real_*`, which only `--wrap` defines. When the addon's `setup()` runs a
+//! napi-build other than the one napi turns the feature on in (two copies of napi-build in the
+//! graph), the link has no `--wrap`, and `--import-undefined` would make those calls imports
+//! that fail when the module loads. The object napi-build links with `--wrap` defines a data
+//! symbol that [`__wrap_sbrk`] reads, so that link fails instead: `undefined symbol:
+//! napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync`.
+//!
 //! Only `sbrk` grows the memory, and it only runs under `LOCK`, so the thread that grows
 //! publishes the new size before any other thread can enter dlmalloc, and that thread
 //! refreshes before dlmalloc touches a byte. A refresh before dlmalloc's own lock is not enough:
@@ -228,6 +235,12 @@ extern "C" {
   fn sched_yield() -> i32;
   /// End of the module's own initial memory (wasm-ld), where dlmalloc's first segment ends.
   static __heap_end: u8;
+  /// Defined only in the object napi-build links when it wraps the allocator
+  /// (`crates/build/src/wasi_heap_sync_exports.c`). [`sbrk_under_lock`] reads it, so a link
+  /// without that object, and so without the `--wrap` arguments, fails with `undefined symbol`
+  /// naming it. Without the read, `--import-undefined` turns the `__real_*` calls above into
+  /// imports, and the module links but fails to load.
+  static napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync: u8;
 }
 
 #[inline]
@@ -333,6 +346,12 @@ unsafe fn sbrk_under_lock(increment: isize) -> *mut c_void {
   const FAIL: *mut c_void = usize::MAX as *mut c_void;
   let mut brk = STATE.brk.load(Ordering::Relaxed);
   if brk == 0 {
+    // Keeps the reference that fails a link without napi-build's wrap; see the declaration.
+    unsafe {
+      core::ptr::read_volatile(
+        &raw const napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync,
+      )
+    };
     // Page-aligned by wasm-ld (it is the end of the module's initial memory); rounding up
     // only matters if that ever changes, and dlmalloc copes with a non-contiguous break.
     let start = pages_below(&raw const __heap_end as usize) * PAGE_BYTES;

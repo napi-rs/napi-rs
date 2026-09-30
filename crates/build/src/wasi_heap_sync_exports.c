@@ -10,6 +10,14 @@
  * are references to `malloc` / `free`, and `--wrap` points those at
  * `__wrap_malloc` / `__wrap_free`, the locked entries.
  *
+ * The object also defines the data symbol at the end, which napi's
+ * `__wrap_sbrk` reads. A link that has napi's wrappers but not this object
+ * (napi-build without the `wasi-heap-sync` feature: a second copy of
+ * napi-build next to the one napi builds with) has no `--wrap` either, and
+ * `--import-undefined` would turn the wrappers' `__real_*` calls into imports
+ * that fail only when the module loads. `--import-undefined` never imports
+ * data, so the link fails instead, naming the symbol.
+ *
  * napi-build embeds the object built from this file, so an addon build needs
  * no C compiler. Rebuild it with wasi-sdk 32 (clang 22.1.0) and these exact
  * flags; the result is `wasi_heap_sync_exports.o`, byte for byte:
@@ -22,3 +30,5 @@ void *malloc(size_t);
 void free(void *);
 __attribute__((export_name("malloc"))) void *napi_rs_export_malloc(size_t n) { return malloc(n); }
 __attribute__((export_name("free"))) void napi_rs_export_free(void *p) { free(p); }
+
+const unsigned char napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync = 1;
