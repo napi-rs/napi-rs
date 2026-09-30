@@ -130,12 +130,46 @@ function __disposeCurrentThreadHosts() {
   const disposeCurrentThreadHosts = asyncRuntime
     ? '  __disposeCurrentThreadHosts()\n'
     : ''
+  // After the in-flight check: a disposal that was already running when a
+  // thread died settles through the crash disposal itself, so every caller of
+  // it keeps getting the one promise it handed out.
   const disposeAfterThreadCrash = threadCrashLatch
     ? `  if (!__wasiDisposed && __hasWasiThreadCrashed()) {
     return __disposeWasiBindingAfterThreadCrash()
   }
 `
     : ''
+  // A thread can die after the entry check above has passed. The disposal's
+  // polls and step boundaries check again, and a chain stopped that way — or
+  // failed any other way once a thread is dead — settles through the crash
+  // disposal. See `__abortWasiDisposalIfThreadCrashed`.
+  const abortDisposalAfterThreadCrash = (indent: string) =>
+    threadCrashLatch ? `${indent}__abortWasiDisposalIfThreadCrashed()\n` : ''
+  const settleDisposalAfterThreadCrash = (indent: string, exit: string) =>
+    threadCrashLatch
+      ? `${indent}if (__settleWasiDisposalAfterThreadCrash(resolveDispose, rejectDispose)) {
+${indent}  ${exit}
+${indent}}
+`
+      : ''
+  // The barrier's poll ends in `…_finish`, which joins the runtime's work. A
+  // dead thread's work never goes idle, so after a crash the join would block
+  // this thread for good: leave the barrier parked and stop the disposal.
+  const finishWasmEnvCleanupUnlessCrashed = threadCrashLatch
+    ? `  const finishCleanupUnlessCrashed = () => {
+    try {
+      __abortWasiDisposalIfThreadCrashed()
+    } catch (error) {
+      __finishParkedWasmEnvCleanup = undefined
+      throw error
+    }
+    finishCleanup()
+  }
+`
+    : ''
+  const finishWasmEnvCleanupAfterPoll = threadCrashLatch
+    ? 'finishCleanupUnlessCrashed'
+    : 'finishCleanup'
 
   return `
 const __wasiDisposeSymbol = Symbol.for('${WASI_DISPOSE_SYMBOL}')
@@ -664,6 +698,7 @@ function __prepareWasmEnvCleanupWithTurns() {
   // Publish the closer before yielding: from here until \`finishCleanup\` runs,
   // a caller that cannot yield is entitled to end this handshake itself.
   __finishParkedWasmEnvCleanup = finishCleanup
+${finishWasmEnvCleanupUnlessCrashed}\
   return (async () => {
     // Unbounded, exactly like the async-work drain below. The wait ends when
     // the addon reports its runtime work finished; the turns spent here are
@@ -671,6 +706,7 @@ function __prepareWasmEnvCleanupWithTurns() {
     const pace = __createWasmRuntimePollPace()
     for (;;) {
       await __yieldWasmRuntimePollTurn(pace)
+${abortDisposalAfterThreadCrash('      ')}\
       try {
         if (!workPending()) {
           return
@@ -681,7 +717,7 @@ function __prepareWasmEnvCleanupWithTurns() {
         return
       }
     }
-  })().then(finishCleanup, finishCleanup)
+  })().then(${finishWasmEnvCleanupAfterPoll}, ${finishWasmEnvCleanupAfterPoll})
 }
 
 // Turns to wait for while the addon still reports queued settlements. Reaching
@@ -1005,6 +1041,7 @@ function __drainWasiAsyncWork() {
         await new Promise((resolve) => {
           __scheduleTimer(resolve, __WASI_ASYNC_WORK_POLL_INTERVAL_MS)
         })
+${abortDisposalAfterThreadCrash('        ')}\
       }
     })(),
   ).then(
@@ -1100,6 +1137,7 @@ function __finishWasiDisposal() {
 }
 
 function __continueWasiDisposal() {
+${abortDisposalAfterThreadCrash('  ')}\
   const destroyResult = __destroyEmnapiContext()
   if (__isThenable(destroyResult)) {
     return Promise.resolve(destroyResult).then(__finishWasiDisposal)
@@ -1108,6 +1146,7 @@ function __continueWasiDisposal() {
 }
 
 function __drainWasmEnvForWasiDisposal() {
+${abortDisposalAfterThreadCrash('  ')}\
   const drainResult = __drainWasmEnvCleanup()
   if (__isThenable(drainResult)) {
     return Promise.resolve(drainResult).then(__continueWasiDisposal)
@@ -1116,6 +1155,7 @@ function __drainWasmEnvForWasiDisposal() {
 }
 
 function __cleanUpWasmEnvForWasiDisposal() {
+${abortDisposalAfterThreadCrash('  ')}\
   // Run the pre-teardown barrier — yielding the turns its two-phase form asks
   // for, when the addon has one — then let the settlements it queued actually
   // reach JavaScript, and only then destroy the environment. Doing any two of
@@ -1149,10 +1189,10 @@ function __startWasiDisposal() {
  * binding[Symbol.for('${WASI_DISPOSE_SYMBOL}')]()
  */
 function __disposeWasiBinding() {
-${disposeAfterThreadCrash}\
   if (__wasiDisposePromise) {
     return __wasiDisposePromise
   }
+${disposeAfterThreadCrash}\
   if (__wasiDisposed) {
     return Promise.resolve()
   }
@@ -1169,6 +1209,7 @@ ${disposeAfterThreadCrash}\
   try {
     result = __startWasiDisposal()
   } catch (error) {
+${settleDisposalAfterThreadCrash('    ', 'return disposePromise')}\
     __wasiDisposePromise = undefined
     rejectDispose(error)
     return disposePromise
@@ -1180,6 +1221,7 @@ ${disposeAfterThreadCrash}\
       resolveDispose(value)
     },
     (error) => {
+${settleDisposalAfterThreadCrash('      ', 'return')}\
       __wasiDisposePromise = undefined
       rejectDispose(error)
     },
@@ -3827,6 +3869,47 @@ function __disposeWasiBindingAfterThreadCrash() {
     },
   )
   return __wasiThreadCrashDisposePromise
+}
+
+/**
+ * Stops a public disposal that a thread crash overtook.
+ *
+ * The check at the top of \`__disposeWasiBinding\` only sees a crash that came
+ * first. A thread that dies once the chain is running leaves it polling for
+ * work the dead thread still counts — the async-work drain for
+ * \`napi_wasm_async_work_pending\`, the barrier's poll for
+ * \`napi_wasm_runtime_work_pending\` — and neither count ever reaches zero, so
+ * the poll's referenced timers keep the process alive forever with the
+ * disposal promise pending. Each poll turn and each step boundary calls this,
+ * and the throw ends the chain before anything re-enters wasm again; the
+ * disposer then settles it through \`__settleWasiDisposalAfterThreadCrash\`.
+ *
+ * Only a public disposal is stopped. The initialization rollback runs the same
+ * polls with no disposal in flight and keeps its own behavior.
+ */
+function __abortWasiDisposalIfThreadCrashed() {
+  if (__wasiDisposePromise !== undefined && __hasWasiThreadCrashed()) {
+    throw new Error(
+      'napi-rs: WASI disposal stopped because a worker thread crashed',
+    )
+  }
+}
+
+/**
+ * Settles an in-flight public disposal whose chain failed after a thread
+ * died — stopped by \`__abortWasiDisposalIfThreadCrashed\` or failing any other
+ * way — through the crash disposal: it releases the waiting-request port,
+ * terminates the workers and rejects with the same error an entry-time crash
+ * gets. \`__wasiDisposePromise\` stays set, so this caller, every caller that
+ * joined it and every later one hold the same promise. Returns false when no
+ * thread died, leaving the ordinary failure handling alone.
+ */
+function __settleWasiDisposalAfterThreadCrash(resolve, reject) {
+  if (!__hasWasiThreadCrashed()) {
+    return false
+  }
+  __disposeWasiBindingAfterThreadCrash().then(resolve, reject)
+  return true
 }
 `
     : ''

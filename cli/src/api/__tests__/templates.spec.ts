@@ -1301,8 +1301,17 @@ for (const { name, code } of wasiLoaderCases) {
       /if \(__settled\??\) \{\s*return\s*\}|if \(settled\) \{\s*return\s*\}/,
       'whichever primitive loses the race must resolve nothing: one poll per turn',
     )
+    // The threaded node loader routes the poll's end through a crash check
+    // first: after a worker died, `…_finish` would join the dead thread's work.
+    // See `node WASI disposal stops the barrier poll when a worker crashes
+    // mid-flight`.
+    const crashLatched = code.includes('finishCleanupUnlessCrashed')
     t.true(
-      code.includes(barrier.finish),
+      code.includes(
+        crashLatched
+          ? '.then(finishCleanupUnlessCrashed, finishCleanupUnlessCrashed)'
+          : barrier.finish,
+      ),
       'finish must run whether the poll ended, timed out or could not run at all',
     )
     // The one caller that cannot yield is the raw `Context.destroy()` the
@@ -1326,7 +1335,8 @@ for (const { name, code } of wasiLoaderCases) {
     )
     t.is(
       code.split(barrier.clearParked).length - 1,
-      1,
+      // Plus the crash abort, which retracts it instead of finishing.
+      crashLatched ? 2 : 1,
       'finishing the handshake must retract that closer exactly once',
     )
     const parkedIndex = code.indexOf(`const ${barrier.parked}`)
@@ -2319,6 +2329,8 @@ ${generatedFunction(code, '__attachCleanupErrors')}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
 ${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
 ${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${generatedFunction(code, '__abortWasiDisposalIfThreadCrashed')}
+${generatedFunction(code, '__settleWasiDisposalAfterThreadCrash')}
 ${generatedFunction(code, '__finishWasiDisposal')}
 ${generatedFunction(code, '__continueWasiDisposal')}
 ${generatedFunction(code, '__drainWasmEnvForWasiDisposal')}
@@ -2468,6 +2480,385 @@ test('node WASI crash disposal releases the waiting-request port', async (t) => 
     t.deepEqual(outcome.steps, ['terminate', 'terminate'], context)
     t.regex(outcome.results[0].error.message, /worker thread crashed/, context)
     t.is(outcome.exitError, undefined, context)
+  }
+})
+
+/**
+ * Runs the node loader's real disposal chain — the async-work drain, its
+ * keep-alive interval, the barrier's two-phase poll, the step boundaries and
+ * the public disposer — against a stubbed addon on real timers, so a crash can
+ * land while a poll is waiting. The stubs record every wasm entry and every
+ * keep-alive interval, and the counters report how often each poll read.
+ */
+function createInflightWasiDisposal(
+  code: string,
+  addon: {
+    asyncWorkPending: number
+    runtimeWorkPending: number
+    onRuntimeWorkRead?: () => void
+  },
+) {
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const steps: string[] = []
+  const reads = { asyncWork: 0, runtimeWork: 0 }
+  const intervals = new Set<ReturnType<typeof setInterval>>()
+  // Stands in for the loader's global: timers are real, keep-alive intervals
+  // are recorded.
+  const host = {
+    setTimeout,
+    clearTimeout,
+    WebAssembly,
+    setInterval(callback: () => void, delay: number) {
+      const timer = setInterval(callback, delay)
+      intervals.add(timer)
+      steps.push('interval set')
+      return timer
+    },
+    clearInterval(timer: ReturnType<typeof setInterval>) {
+      clearInterval(timer)
+      if (intervals.delete(timer)) {
+        steps.push('interval cleared')
+      }
+    },
+  }
+  const exports = {
+    napi_wasm_async_work_pending() {
+      reads.asyncWork += 1
+      return addon.asyncWorkPending
+    },
+    napi_wasm_cancel_pending_async_work() {
+      steps.push('cancel')
+    },
+    napi_prepare_wasm_env_cleanup_begin() {
+      steps.push('begin')
+      return 1
+    },
+    napi_prepare_wasm_env_cleanup_finish() {
+      steps.push('finish')
+    },
+    napi_wasm_runtime_work_pending() {
+      reads.runtimeWork += 1
+      addon.onRuntimeWorkRead?.()
+      return addon.runtimeWorkPending
+    },
+  }
+  const context = {
+    refCounter: {
+      refHandle: {
+        ref() {
+          steps.push('port ref')
+        },
+        unref() {
+          steps.push('port unref')
+        },
+      },
+    },
+  }
+  const loader = new Function(
+    'globalThis',
+    'steps',
+    '__napiInstance',
+    '__emnapiContext',
+    `
+let __wasiDisposed = false
+let __wasiDisposePromise
+let __wasiThreadCrashDisposePromise
+let __wasiAsyncWorkDrainPromise
+let __emnapiWasmEnvCleanupPrepared = false
+let __emnapiWasmEnvCleanupPreparing = false
+let __emnapiWasmEnvCleanupYielding = false
+let __emnapiWasmEnvCleanupRan = false
+let __finishParkedWasmEnvCleanup
+let __completeWasiDisposal = function () {
+  steps.push('complete')
+}
+${latchState}
+const __WASI_ASYNC_WORK_POLL_INTERVAL_MS = 1
+function __getWasiThreadManager() {
+  return { terminateWorker() {} }
+}
+function __isThenable(value) {
+  return value !== null && typeof value === 'object' && typeof value.then === 'function'
+}
+function __scheduleMacrotask(callback) {
+  setImmediate(callback)
+}
+function __prepareWasmEnvCleanup() {
+  steps.push('prepare (single call)')
+}
+function __createWasmRuntimePollPace() {
+  return {}
+}
+function __yieldWasmRuntimePollTurn() {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, 1))
+}
+function __drainWasmEnvCleanup() {
+  steps.push('drain')
+}
+function __destroyEmnapiContext() {
+  steps.push('destroy')
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate')
+  return Promise.resolve()
+}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__attachCleanupErrors')}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
+${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${generatedFunction(code, '__abortWasiDisposalIfThreadCrashed')}
+${generatedFunction(code, '__settleWasiDisposalAfterThreadCrash')}
+${generatedFunction(code, '__scheduleTimer')}
+${generatedFunction(code, '__keepEventLoopAliveUntil')}
+${generatedFunction(code, '__drainWasiAsyncWork')}
+${generatedFunction(code, '__prepareWasmEnvCleanupWithTurns')}
+${generatedFunction(code, '__finishWasiDisposal')}
+${generatedFunction(code, '__continueWasiDisposal')}
+${generatedFunction(code, '__drainWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__cleanUpWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__startWasiDisposal')}
+${generatedFunction(code, '__disposeWasiBinding')}
+return {
+  dispose: __disposeWasiBinding,
+  drainAsyncWork: __drainWasiAsyncWork,
+  crash() {
+    Atomics.store(__wasiThreadCrashFlag, 0, 1)
+  },
+  parked() {
+    return __finishParkedWasmEnvCleanup !== undefined
+  },
+}
+`,
+  )(host, steps, { exports }, context)
+  return {
+    ...(loader as {
+      dispose: () => Promise<unknown>
+      drainAsyncWork: () => Promise<unknown> | undefined
+      crash: () => void
+      parked: () => boolean
+    }),
+    steps,
+    reads,
+    liveIntervals: () => intervals.size,
+  }
+}
+
+async function waitUntil(condition: () => boolean, label: string) {
+  const deadline = Date.now() + 5000
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${label}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+}
+
+async function settleWithin(promise: Promise<unknown>, ms = 2000) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ pending: true }), ms)
+  })
+  try {
+    return await Promise.race([
+      promise.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      ),
+      timeout,
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const CRASH_DISPOSAL_MESSAGE =
+  'napi-rs: WASI binding cannot be disposed after a worker thread crashed'
+
+// The entry check only sees a crash that came first. A worker that dies while
+// dispose() is waiting leaves the async-work drain polling a count the dead
+// thread never releases, and its 1 ms timer plus the 50 ms keep-alive interval
+// held the process open for good with the promise pending. The drain now stops
+// on the next turn and the disposer rejects through the crash disposal.
+test('node WASI disposal stops the async-work drain when a worker crashes mid-flight', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 1,
+    runtimeWorkPending: 0,
+  })
+  const first = binding.dispose()
+  await waitUntil(() => binding.reads.asyncWork >= 5, 'the drain to poll')
+  t.is(binding.liveIntervals(), 1, 'the keep-alive interval is armed')
+  binding.crash()
+  // A caller that arrives before the poll notices joins the same disposal.
+  const joined = binding.dispose()
+  const outcome: any = await settleWithin(first)
+  t.falsy(outcome.pending, 'the original promise settles')
+  t.true(outcome.error instanceof Error)
+  t.is(outcome.error.message, CRASH_DISPOSAL_MESSAGE)
+  t.is(joined, first)
+  // Every later call gets the same promise, and it stays rejected.
+  const later = binding.dispose()
+  t.is(later, first)
+  t.is(((await settleWithin(later)) as any).error, outcome.error)
+
+  t.is(binding.liveIntervals(), 0, 'the keep-alive interval is cleared')
+  const readsAfter = binding.reads.asyncWork
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.is(binding.reads.asyncWork, readsAfter, 'the drain stopped polling')
+  // Nothing re-entered the barrier, the context or the addon after the crash;
+  // the port is released and the workers terminated exactly once.
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'port unref',
+    'terminate',
+  ])
+})
+
+// Same race one step later: the drain passed, the barrier's two-phase form
+// began, and its poll waits for runtime work the dead thread still counts.
+// `…_finish` would join that work and block this thread for good, so the
+// barrier is left parked and never finished.
+test('node WASI disposal stops the barrier poll when a worker crashes mid-flight', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  for (const workDrainsWithCrash of [false, true]) {
+    const label = `work drains in the crash turn: ${workDrainsWithCrash}`
+    const addon: Parameters<typeof createInflightWasiDisposal>[1] = {
+      asyncWorkPending: 0,
+      runtimeWorkPending: 1,
+    }
+    const binding = createInflightWasiDisposal(code, addon)
+    const first = binding.dispose()
+    await waitUntil(() => binding.reads.runtimeWork >= 5, 'the barrier to poll')
+    t.true(binding.parked(), label)
+    if (workDrainsWithCrash) {
+      // The thread dies while the poll is reading, and the count it reads is
+      // zero: the poll returns normally and would go straight on to
+      // `…_finish`.
+      await new Promise<void>((resolve) => {
+        addon.onRuntimeWorkRead = () => {
+          addon.onRuntimeWorkRead = undefined
+          binding.crash()
+          addon.runtimeWorkPending = 0
+          resolve()
+        }
+      })
+    } else {
+      binding.crash()
+    }
+    const outcome: any = await settleWithin(first)
+    t.falsy(outcome.pending, label)
+    t.is(outcome.error?.message, CRASH_DISPOSAL_MESSAGE, label)
+    t.is(binding.dispose(), first, label)
+    t.false(binding.parked(), label)
+    const readsAfter = binding.reads.runtimeWork
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    t.is(binding.reads.runtimeWork, readsAfter, label)
+    t.is(binding.liveIntervals(), 0, label)
+    t.deepEqual(binding.steps, ['begin', 'port unref', 'terminate'], label)
+  }
+})
+
+// Without a crash the same chain runs every step exactly as before and
+// resolves; the keep-alive interval lives only as long as the drain.
+test('node WASI disposal without a crash runs the whole chain on real timers', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const addon = { asyncWorkPending: 1, runtimeWorkPending: 1 }
+  const binding = createInflightWasiDisposal(code, addon)
+  const first = binding.dispose()
+  await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+  addon.asyncWorkPending = 0
+  await waitUntil(() => binding.reads.runtimeWork >= 3, 'the barrier to poll')
+  addon.runtimeWorkPending = 0
+  t.deepEqual(await settleWithin(first), { value: undefined })
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'begin',
+    'finish',
+    'drain',
+    'destroy',
+    'terminate',
+    'complete',
+  ])
+  t.is(binding.liveIntervals(), 0)
+})
+
+// The initialization rollback runs the same drain with no public disposal in
+// flight. A crash there does not stop it: its behavior is unchanged.
+test('node WASI crash abort is limited to the public disposal', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const addon = { asyncWorkPending: 1, runtimeWorkPending: 0 }
+  const binding = createInflightWasiDisposal(code, addon)
+  const drain = binding.drainAsyncWork()
+  t.truthy(drain)
+  binding.crash()
+  const readsAtCrash = binding.reads.asyncWork
+  await waitUntil(
+    () => binding.reads.asyncWork >= readsAtCrash + 5,
+    'the drain to keep polling',
+  )
+  addon.asyncWorkPending = 0
+  t.deepEqual(await settleWithin(drain!), { value: undefined })
+  t.false(binding.steps.includes('terminate'))
+  t.false(binding.steps.includes('port unref'))
+})
+
+test('WASI loaders without the crash latch keep their disposal polls unchanged', (t) => {
+  const loaders = {
+    'threadless node': createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      false,
+    ),
+    'threaded browser': createWasiBrowserBinding('test-wasi'),
+    'threadless browser': createWasiBrowserBinding(
+      'test-wasi',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ),
+  }
+  for (const [label, code] of Object.entries(loaders)) {
+    t.false(code.includes('__abortWasiDisposalIfThreadCrashed'), label)
+    t.false(code.includes('__settleWasiDisposalAfterThreadCrash'), label)
+    t.false(code.includes('finishCleanupUnlessCrashed'), label)
+    t.true(
+      generatedFunction(code, '__prepareWasmEnvCleanupWithTurns').includes(
+        '  })().then(finishCleanup, finishCleanup)\n',
+      ),
+      label,
+    )
+  }
+  // The threaded node loader checks the latch in every disposal poll and step.
+  const threaded = createWasiBinding('test', '@scope/test')
+  for (const name of [
+    '__drainWasiAsyncWork',
+    '__prepareWasmEnvCleanupWithTurns',
+    '__cleanUpWasmEnvForWasiDisposal',
+    '__drainWasmEnvForWasiDisposal',
+    '__continueWasiDisposal',
+  ]) {
+    t.true(
+      generatedFunction(threaded, name).includes(
+        '__abortWasiDisposalIfThreadCrashed()',
+      ),
+      name,
+    )
   }
 })
 
