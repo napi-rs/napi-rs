@@ -640,6 +640,11 @@ pub unsafe trait AsyncRuntime: Send + Sync + 'static {
   /// not wait. Must never block and must be safe to call at any time, including with no shutdown
   /// outstanding. The default answers `false`, which is correct for a backend whose
   /// `begin_shutdown` already finished the teardown.
+  ///
+  /// Never blocking includes locks: when a lock the answer is read under is held by another
+  /// thread, answer `true` instead of waiting for it, and the host simply polls again. On
+  /// `wasm32-wasip1-threads` a thread that traps while holding a lock unwinds nothing, so that
+  /// lock never comes back, and a poll waiting for it would park the JavaScript thread for good.
   fn shutdown_work_pending(&self) -> bool {
     false
   }

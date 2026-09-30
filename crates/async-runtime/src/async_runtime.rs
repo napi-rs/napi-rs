@@ -2639,6 +2639,36 @@ impl Drop for GenerationStopGuard {
   }
 }
 
+/// Whether a work-pending read may wait for the locks its sources live under.
+#[derive(Clone, Copy)]
+enum PendingRead {
+  /// Wait for each lock, for the exact answer. Only `begin_shutdown` reads
+  /// its verdict this way; the host's poll never does.
+  Locked,
+  /// Never wait: a source whose lock another thread holds reads as pending.
+  /// For the host's poll, which must never block; see
+  /// `RuntimeController::runtime_work_pending` for why a held lock is not
+  /// always about to come back.
+  NonBlocking,
+}
+
+impl PendingRead {
+  /// `pending` applied to the state behind `mutex`, or `true` without looking
+  /// when this is [`Self::NonBlocking`] and another thread holds the lock.
+  /// Poison is ignored, as at every other lock site here.
+  fn read<T>(self, mutex: &Mutex<T>, pending: impl FnOnce(&T) -> bool) -> bool {
+    let state = match self {
+      Self::Locked => mutex.lock(),
+      Self::NonBlocking => match mutex.try_lock() {
+        Ok(state) => Ok(state),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Err(poisoned),
+        Err(std::sync::TryLockError::WouldBlock) => return true,
+      },
+    };
+    pending(&state.unwrap_or_else(std::sync::PoisonError::into_inner))
+  }
+}
+
 struct GenerationWorkState {
   closed: bool,
   next_task_id: u64,
@@ -2708,15 +2738,19 @@ impl GenerationWork {
   }
 
   fn close_and_abort(&self) {
+    // Take the handles out instead of cloning them into a new `Vec`: nothing
+    // is allocated under the state lock, and no guard retiring later frees a
+    // handle under it (see `GenerationWorkGuard::drop`). Admission is closed
+    // in the same critical section, so no handle can be added afterwards.
     let abort_handles = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       state.closed = true;
-      state.abort_handles.values().cloned().collect::<Vec<_>>()
+      std::mem::take(&mut state.abort_handles)
     };
-    for abort_handle in abort_handles {
+    for abort_handle in abort_handles.values() {
       abort_handle.abort();
     }
   }
@@ -2725,14 +2759,10 @@ impl GenerationWork {
     self.wait_until_idle_retiring(|| false, || {});
   }
 
-  /// Non-blocking read of the predicate `wait_until_idle` sleeps on.
-  fn has_active_work(&self) -> bool {
-    self
-      .state
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .active
-      != 0
+  /// The predicate `wait_until_idle` sleeps on, read without sleeping;
+  /// `read` decides whether it may wait for the state lock.
+  fn has_active_work(&self, read: PendingRead) -> bool {
+    read.read(&self.state, |state| state.active != 0)
   }
 
   /// Wait until every registered guard has retired, retiring deferred work
@@ -2780,21 +2810,30 @@ struct GenerationWorkGuard {
 
 impl Drop for GenerationWorkGuard {
   fn drop(&mut self) {
-    let mut state = self
-      .work
-      .state
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(task_id) = self.task_id {
-      state.abort_handles.remove(&task_id);
-    }
-    state.active = state
-      .active
-      .checked_sub(1)
-      .expect("generation work count underflow");
-    if state.active == 0 {
-      self.work.idle.notify_all();
-    }
+    // The removed handle is usually the last owner of the task's abort state,
+    // so dropping it frees memory and drops the waker parked there. Neither
+    // runs under the state lock: the host's work-pending poll reads it, and
+    // on `wasm32-wasip1-threads` a trap in there unwinds nothing, which
+    // would leave the lock held for good.
+    let abort_handle = {
+      let mut state = self
+        .work
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      let abort_handle = self
+        .task_id
+        .and_then(|task_id| state.abort_handles.remove(&task_id));
+      state.active = state
+        .active
+        .checked_sub(1)
+        .expect("generation work count underflow");
+      if state.active == 0 {
+        self.work.idle.notify_all();
+      }
+      abort_handle
+    };
+    drop(abort_handle);
   }
 }
 
@@ -3440,24 +3479,27 @@ impl CurrentThreadExecutor {
   /// Whether `queue.rejected` (or `queue.rejected_blocking`) holds work the
   /// executor still owes a cancellation.
   fn has_rejected_work(&self) -> bool {
-    let queue = self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    #[cfg(napi_runtime_os_threads)]
-    let has_rejected_blocking = !queue.rejected_blocking.is_empty();
-    #[cfg(not(napi_runtime_os_threads))]
-    let has_rejected_blocking = false;
-    !queue.rejected.is_empty() || has_rejected_blocking
+    self.rejected_work_pending(PendingRead::Locked)
   }
 
-  /// Non-blocking read of the predicate `wait_until_scheduler_idle` sleeps on.
-  fn scheduler_work_pending(&self) -> bool {
-    let idle = self
-      .scheduler_idle_lock
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    idle.active_host_turns != 0 || idle.active_dispatch_calls != 0
+  /// [`Self::has_rejected_work`]; `read` decides whether it may wait for the
+  /// queue lock.
+  fn rejected_work_pending(&self, read: PendingRead) -> bool {
+    read.read(&self.queue, |queue| {
+      #[cfg(napi_runtime_os_threads)]
+      let has_rejected_blocking = !queue.rejected_blocking.is_empty();
+      #[cfg(not(napi_runtime_os_threads))]
+      let has_rejected_blocking = false;
+      !queue.rejected.is_empty() || has_rejected_blocking
+    })
+  }
+
+  /// The predicate `wait_until_scheduler_idle` sleeps on, read without
+  /// sleeping; `read` decides whether it may wait for the scheduler lock.
+  fn scheduler_work_pending(&self, read: PendingRead) -> bool {
+    read.read(&self.scheduler_idle_lock, |idle| {
+      idle.active_host_turns != 0 || idle.active_dispatch_calls != 0
+    })
   }
 
   /// Cancel every rejected runnable and blocking job. Runs on the caller's
@@ -10567,13 +10609,16 @@ impl RuntimeBackend {
   /// non-zero for the whole window between the phases by construction and
   /// would make this poll never answer `false`. That join waits on thread
   /// teardown, never on user work, so yielding to the host cannot help it.
-  fn work_pending(&self) -> bool {
-    if self.work.has_active_work() {
+  ///
+  /// `read` decides whether the sources that live under a lock may wait for
+  /// it; the MultiThread scheduler source is an atomic either way.
+  fn work_pending(&self, read: PendingRead) -> bool {
+    if self.work.has_active_work(read) {
       return true;
     }
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => {
-        executor.has_rejected_work() || executor.scheduler_work_pending()
+        executor.rejected_work_pending(read) || executor.scheduler_work_pending(read)
       }
       #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => executor.scheduler_work_pending(),
@@ -11631,7 +11676,7 @@ impl RuntimeController {
         // generation and executor locks, and the same re-entry must not
         // nest them under this one.
         drop(state);
-        return Ok(outstanding.is_some_and(|backend| backend.work_pending()));
+        return Ok(outstanding.is_some_and(|backend| backend.work_pending(PendingRead::Locked)));
       }
       loop {
         Self::ensure_active_generation_current(&state)?;
@@ -11746,7 +11791,7 @@ impl RuntimeController {
     #[cfg(test)]
     run_after_generation_stop_publication_test_hook();
     backend.begin_shutdown();
-    Ok(backend.work_pending())
+    Ok(backend.work_pending(PendingRead::Locked))
   }
 
   /// Non-blocking poll for the window between the phases: `false` means
@@ -11757,12 +11802,21 @@ impl RuntimeController {
   /// It stays truthful while a `finish_shutdown` is inside the join: that
   /// thread leaves `ShutdownDrain::Joining` in the slot, so this poll reports
   /// the very work the join is waiting for instead of `false`.
+  ///
+  /// Never blocks, not even on a lock: every lock it reads under is only
+  /// tried ([`PendingRead::NonBlocking`]), and one held by another thread
+  /// answers `true`, so the host takes one more turn and asks again. A held
+  /// lock is not always about to come back: on `wasm32-wasip1-threads` a pool
+  /// thread that traps while holding one unwinds nothing, and waiting for it
+  /// here would park the JavaScript thread in `memory.atomic.wait32` for good
+  /// -- before the loader can see that thread's crash.
   fn runtime_work_pending(&self) -> bool {
     let backend = {
-      let state = self
-        .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      let state = match self.state.try_lock() {
+        Ok(state) => state,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return true,
+      };
       match (&state.draining, &state.lifecycle) {
         // `Joining` is the in-flight drain: while it still carries the
         // backend, report the work the finisher is waiting for, not `false`.
@@ -11785,7 +11839,7 @@ impl RuntimeController {
         }
       }
     };
-    backend.work_pending()
+    backend.work_pending(PendingRead::NonBlocking)
   }
 
   /// Phase 2 of the two-phase shutdown: wait for the generation to go idle,
@@ -12265,6 +12319,12 @@ pub fn begin_shutdown() -> Result<bool, RuntimeConfigError> {
 /// [`finish_shutdown`]: `false` means phase 2 will not wait for user work.
 ///
 /// Answers for the running generation when no shutdown is outstanding.
+///
+/// It never waits for a lock either: when another thread holds one it reads
+/// under, it answers `true` and the host polls again on its next turn. That
+/// keeps a pool thread that died holding such a lock (a trap on
+/// `wasm32-wasip1-threads` unwinds nothing) from parking the polling thread
+/// for good.
 pub fn runtime_work_pending() -> bool {
   RUNTIME.runtime_work_pending()
 }
@@ -12641,6 +12701,101 @@ mod tests {
     assert_eq!(state.next_task_id, u64::MAX);
     assert_eq!(state.active, 0);
     assert!(state.abort_handles.is_empty());
+  }
+
+  /// A waker that records, when its last reference drops, whether `work`'s
+  /// state lock was free at that moment. `Abortable` parks the waker it is
+  /// polled with in the abort state its handles share, so the waker drops
+  /// exactly where the last `AbortHandle` of that task does.
+  struct GenerationStateLockProbe {
+    work: Weak<GenerationWork>,
+    dropped_with_lock_free: Arc<Mutex<Option<bool>>>,
+  }
+
+  #[expect(
+    clippy::manual_noop_waker,
+    reason = "the test observes the waker payload's Drop"
+  )]
+  impl std::task::Wake for GenerationStateLockProbe {
+    fn wake(self: Arc<Self>) {}
+  }
+
+  impl Drop for GenerationStateLockProbe {
+    fn drop(&mut self) {
+      let lock_free = self
+        .work
+        .upgrade()
+        .is_some_and(|work| work.state.try_lock().is_ok());
+      *self.dropped_with_lock_free.lock().unwrap() = Some(lock_free);
+    }
+  }
+
+  /// Register one async task on `work` and leave the handle `work` keeps as
+  /// the only owner of its abort state, with a [`GenerationStateLockProbe`]
+  /// parked in it.
+  fn register_task_with_state_lock_probe(
+    work: &Arc<GenerationWork>,
+  ) -> (GenerationWorkGuard, Arc<Mutex<Option<bool>>>) {
+    let (registration, guard) = work
+      .try_register_async()
+      .expect("an open generation must accept the task");
+    let dropped_with_lock_free = Arc::new(Mutex::new(None));
+    let waker = Waker::from(Arc::new(GenerationStateLockProbe {
+      work: Arc::downgrade(work),
+      dropped_with_lock_free: Arc::clone(&dropped_with_lock_free),
+    }));
+    let mut task = std::pin::pin!(Abortable::new(std::future::pending::<()>(), registration));
+    assert!(
+      task
+        .as_mut()
+        .poll(&mut Context::from_waker(&waker))
+        .is_pending()
+    );
+    (guard, dropped_with_lock_free)
+  }
+
+  #[test]
+  fn generation_work_guard_drops_its_abort_handle_outside_the_state_lock() {
+    // The last `AbortHandle` of a task frees its abort state and the waker
+    // parked there, and a waker's drop is foreign code. Under the state lock,
+    // anything that goes wrong in there -- on `wasm32-wasip1-threads`, a trap
+    // in the allocator unwinds nothing -- leaves the lock held for good.
+    let work = GenerationWork::new();
+    let (guard, dropped_with_lock_free) = register_task_with_state_lock_probe(&work);
+    assert_eq!(
+      *dropped_with_lock_free.lock().unwrap(),
+      None,
+      "the handle the generation keeps must still own the abort state"
+    );
+
+    drop(guard);
+    assert_eq!(
+      *dropped_with_lock_free.lock().unwrap(),
+      Some(true),
+      "the guard must drop the handle it removed after releasing the state lock"
+    );
+  }
+
+  #[test]
+  fn close_and_abort_takes_the_abort_handles_out_of_the_state() {
+    // `abort` consumes the parked waker, so what is left to free is the abort
+    // state itself. Taking the handles out at close frees it after the lock
+    // is released, and a guard retiring later finds nothing to free under it.
+    let work = GenerationWork::new();
+    let (registration, guard) = work
+      .try_register_async()
+      .expect("an open generation must accept the task");
+    let task = Abortable::new(std::future::pending::<()>(), registration);
+
+    work.close_and_abort();
+    assert!(task.is_aborted(), "close must abort the registered task");
+    assert!(
+      work.state.lock().unwrap().abort_handles.is_empty(),
+      "close must take the handles out of the state, not leave them for the guards"
+    );
+    drop(task);
+    drop(guard);
+    assert_eq!(work.state.lock().unwrap().active, 0);
   }
 
   #[cfg(panic = "unwind")]
@@ -31446,6 +31601,129 @@ mod tests {
       assert!(matches!(&state.lifecycle, RuntimeLifecycle::Stopped));
       assert!(state.draining.is_none());
     }
+  }
+
+  /// Poll `runtime_work_pending` between the phases of an idle generation's
+  /// shutdown while `hold` keeps a lock the poll reads under held for good,
+  /// and require the answer "pending" -- an exact read would say idle.
+  ///
+  /// `hold` forgets the guard: that is the pool thread that trapped while
+  /// holding the lock on `wasm32-wasip1-threads`, where a trap unwinds
+  /// nothing, so the lock never comes back. The loader polls from the
+  /// JavaScript thread, so the poll runs on another thread here too, and a
+  /// regression HANGS in it: the `recv_timeout` turns that into a failure.
+  /// Nothing can take the lock again, so the runtime is leaked, not shut down.
+  #[cfg(napi_runtime_os_threads)]
+  fn assert_poll_reports_pending_while_held(
+    controller: RuntimeController,
+    what: &str,
+    hold: impl FnOnce(&RuntimeController, &RuntimeBackend),
+  ) {
+    use std::sync::mpsc;
+
+    let controller = Arc::new(controller);
+    let backend = controller.backend();
+    assert!(
+      !controller
+        .begin_shutdown()
+        .expect("phase 1 on an idle generation must be accepted"),
+      "an idle generation has nothing for the host to wait for"
+    );
+    assert!(
+      !controller.runtime_work_pending(),
+      "with every lock free the poll must read the idle generation"
+    );
+
+    hold(&controller, &backend);
+    let (pending_tx, pending_rx) = mpsc::channel();
+    let poll_controller = Arc::clone(&controller);
+    let poller = std::thread::spawn(move || {
+      pending_tx
+        .send(poll_controller.runtime_work_pending())
+        .unwrap();
+    });
+    let pending = pending_rx
+      .recv_timeout(Duration::from_secs(5))
+      .unwrap_or_else(|_| panic!("the work-pending poll must not wait for {what}"));
+    join_within(what, poller, Duration::from_secs(2));
+    assert!(
+      pending,
+      "a poll that cannot read {what} must answer pending, not idle"
+    );
+
+    std::mem::forget(backend);
+    std::mem::forget(controller);
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  fn current_thread_executor(backend: &RuntimeBackend) -> &CurrentThreadExecutor {
+    match &backend.executor {
+      RuntimeExecutor::CurrentThread(executor) => executor,
+      RuntimeExecutor::MultiThread(_) => panic!("expected a CurrentThread backend"),
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn work_pending_poll_does_not_wait_for_a_held_controller_lock() {
+    for controller in [
+      current_thread_controller("poll-held-controller-lock-ct"),
+      multi_thread_controller("poll-held-controller-lock-mt", 2, 1),
+    ] {
+      assert_poll_reports_pending_while_held(
+        controller,
+        "the controller state lock",
+        |controller, _| {
+          std::mem::forget(controller.state.lock().unwrap());
+        },
+      );
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn work_pending_poll_does_not_wait_for_a_held_generation_lock() {
+    for controller in [
+      current_thread_controller("poll-held-generation-lock-ct"),
+      multi_thread_controller("poll-held-generation-lock-mt", 2, 1),
+    ] {
+      assert_poll_reports_pending_while_held(
+        controller,
+        "the generation state lock",
+        |_, backend| {
+          std::mem::forget(backend.work.state.lock().unwrap());
+        },
+      );
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn current_thread_work_pending_poll_does_not_wait_for_a_held_queue_lock() {
+    assert_poll_reports_pending_while_held(
+      current_thread_controller("poll-held-queue-lock"),
+      "the CurrentThread queue lock",
+      |_, backend| {
+        std::mem::forget(current_thread_executor(backend).queue.lock().unwrap());
+      },
+    );
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn current_thread_work_pending_poll_does_not_wait_for_a_held_scheduler_lock() {
+    assert_poll_reports_pending_while_held(
+      current_thread_controller("poll-held-scheduler-lock"),
+      "the CurrentThread scheduler lock",
+      |_, backend| {
+        std::mem::forget(
+          current_thread_executor(backend)
+            .scheduler_idle_lock
+            .lock()
+            .unwrap(),
+        );
+      },
+    );
   }
 
   // ---- MultiThread blocking cap, drain budget, and panic propagation ---------

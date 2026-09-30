@@ -481,7 +481,12 @@ extern "C" fn napi_prepare_wasm_env_cleanup_begin() -> u32 {
 ///
 /// The poll for the window between the two phases. Never blocks and is safe to call at any
 /// time, including before any `begin` and after `finish` — it then answers for the runtime as it
-/// stands. It reports the *runtime's* work, which is a different question from
+/// stands. Never blocking includes locks: the backend answers 1 while a lock its answer is read
+/// under is held elsewhere (see
+/// [`AsyncRuntime::shutdown_work_pending`](crate::bindgen_prelude::AsyncRuntime::shutdown_work_pending)),
+/// so a worker that trapped while holding one costs the loader another turn, in which it sees
+/// the crash, instead of parking the JavaScript thread for good. It reports the *runtime's*
+/// work, which is a different question from
 /// [`napi_wasm_env_cleanup_pending`] (settlements already queued for dispatch) and from
 /// [`napi_wasm_async_work_pending`] (`napi_async_work` items); a full disposal drains all three.
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]

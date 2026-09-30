@@ -136,8 +136,12 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   returning. So phase 1 announces the stop, parks it, and hands that wait to
   phase 2 as well. It answers `true` while the announced stop still owes a
   wait — backend-owned work that is still live, or such a rejected destruction.
-  `runtime_work_pending` re-answers that question at any time, without
-  blocking. Note that the window is open-ended by the same rule the join is:
+  `runtime_work_pending` re-answers that question at any time without blocking,
+  not even on a lock: a lock another thread holds reads as pending. On threaded
+  WASI a pool thread that traps while holding one unwinds nothing, so that lock
+  never comes back; the poll keeps answering `true` instead of parking the
+  host's thread on it for good.
+  Note that the window is open-ended by the same rule the join is:
   submissions are rejected for the whole of it, and each rejection starts
   another destructor, so a host that keeps submitting from a worker during its
   poll turns keeps extending phase 2. `finish_shutdown` is the call that
