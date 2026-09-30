@@ -168,6 +168,101 @@ function __disposeCurrentThreadHosts() {
 }
 `
     : ''
+  const currentThreadHostTimersAfterThreadCrash =
+    asyncRuntime && threadCrashLatch
+      ? `
+/**
+ * The CurrentThread timer host arms one referenced \`setTimeout\` per sleep in
+ * flight, so a long sleep holds the event loop open until it fires.
+ * \`__disposeCurrentThreadHosts\` releases them, but only
+ * \`__destroyEmnapiContext\` calls it, and the crash disposal never gets there:
+ * after a wasm thread died it must not enter wasm, and both the host
+ * unregister calls and a settled timer promise do. A dispose() that rejected
+ * after a crash then left the process alive until the longest sleep ended.
+ *
+ * So the loader keeps the package's own \`cancel\` for every timer in flight,
+ * and \`__releaseCurrentThreadHostTimers\` calls them after a crash. \`cancel\`
+ * is plain JavaScript: it clears the host timeout and resolves the package's
+ * promise. The promise the addon holds is the one below, and once released it
+ * never settles, so nothing is handed back to wasm. A sleep armed after that
+ * is never armed at all.
+ */
+const __currentThreadHostTimerCancels = new Set()
+let __currentThreadHostTimersReleased = false
+
+function __scheduleCurrentThreadHostTimer(schedule, cancel, id, ms) {
+  if (__currentThreadHostTimersReleased) {
+    return new Promise(() => {})
+  }
+  const scheduled = schedule(id, ms)
+  if (!__isThenable(scheduled)) {
+    return scheduled
+  }
+  const release = () => cancel(id)
+  __currentThreadHostTimerCancels.add(release)
+  const settle = (settleUnreleased) => (outcome) => {
+    __currentThreadHostTimerCancels.delete(release)
+    return __currentThreadHostTimersReleased
+      ? new Promise(() => {})
+      : settleUnreleased(outcome)
+  }
+  return Promise.resolve(scheduled).then(
+    settle((value) => value),
+    settle((error) => {
+      throw error
+    }),
+  )
+}
+
+/**
+ * The binding as \`installCurrentThreadHosts\` should see it: every export
+ * reads through, and \`registerTimerHost\` hands the addon a \`schedule\` that
+ * records its \`cancel\`. A binding without a callable \`registerTimerHost\` is
+ * passed through, so the package reports the mismatch as before.
+ */
+function __trackCurrentThreadHostTimers(binding) {
+  let registerTimerHost
+  try {
+    registerTimerHost = binding.registerTimerHost
+  } catch {
+    return binding
+  }
+  if (typeof registerTimerHost !== 'function') {
+    return binding
+  }
+  const view = Object.create(binding)
+  Object.defineProperty(view, 'registerTimerHost', {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: function (...args) {
+      const [, , schedule, cancel] = args
+      if (typeof schedule === 'function' && typeof cancel === 'function') {
+        args[2] = (id, ms) =>
+          __scheduleCurrentThreadHostTimer(schedule, cancel, id, ms)
+      }
+      return Reflect.apply(registerTimerHost, this, args)
+    },
+  })
+  return view
+}
+
+/**
+ * Clears every CurrentThread host timeout without entering wasm. Idempotent;
+ * a \`cancel\` that fails has already reported itself.
+ */
+function __releaseCurrentThreadHostTimers() {
+  __currentThreadHostTimersReleased = true
+  const releases = [...__currentThreadHostTimerCancels]
+  __currentThreadHostTimerCancels.clear()
+  for (const release of releases) {
+    try {
+      release()
+    } catch {}
+  }
+}
+`
+      : ''
   const disposeCurrentThreadHosts = asyncRuntime
     ? '  __disposeCurrentThreadHosts()\n'
     : ''
@@ -333,7 +428,7 @@ let __completeWasiDisposal = function () {}
 // that stopped short of destroying the context. See
 // \`__rollbackWasiInitialization\`.
 let __retainWasiRollbackForRetry = function () {}
-${currentThreadHosts}
+${currentThreadHosts}${currentThreadHostTimersAfterThreadCrash}
 function __isThenable(value) {
   return (
     value !== null &&
@@ -3793,9 +3888,11 @@ export const createWasiBinding = (
 } = require('@napi-rs/async-runtime')
 `
     : ''
+  // The threaded loader has the thread crash latch, whose disposal releases
+  // the host timers it tracks. See \`__trackCurrentThreadHostTimers\`.
   const installAsyncRuntimeHosts = asyncRuntime
     ? `  __currentThreadHostsDisposer = __installCurrentThreadHosts(
-    __napiModule.exports,
+    ${threads ? '__trackCurrentThreadHostTimers(__napiModule.exports)' : '__napiModule.exports'},
   )
 `
     : ''
@@ -3902,6 +3999,12 @@ function __createWasiWorker(filename) {
 }
 `
     : ''
+  // The host timeouts a CurrentThread sleep armed, released without entering
+  // wasm on every crash path. See `__trackCurrentThreadHostTimers`.
+  const releaseCurrentThreadHostTimers = (indent: string) =>
+    threads && asyncRuntime
+      ? `${indent}__releaseCurrentThreadHostTimers()\n`
+      : ''
   // Only the threaded flavor has pool workers whose wasm thread can die under
   // this one. See `__disposeWasiBindingAtExit`.
   const threadCrashLatch = threads
@@ -4096,6 +4199,7 @@ function __disposeWasiBindingAfterThreadCrash() {
     return __wasiThreadCrashDisposePromise
   }
   __releaseEmnapiWaitingRequestHandle()
+${releaseCurrentThreadHostTimers('  ')}\
   let workerResult
   try {
     workerResult = __terminateWasiWorkers()
@@ -4187,6 +4291,7 @@ function __rollbackWasiInitializationAfterThreadCrash() {
     // the dead thread's work and would hang the exit forever — SIGTERM
     // included, since its JavaScript listener never gets a turn. Stop the
     // workers and leave.
+${releaseCurrentThreadHostTimers('    ')}\
     try {
       void Promise.resolve(__terminateWasiWorkers()).catch(() => {})
     } catch {}

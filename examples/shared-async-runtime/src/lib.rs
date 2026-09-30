@@ -45,6 +45,15 @@ pub async fn race_sleeps(short_ms: u32, long_ms: u32) -> u32 {
   }
 }
 
+/// Start one OS thread outside the async runtime and let it end on its own.
+/// The threaded WASI crash e2e uses it to get a wasm thread under the
+/// CurrentThread flavor, which runs everything else on the loader thread.
+/// Returns whether the thread started.
+#[napi]
+pub fn spawn_idle_thread() -> bool {
+  std::thread::Builder::new().spawn(|| {}).is_ok()
+}
+
 #[napi]
 pub async fn blocking_sum(input: Vec<u32>) -> napi::Result<u32> {
   napi_async_runtime::spawn_blocking(move || input.iter().copied().map(u64::from).sum::<u64>())

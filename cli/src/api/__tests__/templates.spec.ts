@@ -2177,6 +2177,10 @@ function __destroyEmnapiContext() {
 function __terminateWasiWorkers() {
   steps.push('terminate')
 }
+// Only an asyncRuntime loader calls it.
+function __releaseCurrentThreadHostTimers() {
+  steps.push('release host timers')
+}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
 ${generatedFunction(code, '__disposeWasiBindingAtExit')}
 if (crash.flag) Atomics.store(__wasiThreadCrashFlag, 0, 1)
@@ -2332,6 +2336,10 @@ function __terminateWasiWorkers() {
   steps.push('terminate')
   if (crash.terminateThrows) throw new Error('terminate failed')
   return Promise.resolve()
+}
+// Only an asyncRuntime loader calls it.
+function __releaseCurrentThreadHostTimers() {
+  steps.push('release host timers')
 }
 ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__attachCleanupErrors')}
@@ -2494,6 +2502,205 @@ test('node WASI crash disposal releases the waiting-request port', async (t) => 
     t.regex(outcome.results[0].error.message, /worker thread crashed/, context)
     t.is(outcome.exitError, undefined, context)
   }
+})
+
+// A CurrentThread sleep arms a referenced host timeout through the
+// `@napi-rs/async-runtime` timer host. Only `__disposeCurrentThreadHosts`
+// released it, from `__destroyEmnapiContext`, which the crash paths never
+// reach: its unregister calls enter wasm. A dispose() that rejected after a
+// crash left the process alive until the longest sleep ended. The threaded
+// asyncRuntime loader now clears those timeouts itself on every crash path.
+const threadedAsyncRuntimeCode = createWasiBinding(
+  'test',
+  '@scope/test',
+  4000,
+  65536,
+  true,
+  'wasm32-wasi',
+  'test',
+  true,
+)
+
+test('node WASI crash paths release the CurrentThread host timers', async (t) => {
+  const code = threadedAsyncRuntimeCode
+  assertValidJS(t, code, 'node cjs + asyncRuntime')
+  t.true(
+    code.includes(
+      '__currentThreadHostsDisposer = __installCurrentThreadHosts(\n    __trackCurrentThreadHostTimers(__napiModule.exports),\n  )\n',
+    ),
+  )
+  t.true(
+    generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
+      '  __releaseEmnapiWaitingRequestHandle()\n  __releaseCurrentThreadHostTimers()\n  let workerResult\n',
+    ),
+    'released before the workers are terminated',
+  )
+  const exitListener = generatedFunction(code, '__disposeWasiBindingAtExit')
+  const crashBranch = exitListener.slice(
+    exitListener.indexOf('if (__hasWasiThreadCrashed()) {'),
+    exitListener.indexOf('    return\n  }\n'),
+  )
+  t.true(crashBranch.includes('    __releaseCurrentThreadHostTimers()\n'))
+  // JavaScript only: nothing that unregisters, destroys or reaches the addon.
+  const release = generatedFunction(code, '__releaseCurrentThreadHostTimers')
+  t.true(release.length > 0)
+  for (const forbidden of [
+    'unregister',
+    '__disposeCurrentThreadHosts',
+    '__emnapiContext',
+    '__napiModule',
+  ]) {
+    t.false(release.includes(forbidden), forbidden)
+  }
+
+  // The disposer releases once per crash disposal, and the 'exit' listener's
+  // short path releases again (idempotent); without a crash neither does.
+  const clean = await runWasiPublicDisposer(code, {})
+  t.false(clean.steps.includes('release host timers'))
+  const crashed = await runWasiPublicDisposer(code, { flag: true }, 3)
+  t.deepEqual(crashed.steps, [
+    'port unref',
+    'release host timers',
+    'terminate',
+    'release host timers',
+    'terminate',
+  ])
+  t.deepEqual(runWasiExitListener(code, {}), ['destroy', 'terminate'])
+  t.deepEqual(runWasiExitListener(code, { flag: true }), [
+    'release host timers',
+    'terminate',
+  ])
+
+  // Only the threaded Node loader has the crash latch.
+  for (const { name, code: other } of [
+    { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+    ...asyncRuntimeLoaderCases.filter(({ name }) => name !== 'node cjs'),
+  ]) {
+    t.false(other.includes('__releaseCurrentThreadHostTimers'), name)
+    t.false(other.includes('__trackCurrentThreadHostTimers'), name)
+  }
+})
+
+test('node WASI crash release clears the host timeouts without settling them', async (t) => {
+  const code = threadedAsyncRuntimeCode
+  const stateStart = code.indexOf('const __currentThreadHostTimerCancels = ')
+  const state = code.slice(
+    stateStart,
+    code.indexOf(
+      'let __currentThreadHostTimersReleased = false\n',
+      stateStart,
+    ) + 'let __currentThreadHostTimersReleased = false\n'.length,
+  )
+  t.true(stateStart > 0)
+  const { track, release } = new Function(`
+${state}
+${generatedFunction(code, '__isThenable')}
+${generatedFunction(code, '__scheduleCurrentThreadHostTimer')}
+${generatedFunction(code, '__trackCurrentThreadHostTimers')}
+${generatedFunction(code, '__releaseCurrentThreadHostTimers')}
+return {
+  track: __trackCurrentThreadHostTimers,
+  release: __releaseCurrentThreadHostTimers,
+}
+`)()
+
+  // A binding the package would reject is passed through untouched.
+  const incomplete = { other: 1 }
+  t.is(track(incomplete), incomplete)
+  const throwing = {
+    get registerTimerHost() {
+      throw new Error('accessor')
+    },
+  }
+  t.is(track(throwing), throwing)
+
+  // What the addon receives from `registerTimerHost`.
+  let registered: any
+  const binding = {
+    reserveCurrentThreadHostRegistration() {},
+    registerTimerHost(...args: any[]) {
+      registered = args
+      return 'registered'
+    },
+  }
+  const view = track(binding)
+  t.is(
+    view.reserveCurrentThreadHostRegistration,
+    binding.reserveCurrentThreadHostRegistration,
+  )
+
+  // The package's timer host, armed timeouts by id. `cancel` clears one and
+  // resolves its promise, as `installCurrentThreadHosts` does.
+  const armed = new Map<
+    number,
+    { resolve: () => void; reject: (e: Error) => void }
+  >()
+  const log: string[] = []
+  let failCancel = false
+  const schedule = (id: number) =>
+    new Promise<void>((resolve, reject) => {
+      log.push(`arm ${id}`)
+      armed.set(id, { resolve, reject })
+    })
+  const cancel = (id: number) => {
+    const timer = armed.get(id)
+    if (!timer) return
+    armed.delete(id)
+    log.push(`clear ${id}`)
+    if (failCancel) {
+      const error = new Error(`cancel ${id} failed`)
+      timer.reject(error)
+      throw error
+    }
+    timer.resolve()
+  }
+  t.is(view.registerTimerHost(1, 2, schedule, cancel), 'registered')
+  t.is(registered.length, 4)
+  t.deepEqual(registered.slice(0, 2), [1, 2])
+  t.not(registered[2], schedule)
+  t.is(registered[3], cancel, 'cancel is handed to the addon as is')
+  const addonSchedule = registered[2]
+
+  // No crash: settlements pass through.
+  const fired = addonSchedule(1, 10)
+  armed.get(1)!.resolve()
+  t.is(await fired, undefined)
+  const failed = addonSchedule(2, 10)
+  armed.get(2)!.reject(new Error('host failed'))
+  await t.throwsAsync(failed, { message: 'host failed' })
+  const cancelled = addonSchedule(3, 10)
+  cancel(3)
+  t.is(await cancelled, undefined)
+
+  // After a crash: every armed timeout is cleared, and the addon's promise
+  // never settles, so nothing is handed back to wasm.
+  const settled: number[] = []
+  const long = addonSchedule(4, 60_000)
+  long.then(
+    () => settled.push(4),
+    () => settled.push(4),
+  )
+  failCancel = true
+  const failing = addonSchedule(5, 60_000)
+  failing.then(
+    () => settled.push(5),
+    () => settled.push(5),
+  )
+  log.length = 0
+  t.notThrows(() => release())
+  t.deepEqual(log, ['clear 4', 'clear 5'])
+  t.false(armed.has(4))
+  t.false(armed.has(5))
+  // Idempotent, and a sleep armed afterwards is never armed.
+  release()
+  const late = addonSchedule(6, 10)
+  late.then(
+    () => settled.push(6),
+    () => settled.push(6),
+  )
+  t.deepEqual(log, ['clear 4', 'clear 5'])
+  await new Promise((resolve) => setImmediate(resolve))
+  t.deepEqual(settled, [])
 })
 
 /**

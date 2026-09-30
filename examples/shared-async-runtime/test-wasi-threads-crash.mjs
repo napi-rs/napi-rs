@@ -76,6 +76,26 @@ test('dispose() rejects with the crash after a pool worker fails to load', () =>
   )
 })
 
+// A CurrentThread sleep holds a referenced host timeout on the loader thread.
+// The crash disposal cannot unregister the hosts, which enters wasm, so it
+// clears those timeouts itself; before it did, the process stayed alive until
+// the 60 s sleep ended, past this test's timeout.
+test('dispose() after a crash releases an armed CurrentThread sleep', () => {
+  const result = runChild('dispose-sleep')
+  assert.equal(result.error, undefined, result.output)
+  assert.equal(result.signal, null, result.output)
+  assert.equal(result.status, 0, result.output)
+  assert.match(result.stdout, /^idle thread started: true$/m)
+  assert.match(
+    result.stdout,
+    /dispose rejected: napi-rs: WASI binding cannot be disposed after a worker thread crashed \| cause: napi-rs test: worker 1 failed to load/,
+  )
+  // Released, not fired: its result would have been handed back to wasm.
+  assert.doesNotMatch(result.stdout, /^sleep (resolved|rejected)/m)
+  const exited = Number(/exited after (\d+) ms/.exec(result.stdout)?.[1])
+  assert.ok(exited < 15_000, result.output)
+})
+
 // Manual (NAPI_RS_TEST_HANG_CHECK=1): that the store into the view is what ends
 // the waits above. Each mode waits for its watchdog, so it is left out of CI.
 for (const mode of ['exit', 'dispose']) {
