@@ -144,6 +144,30 @@ mod version;
 #[cfg(all(target_family = "wasm", napi_wasi_threads, not(napi_wasi_no_heap_sync)))]
 mod wasi_heap_sync;
 
+/// Threaded WASI: refresh this thread's view of the shared memory size where napi hands it work
+/// another thread built. A no-op on every other target and with `napi_wasi_no_heap_sync`.
+///
+/// A thread that received work from another thread may hold a stale memory size, and napi's
+/// allocator lock only refreshes it when it allocates. napi-async-runtime covers its own
+/// scheduler; this covers napi's own entries:
+///
+/// - `execute` of an async work (`AsyncTask`), on an emnapi pool thread, which can pop work
+///   items back to back with no refresh in between;
+/// - every poll of an `AsyncRuntimeTask`, for backends other than napi-async-runtime;
+/// - with `tokio_rt`: every task poll of napi's default Tokio runtime (the multi-thread one, which
+///   needs `--cfg tokio_unstable` on wasm), and the closure given to napi's `spawn_blocking`.
+///
+/// Not covered: a runtime passed to `create_custom_tokio_runtime`, and closures given to
+/// `tokio::task::spawn_blocking` directly.
+///
+/// One atomic load and one thread-local load; `memory.grow(0)` only when another thread has seen
+/// a larger memory (counted in `napi_wasm_heap_sync_stat(5)`).
+#[inline(always)]
+pub(crate) fn on_thread_handoff() {
+  #[cfg(all(target_family = "wasm", napi_wasi_threads, not(napi_wasi_no_heap_sync)))]
+  sys::wasi_heap_sync::refresh_if_behind();
+}
+
 pub use napi_sys as sys;
 
 pub use async_work::AsyncWorkPromise;

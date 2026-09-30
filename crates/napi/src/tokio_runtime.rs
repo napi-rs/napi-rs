@@ -391,6 +391,8 @@ impl Future for AsyncRuntimeTask {
   type Output = ();
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    // A backend's worker polls a future another thread built and may hold a stale memory size.
+    crate::on_thread_handoff();
     let this = self.get_mut();
     if this.on_cancel.is_none() {
       // Already completed, panicked, or rejected — never touch the inner future again.
@@ -1284,10 +1286,12 @@ fn create_runtime() -> Runtime {
     not(target_family = "wasm")
   ))]
   {
-    tokio::runtime::Builder::new_multi_thread()
-      .enable_all()
-      .build()
-      .expect("Create tokio runtime failed")
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    // A Tokio worker polls tasks other threads spawned or woke and may hold a stale memory size.
+    #[cfg(all(tokio_unstable, napi_wasi_threads, not(napi_wasi_no_heap_sync)))]
+    builder.on_before_task_poll(|_| crate::on_thread_handoff());
+    builder.build().expect("Create tokio runtime failed")
   }
   #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
   {
@@ -1663,6 +1667,12 @@ where
   if wasm_env_disposing() {
     refuse_tokio_helper_during_wasm_env_disposal("spawn_blocking");
   }
+  // A blocking-pool thread runs a closure another thread built and may hold a stale memory size.
+  #[cfg(all(napi_wasi_threads, not(napi_wasi_no_heap_sync)))]
+  let func = move || {
+    crate::on_thread_handoff();
+    func()
+  };
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
