@@ -51,6 +51,10 @@ const CASES = {
   // A foreign grower takes 256 pages, then libc allocates 256 MiB: more than the default
   // loader memory has left, so napi's sbrk must grow past the foreign pages, not over them.
   foreign: runForeign,
+  // 4 OS threads call libc's sbrk directly, with a malloc / free load between the calls:
+  // napi's sbrk must take the allocator lock for them, so no two regions overlap and dlmalloc
+  // never hands one out. They fit in the loader's default memory, so nothing grows there.
+  'raw-sbrk': runRawSbrk,
 }
 
 const childIndex = process.argv.indexOf(CHILD_FLAG)
@@ -403,4 +407,15 @@ async function runForeign(binding) {
     'libc handed out pages that a foreign grower owns',
   )
   assert.ok(report.foreignIntact, "the foreign grower's pages were overwritten")
+}
+
+async function runRawSbrk(binding) {
+  // 4 * 512 pages (128 MiB) of break: well inside the loader's default memory.
+  const bad = binding.rawSbrkRace(4, 512)
+  console.log(`raw sbrk: ${bad} overlapping, overwritten or failed`)
+  assert.equal(
+    bad,
+    0,
+    'direct sbrk calls raced with each other or with dlmalloc',
+  )
 }

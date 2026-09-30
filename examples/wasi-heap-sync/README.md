@@ -12,8 +12,9 @@ around wasi-libc's allocator and refreshes the thread's size inside it.
 `src/lib.rs` allocates, fills, copies and frees on OS threads and on emnapi's
 async-work pool, and passes blocks between threads and to JavaScript.
 `foreignGrow` checks that napi's `sbrk` never hands dlmalloc pages that another
-grower took. `stress.mjs` runs each case in a child process; its header lists
-the options.
+grower took, and `rawSbrkRace` that threads calling `sbrk` directly take the
+allocator lock. `stress.mjs` runs each case in a child process; its header
+lists the options.
 
 ```sh
 yarn workspace @napi-rs/wasm-runtime build
@@ -22,6 +23,7 @@ cd examples/wasi-heap-sync
 node stress.mjs --runs 20 --node-flag=--wasm-enforce-bounds-checks
 node stress.mjs --runs 20 --initial-pages min --expect-grows some --node-flag=--wasm-enforce-bounds-checks
 node stress.mjs --cases foreign --initial-pages min
+node stress.mjs --cases raw-sbrk --runs 5 --expect-grows zero
 ```
 
 To check that the loads still catch the bug, build without the lock and expect

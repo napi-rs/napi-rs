@@ -33,6 +33,10 @@
 //! size is published, and writes a chunk header into pages it cannot see yet (a trap on a host
 //! without the trap handler).
 //!
+//! dlmalloc calls `sbrk` with `LOCK` already held. Any other caller (C code in the addon that
+//! calls `sbrk` itself, or JS through the export) takes `LOCK` in [`__wrap_sbrk`], so two
+//! callers never move the break at once and the new size is published the same way.
+//!
 //! calloc's memset and realloc's memcpy run after the refresh too. wasi-libc runs them after
 //! dlmalloc has released its own lock, but still inside `LOCK`, so `LOCK` is wider than
 //! dlmalloc's lock: a large zeroed allocation or realloc copy holds every other thread's
@@ -44,8 +48,10 @@
 //! `FinalizationRegistry` callback.
 //!
 //! Not re-entrant, and it does not need to be: inside dlmalloc's object the public names are thin
-//! wrappers over static functions, and the object's only calls out are `sbrk` (our
-//! [`__wrap_sbrk`], which does not lock) and `sched_yield`.
+//! wrappers over static functions, and the object's only calls out are `sbrk` and
+//! `sched_yield`. [`locked`] marks the thread while it holds `LOCK`, and [`__wrap_sbrk`] takes
+//! `LOCK` only when that mark is not set, so dlmalloc's `sbrk` runs under the lock it already
+//! holds.
 //!
 //! # The break
 //!
@@ -90,7 +96,6 @@
 //! - A `#[global_allocator]` that grows the memory itself (mimalloc's WASI build, talc,
 //!   lol_alloc, the `dlmalloc` crate) is not locked, and its growth is never published. One that
 //!   ends in libc `malloc`, like std's `System`, is locked.
-//! - C code that calls `sbrk` directly runs [`__wrap_sbrk`] outside `LOCK`.
 //! - A thread that crashes while it holds `LOCK` leaves the others spinning, as a crash inside
 //!   dlmalloc's own lock always did.
 //!
@@ -114,6 +119,7 @@
 //! (v8/v8@34241014663390c72e08c123faef6fedf395be8e).
 
 use std::{
+  cell::Cell,
   ffi::c_void,
   sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
@@ -168,6 +174,12 @@ mod stat {
 }
 
 static STATS: [AtomicU32; stat::COUNT] = [const { AtomicU32::new(0) }; stat::COUNT];
+
+thread_local! {
+  /// Whether this thread is inside [`locked`]'s call, holding `LOCK`. [`__wrap_sbrk`] reads it
+  /// to tell dlmalloc's `sbrk` calls (under `LOCK`) from any other caller's.
+  static IN_LOCKED: Cell<bool> = const { Cell::new(false) };
+}
 
 #[inline]
 fn bump(index: usize) {
@@ -254,8 +266,9 @@ fn lock_slow() {
 }
 
 /// Take `LOCK`, catch up with every growth published before it, run `f` (one real dlmalloc
-/// call), release. Not re-entrant: `f` must not call a `__wrap_*` symbol. dlmalloc's only calls
-/// out of its object are `sbrk` (our [`__wrap_sbrk`], which does not lock) and `sched_yield`.
+/// call, or one `sbrk` call from outside dlmalloc), release. Not re-entrant: `f` must not call
+/// a `__wrap_*` symbol other than [`__wrap_sbrk`], which sees `IN_LOCKED` and does not lock
+/// again. dlmalloc's only calls out of its object are `sbrk` and `sched_yield`.
 #[inline]
 fn locked<R>(f: impl FnOnce() -> R) -> R {
   lock();
@@ -264,7 +277,9 @@ fn locked<R>(f: impl FnOnce() -> R) -> R {
   if local == 0 || max_seen_pages() > local {
     lock_refresh();
   }
+  IN_LOCKED.with(|in_locked| in_locked.set(true));
   let result = f();
+  IN_LOCKED.with(|in_locked| in_locked.set(false));
   STATE.lock.store(false, Ordering::Release);
   result
 }
@@ -291,8 +306,20 @@ fn late_refresh() {
   grow_zero();
 }
 
-/// dlmalloc's `MORECORE`. dlmalloc calls it only from inside its entry points, which run only
-/// under `LOCK`, so this never takes the lock and is never entered twice at once.
+/// `sbrk`, dlmalloc's `MORECORE`. dlmalloc calls it from inside its entry points, which run
+/// inside [`locked`], so it runs under the `LOCK` the thread already holds. Any other caller
+/// (C code in the addon that calls `sbrk` itself, or JS through the export) is not inside
+/// [`locked`], so it takes `LOCK` here. The break is only ever moved under `LOCK`.
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_sbrk(increment: isize) -> *mut c_void {
+  if IN_LOCKED.with(Cell::get) {
+    unsafe { sbrk_under_lock(increment) }
+  } else {
+    locked(|| unsafe { sbrk_under_lock(increment) })
+  }
+}
+
+/// The body of [`__wrap_sbrk`]; the caller holds `LOCK`, so it is never entered twice at once.
 ///
 /// It hands out the reserve `[__heap_end, memory size at instantiation)` first: those pages
 /// exist on every thread, so they never need a refresh. When a request passes the reserve's end
@@ -302,8 +329,7 @@ fn late_refresh() {
 /// arithmetic is in [`grow_plan`]. It never hands out pages it did not grow itself beyond the
 /// reserve, and never a byte at or above 2^31; it returns `(void *)-1` instead, and dlmalloc
 /// returns null.
-#[no_mangle]
-pub unsafe extern "C" fn __wrap_sbrk(increment: isize) -> *mut c_void {
+unsafe fn sbrk_under_lock(increment: isize) -> *mut c_void {
   const FAIL: *mut c_void = usize::MAX as *mut c_void;
   let mut brk = STATE.brk.load(Ordering::Relaxed);
   if brk == 0 {

@@ -67,16 +67,30 @@ struct Handoff<'a> {
   on_block: Option<&'a OnBlock>,
 }
 
-/// One load: `rounds` blocks of 1..=`max_bytes` bytes, each a `malloc` and a `memory.fill`,
-/// every fourth one grown in place or moved by `realloc` and then extended with a
-/// `memory.copy`. It keeps [`LIVE_BLOCKS`] alive and frees a random one for each new one.
-/// Returns the number of blocks that did not hold their tag.
-fn churn(seed: u32, rounds: u32, max_bytes: u32, handoff: &Handoff) -> u32 {
-  let mut rng = Rng::new(seed);
-  let mut corrupt = 0;
-  let mut live: Vec<Vec<u8>> = Vec::with_capacity(LIVE_BLOCKS);
-  for round in 0..rounds {
-    let size = 1 + (rng.next() % max_bytes.max(1)) as usize;
+/// One load: blocks of 1..=`max_bytes` bytes, each a `malloc` and a `memory.fill`, every fourth
+/// one grown in place or moved by `realloc` and then extended with a `memory.copy`. It keeps
+/// [`LIVE_BLOCKS`] alive and frees a random one for each new one.
+struct Churn {
+  rng: Rng,
+  live: Vec<Vec<u8>>,
+  max_bytes: u32,
+}
+
+impl Churn {
+  fn new(seed: u32, max_bytes: u32) -> Self {
+    Self {
+      rng: Rng::new(seed),
+      live: Vec::with_capacity(LIVE_BLOCKS),
+      max_bytes,
+    }
+  }
+
+  /// Round `round`: one new block, and the handoffs due this round. Returns the number of
+  /// blocks that did not hold their tag.
+  fn step(&mut self, round: u32, handoff: &Handoff) -> u32 {
+    let rng = &mut self.rng;
+    let mut corrupt = 0;
+    let size = 1 + (rng.next() % self.max_bytes.max(1)) as usize;
     let mut block = vec![(rng.next() as u8) | 1; size];
     if rng.next().is_multiple_of(4) {
       block.extend_from_within(..size.div_ceil(2));
@@ -109,13 +123,26 @@ fn churn(seed: u32, rounds: u32, max_bytes: u32, handoff: &Handoff) -> u32 {
         );
       }
     }
-    if live.len() == LIVE_BLOCKS {
-      let freed = live.swap_remove(rng.next() as usize % LIVE_BLOCKS);
+    if self.live.len() == LIVE_BLOCKS {
+      let freed = self.live.swap_remove(rng.next() as usize % LIVE_BLOCKS);
       corrupt += u32::from(!intact(&freed));
     }
-    live.push(block);
+    self.live.push(block);
+    corrupt
   }
-  corrupt + live.iter().filter(|block| !intact(block)).count() as u32
+
+  /// Frees the live blocks. Returns the number that did not hold their tag.
+  fn finish(self) -> u32 {
+    self.live.iter().filter(|block| !intact(block)).count() as u32
+  }
+}
+
+/// One load of `rounds` rounds (see [`Churn`]). Returns the number of blocks that did not hold
+/// their tag.
+fn churn(seed: u32, rounds: u32, max_bytes: u32, handoff: &Handoff) -> u32 {
+  let mut load = Churn::new(seed, max_bytes);
+  let corrupt: u32 = (0..rounds).map(|round| load.step(round, handoff)).sum();
+  corrupt + load.finish()
 }
 
 /// Starts `threads` OS threads, each running one load. Thread `i` passes blocks to thread
@@ -248,5 +275,97 @@ pub fn foreign_grow(pages: u32, block_bytes: u32) -> Result<ForeignGrowReport> {
   {
     let _ = (pages, block_bytes);
     Err(Error::from_reason("foreignGrow needs a wasm memory"))
+  }
+}
+
+/// Largest block of `rawSbrkRace`'s churn steps.
+const RAW_SBRK_CHURN_BYTES: u32 = 16 << 10;
+
+/// Starts `threads` OS threads that each call libc's `sbrk` directly `rounds` times, one page at
+/// a time, as C code in an addon may, and run a [`Churn`] step (malloc, fill, realloc, free)
+/// after each call, so dlmalloc's own `sbrk` calls run at the same time. Each thread fills its
+/// pages with its own tag. Joins the threads, then returns the number of regions that overlap
+/// an earlier one, plus the regions and churn blocks that did not hold their tag, plus failed
+/// `sbrk` calls. napi's `__wrap_sbrk` takes the allocator lock for these calls, so it must be 0.
+///
+/// One page per call: wasi-libc's own `sbrk` aborts on an increment that is not a whole number
+/// of pages, and dlmalloc counts on a page-aligned break, so a C caller only asks for pages.
+/// The break moves by `threads * rounds` pages plus the churn's heap: keep that inside the
+/// loader memory, so the break never grows the memory.
+#[napi]
+pub fn raw_sbrk_race(threads: u32, rounds: u32) -> Result<u32> {
+  #[cfg(target_family = "wasm")]
+  {
+    extern "C" {
+      /// wasi-libc's `sbrk`. napi-build links with `--wrap=sbrk`, so this reaches napi's
+      /// `__wrap_sbrk`.
+      fn sbrk(increment: isize) -> *mut std::ffi::c_void;
+    }
+    const PAGE_BYTES: usize = 1 << 16;
+    const SBRK_FAILED: usize = usize::MAX;
+    // The threads start one by one, each in a new worker: wait for all of them, so that their
+    // `sbrk` calls overlap in time.
+    let start_line = Arc::new(std::sync::Barrier::new(threads as usize));
+    let workers = (0..threads)
+      .map(|index| {
+        let start_line = Arc::clone(&start_line);
+        thread::Builder::new()
+          .name(format!("raw-sbrk-{index}"))
+          .spawn(move || {
+            // Odd and distinct for up to 128 threads, like the churn tags.
+            let tag = (index as u8).wrapping_mul(2) | 1;
+            let mut load = Churn::new(index, RAW_SBRK_CHURN_BYTES);
+            let mut regions = Vec::with_capacity(rounds as usize);
+            let mut bad = 0;
+            start_line.wait();
+            for round in 0..rounds {
+              let start = unsafe { sbrk(PAGE_BYTES as isize) } as usize;
+              if start == SBRK_FAILED {
+                bad += 1;
+              } else {
+                // SAFETY: `sbrk` handed this page to this thread alone.
+                unsafe {
+                  std::ptr::write_bytes(
+                    std::ptr::with_exposed_provenance_mut::<u8>(start),
+                    tag,
+                    PAGE_BYTES,
+                  )
+                };
+                regions.push((start, tag));
+              }
+              bad += load.step(round, &Handoff::default());
+            }
+            (regions, bad + load.finish())
+          })
+      })
+      .collect::<std::io::Result<Vec<_>>>()
+      .map_err(|error| Error::from_reason(format!("failed to spawn a thread: {error}")))?;
+    let mut regions = Vec::new();
+    let mut bad = 0;
+    for worker in workers {
+      let (mut thread_regions, thread_bad) = worker
+        .join()
+        .map_err(|_| Error::from_reason("a raw-sbrk thread panicked"))?;
+      regions.append(&mut thread_regions);
+      bad += thread_bad;
+    }
+    regions.sort_unstable();
+    let mut end = 0;
+    for &(start, tag) in &regions {
+      bad += u32::from(start < end);
+      end = end.max(start + PAGE_BYTES);
+      // SAFETY: the threads that wrote this page have exited, and `sbrk` never hands it out
+      // again.
+      let page = unsafe {
+        std::slice::from_raw_parts(std::ptr::with_exposed_provenance::<u8>(start), PAGE_BYTES)
+      };
+      bad += u32::from(page.iter().any(|&byte| byte != tag));
+    }
+    Ok(bad)
+  }
+  #[cfg(not(target_family = "wasm"))]
+  {
+    let _ = (threads, rounds, RAW_SBRK_CHURN_BYTES);
+    Err(Error::from_reason("rawSbrkRace needs wasi-libc's sbrk"))
   }
 }

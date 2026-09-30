@@ -705,9 +705,9 @@ napi's default Tokio runtime and spawn_blocking
   when another thread has seen a larger memory, and runs the real call. The
   thread that grows the memory publishes the new size before it unlocks, so
   every thread is current before dlmalloc touches a byte for it. The lock also
-  covers calloc's zero fill and realloc's copy. It spins like dlmalloc's own
-  lock, so it is safe on a browser main thread, where `memory.atomic.wait`
-  traps.
+  covers calloc's zero fill and realloc's copy, and C code that calls `sbrk`
+  itself takes it too. It spins like dlmalloc's own lock, so it is safe on a
+  browser main thread, where `memory.atomic.wait` traps.
 - **The handoff refresh.** Memory can reach a thread without an allocation
   there: a task that allocated on one thread resumes on another, or a closure
   runs on a pool thread. `napi-async-runtime` and napi's own cross-thread
@@ -785,7 +785,6 @@ the workaround the trap above comes back on hosts without the V8 fix.
   build, talc, lol_alloc, the `dlmalloc` crate) is not locked, and its growth
   is never published. One that ends in libc `malloc`, like std's `System`, is
   locked.
-- C code that calls `sbrk` directly runs `__wrap_sbrk` outside the lock.
 - Memory that reaches a running thread mid-poll (a channel message, an `Arc`,
   a threadsafe-function call on the JavaScript thread) and is touched there
   before that thread's next allocation or handoff, after another thread grew

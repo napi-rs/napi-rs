@@ -1069,6 +1069,10 @@ jobs:
         run: |
           node stress.mjs --cases foreign
           node stress.mjs --cases foreign --initial-pages min
+      # Threads that call libc's sbrk directly, between malloc / free calls: napi's sbrk
+      # must take the allocator lock for them, so no two callers get the same pages.
+      - name: Direct sbrk callers (5 runs)
+        run: node stress.mjs --cases raw-sbrk --runs 5 --expect-grows zero
 
   # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
   # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`
