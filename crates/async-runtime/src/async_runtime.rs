@@ -21,7 +21,7 @@ use arc_swap::ArcSwapOption;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
-use crate::sync::{BoundedWaits, Condvar, Mutex};
+use crate::sync::{BoundedWaits, Condvar, Mutex, MutexGuard, UnboundedCondvar};
 // Both users are MultiThread pool tests.
 #[cfg(all(test, napi_runtime_os_threads))]
 use async_task::Task;
@@ -2646,7 +2646,7 @@ impl GenerationStop {
 
 struct GenerationStopPublicationGuard<'a> {
   stop: &'a GenerationStop,
-  _publication: std::sync::MutexGuard<'a, ()>,
+  _publication: MutexGuard<'a, ()>,
 }
 
 impl GenerationStopPublicationGuard<'_> {
@@ -4234,9 +4234,7 @@ impl CurrentThreadExecutor {
     let _ = self.request_drain_with(next_current_thread_dispatch_id);
   }
 
-  fn lock_scheduler_for_publication(
-    &self,
-  ) -> std::sync::MutexGuard<'_, CurrentThreadSchedulerState> {
+  fn lock_scheduler_for_publication(&self) -> MutexGuard<'_, CurrentThreadSchedulerState> {
     #[cfg(all(test, napi_runtime_os_threads))]
     match self.scheduler_idle_lock.try_lock() {
       Ok(scheduler) => scheduler,
@@ -7001,7 +6999,7 @@ impl MultiThreadDeadlockState {
     self.publications.load(Ordering::SeqCst)
   }
 
-  fn owner_handoff_publication_guard(&self) -> Option<std::sync::MutexGuard<'_, ()>> {
+  fn owner_handoff_publication_guard(&self) -> Option<MutexGuard<'_, ()>> {
     self.enabled.then(|| {
       self
         .owner_handoff_publication
@@ -7145,7 +7143,7 @@ const PARKER_SLEEPING: usize = 2;
 struct DriverParker {
   state: AtomicUsize,
   lock: Mutex<()>,
-  condvar: std::sync::Condvar,
+  condvar: UnboundedCondvar,
   #[cfg(napi_runtime_os_threads)]
   owner_handoff_pending: AtomicBool,
   #[cfg(napi_runtime_os_threads)]
