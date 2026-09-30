@@ -2333,6 +2333,7 @@ function __terminateWasiWorkers() {
 ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__attachCleanupErrors')}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
 ${generatedFunction(code, '__recordWasiThreadCrashError')}
 ${generatedFunction(code, '__getWasiThreadCrashError')}
 ${generatedFunction(code, '__fillWasiThreadCrashError')}
@@ -2624,6 +2625,7 @@ function __terminateWasiWorkers() {
 ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__attachCleanupErrors')}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
 ${generatedFunction(code, '__recordWasiThreadCrashError')}
 ${generatedFunction(code, '__getWasiThreadCrashError')}
 ${generatedFunction(code, '__fillWasiThreadCrashError')}
@@ -3091,6 +3093,7 @@ test('WASI loaders without the crash latch keep their disposal polls unchanged',
     )
     t.false(code.includes('__getWasiThreadCrashError'), label)
     t.false(code.includes('__recordWasiThreadCrashError'), label)
+    t.false(code.includes('__readWasiThreadCrashReport'), label)
     t.true(code.includes('function __rollbackWasiInitialization() {\n'), label)
     t.true(
       generatedFunction(code, '__prepareWasmEnvCleanupWithTurns').includes(
@@ -3132,6 +3135,7 @@ test('node WASI loader shares the crash flag with its pool workers', (t) => {
   const code = createWasiBinding('test', '@scope/test')
   const createWorker = generatedFunction(code, '__createWasiWorker')
   t.true(createWorker.includes('crashFlag: __wasiThreadCrashFlag,'))
+  t.true(createWorker.includes('crashReport: __wasiThreadCrashReport,'))
   const onCreateWorker = code.slice(
     code.indexOf('onCreateWorker() {'),
     code.indexOf('return worker\n', code.indexOf('onCreateWorker() {')),
@@ -3198,10 +3202,11 @@ test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
     start < WASI_WORKER_TEMPLATE.indexOf('globalThis.onmessage = function'),
     'the hook has to be in place before the first message is handled',
   )
-  const latch = WASI_WORKER_TEMPLATE.slice(
-    start,
-    WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
-  )
+  const latch =
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
+    ) + generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
 
   const run = (workerData: { crashFlag?: Int32Array } & object) => {
     const reports: string[] = []
@@ -3217,7 +3222,11 @@ test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
       },
     }
     const original = handler.beforeReportError
-    new Function('workerData', 'handler', latch)(workerData, handler)
+    new Function('workerData', 'handler', 'threadId', latch)(
+      workerData,
+      handler,
+      1,
+    )
     return { handler, original, reports }
   }
 
@@ -3232,4 +3241,109 @@ test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
   // A loader that predates the flag passes none: the hook stays emnapi's own.
   const legacy = run({ hostRoot: '/', rootDir: '/' } as object)
   t.is(legacy.handler.beforeReportError, legacy.original)
+})
+
+/**
+ * Wires the worker's crash hook to the loader's crash error over one shared
+ * report, the way `__createWasiWorker` passes it, and returns both ends.
+ */
+function createWasiCrashReportPair() {
+  const code = createWasiBinding('test', '@scope/test')
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const loader = new Function(`
+${latchState}
+function __getWasiThreadManager() {
+  return {}
+}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
+return {
+  workerData: {
+    crashFlag: __wasiThreadCrashFlag,
+    crashReport: __wasiThreadCrashReport,
+  },
+  crashError: __getWasiThreadCrashError,
+  workerError: __recordWasiThreadCrashError,
+}
+`)() as {
+    workerData: { crashFlag: Int32Array; crashReport: SharedArrayBuffer }
+    crashError: () => any
+    workerError: (error: unknown, threadId: number) => void
+  }
+  const start = WASI_WORKER_TEMPLATE.indexOf(
+    'if (workerData && workerData.crashFlag instanceof Int32Array) {',
+  )
+  const hook =
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
+    ) + generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  const reportStates: number[] = []
+  const crashWorker = (error: unknown, threadId: number) => {
+    const handler = {
+      beforeReportError() {
+        reportStates.push(
+          Atomics.load(new Int32Array(loader.workerData.crashReport, 0, 1), 0),
+        )
+      },
+    }
+    new Function('workerData', 'handler', 'threadId', hook)(
+      loader.workerData,
+      handler,
+      threadId,
+    )
+    ;(handler.beforeReportError as (...args: unknown[]) => void)(error, 'start')
+  }
+  return { ...loader, crashWorker, reportStates }
+}
+
+// The 'error' event is dropped when the loader terminates the worker first, so
+// the crash error lost its cause in most crash runs. The worker now writes its
+// error into shared memory before it raises the flag, and the loader rebuilds
+// it from there without waiting for any event.
+test('WASI worker hands its error to the loader through the shared crash report', (t) => {
+  const pair = createWasiCrashReportPair()
+  const trap = new WebAssembly.RuntimeError('forced trap')
+  pair.crashWorker(trap, 5)
+  // Complete before emnapi's hook runs, and so before the flag is seen.
+  t.deepEqual(pair.reportStates, [2])
+  t.is(Atomics.load(pair.workerData.crashFlag, 0), 1)
+  // A second crash does not overwrite the first report.
+  pair.crashWorker(new Error('second worker'), 6)
+  const crashError = pair.crashError()
+  t.is(crashError.message, CRASH_DISPOSAL_MESSAGE)
+  t.true(crashError.cause instanceof Error)
+  t.is(crashError.cause.name, 'RuntimeError')
+  t.is(crashError.cause.message, 'forced trap')
+  t.is(crashError.cause.stack, trap.stack)
+  t.is(crashError.workerThreadId, 5)
+  // One shared error: a later event does not replace the cause.
+  pair.workerError(new Error('late event'), 7)
+  t.is(pair.crashError(), crashError)
+  t.is(crashError.cause.message, 'forced trap')
+
+  // The listener's error, when it came first, is the original object.
+  const withEvent = createWasiCrashReportPair()
+  withEvent.crashWorker(trap, 5)
+  const eventError = new Error('from the error event')
+  withEvent.workerError(eventError, 5)
+  t.is(withEvent.crashError().cause, eventError)
+
+  // A value that is not an error, and a message too large for the report.
+  const thrownString = createWasiCrashReportPair()
+  thrownString.crashWorker('boom', 3)
+  t.is(thrownString.crashError().cause.message, 'boom')
+  const huge = createWasiCrashReportPair()
+  huge.crashWorker(new Error('x'.repeat(10_000)), 4)
+  const hugeCause = huge.crashError().cause
+  t.true(hugeCause.message.length > 0)
+  t.true(hugeCause.message.length < 10_000)
+  t.is(huge.crashError().workerThreadId, 4)
 })

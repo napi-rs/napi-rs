@@ -3815,6 +3815,7 @@ function __createWasiWorker(filename) {
           hostRoot: __hostRoot,
           rootDir: __rootDir,
           crashFlag: __wasiThreadCrashFlag,
+          crashReport: __wasiThreadCrashReport,
         },
       })
     } catch (error) {
@@ -3841,6 +3842,11 @@ function __createWasiWorker(filename) {
 // while the worker's 'error' event is still queued behind the code that is
 // exiting right now.
 const __wasiThreadCrashFlag = new Int32Array(new SharedArrayBuffer(4))
+// Written by the first pool worker whose wasm thread dies, before it raises the
+// flag: its error and \`threadId\` (layout in wasi-worker.mjs). Read without
+// waiting for any event, see \`__readWasiThreadCrashReport\`.
+const __wasiThreadCrashReport = new SharedArrayBuffer(4096)
+let __wasiThreadCrashReportRead
 // The first error a pool worker reported through its 'error' event, and that
 // worker's \`threadId\`. See \`__getWasiThreadCrashError\`.
 let __wasiThreadCrashWorkerError
@@ -3886,15 +3892,52 @@ function __recordWasiThreadCrashError(error, workerId) {
 }
 
 /**
+ * The error in the shared crash report, rebuilt once it is complete: the
+ * worker writes it before it raises the flag, so it is there as soon as the
+ * crash is seen. Plain JavaScript over shared memory; never enters wasm.
+ */
+function __readWasiThreadCrashReport() {
+  if (__wasiThreadCrashReportRead !== undefined) {
+    return __wasiThreadCrashReportRead
+  }
+  try {
+    const header = new Int32Array(__wasiThreadCrashReport, 0, 3)
+    if (Atomics.load(header, 0) !== 2) {
+      return
+    }
+    const length = Atomics.load(header, 1)
+    const threadId = Atomics.load(header, 2)
+    let error
+    if (length > 0) {
+      // Copied out of shared memory: TextDecoder does not take a shared view.
+      const bytes = new Uint8Array(__wasiThreadCrashReport, 12, length).slice()
+      const report = JSON.parse(new TextDecoder().decode(bytes))
+      error = new Error(String(report.message))
+      if (typeof report.name === 'string') {
+        error.name = report.name
+      }
+      if (typeof report.stack === 'string') {
+        error.stack = report.stack
+      }
+    }
+    __wasiThreadCrashReportRead = { error, threadId }
+  } catch {
+    __wasiThreadCrashReportRead = { error: undefined, threadId: 0 }
+  }
+  return __wasiThreadCrashReportRead
+}
+
+/**
  * The one error every crash path of this binding reports, created on first
  * use.
  *
  * The shared flag is raised before this thread has processed the worker's
- * 'error' event, and once the workers are terminated emnapi ignores that event,
- * so \`_fatalError\` may never be set. The cause is therefore filled in
- * whenever it becomes known — here, and again from the 'error' listener: the
- * worker's own error first, else emnapi's \`_fatalError\`. Until then the
- * error carries only its message.
+ * 'error' event, and once the workers are terminated that event is often
+ * never delivered, so neither it nor emnapi's \`_fatalError\` can be counted
+ * on. The cause is filled in from the first source that has it: the error the
+ * 'error' listener kept, else the worker's shared crash report, else
+ * \`_fatalError\` — here, and again from the 'error' listener when it arrives
+ * later. Until then the error carries only its message.
  */
 function __getWasiThreadCrashError() {
   if (__wasiThreadCrashError === undefined) {
@@ -3915,6 +3958,10 @@ function __fillWasiThreadCrashError() {
     if (crashError.cause === undefined) {
       let cause = __wasiThreadCrashWorkerError
       if (cause === undefined) {
+        const report = __readWasiThreadCrashReport()
+        cause = report ? report.error : undefined
+      }
+      if (cause === undefined) {
         const manager = __getWasiThreadManager()
         cause = manager ? manager._fatalError : undefined
       }
@@ -3922,11 +3969,15 @@ function __fillWasiThreadCrashError() {
         crashError.cause = cause
       }
     }
-    if (
-      crashError.workerThreadId === undefined &&
-      __wasiThreadCrashWorkerId !== undefined
-    ) {
-      crashError.workerThreadId = __wasiThreadCrashWorkerId
+    if (crashError.workerThreadId === undefined) {
+      let workerId = __wasiThreadCrashWorkerId
+      if (workerId === undefined) {
+        const report = __readWasiThreadCrashReport()
+        workerId = report && report.threadId > 0 ? report.threadId : undefined
+      }
+      if (workerId !== undefined) {
+        crashError.workerThreadId = workerId
+      }
     }
   } catch {}
 }
