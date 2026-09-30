@@ -315,6 +315,50 @@ const MAX_DRAIN_LINGER_FRAME_RESIDENCE: Duration = Duration::from_secs(60);
 /// same build.rs mechanism).
 const THREADLESS_BUILD: bool = cfg!(all(target_family = "wasm", not(napi_runtime_wasi_threads)));
 
+/// Threaded WASI: refresh this thread's view of the shared memory size where
+/// work that another thread built starts or resumes on it. A no-op on every
+/// other target.
+///
+/// V8 updates a shared wasm memory's size only on the thread that grew it.
+/// The other threads keep checking `memory.fill`, `memory.copy` and atomics
+/// (and, without V8's trap handler, every load and store) against their old
+/// size, so they trap on pages another thread grew. napi's allocator
+/// wrappers refresh under their lock, which covers a block the thread
+/// allocates itself, but not one handed over from another thread: a task
+/// that allocated on one worker and resumes on another, or a blocking
+/// closure whose captures the submitter built. The receiving thread may fill
+/// or copy into that memory without allocating first. So this runs at every
+/// handoff:
+///
+/// - before each `Runnable::run`, in both flavors: every task poll, and
+///   async-task's header atomics, which run before the future's own `poll`;
+/// - before each `block_on` poll (CurrentThread, and MultiThread's parking
+///   and cooperative loops): the caller parks between polls while other
+///   threads grow the memory and finish the awaited work;
+/// - at the start of `RegisteredBlockingFunction::run`: every queued
+///   blocking closure, in both flavors;
+/// - before the CurrentThread inline blocking closure. It runs on the
+///   submitting thread, so there is no handoff, but that thread may be
+///   behind all the same.
+///
+/// The check is one atomic load and one thread-local load, and it calls
+/// `memory.grow(0)` only when another thread has seen a larger memory
+/// (`napi_sys::wasi_heap_sync::refresh_if_behind`, which also counts those
+/// refreshes). The state lives in napi-sys because napi's allocator writes it
+/// and napi cannot depend on this crate (a cargo cycle through the default
+/// `napi` feature). There is no public API: hosts get the refresh by running
+/// work on this scheduler.
+#[cfg(napi_runtime_wasi_threads)]
+#[inline(always)]
+fn on_thread_handoff() {
+  napi_sys::wasi_heap_sync::refresh_if_behind();
+}
+
+/// See the threaded-WASI version above; nothing to refresh here.
+#[cfg(not(napi_runtime_wasi_threads))]
+#[inline(always)]
+fn on_thread_handoff() {}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeConfigError(String);
 
@@ -2905,6 +2949,7 @@ impl<F> RegisteredBlockingFunction<F> {
   where
     F: FnOnce() -> T,
   {
+    on_thread_handoff();
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     let result = catch_unwind_join_error(
       self
@@ -2932,6 +2977,7 @@ impl<F> Drop for RegisteredBlockingFunction<F> {
 }
 
 fn run_runnable(metrics: &RuntimeMetrics, runnable: Runnable) {
+  on_thread_handoff();
   let _active = metrics.runnable_started();
   let _ = catch_unwind_contained(|| runnable.run());
 }
@@ -3939,6 +3985,7 @@ impl CurrentThreadExecutor {
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     let result = {
       let _task = self.metrics.blocking_started(blocking.counts_active_lane());
+      on_thread_handoff();
       catch_unwind_join_error(
         function
           .take()
@@ -4900,6 +4947,7 @@ impl CurrentThreadExecutor {
       }
       #[cfg(napi_runtime_os_threads)]
       dependency.clear();
+      on_thread_handoff();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
       }
@@ -6158,6 +6206,7 @@ impl MultiThreadExecutor {
       if self.stop.is_stopping() {
         return BlockOnOutcome::Stopped;
       }
+      on_thread_handoff();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
       }
@@ -6173,6 +6222,7 @@ impl MultiThreadExecutor {
     runnable: Runnable,
     admission: Option<MultiThreadDeadlockAdmissionGuard>,
   ) {
+    on_thread_handoff();
     // Ownership is lexical to a blocking closure. A runnable driven from that
     // closure must not borrow its over-cap privilege.
     let _non_owner = BlockingOwnerGuard::enter(None);
@@ -6561,6 +6611,7 @@ impl MultiThreadExecutor {
         return BlockOnOutcome::Stopped;
       }
       dependency.clear();
+      on_thread_handoff();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
       }
@@ -36836,6 +36887,166 @@ mod tests {
       cfg!(napi_runtime_os_threads),
       "the threaded WASI target must build the OS-thread machinery"
     );
+  }
+
+  // Memory-size refresh at scheduler handoffs (`on_thread_handoff`). This
+  // napi-free binary links no allocator wrappers, so only `grow_zero` and the
+  // hook ever set a thread's `local_pages`. Each test grows the memory on
+  // another thread and publishes the new size, as napi's allocator does after
+  // dlmalloc grows it, then reads `local_pages` inside the work under test.
+  // Every thread that has not refreshed since is below that size, so a
+  // reading at or above it proves the hook at that site ran; without the hook
+  // each test fails its assertion.
+
+  /// Grow the memory by one page on a new thread and publish the new size,
+  /// which this returns.
+  #[cfg(napi_runtime_wasi_threads)]
+  fn grow_one_page_elsewhere() -> usize {
+    std::thread::spawn(|| {
+      let old = core::arch::wasm32::memory_grow::<0>(1);
+      assert_ne!(old, usize::MAX, "the WASI host must let the memory grow");
+      napi_sys::wasi_heap_sync::grow_zero()
+    })
+    .join()
+    .expect("the growing thread must finish")
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_multi_thread_task_polls_refresh_the_memory_size() {
+    // `MultiThreadExecutor::run_runnable`: a pool worker polls a task spawned
+    // after another thread grew the memory.
+    let controller = multi_thread_controller("wasi-handoff-task", 2, 1);
+    let pages = grow_one_page_elsewhere();
+    let refreshes = napi_sys::wasi_heap_sync::handoff_refreshes();
+    let seen = futures::executor::block_on(
+      controller.spawn(async { napi_sys::wasi_heap_sync::local_pages() }),
+    )
+    .expect("the task must finish");
+    assert!(
+      seen >= pages,
+      "the worker polled with a stale memory size: {seen} < {pages} pages"
+    );
+    assert!(
+      napi_sys::wasi_heap_sync::handoff_refreshes() > refreshes,
+      "the handoff refresh must be counted"
+    );
+    controller.shutdown().expect("runtime must stop");
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_current_thread_task_polls_refresh_the_memory_size() {
+    // The free `run_runnable`: the thread driving a host turn polls a task
+    // after another thread grew the memory.
+    use std::sync::mpsc;
+
+    let executor = Arc::new(CurrentThreadExecutor::new(Arc::new(
+      RuntimeMetrics::default(),
+    )));
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let wake_executor = Arc::clone(&executor);
+    let (runnable, task) = async_task::spawn(
+      async move {
+        let _ = seen_tx.send(napi_sys::wasi_heap_sync::local_pages());
+      },
+      move |runnable| wake_executor.schedule(runnable),
+    );
+    executor.schedule(runnable);
+    let pages = grow_one_page_elsewhere();
+    executor.drive_host_turn();
+    let seen = seen_rx
+      .try_recv()
+      .expect("one host turn must poll the task");
+    futures::executor::block_on(task);
+    assert!(
+      seen >= pages,
+      "the host turn polled with a stale memory size: {seen} < {pages} pages"
+    );
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_block_on_polls_refresh_the_memory_size() {
+    // `CurrentThreadExecutor::block_on` and
+    // `MultiThreadExecutor::parking_block_on`: the caller polls after another
+    // thread grew the memory.
+    for controller in [
+      current_thread_controller("wasi-handoff-block-on"),
+      multi_thread_controller("wasi-handoff-parking-block-on", 2, 1),
+    ] {
+      let pages = grow_one_page_elsewhere();
+      let mut seen = 0;
+      {
+        let mut future = std::pin::pin!(async {
+          seen = napi_sys::wasi_heap_sync::local_pages();
+        });
+        assert_eq!(
+          controller.block_on(future.as_mut()),
+          BlockOnOutcome::Completed
+        );
+      }
+      assert!(
+        seen >= pages,
+        "block_on polled with a stale memory size: {seen} < {pages} pages"
+      );
+      controller.shutdown().expect("runtime must stop");
+    }
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_blocking_closures_refresh_the_memory_size() {
+    // `RegisteredBlockingFunction::run`: a pool worker starts a closure
+    // submitted after another thread grew the memory. Inside it,
+    // `cooperative_block_on`: the same worker polls after a second grow.
+    let controller = Arc::new(multi_thread_controller("wasi-handoff-blocking", 2, 1));
+    let pages = grow_one_page_elsewhere();
+    let block_on_controller = Arc::clone(&controller);
+    let (start_seen, block_on_pages, block_on_seen) =
+      futures::executor::block_on(controller.spawn_blocking(move || {
+        let start_seen = napi_sys::wasi_heap_sync::local_pages();
+        let block_on_pages = grow_one_page_elsewhere();
+        let mut block_on_seen = 0;
+        {
+          let mut future = std::pin::pin!(async {
+            block_on_seen = napi_sys::wasi_heap_sync::local_pages();
+          });
+          assert_eq!(
+            block_on_controller.block_on(future.as_mut()),
+            BlockOnOutcome::Completed
+          );
+        }
+        (start_seen, block_on_pages, block_on_seen)
+      }))
+      .expect("the blocking closure must finish");
+    assert!(
+      start_seen >= pages,
+      "the blocking closure started with a stale memory size: {start_seen} < {pages} pages"
+    );
+    assert!(
+      block_on_seen >= block_on_pages,
+      "the cooperative block_on polled with a stale memory size: \
+       {block_on_seen} < {block_on_pages} pages"
+    );
+    controller.shutdown().expect("runtime must stop");
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_inline_blocking_refreshes_the_memory_size() {
+    // The CurrentThread inline blocking path: the submitting thread runs the
+    // closure itself, after another thread grew the memory.
+    let controller = current_thread_controller("wasi-handoff-inline-blocking");
+    let pages = grow_one_page_elsewhere();
+    let seen =
+      futures::executor::block_on(controller.spawn_blocking(napi_sys::wasi_heap_sync::local_pages))
+        .expect("the inline blocking closure must finish");
+    assert!(
+      seen >= pages,
+      "the inline blocking closure ran with a stale memory size: {seen} < {pages} pages"
+    );
+    controller.shutdown().expect("runtime must stop");
   }
 
   // `not(napi_runtime_os_threads)` is exactly "wasm and not the threaded WASI

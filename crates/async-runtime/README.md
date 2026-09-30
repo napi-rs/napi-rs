@@ -81,6 +81,21 @@ CurrentThread builds.
   build can create OS threads"). The default flavor stays `CurrentThread` on
   every wasm target: selecting `MultiThread` there is always an explicit host
   act.
+- **Memory size on threaded wasm.** V8 updates a shared wasm memory's size
+  only on the thread that grew it; the other threads keep checking
+  `memory.fill`, `memory.copy` and atomics (and, without V8's trap handler,
+  every load and store) against their old size, so they trap on the new
+  pages. napi's allocator wrappers refresh a thread when it allocates. The
+  scheduler covers memory that reaches a thread without an allocation there:
+  on `wasm32-wasip1-threads` it calls
+  `napi_sys::wasi_heap_sync::refresh_if_behind` before every task poll and
+  every `block_on` poll, and at the start of every blocking closure, in both
+  flavors. The check is one atomic load and one thread-local load;
+  `memory.grow(0)` runs only when another thread has seen a larger memory.
+  There is nothing to call or configure, and no other target compiles it. The
+  state lives in napi-sys because napi's allocator writes it too and napi
+  cannot depend on this crate. Work a host runs on its own threads, outside
+  this scheduler, is not covered.
 
 ## Running MultiThread on `wasm32-wasip1-threads`
 
