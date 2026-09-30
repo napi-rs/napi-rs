@@ -180,6 +180,10 @@ napi build [--release] ./artifacts
 
 There are [documents](./cli) which contains more details about the `@napi-rs/cli` usage.
 
+### wasm32-wasip1-threads allocator lock
+
+On `wasm32-wasip1-threads`, `napi` takes one lock around every call into wasi-libc's allocator and refreshes the calling thread's view of the shared memory size under it. This works around a V8 bug: a thread keeps a stale memory size after another thread grows the shared memory, and can trap with "memory access out of bounds" on the new pages. The heap also stays below 2 GiB: an allocation that would pass it fails, because Node's WASI rejects pointers at or above 2 GiB. `napi_build::setup()` adds the link arguments this needs. Opt out with `--cfg napi_wasi_no_heap_sync` in the target rustflags; see [napi-build](https://github.com/napi-rs/napi-rs/tree/main/crates/build#wasm32-wasip1-threads-allocator-lock).
+
 ## Testing
 
 Because libraries that depend on this crate must be loaded into a Node executable in order to resolve symbols, all tests are written in JavaScript in the `test_module` subdirectory.

@@ -946,7 +946,8 @@ jobs:
             __tests__/wasi-host-install-binding-target.spec.ts \
             __tests__/wasi-buffer-public-api.spec.ts \
             __tests__/wasi-deferred-before-exit.spec.ts \
-            __tests__/wasi-env-cleanup-export.spec.ts
+            __tests__/wasi-env-cleanup-export.spec.ts \
+            __tests__/wasi-heap-sync-exports.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface

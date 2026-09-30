@@ -137,6 +137,12 @@ pub mod threadsafe_function;
 pub use sendable_resolver::SendableResolver;
 
 mod version;
+// The heap-sync allocator lock for `wasm32-wasip1-threads`. Gated on the same inputs that
+// `napi_build::setup()` reads to pass the matching `--wrap` link arguments: the exact target
+// (`napi_wasi_threads`) and the `napi_wasi_no_heap_sync` opt-out. Not on `noop` or any other napi
+// feature, which napi-build cannot see: the wrap and the wrappers must never come apart.
+#[cfg(all(target_family = "wasm", napi_wasi_threads, not(napi_wasi_no_heap_sync)))]
+mod wasi_heap_sync;
 
 pub use napi_sys as sys;
 

@@ -1,0 +1,467 @@
+//! `wasm32-wasip1-threads` only: one lock around wasi-libc's allocator, so that a thread's view
+//! of the shared memory size is current before it touches the heap.
+//!
+//! V8 updates the size of a shared wasm memory only on the thread that grew it; every other
+//! thread keeps its old size until it handles V8's grow interrupt, and bounds-checks
+//! `memory.fill`, `memory.copy` and atomics (on hosts without V8's wasm trap handler, every load
+//! and store) against that old size. `memory.grow(0)` on the stale thread reloads it. The
+//! mechanism, and the state this module shares with napi-async-runtime, are described in
+//! `napi_sys::wasi_heap_sync`; the evidence and the rejected alternatives are in rolldown's
+//! `internal-docs/wasi-shared-memory-grow/design.md`, where this code comes from.
+//!
+//! # The fix: refresh under the allocator lock
+//!
+//! `napi_build::setup()` links with `--wrap` for every entry point of wasi-libc's dlmalloc and
+//! for `sbrk` (napi turns on napi-build's `wasi-heap-sync` feature for that), plus a small object
+//! whose `malloc` / `free` exports, the ones `@emnapi/core` calls, go through the wrappers. So
+//! every caller (Rust's `System`, wasi-libc, emnapi, JS) reaches a `__wrap_*` function below,
+//! which runs the real dlmalloc call inside [`locked`]:
+//!
+//! ```text
+//! LOCK (spin; sched_yield every 64 spins; never memory.atomic.wait)
+//!   MAX_SEEN_PAGES > LOCAL_PAGES ? memory.grow(0)     catch up with every published growth
+//!   __real_xxx()                                      dlmalloc writes chunk headers
+//!     └─ __wrap_sbrk: hand out the reserve first, else memory.grow(n),
+//!                     then memory.grow(0): LOCAL_PAGES = MAX_SEEN_PAGES = new size
+//! UNLOCK (Release)                                    the next holder's Acquire sees it
+//! ```
+//!
+//! Only `sbrk` grows the memory, and it only runs under `LOCK`, so the thread that grows
+//! publishes the new size before any other thread can enter dlmalloc, and that thread
+//! refreshes before dlmalloc touches a byte. A refresh before dlmalloc's own lock is not enough:
+//! a thread waiting on that lock gets it right after the growing thread unlocks, before the new
+//! size is published, and writes a chunk header into pages it cannot see yet (a trap on a host
+//! without the trap handler).
+//!
+//! calloc's memset and realloc's memcpy run after the refresh too. wasi-libc runs them after
+//! dlmalloc has released its own lock, but still inside `LOCK`, so `LOCK` is wider than
+//! dlmalloc's lock: a large zeroed allocation or realloc copy holds every other thread's
+//! allocator calls. Kept on purpose: moving the fill and copy out of the lock did not help on
+//! rolldown's measured loads, and dlmalloc has no in-place-only realloc entry, so a realloc
+//! outside the lock would cost a second lock round trip and lose in-place growth (rolldown's
+//! design.md, principle 1). The lock spins like dlmalloc's, so it is safe on a browser main
+//! thread, where `memory.atomic.wait` traps and where emnapi frees memory from a
+//! `FinalizationRegistry` callback.
+//!
+//! Not re-entrant, and it does not need to be: inside dlmalloc's object the public names are thin
+//! wrappers over static functions, and the object's only calls out are `sbrk` (our
+//! [`__wrap_sbrk`], which does not lock) and `sched_yield`.
+//!
+//! # The break
+//!
+//! wasi-libc's `sbrk` starts at `memory.size`, the memory the loader created
+//! (`napi.wasm.initialMemory`, 4000 pages by default), and leaves the pages between `__heap_end`
+//! (the end of the module's own initial memory, where dlmalloc's first segment ends) and that
+//! size unused. [`__wrap_sbrk`] keeps its own break that starts at `__heap_end`, so dlmalloc uses
+//! those pages first: they exist on every thread from instantiation, so they never need a
+//! refresh, and no thread grows the memory until the heap has used them. When it must grow, it
+//! grows at least [`GROW_AHEAD`] at once.
+//!
+//! The reserve ends at the memory size captured by a constructor at instantiation, not at the
+//! size when `sbrk` first runs: another allocator in the module (a `#[global_allocator]` that
+//! calls `memory.grow` itself) may have grown pages by then, and handing those to dlmalloc too
+//! corrupts both heaps. Past the reserve the break only covers pages this hook grew itself.
+//!
+//! The break never passes 2^31. Node's `node:wasi` (v24 and later) answers `EINVAL` (os error 28)
+//! to `clock_time_get` and `fd_seek` when a pointer argument is at or above 2^31: an `i32` above
+//! `i32::MAX` reaches JS as a negative number. Thread stacks come from `malloc`, so once the heap
+//! passes 2^31, `Instant::now` on a thread created later can fail. Failing `sbrk` there instead
+//! makes dlmalloc return null: an allocation failure at the allocation, not an I/O error
+//! elsewhere.
+//!
+//! # Invariant
+//!
+//! `LOCAL_PAGES` never exceeds the size V8 checks on this thread, and `MAX_SEEN_PAGES` is the
+//! largest `LOCAL_PAGES` any thread has stored. dlmalloc only hands out memory below the break,
+//! and the break never passes the `LOCAL_PAGES` of the thread that moved it, which publishes it
+//! to `MAX_SEEN_PAGES` before it releases `LOCK`. So after taking `LOCK`, every block dlmalloc
+//! returns lies within this thread's `LOCAL_PAGES`; [`after`] checks that and counts a violation
+//! (`napi_wasm_heap_sync_stat(2)`, expected 0).
+//!
+//! # Remaining gaps
+//!
+//! - A block that reaches a running thread mid-poll (a channel message, an `Arc`, a
+//!   threadsafe-function call on the JS thread) and is touched there before that thread's next
+//!   allocation or scheduler handoff, when another thread grew the memory in between. Below the
+//!   reserve nothing grows.
+//! - A `#[global_allocator]` that grows the memory itself (mimalloc's WASI build, talc,
+//!   lol_alloc, the `dlmalloc` crate) is not locked, and its growth is never published. One that
+//!   ends in libc `malloc`, like std's `System`, is locked.
+//! - C code that calls `sbrk` directly runs [`__wrap_sbrk`] outside `LOCK`.
+//! - A thread that crashes while it holds `LOCK` leaves the others spinning, as a crash inside
+//!   dlmalloc's own lock always did.
+//!
+//! # Opting out
+//!
+//! `--cfg napi_wasi_no_heap_sync` in the target rustflags (for example
+//! `RUSTFLAGS="--cfg napi_wasi_no_heap_sync"`) leaves this module out, and napi-build, which
+//! reads the same cfg, leaves out the `--wrap` link arguments. See napi-build's README.
+//!
+//! Remove this module once the hosts napi-rs supports ship the V8 fix
+//! (v8/v8@34241014663390c72e08c123faef6fedf395be8e).
+
+use std::{
+  ffi::c_void,
+  sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+};
+
+use napi_sys::wasi_heap_sync::{
+  grow_zero, handoff_refreshes, local_pages, max_seen_pages, needs_refresh, HANDOFF_REFRESHES_STAT,
+};
+
+/// When the break must pass the current memory, grow at least this much in one `memory.grow`,
+/// so the heap grows in a few large steps instead of 64 KiB-2 MiB ones. Every growth costs one
+/// refresh on every thread, and V8 changes the page permissions of the whole memory on each
+/// grow. 16 MiB is a small share of the 4 GiB maximum.
+const GROW_AHEAD: usize = 16 << 20;
+
+/// Wasm page size in bytes, for address math in `usize` (32 bits on wasm32).
+const PAGE_BYTES: usize = 1 << 16;
+
+/// The break never passes this page, 2^31 in bytes; see "The break" above.
+const HEAP_LIMIT_PAGES: usize = 1 << 15;
+
+/// The lock and the break, alone in one cache line: every allocation takes the lock, and
+/// `napi_sys::wasi_heap_sync`'s `MAX_SEEN_PAGES`, which every scheduler handoff reads, sits in a
+/// line of its own.
+#[repr(align(128))]
+struct HeapState {
+  /// The allocator lock. Held around every call into dlmalloc; see [`locked`].
+  lock: AtomicBool,
+  /// dlmalloc's break, owned by [`__wrap_sbrk`]. 0 until the first `sbrk` call.
+  brk: AtomicUsize,
+  /// End (bytes) of the pages [`__wrap_sbrk`] may hand out without growing: first the reserve
+  /// `[__heap_end, init_pages)`, later the end of the last region the hook grew itself. Pages
+  /// another allocator grew are never inside it.
+  own_end: AtomicUsize,
+  /// Memory size (pages) when this module's constructors ran; 0 when they have not.
+  init_pages: AtomicUsize,
+}
+
+/// `brk` and `own_end` are only read and written under `LOCK` (and dlmalloc's own lock), and
+/// `init_pages` is written once before any thread starts, so `Relaxed` is enough for them.
+static STATE: HeapState = HeapState {
+  lock: AtomicBool::new(false),
+  brk: AtomicUsize::new(0),
+  own_end: AtomicUsize::new(0),
+  init_pages: AtomicUsize::new(0),
+};
+
+/// Counters read by tests through the `napi_wasm_heap_sync_stat` export. Each one is only
+/// written on a cold path.
+mod stat {
+  /// `memory.grow(n > 0)` calls made by `__wrap_sbrk`.
+  pub const GROWS: usize = 0;
+  /// Refreshes run after taking `LOCK`.
+  pub const LOCK_REFRESHES: usize = 1;
+  /// Blocks that ended past this thread's refreshed size after dlmalloc returned them. The
+  /// invariant says 0; [`super::after`] refreshes and counts one if it ever happens.
+  pub const LATE_REFRESHES: usize = 2;
+  /// The break, in pages (rounded up).
+  pub const BREAK_PAGES: usize = 3;
+  /// `__heap_end`, in pages: where the break starts.
+  pub const HEAP_END_PAGES: usize = 4;
+  pub const COUNT: usize = 5;
+}
+
+static STATS: [AtomicU32; stat::COUNT] = [const { AtomicU32::new(0) }; stat::COUNT];
+
+#[inline]
+fn bump(index: usize) {
+  STATS[index].fetch_add(1, Ordering::Relaxed);
+}
+
+#[inline]
+fn store_pages(index: usize, pages: usize) {
+  STATS[index].store(u32::try_from(pages).unwrap_or(u32::MAX), Ordering::Relaxed);
+}
+
+/// Test-only view of the heap-sync counters: 0-4 are this module's (see [`stat`]), 5 is
+/// napi-async-runtime's scheduler-handoff refreshes, and any other index reads `u32::MAX`.
+/// Exported from the wasm module (a `#[no_mangle]` function in a cdylib), not through napi.
+#[no_mangle]
+pub extern "C" fn napi_wasm_heap_sync_stat(index: u32) -> u32 {
+  if index == HANDOFF_REFRESHES_STAT {
+    return handoff_refreshes();
+  }
+  STATS
+    .get(index as usize)
+    .map_or(u32::MAX, |counter| counter.load(Ordering::Relaxed))
+}
+
+extern "C" {
+  fn __real_malloc(size: usize) -> *mut c_void;
+  fn __real_free(ptr: *mut c_void);
+  fn __real_calloc(count: usize, size: usize) -> *mut c_void;
+  fn __real_realloc(ptr: *mut c_void, size: usize) -> *mut c_void;
+  fn __real_posix_memalign(out: *mut *mut c_void, align: usize, size: usize) -> i32;
+  fn __real_aligned_alloc(align: usize, size: usize) -> *mut c_void;
+  fn __real_malloc_usable_size(ptr: *mut c_void) -> usize;
+  fn __real___libc_malloc(size: usize) -> *mut c_void;
+  fn __real___libc_free(ptr: *mut c_void);
+  fn __real___libc_calloc(count: usize, size: usize) -> *mut c_void;
+  fn sched_yield() -> i32;
+  /// End of the module's own initial memory (wasm-ld), where dlmalloc's first segment ends.
+  static __heap_end: u8;
+}
+
+#[inline]
+fn lock() {
+  if STATE
+    .lock
+    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+    .is_err()
+  {
+    lock_slow();
+  }
+}
+
+/// Spin like dlmalloc's own lock: `sched_yield` every 64 spins, never `memory.atomic.wait`
+/// (which traps on a browser main thread).
+#[cold]
+fn lock_slow() {
+  let mut spins: u32 = 0;
+  loop {
+    while STATE.lock.load(Ordering::Relaxed) {
+      spins = spins.wrapping_add(1);
+      if spins.is_multiple_of(64) {
+        unsafe { sched_yield() };
+      } else {
+        core::hint::spin_loop();
+      }
+    }
+    if STATE
+      .lock
+      .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+      .is_ok()
+    {
+      return;
+    }
+  }
+}
+
+/// Take `LOCK`, catch up with every growth published before it, run `f` (one real dlmalloc
+/// call), release. Not re-entrant: `f` must not call a `__wrap_*` symbol. dlmalloc's only calls
+/// out of its object are `sbrk` (our [`__wrap_sbrk`], which does not lock) and `sched_yield`.
+#[inline]
+fn locked<R>(f: impl FnOnce() -> R) -> R {
+  lock();
+  let local = local_pages();
+  // `local == 0`: this thread has never refreshed; do it once so `after` has a real bound.
+  if local == 0 || max_seen_pages() > local {
+    lock_refresh();
+  }
+  let result = f();
+  STATE.lock.store(false, Ordering::Release);
+  result
+}
+
+#[cold]
+fn lock_refresh() {
+  bump(stat::LOCK_REFRESHES);
+  grow_zero();
+}
+
+/// Check the invariant on a block dlmalloc just returned (under `LOCK`): it must end within
+/// this thread's refreshed size. If it ever does not, refresh and count it.
+#[inline]
+fn after(ptr: *mut c_void, size: usize) -> *mut c_void {
+  if !ptr.is_null() && needs_refresh(ptr as usize as u64 + size as u64, local_pages()) {
+    late_refresh();
+  }
+  ptr
+}
+
+#[cold]
+fn late_refresh() {
+  bump(stat::LATE_REFRESHES);
+  grow_zero();
+}
+
+/// Pages needed to cover every byte below `addr`.
+#[inline]
+const fn pages_below(addr: usize) -> usize {
+  addr.div_ceil(PAGE_BYTES)
+}
+
+/// dlmalloc's `MORECORE`. dlmalloc calls it only from inside its entry points, which run only
+/// under `LOCK`, so this never takes the lock and is never entered twice at once.
+///
+/// It hands out the reserve `[__heap_end, memory size at instantiation)` first: those pages
+/// exist on every thread, so they never need a refresh. Past it, it grows fresh pages, at least
+/// [`GROW_AHEAD`] at once, refreshes this thread and publishes the new size before the caller
+/// releases `LOCK`. It never hands out pages it did not grow itself beyond the reserve, and never
+/// a byte at or above 2^31; it returns `(void *)-1` instead, and dlmalloc returns null.
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_sbrk(increment: isize) -> *mut c_void {
+  const FAIL: *mut c_void = usize::MAX as *mut c_void;
+  let mut brk = STATE.brk.load(Ordering::Relaxed);
+  if brk == 0 {
+    // Page-aligned by wasm-ld (it is the end of the module's initial memory); rounding up
+    // only matters if that ever changes, and dlmalloc copes with a non-contiguous break.
+    let start = pages_below(&raw const __heap_end as usize) * PAGE_BYTES;
+    if start == 0 {
+      return FAIL;
+    }
+    store_pages(stat::HEAP_END_PAGES, start / PAGE_BYTES);
+    brk = start;
+    STATE.brk.store(brk, Ordering::Relaxed);
+    let now = grow_zero();
+    let init = STATE.init_pages.load(Ordering::Relaxed);
+    // The reserve ends at the memory size seen at instantiation. Without a capture (a
+    // constructor that runs before ours allocated), at the size now: nothing but that
+    // constructor's own code has run, so nothing else has grown the memory yet.
+    let reserve_end = if init == 0 { now } else { init.min(now) };
+    STATE.own_end.store(
+      reserve_end.min(HEAP_LIMIT_PAGES) * PAGE_BYTES,
+      Ordering::Relaxed,
+    );
+  }
+  if increment == 0 {
+    return brk as *mut c_void;
+  }
+  // wasm memory cannot shrink. dlmalloc only asks for less on a failure path it ignores.
+  let Ok(increment) = usize::try_from(increment) else {
+    return FAIL;
+  };
+  let own_end = STATE.own_end.load(Ordering::Relaxed);
+  if let Some(new_brk) = brk.checked_add(increment).filter(|&end| end <= own_end) {
+    // Below the reserve's or the last grown region's end: no growth, and no refresh needed.
+    STATE.brk.store(new_brk, Ordering::Relaxed);
+    store_pages(stat::BREAK_PAGES, pages_below(new_brk));
+    return brk as *mut c_void;
+  }
+  // Grow fresh pages. memory.grow returns the old size, so [old, old + n) is ours alone.
+  let now = grow_zero();
+  let need = pages_below(increment);
+  // Pages that can still be added below 2^31. A request that cannot fit fails before it grows.
+  let room = HEAP_LIMIT_PAGES.saturating_sub(now);
+  if need > room {
+    return FAIL;
+  }
+  let ahead = need.max(GROW_AHEAD / PAGE_BYTES).min(room);
+  let mut grown = ahead;
+  let mut old = core::arch::wasm32::memory_grow::<0>(ahead);
+  if old == usize::MAX && ahead != need {
+    grown = need;
+    old = core::arch::wasm32::memory_grow::<0>(need);
+  }
+  if old == usize::MAX {
+    return FAIL;
+  }
+  bump(stat::GROWS);
+  // Refresh this thread and publish the new size before the caller releases `LOCK`.
+  grow_zero();
+  // `old` is below 65536 because the grow succeeded, so neither product overflows. Another
+  // allocator may have grown the memory since `now`, which moves `old` up; only the part of the
+  // new pages below 2^31 is handed out.
+  let region = old * PAGE_BYTES;
+  let end = (old + grown).min(HEAP_LIMIT_PAGES) * PAGE_BYTES;
+  // Contiguous with the last region (the usual case): extend the break. Otherwise another
+  // allocator owns the pages after `own_end`: start a new segment, which dlmalloc takes as a
+  // non-contiguous MORECORE result.
+  let base = if region == own_end { brk } else { region };
+  let new_brk = base
+    .checked_add(increment)
+    .filter(|&new_brk| new_brk <= end);
+  let Some(new_brk) = new_brk else {
+    return FAIL;
+  };
+  STATE.own_end.store(end, Ordering::Relaxed);
+  STATE.brk.store(new_brk, Ordering::Relaxed);
+  store_pages(stat::BREAK_PAGES, pages_below(new_brk));
+  base as *mut c_void
+}
+
+/// Record the memory size at instantiation, where the break's reserve ends; see "The break"
+/// above. The first run wins, in case a host ever runs the constructors again on a thread.
+extern "C" fn capture_init_pages() {
+  let _ = STATE.init_pages.compare_exchange(
+    0,
+    core::arch::wasm32::memory_size::<0>(),
+    Ordering::Relaxed,
+    Ordering::Relaxed,
+  );
+}
+
+/// Runs from `__wasm_call_ctors` (inside `_initialize`), before the constructors of the default
+/// priority (napi's own registrations, the `ctor` crate), so before any user code can grow the
+/// memory.
+#[used]
+#[link_section = ".init_array.00099"]
+static CAPTURE_INIT_PAGES: extern "C" fn() = capture_init_pages;
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_malloc(size: usize) -> *mut c_void {
+  locked(|| after(unsafe { __real_malloc(size) }, size))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_free(ptr: *mut c_void) {
+  if !ptr.is_null() {
+    locked(|| unsafe { __real_free(ptr) });
+  }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_calloc(count: usize, size: usize) -> *mut c_void {
+  locked(|| {
+    after(
+      unsafe { __real_calloc(count, size) },
+      count.saturating_mul(size),
+    )
+  })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_realloc(ptr: *mut c_void, size: usize) -> *mut c_void {
+  locked(|| after(unsafe { __real_realloc(ptr, size) }, size))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_posix_memalign(
+  out: *mut *mut c_void,
+  align: usize,
+  size: usize,
+) -> i32 {
+  locked(|| {
+    let rc = unsafe { __real_posix_memalign(out, align, size) };
+    if rc == 0 {
+      after(unsafe { *out }, size);
+    }
+    rc
+  })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_aligned_alloc(align: usize, size: usize) -> *mut c_void {
+  locked(|| after(unsafe { __real_aligned_alloc(align, size) }, size))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap_malloc_usable_size(ptr: *mut c_void) -> usize {
+  // Reads the chunk header, which may sit in pages another thread grew.
+  locked(|| unsafe { __real_malloc_usable_size(ptr) })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap___libc_malloc(size: usize) -> *mut c_void {
+  locked(|| after(unsafe { __real___libc_malloc(size) }, size))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap___libc_free(ptr: *mut c_void) {
+  if !ptr.is_null() {
+    locked(|| unsafe { __real___libc_free(ptr) });
+  }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __wrap___libc_calloc(count: usize, size: usize) -> *mut c_void {
+  locked(|| {
+    after(
+      unsafe { __real___libc_calloc(count, size) },
+      count.saturating_mul(size),
+    )
+  })
+}
