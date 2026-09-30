@@ -96,10 +96,15 @@
 //!
 //! # Remaining gaps
 //!
-//! - A block that reaches a running thread mid-poll (a channel message, an `Arc`, a
-//!   threadsafe-function call on the JS thread) and is touched there before that thread's next
-//!   allocation or scheduler handoff, when another thread grew the memory in between. Below the
-//!   reserve nothing grows.
+//! - A block that reaches a running thread mid-poll (a channel message, an `Arc`) and is touched
+//!   there before that thread's next allocation or scheduler handoff, when another thread grew
+//!   the memory in between. Below the reserve nothing grows. A threadsafe-function call, deferred
+//!   or async work delivered on the JS thread is covered: between taking it off its queue and
+//!   calling back into the module, emnapi runs JavaScript frames (`napi_open_handle_scope`,
+//!   `napi_get_reference_value`, `emnapi_is_node_binding_available`,
+//!   `_emnapi_callback_into_module`), and a JavaScript frame handles V8's grow interrupt. What
+//!   remains there is emnapi's own read of the queue node in C, on hosts without the trap
+//!   handler.
 //! - A `#[global_allocator]` that grows the memory itself (mimalloc's WASI build, talc,
 //!   lol_alloc, the `dlmalloc` crate) is not locked, and its growth is never published. One that
 //!   ends in libc `malloc`, like std's `System`, is locked.

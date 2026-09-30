@@ -792,10 +792,16 @@ the workaround the trap above comes back on hosts without the V8 fix.
   build, talc, lol_alloc, the `dlmalloc` crate) is not locked, and its growth
   is never published. One that ends in libc `malloc`, like std's `System`, is
   locked.
-- Memory that reaches a running thread mid-poll (a channel message, an `Arc`,
-  a threadsafe-function call on the JavaScript thread) and is touched there
-  before that thread's next allocation or handoff, after another thread grew
-  the memory. Below the reserve nothing grows.
+- Memory that reaches a running thread mid-poll (a channel message, an `Arc`)
+  and is touched there before that thread's next allocation or handoff, after
+  another thread grew the memory. Below the reserve nothing grows. A
+  threadsafe-function call, deferred or async work delivered on the JavaScript
+  thread is covered: between taking it off its queue and calling back into the
+  module, emnapi runs JavaScript frames (`napi_open_handle_scope`,
+  `napi_get_reference_value`, `emnapi_is_node_binding_available`,
+  `_emnapi_callback_into_module`), and a JavaScript frame handles V8's grow
+  interrupt. What remains there is emnapi's own read of the queue node in C, on
+  hosts without the trap handler.
 - Work on threads the addon starts or runs itself: a runtime passed to
   `create_custom_tokio_runtime`, direct `tokio::task::spawn_blocking` calls,
   and a host's own threads outside `napi-async-runtime`'s scheduler.
