@@ -508,24 +508,42 @@ extern "C" fn napi_wasm_runtime_work_pending() -> u32 {
   }
 }
 
-/// Called by the generated `wasm32-wasip1-threads` worker when its wasm thread dies: raises the
-/// flag the JavaScript thread's cleanup waits check.
+/// Raises the flag the JavaScript thread's cleanup waits check, on `wasm32-wasip1-threads`: a
+/// wasm thread of this instance died.
 ///
 /// A pool thread that traps unwinds nothing, so a lock it held stays held and work it was
 /// running never retires. [`napi_prepare_wasm_env_cleanup_begin`],
 /// [`napi_prepare_wasm_env_cleanup_finish`] and [`napi_prepare_wasm_env_cleanup`] would then
 /// wait on the JavaScript thread for good, where the loader cannot see the crash. With the flag
 /// up, the `napi-async-runtime` backend's shutdown waits there (they wait in short slices) trap
-/// instead, and the loader turns the throw into its crash rejection. The worker calls this after
-/// it raised the loader's own crash flag, so the loader sees that flag once the trap reaches it.
+/// instead, and the loader turns the throw into its crash rejection.
+///
+/// The generated worker raises the flag through [`napi_wasm_thread_crash_flag_address`] and
+/// calls this only when it has no view of that word but has an instance. Either way it does so
+/// after it raised the loader's own crash flag, so the loader sees that flag once the trap
+/// reaches it.
 ///
 /// Safe to call from the thread that just trapped: it stores one atomic, with no lock and no
-/// allocation. The worker feature-detects it, so an addon built against an older napi keeps the
-/// unbounded waits.
+/// allocation.
 #[cfg(all(target_family = "wasm", napi_wasi_threads, not(feature = "noop")))]
 #[no_mangle]
 extern "C" fn napi_wasm_thread_crashed() {
   napi_sys::wasi_thread_crash::mark_thread_crashed();
+}
+
+/// The address in linear memory of the flag [`napi_wasm_thread_crashed`] raises: one 4-byte,
+/// 4-aligned word, 0 until a wasm thread of this instance dies.
+///
+/// The loader reads it once, on the JavaScript thread, and gives each pool worker an
+/// `Int32Array` over that word of the shared memory. A worker raises the flag with
+/// `Atomics.store`, which needs no instance, so a worker that fails while it loads — after the
+/// thread spawn that created it already returned — raises it too; the export above needs the
+/// instance that worker never got. The loader and worker feature-detect this export, so an addon
+/// built against an older napi keeps the unbounded waits.
+#[cfg(all(target_family = "wasm", napi_wasi_threads, not(feature = "noop")))]
+#[no_mangle]
+extern "C" fn napi_wasm_thread_crash_flag_address() -> *const std::sync::atomic::AtomicI32 {
+  napi_sys::wasi_thread_crash::thread_crash_flag()
 }
 
 /// Phase 2 of [`napi_prepare_wasm_env_cleanup`]: join what

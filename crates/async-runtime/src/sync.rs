@@ -18,10 +18,12 @@
 //! tried again after each slice, a condvar wait returns after one slice (its
 //! callers loop on their predicate anyway, as for any spurious wakeup), and a
 //! join waits for the thread to finish first. Before each slice it reads the
-//! crash flag that napi's `napi_wasm_thread_crashed` export raises
-//! (`napi_sys::wasi_thread_crash`), and once that is up the wait traps with
-//! `unreachable`. The loader's worker raises its own crash flag before it
-//! calls the export, so the loader reports that trap as the crash. emnapi's
+//! crash flag (`napi_sys::wasi_thread_crash`), a word in the shared linear
+//! memory that the cli's worker raises with `Atomics.store` when its wasm
+//! thread dies (napi's `napi_wasm_thread_crash_flag_address` export gives the
+//! loader its address), and once that is up the wait traps with
+//! `unreachable`. The worker raises the loader's own crash flag first, so the
+//! loader reports that trap as the crash. emnapi's
 //! `wasi_wait.c` does the same for waits in C; std's `Mutex` and `Condvar`
 //! call `memory.atomic.wait32` directly, so they never reach it.
 //!

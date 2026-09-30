@@ -183,12 +183,20 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   unwinds nothing: the locks it held stay held, its work never retires and it
   never exits, so `begin_shutdown` and `finish_shutdown` would wait on it for
   good. So on threaded WASI both phases wait in 1 ms slices on the thread that
-  calls them, and between slices read the crash flag the cli's worker raises
-  through napi's `napi_wasm_thread_crashed` export; once it is up, the wait
-  traps (`unreachable`). The worker raises the loader's own crash flag first,
-  so the loader reports that throw as the crash. Only a crash ends these
-  waits: the join of live threads above stays unbounded, and pool threads and
-  every wait outside the two phases wait as before. See `src/sync.rs`.
+  calls them, and between slices read the crash flag in `napi-sys`: a 4-byte
+  word in the shared linear memory. napi's
+  `napi_wasm_thread_crash_flag_address` export gives the cli's loader its
+  address; the loader hands each pool worker an `Int32Array` over it, and the
+  worker raises it with `Atomics.store` when its wasm thread dies (napi's
+  `napi_wasm_thread_crashed` export stores into the same word). No instance is
+  needed, so a worker that fails while it loads, after its thread spawn
+  already returned, raises it too. Once it is up, the wait traps
+  (`unreachable`). The worker raises the loader's own crash flag first, so the
+  loader reports that throw as the crash. Only a crash the worker itself
+  reports ends these waits: a `Worker` that cannot start or is killed by its
+  resource limits raises nothing. The join of live threads above stays
+  unbounded, and pool threads and every wait outside the two phases wait as
+  before. See `src/sync.rs` and the cli's `docs/wasi.md`.
 - **The JavaScript hosts go inert, not away.** The cli's
   `napi.wasm.asyncRuntime` loaders install a CurrentThread task host and a
   timer host unconditionally — they cannot know the flavor. MultiThread never
