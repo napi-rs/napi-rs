@@ -2198,6 +2198,185 @@ test('node WASI loader skips the wasm teardown at exit after a thread crash', (t
   }
 })
 
+/**
+ * Runs the node loader's public disposer, and then its 'exit' listener, against
+ * stubbed wasm steps with the crash latch in the given state. Every stub
+ * records its name, so the steps show exactly what re-entered wasm.
+ */
+async function runWasiPublicDisposer(
+  code: string,
+  crash: {
+    flag?: boolean
+    errorEvent?: boolean
+    fatalError?: boolean
+    terminateThrows?: boolean
+  },
+  calls = 1,
+): Promise<{
+  steps: string[]
+  results: Array<{ value?: unknown; error?: any }>
+  samePromise: boolean
+  exitError?: unknown
+}> {
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const steps: string[] = []
+  const fatalError = new Error('worker died')
+  const run = new Function(
+    'steps',
+    'crash',
+    'fatalError',
+    'calls',
+    `
+let __wasiExitListenerRegistered = true
+let __wasiDisposed = false
+let __wasiDisposePromise
+let __wasiThreadCrashDisposePromise
+// The loader sets this to __removeWasiExitListener.
+let __completeWasiDisposal = function () {
+  steps.push('complete')
+  __wasiExitListenerRegistered = false
+}
+${latchState}
+function __getWasiThreadManager() {
+  return {
+    terminateWorker() {},
+    _fatalError: crash.fatalError ? fatalError : undefined,
+  }
+}
+function __isThenable(value) {
+  return value !== null && typeof value === 'object' && typeof value.then === 'function'
+}
+function __drainWasiAsyncWork() {
+  steps.push('async work')
+}
+function __prepareWasmEnvCleanupWithTurns() {
+  steps.push('prepare')
+}
+function __drainWasmEnvCleanup() {
+  steps.push('drain')
+}
+function __destroyEmnapiContext() {
+  steps.push('destroy')
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate')
+  if (crash.terminateThrows) throw new Error('terminate failed')
+  return Promise.resolve()
+}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__attachCleanupErrors')}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${generatedFunction(code, '__finishWasiDisposal')}
+${generatedFunction(code, '__continueWasiDisposal')}
+${generatedFunction(code, '__drainWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__cleanUpWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__startWasiDisposal')}
+${generatedFunction(code, '__disposeWasiBinding')}
+${generatedFunction(code, '__disposeWasiBindingAtExit')}
+if (crash.flag) Atomics.store(__wasiThreadCrashFlag, 0, 1)
+if (crash.errorEvent) __wasiThreadCrashed = true
+return (async () => {
+  const promises = []
+  for (let i = 0; i < calls; i += 1) {
+    promises.push(__disposeWasiBinding())
+  }
+  const results = []
+  for (const promise of promises) {
+    try {
+      results.push({ value: await promise })
+    } catch (error) {
+      results.push({ error })
+    }
+  }
+  let exitError
+  try {
+    if (__wasiExitListenerRegistered) __disposeWasiBindingAtExit()
+  } catch (error) {
+    exitError = error
+  }
+  return {
+    results,
+    samePromise: promises.every((promise) => promise === promises[0]),
+    exitError,
+  }
+})()
+`,
+  )
+  const outcome = await run(steps, crash, fatalError, calls)
+  return { steps, ...outcome }
+}
+
+// The published disposer runs the same wasm teardown as the 'exit' listener,
+// behind an async-work drain. An app that handled the rethrown worker error
+// and then disposed blocked in the same raw atomic wait. After a crash it only
+// stops the workers and rejects, since nothing was cleaned up.
+test('node WASI public disposer skips the wasm teardown after a thread crash', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'node cjs')
+  t.true(code.includes('let __wasiThreadCrashDisposePromise\n'))
+  t.true(
+    generatedFunction(code, '__disposeWasiBinding').includes(
+      '  if (!__wasiDisposed && __hasWasiThreadCrashed()) {\n    return __disposeWasiBindingAfterThreadCrash()\n  }\n',
+    ),
+  )
+
+  // No crash: the disposal chain is exactly what it was, and it removes the
+  // 'exit' listener when it completes.
+  const clean = await runWasiPublicDisposer(code, {})
+  t.deepEqual(clean.steps, [
+    'async work',
+    'prepare',
+    'drain',
+    'destroy',
+    'terminate',
+    'complete',
+  ])
+  t.deepEqual(clean.results, [{ value: undefined }])
+
+  for (const crash of [
+    { flag: true },
+    { errorEvent: true },
+    { fatalError: true },
+  ]) {
+    const label = JSON.stringify(crash)
+    // Three calls: every one settles the same way, and the workers are
+    // terminated once by the disposer and once more by the 'exit' listener,
+    // which still takes its short path and does not throw.
+    const crashed = await runWasiPublicDisposer(code, crash, 3)
+    t.deepEqual(crashed.steps, ['terminate', 'terminate'], label)
+    t.true(crashed.samePromise, label)
+    t.is(crashed.exitError, undefined, label)
+    for (const result of crashed.results) {
+      t.true(result.error instanceof Error, label)
+      t.is(
+        result.error.message,
+        'napi-rs: WASI binding cannot be disposed after a worker thread crashed',
+        label,
+      )
+    }
+    if (crash.fatalError) {
+      t.is(crashed.results[0].error.cause.message, 'worker died')
+    }
+  }
+
+  // A termination failure is attached, not swallowed, and the disposer still
+  // does not fall through to the wasm teardown.
+  const failed = await runWasiPublicDisposer(code, {
+    flag: true,
+    terminateThrows: true,
+  })
+  t.deepEqual(failed.steps, ['terminate', 'terminate'])
+  t.regex(failed.results[0].error.message, /worker thread crashed/)
+  t.is(failed.results[0].error.cause.message, 'terminate failed')
+  t.is(failed.exitError, undefined)
+})
+
 test('node WASI loader shares the crash flag with its pool workers', (t) => {
   const code = createWasiBinding('test', '@scope/test')
   const createWorker = generatedFunction(code, '__createWasiWorker')
@@ -2221,6 +2400,34 @@ test('threadless node WASI loader keeps its exit teardown unconditional', (t) =>
   t.false(code.includes('__wasiThreadCrash'))
   t.false(code.includes('SharedArrayBuffer'))
   t.true(generatedFunction(code, '__disposeWasiBindingAtExit').length > 0)
+  t.false(code.includes('__disposeWasiBindingAfterThreadCrash'))
+  t.true(
+    generatedFunction(code, '__disposeWasiBinding').startsWith(
+      'function __disposeWasiBinding() {\n  if (__wasiDisposePromise) {\n',
+    ),
+  )
+})
+
+// The browser loader has no 'exit' teardown and no crash latch; its public
+// disposer is unchanged.
+test('browser WASI loader public disposer has no crash latch', (t) => {
+  for (const threads of [true, false]) {
+    const code = createWasiBrowserBinding(
+      'test-wasi',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      threads,
+    )
+    t.false(code.includes('__hasWasiThreadCrashed'), `threads=${threads}`)
+    t.false(
+      code.includes('__disposeWasiBindingAfterThreadCrash'),
+      `threads=${threads}`,
+    )
+  }
 })
 
 test('WASI worker sets the crash flag before emnapi reports the error', (t) => {

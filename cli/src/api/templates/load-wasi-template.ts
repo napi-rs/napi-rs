@@ -88,7 +88,12 @@ function __wrapEmnapiContextDestroyForSettlement(
  * `__startWasiDisposal` / the rollback have already prepared and drained, so
  * one call there covers all three.
  */
-const createEmnapiContextLifecycle = (asyncRuntime: boolean) => {
+const createEmnapiContextLifecycle = (
+  asyncRuntime: boolean,
+  // Only the threaded Node loader defines the crash latch
+  // (`__hasWasiThreadCrashed`, `__disposeWasiBindingAfterThreadCrash`).
+  threadCrashLatch = false,
+) => {
   const currentThreadHosts = asyncRuntime
     ? `
 let __currentThreadHostsDisposer
@@ -124,6 +129,12 @@ function __disposeCurrentThreadHosts() {
     : ''
   const disposeCurrentThreadHosts = asyncRuntime
     ? '  __disposeCurrentThreadHosts()\n'
+    : ''
+  const disposeAfterThreadCrash = threadCrashLatch
+    ? `  if (!__wasiDisposed && __hasWasiThreadCrashed()) {
+    return __disposeWasiBindingAfterThreadCrash()
+  }
+`
     : ''
 
   return `
@@ -1138,6 +1149,7 @@ function __startWasiDisposal() {
  * binding[Symbol.for('${WASI_DISPOSE_SYMBOL}')]()
  */
 function __disposeWasiBinding() {
+${disposeAfterThreadCrash}\
   if (__wasiDisposePromise) {
     return __wasiDisposePromise
   }
@@ -3744,6 +3756,50 @@ function __hasWasiThreadCrashed() {
   const manager = __getWasiThreadManager()
   return Boolean(manager && manager._fatalError)
 }
+
+let __wasiThreadCrashDisposePromise
+
+/**
+ * The public disposer after a wasm thread died. The normal chain drains async
+ * work, runs the environment cleanup barrier and destroys the context — every
+ * one of those re-enters wasm, and the barrier's shutdown waits for the dead
+ * thread's work in the same raw atomic wait \`__disposeWasiBindingAtExit\`
+ * avoids. An app that handled the worker's error and then disposes would block
+ * there for good. Only stop the workers, then reject: the binding was not
+ * cleaned up and cannot be, so reporting success would be a lie. The context
+ * is left as is and the 'exit' listener takes its short path too.
+ *
+ * Latched: every later call returns the same promise.
+ */
+function __disposeWasiBindingAfterThreadCrash() {
+  if (__wasiThreadCrashDisposePromise) {
+    return __wasiThreadCrashDisposePromise
+  }
+  const crashError = new Error(
+    'napi-rs: WASI binding cannot be disposed after a worker thread crashed',
+  )
+  try {
+    const manager = __getWasiThreadManager()
+    if (manager && manager._fatalError) {
+      crashError.cause = manager._fatalError
+    }
+  } catch {}
+  let workerResult
+  try {
+    workerResult = __terminateWasiWorkers()
+  } catch (terminateError) {
+    workerResult = Promise.reject(terminateError)
+  }
+  __wasiThreadCrashDisposePromise = Promise.resolve(workerResult).then(
+    () => {
+      throw crashError
+    },
+    (terminateError) => {
+      throw __attachCleanupErrors(crashError, [terminateError])
+    },
+  )
+  return __wasiThreadCrashDisposePromise
+}
 `
     : ''
   const skipTeardownAfterThreadCrash = threads
@@ -3908,7 +3964,7 @@ if (__nodeFs.existsSync(__wasmDebugFilePath)) {
 
 const __wasmFile = __nodeFs.readFileSync(__wasmFilePath)
 let __emnapiContext
-${createEmnapiContextLifecycle(asyncRuntime)}
+${createEmnapiContextLifecycle(asyncRuntime, threads)}
 const __wasiRollbackRegistrySymbol = Symbol.for('${WASI_ROLLBACK_REGISTRY_SYMBOL}')
 const __wasiRollbackRegistryKey =
   typeof __filename === 'string' ? __filename : __wasmFilePath
