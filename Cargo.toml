@@ -12,6 +12,7 @@ members = [
   "./examples/napi-compat-mode",
   "./examples/custom-async-runtime",
   "./examples/shared-async-runtime",
+  "./examples/wasi-heap-sync",
   "./examples/binary",
   "./bench",
   "./memory-testing",
