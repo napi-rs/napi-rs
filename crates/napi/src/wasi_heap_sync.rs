@@ -55,7 +55,10 @@
 //! size unused. [`__wrap_sbrk`] keeps its own break that starts at `__heap_end`, so dlmalloc uses
 //! those pages first: they exist on every thread from instantiation, so they never need a
 //! refresh, and no thread grows the memory until the heap has used them. When it must grow, it
-//! grows at least [`GROW_AHEAD`] at once.
+//! grows only the part of the new break past the memory end, at least
+//! [`GROW_AHEAD`](crate::wasi_heap_break::GROW_AHEAD) at once: a request that starts inside the
+//! reserve takes the rest of the reserve first. The page arithmetic is in
+//! [`grow_plan`].
 //!
 //! The reserve ends at the memory size captured by a constructor at instantiation, not at the
 //! size when `sbrk` first runs: another allocator in the module (a `#[global_allocator]` that
@@ -96,7 +99,8 @@
 //! Measured in rolldown on its copy of this code, before napi took it over (release wasm, Node
 //! 24.21 on arm64, 10 interleaved rounds, medians): the lock and the break cost about 8% on 16
 //! builds, 5% on 16 builds with a JS plugin, 10-11% on parse loads and 3% on transform, against
-//! the code before them, which already grew [`GROW_AHEAD`] at a time. That grow-ahead had made the
+//! the code before them, which already grew
+//! [`GROW_AHEAD`](crate::wasi_heap_break::GROW_AHEAD) at a time. That grow-ahead had made the
 //! same loads 1.6-3.2x faster than growing in dlmalloc's own small steps, so most of that gain
 //! stays. Other workloads and hosts are not measured. The table is in `cli/docs/wasi.md`.
 //!
@@ -118,17 +122,7 @@ use napi_sys::wasi_heap_sync::{
   grow_zero, handoff_refreshes, local_pages, max_seen_pages, needs_refresh, HANDOFF_REFRESHES_STAT,
 };
 
-/// When the break must pass the current memory, grow at least this much in one `memory.grow`,
-/// so the heap grows in a few large steps instead of 64 KiB-2 MiB ones. Every growth costs one
-/// refresh on every thread, and V8 changes the page permissions of the whole memory on each
-/// grow. 16 MiB is a small share of the 4 GiB maximum.
-const GROW_AHEAD: usize = 16 << 20;
-
-/// Wasm page size in bytes, for address math in `usize` (32 bits on wasm32).
-const PAGE_BYTES: usize = 1 << 16;
-
-/// The break never passes this page, 2^31 in bytes; see "The break" above.
-const HEAP_LIMIT_PAGES: usize = 1 << 15;
+use crate::wasi_heap_break::{fits, grow_plan, pages_below, Grow, HEAP_LIMIT_PAGES, PAGE_BYTES};
 
 /// The lock and the break, alone in one cache line: every allocation takes the lock, and
 /// `napi_sys::wasi_heap_sync`'s `MAX_SEEN_PAGES`, which every scheduler handoff reads, sits in a
@@ -297,20 +291,17 @@ fn late_refresh() {
   grow_zero();
 }
 
-/// Pages needed to cover every byte below `addr`.
-#[inline]
-const fn pages_below(addr: usize) -> usize {
-  addr.div_ceil(PAGE_BYTES)
-}
-
 /// dlmalloc's `MORECORE`. dlmalloc calls it only from inside its entry points, which run only
 /// under `LOCK`, so this never takes the lock and is never entered twice at once.
 ///
 /// It hands out the reserve `[__heap_end, memory size at instantiation)` first: those pages
-/// exist on every thread, so they never need a refresh. Past it, it grows fresh pages, at least
-/// [`GROW_AHEAD`] at once, refreshes this thread and publishes the new size before the caller
-/// releases `LOCK`. It never hands out pages it did not grow itself beyond the reserve, and never
-/// a byte at or above 2^31; it returns `(void *)-1` instead, and dlmalloc returns null.
+/// exist on every thread, so they never need a refresh. When a request passes the reserve's end
+/// (or the end of the last region it grew), it grows only the part of the new break past the
+/// memory end, at least [`GROW_AHEAD`](crate::wasi_heap_break::GROW_AHEAD) at once, refreshes
+/// this thread and publishes the new size before the caller releases `LOCK`; the page
+/// arithmetic is in [`grow_plan`]. It never hands out pages it did not grow itself beyond the
+/// reserve, and never a byte at or above 2^31; it returns `(void *)-1` instead, and dlmalloc
+/// returns null.
 #[no_mangle]
 pub unsafe extern "C" fn __wrap_sbrk(increment: isize) -> *mut c_void {
   const FAIL: *mut c_void = usize::MAX as *mut c_void;
@@ -343,53 +334,60 @@ pub unsafe extern "C" fn __wrap_sbrk(increment: isize) -> *mut c_void {
   let Ok(increment) = usize::try_from(increment) else {
     return FAIL;
   };
-  let own_end = STATE.own_end.load(Ordering::Relaxed);
-  if let Some(new_brk) = brk.checked_add(increment).filter(|&end| end <= own_end) {
+  let mut own_end = STATE.own_end.load(Ordering::Relaxed);
+  if let Some(new_brk) = fits(brk, own_end, increment) {
     // Below the reserve's or the last grown region's end: no growth, and no refresh needed.
     STATE.brk.store(new_brk, Ordering::Relaxed);
     store_pages(stat::BREAK_PAGES, pages_below(new_brk));
     return brk as *mut c_void;
   }
-  // Grow fresh pages. memory.grow returns the old size, so [old, old + n) is ours alone.
-  let now = grow_zero();
-  let need = pages_below(increment);
-  // Pages that can still be added below 2^31. A request that cannot fit fails before it grows.
-  let room = HEAP_LIMIT_PAGES.saturating_sub(now);
-  if need > room {
-    return FAIL;
+  // A second pass only after another allocator grew the memory between `now` and our grow.
+  for _ in 0..2 {
+    // Grow fresh pages. memory.grow returns the old size, so [old, old + n) is ours alone.
+    let now = grow_zero();
+    let Some(Grow { need, ahead }) = grow_plan(brk, own_end, increment, now) else {
+      return FAIL;
+    };
+    let mut grown = ahead;
+    let mut old = core::arch::wasm32::memory_grow::<0>(ahead);
+    if old == usize::MAX && ahead != need {
+      grown = need;
+      old = core::arch::wasm32::memory_grow::<0>(need);
+    }
+    if old == usize::MAX {
+      return FAIL;
+    }
+    bump(stat::GROWS);
+    // Refresh this thread and publish the new size before the caller releases `LOCK`.
+    grow_zero();
+    // `old` is below 65536 because the grow succeeded, so neither product overflows. Another
+    // allocator may have grown the memory since `now`, which moves `old` up; only the part of
+    // the new pages below 2^31 is handed out.
+    let region = old * PAGE_BYTES;
+    let end = (old + grown).min(HEAP_LIMIT_PAGES) * PAGE_BYTES;
+    // Contiguous with the last region (the usual case): extend the break. Otherwise another
+    // allocator owns the pages after `own_end`: start a new segment, which dlmalloc takes as a
+    // non-contiguous MORECORE result.
+    let base = if region == own_end { brk } else { region };
+    if let Some(new_brk) = fits(base, end, increment) {
+      STATE.own_end.store(end, Ordering::Relaxed);
+      STATE.brk.store(new_brk, Ordering::Relaxed);
+      store_pages(stat::BREAK_PAGES, pages_below(new_brk));
+      return base as *mut c_void;
+    }
+    // `grow_plan` counted on extending `[brk, own_end)`, but another allocator grew the memory
+    // first, so the pages grown here start a new segment too short for the whole request. They
+    // are ours: keep them as the break's region and plan again from their end. Pages that all
+    // lie at or above 2^31 are never handed out.
+    if region >= end {
+      return FAIL;
+    }
+    brk = region;
+    own_end = end;
+    STATE.brk.store(brk, Ordering::Relaxed);
+    STATE.own_end.store(own_end, Ordering::Relaxed);
   }
-  let ahead = need.max(GROW_AHEAD / PAGE_BYTES).min(room);
-  let mut grown = ahead;
-  let mut old = core::arch::wasm32::memory_grow::<0>(ahead);
-  if old == usize::MAX && ahead != need {
-    grown = need;
-    old = core::arch::wasm32::memory_grow::<0>(need);
-  }
-  if old == usize::MAX {
-    return FAIL;
-  }
-  bump(stat::GROWS);
-  // Refresh this thread and publish the new size before the caller releases `LOCK`.
-  grow_zero();
-  // `old` is below 65536 because the grow succeeded, so neither product overflows. Another
-  // allocator may have grown the memory since `now`, which moves `old` up; only the part of the
-  // new pages below 2^31 is handed out.
-  let region = old * PAGE_BYTES;
-  let end = (old + grown).min(HEAP_LIMIT_PAGES) * PAGE_BYTES;
-  // Contiguous with the last region (the usual case): extend the break. Otherwise another
-  // allocator owns the pages after `own_end`: start a new segment, which dlmalloc takes as a
-  // non-contiguous MORECORE result.
-  let base = if region == own_end { brk } else { region };
-  let new_brk = base
-    .checked_add(increment)
-    .filter(|&new_brk| new_brk <= end);
-  let Some(new_brk) = new_brk else {
-    return FAIL;
-  };
-  STATE.own_end.store(end, Ordering::Relaxed);
-  STATE.brk.store(new_brk, Ordering::Relaxed);
-  store_pages(stat::BREAK_PAGES, pages_below(new_brk));
-  base as *mut c_void
+  FAIL
 }
 
 /// Record the memory size at instantiation, where the break's reserve ends; see "The break"
