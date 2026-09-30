@@ -1,5 +1,8 @@
-import { dirname } from 'node:path'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 
 import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
@@ -3192,21 +3195,37 @@ test('browser WASI loader public disposer has no crash latch', (t) => {
   }
 })
 
+/**
+ * The column-zero `if` of the Node worker that wraps emnapi's
+ * `beforeReportError`, with the helpers it calls: a function body over
+ * `workerData`, `handler` and `threadId`.
+ */
+function wasiWorkerCrashHook(): string {
+  const start =
+    WASI_WORKER_TEMPLATE.indexOf(
+      '\nif (workerData && workerData.crashFlag instanceof Int32Array) {\n',
+    ) + 1
+  return (
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
+    ) +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__raiseWasiThreadCrashFlags') +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  )
+}
+
 test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
   assertValidJS(t, WASI_WORKER_TEMPLATE, 'Node WASI worker')
   const start = WASI_WORKER_TEMPLATE.indexOf(
-    'if (workerData && workerData.crashFlag instanceof Int32Array) {',
+    '\nif (workerData && workerData.crashFlag instanceof Int32Array) {',
   )
   t.true(start > 0)
   t.true(
     start < WASI_WORKER_TEMPLATE.indexOf('globalThis.onmessage = function'),
     'the hook has to be in place before the first message is handled',
   )
-  const latch =
-    WASI_WORKER_TEMPLATE.slice(
-      start,
-      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
-    ) + generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  const latch = wasiWorkerCrashHook()
 
   const run = (workerData: { crashFlag?: Int32Array } & object) => {
     const reports: string[] = []
@@ -3244,27 +3263,23 @@ test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
 })
 
 // The loader thread can be inside a wasm cleanup call that waits on the dead
-// thread. napi's export makes those waits trap; the loader must already see its
-// own flag when the trap reaches it.
+// thread. The addon's flag makes those waits trap; the loader must already see
+// its own flag when the trap reaches it.
 test('WASI worker raises the addon crash flag after the loader flag', (t) => {
-  const start = WASI_WORKER_TEMPLATE.indexOf(
-    'if (workerData && workerData.crashFlag instanceof Int32Array) {',
-  )
-  const latch =
-    WASI_WORKER_TEMPLATE.slice(
-      start,
-      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
-    ) + generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
-  const crash = (instance: unknown, crashFlag: Int32Array) => {
+  const latch = wasiWorkerCrashHook()
+  const crash = (
+    instance: unknown,
+    workerData: { crashFlag: Int32Array; addonCrashFlag?: unknown },
+  ) => {
     const calls: string[] = []
     const handler = {
       instance,
       beforeReportError() {
-        calls.push('emnapi')
+        calls.push(`emnapi flag=${Atomics.load(workerData.crashFlag, 0)}`)
       },
     }
     new Function('workerData', 'handler', 'threadId', latch)(
-      { crashFlag },
+      workerData,
       handler,
       1,
     )
@@ -3275,32 +3290,438 @@ test('WASI worker raises the addon crash flag after the loader flag', (t) => {
     return calls
   }
 
+  // The loader's view of the addon's flag: one word of the shared wasm memory,
+  // at an offset. A worker that failed while loading has no instance.
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  })
+  const word = new Int32Array(memory.buffer, 64, 1)
   const crashFlag = new Int32Array(new SharedArrayBuffer(4))
   const calls: string[] = []
-  const exports = {
-    napi_wasm_thread_crashed() {
-      calls.push(`napi flag=${Atomics.load(crashFlag, 0)}`)
+  const workerData = {
+    crashFlag,
+    get addonCrashFlag() {
+      calls.push(`view read, loader flag=${Atomics.load(crashFlag, 0)}`)
+      return word
     },
   }
-  calls.push(...crash({ exports }, crashFlag))
-  t.deepEqual(calls, ['napi flag=1', 'emnapi'])
+  calls.push(...crash(undefined, workerData))
+  t.deepEqual(calls, ['view read, loader flag=1', 'emnapi flag=1'])
+  t.is(Atomics.load(new Int32Array(memory.buffer), 16), 1)
+  t.is(Atomics.load(new Int32Array(memory.buffer), 15), 0)
+  t.is(Atomics.load(new Int32Array(memory.buffer), 17), 0)
 
-  // A worker that never loaded, an addon built with an older napi, and an
-  // export that throws: emnapi's hook still runs.
-  for (const instance of [
-    undefined,
-    { exports: {} },
+  // With a view the export is not needed: it is not called.
+  const exported: string[] = []
+  const withInstance = crash(
     {
       exports: {
         napi_wasm_thread_crashed() {
-          throw new Error('boom')
+          exported.push('napi')
         },
       },
     },
+    {
+      crashFlag: new Int32Array(new SharedArrayBuffer(4)),
+      addonCrashFlag: new Int32Array(new SharedArrayBuffer(4)),
+    },
+  )
+  t.deepEqual(withInstance, ['emnapi flag=1'])
+  t.deepEqual(exported, [])
+
+  // No view (an addon built with an older napi): the export, when the worker
+  // has an instance, after the loader flag.
+  const noViewFlag = new Int32Array(new SharedArrayBuffer(4))
+  const noView: string[] = []
+  noView.push(
+    ...crash(
+      {
+        exports: {
+          napi_wasm_thread_crashed() {
+            noView.push(`napi flag=${Atomics.load(noViewFlag, 0)}`)
+          },
+        },
+      },
+      { crashFlag: noViewFlag },
+    ),
+  )
+  t.deepEqual(noView, ['napi flag=1', 'emnapi flag=1'])
+
+  // A worker that never loaded, an addon without the export, an export that
+  // throws, a view that is not an Int32Array: emnapi's hook still runs.
+  for (const [instance, addonCrashFlag] of [
+    [undefined, undefined],
+    [{ exports: {} }, undefined],
+    [
+      {
+        exports: {
+          napi_wasm_thread_crashed() {
+            throw new Error('boom')
+          },
+        },
+      },
+      undefined,
+    ],
+    [undefined, new Uint8Array(new SharedArrayBuffer(4))],
   ]) {
-    t.deepEqual(crash(instance, new Int32Array(new SharedArrayBuffer(4))), [
-      'emnapi',
+    t.deepEqual(
+      crash(instance, {
+        crashFlag: new Int32Array(new SharedArrayBuffer(4)),
+        addonCrashFlag,
+      }),
+      ['emnapi flag=1'],
+    )
+  }
+})
+
+/**
+ * A shared wasm memory with a view of one word at `offset`, the way the loaders
+ * build the addon's crash flag view.
+ */
+function addonCrashFlagView(offset = 64) {
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  })
+  return { memory, word: new Int32Array(memory.buffer, offset, 1) }
+}
+
+// A worker whose setup throws before the crash hook exists (here: the runtime
+// package cannot be resolved) never gets to emnapi's beforeReportError. Its
+// thread spawn has already returned, so the loader may be waiting on it inside
+// wasm: it has to raise both flags itself, then fail as before.
+test('WASI worker raises both crash flags when its setup throws', (t) => {
+  const anchor = '\nlet handler\ntry {\n'
+  const start = WASI_WORKER_TEMPLATE.indexOf(anchor) + 1
+  t.true(start > 0)
+  const catchStart = WASI_WORKER_TEMPLATE.indexOf('} catch (error) {\n', start)
+  const setup =
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', catchStart) + 2,
+    ) +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__raiseWasiThreadCrashFlags') +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  t.true(
+    setup.indexOf("require('@napi-rs/wasm-runtime')") <
+      setup.indexOf('handler = new MessageHandler('),
+  )
+  const missing = new Error("Cannot find module '@napi-rs/wasm-runtime'")
+  const run = (workerData: object | undefined) =>
+    new Function('require', 'workerData', 'threadId', setup)(
+      () => {
+        throw missing
+      },
+      workerData,
+      3,
+    )
+
+  const { memory, word } = addonCrashFlagView()
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const crashReport = new SharedArrayBuffer(4096)
+  const order: number[] = []
+  const workerData = {
+    crashFlag,
+    crashReport,
+    get addonCrashFlag() {
+      order.push(Atomics.load(crashFlag, 0))
+      return word
+    },
+  }
+  t.is(
+    t.throws(() => run(workerData)),
+    missing,
+  )
+  t.is(Atomics.load(crashFlag, 0), 1)
+  t.deepEqual(order, [1], 'the loader flag goes up before the addon flag')
+  t.is(Atomics.load(new Int32Array(memory.buffer), 16), 1)
+  const header = new Int32Array(crashReport, 0, 3)
+  t.is(Atomics.load(header, 0), 2)
+  t.is(Atomics.load(header, 2), 3)
+
+  // A loader that predates the flags: the error is only rethrown.
+  t.is(
+    t.throws(() => run({ hostRoot: '/', rootDir: '/' })),
+    missing,
+  )
+  t.is(
+    t.throws(() => run(undefined)),
+    missing,
+  )
+})
+
+// The same through a real worker thread: the generated worker, written where
+// '@napi-rs/wasm-runtime' cannot be resolved, gets the view in workerData — a
+// structured clone that keeps sharing the wasm memory — and raises the word.
+test('WASI worker that fails to load raises the flags from a real thread', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-wasi-worker-'))
+  t.teardown(() => rm(directory, { recursive: true, force: true }))
+  const workerPath = join(directory, 'wasi-worker.mjs')
+  await writeFile(workerPath, WASI_WORKER_TEMPLATE)
+  const { memory, word } = addonCrashFlagView(128)
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const crashReport = new SharedArrayBuffer(4096)
+  const worker = new Worker(workerPath, {
+    workerData: { crashFlag, crashReport, addonCrashFlag: word },
+  })
+  const error = await new Promise<Error>((resolve, reject) => {
+    worker.once('error', resolve)
+    worker.once('exit', (code) =>
+      reject(new Error(`the worker exited with ${code} and no error`)),
+    )
+  })
+  t.regex(error.message, /@napi-rs\/wasm-runtime/)
+  t.is(Atomics.load(crashFlag, 0), 1)
+  t.is(Atomics.load(new Int32Array(memory.buffer), 32), 1)
+  t.is(Atomics.load(new Int32Array(crashReport, 0, 1), 0), 2)
+})
+
+/**
+ * The Node loader's view capture and worker creation, over a real shared wasm
+ * memory and a stub `Worker` that keeps its options.
+ */
+function createNodeLoaderAddonCrashFlag() {
+  const code = createWasiBinding('test', '@scope/test')
+  const created: Array<{ filename: string; options: any }> = []
+  class StubWorker {
+    constructor(filename: string, options: unknown) {
+      created.push({ filename, options })
+    }
+  }
+  const loader = new Function(
+    'Worker',
+    `
+const __sharedMemory = new WebAssembly.Memory({ initial: 1, maximum: 2, shared: true })
+const __hostRoot = '/'
+const __rootDir = '/'
+const __wasiThreadCrashFlag = new Int32Array(new SharedArrayBuffer(4))
+const __wasiThreadCrashReport = new SharedArrayBuffer(16)
+let __wasiAddonCrashFlag
+${generatedFunction(code, '__captureWasiAddonCrashFlag')}
+${generatedFunction(code, '__getWasiWorkerExecArgv')}
+${generatedFunction(code, '__createWasiWorker')}
+return {
+  memory: __sharedMemory,
+  capture: __captureWasiAddonCrashFlag,
+  createWorker: __createWasiWorker,
+  view: () => __wasiAddonCrashFlag,
+}
+`,
+  )(StubWorker) as {
+    memory: WebAssembly.Memory
+    capture: (instance: unknown) => void
+    createWorker: (filename: string) => unknown
+    view: () => Int32Array | undefined
+  }
+  return { code, created, ...loader }
+}
+
+test('node WASI loader reads the addon crash flag address before registration', (t) => {
+  const { code } = createNodeLoaderAddonCrashFlag()
+  const beforeInit = code.slice(code.indexOf('    beforeInit({ instance }) {'))
+  const capture = beforeInit.indexOf('__captureWasiAddonCrashFlag(instance)')
+  t.true(capture > 0)
+  t.true(capture < beforeInit.indexOf("name.startsWith('__napi_register__')"))
+  t.true(
+    generatedFunction(code, '__createWasiWorker').includes(
+      'addonCrashFlag: __wasiAddonCrashFlag,',
+    ),
+  )
+  // The threadless loader has no workers and reads nothing.
+  const threadless = createWasiBinding(
+    'test',
+    '@scope/test',
+    4000,
+    65536,
+    false,
+  )
+  t.false(threadless.includes('__captureWasiAddonCrashFlag'))
+  t.false(threadless.includes('napi_wasm_thread_crash_flag_address'))
+})
+
+test('node WASI loader passes each pool worker a view of the addon crash flag', (t) => {
+  const loader = createNodeLoaderAddonCrashFlag()
+  // Before the capture (or for an addon built with an older napi): no view.
+  loader.createWorker('/w.mjs')
+  t.is(loader.created[0].options.workerData.addonCrashFlag, undefined)
+
+  loader.capture({
+    exports: { napi_wasm_thread_crash_flag_address: () => 1024 },
+  })
+  const view = loader.view()
+  t.true(view instanceof Int32Array)
+  t.is(view!.buffer, loader.memory.buffer)
+  t.is(view!.byteOffset, 1024)
+  t.is(view!.length, 1)
+  loader.createWorker('/w.mjs')
+  t.is(loader.created[1].options.workerData.addonCrashFlag, view)
+  t.is(
+    loader.created[1].options.workerData.crashFlag instanceof Int32Array,
+    true,
+  )
+  // The worker's store lands in the word the addon reads.
+  Atomics.store(view!, 0, 1)
+  t.is(Atomics.load(new Int32Array(loader.memory.buffer), 256), 1)
+
+  // Addresses the loader cannot trust are ignored.
+  for (const exports of [
+    {},
+    { napi_wasm_thread_crash_flag_address: 1024 },
+    { napi_wasm_thread_crash_flag_address: () => 0 },
+    { napi_wasm_thread_crash_flag_address: () => 1026 },
+    { napi_wasm_thread_crash_flag_address: () => 65536 },
+    { napi_wasm_thread_crash_flag_address: () => -4 },
+    {
+      napi_wasm_thread_crash_flag_address() {
+        throw new Error('boom')
+      },
+    },
+  ]) {
+    const fresh = createNodeLoaderAddonCrashFlag()
+    t.notThrows(() => fresh.capture({ exports }))
+    t.is(fresh.view(), undefined)
+  }
+})
+
+// The browser pool is created before the wasm is instantiated, so its workers
+// get the view by message once the instance exists; a worker created later
+// gets it right away. A browser Worker has no workerData.
+test('browser WASI loader posts the addon crash flag view to every pool worker', (t) => {
+  const code = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    true,
+  )
+  assertValidJS(t, code, 'browser threads')
+  const beforeInitStart = code.indexOf(
+    '    beforeInit({ instance }) {\n      __napiInstance = instance\n',
+  )
+  t.true(beforeInitStart > 0)
+  const beforeInitBody = code.slice(
+    code.indexOf('      __napiInstance = instance\n', beforeInitStart),
+    code.indexOf(
+      '      for (const name of Object.keys(instance.exports)) {',
+      beforeInitStart,
+    ),
+  )
+  t.true(beforeInitBody.includes('__captureWasiAddonCrashFlag(instance)'))
+  t.true(
+    code.includes(
+      '      __wasiWorkers.add(worker)\n      __shareWasiAddonCrashFlag(worker)\n',
+    ),
+  )
+
+  const posted: Array<[string, unknown]> = []
+  const run = new Function(
+    'posted',
+    `
+const __sharedMemory = new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true })
+const __wasiWorkers = new Set()
+let __napiInstance
+${generatedFunction(code, '__captureWasiAddonCrashFlag')}
+${generatedFunction(code, '__shareWasiAddonCrashFlag')}
+let __wasiAddonCrashFlag
+function onCreateWorker(name) {
+  const worker = {
+    postMessage(message) {
+      posted.push([name, message])
+    },
+  }
+  __wasiWorkers.add(worker)
+  __shareWasiAddonCrashFlag(worker)
+  return worker
+}
+function beforeInit({ instance }) {
+${beforeInitBody}
+}
+onCreateWorker('pool-1')
+onCreateWorker('pool-2')
+beforeInit({ instance: { exports: { napi_wasm_thread_crash_flag_address: () => 512 } } })
+onCreateWorker('later')
+return { memory: __sharedMemory, view: __wasiAddonCrashFlag }
+`,
+  )
+  const { memory, view } = run(posted)
+  t.true(view instanceof Int32Array)
+  t.is(view.buffer, memory.buffer)
+  t.is(view.byteOffset, 512)
+  t.deepEqual(
+    posted.map(([name]) => name),
+    ['pool-1', 'pool-2', 'later'],
+  )
+  for (const [, message] of posted) {
+    t.deepEqual(Object.keys(message as object), ['__napiRsAddonCrashFlag'])
+    t.is(
+      (message as { __napiRsAddonCrashFlag: unknown }).__napiRsAddonCrashFlag,
+      view,
+    )
+  }
+
+  // The threadless browser loader has no workers.
+  const threadless = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    false,
+  )
+  t.false(threadless.includes('__captureWasiAddonCrashFlag'))
+  t.false(threadless.includes('__shareWasiAddonCrashFlag'))
+})
+
+test('browser WASI worker raises the addon crash flag it was posted', (t) => {
+  for (const [fs, errorEvent] of [
+    [false, false],
+    [true, true],
+  ]) {
+    const code = createWasiBrowserWorkerBinding(fs, errorEvent)
+    const start = code.indexOf('let __addonCrashFlag\n')
+    t.true(start > 0)
+    const bridge = code.slice(start)
+    const calls: string[] = []
+    const { memory, word } = addonCrashFlagView(256)
+    const handler: {
+      instance?: unknown
+      beforeReportError: (...args: unknown[]) => unknown
+      handle: (event: { data: unknown }) => void
+    } = {
+      instance: undefined,
+      beforeReportError(this: unknown, error: unknown) {
+        calls.push(
+          `emnapi ${(error as Error).message} word=${Atomics.load(word, 0)} ${this === handler}`,
+        )
+      },
+      handle(event) {
+        calls.push(`handle ${JSON.stringify(event.data)}`)
+      },
+    }
+    const globals: { onmessage?: (event: { data: unknown }) => void } = {}
+    new Function('handler', 'globalThis', bridge)(handler, globals)
+
+    // No view yet: emnapi's hook still runs, nothing is raised.
+    handler.beforeReportError(new Error('early'), 'load')
+    // The view is kept, not handed to emnapi; emnapi's messages still are.
+    globals.onmessage!({ data: { __napiRsAddonCrashFlag: word } })
+    globals.onmessage!({ data: { __emnapi__: { type: 'load' } } })
+    // A wasm thread that died, with or without an instance.
+    handler.beforeReportError(new Error('trap'), 'start')
+    t.deepEqual(calls, [
+      'emnapi early word=0 true',
+      'handle {"__emnapi__":{"type":"load"}}',
+      'emnapi trap word=1 true',
     ])
+    t.is(Atomics.load(new Int32Array(memory.buffer), 64), 1)
   }
 })
 
@@ -3338,14 +3759,7 @@ return {
     crashError: () => any
     workerError: (error: unknown, threadId: number) => void
   }
-  const start = WASI_WORKER_TEMPLATE.indexOf(
-    'if (workerData && workerData.crashFlag instanceof Int32Array) {',
-  )
-  const hook =
-    WASI_WORKER_TEMPLATE.slice(
-      start,
-      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
-    ) + generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  const hook = wasiWorkerCrashHook()
   const reportStates: number[] = []
   const crashWorker = (error: unknown, threadId: number) => {
     const handler = {

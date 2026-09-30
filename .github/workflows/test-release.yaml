@@ -1080,6 +1080,9 @@ jobs:
   # custom-async-runtime jobs cover it); the deferred (`./workerd`) loader is
   # exercised here under Node, because this is the only example whose binding
   # exports the CurrentThread host protocol that loader registers against.
+  # The threaded artifact is built last, for one case: a pool worker that fails
+  # while it loads must still end the shutdown waits of the MultiThread runtime
+  # on the loader thread (the addon crash flag the worker raises).
   test-shared-async-runtime-wasi:
     runs-on: ubuntu-latest
     name: Test shared async runtime on wasm32-wasip1
@@ -1098,7 +1101,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip1
+          targets: wasm32-wasip1,wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Build
@@ -1109,6 +1112,10 @@ jobs:
         run: yarn workspace @examples/shared-async-runtime test:wasi
       - name: Test the deferred (workerd) loader
         run: yarn workspace @examples/shared-async-runtime test:wasi-workerd
+      - name: Build the threaded artifact
+        run: yarn workspace @examples/shared-async-runtime build:wasi-threads
+      - name: Test a pool worker that fails to load
+        run: yarn workspace @examples/shared-async-runtime test:wasi-threads-crash
 
   test-node-wasi:
     runs-on: ubuntu-latest

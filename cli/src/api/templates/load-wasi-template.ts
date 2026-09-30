@@ -8,6 +8,47 @@ const WASI_DISPOSE_SYMBOL = 'napi.rs.wasi.dispose'
 const WASI_ROLLBACK_REGISTRY_SYMBOL = 'napi.rs.wasi.rollback.registry.v1'
 
 /**
+ * Threaded loaders only: a view of the addon's crash flag for the pool workers.
+ *
+ * napi-async-runtime's shutdown waits run on the loader thread, inside the
+ * environment cleanup calls, and check one word of the shared wasm memory
+ * between 1 ms slices; once it is set they trap instead of waiting on a dead
+ * thread for good. napi's `napi_wasm_thread_crash_flag_address` export says
+ * where that word is. Each worker gets an `Int32Array` over it and raises it
+ * with `Atomics.store` when its wasm thread dies — right after the loader's own
+ * crash flag, where there is one. The store needs no instance, so a worker that
+ * fails while it loads, after the thread spawn that created it had already
+ * returned, raises it too.
+ *
+ * Read in `beforeInit`: before any registration code runs, and on Node before
+ * any pool worker exists (the pool is created on demand). An addon built with
+ * an older napi has no export, and a value that is not a 4-aligned address
+ * inside the memory is ignored: the view stays undefined and the waits stay
+ * unbounded, as before.
+ */
+const ADDON_CRASH_FLAG_CAPTURE = `// A view of the addon's crash flag, one word of the shared wasm memory, for the
+// pool workers: they raise it when their wasm thread dies, and the shutdown
+// waits inside the cleanup calls on this thread then trap instead of waiting on
+// the dead thread for good. Undefined for an addon built with an older napi.
+let __wasiAddonCrashFlag
+
+function __captureWasiAddonCrashFlag(instance) {
+  try {
+    const getAddress = instance.exports.napi_wasm_thread_crash_flag_address
+    if (typeof getAddress !== 'function') {
+      return
+    }
+    const address = getAddress() >>> 0
+    const buffer = __sharedMemory.buffer
+    if (address === 0 || address % 4 !== 0 || address + 4 > buffer.byteLength) {
+      return
+    }
+    __wasiAddonCrashFlag = new Int32Array(buffer, address, 1)
+  } catch {}
+}
+`
+
+/**
  * `Context.destroy()` disables JavaScript calls *before* it runs cleanup hooks
  * (`setStopping` -> `setCanCallIntoJs(false)` -> `runCleanup`), and the
  * threadsafe function's cleanup hook then drains its queue with a null env and
@@ -1616,10 +1657,35 @@ const __workerPoolSize = Math.max(
         type: 'module',
       })
       __wasiWorkers.add(worker)
+      __shareWasiAddonCrashFlag(worker)
 ${workerFsHandler}
 ${workerErrorHandler}
       return worker
     },
+`
+    : ''
+  // The pool is created before the wasm is instantiated, so the workers that
+  // exist by `beforeInit` get the view there, after their 'load' message and
+  // before any 'start'; a worker created later gets it first thing. A message
+  // rather than worker options: a browser Worker has no `workerData`.
+  const addonCrashFlagSharing = threads
+    ? `${ADDON_CRASH_FLAG_CAPTURE}
+function __shareWasiAddonCrashFlag(worker) {
+  if (__wasiAddonCrashFlag === undefined) {
+    return
+  }
+  try {
+    worker.postMessage({ __napiRsAddonCrashFlag: __wasiAddonCrashFlag })
+  } catch {}
+}
+
+`
+    : ''
+  const captureAddonCrashFlag = threads
+    ? `      __captureWasiAddonCrashFlag(instance)
+      for (const worker of __wasiWorkers) {
+        __shareWasiAddonCrashFlag(worker)
+      }
 `
     : ''
 
@@ -1659,6 +1725,7 @@ ${threads ? '  shared: true,\n' : ''}\
 ${workerPoolSizeBinding}\
 let __emnapiContext
 ${createEmnapiContextLifecycle(asyncRuntime)}
+${addonCrashFlagSharing}\
 let __wasiModule
 let __napiModule
 
@@ -1692,6 +1759,7 @@ ${workerOption}\
     },
     beforeInit({ instance }) {
       __napiInstance = instance
+${captureAddonCrashFlag}\
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()
@@ -3816,6 +3884,7 @@ function __createWasiWorker(filename) {
           rootDir: __rootDir,
           crashFlag: __wasiThreadCrashFlag,
           crashReport: __wasiThreadCrashReport,
+          addonCrashFlag: __wasiAddonCrashFlag,
         },
       })
     } catch (error) {
@@ -3857,6 +3926,7 @@ let __wasiThreadCrashError
 let __wasiInitializationRollbackActive = false
 let __wasiThreadCrashed = false
 
+${ADDON_CRASH_FLAG_CAPTURE}
 /**
  * Whether any wasm thread of this binding has died: a trap or an uncaught error
  * in a pool worker, including one that failed to load after its thread spawn
@@ -4168,6 +4238,9 @@ function __rollbackWasiInitializationAfterThreadCrash() {
   // with threads there is no JavaScript seam at all, so `__drainWasiAsyncWork`
   // asks the addon instead.
   const emnapiPluginRequire = `  emnapiAsyncWorkPlugin: __emnapiAsyncWorkPlugin,\n  emnapiTSFNPlugin: __emnapiTSFNPlugin,\n`
+  const captureAddonCrashFlag = threads
+    ? '      __captureWasiAddonCrashFlag(instance)\n'
+    : ''
   const workerOption = threads
     ? `    onCreateWorker() {
       const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
@@ -4488,6 +4561,7 @@ ${workerOption}\
     },
     beforeInit({ instance }) {
       __napiInstance = instance
+${captureAddonCrashFlag}\
       for (const name of Object.keys(instance.exports)) {
         if (name.startsWith('__napi_register__')) {
           instance.exports[name]()

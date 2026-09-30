@@ -723,8 +723,9 @@ napi's default Tokio runtime and spawn_blocking
 
 The threaded `.wasm` exports `malloc` and `free` as before (`@emnapi/core`
 calls them); they now go through the lock. It also exports the 11 `__wrap_*`
-functions, `napi_wasm_heap_sync_stat` and `napi_wasm_thread_crashed`, because
-Rust exports every `#[no_mangle]` function of a cdylib. They are not an API.
+functions, `napi_wasm_heap_sync_stat`, `napi_wasm_thread_crashed` and
+`napi_wasm_thread_crash_flag_address`, because Rust exports every
+`#[no_mangle]` function of a cdylib. They are not an API.
 The threadless `wasm32-wasip1` artifact has none of this.
 
 The addon's `napi-build` must be the same package as `napi`'s own
@@ -817,7 +818,48 @@ process-exit teardown has no turns to give and makes the single blocking call,
 `napi_prepare_wasm_env_cleanup`.
 
 The two phases themselves may wait. With `napi-async-runtime` on
-`wasm32-wasip1-threads` they wait in 1 ms slices on the JavaScript thread.
-When a worker's wasm thread dies, the generated worker raises the loader's
-crash flag and then calls `napi_wasm_thread_crashed`; the next slice then
-traps, and the loader reports the crash instead of hanging.
+`wasm32-wasip1-threads` they wait in 1 ms slices on the JavaScript thread, and
+between slices read the addon's crash flag: one 4-byte word in the shared wasm
+memory. Once it is set, the next slice traps, and the loader reports the crash
+instead of hanging.
+
+The generated worker sets that word itself, with `Atomics.store`, so it needs
+no wasm instance:
+
+```
+loader thread                            pool worker
+─────────────                            ───────────
+instantiate; in beforeInit:
+  napi_wasm_thread_crash_flag_address()
+  view = Int32Array(memory, address, 1)
+spawn → Worker({ workerData: {           load → start → run
+  crashFlag, crashReport,                  ...
+  addonCrashFlag: view } })              dies (trap, error, failed load):
+  ...                                      write crashReport
+cleanup waits in slices ◄──────────────    Atomics.store(crashFlag, 1)
+  view word is 1 → trap                    Atomics.store(addonCrashFlag, 1)
+catch → crash rejection                    emnapi's own error report
+```
+
+- The Node worker gets the view in `workerData`. The browser worker gets it by
+  `postMessage`: the browser pool is created before the wasm is instantiated,
+  so the loader posts it to each pool worker after `beforeInit`, and to a
+  worker created later right away.
+- The loader's crash flag always goes up first, so when the trap reaches the
+  loader it already sees the crash.
+- A worker whose own setup throws (`@napi-rs/wasm-runtime` cannot be
+  resolved, say) raises both flags too, then fails as before.
+- A worker that fails while it loads — after the thread spawn that created it
+  already returned — raises the flag the same way. `napi_wasm_thread_crashed`,
+  which stores into the same word, is only the fallback for a worker that has
+  an instance but no view.
+- An addon built with an older napi has no address export: the loader passes
+  no view, and the waits stay unbounded, as before.
+
+What still cannot raise the flag: a worker that fails before any of its own
+code runs, or that is killed from outside — the `Worker` cannot start, runs
+out of memory, or is terminated by its resource limits. The loader sees those
+only through the worker's `'error'` or `'exit'` event, which needs a turn of
+its event loop, so a cleanup wait already in progress keeps waiting. The same
+holds before `beforeInit`: a thread spawned while the wasm initializes gets a
+worker with no view.
