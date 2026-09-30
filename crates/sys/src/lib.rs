@@ -126,6 +126,9 @@ mod types;
 #[cfg(any(napi_wasi_threads, test))]
 #[doc(hidden)]
 pub mod wasi_heap_sync;
+#[cfg(any(napi_wasi_threads, test))]
+#[doc(hidden)]
+pub mod wasi_thread_crash;
 
 pub use functions::*;
 pub use types::*;

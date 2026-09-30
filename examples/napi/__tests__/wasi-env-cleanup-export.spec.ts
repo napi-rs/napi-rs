@@ -108,3 +108,40 @@ for (const name of WASM_ARTIFACTS) {
     },
   )
 }
+
+/**
+ * `napi_wasm_thread_crashed` is what the threaded worker calls when its wasm
+ * thread dies, so the JavaScript thread's cleanup waits stop instead of waiting
+ * on the dead thread for good. The worker `typeof`-guards the call, so a
+ * missing export is silent too. Only the threaded artifact has pool threads.
+ */
+test.skipIf(!builtArtifacts.includes('example.wasm32-wasi.wasm'))(
+  'example.wasm32-wasi.wasm exports napi_wasm_thread_crashed',
+  async (t) => {
+    const bytes = await readFile(
+      join(packageDirectory, 'example.wasm32-wasi.wasm'),
+    )
+    const crashed = wasm.Module.exports(await wasm.compile(bytes)).find(
+      (entry) => entry.name === 'napi_wasm_thread_crashed',
+    )
+    t.is(
+      crashed?.kind,
+      'function',
+      'napi_wasm_thread_crashed is missing: after a worker crash the cleanup waits on the JavaScript thread would never stop',
+    )
+  },
+)
+
+test.skipIf(!builtArtifacts.includes('example.wasm32-wasip1.wasm'))(
+  'example.wasm32-wasip1.wasm has no napi_wasm_thread_crashed',
+  async (t) => {
+    const bytes = await readFile(
+      join(packageDirectory, 'example.wasm32-wasip1.wasm'),
+    )
+    const exportNames = wasm.Module.exports(await wasm.compile(bytes)).map(
+      (entry) => entry.name,
+    )
+    t.true(exportNames.includes('napi_register_wasm_v1'))
+    t.false(exportNames.includes('napi_wasm_thread_crashed'))
+  },
+)

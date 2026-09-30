@@ -41,6 +41,7 @@ pub const fn max_async_runtime_worker_threads() -> usize {
 
 mod async_runtime;
 pub use async_runtime::*;
+mod sync;
 
 #[cfg(feature = "napi")]
 mod adapter;

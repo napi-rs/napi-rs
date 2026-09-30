@@ -10,7 +10,7 @@ use std::{
   panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
   pin::Pin,
   sync::{
-    Arc, Condvar, LazyLock, Mutex, Weak,
+    Arc, LazyLock, Weak,
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
   },
   task::{Context, Poll, Waker},
@@ -21,6 +21,7 @@ use arc_swap::ArcSwapOption;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
+use crate::sync::{BoundedWaits, Condvar, Mutex};
 // Both users are MultiThread pool tests.
 #[cfg(all(test, napi_runtime_os_threads))]
 use async_task::Task;
@@ -5516,7 +5517,7 @@ impl WorkerLifecycle {
       .take()
       .expect("runtime worker handles already joined");
     for handle in handles {
-      if let Err(payload) = handle.join() {
+      if let Err(payload) = crate::sync::join(handle) {
         discard_panic_payload(payload);
       }
     }
@@ -9837,7 +9838,7 @@ impl TimerHeap {
         drop(handle);
         return;
       }
-      if let Err(payload) = handle.join() {
+      if let Err(payload) = crate::sync::join(handle) {
         discard_panic_payload(payload);
       }
     }
@@ -11681,6 +11682,8 @@ impl RuntimeController {
   /// handoff, and the `finish_shutdown` that follows finds the fresh
   /// generation running and is a no-op `Ok(())`.
   fn begin_shutdown(&self) -> Result<bool, RuntimeConfigError> {
+    // See `finish_shutdown`: the same waits, the same reason.
+    let _bounded_waits = BoundedWaits::enter();
     let backend = {
       let mut state = self
         .state
@@ -11925,7 +11928,15 @@ impl RuntimeController {
   /// the second half without ever calling the first. Like `shutdown`, it also
   /// rejects a caller that is work of the generation being stopped, which could
   /// only wait for itself.
+  ///
+  /// On `wasm32-wasip1-threads` every lock, condvar wait and join this thread
+  /// makes in here (and in `begin_shutdown`) stops once the host reports a
+  /// crashed thread, with a trap: a pool thread that trapped holds its locks
+  /// and its work for good, and waiting for either would park the host's
+  /// JavaScript thread before the loader could see the crash. See
+  /// `crate::sync`.
   fn finish_shutdown(&self) -> Result<(), RuntimeConfigError> {
+    let _bounded_waits = BoundedWaits::enter();
     const STOPPING_WAIT_ERROR: &str =
       "cannot wait for async runtime shutdown from work in the generation being stopped";
     const REJECTED_DROP_ERROR: &str =
@@ -31775,6 +31786,139 @@ mod tests {
         );
       },
     );
+  }
+
+  /// Run a shutdown phase on a thread standing in for the host's JavaScript
+  /// thread, after the caller left the runtime the way a pool thread that
+  /// trapped on `wasm32-wasip1-threads` leaves it: a lock held for good (a
+  /// forgotten guard), or work that never retires. The phase must keep
+  /// waiting while no thread has crashed, and must give up once the host's
+  /// crash flag is up -- a trap on wasm, `GaveUpAfterThreadCrash` here. A
+  /// regression HANGS in the phase: the `recv_timeout` turns that into a
+  /// failure. Nothing can release what the caller left behind, so the runtime
+  /// is leaked, not shut down.
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
+  fn assert_shutdown_phase_gives_up_after_a_thread_crash(
+    what: &str,
+    controller: Arc<RuntimeController>,
+    phase: impl FnOnce(&RuntimeController) + Send + 'static,
+  ) {
+    use std::sync::mpsc;
+
+    let crashed = Arc::new(AtomicBool::new(false));
+    let (outcome_tx, outcome_rx) = mpsc::channel();
+    let js_thread = {
+      let controller = Arc::clone(&controller);
+      let crashed = Arc::clone(&crashed);
+      std::thread::spawn(move || {
+        crate::sync::watch_crash_flag_for_test(crashed);
+        let outcome = match catch_unwind(AssertUnwindSafe(|| phase(&controller))) {
+          Ok(()) => "returned",
+          Err(payload) if payload.is::<crate::sync::GaveUpAfterThreadCrash>() => "gave up",
+          Err(_) => "panicked",
+        };
+        outcome_tx.send(outcome).unwrap();
+      })
+    };
+    assert!(
+      outcome_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+      "{what}: with no thread crashed, the phase must keep waiting"
+    );
+    crashed.store(true, Ordering::SeqCst);
+    let outcome = outcome_rx
+      .recv_timeout(Duration::from_secs(5))
+      .unwrap_or_else(|_| panic!("{what}: the phase must stop waiting once a thread crashed"));
+    join_within(what, js_thread, Duration::from_secs(2));
+    assert_eq!(outcome, "gave up", "{what}");
+    std::mem::forget(controller);
+  }
+
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
+  #[test]
+  fn begin_shutdown_gives_up_on_a_held_lock_after_a_thread_crash() {
+    type Hold = fn(&RuntimeController, &RuntimeBackend);
+    let holds: [(&str, Hold); 2] = [
+      ("the controller state lock", |controller, _| {
+        std::mem::forget(controller.state.lock().unwrap());
+      }),
+      // `close_and_abort` takes it first thing.
+      ("the generation state lock", |_, backend| {
+        std::mem::forget(backend.work.state.lock().unwrap());
+      }),
+    ];
+    for (what, hold) in holds {
+      for controller in [
+        current_thread_controller("crash-begin-ct"),
+        multi_thread_controller("crash-begin-mt", 2, 1),
+      ] {
+        let controller = Arc::new(controller);
+        let backend = controller.backend();
+        hold(&controller, &backend);
+        assert_shutdown_phase_gives_up_after_a_thread_crash(
+          &format!("begin_shutdown on {what}"),
+          controller,
+          |controller| {
+            let _ = controller.begin_shutdown();
+          },
+        );
+        std::mem::forget(backend);
+      }
+    }
+  }
+
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
+  #[test]
+  fn finish_shutdown_gives_up_after_a_thread_crash() {
+    for controller in [
+      current_thread_controller("crash-finish-work-ct"),
+      multi_thread_controller("crash-finish-work-mt", 2, 1),
+    ] {
+      // A task on the thread that trapped: its guard never drops, so the
+      // generation never goes idle and `wait_until_idle` never wakes.
+      let controller = Arc::new(controller);
+      let backend = controller.backend();
+      let work = backend
+        .work
+        .try_register_work()
+        .expect("an open generation must accept work");
+      assert!(
+        controller
+          .begin_shutdown()
+          .expect("phase 1 must be accepted"),
+        "phase 1 must report the registered work"
+      );
+      std::mem::forget(work);
+      assert_shutdown_phase_gives_up_after_a_thread_crash(
+        "finish_shutdown on work that never retires",
+        controller,
+        |controller| {
+          let _ = controller.finish_shutdown();
+        },
+      );
+      std::mem::forget(backend);
+    }
+    for controller in [
+      current_thread_controller("crash-finish-lock-ct"),
+      multi_thread_controller("crash-finish-lock-mt", 2, 1),
+    ] {
+      let controller = Arc::new(controller);
+      let backend = controller.backend();
+      assert!(
+        !controller
+          .begin_shutdown()
+          .expect("phase 1 on an idle generation must be accepted"),
+        "an idle generation has nothing for the host to wait for"
+      );
+      std::mem::forget(backend.work.state.lock().unwrap());
+      assert_shutdown_phase_gives_up_after_a_thread_crash(
+        "finish_shutdown on the generation state lock",
+        controller,
+        |controller| {
+          let _ = controller.finish_shutdown();
+        },
+      );
+      std::mem::forget(backend);
+    }
   }
 
   // ---- MultiThread blocking cap, drain budget, and panic propagation ---------

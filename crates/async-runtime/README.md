@@ -179,6 +179,16 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   instead of wedging the thread. The process-exit teardown is the one path with
   no turns left to give: it closes the handshake with `…_finish` and blocks
   there, exactly as the single call always did.
+- **A crashed pool thread ends the shutdown waits.** A thread that traps
+  unwinds nothing: the locks it held stay held, its work never retires and it
+  never exits, so `begin_shutdown` and `finish_shutdown` would wait on it for
+  good. So on threaded WASI both phases wait in 1 ms slices on the thread that
+  calls them, and between slices read the crash flag the cli's worker raises
+  through napi's `napi_wasm_thread_crashed` export; once it is up, the wait
+  traps (`unreachable`). The worker raises the loader's own crash flag first,
+  so the loader reports that throw as the crash. Only a crash ends these
+  waits: the join of live threads above stays unbounded, and pool threads and
+  every wait outside the two phases wait as before. See `src/sync.rs`.
 - **The JavaScript hosts go inert, not away.** The cli's
   `napi.wasm.asyncRuntime` loaders install a CurrentThread task host and a
   timer host unconditionally — they cannot know the flavor. MultiThread never

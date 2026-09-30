@@ -3243,6 +3243,67 @@ test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
   t.is(legacy.handler.beforeReportError, legacy.original)
 })
 
+// The loader thread can be inside a wasm cleanup call that waits on the dead
+// thread. napi's export makes those waits trap; the loader must already see its
+// own flag when the trap reaches it.
+test('WASI worker raises the addon crash flag after the loader flag', (t) => {
+  const start = WASI_WORKER_TEMPLATE.indexOf(
+    'if (workerData && workerData.crashFlag instanceof Int32Array) {',
+  )
+  const latch =
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
+    ) + generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  const crash = (instance: unknown, crashFlag: Int32Array) => {
+    const calls: string[] = []
+    const handler = {
+      instance,
+      beforeReportError() {
+        calls.push('emnapi')
+      },
+    }
+    new Function('workerData', 'handler', 'threadId', latch)(
+      { crashFlag },
+      handler,
+      1,
+    )
+    ;(handler.beforeReportError as (...args: unknown[]) => void)(
+      new Error('trap'),
+      'start',
+    )
+    return calls
+  }
+
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const calls: string[] = []
+  const exports = {
+    napi_wasm_thread_crashed() {
+      calls.push(`napi flag=${Atomics.load(crashFlag, 0)}`)
+    },
+  }
+  calls.push(...crash({ exports }, crashFlag))
+  t.deepEqual(calls, ['napi flag=1', 'emnapi'])
+
+  // A worker that never loaded, an addon built with an older napi, and an
+  // export that throws: emnapi's hook still runs.
+  for (const instance of [
+    undefined,
+    { exports: {} },
+    {
+      exports: {
+        napi_wasm_thread_crashed() {
+          throw new Error('boom')
+        },
+      },
+    },
+  ]) {
+    t.deepEqual(crash(instance, new Int32Array(new SharedArrayBuffer(4))), [
+      'emnapi',
+    ])
+  }
+})
+
 /**
  * Wires the worker's crash hook to the loader's crash error over one shared
  * report, the way `__createWasiWorker` passes it, and returns both ends.

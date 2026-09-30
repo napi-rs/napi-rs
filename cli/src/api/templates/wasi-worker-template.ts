@@ -89,6 +89,13 @@ const handler = new MessageHandler({
 // Layout: three Int32 words — state (0 empty, 1 writing, 2 written), byte
 // length, threadId — then the UTF-8 JSON of { name, message, stack }. Only the
 // first worker to crash writes it, and it is complete before the flag is raised.
+//
+// The loader thread may already be inside wasm, in a cleanup call that waits on
+// this thread. napi_wasm_thread_crashed raises the flag those waits check
+// between short slices: they trap, and the loader turns the throw into its crash
+// rejection. It runs after the loader's flag is raised, so the loader sees the
+// crash when the trap reaches it. An addon built with an older napi has no such
+// export.
 if (workerData && workerData.crashFlag instanceof Int32Array) {
   const __beforeReportError = handler.beforeReportError
   handler.beforeReportError = function (...args) {
@@ -97,6 +104,12 @@ if (workerData && workerData.crashFlag instanceof Int32Array) {
     } catch {}
     try {
       Atomics.store(workerData.crashFlag, 0, 1)
+    } catch {}
+    try {
+      const __napiThreadCrashed = this.instance?.exports?.napi_wasm_thread_crashed
+      if (typeof __napiThreadCrashed === 'function') {
+        __napiThreadCrashed()
+      }
     } catch {}
     return __beforeReportError.apply(this, args)
   }
