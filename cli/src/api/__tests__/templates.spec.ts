@@ -986,6 +986,10 @@ for (const { name, code } of wasiLoaderCases) {
 }
 
 const EAGER_ROLLBACK_SIGNATURE = 'function __rollbackWasiInitialization() {'
+// The threaded node loader keeps the rollback's body under this name and makes
+// `__rollbackWasiInitialization` the wrapper that stops it after a crash.
+const LATCHED_ROLLBACK_SIGNATURE =
+  'function __runWasiInitializationRollbackSteps() {'
 const DEFERRED_ROLLBACK_SIGNATURE = "__lifecycleState = 'failed'"
 const DRAIN_CALL_BY_ROLLBACK_FLAVOR = {
   eager: '__drainWasmEnvCleanup',
@@ -994,12 +998,14 @@ const DRAIN_CALL_BY_ROLLBACK_FLAVOR = {
 
 /**
  * The body of a loader's initialization-failure path: `__rollbackWasiInitialization`
- * for the eager loaders, `__createInstance`'s catch for the deferred one.
+ * (its steps, in the threaded node loader) for the eager loaders, `__createInstance`'s catch for the deferred one.
  * Sliced rather than searched whole-file, so a drain that only runs on the
  * ordinary disposal path cannot satisfy the assertion.
  */
 function initializationRollbackBody(code: string): string {
-  const eagerStart = code.indexOf(EAGER_ROLLBACK_SIGNATURE)
+  const latchedStart = code.indexOf(LATCHED_ROLLBACK_SIGNATURE)
+  const eagerStart =
+    latchedStart !== -1 ? latchedStart : code.indexOf(EAGER_ROLLBACK_SIGNATURE)
   if (eagerStart !== -1) {
     return code.slice(eagerStart, code.indexOf('\n}', eagerStart))
   }
@@ -2327,6 +2333,9 @@ function __terminateWasiWorkers() {
 ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__attachCleanupErrors')}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
 ${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
 ${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
 ${generatedFunction(code, '__abortWasiDisposalIfThreadCrashed')}
@@ -2577,6 +2586,11 @@ let __finishParkedWasmEnvCleanup
 let __completeWasiDisposal = function () {
   steps.push('complete')
 }
+let __retainWasiRollbackForRetry = function () {
+  steps.push('retain')
+}
+const __wasiRollbackRegistry = new Map()
+const __wasiRollbackRegistryKey = 'test.cjs'
 ${latchState}
 const __WASI_ASYNC_WORK_POLL_INTERVAL_MS = 1
 function __getWasiThreadManager() {
@@ -2610,6 +2624,9 @@ function __terminateWasiWorkers() {
 ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__attachCleanupErrors')}
 ${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
 ${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
 ${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
 ${generatedFunction(code, '__abortWasiDisposalIfThreadCrashed')}
@@ -2624,9 +2641,39 @@ ${generatedFunction(code, '__drainWasmEnvForWasiDisposal')}
 ${generatedFunction(code, '__cleanUpWasmEnvForWasiDisposal')}
 ${generatedFunction(code, '__startWasiDisposal')}
 ${generatedFunction(code, '__disposeWasiBinding')}
+${generatedFunction(code, '__finishWasiInitializationRollback')}
+${generatedFunction(code, '__destroyContextForWasiRollback')}
+${generatedFunction(code, '__retainFailedWasiRollback')}
+${generatedFunction(code, '__runWasiInitializationRollbackSteps')}
+${generatedFunction(code, '__rollbackWasiInitialization')}
+${generatedFunction(code, '__rollbackWasiInitializationAfterThreadCrash')}
+${generatedFunction(code, '__completeWasiInitializationRollback')}
+${generatedFunction(code, '__runWasiInitializationRollback')}
 return {
   dispose: __disposeWasiBinding,
   drainAsyncWork: __drainWasiAsyncWork,
+  rollback: __rollbackWasiInitialization,
+  // What the loader's catch does when instantiation fails: start the rollback
+  // and throw the initialization error itself.
+  failInitialization(error) {
+    const record = {
+      active: false,
+      error,
+      promise: undefined,
+      rollback: __rollbackWasiInitialization,
+    }
+    __wasiRollbackRegistry.set(__wasiRollbackRegistryKey, record)
+    __runWasiInitializationRollback(record)
+    return record
+  },
+  registered() {
+    return __wasiRollbackRegistry.has(__wasiRollbackRegistryKey)
+  },
+  // The loader's own 'error' listener.
+  workerError(error, threadId) {
+    __wasiThreadCrashed = true
+    __recordWasiThreadCrashError(error, threadId)
+  },
   crash() {
     Atomics.store(__wasiThreadCrashFlag, 0, 1)
   },
@@ -2640,6 +2687,14 @@ return {
     ...(loader as {
       dispose: () => Promise<unknown>
       drainAsyncWork: () => Promise<unknown> | undefined
+      rollback: () => unknown
+      failInitialization: (error: unknown) => {
+        active: boolean
+        error: any
+        promise: Promise<void> | undefined
+      }
+      registered: () => boolean
+      workerError: (error: unknown, threadId: number) => void
       crash: () => void
       parked: () => boolean
     }),
@@ -2792,9 +2847,9 @@ test('node WASI disposal without a crash runs the whole chain on real timers', a
   t.is(binding.liveIntervals(), 0)
 })
 
-// The initialization rollback runs the same drain with no public disposal in
-// flight. A crash there does not stop it: its behavior is unchanged.
-test('node WASI crash abort is limited to the public disposal', async (t) => {
+// The crash check fires only while a public disposal or the initialization
+// rollback is in flight. A poll started by neither keeps polling.
+test('node WASI crash abort leaves a poll outside disposal and rollback alone', async (t) => {
   const code = createWasiBinding('test', '@scope/test')
   const addon = { asyncWorkPending: 1, runtimeWorkPending: 0 }
   const binding = createInflightWasiDisposal(code, addon)
@@ -2810,6 +2865,197 @@ test('node WASI crash abort is limited to the public disposal', async (t) => {
   t.deepEqual(await settleWithin(drain!), { value: undefined })
   t.false(binding.steps.includes('terminate'))
   t.false(binding.steps.includes('port unref'))
+})
+
+// The initialization rollback runs the same drain as dispose(). A worker that
+// died while it polled left the count above zero, and the rollback polled it
+// forever with its timers holding the process open. It now stops, skips the
+// barrier and the destroy, and lets the initialization error through with the
+// crash attached.
+test('node WASI initialization rollback stops its async-work drain when a worker crashes', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 1,
+    runtimeWorkPending: 0,
+  })
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  const rollback = record.promise
+  t.truthy(rollback, 'the rollback waits for the drain')
+  await waitUntil(() => binding.reads.asyncWork >= 5, 'the rollback to poll')
+  t.is(binding.liveIntervals(), 1)
+  binding.crash()
+  t.falsy(((await settleWithin(rollback!)) as any).pending)
+
+  // The error the loader threw is the initialization error, and the crash is
+  // its cause.
+  t.is(record.error, initError)
+  t.true(record.error.cause instanceof Error)
+  t.is(record.error.cause.message, CRASH_DISPOSAL_MESSAGE)
+  t.false(record.active)
+  t.true(binding.registered(), 'kept: the context was not destroyed')
+
+  t.is(binding.liveIntervals(), 0, 'the keep-alive interval is cleared')
+  const readsAfter = binding.reads.asyncWork
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.is(binding.reads.asyncWork, readsAfter, 'the drain stopped polling')
+  // No barrier, no settlement drain, no destroy: the port is released and the
+  // workers are terminated once.
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'retain',
+    'port unref',
+    'terminate',
+  ])
+
+  // The worker's 'error' event arrives after the rollback ended: the crash
+  // error it already attached gets the worker's error as its cause.
+  t.is(record.error.cause.cause, undefined)
+  const workerError = new Error('trap in worker')
+  binding.workerError(workerError, 7)
+  t.is(record.error.cause.cause, workerError)
+  t.is(record.error.cause.workerThreadId, 7)
+})
+
+// Same race one step later: the barrier began and its poll waits for runtime
+// work the dead thread still counts. `…_finish` would join that work, so the
+// barrier stays parked and is never finished.
+test('node WASI initialization rollback stops the barrier poll when a worker crashes', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 0,
+    runtimeWorkPending: 1,
+  })
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  const rollback = record.promise
+  t.truthy(rollback)
+  await waitUntil(() => binding.reads.runtimeWork >= 5, 'the barrier to poll')
+  t.true(binding.parked())
+  binding.crash()
+  t.falsy(((await settleWithin(rollback!)) as any).pending)
+  t.is(record.error, initError)
+  t.is(record.error.cause?.message, CRASH_DISPOSAL_MESSAGE)
+  t.false(binding.parked())
+  const readsAfter = binding.reads.runtimeWork
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.is(binding.reads.runtimeWork, readsAfter)
+  t.deepEqual(binding.steps, ['begin', 'retain', 'port unref', 'terminate'])
+})
+
+// A thread that died before instantiation failed: the rollback does not enter
+// wasm at all, and it stays synchronous, so the error the loader throws right
+// away already carries the crash.
+test('node WASI initialization rollback after an earlier crash skips wasm', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 1,
+    runtimeWorkPending: 1,
+  })
+  binding.crash()
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  t.is(record.promise, undefined, 'settled synchronously')
+  t.is(record.error, initError)
+  t.is(record.error.cause?.message, CRASH_DISPOSAL_MESSAGE)
+  t.is(binding.reads.asyncWork, 0)
+  t.is(binding.reads.runtimeWork, 0)
+  t.deepEqual(binding.steps, ['port unref', 'terminate'])
+
+  // An initialization error that already has a cause keeps it; the crash is
+  // listed with the cleanup errors instead. The crash error is shared, and the
+  // workers are not terminated a second time.
+  const withCause = new Error('instantiate failed', {
+    cause: new Error('link error'),
+  })
+  const second = binding.failInitialization(withCause)
+  t.is(second.error, withCause)
+  t.is(second.error.cause.message, 'link error')
+  t.is(second.error.cleanupErrors[0], record.error.cause)
+  t.deepEqual(binding.steps, ['port unref', 'terminate'])
+})
+
+// Without a crash the rollback runs every step exactly as before, resolves
+// with no cleanup errors and leaves the initialization error untouched.
+test('node WASI initialization rollback without a crash is unchanged', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const addon = { asyncWorkPending: 1, runtimeWorkPending: 1 }
+  const binding = createInflightWasiDisposal(code, addon)
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  const rollback = record.promise
+  t.truthy(rollback)
+  await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+  addon.asyncWorkPending = 0
+  await waitUntil(() => binding.reads.runtimeWork >= 3, 'the barrier to poll')
+  addon.runtimeWorkPending = 0
+  t.deepEqual(await settleWithin(rollback!), { value: undefined })
+  t.is(record.error, initError)
+  t.is(record.error.cause, undefined)
+  t.is(record.error.cleanupErrors, undefined)
+  t.false(binding.registered(), 'a clean rollback is not kept')
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'begin',
+    'finish',
+    'drain',
+    'destroy',
+    'terminate',
+  ])
+  t.is(binding.liveIntervals(), 0)
+})
+
+// The shared flag is raised before this thread has processed the worker's
+// 'error' event, and once the workers are terminated emnapi ignores that event,
+// so `_fatalError` was often still unset when the crash error was built and
+// the cause was lost. The loader's own listener keeps the first error, and the
+// crash error picks it up whenever it arrives.
+test('node WASI crash error takes its cause from the worker error listener', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+
+  // The event lands while the crash disposal is terminating the workers.
+  {
+    const binding = createInflightWasiDisposal(code, {
+      asyncWorkPending: 1,
+      runtimeWorkPending: 0,
+    })
+    const first = binding.dispose()
+    await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+    binding.crash()
+    const workerError = new Error('trap in worker')
+    binding.workerError(workerError, 3)
+    // Only the first error is kept.
+    binding.workerError(new Error('second worker'), 4)
+    const outcome: any = await settleWithin(first)
+    t.is(outcome.error?.message, CRASH_DISPOSAL_MESSAGE)
+    t.is(outcome.error.cause, workerError)
+    t.is(outcome.error.workerThreadId, 3)
+  }
+
+  // The event lands after the disposal already rejected: the one shared crash
+  // error is completed in place, so every holder of it sees the cause.
+  {
+    const binding = createInflightWasiDisposal(code, {
+      asyncWorkPending: 1,
+      runtimeWorkPending: 0,
+    })
+    const first = binding.dispose()
+    await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+    binding.crash()
+    const outcome: any = await settleWithin(first)
+    t.is(outcome.error?.message, CRASH_DISPOSAL_MESSAGE)
+    t.is(outcome.error.cause, undefined)
+    const workerError = new Error('trap in worker')
+    binding.workerError(workerError, 9)
+    t.is(outcome.error.cause, workerError)
+    t.is(outcome.error.workerThreadId, 9)
+    const later: any = await settleWithin(binding.dispose())
+    t.is(later.error, outcome.error)
+  }
 })
 
 test('WASI loaders without the crash latch keep their disposal polls unchanged', (t) => {
@@ -2837,6 +3083,15 @@ test('WASI loaders without the crash latch keep their disposal polls unchanged',
     t.false(code.includes('__abortWasiDisposalIfThreadCrashed'), label)
     t.false(code.includes('__settleWasiDisposalAfterThreadCrash'), label)
     t.false(code.includes('finishCleanupUnlessCrashed'), label)
+    t.false(code.includes('__wasiInitializationRollbackActive'), label)
+    t.false(code.includes('__runWasiInitializationRollbackSteps'), label)
+    t.false(
+      code.includes('__rollbackWasiInitializationAfterThreadCrash'),
+      label,
+    )
+    t.false(code.includes('__getWasiThreadCrashError'), label)
+    t.false(code.includes('__recordWasiThreadCrashError'), label)
+    t.true(code.includes('function __rollbackWasiInitialization() {\n'), label)
     t.true(
       generatedFunction(code, '__prepareWasmEnvCleanupWithTurns').includes(
         '  })().then(finishCleanup, finishCleanup)\n',
@@ -2844,7 +3099,8 @@ test('WASI loaders without the crash latch keep their disposal polls unchanged',
       label,
     )
   }
-  // The threaded node loader checks the latch in every disposal poll and step.
+  // The threaded node loader checks the latch in every disposal poll and step,
+  // and in the rollback's steps.
   const threaded = createWasiBinding('test', '@scope/test')
   for (const name of [
     '__drainWasiAsyncWork',
@@ -2852,6 +3108,7 @@ test('WASI loaders without the crash latch keep their disposal polls unchanged',
     '__cleanUpWasmEnvForWasiDisposal',
     '__drainWasmEnvForWasiDisposal',
     '__continueWasiDisposal',
+    '__destroyContextForWasiRollback',
   ]) {
     t.true(
       generatedFunction(threaded, name).includes(
@@ -2860,6 +3117,15 @@ test('WASI loaders without the crash latch keep their disposal polls unchanged',
       name,
     )
   }
+  const steps = generatedFunction(
+    threaded,
+    '__runWasiInitializationRollbackSteps',
+  )
+  t.is(
+    steps.split('    __abortWasiDisposalIfThreadCrashed()\n').length - 1,
+    2,
+    'before the barrier and before the settlement drain',
+  )
 })
 
 test('node WASI loader shares the crash flag with its pool workers', (t) => {
@@ -2871,10 +3137,16 @@ test('node WASI loader shares the crash flag with its pool workers', (t) => {
     code.indexOf('return worker\n', code.indexOf('onCreateWorker() {')),
   )
   t.true(
-    onCreateWorker.includes("worker.on('error', () => {"),
+    onCreateWorker.includes("worker.on('error', (error) => {"),
     'the loader has to see a worker error even when the worker never set the flag',
   )
   t.true(onCreateWorker.includes('__wasiThreadCrashed = true'))
+  t.true(
+    onCreateWorker.includes(
+      '__recordWasiThreadCrashError(error, worker.threadId)',
+    ),
+    'and keeps the error it carries for the crash error',
+  )
 })
 
 // The threadless flavor has no pool workers and must not reference the latch:

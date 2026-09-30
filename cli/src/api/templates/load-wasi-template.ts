@@ -170,6 +170,65 @@ ${indent}}
   const finishWasmEnvCleanupAfterPoll = threadCrashLatch
     ? 'finishCleanupUnlessCrashed'
     : 'finishCleanup'
+  // The initialization rollback runs the same polls and steps. With the latch,
+  // its body keeps its own name and `__rollbackWasiInitialization` becomes the
+  // wrapper that stops it after a crash. See
+  // `__rollbackWasiInitializationAfterThreadCrash`.
+  const rollbackStepsName = threadCrashLatch
+    ? '__runWasiInitializationRollbackSteps'
+    : '__rollbackWasiInitialization'
+  const rollbackAfterThreadCrash = threadCrashLatch
+    ? `
+/**
+ * The rollback above, stopped when a wasm thread has died.
+ *
+ * Its polls wait for work the dead thread still counts, so they never end, and
+ * the barrier's \`…_finish\` and \`Context.destroy()\` would re-enter wasm
+ * and wait on that thread for good. While the rollback runs, the poll turns
+ * and step boundaries stop it (\`__abortWasiDisposalIfThreadCrashed\`), and a
+ * crash seen before, during or after it ends it through
+ * \`__rollbackWasiInitializationAfterThreadCrash\`. Without a crash the
+ * result — synchronous or not — is passed through unchanged.
+ */
+function __rollbackWasiInitialization() {
+  if (__hasWasiThreadCrashed()) {
+    return __rollbackWasiInitializationAfterThreadCrash()
+  }
+  __wasiInitializationRollbackActive = true
+  let result
+  try {
+    result = __runWasiInitializationRollbackSteps()
+  } catch (error) {
+    __wasiInitializationRollbackActive = false
+    if (__hasWasiThreadCrashed()) {
+      return __rollbackWasiInitializationAfterThreadCrash()
+    }
+    throw error
+  }
+  if (!__isThenable(result)) {
+    __wasiInitializationRollbackActive = false
+    return __hasWasiThreadCrashed()
+      ? __rollbackWasiInitializationAfterThreadCrash()
+      : result
+  }
+  return Promise.resolve(result).then(
+    (cleanupErrors) => {
+      __wasiInitializationRollbackActive = false
+      return __hasWasiThreadCrashed()
+        ? __rollbackWasiInitializationAfterThreadCrash()
+        : cleanupErrors
+    },
+    (error) => {
+      __wasiInitializationRollbackActive = false
+      if (__hasWasiThreadCrashed()) {
+        return __rollbackWasiInitializationAfterThreadCrash()
+      }
+      throw error
+    },
+  )
+}
+`
+    : ''
 
   return `
 const __wasiDisposeSymbol = Symbol.for('${WASI_DISPOSE_SYMBOL}')
@@ -1257,6 +1316,7 @@ function __finishWasiInitializationRollback(cleanupErrors) {
 }
 
 function __destroyContextForWasiRollback(cleanupErrors) {
+${abortDisposalAfterThreadCrash('  ')}\
   let destroyResult
   try {
     destroyResult = __destroyEmnapiContext()
@@ -1325,10 +1385,11 @@ function __retainFailedWasiRollback(cleanupErrors) {
  * goes away. That is the deliberate choice: a hung promise is a silent liveness
  * bug with no upper bound, while the retained bookkeeping is bounded by the page.
  */
-function __rollbackWasiInitialization() {
+function ${rollbackStepsName}() {
   // The environment teardown this rollback performs, kept nested so it cannot
   // be reached without the async-work drain below running first.
   function __rollbackWasmEnvForWasiInitialization() {
+${abortDisposalAfterThreadCrash('    ')}\
     const cleanupErrors = []
     let prepareResult
     try {
@@ -1354,6 +1415,7 @@ function __rollbackWasiInitialization() {
   // did not finish never gets here: it retains instead, exactly as a drain that
   // did not finish does.
   function __drainWasmEnvForWasiRollback(cleanupErrors) {
+${abortDisposalAfterThreadCrash('    ')}\
     let drainResult
     try {
       drainResult = __drainWasmEnvCleanup()
@@ -1400,6 +1462,7 @@ function __rollbackWasiInitialization() {
   }
   return __rollbackWasmEnvForWasiInitialization()
 }
+${rollbackAfterThreadCrash}\
 `
 }
 
@@ -3778,6 +3841,14 @@ function __createWasiWorker(filename) {
 // while the worker's 'error' event is still queued behind the code that is
 // exiting right now.
 const __wasiThreadCrashFlag = new Int32Array(new SharedArrayBuffer(4))
+// The first error a pool worker reported through its 'error' event, and that
+// worker's \`threadId\`. See \`__getWasiThreadCrashError\`.
+let __wasiThreadCrashWorkerError
+let __wasiThreadCrashWorkerId
+let __wasiThreadCrashError
+// Raised while \`__runWasiInitializationRollbackSteps\` runs, so its polls and
+// steps stop after a crash the way a public disposal's do.
+let __wasiInitializationRollbackActive = false
 let __wasiThreadCrashed = false
 
 /**
@@ -3800,6 +3871,65 @@ function __hasWasiThreadCrashed() {
 }
 
 let __wasiThreadCrashDisposePromise
+
+/**
+ * Stores the first error a pool worker reported, with the worker's id. Called
+ * from the loader's own 'error' listener, which runs before emnapi's.
+ */
+function __recordWasiThreadCrashError(error, workerId) {
+  if (__wasiThreadCrashWorkerError !== undefined || error === undefined) {
+    return
+  }
+  __wasiThreadCrashWorkerError = error
+  __wasiThreadCrashWorkerId = workerId
+  __fillWasiThreadCrashError()
+}
+
+/**
+ * The one error every crash path of this binding reports, created on first
+ * use.
+ *
+ * The shared flag is raised before this thread has processed the worker's
+ * 'error' event, and once the workers are terminated emnapi ignores that event,
+ * so \`_fatalError\` may never be set. The cause is therefore filled in
+ * whenever it becomes known — here, and again from the 'error' listener: the
+ * worker's own error first, else emnapi's \`_fatalError\`. Until then the
+ * error carries only its message.
+ */
+function __getWasiThreadCrashError() {
+  if (__wasiThreadCrashError === undefined) {
+    __wasiThreadCrashError = new Error(
+      'napi-rs: WASI binding cannot be disposed after a worker thread crashed',
+    )
+  }
+  __fillWasiThreadCrashError()
+  return __wasiThreadCrashError
+}
+
+function __fillWasiThreadCrashError() {
+  const crashError = __wasiThreadCrashError
+  if (crashError === undefined) {
+    return
+  }
+  try {
+    if (crashError.cause === undefined) {
+      let cause = __wasiThreadCrashWorkerError
+      if (cause === undefined) {
+        const manager = __getWasiThreadManager()
+        cause = manager ? manager._fatalError : undefined
+      }
+      if (cause !== undefined && cause !== null) {
+        crashError.cause = cause
+      }
+    }
+    if (
+      crashError.workerThreadId === undefined &&
+      __wasiThreadCrashWorkerId !== undefined
+    ) {
+      crashError.workerThreadId = __wasiThreadCrashWorkerId
+    }
+  } catch {}
+}
 
 /**
  * Let the event loop drain after a wasm thread died, without entering wasm.
@@ -3844,15 +3974,6 @@ function __disposeWasiBindingAfterThreadCrash() {
   if (__wasiThreadCrashDisposePromise) {
     return __wasiThreadCrashDisposePromise
   }
-  const crashError = new Error(
-    'napi-rs: WASI binding cannot be disposed after a worker thread crashed',
-  )
-  try {
-    const manager = __getWasiThreadManager()
-    if (manager && manager._fatalError) {
-      crashError.cause = manager._fatalError
-    }
-  } catch {}
   __releaseEmnapiWaitingRequestHandle()
   let workerResult
   try {
@@ -3860,12 +3981,16 @@ function __disposeWasiBindingAfterThreadCrash() {
   } catch (terminateError) {
     workerResult = Promise.reject(terminateError)
   }
+  // Built at settlement, after the workers stopped: by then the 'error' event
+  // has usually delivered the worker's error.
   __wasiThreadCrashDisposePromise = Promise.resolve(workerResult).then(
     () => {
-      throw crashError
+      throw __getWasiThreadCrashError()
     },
     (terminateError) => {
-      throw __attachCleanupErrors(crashError, [terminateError])
+      throw __attachCleanupErrors(__getWasiThreadCrashError(), [
+        terminateError,
+      ])
     },
   )
   return __wasiThreadCrashDisposePromise
@@ -3884,11 +4009,17 @@ function __disposeWasiBindingAfterThreadCrash() {
  * and the throw ends the chain before anything re-enters wasm again; the
  * disposer then settles it through \`__settleWasiDisposalAfterThreadCrash\`.
  *
- * Only a public disposal is stopped. The initialization rollback runs the same
- * polls with no disposal in flight and keeps its own behavior.
+ * The initialization rollback runs the same polls and steps, so they stop while
+ * it runs too; its wrapper, \`__rollbackWasiInitialization\`, then ends it
+ * through \`__rollbackWasiInitializationAfterThreadCrash\`. A bare poll with
+ * neither in flight is left alone.
  */
 function __abortWasiDisposalIfThreadCrashed() {
-  if (__wasiDisposePromise !== undefined && __hasWasiThreadCrashed()) {
+  if (
+    (__wasiDisposePromise !== undefined ||
+      __wasiInitializationRollbackActive) &&
+    __hasWasiThreadCrashed()
+  ) {
     throw new Error(
       'napi-rs: WASI disposal stopped because a worker thread crashed',
     )
@@ -3910,6 +4041,22 @@ function __settleWasiDisposalAfterThreadCrash(resolve, reject) {
   }
   __disposeWasiBindingAfterThreadCrash().then(resolve, reject)
   return true
+}
+
+/**
+ * Ends an initialization rollback after a wasm thread died, without entering
+ * wasm: the barrier, its finish and \`Context.destroy()\` are skipped, and the
+ * crash disposal releases the waiting-request port and terminates the workers,
+ * once. The initialization error itself is left to propagate: the crash error
+ * is returned as the rollback's cleanup error, so
+ * \`__completeWasiInitializationRollback\` attaches it — as the cause when the
+ * error has none — and keeps the record, since the context was not destroyed.
+ */
+function __rollbackWasiInitializationAfterThreadCrash() {
+  const crashError = __getWasiThreadCrashError()
+  // Its rejection is \`crashError\` itself, which the caller reports.
+  void __disposeWasiBindingAfterThreadCrash().catch(() => {})
+  return [crashError]
 }
 `
     : ''
@@ -3975,8 +4122,9 @@ function __settleWasiDisposalAfterThreadCrash(resolve, reject) {
       const worker = __createWasiWorker(__nodePath.join(__dirname, 'wasi-worker.mjs'))
       __wasiWorkers.add(worker)
       // Registered before emnapi's own listeners, which rethrow the error.
-      worker.on('error', () => {
+      worker.on('error', (error) => {
         __wasiThreadCrashed = true
+        __recordWasiThreadCrashError(error, worker.threadId)
       })
       worker.onmessage = ({ data }) => {
         __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
