@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.3...napi-async-runtime-v0.2.4) - 2026-10-01
+
+### Added
+
+- *(napi)* lock the allocator on threaded WASI and never hang after a worker crash ([#3552](https://github.com/napi-rs/napi-rs/pull/3552))
+
 ## [0.2.3](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.2...napi-async-runtime-v0.2.3) - 2026-09-22
 
 ### Added

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.14.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.13.0...napi-v3.14.0) - 2026-10-01
+
+### Added
+
+- *(napi)* lock the allocator on threaded WASI and never hang after a worker crash ([#3552](https://github.com/napi-rs/napi-rs/pull/3552))
+
 ## [3.13.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.12.7...napi-v3.13.0) - 2026-09-22
 
 ### Added
