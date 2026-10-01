@@ -4006,6 +4006,11 @@ function __createWasiWorker(filename) {
     threads && asyncRuntime
       ? `${indent}__releaseCurrentThreadHostTimers()\n`
       : ''
+  // The threaded context defers emnapi's calls into wasm through
+  // `__wasiSetImmediate`, which a crash disposal closes.
+  const emnapiContextOptions = threads
+    ? '{ autoDestroy: false, features: { setImmediate: __wasiSetImmediate } }'
+    : '{ autoDestroy: false }'
   // Only the threaded flavor has pool workers whose wasm thread can die under
   // this one. See `__disposeWasiBindingAtExit`.
   const threadCrashLatch = threads
@@ -4051,6 +4056,34 @@ function __hasWasiThreadCrashed() {
 }
 
 let __wasiThreadCrashDisposePromise
+// Raised by the crash disposal right before it terminates the workers. See
+// \`__wasiSetImmediate\`.
+let __wasiReentryClosed = false
+
+/**
+ * emnapi's \`features.setImmediate\` for this binding's context. emnapi defers
+ * its calls back into wasm through it: \`_emnapi_set_immediate\` (libuv handle
+ * closes, threadsafe-function finalizers), threadsafe-function dispatch
+ * (\`async-send\`) and the finalizer queue. One queued before a crash disposal
+ * terminates the workers still runs after it, and a worker terminated while it
+ * held a lock in the wasm heap (napi's heap-sync allocator lock spins and never
+ * gives up) leaves that call spinning on this thread for good. The binding is
+ * unusable after a crash disposal, so those calls are dropped.
+ *
+ * Known residual, still able to enter wasm after a crash disposal because emnapi
+ * offers no hook for them: the \`FinalizationRegistry\` callbacks that free
+ * external memory when GC collects a value (\`_free\`, the shared-buffer meta
+ * release), threadsafe-function dispatch of \`async-send\` type 1 and
+ * \`_emnapi_next_tick\` (both \`Promise.resolve().then\`), and every deferred
+ * call under emnapi 1.x, whose \`createContext\` ignores \`features\`.
+ */
+function __wasiSetImmediate(callback) {
+  return setImmediate(function () {
+    if (!__wasiReentryClosed) {
+      callback()
+    }
+  })
+}
 
 /**
  * Stores the first error a pool worker reported, with the worker's id. Called
@@ -4201,6 +4234,8 @@ function __disposeWasiBindingAfterThreadCrash() {
   }
   __releaseEmnapiWaitingRequestHandle()
 ${releaseCurrentThreadHostTimers('  ')}\
+  // No call into wasm after this: see \`__wasiSetImmediate\`.
+  __wasiReentryClosed = true
   let workerResult
   try {
     workerResult = __terminateWasiWorkers()
@@ -4797,7 +4832,7 @@ try {
   const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
   try {
     __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
-      __emnapiCreateContext({ autoDestroy: false }),
+      __emnapiCreateContext(${emnapiContextOptions}),
       __prepareWasmEnvCleanup,
       __isPreparingWasmEnvCleanup,
     )

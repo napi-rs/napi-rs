@@ -930,3 +930,10 @@ only through the worker's `'error'` or `'exit'` event, which needs a turn of
 its event loop, so a cleanup wait already in progress keeps waiting. The same
 holds before `beforeInit`: a thread spawned while the wasm initializes gets a
 worker with no view.
+
+After a crash, the threaded Node loader's `dispose()` only terminates the pool
+workers and rejects, and from then on it drops the calls into wasm that emnapi
+deferred through the context's `setImmediate` (threadsafe-function finalizers,
+handle closes, the finalizer queue). A worker terminated while it held napi's
+heap-sync lock leaves that lock set, so such a call would free memory on the
+JavaScript thread and spin on the lock for good.

@@ -1450,17 +1450,25 @@ const NESTED_DESTROY_NO_OP = `        if (isPreparingEnvCleanup?.()) {
         }
         prepareEnvCleanup?.()`
 
+// The threaded node loader hands emnapi a gated `setImmediate`, see
+// `__wasiSetImmediate`; every other loader creates the context as before.
+const PLAIN_CONTEXT_OPTIONS = '{ autoDestroy: false }'
+const THREADED_NODE_CONTEXT_OPTIONS =
+  '{ autoDestroy: false, features: { setImmediate: __wasiSetImmediate } }'
+
 const wrappedContextCreationCases: Array<{
   name: string
   code: string
   prepare: string
   guard: (typeof preparingBarrierGuards)[keyof typeof preparingBarrierGuards]
+  contextOptions?: string
 }> = [
   {
     name: 'node cjs',
     code: createWasiBinding('test', '@scope/test'),
     prepare: '__prepareWasmEnvCleanup',
     guard: preparingBarrierGuards.shared,
+    contextOptions: THREADED_NODE_CONTEXT_OPTIONS,
   },
   {
     name: 'node cjs threadless',
@@ -1482,7 +1490,13 @@ const wrappedContextCreationCases: Array<{
   },
 ]
 
-for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
+for (const {
+  name,
+  code,
+  prepare,
+  guard,
+  contextOptions = PLAIN_CONTEXT_OPTIONS,
+} of wrappedContextCreationCases) {
   test(`WASI loader runs the barrier on a raw context.destroy(): ${name}`, (t) => {
     assertValidJS(t, code, name)
     t.is(
@@ -1493,16 +1507,17 @@ for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
     // No unwrapped context may escape: there is exactly one createContext call
     // and it is the wrapper's argument.
     t.is(
-      code.split('__emnapiCreateContext({ autoDestroy: false })').length - 1,
+      code.split('__emnapiCreateContext(').length - 1,
       1,
       'loader must create exactly one emnapi context',
     )
+    t.true(code.includes(`__emnapiCreateContext(${contextOptions})`))
     t.true(
       code
         .replace(/\s+/g, ' ')
         .includes(
           '__emnapiContext = __wrapEmnapiContextDestroyForSettlement( ' +
-            `__emnapiCreateContext({ autoDestroy: false }), ${prepare}, ${guard.probe}, )`,
+            `__emnapiCreateContext(${contextOptions}), ${prepare}, ${guard.probe}, )`,
         ),
       'the createContext result must be wrapped before anything can reach it',
     )
@@ -2305,6 +2320,7 @@ let __wasiExitListenerRegistered = true
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __wasiThreadCrashDisposePromise
+let __wasiReentryClosed = false
 // The loader sets this to __removeWasiExitListener.
 let __completeWasiDisposal = function () {
   steps.push('complete')
@@ -2469,7 +2485,7 @@ test('node WASI crash disposal releases the waiting-request port', async (t) => 
   t.true(release.length > 0)
   t.true(
     generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
-      '  __releaseEmnapiWaitingRequestHandle()\n  let workerResult\n',
+      '  __releaseEmnapiWaitingRequestHandle()\n  // No call into wasm after this: see `__wasiSetImmediate`.\n  __wasiReentryClosed = true\n  let workerResult\n',
     ),
     'released before the workers are terminated',
   )
@@ -2531,7 +2547,7 @@ test('node WASI crash paths release the CurrentThread host timers', async (t) =>
   )
   t.true(
     generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
-      '  __releaseEmnapiWaitingRequestHandle()\n  __releaseCurrentThreadHostTimers()\n  let workerResult\n',
+      '  __releaseEmnapiWaitingRequestHandle()\n  __releaseCurrentThreadHostTimers()\n  // No call into wasm after this: see `__wasiSetImmediate`.\n  __wasiReentryClosed = true\n  let workerResult\n',
     ),
     'released before the workers are terminated',
   )
@@ -2578,6 +2594,135 @@ test('node WASI crash paths release the CurrentThread host timers', async (t) =>
   ]) {
     t.false(other.includes('__releaseCurrentThreadHostTimers'), name)
     t.false(other.includes('__trackCurrentThreadHostTimers'), name)
+  }
+})
+
+// emnapi defers its calls back into wasm (`_emnapi_set_immediate` for libuv
+// handle closes and threadsafe-function finalizers, threadsafe-function
+// dispatch, the finalizer queue) through the context's `features.setImmediate`.
+// One queued before the crash disposal ran after it, on the main thread, while a
+// terminated pool worker still held napi's heap-sync allocator lock: the free in
+// the finalizer spun on that lock forever. The threaded loader gates that
+// callback; the crash disposal closes the gate before it terminates the
+// workers.
+test('node WASI crash disposal drops emnapi deferred calls into wasm', async (t) => {
+  for (const [label, code] of [
+    ['node cjs', createWasiBinding('test', '@scope/test')],
+    ['node cjs + asyncRuntime', threadedAsyncRuntimeCode],
+  ] as const) {
+    const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+    const latchState = code.slice(
+      latchStart,
+      code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+        'let __wasiThreadCrashed = false\n'.length,
+    )
+    const gate = generatedFunction(code, '__wasiSetImmediate')
+    t.true(gate.length > 0, label)
+    const steps: string[] = []
+    const queued: Array<() => void> = []
+    // A stubbed host `setImmediate`: the test decides when each turn fires.
+    const hostSetImmediate = (callback: () => void) => {
+      queued.push(callback)
+      return { handle: queued.length }
+    }
+    const binding = new Function(
+      'setImmediate',
+      'steps',
+      `
+let __emnapiContext
+let __wasiThreadCrashDisposePromise
+let __wasiReentryClosed = false
+${latchState}
+function __getWasiThreadManager() {
+  return undefined
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate (gate closed: ' + __wasiReentryClosed + ')')
+  return Promise.resolve()
+}
+function __releaseCurrentThreadHostTimers() {}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__attachCleanupErrors')}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
+${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
+${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${gate}
+return {
+  setImmediate: __wasiSetImmediate,
+  dispose: __disposeWasiBindingAfterThreadCrash,
+  crash() {
+    Atomics.store(__wasiThreadCrashFlag, 0, 1)
+  },
+}
+`,
+    )(hostSetImmediate, steps) as {
+      setImmediate: (callback: () => void) => unknown
+      dispose: () => Promise<unknown>
+      crash: () => void
+    }
+
+    // The host's handle is passed through to emnapi.
+    t.deepEqual(
+      binding.setImmediate(() => steps.push('call fired before disposal')),
+      { handle: 1 },
+      label,
+    )
+    binding.setImmediate(() => steps.push('call queued before disposal'))
+    t.is(queued.length, 2, label)
+    // The first turn fires before the crash disposal: it still reaches wasm.
+    queued[0]()
+
+    binding.crash()
+    const disposal = binding.dispose()
+    // Queued after the disposal started: dropped as well.
+    binding.setImmediate(() => steps.push('call queued after disposal'))
+    // The second and third turns fire after the disposal: dropped.
+    queued[1]()
+    queued[2]()
+
+    const error = await disposal.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    )
+    t.true(error instanceof Error, label)
+    t.regex((error as Error).message, /worker thread crashed/, label)
+    t.deepEqual(
+      steps,
+      ['call fired before disposal', 'terminate (gate closed: true)'],
+      label,
+    )
+  }
+
+  // The threadless loaders have no pool workers to terminate, so no gate.
+  for (const [label, code] of [
+    [
+      'node cjs threadless',
+      createWasiBinding('test', '@scope/test', 4000, 65536, false),
+    ],
+    [
+      'node cjs threadless + asyncRuntime',
+      createWasiBinding(
+        'test',
+        '@scope/test',
+        4000,
+        65536,
+        false,
+        'wasm32-wasip1',
+        'test',
+        true,
+      ),
+    ],
+  ] as const) {
+    t.false(code.includes('__wasiSetImmediate'), label)
+    t.false(code.includes('__wasiReentryClosed'), label)
+    t.true(
+      code.includes('__emnapiCreateContext({ autoDestroy: false })'),
+      label,
+    )
   }
 })
 
@@ -2788,6 +2933,7 @@ function createInflightWasiDisposal(
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __wasiThreadCrashDisposePromise
+let __wasiReentryClosed = false
 let __wasiAsyncWorkDrainPromise
 let __emnapiWasmEnvCleanupPrepared = false
 let __emnapiWasmEnvCleanupPreparing = false
