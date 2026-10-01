@@ -27196,6 +27196,7 @@ mod tests {
     );
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn pool_workers_mirror_every_successful_configure() {
     let controller = RuntimeController::new();
@@ -27272,6 +27273,7 @@ mod tests {
     assert_eq!(controller.options().flavor, RuntimeFlavor::CurrentThread);
   }
 
+  #[cfg(napi_runtime_os_threads)]
   #[test]
   fn pool_workers_drop_to_zero_once_the_backend_started() {
     let controller = RuntimeController::new();
