@@ -105,6 +105,21 @@ async function main(mode) {
     await until(() => count().exited === 3, 'exits')
     await new Promise((resolve) => setTimeout(resolve, 100))
     result.afterShrink = count()
+  } else if (mode === 'shrink-dispose') {
+    binding.configureAsyncRuntime({ flavor: 'MultiThread', workerThreads: 3 })
+    await allLoaded()
+    // The idle Workers the configure below terminates.
+    const order = []
+    for (const worker of manager.unusedWorkers) {
+      worker.once('exit', () => order.push('exit'))
+    }
+    binding.configureAsyncRuntime({ flavor: 'CurrentThread' })
+    result.afterShrink = { poolWorkers: poolWorkers(), ...count() }
+    // No turn in between: the terminations are still under way.
+    await binding[Symbol.for('napi.rs.wasi.dispose')]()
+    order.push('disposed')
+    result.order = order
+    result.afterDispose = count()
   } else if (mode === 'grow') {
     binding.configureAsyncRuntime({ flavor: 'MultiThread', workerThreads: 2 })
     result.afterConfigure = { poolWorkers: poolWorkers(), ...count() }

@@ -4037,18 +4037,25 @@ test('WASI worker hands its error to the loader through the shared crash report'
 interface PoolWorkerStub {
   id: number
   onmessage?: unknown
+  terminate: () => unknown
+  // Resolves every pending \`terminate()\`, as Node does at the Worker's exit.
+  exit: () => void
+  terminateCalls: number
 }
 
 /**
  * emnapi's ThreadManager, reduced to what the reconcile touches.
  * `terminateRemoves` models an emnapi whose `terminateWorker` takes the Worker
- * out of the pool itself; 2.1.0 leaves it there.
+ * out of the pool itself; 2.1.0 leaves it there. \`asyncExit\` models Node's
+ * \`worker.terminate()\`, whose promise settles only at the exit; without it
+ * \`terminate()\` returns nothing, as a browser Worker's does.
  */
 function createPoolManagerStub(
   options: {
     load?: (worker: PoolWorkerStub) => Promise<unknown>
     allocateThrowsAt?: number
     terminateRemoves?: boolean
+    asyncExit?: boolean
   } = {},
 ) {
   const load = options.load ?? ((worker) => Promise.resolve(worker))
@@ -4063,9 +4070,19 @@ function createPoolManagerStub(
       if (manager.allocated.length === options.allocateThrowsAt) {
         throw new Error('allocate threw')
       }
+      let exit = () => {}
+      const exited = new Promise<void>((resolve) => {
+        exit = resolve
+      })
       const worker: PoolWorkerStub = {
         id: manager.allocated.length,
         onmessage: () => {},
+        terminate() {
+          worker.terminateCalls++
+          return options.asyncExit ? exited : undefined
+        },
+        exit,
+        terminateCalls: 0,
       }
       manager.allocated.push(worker)
       manager.onCreate(worker)
@@ -4082,6 +4099,8 @@ function createPoolManagerStub(
         const index = manager.unusedWorkers.indexOf(worker)
         if (index !== -1) manager.unusedWorkers.splice(index, 1)
       }
+      // emnapi starts the termination and drops its promise.
+      worker.terminate()
       // emnapi replaces the handler with a reporter that logs every message.
       worker.onmessage = () => {}
     },
@@ -4134,12 +4153,17 @@ function __hasWasiThreadCrashed() {
 function __getWasiThreadManager() {
   return state.manager
 }
+${generatedFunction(code, '__isThenable')}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__keepEventLoopAliveUntil')}
+${generatedFunction(code, '__terminateWasiWorkers')}
 ${generatedFunction(code, '__removeWasiPoolWorker')}
 ${generatedFunction(code, '__reconcileWasiThreadPool')}
 ${generatedFunction(code, '__publishWasiThreadPoolReconcile')}
 ${generatedFunction(code, '__wrapWasiConfigureAsyncRuntime')}
 return {
   reconcile: __reconcileWasiThreadPool,
+  terminateWorkers: __terminateWasiWorkers,
   publish: __publishWasiThreadPoolReconcile,
   wrap: typeof __wrapWasiConfigureAsyncRuntime === 'function'
     ? __wrapWasiConfigureAsyncRuntime
@@ -4153,6 +4177,7 @@ return {
     wasiWorkers,
   ) as {
     reconcile: () => void
+    terminateWorkers: () => unknown
     publish: (exports: object) => void
     wrap?: (binding: Record<string, unknown>) => void
   }
@@ -4273,6 +4298,46 @@ test('node WASI pool reconcile terminates the idle Workers above the count, newe
     t.deepEqual(ids(manager.terminated), [2, 1, 0], label)
     t.deepEqual(manager.unusedWorkers, [], label)
   }
+})
+
+test('node WASI pool reconcile keeps a terminated Worker tracked until it has exited', async (t) => {
+  const manager = createPoolManagerStub({ asyncExit: true })
+  const state: PoolReconcileState = { manager, poolWorkers: 2 }
+  const pool = createPoolReconcile(threadedNodeLoader(), state)
+  pool.reconcile()
+  state.poolWorkers = 1
+  pool.reconcile()
+  const [shrunk] = manager.terminated
+  t.is(shrunk.id, 1)
+  t.deepEqual(ids(manager.unusedWorkers), [0])
+  // Its termination is still under way: disposal has to find it.
+  t.deepEqual(ids(pool.wasiWorkers), [0, 1])
+
+  // A disposal right after the shrink waits for that exit too.
+  const order: string[] = []
+  const terminated = Promise.resolve(pool.terminateWorkers()).then(() => {
+    order.push('disposed')
+  })
+  manager.allocated[0].exit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(order, [])
+  order.push('exit')
+  shrunk.exit()
+  await terminated
+  t.deepEqual(order, ['exit', 'disposed'])
+  t.deepEqual(ids(pool.wasiWorkers), [])
+
+  // Without a disposal, the exit alone takes it out of the set.
+  const alone = createPoolManagerStub({ asyncExit: true })
+  const aloneState: PoolReconcileState = { manager: alone, poolWorkers: 1 }
+  const alonePool = createPoolReconcile(threadedNodeLoader(), aloneState)
+  alonePool.reconcile()
+  aloneState.poolWorkers = 0
+  alonePool.reconcile()
+  t.deepEqual(ids(alonePool.wasiWorkers), [0])
+  alone.allocated[0].exit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(ids(alonePool.wasiWorkers), [])
 })
 
 test('node WASI pool reconcile drops a Worker whose load rejects', async (t) => {

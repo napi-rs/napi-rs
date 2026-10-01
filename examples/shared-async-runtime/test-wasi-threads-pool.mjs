@@ -79,6 +79,19 @@ test('terminating Workers whose loaded message is still queued reports nothing',
   assert.equal(result.disposed, true)
 })
 
+test('a disposal right after a shrink waits for the terminated Workers to exit', () => {
+  const result = runChild('shrink-dispose')
+  assert.deepEqual(result.afterShrink, {
+    poolWorkers: 0,
+    created: 3,
+    loaded: 3,
+    exited: 0,
+  })
+  assert.deepEqual(result.order, ['exit', 'exit', 'exit', 'disposed'])
+  assert.deepEqual(result.afterDispose, { created: 3, loaded: 3, exited: 3 })
+  assert.equal(result.disposed, true)
+})
+
 test('a configure to more workers preloads the missing ones', () => {
   const result = runChild('grow')
   assert.deepEqual(result.afterConfigure, {
