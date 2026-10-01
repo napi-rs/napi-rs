@@ -297,7 +297,7 @@ jobs:
             base-devel
           pacboy: >-
             rust:p
-            yarn:p
+            nodejs:p
             ${{ matrix.sys == 'CLANG64' && 'gcc-compat:p' || '' }}
 
       - name: Cargo test
