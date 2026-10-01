@@ -11022,12 +11022,16 @@ struct RuntimeController {
   // today (lazy-create, start, shutdown). Any new Running-boundary write MUST
   // mirror here, or `fast_register` routes work onto a superseded backend.
   current_backend: ArcSwapOption<RuntimeBackend>,
-  // Lock-free mirror of `pool_workers_for(&state.options)`, read by
+  // Lock-free count of the pool threads the runtime will still spawn, read by
   // `napi_wasm_runtime_pool_workers` without the `state` lock. Invariant:
-  // stored right after every `state.options` write, under that lock --
-  // exactly 3 sites today (`new`, `configure`, `configure_partial_inner`). A
-  // configure that fails writes neither. Only the threaded WASI export and the
-  // tests read it.
+  // under that lock, `pool_workers_for(&state.options)` stored right after
+  // every `state.options` write -- 3 sites (`new`, `configure`,
+  // `configure_partial_inner`); a configure that fails writes neither -- and
+  // 0 stored right after every backend build -- 2 sites (`backend_locked`,
+  // `start` from `Stopped`). A built backend already spawned all its pool
+  // threads (Rayon's `build()` spawns `num_threads` at once and never grows),
+  // so the threaded WASI loader must not preload Workers for them again. Only
+  // that export and the tests read it.
   #[cfg_attr(not(any(napi_runtime_wasi_threads, test)), allow(dead_code))]
   pool_workers: AtomicU32,
 }
@@ -11182,6 +11186,8 @@ impl RuntimeController {
       ));
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
+    // Its pool threads exist now; see the `pool_workers` field.
+    self.pool_workers.store(0, Ordering::Release);
     state.lifecycle = RuntimeLifecycle::Running(backend.clone());
     state.forget_shutdown_handoff();
     self.current_backend.store(Some(Arc::new(backend.clone())));
@@ -11552,6 +11558,8 @@ impl RuntimeController {
       }
     }
     let backend = RuntimeBackend::new(&state.options, Arc::clone(&self.metrics))?;
+    // Its pool threads exist now; see the `pool_workers` field.
+    self.pool_workers.store(0, Ordering::Release);
     self.current_backend.store(Some(Arc::new(backend.clone())));
     state.lifecycle = RuntimeLifecycle::Running(backend);
     state.forget_shutdown_handoff();
@@ -12181,10 +12189,12 @@ pub fn configured_options() -> RuntimeOptions {
   RUNTIME.options()
 }
 
-/// The configured MultiThread worker count, for the generated threaded WASI
-/// loader: `worker_threads` under MultiThread, 0 under CurrentThread (also
-/// the wasm default before any configure). A configure that fails, including
-/// one refused because the configuration is frozen, leaves it unchanged.
+/// How many pool threads the runtime will still spawn, for the generated
+/// threaded WASI loader: the configured `worker_threads` under MultiThread, 0
+/// under CurrentThread (also the wasm default before any configure), and 0
+/// once a backend has started; its pool threads already exist. A configure
+/// that fails, including one refused because the configuration is frozen,
+/// leaves it unchanged.
 ///
 /// The loader reads it after the module registered (and, with
 /// `napi.wasm.asyncRuntime`, after every successful `configureAsyncRuntime`)
@@ -27260,6 +27270,30 @@ mod tests {
       .expect_err("partial configuration after the backend started must be rejected");
     assert_eq!(controller.pool_workers(), 0);
     assert_eq!(controller.options().flavor, RuntimeFlavor::CurrentThread);
+  }
+
+  #[test]
+  fn pool_workers_drop_to_zero_once_the_backend_started() {
+    let controller = RuntimeController::new();
+    controller
+      .configure(multi_thread_options(3))
+      .expect("configure before the backend exists must succeed");
+    assert_eq!(controller.pool_workers(), 3);
+
+    // Building the backend spawns all three pool threads.
+    drop(controller.backend());
+    assert_eq!(controller.pool_workers(), 0);
+
+    // A restart from `Stopped` builds a new backend and spawns its threads.
+    controller
+      .shutdown()
+      .expect("the first generation must stop");
+    assert_eq!(controller.pool_workers(), 0);
+    controller.start().expect("the runtime must restart");
+    assert_eq!(controller.pool_workers(), 0);
+    controller
+      .shutdown()
+      .expect("the restarted runtime must stop");
   }
 
   fn current_thread_controller(thread_name_prefix: &str) -> RuntimeController {

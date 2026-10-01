@@ -32,6 +32,19 @@ WebAssembly.Instance = function (...args) {
 }
 WebAssembly.Instance.prototype = Instance.prototype
 
+// Keep emnapi's thread manager, to read its idle pool (`unusedWorkers`).
+let manager
+const { ThreadManager } = require(
+  require.resolve('@emnapi/wasi-threads', {
+    paths: [require.resolve('@emnapi/core')],
+  }),
+)
+const { allocateUnusedWorker } = ThreadManager.prototype
+ThreadManager.prototype.allocateUnusedWorker = function (...args) {
+  manager ??= this
+  return Reflect.apply(allocateUnusedWorker, this, args)
+}
+
 const binding = require('./shared_async_runtime.wasi.cjs')
 
 const poolWorkers = () => instance.exports.napi_wasm_runtime_pool_workers()
@@ -109,6 +122,23 @@ async function main(mode) {
       result.frozenError = error.message
     }
     result.afterFrozen = { poolWorkers: poolWorkers(), ...count() }
+  } else if (mode === 'started') {
+    binding.configureAsyncRuntime({ flavor: 'MultiThread', workerThreads: 3 })
+    await allLoaded()
+    // The first call builds the backend, which spawns all three pool threads
+    // and takes the three idle Workers.
+    result.sum = await binding.plus100(1)
+    result.afterCall = {
+      poolWorkers: poolWorkers(),
+      idle: manager.unusedWorkers.length,
+      ...count(),
+    }
+    binding[Symbol.for('napi.rs.wasi.reconcileThreadPool')]()
+    result.afterReconcile = {
+      poolWorkers: poolWorkers(),
+      idle: manager.unusedWorkers.length,
+      ...count(),
+    }
   } else {
     throw new Error(`unknown mode ${mode}`)
   }

@@ -103,11 +103,22 @@ test('a configure the frozen runtime refuses leaves the pool alone', () => {
     result.frozenError,
     'the async runtime configuration is frozen; configure it before the first async call',
   )
+  // The first call started the backend: its pool threads exist, so the count
+  // is 0, and the refused configure did not reconcile.
   assert.deepEqual(result.afterFrozen, {
-    poolWorkers: 2,
+    poolWorkers: 0,
     created: 2,
     loaded: 2,
     exited: 0,
   })
+  assert.equal(result.disposed, true)
+})
+
+test('a reconcile after the backend started allocates no second pool', () => {
+  const result = runChild('started')
+  assert.equal(result.sum, 101)
+  const started = { poolWorkers: 0, idle: 0, created: 3, loaded: 3, exited: 0 }
+  assert.deepEqual(result.afterCall, started)
+  assert.deepEqual(result.afterReconcile, started)
   assert.equal(result.disposed, true)
 })

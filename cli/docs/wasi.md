@@ -548,11 +548,17 @@ cannot run on a synchronous CommonJS load. Without help, every pool thread a
 and load the wasm into it.
 
 An addon built with `napi-async-runtime` exports
-`napi_wasm_runtime_pool_workers() -> u32` on `wasm32-wasip1-threads`: the
-configured `MultiThread` `worker_threads`, or 0 under `CurrentThread` (also the
-wasm default before any configure). It reads an atomic and takes no lock, and
-it comes with the scheduler, so `default-features = false` builds have it too.
-The loader keeps that many Workers idle in the pool:
+`napi_wasm_runtime_pool_workers() -> u32` on `wasm32-wasip1-threads`: the pool
+threads the runtime will still spawn. That is the configured `MultiThread`
+`worker_threads`, or 0 under `CurrentThread` (also the wasm default before any
+configure), and 0 once the runtime has started (its first async call, or a
+runtime-backed call during module registration): the started runtime already
+spawned all its pool threads and never adds more. So a reconcile after first
+use only releases idle Workers; a thread that starts later (a timer thread, a
+uv thread, a restarted runtime) creates its Worker on demand. It reads an
+atomic and takes no lock, and it comes with the scheduler, so
+`default-features = false` builds have it too. The loader keeps that many
+Workers idle in the pool:
 
 - once, right after a successful load (after `#[module_init]` configured the
   runtime);
@@ -565,7 +571,11 @@ The loader keeps that many Workers idle in the pool:
 - whenever you call
   `binding[Symbol.for('napi.rs.wasi.reconcileThreadPool')]()`, published
   non-enumerable and read-only next to the dispose symbol. Use it after
-  changing the configuration some other way.
+  changing the configuration some other way. Like `napi.rs.wasi.dispose`, the
+  symbol lives on the CommonJS loader object. The generated ESM entry
+  re-exports named exports only, so an ESM consumer reaches it through
+  `createRequire(import.meta.url)('<pkg>-wasm32-wasi')` or the local
+  `./<name>.wasi.cjs`.
 
 A reconcile creates each missing Worker through `onCreateWorker` (so it is
 tracked, unref'd and gets the crash flags) and starts its load without waiting
