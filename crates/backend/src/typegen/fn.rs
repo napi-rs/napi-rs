@@ -200,6 +200,7 @@ impl NapiFn {
             if let syn::Type::Path(syn::TypePath {
               qself: None,
               path: syn::Path { segments, .. },
+              ..
             }) = path.ty.as_ref()
             {
               if segments.last().is_some_and(|s| s.ident == "Env") {
@@ -207,7 +208,10 @@ impl NapiFn {
               }
             }
             if let syn::Type::Reference(syn::TypeReference { elem, .. }) = &*path.ty {
-              if let syn::Type::Path(syn::TypePath { qself: None, path }) = elem.as_ref() {
+              if let syn::Type::Path(syn::TypePath {
+                qself: None, path, ..
+              }) = elem.as_ref()
+              {
                 if let Some(PathSegment { ident, .. }) = path.segments.last() {
                   if ident == "Env" {
                     return None;
