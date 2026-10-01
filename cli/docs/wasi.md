@@ -539,6 +539,57 @@ pre-created pool, spawning is only a message to an already-running worker,
 and if the pool is exhausted the fallback allocates a fresh worker that
 boots once the spawning parent returns to its event loop.
 
+## Thread pool preload
+
+The threaded Node loader (`<binary>.wasi.cjs`) creates its emnapi worker pool
+empty (`reuseWorker: true`): emnapi's own preload (`reuseWorker.size > 0`)
+cannot run on a synchronous CommonJS load. Without help, every pool thread a
+`MultiThread` runtime spawns on its first async call would first boot a Worker
+and load the wasm into it.
+
+An addon built with `napi-async-runtime` exports
+`napi_wasm_runtime_pool_workers() -> u32` on `wasm32-wasip1-threads`: the
+configured `MultiThread` `worker_threads`, or 0 under `CurrentThread` (also the
+wasm default before any configure). It reads an atomic and takes no lock, and
+it comes with the scheduler, so `default-features = false` builds have it too.
+The loader keeps that many Workers idle in the pool:
+
+- once, right after a successful load (after `#[module_init]` configured the
+  runtime);
+- after every successful `configureAsyncRuntime`, when `napi.wasm.asyncRuntime`
+  is on. The loader replaces that export with a wrapper (same name, `this`,
+  arguments and return value) that calls the original and then reconciles. It
+  is matched by name, like the host install above. A configure that throws
+  (for example because the runtime already started) propagates and leaves the
+  pool alone;
+- whenever you call
+  `binding[Symbol.for('napi.rs.wasi.reconcileThreadPool')]()`, published
+  non-enumerable and read-only next to the dispose symbol. Use it after
+  changing the configuration some other way.
+
+A reconcile creates each missing Worker through `onCreateWorker` (so it is
+tracked, unref'd and gets the crash flags) and starts its load without waiting
+for it; a thread spawn later pops a Worker that is already booting. It
+terminates the idle Workers above the count, newest first, the way a spawn
+takes them. Workers a spawn already took are not in the pool and are left
+alone, so the count only covers idle Workers. A reconcile never throws and
+never waits. It does nothing after a thread crash, once disposal started, or
+for an addon without the export.
+
+Two things to know:
+
+- A preloaded Worker that fails to load still latches the binding as crashed,
+  like any pool Worker: the worker cannot tell a preload from a thread spawn,
+  so `dispose()` rejects afterwards. This is by design. The failed Worker is
+  taken out of the pool, so a later spawn creates a fresh one.
+- `NAPI_RS_ASYNC_WORK_POOL_SIZE` (or `UV_THREADPOOL_SIZE`, default 4) sizes the
+  uv async-work threads, which take their Workers from the same reuse pool. A
+  preloaded Worker can therefore end up running a uv thread instead of a
+  runtime thread; the runtime thread then creates its own.
+
+The browser loaders keep their fixed pre-created pool (see above), and the
+threadless and deferred loaders have no pool.
+
 ## Detecting the threaded target from Rust
 
 rustc gives you nothing to tell the two WASI targets apart. `rustc --print
