@@ -4158,6 +4158,7 @@ ${generatedFunction(code, '__createCleanupError')}
 ${generatedFunction(code, '__keepEventLoopAliveUntil')}
 ${generatedFunction(code, '__terminateWasiWorkers')}
 ${generatedFunction(code, '__removeWasiPoolWorker')}
+${generatedFunction(code, '__untrackWasiWorkerOnExit')}
 ${generatedFunction(code, '__reconcileWasiThreadPool')}
 ${generatedFunction(code, '__publishWasiThreadPoolReconcile')}
 ${generatedFunction(code, '__wrapWasiConfigureAsyncRuntime')}
@@ -4385,6 +4386,39 @@ test('node WASI pool reconcile stops at a synchronous failure', (t) => {
   t.deepEqual(ids(allocateThrows.allocated), [0])
   t.deepEqual(ids(allocateThrows.unusedWorkers), [0])
   t.is(allocateThrows.terminated.length, 0)
+})
+
+test('node WASI pool reconcile keeps a Worker whose load threw tracked until it has exited', async (t) => {
+  const manager = createPoolManagerStub({
+    asyncExit: true,
+    load: (worker) => {
+      if (worker.id === 1) throw new Error('load threw')
+      return Promise.resolve(worker)
+    },
+  })
+  const pool = createPoolReconcile(threadedNodeLoader(), {
+    manager,
+    poolWorkers: 3,
+  })
+  t.notThrows(() => pool.reconcile())
+  const [threw] = manager.terminated
+  t.is(threw.id, 1)
+  t.deepEqual(ids(manager.unusedWorkers), [0])
+  // Its termination is still under way: disposal has to find it.
+  t.deepEqual(ids(pool.wasiWorkers), [0, 1])
+
+  const order: string[] = []
+  const terminated = Promise.resolve(pool.terminateWorkers()).then(() => {
+    order.push('disposed')
+  })
+  manager.allocated[0].exit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(order, [])
+  order.push('exit')
+  threw.exit()
+  await terminated
+  t.deepEqual(order, ['exit', 'disposed'])
+  t.deepEqual(ids(pool.wasiWorkers), [])
 })
 
 test('node WASI pool reconcile is published as a non-enumerable, read-only symbol', (t) => {

@@ -4322,6 +4322,29 @@ function __removeWasiPoolWorker(manager, worker) {
 }
 
 /**
+ * Takes a Worker the thread manager just terminated out of \`__wasiWorkers\`
+ * once it has exited, not before. \`terminateWorker\` only starts Node's
+ * asynchronous \`worker.terminate()\` and drops its promise, so a disposal that
+ * begins before the exit has to find this Worker in the set and wait for it
+ * like any other. A second \`terminate()\` settles when the Worker has exited,
+ * the way \`__terminateWasiWorkers\` waits.
+ */
+function __untrackWasiWorkerOnExit(worker) {
+  const terminated = worker.terminate()
+  if (__isThenable(terminated)) {
+    Promise.resolve(terminated).then(
+      () => {
+        __wasiWorkers.delete(worker)
+      },
+      // Left tracked: disposal terminates it again and reports the error.
+      () => {},
+    )
+  } else {
+    __wasiWorkers.delete(worker)
+  }
+}
+
+/**
  * Matches emnapi's idle reuse pool to the addon's configured MultiThread worker
  * count, which the addon exports as \`napi_wasm_runtime_pool_workers\`
  * (napi-async-runtime; 0 under CurrentThread). \`reuseWorker: true\` starts the
@@ -4364,23 +4387,7 @@ function __reconcileWasiThreadPool() {
       const worker = manager.unusedWorkers[manager.unusedWorkers.length - 1]
       manager.terminateWorker(worker)
       __removeWasiPoolWorker(manager, worker)
-      // Tracked until it has exited. \`terminateWorker\` only starts Node's
-      // asynchronous \`worker.terminate()\` and drops its promise, so a disposal
-      // that begins before the exit has to find this Worker in the set and
-      // wait for it like any other. A second \`terminate()\` settles when the
-      // Worker has exited, the way \`__terminateWasiWorkers\` waits.
-      const terminated = worker.terminate()
-      if (__isThenable(terminated)) {
-        Promise.resolve(terminated).then(
-          () => {
-            __wasiWorkers.delete(worker)
-          },
-          // Left tracked: disposal terminates it again and reports the error.
-          () => {},
-        )
-      } else {
-        __wasiWorkers.delete(worker)
-      }
+      __untrackWasiWorkerOnExit(worker)
       // Compatibility with @emnapi/wasi-threads 2.1.0 and older:
       // \`terminateWorker\` installs a reporter that logs every emnapi message
       // still queued on the port, so a Worker that finished loading just
@@ -4404,7 +4411,7 @@ function __reconcileWasiThreadPool() {
           __removeWasiPoolWorker(manager, worker)
           try {
             manager.terminateWorker(worker)
-            __wasiWorkers.delete(worker)
+            __untrackWasiWorkerOnExit(worker)
           } catch {}
         }
         return
