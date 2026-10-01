@@ -224,6 +224,98 @@ fn rustc_links_reactor_crt(rustc: &OsStr, target: &str, out_dir: &Path) -> Optio
   Some(wasm_exports_reactor_init(&module))
 }
 
+/// The libc symbols the heap-sync build wraps: every entry into wasi-libc's
+/// dlmalloc, plus the `sbrk` dlmalloc grows the heap with. `napi` defines a
+/// `__wrap_<name>` for each one, which takes the heap-sync lock and reaches
+/// libc through `__real_<name>`. `--wrap=<name>` sends every other reference to
+/// `<name>` (Rust's `System`, wasi-libc, the emnapi archive) to the wrapper.
+///
+/// `llvm-nm` on the self-contained `libc.a` of rustc 1.98 and on the wasi-sdk 32
+/// sysroot's `libc.a` (both `wasm32-wasip1-threads`):
+///
+/// | symbol             | defined in (T) | referenced (U) by, e.g.                           |
+/// |--------------------|----------------|---------------------------------------------------|
+/// | malloc             | dlmalloc.c.obj | libc (stdio, dirent, environ, pthread), emnapi    |
+/// | free               | dlmalloc.c.obj | libc (same), emnapi                               |
+/// | calloc             | dlmalloc.c.obj | libc (environ, preopens, regex), emnapi           |
+/// | realloc            | dlmalloc.c.obj | libc (getdelim, glob, reallocarray), emnapi       |
+/// | posix_memalign     | dlmalloc.c.obj | no C caller; std's `System` for large alignments |
+/// | aligned_alloc      | dlmalloc.c.obj | no caller                                         |
+/// | malloc_usable_size | dlmalloc.c.obj | no caller                                         |
+/// | __libc_malloc      | dlmalloc.c.obj | libc locale (duplocale, newlocale, locale_map)    |
+/// | __libc_free        | dlmalloc.c.obj | libc locale (freelocale)                          |
+/// | __libc_calloc      | dlmalloc.c.obj | libc atexit                                       |
+/// | sbrk               | sbrk.c.obj     | dlmalloc.c.obj only                               |
+///
+/// Inside `dlmalloc.c.obj` the public names are thin wrappers over static
+/// `dlmalloc` / `dlfree` / ..., and its only calls out of the object are `sbrk`
+/// and `sched_yield`, so a wrapped entry never re-enters another one. An entry
+/// that a later wasi-libc adds is not wrapped until it is listed here.
+const HEAP_SYNC_WRAPPED_SYMBOLS: [&str; 11] = [
+  "malloc",
+  "free",
+  "calloc",
+  "realloc",
+  "posix_memalign",
+  "aligned_alloc",
+  "malloc_usable_size",
+  "__libc_malloc",
+  "__libc_free",
+  "__libc_calloc",
+  "sbrk",
+];
+
+/// A relocatable wasm object whose two functions are exported as `malloc` and
+/// `free` and call `malloc` and `free`, which `--wrap` turns into
+/// `__wrap_malloc` and `__wrap_free`. `@emnapi/core` needs the two exports, and
+/// under `--wrap` the link has no other way to produce them. It also defines
+/// [`HEAP_SYNC_LINK_CHECK_SYMBOL`]. Source and the exact build command:
+/// `wasi_heap_sync_exports.c`.
+const HEAP_SYNC_EXPORTS_OBJECT: &[u8] = include_bytes!("wasi_heap_sync_exports.o");
+
+/// A data symbol that [`HEAP_SYNC_EXPORTS_OBJECT`] defines and `napi`'s
+/// `__wrap_sbrk` reads. A link with `napi`'s wrappers but without this crate's
+/// wrap (an addon whose `setup()` runs a napi-build without the
+/// `wasi-heap-sync` feature, next to the copy `napi` builds with) then fails
+/// with `undefined symbol` naming it. `--import-undefined` never imports data,
+/// while it would import the wrappers' `__real_*` calls and leave a module
+/// that fails to load.
+#[cfg(test)]
+const HEAP_SYNC_LINK_CHECK_SYMBOL: &str =
+  "napi_wasi_heap_sync_needs_napi_build_setup_with_wasi_heap_sync";
+
+/// The file name [`HEAP_SYNC_EXPORTS_OBJECT`] is written to, in `OUT_DIR`.
+const HEAP_SYNC_EXPORTS_OBJECT_FILE: &str = "napi_wasi_heap_sync_exports.o";
+
+/// Whether the link wraps wasi-libc's allocator with `napi`'s heap-sync lock.
+///
+/// - `requested`: this crate's `wasi-heap-sync` feature. The crate that defines
+///   the wrappers (`napi`) turns it on through its build-dependency, and Cargo
+///   feature unification carries it into every addon's `setup()`, even through
+///   intermediate crates, so the wrap happens exactly when the wrappers are in
+///   the graph.
+/// - `opted_out`: `--cfg napi_wasi_no_heap_sync` in the target rustflags, which
+///   Cargo hands this build script as `CARGO_CFG_NAPI_WASI_NO_HEAP_SYNC`. `napi`
+///   reads the same cfg to leave its wrappers out.
+///
+/// The exact triple, not `has_threads`, because `napi`'s own build script
+/// decides whether it compiles the wrappers from the exact triple too, and the
+/// two sides have to agree.
+fn wraps_libc_allocator(target: &str, requested: bool, opted_out: bool) -> bool {
+  target == "wasm32-wasip1-threads" && requested && !opted_out
+}
+
+/// The link lines of the heap-sync build: one `--wrap` per symbol in
+/// [`HEAP_SYNC_WRAPPED_SYMBOLS`], and the object that provides the `malloc` /
+/// `free` exports.
+fn heap_sync_link_lines(exports_object: &Path) -> Vec<String> {
+  HEAP_SYNC_WRAPPED_SYMBOLS
+    .iter()
+    .map(|symbol| format!("cargo:rustc-link-arg=--wrap={symbol}"))
+    .chain([format!("cargo:rustc-link-arg={}", exports_object.display())])
+    .collect()
+}
+
 pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
@@ -246,6 +338,12 @@ pub fn setup() {
     emnapi_archive.display()
   );
   println!("cargo:rustc-link-lib=static={emnapi_library}");
+  // `@emnapi/core` allocates through these two exports. Under the heap-sync wrap
+  // below, `--export=malloc` resolves to `__wrap_malloc` and names no `malloc`
+  // export any more; the heap-sync exports object provides `malloc` / `free`.
+  // Both lines stay anyway: when `napi` does not define the wrappers, they fail
+  // the link with `symbol exported via --export not found: malloc`, instead of a
+  // module that imports `env.__wrap_malloc` and only fails at load.
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
   // `@emnapi/core` v2 creates and destroys the native environment through
@@ -288,6 +386,19 @@ pub fn setup() {
   if has_threads {
     println!("cargo:rustc-link-arg=--export-if-defined=emnapi_async_worker_create");
     println!("cargo:rustc-link-arg=--export-if-defined=emnapi_async_worker_init");
+  }
+  if wraps_libc_allocator(
+    &target,
+    cfg!(feature = "wasi-heap-sync"),
+    env::var_os("CARGO_CFG_NAPI_WASI_NO_HEAP_SYNC").is_some(),
+  ) {
+    let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set by Cargo");
+    let exports_object = Path::new(&out_dir).join(HEAP_SYNC_EXPORTS_OBJECT_FILE);
+    fs::write(&exports_object, HEAP_SYNC_EXPORTS_OBJECT)
+      .unwrap_or_else(|error| panic!("failed to write {}: {error}", exports_object.display()));
+    for line in heap_sync_link_lines(&exports_object) {
+      println!("{line}");
+    }
   }
   println!("cargo:rustc-link-arg=--export-if-defined=emnapi_thread_crashed");
   println!("cargo:rustc-link-arg=--import-memory");
@@ -461,5 +572,286 @@ mod tests {
       parse_link_self_contained_flags(encoded),
       vec!["-C".to_owned(), "link-self-contained=no".to_owned()]
     );
+  }
+
+  #[test]
+  fn wraps_the_allocator_only_on_the_exact_threaded_triple() {
+    assert!(wraps_libc_allocator("wasm32-wasip1-threads", true, false));
+    // `has_threads` accepts these, but `napi` compiles its wrappers for the
+    // exact triple only.
+    for target in [
+      "wasm32-wasip1",
+      "wasm32-wasi",
+      "wasm32-wasi-preview1-threads",
+      "foo-threads",
+      "x86_64-unknown-linux-gnu",
+    ] {
+      assert!(!wraps_libc_allocator(target, true, false), "{target}");
+    }
+  }
+
+  #[test]
+  fn wraps_the_allocator_only_when_requested_and_not_opted_out() {
+    assert!(!wraps_libc_allocator("wasm32-wasip1-threads", false, false));
+    assert!(!wraps_libc_allocator("wasm32-wasip1-threads", true, true));
+    assert!(!wraps_libc_allocator("wasm32-wasip1-threads", false, true));
+  }
+
+  #[test]
+  fn emits_one_wrap_per_allocator_symbol_then_the_exports_object() {
+    assert_eq!(
+      heap_sync_link_lines(Path::new("/target dir/out/napi_wasi_heap_sync_exports.o")),
+      vec![
+        "cargo:rustc-link-arg=--wrap=malloc",
+        "cargo:rustc-link-arg=--wrap=free",
+        "cargo:rustc-link-arg=--wrap=calloc",
+        "cargo:rustc-link-arg=--wrap=realloc",
+        "cargo:rustc-link-arg=--wrap=posix_memalign",
+        "cargo:rustc-link-arg=--wrap=aligned_alloc",
+        "cargo:rustc-link-arg=--wrap=malloc_usable_size",
+        "cargo:rustc-link-arg=--wrap=__libc_malloc",
+        "cargo:rustc-link-arg=--wrap=__libc_free",
+        "cargo:rustc-link-arg=--wrap=__libc_calloc",
+        "cargo:rustc-link-arg=--wrap=sbrk",
+        "cargo:rustc-link-arg=/target dir/out/napi_wasi_heap_sync_exports.o",
+      ]
+    );
+  }
+
+  /// Reads the few wasm encodings the exports-object test needs.
+  struct WasmReader<'a> {
+    bytes: &'a [u8],
+    cursor: usize,
+  }
+
+  impl<'a> WasmReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+      Self { bytes, cursor: 0 }
+    }
+
+    fn is_done(&self) -> bool {
+      self.cursor == self.bytes.len()
+    }
+
+    fn byte(&mut self) -> u8 {
+      self.cursor += 1;
+      self.bytes[self.cursor - 1]
+    }
+
+    fn u32(&mut self) -> u32 {
+      read_leb128_u32(self.bytes, &mut self.cursor).expect("a valid LEB128 u32")
+    }
+
+    fn take(&mut self, len: usize) -> &'a [u8] {
+      self.cursor += len;
+      &self.bytes[self.cursor - len..self.cursor]
+    }
+
+    fn rest(&self) -> &'a [u8] {
+      &self.bytes[self.cursor..]
+    }
+
+    fn name(&mut self) -> &'a str {
+      let len = self.u32() as usize;
+      std::str::from_utf8(self.take(len)).expect("a UTF-8 name")
+    }
+
+    fn byte_vec(&mut self) -> Vec<u8> {
+      let len = self.u32() as usize;
+      self.take(len).to_vec()
+    }
+
+    fn limits(&mut self) {
+      let flags = self.byte();
+      self.u32();
+      if flags & 1 != 0 {
+        self.u32();
+      }
+    }
+  }
+
+  /// The object must turn into `malloc` / `free` exports that forward to the
+  /// references `--wrap` redirects: an export named `malloc` whose body passes
+  /// its argument to an undefined `malloc` through a relocation, and the same
+  /// for `free`. It must also define the global data symbol `napi` reads to
+  /// fail a link without the wrap. Parsed by hand, so the test needs no wasm
+  /// toolchain.
+  #[test]
+  fn exports_object_forwards_malloc_and_free_to_undefined_symbols() {
+    const SYMBOL_TABLE: u8 = 8;
+    const SYMBOL_KIND_FUNCTION: u8 = 0;
+    const SYMBOL_KIND_DATA: u8 = 1;
+    const SYMBOL_KIND_TABLE: u8 = 5;
+    const SYMBOL_BINDING_LOCAL: u32 = 0x02;
+    const SYMBOL_UNDEFINED: u32 = 0x10;
+    const SYMBOL_EXPORTED: u32 = 0x20;
+    const SYMBOL_EXPLICIT_NAME: u32 = 0x40;
+    const R_WASM_FUNCTION_INDEX_LEB: u8 = 0;
+    const I32: u8 = 0x7f;
+
+    let object = HEAP_SYNC_EXPORTS_OBJECT;
+    assert_eq!(&object[..8], b"\0asm\x01\x00\x00\x00");
+
+    let mut reader = WasmReader::new(&object[8..]);
+    let mut sections = Vec::new();
+    while !reader.is_done() {
+      let id = reader.byte();
+      let len = reader.u32() as usize;
+      let mut payload = WasmReader::new(reader.take(len));
+      let name = if id == 0 { payload.name() } else { "" };
+      sections.push((id, name, payload.rest()));
+    }
+    let section = |id: u8, name: &str| {
+      sections
+        .iter()
+        .position(|&(i, n, _)| i == id && n == name)
+        .unwrap_or_else(|| panic!("section {id} {name:?} is missing"))
+    };
+
+    let mut types = WasmReader::new(sections[section(1, "")].2);
+    let types: Vec<(Vec<u8>, Vec<u8>)> = (0..types.u32())
+      .map(|_| {
+        assert_eq!(types.byte(), 0x60);
+        (types.byte_vec(), types.byte_vec())
+      })
+      .collect();
+
+    // Imported functions take the first function indices.
+    let mut function_types = Vec::new();
+    let mut imported_functions = Vec::new();
+    let mut imports = WasmReader::new(sections[section(2, "")].2);
+    for _ in 0..imports.u32() {
+      let (module, field) = (imports.name(), imports.name());
+      match imports.byte() {
+        0 => {
+          function_types.push(imports.u32());
+          imported_functions.push((module, field));
+        }
+        1 => {
+          imports.byte();
+          imports.limits();
+        }
+        2 => imports.limits(),
+        kind => panic!("unexpected import kind {kind}"),
+      }
+    }
+    assert_eq!(imported_functions, [("env", "malloc"), ("env", "free")]);
+
+    let mut functions = WasmReader::new(sections[section(3, "")].2);
+    for _ in 0..functions.u32() {
+      function_types.push(functions.u32());
+    }
+
+    let mut exports = WasmReader::new(sections[section(7, "")].2);
+    let exports: Vec<(&str, u8, u32)> = (0..exports.u32())
+      .map(|_| (exports.name(), exports.byte(), exports.u32()))
+      .collect();
+
+    // Each body with its offset in the code section, which relocations count from.
+    let code_section = section(10, "");
+    let mut code = WasmReader::new(sections[code_section].2);
+    let bodies: Vec<(usize, &[u8])> = (0..code.u32())
+      .map(|_| {
+        let len = code.u32() as usize;
+        (code.cursor, code.take(len))
+      })
+      .collect();
+
+    let mut linking = WasmReader::new(sections[section(0, "linking")].2);
+    assert_eq!(linking.u32(), 2, "linking section version");
+    // Every symbol in table order, since relocations refer to them by position;
+    // `index` is `u32::MAX` for data symbols, which have none.
+    let mut symbols = Vec::new();
+    let mut data_symbols = Vec::new();
+    while !linking.is_done() {
+      let id = linking.byte();
+      let len = linking.u32() as usize;
+      let mut subsection = WasmReader::new(linking.take(len));
+      if id != SYMBOL_TABLE {
+        continue;
+      }
+      for _ in 0..subsection.u32() {
+        let (kind, flags) = (subsection.byte(), subsection.u32());
+        match kind {
+          SYMBOL_KIND_FUNCTION | SYMBOL_KIND_TABLE => {
+            let index = subsection.u32();
+            if flags & SYMBOL_UNDEFINED == 0 || flags & SYMBOL_EXPLICIT_NAME != 0 {
+              subsection.name();
+            }
+            symbols.push((kind, flags, index));
+          }
+          SYMBOL_KIND_DATA => {
+            let name = subsection.name();
+            // A defined data symbol: segment index, offset, size.
+            let size = if flags & SYMBOL_UNDEFINED == 0 {
+              subsection.u32();
+              subsection.u32();
+              Some(subsection.u32())
+            } else {
+              None
+            };
+            data_symbols.push((name, flags, size));
+            symbols.push((kind, flags, u32::MAX));
+          }
+          kind => panic!("unexpected symbol kind {kind}"),
+        }
+      }
+    }
+
+    assert_eq!(data_symbols.len(), 1, "{data_symbols:?}");
+    let (name, flags, size) = data_symbols[0];
+    assert_eq!(name, HEAP_SYNC_LINK_CHECK_SYMBOL);
+    assert_eq!(size, Some(1), "{name} is defined, one byte");
+    assert_eq!(flags & SYMBOL_BINDING_LOCAL, 0, "{name} is a global symbol");
+
+    let mut reloc = WasmReader::new(sections[section(0, "reloc.CODE")].2);
+    assert_eq!(reloc.u32() as usize, code_section);
+    let relocations: Vec<(u8, u32, u32)> = (0..reloc.u32())
+      .map(|_| (reloc.byte(), reloc.u32(), reloc.u32()))
+      .collect();
+    assert!(reloc.is_done());
+    assert_eq!(relocations.len(), 2);
+
+    assert_eq!(exports.len(), 2);
+    for (export, result) in [("malloc", vec![I32]), ("free", vec![])] {
+      let &(_, kind, function) = exports
+        .iter()
+        .find(|(name, ..)| *name == export)
+        .unwrap_or_else(|| panic!("no {export} export"));
+      assert_eq!(kind, 0, "{export} is a function export");
+      assert_eq!(
+        types[function_types[function as usize] as usize],
+        (vec![I32], result),
+        "{export} signature"
+      );
+      assert!(
+        symbols
+          .iter()
+          .any(|&(kind, flags, index)| kind == SYMBOL_KIND_FUNCTION
+            && index == function
+            && flags & SYMBOL_UNDEFINED == 0
+            && flags & SYMBOL_EXPORTED != 0),
+        "{export} is a defined, exported function symbol"
+      );
+
+      // No locals, `local.get 0`, `call` with a 5-byte relocatable index, `end`.
+      let (offset, body) = bodies[function as usize - imported_functions.len()];
+      assert_eq!(body.len(), 10, "{export} body");
+      assert_eq!(body[..4], [0x00, 0x20, 0x00, 0x10], "{export} body");
+      assert_eq!(body[9], 0x0b, "{export} body");
+      let &(reloc_type, _, symbol) = relocations
+        .iter()
+        .find(|&&(_, reloc_offset, _)| reloc_offset as usize == offset + 4)
+        .unwrap_or_else(|| panic!("the call in {export} is not relocated"));
+      assert_eq!(reloc_type, R_WASM_FUNCTION_INDEX_LEB);
+      let (kind, flags, index) = symbols[symbol as usize];
+      assert_eq!(kind, SYMBOL_KIND_FUNCTION);
+      assert_ne!(
+        flags & SYMBOL_UNDEFINED,
+        0,
+        "{export} calls an undefined symbol"
+      );
+      assert_eq!(imported_functions[index as usize], ("env", export));
+    }
   }
 }

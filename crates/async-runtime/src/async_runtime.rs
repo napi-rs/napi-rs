@@ -10,7 +10,7 @@ use std::{
   panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
   pin::Pin,
   sync::{
-    Arc, Condvar, LazyLock, Mutex, Weak,
+    Arc, LazyLock, Weak,
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
   },
   task::{Context, Poll, Waker},
@@ -21,6 +21,7 @@ use arc_swap::ArcSwapOption;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
+use crate::sync::{BoundedWaits, Condvar, Mutex, MutexGuard, UnboundedCondvar};
 // Both users are MultiThread pool tests.
 #[cfg(all(test, napi_runtime_os_threads))]
 use async_task::Task;
@@ -314,6 +315,50 @@ const MAX_DRAIN_LINGER_FRAME_RESIDENCE: Duration = Duration::from_secs(60);
 /// (verified empirically; embedders needing the same discrimination use the
 /// same build.rs mechanism).
 const THREADLESS_BUILD: bool = cfg!(all(target_family = "wasm", not(napi_runtime_wasi_threads)));
+
+/// Threaded WASI: refresh this thread's view of the shared memory size where
+/// work that another thread built starts or resumes on it. A no-op on every
+/// other target.
+///
+/// V8 updates a shared wasm memory's size only on the thread that grew it.
+/// The other threads keep checking `memory.fill`, `memory.copy` and atomics
+/// (and, without V8's trap handler, every load and store) against their old
+/// size, so they trap on pages another thread grew. napi's allocator
+/// wrappers refresh under their lock, which covers a block the thread
+/// allocates itself, but not one handed over from another thread: a task
+/// that allocated on one worker and resumes on another, or a blocking
+/// closure whose captures the submitter built. The receiving thread may fill
+/// or copy into that memory without allocating first. So this runs at every
+/// handoff:
+///
+/// - before each `Runnable::run`, in both flavors: every task poll, and
+///   async-task's header atomics, which run before the future's own `poll`;
+/// - before each `block_on` poll (CurrentThread, and MultiThread's parking
+///   and cooperative loops): the caller parks between polls while other
+///   threads grow the memory and finish the awaited work;
+/// - at the start of `RegisteredBlockingFunction::run`: every queued
+///   blocking closure, in both flavors;
+/// - before the CurrentThread inline blocking closure. It runs on the
+///   submitting thread, so there is no handoff, but that thread may be
+///   behind all the same.
+///
+/// The check is one atomic load and one thread-local load, and it calls
+/// `memory.grow(0)` only when another thread has seen a larger memory
+/// (`napi_sys::wasi_heap_sync::refresh_if_behind`, which also counts those
+/// refreshes). The state lives in napi-sys because napi's allocator writes it
+/// and napi cannot depend on this crate (a cargo cycle through the default
+/// `napi` feature). There is no public API: hosts get the refresh by running
+/// work on this scheduler.
+#[cfg(napi_runtime_wasi_threads)]
+#[inline(always)]
+fn on_thread_handoff() {
+  napi_sys::wasi_heap_sync::refresh_if_behind();
+}
+
+/// See the threaded-WASI version above; nothing to refresh here.
+#[cfg(not(napi_runtime_wasi_threads))]
+#[inline(always)]
+fn on_thread_handoff() {}
 
 #[derive(Debug, Clone)]
 pub struct RuntimeConfigError(String);
@@ -2601,7 +2646,7 @@ impl GenerationStop {
 
 struct GenerationStopPublicationGuard<'a> {
   stop: &'a GenerationStop,
-  _publication: std::sync::MutexGuard<'a, ()>,
+  _publication: MutexGuard<'a, ()>,
 }
 
 impl GenerationStopPublicationGuard<'_> {
@@ -2636,6 +2681,36 @@ impl Drop for GenerationStopGuard {
     }) {
       registered.swap_remove(index);
     }
+  }
+}
+
+/// Whether a work-pending read may wait for the locks its sources live under.
+#[derive(Clone, Copy)]
+enum PendingRead {
+  /// Wait for each lock, for the exact answer. Only `begin_shutdown` reads
+  /// its verdict this way; the host's poll never does.
+  Locked,
+  /// Never wait: a source whose lock another thread holds reads as pending.
+  /// For the host's poll, which must never block; see
+  /// `RuntimeController::runtime_work_pending` for why a held lock is not
+  /// always about to come back.
+  NonBlocking,
+}
+
+impl PendingRead {
+  /// `pending` applied to the state behind `mutex`, or `true` without looking
+  /// when this is [`Self::NonBlocking`] and another thread holds the lock.
+  /// Poison is ignored, as at every other lock site here.
+  fn read<T>(self, mutex: &Mutex<T>, pending: impl FnOnce(&T) -> bool) -> bool {
+    let state = match self {
+      Self::Locked => mutex.lock(),
+      Self::NonBlocking => match mutex.try_lock() {
+        Ok(state) => Ok(state),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Err(poisoned),
+        Err(std::sync::TryLockError::WouldBlock) => return true,
+      },
+    };
+    pending(&state.unwrap_or_else(std::sync::PoisonError::into_inner))
   }
 }
 
@@ -2708,15 +2783,19 @@ impl GenerationWork {
   }
 
   fn close_and_abort(&self) {
+    // Take the handles out instead of cloning them into a new `Vec`: nothing
+    // is allocated under the state lock, and no guard retiring later frees a
+    // handle under it (see `GenerationWorkGuard::drop`). Admission is closed
+    // in the same critical section, so no handle can be added afterwards.
     let abort_handles = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       state.closed = true;
-      state.abort_handles.values().cloned().collect::<Vec<_>>()
+      std::mem::take(&mut state.abort_handles)
     };
-    for abort_handle in abort_handles {
+    for abort_handle in abort_handles.values() {
       abort_handle.abort();
     }
   }
@@ -2725,14 +2804,10 @@ impl GenerationWork {
     self.wait_until_idle_retiring(|| false, || {});
   }
 
-  /// Non-blocking read of the predicate `wait_until_idle` sleeps on.
-  fn has_active_work(&self) -> bool {
-    self
-      .state
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .active
-      != 0
+  /// The predicate `wait_until_idle` sleeps on, read without sleeping;
+  /// `read` decides whether it may wait for the state lock.
+  fn has_active_work(&self, read: PendingRead) -> bool {
+    read.read(&self.state, |state| state.active != 0)
   }
 
   /// Wait until every registered guard has retired, retiring deferred work
@@ -2780,21 +2855,30 @@ struct GenerationWorkGuard {
 
 impl Drop for GenerationWorkGuard {
   fn drop(&mut self) {
-    let mut state = self
-      .work
-      .state
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(task_id) = self.task_id {
-      state.abort_handles.remove(&task_id);
-    }
-    state.active = state
-      .active
-      .checked_sub(1)
-      .expect("generation work count underflow");
-    if state.active == 0 {
-      self.work.idle.notify_all();
-    }
+    // The removed handle is usually the last owner of the task's abort state,
+    // so dropping it frees memory and drops the waker parked there. Neither
+    // runs under the state lock: the host's work-pending poll reads it, and
+    // on `wasm32-wasip1-threads` a trap in there unwinds nothing, which
+    // would leave the lock held for good.
+    let abort_handle = {
+      let mut state = self
+        .work
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      let abort_handle = self
+        .task_id
+        .and_then(|task_id| state.abort_handles.remove(&task_id));
+      state.active = state
+        .active
+        .checked_sub(1)
+        .expect("generation work count underflow");
+      if state.active == 0 {
+        self.work.idle.notify_all();
+      }
+      abort_handle
+    };
+    drop(abort_handle);
   }
 }
 
@@ -2866,6 +2950,7 @@ impl<F> RegisteredBlockingFunction<F> {
   where
     F: FnOnce() -> T,
   {
+    on_thread_handoff();
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     let result = catch_unwind_join_error(
       self
@@ -2893,6 +2978,7 @@ impl<F> Drop for RegisteredBlockingFunction<F> {
 }
 
 fn run_runnable(metrics: &RuntimeMetrics, runnable: Runnable) {
+  on_thread_handoff();
   let _active = metrics.runnable_started();
   let _ = catch_unwind_contained(|| runnable.run());
 }
@@ -3440,24 +3526,27 @@ impl CurrentThreadExecutor {
   /// Whether `queue.rejected` (or `queue.rejected_blocking`) holds work the
   /// executor still owes a cancellation.
   fn has_rejected_work(&self) -> bool {
-    let queue = self
-      .queue
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    #[cfg(napi_runtime_os_threads)]
-    let has_rejected_blocking = !queue.rejected_blocking.is_empty();
-    #[cfg(not(napi_runtime_os_threads))]
-    let has_rejected_blocking = false;
-    !queue.rejected.is_empty() || has_rejected_blocking
+    self.rejected_work_pending(PendingRead::Locked)
   }
 
-  /// Non-blocking read of the predicate `wait_until_scheduler_idle` sleeps on.
-  fn scheduler_work_pending(&self) -> bool {
-    let idle = self
-      .scheduler_idle_lock
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    idle.active_host_turns != 0 || idle.active_dispatch_calls != 0
+  /// [`Self::has_rejected_work`]; `read` decides whether it may wait for the
+  /// queue lock.
+  fn rejected_work_pending(&self, read: PendingRead) -> bool {
+    read.read(&self.queue, |queue| {
+      #[cfg(napi_runtime_os_threads)]
+      let has_rejected_blocking = !queue.rejected_blocking.is_empty();
+      #[cfg(not(napi_runtime_os_threads))]
+      let has_rejected_blocking = false;
+      !queue.rejected.is_empty() || has_rejected_blocking
+    })
+  }
+
+  /// The predicate `wait_until_scheduler_idle` sleeps on, read without
+  /// sleeping; `read` decides whether it may wait for the scheduler lock.
+  fn scheduler_work_pending(&self, read: PendingRead) -> bool {
+    read.read(&self.scheduler_idle_lock, |idle| {
+      idle.active_host_turns != 0 || idle.active_dispatch_calls != 0
+    })
   }
 
   /// Cancel every rejected runnable and blocking job. Runs on the caller's
@@ -3897,6 +3986,7 @@ impl CurrentThreadExecutor {
     let _generation = RuntimeGenerationGuard::enter(self.generation);
     let result = {
       let _task = self.metrics.blocking_started(blocking.counts_active_lane());
+      on_thread_handoff();
       catch_unwind_join_error(
         function
           .take()
@@ -4144,9 +4234,7 @@ impl CurrentThreadExecutor {
     let _ = self.request_drain_with(next_current_thread_dispatch_id);
   }
 
-  fn lock_scheduler_for_publication(
-    &self,
-  ) -> std::sync::MutexGuard<'_, CurrentThreadSchedulerState> {
+  fn lock_scheduler_for_publication(&self) -> MutexGuard<'_, CurrentThreadSchedulerState> {
     #[cfg(all(test, napi_runtime_os_threads))]
     match self.scheduler_idle_lock.try_lock() {
       Ok(scheduler) => scheduler,
@@ -4858,6 +4946,7 @@ impl CurrentThreadExecutor {
       }
       #[cfg(napi_runtime_os_threads)]
       dependency.clear();
+      on_thread_handoff();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
       }
@@ -5426,7 +5515,7 @@ impl WorkerLifecycle {
       .take()
       .expect("runtime worker handles already joined");
     for handle in handles {
-      if let Err(payload) = handle.join() {
+      if let Err(payload) = crate::sync::join(handle) {
         discard_panic_payload(payload);
       }
     }
@@ -6116,6 +6205,7 @@ impl MultiThreadExecutor {
       if self.stop.is_stopping() {
         return BlockOnOutcome::Stopped;
       }
+      on_thread_handoff();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
       }
@@ -6131,6 +6221,7 @@ impl MultiThreadExecutor {
     runnable: Runnable,
     admission: Option<MultiThreadDeadlockAdmissionGuard>,
   ) {
+    on_thread_handoff();
     // Ownership is lexical to a blocking closure. A runnable driven from that
     // closure must not borrow its over-cap privilege.
     let _non_owner = BlockingOwnerGuard::enter(None);
@@ -6519,6 +6610,7 @@ impl MultiThreadExecutor {
         return BlockOnOutcome::Stopped;
       }
       dependency.clear();
+      on_thread_handoff();
       if future.as_mut().poll(&mut cx).is_ready() {
         return BlockOnOutcome::Completed;
       }
@@ -6907,7 +6999,7 @@ impl MultiThreadDeadlockState {
     self.publications.load(Ordering::SeqCst)
   }
 
-  fn owner_handoff_publication_guard(&self) -> Option<std::sync::MutexGuard<'_, ()>> {
+  fn owner_handoff_publication_guard(&self) -> Option<MutexGuard<'_, ()>> {
     self.enabled.then(|| {
       self
         .owner_handoff_publication
@@ -7051,7 +7143,7 @@ const PARKER_SLEEPING: usize = 2;
 struct DriverParker {
   state: AtomicUsize,
   lock: Mutex<()>,
-  condvar: std::sync::Condvar,
+  condvar: UnboundedCondvar,
   #[cfg(napi_runtime_os_threads)]
   owner_handoff_pending: AtomicBool,
   #[cfg(napi_runtime_os_threads)]
@@ -9744,7 +9836,7 @@ impl TimerHeap {
         drop(handle);
         return;
       }
-      if let Err(payload) = handle.join() {
+      if let Err(payload) = crate::sync::join(handle) {
         discard_panic_payload(payload);
       }
     }
@@ -10567,13 +10659,16 @@ impl RuntimeBackend {
   /// non-zero for the whole window between the phases by construction and
   /// would make this poll never answer `false`. That join waits on thread
   /// teardown, never on user work, so yielding to the host cannot help it.
-  fn work_pending(&self) -> bool {
-    if self.work.has_active_work() {
+  ///
+  /// `read` decides whether the sources that live under a lock may wait for
+  /// it; the MultiThread scheduler source is an atomic either way.
+  fn work_pending(&self, read: PendingRead) -> bool {
+    if self.work.has_active_work(read) {
       return true;
     }
     match &self.executor {
       RuntimeExecutor::CurrentThread(executor) => {
-        executor.has_rejected_work() || executor.scheduler_work_pending()
+        executor.rejected_work_pending(read) || executor.scheduler_work_pending(read)
       }
       #[cfg(napi_runtime_os_threads)]
       RuntimeExecutor::MultiThread(executor) => executor.scheduler_work_pending(),
@@ -11585,6 +11680,8 @@ impl RuntimeController {
   /// handoff, and the `finish_shutdown` that follows finds the fresh
   /// generation running and is a no-op `Ok(())`.
   fn begin_shutdown(&self) -> Result<bool, RuntimeConfigError> {
+    // See `finish_shutdown`: the same waits, the same reason.
+    let _bounded_waits = BoundedWaits::enter();
     let backend = {
       let mut state = self
         .state
@@ -11631,7 +11728,7 @@ impl RuntimeController {
         // generation and executor locks, and the same re-entry must not
         // nest them under this one.
         drop(state);
-        return Ok(outstanding.is_some_and(|backend| backend.work_pending()));
+        return Ok(outstanding.is_some_and(|backend| backend.work_pending(PendingRead::Locked)));
       }
       loop {
         Self::ensure_active_generation_current(&state)?;
@@ -11746,7 +11843,7 @@ impl RuntimeController {
     #[cfg(test)]
     run_after_generation_stop_publication_test_hook();
     backend.begin_shutdown();
-    Ok(backend.work_pending())
+    Ok(backend.work_pending(PendingRead::Locked))
   }
 
   /// Non-blocking poll for the window between the phases: `false` means
@@ -11757,12 +11854,21 @@ impl RuntimeController {
   /// It stays truthful while a `finish_shutdown` is inside the join: that
   /// thread leaves `ShutdownDrain::Joining` in the slot, so this poll reports
   /// the very work the join is waiting for instead of `false`.
+  ///
+  /// Never blocks, not even on a lock: every lock it reads under is only
+  /// tried ([`PendingRead::NonBlocking`]), and one held by another thread
+  /// answers `true`, so the host takes one more turn and asks again. A held
+  /// lock is not always about to come back: on `wasm32-wasip1-threads` a pool
+  /// thread that traps while holding one unwinds nothing, and waiting for it
+  /// here would park the JavaScript thread in `memory.atomic.wait32` for good
+  /// -- before the loader can see that thread's crash.
   fn runtime_work_pending(&self) -> bool {
     let backend = {
-      let state = self
-        .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      let state = match self.state.try_lock() {
+        Ok(state) => state,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return true,
+      };
       match (&state.draining, &state.lifecycle) {
         // `Joining` is the in-flight drain: while it still carries the
         // backend, report the work the finisher is waiting for, not `false`.
@@ -11785,7 +11891,7 @@ impl RuntimeController {
         }
       }
     };
-    backend.work_pending()
+    backend.work_pending(PendingRead::NonBlocking)
   }
 
   /// Phase 2 of the two-phase shutdown: wait for the generation to go idle,
@@ -11820,7 +11926,15 @@ impl RuntimeController {
   /// the second half without ever calling the first. Like `shutdown`, it also
   /// rejects a caller that is work of the generation being stopped, which could
   /// only wait for itself.
+  ///
+  /// On `wasm32-wasip1-threads` every lock, condvar wait and join this thread
+  /// makes in here (and in `begin_shutdown`) stops once the host reports a
+  /// crashed thread, with a trap: a pool thread that trapped holds its locks
+  /// and its work for good, and waiting for either would park the host's
+  /// JavaScript thread before the loader could see the crash. See
+  /// `crate::sync`.
   fn finish_shutdown(&self) -> Result<(), RuntimeConfigError> {
+    let _bounded_waits = BoundedWaits::enter();
     const STOPPING_WAIT_ERROR: &str =
       "cannot wait for async runtime shutdown from work in the generation being stopped";
     const REJECTED_DROP_ERROR: &str =
@@ -12265,6 +12379,12 @@ pub fn begin_shutdown() -> Result<bool, RuntimeConfigError> {
 /// [`finish_shutdown`]: `false` means phase 2 will not wait for user work.
 ///
 /// Answers for the running generation when no shutdown is outstanding.
+///
+/// It never waits for a lock either: when another thread holds one it reads
+/// under, it answers `true` and the host polls again on its next turn. That
+/// keeps a pool thread that died holding such a lock (a trap on
+/// `wasm32-wasip1-threads` unwinds nothing) from parking the polling thread
+/// for good.
 pub fn runtime_work_pending() -> bool {
   RUNTIME.runtime_work_pending()
 }
@@ -12641,6 +12761,101 @@ mod tests {
     assert_eq!(state.next_task_id, u64::MAX);
     assert_eq!(state.active, 0);
     assert!(state.abort_handles.is_empty());
+  }
+
+  /// A waker that records, when its last reference drops, whether `work`'s
+  /// state lock was free at that moment. `Abortable` parks the waker it is
+  /// polled with in the abort state its handles share, so the waker drops
+  /// exactly where the last `AbortHandle` of that task does.
+  struct GenerationStateLockProbe {
+    work: Weak<GenerationWork>,
+    dropped_with_lock_free: Arc<Mutex<Option<bool>>>,
+  }
+
+  #[expect(
+    clippy::manual_noop_waker,
+    reason = "the test observes the waker payload's Drop"
+  )]
+  impl std::task::Wake for GenerationStateLockProbe {
+    fn wake(self: Arc<Self>) {}
+  }
+
+  impl Drop for GenerationStateLockProbe {
+    fn drop(&mut self) {
+      let lock_free = self
+        .work
+        .upgrade()
+        .is_some_and(|work| work.state.try_lock().is_ok());
+      *self.dropped_with_lock_free.lock().unwrap() = Some(lock_free);
+    }
+  }
+
+  /// Register one async task on `work` and leave the handle `work` keeps as
+  /// the only owner of its abort state, with a [`GenerationStateLockProbe`]
+  /// parked in it.
+  fn register_task_with_state_lock_probe(
+    work: &Arc<GenerationWork>,
+  ) -> (GenerationWorkGuard, Arc<Mutex<Option<bool>>>) {
+    let (registration, guard) = work
+      .try_register_async()
+      .expect("an open generation must accept the task");
+    let dropped_with_lock_free = Arc::new(Mutex::new(None));
+    let waker = Waker::from(Arc::new(GenerationStateLockProbe {
+      work: Arc::downgrade(work),
+      dropped_with_lock_free: Arc::clone(&dropped_with_lock_free),
+    }));
+    let mut task = std::pin::pin!(Abortable::new(std::future::pending::<()>(), registration));
+    assert!(
+      task
+        .as_mut()
+        .poll(&mut Context::from_waker(&waker))
+        .is_pending()
+    );
+    (guard, dropped_with_lock_free)
+  }
+
+  #[test]
+  fn generation_work_guard_drops_its_abort_handle_outside_the_state_lock() {
+    // The last `AbortHandle` of a task frees its abort state and the waker
+    // parked there, and a waker's drop is foreign code. Under the state lock,
+    // anything that goes wrong in there -- on `wasm32-wasip1-threads`, a trap
+    // in the allocator unwinds nothing -- leaves the lock held for good.
+    let work = GenerationWork::new();
+    let (guard, dropped_with_lock_free) = register_task_with_state_lock_probe(&work);
+    assert_eq!(
+      *dropped_with_lock_free.lock().unwrap(),
+      None,
+      "the handle the generation keeps must still own the abort state"
+    );
+
+    drop(guard);
+    assert_eq!(
+      *dropped_with_lock_free.lock().unwrap(),
+      Some(true),
+      "the guard must drop the handle it removed after releasing the state lock"
+    );
+  }
+
+  #[test]
+  fn close_and_abort_takes_the_abort_handles_out_of_the_state() {
+    // `abort` consumes the parked waker, so what is left to free is the abort
+    // state itself. Taking the handles out at close frees it after the lock
+    // is released, and a guard retiring later finds nothing to free under it.
+    let work = GenerationWork::new();
+    let (registration, guard) = work
+      .try_register_async()
+      .expect("an open generation must accept the task");
+    let task = Abortable::new(std::future::pending::<()>(), registration);
+
+    work.close_and_abort();
+    assert!(task.is_aborted(), "close must abort the registered task");
+    assert!(
+      work.state.lock().unwrap().abort_handles.is_empty(),
+      "close must take the handles out of the state, not leave them for the guards"
+    );
+    drop(task);
+    drop(guard);
+    assert_eq!(work.state.lock().unwrap().active, 0);
   }
 
   #[cfg(panic = "unwind")]
@@ -31448,6 +31663,262 @@ mod tests {
     }
   }
 
+  /// Poll `runtime_work_pending` between the phases of an idle generation's
+  /// shutdown while `hold` keeps a lock the poll reads under held for good,
+  /// and require the answer "pending" -- an exact read would say idle.
+  ///
+  /// `hold` forgets the guard: that is the pool thread that trapped while
+  /// holding the lock on `wasm32-wasip1-threads`, where a trap unwinds
+  /// nothing, so the lock never comes back. The loader polls from the
+  /// JavaScript thread, so the poll runs on another thread here too, and a
+  /// regression HANGS in it: the `recv_timeout` turns that into a failure.
+  /// Nothing can take the lock again, so the runtime is leaked, not shut down.
+  #[cfg(napi_runtime_os_threads)]
+  fn assert_poll_reports_pending_while_held(
+    controller: RuntimeController,
+    what: &str,
+    hold: impl FnOnce(&RuntimeController, &RuntimeBackend),
+  ) {
+    use std::sync::mpsc;
+
+    let controller = Arc::new(controller);
+    let backend = controller.backend();
+    assert!(
+      !controller
+        .begin_shutdown()
+        .expect("phase 1 on an idle generation must be accepted"),
+      "an idle generation has nothing for the host to wait for"
+    );
+    assert!(
+      !controller.runtime_work_pending(),
+      "with every lock free the poll must read the idle generation"
+    );
+
+    hold(&controller, &backend);
+    let (pending_tx, pending_rx) = mpsc::channel();
+    let poll_controller = Arc::clone(&controller);
+    let poller = std::thread::spawn(move || {
+      pending_tx
+        .send(poll_controller.runtime_work_pending())
+        .unwrap();
+    });
+    let pending = pending_rx
+      .recv_timeout(Duration::from_secs(5))
+      .unwrap_or_else(|_| panic!("the work-pending poll must not wait for {what}"));
+    join_within(what, poller, Duration::from_secs(2));
+    assert!(
+      pending,
+      "a poll that cannot read {what} must answer pending, not idle"
+    );
+
+    std::mem::forget(backend);
+    std::mem::forget(controller);
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  fn current_thread_executor(backend: &RuntimeBackend) -> &CurrentThreadExecutor {
+    match &backend.executor {
+      RuntimeExecutor::CurrentThread(executor) => executor,
+      RuntimeExecutor::MultiThread(_) => panic!("expected a CurrentThread backend"),
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn work_pending_poll_does_not_wait_for_a_held_controller_lock() {
+    for controller in [
+      current_thread_controller("poll-held-controller-lock-ct"),
+      multi_thread_controller("poll-held-controller-lock-mt", 2, 1),
+    ] {
+      assert_poll_reports_pending_while_held(
+        controller,
+        "the controller state lock",
+        |controller, _| {
+          std::mem::forget(controller.state.lock().unwrap());
+        },
+      );
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn work_pending_poll_does_not_wait_for_a_held_generation_lock() {
+    for controller in [
+      current_thread_controller("poll-held-generation-lock-ct"),
+      multi_thread_controller("poll-held-generation-lock-mt", 2, 1),
+    ] {
+      assert_poll_reports_pending_while_held(
+        controller,
+        "the generation state lock",
+        |_, backend| {
+          std::mem::forget(backend.work.state.lock().unwrap());
+        },
+      );
+    }
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn current_thread_work_pending_poll_does_not_wait_for_a_held_queue_lock() {
+    assert_poll_reports_pending_while_held(
+      current_thread_controller("poll-held-queue-lock"),
+      "the CurrentThread queue lock",
+      |_, backend| {
+        std::mem::forget(current_thread_executor(backend).queue.lock().unwrap());
+      },
+    );
+  }
+
+  #[cfg(napi_runtime_os_threads)]
+  #[test]
+  fn current_thread_work_pending_poll_does_not_wait_for_a_held_scheduler_lock() {
+    assert_poll_reports_pending_while_held(
+      current_thread_controller("poll-held-scheduler-lock"),
+      "the CurrentThread scheduler lock",
+      |_, backend| {
+        std::mem::forget(
+          current_thread_executor(backend)
+            .scheduler_idle_lock
+            .lock()
+            .unwrap(),
+        );
+      },
+    );
+  }
+
+  /// Run a shutdown phase on a thread standing in for the host's JavaScript
+  /// thread, after the caller left the runtime the way a pool thread that
+  /// trapped on `wasm32-wasip1-threads` leaves it: a lock held for good (a
+  /// forgotten guard), or work that never retires. The phase must keep
+  /// waiting while no thread has crashed, and must give up once the host's
+  /// crash flag is up -- a trap on wasm, `GaveUpAfterThreadCrash` here. A
+  /// regression HANGS in the phase: the `recv_timeout` turns that into a
+  /// failure. Nothing can release what the caller left behind, so the runtime
+  /// is leaked, not shut down.
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
+  fn assert_shutdown_phase_gives_up_after_a_thread_crash(
+    what: &str,
+    controller: Arc<RuntimeController>,
+    phase: impl FnOnce(&RuntimeController) + Send + 'static,
+  ) {
+    use std::sync::mpsc;
+
+    let crashed = Arc::new(AtomicBool::new(false));
+    let (outcome_tx, outcome_rx) = mpsc::channel();
+    let js_thread = {
+      let controller = Arc::clone(&controller);
+      let crashed = Arc::clone(&crashed);
+      std::thread::spawn(move || {
+        crate::sync::watch_crash_flag_for_test(crashed);
+        let outcome = match catch_unwind(AssertUnwindSafe(|| phase(&controller))) {
+          Ok(()) => "returned",
+          Err(payload) if payload.is::<crate::sync::GaveUpAfterThreadCrash>() => "gave up",
+          Err(_) => "panicked",
+        };
+        outcome_tx.send(outcome).unwrap();
+      })
+    };
+    assert!(
+      outcome_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+      "{what}: with no thread crashed, the phase must keep waiting"
+    );
+    crashed.store(true, Ordering::SeqCst);
+    let outcome = outcome_rx
+      .recv_timeout(Duration::from_secs(5))
+      .unwrap_or_else(|_| panic!("{what}: the phase must stop waiting once a thread crashed"));
+    join_within(what, js_thread, Duration::from_secs(2));
+    assert_eq!(outcome, "gave up", "{what}");
+    std::mem::forget(controller);
+  }
+
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
+  #[test]
+  fn begin_shutdown_gives_up_on_a_held_lock_after_a_thread_crash() {
+    type Hold = fn(&RuntimeController, &RuntimeBackend);
+    let holds: [(&str, Hold); 2] = [
+      ("the controller state lock", |controller, _| {
+        std::mem::forget(controller.state.lock().unwrap());
+      }),
+      // `close_and_abort` takes it first thing.
+      ("the generation state lock", |_, backend| {
+        std::mem::forget(backend.work.state.lock().unwrap());
+      }),
+    ];
+    for (what, hold) in holds {
+      for controller in [
+        current_thread_controller("crash-begin-ct"),
+        multi_thread_controller("crash-begin-mt", 2, 1),
+      ] {
+        let controller = Arc::new(controller);
+        let backend = controller.backend();
+        hold(&controller, &backend);
+        assert_shutdown_phase_gives_up_after_a_thread_crash(
+          &format!("begin_shutdown on {what}"),
+          controller,
+          |controller| {
+            let _ = controller.begin_shutdown();
+          },
+        );
+        std::mem::forget(backend);
+      }
+    }
+  }
+
+  #[cfg(all(napi_runtime_os_threads, panic = "unwind"))]
+  #[test]
+  fn finish_shutdown_gives_up_after_a_thread_crash() {
+    for controller in [
+      current_thread_controller("crash-finish-work-ct"),
+      multi_thread_controller("crash-finish-work-mt", 2, 1),
+    ] {
+      // A task on the thread that trapped: its guard never drops, so the
+      // generation never goes idle and `wait_until_idle` never wakes.
+      let controller = Arc::new(controller);
+      let backend = controller.backend();
+      let work = backend
+        .work
+        .try_register_work()
+        .expect("an open generation must accept work");
+      assert!(
+        controller
+          .begin_shutdown()
+          .expect("phase 1 must be accepted"),
+        "phase 1 must report the registered work"
+      );
+      std::mem::forget(work);
+      assert_shutdown_phase_gives_up_after_a_thread_crash(
+        "finish_shutdown on work that never retires",
+        controller,
+        |controller| {
+          let _ = controller.finish_shutdown();
+        },
+      );
+      std::mem::forget(backend);
+    }
+    for controller in [
+      current_thread_controller("crash-finish-lock-ct"),
+      multi_thread_controller("crash-finish-lock-mt", 2, 1),
+    ] {
+      let controller = Arc::new(controller);
+      let backend = controller.backend();
+      assert!(
+        !controller
+          .begin_shutdown()
+          .expect("phase 1 on an idle generation must be accepted"),
+        "an idle generation has nothing for the host to wait for"
+      );
+      std::mem::forget(backend.work.state.lock().unwrap());
+      assert_shutdown_phase_gives_up_after_a_thread_crash(
+        "finish_shutdown on the generation state lock",
+        controller,
+        |controller| {
+          let _ = controller.finish_shutdown();
+        },
+      );
+      std::mem::forget(backend);
+    }
+  }
+
   // ---- MultiThread blocking cap, drain budget, and panic propagation ---------
   // All three construct a `MultiThreadExecutor`/`RuntimeMetrics` LOCALLY (never the
   // global `RUNTIME`) and run the workload on a child thread guarded by a
@@ -36558,6 +37029,166 @@ mod tests {
       cfg!(napi_runtime_os_threads),
       "the threaded WASI target must build the OS-thread machinery"
     );
+  }
+
+  // Memory-size refresh at scheduler handoffs (`on_thread_handoff`). This
+  // napi-free binary links no allocator wrappers, so only `grow_zero` and the
+  // hook ever set a thread's `local_pages`. Each test grows the memory on
+  // another thread and publishes the new size, as napi's allocator does after
+  // dlmalloc grows it, then reads `local_pages` inside the work under test.
+  // Every thread that has not refreshed since is below that size, so a
+  // reading at or above it proves the hook at that site ran; without the hook
+  // each test fails its assertion.
+
+  /// Grow the memory by one page on a new thread and publish the new size,
+  /// which this returns.
+  #[cfg(napi_runtime_wasi_threads)]
+  fn grow_one_page_elsewhere() -> usize {
+    std::thread::spawn(|| {
+      let old = core::arch::wasm32::memory_grow::<0>(1);
+      assert_ne!(old, usize::MAX, "the WASI host must let the memory grow");
+      napi_sys::wasi_heap_sync::grow_zero()
+    })
+    .join()
+    .expect("the growing thread must finish")
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_multi_thread_task_polls_refresh_the_memory_size() {
+    // `MultiThreadExecutor::run_runnable`: a pool worker polls a task spawned
+    // after another thread grew the memory.
+    let controller = multi_thread_controller("wasi-handoff-task", 2, 1);
+    let pages = grow_one_page_elsewhere();
+    let refreshes = napi_sys::wasi_heap_sync::handoff_refreshes();
+    let seen = futures::executor::block_on(
+      controller.spawn(async { napi_sys::wasi_heap_sync::local_pages() }),
+    )
+    .expect("the task must finish");
+    assert!(
+      seen >= pages,
+      "the worker polled with a stale memory size: {seen} < {pages} pages"
+    );
+    assert!(
+      napi_sys::wasi_heap_sync::handoff_refreshes() > refreshes,
+      "the handoff refresh must be counted"
+    );
+    controller.shutdown().expect("runtime must stop");
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_current_thread_task_polls_refresh_the_memory_size() {
+    // The free `run_runnable`: the thread driving a host turn polls a task
+    // after another thread grew the memory.
+    use std::sync::mpsc;
+
+    let executor = Arc::new(CurrentThreadExecutor::new(Arc::new(
+      RuntimeMetrics::default(),
+    )));
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let wake_executor = Arc::clone(&executor);
+    let (runnable, task) = async_task::spawn(
+      async move {
+        let _ = seen_tx.send(napi_sys::wasi_heap_sync::local_pages());
+      },
+      move |runnable| wake_executor.schedule(runnable),
+    );
+    executor.schedule(runnable);
+    let pages = grow_one_page_elsewhere();
+    executor.drive_host_turn();
+    let seen = seen_rx
+      .try_recv()
+      .expect("one host turn must poll the task");
+    futures::executor::block_on(task);
+    assert!(
+      seen >= pages,
+      "the host turn polled with a stale memory size: {seen} < {pages} pages"
+    );
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_block_on_polls_refresh_the_memory_size() {
+    // `CurrentThreadExecutor::block_on` and
+    // `MultiThreadExecutor::parking_block_on`: the caller polls after another
+    // thread grew the memory.
+    for controller in [
+      current_thread_controller("wasi-handoff-block-on"),
+      multi_thread_controller("wasi-handoff-parking-block-on", 2, 1),
+    ] {
+      let pages = grow_one_page_elsewhere();
+      let mut seen = 0;
+      {
+        let mut future = std::pin::pin!(async {
+          seen = napi_sys::wasi_heap_sync::local_pages();
+        });
+        assert_eq!(
+          controller.block_on(future.as_mut()),
+          BlockOnOutcome::Completed
+        );
+      }
+      assert!(
+        seen >= pages,
+        "block_on polled with a stale memory size: {seen} < {pages} pages"
+      );
+      controller.shutdown().expect("runtime must stop");
+    }
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_blocking_closures_refresh_the_memory_size() {
+    // `RegisteredBlockingFunction::run`: a pool worker starts a closure
+    // submitted after another thread grew the memory. Inside it,
+    // `cooperative_block_on`: the same worker polls after a second grow.
+    let controller = Arc::new(multi_thread_controller("wasi-handoff-blocking", 2, 1));
+    let pages = grow_one_page_elsewhere();
+    let block_on_controller = Arc::clone(&controller);
+    let (start_seen, block_on_pages, block_on_seen) =
+      futures::executor::block_on(controller.spawn_blocking(move || {
+        let start_seen = napi_sys::wasi_heap_sync::local_pages();
+        let block_on_pages = grow_one_page_elsewhere();
+        let mut block_on_seen = 0;
+        {
+          let mut future = std::pin::pin!(async {
+            block_on_seen = napi_sys::wasi_heap_sync::local_pages();
+          });
+          assert_eq!(
+            block_on_controller.block_on(future.as_mut()),
+            BlockOnOutcome::Completed
+          );
+        }
+        (start_seen, block_on_pages, block_on_seen)
+      }))
+      .expect("the blocking closure must finish");
+    assert!(
+      start_seen >= pages,
+      "the blocking closure started with a stale memory size: {start_seen} < {pages} pages"
+    );
+    assert!(
+      block_on_seen >= block_on_pages,
+      "the cooperative block_on polled with a stale memory size: \
+       {block_on_seen} < {block_on_pages} pages"
+    );
+    controller.shutdown().expect("runtime must stop");
+  }
+
+  #[cfg(napi_runtime_wasi_threads)]
+  #[test]
+  fn wasi_threads_inline_blocking_refreshes_the_memory_size() {
+    // The CurrentThread inline blocking path: the submitting thread runs the
+    // closure itself, after another thread grew the memory.
+    let controller = current_thread_controller("wasi-handoff-inline-blocking");
+    let pages = grow_one_page_elsewhere();
+    let seen =
+      futures::executor::block_on(controller.spawn_blocking(napi_sys::wasi_heap_sync::local_pages))
+        .expect("the inline blocking closure must finish");
+    assert!(
+      seen >= pages,
+      "the inline blocking closure ran with a stale memory size: {seen} < {pages} pages"
+    );
+    controller.shutdown().expect("runtime must stop");
   }
 
   // `not(napi_runtime_os_threads)` is exactly "wasm and not the threaded WASI

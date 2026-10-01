@@ -1,0 +1,24 @@
+{
+  "name": "@examples/wasi-heap-sync",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build:wasi-threads": "napi-raw build --platform --target wasm32-wasip1-threads --profile wasi --js index.cjs --dts index.d.cts",
+    "stress": "node stress.mjs"
+  },
+  "napi": {
+    "binaryName": "wasi_heap_sync",
+    "targets": [
+      "wasm32-wasip1-threads"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
+    "@napi-rs/wasm-runtime": "workspace:*"
+  },
+  "dependencies": {
+    "@emnapi/core": "2.0.0-alpha.5",
+    "@emnapi/runtime": "2.0.0-alpha.5"
+  }
+}

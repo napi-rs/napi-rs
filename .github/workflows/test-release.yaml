@@ -946,7 +946,8 @@ jobs:
             __tests__/wasi-host-install-binding-target.spec.ts \
             __tests__/wasi-buffer-public-api.spec.ts \
             __tests__/wasi-deferred-before-exit.spec.ts \
-            __tests__/wasi-env-cleanup-export.spec.ts
+            __tests__/wasi-env-cleanup-export.spec.ts \
+            __tests__/wasi-heap-sync-exports.spec.ts
         env:
           NAPI_RS_TEST_THREADLESS_WASI_BUFFER: '1'
       - name: Test lifecycle public surface
@@ -1006,12 +1007,82 @@ jobs:
       - name: Test
         run: yarn workspace @examples/custom-async-runtime test:wasi-threads
 
+  # napi's allocator lock on wasm32-wasip1-threads (crates/napi/src/wasi_heap_sync.rs).
+  # V8 updates a shared memory's size only on the thread that grew it, and checks
+  # memory.fill / memory.copy / atomics (and, without its wasm trap handler, every load
+  # and store) against each thread's own size, so a thread that touches pages another
+  # thread just grew traps. `examples/wasi-heap-sync` allocates, fills, copies and frees
+  # on OS threads and emnapi's async-work pool, and hands blocks between threads and to
+  # JavaScript. `--wasm-enforce-bounds-checks` stands in for hosts without the trap
+  # handler, and `--disable-wasm-trap-handler` turns it off. Built with
+  # `--cfg napi_wasi_no_heap_sync`, 25-40% of these runs trapped or hung in local runs,
+  # so the steps are not retried: one failure is a regression. Each run has its own
+  # 30 s timeout.
+  test-wasi-heap-sync:
+    runs-on: ubuntu-latest
+    name: Test WASI heap sync on wasm32-wasip1-threads
+    timeout-minutes: 20
+    needs: audit
+    defaults:
+      run:
+        working-directory: examples/wasi-heap-sync
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1-threads
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build
+        run: |
+          yarn workspace @napi-rs/wasm-runtime build
+          yarn build:wasi-threads
+      - name: Stress (5 runs)
+        run: node stress.mjs --runs 5
+      - name: Stress with bounds checks (20 runs)
+        run: node stress.mjs --runs 20 --node-flag=--wasm-enforce-bounds-checks
+      - name: Stress without the trap handler (10 runs)
+        run: node stress.mjs --runs 10 --node-flag=--disable-wasm-trap-handler
+      # The loader's memory starts at the module's minimum, so the heap has no pages to
+      # spare and grows while the threads allocate (each run checks that it did).
+      - name: Stress with forced growth and bounds checks (20 runs)
+        run: >-
+          node stress.mjs --runs 20 --initial-pages min --expect-grows some
+          --node-flag=--wasm-enforce-bounds-checks
+      # With the loader's default memory, the same loads fit in the pages between the
+      # module's own memory and the loader's, so nothing grows.
+      - name: Heap grows only past the loader memory
+        run: node stress.mjs --expect-grows zero
+      # An allocator that calls memory.grow itself takes pages, then libc allocates more
+      # than is left: napi's sbrk must hand out fresh pages, never the foreign ones, both
+      # with the loader's default memory and with none to spare.
+      - name: Foreign memory grower
+        run: |
+          node stress.mjs --cases foreign
+          node stress.mjs --cases foreign --initial-pages min
+      # Threads that call libc's sbrk directly, between malloc / free calls: napi's sbrk
+      # must take the allocator lock for them, so no two callers get the same pages.
+      - name: Direct sbrk callers (5 runs)
+        run: node stress.mjs --cases raw-sbrk --runs 5 --expect-grows zero
+
   # Node-only lane: the threadless wasm32-wasip1 artifact built from the real
   # `napi-async-runtime` adapter driven by the real `@napi-rs/async-runtime`
   # JavaScript hosts. The browser lane stays out of scope (the
   # custom-async-runtime jobs cover it); the deferred (`./workerd`) loader is
   # exercised here under Node, because this is the only example whose binding
   # exports the CurrentThread host protocol that loader registers against.
+  # The threaded artifact is built last, for one case: a pool worker that fails
+  # while it loads must still end the shutdown waits of the MultiThread runtime
+  # on the loader thread (the addon crash flag the worker raises).
   test-shared-async-runtime-wasi:
     runs-on: ubuntu-latest
     name: Test shared async runtime on wasm32-wasip1
@@ -1030,7 +1101,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip1
+          targets: wasm32-wasip1,wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Build
@@ -1041,6 +1112,10 @@ jobs:
         run: yarn workspace @examples/shared-async-runtime test:wasi
       - name: Test the deferred (workerd) loader
         run: yarn workspace @examples/shared-async-runtime test:wasi-workerd
+      - name: Build the threaded artifact
+        run: yarn workspace @examples/shared-async-runtime build:wasi-threads
+      - name: Test a pool worker that fails to load
+        run: yarn workspace @examples/shared-async-runtime test:wasi-threads-crash
 
   test-node-wasi:
     runs-on: ubuntu-latest
@@ -1140,6 +1215,15 @@ jobs:
             "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ matrix.wasi-sdk }}/$sdk.tar.gz"
           tar -xf "$sdk.tar.gz"
           echo "WASI_SDK_PATH=$(pwd)/$sdk" >> "$GITHUB_ENV"
+      # napi-build wraps wasi-libc's allocator entries by name (crates/build/src/wasi.rs).
+      # Both libc.a files an addon can link must still match that list: the wasi-sdk
+      # sysroot's (this lane) and rustc's self-contained one (the rust-lld lanes).
+      - name: Check the allocator symbols napi's heap sync wraps
+        shell: bash
+        run: |
+          node .github/check-wasi-dlmalloc-symbols.mjs \
+            "$WASI_SDK_PATH/share/wasi-sysroot/lib/wasm32-wasip1-threads/libc.a" \
+            "$(rustc --print sysroot)/lib/rustlib/wasm32-wasip1-threads/lib/self-contained/libc.a"
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Build
@@ -1257,6 +1341,7 @@ jobs:
       - napi-async-runtime
       - test-custom-async-runtime-wasi
       - test-custom-async-runtime-wasi-threads
+      - test-wasi-heap-sync
       - test-shared-async-runtime-wasi
       - test-node-wasi
       - wasi-sdk

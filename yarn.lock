@@ -466,6 +466,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@examples/wasi-heap-sync@workspace:examples/wasi-heap-sync":
+  version: 0.0.0-use.local
+  resolution: "@examples/wasi-heap-sync@workspace:examples/wasi-heap-sync"
+  dependencies:
+    "@emnapi/core": "npm:2.0.0-alpha.5"
+    "@emnapi/runtime": "npm:2.0.0-alpha.5"
+    "@napi-rs/cli": "workspace:*"
+    "@napi-rs/wasm-runtime": "workspace:*"
+  languageName: unknown
+  linkType: soft
+
 "@gar/promise-retry@npm:^1.0.0, @gar/promise-retry@npm:^1.0.2":
   version: 1.0.3
   resolution: "@gar/promise-retry@npm:1.0.3"

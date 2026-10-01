@@ -13,6 +13,7 @@
     "examples/custom-async-runtime",
     "examples/napi",
     "examples/shared-async-runtime",
+    "examples/wasi-heap-sync",
     "examples/napi-compat-mode",
     "examples/binary"
   ],

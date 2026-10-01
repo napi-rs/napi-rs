@@ -1,5 +1,8 @@
-import { dirname } from 'node:path'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 
 import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
@@ -927,7 +930,9 @@ test('Node WASI loader uses an accessible host root on Android', (t) => {
   t.true(code.includes('[__rootDir]: __hostRoot'))
   t.true(code.includes('[__hostRoot]: __hostRoot'))
   t.true(
-    code.includes('workerData: { hostRoot: __hostRoot, rootDir: __rootDir }'),
+    code.includes(
+      'workerData: {\n          hostRoot: __hostRoot,\n          rootDir: __rootDir,\n',
+    ),
   )
   t.false(code.includes('[__rootDir]: __rootDir'))
 })
@@ -984,6 +989,10 @@ for (const { name, code } of wasiLoaderCases) {
 }
 
 const EAGER_ROLLBACK_SIGNATURE = 'function __rollbackWasiInitialization() {'
+// The threaded node loader keeps the rollback's body under this name and makes
+// `__rollbackWasiInitialization` the wrapper that stops it after a crash.
+const LATCHED_ROLLBACK_SIGNATURE =
+  'function __runWasiInitializationRollbackSteps() {'
 const DEFERRED_ROLLBACK_SIGNATURE = "__lifecycleState = 'failed'"
 const DRAIN_CALL_BY_ROLLBACK_FLAVOR = {
   eager: '__drainWasmEnvCleanup',
@@ -992,12 +1001,14 @@ const DRAIN_CALL_BY_ROLLBACK_FLAVOR = {
 
 /**
  * The body of a loader's initialization-failure path: `__rollbackWasiInitialization`
- * for the eager loaders, `__createInstance`'s catch for the deferred one.
+ * (its steps, in the threaded node loader) for the eager loaders, `__createInstance`'s catch for the deferred one.
  * Sliced rather than searched whole-file, so a drain that only runs on the
  * ordinary disposal path cannot satisfy the assertion.
  */
 function initializationRollbackBody(code: string): string {
-  const eagerStart = code.indexOf(EAGER_ROLLBACK_SIGNATURE)
+  const latchedStart = code.indexOf(LATCHED_ROLLBACK_SIGNATURE)
+  const eagerStart =
+    latchedStart !== -1 ? latchedStart : code.indexOf(EAGER_ROLLBACK_SIGNATURE)
   if (eagerStart !== -1) {
     return code.slice(eagerStart, code.indexOf('\n}', eagerStart))
   }
@@ -1299,8 +1310,17 @@ for (const { name, code } of wasiLoaderCases) {
       /if \(__settled\??\) \{\s*return\s*\}|if \(settled\) \{\s*return\s*\}/,
       'whichever primitive loses the race must resolve nothing: one poll per turn',
     )
+    // The threaded node loader routes the poll's end through a crash check
+    // first: after a worker died, `…_finish` would join the dead thread's work.
+    // See `node WASI disposal stops the barrier poll when a worker crashes
+    // mid-flight`.
+    const crashLatched = code.includes('finishCleanupUnlessCrashed')
     t.true(
-      code.includes(barrier.finish),
+      code.includes(
+        crashLatched
+          ? '.then(finishCleanupUnlessCrashed, finishCleanupUnlessCrashed)'
+          : barrier.finish,
+      ),
       'finish must run whether the poll ended, timed out or could not run at all',
     )
     // The one caller that cannot yield is the raw `Context.destroy()` the
@@ -1324,7 +1344,8 @@ for (const { name, code } of wasiLoaderCases) {
     )
     t.is(
       code.split(barrier.clearParked).length - 1,
-      1,
+      // Plus the crash abort, which retracts it instead of finishing.
+      crashLatched ? 2 : 1,
       'finishing the handshake must retract that closer exactly once',
     )
     const parkedIndex = code.indexOf(`const ${barrier.parked}`)
@@ -2106,4 +2127,1905 @@ test('createEsmBinding builds native addon loading on portable ESM primitives', 
     /new URL\(['"]\.['"], import\.meta\.url\)\.pathname/.test(code),
     'ESM loader must not treat URL.pathname as a filesystem path',
   )
+})
+
+/**
+ * A top-level `function <name>(` of generated code, through its closing brace
+ * at column zero.
+ */
+function generatedFunction(code: string, name: string): string {
+  const start = code.indexOf(`function ${name}(`)
+  if (start === -1) {
+    return ''
+  }
+  return code.slice(start, code.indexOf('\n}\n', start) + 2)
+}
+
+/**
+ * Runs the node loader's 'exit' listener against stubbed teardown steps, with
+ * the crash latch in the given state, and returns the steps it took.
+ */
+function runWasiExitListener(
+  code: string,
+  crash: { flag?: boolean; errorEvent?: boolean; fatalError?: boolean },
+): string[] {
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const steps: string[] = []
+  const run = new Function(
+    'steps',
+    'crash',
+    `
+let __wasiExitListenerRegistered = true
+${latchState}
+function __getWasiThreadManager() {
+  return {
+    terminateWorker() {},
+    _fatalError: crash.fatalError ? new Error('worker died') : undefined,
+  }
+}
+function __isThenable(value) {
+  return value !== null && typeof value === 'object' && typeof value.then === 'function'
+}
+function __destroyEmnapiContext() {
+  steps.push('destroy')
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate')
+}
+// Only an asyncRuntime loader calls it.
+function __releaseCurrentThreadHostTimers() {
+  steps.push('release host timers')
+}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__disposeWasiBindingAtExit')}
+if (crash.flag) Atomics.store(__wasiThreadCrashFlag, 0, 1)
+if (crash.errorEvent) __wasiThreadCrashed = true
+__disposeWasiBindingAtExit()
+if (__wasiExitListenerRegistered) steps.push('still registered')
+`,
+  )
+  run(steps, crash)
+  return steps
+}
+
+// A wasm thread that died can leave the shared state half-updated: a lock it
+// held stays held, and the async runtime's shutdown waits for its work to go
+// idle. The 'exit' teardown re-enters wasm on the JavaScript thread and blocks
+// there in a raw atomic wait that no signal can interrupt, so the process hangs
+// for good. After a crash the listener must only stop the workers.
+test('node WASI loader skips the wasm teardown at exit after a thread crash', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'node cjs')
+  t.true(code.includes('function __hasWasiThreadCrashed() {'))
+
+  // No crash: the teardown is exactly what it was.
+  t.deepEqual(runWasiExitListener(code, {}), ['destroy', 'terminate'])
+
+  // Each of the three signals is enough on its own: the flag the worker sets
+  // before it reports, the worker's 'error' event, and emnapi's fatal error.
+  for (const crash of [
+    { flag: true },
+    { errorEvent: true },
+    { fatalError: true },
+  ]) {
+    t.deepEqual(
+      runWasiExitListener(code, crash),
+      ['terminate'],
+      JSON.stringify(crash),
+    )
+  }
+})
+
+/**
+ * Runs the node loader's public disposer, and then its 'exit' listener, against
+ * stubbed wasm steps with the crash latch in the given state. Every stub
+ * records its name, so the steps show exactly what re-entered wasm.
+ *
+ * `__emnapiContext` is a stub shaped like emnapi's Node `Context`: its
+ * `refCounter.refHandle` records 'port ref' / 'port unref', and every other
+ * member records its name, so a step that touched the context shows up too.
+ * `context` picks a context without a counter, one whose counter getter
+ * throws, or no context at all.
+ */
+async function runWasiPublicDisposer(
+  code: string,
+  crash: {
+    flag?: boolean
+    errorEvent?: boolean
+    fatalError?: boolean
+    terminateThrows?: boolean
+    context?: 'no counter' | 'throwing counter' | 'none'
+  },
+  calls = 1,
+): Promise<{
+  steps: string[]
+  results: Array<{ value?: unknown; error?: any }>
+  samePromise: boolean
+  exitError?: unknown
+  count?: number
+}> {
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const steps: string[] = []
+  const fatalError = new Error('worker died')
+  // Two requests still in flight on the dead thread.
+  const refCounter = {
+    count: 2,
+    refHandle: {
+      ref() {
+        steps.push('port ref')
+      },
+      unref() {
+        steps.push('port unref')
+      },
+    },
+  }
+  let context: object | undefined
+  if (crash.context === 'no counter') {
+    context = {}
+  } else if (crash.context === 'throwing counter') {
+    context = {
+      get refCounter() {
+        throw new Error('private field')
+      },
+    }
+  } else if (crash.context !== 'none') {
+    context = { refCounter }
+  }
+  if (context) {
+    // Anything but the counter port touching the context is a wasm re-entry
+    // (destroy runs the cleanup hooks) or a JS state change this path must not
+    // make; record it.
+    context = new Proxy(context, {
+      get(target, key, receiver) {
+        if (key !== 'refCounter') {
+          steps.push(`context.${String(key)}`)
+        }
+        return Reflect.get(target, key, receiver)
+      },
+    })
+  }
+  const run = new Function(
+    'steps',
+    'crash',
+    'fatalError',
+    'calls',
+    '__emnapiContext',
+    `
+let __wasiExitListenerRegistered = true
+let __wasiDisposed = false
+let __wasiDisposePromise
+let __wasiThreadCrashDisposePromise
+// The loader sets this to __removeWasiExitListener.
+let __completeWasiDisposal = function () {
+  steps.push('complete')
+  __wasiExitListenerRegistered = false
+}
+${latchState}
+function __getWasiThreadManager() {
+  return {
+    terminateWorker() {},
+    _fatalError: crash.fatalError ? fatalError : undefined,
+  }
+}
+function __isThenable(value) {
+  return value !== null && typeof value === 'object' && typeof value.then === 'function'
+}
+function __drainWasiAsyncWork() {
+  steps.push('async work')
+}
+function __prepareWasmEnvCleanupWithTurns() {
+  steps.push('prepare')
+}
+function __drainWasmEnvCleanup() {
+  steps.push('drain')
+}
+function __destroyEmnapiContext() {
+  steps.push('destroy')
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate')
+  if (crash.terminateThrows) throw new Error('terminate failed')
+  return Promise.resolve()
+}
+// Only an asyncRuntime loader calls it.
+function __releaseCurrentThreadHostTimers() {
+  steps.push('release host timers')
+}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__attachCleanupErrors')}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
+${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
+${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${generatedFunction(code, '__abortWasiDisposalIfThreadCrashed')}
+${generatedFunction(code, '__settleWasiDisposalAfterThreadCrash')}
+${generatedFunction(code, '__finishWasiDisposal')}
+${generatedFunction(code, '__continueWasiDisposal')}
+${generatedFunction(code, '__drainWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__cleanUpWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__startWasiDisposal')}
+${generatedFunction(code, '__disposeWasiBinding')}
+${generatedFunction(code, '__disposeWasiBindingAtExit')}
+if (crash.flag) Atomics.store(__wasiThreadCrashFlag, 0, 1)
+if (crash.errorEvent) __wasiThreadCrashed = true
+return (async () => {
+  const promises = []
+  for (let i = 0; i < calls; i += 1) {
+    promises.push(__disposeWasiBinding())
+  }
+  const results = []
+  for (const promise of promises) {
+    try {
+      results.push({ value: await promise })
+    } catch (error) {
+      results.push({ error })
+    }
+  }
+  let exitError
+  try {
+    if (__wasiExitListenerRegistered) __disposeWasiBindingAtExit()
+  } catch (error) {
+    exitError = error
+  }
+  return {
+    results,
+    samePromise: promises.every((promise) => promise === promises[0]),
+    exitError,
+  }
+})()
+`,
+  )
+  const outcome = await run(steps, crash, fatalError, calls, context)
+  return { steps, ...outcome, count: refCounter.count }
+}
+
+// The published disposer runs the same wasm teardown as the 'exit' listener,
+// behind an async-work drain. An app that handled the rethrown worker error
+// and then disposed blocked in the same raw atomic wait. After a crash it only
+// stops the workers and rejects, since nothing was cleaned up.
+test('node WASI public disposer skips the wasm teardown after a thread crash', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  assertValidJS(t, code, 'node cjs')
+  t.true(code.includes('let __wasiThreadCrashDisposePromise\n'))
+  t.true(
+    generatedFunction(code, '__disposeWasiBinding').includes(
+      '  if (!__wasiDisposed && __hasWasiThreadCrashed()) {\n    return __disposeWasiBindingAfterThreadCrash()\n  }\n',
+    ),
+  )
+
+  // No crash: the disposal chain is exactly what it was, and it removes the
+  // 'exit' listener when it completes.
+  const clean = await runWasiPublicDisposer(code, {})
+  t.deepEqual(clean.steps, [
+    'async work',
+    'prepare',
+    'drain',
+    'destroy',
+    'terminate',
+    'complete',
+  ])
+  t.deepEqual(clean.results, [{ value: undefined }])
+
+  for (const crash of [
+    { flag: true },
+    { errorEvent: true },
+    { fatalError: true },
+  ]) {
+    const label = JSON.stringify(crash)
+    // Three calls: every one settles the same way, and the workers are
+    // terminated once by the disposer and once more by the 'exit' listener,
+    // which still takes its short path and does not throw.
+    const crashed = await runWasiPublicDisposer(code, crash, 3)
+    t.deepEqual(crashed.steps, ['port unref', 'terminate', 'terminate'], label)
+    t.true(crashed.samePromise, label)
+    t.is(crashed.exitError, undefined, label)
+    for (const result of crashed.results) {
+      t.true(result.error instanceof Error, label)
+      t.is(
+        result.error.message,
+        'napi-rs: WASI binding cannot be disposed after a worker thread crashed',
+        label,
+      )
+    }
+    if (crash.fatalError) {
+      t.is(crashed.results[0].error.cause.message, 'worker died')
+    }
+  }
+
+  // A termination failure is attached, not swallowed, and the disposer still
+  // does not fall through to the wasm teardown.
+  const failed = await runWasiPublicDisposer(code, {
+    flag: true,
+    terminateThrows: true,
+  })
+  t.deepEqual(failed.steps, ['port unref', 'terminate', 'terminate'])
+  t.regex(failed.results[0].error.message, /worker thread crashed/)
+  t.is(failed.results[0].error.cause.message, 'terminate failed')
+  t.is(failed.exitError, undefined)
+})
+
+// emnapi's Node Context refs a MessagePort (refCounter.refHandle) while async
+// work or threadsafe-function requests are in flight. The dead thread's requests
+// never finish, so after the crash disposal rejected nothing else was left
+// running and the port alone kept the process from exiting. The crash path
+// unrefs it without touching anything else on the context; the no-crash path
+// never touches it.
+test('node WASI crash disposal releases the waiting-request port', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const release = generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')
+  t.true(release.length > 0)
+  t.true(
+    generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
+      '  __releaseEmnapiWaitingRequestHandle()\n  let workerResult\n',
+    ),
+    'released before the workers are terminated',
+  )
+  // It must not destroy the context: that runs the cleanup hooks in wasm.
+  t.false(release.includes('destroy'))
+
+  // No crash: the port is left to emnapi's own count.
+  const clean = await runWasiPublicDisposer(code, {})
+  t.false(clean.steps.includes('port unref'))
+  t.false(clean.steps.includes('port ref'))
+  t.is(clean.count, 2)
+
+  // Crash: unrefed exactly once across three disposer calls and the 'exit'
+  // listener, never re-refed, and the count is left above zero so a later
+  // request cannot ref the port again. No other context member is read.
+  const crashed = await runWasiPublicDisposer(code, { flag: true }, 3)
+  t.deepEqual(
+    crashed.steps.filter((step) => step.startsWith('port ')),
+    ['port unref'],
+  )
+  t.false(crashed.steps.some((step) => step.startsWith('context.')))
+  t.is(crashed.count, 2)
+
+  // A context without the counter (a non-Node host, a future emnapi), one
+  // whose field cannot be read, or no context at all: the disposer still
+  // rejects with the crash error and terminates the workers.
+  for (const context of ['no counter', 'throwing counter', 'none'] as const) {
+    const outcome = await runWasiPublicDisposer(code, { flag: true, context })
+    t.deepEqual(outcome.steps, ['terminate', 'terminate'], context)
+    t.regex(outcome.results[0].error.message, /worker thread crashed/, context)
+    t.is(outcome.exitError, undefined, context)
+  }
+})
+
+// A CurrentThread sleep arms a referenced host timeout through the
+// `@napi-rs/async-runtime` timer host. Only `__disposeCurrentThreadHosts`
+// released it, from `__destroyEmnapiContext`, which the crash paths never
+// reach: its unregister calls enter wasm. A dispose() that rejected after a
+// crash left the process alive until the longest sleep ended. The threaded
+// asyncRuntime loader now clears those timeouts itself on every crash path.
+const threadedAsyncRuntimeCode = createWasiBinding(
+  'test',
+  '@scope/test',
+  4000,
+  65536,
+  true,
+  'wasm32-wasi',
+  'test',
+  true,
+)
+
+test('node WASI crash paths release the CurrentThread host timers', async (t) => {
+  const code = threadedAsyncRuntimeCode
+  assertValidJS(t, code, 'node cjs + asyncRuntime')
+  t.true(
+    code.includes(
+      '__currentThreadHostsDisposer = __installCurrentThreadHosts(\n    __trackCurrentThreadHostTimers(__napiModule.exports),\n  )\n',
+    ),
+  )
+  t.true(
+    generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
+      '  __releaseEmnapiWaitingRequestHandle()\n  __releaseCurrentThreadHostTimers()\n  let workerResult\n',
+    ),
+    'released before the workers are terminated',
+  )
+  const exitListener = generatedFunction(code, '__disposeWasiBindingAtExit')
+  const crashBranch = exitListener.slice(
+    exitListener.indexOf('if (__hasWasiThreadCrashed()) {'),
+    exitListener.indexOf('    return\n  }\n'),
+  )
+  t.true(crashBranch.includes('    __releaseCurrentThreadHostTimers()\n'))
+  // JavaScript only: nothing that unregisters, destroys or reaches the addon.
+  const release = generatedFunction(code, '__releaseCurrentThreadHostTimers')
+  t.true(release.length > 0)
+  for (const forbidden of [
+    'unregister',
+    '__disposeCurrentThreadHosts',
+    '__emnapiContext',
+    '__napiModule',
+  ]) {
+    t.false(release.includes(forbidden), forbidden)
+  }
+
+  // The disposer releases once per crash disposal, and the 'exit' listener's
+  // short path releases again (idempotent); without a crash neither does.
+  const clean = await runWasiPublicDisposer(code, {})
+  t.false(clean.steps.includes('release host timers'))
+  const crashed = await runWasiPublicDisposer(code, { flag: true }, 3)
+  t.deepEqual(crashed.steps, [
+    'port unref',
+    'release host timers',
+    'terminate',
+    'release host timers',
+    'terminate',
+  ])
+  t.deepEqual(runWasiExitListener(code, {}), ['destroy', 'terminate'])
+  t.deepEqual(runWasiExitListener(code, { flag: true }), [
+    'release host timers',
+    'terminate',
+  ])
+
+  // Only the threaded Node loader has the crash latch.
+  for (const { name, code: other } of [
+    { name: 'node cjs', code: createWasiBinding('test', '@scope/test') },
+    ...asyncRuntimeLoaderCases.filter(({ name }) => name !== 'node cjs'),
+  ]) {
+    t.false(other.includes('__releaseCurrentThreadHostTimers'), name)
+    t.false(other.includes('__trackCurrentThreadHostTimers'), name)
+  }
+})
+
+test('node WASI crash release clears the host timeouts without settling them', async (t) => {
+  const code = threadedAsyncRuntimeCode
+  const stateStart = code.indexOf('const __currentThreadHostTimerCancels = ')
+  const state = code.slice(
+    stateStart,
+    code.indexOf(
+      'let __currentThreadHostTimersReleased = false\n',
+      stateStart,
+    ) + 'let __currentThreadHostTimersReleased = false\n'.length,
+  )
+  t.true(stateStart > 0)
+  const { track, release } = new Function(`
+${state}
+${generatedFunction(code, '__isThenable')}
+${generatedFunction(code, '__scheduleCurrentThreadHostTimer')}
+${generatedFunction(code, '__trackCurrentThreadHostTimers')}
+${generatedFunction(code, '__releaseCurrentThreadHostTimers')}
+return {
+  track: __trackCurrentThreadHostTimers,
+  release: __releaseCurrentThreadHostTimers,
+}
+`)()
+
+  // A binding the package would reject is passed through untouched.
+  const incomplete = { other: 1 }
+  t.is(track(incomplete), incomplete)
+  const throwing = {
+    get registerTimerHost() {
+      throw new Error('accessor')
+    },
+  }
+  t.is(track(throwing), throwing)
+
+  // What the addon receives from `registerTimerHost`.
+  let registered: any
+  const binding = {
+    reserveCurrentThreadHostRegistration() {},
+    registerTimerHost(...args: any[]) {
+      registered = args
+      return 'registered'
+    },
+  }
+  const view = track(binding)
+  t.is(
+    view.reserveCurrentThreadHostRegistration,
+    binding.reserveCurrentThreadHostRegistration,
+  )
+
+  // The package's timer host, armed timeouts by id. `cancel` clears one and
+  // resolves its promise, as `installCurrentThreadHosts` does.
+  const armed = new Map<
+    number,
+    { resolve: () => void; reject: (e: Error) => void }
+  >()
+  const log: string[] = []
+  let failCancel = false
+  const schedule = (id: number) =>
+    new Promise<void>((resolve, reject) => {
+      log.push(`arm ${id}`)
+      armed.set(id, { resolve, reject })
+    })
+  const cancel = (id: number) => {
+    const timer = armed.get(id)
+    if (!timer) return
+    armed.delete(id)
+    log.push(`clear ${id}`)
+    if (failCancel) {
+      const error = new Error(`cancel ${id} failed`)
+      timer.reject(error)
+      throw error
+    }
+    timer.resolve()
+  }
+  t.is(view.registerTimerHost(1, 2, schedule, cancel), 'registered')
+  t.is(registered.length, 4)
+  t.deepEqual(registered.slice(0, 2), [1, 2])
+  t.not(registered[2], schedule)
+  t.is(registered[3], cancel, 'cancel is handed to the addon as is')
+  const addonSchedule = registered[2]
+
+  // No crash: settlements pass through.
+  const fired = addonSchedule(1, 10)
+  armed.get(1)!.resolve()
+  t.is(await fired, undefined)
+  const failed = addonSchedule(2, 10)
+  armed.get(2)!.reject(new Error('host failed'))
+  await t.throwsAsync(failed, { message: 'host failed' })
+  const cancelled = addonSchedule(3, 10)
+  cancel(3)
+  t.is(await cancelled, undefined)
+
+  // After a crash: every armed timeout is cleared, and the addon's promise
+  // never settles, so nothing is handed back to wasm.
+  const settled: number[] = []
+  const long = addonSchedule(4, 60_000)
+  long.then(
+    () => settled.push(4),
+    () => settled.push(4),
+  )
+  failCancel = true
+  const failing = addonSchedule(5, 60_000)
+  failing.then(
+    () => settled.push(5),
+    () => settled.push(5),
+  )
+  log.length = 0
+  t.notThrows(() => release())
+  t.deepEqual(log, ['clear 4', 'clear 5'])
+  t.false(armed.has(4))
+  t.false(armed.has(5))
+  // Idempotent, and a sleep armed afterwards is never armed.
+  release()
+  const late = addonSchedule(6, 10)
+  late.then(
+    () => settled.push(6),
+    () => settled.push(6),
+  )
+  t.deepEqual(log, ['clear 4', 'clear 5'])
+  await new Promise((resolve) => setImmediate(resolve))
+  t.deepEqual(settled, [])
+})
+
+/**
+ * Runs the node loader's real disposal chain — the async-work drain, its
+ * keep-alive interval, the barrier's two-phase poll, the step boundaries and
+ * the public disposer — against a stubbed addon on real timers, so a crash can
+ * land while a poll is waiting. The stubs record every wasm entry and every
+ * keep-alive interval, and the counters report how often each poll read.
+ */
+function createInflightWasiDisposal(
+  code: string,
+  addon: {
+    asyncWorkPending: number
+    runtimeWorkPending: number
+    onRuntimeWorkRead?: () => void
+  },
+) {
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const steps: string[] = []
+  const reads = { asyncWork: 0, runtimeWork: 0 }
+  const intervals = new Set<ReturnType<typeof setInterval>>()
+  // Stands in for the loader's global: timers are real, keep-alive intervals
+  // are recorded.
+  const host = {
+    setTimeout,
+    clearTimeout,
+    WebAssembly,
+    setInterval(callback: () => void, delay: number) {
+      const timer = setInterval(callback, delay)
+      intervals.add(timer)
+      steps.push('interval set')
+      return timer
+    },
+    clearInterval(timer: ReturnType<typeof setInterval>) {
+      clearInterval(timer)
+      if (intervals.delete(timer)) {
+        steps.push('interval cleared')
+      }
+    },
+  }
+  const exports = {
+    napi_wasm_async_work_pending() {
+      reads.asyncWork += 1
+      return addon.asyncWorkPending
+    },
+    napi_wasm_cancel_pending_async_work() {
+      steps.push('cancel')
+    },
+    napi_prepare_wasm_env_cleanup_begin() {
+      steps.push('begin')
+      return 1
+    },
+    napi_prepare_wasm_env_cleanup_finish() {
+      steps.push('finish')
+    },
+    napi_wasm_runtime_work_pending() {
+      reads.runtimeWork += 1
+      addon.onRuntimeWorkRead?.()
+      return addon.runtimeWorkPending
+    },
+  }
+  const context = {
+    refCounter: {
+      refHandle: {
+        ref() {
+          steps.push('port ref')
+        },
+        unref() {
+          steps.push('port unref')
+        },
+      },
+    },
+  }
+  const loader = new Function(
+    'globalThis',
+    'steps',
+    '__napiInstance',
+    '__emnapiContext',
+    `
+let __wasiDisposed = false
+let __wasiDisposePromise
+let __wasiThreadCrashDisposePromise
+let __wasiAsyncWorkDrainPromise
+let __emnapiWasmEnvCleanupPrepared = false
+let __emnapiWasmEnvCleanupPreparing = false
+let __emnapiWasmEnvCleanupYielding = false
+let __emnapiWasmEnvCleanupRan = false
+let __finishParkedWasmEnvCleanup
+let __completeWasiDisposal = function () {
+  steps.push('complete')
+}
+let __retainWasiRollbackForRetry = function () {
+  steps.push('retain')
+}
+const __wasiRollbackRegistry = new Map()
+const __wasiRollbackRegistryKey = 'test.cjs'
+${latchState}
+const __WASI_ASYNC_WORK_POLL_INTERVAL_MS = 1
+function __getWasiThreadManager() {
+  return { terminateWorker() {} }
+}
+function __isThenable(value) {
+  return value !== null && typeof value === 'object' && typeof value.then === 'function'
+}
+function __scheduleMacrotask(callback) {
+  setImmediate(callback)
+}
+function __prepareWasmEnvCleanup() {
+  steps.push('prepare (single call)')
+}
+function __createWasmRuntimePollPace() {
+  return {}
+}
+function __yieldWasmRuntimePollTurn() {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, 1))
+}
+function __drainWasmEnvCleanup() {
+  steps.push('drain')
+}
+function __destroyEmnapiContext() {
+  steps.push('destroy')
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate')
+  return Promise.resolve()
+}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__attachCleanupErrors')}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
+${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
+${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${generatedFunction(code, '__abortWasiDisposalIfThreadCrashed')}
+${generatedFunction(code, '__settleWasiDisposalAfterThreadCrash')}
+${generatedFunction(code, '__scheduleTimer')}
+${generatedFunction(code, '__keepEventLoopAliveUntil')}
+${generatedFunction(code, '__drainWasiAsyncWork')}
+${generatedFunction(code, '__prepareWasmEnvCleanupWithTurns')}
+${generatedFunction(code, '__finishWasiDisposal')}
+${generatedFunction(code, '__continueWasiDisposal')}
+${generatedFunction(code, '__drainWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__cleanUpWasmEnvForWasiDisposal')}
+${generatedFunction(code, '__startWasiDisposal')}
+${generatedFunction(code, '__disposeWasiBinding')}
+${generatedFunction(code, '__finishWasiInitializationRollback')}
+${generatedFunction(code, '__destroyContextForWasiRollback')}
+${generatedFunction(code, '__retainFailedWasiRollback')}
+${generatedFunction(code, '__runWasiInitializationRollbackSteps')}
+${generatedFunction(code, '__rollbackWasiInitialization')}
+${generatedFunction(code, '__rollbackWasiInitializationAfterThreadCrash')}
+${generatedFunction(code, '__completeWasiInitializationRollback')}
+${generatedFunction(code, '__runWasiInitializationRollback')}
+return {
+  dispose: __disposeWasiBinding,
+  drainAsyncWork: __drainWasiAsyncWork,
+  rollback: __rollbackWasiInitialization,
+  // What the loader's catch does when instantiation fails: start the rollback
+  // and throw the initialization error itself.
+  failInitialization(error) {
+    const record = {
+      active: false,
+      error,
+      promise: undefined,
+      rollback: __rollbackWasiInitialization,
+    }
+    __wasiRollbackRegistry.set(__wasiRollbackRegistryKey, record)
+    __runWasiInitializationRollback(record)
+    return record
+  },
+  registered() {
+    return __wasiRollbackRegistry.has(__wasiRollbackRegistryKey)
+  },
+  // The loader's own 'error' listener.
+  workerError(error, threadId) {
+    __wasiThreadCrashed = true
+    __recordWasiThreadCrashError(error, threadId)
+  },
+  crash() {
+    Atomics.store(__wasiThreadCrashFlag, 0, 1)
+  },
+  parked() {
+    return __finishParkedWasmEnvCleanup !== undefined
+  },
+}
+`,
+  )(host, steps, { exports }, context)
+  return {
+    ...(loader as {
+      dispose: () => Promise<unknown>
+      drainAsyncWork: () => Promise<unknown> | undefined
+      rollback: () => unknown
+      failInitialization: (error: unknown) => {
+        active: boolean
+        error: any
+        promise: Promise<void> | undefined
+      }
+      registered: () => boolean
+      workerError: (error: unknown, threadId: number) => void
+      crash: () => void
+      parked: () => boolean
+    }),
+    steps,
+    reads,
+    liveIntervals: () => intervals.size,
+  }
+}
+
+async function waitUntil(condition: () => boolean, label: string) {
+  const deadline = Date.now() + 5000
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${label}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+}
+
+async function settleWithin(promise: Promise<unknown>, ms = 2000) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ pending: true }), ms)
+  })
+  try {
+    return await Promise.race([
+      promise.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      ),
+      timeout,
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const CRASH_DISPOSAL_MESSAGE =
+  'napi-rs: WASI binding cannot be disposed after a worker thread crashed'
+
+// The entry check only sees a crash that came first. A worker that dies while
+// dispose() is waiting leaves the async-work drain polling a count the dead
+// thread never releases, and its 1 ms timer plus the 50 ms keep-alive interval
+// held the process open for good with the promise pending. The drain now stops
+// on the next turn and the disposer rejects through the crash disposal.
+test('node WASI disposal stops the async-work drain when a worker crashes mid-flight', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 1,
+    runtimeWorkPending: 0,
+  })
+  const first = binding.dispose()
+  await waitUntil(() => binding.reads.asyncWork >= 5, 'the drain to poll')
+  t.is(binding.liveIntervals(), 1, 'the keep-alive interval is armed')
+  binding.crash()
+  // A caller that arrives before the poll notices joins the same disposal.
+  const joined = binding.dispose()
+  const outcome: any = await settleWithin(first)
+  t.falsy(outcome.pending, 'the original promise settles')
+  t.true(outcome.error instanceof Error)
+  t.is(outcome.error.message, CRASH_DISPOSAL_MESSAGE)
+  t.is(joined, first)
+  // Every later call gets the same promise, and it stays rejected.
+  const later = binding.dispose()
+  t.is(later, first)
+  t.is(((await settleWithin(later)) as any).error, outcome.error)
+
+  t.is(binding.liveIntervals(), 0, 'the keep-alive interval is cleared')
+  const readsAfter = binding.reads.asyncWork
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.is(binding.reads.asyncWork, readsAfter, 'the drain stopped polling')
+  // Nothing re-entered the barrier, the context or the addon after the crash;
+  // the port is released and the workers terminated exactly once.
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'port unref',
+    'terminate',
+  ])
+})
+
+// Same race one step later: the drain passed, the barrier's two-phase form
+// began, and its poll waits for runtime work the dead thread still counts.
+// `…_finish` would join that work and block this thread for good, so the
+// barrier is left parked and never finished.
+test('node WASI disposal stops the barrier poll when a worker crashes mid-flight', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  for (const workDrainsWithCrash of [false, true]) {
+    const label = `work drains in the crash turn: ${workDrainsWithCrash}`
+    const addon: Parameters<typeof createInflightWasiDisposal>[1] = {
+      asyncWorkPending: 0,
+      runtimeWorkPending: 1,
+    }
+    const binding = createInflightWasiDisposal(code, addon)
+    const first = binding.dispose()
+    await waitUntil(() => binding.reads.runtimeWork >= 5, 'the barrier to poll')
+    t.true(binding.parked(), label)
+    if (workDrainsWithCrash) {
+      // The thread dies while the poll is reading, and the count it reads is
+      // zero: the poll returns normally and would go straight on to
+      // `…_finish`.
+      await new Promise<void>((resolve) => {
+        addon.onRuntimeWorkRead = () => {
+          addon.onRuntimeWorkRead = undefined
+          binding.crash()
+          addon.runtimeWorkPending = 0
+          resolve()
+        }
+      })
+    } else {
+      binding.crash()
+    }
+    const outcome: any = await settleWithin(first)
+    t.falsy(outcome.pending, label)
+    t.is(outcome.error?.message, CRASH_DISPOSAL_MESSAGE, label)
+    t.is(binding.dispose(), first, label)
+    t.false(binding.parked(), label)
+    const readsAfter = binding.reads.runtimeWork
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    t.is(binding.reads.runtimeWork, readsAfter, label)
+    t.is(binding.liveIntervals(), 0, label)
+    t.deepEqual(binding.steps, ['begin', 'port unref', 'terminate'], label)
+  }
+})
+
+// Without a crash the same chain runs every step exactly as before and
+// resolves; the keep-alive interval lives only as long as the drain.
+test('node WASI disposal without a crash runs the whole chain on real timers', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const addon = { asyncWorkPending: 1, runtimeWorkPending: 1 }
+  const binding = createInflightWasiDisposal(code, addon)
+  const first = binding.dispose()
+  await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+  addon.asyncWorkPending = 0
+  await waitUntil(() => binding.reads.runtimeWork >= 3, 'the barrier to poll')
+  addon.runtimeWorkPending = 0
+  t.deepEqual(await settleWithin(first), { value: undefined })
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'begin',
+    'finish',
+    'drain',
+    'destroy',
+    'terminate',
+    'complete',
+  ])
+  t.is(binding.liveIntervals(), 0)
+})
+
+// The crash check fires only while a public disposal or the initialization
+// rollback is in flight. A poll started by neither keeps polling.
+test('node WASI crash abort leaves a poll outside disposal and rollback alone', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const addon = { asyncWorkPending: 1, runtimeWorkPending: 0 }
+  const binding = createInflightWasiDisposal(code, addon)
+  const drain = binding.drainAsyncWork()
+  t.truthy(drain)
+  binding.crash()
+  const readsAtCrash = binding.reads.asyncWork
+  await waitUntil(
+    () => binding.reads.asyncWork >= readsAtCrash + 5,
+    'the drain to keep polling',
+  )
+  addon.asyncWorkPending = 0
+  t.deepEqual(await settleWithin(drain!), { value: undefined })
+  t.false(binding.steps.includes('terminate'))
+  t.false(binding.steps.includes('port unref'))
+})
+
+// The initialization rollback runs the same drain as dispose(). A worker that
+// died while it polled left the count above zero, and the rollback polled it
+// forever with its timers holding the process open. It now stops, skips the
+// barrier and the destroy, and lets the initialization error through with the
+// crash attached.
+test('node WASI initialization rollback stops its async-work drain when a worker crashes', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 1,
+    runtimeWorkPending: 0,
+  })
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  const rollback = record.promise
+  t.truthy(rollback, 'the rollback waits for the drain')
+  await waitUntil(() => binding.reads.asyncWork >= 5, 'the rollback to poll')
+  t.is(binding.liveIntervals(), 1)
+  binding.crash()
+  t.falsy(((await settleWithin(rollback!)) as any).pending)
+
+  // The error the loader threw is the initialization error, and the crash is
+  // its cause.
+  t.is(record.error, initError)
+  t.true(record.error.cause instanceof Error)
+  t.is(record.error.cause.message, CRASH_DISPOSAL_MESSAGE)
+  t.false(record.active)
+  t.true(binding.registered(), 'kept: the context was not destroyed')
+
+  t.is(binding.liveIntervals(), 0, 'the keep-alive interval is cleared')
+  const readsAfter = binding.reads.asyncWork
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.is(binding.reads.asyncWork, readsAfter, 'the drain stopped polling')
+  // No barrier, no settlement drain, no destroy: the port is released and the
+  // workers are terminated once.
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'retain',
+    'port unref',
+    'terminate',
+  ])
+
+  // The worker's 'error' event arrives after the rollback ended: the crash
+  // error it already attached gets the worker's error as its cause.
+  t.is(record.error.cause.cause, undefined)
+  const workerError = new Error('trap in worker')
+  binding.workerError(workerError, 7)
+  t.is(record.error.cause.cause, workerError)
+  t.is(record.error.cause.workerThreadId, 7)
+})
+
+// Same race one step later: the barrier began and its poll waits for runtime
+// work the dead thread still counts. `…_finish` would join that work, so the
+// barrier stays parked and is never finished.
+test('node WASI initialization rollback stops the barrier poll when a worker crashes', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 0,
+    runtimeWorkPending: 1,
+  })
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  const rollback = record.promise
+  t.truthy(rollback)
+  await waitUntil(() => binding.reads.runtimeWork >= 5, 'the barrier to poll')
+  t.true(binding.parked())
+  binding.crash()
+  t.falsy(((await settleWithin(rollback!)) as any).pending)
+  t.is(record.error, initError)
+  t.is(record.error.cause?.message, CRASH_DISPOSAL_MESSAGE)
+  t.false(binding.parked())
+  const readsAfter = binding.reads.runtimeWork
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  t.is(binding.reads.runtimeWork, readsAfter)
+  t.deepEqual(binding.steps, ['begin', 'retain', 'port unref', 'terminate'])
+})
+
+// A thread that died before instantiation failed: the rollback does not enter
+// wasm at all, and it stays synchronous, so the error the loader throws right
+// away already carries the crash.
+test('node WASI initialization rollback after an earlier crash skips wasm', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const binding = createInflightWasiDisposal(code, {
+    asyncWorkPending: 1,
+    runtimeWorkPending: 1,
+  })
+  binding.crash()
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  t.is(record.promise, undefined, 'settled synchronously')
+  t.is(record.error, initError)
+  t.is(record.error.cause?.message, CRASH_DISPOSAL_MESSAGE)
+  t.is(binding.reads.asyncWork, 0)
+  t.is(binding.reads.runtimeWork, 0)
+  t.deepEqual(binding.steps, ['port unref', 'terminate'])
+
+  // An initialization error that already has a cause keeps it; the crash is
+  // listed with the cleanup errors instead. The crash error is shared, and the
+  // workers are not terminated a second time.
+  const withCause = new Error('instantiate failed', {
+    cause: new Error('link error'),
+  })
+  const second = binding.failInitialization(withCause)
+  t.is(second.error, withCause)
+  t.is(second.error.cause.message, 'link error')
+  t.is(second.error.cleanupErrors[0], record.error.cause)
+  t.deepEqual(binding.steps, ['port unref', 'terminate'])
+})
+
+// Without a crash the rollback runs every step exactly as before, resolves
+// with no cleanup errors and leaves the initialization error untouched.
+test('node WASI initialization rollback without a crash is unchanged', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const addon = { asyncWorkPending: 1, runtimeWorkPending: 1 }
+  const binding = createInflightWasiDisposal(code, addon)
+  const initError = new Error('instantiate failed')
+  const record = binding.failInitialization(initError)
+  const rollback = record.promise
+  t.truthy(rollback)
+  await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+  addon.asyncWorkPending = 0
+  await waitUntil(() => binding.reads.runtimeWork >= 3, 'the barrier to poll')
+  addon.runtimeWorkPending = 0
+  t.deepEqual(await settleWithin(rollback!), { value: undefined })
+  t.is(record.error, initError)
+  t.is(record.error.cause, undefined)
+  t.is(record.error.cleanupErrors, undefined)
+  t.false(binding.registered(), 'a clean rollback is not kept')
+  t.deepEqual(binding.steps, [
+    'cancel',
+    'interval set',
+    'interval cleared',
+    'begin',
+    'finish',
+    'drain',
+    'destroy',
+    'terminate',
+  ])
+  t.is(binding.liveIntervals(), 0)
+})
+
+// The shared flag is raised before this thread has processed the worker's
+// 'error' event, and once the workers are terminated emnapi ignores that event,
+// so `_fatalError` was often still unset when the crash error was built and
+// the cause was lost. The loader's own listener keeps the first error, and the
+// crash error picks it up whenever it arrives.
+test('node WASI crash error takes its cause from the worker error listener', async (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+
+  // The event lands while the crash disposal is terminating the workers.
+  {
+    const binding = createInflightWasiDisposal(code, {
+      asyncWorkPending: 1,
+      runtimeWorkPending: 0,
+    })
+    const first = binding.dispose()
+    await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+    binding.crash()
+    const workerError = new Error('trap in worker')
+    binding.workerError(workerError, 3)
+    // Only the first error is kept.
+    binding.workerError(new Error('second worker'), 4)
+    const outcome: any = await settleWithin(first)
+    t.is(outcome.error?.message, CRASH_DISPOSAL_MESSAGE)
+    t.is(outcome.error.cause, workerError)
+    t.is(outcome.error.workerThreadId, 3)
+  }
+
+  // The event lands after the disposal already rejected: the one shared crash
+  // error is completed in place, so every holder of it sees the cause.
+  {
+    const binding = createInflightWasiDisposal(code, {
+      asyncWorkPending: 1,
+      runtimeWorkPending: 0,
+    })
+    const first = binding.dispose()
+    await waitUntil(() => binding.reads.asyncWork >= 3, 'the drain to poll')
+    binding.crash()
+    const outcome: any = await settleWithin(first)
+    t.is(outcome.error?.message, CRASH_DISPOSAL_MESSAGE)
+    t.is(outcome.error.cause, undefined)
+    const workerError = new Error('trap in worker')
+    binding.workerError(workerError, 9)
+    t.is(outcome.error.cause, workerError)
+    t.is(outcome.error.workerThreadId, 9)
+    const later: any = await settleWithin(binding.dispose())
+    t.is(later.error, outcome.error)
+  }
+})
+
+test('WASI loaders without the crash latch keep their disposal polls unchanged', (t) => {
+  const loaders = {
+    'threadless node': createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      false,
+    ),
+    'threaded browser': createWasiBrowserBinding('test-wasi'),
+    'threadless browser': createWasiBrowserBinding(
+      'test-wasi',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ),
+  }
+  for (const [label, code] of Object.entries(loaders)) {
+    t.false(code.includes('__abortWasiDisposalIfThreadCrashed'), label)
+    t.false(code.includes('__settleWasiDisposalAfterThreadCrash'), label)
+    t.false(code.includes('finishCleanupUnlessCrashed'), label)
+    t.false(code.includes('__wasiInitializationRollbackActive'), label)
+    t.false(code.includes('__runWasiInitializationRollbackSteps'), label)
+    t.false(
+      code.includes('__rollbackWasiInitializationAfterThreadCrash'),
+      label,
+    )
+    t.false(code.includes('__getWasiThreadCrashError'), label)
+    t.false(code.includes('__recordWasiThreadCrashError'), label)
+    t.false(code.includes('__readWasiThreadCrashReport'), label)
+    t.true(code.includes('function __rollbackWasiInitialization() {\n'), label)
+    t.true(
+      generatedFunction(code, '__prepareWasmEnvCleanupWithTurns').includes(
+        '  })().then(finishCleanup, finishCleanup)\n',
+      ),
+      label,
+    )
+  }
+  // The threaded node loader checks the latch in every disposal poll and step,
+  // and in the rollback's steps.
+  const threaded = createWasiBinding('test', '@scope/test')
+  for (const name of [
+    '__drainWasiAsyncWork',
+    '__prepareWasmEnvCleanupWithTurns',
+    '__cleanUpWasmEnvForWasiDisposal',
+    '__drainWasmEnvForWasiDisposal',
+    '__continueWasiDisposal',
+    '__destroyContextForWasiRollback',
+  ]) {
+    t.true(
+      generatedFunction(threaded, name).includes(
+        '__abortWasiDisposalIfThreadCrashed()',
+      ),
+      name,
+    )
+  }
+  const steps = generatedFunction(
+    threaded,
+    '__runWasiInitializationRollbackSteps',
+  )
+  t.is(
+    steps.split('    __abortWasiDisposalIfThreadCrashed()\n').length - 1,
+    2,
+    'before the barrier and before the settlement drain',
+  )
+})
+
+test('node WASI loader shares the crash flag with its pool workers', (t) => {
+  const code = createWasiBinding('test', '@scope/test')
+  const createWorker = generatedFunction(code, '__createWasiWorker')
+  t.true(createWorker.includes('crashFlag: __wasiThreadCrashFlag,'))
+  t.true(createWorker.includes('crashReport: __wasiThreadCrashReport,'))
+  const onCreateWorker = code.slice(
+    code.indexOf('onCreateWorker() {'),
+    code.indexOf('return worker\n', code.indexOf('onCreateWorker() {')),
+  )
+  t.true(
+    onCreateWorker.includes("worker.on('error', (error) => {"),
+    'the loader has to see a worker error even when the worker never set the flag',
+  )
+  t.true(onCreateWorker.includes('__wasiThreadCrashed = true'))
+  t.true(
+    onCreateWorker.includes(
+      '__recordWasiThreadCrashError(error, worker.threadId)',
+    ),
+    'and keeps the error it carries for the crash error',
+  )
+})
+
+// The threadless flavor has no pool workers and must not reference the latch:
+// a name the exit listener cannot resolve would throw on every process exit.
+test('threadless node WASI loader keeps its exit teardown unconditional', (t) => {
+  const code = createWasiBinding('test', '@scope/test', 4000, 65536, false)
+  t.false(code.includes('__hasWasiThreadCrashed'))
+  t.false(code.includes('__wasiThreadCrash'))
+  t.false(code.includes('SharedArrayBuffer'))
+  t.true(generatedFunction(code, '__disposeWasiBindingAtExit').length > 0)
+  t.false(code.includes('__disposeWasiBindingAfterThreadCrash'))
+  t.false(code.includes('__releaseEmnapiWaitingRequestHandle'))
+  t.true(
+    generatedFunction(code, '__disposeWasiBinding').startsWith(
+      'function __disposeWasiBinding() {\n  if (__wasiDisposePromise) {\n',
+    ),
+  )
+})
+
+// The browser loader has no 'exit' teardown and no crash latch; its public
+// disposer is unchanged.
+test('browser WASI loader public disposer has no crash latch', (t) => {
+  for (const threads of [true, false]) {
+    const code = createWasiBrowserBinding(
+      'test-wasi',
+      4000,
+      65536,
+      false,
+      false,
+      false,
+      false,
+      threads,
+    )
+    t.false(code.includes('__hasWasiThreadCrashed'), `threads=${threads}`)
+    t.false(
+      code.includes('__disposeWasiBindingAfterThreadCrash'),
+      `threads=${threads}`,
+    )
+  }
+})
+
+/**
+ * The column-zero `if` of the Node worker that wraps emnapi's
+ * `beforeReportError`, with the helpers it calls: a function body over
+ * `workerData`, `handler` and `threadId`.
+ */
+function wasiWorkerCrashHook(): string {
+  const start =
+    WASI_WORKER_TEMPLATE.indexOf(
+      '\nif (workerData && workerData.crashFlag instanceof Int32Array) {\n',
+    ) + 1
+  return (
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', start) + 2,
+    ) +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__raiseWasiThreadCrashFlags') +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  )
+}
+
+test('WASI worker sets the crash flag before emnapi reports the error', (t) => {
+  assertValidJS(t, WASI_WORKER_TEMPLATE, 'Node WASI worker')
+  const start = WASI_WORKER_TEMPLATE.indexOf(
+    '\nif (workerData && workerData.crashFlag instanceof Int32Array) {',
+  )
+  t.true(start > 0)
+  t.true(
+    start < WASI_WORKER_TEMPLATE.indexOf('globalThis.onmessage = function'),
+    'the hook has to be in place before the first message is handled',
+  )
+  const latch = wasiWorkerCrashHook()
+
+  const run = (workerData: { crashFlag?: Int32Array } & object) => {
+    const reports: string[] = []
+    const handler = {
+      // emnapi's own hook, which lets the main thread start exiting.
+      beforeReportError(this: unknown, error: Error, type: string) {
+        const flag = workerData.crashFlag
+          ? Atomics.load(workerData.crashFlag, 0)
+          : 'none'
+        reports.push(
+          `${error.message} ${type} flag=${flag} ${this === handler}`,
+        )
+      },
+    }
+    const original = handler.beforeReportError
+    new Function('workerData', 'handler', 'threadId', latch)(
+      workerData,
+      handler,
+      1,
+    )
+    return { handler, original, reports }
+  }
+
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const crashed = run({ crashFlag })
+  t.not(crashed.handler.beforeReportError, crashed.original)
+  crashed.handler.beforeReportError(new Error('trap'), 'start')
+  // Set before emnapi's hook runs, and emnapi's hook still runs on the handler.
+  t.deepEqual(crashed.reports, ['trap start flag=1 true'])
+  t.is(Atomics.load(crashFlag, 0), 1)
+
+  // A loader that predates the flag passes none: the hook stays emnapi's own.
+  const legacy = run({ hostRoot: '/', rootDir: '/' } as object)
+  t.is(legacy.handler.beforeReportError, legacy.original)
+})
+
+// The loader thread can be inside a wasm cleanup call that waits on the dead
+// thread. The addon's flag makes those waits trap; the loader must already see
+// its own flag when the trap reaches it.
+test('WASI worker raises the addon crash flag after the loader flag', (t) => {
+  const latch = wasiWorkerCrashHook()
+  const crash = (
+    instance: unknown,
+    workerData: { crashFlag: Int32Array; addonCrashFlag?: unknown },
+  ) => {
+    const calls: string[] = []
+    const handler = {
+      instance,
+      beforeReportError() {
+        calls.push(`emnapi flag=${Atomics.load(workerData.crashFlag, 0)}`)
+      },
+    }
+    new Function('workerData', 'handler', 'threadId', latch)(
+      workerData,
+      handler,
+      1,
+    )
+    ;(handler.beforeReportError as (...args: unknown[]) => void)(
+      new Error('trap'),
+      'start',
+    )
+    return calls
+  }
+
+  // The loader's view of the addon's flag: one word of the shared wasm memory,
+  // at an offset. A worker that failed while loading has no instance.
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  })
+  const word = new Int32Array(memory.buffer, 64, 1)
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const calls: string[] = []
+  const workerData = {
+    crashFlag,
+    get addonCrashFlag() {
+      calls.push(`view read, loader flag=${Atomics.load(crashFlag, 0)}`)
+      return word
+    },
+  }
+  calls.push(...crash(undefined, workerData))
+  t.deepEqual(calls, ['view read, loader flag=1', 'emnapi flag=1'])
+  t.is(Atomics.load(new Int32Array(memory.buffer), 16), 1)
+  t.is(Atomics.load(new Int32Array(memory.buffer), 15), 0)
+  t.is(Atomics.load(new Int32Array(memory.buffer), 17), 0)
+
+  // With a view the export is not needed: it is not called.
+  const exported: string[] = []
+  const withInstance = crash(
+    {
+      exports: {
+        napi_wasm_thread_crashed() {
+          exported.push('napi')
+        },
+      },
+    },
+    {
+      crashFlag: new Int32Array(new SharedArrayBuffer(4)),
+      addonCrashFlag: new Int32Array(new SharedArrayBuffer(4)),
+    },
+  )
+  t.deepEqual(withInstance, ['emnapi flag=1'])
+  t.deepEqual(exported, [])
+
+  // No view (an addon built with an older napi): the export, when the worker
+  // has an instance, after the loader flag.
+  const noViewFlag = new Int32Array(new SharedArrayBuffer(4))
+  const noView: string[] = []
+  noView.push(
+    ...crash(
+      {
+        exports: {
+          napi_wasm_thread_crashed() {
+            noView.push(`napi flag=${Atomics.load(noViewFlag, 0)}`)
+          },
+        },
+      },
+      { crashFlag: noViewFlag },
+    ),
+  )
+  t.deepEqual(noView, ['napi flag=1', 'emnapi flag=1'])
+
+  // A worker that never loaded, an addon without the export, an export that
+  // throws, a view that is not an Int32Array: emnapi's hook still runs.
+  for (const [instance, addonCrashFlag] of [
+    [undefined, undefined],
+    [{ exports: {} }, undefined],
+    [
+      {
+        exports: {
+          napi_wasm_thread_crashed() {
+            throw new Error('boom')
+          },
+        },
+      },
+      undefined,
+    ],
+    [undefined, new Uint8Array(new SharedArrayBuffer(4))],
+  ]) {
+    t.deepEqual(
+      crash(instance, {
+        crashFlag: new Int32Array(new SharedArrayBuffer(4)),
+        addonCrashFlag,
+      }),
+      ['emnapi flag=1'],
+    )
+  }
+})
+
+/**
+ * A shared wasm memory with a view of one word at `offset`, the way the loaders
+ * build the addon's crash flag view.
+ */
+function addonCrashFlagView(offset = 64) {
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  })
+  return { memory, word: new Int32Array(memory.buffer, offset, 1) }
+}
+
+// A worker whose setup throws before the crash hook exists (here: the runtime
+// package cannot be resolved) never gets to emnapi's beforeReportError. Its
+// thread spawn has already returned, so the loader may be waiting on it inside
+// wasm: it has to raise both flags itself, then fail as before.
+test('WASI worker raises both crash flags when its setup throws', (t) => {
+  const anchor = '\nlet handler\ntry {\n'
+  const start = WASI_WORKER_TEMPLATE.indexOf(anchor) + 1
+  t.true(start > 0)
+  const catchStart = WASI_WORKER_TEMPLATE.indexOf('} catch (error) {\n', start)
+  const setup =
+    WASI_WORKER_TEMPLATE.slice(
+      start,
+      WASI_WORKER_TEMPLATE.indexOf('\n}\n', catchStart) + 2,
+    ) +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__raiseWasiThreadCrashFlags') +
+    generatedFunction(WASI_WORKER_TEMPLATE, '__writeCrashReport')
+  t.true(
+    setup.indexOf("require('@napi-rs/wasm-runtime')") <
+      setup.indexOf('handler = new MessageHandler('),
+  )
+  const missing = new Error("Cannot find module '@napi-rs/wasm-runtime'")
+  const run = (workerData: object | undefined) =>
+    new Function('require', 'workerData', 'threadId', setup)(
+      () => {
+        throw missing
+      },
+      workerData,
+      3,
+    )
+
+  const { memory, word } = addonCrashFlagView()
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const crashReport = new SharedArrayBuffer(4096)
+  const order: number[] = []
+  const workerData = {
+    crashFlag,
+    crashReport,
+    get addonCrashFlag() {
+      order.push(Atomics.load(crashFlag, 0))
+      return word
+    },
+  }
+  t.is(
+    t.throws(() => run(workerData)),
+    missing,
+  )
+  t.is(Atomics.load(crashFlag, 0), 1)
+  t.deepEqual(order, [1], 'the loader flag goes up before the addon flag')
+  t.is(Atomics.load(new Int32Array(memory.buffer), 16), 1)
+  const header = new Int32Array(crashReport, 0, 3)
+  t.is(Atomics.load(header, 0), 2)
+  t.is(Atomics.load(header, 2), 3)
+
+  // A loader that predates the flags: the error is only rethrown.
+  t.is(
+    t.throws(() => run({ hostRoot: '/', rootDir: '/' })),
+    missing,
+  )
+  t.is(
+    t.throws(() => run(undefined)),
+    missing,
+  )
+})
+
+// The same through a real worker thread: the generated worker, written where
+// '@napi-rs/wasm-runtime' cannot be resolved, gets the view in workerData — a
+// structured clone that keeps sharing the wasm memory — and raises the word.
+test('WASI worker that fails to load raises the flags from a real thread', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'napi-rs-wasi-worker-'))
+  t.teardown(() => rm(directory, { recursive: true, force: true }))
+  const workerPath = join(directory, 'wasi-worker.mjs')
+  await writeFile(workerPath, WASI_WORKER_TEMPLATE)
+  const { memory, word } = addonCrashFlagView(128)
+  const crashFlag = new Int32Array(new SharedArrayBuffer(4))
+  const crashReport = new SharedArrayBuffer(4096)
+  const worker = new Worker(workerPath, {
+    workerData: { crashFlag, crashReport, addonCrashFlag: word },
+  })
+  const error = await new Promise<Error>((resolve, reject) => {
+    worker.once('error', resolve)
+    worker.once('exit', (code) =>
+      reject(new Error(`the worker exited with ${code} and no error`)),
+    )
+  })
+  t.regex(error.message, /@napi-rs\/wasm-runtime/)
+  t.is(Atomics.load(crashFlag, 0), 1)
+  t.is(Atomics.load(new Int32Array(memory.buffer), 32), 1)
+  t.is(Atomics.load(new Int32Array(crashReport, 0, 1), 0), 2)
+})
+
+/**
+ * The Node loader's view capture and worker creation, over a real shared wasm
+ * memory and a stub `Worker` that keeps its options.
+ */
+function createNodeLoaderAddonCrashFlag() {
+  const code = createWasiBinding('test', '@scope/test')
+  const created: Array<{ filename: string; options: any }> = []
+  class StubWorker {
+    constructor(filename: string, options: unknown) {
+      created.push({ filename, options })
+    }
+  }
+  const loader = new Function(
+    'Worker',
+    `
+const __sharedMemory = new WebAssembly.Memory({ initial: 1, maximum: 2, shared: true })
+const __hostRoot = '/'
+const __rootDir = '/'
+const __wasiThreadCrashFlag = new Int32Array(new SharedArrayBuffer(4))
+const __wasiThreadCrashReport = new SharedArrayBuffer(16)
+let __wasiAddonCrashFlag
+${generatedFunction(code, '__captureWasiAddonCrashFlag')}
+${generatedFunction(code, '__getWasiWorkerExecArgv')}
+${generatedFunction(code, '__createWasiWorker')}
+return {
+  memory: __sharedMemory,
+  capture: __captureWasiAddonCrashFlag,
+  createWorker: __createWasiWorker,
+  view: () => __wasiAddonCrashFlag,
+}
+`,
+  )(StubWorker) as {
+    memory: WebAssembly.Memory
+    capture: (instance: unknown) => void
+    createWorker: (filename: string) => unknown
+    view: () => Int32Array | undefined
+  }
+  return { code, created, ...loader }
+}
+
+test('node WASI loader reads the addon crash flag address before registration', (t) => {
+  const { code } = createNodeLoaderAddonCrashFlag()
+  const beforeInit = code.slice(code.indexOf('    beforeInit({ instance }) {'))
+  const capture = beforeInit.indexOf('__captureWasiAddonCrashFlag(instance)')
+  t.true(capture > 0)
+  t.true(capture < beforeInit.indexOf("name.startsWith('__napi_register__')"))
+  t.true(
+    generatedFunction(code, '__createWasiWorker').includes(
+      'addonCrashFlag: __wasiAddonCrashFlag,',
+    ),
+  )
+  // The threadless loader has no workers and reads nothing.
+  const threadless = createWasiBinding(
+    'test',
+    '@scope/test',
+    4000,
+    65536,
+    false,
+  )
+  t.false(threadless.includes('__captureWasiAddonCrashFlag'))
+  t.false(threadless.includes('napi_wasm_thread_crash_flag_address'))
+})
+
+test('node WASI loader passes each pool worker a view of the addon crash flag', (t) => {
+  const loader = createNodeLoaderAddonCrashFlag()
+  // Before the capture (or for an addon built with an older napi): no view.
+  loader.createWorker('/w.mjs')
+  t.is(loader.created[0].options.workerData.addonCrashFlag, undefined)
+
+  loader.capture({
+    exports: { napi_wasm_thread_crash_flag_address: () => 1024 },
+  })
+  const view = loader.view()
+  t.true(view instanceof Int32Array)
+  t.is(view!.buffer, loader.memory.buffer)
+  t.is(view!.byteOffset, 1024)
+  t.is(view!.length, 1)
+  loader.createWorker('/w.mjs')
+  t.is(loader.created[1].options.workerData.addonCrashFlag, view)
+  t.is(
+    loader.created[1].options.workerData.crashFlag instanceof Int32Array,
+    true,
+  )
+  // The worker's store lands in the word the addon reads.
+  Atomics.store(view!, 0, 1)
+  t.is(Atomics.load(new Int32Array(loader.memory.buffer), 256), 1)
+
+  // Addresses the loader cannot trust are ignored.
+  for (const exports of [
+    {},
+    { napi_wasm_thread_crash_flag_address: 1024 },
+    { napi_wasm_thread_crash_flag_address: () => 0 },
+    { napi_wasm_thread_crash_flag_address: () => 1026 },
+    { napi_wasm_thread_crash_flag_address: () => 65536 },
+    { napi_wasm_thread_crash_flag_address: () => -4 },
+    {
+      napi_wasm_thread_crash_flag_address() {
+        throw new Error('boom')
+      },
+    },
+  ]) {
+    const fresh = createNodeLoaderAddonCrashFlag()
+    t.notThrows(() => fresh.capture({ exports }))
+    t.is(fresh.view(), undefined)
+  }
+})
+
+// The browser pool is created before the wasm is instantiated, so its workers
+// get the view by message once the instance exists; a worker created later
+// gets it right away. A browser Worker has no workerData.
+test('browser WASI loader posts the addon crash flag view to every pool worker', (t) => {
+  const code = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    true,
+  )
+  assertValidJS(t, code, 'browser threads')
+  const beforeInitStart = code.indexOf(
+    '    beforeInit({ instance }) {\n      __napiInstance = instance\n',
+  )
+  t.true(beforeInitStart > 0)
+  const beforeInitBody = code.slice(
+    code.indexOf('      __napiInstance = instance\n', beforeInitStart),
+    code.indexOf(
+      '      for (const name of Object.keys(instance.exports)) {',
+      beforeInitStart,
+    ),
+  )
+  t.true(beforeInitBody.includes('__captureWasiAddonCrashFlag(instance)'))
+  t.true(
+    code.includes(
+      '      __wasiWorkers.add(worker)\n      __shareWasiAddonCrashFlag(worker)\n',
+    ),
+  )
+
+  const posted: Array<[string, unknown]> = []
+  const run = new Function(
+    'posted',
+    `
+const __sharedMemory = new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true })
+const __wasiWorkers = new Set()
+let __napiInstance
+${generatedFunction(code, '__captureWasiAddonCrashFlag')}
+${generatedFunction(code, '__shareWasiAddonCrashFlag')}
+let __wasiAddonCrashFlag
+function onCreateWorker(name) {
+  const worker = {
+    postMessage(message) {
+      posted.push([name, message])
+    },
+  }
+  __wasiWorkers.add(worker)
+  __shareWasiAddonCrashFlag(worker)
+  return worker
+}
+function beforeInit({ instance }) {
+${beforeInitBody}
+}
+onCreateWorker('pool-1')
+onCreateWorker('pool-2')
+beforeInit({ instance: { exports: { napi_wasm_thread_crash_flag_address: () => 512 } } })
+onCreateWorker('later')
+return { memory: __sharedMemory, view: __wasiAddonCrashFlag }
+`,
+  )
+  const { memory, view } = run(posted)
+  t.true(view instanceof Int32Array)
+  t.is(view.buffer, memory.buffer)
+  t.is(view.byteOffset, 512)
+  t.deepEqual(
+    posted.map(([name]) => name),
+    ['pool-1', 'pool-2', 'later'],
+  )
+  for (const [, message] of posted) {
+    t.deepEqual(Object.keys(message as object), ['__napiRsAddonCrashFlag'])
+    t.is(
+      (message as { __napiRsAddonCrashFlag: unknown }).__napiRsAddonCrashFlag,
+      view,
+    )
+  }
+
+  // The threadless browser loader has no workers.
+  const threadless = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    false,
+  )
+  t.false(threadless.includes('__captureWasiAddonCrashFlag'))
+  t.false(threadless.includes('__shareWasiAddonCrashFlag'))
+})
+
+test('browser WASI worker raises the addon crash flag it was posted', (t) => {
+  for (const [fs, errorEvent] of [
+    [false, false],
+    [true, true],
+  ]) {
+    const code = createWasiBrowserWorkerBinding(fs, errorEvent)
+    const start = code.indexOf('let __addonCrashFlag\n')
+    t.true(start > 0)
+    const bridge = code.slice(start)
+    const calls: string[] = []
+    const { memory, word } = addonCrashFlagView(256)
+    const handler: {
+      instance?: unknown
+      beforeReportError: (...args: unknown[]) => unknown
+      handle: (event: { data: unknown }) => void
+    } = {
+      instance: undefined,
+      beforeReportError(this: unknown, error: unknown) {
+        calls.push(
+          `emnapi ${(error as Error).message} word=${Atomics.load(word, 0)} ${this === handler}`,
+        )
+      },
+      handle(event) {
+        calls.push(`handle ${JSON.stringify(event.data)}`)
+      },
+    }
+    const globals: { onmessage?: (event: { data: unknown }) => void } = {}
+    new Function('handler', 'globalThis', bridge)(handler, globals)
+
+    // No view yet: emnapi's hook still runs, nothing is raised.
+    handler.beforeReportError(new Error('early'), 'load')
+    // The view is kept, not handed to emnapi; emnapi's messages still are.
+    globals.onmessage!({ data: { __napiRsAddonCrashFlag: word } })
+    globals.onmessage!({ data: { __emnapi__: { type: 'load' } } })
+    // A wasm thread that died, with or without an instance.
+    handler.beforeReportError(new Error('trap'), 'start')
+    t.deepEqual(calls, [
+      'emnapi early word=0 true',
+      'handle {"__emnapi__":{"type":"load"}}',
+      'emnapi trap word=1 true',
+    ])
+    t.is(Atomics.load(new Int32Array(memory.buffer), 64), 1)
+  }
+})
+
+/**
+ * Wires the worker's crash hook to the loader's crash error over one shared
+ * report, the way `__createWasiWorker` passes it, and returns both ends.
+ */
+function createWasiCrashReportPair() {
+  const code = createWasiBinding('test', '@scope/test')
+  const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+  const latchState = code.slice(
+    latchStart,
+    code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+      'let __wasiThreadCrashed = false\n'.length,
+  )
+  const loader = new Function(`
+${latchState}
+function __getWasiThreadManager() {
+  return {}
+}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
+return {
+  workerData: {
+    crashFlag: __wasiThreadCrashFlag,
+    crashReport: __wasiThreadCrashReport,
+  },
+  crashError: __getWasiThreadCrashError,
+  workerError: __recordWasiThreadCrashError,
+}
+`)() as {
+    workerData: { crashFlag: Int32Array; crashReport: SharedArrayBuffer }
+    crashError: () => any
+    workerError: (error: unknown, threadId: number) => void
+  }
+  const hook = wasiWorkerCrashHook()
+  const reportStates: number[] = []
+  const crashWorker = (error: unknown, threadId: number) => {
+    const handler = {
+      beforeReportError() {
+        reportStates.push(
+          Atomics.load(new Int32Array(loader.workerData.crashReport, 0, 1), 0),
+        )
+      },
+    }
+    new Function('workerData', 'handler', 'threadId', hook)(
+      loader.workerData,
+      handler,
+      threadId,
+    )
+    ;(handler.beforeReportError as (...args: unknown[]) => void)(error, 'start')
+  }
+  return { ...loader, crashWorker, reportStates }
+}
+
+// The 'error' event is dropped when the loader terminates the worker first, so
+// the crash error lost its cause in most crash runs. The worker now writes its
+// error into shared memory before it raises the flag, and the loader rebuilds
+// it from there without waiting for any event.
+test('WASI worker hands its error to the loader through the shared crash report', (t) => {
+  const pair = createWasiCrashReportPair()
+  const trap = new WebAssembly.RuntimeError('forced trap')
+  pair.crashWorker(trap, 5)
+  // Complete before emnapi's hook runs, and so before the flag is seen.
+  t.deepEqual(pair.reportStates, [2])
+  t.is(Atomics.load(pair.workerData.crashFlag, 0), 1)
+  // A second crash does not overwrite the first report.
+  pair.crashWorker(new Error('second worker'), 6)
+  const crashError = pair.crashError()
+  t.is(crashError.message, CRASH_DISPOSAL_MESSAGE)
+  t.true(crashError.cause instanceof Error)
+  t.is(crashError.cause.name, 'RuntimeError')
+  t.is(crashError.cause.message, 'forced trap')
+  t.is(crashError.cause.stack, trap.stack)
+  t.is(crashError.workerThreadId, 5)
+  // One shared error: a later event does not replace the cause.
+  pair.workerError(new Error('late event'), 7)
+  t.is(pair.crashError(), crashError)
+  t.is(crashError.cause.message, 'forced trap')
+
+  // The listener's error, when it came first, is the original object.
+  const withEvent = createWasiCrashReportPair()
+  withEvent.crashWorker(trap, 5)
+  const eventError = new Error('from the error event')
+  withEvent.workerError(eventError, 5)
+  t.is(withEvent.crashError().cause, eventError)
+
+  // A value that is not an error, and a message too large for the report.
+  const thrownString = createWasiCrashReportPair()
+  thrownString.crashWorker('boom', 3)
+  t.is(thrownString.crashError().cause.message, 'boom')
+  const huge = createWasiCrashReportPair()
+  huge.crashWorker(new Error('x'.repeat(10_000)), 4)
+  const hugeCause = huge.crashError().cause
+  t.true(hugeCause.message.length > 0)
+  t.true(hugeCause.message.length < 10_000)
+  t.is(huge.crashError().workerThreadId, 4)
 })

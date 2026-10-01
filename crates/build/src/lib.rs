@@ -17,8 +17,16 @@ mod windows;
 /// needs Cargo 1.77 and this crate's `rust-version` is 1.88, so a toolchain
 /// old enough to misread it cannot compile `napi-build` in the first place.
 /// Both napi build scripts already emit their cfgs this way.
+///
+/// `napi_wasi_no_heap_sync` is only declared, never set: an addon turns it on
+/// with `--cfg napi_wasi_no_heap_sync` in its target rustflags to opt out of the
+/// allocator wrap (see `wasi.rs`), and the declaration lets its own code test
+/// the cfg without tripping `unexpected_cfgs`.
 fn wasi_threads_cfg_lines(target: &str) -> Vec<&'static str> {
-  let mut lines = vec!["cargo::rustc-check-cfg=cfg(napi_wasi_threads)"];
+  let mut lines = vec![
+    "cargo::rustc-check-cfg=cfg(napi_wasi_threads)",
+    "cargo::rustc-check-cfg=cfg(napi_wasi_no_heap_sync)",
+  ];
   if target == "wasm32-wasip1-threads" {
     lines.push("cargo::rustc-cfg=napi_wasi_threads");
   }
@@ -122,6 +130,7 @@ mod tests {
       wasi_threads_cfg_lines("wasm32-wasip1-threads"),
       vec![
         "cargo::rustc-check-cfg=cfg(napi_wasi_threads)",
+        "cargo::rustc-check-cfg=cfg(napi_wasi_no_heap_sync)",
         "cargo::rustc-cfg=napi_wasi_threads",
       ]
     );
@@ -131,7 +140,10 @@ mod tests {
   fn keeps_the_cfg_off_the_threadless_wasi_target() {
     assert_eq!(
       wasi_threads_cfg_lines("wasm32-wasip1"),
-      vec!["cargo::rustc-check-cfg=cfg(napi_wasi_threads)"]
+      vec![
+        "cargo::rustc-check-cfg=cfg(napi_wasi_threads)",
+        "cargo::rustc-check-cfg=cfg(napi_wasi_no_heap_sync)",
+      ]
     );
   }
 
@@ -139,7 +151,10 @@ mod tests {
   fn still_declares_the_cfg_on_a_native_target() {
     assert_eq!(
       wasi_threads_cfg_lines("x86_64-unknown-linux-gnu"),
-      vec!["cargo::rustc-check-cfg=cfg(napi_wasi_threads)"]
+      vec![
+        "cargo::rustc-check-cfg=cfg(napi_wasi_threads)",
+        "cargo::rustc-check-cfg=cfg(napi_wasi_no_heap_sync)",
+      ]
     );
   }
 }

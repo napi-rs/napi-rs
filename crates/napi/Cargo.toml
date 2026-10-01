@@ -142,4 +142,9 @@ version = "0.1"
 version = "0.3"
 
 [build-dependencies]
-napi-build = { path = "../build", version = "2.5.0" }
+# `wasi-heap-sync`: `src/wasi_heap_sync.rs` defines the allocator wrappers, so every addon's
+# `napi_build::setup()` must link with the matching `--wrap` arguments. Cargo feature
+# unification carries the feature from here into it.
+napi-build = { path = "../build", version = "2.6.0", features = [
+  "wasi-heap-sync",
+] }

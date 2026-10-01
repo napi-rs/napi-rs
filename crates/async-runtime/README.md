@@ -81,6 +81,21 @@ CurrentThread builds.
   build can create OS threads"). The default flavor stays `CurrentThread` on
   every wasm target: selecting `MultiThread` there is always an explicit host
   act.
+- **Memory size on threaded wasm.** V8 updates a shared wasm memory's size
+  only on the thread that grew it; the other threads keep checking
+  `memory.fill`, `memory.copy` and atomics (and, without V8's trap handler,
+  every load and store) against their old size, so they trap on the new
+  pages. napi's allocator wrappers refresh a thread when it allocates. The
+  scheduler covers memory that reaches a thread without an allocation there:
+  on `wasm32-wasip1-threads` it calls
+  `napi_sys::wasi_heap_sync::refresh_if_behind` before every task poll and
+  every `block_on` poll, and at the start of every blocking closure, in both
+  flavors. The check is one atomic load and one thread-local load;
+  `memory.grow(0)` runs only when another thread has seen a larger memory.
+  There is nothing to call or configure, and no other target compiles it. The
+  state lives in napi-sys because napi's allocator writes it too and napi
+  cannot depend on this crate. Work a host runs on its own threads, outside
+  this scheduler, is not covered.
 
 ## Running MultiThread on `wasm32-wasip1-threads`
 
@@ -136,8 +151,12 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   returning. So phase 1 announces the stop, parks it, and hands that wait to
   phase 2 as well. It answers `true` while the announced stop still owes a
   wait — backend-owned work that is still live, or such a rejected destruction.
-  `runtime_work_pending` re-answers that question at any time, without
-  blocking. Note that the window is open-ended by the same rule the join is:
+  `runtime_work_pending` re-answers that question at any time without blocking,
+  not even on a lock: a lock another thread holds reads as pending. On threaded
+  WASI a pool thread that traps while holding one unwinds nothing, so that lock
+  never comes back; the poll keeps answering `true` instead of parking the
+  host's thread on it for good.
+  Note that the window is open-ended by the same rule the join is:
   submissions are rejected for the whole of it, and each rejection starts
   another destructor, so a host that keeps submitting from a worker during its
   poll turns keeps extending phase 2. `finish_shutdown` is the call that
@@ -160,6 +179,24 @@ Everything below is the host's job; the crate adds no wasm-specific API.
   instead of wedging the thread. The process-exit teardown is the one path with
   no turns left to give: it closes the handshake with `…_finish` and blocks
   there, exactly as the single call always did.
+- **A crashed pool thread ends the shutdown waits.** A thread that traps
+  unwinds nothing: the locks it held stay held, its work never retires and it
+  never exits, so `begin_shutdown` and `finish_shutdown` would wait on it for
+  good. So on threaded WASI both phases wait in 1 ms slices on the thread that
+  calls them, and between slices read the crash flag in `napi-sys`: a 4-byte
+  word in the shared linear memory. napi's
+  `napi_wasm_thread_crash_flag_address` export gives the cli's loader its
+  address; the loader hands each pool worker an `Int32Array` over it, and the
+  worker raises it with `Atomics.store` when its wasm thread dies (napi's
+  `napi_wasm_thread_crashed` export stores into the same word). No instance is
+  needed, so a worker that fails while it loads, after its thread spawn
+  already returned, raises it too. Once it is up, the wait traps
+  (`unreachable`). The worker raises the loader's own crash flag first, so the
+  loader reports that throw as the crash. Only a crash the worker itself
+  reports ends these waits: a `Worker` that cannot start or is killed by its
+  resource limits raises nothing. The join of live threads above stays
+  unbounded, and pool threads and every wait outside the two phases wait as
+  before. See `src/sync.rs` and the cli's `docs/wasi.md`.
 - **The JavaScript hosts go inert, not away.** The cli's
   `napi.wasm.asyncRuntime` loaders install a CurrentThread task host and a
   timer host unconditionally — they cannot know the flavor. MultiThread never
