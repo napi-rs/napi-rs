@@ -99,7 +99,16 @@ CurrentThread builds.
 
 ## Running MultiThread on `wasm32-wasip1-threads`
 
-Everything below is the host's job; the crate adds no wasm-specific API.
+Everything below is the host's job. The crate adds one wasm-specific export,
+and only on this target: `napi_wasm_runtime_pool_workers() -> u32`, the
+configured MultiThread `worker_threads` (0 under CurrentThread, which is also
+the wasm default before any configure). It reads an atomic and never takes a
+lock. The generated `@napi-rs/cli` threaded Node loader reads it once the
+module loaded (and, with `napi.wasm.asyncRuntime`, after each successful
+`configureAsyncRuntime`) and keeps that many loaded Workers idle in the emnapi
+pool, so the first MultiThread call does not boot its pool threads from
+scratch (cli `docs/wasi.md`, "Thread pool preload"). It comes with the
+scheduler, so `default-features = false` builds export it too.
 
 - **Pass a worker count.** `available_parallelism()` answers `Ok(1)` inside a
   WASI host, so a host that flips only the flavor gets MultiThread's clamped

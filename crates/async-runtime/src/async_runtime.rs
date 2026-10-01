@@ -11,7 +11,7 @@ use std::{
   pin::Pin,
   sync::{
     Arc, LazyLock, Weak,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
   },
   task::{Context, Poll, Waker},
   time::{Duration, Instant},
@@ -11022,6 +11022,25 @@ struct RuntimeController {
   // today (lazy-create, start, shutdown). Any new Running-boundary write MUST
   // mirror here, or `fast_register` routes work onto a superseded backend.
   current_backend: ArcSwapOption<RuntimeBackend>,
+  // Lock-free mirror of `pool_workers_for(&state.options)`, read by
+  // `napi_wasm_runtime_pool_workers` without the `state` lock. Invariant:
+  // stored right after every `state.options` write, under that lock --
+  // exactly 3 sites today (`new`, `configure`, `configure_partial_inner`). A
+  // configure that fails writes neither. Only the threaded WASI export and the
+  // tests read it.
+  #[cfg_attr(not(any(napi_runtime_wasi_threads, test)), allow(dead_code))]
+  pool_workers: AtomicU32,
+}
+
+/// How many pool threads the options run the scheduler on: `worker_threads`
+/// under [`RuntimeFlavor::MultiThread`], 0 under
+/// [`RuntimeFlavor::CurrentThread`], which runs on the host's thread. Expects
+/// validated options, so MultiThread is never below 2.
+fn pool_workers_for(options: &RuntimeOptions) -> u32 {
+  match options.flavor {
+    RuntimeFlavor::MultiThread => u32::try_from(options.worker_threads).unwrap_or(u32::MAX),
+    RuntimeFlavor::CurrentThread => 0,
+  }
 }
 
 struct RejectedSubmissionGuard<'a> {
@@ -11048,6 +11067,7 @@ impl RuntimeController {
     let options = RuntimeOptions::default()
       .validate()
       .expect("default async runtime options must be valid");
+    let pool_workers = AtomicU32::new(pool_workers_for(&options));
     Self {
       state: Mutex::new(RuntimeState {
         options,
@@ -11059,6 +11079,7 @@ impl RuntimeController {
       lifecycle_changed: Condvar::new(),
       metrics: Arc::new(RuntimeMetrics::default()),
       current_backend: ArcSwapOption::empty(),
+      pool_workers,
     }
   }
 
@@ -11069,6 +11090,9 @@ impl RuntimeController {
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     Self::ensure_configuration_mutable(&state)?;
+    self
+      .pool_workers
+      .store(pool_workers_for(&options), Ordering::Release);
     state.options = options;
     Ok(())
   }
@@ -11092,8 +11116,16 @@ impl RuntimeController {
     patch.apply_to(&mut options);
     after_merge(&options);
     let options = options.validate()?;
+    self
+      .pool_workers
+      .store(pool_workers_for(&options), Ordering::Release);
     state.options = options;
     Ok(())
+  }
+
+  #[cfg(any(napi_runtime_wasi_threads, test))]
+  fn pool_workers(&self) -> u32 {
+    self.pool_workers.load(Ordering::Acquire)
   }
 
   fn ensure_configuration_mutable(state: &RuntimeState) -> Result<(), RuntimeConfigError> {
@@ -12147,6 +12179,25 @@ pub fn configure_partial(patch: RuntimeOptionsPatch) -> Result<(), RuntimeConfig
 
 pub fn configured_options() -> RuntimeOptions {
   RUNTIME.options()
+}
+
+/// The configured MultiThread worker count, for the generated threaded WASI
+/// loader: `worker_threads` under MultiThread, 0 under CurrentThread (also
+/// the wasm default before any configure). A configure that fails, including
+/// one refused because the configuration is frozen, leaves it unchanged.
+///
+/// The loader reads it after the module registered (and, with
+/// `napi.wasm.asyncRuntime`, after every successful `configureAsyncRuntime`)
+/// and keeps that many loaded Workers idle in emnapi's reuse pool, so the pool
+/// threads the first async call spawns take a Worker that is already booting
+/// instead of creating one. It reads an atomic and never takes the runtime
+/// state lock: like the other `napi_wasm_*` polls it must not wait on a lock a
+/// crashed pool thread may still hold. See the cli's `docs/wasi.md`, "Thread
+/// pool preload".
+#[cfg(napi_runtime_wasi_threads)]
+#[unsafe(no_mangle)]
+pub extern "C" fn napi_wasm_runtime_pool_workers() -> u32 {
+  RUNTIME.pool_workers()
 }
 
 pub fn is_multi_threaded() -> bool {
@@ -27102,6 +27153,113 @@ mod tests {
       error.to_string(),
       "the async runtime configuration is frozen; configure it before the first async call"
     );
+  }
+
+  fn multi_thread_options(worker_threads: usize) -> RuntimeOptions {
+    RuntimeOptions {
+      flavor: RuntimeFlavor::MultiThread,
+      worker_threads,
+      max_blocking_tasks: worker_threads,
+      thread_name_prefix: "pool-workers".to_string(),
+      park_deadline: None,
+      drain_linger: DEFAULT_DRAIN_LINGER,
+    }
+  }
+
+  #[test]
+  fn pool_workers_follow_the_validated_flavor_and_worker_count() {
+    let validate = |options: RuntimeOptions| {
+      options
+        .validate_with_rayon_max_threads(Some(MAX_ASYNC_RUNTIME_WORKER_THREADS))
+        .expect("options must validate")
+    };
+    assert_eq!(pool_workers_for(&validate(multi_thread_options(3))), 3);
+    // MultiThread is clamped to at least two lanes.
+    assert_eq!(pool_workers_for(&validate(multi_thread_options(1))), 2);
+    // CurrentThread runs on the host's thread: no pool Worker.
+    assert_eq!(
+      pool_workers_for(&validate(RuntimeOptions {
+        flavor: RuntimeFlavor::CurrentThread,
+        ..multi_thread_options(8)
+      })),
+      0
+    );
+  }
+
+  #[test]
+  fn pool_workers_mirror_every_successful_configure() {
+    let controller = RuntimeController::new();
+    assert_eq!(
+      controller.pool_workers(),
+      pool_workers_for(&controller.options()),
+      "the initial value mirrors the default options"
+    );
+
+    controller
+      .configure(multi_thread_options(3))
+      .expect("configure before the backend exists must succeed");
+    assert_eq!(controller.pool_workers(), 3);
+
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        worker_threads: Some(5),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("partial configure before the backend exists must succeed");
+    assert_eq!(controller.pool_workers(), 5);
+
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        worker_threads: Some(1),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("a MultiThread count below two is clamped, not rejected");
+    assert_eq!(controller.pool_workers(), 2);
+
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        flavor: Some(RuntimeFlavor::CurrentThread),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect("switching to CurrentThread must succeed");
+    assert_eq!(controller.pool_workers(), 0);
+
+    controller
+      .configure(multi_thread_options(4))
+      .expect("configure before the backend exists must succeed");
+    assert_eq!(controller.pool_workers(), 4);
+
+    // A configure that fails validation changes nothing.
+    controller
+      .configure(multi_thread_options(0))
+      .expect_err("zero workers must be rejected");
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        worker_threads: Some(0),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect_err("zero workers must be rejected");
+    assert_eq!(controller.pool_workers(), 4);
+  }
+
+  #[test]
+  fn pool_workers_survive_a_frozen_configure() {
+    let controller = current_thread_controller("pool-workers-frozen");
+    assert_eq!(controller.pool_workers(), 0);
+    let _backend = controller.backend();
+
+    controller
+      .configure(multi_thread_options(3))
+      .expect_err("configure after the backend started must be rejected");
+    controller
+      .configure_partial(RuntimeOptionsPatch {
+        flavor: Some(RuntimeFlavor::MultiThread),
+        worker_threads: Some(3),
+        ..RuntimeOptionsPatch::default()
+      })
+      .expect_err("partial configuration after the backend started must be rejected");
+    assert_eq!(controller.pool_workers(), 0);
+    assert_eq!(controller.options().flavor, RuntimeFlavor::CurrentThread);
   }
 
   fn current_thread_controller(thread_name_prefix: &str) -> RuntimeController {
