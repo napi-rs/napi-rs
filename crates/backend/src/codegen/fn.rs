@@ -452,6 +452,7 @@ impl NapiFn {
           let is_env_type = if let syn::Type::Path(syn::TypePath {
             qself: None,
             path: syn::Path { segments, .. },
+            ..
           }) = pat_type.ty.as_ref()
           {
             segments.last().is_some_and(|s| s.ident == "Env")
@@ -681,7 +682,10 @@ impl NapiFn {
         } else {
           // `qself: None` keeps qualified-self paths like `&<T as Trait>::Env`
           // on the normal `FromNapiRef` extraction path, matching typegen.
-          if let syn::Type::Path(syn::TypePath { qself: None, path }) = &*elem {
+          if let syn::Type::Path(syn::TypePath {
+            qself: None, path, ..
+          }) = &*elem
+          {
             if let Some(syn::PathSegment { ident, .. }) = path.segments.last() {
               if ident == "Env" {
                 return Ok((quote! {}, NapiArgType::Env));

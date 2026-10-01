@@ -500,7 +500,9 @@ fn is_generic_function_type(rust_ty: &str) -> bool {
 /// Checks if a type uses TypeScript function type notation
 fn is_ts_function_type_notation(ty: &Type) -> bool {
   match ty {
-    Type::Path(syn::TypePath { qself: None, path }) => {
+    Type::Path(syn::TypePath {
+      qself: None, path, ..
+    }) => {
       if let Some(syn::PathSegment { ident, .. }) = path.segments.last() {
         let rust_ty = ident.to_string();
         return KNOWN_TYPES
@@ -783,7 +785,10 @@ fn wrap_fn_like_arg(ty: String, generic_ty: &Type, is_return_type: bool) -> Stri
 
 /// True iff `ty` is a path whose final segment is `FnArgs`.
 fn is_fn_args_path(ty: &Type) -> bool {
-  if let Type::Path(syn::TypePath { qself: None, path }) = ty {
+  if let Type::Path(syn::TypePath {
+    qself: None, path, ..
+  }) = ty
+  {
     if let Some(seg) = path.segments.last() {
       return seg.ident == FUNCTION_ARG_TY;
     }
@@ -896,7 +901,9 @@ pub fn ty_to_ts_type(
         )
       }
     }
-    Type::Path(syn::TypePath { qself: None, path }) => handle_type_path(
+    Type::Path(syn::TypePath {
+      qself: None, path, ..
+    }) => handle_type_path(
       path,
       is_return_ty,
       is_struct_field,
