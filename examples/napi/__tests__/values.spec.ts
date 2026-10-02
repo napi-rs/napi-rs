@@ -596,6 +596,17 @@ test('object optional field serialization', (t) => {
   })
 })
 
+test('objects created from Rust have Object.prototype', (t) => {
+  for (const obj of [
+    returnObjectOnlyToJs(),
+    createNotUseNullableStruct(),
+    validateStructuredEnum({ type2: 'Greeting', name: 'Napi-rs' }),
+    Kind,
+  ]) {
+    t.is(Object.getPrototypeOf(obj), Object.prototype)
+  }
+})
+
 test('function call', async (t) => {
   t.is(
     call0((...args) => {
