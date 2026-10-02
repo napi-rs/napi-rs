@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.11](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.10...napi-derive-v3.6.11) - 2026-10-02
+
+### Fixed
+
+- *(deps)* update rust crate syn to v3 ([#3407](https://github.com/napi-rs/napi-rs/pull/3407))
+
 ## [3.6.10](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.6.9...napi-derive-v3.6.10) - 2026-10-01
 
 ### Other
