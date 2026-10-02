@@ -20026,6 +20026,32 @@ mod tests {
     handle.join().unwrap();
   }
 
+  /// Whether this toolchain's std runs `thread_local!` destructors when a
+  /// thread exits, before `join()` returns. Rust 1.99.0 stopped doing that
+  /// on `wasm32-wasip1-threads`: rust-lang/rust#160868 moved the target into
+  /// the "leak everything" TLS guard (`sys/thread_local/mod.rs`), so no
+  /// destructor runs at all and there is no destructor completion for the
+  /// worker-join barrier to include. Rust 1.98 and earlier ran them through a
+  /// pthread key, which `pthread_join` waits for.
+  #[cfg(napi_runtime_wasi_threads)]
+  fn std_runs_tls_destructors_before_join() -> bool {
+    struct Probe(Arc<AtomicBool>);
+    impl Drop for Probe {
+      fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+      }
+    }
+    thread_local! {
+      static PROBE: std::cell::RefCell<Option<Probe>> = const { std::cell::RefCell::new(None) };
+    }
+    let ran = Arc::new(AtomicBool::new(false));
+    let probe = Probe(Arc::clone(&ran));
+    std::thread::spawn(move || PROBE.with(|slot| *slot.borrow_mut() = Some(probe)))
+      .join()
+      .unwrap();
+    ran.load(Ordering::SeqCst)
+  }
+
   #[cfg(napi_runtime_os_threads)]
   fn run_claim_with_deadlock_gate_assertion<T: Send + 'static>(
     executor: &Arc<MultiThreadExecutor>,
@@ -29071,11 +29097,19 @@ mod tests {
       .recv_timeout(Duration::from_secs(10))
       .expect("shutdown must finish once worker TLS destructors have run");
     shutdown_result.unwrap();
-    assert_eq!(
-      seen_at_return, worker_count,
-      "every worker TLS destructor must have completed before shutdown() returned: \
-       the worker-join barrier must include TLS-destructor completion"
-    );
+    // On a std that never runs TLS destructors at thread exit there is no
+    // completion to order; see `std_runs_tls_destructors_before_join`.
+    #[cfg(not(napi_runtime_wasi_threads))]
+    let destructors_run = true;
+    #[cfg(napi_runtime_wasi_threads)]
+    let destructors_run = std_runs_tls_destructors_before_join();
+    if destructors_run {
+      assert_eq!(
+        seen_at_return, worker_count,
+        "every worker TLS destructor must have completed before shutdown() returned: \
+         the worker-join barrier must include TLS-destructor completion"
+      );
+    }
     join_within(
       "the shutdown thread exits after teardown",
       shutdown,
