@@ -1450,17 +1450,25 @@ const NESTED_DESTROY_NO_OP = `        if (isPreparingEnvCleanup?.()) {
         }
         prepareEnvCleanup?.()`
 
+// The threaded node loader hands emnapi a gated `setImmediate`, see
+// `__wasiSetImmediate`; every other loader creates the context as before.
+const PLAIN_CONTEXT_OPTIONS = '{ autoDestroy: false }'
+const THREADED_NODE_CONTEXT_OPTIONS =
+  '{ autoDestroy: false, features: { setImmediate: __wasiSetImmediate } }'
+
 const wrappedContextCreationCases: Array<{
   name: string
   code: string
   prepare: string
   guard: (typeof preparingBarrierGuards)[keyof typeof preparingBarrierGuards]
+  contextOptions?: string
 }> = [
   {
     name: 'node cjs',
     code: createWasiBinding('test', '@scope/test'),
     prepare: '__prepareWasmEnvCleanup',
     guard: preparingBarrierGuards.shared,
+    contextOptions: THREADED_NODE_CONTEXT_OPTIONS,
   },
   {
     name: 'node cjs threadless',
@@ -1482,7 +1490,13 @@ const wrappedContextCreationCases: Array<{
   },
 ]
 
-for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
+for (const {
+  name,
+  code,
+  prepare,
+  guard,
+  contextOptions = PLAIN_CONTEXT_OPTIONS,
+} of wrappedContextCreationCases) {
   test(`WASI loader runs the barrier on a raw context.destroy(): ${name}`, (t) => {
     assertValidJS(t, code, name)
     t.is(
@@ -1493,16 +1507,17 @@ for (const { name, code, prepare, guard } of wrappedContextCreationCases) {
     // No unwrapped context may escape: there is exactly one createContext call
     // and it is the wrapper's argument.
     t.is(
-      code.split('__emnapiCreateContext({ autoDestroy: false })').length - 1,
+      code.split('__emnapiCreateContext(').length - 1,
       1,
       'loader must create exactly one emnapi context',
     )
+    t.true(code.includes(`__emnapiCreateContext(${contextOptions})`))
     t.true(
       code
         .replace(/\s+/g, ' ')
         .includes(
           '__emnapiContext = __wrapEmnapiContextDestroyForSettlement( ' +
-            `__emnapiCreateContext({ autoDestroy: false }), ${prepare}, ${guard.probe}, )`,
+            `__emnapiCreateContext(${contextOptions}), ${prepare}, ${guard.probe}, )`,
         ),
       'the createContext result must be wrapped before anything can reach it',
     )
@@ -2305,6 +2320,7 @@ let __wasiExitListenerRegistered = true
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __wasiThreadCrashDisposePromise
+let __wasiReentryClosed = false
 // The loader sets this to __removeWasiExitListener.
 let __completeWasiDisposal = function () {
   steps.push('complete')
@@ -2469,7 +2485,7 @@ test('node WASI crash disposal releases the waiting-request port', async (t) => 
   t.true(release.length > 0)
   t.true(
     generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
-      '  __releaseEmnapiWaitingRequestHandle()\n  let workerResult\n',
+      '  __releaseEmnapiWaitingRequestHandle()\n  // No call into wasm after this: see `__wasiSetImmediate`.\n  __wasiReentryClosed = true\n  let workerResult\n',
     ),
     'released before the workers are terminated',
   )
@@ -2531,7 +2547,7 @@ test('node WASI crash paths release the CurrentThread host timers', async (t) =>
   )
   t.true(
     generatedFunction(code, '__disposeWasiBindingAfterThreadCrash').includes(
-      '  __releaseEmnapiWaitingRequestHandle()\n  __releaseCurrentThreadHostTimers()\n  let workerResult\n',
+      '  __releaseEmnapiWaitingRequestHandle()\n  __releaseCurrentThreadHostTimers()\n  // No call into wasm after this: see `__wasiSetImmediate`.\n  __wasiReentryClosed = true\n  let workerResult\n',
     ),
     'released before the workers are terminated',
   )
@@ -2578,6 +2594,135 @@ test('node WASI crash paths release the CurrentThread host timers', async (t) =>
   ]) {
     t.false(other.includes('__releaseCurrentThreadHostTimers'), name)
     t.false(other.includes('__trackCurrentThreadHostTimers'), name)
+  }
+})
+
+// emnapi defers its calls back into wasm (`_emnapi_set_immediate` for libuv
+// handle closes and threadsafe-function finalizers, threadsafe-function
+// dispatch, the finalizer queue) through the context's `features.setImmediate`.
+// One queued before the crash disposal ran after it, on the main thread, while a
+// terminated pool worker still held napi's heap-sync allocator lock: the free in
+// the finalizer spun on that lock forever. The threaded loader gates that
+// callback; the crash disposal closes the gate before it terminates the
+// workers.
+test('node WASI crash disposal drops emnapi deferred calls into wasm', async (t) => {
+  for (const [label, code] of [
+    ['node cjs', createWasiBinding('test', '@scope/test')],
+    ['node cjs + asyncRuntime', threadedAsyncRuntimeCode],
+  ] as const) {
+    const latchStart = code.indexOf('const __wasiThreadCrashFlag = ')
+    const latchState = code.slice(
+      latchStart,
+      code.indexOf('let __wasiThreadCrashed = false\n', latchStart) +
+        'let __wasiThreadCrashed = false\n'.length,
+    )
+    const gate = generatedFunction(code, '__wasiSetImmediate')
+    t.true(gate.length > 0, label)
+    const steps: string[] = []
+    const queued: Array<() => void> = []
+    // A stubbed host `setImmediate`: the test decides when each turn fires.
+    const hostSetImmediate = (callback: () => void) => {
+      queued.push(callback)
+      return { handle: queued.length }
+    }
+    const binding = new Function(
+      'setImmediate',
+      'steps',
+      `
+let __emnapiContext
+let __wasiThreadCrashDisposePromise
+let __wasiReentryClosed = false
+${latchState}
+function __getWasiThreadManager() {
+  return undefined
+}
+function __terminateWasiWorkers() {
+  steps.push('terminate (gate closed: ' + __wasiReentryClosed + ')')
+  return Promise.resolve()
+}
+function __releaseCurrentThreadHostTimers() {}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__attachCleanupErrors')}
+${generatedFunction(code, '__hasWasiThreadCrashed')}
+${generatedFunction(code, '__readWasiThreadCrashReport')}
+${generatedFunction(code, '__recordWasiThreadCrashError')}
+${generatedFunction(code, '__getWasiThreadCrashError')}
+${generatedFunction(code, '__fillWasiThreadCrashError')}
+${generatedFunction(code, '__releaseEmnapiWaitingRequestHandle')}
+${generatedFunction(code, '__disposeWasiBindingAfterThreadCrash')}
+${gate}
+return {
+  setImmediate: __wasiSetImmediate,
+  dispose: __disposeWasiBindingAfterThreadCrash,
+  crash() {
+    Atomics.store(__wasiThreadCrashFlag, 0, 1)
+  },
+}
+`,
+    )(hostSetImmediate, steps) as {
+      setImmediate: (callback: () => void) => unknown
+      dispose: () => Promise<unknown>
+      crash: () => void
+    }
+
+    // The host's handle is passed through to emnapi.
+    t.deepEqual(
+      binding.setImmediate(() => steps.push('call fired before disposal')),
+      { handle: 1 },
+      label,
+    )
+    binding.setImmediate(() => steps.push('call queued before disposal'))
+    t.is(queued.length, 2, label)
+    // The first turn fires before the crash disposal: it still reaches wasm.
+    queued[0]()
+
+    binding.crash()
+    const disposal = binding.dispose()
+    // Queued after the disposal started: dropped as well.
+    binding.setImmediate(() => steps.push('call queued after disposal'))
+    // The second and third turns fire after the disposal: dropped.
+    queued[1]()
+    queued[2]()
+
+    const error = await disposal.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    )
+    t.true(error instanceof Error, label)
+    t.regex((error as Error).message, /worker thread crashed/, label)
+    t.deepEqual(
+      steps,
+      ['call fired before disposal', 'terminate (gate closed: true)'],
+      label,
+    )
+  }
+
+  // The threadless loaders have no pool workers to terminate, so no gate.
+  for (const [label, code] of [
+    [
+      'node cjs threadless',
+      createWasiBinding('test', '@scope/test', 4000, 65536, false),
+    ],
+    [
+      'node cjs threadless + asyncRuntime',
+      createWasiBinding(
+        'test',
+        '@scope/test',
+        4000,
+        65536,
+        false,
+        'wasm32-wasip1',
+        'test',
+        true,
+      ),
+    ],
+  ] as const) {
+    t.false(code.includes('__wasiSetImmediate'), label)
+    t.false(code.includes('__wasiReentryClosed'), label)
+    t.true(
+      code.includes('__emnapiCreateContext({ autoDestroy: false })'),
+      label,
+    )
   }
 })
 
@@ -2788,6 +2933,7 @@ function createInflightWasiDisposal(
 let __wasiDisposed = false
 let __wasiDisposePromise
 let __wasiThreadCrashDisposePromise
+let __wasiReentryClosed = false
 let __wasiAsyncWorkDrainPromise
 let __emnapiWasmEnvCleanupPrepared = false
 let __emnapiWasmEnvCleanupPreparing = false
@@ -4028,4 +4174,545 @@ test('WASI worker hands its error to the loader through the shared crash report'
   t.true(hugeCause.message.length > 0)
   t.true(hugeCause.message.length < 10_000)
   t.is(huge.crashError().workerThreadId, 4)
+})
+
+// Thread pool preload (docs/wasi.md, "Thread pool preload"): the threaded Node
+// loader keeps emnapi's idle reuse pool at the addon's configured MultiThread
+// worker count, read from its `napi_wasm_runtime_pool_workers` export.
+
+interface PoolWorkerStub {
+  id: number
+  onmessage?: unknown
+  terminate: () => unknown
+  // Resolves every pending \`terminate()\`, as Node does at the Worker's exit.
+  exit: () => void
+  terminateCalls: number
+}
+
+/**
+ * emnapi's ThreadManager, reduced to what the reconcile touches.
+ * `terminateRemoves` models an emnapi whose `terminateWorker` takes the Worker
+ * out of the pool itself; 2.1.0 leaves it there. \`asyncExit\` models Node's
+ * \`worker.terminate()\`, whose promise settles only at the exit; without it
+ * \`terminate()\` returns nothing, as a browser Worker's does.
+ */
+function createPoolManagerStub(
+  options: {
+    load?: (worker: PoolWorkerStub) => Promise<unknown>
+    allocateThrowsAt?: number
+    terminateRemoves?: boolean
+    asyncExit?: boolean
+  } = {},
+) {
+  const load = options.load ?? ((worker) => Promise.resolve(worker))
+  const manager = {
+    unusedWorkers: [] as PoolWorkerStub[],
+    allocated: [] as PoolWorkerStub[],
+    loaded: [] as PoolWorkerStub[],
+    terminated: [] as PoolWorkerStub[],
+    // What `onCreateWorker` tracks in the loader's `__wasiWorkers`.
+    onCreate: (_worker: PoolWorkerStub) => {},
+    allocateUnusedWorker() {
+      if (manager.allocated.length === options.allocateThrowsAt) {
+        throw new Error('allocate threw')
+      }
+      let exit = () => {}
+      const exited = new Promise<void>((resolve) => {
+        exit = resolve
+      })
+      const worker: PoolWorkerStub = {
+        id: manager.allocated.length,
+        onmessage: () => {},
+        terminate() {
+          worker.terminateCalls++
+          return options.asyncExit ? exited : undefined
+        },
+        exit,
+        terminateCalls: 0,
+      }
+      manager.allocated.push(worker)
+      manager.onCreate(worker)
+      manager.unusedWorkers.push(worker)
+      return worker
+    },
+    loadWasmModuleToWorker(worker: PoolWorkerStub) {
+      manager.loaded.push(worker)
+      return load(worker)
+    },
+    terminateWorker(worker: PoolWorkerStub) {
+      manager.terminated.push(worker)
+      if (options.terminateRemoves) {
+        const index = manager.unusedWorkers.indexOf(worker)
+        if (index !== -1) manager.unusedWorkers.splice(index, 1)
+      }
+      // emnapi starts the termination and drops its promise.
+      worker.terminate()
+      // emnapi replaces the handler with a reporter that logs every message.
+      worker.onmessage = () => {}
+    },
+  }
+  return manager
+}
+
+interface PoolReconcileState {
+  manager?: ReturnType<typeof createPoolManagerStub> | Record<string, unknown>
+  // What the addon's export returns; `undefined` = no such export.
+  poolWorkers?: number | (() => number)
+  noInstance?: boolean
+  disposed?: boolean
+  disposing?: boolean
+  crashed?: boolean
+}
+
+/**
+ * Runs the threaded Node loader's pool reconcile, sliced out of the generated
+ * code, against a stubbed instance and thread manager.
+ */
+function createPoolReconcile(code: string, state: PoolReconcileState) {
+  const reads = { count: 0 }
+  const wasiWorkers = new Set<PoolWorkerStub>()
+  if (state.manager && 'onCreate' in state.manager) {
+    state.manager.onCreate = (worker) => wasiWorkers.add(worker)
+  }
+  const exports: Record<string, unknown> = {}
+  if (state.poolWorkers !== undefined) {
+    exports.napi_wasm_runtime_pool_workers = () => {
+      reads.count++
+      return typeof state.poolWorkers === 'function'
+        ? state.poolWorkers()
+        : state.poolWorkers
+    }
+  }
+  const scope = new Function(
+    'state',
+    'instance',
+    'wasiWorkers',
+    `
+const __wasiThreadPoolReconcileSymbol = Symbol.for('napi.rs.wasi.reconcileThreadPool')
+const __wasiWorkers = wasiWorkers
+const __napiInstance = instance
+let __wasiDisposed = Boolean(state.disposed)
+let __wasiDisposePromise = state.disposing ? Promise.resolve() : undefined
+function __hasWasiThreadCrashed() {
+  return Boolean(state.crashed)
+}
+function __getWasiThreadManager() {
+  return state.manager
+}
+${generatedFunction(code, '__isThenable')}
+${generatedFunction(code, '__createCleanupError')}
+${generatedFunction(code, '__keepEventLoopAliveUntil')}
+${generatedFunction(code, '__terminateWasiWorkers')}
+${generatedFunction(code, '__removeWasiPoolWorker')}
+${generatedFunction(code, '__untrackWasiWorkerOnExit')}
+${generatedFunction(code, '__reconcileWasiThreadPool')}
+${generatedFunction(code, '__publishWasiThreadPoolReconcile')}
+${generatedFunction(code, '__wrapWasiConfigureAsyncRuntime')}
+return {
+  reconcile: __reconcileWasiThreadPool,
+  terminateWorkers: __terminateWasiWorkers,
+  publish: __publishWasiThreadPoolReconcile,
+  wrap: typeof __wrapWasiConfigureAsyncRuntime === 'function'
+    ? __wrapWasiConfigureAsyncRuntime
+    : undefined,
+}
+`,
+  )
+  const fns = scope(
+    state,
+    state.noInstance ? undefined : { exports },
+    wasiWorkers,
+  ) as {
+    reconcile: () => void
+    terminateWorkers: () => unknown
+    publish: (exports: object) => void
+    wrap?: (binding: Record<string, unknown>) => void
+  }
+  return { ...fns, reads, wasiWorkers }
+}
+
+const threadedNodeLoader = () =>
+  createWasiBinding('test', '@scope/test', 4000, 65536, true, 'wasm32-wasi')
+const threadedAsyncRuntimeNodeLoader = () =>
+  createWasiBinding(
+    'test',
+    '@scope/test',
+    4000,
+    65536,
+    true,
+    'wasm32-wasi',
+    'test.wasm32-wasi',
+    true,
+  )
+
+const ids = (workers: PoolWorkerStub[] | Set<PoolWorkerStub>) =>
+  [...workers].map((worker) => worker.id)
+
+test('node WASI pool reconcile preloads one loading Worker per configured worker', (t) => {
+  const manager = createPoolManagerStub()
+  const pool = createPoolReconcile(threadedNodeLoader(), {
+    manager,
+    poolWorkers: 3,
+  })
+  pool.reconcile()
+  t.deepEqual(ids(manager.allocated), [0, 1, 2])
+  t.deepEqual(manager.loaded, manager.allocated)
+  t.deepEqual(manager.unusedWorkers, manager.allocated)
+  t.deepEqual(ids(pool.wasiWorkers), [0, 1, 2])
+  t.is(manager.terminated.length, 0)
+  // The pool already matches: nothing more.
+  pool.reconcile()
+  t.is(manager.allocated.length, 3)
+  t.is(pool.reads.count, 2)
+})
+
+test('node WASI pool reconcile does nothing without the export, the instance or the manager', (t) => {
+  const code = threadedNodeLoader()
+  // An addon built without napi-async-runtime, or with an older one.
+  const noExport = createPoolManagerStub()
+  t.notThrows(() =>
+    createPoolReconcile(code, { manager: noExport }).reconcile(),
+  )
+  t.is(noExport.allocated.length, 0)
+  const noInstance = createPoolManagerStub()
+  t.notThrows(() =>
+    createPoolReconcile(code, {
+      manager: noInstance,
+      poolWorkers: 3,
+      noInstance: true,
+    }).reconcile(),
+  )
+  t.is(noInstance.allocated.length, 0)
+  // No manager, or one without the pool API.
+  const noManager = createPoolReconcile(code, { poolWorkers: 3 })
+  t.notThrows(() => noManager.reconcile())
+  t.notThrows(() =>
+    createPoolReconcile(code, {
+      manager: { unusedWorkers: [], terminateWorker() {} },
+      poolWorkers: 3,
+    }).reconcile(),
+  )
+  // An export that throws.
+  const throwing = createPoolManagerStub()
+  t.notThrows(() =>
+    createPoolReconcile(code, {
+      manager: throwing,
+      poolWorkers: () => {
+        throw new Error('export threw')
+      },
+    }).reconcile(),
+  )
+  t.is(throwing.allocated.length, 0)
+})
+
+test('node WASI pool reconcile does nothing once disposed, while disposing or after a crash', (t) => {
+  const code = threadedNodeLoader()
+  for (const flag of ['disposed', 'disposing', 'crashed'] as const) {
+    const manager = createPoolManagerStub()
+    const pool = createPoolReconcile(code, {
+      manager,
+      poolWorkers: 3,
+      [flag]: true,
+    })
+    pool.reconcile()
+    t.is(pool.reads.count, 0, flag)
+    t.is(manager.allocated.length, 0, flag)
+  }
+})
+
+test('node WASI pool reconcile terminates the idle Workers above the count, newest first', (t) => {
+  for (const terminateRemoves of [false, true]) {
+    const label = `terminateRemoves=${terminateRemoves}`
+    const manager = createPoolManagerStub({ terminateRemoves })
+    const state: PoolReconcileState = { manager, poolWorkers: 4 }
+    const pool = createPoolReconcile(threadedNodeLoader(), state)
+    pool.reconcile()
+    // A spawn took the newest one; it is not in the pool any more.
+    manager.unusedWorkers.pop()
+    state.poolWorkers = 1
+    pool.reconcile()
+    t.deepEqual(ids(manager.terminated), [2, 1], label)
+    t.deepEqual(ids(manager.unusedWorkers), [0], label)
+    t.deepEqual(ids(pool.wasiWorkers), [0, 3], label)
+    // The reporter `terminateWorker` installed is gone again.
+    for (const worker of manager.terminated) {
+      t.is(worker.onmessage, undefined, label)
+    }
+    t.is(manager.allocated.length, 4, label)
+
+    state.poolWorkers = 0
+    pool.reconcile()
+    t.deepEqual(ids(manager.terminated), [2, 1, 0], label)
+    t.deepEqual(manager.unusedWorkers, [], label)
+  }
+})
+
+test('node WASI pool reconcile keeps a terminated Worker tracked until it has exited', async (t) => {
+  const manager = createPoolManagerStub({ asyncExit: true })
+  const state: PoolReconcileState = { manager, poolWorkers: 2 }
+  const pool = createPoolReconcile(threadedNodeLoader(), state)
+  pool.reconcile()
+  state.poolWorkers = 1
+  pool.reconcile()
+  const [shrunk] = manager.terminated
+  t.is(shrunk.id, 1)
+  t.deepEqual(ids(manager.unusedWorkers), [0])
+  // Its termination is still under way: disposal has to find it.
+  t.deepEqual(ids(pool.wasiWorkers), [0, 1])
+
+  // A disposal right after the shrink waits for that exit too.
+  const order: string[] = []
+  const terminated = Promise.resolve(pool.terminateWorkers()).then(() => {
+    order.push('disposed')
+  })
+  manager.allocated[0].exit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(order, [])
+  order.push('exit')
+  shrunk.exit()
+  await terminated
+  t.deepEqual(order, ['exit', 'disposed'])
+  t.deepEqual(ids(pool.wasiWorkers), [])
+
+  // Without a disposal, the exit alone takes it out of the set.
+  const alone = createPoolManagerStub({ asyncExit: true })
+  const aloneState: PoolReconcileState = { manager: alone, poolWorkers: 1 }
+  const alonePool = createPoolReconcile(threadedNodeLoader(), aloneState)
+  alonePool.reconcile()
+  aloneState.poolWorkers = 0
+  alonePool.reconcile()
+  t.deepEqual(ids(alonePool.wasiWorkers), [0])
+  alone.allocated[0].exit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(ids(alonePool.wasiWorkers), [])
+})
+
+test('node WASI pool reconcile drops a Worker whose load rejects', async (t) => {
+  const manager = createPoolManagerStub({
+    load: (worker) =>
+      worker.id === 1
+        ? Promise.reject(new Error('load failed'))
+        : Promise.resolve(worker),
+  })
+  createPoolReconcile(threadedNodeLoader(), {
+    manager,
+    poolWorkers: 3,
+  }).reconcile()
+  t.deepEqual(ids(manager.unusedWorkers), [0, 1, 2])
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(ids(manager.unusedWorkers), [0, 2])
+})
+
+test('node WASI pool reconcile stops at a synchronous failure', (t) => {
+  // The load throws: that Worker is terminated and taken out of both sets.
+  const loadThrows = createPoolManagerStub({
+    load: (worker) => {
+      if (worker.id === 1) throw new Error('load threw')
+      return Promise.resolve(worker)
+    },
+  })
+  const pool = createPoolReconcile(threadedNodeLoader(), {
+    manager: loadThrows,
+    poolWorkers: 3,
+  })
+  t.notThrows(() => pool.reconcile())
+  t.deepEqual(ids(loadThrows.allocated), [0, 1])
+  t.deepEqual(ids(loadThrows.unusedWorkers), [0])
+  t.deepEqual(ids(loadThrows.terminated), [1])
+  t.deepEqual(ids(pool.wasiWorkers), [0])
+
+  // The allocation throws: there is no Worker to clean up.
+  const allocateThrows = createPoolManagerStub({ allocateThrowsAt: 1 })
+  t.notThrows(() =>
+    createPoolReconcile(threadedNodeLoader(), {
+      manager: allocateThrows,
+      poolWorkers: 3,
+    }).reconcile(),
+  )
+  t.deepEqual(ids(allocateThrows.allocated), [0])
+  t.deepEqual(ids(allocateThrows.unusedWorkers), [0])
+  t.is(allocateThrows.terminated.length, 0)
+})
+
+test('node WASI pool reconcile keeps a Worker whose load threw tracked until it has exited', async (t) => {
+  const manager = createPoolManagerStub({
+    asyncExit: true,
+    load: (worker) => {
+      if (worker.id === 1) throw new Error('load threw')
+      return Promise.resolve(worker)
+    },
+  })
+  const pool = createPoolReconcile(threadedNodeLoader(), {
+    manager,
+    poolWorkers: 3,
+  })
+  t.notThrows(() => pool.reconcile())
+  const [threw] = manager.terminated
+  t.is(threw.id, 1)
+  t.deepEqual(ids(manager.unusedWorkers), [0])
+  // Its termination is still under way: disposal has to find it.
+  t.deepEqual(ids(pool.wasiWorkers), [0, 1])
+
+  const order: string[] = []
+  const terminated = Promise.resolve(pool.terminateWorkers()).then(() => {
+    order.push('disposed')
+  })
+  manager.allocated[0].exit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  t.deepEqual(order, [])
+  order.push('exit')
+  threw.exit()
+  await terminated
+  t.deepEqual(order, ['exit', 'disposed'])
+  t.deepEqual(ids(pool.wasiWorkers), [])
+})
+
+test('node WASI pool reconcile is published as a non-enumerable, read-only symbol', (t) => {
+  const pool = createPoolReconcile(threadedNodeLoader(), {})
+  const exports = { other: 1 }
+  pool.publish(exports)
+  const descriptor = Object.getOwnPropertyDescriptor(
+    exports,
+    Symbol.for('napi.rs.wasi.reconcileThreadPool'),
+  )
+  t.is(descriptor?.value, pool.reconcile)
+  t.false(descriptor?.enumerable)
+  t.false(descriptor?.writable)
+  t.false(descriptor?.configurable)
+  t.deepEqual(Object.keys(exports), ['other'])
+})
+
+test('node WASI configureAsyncRuntime wrapper reconciles only after a successful configure', (t) => {
+  const manager = createPoolManagerStub()
+  const state: PoolReconcileState = { manager, poolWorkers: 0 }
+  const pool = createPoolReconcile(threadedAsyncRuntimeNodeLoader(), state)
+  t.truthy(pool.wrap)
+
+  const result = { configured: true }
+  const calls: Array<{ self: unknown; args: unknown[] }> = []
+  const binding: Record<string, unknown> = {
+    configureAsyncRuntime(this: unknown, ...args: unknown[]) {
+      calls.push({ self: this, args })
+      if ((args[0] as { fail?: boolean }).fail) {
+        // The count it would read changed, but the configure failed.
+        state.poolWorkers = 5
+        throw new Error('the runtime already started')
+      }
+      state.poolWorkers = (args[0] as { workerThreads: number }).workerThreads
+      return result
+    },
+  }
+  pool.wrap!(binding)
+  const configure = binding.configureAsyncRuntime as (
+    ...args: unknown[]
+  ) => unknown
+  t.is(configure.name, 'configureAsyncRuntime')
+
+  t.is(configure.call(binding, { workerThreads: 2 }, 'extra'), result)
+  t.deepEqual(calls, [{ self: binding, args: [{ workerThreads: 2 }, 'extra'] }])
+  t.is(manager.allocated.length, 2)
+
+  t.throws(() => configure.call(binding, { fail: true }), {
+    message: 'the runtime already started',
+  })
+  t.is(manager.allocated.length, 2, 'a failed configure skips the reconcile')
+  t.is(pool.reads.count, 1)
+
+  // No export to wrap, or one that throws when read: nothing changes.
+  const empty: Record<string, unknown> = {}
+  t.notThrows(() => pool.wrap!(empty))
+  t.deepEqual(empty, {})
+  const guarded = Object.defineProperty({}, 'configureAsyncRuntime', {
+    get() {
+      throw new Error('getter threw')
+    },
+  })
+  t.notThrows(() => pool.wrap!(guarded))
+})
+
+test('node WASI loader wires the pool reconcile into the threaded load only', (t) => {
+  for (const asyncRuntime of [false, true]) {
+    const label = `asyncRuntime=${asyncRuntime}`
+    const code = asyncRuntime
+      ? threadedAsyncRuntimeNodeLoader()
+      : threadedNodeLoader()
+    assertValidJS(t, code, `threaded node ${label}`)
+    t.true(code.includes('napi_wasm_runtime_pool_workers'), label)
+    const publishDispose = code.indexOf(
+      '  __publishWasiDispose(__napiModule.exports)\n',
+    )
+    const publish = code.indexOf(
+      '  __publishWasiThreadPoolReconcile(__napiModule.exports)\n',
+    )
+    t.true(publish > publishDispose, label)
+    const initializationCatch = code.indexOf('\n} catch (error) {')
+    t.true(publish < initializationCatch, label)
+    // The load-time reconcile is the last thing the template emits: after the
+    // load succeeded, before the export tail build.ts appends.
+    t.true(
+      code.endsWith(
+        `  throw rollback.error
+}
+// Preload the pool for the count the addon configured during registration.
+// See \`__reconcileWasiThreadPool\`.
+try {
+  __reconcileWasiThreadPool()
+} catch {}
+`,
+      ),
+      label,
+    )
+    const wrapCall = code.indexOf(
+      '  __wrapWasiConfigureAsyncRuntime(__napiModule.exports)\n',
+    )
+    if (asyncRuntime) {
+      // After the host install, inside the initialization try.
+      t.true(wrapCall > code.indexOf('__installCurrentThreadHosts('), label)
+      t.true(wrapCall < code.indexOf(WASI_CJS_STAMP_LINE), label)
+    } else {
+      t.is(wrapCall, -1, label)
+      t.false(code.includes('function __wrapWasiConfigureAsyncRuntime('))
+    }
+  }
+
+  const threadless = [false, true].map((asyncRuntime) =>
+    createWasiBinding(
+      'test',
+      '@scope/test',
+      4000,
+      65536,
+      false,
+      'wasm32-wasip1',
+      'test.wasm32-wasip1',
+      asyncRuntime,
+    ),
+  )
+  for (const code of threadless) {
+    assertValidJS(t, code, 'threadless node')
+  }
+  const others = [
+    ...threadless,
+    ...[false, true].flatMap((threads) =>
+      [false, true].map((asyncRuntime) =>
+        createWasiBrowserBinding(
+          'test',
+          4000,
+          65536,
+          false,
+          false,
+          false,
+          false,
+          threads,
+          undefined,
+          asyncRuntime,
+        ),
+      ),
+    ),
+    createWasiDeferredBrowserBinding('test'),
+  ]
+  for (const code of others) {
+    t.false(code.includes('napi_wasm_runtime_pool_workers'))
+    t.false(code.includes('reconcileThreadPool'))
+    t.false(code.includes('__wrapWasiConfigureAsyncRuntime'))
+  }
 })

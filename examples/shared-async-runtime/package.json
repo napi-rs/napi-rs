@@ -10,6 +10,7 @@
     "build:wasi-threads": "napi-raw build --target wasm32-wasip1-threads --platform --js index.cjs --dts index.d.cts",
     "test:wasi": "node --test test-wasi.mjs",
     "test:wasi-threads-crash": "node --test test-wasi-threads-crash.mjs",
+    "test:wasi-threads-pool": "node --test test-wasi-threads-pool.mjs",
     "test:wasi-workerd": "node --test test-workerd-loader.mjs"
   },
   "napi": {
