@@ -248,7 +248,9 @@ impl NapiEnum {
           getter: None,
           setter: None,
           value: #value_var,
-          attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+          attributes: napi::bindgen_prelude::sys::PropertyAttributes::writable
+            | napi::bindgen_prelude::sys::PropertyAttributes::enumerable
+            | napi::bindgen_prelude::sys::PropertyAttributes::configurable,
           data: std::ptr::null_mut(),
         }
       });
