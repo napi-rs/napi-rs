@@ -497,6 +497,39 @@ test('enum', (t) => {
   t.is(enumToI32(CustomNumEnum.Eight), 8)
 })
 
+test('enum is a plain object with enumerable, writable members', (t) => {
+  // The generated types declare `const enum`s, which TypeScript refuses to use
+  // as values (TS2475), so read the runtime objects through the untyped binding.
+  const { Kind, CustomNumEnum, Status } = nativeAddon as unknown as Record<
+    string,
+    Record<string, unknown>
+  >
+  t.deepEqual(Object.keys(Kind), ['Dog', 'Cat', 'Duck'])
+  t.deepEqual(Object.keys(CustomNumEnum), [
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Six',
+    'Eight',
+    'Nine',
+    'Ten',
+  ])
+  t.deepEqual(Object.keys(Status), ['Pristine', 'Loading', 'Ready'])
+  t.deepEqual(Object.values(Status), ['Pristine', 'Loading', 'Ready'])
+  for (const [enumObject, name, value] of [
+    [Kind, 'Dog', 0],
+    [CustomNumEnum, 'Eight', 8],
+    [Status, 'Ready', 'Ready'],
+  ] as const) {
+    t.deepEqual(
+      Object.getOwnPropertyDescriptor(enumObject, name),
+      { value, writable: true, enumerable: true, configurable: true },
+      name,
+    )
+  }
+})
+
 test('structured enum', (t) => {
   const hello: StructuredKind = {
     type2: 'Hello',
