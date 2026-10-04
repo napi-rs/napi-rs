@@ -912,6 +912,32 @@ impl Drop for WorkerTlsDropProbe {
   }
 }
 
+/// Whether `std` runs `thread_local!` destructors when a spawned thread exits
+/// on this target. `std` documents wasm as "for now we just leak everything",
+/// and Rust 1.99.0 widened that arm to `wasm32-wasip1-threads`
+/// (rust-lang/rust#163748), so a join barrier that "includes destructor
+/// completion" has nothing to include there. Probed at runtime rather than
+/// keyed on a toolchain version so the assertion comes back by itself once
+/// the toolchain runs them again.
+#[cfg(all(test, napi_runtime_os_threads))]
+fn platform_runs_thread_local_destructors() -> bool {
+  struct Bump(Arc<AtomicUsize>);
+  impl Drop for Bump {
+    fn drop(&mut self) {
+      self.0.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+  thread_local! {
+    static PROBE: std::cell::Cell<Option<Bump>> = const { std::cell::Cell::new(None) };
+  }
+  let ran = Arc::new(AtomicUsize::new(0));
+  let probe = Arc::clone(&ran);
+  std::thread::spawn(move || PROBE.with(|slot| slot.set(Some(Bump(probe)))))
+    .join()
+    .expect("TLS destructor probe thread must not panic");
+  ran.load(Ordering::SeqCst) == 1
+}
+
 #[cfg(all(test, napi_runtime_os_threads))]
 fn run_dependency_claim_test_hook() {
   if let Some(hook) = DEPENDENCY_CLAIM_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
@@ -28832,6 +28858,14 @@ mod tests {
     // whole-suite silent CI wedge (see the LOADER-LOCK RULE at
     // `WorkerTlsDropAction`).
     use std::sync::mpsc;
+
+    if !platform_runs_thread_local_destructors() {
+      eprintln!(
+        "skipping: std does not run thread_local! destructors at thread exit on this target \
+         (rust-lang/rust#163748), so there is no destructor completion for the join barrier to include"
+      );
+      return;
+    }
 
     let controller = Arc::new(multi_thread_controller("lifecycle-worker-tls", 2, 1));
     let backend = controller.backend();
