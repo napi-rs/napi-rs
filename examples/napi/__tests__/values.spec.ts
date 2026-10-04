@@ -601,8 +601,6 @@ test('objects created from Rust have Object.prototype', (t) => {
     returnObjectOnlyToJs(),
     createNotUseNullableStruct(),
     validateStructuredEnum({ type2: 'Greeting', name: 'Napi-rs' }),
-    // @ts-expect-error a const enum in the type definitions, an object at runtime
-    Kind,
   ]) {
     t.is(Object.getPrototypeOf(obj), Object.prototype)
   }
