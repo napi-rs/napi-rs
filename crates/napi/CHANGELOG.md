@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.14.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.0...napi-v3.14.1) - 2026-10-05
+
+### Fixed
+
+- *(napi)* create objects with napi_define_properties on every Node version ([#3560](https://github.com/napi-rs/napi-rs/pull/3560))
+
 ## [3.14.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.13.0...napi-v3.14.0) - 2026-10-01
 
 ### Added
