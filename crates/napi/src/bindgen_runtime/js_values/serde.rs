@@ -3,7 +3,7 @@ use std::{marker::PhantomData, ptr};
 use serde_json::{Map, Number, Value};
 
 use crate::{
-  bindgen_runtime::{Array, Null, Object, Unknown},
+  bindgen_runtime::{Array, Null, Object},
   check_status, sys, type_of, Env, Error, Result, Status, ValueType,
 };
 
@@ -151,9 +151,13 @@ unsafe fn value_from_napi_value(
         let arr = unsafe { Array::from_napi_value(env, napi_val)? };
         let mut vec = Vec::with_capacity(arr.len() as usize);
         for i in 0..arr.len() {
-          if let Some(element) = arr.get::<Unknown>(i)? {
-            vec.push(unsafe { value_from_napi_value(env, element.0.value, remaining_depth - 1)? });
-          }
+          let mut element = ptr::null_mut();
+          check_status!(
+            unsafe { sys::napi_get_element(env, arr.inner, i, &mut element) },
+            "Failed to get element with index `{}`",
+            i,
+          )?;
+          vec.push(unsafe { value_from_napi_value(env, element, remaining_depth - 1)? });
         }
         Value::Array(vec)
       } else {
@@ -232,9 +236,9 @@ unsafe fn map_from_napi_value(
 
   let mut map = Map::new();
   for key in Object::keys(&obj)?.into_iter() {
-    if let Some(val) = obj.get::<Unknown>(&key)? {
+    if let Some(val) = obj.get_inner(&key)? {
       map.insert(key, unsafe {
-        value_from_napi_value(env, val.0.value, remaining_depth - 1)?
+        value_from_napi_value(env, val, remaining_depth - 1)?
       });
     }
   }
