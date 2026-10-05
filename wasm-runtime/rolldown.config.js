@@ -15,6 +15,7 @@ export default defineConfig([
         assert: join(import.meta.dirname, 'assert.cjs'),
         util: join(import.meta.dirname, 'util'),
         'node:buffer': 'buffer',
+        'node:url': join(import.meta.dirname, 'url'),
       },
     },
     transform: {
