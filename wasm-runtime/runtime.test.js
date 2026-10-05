@@ -49,8 +49,8 @@ const createRuntimeFixture = async (generation) => {
   )
   const emnapiVersion = generation === 'v1' ? '1.11.1' : '2.0.0-alpha.3'
 
+  await mkdir(join(fixtureDirectory, 'dist'), { recursive: true })
   await Promise.all([
-    mkdir(join(fixtureDirectory, 'dist'), { recursive: true }),
     writeFile(
       join(fixtureDirectory, 'package.json'),
       JSON.stringify({ type: 'module' }),
