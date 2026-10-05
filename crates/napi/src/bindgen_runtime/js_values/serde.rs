@@ -157,6 +157,9 @@ unsafe fn value_from_napi_value(
             "Failed to get element with index `{}`",
             i,
           )?;
+          // napi_value is an opaque handle scoped to the env; it is never
+          // dereferenced from Rust, only passed to N-API calls.
+          // codeql[rust/access-invalid-pointer]
           vec.push(unsafe { value_from_napi_value(env, element, remaining_depth - 1)? });
         }
         Value::Array(vec)
@@ -237,6 +240,9 @@ unsafe fn map_from_napi_value(
   let mut map = Map::new();
   for key in Object::keys(&obj)?.into_iter() {
     if let Some(val) = obj.get_inner(&key)? {
+      // napi_value is an opaque handle scoped to the env; it is never
+      // dereferenced from Rust, only passed to N-API calls.
+      // codeql[rust/access-invalid-pointer]
       map.insert(key, unsafe {
         value_from_napi_value(env, val, remaining_depth - 1)?
       });
