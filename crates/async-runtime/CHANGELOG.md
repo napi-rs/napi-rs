@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.4...napi-async-runtime-v0.2.5) - 2026-10-05
+
+### Added
+
+- *(cli, async-runtime)* preload the threaded WASI worker pool from the loader ([#3558](https://github.com/napi-rs/napi-rs/pull/3558))
+
+### Other
+
+- *(async-runtime)* skip the worker TLS destructor barrier check where std never runs them ([#3562](https://github.com/napi-rs/napi-rs/pull/3562))
+
 ## [0.2.4](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.3...napi-async-runtime-v0.2.4) - 2026-10-01
 
 ### Added
