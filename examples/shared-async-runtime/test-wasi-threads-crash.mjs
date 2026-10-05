@@ -79,13 +79,18 @@ test('dispose() rejects with the crash after a pool worker fails to load', () =>
 // A CurrentThread sleep holds a referenced host timeout on the loader thread.
 // The crash disposal cannot unregister the hosts, which enters wasm, so it
 // clears those timeouts itself; before it did, the process stayed alive until
-// the 60 s sleep ended, past this test's timeout.
+// the 60 s sleep ended, past this test's timeout. The child disposes on the
+// failed Worker's 'error' event, so the disposal starts after the crash.
 test('dispose() after a crash releases an armed CurrentThread sleep', () => {
   const result = runChild('dispose-sleep')
   assert.equal(result.error, undefined, result.output)
   assert.equal(result.signal, null, result.output)
   assert.equal(result.status, 0, result.output)
   assert.match(result.stdout, /^idle thread started: true$/m)
+  assert.match(
+    result.stdout,
+    /^pool worker error: napi-rs test: worker 1 failed to load$/m,
+  )
   assert.match(
     result.stdout,
     /dispose rejected: napi-rs: WASI binding cannot be disposed after a worker thread crashed \| cause: napi-rs test: worker 1 failed to load/,

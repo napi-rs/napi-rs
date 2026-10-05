@@ -1116,6 +1116,8 @@ jobs:
         run: yarn workspace @examples/shared-async-runtime build:wasi-threads
       - name: Test a pool worker that fails to load
         run: yarn workspace @examples/shared-async-runtime test:wasi-threads-crash
+      - name: Test the thread pool preload
+        run: yarn workspace @examples/shared-async-runtime test:wasi-threads-pool
 
   test-node-wasi:
     runs-on: ubuntu-latest

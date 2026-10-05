@@ -5,6 +5,7 @@ import {
 } from './binding-target.js'
 
 const WASI_DISPOSE_SYMBOL = 'napi.rs.wasi.dispose'
+const WASI_THREAD_POOL_RECONCILE_SYMBOL = 'napi.rs.wasi.reconcileThreadPool'
 const WASI_ROLLBACK_REGISTRY_SYMBOL = 'napi.rs.wasi.rollback.registry.v1'
 
 /**
@@ -4005,6 +4006,11 @@ function __createWasiWorker(filename) {
     threads && asyncRuntime
       ? `${indent}__releaseCurrentThreadHostTimers()\n`
       : ''
+  // The threaded context defers emnapi's calls into wasm through
+  // `__wasiSetImmediate`, which a crash disposal closes.
+  const emnapiContextOptions = threads
+    ? '{ autoDestroy: false, features: { setImmediate: __wasiSetImmediate } }'
+    : '{ autoDestroy: false }'
   // Only the threaded flavor has pool workers whose wasm thread can die under
   // this one. See `__disposeWasiBindingAtExit`.
   const threadCrashLatch = threads
@@ -4050,6 +4056,34 @@ function __hasWasiThreadCrashed() {
 }
 
 let __wasiThreadCrashDisposePromise
+// Raised by the crash disposal right before it terminates the workers. See
+// \`__wasiSetImmediate\`.
+let __wasiReentryClosed = false
+
+/**
+ * emnapi's \`features.setImmediate\` for this binding's context. emnapi defers
+ * its calls back into wasm through it: \`_emnapi_set_immediate\` (libuv handle
+ * closes, threadsafe-function finalizers), threadsafe-function dispatch
+ * (\`async-send\`) and the finalizer queue. One queued before a crash disposal
+ * terminates the workers still runs after it, and a worker terminated while it
+ * held a lock in the wasm heap (napi's heap-sync allocator lock spins and never
+ * gives up) leaves that call spinning on this thread for good. The binding is
+ * unusable after a crash disposal, so those calls are dropped.
+ *
+ * Known residual, still able to enter wasm after a crash disposal because emnapi
+ * offers no hook for them: the \`FinalizationRegistry\` callbacks that free
+ * external memory when GC collects a value (\`_free\`, the shared-buffer meta
+ * release), threadsafe-function dispatch of \`async-send\` type 1 and
+ * \`_emnapi_next_tick\` (both \`Promise.resolve().then\`), and every deferred
+ * call under emnapi 1.x, whose \`createContext\` ignores \`features\`.
+ */
+function __wasiSetImmediate(callback) {
+  return setImmediate(function () {
+    if (!__wasiReentryClosed) {
+      callback()
+    }
+  })
+}
 
 /**
  * Stores the first error a pool worker reported, with the worker's id. Called
@@ -4200,6 +4234,8 @@ function __disposeWasiBindingAfterThreadCrash() {
   }
   __releaseEmnapiWaitingRequestHandle()
 ${releaseCurrentThreadHostTimers('  ')}\
+  // No call into wasm after this: see \`__wasiSetImmediate\`.
+  __wasiReentryClosed = true
   let workerResult
   try {
     workerResult = __terminateWasiWorkers()
@@ -4298,6 +4334,170 @@ ${releaseCurrentThreadHostTimers('    ')}\
     return
   }
 `
+    : ''
+  // Threaded flavor only: keeps emnapi's idle reuse pool at the addon's
+  // configured MultiThread worker count. See docs/wasi.md, "Thread pool
+  // preload".
+  const threadPoolReconcile = threads
+    ? `
+const __wasiThreadPoolReconcileSymbol = Symbol.for('${WASI_THREAD_POOL_RECONCILE_SYMBOL}')
+
+/**
+ * Takes a Worker out of emnapi's reuse pool, if it is still there. emnapi
+ * terminates a pooled Worker that failed to load but (up to
+ * @emnapi/wasi-threads 2.1.0) leaves it in the pool, where the next thread
+ * spawn would pop it. A newer emnapi removes it itself, so this is a no-op
+ * then.
+ */
+function __removeWasiPoolWorker(manager, worker) {
+  const index = manager.unusedWorkers.indexOf(worker)
+  if (index !== -1) {
+    manager.unusedWorkers.splice(index, 1)
+  }
+}
+
+/**
+ * Takes a Worker the thread manager just terminated out of \`__wasiWorkers\`
+ * once it has exited, not before. \`terminateWorker\` only starts Node's
+ * asynchronous \`worker.terminate()\` and drops its promise, so a disposal that
+ * begins before the exit has to find this Worker in the set and wait for it
+ * like any other. A second \`terminate()\` settles when the Worker has exited,
+ * the way \`__terminateWasiWorkers\` waits.
+ */
+function __untrackWasiWorkerOnExit(worker) {
+  const terminated = worker.terminate()
+  if (__isThenable(terminated)) {
+    Promise.resolve(terminated).then(
+      () => {
+        __wasiWorkers.delete(worker)
+      },
+      // Left tracked: disposal terminates it again and reports the error.
+      () => {},
+    )
+  } else {
+    __wasiWorkers.delete(worker)
+  }
+}
+
+/**
+ * Matches emnapi's idle reuse pool to the addon's configured MultiThread worker
+ * count, which the addon exports as \`napi_wasm_runtime_pool_workers\`
+ * (napi-async-runtime; 0 under CurrentThread). \`reuseWorker: true\` starts the
+ * pool empty, so without this every pool thread the first async call spawns
+ * boots a Worker and loads the wasm into it first. Here each missing Worker is
+ * created and starts loading now; a spawn later pops one that is already
+ * booting. Idle Workers above the count are terminated, last in first out,
+ * the way a spawn takes them. A Worker a spawn already took is not in the pool
+ * and is left alone.
+ *
+ * Runs once after a successful load and, when the loader wraps it, after every
+ * successful \`configureAsyncRuntime\`. Also reachable as
+ * binding[Symbol.for('${WASI_THREAD_POOL_RECONCILE_SYMBOL}')]().
+ * It never throws and never waits on a Worker: a Worker whose load fails is
+ * dropped from the pool when its load rejects. Nothing at all happens after a
+ * thread crash, once disposal started, or for an addon without the export.
+ */
+function __reconcileWasiThreadPool() {
+  try {
+    if (__wasiDisposed || __wasiDisposePromise || __hasWasiThreadCrashed()) {
+      return
+    }
+    const read = __napiInstance?.exports?.napi_wasm_runtime_pool_workers
+    if (typeof read !== 'function') {
+      return
+    }
+    const count = read() >>> 0
+    const manager = __getWasiThreadManager()
+    if (
+      !manager ||
+      !Array.isArray(manager.unusedWorkers) ||
+      typeof manager.allocateUnusedWorker !== 'function' ||
+      typeof manager.loadWasmModuleToWorker !== 'function'
+    ) {
+      return
+    }
+    // Both loops are bounded by the difference they start from, so a manager
+    // that does not update \`unusedWorkers\` the way emnapi does cannot spin.
+    for (let excess = manager.unusedWorkers.length - count; excess > 0; excess--) {
+      const worker = manager.unusedWorkers[manager.unusedWorkers.length - 1]
+      manager.terminateWorker(worker)
+      __removeWasiPoolWorker(manager, worker)
+      __untrackWasiWorkerOnExit(worker)
+      // Compatibility with @emnapi/wasi-threads 2.1.0 and older:
+      // \`terminateWorker\` installs a reporter that logs every emnapi message
+      // still queued on the port, so a Worker that finished loading just
+      // before it was terminated prints 'received "loaded" command from
+      // terminated worker'. Nothing listens for that Worker any more, and a
+      // newer emnapi ignores the late 'loaded' itself, so this is harmless
+      // there. \`__terminateWasiWorkers\` does the same.
+      worker.onmessage = undefined
+    }
+    for (let missing = count - manager.unusedWorkers.length; missing > 0; missing--) {
+      let worker
+      try {
+        // Through \`onCreateWorker\`: tracked in \`__wasiWorkers\`, unref'd, and
+        // handed the crash flags like any pool Worker.
+        worker = manager.allocateUnusedWorker()
+        manager
+          .loadWasmModuleToWorker(worker)
+          .then(undefined, () => __removeWasiPoolWorker(manager, worker))
+      } catch {
+        if (worker !== undefined) {
+          __removeWasiPoolWorker(manager, worker)
+          try {
+            manager.terminateWorker(worker)
+            __untrackWasiWorkerOnExit(worker)
+          } catch {}
+        }
+        return
+      }
+    }
+  } catch {}
+}
+
+function __publishWasiThreadPoolReconcile(exports) {
+  Object.defineProperty(exports, __wasiThreadPoolReconcileSymbol, {
+    configurable: false,
+    enumerable: false,
+    value: __reconcileWasiThreadPool,
+    writable: false,
+  })
+}
+${
+  asyncRuntime
+    ? `
+/**
+ * Replaces the addon's \`configureAsyncRuntime\` export, if it has one, with a
+ * wrapper that reconciles the pool after every successful call: a configure
+ * changes the count the pool was preloaded for. A configure that throws changed
+ * nothing, so its error propagates and the pool stays as it is. Matched by
+ * name, like the CurrentThread host install: it is the export
+ * napi-async-runtime's adapter defines, and an addon that defines its own under
+ * that name gets the same reconcile. Never fails the load.
+ */
+function __wrapWasiConfigureAsyncRuntime(binding) {
+  let configure
+  try {
+    configure = binding.configureAsyncRuntime
+  } catch {
+    return
+  }
+  if (typeof configure !== 'function') {
+    return
+  }
+  try {
+    binding.configureAsyncRuntime = function configureAsyncRuntime(...args) {
+      const result = Reflect.apply(configure, this, args)
+      try {
+        __reconcileWasiThreadPool()
+      } catch {}
+      return result
+    }
+  } catch {}
+}
+`
+    : ''
+}`
     : ''
   const workerRuntimeImport = threads
     ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
@@ -4410,6 +4610,7 @@ const { createContext: __emnapiCreateContext } = require('@emnapi/runtime')
 ${asyncRuntimeImport}\
 ${workerExecArgv}\
 ${threadCrashLatch}\
+${threadPoolReconcile}\
 
 const __cwd = process.cwd()
 const __rootDir = __nodePath.parse(__cwd).root
@@ -4631,7 +4832,7 @@ try {
   const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
   try {
     __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
-      __emnapiCreateContext({ autoDestroy: false }),
+      __emnapiCreateContext(${emnapiContextOptions}),
       __prepareWasmEnvCleanup,
       __isPreparingWasmEnvCleanup,
     )
@@ -4675,7 +4876,9 @@ ${captureAddonCrashFlag}\
     },
   }))
   __publishWasiDispose(__napiModule.exports)
+${threads ? '  __publishWasiThreadPoolReconcile(__napiModule.exports)\n' : ''}\
 ${installAsyncRuntimeHosts}\
+${threads && asyncRuntime ? '  __wrapWasiConfigureAsyncRuntime(__napiModule.exports)\n' : ''}\
   // The CommonJS tail below aliases \`__napiModule.exports\`; a named module
   // export does not travel with it, so carry the marker on the binding itself
   // too. Three things pin the stamp to exactly this spot:
@@ -4704,5 +4907,14 @@ ${installAsyncRuntimeHosts}\
   __runWasiInitializationRollback(rollback)
   throw rollback.error
 }
+${
+  threads
+    ? `// Preload the pool for the count the addon configured during registration.
+// See \`__reconcileWasiThreadPool\`.
+try {
+  __reconcileWasiThreadPool()
+} catch {}
 `
+    : ''
+}`
 }

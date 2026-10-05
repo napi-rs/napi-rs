@@ -2052,12 +2052,16 @@ if (isThreadedWasi) {
       }
       const exports = instance.exports
 
+      // The napi_env pointer emnapi itself passes. Since emnapi 2.0.0-alpha.6
+      // it lives on the Env (bridge.address became the lazy allocator, a
+      // function that coerces to a null env and swallows the thrown refusal).
+      const envAddress = envObject.address ?? envObject.bridge.address
       const reregister = () => {
         const scope = context.openScope(envObject)
         try {
           envObject.callIntoModule(() => {
             exports.napi_register_wasm_v1(
-              envObject.bridge.address,
+              envAddress,
               scope.add({}),
             )
           })
@@ -2327,7 +2331,8 @@ if (isThreadlessWasi) {
   try {
     abandonedEnv.callIntoModule(() => {
       abandonedExports.napi_register_wasm_v1(
-        abandonedEnv.bridge.address,
+        // See the threaded counterpart: `Env.address` since emnapi 2.0.0-alpha.6.
+        abandonedEnv.address ?? abandonedEnv.bridge.address,
         abandonedScope.add({}),
       )
     })

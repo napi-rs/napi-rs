@@ -4,7 +4,7 @@
 //   dispose-sleep
 //            CurrentThread instead: arm a 60 s sleep, which holds a host
 //            timeout on this thread, start one idle thread, and dispose once
-//            its worker failed to load
+//            its worker reported the failed load (see `disposeAfterCrash`)
 
 const mode = process.argv[2]
 const binding = require('./shared_async_runtime.wasi.cjs')
@@ -31,20 +31,37 @@ function dispose() {
   )
 }
 
-// A worker that fails to load also rejects emnapi's own load promise, which
-// nothing handles; report it instead of dying on it.
-let crashSeen = false
+// Up to @emnapi/wasi-threads 2.1.0, a worker that fails to load also rejects
+// at the thread spawn site, and nothing handles that rejection; report it
+// instead of dying on it. 2.2.0 prints the failure there instead (emnapi#239).
 process.on('unhandledRejection', (error) => {
   process.stderr.write(`unhandled rejection: ${error && error.message}\n`)
-  // The worker raised the loader's crash flag before it reported, so the
-  // disposal below takes the crash path.
-  if (mode === 'dispose-sleep' && !crashSeen) {
-    crashSeen = true
-    dispose()
-  }
 })
 
+// "dispose-sleep" disposes once the pool worker's load failed, so the disposal
+// starts after the crash instead of being overtaken by it. The trigger is that
+// Worker's 'error' event, reached through Node's public process 'worker' event:
+// it is the event the loader's own onCreateWorker listener latches the crash
+// on, and the worker raised the shared crash flag before it posted the error,
+// so dispose() sees the crash when it starts. It holds on both emnapi versions,
+// unlike the spawn-site report above. The binding gives a host nothing else:
+// it exposes no crash flag, and its calls keep resolving after the crash; only
+// dispose() reports it.
+function disposeAfterCrash() {
+  let crashSeen = false
+  process.on('worker', (worker) => {
+    worker.on('error', (error) => {
+      process.stdout.write(`pool worker error: ${error && error.message}\n`)
+      if (!crashSeen) {
+        crashSeen = true
+        dispose()
+      }
+    })
+  })
+}
+
 if (mode === 'dispose-sleep') {
+  disposeAfterCrash()
   binding.configureAsyncRuntime({ flavor: 'CurrentThread' })
   const started = performance.now()
   binding.sleepThenAdd(1, 2, 60_000).then(
