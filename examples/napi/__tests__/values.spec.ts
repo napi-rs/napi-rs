@@ -1610,6 +1610,15 @@ test('serde-roundtrip-depth-limit', (t) => {
   let err = t.throws(() => testSerdeRoundtrip(cyclic))
   t.true(err!.message.includes('JSON'))
 
+  // A shared-object DAG stays under the depth limit but expands to 2^60
+  // traversals — the total-node budget rejects it before it hangs.
+  let dag: Record<string, unknown> = {}
+  for (let i = 0; i < 60; i++) {
+    dag = { a: dag, b: dag }
+  }
+  err = t.throws(() => testSerdeRoundtrip(dag))
+  t.true(err!.message.includes('JSON'))
+
   // Nesting deeper than the 128-level budget throws on the way in.
   let deep: Record<string, unknown> = {}
   for (let i = 0; i < 200; i++) {

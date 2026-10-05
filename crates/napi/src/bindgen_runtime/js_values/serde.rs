@@ -17,6 +17,12 @@ use super::{FromNapiValue, ToNapiValue};
 /// overflowing the native stack.
 const MAX_JSON_DEPTH: u32 = 128;
 
+/// Maximum number of `serde_json::Value` nodes produced or consumed by a
+/// single conversion. A depth limit alone cannot stop a shared-object DAG —
+/// `{a: o, b: o}` nested 60 deep stays under 128 levels but expands to ~2^60
+/// traversals — so the total work is budgeted too.
+const MAX_JSON_NODES: usize = 1_000_000;
+
 fn max_json_depth_error() -> Error {
   Error::new(
     Status::InvalidArg,
@@ -24,9 +30,25 @@ fn max_json_depth_error() -> Error {
   )
 }
 
+fn max_json_nodes_error() -> Error {
+  Error::new(
+    Status::InvalidArg,
+    "Exceeded maximum JSON value count".to_owned(),
+  )
+}
+
+fn consume_json_node(remaining_nodes: &mut usize) -> Result<()> {
+  if *remaining_nodes == 0 {
+    return Err(max_json_nodes_error());
+  }
+  *remaining_nodes -= 1;
+  Ok(())
+}
+
 impl ToNapiValue for &Value {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    unsafe { value_to_napi_value(env, val, MAX_JSON_DEPTH) }
+    let mut remaining_nodes = MAX_JSON_NODES;
+    unsafe { value_to_napi_value(env, val, MAX_JSON_DEPTH, &mut remaining_nodes) }
   }
 }
 
@@ -34,7 +56,9 @@ unsafe fn value_to_napi_value(
   env: sys::napi_env,
   val: &Value,
   remaining_depth: u32,
+  remaining_nodes: &mut usize,
 ) -> Result<sys::napi_value> {
+  consume_json_node(remaining_nodes)?;
   match val {
     Value::Null => unsafe { Null::to_napi_value(env, Null) },
     Value::Bool(b) => unsafe { ToNapiValue::to_napi_value(env, b) },
@@ -46,7 +70,8 @@ unsafe fn value_to_napi_value(
       }
       let js_arr = Array::new(env, arr.len() as u32)?;
       for (index, element) in arr.iter().enumerate() {
-        let napi_val = unsafe { value_to_napi_value(env, element, remaining_depth - 1)? };
+        let napi_val =
+          unsafe { value_to_napi_value(env, element, remaining_depth - 1, remaining_nodes)? };
         check_status!(
           unsafe { sys::napi_set_element(env, js_arr.inner, index as u32, napi_val) },
           "Failed to set element with index `{}`",
@@ -59,7 +84,7 @@ unsafe fn value_to_napi_value(
       if remaining_depth == 0 {
         return Err(max_json_depth_error());
       }
-      unsafe { map_to_napi_value(env, obj, remaining_depth) }
+      unsafe { map_to_napi_value(env, obj, remaining_depth, remaining_nodes) }
     }
   }
 }
@@ -68,11 +93,12 @@ unsafe fn map_to_napi_value(
   env: sys::napi_env,
   val: &Map<String, Value>,
   remaining_depth: u32,
+  remaining_nodes: &mut usize,
 ) -> Result<sys::napi_value> {
   let obj = Object::new(&Env::from(env))?;
 
   for (k, v) in val.iter() {
-    let napi_val = unsafe { value_to_napi_value(env, v, remaining_depth - 1)? };
+    let napi_val = unsafe { value_to_napi_value(env, v, remaining_depth - 1, remaining_nodes)? };
     let mut property_key = ptr::null_mut();
     check_status!(
       unsafe {
@@ -92,7 +118,8 @@ unsafe fn map_to_napi_value(
 impl ToNapiValue for Value {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut val = std::mem::ManuallyDrop::new(val);
-    match unsafe { value_to_napi_value(env, &val, MAX_JSON_DEPTH) } {
+    let mut remaining_nodes = MAX_JSON_NODES;
+    match unsafe { value_to_napi_value(env, &val, MAX_JSON_DEPTH, &mut remaining_nodes) } {
       Ok(v) => {
         // A converted Value never exceeds the depth budget, so the normal
         // recursive drop cannot overflow the stack.
@@ -123,7 +150,8 @@ fn drop_serde_value_iteratively(root: Value) {
 
 impl FromNapiValue for Value {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    unsafe { value_from_napi_value(env, napi_val, MAX_JSON_DEPTH) }
+    let mut remaining_nodes = MAX_JSON_NODES;
+    unsafe { value_from_napi_value(env, napi_val, MAX_JSON_DEPTH, &mut remaining_nodes) }
   }
 }
 
@@ -131,7 +159,9 @@ unsafe fn value_from_napi_value(
   env: sys::napi_env,
   napi_val: sys::napi_value,
   remaining_depth: u32,
+  remaining_nodes: &mut usize,
 ) -> Result<Value> {
+  consume_json_node(remaining_nodes)?;
   let ty = type_of!(env, napi_val)?;
   let val = match ty {
     ValueType::Boolean => Value::Bool(unsafe { bool::from_napi_value(env, napi_val)? }),
@@ -157,11 +187,15 @@ unsafe fn value_from_napi_value(
             "Failed to get element with index `{}`",
             i,
           )?;
-          vec.push(unsafe { value_from_napi_value(env, element, remaining_depth - 1)? });
+          vec.push(unsafe {
+            value_from_napi_value(env, element, remaining_depth - 1, remaining_nodes)?
+          });
         }
         Value::Array(vec)
       } else {
-        Value::Object(unsafe { map_from_napi_value(env, napi_val, remaining_depth)? })
+        Value::Object(unsafe {
+          map_from_napi_value(env, napi_val, remaining_depth, remaining_nodes)?
+        })
       }
     }
     #[cfg(feature = "napi6")]
@@ -224,6 +258,7 @@ unsafe fn map_from_napi_value(
   env: sys::napi_env,
   napi_val: sys::napi_value,
   remaining_depth: u32,
+  remaining_nodes: &mut usize,
 ) -> Result<Map<String, Value>> {
   let obj = Object(
     crate::Value {
@@ -238,7 +273,7 @@ unsafe fn map_from_napi_value(
   for key in Object::keys(&obj)?.into_iter() {
     if let Some(val) = obj.get_inner(&key)? {
       map.insert(key, unsafe {
-        value_from_napi_value(env, val, remaining_depth - 1)?
+        value_from_napi_value(env, val, remaining_depth - 1, remaining_nodes)?
       });
     }
   }
@@ -259,14 +294,23 @@ fn to_string(env: sys::napi_env, napi_val: sys::napi_value) -> Result<String> {
 
 impl ToNapiValue for &Map<String, Value> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    unsafe { map_to_napi_value(env, val, MAX_JSON_DEPTH) }
+    let mut remaining_nodes = MAX_JSON_NODES;
+    consume_json_node(&mut remaining_nodes)?;
+    unsafe { map_to_napi_value(env, val, MAX_JSON_DEPTH, &mut remaining_nodes) }
   }
 }
 
 impl ToNapiValue for Map<String, Value> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut val = std::mem::ManuallyDrop::new(val);
-    match unsafe { map_to_napi_value(env, &val, MAX_JSON_DEPTH) } {
+    let mut remaining_nodes = MAX_JSON_NODES;
+    if let Err(e) = consume_json_node(&mut remaining_nodes) {
+      drop_serde_value_iteratively(Value::Object(unsafe {
+        std::mem::ManuallyDrop::take(&mut val)
+      }));
+      return Err(e);
+    }
+    match unsafe { map_to_napi_value(env, &val, MAX_JSON_DEPTH, &mut remaining_nodes) } {
       Ok(v) => {
         drop(unsafe { std::mem::ManuallyDrop::take(&mut val) });
         Ok(v)
@@ -283,7 +327,9 @@ impl ToNapiValue for Map<String, Value> {
 
 impl FromNapiValue for Map<String, Value> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    unsafe { map_from_napi_value(env, napi_val, MAX_JSON_DEPTH) }
+    let mut remaining_nodes = MAX_JSON_NODES;
+    consume_json_node(&mut remaining_nodes)?;
+    unsafe { map_from_napi_value(env, napi_val, MAX_JSON_DEPTH, &mut remaining_nodes) }
   }
 }
 
