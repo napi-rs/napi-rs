@@ -11,6 +11,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { setTimeout as sleep } from 'node:timers/promises'
+import v8 from 'node:v8'
 import vm from 'node:vm'
 
 const loaderUrl = new URL(
@@ -269,4 +271,38 @@ test('the singleton entry still works alongside independent instances', async ()
   assert.equal(binding.getCurrentThreadTaskHostContractVersion(), 4)
   await loader.dispose()
   assert.equal(loader.getDeferredRuntimeStats().liveInstances, 0)
+})
+
+// Bounded: an instance that stays reachable fails the test instead of hanging it.
+// Kept last: the undisposed instance never decrements `liveInstances`.
+async function collectsMemory(dispose) {
+  if (typeof globalThis.gc !== 'function') {
+    v8.setFlagsFromString('--expose-gc')
+  }
+  const gc = globalThis.gc ?? vm.runInNewContext('gc')
+  let collected = false
+  const registry = new FinalizationRegistry(() => {
+    collected = true
+  })
+  await (async () => {
+    const instance = await loader.createInstance(wasmModule)
+    assert.equal(await instance.exports.plus100(1), 101)
+    registry.register(instance.memory, undefined)
+    if (dispose) {
+      await instance.dispose()
+    }
+  })()
+  for (let i = 0; i < 20 && !collected; i++) {
+    gc()
+    await sleep(20)
+  }
+  return collected
+}
+
+test('an instance dropped without dispose() is collected', async () => {
+  assert.equal(await collectsMemory(false), true)
+})
+
+test('a disposed instance is collected', async () => {
+  assert.equal(await collectsMemory(true), true)
 })
