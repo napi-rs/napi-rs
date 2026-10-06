@@ -1344,6 +1344,146 @@ test('a stale managed entry cannot escape the package root through a symlink', a
   )
 })
 
+test('an extensionless declared main entry is copied from native artifacts', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'bare-entry'
+  const packageName = '@napi-rs/bare-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main: "./binding"` resolves to the extensionless file `binding`, which
+  // ships in the native artifacts. The WASI metadata declares the same
+  // name, so the entry is shared and the native copy must reach the
+  // package root — filtering it out of the scan because it lacks an
+  // extension would fail collection instead.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './binding',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding'],
+  })}\nmodule.exports = {}\n`
+  const nativeBinding =
+    "module.exports = require('./bare-entry.linux-x64-gnu.node')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(artifactsDir, 'binding'), nativeBinding),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'binding'),
+      "module.exports = require('./bare-entry.wasi.cjs')\n",
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'binding'), 'utf8'), nativeBinding)
+})
+
+test('a dying managed entry does not shadow a declared main resolution', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'moved-entry'
+  const packageName = '@napi-rs/moved-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // The previous loader managed `dist.js` at the package root; the new
+  // contract declares `dist/index.js`. The transaction deletes `dist.js`,
+  // so `main: "./dist"` resolves through the directory form and
+  // `dist/index.js` is shared — the WASI-source copy must not overwrite
+  // the native loader that wins after `dist.js` is gone.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(join(buildOutputDir, 'dist'), { recursive: true })
+  await mkdir(join(tmpDir, 'dist'), { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './dist',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const oldLoader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'dist.js',
+    managedRootEntries: ['browser.js', 'dist.js'],
+  })}\nmodule.exports = {}\n`
+  const newLoader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'dist/index.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'dist/index.js'],
+  })}\nmodule.exports = {}\n`
+  const nativeIndex = 'module.exports = { native: true }\n'
+
+  await Promise.all([
+    writeFile(join(tmpDir, `${binaryName}.wasi.cjs`), oldLoader),
+    writeFile(join(tmpDir, 'dist.js'), 'module.exports = { old: true }\n'),
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), newLoader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'dist', 'index.js'),
+      "module.exports = require('./moved-entry.wasi.cjs')\n",
+    ),
+    writeFile(join(tmpDir, 'dist', 'index.js'), nativeIndex),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  // The surviving main resolution is the native `dist/index.js`; the stale
+  // managed `dist.js` is removed rather than shadowing it.
+  t.is(await readFile(join(tmpDir, 'dist', 'index.js'), 'utf8'), nativeIndex)
+  t.false(existsSync(join(tmpDir, 'dist.js')))
+})
+
 test('conflicting WASI root entry declarations are rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'skewed-entry'

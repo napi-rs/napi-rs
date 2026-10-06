@@ -235,12 +235,19 @@ async function collectArtifactsUnlocked(
       throw error
     }
   }
+  const previouslyManagedRootEntries = await collectManagedRootEntries(
+    packageRoot,
+    binaryName,
+    wasiSources,
+  )
+
   await addArtifactRootEntry({
     pendingWrites,
     packageRoot,
     packageMain: packageJson.main,
     packageExports: packageJson.exports,
     publishConfig: packageJson.publishConfig,
+    previouslyManagedRootEntries,
     binaryName,
     targets,
     artifactsByIdentity,
@@ -281,7 +288,7 @@ async function collectArtifactsUnlocked(
     binaryName,
     targets,
     pendingWrites,
-    await collectManagedRootEntries(packageRoot, binaryName, wasiSources),
+    previouslyManagedRootEntries,
     protectedSourcePaths,
   )
 
@@ -494,6 +501,7 @@ async function addArtifactRootEntry({
   packageMain,
   packageExports,
   publishConfig,
+  previouslyManagedRootEntries,
   binaryName,
   targets,
   artifactsByIdentity,
@@ -506,6 +514,7 @@ async function addArtifactRootEntry({
   packageMain: string | undefined
   packageExports: unknown
   publishConfig: { main?: string; exports?: unknown } | undefined
+  previouslyManagedRootEntries: string[]
   binaryName: string
   targets: Target[]
   artifactsByIdentity: Map<string, string[]>
@@ -585,6 +594,26 @@ async function addArtifactRootEntry({
         .map(dirname),
     ),
   ]
+  // Previously managed root entries the new loader contract no longer
+  // declares are deleted by this transaction, so they cannot satisfy Node's
+  // `main` lookup: an old `dist.js` must not shadow a declared
+  // `dist/index.js` that outlives it.
+  const normalizeRootEntry = (entry: string) => {
+    try {
+      return resolveArtifactRelativePath(packageRoot, entry, 'root entry')
+        .relative
+    } catch {
+      return null
+    }
+  }
+  const dyingManagedPaths = new Set(
+    previouslyManagedRootEntries
+      .map(normalizeRootEntry)
+      .filter(
+        (entry): entry is string =>
+          entry !== null && !wasiRootEntries.has(entry),
+      ),
+  )
   const sharedRootEntryPaths = new Set<string>()
   for (const main of [packageMain, publishConfig?.main]) {
     if (typeof main !== 'string') {
@@ -594,6 +623,7 @@ async function addArtifactRootEntry({
       packageRoot,
       main,
       nativeArtifactDirs,
+      dyingManagedPaths,
     )) {
       sharedRootEntryPaths.add(path)
     }
@@ -604,35 +634,39 @@ async function addArtifactRootEntry({
   }
   // Consumers resolve `exports["."]` ahead of `main`, and publishers may
   // swap either field through `publishConfig`, so every declared entry
-  // target counts as shared with the native root entry.
-  for (const target of [
-    ...packageExportTargets(packageExports),
-    ...packageExportTargets(publishConfig?.exports),
-  ]) {
-    try {
-      sharedRootEntryPaths.add(
-        resolveArtifactRelativePath(packageRoot, target, 'package exports')
-          .relative,
-      )
-    } catch {
-      // An exports target outside the package root cannot alias a managed
-      // root entry.
+  // target counts as shared with the native root entry — including
+  // auxiliary conditions like `types`, whose targets still name the
+  // published declaration file.
+  const auxiliaryEntryPaths = new Set<string>()
+  for (const field of [packageExports, publishConfig?.exports]) {
+    const { runtime, auxiliary } = packageExportTargets(field)
+    for (const target of [...runtime, ...auxiliary]) {
+      const normalized = normalizeRootEntry(target)
+      if (normalized !== null) {
+        sharedRootEntryPaths.add(normalized)
+      }
+    }
+    for (const target of auxiliary) {
+      const normalized = normalizeRootEntry(target)
+      if (normalized !== null) {
+        auxiliaryEntryPaths.add(normalized)
+      }
     }
   }
   // Native root-entry scan candidates are a narrower set than the shared
-  // paths: only runtime entries that Node can hand to `require` count, so
-  // auxiliary export targets like `types` cannot consume the single root
-  // copy. Declared shared entries come first because the metadata's own
-  // rootEntry name is the path consumers resolve.
-  const runtimeEntryPattern = /\.(?:c|m)?js$|\.node$/i
+  // paths: auxiliary export targets like `types` name the published file
+  // but cannot satisfy a runtime `require`, so they must not consume the
+  // single root copy. Declared shared entries come first because the
+  // metadata's own rootEntry name is the path consumers resolve, and they
+  // are admitted regardless of extension since `--js` accepts arbitrary
+  // filenames.
   const rootCandidates = [
     ...new Set([
-      ...[...wasiRootEntries].filter(
-        (entry) =>
-          sharedRootEntryPaths.has(entry) && runtimeEntryPattern.test(entry),
+      ...[...wasiRootEntries].filter((entry) =>
+        sharedRootEntryPaths.has(entry),
       ),
-      ...[...sharedRootEntryPaths].filter((path) =>
-        runtimeEntryPattern.test(path),
+      ...[...sharedRootEntryPaths].filter(
+        (path) => !auxiliaryEntryPaths.has(path),
       ),
       ...packageRootEntryCandidates(packageMain),
       ...(typeof publishConfig?.main === 'string'
@@ -880,20 +914,33 @@ async function packageMainResolutionPaths(
   packageRoot: string,
   packageMain: string | undefined,
   additionalDirs: string[] = [],
+  excludedPaths: ReadonlySet<string> = new Set(),
 ) {
   const paths = new Set<string>()
-  const enqueue = (entry: string) => {
+  const normalizeCandidate = (entry: string) => {
     try {
-      paths.add(
-        resolveArtifactRelativePath(packageRoot, entry, 'package main')
-          .relative,
-      )
+      return resolveArtifactRelativePath(packageRoot, entry, 'package main')
+        .relative
     } catch {
       // A `main` that escapes the package root cannot alias a managed root
       // entry, so it contributes no shared names.
+      return null
+    }
+  }
+  const enqueue = (entry: string) => {
+    const normalized = normalizeCandidate(entry)
+    if (normalized !== null) {
+      paths.add(normalized)
     }
   }
   const candidateExists = async (entry: string) => {
+    // A package-root file scheduled for deletion cannot satisfy the
+    // lookup, and a pending write is the only root change this transaction
+    // introduces; artifact directories publish their files unchanged.
+    const normalized = normalizeCandidate(entry)
+    if (normalized === null || excludedPaths.has(normalized)) {
+      return false
+    }
     for (const dir of [packageRoot, ...additionalDirs]) {
       if (await regularFileExists(join(dir, entry))) {
         return true
@@ -971,24 +1018,36 @@ async function packageMainResolutionPaths(
   return paths
 }
 
-// Literal file targets under `exports["."]`. The top level is a subpath
-// exports map only when a key starts with `.`; a condition-only map like
+// Literal file targets under `exports["."]`, split into runtime targets
+// that `require`/`import` can load and auxiliary targets guarded only by
+// non-runtime conditions such as `types`. The top level is a subpath map
+// only when a key starts with `.`; a condition-only map like
 // `{ node: ..., default: ... }` or a fallback array describes the root
 // entry directly. Nested conditions and arrays are flattened; anything
 // that is not a string contributes nothing.
-function packageExportTargets(exportsField: unknown): string[] {
-  const targets = new Set<string>()
-  const collect = (value: unknown) => {
+function packageExportTargets(exportsField: unknown): {
+  runtime: string[]
+  auxiliary: string[]
+} {
+  const runtime = new Set<string>()
+  const auxiliary = new Set<string>()
+  const collect = (value: unknown, isAuxiliary: boolean) => {
     if (typeof value === 'string') {
-      targets.add(value)
+      ;(isAuxiliary ? auxiliary : runtime).add(value)
       return
     }
     if (Array.isArray(value)) {
-      value.forEach(collect)
+      for (const item of value) {
+        collect(item, isAuxiliary)
+      }
       return
     }
     if (value && typeof value === 'object') {
-      Object.values(value).forEach(collect)
+      for (const [key, item] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        collect(item, isAuxiliary || key === 'types')
+      }
     }
   }
   if (
@@ -999,11 +1058,11 @@ function packageExportTargets(exportsField: unknown): string[] {
       key.startsWith('.'),
     )
   ) {
-    collect((exportsField as Record<string, unknown>)['.'])
+    collect((exportsField as Record<string, unknown>)['.'], false)
   } else {
-    collect(exportsField)
+    collect(exportsField, false)
   }
-  return [...targets]
+  return { runtime: [...runtime], auxiliary: [...auxiliary] }
 }
 
 function parseWasiArtifactMetadata(content: string, source: string) {
