@@ -540,8 +540,22 @@ async function addArtifactRootEntry({
   // existing package-root file below. Entries that share a native candidate
   // name skip this path entirely: their WASI-source copy is the WASI loader
   // (`*.wasi.cjs` chain), which must never replace the native root loader.
+  // Destinations are compared after normalization since `main` values like
+  // `./binding.js` and metadata entries like `binding.js` alias the same
+  // package-root path.
+  const rootCandidatePaths = new Set(
+    rootCandidates.map(
+      (candidate) =>
+        resolveArtifactRelativePath(packageRoot, candidate, 'native root entry')
+          .relative,
+    ),
+  )
   const distinctWasiRootEntries = [...wasiRootEntries].filter(
-    (entry) => !rootCandidates.includes(entry),
+    (entry) =>
+      !rootCandidatePaths.has(
+        resolveArtifactRelativePath(packageRoot, entry, 'WASI root entry')
+          .relative,
+      ),
   )
   if (nativeTargets.length > 0) {
     for (const entry of distinctWasiRootEntries) {

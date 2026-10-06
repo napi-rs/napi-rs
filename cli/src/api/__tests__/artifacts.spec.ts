@@ -320,3 +320,70 @@ test('a WASI-source root entry never replaces the shared native main loader', as
     'module.exports = { native: true }\n',
   )
 })
+
+test('a package main like ./binding.js aliases the same root destination', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'alias-entry'
+  const packageName = '@napi-rs/alias-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main: "./binding.js"` and metadata `rootEntry: "binding.js"` resolve to
+  // the same package-root path, so the entry is the shared native loader and
+  // the WASI-source copy must not claim it.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './binding.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'binding.js'),
+      "module.exports = require('./alias-entry.wasi.cjs')\n",
+    ),
+    writeFile(
+      join(tmpDir, 'binding.js'),
+      'module.exports = { native: true }\n',
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(
+    await readFile(join(tmpDir, 'binding.js'), 'utf8'),
+    'module.exports = { native: true }\n',
+  )
+})
