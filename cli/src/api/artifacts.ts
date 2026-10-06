@@ -503,9 +503,42 @@ async function addArtifactRootEntry({
   wasiSources: Map<string, WasiArtifactSource>
 }) {
   const nativeTargets = targets.filter((target) => target.platform !== 'wasi')
-  const rootCandidates = packageRootEntryCandidates(packageMain)
 
+  // The WASI loader metadata records which file was generated as the package
+  // root entry when the loaders were built (`--js` on `napi build`, e.g.
+  // `binding.js`). That name can differ from `package.json#main`, which may
+  // point at a handwritten wrapper like `index.js`; both files must survive
+  // reconciliation, so the recorded entry is a root candidate too.
+  const wasiRootEntries = new Set<string>()
+  for (const target of wasiTargets) {
+    const source = wasiSources.get(target.platformArchABI)
+    if (!source) {
+      continue
+    }
+    const bindingPath = source.files.get(
+      `${binaryName}.${wasiLoaderSuffix(target.platformArchABI)}.cjs`,
+    )
+    if (!bindingPath) {
+      continue
+    }
+    const rootEntry = parseWasiArtifactMetadata(
+      await readFileAsync(bindingPath, 'utf8'),
+      bindingPath,
+    )?.rootEntry
+    if (rootEntry) {
+      wasiRootEntries.add(rootEntry)
+    }
+  }
+  const rootCandidates = [
+    ...packageRootEntryCandidates(packageMain),
+    ...wasiRootEntries,
+  ]
+
+  let copiedNativeRoot = false
   for (const target of nativeTargets) {
+    if (copiedNativeRoot) {
+      break
+    }
     const artifactPath = artifactsByIdentity.get(
       artifactName(binaryName, target),
     )?.[0]
@@ -533,18 +566,28 @@ async function addArtifactRootEntry({
         source.absolute,
         await readFileAsync(source.absolute),
       )
-      return
+      copiedNativeRoot = true
+      break
     }
   }
 
   if (nativeTargets.length > 0) {
+    // Every root entry candidate that already exists in the package stays
+    // managed: keeping it out of pendingWrites would mark it as a stale
+    // managed destination and delete it. This must run even when a root entry
+    // was copied from the artifact dir above, since a WASI-only candidate
+    // such as `binding.js` never sits next to the `.node` artifacts.
+    let keptExisting = false
     for (const candidate of rootCandidates) {
       const existing = resolveArtifactRelativePath(
         packageRoot,
         candidate,
         'existing native root entry',
       )
-      if (!(await fileExists(existing.absolute))) {
+      if (
+        pendingWrites.has(existing.absolute) ||
+        !(await fileExists(existing.absolute))
+      ) {
         continue
       }
       addPendingWrite(
@@ -553,6 +596,9 @@ async function addArtifactRootEntry({
         existing.absolute,
         await readFileAsync(existing.absolute),
       )
+      keptExisting = true
+    }
+    if (copiedNativeRoot || keptExisting) {
       return
     }
   }
