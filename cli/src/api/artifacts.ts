@@ -18,9 +18,11 @@ import {
 } from '../def/artifacts.js'
 import {
   AVAILABLE_TARGETS,
+  canonicalizeManagedPackagePath,
   commitFileSystemTransaction,
   debugFactory,
   fileExists,
+  managedPackagePathIsWithin,
   parseTriple,
   readFileAsync,
   readNapiConfig,
@@ -470,7 +472,7 @@ async function addWasiRootEntry(
       `WASI artifact source ${source.dir} is incomplete: missing required root entry ${rootEntry}`,
     )
   }
-  const destination = resolveArtifactRelativePath(
+  const destination = resolvePackageRootEntry(
     packageRoot,
     sourcePath.relative,
     'WASI root entry destination',
@@ -559,7 +561,7 @@ async function addArtifactRootEntry({
   )
   if (nativeTargets.length > 0) {
     for (const entry of distinctWasiRootEntries) {
-      const destination = resolveArtifactRelativePath(
+      const destination = resolvePackageRootEntry(
         packageRoot,
         entry,
         'WASI root entry destination',
@@ -633,9 +635,9 @@ async function addArtifactRootEntry({
       if (!(await fileExists(source.absolute))) {
         continue
       }
-      const destination = resolveArtifactRelativePath(
+      const destination = resolvePackageRootEntry(
         packageRoot,
-        source.relative,
+        candidate,
         'native root entry destination',
       )
       if (pendingWrites.has(destination.absolute)) {
@@ -660,7 +662,7 @@ async function addArtifactRootEntry({
     // such as `binding.js` never sits next to the `.node` artifacts.
     let keptExisting = false
     for (const candidate of [...rootCandidates, ...wasiRootEntries]) {
-      const existing = resolveArtifactRelativePath(
+      const existing = resolvePackageRootEntry(
         packageRoot,
         candidate,
         'existing native root entry',
@@ -683,7 +685,7 @@ async function addArtifactRootEntry({
     // resolved would publish a package whose entry point does not exist.
     // Fail loudly like addWasiRootEntry instead of silently dropping it.
     for (const entry of wasiRootEntries) {
-      const destination = resolveArtifactRelativePath(
+      const destination = resolvePackageRootEntry(
         packageRoot,
         entry,
         'WASI root entry destination',
@@ -811,6 +813,27 @@ function resolveArtifactRelativePath(
     throw new Error(`${description} escapes its output directory: ${entry}`)
   }
   return { absolute, relative: relativePath }
+}
+
+// Root entry names come from `package.json#main` or WASI loader metadata and
+// may be nested (e.g. `nested/binding.js`). The lexical check in
+// resolveArtifactRelativePath cannot see symlinked intermediate directories,
+// and the file-system transaction only guards the workspace boundary, so a
+// symlinked parent could redirect a pending write into a sibling package.
+// Canonicalizing the destination's nearest existing ancestor closes that gap.
+function resolvePackageRootEntry(
+  packageRoot: string,
+  entry: string,
+  description: string,
+) {
+  const resolved = resolveArtifactRelativePath(packageRoot, entry, description)
+  const canonical = canonicalizeManagedPackagePath(resolved.absolute)
+  if (!managedPackagePathIsWithin(packageRoot, canonical)) {
+    throw new Error(
+      `${description} resolves outside the package root through a symlinked path: ${entry}`,
+    )
+  }
+  return resolved
 }
 
 function addPendingWrite(

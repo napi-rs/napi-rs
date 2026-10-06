@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -386,4 +386,64 @@ test('a package main like ./binding.js aliases the same root destination', async
     await readFile(join(tmpDir, 'binding.js'), 'utf8'),
     'module.exports = { native: true }\n',
   )
+})
+
+test('a symlinked parent cannot redirect a root entry outside the package root', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'link-entry'
+  const packageName = '@napi-rs/link-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const siblingDir = join(tmpDir, '..', `sibling-${Date.now()}`)
+
+  // `nested/binding.js` passes the lexical `..` check, but `nested` is a
+  // symlink to a sibling directory, so the canonical destination leaves the
+  // package root even though it stays inside the transaction boundary.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(siblingDir, { recursive: true })
+  await symlink(siblingDir, join(tmpDir, 'nested'))
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'nested/binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'nested/binding.js'],
+  })}\nmodule.exports = {}\n`
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(artifactsDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(artifactsDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(artifactsDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(artifactsDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(artifactsDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(tmpDir, 'index.js'), 'module.exports = {}\n'),
+  ])
+
+  try {
+    await t.throwsAsync(collectArtifacts({ cwd: tmpDir }), {
+      message: /resolves outside the package root/,
+    })
+    t.false(existsSync(join(siblingDir, 'binding.js')))
+  } finally {
+    await rm(siblingDir, { recursive: true, force: true })
+  }
 })
