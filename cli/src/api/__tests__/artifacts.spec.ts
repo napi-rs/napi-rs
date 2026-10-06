@@ -192,7 +192,8 @@ test('the WASI artifact source wins over a stale package-root root entry', async
   // Same layout as above but with --build-output-dir: binaries land in
   // `artifacts`, the generated WASI loader set including `binding.js` lands
   // in `build-output`, and the package root holds a stale `binding.js` next
-  // to the handwritten `index.js` wrapper.
+  // to the handwritten `index.js` wrapper. A second stale copy beside the
+  // `.node` artifacts must not suppress the WASI-source copy either.
   await mkdir(artifactsDir, { recursive: true })
   await mkdir(buildOutputDir, { recursive: true })
   await writeFile(
@@ -219,6 +220,10 @@ test('the WASI artifact source wins over a stale package-root root entry', async
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
     writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(
+      join(artifactsDir, 'binding.js'),
+      'module.exports = { stale: "native-adjacent" }\n',
+    ),
     writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
       join(buildOutputDir, `${binaryName}.wasi.d.cts`),

@@ -529,10 +529,7 @@ async function addArtifactRootEntry({
       wasiRootEntries.add(rootEntry)
     }
   }
-  const rootCandidates = [
-    ...packageRootEntryCandidates(packageMain),
-    ...wasiRootEntries,
-  ]
+  const rootCandidates = packageRootEntryCandidates(packageMain)
 
   let copiedNativeRoot = false
   for (const target of nativeTargets) {
@@ -571,12 +568,12 @@ async function addArtifactRootEntry({
     }
   }
 
-  // A metadata-declared root entry is authoritative: when the WASI artifact
-  // source ships it, that content wins over whatever is at the package root
-  // (a stale committed copy would publish a loader out of sync with the
-  // collected binaries). When no source ships it, the existing package-root
-  // file is preserved below; when it exists in neither place the package
-  // cannot work, so fail loudly like addWasiRootEntry does.
+  // A metadata-declared root entry keeps its own precedence chain and never
+  // rides along as a native candidate: the WASI artifact source wins over a
+  // possibly stale file sitting next to the `.node` artifacts or at the
+  // package root, since a loader out of sync with the collected binaries
+  // breaks the published package. Native artifact dirs and the existing
+  // package-root file are only fallbacks for sources that do not ship it.
   if (nativeTargets.length > 0) {
     for (const entry of wasiRootEntries) {
       const destination = resolveArtifactRelativePath(
@@ -587,7 +584,7 @@ async function addArtifactRootEntry({
       if (pendingWrites.has(destination)) {
         continue
       }
-      let written = false
+      let resolved = false
       for (const source of wasiSources.values()) {
         const sourcePath = resolveArtifactRelativePath(
           source.dir,
@@ -603,20 +600,34 @@ async function addArtifactRootEntry({
           sourcePath.absolute,
           await readFileAsync(sourcePath.absolute),
         )
-        written = true
+        resolved = true
         break
       }
-      if (!written) {
-        const existing = resolveArtifactRelativePath(
-          packageRoot,
-          entry,
-          'existing WASI root entry',
-        )
-        if (!(await fileExists(existing.absolute))) {
-          throw new Error(
-            `WASI loader metadata declares root entry ${entry}, but it was found in neither the artifact sources nor the package root`,
-          )
+      if (resolved) {
+        continue
+      }
+      for (const target of nativeTargets) {
+        const artifactPath = artifactsByIdentity.get(
+          artifactName(binaryName, target),
+        )?.[0]
+        if (!artifactPath) {
+          continue
         }
+        const sourcePath = resolveArtifactRelativePath(
+          dirname(artifactPath),
+          entry,
+          'native-adjacent WASI root entry',
+        )
+        if (!(await fileExists(sourcePath.absolute))) {
+          continue
+        }
+        addPendingWrite(
+          pendingWrites,
+          destination,
+          sourcePath.absolute,
+          await readFileAsync(sourcePath.absolute),
+        )
+        break
       }
     }
   }
@@ -625,10 +636,10 @@ async function addArtifactRootEntry({
     // Every root entry candidate that already exists in the package stays
     // managed: keeping it out of pendingWrites would mark it as a stale
     // managed destination and delete it. This must run even when a root entry
-    // was copied from the artifact dir above, since a WASI-only candidate
+    // was copied from an artifact dir above, since a WASI-only candidate
     // such as `binding.js` never sits next to the `.node` artifacts.
     let keptExisting = false
-    for (const candidate of rootCandidates) {
+    for (const candidate of [...rootCandidates, ...wasiRootEntries]) {
       const existing = resolveArtifactRelativePath(
         packageRoot,
         candidate,
@@ -647,6 +658,21 @@ async function addArtifactRootEntry({
         await readFileAsync(existing.absolute),
       )
       keptExisting = true
+    }
+    // A declared root entry that no artifact source or existing file
+    // resolved would publish a package whose entry point does not exist.
+    // Fail loudly like addWasiRootEntry instead of silently dropping it.
+    for (const entry of wasiRootEntries) {
+      const destination = resolveArtifactRelativePath(
+        packageRoot,
+        entry,
+        'WASI root entry destination',
+      ).absolute
+      if (!pendingWrites.has(destination)) {
+        throw new Error(
+          `WASI loader metadata declares root entry ${entry}, but it was found in neither the artifact sources nor the package root`,
+        )
+      }
     }
     if (copiedNativeRoot || keptExisting) {
       return
