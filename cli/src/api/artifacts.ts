@@ -239,6 +239,8 @@ async function collectArtifactsUnlocked(
     pendingWrites,
     packageRoot,
     packageMain: packageJson.main,
+    packageExports: packageJson.exports,
+    publishConfig: packageJson.publishConfig,
     binaryName,
     targets,
     artifactsByIdentity,
@@ -490,6 +492,8 @@ async function addArtifactRootEntry({
   pendingWrites,
   packageRoot,
   packageMain,
+  packageExports,
+  publishConfig,
   binaryName,
   targets,
   artifactsByIdentity,
@@ -500,6 +504,8 @@ async function addArtifactRootEntry({
   pendingWrites: Map<string, PendingWrite>
   packageRoot: string
   packageMain: string | undefined
+  packageExports: unknown
+  publishConfig: { main?: string; exports?: unknown } | undefined
   binaryName: string
   targets: Target[]
   artifactsByIdentity: Map<string, string[]>
@@ -579,15 +585,47 @@ async function addArtifactRootEntry({
         .map(dirname),
     ),
   ]
-  const sharedRootEntryPaths = await packageMainResolutionPaths(
-    packageRoot,
-    packageMain,
-    nativeArtifactDirs,
-  )
+  const sharedRootEntryPaths = new Set<string>()
+  for (const main of [packageMain, publishConfig?.main]) {
+    if (typeof main !== 'string') {
+      continue
+    }
+    for (const path of await packageMainResolutionPaths(
+      packageRoot,
+      main,
+      nativeArtifactDirs,
+    )) {
+      sharedRootEntryPaths.add(path)
+    }
+  }
+  if (packageMain === undefined) {
+    // With no `main` field at all, Node's implicit default is `index.js`.
+    sharedRootEntryPaths.add('index.js')
+  }
+  // Consumers resolve `exports["."]` ahead of `main`, and publishers may
+  // swap either field through `publishConfig`, so every declared entry
+  // target counts as shared with the native root entry.
+  for (const target of [
+    ...packageExportTargets(packageExports),
+    ...packageExportTargets(publishConfig?.exports),
+  ]) {
+    try {
+      sharedRootEntryPaths.add(
+        resolveArtifactRelativePath(packageRoot, target, 'package exports')
+          .relative,
+      )
+    } catch {
+      // An exports target outside the package root cannot alias a managed
+      // root entry.
+    }
+  }
   const rootCandidates = [
     ...new Set([
       ...sharedRootEntryPaths,
       ...packageRootEntryCandidates(packageMain),
+      ...(typeof publishConfig?.main === 'string'
+        ? packageRootEntryCandidates(publishConfig.main)
+        : []),
     ]),
   ]
 
@@ -855,10 +893,35 @@ async function packageMainResolutionPaths(
     enqueue('index.js')
     return paths
   }
-  const visitedManifests = new Set<string>()
+  // LOAD_AS_FILE: the specifier itself, then the extension variants.
+  const visitAsFile = async (specifier: string): Promise<boolean> => {
+    for (const candidate of [
+      specifier,
+      `${specifier}.js`,
+      `${specifier}.json`,
+      `${specifier}.node`,
+    ]) {
+      if (await candidateExists(candidate)) {
+        enqueue(candidate)
+        return true
+      }
+    }
+    return false
+  }
+  const visitAsIndex = async (directory: string): Promise<boolean> => {
+    for (const extension of ['js', 'json', 'node']) {
+      const index = join(directory, `index.${extension}`)
+      if (await candidateExists(index)) {
+        enqueue(index)
+        return true
+      }
+    }
+    return false
+  }
   const visit = async (specifier: string): Promise<void> => {
-    // The exact specifier comes first in Node's LOAD_AS_FILE order; when it
-    // names an existing file, extension variants are unreachable.
+    // The exact specifier is shared even when it does not exist: ESM
+    // importers resolve `main` literally, so it still names the package
+    // entry.
     enqueue(specifier)
     if (await candidateExists(specifier)) {
       return
@@ -870,12 +933,11 @@ async function packageMainResolutionPaths(
         return
       }
     }
+    // LOAD_AS_DIRECTORY: a nested package.json main is tried as a file and
+    // as an index-bearing directory once — Node does not recurse into
+    // further manifests — then the specifier's own index.* wins.
     const manifest = join(specifier, 'package.json')
-    if (
-      !visitedManifests.has(manifest) &&
-      (await regularFileExists(join(packageRoot, manifest)))
-    ) {
-      visitedManifests.add(manifest)
+    if (await regularFileExists(join(packageRoot, manifest))) {
       let nestedMain: unknown
       try {
         nestedMain = JSON.parse(
@@ -885,20 +947,42 @@ async function packageMainResolutionPaths(
         nestedMain = undefined
       }
       if (typeof nestedMain === 'string' && nestedMain.length > 0) {
-        await visit(join(specifier, nestedMain))
-        return
+        const nested = join(specifier, nestedMain)
+        if ((await visitAsFile(nested)) || (await visitAsIndex(nested))) {
+          return
+        }
       }
     }
-    for (const extension of ['js', 'json', 'node']) {
-      const index = join(specifier, `index.${extension}`)
-      if (await candidateExists(index)) {
-        enqueue(index)
-        return
-      }
-    }
+    await visitAsIndex(specifier)
   }
   await visit(packageMain)
   return paths
+}
+
+// Literal file targets under `exports["."]`. Conditional objects and
+// fallback arrays are flattened; anything that is not a `./`-relative
+// string contributes nothing.
+function packageExportTargets(exportsField: unknown): string[] {
+  const targets = new Set<string>()
+  const collect = (value: unknown) => {
+    if (typeof value === 'string') {
+      targets.add(value)
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach(collect)
+      return
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value).forEach(collect)
+    }
+  }
+  if (exportsField && typeof exportsField === 'object') {
+    collect((exportsField as Record<string, unknown>)['.'])
+  } else {
+    collect(exportsField)
+  }
+  return [...targets]
 }
 
 function parseWasiArtifactMetadata(content: string, source: string) {

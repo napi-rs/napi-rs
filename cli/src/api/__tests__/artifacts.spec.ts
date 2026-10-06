@@ -993,6 +993,145 @@ test('an existing extensionless main shadows the declared extension variant', as
   )
 })
 
+test('an exports entry target shares its name with the native root entry', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'exports-entry'
+  const packageName = '@napi-rs/exports-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `exports["."]` resolves ahead of `main`, so `entry.js` is the package
+  // entry even though `main` names a wrapper. The WASI metadata declares
+  // the same name; the native artifact copy must win over the WASI-source
+  // loader chain.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'wrapper.js',
+      exports: { '.': './entry.js' },
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'entry.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'entry.js'],
+  })}\nmodule.exports = {}\n`
+  const nativeEntry =
+    "module.exports = require('./exports-entry.linux-x64-gnu.node')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(artifactsDir, 'entry.js'), nativeEntry),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'entry.js'),
+      "module.exports = require('./exports-entry.wasi.cjs')\n",
+    ),
+    writeFile(join(tmpDir, 'wrapper.js'), 'module.exports = { wrap: true }\n'),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'entry.js'), 'utf8'), nativeEntry)
+})
+
+test('a missing nested main falls back to the directory index', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'nested-miss'
+  const packageName = '@napi-rs/nested-miss'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main: "./dist"` finds `dist/package.json` whose `main` points at a
+  // file that does not exist. Node then falls back to `dist/index.js`, so
+  // the WASI-declared `dist/index.js` shares the native root entry and the
+  // WASI-source copy must not overwrite the existing native file.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(join(buildOutputDir, 'dist'), { recursive: true })
+  await mkdir(join(tmpDir, 'dist'), { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './dist',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+  await writeFile(
+    join(tmpDir, 'dist', 'package.json'),
+    JSON.stringify({ main: './lib.js' }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'dist/index.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'dist/index.js'],
+  })}\nmodule.exports = {}\n`
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'dist', 'index.js'),
+      "module.exports = require('./nested-miss.wasi.cjs')\n",
+    ),
+    writeFile(
+      join(tmpDir, 'dist', 'index.js'),
+      'module.exports = { native: true }\n',
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(
+    await readFile(join(tmpDir, 'dist', 'index.js'), 'utf8'),
+    'module.exports = { native: true }\n',
+  )
+})
+
 test('conflicting WASI root entry declarations are rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'skewed-entry'
