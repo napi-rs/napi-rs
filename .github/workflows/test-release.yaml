@@ -956,7 +956,12 @@ jobs:
             __tests__/wasi-eager-before-exit.spec.ts
         env:
           WASI_TEST: 'true'
-          NAPI_RS_WASI_FLAVOR: wasm32-wasip1
+          # The child picks its loader from argv, so a test-only name is
+          # enough. Exporting NAPI_RS_WASI_FLAVOR here would also hit
+          # @oxc-node/core's generated loader — its baked flavor list only
+          # contains wasm32-wasi — and the strict check would fail the whole
+          # Node process before ava starts.
+          WASI_FLAVOR: wasm32-wasip1
       - name: Browser test (single-thread, no cross-origin isolation)
         run: |
           yarn workspace @examples/custom-async-runtime playwright install chromium
