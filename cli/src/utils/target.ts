@@ -16,6 +16,7 @@ export const AVAILABLE_TARGETS = [
   'aarch64-unknown-linux-gnu',
   'aarch64-unknown-linux-musl',
   'aarch64-unknown-linux-ohos',
+  'aarch64-unknown-openbsd',
   'aarch64-pc-windows-msvc',
   'x86_64-apple-darwin',
   'x86_64-pc-windows-msvc',
@@ -24,6 +25,7 @@ export const AVAILABLE_TARGETS = [
   'x86_64-unknown-linux-musl',
   'x86_64-unknown-linux-ohos',
   'x86_64-unknown-freebsd',
+  'x86_64-unknown-openbsd',
   'i686-pc-windows-msvc',
   'armv7-unknown-linux-gnueabihf',
   'armv7-unknown-linux-musleabihf',
@@ -96,6 +98,7 @@ export const NodeArchToCpu: Record<string, string> = {
 const SysToNodePlatform: Record<string, Platform> = {
   linux: 'linux',
   freebsd: 'freebsd',
+  openbsd: 'openbsd',
   darwin: 'darwin',
   windows: 'win32',
   ohos: 'openharmony',

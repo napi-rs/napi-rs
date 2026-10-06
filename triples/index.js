@@ -457,6 +457,26 @@ export const platformArchTriples = {
       }
     ]
   },
+  "openbsd": {
+    "arm64": [
+      {
+        "triple": "aarch64-unknown-openbsd",
+        "platformArchABI": "openbsd-arm64",
+        "platform": "openbsd",
+        "arch": "arm64",
+        "abi": null
+      }
+    ],
+    "x64": [
+      {
+        "triple": "x86_64-unknown-openbsd",
+        "platformArchABI": "openbsd-x64",
+        "platform": "openbsd",
+        "arch": "x64",
+        "abi": null
+      }
+    ]
+  },
   "freebsd": {
     "ia32": [
       {
