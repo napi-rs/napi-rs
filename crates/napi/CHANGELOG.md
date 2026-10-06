@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.14.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.1...napi-v3.14.2) - 2026-10-06
+
+### Fixed
+
+- *(napi)* register the wasm cleanup through the env cleanup hook ([#3571](https://github.com/napi-rs/napi-rs/pull/3571))
+- *(napi)* own NativeBorrowScope storage via NonNull to fix aliasing violation ([#3573](https://github.com/napi-rs/napi-rs/pull/3573))
+- *(napi)* bound serde_json::Value conversion depth at 128 levels ([#3568](https://github.com/napi-rs/napi-rs/pull/3568))
+
 ## [3.14.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.0...napi-v3.14.1) - 2026-10-05
 
 ### Fixed
