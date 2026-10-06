@@ -32,6 +32,17 @@ fn test_serde_roundtrip(data: Value) -> Value {
 }
 
 #[napi]
+fn make_deep_serde_value(depth: u32) -> Value {
+  let mut value = Value::Null;
+  for _ in 0..depth {
+    let mut map = Map::new();
+    map.insert("a".to_owned(), value);
+    value = Value::Object(map);
+  }
+  value
+}
+
+#[napi]
 fn test_serde_big_number_precision(number: String) -> Value {
   let data = format!("{{\"number\":{}}}", number);
   serde_json::from_str(&data).unwrap()

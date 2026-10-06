@@ -1122,6 +1122,7 @@ module.exports.jsTypeErrorWithoutRetainedValue = nativeBinding.jsTypeErrorWithou
 module.exports.Kind = nativeBinding.Kind
 module.exports.KindInValidate = nativeBinding.KindInValidate
 module.exports.listObjKeys = nativeBinding.listObjKeys
+module.exports.makeDeepSerdeValue = nativeBinding.makeDeepSerdeValue
 module.exports.makeTypeTagA = nativeBinding.makeTypeTagA
 module.exports.mapOption = nativeBinding.mapOption
 module.exports.mergeTupleArray = nativeBinding.mergeTupleArray

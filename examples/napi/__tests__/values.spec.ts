@@ -185,6 +185,7 @@ import {
   receiveMutClassOrNumber,
   getStrFromObject,
   testSerdeRoundtrip,
+  makeDeepSerdeValue,
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
   getBigintJsonValue,
@@ -1599,6 +1600,53 @@ test('serde-roundtrip', (t) => {
 
   err = t.throws(() => testSerdeRoundtrip(Symbol.for('foo')))
   t.is(err!.message, 'JS symbols cannot be represented as a serde_json::Value')
+})
+
+test('serde-roundtrip-depth-limit', (t) => {
+  // A cyclic value must throw a catchable error instead of overflowing the
+  // native stack and aborting the process.
+  const cyclic: Record<string, unknown> = {}
+  cyclic.self = cyclic
+  let err = t.throws(() => testSerdeRoundtrip(cyclic))
+  t.true(err!.message.includes('JSON'))
+
+  // A shared-object DAG stays under the depth limit but expands to 2^60
+  // traversals — the total-node budget rejects it before it hangs.
+  let dag: Record<string, unknown> = {}
+  for (let i = 0; i < 60; i++) {
+    dag = { a: dag, b: dag }
+  }
+  err = t.throws(() => testSerdeRoundtrip(dag))
+  t.true(err!.message.includes('JSON'))
+
+  // Nesting deeper than the 128-level budget throws on the way in.
+  let deep: Record<string, unknown> = {}
+  for (let i = 0; i < 200; i++) {
+    deep = { a: deep }
+  }
+  err = t.throws(() => testSerdeRoundtrip(deep))
+  t.true(err!.message.includes('JSON'))
+
+  // Nesting within the budget roundtrips fine.
+  let nested: Record<string, unknown> = {}
+  for (let i = 0; i < 100; i++) {
+    nested = { a: nested }
+  }
+  t.deepEqual(testSerdeRoundtrip(nested), nested)
+
+  // The same budget applies when serializing a Value back to JS.
+  err = t.throws(() => makeDeepSerdeValue(200))
+  t.true(err!.message.includes('JSON'))
+  // A value far beyond the budget must also survive cleanup of the
+  // unconverted remainder instead of crashing in a recursive drop.
+  err = t.throws(() => makeDeepSerdeValue(10000))
+  t.true(err!.message.includes('JSON'))
+  const built = makeDeepSerdeValue(100)
+  let cursor = built
+  for (let i = 0; i < 100; i++) {
+    cursor = cursor.a as Record<string, unknown>
+  }
+  t.is(cursor, null)
 })
 
 test('serde-large-number-precision', (t) => {

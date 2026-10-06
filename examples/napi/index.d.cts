@@ -1263,6 +1263,8 @@ export interface LocalDates {
   end?: Date
 }
 
+export declare function makeDeepSerdeValue(depth: number): any
+
 /** By-value return -> stamp site W3 (`new_instance`). */
 export declare function makeTypeTagA(value: number): TypeTagA
 
