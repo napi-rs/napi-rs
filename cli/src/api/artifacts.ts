@@ -531,15 +531,20 @@ async function addArtifactRootEntry({
   }
   const rootCandidates = packageRootEntryCandidates(packageMain)
 
-  // A metadata-declared root entry is authoritative wherever it resolves
-  // from: the WASI artifact source wins over a possibly stale copy sitting
-  // next to the `.node` artifacts or at the package root, since a loader
-  // out of sync with the collected binaries breaks the published package.
-  // It is resolved before the native scan so a same-named native candidate
-  // (the common `index.js` case) cannot claim the destination first. Native
-  // artifact dirs are a fallback for WASI sources that do not ship it.
+  // A metadata-declared root entry whose name is not one of the native root
+  // candidates (e.g. `binding.js` next to a handwritten `index.js`) is a
+  // file `napi build` generated alongside the loader; reconciliation must
+  // keep it. It is resolved before the native scan so a stale copy beside
+  // the `.node` artifacts cannot claim the destination, preferring in
+  // order: the WASI artifact source, native artifact dirs, then the
+  // existing package-root file below. Entries that share a native candidate
+  // name skip this path entirely: their WASI-source copy is the WASI loader
+  // (`*.wasi.cjs` chain), which must never replace the native root loader.
+  const distinctWasiRootEntries = [...wasiRootEntries].filter(
+    (entry) => !rootCandidates.includes(entry),
+  )
   if (nativeTargets.length > 0) {
-    for (const entry of wasiRootEntries) {
+    for (const entry of distinctWasiRootEntries) {
       const destination = resolveArtifactRelativePath(
         packageRoot,
         entry,
