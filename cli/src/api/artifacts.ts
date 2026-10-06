@@ -244,6 +244,7 @@ async function collectArtifactsUnlocked(
     artifactsByIdentity,
     wasiTargets,
     wasiSources,
+    requireArtifactSourceRootEntry: options.buildOutputDir !== undefined,
   })
 
   for (const target of wasiTargets) {
@@ -494,6 +495,7 @@ async function addArtifactRootEntry({
   artifactsByIdentity,
   wasiTargets,
   wasiSources,
+  requireArtifactSourceRootEntry,
 }: {
   pendingWrites: Map<string, PendingWrite>
   packageRoot: string
@@ -503,6 +505,7 @@ async function addArtifactRootEntry({
   artifactsByIdentity: Map<string, string[]>
   wasiTargets: Target[]
   wasiSources: Map<string, WasiArtifactSource>
+  requireArtifactSourceRootEntry: boolean
 }) {
   const nativeTargets = targets.filter((target) => target.platform !== 'wasi')
 
@@ -559,6 +562,7 @@ async function addArtifactRootEntry({
           .relative,
       ),
   )
+  const wasiSourceResolvedEntries = new Set<string>()
   if (nativeTargets.length > 0) {
     for (const entry of distinctWasiRootEntries) {
       const destination = resolvePackageRootEntry(
@@ -582,6 +586,7 @@ async function addArtifactRootEntry({
           sourcePath.absolute,
           await readFileAsync(sourcePath.absolute),
         )
+        wasiSourceResolvedEntries.add(entry)
         resolved = true
         break
       }
@@ -690,6 +695,19 @@ async function addArtifactRootEntry({
         entry,
         'WASI root entry destination',
       ).absolute
+      // With an explicit --build-output-dir the WASI output is authoritative:
+      // a distinct declared entry it does not contain cannot be satisfied by
+      // a possibly stale package-root or native-adjacent copy, the same way
+      // the WASI-only path already rejects an incomplete source.
+      if (
+        requireArtifactSourceRootEntry &&
+        distinctWasiRootEntries.includes(entry) &&
+        !wasiSourceResolvedEntries.has(entry)
+      ) {
+        throw new Error(
+          `WASI loader metadata declares root entry ${entry}, but the configured build output directory does not contain it`,
+        )
+      }
       if (!pendingWrites.has(destination)) {
         throw new Error(
           `WASI loader metadata declares root entry ${entry}, but it was found in neither the artifact sources nor the package root`,

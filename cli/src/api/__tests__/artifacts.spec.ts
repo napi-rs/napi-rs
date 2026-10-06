@@ -447,3 +447,59 @@ test('a symlinked parent cannot redirect a root entry outside the package root',
     await rm(siblingDir, { recursive: true, force: true })
   }
 })
+
+test('an explicit build output without the declared root entry is rejected', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'strict-entry'
+  const packageName = '@napi-rs/strict-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // --build-output-dir makes the WASI output authoritative: its loader
+  // metadata declares binding.js, the directory does not contain it, and a
+  // stale package-root copy must not paper over the incomplete source.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(tmpDir, 'binding.js'), 'module.exports = { stale: true }\n'),
+    writeFile(join(tmpDir, 'index.js'), 'module.exports = {}\n'),
+  ])
+
+  await t.throwsAsync(
+    collectArtifacts({ cwd: tmpDir, buildOutputDir: 'build-output' }),
+    { message: /does not contain it/ },
+  )
+})
