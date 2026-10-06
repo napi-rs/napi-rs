@@ -7,7 +7,7 @@ import test from 'ava'
 const isWasi = Boolean(process.env.WASI_TEST)
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const wasiLoaderSuffix =
-  process.env.NAPI_RS_WASI_FLAVOR === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
+  process.env.WASI_FLAVOR === 'wasm32-wasip1' ? 'wasip1' : 'wasi'
 
 test.skipIf(!isWasi)(
   'eager WASI binding remains usable when beforeExit resumes work',
