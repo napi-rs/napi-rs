@@ -861,6 +861,138 @@ test('a self-referential directory main resolves to index.js', async (t) => {
   )
 })
 
+test('a main resolved through the native artifacts keeps the native loader', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'clean-entry'
+  const packageName = '@napi-rs/clean-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // The package root has no pre-existing loader: `main: "./binding"`
+  // resolves to `binding.js`, which ships inside the native artifacts. The
+  // WASI metadata declares the same name, but the resolved entry is the
+  // native loader — publishing the WASI-source copy would make `require`
+  // of the package main load the WASM build.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './binding',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+  const nativeBinding =
+    "module.exports = require('./clean-entry.linux-x64-gnu.node')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'binding.js'),
+      "module.exports = require('./clean-entry.wasi.cjs')\n",
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  // The resolved main entry comes from the native artifacts, not the
+  // WASI-source copy of the same name.
+  t.is(await readFile(join(tmpDir, 'binding.js'), 'utf8'), nativeBinding)
+})
+
+test('an existing extensionless main shadows the declared extension variant', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'exact-entry'
+  const packageName = '@napi-rs/exact-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main: "./binding"` resolves to the extensionless file `binding`
+  // because it exists, so `binding.js` is unreachable as the package
+  // entry. The WASI-declared `binding.js` is a distinct generated file and
+  // resolves from the build output, replacing the stale root copy.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './binding',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+  const freshBinding = "module.exports = require('./exact-entry.wasi.cjs')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'binding.js'), freshBinding),
+    writeFile(join(tmpDir, 'binding'), 'module.exports = { exact: true }\n'),
+    writeFile(join(tmpDir, 'binding.js'), 'module.exports = { stale: true }\n'),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'binding.js'), 'utf8'), freshBinding)
+  t.is(
+    await readFile(join(tmpDir, 'binding'), 'utf8'),
+    'module.exports = { exact: true }\n',
+  )
+})
+
 test('conflicting WASI root entry declarations are rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'skewed-entry'

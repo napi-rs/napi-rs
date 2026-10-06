@@ -563,22 +563,33 @@ async function addArtifactRootEntry({
       (entry): entry is string => entry !== null,
     ),
   )
-  const rootCandidates = packageRootEntryCandidates(packageMain)
-
-  // The package-root file the configured `main` resolves to shares its name
-  // with the native root entry. Node applies the CommonJS lookup order to
-  // `main` — the specifier itself (which also covers ESM importers, which
-  // resolve `main` literally), `.js`/`.json`/`.node` extension variants,
-  // then directory forms — and stops at the first match, so candidates an
-  // existing earlier match shadows are not shared. The `index.js` fallback
-  // in rootCandidates is only a scan candidate for the native artifact
-  // dir, not a shared name: a WASI-declared `index.js` next to a
-  // handwritten `main: "wrapper.js"` is a distinct generated file that must
-  // resolve from the WASI artifact source like any other root entry.
+  // Resolve `main` against the effective post-reconciliation file set: the
+  // package root plus the native artifact directories, whose contents move
+  // to the root during this transaction. A clean package root with the
+  // resolved entry beside the `.node` still counts as shared, so the WASI
+  // loader copy never occupies the package entry path.
+  const nativeArtifactDirs = [
+    ...new Set(
+      nativeTargets
+        .map(
+          (target) =>
+            artifactsByIdentity.get(artifactName(binaryName, target))?.[0],
+        )
+        .filter((path): path is string => path !== undefined)
+        .map(dirname),
+    ),
+  ]
   const sharedRootEntryPaths = await packageMainResolutionPaths(
     packageRoot,
     packageMain,
+    nativeArtifactDirs,
   )
+  const rootCandidates = [
+    ...new Set([
+      ...sharedRootEntryPaths,
+      ...packageRootEntryCandidates(packageMain),
+    ]),
+  ]
 
   // The root loader below is taken from the threaded WASI target when both
   // flavors are configured, so a distinct root entry must come from that
@@ -694,7 +705,7 @@ async function addArtifactRootEntry({
         candidate,
         'native root entry',
       )
-      if (!(await fileExists(source.absolute))) {
+      if (!(await regularFileExists(source.absolute))) {
         continue
       }
       const destination = resolvePackageRootEntry(
@@ -731,7 +742,7 @@ async function addArtifactRootEntry({
       )
       if (
         pendingWrites.has(existing.absolute) ||
-        !(await fileExists(existing.absolute))
+        !(await regularFileExists(existing.absolute))
       ) {
         continue
       }
@@ -804,16 +815,21 @@ async function regularFileExists(path: string) {
 }
 
 // Package-root-relative paths a `main` value resolves to as the native root
-// entry, following Node's CommonJS lookup order: the specifier itself
-// (which also covers ESM importers, which resolve `main` literally), the
+// entry, following Node's CommonJS lookup order: the specifier itself, the
 // LOAD_AS_FILE extension variants, then LOAD_AS_DIRECTORY — a nested
-// `package.json#main` or `index.*` inside the directory. Candidates are
-// shared only up to the first existing file; an earlier match shadows the
-// later spellings, so they must not suppress a WASI-declared root entry of
-// the same name. With no `main`, the implicit default is `index.js`.
+// `package.json#main` or `index.*` inside the directory. Existence is
+// probed in the package root and in `additionalDirs` (the native artifact
+// directories), since artifact files move to the package root in the same
+// transaction. Only the specifier itself is always shared: ESM importers
+// resolve `main` literally, so it names the package entry even when no
+// file exists. Every other candidate is shared only when it is the first
+// existing file in Node's order; an earlier match shadows the later
+// spellings, so they must not suppress a WASI-declared root entry of the
+// same name. With no `main`, the implicit default is `index.js`.
 async function packageMainResolutionPaths(
   packageRoot: string,
   packageMain: string | undefined,
+  additionalDirs: string[] = [],
 ) {
   const paths = new Set<string>()
   const enqueue = (entry: string) => {
@@ -827,19 +843,29 @@ async function packageMainResolutionPaths(
       // entry, so it contributes no shared names.
     }
   }
+  const candidateExists = async (entry: string) => {
+    for (const dir of [packageRoot, ...additionalDirs]) {
+      if (await regularFileExists(join(dir, entry))) {
+        return true
+      }
+    }
+    return false
+  }
   if (packageMain === undefined) {
     enqueue('index.js')
     return paths
   }
   const visitedManifests = new Set<string>()
   const visit = async (specifier: string): Promise<void> => {
-    // The specifier itself is shared even when it does not exist: ESM
-    // importers resolve `main` literally, so it still names the package
-    // entry.
+    // The exact specifier comes first in Node's LOAD_AS_FILE order; when it
+    // names an existing file, extension variants are unreachable.
     enqueue(specifier)
+    if (await candidateExists(specifier)) {
+      return
+    }
     for (const extension of ['.js', '.json', '.node']) {
       const candidate = `${specifier}${extension}`
-      if (await regularFileExists(join(packageRoot, candidate))) {
+      if (await candidateExists(candidate)) {
         enqueue(candidate)
         return
       }
@@ -865,7 +891,7 @@ async function packageMainResolutionPaths(
     }
     for (const extension of ['js', 'json', 'node']) {
       const index = join(specifier, `index.${extension}`)
-      if (await regularFileExists(join(packageRoot, index))) {
+      if (await candidateExists(index)) {
         enqueue(index)
         return
       }
