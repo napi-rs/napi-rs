@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import {
   dirname,
@@ -18,9 +18,11 @@ import {
 } from '../def/artifacts.js'
 import {
   AVAILABLE_TARGETS,
+  canonicalizeManagedPackagePath,
   commitFileSystemTransaction,
   debugFactory,
   fileExists,
+  managedPackagePathIsWithin,
   parseTriple,
   readFileAsync,
   readNapiConfig,
@@ -233,15 +235,25 @@ async function collectArtifactsUnlocked(
       throw error
     }
   }
+  const previouslyManagedRootEntries = await collectManagedRootEntries(
+    packageRoot,
+    binaryName,
+    wasiSources,
+  )
+
   await addArtifactRootEntry({
     pendingWrites,
     packageRoot,
     packageMain: packageJson.main,
+    packageExports: packageJson.exports,
+    publishConfig: packageJson.publishConfig,
+    previouslyManagedRootEntries,
     binaryName,
     targets,
     artifactsByIdentity,
     wasiTargets,
     wasiSources,
+    requireArtifactSourceRootEntry: options.buildOutputDir !== undefined,
   })
 
   for (const target of wasiTargets) {
@@ -276,7 +288,7 @@ async function collectArtifactsUnlocked(
     binaryName,
     targets,
     pendingWrites,
-    await collectManagedRootEntries(packageRoot, binaryName, wasiSources),
+    previouslyManagedRootEntries,
     protectedSourcePaths,
   )
 
@@ -470,7 +482,7 @@ async function addWasiRootEntry(
       `WASI artifact source ${source.dir} is incomplete: missing required root entry ${rootEntry}`,
     )
   }
-  const destination = resolveArtifactRelativePath(
+  const destination = resolvePackageRootEntry(
     packageRoot,
     sourcePath.relative,
     'WASI root entry destination',
@@ -487,25 +499,283 @@ async function addArtifactRootEntry({
   pendingWrites,
   packageRoot,
   packageMain,
+  packageExports,
+  publishConfig,
+  previouslyManagedRootEntries,
   binaryName,
   targets,
   artifactsByIdentity,
   wasiTargets,
   wasiSources,
+  requireArtifactSourceRootEntry,
 }: {
   pendingWrites: Map<string, PendingWrite>
   packageRoot: string
   packageMain: string | undefined
+  packageExports: unknown
+  publishConfig: { main?: string; exports?: unknown } | undefined
+  previouslyManagedRootEntries: string[]
   binaryName: string
   targets: Target[]
   artifactsByIdentity: Map<string, string[]>
   wasiTargets: Target[]
   wasiSources: Map<string, WasiArtifactSource>
+  requireArtifactSourceRootEntry: boolean
 }) {
   const nativeTargets = targets.filter((target) => target.platform !== 'wasi')
-  const rootCandidates = packageRootEntryCandidates(packageMain)
 
+  // The WASI loader metadata records which file was generated as the package
+  // root entry when the loaders were built (`--js` on `napi build`, e.g.
+  // `binding.js`). That name can differ from `package.json#main`, which may
+  // point at a handwritten wrapper like `index.js`; both files must survive
+  // reconciliation, so the recorded entry is a root candidate too.
+  const wasiDeclaredRootEntries = new Map<string, string | null>()
+  for (const target of wasiTargets) {
+    const source = wasiSources.get(target.platformArchABI)
+    if (!source) {
+      continue
+    }
+    const bindingPath = source.files.get(
+      `${binaryName}.${wasiLoaderSuffix(target.platformArchABI)}.cjs`,
+    )
+    if (!bindingPath) {
+      continue
+    }
+    const metadata = parseWasiArtifactMetadata(
+      await readFileAsync(bindingPath, 'utf8'),
+      bindingPath,
+    )
+    if (metadata === undefined) {
+      continue
+    }
+    wasiDeclaredRootEntries.set(
+      target.platformArchABI,
+      metadata.rootEntry === null
+        ? null
+        : resolveArtifactRelativePath(
+            packageRoot,
+            metadata.rootEntry,
+            'WASI root entry',
+          ).relative,
+    )
+  }
+  // All flavors must declare the same root entry: their loaders are
+  // interchangeable to consumers, and a divergence means the artifacts came
+  // from builds with different `--js` options that cannot be spliced into a
+  // coherent package.
+  const declaredRootEntryContracts = new Set(wasiDeclaredRootEntries.values())
+  if (declaredRootEntryContracts.size > 1) {
+    throw new Error(
+      `WASI loader metadata declares conflicting root entries: ${[
+        ...wasiDeclaredRootEntries,
+      ]
+        .map(([abi, entry]) => `${abi}: ${entry ?? 'none'}`)
+        .join(', ')}`,
+    )
+  }
+  const wasiRootEntries = new Set(
+    [...wasiDeclaredRootEntries.values()].filter(
+      (entry): entry is string => entry !== null,
+    ),
+  )
+  // Resolve `main` against the effective post-reconciliation file set: the
+  // package root plus the native artifact directories, whose contents move
+  // to the root during this transaction. A clean package root with the
+  // resolved entry beside the `.node` still counts as shared, so the WASI
+  // loader copy never occupies the package entry path.
+  const nativeArtifactDirs = [
+    ...new Set(
+      nativeTargets
+        .map(
+          (target) =>
+            artifactsByIdentity.get(artifactName(binaryName, target))?.[0],
+        )
+        .filter((path): path is string => path !== undefined)
+        .map(dirname),
+    ),
+  ]
+  // Previously managed root entries the new loader contract no longer
+  // declares are deleted by this transaction, so they cannot satisfy Node's
+  // `main` lookup: an old `dist.js` must not shadow a declared
+  // `dist/index.js` that outlives it.
+  const normalizeRootEntry = (entry: string) => {
+    try {
+      return resolveArtifactRelativePath(packageRoot, entry, 'root entry')
+        .relative
+    } catch {
+      return null
+    }
+  }
+  const dyingManagedPaths = new Set(
+    previouslyManagedRootEntries
+      .map(normalizeRootEntry)
+      .filter(
+        (entry): entry is string =>
+          entry !== null && !wasiRootEntries.has(entry),
+      ),
+  )
+  const sharedRootEntryPaths = new Set<string>()
+  for (const main of [packageMain, publishConfig?.main]) {
+    if (typeof main !== 'string') {
+      continue
+    }
+    for (const path of await packageMainResolutionPaths(
+      packageRoot,
+      main,
+      nativeArtifactDirs,
+      dyingManagedPaths,
+    )) {
+      sharedRootEntryPaths.add(path)
+    }
+  }
+  if (packageMain === undefined) {
+    // With no `main` field at all, Node's implicit default is `index.js`.
+    sharedRootEntryPaths.add('index.js')
+  }
+  // Consumers resolve `exports["."]` ahead of `main`, and publishers may
+  // swap either field through `publishConfig`, so every declared entry
+  // target counts as shared with the native root entry — including
+  // auxiliary conditions like `types`, whose targets still name the
+  // published declaration file.
+  const auxiliaryEntryPaths = new Set<string>()
+  for (const field of [packageExports, publishConfig?.exports]) {
+    const { runtime, auxiliary } = packageExportTargets(field)
+    for (const target of [...runtime, ...auxiliary]) {
+      const normalized = normalizeRootEntry(target)
+      if (normalized !== null) {
+        sharedRootEntryPaths.add(normalized)
+      }
+    }
+    for (const target of auxiliary) {
+      const normalized = normalizeRootEntry(target)
+      if (normalized !== null) {
+        auxiliaryEntryPaths.add(normalized)
+      }
+    }
+  }
+  // Native root-entry scan candidates are a narrower set than the shared
+  // paths: auxiliary export targets like `types` name the published file
+  // but cannot satisfy a runtime `require`, so they must not consume the
+  // single root copy. Declared shared entries come first because the
+  // metadata's own rootEntry name is the path consumers resolve, and they
+  // are admitted regardless of extension since `--js` accepts arbitrary
+  // filenames.
+  const rootCandidates = [
+    ...new Set([
+      ...[...wasiRootEntries].filter((entry) =>
+        sharedRootEntryPaths.has(entry),
+      ),
+      ...[...sharedRootEntryPaths].filter(
+        (path) => !auxiliaryEntryPaths.has(path),
+      ),
+      ...packageRootEntryCandidates(packageMain),
+      ...(typeof publishConfig?.main === 'string'
+        ? packageRootEntryCandidates(publishConfig.main)
+        : []),
+    ]),
+  ]
+
+  // The root loader below is taken from the threaded WASI target when both
+  // flavors are configured, so a distinct root entry must come from that
+  // target's source first: the generated entry embeds flavor-specific
+  // loader references, and a threadless copy next to the threaded root
+  // loader publishes a mismatched pair.
+  const rootWasiTarget =
+    wasiTargets.find((target) => wasiTargetHasThreads(target)) ?? wasiTargets[0]
+  const orderedWasiTargets = [
+    ...(rootWasiTarget ? [rootWasiTarget] : []),
+    ...wasiTargets.filter((target) => target !== rootWasiTarget),
+  ].filter(
+    (target, index, list) =>
+      list.findIndex(
+        (other) => other.platformArchABI === target.platformArchABI,
+      ) === index,
+  )
+
+  // A metadata-declared root entry whose name is not a package `main`
+  // resolution (e.g. `binding.js` next to a handwritten `index.js`) is a
+  // file `napi build` generated alongside the loader; reconciliation must
+  // keep it. It is resolved before the native scan so a stale copy beside
+  // the `.node` artifacts cannot claim the destination, preferring in
+  // order: the WASI artifact source, native artifact dirs, then the
+  // existing package-root file below. Entries that share a `main` path skip
+  // this path entirely: their WASI-source copy is the WASI loader
+  // (`*.wasi.cjs` chain), which must never replace the native root loader.
+  // Destinations are compared after normalization since `main` values like
+  // `./binding.js` and metadata entries like `binding.js` alias the same
+  // package-root path.
+  const distinctWasiRootEntries = [...wasiRootEntries].filter(
+    (entry) => !sharedRootEntryPaths.has(entry),
+  )
+  const wasiSourceResolvedEntries = new Set<string>()
+  if (nativeTargets.length > 0) {
+    for (const entry of distinctWasiRootEntries) {
+      const destination = resolvePackageRootEntry(
+        packageRoot,
+        entry,
+        'WASI root entry destination',
+      ).absolute
+      let resolved = false
+      for (const target of orderedWasiTargets) {
+        if (wasiDeclaredRootEntries.get(target.platformArchABI) !== entry) {
+          continue
+        }
+        const source = wasiSources.get(target.platformArchABI)
+        if (!source) {
+          continue
+        }
+        const sourcePath = resolveArtifactRelativePath(
+          source.dir,
+          entry,
+          'WASI root entry',
+        )
+        if (!(await fileExists(sourcePath.absolute))) {
+          continue
+        }
+        addPendingWrite(
+          pendingWrites,
+          destination,
+          sourcePath.absolute,
+          await readFileAsync(sourcePath.absolute),
+        )
+        wasiSourceResolvedEntries.add(entry)
+        resolved = true
+        break
+      }
+      if (resolved) {
+        continue
+      }
+      for (const target of nativeTargets) {
+        const artifactPath = artifactsByIdentity.get(
+          artifactName(binaryName, target),
+        )?.[0]
+        if (!artifactPath) {
+          continue
+        }
+        const sourcePath = resolveArtifactRelativePath(
+          dirname(artifactPath),
+          entry,
+          'native-adjacent WASI root entry',
+        )
+        if (!(await fileExists(sourcePath.absolute))) {
+          continue
+        }
+        addPendingWrite(
+          pendingWrites,
+          destination,
+          sourcePath.absolute,
+          await readFileAsync(sourcePath.absolute),
+        )
+        break
+      }
+    }
+  }
+
+  let copiedNativeRoot = false
   for (const target of nativeTargets) {
+    if (copiedNativeRoot) {
+      break
+    }
     const artifactPath = artifactsByIdentity.get(
       artifactName(binaryName, target),
     )?.[0]
@@ -519,32 +789,45 @@ async function addArtifactRootEntry({
         candidate,
         'native root entry',
       )
-      if (!(await fileExists(source.absolute))) {
+      if (!(await regularFileExists(source.absolute))) {
         continue
       }
-      const destination = resolveArtifactRelativePath(
+      const destination = resolvePackageRootEntry(
         packageRoot,
-        source.relative,
+        candidate,
         'native root entry destination',
       )
+      if (pendingWrites.has(destination.absolute)) {
+        continue
+      }
       addPendingWrite(
         pendingWrites,
         destination.absolute,
         source.absolute,
         await readFileAsync(source.absolute),
       )
-      return
+      copiedNativeRoot = true
+      break
     }
   }
 
   if (nativeTargets.length > 0) {
-    for (const candidate of rootCandidates) {
-      const existing = resolveArtifactRelativePath(
+    // Every root entry candidate that already exists in the package stays
+    // managed: keeping it out of pendingWrites would mark it as a stale
+    // managed destination and delete it. This must run even when a root entry
+    // was copied from an artifact dir above, since a WASI-only candidate
+    // such as `binding.js` never sits next to the `.node` artifacts.
+    let keptExisting = false
+    for (const candidate of [...rootCandidates, ...wasiRootEntries]) {
+      const existing = resolvePackageRootEntry(
         packageRoot,
         candidate,
         'existing native root entry',
       )
-      if (!(await fileExists(existing.absolute))) {
+      if (
+        pendingWrites.has(existing.absolute) ||
+        !(await regularFileExists(existing.absolute))
+      ) {
         continue
       }
       addPendingWrite(
@@ -553,19 +836,54 @@ async function addArtifactRootEntry({
         existing.absolute,
         await readFileAsync(existing.absolute),
       )
+      keptExisting = true
+    }
+    // A declared root entry that no artifact source or existing file
+    // resolved would publish a package whose entry point does not exist.
+    // Fail loudly like addWasiRootEntry instead of silently dropping it.
+    for (const entry of wasiRootEntries) {
+      const destination = resolvePackageRootEntry(
+        packageRoot,
+        entry,
+        'WASI root entry destination',
+      ).absolute
+      // With an explicit --build-output-dir the WASI output is authoritative:
+      // a distinct declared entry it does not contain cannot be satisfied by
+      // a possibly stale package-root or native-adjacent copy, the same way
+      // the WASI-only path already rejects an incomplete source.
+      if (
+        requireArtifactSourceRootEntry &&
+        distinctWasiRootEntries.includes(entry) &&
+        !wasiSourceResolvedEntries.has(entry)
+      ) {
+        throw new Error(
+          `WASI loader metadata declares root entry ${entry}, but the configured build output directory does not contain it`,
+        )
+      }
+      // Only distinct entries must already be pending. Entries shared with
+      // the package entry may legitimately be absent, in which case the
+      // WASI root fallback below publishes the loader copy.
+      if (
+        distinctWasiRootEntries.includes(entry) &&
+        !pendingWrites.has(destination)
+      ) {
+        throw new Error(
+          `WASI loader metadata declares root entry ${entry}, but it was found in neither the artifact sources nor the package root`,
+        )
+      }
+    }
+    if (copiedNativeRoot || keptExisting) {
       return
     }
   }
 
-  const rootTarget =
-    wasiTargets.find((target) => wasiTargetHasThreads(target)) ?? wasiTargets[0]
-  if (rootTarget) {
+  if (rootWasiTarget) {
     await addWasiRootEntry(
       pendingWrites,
       packageRoot,
       binaryName,
-      rootTarget,
-      wasiSources.get(rootTarget.platformArchABI)!,
+      rootWasiTarget,
+      wasiSources.get(rootWasiTarget.platformArchABI)!,
       packageMain,
     )
   }
@@ -576,6 +894,185 @@ function packageRootEntryCandidates(packageMain: string | undefined) {
     ...(packageMain && /\.[cm]?js$/i.test(packageMain) ? [packageMain] : []),
     'index.js',
   ]
+}
+
+async function regularFileExists(path: string) {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
+}
+
+// Package-root-relative paths a `main` value resolves to as the native root
+// entry, following Node's CommonJS lookup order: the specifier itself, the
+// LOAD_AS_FILE extension variants, then LOAD_AS_DIRECTORY — a nested
+// `package.json#main` or `index.*` inside the directory. Existence is
+// probed in the package root and in `additionalDirs` (the native artifact
+// directories), since artifact files move to the package root in the same
+// transaction. Only the specifier itself is always shared: ESM importers
+// resolve `main` literally, so it names the package entry even when no
+// file exists. Every other candidate is shared only when it is the first
+// existing file in Node's order; an earlier match shadows the later
+// spellings, so they must not suppress a WASI-declared root entry of the
+// same name. With no `main`, the implicit default is `index.js`.
+async function packageMainResolutionPaths(
+  packageRoot: string,
+  packageMain: string | undefined,
+  additionalDirs: string[] = [],
+  excludedPaths: ReadonlySet<string> = new Set(),
+) {
+  const paths = new Set<string>()
+  const normalizeCandidate = (entry: string) => {
+    try {
+      return resolveArtifactRelativePath(packageRoot, entry, 'package main')
+        .relative
+    } catch {
+      // A `main` that escapes the package root cannot alias a managed root
+      // entry, so it contributes no shared names.
+      return null
+    }
+  }
+  const enqueue = (entry: string) => {
+    const normalized = normalizeCandidate(entry)
+    if (normalized !== null) {
+      paths.add(normalized)
+    }
+  }
+  const candidateExists = async (entry: string) => {
+    // A package-root file scheduled for deletion cannot satisfy the
+    // lookup, and a pending write is the only root change this transaction
+    // introduces; artifact directories publish their files unchanged.
+    const normalized = normalizeCandidate(entry)
+    if (normalized === null || excludedPaths.has(normalized)) {
+      return false
+    }
+    for (const dir of [packageRoot, ...additionalDirs]) {
+      if (await regularFileExists(join(dir, entry))) {
+        return true
+      }
+    }
+    return false
+  }
+  if (packageMain === undefined) {
+    enqueue('index.js')
+    return paths
+  }
+  // LOAD_AS_FILE: the specifier itself, then the extension variants.
+  const visitAsFile = async (specifier: string): Promise<boolean> => {
+    for (const candidate of [
+      specifier,
+      `${specifier}.js`,
+      `${specifier}.json`,
+      `${specifier}.node`,
+    ]) {
+      if (await candidateExists(candidate)) {
+        enqueue(candidate)
+        return true
+      }
+    }
+    return false
+  }
+  const visitAsIndex = async (directory: string): Promise<boolean> => {
+    for (const extension of ['js', 'json', 'node']) {
+      const index = join(directory, `index.${extension}`)
+      if (await candidateExists(index)) {
+        enqueue(index)
+        return true
+      }
+    }
+    return false
+  }
+  const visit = async (specifier: string): Promise<boolean> => {
+    // The exact specifier is shared even when it does not exist: ESM
+    // importers resolve `main` literally, so it still names the package
+    // entry.
+    enqueue(specifier)
+    if (await candidateExists(specifier)) {
+      return true
+    }
+    for (const extension of ['.js', '.json', '.node']) {
+      const candidate = `${specifier}${extension}`
+      if (await candidateExists(candidate)) {
+        enqueue(candidate)
+        return true
+      }
+    }
+    // LOAD_AS_DIRECTORY: a nested package.json main is tried as a file and
+    // as an index-bearing directory once — Node does not recurse into
+    // further manifests — then the specifier's own index.* wins.
+    const manifest = join(specifier, 'package.json')
+    if (await regularFileExists(join(packageRoot, manifest))) {
+      let nestedMain: unknown
+      try {
+        nestedMain = JSON.parse(
+          await readFileAsync(join(packageRoot, manifest), 'utf8'),
+        )?.main
+      } catch {
+        nestedMain = undefined
+      }
+      if (typeof nestedMain === 'string' && nestedMain.length > 0) {
+        const nested = join(specifier, nestedMain)
+        if ((await visitAsFile(nested)) || (await visitAsIndex(nested))) {
+          return true
+        }
+      }
+    }
+    return visitAsIndex(specifier)
+  }
+  // When the configured `main` fails to resolve entirely, Node falls back
+  // to `index.*` at the package root.
+  if (!(await visit(packageMain))) {
+    await visitAsIndex('')
+  }
+  return paths
+}
+
+// Literal file targets under `exports["."]`, split into runtime targets
+// that `require`/`import` can load and auxiliary targets guarded only by
+// non-runtime conditions such as `types`. The top level is a subpath map
+// only when a key starts with `.`; a condition-only map like
+// `{ node: ..., default: ... }` or a fallback array describes the root
+// entry directly. Nested conditions and arrays are flattened; anything
+// that is not a string contributes nothing.
+function packageExportTargets(exportsField: unknown): {
+  runtime: string[]
+  auxiliary: string[]
+} {
+  const runtime = new Set<string>()
+  const auxiliary = new Set<string>()
+  const collect = (value: unknown, isAuxiliary: boolean) => {
+    if (typeof value === 'string') {
+      ;(isAuxiliary ? auxiliary : runtime).add(value)
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        collect(item, isAuxiliary)
+      }
+      return
+    }
+    if (value && typeof value === 'object') {
+      for (const [key, item] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        collect(item, isAuxiliary || key === 'types')
+      }
+    }
+  }
+  if (
+    exportsField &&
+    typeof exportsField === 'object' &&
+    !Array.isArray(exportsField) &&
+    Object.keys(exportsField as Record<string, unknown>).some((key) =>
+      key.startsWith('.'),
+    )
+  ) {
+    collect((exportsField as Record<string, unknown>)['.'], false)
+  } else {
+    collect(exportsField, false)
+  }
+  return { runtime: [...runtime], auxiliary: [...auxiliary] }
 }
 
 function parseWasiArtifactMetadata(content: string, source: string) {
@@ -669,6 +1166,27 @@ function resolveArtifactRelativePath(
     throw new Error(`${description} escapes its output directory: ${entry}`)
   }
   return { absolute, relative: relativePath }
+}
+
+// Root entry names come from `package.json#main` or WASI loader metadata and
+// may be nested (e.g. `nested/binding.js`). The lexical check in
+// resolveArtifactRelativePath cannot see symlinked intermediate directories,
+// and the file-system transaction only guards the workspace boundary, so a
+// symlinked parent could redirect a pending write into a sibling package.
+// Canonicalizing the destination's nearest existing ancestor closes that gap.
+function resolvePackageRootEntry(
+  packageRoot: string,
+  entry: string,
+  description: string,
+) {
+  const resolved = resolveArtifactRelativePath(packageRoot, entry, description)
+  const canonical = canonicalizeManagedPackagePath(resolved.absolute)
+  if (!managedPackagePathIsWithin(packageRoot, canonical)) {
+    throw new Error(
+      `${description} resolves outside the package root through a symlinked path: ${entry}`,
+    )
+  }
+  return resolved
 }
 
 function addPendingWrite(
@@ -801,11 +1319,19 @@ async function collectStaleManagedDestinations(
   }
 
   for (const entry of managedRootEntries) {
-    const path = resolveArtifactRelativePath(
-      packageRoot,
-      entry,
-      'managed WASI root entry',
-    ).absolute
+    let path: string
+    try {
+      // A stale entry recorded when a different loader was installed can
+      // now resolve through a symlinked directory into a sibling package;
+      // reconciliation must not delete files the package does not own.
+      path = resolvePackageRootEntry(
+        packageRoot,
+        entry,
+        'managed WASI root entry',
+      ).absolute
+    } catch {
+      continue
+    }
     if (!pendingWrites.has(path)) {
       stalePaths.push(path)
     }

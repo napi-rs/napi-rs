@@ -633,7 +633,7 @@ export async function withPackageFileSystemReconciliation<T>(
   return acquire(0)
 }
 
-function managedPackagePathIsWithin(root: string, path: string) {
+export function managedPackagePathIsWithin(root: string, path: string) {
   const relativePath = relative(resolve(root), resolve(path))
   return (
     relativePath === '' ||
@@ -643,7 +643,7 @@ function managedPackagePathIsWithin(root: string, path: string) {
   )
 }
 
-function canonicalizeManagedPackagePath(path: string) {
+export function canonicalizeManagedPackagePath(path: string) {
   let current = resolve(path)
   const missingSegments: string[] = []
   while (true) {
