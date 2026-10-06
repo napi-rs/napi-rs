@@ -514,7 +514,7 @@ async function addArtifactRootEntry({
   // `binding.js`). That name can differ from `package.json#main`, which may
   // point at a handwritten wrapper like `index.js`; both files must survive
   // reconciliation, so the recorded entry is a root candidate too.
-  const wasiRootEntries = new Set<string>()
+  const wasiDeclaredRootEntries = new Map<string, string | null>()
   for (const target of wasiTargets) {
     const source = wasiSources.get(target.platformArchABI)
     if (!source) {
@@ -526,29 +526,58 @@ async function addArtifactRootEntry({
     if (!bindingPath) {
       continue
     }
-    const rootEntry = parseWasiArtifactMetadata(
+    const metadata = parseWasiArtifactMetadata(
       await readFileAsync(bindingPath, 'utf8'),
       bindingPath,
-    )?.rootEntry
-    if (rootEntry) {
-      wasiRootEntries.add(rootEntry)
+    )
+    if (metadata === undefined) {
+      continue
     }
+    wasiDeclaredRootEntries.set(
+      target.platformArchABI,
+      metadata.rootEntry === null
+        ? null
+        : resolveArtifactRelativePath(
+            packageRoot,
+            metadata.rootEntry,
+            'WASI root entry',
+          ).relative,
+    )
   }
+  // All flavors must declare the same root entry: their loaders are
+  // interchangeable to consumers, and a divergence means the artifacts came
+  // from builds with different `--js` options that cannot be spliced into a
+  // coherent package.
+  const declaredRootEntryContracts = new Set(wasiDeclaredRootEntries.values())
+  if (declaredRootEntryContracts.size > 1) {
+    throw new Error(
+      `WASI loader metadata declares conflicting root entries: ${[
+        ...wasiDeclaredRootEntries,
+      ]
+        .map(([abi, entry]) => `${abi}: ${entry ?? 'none'}`)
+        .join(', ')}`,
+    )
+  }
+  const wasiRootEntries = new Set(
+    [...wasiDeclaredRootEntries.values()].filter(
+      (entry): entry is string => entry !== null,
+    ),
+  )
   const rootCandidates = packageRootEntryCandidates(packageMain)
 
-  // The package root entry the native loader owns: the configured `main`
-  // when it names a JS file, otherwise the implicit `index.js` default. The
-  // `index.js` fallback in rootCandidates is only a scan candidate for the
-  // native artifact dir, not a shared name: a WASI-declared `index.js` next
-  // to a handwritten `main: "wrapper.js"` is a distinct generated file that
-  // must resolve from the WASI artifact source like any other root entry.
-  const effectiveMain =
-    packageMain && /\.[cm]?js$/i.test(packageMain) ? packageMain : 'index.js'
-  const effectiveMainPath = resolveArtifactRelativePath(
-    packageRoot,
-    effectiveMain,
-    'native root entry',
-  ).relative
+  // The package-root files the configured `main` can resolve to share their
+  // name with the native root entry. Node applies the CommonJS lookup rules
+  // to `main` — the specifier itself, `.js`/`.json`/`.node` extension
+  // variants, and directory forms (`./dist` → `dist/index.js` or a nested
+  // `package.json` main) — while ESM importers resolve it literally, so all
+  // of those spellings count as shared. The `index.js` fallback in
+  // rootCandidates is only a scan candidate for the native artifact dir,
+  // not a shared name: a WASI-declared `index.js` next to a handwritten
+  // `main: "wrapper.js"` is a distinct generated file that must resolve
+  // from the WASI artifact source like any other root entry.
+  const sharedRootEntryPaths = new Set(
+    await packageMainResolutionPaths(packageRoot, packageMain),
+  )
 
   // The root loader below is taken from the threaded WASI target when both
   // flavors are configured, so a distinct root entry must come from that
@@ -557,32 +586,30 @@ async function addArtifactRootEntry({
   // loader publishes a mismatched pair.
   const rootWasiTarget =
     wasiTargets.find((target) => wasiTargetHasThreads(target)) ?? wasiTargets[0]
-  const orderedWasiSources = [
-    ...(rootWasiTarget
-      ? [wasiSources.get(rootWasiTarget.platformArchABI)]
-      : []),
-    ...wasiTargets.map((target) => wasiSources.get(target.platformArchABI)),
+  const orderedWasiTargets = [
+    ...(rootWasiTarget ? [rootWasiTarget] : []),
+    ...wasiTargets.filter((target) => target !== rootWasiTarget),
   ].filter(
-    (source, index, sources): source is WasiArtifactSource =>
-      source !== undefined && sources.indexOf(source) === index,
+    (target, index, list) =>
+      list.findIndex(
+        (other) => other.platformArchABI === target.platformArchABI,
+      ) === index,
   )
 
-  // A metadata-declared root entry whose name is not the native root entry
-  // (e.g. `binding.js` next to a handwritten `index.js`) is a file
-  // `napi build` generated alongside the loader; reconciliation must
+  // A metadata-declared root entry whose name is not a package `main`
+  // resolution (e.g. `binding.js` next to a handwritten `index.js`) is a
+  // file `napi build` generated alongside the loader; reconciliation must
   // keep it. It is resolved before the native scan so a stale copy beside
   // the `.node` artifacts cannot claim the destination, preferring in
   // order: the WASI artifact source, native artifact dirs, then the
-  // existing package-root file below. Entries that share the native root
-  // entry name skip this path entirely: their WASI-source copy is the WASI
-  // loader (`*.wasi.cjs` chain), which must never replace the native root
-  // loader. Destinations are compared after normalization since `main`
-  // values like `./binding.js` and metadata entries like `binding.js` alias
-  // the same package-root path.
+  // existing package-root file below. Entries that share a `main` path skip
+  // this path entirely: their WASI-source copy is the WASI loader
+  // (`*.wasi.cjs` chain), which must never replace the native root loader.
+  // Destinations are compared after normalization since `main` values like
+  // `./binding.js` and metadata entries like `binding.js` alias the same
+  // package-root path.
   const distinctWasiRootEntries = [...wasiRootEntries].filter(
-    (entry) =>
-      resolveArtifactRelativePath(packageRoot, entry, 'WASI root entry')
-        .relative !== effectiveMainPath,
+    (entry) => !sharedRootEntryPaths.has(entry),
   )
   const wasiSourceResolvedEntries = new Set<string>()
   if (nativeTargets.length > 0) {
@@ -593,7 +620,14 @@ async function addArtifactRootEntry({
         'WASI root entry destination',
       ).absolute
       let resolved = false
-      for (const source of orderedWasiSources) {
+      for (const target of orderedWasiTargets) {
+        if (wasiDeclaredRootEntries.get(target.platformArchABI) !== entry) {
+          continue
+        }
+        const source = wasiSources.get(target.platformArchABI)
+        if (!source) {
+          continue
+        }
         const sourcePath = resolveArtifactRelativePath(
           source.dir,
           entry,
@@ -758,6 +792,60 @@ function packageRootEntryCandidates(packageMain: string | undefined) {
     ...(packageMain && /\.[cm]?js$/i.test(packageMain) ? [packageMain] : []),
     'index.js',
   ]
+}
+
+// Package-root-relative paths a `main` value can resolve to. Node applies
+// CommonJS lookup rules to `main`: the specifier itself (which also covers
+// ESM importers, which resolve `main` literally), LOAD_AS_FILE extension
+// variants, then LOAD_AS_DIRECTORY — a nested `package.json#main` (applied
+// recursively) or `index.*` inside the directory. With no `main`, the
+// implicit default is `index.js`.
+async function packageMainResolutionPaths(
+  packageRoot: string,
+  packageMain: string | undefined,
+) {
+  const paths = new Set<string>()
+  const enqueue = (entry: string) => {
+    try {
+      paths.add(
+        resolveArtifactRelativePath(packageRoot, entry, 'package main')
+          .relative,
+      )
+    } catch {
+      // A `main` that escapes the package root cannot alias a managed root
+      // entry, so it contributes no shared names.
+    }
+  }
+  if (packageMain === undefined) {
+    enqueue('index.js')
+    return paths
+  }
+  const visit = async (specifier: string) => {
+    enqueue(specifier)
+    for (const extension of ['.js', '.json', '.node']) {
+      enqueue(`${specifier}${extension}`)
+    }
+    const directoryManifest = join(packageRoot, specifier, 'package.json')
+    if (await fileExists(directoryManifest)) {
+      let nestedMain: unknown
+      try {
+        nestedMain = JSON.parse(
+          await readFileAsync(directoryManifest, 'utf8'),
+        )?.main
+      } catch {
+        nestedMain = undefined
+      }
+      if (typeof nestedMain === 'string' && nestedMain.length > 0) {
+        await visit(join(specifier, nestedMain))
+        return
+      }
+    }
+    for (const extension of ['js', 'json', 'node']) {
+      enqueue(join(specifier, `index.${extension}`))
+    }
+  }
+  await visit(packageMain)
+  return paths
 }
 
 function parseWasiArtifactMetadata(content: string, source: string) {
