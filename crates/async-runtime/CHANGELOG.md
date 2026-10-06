@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.5...napi-async-runtime-v0.2.6) - 2026-10-06
+
+### Other
+
+- updated the following local packages: napi, napi-derive
+
 ## [0.2.5](https://github.com/napi-rs/napi-rs/compare/napi-async-runtime-v0.2.4...napi-async-runtime-v0.2.5) - 2026-10-05
 
 ### Added
