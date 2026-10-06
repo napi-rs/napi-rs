@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import {
   dirname,
@@ -565,18 +565,19 @@ async function addArtifactRootEntry({
   )
   const rootCandidates = packageRootEntryCandidates(packageMain)
 
-  // The package-root files the configured `main` can resolve to share their
-  // name with the native root entry. Node applies the CommonJS lookup rules
-  // to `main` — the specifier itself, `.js`/`.json`/`.node` extension
-  // variants, and directory forms (`./dist` → `dist/index.js` or a nested
-  // `package.json` main) — while ESM importers resolve it literally, so all
-  // of those spellings count as shared. The `index.js` fallback in
-  // rootCandidates is only a scan candidate for the native artifact dir,
-  // not a shared name: a WASI-declared `index.js` next to a handwritten
-  // `main: "wrapper.js"` is a distinct generated file that must resolve
-  // from the WASI artifact source like any other root entry.
-  const sharedRootEntryPaths = new Set(
-    await packageMainResolutionPaths(packageRoot, packageMain),
+  // The package-root file the configured `main` resolves to shares its name
+  // with the native root entry. Node applies the CommonJS lookup order to
+  // `main` — the specifier itself (which also covers ESM importers, which
+  // resolve `main` literally), `.js`/`.json`/`.node` extension variants,
+  // then directory forms — and stops at the first match, so candidates an
+  // existing earlier match shadows are not shared. The `index.js` fallback
+  // in rootCandidates is only a scan candidate for the native artifact
+  // dir, not a shared name: a WASI-declared `index.js` next to a
+  // handwritten `main: "wrapper.js"` is a distinct generated file that must
+  // resolve from the WASI artifact source like any other root entry.
+  const sharedRootEntryPaths = await packageMainResolutionPaths(
+    packageRoot,
+    packageMain,
   )
 
   // The root loader below is taken from the threaded WASI target when both
@@ -794,12 +795,22 @@ function packageRootEntryCandidates(packageMain: string | undefined) {
   ]
 }
 
-// Package-root-relative paths a `main` value can resolve to. Node applies
-// CommonJS lookup rules to `main`: the specifier itself (which also covers
-// ESM importers, which resolve `main` literally), LOAD_AS_FILE extension
-// variants, then LOAD_AS_DIRECTORY — a nested `package.json#main` (applied
-// recursively) or `index.*` inside the directory. With no `main`, the
-// implicit default is `index.js`.
+async function regularFileExists(path: string) {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
+}
+
+// Package-root-relative paths a `main` value resolves to as the native root
+// entry, following Node's CommonJS lookup order: the specifier itself
+// (which also covers ESM importers, which resolve `main` literally), the
+// LOAD_AS_FILE extension variants, then LOAD_AS_DIRECTORY — a nested
+// `package.json#main` or `index.*` inside the directory. Candidates are
+// shared only up to the first existing file; an earlier match shadows the
+// later spellings, so they must not suppress a WASI-declared root entry of
+// the same name. With no `main`, the implicit default is `index.js`.
 async function packageMainResolutionPaths(
   packageRoot: string,
   packageMain: string | undefined,
@@ -820,17 +831,29 @@ async function packageMainResolutionPaths(
     enqueue('index.js')
     return paths
   }
-  const visit = async (specifier: string) => {
+  const visitedManifests = new Set<string>()
+  const visit = async (specifier: string): Promise<void> => {
+    // The specifier itself is shared even when it does not exist: ESM
+    // importers resolve `main` literally, so it still names the package
+    // entry.
     enqueue(specifier)
     for (const extension of ['.js', '.json', '.node']) {
-      enqueue(`${specifier}${extension}`)
+      const candidate = `${specifier}${extension}`
+      if (await regularFileExists(join(packageRoot, candidate))) {
+        enqueue(candidate)
+        return
+      }
     }
-    const directoryManifest = join(packageRoot, specifier, 'package.json')
-    if (await fileExists(directoryManifest)) {
+    const manifest = join(specifier, 'package.json')
+    if (
+      !visitedManifests.has(manifest) &&
+      (await regularFileExists(join(packageRoot, manifest)))
+    ) {
+      visitedManifests.add(manifest)
       let nestedMain: unknown
       try {
         nestedMain = JSON.parse(
-          await readFileAsync(directoryManifest, 'utf8'),
+          await readFileAsync(join(packageRoot, manifest), 'utf8'),
         )?.main
       } catch {
         nestedMain = undefined
@@ -841,7 +864,11 @@ async function packageMainResolutionPaths(
       }
     }
     for (const extension of ['js', 'json', 'node']) {
-      enqueue(join(specifier, `index.${extension}`))
+      const index = join(specifier, `index.${extension}`)
+      if (await regularFileExists(join(packageRoot, index))) {
+        enqueue(index)
+        return
+      }
     }
   }
   await visit(packageMain)

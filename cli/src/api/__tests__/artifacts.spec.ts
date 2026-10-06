@@ -755,6 +755,112 @@ test('a directory main keeps its index.js shared with the native root entry', as
   )
 })
 
+test('a file shadowing a directory main leaves the declared entry distinct', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'shadow-entry'
+  const packageName = '@napi-rs/shadow-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main: "./dist"` resolves to `dist.js` because the file exists, so the
+  // directory lookup never runs and `dist/index.js` is not the package
+  // entry. The WASI-declared `dist/index.js` is a distinct generated file
+  // and resolves from the build output, replacing the stale root copy.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(join(buildOutputDir, 'dist'), { recursive: true })
+  await mkdir(join(tmpDir, 'dist'), { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './dist',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'dist/index.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'dist/index.js'],
+  })}\nmodule.exports = {}\n`
+  const freshIndex = "module.exports = require('./shadow-entry.wasi.cjs')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'dist', 'index.js'), freshIndex),
+    writeFile(join(tmpDir, 'dist.js'), 'module.exports = { native: true }\n'),
+    writeFile(
+      join(tmpDir, 'dist', 'index.js'),
+      'module.exports = { stale: true }\n',
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'dist', 'index.js'), 'utf8'), freshIndex)
+  t.is(
+    await readFile(join(tmpDir, 'dist.js'), 'utf8'),
+    'module.exports = { native: true }\n',
+  )
+})
+
+test('a self-referential directory main resolves to index.js', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'self-entry'
+  const packageName = '@napi-rs/self-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+
+  // `main: "."` names the package directory itself; its own package.json
+  // main points back at the same directory, which Node resolves as
+  // index.js. Collection must terminate instead of recursing through the
+  // same manifest forever.
+  await mkdir(artifactsDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: '.',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu'],
+      },
+    }),
+  )
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(tmpDir, 'index.js'), 'module.exports = { native: true }\n'),
+  ])
+
+  await collectArtifacts({ cwd: tmpDir })
+
+  t.is(
+    await readFile(join(tmpDir, 'index.js'), 'utf8'),
+    'module.exports = { native: true }\n',
+  )
+})
+
 test('conflicting WASI root entry declarations are rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'skewed-entry'
