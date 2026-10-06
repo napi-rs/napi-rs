@@ -56,7 +56,7 @@
     "vite-plugin-node-polyfills": "^0.28.0",
     "vitest": "^5.0.0",
     "web-streams-polyfill": "^4.3.0",
-    "webdriverio": "^9.27.2"
+    "webdriverio": "^10.0.0"
   },
   "ava": {
     "extensions": [
