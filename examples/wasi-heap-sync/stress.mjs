@@ -191,10 +191,13 @@ function spawnCase(id, caseEnv, nodeFlags) {
 
 // The wasm file the loader picks: it prefers the `.debug.wasm` next to it.
 function wasmPath() {
-  const debug = join(packageDirectory, 'wasi_heap_sync.wasm32-wasi.debug.wasm')
+  const debug = join(
+    packageDirectory,
+    'wasi_heap_sync.wasm32-wasip1-threads.debug.wasm',
+  )
   return existsSync(debug)
     ? debug
-    : join(packageDirectory, 'wasi_heap_sync.wasm32-wasi.wasm')
+    : join(packageDirectory, 'wasi_heap_sync.wasm32-wasip1-threads.wasm')
 }
 
 // The declared minimum of the module's imported memory, in pages.
@@ -307,7 +310,7 @@ async function runCase(id) {
   process.on('unhandledRejection', die)
 
   const probe = installProbe()
-  const binding = require('./wasi_heap_sync.wasi.cjs')
+  const binding = require('./wasi_heap_sync.wasip1-threads.cjs')
   assert.ok(probe.exports, 'captured the main-thread instance')
   assert.ok(probe.memory, 'captured the shared memory')
   const optedOut = process.env.NAPI_RS_HEAP_SYNC_STRESS_OPTED_OUT === '1'

@@ -12,6 +12,10 @@ import {
   rustBundledWasiLibc,
   wasiSdkMajorVersion,
   AVAILABLE_TARGETS,
+  expandNapiTargets,
+  getWasiPackageIdentity,
+  getWasiTarget,
+  wasiPackageIdentityFlavors,
 } from '../target.js'
 
 async function withWasiSdkDir(
@@ -237,4 +241,51 @@ posixOnly('returns null when the compiler cannot be run', (t) => {
       process.env.RUSTC = previous
     }
   }
+})
+
+test('getWasiTarget resolves flavors to canonical identities', (t) => {
+  t.deepEqual(getWasiTarget('wasm32-wasip1-threads'), {
+    canonicalTriple: 'wasm32-wasip1-threads',
+    flavor: 'threads',
+    platformArchABI: 'wasm32-wasip1-threads',
+  })
+  t.deepEqual(getWasiTarget('wasm32-wasi-preview1-threads'), {
+    canonicalTriple: 'wasm32-wasip1-threads',
+    flavor: 'threads',
+    platformArchABI: 'wasm32-wasip1-threads',
+  })
+  t.deepEqual(getWasiTarget('wasm32-wasip1'), {
+    canonicalTriple: 'wasm32-wasip1',
+    flavor: 'single',
+    platformArchABI: 'wasm32-wasip1',
+  })
+  // the family name is not a flavor
+  t.is(getWasiTarget('wasm32-wasi'), undefined)
+  t.throws(() => parseTriple('wasm32-wasi'), {
+    message: /names the WASI target family, not a build target/,
+  })
+})
+
+test('expandNapiTargets replaces the family shorthand with both flavors', (t) => {
+  t.deepEqual(expandNapiTargets(['x86_64-apple-darwin', 'wasm32-wasi']), [
+    'x86_64-apple-darwin',
+    'wasm32-wasip1-threads',
+    'wasm32-wasip1',
+  ])
+  t.deepEqual(expandNapiTargets(['wasm32-wasip1']), ['wasm32-wasip1'])
+})
+
+test('getWasiPackageIdentity picks the unified package only for both flavors', (t) => {
+  const native = parseTriple('x86_64-apple-darwin')
+  const threaded = parseTriple('wasm32-wasip1-threads')
+  const threadless = parseTriple('wasm32-wasip1')
+  t.is(getWasiPackageIdentity([native]), undefined)
+  t.is(getWasiPackageIdentity([native, threaded]), 'wasm32-wasip1-threads')
+  t.is(getWasiPackageIdentity([threadless]), 'wasm32-wasip1')
+  t.is(getWasiPackageIdentity([threadless, native, threaded]), 'wasm32-wasi')
+  t.deepEqual(wasiPackageIdentityFlavors('wasm32-wasi'), [
+    'wasm32-wasip1-threads',
+    'wasm32-wasip1',
+  ])
+  t.deepEqual(wasiPackageIdentityFlavors('wasm32-wasip1'), ['wasm32-wasip1'])
 })

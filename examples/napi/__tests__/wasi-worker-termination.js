@@ -4,7 +4,7 @@ const require = createRequire(import.meta.url)
 const mode = process.argv[2]
 
 // The threaded loader is the only flavor with an async-work worker pool.
-const binding = require('../example.wasi.cjs')
+const binding = require('../example.wasip1-threads.cjs')
 const dispose = binding[Symbol.for('napi.rs.wasi.dispose')]
 
 // One `napi_async_work` call is all it takes to spawn a pool worker. Sync-only

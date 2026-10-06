@@ -260,7 +260,7 @@ function createManagedWasiFiles(binaryName: string, targets: Target[]) {
           hasThreads: wasiTargetHasThreads(target),
           platformArchABI: target.platformArchABI,
         }))
-      : [{ hasThreads: true, platformArchABI: 'wasm32-wasi' }]
+      : [{ hasThreads: true, platformArchABI: 'wasm32-wasip1-threads' }]
 
   for (const flavor of flavors) {
     const loaderSuffix = wasiLoaderSuffix(flavor.platformArchABI)

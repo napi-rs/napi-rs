@@ -32,7 +32,7 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
   const binaryName = 'wasi-artifact'
   const packageName = '@napi-rs/wasi-artifact'
   const buildOutputDir = join(tmpDir, 'build-output')
-  const wasiPackageDir = join(tmpDir, 'npm', 'wasm32-wasi')
+  const wasiPackageDir = join(tmpDir, 'npm', 'wasm32-wasip1-threads')
 
   await Promise.all([
     mkdir(join(tmpDir, 'artifacts'), { recursive: true }),
@@ -55,17 +55,20 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
     "const worker = new URL('./wasi-worker-browser.mjs', import.meta.url)\n"
   await Promise.all([
     writeFile(
-      join(tmpDir, 'artifacts', `${binaryName}.wasm32-wasi.wasm`),
+      join(tmpDir, 'artifacts', `${binaryName}.wasm32-wasip1-threads.wasm`),
       'wasm artifact',
     ),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), 'node binding'),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`),
+      'node binding',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'node binding types',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'node worker'),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       browserEntry,
     ),
     writeFile(
@@ -83,13 +86,16 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
 
   t.is(
     await readFile(
-      join(wasiPackageDir, `${binaryName}.wasm32-wasi.wasm`),
+      join(wasiPackageDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
       'utf8',
     ),
     'wasm artifact',
   )
   t.is(
-    await readFile(join(wasiPackageDir, `${binaryName}.wasi.cjs`), 'utf8'),
+    await readFile(
+      join(wasiPackageDir, `${binaryName}.wasip1-threads.cjs`),
+      'utf8',
+    ),
     'node binding',
   )
   t.is(
@@ -102,12 +108,12 @@ test('resolves a relative WASI build output directory from cwd', async (t) => {
   )
   t.is(
     await readFile(
-      join(wasiPackageDir, `${binaryName}.wasi-browser.js`),
+      join(wasiPackageDir, `${binaryName}.wasip1-threads-browser.js`),
       'utf8',
     ),
     browserEntry.replace(
       "new URL('./wasi-worker-browser.mjs', import.meta.url)",
-      `new URL('${packageName}-wasm32-wasi/wasi-worker-browser.mjs', import.meta.url)`,
+      `new URL('${packageName}-wasm32-wasip1-threads/wasi-worker-browser.mjs', import.meta.url)`,
     ),
   )
 })
@@ -150,14 +156,17 @@ test('keeps the generated WASI root entry when package.json#main is a handwritte
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(artifactsDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(artifactsDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(artifactsDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(artifactsDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(artifactsDir, `${binaryName}.wasi-browser.js`),
+      join(artifactsDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(artifactsDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -219,18 +228,21 @@ test('the WASI artifact source wins over a stale package-root root entry', async
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
     writeFile(
       join(artifactsDir, 'binding.js'),
       'module.exports = { stale: "native-adjacent" }\n',
     ),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -263,7 +275,7 @@ test('a WASI-source root entry never replaces the shared native main loader', as
 
   // The default layout: `main` is the generated loader `index.js`, which the
   // WASI metadata also records as rootEntry. The `index.js` inside the WASI
-  // artifact source is the WASI loader (`*.wasi.cjs` chain), so it must lose
+  // artifact source is the WASI loader (`*.wasip1-threads.cjs` chain), so it must lose
   // to the native loader copies even though all three differ.
   await mkdir(artifactsDir, { recursive: true })
   await mkdir(buildOutputDir, { recursive: true })
@@ -289,21 +301,24 @@ test('a WASI-source root entry never replaces the shared native main loader', as
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'index.js'),
-      "module.exports = require('./same-entry.wasi.cjs')\n",
+      "module.exports = require('./same-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(join(tmpDir, 'index.js'), 'module.exports = { native: true }\n'),
   ])
@@ -355,21 +370,24 @@ test('a package main like ./binding.js aliases the same root destination', async
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'binding.js'),
-      "module.exports = require('./alias-entry.wasi.cjs')\n",
+      "module.exports = require('./alias-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(
       join(tmpDir, 'binding.js'),
@@ -423,14 +441,17 @@ test('a symlinked parent cannot redirect a root entry outside the package root',
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(artifactsDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(artifactsDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(artifactsDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(artifactsDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(artifactsDir, `${binaryName}.wasi-browser.js`),
+      join(artifactsDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(artifactsDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -481,18 +502,22 @@ test('a WASI-declared index.js resolves from the artifact source when main is a 
     exports: ['create'],
     managedRootEntries: ['browser.js', 'index.js'],
   })}\nmodule.exports = {}\n`
-  const freshIndex = "module.exports = require('./index-entry.wasi.cjs')\n"
+  const freshIndex =
+    "module.exports = require('./index-entry.wasip1-threads.cjs')\n"
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -530,7 +555,7 @@ test('a distinct root entry follows the threaded root loader across WASI flavors
   // Both WASI flavors are configured, the threadless target first. The root
   // loader comes from the threaded target, so the generated `binding.js`
   // must come from the threaded source too: each flavor's copy embeds
-  // loader references for its own `*.wasi.cjs` chain.
+  // loader references for its own `*.wasip1-threads.cjs` chain.
   await Promise.all([
     mkdir(nativeDir, { recursive: true }),
     mkdir(threadlessDir, { recursive: true }),
@@ -564,20 +589,26 @@ test('a distinct root entry follows the threaded root loader across WASI flavors
   await Promise.all([
     writeFile(join(nativeDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
     writeFile(
-      join(threadsDir, `${binaryName}.wasm32-wasi.wasm`),
+      join(threadsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
       'threads wasm',
     ),
-    writeFile(join(threadsDir, `${binaryName}.wasi.cjs`), loaderFor('threads')),
     writeFile(
-      join(threadsDir, `${binaryName}.wasi.d.cts`),
+      join(threadsDir, `${binaryName}.wasip1-threads.cjs`),
+      loaderFor('threads'),
+    ),
+    writeFile(
+      join(threadsDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
-    writeFile(join(threadsDir, `${binaryName}.wasi-browser.js`), 'export {}\n'),
+    writeFile(
+      join(threadsDir, `${binaryName}.wasip1-threads-browser.js`),
+      'export {}\n',
+    ),
     writeFile(join(threadsDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(threadsDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(threadsDir, 'binding.js'),
-      "module.exports = require('./flavor-entry.wasi.cjs')\n",
+      "module.exports = require('./flavor-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(
       join(threadlessDir, `${binaryName}.wasm32-wasip1.wasm`),
@@ -616,7 +647,7 @@ test('a distinct root entry follows the threaded root loader across WASI flavors
   // though the threadless target is configured first.
   t.is(
     await readFile(join(tmpDir, 'binding.js'), 'utf8'),
-    "module.exports = require('./flavor-entry.wasi.cjs')\n",
+    "module.exports = require('./flavor-entry.wasip1-threads.cjs')\n",
   )
 })
 
@@ -654,21 +685,24 @@ test('a main specifier Node resolves to a declared root entry stays shared', asy
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'binding.js'),
-      "module.exports = require('./extless-entry.wasi.cjs')\n",
+      "module.exports = require('./extless-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(
       join(tmpDir, 'binding.js'),
@@ -722,21 +756,24 @@ test('a directory main keeps its index.js shared with the native root entry', as
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'dist', 'index.js'),
-      "module.exports = require('./dir-entry.wasi.cjs')\n",
+      "module.exports = require('./dir-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(
       join(tmpDir, 'dist', 'index.js'),
@@ -788,18 +825,22 @@ test('a file shadowing a directory main leaves the declared entry distinct', asy
     exports: ['create'],
     managedRootEntries: ['browser.js', 'dist/index.js'],
   })}\nmodule.exports = {}\n`
-  const freshIndex = "module.exports = require('./shadow-entry.wasi.cjs')\n"
+  const freshIndex =
+    "module.exports = require('./shadow-entry.wasip1-threads.cjs')\n"
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -899,22 +940,25 @@ test('a main resolved through the native artifacts keeps the native loader', asy
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'binding.js'),
-      "module.exports = require('./clean-entry.wasi.cjs')\n",
+      "module.exports = require('./clean-entry.wasip1-threads.cjs')\n",
     ),
   ])
 
@@ -960,18 +1004,22 @@ test('an existing extensionless main shadows the declared extension variant', as
     exports: ['create'],
     managedRootEntries: ['browser.js', 'binding.js'],
   })}\nmodule.exports = {}\n`
-  const freshBinding = "module.exports = require('./exact-entry.wasi.cjs')\n"
+  const freshBinding =
+    "module.exports = require('./exact-entry.wasip1-threads.cjs')\n"
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -1031,22 +1079,25 @@ test('an exports entry target shares its name with the native root entry', async
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(artifactsDir, 'entry.js'), nativeEntry),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(artifactsDir, 'entry.js'), nativeEntry),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'entry.js'),
-      "module.exports = require('./exports-entry.wasi.cjs')\n",
+      "module.exports = require('./exports-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(join(tmpDir, 'wrapper.js'), 'module.exports = { wrap: true }\n'),
   ])
@@ -1099,21 +1150,24 @@ test('a missing nested main falls back to the directory index', async (t) => {
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'dist', 'index.js'),
-      "module.exports = require('./nested-miss.wasi.cjs')\n",
+      "module.exports = require('./nested-miss.wasip1-threads.cjs')\n",
     ),
     writeFile(
       join(tmpDir, 'dist', 'index.js'),
@@ -1168,22 +1222,25 @@ test('a condition-only exports map shares the declared root entry', async (t) =>
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'binding.js'),
-      "module.exports = require('./cond-entry.wasi.cjs')\n",
+      "module.exports = require('./cond-entry.wasip1-threads.cjs')\n",
     ),
   ])
 
@@ -1237,23 +1294,26 @@ test('auxiliary export targets do not consume the native root slot', async (t) =
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
     writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
     writeFile(join(artifactsDir, 'binding.d.ts'), 'declare const x: 1\n'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'binding.js'),
-      "module.exports = require('./typed-entry.wasi.cjs')\n",
+      "module.exports = require('./typed-entry.wasip1-threads.cjs')\n",
     ),
   ])
 
@@ -1309,16 +1369,22 @@ test('a stale managed entry cannot escape the package root through a symlink', a
   })}\nmodule.exports = {}\n`
 
   await Promise.all([
-    writeFile(join(packageDir, `${binaryName}.wasi.cjs`), oldLoader),
+    writeFile(join(packageDir, `${binaryName}.wasip1-threads.cjs`), oldLoader),
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), newLoader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`),
+      newLoader,
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -1382,22 +1448,25 @@ test('an extensionless declared main entry is copied from native artifacts', asy
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(artifactsDir, 'binding'), nativeBinding),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(artifactsDir, 'binding'), nativeBinding),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'binding'),
-      "module.exports = require('./bare-entry.wasi.cjs')\n",
+      "module.exports = require('./bare-entry.wasip1-threads.cjs')\n",
     ),
   ])
 
@@ -1451,24 +1520,30 @@ test('a dying managed entry does not shadow a declared main resolution', async (
   const nativeIndex = 'module.exports = { native: true }\n'
 
   await Promise.all([
-    writeFile(join(tmpDir, `${binaryName}.wasi.cjs`), oldLoader),
+    writeFile(join(tmpDir, `${binaryName}.wasip1-threads.cjs`), oldLoader),
     writeFile(join(tmpDir, 'dist.js'), 'module.exports = { old: true }\n'),
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), newLoader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`),
+      newLoader,
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'dist', 'index.js'),
-      "module.exports = require('./moved-entry.wasi.cjs')\n",
+      "module.exports = require('./moved-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(join(tmpDir, 'dist', 'index.js'), nativeIndex),
   ])
@@ -1521,21 +1596,24 @@ test('an unresolvable main falls back to the package-root index.js', async (t) =
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
       join(buildOutputDir, 'index.js'),
-      "module.exports = require('./fallback-entry.wasi.cjs')\n",
+      "module.exports = require('./fallback-entry.wasip1-threads.cjs')\n",
     ),
     writeFile(join(tmpDir, 'index.js'), nativeIndex),
   ])
@@ -1580,18 +1658,22 @@ test('a shared root entry absent everywhere falls back to the WASI loader', asyn
     exports: ['create'],
     managedRootEntries: ['browser.js', 'index.js'],
   })}\nmodule.exports = {}\n`
-  const wasiIndex = "module.exports = require('./fallback-shared.wasi.cjs')\n"
+  const wasiIndex =
+    "module.exports = require('./fallback-shared.wasip1-threads.cjs')\n"
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
@@ -1652,18 +1734,21 @@ test('conflicting WASI root entry declarations are rejected', async (t) => {
   await Promise.all([
     writeFile(join(nativeDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
     writeFile(
-      join(threadsDir, `${binaryName}.wasm32-wasi.wasm`),
+      join(threadsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
       'threads wasm',
     ),
     writeFile(
-      join(threadsDir, `${binaryName}.wasi.cjs`),
+      join(threadsDir, `${binaryName}.wasip1-threads.cjs`),
       loaderFor('binding.js'),
     ),
     writeFile(
-      join(threadsDir, `${binaryName}.wasi.d.cts`),
+      join(threadsDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
-    writeFile(join(threadsDir, `${binaryName}.wasi-browser.js`), 'export {}\n'),
+    writeFile(
+      join(threadsDir, `${binaryName}.wasip1-threads-browser.js`),
+      'export {}\n',
+    ),
     writeFile(join(threadsDir, 'wasi-worker.mjs'), 'export {}\n'),
     writeFile(join(threadsDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
     writeFile(
@@ -1732,14 +1817,17 @@ test('an explicit build output without the declared root entry is rejected', asy
 
   await Promise.all([
     writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
-    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
-    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      join(artifactsDir, `${binaryName}.wasm32-wasip1-threads.wasm`),
+      'wasm',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasip1-threads.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasip1-threads.d.cts`),
       'declare const _default: {}\nexport = _default\n',
     ),
     writeFile(
-      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      join(buildOutputDir, `${binaryName}.wasip1-threads-browser.js`),
       'export {}\n',
     ),
     writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),

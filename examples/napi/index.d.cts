@@ -37,7 +37,7 @@ export type TypedArray =
  * flavor napi-rs can build is listed, because `NAPI_RS_NATIVE_LIBRARY_PATH`
  * can point the loader at a WASI artifact this package does not build itself.
  */
-export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasip1-threads' | 'wasm32-wasip1'
 
 declare global {
   interface IteratorObject<T, TReturn = unknown, TNext = unknown>
@@ -1103,8 +1103,6 @@ export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
-export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
-
 export declare function fibonacci(n: number): number
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
@@ -1463,11 +1461,6 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
-
-export interface RequestInit {
-  method?: string
-  headers?: Record<string, string>
-}
 
 export declare function returnCString(): string
 

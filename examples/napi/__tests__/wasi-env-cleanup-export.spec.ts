@@ -25,7 +25,7 @@ const WASM_ARTIFACTS = [
   // wasm32-wasip1 (threadless)
   'example.wasm32-wasip1.wasm',
   // wasm32-wasip1-threads
-  'example.wasm32-wasi.wasm',
+  'example.wasm32-wasip1-threads.wasm',
 ]
 
 /**
@@ -123,11 +123,11 @@ const THREAD_CRASH_EXPORTS = [
   'napi_wasm_thread_crashed',
 ]
 
-test.skipIf(!builtArtifacts.includes('example.wasm32-wasi.wasm'))(
-  'example.wasm32-wasi.wasm exports the thread crash flag',
+test.skipIf(!builtArtifacts.includes('example.wasm32-wasip1-threads.wasm'))(
+  'example.wasm32-wasip1-threads.wasm exports the thread crash flag',
   async (t) => {
     const bytes = await readFile(
-      join(packageDirectory, 'example.wasm32-wasi.wasm'),
+      join(packageDirectory, 'example.wasm32-wasip1-threads.wasm'),
     )
     const wasmExports = wasm.Module.exports(await wasm.compile(bytes))
     for (const name of THREAD_CRASH_EXPORTS) {

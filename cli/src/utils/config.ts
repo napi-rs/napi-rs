@@ -2,7 +2,12 @@ import { underline, yellow } from 'colorette'
 import { merge, omit } from 'es-toolkit'
 
 import { fileExists, readFileAsync } from './misc.js'
-import { DEFAULT_TARGETS, parseTriple, type Target } from './target.js'
+import {
+  DEFAULT_TARGETS,
+  expandNapiTargets,
+  parseTriple,
+  type Target,
+} from './target.js'
 
 export type ValueOfConstArray<T> = T[Exclude<keyof T, keyof Array<any>>]
 
@@ -122,21 +127,20 @@ export interface UserNapiConfig {
     maximumMemory?: number
 
     /**
-     * Whether the generated `<packageName>-wasm32-wasi` package is declared as
-     * an `optionalDependency` of the root package.
+     * Whether the generated WASI package (`<packageName>-wasm32-wasi` when both
+     * flavors are configured, otherwise `<packageName>-wasm32-wasip1-threads`
+     * or `<packageName>-wasm32-wasip1`) is declared as an `optionalDependency`
+     * of the root package.
      *
-     * When native targets are configured the WASI package is a fallback for
-     * hosts that cannot load a `.node` binary, so declaring it would make every
-     * consumer download the `.wasm` binary they will never load. It is
-     * therefore omitted by default and is expected to be installed on demand by
-     * the environments that need it.
+     * The WASI package is declared by default, whether or not native targets
+     * are configured, so that `npm install <package>` works on hosts without a
+     * native build and in isolated layouts (pnpm, Yarn PnP) without a manual
+     * install step. npm evaluates every `optionalDependencies` entry
+     * independently, so consumers that resolve a native package download the
+     * WASI package too. Set this to `false` to omit the declaration and have
+     * environments that need WASI install the package on demand.
      *
-     * When WASI is the only configured target it is the primary artifact and is
-     * declared by default.
-     *
-     * Set this explicitly to override either default.
-     *
-     * @default true when every configured target is WASI, false otherwise
+     * @default true
      */
     optionalDependency?: boolean
 
@@ -371,6 +375,9 @@ export async function readNapiConfig(
     )
     throw new Error(`Duplicate targets are not allowed: ${duplicateTarget}`)
   }
+
+  // `wasm32-wasi` is the WASI family shorthand: it stands for both flavors.
+  targets = expandNapiTargets(targets)
 
   const parsedTargets = targets.map(parseTriple)
   const outputTargets = new Map<string, string>()

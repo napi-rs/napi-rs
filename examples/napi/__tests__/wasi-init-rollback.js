@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const loaderPath = fileURLToPath(
-  new URL('../example.wasi.cjs', import.meta.url),
+  new URL('../example.wasip1-threads.cjs', import.meta.url),
 )
 const copyPath = fileURLToPath(
   new URL(`../.wasi-init-rollback-${process.pid}.cjs`, import.meta.url),

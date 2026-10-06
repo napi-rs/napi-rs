@@ -1711,7 +1711,7 @@ test('get bigint json value', (t) => {
 //
 // The threadless WASI flavor is the only lane that has to be told apart below,
 // and `NAPI_RS_WASI_FLAVOR` is the only way to reach it: the loader tries
-// `example.wasi.cjs` (wasm32-wasip1-threads) first and never falls through to
+// `example.wasip1-threads.cjs` (wasm32-wasip1-threads) first and never falls through to
 // `example.wasip1.cjs` unless that variable names it. Same discriminator
 // `wasi-eager-before-exit.spec.ts` uses.
 const isThreadlessWasi = process.env.NAPI_RS_WASI_FLAVOR === 'wasm32-wasip1'

@@ -8,7 +8,7 @@ import {
 import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
 import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'
 
-export const __napiBindingTarget = 'wasm32-wasi'
+export const __napiBindingTarget = 'wasm32-wasip1-threads'
 function __napiStampBindingTarget(exportsObject, target) {
   if (
     Object.prototype.hasOwnProperty.call(exportsObject, '__napiBindingTarget')
@@ -68,7 +68,7 @@ const __wasi = new __WASI({
   },
 })
 
-const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url).href
+const __wasmUrl = new URL('./example.wasm32-wasip1-threads.wasm', import.meta.url).href
 const __wasmResponse = await globalThis.fetch(__wasmUrl)
 if (!__wasmResponse.ok) {
   throw new Error(
@@ -81,6 +81,12 @@ if (!__wasmResponse.ok) {
   )
 }
 const __wasmFile = await __wasmResponse.arrayBuffer()
+
+if (typeof SharedArrayBuffer !== 'function') {
+  throw new Error(
+    'example.wasm32-wasip1-threads is the wasm32-wasip1-threads flavor of this binding and needs SharedArrayBuffer, which this page does not expose: threads require cross-origin isolation (Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp). Either serve those headers, or use the wasm32-wasip1 flavor when the package ships it: resolve the package with the "wasi-threadless" exports condition in your bundler, or import its "./wasm32-wasip1" subpath.',
+  )
+}
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: 16384,
@@ -1546,8 +1552,10 @@ export const asyncTaskFinally = __napiModule.exports.asyncTaskFinally
 export const asyncTaskIsExecuting = __napiModule.exports.asyncTaskIsExecuting
 export const asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
 export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
+export const asyncTaskRejectIsExecuting = __napiModule.exports.asyncTaskRejectIsExecuting
 export const asyncTaskRejectWithCapturedValue = __napiModule.exports.asyncTaskRejectWithCapturedValue
 export const asyncTaskSignalWhenExecuting = __napiModule.exports.asyncTaskSignalWhenExecuting
+export const asyncTaskSignalWhenExecutingReject = __napiModule.exports.asyncTaskSignalWhenExecutingReject
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
 export const awaitRejectionOffThread = __napiModule.exports.awaitRejectionOffThread
 export const bigintAdd = __napiModule.exports.bigintAdd
@@ -1631,6 +1639,7 @@ export const createExternalRef = __napiModule.exports.createExternalRef
 export const createExternalString = __napiModule.exports.createExternalString
 export const createExternalTypedArray = __napiModule.exports.createExternalTypedArray
 export const createExternalUtf16String = __napiModule.exports.createExternalUtf16String
+export const createForeignExternal = __napiModule.exports.createForeignExternal
 export const createFunction = __napiModule.exports.createFunction
 export const createI32ArrayFromExternal = __napiModule.exports.createI32ArrayFromExternal
 export const createNotUseNullableStruct = __napiModule.exports.createNotUseNullableStruct
@@ -1698,6 +1707,7 @@ export const getCwd = __napiModule.exports.getCwd
 export const getEmptyBuffer = __napiModule.exports.getEmptyBuffer
 export const getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray
 export const getExternal = __napiModule.exports.getExternal
+export const getExternalRef = __napiModule.exports.getExternalRef
 export const getGlobal = __napiModule.exports.getGlobal
 export const getIndexMapping = __napiModule.exports.getIndexMapping
 export const getIndexMappingWithHasher = __napiModule.exports.getIndexMappingWithHasher
@@ -1739,6 +1749,7 @@ export const jsTypeErrorWithoutRetainedValue = __napiModule.exports.jsTypeErrorW
 export const Kind = __napiModule.exports.Kind
 export const KindInValidate = __napiModule.exports.KindInValidate
 export const listObjKeys = __napiModule.exports.listObjKeys
+export const makeDeepSerdeValue = __napiModule.exports.makeDeepSerdeValue
 export const makeTypeTagA = __napiModule.exports.makeTypeTagA
 export const mapOption = __napiModule.exports.mapOption
 export const mergeTupleArray = __napiModule.exports.mergeTupleArray

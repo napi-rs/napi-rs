@@ -8,9 +8,9 @@ shared_async_runtime.wasip1.cjs
 shared_async_runtime.wasip1.d.cts
 *.wasip1-deferred.js
 *.wasip1-deferred.d.ts
-shared_async_runtime.wasi-browser.js
-shared_async_runtime.wasi.cjs
-shared_async_runtime.wasi.d.cts
+shared_async_runtime.wasip1-threads-browser.js
+shared_async_runtime.wasip1-threads.cjs
+shared_async_runtime.wasip1-threads.d.cts
 index.cjs
 index.d.cts
 index.js

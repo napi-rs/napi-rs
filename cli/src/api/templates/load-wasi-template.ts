@@ -1614,7 +1614,7 @@ export const createWasiBrowserBinding = (
   threads = true,
   // `platformArchABI` of the flavor this loader belongs to. Defaults from
   // `threads` so callers that predate the parameter keep their identity.
-  platformArchABI = threads ? 'wasm32-wasi' : 'wasm32-wasip1',
+  platformArchABI = threads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1',
   asyncRuntime = false,
 ) => {
   // Threaded builds always get a pre-created worker pool (see
@@ -1812,7 +1812,17 @@ if (!__wasmResponse.ok) {
   )
 }
 const __wasmFile = await __wasmResponse.arrayBuffer()
-
+${
+  threads
+    ? `
+if (typeof SharedArrayBuffer !== 'function') {
+  throw new Error(
+    '${wasiFilename} is the wasm32-wasip1-threads flavor of this binding and needs SharedArrayBuffer, which this page does not expose: threads require cross-origin isolation (Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp). Either serve those headers, or use the wasm32-wasip1 flavor when the package ships it: resolve the package with the "wasi-threadless" exports condition in your bundler, or import its "./wasm32-wasip1" subpath.',
+  )
+}
+`
+    : ''
+}
 const ${memoryName} = new WebAssembly.Memory({
   initial: ${initialMemory},
   maximum: ${maximumMemory},
@@ -3876,12 +3886,14 @@ export const createWasiBinding = (
   initialMemory = 4000,
   maximumMemory = 65536,
   threads = true,
-  // `platformArchABI` of the flavor this loader belongs to; the fallback
-  // package (`<packageName>-<platformArchABI>`) must ship the same flavor's
-  // wasm artifact.
-  platformArchABI = 'wasm32-wasi',
+  // `platformArchABI` of the flavor this loader belongs to.
+  platformArchABI = threads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1',
   packageWasmFileName = wasmFileName,
   asyncRuntime = false,
+  // Identity of the npm package (`<packageName>-<packageIdentity>`) that
+  // ships this flavor's wasm artifact: the flavor itself for a single-flavor
+  // package, or `wasm32-wasi` for the unified package carrying both flavors.
+  packageIdentity = platformArchABI,
 ) => {
   const asyncRuntimeImport = asyncRuntime
     ? `const {
@@ -4638,14 +4650,14 @@ const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wa
 if (__nodeFs.existsSync(__wasmDebugFilePath)) {
   __wasmFilePath = __wasmDebugFilePath
 } else if (!__nodeFs.existsSync(__wasmFilePath)) {
-  const __wasiPackageEntry = require.resolve('${packageName}-${platformArchABI}')
+  const __wasiPackageEntry = require.resolve('${packageName}-${packageIdentity}')
   const __packagedWasmFilePath = __nodePath.join(
     __nodePath.dirname(__wasiPackageEntry),
     '${packageWasmFileName}.wasm',
   )
   if (!__nodeFs.existsSync(__packagedWasmFilePath)) {
     throw new Error(
-      '${packageName}-${platformArchABI} is installed but is missing ${packageWasmFileName}.wasm.',
+      '${packageName}-${packageIdentity} is installed but is missing ${packageWasmFileName}.wasm.',
     )
   }
   __wasmFilePath = __packagedWasmFilePath

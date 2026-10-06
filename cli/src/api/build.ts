@@ -54,6 +54,8 @@ import {
   wasiLoaderSuffix,
   wasiSdkMajorVersion,
   wasiTargetHasThreads,
+  getWasiPackageIdentity,
+  type WasiPackageIdentity,
   writeFileAtomic,
   withFileSystemReconciliation,
   dirExistsAsync,
@@ -81,13 +83,30 @@ import {
 const debug = debugFactory('build')
 const require = createRequire(import.meta.url)
 const MANAGED_WASI_FLAVORS = [
-  { platformArchABI: 'wasm32-wasi', loaderSuffix: 'wasi', hasThreads: true },
+  {
+    platformArchABI: 'wasm32-wasip1-threads',
+    loaderSuffix: 'wasip1-threads',
+    hasThreads: true,
+  },
   {
     platformArchABI: 'wasm32-wasip1',
     loaderSuffix: 'wasip1',
     hasThreads: false,
   },
 ] as const
+
+/**
+ * Artifact identity the threaded flavor carried before it moved to its
+ * canonical triple. Its build outputs (`<bin>.wasm32-wasi.wasm`,
+ * `<bin>.wasi.cjs`, ...) are never regenerated, only cleaned up, and its
+ * declaration literal is still recognised so a root `.d.ts` written by an
+ * older CLI is refreshed rather than preserved.
+ */
+const LEGACY_THREADED_WASI_FLAVOR = {
+  platformArchABI: 'wasm32-wasi',
+  loaderSuffix: 'wasi',
+  hasThreads: true,
+} as const
 
 /**
  * Everything a generated loader can report through `__napiBindingTarget`, as a
@@ -164,6 +183,7 @@ const bindingTargetExports = (source: string) =>
 const MANAGED_BINDING_TARGET_LITERALS = new Set([
   'native',
   ...MANAGED_WASI_FLAVORS.map((flavor) => flavor.platformArchABI),
+  LEGACY_THREADED_WASI_FLAVOR.platformArchABI,
 ])
 
 /**
@@ -615,6 +635,30 @@ function resolveManagedOutputPath(
   return path
 }
 
+/**
+ * Identity of the WASI npm package the generated loaders may fall back to.
+ * Package config is authoritative: `create-npm-dirs` and `artifacts` lay the
+ * package out from `napi.targets`, so a one-off build of a flavor that is not
+ * configured still points at the configured package. Only a project with no
+ * configured WASI flavor takes the identity from the build target itself.
+ */
+export function selectWasiPackageIdentity(
+  buildTarget: Target,
+  configuredTargets: Target[],
+): WasiPackageIdentity | undefined {
+  return (
+    getWasiPackageIdentity(configuredTargets) ??
+    getWasiPackageIdentity([buildTarget])
+  )
+}
+
+/**
+ * Flavor whose export list the root `browser.js` is shaped from. The entry
+ * re-exports the WASI package root, so the flavor only decides whether a
+ * `default` re-export is needed; both flavors expose the same surface, and the
+ * threadless one is preferred because it is what browsers without
+ * cross-origin isolation can run.
+ */
 export function selectWasiBrowserTarget(
   buildTarget: Target,
   configuredTargets: Target[],
@@ -634,12 +678,19 @@ export function selectWasiBrowserTarget(
   )
 }
 
+/**
+ * Root `browser.js`: re-export the WASI package root. For the unified
+ * `<package>-wasm32-wasi` package the consumer's bundler picks the flavor
+ * through the package's `exports` conditions (`browser` → threaded,
+ * `browser` + `wasi-threadless` → threadless); a single-flavor package has one
+ * browser loader to begin with.
+ */
 export function createWasiBrowserEntry(
   packageName: string,
-  platformArchABI: string,
+  packageIdentity: string,
   idents: string[],
 ) {
-  const packageSpecifier = `${packageName}-${platformArchABI}`
+  const packageSpecifier = `${packageName}-${packageIdentity}`
   return (
     `export * from '${packageSpecifier}'\n` +
     (idents.length === 0
@@ -976,7 +1027,7 @@ export function collectStaleWasiBuildOutputNames(
       buildTarget,
     ].map((target) => target.platformArchABI),
   )
-  for (const flavor of MANAGED_WASI_FLAVORS) {
+  for (const flavor of [...MANAGED_WASI_FLAVORS, LEGACY_THREADED_WASI_FLAVOR]) {
     const regenerated = flavor.platformArchABI === buildTarget.platformArchABI
     if (!regenerated && retainedFlavors.has(flavor.platformArchABI)) {
       continue
@@ -2750,25 +2801,30 @@ class Builder {
         )
       }
       if (wasiTargets.length > 0) {
-        // The browser entry re-exports a single flavor: the non-threaded one
-        // when declared (browser environments without cross-origin isolation
-        // cannot use the threaded flavor). An explicit WASI build target is
-        // authoritative, even when package config declares another flavor.
+        // The browser entry re-exports the WASI package root; the package's
+        // own `exports` conditions select the flavor. The flavor picked here
+        // only shapes the re-export from its export list. An explicit WASI
+        // build target is authoritative for that, even when package config
+        // declares another flavor.
         const browserFlavor = selectWasiBrowserTarget(
           this.target,
           this.config.targets,
           wasiTargets,
         )
-        const browserEntryPath = join(dir, 'browser.js')
-        const browserMetadata = metadataByFlavor.get(
-          browserFlavor.platformArchABI,
+        const packageIdentity = selectWasiPackageIdentity(
+          this.target,
+          this.config.targets,
         )
-        if (browserMetadata) {
+        const browserEntryPath = join(dir, 'browser.js')
+        const browserMetadata =
+          metadataByFlavor.get(browserFlavor.platformArchABI) ??
+          [...metadataByFlavor.values()][0]
+        if (browserMetadata && packageIdentity) {
           await writeFileAtomic(
             browserEntryPath,
             createWasiBrowserEntry(
               this.config.packageName,
-              browserFlavor.platformArchABI,
+              packageIdentity,
               browserMetadata.exports,
             ),
           )
@@ -2863,6 +2919,8 @@ class Builder {
           wasiTarget.platformArchABI,
           `${this.config.binaryName}.${wasiTarget.platformArchABI}`,
           asyncRuntime,
+          selectWasiPackageIdentity(this.target, this.config.targets) ??
+            wasiTarget.platformArchABI,
         ) +
         exportsCode +
         '\n',
