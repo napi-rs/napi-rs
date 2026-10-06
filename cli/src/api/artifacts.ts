@@ -619,9 +619,21 @@ async function addArtifactRootEntry({
       // root entry.
     }
   }
+  // Native root-entry scan candidates are a narrower set than the shared
+  // paths: only runtime entries that Node can hand to `require` count, so
+  // auxiliary export targets like `types` cannot consume the single root
+  // copy. Declared shared entries come first because the metadata's own
+  // rootEntry name is the path consumers resolve.
+  const runtimeEntryPattern = /\.(?:c|m)?js$|\.node$/i
   const rootCandidates = [
     ...new Set([
-      ...sharedRootEntryPaths,
+      ...[...wasiRootEntries].filter(
+        (entry) =>
+          sharedRootEntryPaths.has(entry) && runtimeEntryPattern.test(entry),
+      ),
+      ...[...sharedRootEntryPaths].filter((path) =>
+        runtimeEntryPattern.test(path),
+      ),
       ...packageRootEntryCandidates(packageMain),
       ...(typeof publishConfig?.main === 'string'
         ? packageRootEntryCandidates(publishConfig.main)
@@ -959,9 +971,11 @@ async function packageMainResolutionPaths(
   return paths
 }
 
-// Literal file targets under `exports["."]`. Conditional objects and
-// fallback arrays are flattened; anything that is not a `./`-relative
-// string contributes nothing.
+// Literal file targets under `exports["."]`. The top level is a subpath
+// exports map only when a key starts with `.`; a condition-only map like
+// `{ node: ..., default: ... }` or a fallback array describes the root
+// entry directly. Nested conditions and arrays are flattened; anything
+// that is not a string contributes nothing.
 function packageExportTargets(exportsField: unknown): string[] {
   const targets = new Set<string>()
   const collect = (value: unknown) => {
@@ -977,7 +991,14 @@ function packageExportTargets(exportsField: unknown): string[] {
       Object.values(value).forEach(collect)
     }
   }
-  if (exportsField && typeof exportsField === 'object') {
+  if (
+    exportsField &&
+    typeof exportsField === 'object' &&
+    !Array.isArray(exportsField) &&
+    Object.keys(exportsField as Record<string, unknown>).some((key) =>
+      key.startsWith('.'),
+    )
+  ) {
     collect((exportsField as Record<string, unknown>)['.'])
   } else {
     collect(exportsField)
@@ -1229,11 +1250,19 @@ async function collectStaleManagedDestinations(
   }
 
   for (const entry of managedRootEntries) {
-    const path = resolveArtifactRelativePath(
-      packageRoot,
-      entry,
-      'managed WASI root entry',
-    ).absolute
+    let path: string
+    try {
+      // A stale entry recorded when a different loader was installed can
+      // now resolve through a symlinked directory into a sibling package;
+      // reconciliation must not delete files the package does not own.
+      path = resolvePackageRootEntry(
+        packageRoot,
+        entry,
+        'managed WASI root entry',
+      ).absolute
+    } catch {
+      continue
+    }
     if (!pendingWrites.has(path)) {
       stalePaths.push(path)
     }

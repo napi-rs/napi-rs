@@ -1132,6 +1132,218 @@ test('a missing nested main falls back to the directory index', async (t) => {
   )
 })
 
+test('a condition-only exports map shares the declared root entry', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'cond-entry'
+  const packageName = '@napi-rs/cond-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // A condition-only exports map has no '.' key but still declares the
+  // package entry. The WASI-declared `binding.js` shares the native root
+  // entry, so the WASI-source copy never claims it.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      exports: { node: './binding.js', default: './binding.js' },
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+  const nativeBinding =
+    "module.exports = require('./cond-entry.linux-x64-gnu.node')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'binding.js'),
+      "module.exports = require('./cond-entry.wasi.cjs')\n",
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'binding.js'), 'utf8'), nativeBinding)
+})
+
+test('auxiliary export targets do not consume the native root slot', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'typed-entry'
+  const packageName = '@napi-rs/typed-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `types` lists first in the conditional map, but a declaration file is
+  // not a runtime entry. The native scan must still copy `binding.js` from
+  // the artifacts rather than stopping at the `.d.ts`.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: './binding.js',
+      exports: {
+        '.': {
+          types: './binding.d.ts',
+          default: './binding.js',
+        },
+      },
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+  const nativeBinding =
+    "module.exports = require('./typed-entry.linux-x64-gnu.node')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(artifactsDir, 'binding.js'), nativeBinding),
+    writeFile(join(artifactsDir, 'binding.d.ts'), 'declare const x: 1\n'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(buildOutputDir, 'binding.js'),
+      "module.exports = require('./typed-entry.wasi.cjs')\n",
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'binding.js'), 'utf8'), nativeBinding)
+})
+
+test('a stale managed entry cannot escape the package root through a symlink', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'escape-entry'
+  const packageName = '@napi-rs/escape-entry'
+  const packageDir = join(tmpDir, 'pkg')
+  const siblingDir = join(tmpDir, 'sibling')
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(packageDir, 'build-output')
+
+  // The old loader at the package root recorded `linked/old.js` as a
+  // managed root entry. `linked` is now a symlink into a sibling package,
+  // so deleting the stale entry must not follow the link.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await mkdir(siblingDir, { recursive: true })
+  await mkdir(join(packageDir), { recursive: true })
+  await symlink(siblingDir, join(packageDir, 'linked'))
+  await writeFile(join(siblingDir, 'old.js'), 'module.exports = {}\n')
+  await writeFile(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const oldLoader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'linked/old.js',
+    managedRootEntries: ['browser.js', 'linked/old.js'],
+  })}\nmodule.exports = {}\n`
+  const newLoader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+
+  await Promise.all([
+    writeFile(join(packageDir, `${binaryName}.wasi.cjs`), oldLoader),
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), newLoader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'binding.js'), 'module.exports = {}\n'),
+    writeFile(
+      join(packageDir, 'index.js'),
+      'module.exports = { native: true }\n',
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: packageDir,
+    outputDir: artifactsDir,
+    buildOutputDir: 'build-output',
+  })
+
+  // The sibling file survives: the stale managed entry resolves outside
+  // the package root through the symlink and is skipped.
+  t.is(
+    await readFile(join(siblingDir, 'old.js'), 'utf8'),
+    'module.exports = {}\n',
+  )
+})
+
 test('conflicting WASI root entry declarations are rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'skewed-entry'
