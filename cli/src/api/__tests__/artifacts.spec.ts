@@ -1548,6 +1548,65 @@ test('an unresolvable main falls back to the package-root index.js', async (t) =
   t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), nativeIndex)
 })
 
+test('a shared root entry absent everywhere falls back to the WASI loader', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'fallback-shared'
+  const packageName = '@napi-rs/fallback-shared'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main: "index.js"` shares its name with the declared root entry, but
+  // no native loader and no package-root copy of `index.js` exist. The
+  // WASI fallback below publishes the loader-generated copy instead of
+  // failing collection.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'index.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'index.js'],
+  })}\nmodule.exports = {}\n`
+  const wasiIndex = "module.exports = require('./fallback-shared.wasi.cjs')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'index.js'), wasiIndex),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), wasiIndex)
+})
+
 test('conflicting WASI root entry declarations are rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'skewed-entry'

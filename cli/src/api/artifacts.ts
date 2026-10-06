@@ -860,7 +860,13 @@ async function addArtifactRootEntry({
           `WASI loader metadata declares root entry ${entry}, but the configured build output directory does not contain it`,
         )
       }
-      if (!pendingWrites.has(destination)) {
+      // Only distinct entries must already be pending. Entries shared with
+      // the package entry may legitimately be absent, in which case the
+      // WASI root fallback below publishes the loader copy.
+      if (
+        distinctWasiRootEntries.includes(entry) &&
+        !pendingWrites.has(destination)
+      ) {
         throw new Error(
           `WASI loader metadata declares root entry ${entry}, but it was found in neither the artifact sources nor the package root`,
         )
