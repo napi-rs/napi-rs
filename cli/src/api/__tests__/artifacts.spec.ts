@@ -448,6 +448,178 @@ test('a symlinked parent cannot redirect a root entry outside the package root',
   }
 })
 
+test('a WASI-declared index.js resolves from the artifact source when main is a different wrapper', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'index-entry'
+  const packageName = '@napi-rs/index-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // `main` points at a handwritten `wrapper.js` and the WASI loader metadata
+  // declares `index.js` as its generated root entry. `index.js` is only a
+  // shared name when it is the effective main; here it is a distinct WASI
+  // root entry that must resolve from the build output, not from the stale
+  // package-root copy.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'wrapper.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'index.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'index.js'],
+  })}\nmodule.exports = {}\n`
+  const freshIndex = "module.exports = require('./index-entry.wasi.cjs')\n"
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'index.js'), freshIndex),
+    writeFile(join(tmpDir, 'index.js'), 'module.exports = { stale: true }\n'),
+    writeFile(
+      join(tmpDir, 'wrapper.js'),
+      'module.exports = { native: true }\n',
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  // The WASI-source copy of the declared `index.js` replaces the stale
+  // package-root file; the handwritten wrapper stays untouched.
+  t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), freshIndex)
+  t.is(
+    await readFile(join(tmpDir, 'wrapper.js'), 'utf8'),
+    'module.exports = { native: true }\n',
+  )
+})
+
+test('a distinct root entry follows the threaded root loader across WASI flavors', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'flavor-entry'
+  const packageName = '@napi-rs/flavor-entry'
+  const nativeDir = join(tmpDir, 'artifacts', 'native')
+  const threadlessDir = join(tmpDir, 'artifacts', 'wasip1')
+  const threadsDir = join(tmpDir, 'artifacts', 'threads')
+
+  // Both WASI flavors are configured, the threadless target first. The root
+  // loader comes from the threaded target, so the generated `binding.js`
+  // must come from the threaded source too: each flavor's copy embeds
+  // loader references for its own `*.wasi.cjs` chain.
+  await Promise.all([
+    mkdir(nativeDir, { recursive: true }),
+    mkdir(threadlessDir, { recursive: true }),
+    mkdir(threadsDir, { recursive: true }),
+  ])
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: [
+          'x86_64-unknown-linux-gnu',
+          'wasm32-wasip1',
+          'wasm32-wasip1-threads',
+        ],
+      },
+    }),
+  )
+
+  const loaderFor = (rootEntryFlavor: string) =>
+    `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+      version: 2,
+      rootEntry: 'binding.js',
+      exports: ['create'],
+      managedRootEntries: ['browser.js', 'binding.js'],
+    })}\nmodule.exports = { flavor: '${rootEntryFlavor}' }\n`
+
+  await Promise.all([
+    writeFile(join(nativeDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(
+      join(threadsDir, `${binaryName}.wasm32-wasi.wasm`),
+      'threads wasm',
+    ),
+    writeFile(join(threadsDir, `${binaryName}.wasi.cjs`), loaderFor('threads')),
+    writeFile(
+      join(threadsDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(join(threadsDir, `${binaryName}.wasi-browser.js`), 'export {}\n'),
+    writeFile(join(threadsDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(threadsDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(
+      join(threadsDir, 'binding.js'),
+      "module.exports = require('./flavor-entry.wasi.cjs')\n",
+    ),
+    writeFile(
+      join(threadlessDir, `${binaryName}.wasm32-wasip1.wasm`),
+      'threadless wasm',
+    ),
+    writeFile(
+      join(threadlessDir, `${binaryName}.wasip1.cjs`),
+      loaderFor('wasip1'),
+    ),
+    writeFile(
+      join(threadlessDir, `${binaryName}.wasip1.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(threadlessDir, `${binaryName}.wasip1-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(
+      join(threadlessDir, `${binaryName}.wasip1-deferred.js`),
+      'export {}\n',
+    ),
+    writeFile(
+      join(threadlessDir, `${binaryName}.wasip1-deferred.d.ts`),
+      'export {}\n',
+    ),
+    writeFile(
+      join(threadlessDir, 'binding.js'),
+      "module.exports = require('./flavor-entry.wasip1.cjs')\n",
+    ),
+    writeFile(join(tmpDir, 'index.js'), 'module.exports = { native: true }\n'),
+  ])
+
+  await collectArtifacts({ cwd: tmpDir })
+
+  // The published root entry must match the threaded root loader even
+  // though the threadless target is configured first.
+  t.is(
+    await readFile(join(tmpDir, 'binding.js'), 'utf8'),
+    "module.exports = require('./flavor-entry.wasi.cjs')\n",
+  )
+})
+
 test('an explicit build output without the declared root entry is rejected', async (t) => {
   const { tmpDir } = t.context
   const binaryName = 'strict-entry'

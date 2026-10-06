@@ -536,31 +536,53 @@ async function addArtifactRootEntry({
   }
   const rootCandidates = packageRootEntryCandidates(packageMain)
 
-  // A metadata-declared root entry whose name is not one of the native root
-  // candidates (e.g. `binding.js` next to a handwritten `index.js`) is a
-  // file `napi build` generated alongside the loader; reconciliation must
+  // The package root entry the native loader owns: the configured `main`
+  // when it names a JS file, otherwise the implicit `index.js` default. The
+  // `index.js` fallback in rootCandidates is only a scan candidate for the
+  // native artifact dir, not a shared name: a WASI-declared `index.js` next
+  // to a handwritten `main: "wrapper.js"` is a distinct generated file that
+  // must resolve from the WASI artifact source like any other root entry.
+  const effectiveMain =
+    packageMain && /\.[cm]?js$/i.test(packageMain) ? packageMain : 'index.js'
+  const effectiveMainPath = resolveArtifactRelativePath(
+    packageRoot,
+    effectiveMain,
+    'native root entry',
+  ).relative
+
+  // The root loader below is taken from the threaded WASI target when both
+  // flavors are configured, so a distinct root entry must come from that
+  // target's source first: the generated entry embeds flavor-specific
+  // loader references, and a threadless copy next to the threaded root
+  // loader publishes a mismatched pair.
+  const rootWasiTarget =
+    wasiTargets.find((target) => wasiTargetHasThreads(target)) ?? wasiTargets[0]
+  const orderedWasiSources = [
+    ...(rootWasiTarget
+      ? [wasiSources.get(rootWasiTarget.platformArchABI)]
+      : []),
+    ...wasiTargets.map((target) => wasiSources.get(target.platformArchABI)),
+  ].filter(
+    (source, index, sources): source is WasiArtifactSource =>
+      source !== undefined && sources.indexOf(source) === index,
+  )
+
+  // A metadata-declared root entry whose name is not the native root entry
+  // (e.g. `binding.js` next to a handwritten `index.js`) is a file
+  // `napi build` generated alongside the loader; reconciliation must
   // keep it. It is resolved before the native scan so a stale copy beside
   // the `.node` artifacts cannot claim the destination, preferring in
   // order: the WASI artifact source, native artifact dirs, then the
-  // existing package-root file below. Entries that share a native candidate
-  // name skip this path entirely: their WASI-source copy is the WASI loader
-  // (`*.wasi.cjs` chain), which must never replace the native root loader.
-  // Destinations are compared after normalization since `main` values like
-  // `./binding.js` and metadata entries like `binding.js` alias the same
-  // package-root path.
-  const rootCandidatePaths = new Set(
-    rootCandidates.map(
-      (candidate) =>
-        resolveArtifactRelativePath(packageRoot, candidate, 'native root entry')
-          .relative,
-    ),
-  )
+  // existing package-root file below. Entries that share the native root
+  // entry name skip this path entirely: their WASI-source copy is the WASI
+  // loader (`*.wasi.cjs` chain), which must never replace the native root
+  // loader. Destinations are compared after normalization since `main`
+  // values like `./binding.js` and metadata entries like `binding.js` alias
+  // the same package-root path.
   const distinctWasiRootEntries = [...wasiRootEntries].filter(
     (entry) =>
-      !rootCandidatePaths.has(
-        resolveArtifactRelativePath(packageRoot, entry, 'WASI root entry')
-          .relative,
-      ),
+      resolveArtifactRelativePath(packageRoot, entry, 'WASI root entry')
+        .relative !== effectiveMainPath,
   )
   const wasiSourceResolvedEntries = new Set<string>()
   if (nativeTargets.length > 0) {
@@ -571,7 +593,7 @@ async function addArtifactRootEntry({
         'WASI root entry destination',
       ).absolute
       let resolved = false
-      for (const source of wasiSources.values()) {
+      for (const source of orderedWasiSources) {
         const sourcePath = resolveArtifactRelativePath(
           source.dir,
           entry,
@@ -719,15 +741,13 @@ async function addArtifactRootEntry({
     }
   }
 
-  const rootTarget =
-    wasiTargets.find((target) => wasiTargetHasThreads(target)) ?? wasiTargets[0]
-  if (rootTarget) {
+  if (rootWasiTarget) {
     await addWasiRootEntry(
       pendingWrites,
       packageRoot,
       binaryName,
-      rootTarget,
-      wasiSources.get(rootTarget.platformArchABI)!,
+      rootWasiTarget,
+      wasiSources.get(rootWasiTarget.platformArchABI)!,
       packageMain,
     )
   }
