@@ -531,49 +531,13 @@ async function addArtifactRootEntry({
   }
   const rootCandidates = packageRootEntryCandidates(packageMain)
 
-  let copiedNativeRoot = false
-  for (const target of nativeTargets) {
-    if (copiedNativeRoot) {
-      break
-    }
-    const artifactPath = artifactsByIdentity.get(
-      artifactName(binaryName, target),
-    )?.[0]
-    if (!artifactPath) {
-      continue
-    }
-    const sourceDir = dirname(artifactPath)
-    for (const candidate of rootCandidates) {
-      const source = resolveArtifactRelativePath(
-        sourceDir,
-        candidate,
-        'native root entry',
-      )
-      if (!(await fileExists(source.absolute))) {
-        continue
-      }
-      const destination = resolveArtifactRelativePath(
-        packageRoot,
-        source.relative,
-        'native root entry destination',
-      )
-      addPendingWrite(
-        pendingWrites,
-        destination.absolute,
-        source.absolute,
-        await readFileAsync(source.absolute),
-      )
-      copiedNativeRoot = true
-      break
-    }
-  }
-
-  // A metadata-declared root entry keeps its own precedence chain and never
-  // rides along as a native candidate: the WASI artifact source wins over a
-  // possibly stale file sitting next to the `.node` artifacts or at the
-  // package root, since a loader out of sync with the collected binaries
-  // breaks the published package. Native artifact dirs and the existing
-  // package-root file are only fallbacks for sources that do not ship it.
+  // A metadata-declared root entry is authoritative wherever it resolves
+  // from: the WASI artifact source wins over a possibly stale copy sitting
+  // next to the `.node` artifacts or at the package root, since a loader
+  // out of sync with the collected binaries breaks the published package.
+  // It is resolved before the native scan so a same-named native candidate
+  // (the common `index.js` case) cannot claim the destination first. Native
+  // artifact dirs are a fallback for WASI sources that do not ship it.
   if (nativeTargets.length > 0) {
     for (const entry of wasiRootEntries) {
       const destination = resolveArtifactRelativePath(
@@ -581,9 +545,6 @@ async function addArtifactRootEntry({
         entry,
         'WASI root entry destination',
       ).absolute
-      if (pendingWrites.has(destination)) {
-        continue
-      }
       let resolved = false
       for (const source of wasiSources.values()) {
         const sourcePath = resolveArtifactRelativePath(
@@ -629,6 +590,46 @@ async function addArtifactRootEntry({
         )
         break
       }
+    }
+  }
+
+  let copiedNativeRoot = false
+  for (const target of nativeTargets) {
+    if (copiedNativeRoot) {
+      break
+    }
+    const artifactPath = artifactsByIdentity.get(
+      artifactName(binaryName, target),
+    )?.[0]
+    if (!artifactPath) {
+      continue
+    }
+    const sourceDir = dirname(artifactPath)
+    for (const candidate of rootCandidates) {
+      const source = resolveArtifactRelativePath(
+        sourceDir,
+        candidate,
+        'native root entry',
+      )
+      if (!(await fileExists(source.absolute))) {
+        continue
+      }
+      const destination = resolveArtifactRelativePath(
+        packageRoot,
+        source.relative,
+        'native root entry destination',
+      )
+      if (pendingWrites.has(destination.absolute)) {
+        continue
+      }
+      addPendingWrite(
+        pendingWrites,
+        destination.absolute,
+        source.absolute,
+        await readFileAsync(source.absolute),
+      )
+      copiedNativeRoot = true
+      break
     }
   }
 

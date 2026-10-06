@@ -253,3 +253,72 @@ test('the WASI artifact source wins over a stale package-root root entry', async
     'module.exports = {}\n',
   )
 })
+
+test('a metadata-declared root entry wins even when it shares the package main name', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'same-entry'
+  const packageName = '@napi-rs/same-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // The default layout: `main` is the generated loader `index.js`, which the
+  // WASI metadata also records as rootEntry. Three different copies compete:
+  // the fresh loader in `build-output`, a stale one beside the `.node`
+  // artifacts, and the committed one at the package root.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'index.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'index.js'],
+  })}\nmodule.exports = {}\n`
+  const freshIndex = 'module.exports = { fresh: "wasi-source" }\n'
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(
+      join(artifactsDir, 'index.js'),
+      'module.exports = { stale: "native-adjacent" }\n',
+    ),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'index.js'), freshIndex),
+    writeFile(
+      join(tmpDir, 'index.js'),
+      'module.exports = { stale: "package-root" }\n',
+    ),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  // The WASI artifact source is the authoritative copy of a declared root
+  // entry even when it shares the name of package.json#main.
+  t.is(await readFile(join(tmpDir, 'index.js'), 'utf8'), freshIndex)
+})
