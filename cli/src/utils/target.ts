@@ -17,6 +17,7 @@ export const AVAILABLE_TARGETS = [
   'aarch64-unknown-linux-musl',
   'aarch64-unknown-linux-ohos',
   'aarch64-pc-windows-msvc',
+  'aarch64-unknown-freebsd',
   'x86_64-apple-darwin',
   'x86_64-pc-windows-msvc',
   'x86_64-pc-windows-gnu',
