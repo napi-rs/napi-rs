@@ -977,19 +977,19 @@ async function packageMainResolutionPaths(
     }
     return false
   }
-  const visit = async (specifier: string): Promise<void> => {
+  const visit = async (specifier: string): Promise<boolean> => {
     // The exact specifier is shared even when it does not exist: ESM
     // importers resolve `main` literally, so it still names the package
     // entry.
     enqueue(specifier)
     if (await candidateExists(specifier)) {
-      return
+      return true
     }
     for (const extension of ['.js', '.json', '.node']) {
       const candidate = `${specifier}${extension}`
       if (await candidateExists(candidate)) {
         enqueue(candidate)
-        return
+        return true
       }
     }
     // LOAD_AS_DIRECTORY: a nested package.json main is tried as a file and
@@ -1008,13 +1008,17 @@ async function packageMainResolutionPaths(
       if (typeof nestedMain === 'string' && nestedMain.length > 0) {
         const nested = join(specifier, nestedMain)
         if ((await visitAsFile(nested)) || (await visitAsIndex(nested))) {
-          return
+          return true
         }
       }
     }
-    await visitAsIndex(specifier)
+    return visitAsIndex(specifier)
   }
-  await visit(packageMain)
+  // When the configured `main` fails to resolve entirely, Node falls back
+  // to `index.*` at the package root.
+  if (!(await visit(packageMain))) {
+    await visitAsIndex('')
+  }
   return paths
 }
 
