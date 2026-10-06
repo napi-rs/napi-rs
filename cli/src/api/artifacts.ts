@@ -571,6 +571,56 @@ async function addArtifactRootEntry({
     }
   }
 
+  // A metadata-declared root entry is authoritative: when the WASI artifact
+  // source ships it, that content wins over whatever is at the package root
+  // (a stale committed copy would publish a loader out of sync with the
+  // collected binaries). When no source ships it, the existing package-root
+  // file is preserved below; when it exists in neither place the package
+  // cannot work, so fail loudly like addWasiRootEntry does.
+  if (nativeTargets.length > 0) {
+    for (const entry of wasiRootEntries) {
+      const destination = resolveArtifactRelativePath(
+        packageRoot,
+        entry,
+        'WASI root entry destination',
+      ).absolute
+      if (pendingWrites.has(destination)) {
+        continue
+      }
+      let written = false
+      for (const source of wasiSources.values()) {
+        const sourcePath = resolveArtifactRelativePath(
+          source.dir,
+          entry,
+          'WASI root entry',
+        )
+        if (!(await fileExists(sourcePath.absolute))) {
+          continue
+        }
+        addPendingWrite(
+          pendingWrites,
+          destination,
+          sourcePath.absolute,
+          await readFileAsync(sourcePath.absolute),
+        )
+        written = true
+        break
+      }
+      if (!written) {
+        const existing = resolveArtifactRelativePath(
+          packageRoot,
+          entry,
+          'existing WASI root entry',
+        )
+        if (!(await fileExists(existing.absolute))) {
+          throw new Error(
+            `WASI loader metadata declares root entry ${entry}, but it was found in neither the artifact sources nor the package root`,
+          )
+        }
+      }
+    }
+  }
+
   if (nativeTargets.length > 0) {
     // Every root entry candidate that already exists in the package stays
     // managed: keeping it out of pendingWrites would mark it as a stale

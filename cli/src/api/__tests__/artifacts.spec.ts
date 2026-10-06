@@ -181,3 +181,70 @@ test('keeps the generated WASI root entry when package.json#main is a handwritte
     'module.exports = {}\n',
   )
 })
+
+test('the WASI artifact source wins over a stale package-root root entry', async (t) => {
+  const { tmpDir } = t.context
+  const binaryName = 'mixed-entry'
+  const packageName = '@napi-rs/mixed-entry'
+  const artifactsDir = join(tmpDir, 'artifacts')
+  const buildOutputDir = join(tmpDir, 'build-output')
+
+  // Same layout as above but with --build-output-dir: binaries land in
+  // `artifacts`, the generated WASI loader set including `binding.js` lands
+  // in `build-output`, and the package root holds a stale `binding.js` next
+  // to the handwritten `index.js` wrapper.
+  await mkdir(artifactsDir, { recursive: true })
+  await mkdir(buildOutputDir, { recursive: true })
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: packageName,
+      version: '0.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      },
+    }),
+  )
+
+  const loader = `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 2,
+    rootEntry: 'binding.js',
+    exports: ['create'],
+    managedRootEntries: ['browser.js', 'binding.js'],
+  })}\nmodule.exports = {}\n`
+  const freshBinding = 'module.exports = { fresh: true }\n'
+
+  await Promise.all([
+    writeFile(join(artifactsDir, `${binaryName}.linux-x64-gnu.node`), 'bin'),
+    writeFile(join(artifactsDir, `${binaryName}.wasm32-wasi.wasm`), 'wasm'),
+    writeFile(join(buildOutputDir, `${binaryName}.wasi.cjs`), loader),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi.d.cts`),
+      'declare const _default: {}\nexport = _default\n',
+    ),
+    writeFile(
+      join(buildOutputDir, `${binaryName}.wasi-browser.js`),
+      'export {}\n',
+    ),
+    writeFile(join(buildOutputDir, 'wasi-worker.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'wasi-worker-browser.mjs'), 'export {}\n'),
+    writeFile(join(buildOutputDir, 'binding.js'), freshBinding),
+    writeFile(join(tmpDir, 'binding.js'), 'module.exports = { stale: true }\n'),
+    writeFile(join(tmpDir, 'index.js'), 'module.exports = {}\n'),
+  ])
+
+  await collectArtifacts({
+    cwd: tmpDir,
+    buildOutputDir: 'build-output',
+  })
+
+  // The artifact-source copy of the generated loader must replace the stale
+  // package-root file; the handwritten wrapper is untouched.
+  t.is(await readFile(join(tmpDir, 'binding.js'), 'utf8'), freshBinding)
+  t.is(
+    await readFile(join(tmpDir, 'index.js'), 'utf8'),
+    'module.exports = {}\n',
+  )
+})
