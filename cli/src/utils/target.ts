@@ -307,15 +307,11 @@ export function wasiLibcHasNewFutexAbi(
 }
 
 /**
- * The target spelling cargo works with. `cargo-zigbuild` accepts a
- * minimum-glibc-version suffix on the target
- * (`x86_64-unknown-linux-gnu.2.27`), but invokes cargo with the part before
- * the first `.`, so that base triple is also the directory cargo emits
- * artifacts into, the value `cargo metadata --filter-platform` resolves,
- * and the name `CARGO_TARGET_<TRIPLE>_*` environment variables key off.
+ * Remove a GNU/Linux target's minimum glibc version for Cargo lookups.
+ * Preserve other dotted target names, including custom Rust targets.
  */
 export function cargoTargetTriple(target: string): string {
-  return target.split('.', 1)[0]
+  return target.replace(/(-linux-gnu(?:eabi(?:hf)?)?)\.\d+\.\d+$/, '$1')
 }
 
 /**

@@ -68,6 +68,14 @@ test('should parse a glibc-versioned zigbuild target from its base triple', (t) 
   t.is(target.platformArchABI, 'linux-x64-gnu')
 })
 
+test('should preserve a dotted custom target', (t) => {
+  const target = parseTriple('x86_64-unknown-linux-gnu.custom')
+
+  t.is(target.triple, 'x86_64-unknown-linux-gnu.custom')
+  t.is(target.abi, 'gnu.custom')
+  t.is(target.platformArchABI, 'linux-x64-gnu.custom')
+})
+
 test('should read the wasi-sdk major version from VERSION', async (t) => {
   await withWasiSdkDir(
     (wasiSdkPath) => writeVersionFile(wasiSdkPath, '34.0\n'),
