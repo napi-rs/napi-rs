@@ -741,6 +741,10 @@ out of bounds` on heap pages another thread just grew. V8 fixed this in
 [v8/v8@3424101](https://github.com/v8/v8/commit/34241014663390c72e08c123faef6fedf395be8e);
 napi-rs works around it until the hosts it supports ship that fix.
 
+Why the workaround has this shape, the evidence for the bug, and the
+alternatives that were rejected are in
+[wasi-heap-sync-design.md](./wasi-heap-sync-design.md).
+
 The workaround is on for every addon built for exactly `wasm32-wasip1-threads`
 with `napi` and `napi_build::setup()`. There is nothing to call or configure:
 

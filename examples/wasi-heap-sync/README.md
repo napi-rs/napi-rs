@@ -3,6 +3,9 @@
 Loads for napi's allocator lock on `wasm32-wasip1-threads`
 (`crates/napi/src/wasi_heap_sync.rs`), run by the `test-wasi-heap-sync` CI job.
 
+The design behind the lock, with the evidence and the rejected alternatives, is
+in [`cli/docs/wasi-heap-sync-design.md`](../../cli/docs/wasi-heap-sync-design.md).
+
 V8 updates a shared wasm memory's size only on the thread that grew it. Every
 other thread checks `memory.fill`, `memory.copy` and atomics (and, without V8's
 wasm trap handler, every load and store) against its own older size, so a
