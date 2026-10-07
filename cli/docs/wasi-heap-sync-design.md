@@ -214,9 +214,17 @@ only the real stack limit (src/builtins/arm64/builtins-arm64.cc:4229-4470).
 There plain loads and stores are checked against the stale size too. Node's
 bundled `trap-handler.h` (v24.12.0, V8 `13.6-lkgr`) supports x64 on Linux,
 Windows, macOS and FreeBSD; arm64 on Linux, Windows and macOS; loong64 and
-riscv64 on Linux. v22 has arm64 on macOS and Linux only, v20 macOS only. Node's
-`src/node.cc` installs it only on `__APPLE__ || __linux__ || _WIN32`, and not
-under `--disable-wasm-trap-handler`. Node has no runtime check for it.
+riscv64 on Linux. v22 has arm64 on macOS and Linux only, v20 macOS only.
+Node's `src/node.cc` (v24.12.0) installs it only on
+`__APPLE__ || __linux__ || _WIN32`, not under `--disable-wasm-trap-handler`,
+and not for an embedder that initializes Node with `kNoDefaultSignalHandling`.
+From v24.19.0 and v26.0.0, `CanEnableWebAssemblyTrapHandler()` also skips it
+on POSIX when `RLIMIT_AS` is finite and smaller than the larger of V8's 32-bit
+and 64-bit reservations for a 64 KiB wasm memory. Nothing reports to
+JavaScript whether the handler is active, so an addon cannot tell.
+
+A "yes" below means the build can install the handler; a process on it still
+runs without one under any of the conditions above.
 
 | Official Node build        | Handler       |
 | -------------------------- | ------------- |
