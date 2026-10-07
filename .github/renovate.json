@@ -17,6 +17,10 @@
       "matchPackageNames": ["emnapi", "@emnapi/**"],
       "rangeStrategy": "update-lockfile",
       "groupName": "emnapi"
+    },
+    {
+      "matchPackageNames": ["@oxc-node/**"],
+      "groupName": "oxc-node"
     }
   ],
   "postUpdateOptions": ["yarnDedupeHighest"],
