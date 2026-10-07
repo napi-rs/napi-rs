@@ -7,6 +7,7 @@ import {
 } from 'node:fs'
 import { exec, spawnSync } from 'node:child_process'
 import {
+  chmod,
   copyFile,
   mkdir,
   readFile,
@@ -3695,3 +3696,93 @@ test('resolveWasmMemory rejects non-page values', (t) => {
       /napi\.wasm\.maximumMemory must be an integer between 1 and 65536 pages/,
   })
 })
+
+// `spawn` cannot execute a POSIX shell script on Windows, and the fake
+// `cargo` below has to actually run.
+const posixOnly = process.platform === 'win32' ? test.serial.skip : test.serial
+
+posixOnly(
+  'a glibc-versioned zigbuild target resolves its artifact from the base target directory',
+  async (t) => {
+    const { projectDir } = t.context
+    const crateName = 'zigbuild_artifact'
+    const baseTriple = 'x86_64-unknown-linux-gnu'
+
+    await mkdir(join(projectDir, 'src'), { recursive: true })
+    await writeFile(
+      join(projectDir, 'Cargo.toml'),
+      `[package]
+name = "${crateName}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+`,
+    )
+    await writeFile(join(projectDir, 'src', 'lib.rs'), 'pub fn artifact() {}\n')
+    await writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'zigbuild-artifact',
+        version: '0.1.0',
+        napi: { binaryName: 'zigbuild-artifact' },
+      }),
+    )
+
+    // Stand in for `cargo zigbuild`: it records the arguments it was given
+    // and leaves the artifact under the *base* triple's directory, which is
+    // where cargo really emits it when the requested target carries a glibc
+    // version suffix (issue #3176).
+    const artifactDir = join(projectDir, 'target', baseTriple, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    await writeFile(join(artifactDir, `lib${crateName}.so`), 'fake artifact')
+    const cargoArgsPath = join(projectDir, 'cargo-args.txt')
+    const cargoPath = join(projectDir, 'fake-cargo')
+    await writeFile(
+      cargoPath,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "${cargoArgsPath.replaceAll(
+        '\\',
+        '/',
+      )}"\n`,
+    )
+    await chmod(cargoPath, 0o755)
+
+    const originalCargo = process.env.CARGO
+    process.env.CARGO = cargoPath
+    let outputs
+    try {
+      await t.notThrowsAsync(async () => {
+        outputs = await (
+          await buildProject({
+            cwd: projectDir,
+            target: `${baseTriple}.2.27`,
+            platform: true,
+            release: true,
+            outputDir: 'dist',
+          })
+        ).task
+      }, 'glibc-versioned build must copy the base-target artifact')
+    } finally {
+      if (originalCargo === undefined) {
+        delete process.env.CARGO
+      } else {
+        process.env.CARGO = originalCargo
+      }
+    }
+
+    const artifactPath = join(
+      projectDir,
+      'dist',
+      'zigbuild-artifact.linux-x64-gnu.node',
+    )
+    t.deepEqual(outputs, [{ kind: 'node', path: artifactPath }])
+    t.is(await readFile(artifactPath, 'utf8'), 'fake artifact')
+    // the versioned spelling still reaches the build command — the suffix is
+    // what tells zigbuild which minimum glibc to link against
+    t.regex(
+      await readFile(cargoArgsPath, 'utf8'),
+      /--target\nx86_64-unknown-linux-gnu\.2\.27\n/,
+    )
+  },
+)

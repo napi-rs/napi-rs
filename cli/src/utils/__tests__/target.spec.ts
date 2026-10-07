@@ -54,6 +54,20 @@ test('should get system default target correctly', (t) => {
   t.is(target.platform, os.platform())
 })
 
+test('should parse a glibc-versioned zigbuild target from its base triple', (t) => {
+  const target = parseTriple('x86_64-unknown-linux-gnu.2.27')
+
+  // the requested spelling is kept verbatim: `cargo zigbuild --target`
+  // needs the suffix to pin the minimum glibc version
+  t.is(target.triple, 'x86_64-unknown-linux-gnu.2.27')
+  // platform/arch/abi and the `platformArchABI` artifact identity derive
+  // from the base triple cargo actually compiles
+  t.is(target.platform, 'linux')
+  t.is(target.arch, 'x64')
+  t.is(target.abi, 'gnu')
+  t.is(target.platformArchABI, 'linux-x64-gnu')
+})
+
 test('should read the wasi-sdk major version from VERSION', async (t) => {
   await withWasiSdkDir(
     (wasiSdkPath) => writeVersionFile(wasiSdkPath, '34.0\n'),

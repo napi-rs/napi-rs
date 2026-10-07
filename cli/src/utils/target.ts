@@ -307,6 +307,18 @@ export function wasiLibcHasNewFutexAbi(
 }
 
 /**
+ * The target spelling cargo works with. `cargo-zigbuild` accepts a
+ * minimum-glibc-version suffix on the target
+ * (`x86_64-unknown-linux-gnu.2.27`), but invokes cargo with the part before
+ * the first `.`, so that base triple is also the directory cargo emits
+ * artifacts into, the value `cargo metadata --filter-platform` resolves,
+ * and the name `CARGO_TARGET_<TRIPLE>_*` environment variables key off.
+ */
+export function cargoTargetTriple(target: string): string {
+  return target.split('.', 1)[0]
+}
+
+/**
  * A triple is a specific format for specifying a target architecture.
  * Triples may be referred to as a target triple which is the architecture for the artifact produced, and the host triple which is the architecture that the compiler is running on.
  * The general format of the triple is `<arch><sub>-<vendor>-<sys>-<abi>` where:
@@ -332,9 +344,13 @@ export function parseTriple(rawTriple: string): Target {
       `Unsupported WASI target ${rawTriple}. Supported targets are wasm32-wasip1, wasm32-wasip1-threads, wasm32-wasi, and wasm32-wasi-preview1-threads.`,
     )
   }
-  const triple = rawTriple.endsWith('eabi')
-    ? `${rawTriple.slice(0, -4)}-eabi`
-    : rawTriple
+  // `triple` keeps the requested spelling verbatim — a glibc-versioned
+  // zigbuild target needs its suffix in the `--target` argument — while
+  // platform/arch/abi always parse from the triple cargo actually runs.
+  const baseTriple = cargoTargetTriple(rawTriple)
+  const triple = baseTriple.endsWith('eabi')
+    ? `${baseTriple.slice(0, -4)}-eabi`
+    : baseTriple
   const triples = triple.split('-')
   let cpu: string
   let sys: string

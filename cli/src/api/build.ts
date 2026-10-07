@@ -20,6 +20,7 @@ import * as colors from 'colorette'
 import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
+  cargoTargetTriple,
   commitFileSystemTransaction,
   commonJsDeclarationBarrier,
   copyFileAtomic,
@@ -1172,7 +1173,7 @@ export async function buildProject(rawOptions: BuildOptions) {
     noDefaultFeatures: options.noDefaultFeatures,
     cargoOptions: options.cargoOptions,
     filterPlatform: metadataTarget
-      ? parseTriple(metadataTarget).triple
+      ? cargoTargetTriple(parseTriple(metadataTarget).triple)
       : undefined,
   })
 
@@ -1928,13 +1929,13 @@ class Builder {
     // LINKER
     const linker = this.options.crossCompile
       ? void 0
-      : getTargetLinker(this.target.triple)
+      : getTargetLinker(cargoTargetTriple(this.target.triple))
     // TODO:
     //   directly set CARGO_TARGET_<target>_LINKER will cover .cargo/config.toml
     //   will detect by cargo config when it becomes stable
     //   see: https://github.com/rust-lang/cargo/issues/9301
     const linkerEnv = `CARGO_TARGET_${targetToEnvVar(
-      this.target.triple,
+      cargoTargetTriple(this.target.triple),
     )}_LINKER`
     if (linker && !process.env[linkerEnv] && !this.envs[linkerEnv]) {
       this.envs[linkerEnv] = linker
@@ -2212,13 +2213,13 @@ class Builder {
 
   private async generateIntermediateTypeDefFolder(rustflags: string) {
     const targetRustFlagsEnv = `CARGO_TARGET_${targetToEnvVar(
-      this.target.triple,
+      cargoTargetTriple(this.target.triple),
     )}_RUSTFLAGS`
     let folder = getTypeDefCacheFolder({
       targetDir: this.targetDir,
       crateName: this.crate.name,
       manifestPath: this.crate.manifest_path,
-      targetTriple: this.target.triple,
+      targetTriple: cargoTargetTriple(this.target.triple),
       profile:
         this.options.profile ?? (this.options.release ? 'release' : 'dev'),
       features: this.options.features,
@@ -2412,7 +2413,14 @@ class Builder {
 
     const profile =
       this.options.profile ?? (this.options.release ? 'release' : 'debug')
-    const src = join(this.targetDir, this.target.triple, profile, srcName)
+    // cargo-zigbuild hands the glibc-versioned target's base triple to
+    // cargo, so the artifact lives under the base triple's directory.
+    const src = join(
+      this.targetDir,
+      cargoTargetTriple(this.target.triple),
+      profile,
+      srcName,
+    )
     debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
     const isWasm = dest.endsWith('.wasm')
