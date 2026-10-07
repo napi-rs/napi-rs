@@ -741,6 +741,10 @@ out of bounds` on heap pages another thread just grew. V8 fixed this in
 [v8/v8@3424101](https://github.com/v8/v8/commit/34241014663390c72e08c123faef6fedf395be8e);
 napi-rs works around it until the hosts it supports ship that fix.
 
+Why the workaround has this shape, the evidence for the bug, and the
+alternatives that were rejected are in
+[wasi-heap-sync-design.md](./wasi-heap-sync-design.md).
+
 The workaround is on for every addon built for exactly `wasm32-wasip1-threads`
 with `napi` and `napi_build::setup()`. There is nothing to call or configure:
 
@@ -750,7 +754,7 @@ malloc / free / calloc / realloc / ...   (Rust's System, wasi-libc, emnapi's `ma
        LOCK (spin; sched_yield every 64 spins; never memory.atomic.wait)
          another thread saw a larger memory? memory.grow(0)   refresh this thread
          dlmalloc
-           -> __wrap_sbrk: the reserve first, else grow >= 16 MiB,
+           -> __wrap_sbrk: the reserve first, else grow, 16 MiB if it can,
                            refresh and publish the new size
        UNLOCK
 
@@ -777,10 +781,12 @@ napi's default Tokio runtime and spawn_blocking
   memory and the memory the loader created (`napi.wasm.initialMemory`): they
   exist on every thread from the start, so they never need a refresh, and
   nothing grows until they are used. Past them it only uses pages it grew
-  itself, at least 16 MiB at a time, so pages another allocator grew never
-  reach dlmalloc. The heap never reaches 2 GiB: an allocation that would pass
-  it fails. Node's `node:wasi` (v24 and later) answers `EINVAL` to
-  `clock_time_get` and `fd_seek` when a pointer is at or above 2 GiB.
+  itself, so pages another allocator grew never reach dlmalloc. A grow first
+  tries 16 MiB (or the request, if larger), capped by the room left below
+  2 GiB, and retries with exactly the pages the request needs when that fails.
+  The heap never reaches 2 GiB: an allocation that would pass it fails.
+  Node's `node:wasi` (v24 and later) answers `EINVAL` to `clock_time_get` and
+  `fd_seek` when a pointer is at or above 2 GiB.
 
 The threaded `.wasm` exports `malloc` and `free` as before (`@emnapi/core`
 calls them); they now go through the lock. It also exports the 11 `__wrap_*`

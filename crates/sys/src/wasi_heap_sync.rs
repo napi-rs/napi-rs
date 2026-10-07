@@ -13,7 +13,7 @@
 //! loads and stores do too. `memory.grow(0)` on the stale thread makes V8 reload the size and
 //! returns it; `memory.size` returns the stale size and reloads nothing. V8 fixed it in
 //! v8/v8@34241014663390c72e08c123faef6fedf395be8e. The evidence and the rejected alternatives
-//! are in rolldown's `internal-docs/wasi-shared-memory-grow/design.md`.
+//! are in `cli/docs/wasi-heap-sync-design.md` ("Evidence", "Rejected alternatives").
 //!
 //! # The state
 //!
