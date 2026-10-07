@@ -186,8 +186,13 @@ only the real stack limit (src/builtins/arm64/builtins-arm64.cc:4229-4470).
 - **Refresh on the emnapi / JS side.** The traps are inside wasm activations
   that never return to JS, so a JS-side refresh never runs on the trapping
   thread.
-- **`--liftoff-only`.** Makes the trap rare, not impossible, and removes the
-  MultiThread speedup.
+- **`--liftoff-only`.** It turns off dynamic tiering, and without it Liftoff
+  checks the stack at every function entry and every loop header (`Loop` in
+  `src/wasm/baseline/liftoff-compiler.cc` and the `liftoff_only` implications
+  in `src/flags/flag-definitions.h`, read in V8 15.1). A stale thread then
+  catches up at its next call or loop pass, which narrows the window to the
+  code between two such checks but does not close it; not measured. It also
+  removes the MultiThread speedup.
 - **Refresh before the allocation, inside dlmalloc's own lock.** Failed every
   run under `--wasm-enforce-bounds-checks`, always on the same dlmalloc
   chunk-header store: the waiter takes dlmalloc's lock before the grower
@@ -274,14 +279,29 @@ handler, and browsers. The flag runs used `--wasm-enforce-bounds-checks` and
 
 ## When to remove
 
-When every Node version an addon's threaded WASI package supports ships
+The threaded artifact runs wherever its loaders run: under Node, and in
+browsers through the browser loader's wasi-threads worker pool (see "Shared
+async runtime hosts" in [wasi.md](./wasi.md)). So the workaround can go only when
+every engine that loads it ships
 [v8/v8@34241014663390c72e08c123faef6fedf395be8e](https://github.com/v8/v8/commit/34241014663390c72e08c123faef6fedf395be8e)
-(or a backport), the workaround can go: out of napi-rs, or out of one addon
-with `--cfg napi_wasi_no_heap_sync` (see "Opting out" in [wasi.md](./wasi.md)).
-Confirm it on each of those Node versions with the recipe in
-`examples/wasi-heap-sync/README.md`: build opted out, then
-`node stress.mjs --opted-out`.
+(or a backport): every Node version the addon supports, and every browser
+version it supports. Then it can go out of napi-rs, or out of one addon with
+`--cfg napi_wasi_no_heap_sync` (see "Opting out" in [wasi.md](./wasi.md)).
 
-The heap break goes with it. The heap then starts again at the top of the
-loader's reserve, so with the 1 GiB example it has about 1 GiB below 2^31
-instead of about 1.94 GiB, until Node accepts WASI pointers at or above 2^31.
+Confirm it on each of those Node versions with the opted-out recipe in
+`examples/wasi-heap-sync/README.md`: build with
+`RUSTFLAGS="--cfg napi_wasi_no_heap_sync"`, then run
+`node stress.mjs --opted-out --runs 20 --node-flag=--wasm-enforce-bounds-checks`.
+Every run must pass. A single run proves nothing: on an engine without the fix
+only about a quarter to two fifths of those runs failed. The recipe runs on
+Node only; there is none for browsers.
+
+A second condition comes from the heap break. `--cfg napi_wasi_no_heap_sync`
+leaves out `__wrap_sbrk` together with the lock, and napi-build drops the
+`--wrap` arguments, so the break and its 2^31 cap go too. wasi-libc's own
+`sbrk` then starts the heap at the top of the loader's reserve and can grow it
+past 2^31, where Node's `node:wasi` rejects pointers to `clock_time_get` and
+`fd_seek` (principle 4). So removal also needs Node to accept WASI pointers at
+or above 2^31, or the addon to accept a heap that ends near 2^31 (about 1 GiB
+with the 1 GiB example, instead of about 1.94 GiB), past which unrelated WASI
+calls can fail. Whether the break should stay without the lock is open.
