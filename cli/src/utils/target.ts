@@ -311,7 +311,10 @@ export function wasiLibcHasNewFutexAbi(
  * Preserve other dotted target names, including custom Rust targets.
  */
 export function cargoTargetTriple(target: string): string {
-  return target.replace(/(-linux-gnu(?:eabi(?:hf)?)?)\.\d+\.\d+$/, '$1')
+  return target.replace(
+    /(-linux-gnu(?:abi64|eabi(?:hf)?|_ilp32|spe|x32)?)\.\d+\.\d+$/,
+    '$1',
+  )
 }
 
 /**

@@ -66,6 +66,20 @@ test('should parse a glibc-versioned zigbuild target from its base triple', (t) 
   t.is(target.arch, 'x64')
   t.is(target.abi, 'gnu')
   t.is(target.platformArchABI, 'linux-x64-gnu')
+
+  for (const triple of [
+    'mips64el-unknown-linux-gnuabi64',
+    'x86_64-unknown-linux-gnux32',
+    'aarch64-unknown-linux-gnu_ilp32',
+    'powerpc-unknown-linux-gnuspe',
+    'arm-unknown-linux-gnueabi',
+    'armv7-unknown-linux-gnueabihf',
+  ]) {
+    t.deepEqual(parseTriple(`${triple}.2.27`), {
+      ...parseTriple(triple),
+      triple: `${triple}.2.27`,
+    })
+  }
 })
 
 test('should preserve a dotted custom target', (t) => {
