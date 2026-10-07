@@ -128,8 +128,14 @@ only the real stack limit (src/builtins/arm64/builtins-arm64.cc:4229-4470).
 2. **Refresh at the scheduler handoff too.** A MultiThread task can allocate a
    `Vec` on worker A, yield, resume on worker B, and write into the existing
    capacity without entering the allocator on B. A blocking closure built on
-   one thread runs on another. So every task poll and blocking closure start
-   refreshes when another thread has seen a larger memory.
+   one thread runs on another. So a task poll or a blocking closure start
+   refreshes when another thread has seen a larger memory, on the schedulers
+   napi drives: napi-async-runtime's task and `block_on` polls and blocking
+   closures, every `AsyncRuntimeTask` poll, `AsyncTask` compute, the task polls
+   of napi's own multi-thread Tokio runtime, and the closures given to napi's
+   `spawn_blocking`. A runtime passed to `create_custom_tokio_runtime` and
+   direct `tokio::task::spawn_blocking` calls get no refresh (see "What it does
+   not cover" in [wasi.md](./wasi.md)).
 3. **`memory.grow(0)`, not `memory.size`.** Only a grow updates the thread's
    size (see "Mechanism").
 4. **Use the memory the loader created before growing it.** wasi-libc's `sbrk`
@@ -143,8 +149,13 @@ only the real stack limit (src/builtins/arm64/builtins-arm64.cc:4229-4470).
 
    ```
    wasi-libc: [stack+data 64 MiB][ unused 960 MiB ][ heap, grows from 1 GiB ][ 2^31 ]
-   break:     [stack+data 64 MiB][ heap, no growth up to ~960 MiB ][ grows 16 MiB+ ][ 2^31 ]
+   break:     [stack+data 64 MiB][ heap, no growth up to ~960 MiB ][ grows, 16 MiB if it can ][ 2^31 ]
    ```
+
+   Past the reserve, a grow first tries 16 MiB, or the request if it is
+   larger, capped by the room left below 2^31. When that grow fails, it retries
+   with exactly the pages the request needs, so a grow can be as small as one
+   page.
 
    The break never passes 2^31: Node's `node:wasi` (v24 and later) answers
    `EINVAL` (os error 28) to `clock_time_get` and `fd_seek` when a pointer is at
@@ -214,25 +225,33 @@ under `--disable-wasm-trap-handler`. Node has no runtime check for it.
 | linux-armv7l (Node 20, 22) | no            |
 | win-x86 (Node 20, 22)      | no            |
 
-So an addon runs its threaded WASI package without the handler on the official
-Node builds marked "no" when it ships no native binding for them, and
-elsewhere only when the WASI build is forced (`NAPI_RS_FORCE_WASI`) or the
-native binding fails to load.
+On any host, an addon's root loader takes the WASI path in four ways:
+
+- on its own, when the native binding is missing or fails to load (so by
+  default on a build marked "no" that the addon ships no native binding for);
+- `NAPI_RS_FORCE_WASI=true`: WASI first, native still the fallback;
+- `NAPI_RS_FORCE_WASI=error`: WASI required, no native fallback;
+- `NAPI_RS_WASI_FLAVOR=wasm32-wasi`: exactly the threaded flavor, no other
+  flavor and no native fallback.
+
+The first three try the threaded flavor before the threadless one (see
+"Selecting a WASI flavor in Node.js" in [wasi.md](./wasi.md)).
 
 ## A block delivered mid-poll
 
 Thread A grows, allocates a block in the new pages and hands it to thread B
 inside one poll; B fills, copies or uses atomics on it before its next refresh
-point. Every allocator call and every task poll and blocking closure start
-refreshes, plus V8's own points (see "What refreshes a stale thread"). The
-paths that deliver a block inside one poll:
+point. Every allocator call refreshes, and so does every task poll and blocking
+closure start on the schedulers principle 2 lists, plus V8's own points (see
+"What refreshes a stale thread"). The paths that deliver a block inside one
+poll:
 
-| delivery path                                                                     | covered?                                                                                                                                          |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Arc` / `Mutex` / `DashMap` / runtime queue reads                                 | no hook                                                                                                                                           |
-| async-channel, async-broadcast, oneshot, std `mpsc`, value ready in the same poll | no                                                                                                                                                |
-| `spawn_blocking` results                                                          | yes: the waiting task is polled again, and the poll refreshes                                                                                     |
-| threadsafe-function call to JS                                                    | yes: emnapi runs JS frames before it calls back into the module; only its own C read of the queue node is open, on hosts without the trap handler |
+| delivery path                                                                     | covered?                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Arc` / `Mutex` / `DashMap` / runtime queue reads                                 | no hook                                                                                                                                                                                                         |
+| async-channel, async-broadcast, oneshot, std `mpsc`, value ready in the same poll | no                                                                                                                                                                                                              |
+| `spawn_blocking` results                                                          | yes when the waiting task runs on napi-async-runtime or napi's own multi-thread Tokio runtime: it is polled again, and the poll refreshes; no when it runs on a runtime passed to `create_custom_tokio_runtime` |
+| threadsafe-function call to JS                                                    | yes: emnapi runs JS frames before it calls back into the module; only its own C read of the queue node is open, on hosts without the trap handler                                                               |
 
 A grow happens only once the heap passes the loader's reserve, so the window is
 rare, not closed. When it fires the worker traps and dies. A lock it held stays
