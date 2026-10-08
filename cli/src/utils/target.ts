@@ -307,14 +307,33 @@ export function wasiLibcHasNewFutexAbi(
 }
 
 /**
- * Remove a GNU/Linux target's minimum glibc version for Cargo lookups.
- * Preserve other dotted target names, including custom Rust targets.
+ * The target spelling Cargo actually compiles under `cargo zigbuild`.
+ *
+ * cargo-zigbuild splits the `--target` value at the first `.`: Cargo builds
+ * the part before it, and the suffix becomes zig's libc/ABI version pin —
+ * `x86_64-unknown-linux-gnu.2.27` is compiled as `x86_64-unknown-linux-gnu`
+ * while `zig cc` gets `-target x86_64-linux-gnu.2.27`. The same split runs
+ * for every target, not just glibc ones, so artifacts always land under the
+ * base name (`target/x86_64-unknown-linux-gnu/release/`) and every
+ * `CARGO_TARGET_<TRIPLE>_*` variable is keyed by it.
+ *
+ * The one spelling that keeps a dot is a custom-target spec file
+ * (`--target foo.json`); Cargo names its artifact directory after the file
+ * stem, so that is returned instead.
+ *
+ * Only apply this where the build really goes through cargo-zigbuild
+ * (`--cross-compile`). Plain `cargo build` and `cross` pass the requested
+ * target to Cargo verbatim, so there the requested spelling is the correct
+ * one everywhere.
  */
 export function cargoTargetTriple(target: string): string {
-  return target.replace(
-    /(-linux-gnu(?:abi64|eabi(?:hf)?|_ilp32|spe|x32)?)\.\d+\.\d+$/,
-    '$1',
-  )
+  if (target.endsWith('.json')) {
+    const slash = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'))
+    // Cargo names the artifact directory after the spec file's stem.
+    return target.slice(slash + 1, -'.json'.length)
+  }
+  const dot = target.indexOf('.')
+  return dot === -1 ? target : target.slice(0, dot)
 }
 
 /**
@@ -343,13 +362,9 @@ export function parseTriple(rawTriple: string): Target {
       `Unsupported WASI target ${rawTriple}. Supported targets are wasm32-wasip1, wasm32-wasip1-threads, wasm32-wasi, and wasm32-wasi-preview1-threads.`,
     )
   }
-  // `triple` keeps the requested spelling verbatim — a glibc-versioned
-  // zigbuild target needs its suffix in the `--target` argument — while
-  // platform/arch/abi always parse from the triple cargo actually runs.
-  const baseTriple = cargoTargetTriple(rawTriple)
-  const triple = baseTriple.endsWith('eabi')
-    ? `${baseTriple.slice(0, -4)}-eabi`
-    : baseTriple
+  const triple = rawTriple.endsWith('eabi')
+    ? `${rawTriple.slice(0, -4)}-eabi`
+    : rawTriple
   const triples = triple.split('-')
   let cpu: string
   let sys: string
