@@ -269,7 +269,7 @@ impl DeferredTrace {
   }
 }
 
-type FinalizeCallback = Arc<RwLock<Option<Box<dyn FnOnce(sys::napi_env)>>>>;
+pub(crate) type FinalizeCallback = Arc<RwLock<Option<Box<dyn FnOnce(sys::napi_env)>>>>;
 
 struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   resolver: Result<Resolver>,
@@ -471,12 +471,30 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     self.call_tsfn(Err(error))
   }
 
+  /// Replaces the settle-time callback through the shared slot.
+  ///
+  /// Written through the lock rather than swapped for a new `Arc` so a slot cloned
+  /// earlier — `AsyncBlock` installs its deferred borrow scope this way — can never
+  /// detach from the callback `settle_deferred` reads.
   #[allow(clippy::arc_with_non_send_sync)]
   pub fn set_finalize_callback(
     &mut self,
     finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
   ) {
-    self.finalize_callback = Arc::new(RwLock::new(finalize_callback));
+    *RwLock::write(&self.finalize_callback).expect("RwLock Poison") = finalize_callback;
+  }
+
+  /// The settle-time callback slot this deferred's clones share. Claimants that only
+  /// learn which scope is theirs at conversion time keep a clone of this handle and
+  /// install their release callback into it later; [`settle_deferred`] takes whatever
+  /// is written when the promise settles on the owner thread.
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4",
+    not(feature = "noop")
+  ))]
+  pub(crate) fn finalize_callback_handle(&self) -> FinalizeCallback {
+    self.finalize_callback.clone()
   }
 
   fn call_tsfn(self, result: Result<Resolver>) {

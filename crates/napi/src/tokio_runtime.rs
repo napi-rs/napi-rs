@@ -23,7 +23,7 @@ use std::{
 #[cfg(feature = "tokio_rt")]
 use tokio::runtime::Runtime;
 
-use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
+use crate::{bindgen_runtime::ToNapiValue, js_values::FinalizeCallback, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
 use crate::{JsDeferred, SendableResolver, Unknown};
 
@@ -1754,7 +1754,7 @@ pub fn execute_tokio_future<
   fut: Fut,
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
-  execute_future_impl(env, fut, resolver, None)
+  execute_future_impl(env, fut, resolver, None).map(|(promise, _)| promise)
 }
 
 /// Shared future → Promise bridge behind [`execute_tokio_future`] and
@@ -1767,7 +1767,7 @@ pub fn execute_tokio_future<
 ///    pure `async-runtime` build the promise rejects with a missing-backend error instead.
 #[cfg(not(feature = "noop"))]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-fn execute_future_impl<
+pub(crate) fn execute_future_impl<
   Data: 'static + Send,
   Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
   Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
@@ -1776,11 +1776,17 @@ fn execute_future_impl<
   fut: Fut,
   resolver: Resolver,
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
-) -> Result<sys::napi_value> {
+) -> Result<(sys::napi_value, FinalizeCallback)> {
   let env = Env::from_raw(env);
   let (mut deferred, promise) = JsDeferred::new(&env)?;
+  // Generated `async fn` callbacks already pass a finalize callback that releases their
+  // borrow scope. A synchronous callback returning an `AsyncBlock` defers its borrow scope
+  // around the return-value conversion instead: `AsyncBlock::to_napi_value` claims it and
+  // writes the release into the returned slot, so unrelated futures spawned inside the
+  // callback body can never claim a scope that is not theirs.
   deferred.set_finalize_callback(finalize_callback);
   let promise_value = promise.0.value;
+  let finalize_slot = deferred.finalize_callback_handle();
 
   // Past the wasm environment cleanup barrier the runtime is gone for good: the custom backend
   // has been shut down and, on the built-in Tokio path, `RT` has been drained (where `spawn`
@@ -1796,13 +1802,13 @@ fn execute_future_impl<
       crate::Status::Cancelled,
       WASM_ENV_DISPOSING_ERROR,
     ));
-    return Ok(promise_value);
+    return Ok((promise_value, finalize_slot.clone()));
   }
 
   #[cfg(feature = "async-runtime")]
   if let Some(reason) = ASYNC_RUNTIME_REGISTRY.deferred_registration_error() {
     deferred.reject(Error::new(crate::Status::GenericFailure, reason));
-    return Ok(promise_value);
+    return Ok((promise_value, finalize_slot.clone()));
   }
 
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
@@ -1813,7 +1819,7 @@ fn execute_future_impl<
       crate::Status::GenericFailure,
       MISSING_RUNTIME_BACKEND_ERROR,
     ));
-    return Ok(promise_value);
+    return Ok((promise_value, finalize_slot.clone()));
   }
 
   #[cfg(feature = "async-runtime")]
@@ -1864,7 +1870,7 @@ fn execute_future_impl<
       // of without letting a panicking payload `Drop` unwind into the extern "C" trampoline.
       Err(payload) => drop_contained(payload),
     }
-    return Ok(promise_value);
+    return Ok((promise_value, finalize_slot.clone()));
   }
 
   #[cfg(feature = "tokio_rt")]
@@ -1912,7 +1918,7 @@ fn execute_future_impl<
       ));
     }
 
-    Ok(promise_value)
+    Ok((promise_value, finalize_slot))
   }
 
   // Pure `async-runtime` build: unreachable in practice — the missing-backend check above
@@ -1920,8 +1926,23 @@ fn execute_future_impl<
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
     drop(inner);
-    Ok(promise_value)
+    Ok((promise_value, finalize_slot))
   }
+}
+
+#[cfg(feature = "noop")]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub(crate) fn execute_future_impl<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  _env: sys::napi_env,
+  _fut: Fut,
+  _resolver: Resolver,
+  _finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<(sys::napi_value, FinalizeCallback)> {
+  Ok((std::ptr::null_mut(), FinalizeCallback::default()))
 }
 
 #[doc(hidden)]
@@ -1937,7 +1958,7 @@ pub fn execute_tokio_future_with_finalize_callback<
   resolver: Resolver,
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 ) -> Result<sys::napi_value> {
-  execute_future_impl(env, fut, resolver, finalize_callback)
+  execute_future_impl(env, fut, resolver, finalize_callback).map(|(promise, _)| promise)
 }
 
 #[cfg(feature = "noop")]
@@ -1995,14 +2016,21 @@ impl<
   }
 
   pub fn build(self, env: &Env) -> Result<AsyncBlock<V>> {
-    Ok(AsyncBlock {
-      inner: execute_tokio_future(env.0, self.inner, |env, v| unsafe {
+    let (promise, finalize_callback) = execute_future_impl(
+      env.0,
+      self.inner,
+      |env, v| unsafe {
         if let Some(dispose) = self.dispose {
           let env = Env::from_raw(env);
           dispose(env)?;
         }
         V::to_napi_value(env, v)
-      })?,
+      },
+      None,
+    )?;
+    Ok(AsyncBlock {
+      inner: promise,
+      finalize_callback,
       _phantom: PhantomData,
     })
   }
@@ -2015,11 +2043,18 @@ impl<V: Send + 'static, F: Future<Output = Result<V>> + Send + 'static> AsyncBlo
     inner: F,
     map: Map,
   ) -> Result<AsyncBlock<T>> {
-    Ok(AsyncBlock {
-      inner: execute_tokio_future(env.0, inner, |env, v| unsafe {
+    let (promise, finalize_callback) = execute_future_impl(
+      env.0,
+      inner,
+      |env, v| unsafe {
         let v = map(Env::from_raw(env), v)?;
         T::to_napi_value(env, v)
-      })?,
+      },
+      None,
+    )?;
+    Ok(AsyncBlock {
+      inner: promise,
+      finalize_callback,
       _phantom: PhantomData,
     })
   }
@@ -2027,11 +2062,26 @@ impl<V: Send + 'static, F: Future<Output = Result<V>> + Send + 'static> AsyncBlo
 
 pub struct AsyncBlock<T: ToNapiValue + 'static> {
   inner: sys::napi_value,
+  /// Settle-time callback slot shared with this block's `JsDeferred`. The borrow scope
+  /// generated glue deferred for `&T`/`&self` arguments is leased here — while the
+  /// returned value is converted — so futures spawned earlier in the callback body can
+  /// never claim it. The deferred settles after conversion, on the owner thread, and
+  /// releases the lease there; the scope's guards and roots go out with the last lease.
+  finalize_callback: FinalizeCallback,
   _phantom: PhantomData<T>,
 }
 
 impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
   unsafe fn to_napi_value(_: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
+    if let Some(lease) = crate::bindgen_runtime::claim_deferred_native_borrow_lease()? {
+      // The bare lease (not a `release`d scope) travels in the settle slot: if the
+      // deferred never settles — env teardown aborts the threadsafe function, or the
+      // queued settle drains with a null env — the closure is dropped uninvoked,
+      // possibly on a foreign thread, and the lease's `Drop` delegates the roots
+      // through the env's custom-GC threadsafe function rather than calling napi.
+      *val.finalize_callback.write().expect("RwLock Poison") =
+        Some(Box::new(move |env| lease.release(env)));
+    }
     Ok(val.inner)
   }
 }

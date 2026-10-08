@@ -102,6 +102,7 @@ mod fn_ts_override;
 mod function;
 mod generator;
 mod issue_3427;
+mod issue_3583;
 mod js_mod;
 mod lifetime;
 mod map;

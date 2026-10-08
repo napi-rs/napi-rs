@@ -168,6 +168,15 @@ export type Blake2bHasher = Blake2BHasher
 export declare class Blake2BKey {}
 export type Blake2bKey = Blake2BKey
 
+export declare class BorrowedCache {
+  constructor(size: number)
+  /**
+   * `&self` receiver variant: the `cb.this()` wrapper must stay rooted until
+   * the returned task settles.
+   */
+  readAsync(gate: number): Promise<number>
+}
+
 export declare class CatchOnConstructor {
   constructor()
 }
@@ -648,6 +657,16 @@ export interface BindingVitePluginMeta {
   'vite:import-glob': ViteImportGlobMeta
 }
 
+/**
+ * A gate-blocked task with no borrowed arguments: used to saturate the libuv
+ * pool so a later task is known to be queued, and to exercise the defer →
+ * drain path for a scope with no roots at all.
+ */
+export declare function blockBorrowGate(gate: number): Promise<void>
+
+/** Number of tasks currently blocked inside `wait_borrow_gate`. */
+export declare function borrowGateWaiters(id: number): number
+
 export declare function btreeSetToJs(): Set<string>
 
 export declare function btreeSetToRust(set: Set<string>): void
@@ -779,6 +798,12 @@ export declare function chronoUtcDateToMillis(input: Date): number
 export declare function churnGlobalHandles(value: unknown, count: number): void
 
 export declare function cleanupReentrantBorrowOrderTestTargets(): number
+
+/**
+ * Open the gate: every task currently waiting — and any queued behind it —
+ * passes through.
+ */
+export declare function closeBorrowGate(id: number): void
 
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
@@ -1346,6 +1371,9 @@ export declare function objectWrapRoundtrip(): number
 
 export declare function objectWrapWithA(obj: object): void
 
+/** Create (or reset to closed) the gate with the given id. */
+export declare function openBorrowGate(id: number): void
+
 export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
 export declare function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
@@ -1430,6 +1458,60 @@ export interface PropertyNameValidTest {
   private: string
   with123Numbers: string
 }
+
+/**
+ * Free-function variant: the `&BorrowedCache` argument wrapper must stay
+ * rooted until the returned task settles.
+ */
+export declare function readBorrowedCache(cache: BorrowedCache, gate: number): Promise<number>
+
+export declare function readBorrowedCacheAlias(cache: BorrowedCache, gate: number): Promise<number>
+
+/**
+ * The `AsyncBlock` variant of the same misroute: the scope is claimed by the
+ * returned block's own conversion, not by whatever drains first. `AsyncBlock`
+ * futures must be `'static`, so the borrow cannot be captured — the read runs
+ * eagerly while the scope's alias guard is held; what stays deferred is the
+ * wrapper rooting and guard release until the block settles. The deliberately
+ * discarded `AsyncBlockBuilder::build` is an extra in-body sink that must
+ * leave the deferred scope for the returned value.
+ */
+export declare function readBorrowedCacheAsyncBlock(cache: BorrowedCache, gate: number): Promise<number>
+
+/**
+ * `Option<AsyncTask>` spelling: the outermost return type is `Option`, so no
+ * syntactic check on the declared return type can see the task. The deferred
+ * scope claim inside `AsyncTask`'s `ToNapiValue` conversion protects the
+ * borrow regardless of how the return type is spelled.
+ */
+export declare function readBorrowedCacheMaybe(cache: BorrowedCache, gate: number, skip: boolean): Promise<number> | null
+
+/** `Result<Option<AsyncTask>>`: two layers of wrapper around the async sink. */
+export declare function readBorrowedCacheMaybeResult(cache: BorrowedCache, gate: number): Promise<number> | null
+
+/**
+ * Regression for the deferred-scope misroute: a future spawned inside the
+ * callback body must not claim the borrow scope deferred for the returned
+ * `AsyncTask`. Under the positional drain this `env.spawn_future` stole the
+ * scope, leaving the returned task unrooted while its settle held (and then
+ * released) the `cache` wrapper roots.
+ */
+export declare function readBorrowedCacheSpawnInside(cache: BorrowedCache, gate: number): Promise<number>
+
+/**
+ * `Vec<AsyncTask>` spelling: every element claims its own lease on the same deferred
+ * scope during the array conversion, so the wrapper must stay rooted until the LAST
+ * task settles — a first task finishing early must not release roots a sibling still
+ * needs.
+ */
+export declare function readBorrowedCacheVec(cache: BorrowedCache, gate1: number, gate2: number): Array<Promise<number>>
+
+/**
+ * AbortSignal variant: a queued (not yet executing) task cancelled through
+ * the signal settles as an AbortError rejection; the scope roots must be
+ * released on that path too.
+ */
+export declare function readBorrowedCacheWithSignal(cache: BorrowedCache, gate: number, signal: AbortSignal): Promise<number>
 
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
