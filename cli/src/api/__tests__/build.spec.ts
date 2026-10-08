@@ -3988,8 +3988,10 @@ posixOnly(
     t.is(buildCalls.length, 1)
     t.regex(buildCalls[0].args, /^zigbuild\n/m)
     t.regex(buildCalls[0].args, /--target\nx86_64-unknown-linux-gnu\.2\.27\n/)
-    // Cargo-facing env keys are keyed on the base triple too.
-    t.notRegex(buildCalls[0].env, /2\.27/)
+    // Cargo-facing env keys are keyed on the base triple too. Match the
+    // full versioned spelling — a bare `2\.27` would false-positive on
+    // unrelated version strings in CI env vars.
+    t.notRegex(buildCalls[0].env, /linux-gnu\.2\.27/)
     t.notRegex(buildCalls[0].env, /CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_2/)
   },
 )
@@ -4182,6 +4184,7 @@ posixOnly(
       buildCalls[0].env,
       /^TARGET_CC=.*llvm\/bin\/aarch64-unknown-linux-ohos-clang$/m,
     )
-    t.notRegex(buildCalls[0].env, /4\.1/)
+    // A bare `4\.1` false-positives on CI env values like `yarn/4.18.1`.
+    t.notRegex(buildCalls[0].env, /linux-ohos\.4\.1/)
   },
 )
