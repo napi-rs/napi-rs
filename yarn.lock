@@ -2917,149 +2917,149 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@oxc-node/cli@npm:@oxc-node/cli@0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/cli@npm:0.1.4"
+"@oxc-node/cli@npm:@oxc-node/cli@0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/cli@npm:0.1.5"
   dependencies:
-    "@oxc-node/core": "npm:0.1.4"
+    "@oxc-node/core": "npm:0.1.5"
   bin:
     oxnode: ./dist/index.js
-  checksum: 10c0/66b4bd057b7e70c9e2c2580092ea9a1c00c333b3a3ac3141ec45f40d1046b4c4700ccb64e660cf733e2b0e5a9bc9464e4a017bde2d7334ec53713f6304a495c4
+  checksum: 10c0/82c9150396f6ad26201e2843e05f3753e8902a58d9914c51f8287b758068d16da74769c2446b8ebd176d4eacd676904852e74ccb95e7c255acb2bfd1cbf2f615
   languageName: node
   linkType: hard
 
-"@oxc-node/core-android-arm-eabi@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-android-arm-eabi@npm:0.1.4"
+"@oxc-node/core-android-arm-eabi@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-android-arm-eabi@npm:0.1.5"
   conditions: os=android & cpu=arm
   languageName: node
   linkType: hard
 
-"@oxc-node/core-android-arm64@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-android-arm64@npm:0.1.4"
+"@oxc-node/core-android-arm64@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-android-arm64@npm:0.1.5"
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-darwin-arm64@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-darwin-arm64@npm:0.1.4"
+"@oxc-node/core-darwin-arm64@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-darwin-arm64@npm:0.1.5"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-darwin-x64@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-darwin-x64@npm:0.1.4"
+"@oxc-node/core-darwin-x64@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-darwin-x64@npm:0.1.5"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-freebsd-x64@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-freebsd-x64@npm:0.1.4"
+"@oxc-node/core-freebsd-x64@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-freebsd-x64@npm:0.1.5"
   conditions: os=freebsd & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-arm-gnueabihf@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-arm-gnueabihf@npm:0.1.4"
+"@oxc-node/core-linux-arm-gnueabihf@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-arm-gnueabihf@npm:0.1.5"
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-arm64-gnu@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-arm64-gnu@npm:0.1.4"
+"@oxc-node/core-linux-arm64-gnu@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-arm64-gnu@npm:0.1.5"
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-arm64-musl@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-arm64-musl@npm:0.1.4"
+"@oxc-node/core-linux-arm64-musl@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-arm64-musl@npm:0.1.5"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-ppc64-gnu@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-ppc64-gnu@npm:0.1.4"
+"@oxc-node/core-linux-ppc64-gnu@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-ppc64-gnu@npm:0.1.5"
   conditions: os=linux & cpu=ppc64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-s390x-gnu@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-s390x-gnu@npm:0.1.4"
+"@oxc-node/core-linux-s390x-gnu@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-s390x-gnu@npm:0.1.5"
   conditions: os=linux & cpu=s390x & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-x64-gnu@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-x64-gnu@npm:0.1.4"
+"@oxc-node/core-linux-x64-gnu@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-x64-gnu@npm:0.1.5"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-x64-musl@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-linux-x64-musl@npm:0.1.4"
+"@oxc-node/core-linux-x64-musl@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-linux-x64-musl@npm:0.1.5"
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
-"@oxc-node/core-openharmony-arm64@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-openharmony-arm64@npm:0.1.4"
+"@oxc-node/core-openharmony-arm64@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-openharmony-arm64@npm:0.1.5"
   conditions: os=openharmony & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-win32-arm64-msvc@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-win32-arm64-msvc@npm:0.1.4"
+"@oxc-node/core-win32-arm64-msvc@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-win32-arm64-msvc@npm:0.1.5"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-win32-ia32-msvc@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-win32-ia32-msvc@npm:0.1.4"
+"@oxc-node/core-win32-ia32-msvc@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-win32-ia32-msvc@npm:0.1.5"
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
 
-"@oxc-node/core-win32-x64-msvc@npm:0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core-win32-x64-msvc@npm:0.1.4"
+"@oxc-node/core-win32-x64-msvc@npm:0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core-win32-x64-msvc@npm:0.1.5"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxc-node/core@npm:0.1.4, @oxc-node/core@npm:@oxc-node/core@0.1.4":
-  version: 0.1.4
-  resolution: "@oxc-node/core@npm:0.1.4"
+"@oxc-node/core@npm:0.1.5, @oxc-node/core@npm:@oxc-node/core@0.1.5":
+  version: 0.1.5
+  resolution: "@oxc-node/core@npm:0.1.5"
   dependencies:
-    "@oxc-node/core-android-arm-eabi": "npm:0.1.4"
-    "@oxc-node/core-android-arm64": "npm:0.1.4"
-    "@oxc-node/core-darwin-arm64": "npm:0.1.4"
-    "@oxc-node/core-darwin-x64": "npm:0.1.4"
-    "@oxc-node/core-freebsd-x64": "npm:0.1.4"
-    "@oxc-node/core-linux-arm-gnueabihf": "npm:0.1.4"
-    "@oxc-node/core-linux-arm64-gnu": "npm:0.1.4"
-    "@oxc-node/core-linux-arm64-musl": "npm:0.1.4"
-    "@oxc-node/core-linux-ppc64-gnu": "npm:0.1.4"
-    "@oxc-node/core-linux-s390x-gnu": "npm:0.1.4"
-    "@oxc-node/core-linux-x64-gnu": "npm:0.1.4"
-    "@oxc-node/core-linux-x64-musl": "npm:0.1.4"
-    "@oxc-node/core-openharmony-arm64": "npm:0.1.4"
-    "@oxc-node/core-win32-arm64-msvc": "npm:0.1.4"
-    "@oxc-node/core-win32-ia32-msvc": "npm:0.1.4"
-    "@oxc-node/core-win32-x64-msvc": "npm:0.1.4"
+    "@oxc-node/core-android-arm-eabi": "npm:0.1.5"
+    "@oxc-node/core-android-arm64": "npm:0.1.5"
+    "@oxc-node/core-darwin-arm64": "npm:0.1.5"
+    "@oxc-node/core-darwin-x64": "npm:0.1.5"
+    "@oxc-node/core-freebsd-x64": "npm:0.1.5"
+    "@oxc-node/core-linux-arm-gnueabihf": "npm:0.1.5"
+    "@oxc-node/core-linux-arm64-gnu": "npm:0.1.5"
+    "@oxc-node/core-linux-arm64-musl": "npm:0.1.5"
+    "@oxc-node/core-linux-ppc64-gnu": "npm:0.1.5"
+    "@oxc-node/core-linux-s390x-gnu": "npm:0.1.5"
+    "@oxc-node/core-linux-x64-gnu": "npm:0.1.5"
+    "@oxc-node/core-linux-x64-musl": "npm:0.1.5"
+    "@oxc-node/core-openharmony-arm64": "npm:0.1.5"
+    "@oxc-node/core-win32-arm64-msvc": "npm:0.1.5"
+    "@oxc-node/core-win32-ia32-msvc": "npm:0.1.5"
+    "@oxc-node/core-win32-x64-msvc": "npm:0.1.5"
     pirates: "npm:^4.0.7"
   dependenciesMeta:
     "@oxc-node/core-android-arm-eabi":
@@ -3094,7 +3094,7 @@ __metadata:
       optional: true
     "@oxc-node/core-win32-x64-msvc":
       optional: true
-  checksum: 10c0/e094adf9ef1082d2017ef4e61dc775994bb6bcdfc9bedf9a9501d5463af8e94e96407eec5c4ee5af587b29602aaa37d54ccb7b5004839ba13072aacb929b9d45
+  checksum: 10c0/8faec9243cadf6310b5884e731afa52612cb44ca1ac954eac2879dc5e346b734a65e4cb5e40cea161dea238f9188cb57935d8c1fe5b7c712cc4200448d191b5b
   languageName: node
   linkType: hard
 
