@@ -307,6 +307,36 @@ export function wasiLibcHasNewFutexAbi(
 }
 
 /**
+ * The target spelling Cargo actually compiles under `cargo zigbuild`.
+ *
+ * cargo-zigbuild splits the `--target` value at the first `.`: Cargo builds
+ * the part before it, and the suffix becomes zig's libc/ABI version pin —
+ * `x86_64-unknown-linux-gnu.2.27` is compiled as `x86_64-unknown-linux-gnu`
+ * while `zig cc` gets `-target x86_64-linux-gnu.2.27`. The same split runs
+ * for every target, not just glibc ones, so artifacts always land under the
+ * base name (`target/x86_64-unknown-linux-gnu/release/`) and every
+ * `CARGO_TARGET_<TRIPLE>_*` variable is keyed by it.
+ *
+ * The one spelling that keeps a dot is a custom-target spec file
+ * (`--target foo.json`); Cargo names its artifact directory after the file
+ * stem, so that is returned instead.
+ *
+ * Only apply this where the build really goes through cargo-zigbuild
+ * (`--cross-compile`). Plain `cargo build` and `cross` pass the requested
+ * target to Cargo verbatim, so there the requested spelling is the correct
+ * one everywhere.
+ */
+export function cargoTargetTriple(target: string): string {
+  if (target.endsWith('.json')) {
+    const slash = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'))
+    // Cargo names the artifact directory after the spec file's stem.
+    return target.slice(slash + 1, -'.json'.length)
+  }
+  const dot = target.indexOf('.')
+  return dot === -1 ? target : target.slice(0, dot)
+}
+
+/**
  * A triple is a specific format for specifying a target architecture.
  * Triples may be referred to as a target triple which is the architecture for the artifact produced, and the host triple which is the architecture that the compiler is running on.
  * The general format of the triple is `<arch><sub>-<vendor>-<sys>-<abi>` where:

@@ -7,6 +7,7 @@ import test from 'ava'
 
 import {
   wasiLibcHasNewFutexAbi,
+  cargoTargetTriple,
   parseTriple,
   getSystemDefaultTarget,
   rustBundledWasiLibc,
@@ -52,6 +53,50 @@ test('should get system default target correctly', (t) => {
   const target = getSystemDefaultTarget()
 
   t.is(target.platform, os.platform())
+})
+
+test('cargoTargetTriple should mirror the split cargo-zigbuild applies', (t) => {
+  // cargo-zigbuild splits `--target` at the first dot: Cargo builds the part
+  // before it and the suffix becomes zig's libc/ABI version pin. That split
+  // happens for every target, not only glibc ones.
+  for (const [target, cargo] of [
+    ['x86_64-unknown-linux-gnu.2.27', 'x86_64-unknown-linux-gnu'],
+    ['aarch64-unknown-linux-gnu.2.17', 'aarch64-unknown-linux-gnu'],
+    ['armv7-unknown-linux-gnueabihf.2.31', 'armv7-unknown-linux-gnueabihf'],
+    ['aarch64-apple-darwin.14.0', 'aarch64-apple-darwin'],
+    ['x86_64-unknown-linux-musl.1.2', 'x86_64-unknown-linux-musl'],
+    ['x86_64-unknown-linux-gnu.custom', 'x86_64-unknown-linux-gnu'],
+    ['x86_64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu'],
+  ]) {
+    t.is(cargoTargetTriple(target), cargo, target)
+  }
+})
+
+test('cargoTargetTriple should resolve a custom target spec to its file stem', (t) => {
+  // Cargo names the artifact directory after the stem of a `--target *.json`
+  // spec file, not after the file name or path.
+  t.is(cargoTargetTriple('my-custom-target.json'), 'my-custom-target')
+  t.is(
+    cargoTargetTriple('targets/mips64-unknown-linux-gnuabin32.json'),
+    'mips64-unknown-linux-gnuabin32',
+  )
+  // A stem that itself contains dots keeps them: the spec file's name is
+  // still the artifact directory name.
+  t.is(cargoTargetTriple('my.target.json'), 'my.target')
+  // Windows-style separators resolve to the stem too.
+  t.is(cargoTargetTriple('targets\\my-target.json'), 'my-target')
+})
+
+test('should parse a glibc-versioned zigbuild target verbatim', (t) => {
+  const target = parseTriple('x86_64-unknown-linux-gnu.2.27')
+
+  // `triple` keeps the requested spelling: `cargo zigbuild --target` needs
+  // the suffix to pin the minimum glibc version. The suffix is opaque to
+  // `parseTriple`; `Builder` re-derives platform/arch/abi from
+  // `cargoTargetTriple()` when the build actually goes through zigbuild.
+  t.is(target.triple, 'x86_64-unknown-linux-gnu.2.27')
+  t.is(target.abi, 'gnu.2.27')
+  t.is(cargoTargetTriple(target.triple), 'x86_64-unknown-linux-gnu')
 })
 
 test('should read the wasi-sdk major version from VERSION', async (t) => {

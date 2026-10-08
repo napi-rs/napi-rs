@@ -2,7 +2,12 @@ import { underline, yellow } from 'colorette'
 import { merge, omit } from 'es-toolkit'
 
 import { fileExists, readFileAsync } from './misc.js'
-import { DEFAULT_TARGETS, parseTriple, type Target } from './target.js'
+import {
+  cargoTargetTriple,
+  DEFAULT_TARGETS,
+  parseTriple,
+  type Target,
+} from './target.js'
 
 export type ValueOfConstArray<T> = T[Exclude<keyof T, keyof Array<any>>]
 
@@ -372,7 +377,17 @@ export async function readNapiConfig(
     throw new Error(`Duplicate targets are not allowed: ${duplicateTarget}`)
   }
 
-  const parsedTargets = targets.map(parseTriple)
+  // Entries name an artifact identity, and the identity is the triple Cargo
+  // compiles: `cargo zigbuild` splits a libc/ABI version suffix off
+  // `--target` (x86_64-unknown-linux-gnu.2.27 builds as
+  // x86_64-unknown-linux-gnu), and Cargo names a custom spec's artifact
+  // directory after the file stem — the same split `cargoTargetTriple`
+  // performs. Normalizing here keeps artifact file names, `napi.artifacts`
+  // and `create-npm-dirs`/`pre-publish` package dirs in agreement with what
+  // `napi build -x` emits.
+  const parsedTargets = targets.map((target) =>
+    parseTriple(cargoTargetTriple(target)),
+  )
   const outputTargets = new Map<string, string>()
   for (const [index, target] of parsedTargets.entries()) {
     const previous = outputTargets.get(target.platformArchABI)

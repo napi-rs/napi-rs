@@ -79,3 +79,50 @@ test('should be able to read config from napi.json', async (t) => {
   const config = await readNapiConfig(packageJson, configPath)
   t.snapshot(config)
 })
+
+test('should normalize a versioned zigbuild target to the triple cargo compiles', async (t) => {
+  const packageJson = join(tmpdir(), 'package-versioned-targets.json')
+  await writeFile(
+    packageJson,
+    JSON.stringify({
+      name: '@napi-rs/versioned',
+      version: '0.0.0',
+      napi: {
+        binaryName: 'versioned',
+        targets: ['x86_64-unknown-linux-gnu.2.27'],
+      },
+    }),
+  )
+  try {
+    const config = await readNapiConfig(packageJson)
+    // `napi build -x` emits `versioned.linux-x64-gnu.node`, so the npm
+    // package dir and the expected artifact name must derive from the base
+    // triple too.
+    t.is(config.targets[0].triple, 'x86_64-unknown-linux-gnu')
+    t.is(config.targets[0].platformArchABI, 'linux-x64-gnu')
+  } finally {
+    await unlink(packageJson)
+  }
+})
+
+test('should reject targets that normalize to the same artifact identity', async (t) => {
+  const packageJson = join(tmpdir(), 'package-duplicate-targets.json')
+  await writeFile(
+    packageJson,
+    JSON.stringify({
+      name: '@napi-rs/duplicate',
+      version: '0.0.0',
+      napi: {
+        binaryName: 'duplicate',
+        targets: ['x86_64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu.2.27'],
+      },
+    }),
+  )
+  try {
+    await t.throwsAsync(() => readNapiConfig(packageJson), {
+      message: /produce the same linux-x64-gnu artifact set/,
+    })
+  } finally {
+    await unlink(packageJson)
+  }
+})

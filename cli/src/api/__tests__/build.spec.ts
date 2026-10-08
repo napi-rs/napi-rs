@@ -7,6 +7,7 @@ import {
 } from 'node:fs'
 import { exec, spawnSync } from 'node:child_process'
 import {
+  chmod,
   copyFile,
   mkdir,
   readFile,
@@ -2836,6 +2837,59 @@ test('validateCrossCompileFlags allows `--cross-compile` for non windows-gnu tar
   )
 })
 
+test('validateCrossCompileFlags rejects custom target spec files with `--cross-compile`', (t) => {
+  // Neither `cargo zigbuild` nor `cargo xwin` can consume a `--target
+  // *.json` spec; only a plain `cargo build` can.
+  for (const target of ['my-target.json', 'targets/mips64-custom.json']) {
+    t.throws(
+      () => validateCrossCompileFlags({ crossCompile: true, target }, 'linux'),
+      { message: /does not support custom target spec files/ },
+    )
+    t.throws(
+      () => validateCrossCompileFlags({ crossCompile: true, target }, 'win32'),
+      { message: /does not support custom target spec files/ },
+    )
+    // Plain builds take the spec file verbatim.
+    t.notThrows(() => validateCrossCompileFlags({ target }, 'linux'))
+  }
+})
+
+test('validateCrossCompileFlags rejects versioned Windows targets with `--cross-compile`', (t) => {
+  // Windows targets never reach `cargo zigbuild` — the only `-x` route that
+  // splits the suffix off `--target`: a non-Windows host runs `cargo xwin
+  // build`, a Windows host runs plain `cargo build`, and both forward the
+  // spelling to Cargo verbatim.
+  const versioned =
+    /does not support the versioned target x86_64-pc-windows-msvc\.10\.0/
+  for (const host of ['linux', 'darwin', 'win32']) {
+    t.throws(
+      () =>
+        validateCrossCompileFlags(
+          { crossCompile: true, target: 'x86_64-pc-windows-msvc.10.0' },
+          host,
+        ),
+      { message: versioned },
+    )
+  }
+  // The unversioned MSVC triple stays allowed everywhere.
+  for (const host of ['linux', 'darwin', 'win32']) {
+    t.notThrows(() =>
+      validateCrossCompileFlags(
+        { crossCompile: true, target: 'x86_64-pc-windows-msvc' },
+        host,
+      ),
+    )
+  }
+  // A versioned non-Windows target does reach `cargo zigbuild`, which knows
+  // how to split it.
+  t.notThrows(() =>
+    validateCrossCompileFlags(
+      { crossCompile: true, target: 'x86_64-unknown-linux-gnu.2.27' },
+      'linux',
+    ),
+  )
+})
+
 test('validateCrossCompileFlags rejects watch mode combined with cross builds', (t) => {
   t.throws(() => validateCrossCompileFlags({ watch: true, useCross: true }), {
     message: /`--watch` cannot be used with `--use-cross`/,
@@ -3695,3 +3749,442 @@ test('resolveWasmMemory rejects non-page values', (t) => {
       /napi\.wasm\.maximumMemory must be an integer between 1 and 65536 pages/,
   })
 })
+
+// The `cargo` shim below has to actually run, and `spawn`/`execSync` cannot
+// execute a POSIX shell script on Windows.
+const posixOnly = process.platform === 'win32' ? test.serial.skip : test.serial
+
+interface RecordingCargoProject {
+  argsDir: string
+  run: (options: {
+    target?: string
+    crossCompile?: boolean
+    env?: Record<string, string>
+    /** Serve a canned `cargo metadata` response instead of real cargo. */
+    cannedMetadata?: boolean
+  }) => Promise<{ task: Promise<{ kind: string; path: string }[]> }>
+  restoreEnv: () => void
+}
+
+/**
+ * Set up a crate plus a `cargo` shim on `PATH` that records every
+ * invocation's arguments and environment under `cargo-args/`:
+ *
+ * - `cargo help zigbuild` succeeds so `tryInstallCargoBinary` does not try
+ *   to install cargo-zigbuild,
+ * - `cargo metadata` is forwarded to the real cargo (parseMetadata always
+ *   uses the host `cargo`), unless `cannedMetadata` serves a snapshot —
+ *   needed for targets the host toolchain does not know, which make
+ *   `cargo metadata --filter-platform` fail on its own,
+ * - any other invocation (the build itself) is recorded and exits
+ *   successfully, leaving the artifact the test pre-places untouched.
+ */
+async function setupRecordingCargoProject(
+  t: ExecutionContext<{
+    tmpDir: string
+    projectDir: string
+    typeDefDir: string
+  }>,
+  crateName: string,
+  binaryName: string,
+): Promise<RecordingCargoProject> {
+  const { projectDir } = t.context
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+  await writeFile(
+    join(projectDir, 'Cargo.toml'),
+    `[package]
+name = "${crateName}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+`,
+  )
+  await writeFile(join(projectDir, 'src', 'lib.rs'), 'pub fn artifact() {}\n')
+  await writeFile(
+    join(projectDir, 'package.json'),
+    JSON.stringify({
+      name: binaryName,
+      version: '0.1.0',
+      napi: { binaryName },
+    }),
+  )
+
+  const whichCargo = spawnSync('which', ['cargo'], { encoding: 'utf8' })
+  if (whichCargo.error || whichCargo.status !== 0) {
+    t.fail('cargo is required on PATH for this test')
+    throw new Error('unreachable')
+  }
+  const realCargo = whichCargo.stdout.trim()
+  const binDir = join(projectDir, 'bin')
+  const argsDir = join(projectDir, 'cargo-args')
+  await mkdir(binDir, { recursive: true })
+  await mkdir(argsDir)
+  const counterPath = join(argsDir, 'counter')
+  const cannedPath = join(argsDir, 'canned-metadata.json')
+  const cargoPath = join(binDir, 'cargo')
+  await writeFile(
+    cargoPath,
+    `#!/bin/sh
+n=$(cat "${counterPath}" 2>/dev/null || echo 0)
+n=$((n + 1))
+printf '%s' "$n" > "${counterPath}"
+printf '%s\\n' "$@" > "${argsDir}/args-$n.txt"
+env > "${argsDir}/env-$n.txt"
+if [ "$1" = "help" ] && [ "$2" = "zigbuild" ]; then
+  exit 0
+fi
+if [ "$1" = "metadata" ]; then
+  if [ -f "${cannedPath}" ]; then
+    cat "${cannedPath}"
+    exit 0
+  fi
+  exec "${realCargo}" "$@"
+fi
+exit 0
+`,
+  )
+  await chmod(cargoPath, 0o755)
+
+  const originalCargo = process.env.CARGO
+  const originalPath = process.env.PATH
+  const restoreEnv = () => {
+    if (originalCargo === undefined) {
+      delete process.env.CARGO
+    } else {
+      process.env.CARGO = originalCargo
+    }
+    process.env.PATH = originalPath!
+  }
+
+  return {
+    argsDir,
+    restoreEnv,
+    run: async ({ target, crossCompile, env, cannedMetadata }) => {
+      if (cannedMetadata) {
+        // A real `cargo metadata` snapshot: every field `Builder` reads is
+        // genuine for this crate. `--manifest-path` is passed the way
+        // `parseMetadata` does so cargo keeps the test's `projectDir`
+        // spelling in `manifest_path` instead of canonicalizing it.
+        const metadata = spawnSync(
+          realCargo,
+          [
+            'metadata',
+            '--format-version',
+            '1',
+            '--manifest-path',
+            join(projectDir, 'Cargo.toml'),
+          ],
+          { cwd: projectDir, encoding: 'utf8' },
+        )
+        if (metadata.status !== 0) {
+          t.fail(`cargo metadata failed: ${metadata.stderr}`)
+          throw new Error('unreachable')
+        }
+        await writeFile(cannedPath, metadata.stdout)
+      }
+      process.env.CARGO = cargoPath
+      process.env.PATH = `${binDir}:${originalPath}`
+      const savedEnvs: [string, string | undefined][] = []
+      for (const [key, value] of Object.entries(env ?? {})) {
+        savedEnvs.push([key, process.env[key]])
+        process.env[key] = value
+      }
+      try {
+        return await buildProject({
+          cwd: projectDir,
+          target,
+          crossCompile,
+          platform: true,
+          release: true,
+          outputDir: 'dist',
+        })
+      } finally {
+        for (const [key, value] of savedEnvs) {
+          if (value === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = value
+          }
+        }
+      }
+    },
+  }
+}
+
+async function readRecordedCargoCalls(argsDir: string) {
+  const counter = Number(await readFile(join(argsDir, 'counter'), 'utf8'))
+  const calls: { args: string; env: string }[] = []
+  for (let index = 1; index <= counter; index++) {
+    calls.push({
+      args: await readFile(join(argsDir, `args-${index}.txt`), 'utf8'),
+      env: await readFile(join(argsDir, `env-${index}.txt`), 'utf8'),
+    })
+  }
+  return {
+    metadataCalls: calls.filter((call) => call.args.startsWith('metadata\n')),
+    buildCalls: calls.filter(
+      (call) =>
+        !call.args.startsWith('metadata\n') &&
+        !call.args.startsWith('help\nzigbuild\n'),
+    ),
+  }
+}
+
+posixOnly(
+  'a glibc-versioned zigbuild target resolves its artifact from the base target directory',
+  async (t) => {
+    const { projectDir } = t.context
+    const baseTriple = 'x86_64-unknown-linux-gnu'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'zigbuild_artifact',
+      'zigbuild-artifact',
+    )
+
+    // cargo-zigbuild splits `--target` at the first dot, so the artifact
+    // lands under the base triple's directory (issue #3176).
+    const artifactDir = join(projectDir, 'target', baseTriple, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    await writeFile(
+      join(artifactDir, 'libzigbuild_artifact.so'),
+      'fake artifact',
+    )
+
+    let outputs
+    try {
+      await t.notThrowsAsync(async () => {
+        outputs = await (
+          await shim.run({
+            target: `${baseTriple}.2.27`,
+            crossCompile: true,
+          })
+        ).task
+      }, 'glibc-versioned zigbuild must copy the base-target artifact')
+    } finally {
+      shim.restoreEnv()
+    }
+
+    const artifactPath = join(
+      projectDir,
+      'dist',
+      'zigbuild-artifact.linux-x64-gnu.node',
+    )
+    t.deepEqual(outputs, [{ kind: 'node', path: artifactPath }])
+    t.is(await readFile(artifactPath, 'utf8'), 'fake artifact')
+
+    const { metadataCalls, buildCalls } = await readRecordedCargoCalls(
+      shim.argsDir,
+    )
+    // `cargo metadata --filter-platform` needs the base triple: the suffix
+    // is not a Cargo target.
+    t.regex(
+      metadataCalls[0].args,
+      /--filter-platform\nx86_64-unknown-linux-gnu\n/,
+    )
+    // `cargo zigbuild` still receives the versioned spelling — the suffix is
+    // what tells zigbuild which minimum glibc to link against.
+    t.is(buildCalls.length, 1)
+    t.regex(buildCalls[0].args, /^zigbuild\n/m)
+    t.regex(buildCalls[0].args, /--target\nx86_64-unknown-linux-gnu\.2\.27\n/)
+    // Cargo-facing env keys are keyed on the base triple too. Match the
+    // full versioned spelling — a bare `2\.27` would false-positive on
+    // unrelated version strings in CI env vars.
+    t.notRegex(buildCalls[0].env, /linux-gnu\.2\.27/)
+    t.notRegex(buildCalls[0].env, /CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_2/)
+  },
+)
+
+posixOnly(
+  'a glibc-versioned zigbuild target also resolves through CARGO_BUILD_TARGET',
+  async (t) => {
+    const { projectDir } = t.context
+    const baseTriple = 'x86_64-unknown-linux-gnu'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'zigbuild_env_artifact',
+      'zigbuild-env-artifact',
+    )
+
+    const artifactDir = join(projectDir, 'target', baseTriple, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    await writeFile(
+      join(artifactDir, 'libzigbuild_env_artifact.so'),
+      'fake artifact',
+    )
+
+    const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET
+    let outputs
+    try {
+      process.env.CARGO_BUILD_TARGET = `${baseTriple}.2.27`
+      await t.notThrowsAsync(async () => {
+        // No `target` option: the target comes from CARGO_BUILD_TARGET.
+        outputs = await (await shim.run({ crossCompile: true })).task
+      })
+    } finally {
+      if (originalCargoBuildTarget === undefined) {
+        delete process.env.CARGO_BUILD_TARGET
+      } else {
+        process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget
+      }
+      shim.restoreEnv()
+    }
+
+    t.deepEqual(outputs, [
+      {
+        kind: 'node',
+        path: join(
+          projectDir,
+          'dist',
+          'zigbuild-env-artifact.linux-x64-gnu.node',
+        ),
+      },
+    ])
+    const { metadataCalls, buildCalls } = await readRecordedCargoCalls(
+      shim.argsDir,
+    )
+    t.regex(
+      metadataCalls[0].args,
+      /--filter-platform\nx86_64-unknown-linux-gnu\n/,
+    )
+    t.regex(buildCalls[0].args, /--target\nx86_64-unknown-linux-gnu\.2\.27\n/)
+  },
+)
+
+posixOnly(
+  'a non-zigbuild build hands cargo the requested target spelling verbatim',
+  async (t) => {
+    const { projectDir } = t.context
+    // The versioned spelling is not a Cargo target at all, so any
+    // normalization of non-zigbuild modes would also change what the shim
+    // records — and would have changed `--filter-platform`, which real
+    // cargo could not resolve. The canned metadata keeps the focus on the
+    // argument forwarding.
+    const versionedTriple = 'x86_64-unknown-linux-gnu.2.27'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'plain_artifact',
+      'plain-artifact',
+    )
+    const artifactDir = join(projectDir, 'target', versionedTriple, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    await writeFile(join(artifactDir, 'libplain_artifact.so'), 'fake artifact')
+
+    let outputs
+    try {
+      await t.notThrowsAsync(async () => {
+        outputs = await (
+          await shim.run({ target: versionedTriple, cannedMetadata: true })
+        ).task
+      })
+    } finally {
+      shim.restoreEnv()
+    }
+
+    const { metadataCalls, buildCalls } = await readRecordedCargoCalls(
+      shim.argsDir,
+    )
+    t.regex(
+      metadataCalls[0].args,
+      /--filter-platform\nx86_64-unknown-linux-gnu\.2\.27\n/,
+    )
+    t.is(buildCalls.length, 1)
+    t.regex(buildCalls[0].args, /^build\n/m)
+    t.regex(buildCalls[0].args, /--target\nx86_64-unknown-linux-gnu\.2\.27\n/)
+    t.deepEqual(outputs, [
+      {
+        kind: 'node',
+        path: join(
+          projectDir,
+          'dist',
+          'plain-artifact.linux-x64-gnu.2.27.node',
+        ),
+      },
+    ])
+  },
+)
+
+posixOnly(
+  'a legacy wasm32-wasi spelling reaches --filter-platform canonicalized',
+  async (t) => {
+    // `wasm32-wasi` was removed from rustc in 1.84; napi-rs canonicalizes it
+    // to `wasm32-wasip1-threads`. `--filter-platform` must see the canonical
+    // triple or `cargo metadata` fails before the build ever starts. The
+    // build may still fail later (the fake crate has no emnapi project
+    // deps), which is why the error is swallowed: only the recorded
+    // metadata arguments matter here.
+    const shim = await setupRecordingCargoProject(
+      t,
+      'wasi_artifact',
+      'wasi-artifact',
+    )
+    try {
+      // The build fails later no matter what (the fake crate has no emnapi
+      // project deps; real cargo may also lack the wasi target), so the
+      // rejection — from `run` or from the build task — is swallowed: only
+      // the recorded metadata arguments matter here.
+      await shim
+        .run({ target: 'wasm32-wasi' })
+        .then((result) => result.task)
+        .catch(() => {})
+    } finally {
+      shim.restoreEnv()
+    }
+    const { metadataCalls } = await readRecordedCargoCalls(shim.argsDir)
+    t.is(metadataCalls.length, 1)
+    t.regex(metadataCalls[0].args, /--filter-platform\nwasm32-wasip1-threads\n/)
+  },
+)
+
+posixOnly(
+  'a versioned openharmony zigbuild target keys cargo envs on the base triple',
+  async (t) => {
+    const { projectDir } = t.context
+    const baseTriple = 'aarch64-unknown-linux-ohos'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'ohos_artifact',
+      'ohos-artifact',
+    )
+    const artifactDir = join(projectDir, 'target', baseTriple, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    await writeFile(join(artifactDir, 'libohos_artifact.so'), 'fake artifact')
+    const sdkPath = join(projectDir, 'ohos-sdk')
+
+    let outputs
+    try {
+      outputs = await (
+        await shim.run({
+          target: `${baseTriple}.4.1`,
+          crossCompile: true,
+          cannedMetadata: true,
+          env: { OHOS_SDK_PATH: sdkPath },
+        })
+      ).task
+    } finally {
+      shim.restoreEnv()
+    }
+
+    t.deepEqual(outputs, [
+      {
+        kind: 'node',
+        path: join(projectDir, 'dist', 'ohos-artifact.openharmony-arm64.node'),
+      },
+    ])
+    const { buildCalls } = await readRecordedCargoCalls(shim.argsDir)
+    t.is(buildCalls.length, 1)
+    // Cargo keys CARGO_TARGET_<TRIPLE>_LINKER on the base triple it builds,
+    // and the OHOS SDK toolchain binaries are named after the base triple.
+    t.regex(
+      buildCalls[0].env,
+      /^CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=.*llvm\/bin\/aarch64-unknown-linux-ohos-clang$/m,
+    )
+    t.regex(
+      buildCalls[0].env,
+      /^TARGET_CC=.*llvm\/bin\/aarch64-unknown-linux-ohos-clang$/m,
+    )
+    // A bare `4\.1` false-positives on CI env values like `yarn/4.18.1`.
+    t.notRegex(buildCalls[0].env, /linux-ohos\.4\.1/)
+  },
+)

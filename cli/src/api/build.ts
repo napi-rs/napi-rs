@@ -20,6 +20,7 @@ import * as colors from 'colorette'
 import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
+  cargoTargetTriple,
   commitFileSystemTransaction,
   commonJsDeclarationBarrier,
   copyFileAtomic,
@@ -1171,9 +1172,17 @@ export async function buildProject(rawOptions: BuildOptions) {
     allFeatures: options.allFeatures,
     noDefaultFeatures: options.noDefaultFeatures,
     cargoOptions: options.cargoOptions,
-    filterPlatform: metadataTarget
-      ? parseTriple(metadataTarget).triple
-      : undefined,
+    // `parseTriple` canonicalizes legacy spellings (e.g. `wasm32-wasi` ->
+    // `wasm32-wasip1-threads`) the same way the build's own target
+    // resolution does. `--cross-compile` runs `cargo zigbuild`, which hands
+    // Cargo only the part before the first dot of `--target`; filter the
+    // resolve for that same spelling. Other build modes give Cargo the
+    // requested target verbatim.
+    filterPlatform:
+      metadataTarget &&
+      (options.crossCompile
+        ? cargoTargetTriple(parseTriple(metadataTarget).triple)
+        : parseTriple(metadataTarget).triple),
   })
 
   const crate = metadata.packages.find((p) => {
@@ -1231,6 +1240,12 @@ function resolveTarget(targetOption?: string): Target {
  * `CARGO_BUILD_TARGET`) is inspected, so this validation never has to spawn
  * `rustc -vV`; a non-Windows host's default target can never be
  * `windows-gnu` anyway.
+ *
+ * Two other spellings are rejected outright: `*.json` custom target specs,
+ * which neither `cargo zigbuild` nor `cargo xwin` can consume, and
+ * libc/ABI-versioned Windows targets, which never reach `cargo zigbuild`
+ * (the only `-x` route that splits the suffix off `--target`) and so hit
+ * Cargo verbatim.
  */
 export function validateCrossCompileFlags(
   options: {
@@ -1266,14 +1281,34 @@ export function validateCrossCompileFlags(
     )
   }
 
-  // On a Windows host `--cross-compile` never picks `cargo-xwin` (it falls
-  // back to a plain `cargo build`), so windows-gnu targets are only broken
-  // on non-Windows hosts.
-  if (options.crossCompile && hostPlatform !== 'win32') {
+  if (options.crossCompile) {
     const explicitTarget = options.target ?? process.env.CARGO_BUILD_TARGET
     if (explicitTarget) {
+      // `cargo zigbuild` and `cargo xwin` cannot consume a custom target
+      // spec file; only a plain `cargo build` can.
+      if (explicitTarget.endsWith('.json')) {
+        throw new Error(
+          `\`--cross-compile\` (\`-x\`) does not support custom target spec files (${explicitTarget}). Drop \`-x\` and build with plain \`cargo build\`, which accepts \`--target <spec>.json\` natively.`,
+        )
+      }
       const target = parseTriple(explicitTarget)
-      if (target.platform === 'win32' && target.abi?.startsWith('gnu')) {
+      // Only `cargo zigbuild` splits a versioned `--target` at the first
+      // dot. Win32 targets are never routed there: a non-Windows host runs
+      // `cargo xwin build` and a Windows host falls back to plain
+      // `cargo build`, and both forward the spelling to Cargo verbatim.
+      if (target.platform === 'win32' && explicitTarget.includes('.')) {
+        throw new Error(
+          `\`--cross-compile\` (\`-x\`) does not support the versioned target ${explicitTarget}: Windows targets do not go through \`cargo zigbuild\`, so the suffix reaches Cargo verbatim and Cargo rejects it. Drop the suffix and use ${cargoTargetTriple(explicitTarget)} instead.`,
+        )
+      }
+      // On a Windows host `--cross-compile` never picks `cargo-xwin` (it
+      // falls back to a plain `cargo build`), so windows-gnu targets are
+      // only broken on non-Windows hosts.
+      if (
+        hostPlatform !== 'win32' &&
+        target.platform === 'win32' &&
+        target.abi?.startsWith('gnu')
+      ) {
         const msvcTriple = explicitTarget.replace(/gnu(llvm)?$/, 'msvc')
         // `*-windows-gnu` links with a mingw-w64 GCC toolchain, while
         // `*-windows-gnullvm` needs an LLVM toolchain (llvm-mingw): `rustc`
@@ -1485,6 +1520,15 @@ class Builder {
   private readonly outputs: Output[] = []
 
   private readonly target: Target
+  /**
+   * The triple Cargo actually compiles to. When `--cross-compile` routes
+   * the build through `cargo zigbuild`, cargo-zigbuild splits
+   * `x86_64-unknown-linux-gnu.2.27` at the first dot: Cargo builds
+   * `x86_64-unknown-linux-gnu` and only zig sees the suffix, so
+   * Cargo-facing paths and env keys use the base triple while `this.target`
+   * keeps the requested spelling for `zigbuild --target`.
+   */
+  private readonly cargoTriple: string
   private readonly crateDir: string
   private readonly finalOutputDir: string
   private outputDir: string
@@ -1506,7 +1550,23 @@ class Builder {
     private readonly config: NapiConfig,
     private readonly options: ParsedBuildOptions,
   ) {
-    this.target = resolveTarget(options.target)
+    const requested = resolveTarget(options.target)
+    // `cargo zigbuild` is only the `-x` route for non-Windows targets —
+    // win32 ones go to `cargo xwin` (or plain `cargo build` on a Windows
+    // host), which forward `--target` verbatim — so only the zigbuild route
+    // splits the requested spelling.
+    this.cargoTriple =
+      options.crossCompile && requested.platform !== 'win32'
+        ? cargoTargetTriple(requested.triple)
+        : requested.triple
+    // Platform/arch/abi describe the triple Cargo compiles, so artifact
+    // names, `--platform` naming, and platform dispatch agree with the
+    // directory Cargo writes to. Only the zigbuild suffix needs this —
+    // every other build mode passes the requested triple verbatim.
+    this.target =
+      this.cargoTriple === requested.triple
+        ? requested
+        : { ...parseTriple(this.cargoTriple), triple: requested.triple }
     this.crateDir = parse(crate.manifest_path).dir
     this.finalOutputDir = resolve(
       this.options.cwd,
@@ -1928,14 +1988,12 @@ class Builder {
     // LINKER
     const linker = this.options.crossCompile
       ? void 0
-      : getTargetLinker(this.target.triple)
+      : getTargetLinker(this.cargoTriple)
     // TODO:
     //   directly set CARGO_TARGET_<target>_LINKER will cover .cargo/config.toml
     //   will detect by cargo config when it becomes stable
     //   see: https://github.com/rust-lang/cargo/issues/9301
-    const linkerEnv = `CARGO_TARGET_${targetToEnvVar(
-      this.target.triple,
-    )}_LINKER`
+    const linkerEnv = `CARGO_TARGET_${targetToEnvVar(this.cargoTriple)}_LINKER`
     if (linker && !process.env[linkerEnv] && !this.envs[linkerEnv]) {
       this.envs[linkerEnv] = linker
     }
@@ -1972,8 +2030,13 @@ class Builder {
   }
 
   private setAndroidEnv() {
-    // Native Android hosts and `cross` provide their own Android toolchains.
-    if (process.platform === 'android' || this.options.useCross) {
+    // Native Android hosts, `cross`, and `cargo zigbuild` (`zig cc` links,
+    // no NDK involved) provide their own Android toolchains.
+    if (
+      process.platform === 'android' ||
+      this.options.useCross ||
+      this.options.crossCompile
+    ) {
       return
     }
 
@@ -2129,11 +2192,11 @@ class Builder {
       )
       return
     }
-    const linkerName = `CARGO_TARGET_${this.target.triple.toUpperCase().replace(/-/g, '_')}_LINKER`
+    const linkerName = `CARGO_TARGET_${this.cargoTriple.toUpperCase().replace(/-/g, '_')}_LINKER`
     const ranPath = `${ndkPath}/llvm/bin/llvm-ranlib`
     const arPath = `${ndkPath}/llvm/bin/llvm-ar`
-    const ccPath = `${ndkPath}/llvm/bin/${this.target.triple}-clang`
-    const cxxPath = `${ndkPath}/llvm/bin/${this.target.triple}-clang++`
+    const ccPath = `${ndkPath}/llvm/bin/${this.cargoTriple}-clang`
+    const cxxPath = `${ndkPath}/llvm/bin/${this.cargoTriple}-clang++`
     const asPath = `${ndkPath}/llvm/bin/llvm-as`
     const ldPath = `${ndkPath}/llvm/bin/ld.lld`
     const stripPath = `${ndkPath}/llvm/bin/llvm-strip`
@@ -2212,13 +2275,13 @@ class Builder {
 
   private async generateIntermediateTypeDefFolder(rustflags: string) {
     const targetRustFlagsEnv = `CARGO_TARGET_${targetToEnvVar(
-      this.target.triple,
+      this.cargoTriple,
     )}_RUSTFLAGS`
     let folder = getTypeDefCacheFolder({
       targetDir: this.targetDir,
       crateName: this.crate.name,
       manifestPath: this.crate.manifest_path,
-      targetTriple: this.target.triple,
+      targetTriple: this.cargoTriple,
       profile:
         this.options.profile ?? (this.options.release ? 'release' : 'dev'),
       features: this.options.features,
@@ -2412,7 +2475,10 @@ class Builder {
 
     const profile =
       this.options.profile ?? (this.options.release ? 'release' : 'debug')
-    const src = join(this.targetDir, this.target.triple, profile, srcName)
+    // Under `cargo zigbuild` the artifact lives under the part of
+    // `--target` before the first dot (`this.cargoTriple`), since the suffix
+    // only pins zig's libc/ABI version.
+    const src = join(this.targetDir, this.cargoTriple, profile, srcName)
     debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
     const isWasm = dest.endsWith('.wasm')
