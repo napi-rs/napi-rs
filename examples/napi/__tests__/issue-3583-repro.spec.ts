@@ -146,14 +146,19 @@ poolTest(
 
     // The task must be in-flight (blocked on the gate) before GC; without
     // rooting the wrapper would be collected here and the Box freed under it.
-    t.true(await waitForWaiters(gate, 1), 'task did not start waiting on gate')
-    await collect(gc)
-    t.false(
-      finalized.has(1),
-      'wrapper was collected while async work held its borrow',
-    )
-
-    closeBorrowGate(gate)
+    try {
+      t.true(
+        await waitForWaiters(gate, 1),
+        'task did not start waiting on gate',
+      )
+      await collect(gc)
+      t.false(
+        finalized.has(1),
+        'wrapper was collected while async work held its borrow',
+      )
+    } finally {
+      closeBorrowGate(gate)
+    }
     t.is(await checksum.promise, checksum.expected)
 
     // Once the work settles the roots are released exactly once; nothing else
@@ -188,14 +193,19 @@ poolTest(
       return cache.readAsync(gate)
     })()
 
-    t.true(await waitForWaiters(gate, 1), 'task did not start waiting on gate')
-    await collect(gc)
-    t.false(
-      finalized.has(2),
-      'this wrapper was collected while async work held its borrow',
-    )
-
-    closeBorrowGate(gate)
+    try {
+      t.true(
+        await waitForWaiters(gate, 1),
+        'task did not start waiting on gate',
+      )
+      await collect(gc)
+      t.false(
+        finalized.has(2),
+        'this wrapper was collected while async work held its borrow',
+      )
+    } finally {
+      closeBorrowGate(gate)
+    }
     t.is(await promise, 6)
     await collect(gc)
     t.true(
@@ -336,14 +346,19 @@ poolTest(
       return readBorrowedCacheSpawnInside(cache, gate)
     })()
 
-    t.true(await waitForWaiters(gate, 1), 'task did not start waiting on gate')
-    await collect(gc)
-    t.false(
-      finalized.has(5),
-      'wrapper was collected while its task was still running',
-    )
-
-    closeBorrowGate(gate)
+    try {
+      t.true(
+        await waitForWaiters(gate, 1),
+        'task did not start waiting on gate',
+      )
+      await collect(gc)
+      t.false(
+        finalized.has(5),
+        'wrapper was collected while its task was still running',
+      )
+    } finally {
+      closeBorrowGate(gate)
+    }
     t.is(await promise, (255 * 256) / 2)
     await collect(gc)
     t.true(
@@ -375,17 +390,19 @@ poolTest(
       return readBorrowedCacheAsyncBlock(cache, gate)
     })()
 
-    t.true(
-      await waitForWaiters(gate, 1),
-      'async block did not start waiting on gate',
-    )
-    await collect(gc)
-    t.false(
-      finalized.has(6),
-      'wrapper was collected while its async block was still running',
-    )
-
-    closeBorrowGate(gate)
+    try {
+      t.true(
+        await waitForWaiters(gate, 1),
+        'async block did not start waiting on gate',
+      )
+      await collect(gc)
+      t.false(
+        finalized.has(6),
+        'wrapper was collected while its async block was still running',
+      )
+    } finally {
+      closeBorrowGate(gate)
+    }
     t.is(await promise, (255 * 256) / 2)
     await collect(gc)
     t.true(
@@ -419,14 +436,16 @@ async function expectRootedWhileTaskRuns(
     return call(cache, gate)
   })()
 
-  t.true(await waitForWaiters(gate, 1), 'task did not start waiting on gate')
-  await collect(gc)
-  t.false(
-    finalized.has(held),
-    'wrapper was collected while async work held its borrow',
-  )
-
-  closeBorrowGate(gate)
+  try {
+    t.true(await waitForWaiters(gate, 1), 'task did not start waiting on gate')
+    await collect(gc)
+    t.false(
+      finalized.has(held),
+      'wrapper was collected while async work held its borrow',
+    )
+  } finally {
+    closeBorrowGate(gate)
+  }
   t.is(await promise, (255 * 256) / 2)
   await collect(gc)
   t.true(
@@ -517,33 +536,37 @@ poolTest(
 
     // Both tasks in-flight: GC must not collect the wrapper while either holds
     // the borrow.
-    t.true(
-      await waitForWaiters(gateFast, 1),
-      'first task did not start waiting',
-    )
-    t.true(
-      await waitForWaiters(gateSlow, 1),
-      'second task did not start waiting',
-    )
-    await collect(gc)
-    t.false(
-      finalized.has(10),
-      'wrapper was collected while both tasks held its borrow',
-    )
+    try {
+      t.true(
+        await waitForWaiters(gateFast, 1),
+        'first task did not start waiting',
+      )
+      t.true(
+        await waitForWaiters(gateSlow, 1),
+        'second task did not start waiting',
+      )
+      await collect(gc)
+      t.false(
+        finalized.has(10),
+        'wrapper was collected while both tasks held its borrow',
+      )
 
-    // The first task settles while the second is still running. The scope's
-    // roots must survive past this settle — this is the use-after-free window
-    // the single-consumer claim had.
-    closeBorrowGate(gateFast)
-    t.is(await promises[0], (255 * 256) / 2)
-    await collect(gc)
-    t.false(
-      finalized.has(10),
-      'wrapper was collected after the first task settled while the second still ran',
-    )
-
-    // The last lease out releases the roots exactly once.
-    closeBorrowGate(gateSlow)
+      // The first task settles while the second is still running. The scope's
+      // roots must survive past this settle — this is the use-after-free window
+      // the single-consumer claim had.
+      closeBorrowGate(gateFast)
+      t.is(await promises[0], (255 * 256) / 2)
+      await collect(gc)
+      t.false(
+        finalized.has(10),
+        'wrapper was collected after the first task settled while the second still ran',
+      )
+    } finally {
+      // Gate closes are idempotent; a failure above must not leave a pool
+      // thread wedged in wait_borrow_gate.
+      closeBorrowGate(gateFast)
+      closeBorrowGate(gateSlow)
+    }
     t.is(await promises[1], (255 * 256) / 2)
     await collect(gc)
     t.true(
@@ -574,27 +597,34 @@ poolTest(
       finalized.add(held)
     })
 
+    let nested: Promise<unknown> | undefined
     ;(() => {
       const cache = new BorrowedCache(256)
       registry.register(cache, 11)
       // JS re-entry during return-value conversion: `cb()` calls back into a
       // zero-argument `#[napi]` fn returning a gate-blocked `AsyncTask`.
-      readBorrowedCacheWithReentry(cache, () => nestedZeroArgTask())
+      readBorrowedCacheWithReentry(cache, () => (nested = nestedZeroArgTask()))
     })()
 
-    // The nested zero-arg task started and is blocked on its gate.
-    t.true(await waitForWaiters(REENTRY_GATE, 1), 'nested task did not start')
+    try {
+      // The nested zero-arg task started and is blocked on its gate.
+      t.true(await waitForWaiters(REENTRY_GATE, 1), 'nested task did not start')
 
-    // The outer scope's conversion ended with no claim: the wrapper must be
-    // collectible even though the nested task is still blocked. Under the bug
-    // the nested task had claimed the outer scope and kept this rooted.
-    await collect(gc)
-    t.true(
-      finalized.has(11),
-      'outer wrapper stayed rooted by the nested task claiming its scope',
-    )
-
-    closeBorrowGate(REENTRY_GATE)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+      // The outer scope's conversion ended with no claim: the wrapper must be
+      // collectible even though the nested task is still blocked. Under the bug
+      // the nested task had claimed the outer scope and kept this rooted.
+      await collect(gc)
+      t.true(
+        finalized.has(11),
+        'outer wrapper stayed rooted by the nested task claiming its scope',
+      )
+    } finally {
+      closeBorrowGate(REENTRY_GATE)
+      // Await the nested task's settlement — a discarded promise would leave
+      // the task unobserved (and unhandled on rejection).
+      if (nested) {
+        await nested
+      }
+    }
   },
 )
