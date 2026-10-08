@@ -8,12 +8,19 @@ use std::rc::Rc;
 
 use crate::bindgen_runtime::JsObjectValue;
 use crate::{
-  bindgen_runtime::{PromiseRaw, ToNapiValue},
+  bindgen_runtime::{NativeBorrowLease, PromiseRaw, ToNapiValue},
   check_status, sys, Env, Error, JsError, Result, ScopedTask, Status,
 };
 
 struct AsyncWork<'task, T: ScopedTask<'task>> {
-  inner_task: T,
+  // `Option` so `finally` can consume the task while the rest of the box stays owned here:
+  // `complete_impl` must still release `borrow_lease` after `inner_task` is gone.
+  inner_task: Option<T>,
+  /// Lease on the borrow scope deferred by generated callback glue for `&T`/`&mut T`/`&self`
+  /// arguments captured by this task. Held (never touched) while `compute` runs on the pool
+  /// thread and released on the JavaScript thread in [`complete_impl`] once the task is
+  /// destroyed; the scope's guards and roots go out with the last lease, not this one.
+  borrow_lease: Option<NativeBorrowLease>,
   deferred: sys::napi_deferred,
   value: mem::MaybeUninit<Result<T::Output>>,
   napi_async_work: sys::napi_async_work,
@@ -156,6 +163,7 @@ pub fn run<'task, T: ScopedTask<'task>>(
   env: sys::napi_env,
   task: T,
   abort_status: Option<Rc<Cell<u8>>>,
+  borrow_lease: Option<NativeBorrowLease>,
 ) -> Result<AsyncWorkPromise<T::JsValue>> {
   let mut undefined = ptr::null_mut();
   check_status!(
@@ -170,13 +178,17 @@ pub fn run<'task, T: ScopedTask<'task>>(
   )?;
   let task_status = abort_status.unwrap_or_else(|| Rc::new(Cell::new(0)));
   let result = Box::leak(Box::new(AsyncWork {
-    inner_task: task,
+    inner_task: Some(task),
+    borrow_lease,
     deferred,
     value: mem::MaybeUninit::uninit(),
     napi_async_work: ptr::null_mut(),
     status: task_status.clone(),
   }));
-  check_status!(
+  // `run` still owns the `AsyncWork` allocation until `napi_queue_async_work` succeeds, so a
+  // failed create/queue must reclaim it: the task and the deferred borrow lease drop here on
+  // the JavaScript thread instead of leaking.
+  if let Err(err) = check_status!(
     unsafe {
       sys::napi_create_async_work(
         env,
@@ -189,11 +201,28 @@ pub fn run<'task, T: ScopedTask<'task>>(
       )
     },
     "Create async work failed in async_work::run"
-  )?;
-  check_status!(
+  ) {
+    // `env` is live on the owner thread here, so the lease releases its roots directly
+    // instead of leaking them on builds without the custom-GC delegate.
+    let borrow_lease = result.borrow_lease.take();
+    drop(unsafe { Box::from_raw(result) });
+    if let Some(borrow_lease) = borrow_lease {
+      borrow_lease.release(env);
+    }
+    return Err(err);
+  }
+  if let Err(err) = check_status!(
     unsafe { sys::napi_queue_async_work(env, result.napi_async_work) },
     "Queue async work failed in async_work::run"
-  )?;
+  ) {
+    unsafe { sys::napi_delete_async_work(env, result.napi_async_work) };
+    let borrow_lease = result.borrow_lease.take();
+    drop(unsafe { Box::from_raw(result) });
+    if let Some(borrow_lease) = borrow_lease {
+      borrow_lease.release(env);
+    }
+    return Err(err);
+  }
   // Only a queue that succeeded holds a waiting-request reference for a teardown to balance.
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]
   register_outstanding_async_work(env, result.napi_async_work);
@@ -215,7 +244,11 @@ unsafe extern "C" fn execute<'task, T: ScopedTask<'task>>(_env: sys::napi_env, d
   // An emnapi pool thread gets this work from the JS thread and may hold a stale memory size.
   crate::on_thread_handoff();
   let work = Box::leak(unsafe { Box::from_raw(data as *mut AsyncWork<T>) });
-  let value = work.inner_task.compute();
+  let value = work
+    .inner_task
+    .as_mut()
+    .expect("inner_task is taken only by the complete callback")
+    .compute();
   work.value.write(value);
 }
 
@@ -271,14 +304,18 @@ fn settle<'task, T: ScopedTask<'task>>(
       "Reject AbortError failed",
     );
   }
+  let inner_task = work
+    .inner_task
+    .as_mut()
+    .expect("inner_task is taken only by finally");
   let value_ptr = unsafe { work.value.assume_init_read() };
   let value = match value_ptr {
-    Ok(output) => work.inner_task.resolve(
+    Ok(output) => inner_task.resolve(
       // SAFETY: `Env` is long lived
       unsafe { std::mem::transmute::<&Env, &'task Env>(&Env::from_raw(env)) },
       output,
     ),
-    Err(e) => work.inner_task.reject(
+    Err(e) => inner_task.reject(
       // SAFETY: `Env` is long lived
       unsafe { std::mem::transmute::<&Env, &'task Env>(&Env::from_raw(env)) },
       e,
@@ -351,10 +388,25 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   // `finally` runs only when settlement ran — an error or a dead env skips it,
   // same as before.
   let result = match settle_result {
-    Ok(true) => work.inner_task.finally(Env::from_raw(env)),
+    Ok(true) => work
+      .inner_task
+      .take()
+      .expect("inner_task is taken only by finally")
+      .finally(Env::from_raw(env)),
     Ok(false) => Ok(()),
     Err(e) => Err(e),
   };
+  // Settlement and `finally` have run (or been skipped). Destroy the box first so a task that
+  // never reached `finally` — and every forged `&'static` reference it captured — is dropped
+  // before this lease releases its hold on the borrow scope's alias guards and JavaScript
+  // roots. Releasing the last lease deletes roots, which may run wrapper finalizers
+  // (re-entrant JavaScript), so this stays inside the window where the work is still
+  // registered as outstanding.
+  let borrow_lease = work.borrow_lease.take();
+  drop(work);
+  if let Some(borrow_lease) = borrow_lease {
+    borrow_lease.release(env);
+  }
   // Everything that can re-enter JavaScript has run. Leave the registry before the handle is
   // freed below.
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]

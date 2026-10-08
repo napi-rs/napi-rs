@@ -1067,11 +1067,16 @@ impl Env {
   }
 
   /// Run [Task](./trait.Task.html) in libuv thread pool, return [AsyncWorkPromise](./struct.AsyncWorkPromise.html)
+  ///
+  /// A task spawned mid-callback does not inherit the borrow-scope rooting generated glue
+  /// defers for `&T`/`&self` arguments — that scope is claimed by the callback's own returned
+  /// `AsyncTask`/`AsyncBlock`. Tasks spawned here that capture borrowed `#[napi]` class
+  /// references must keep the JavaScript wrappers alive by other means.
   pub fn spawn<'env, T: 'env + ScopedTask<'env>>(
     &self,
     task: T,
   ) -> Result<AsyncWorkPromise<T::JsValue>> {
-    async_work::run(self.0, task, None)
+    async_work::run(self.0, task, None, None)
   }
 
   pub fn run_in_scope<T, F>(&self, executor: F) -> Result<T>
@@ -1240,6 +1245,11 @@ impl Env {
     feature = "napi4"
   ))]
   /// Spawn a future, return a JavaScript Promise which takes the result of the future
+  ///
+  /// A future spawned mid-callback does not inherit the borrow-scope rooting generated glue
+  /// defers for `&T`/`&self` arguments — that scope is claimable only by the callback's own
+  /// returned `AsyncTask`/`AsyncBlock` while its return value is converted. A spawned future
+  /// that captures such references must keep the JavaScript wrappers alive by other means.
   pub fn spawn_future<
     T: 'static + Send + ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,

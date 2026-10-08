@@ -70,6 +70,11 @@ pub use buffer::*;
 pub use date::*;
 #[cfg(feature = "serde-json")]
 pub use de::De;
+#[cfg(all(
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+pub(crate) use deferred::FinalizeCallback;
 #[cfg(feature = "napi4")]
 pub use deferred::*;
 pub use either::Either;

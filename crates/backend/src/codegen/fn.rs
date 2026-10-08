@@ -48,6 +48,45 @@ impl TryToTokens for NapiFn {
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name)?;
     let register = self.gen_fn_register();
+    // The zero-argument fast path below skips `CallbackInfo` — and the borrow scope
+    // binding — entirely. Such callbacks register no borrows, so there is nothing to
+    // defer; emitting the defer there would reference a binding that does not exist.
+    let zero_arg_shortcut = args_len == 0
+      && self.fn_self.is_none()
+      && self.kind != FnKind::Constructor
+      && self.kind != FnKind::Factory
+      && !self.is_async;
+    // The scope kind every borrow-collecting path (function call and class accessor) uses.
+    // Async callbacks root eagerly: their scope leaves this thread inside the generated
+    // future's finalize closure. Synchronous callbacks never know whether the value they
+    // return carries queued async work — `Option<AsyncTask>`, a type alias, a tuple member
+    // — so their scope only records the borrowed values and the defer below hands it to
+    // whichever async sink claims it during return conversion; that claim is what creates
+    // the `napi_ref` roots, and a scope nobody claims costs nothing but a TLS push/pop.
+    let create_native_borrow_scope = if self.is_async {
+      quote! {
+        napi::bindgen_prelude::NativeBorrowScope::new_async()
+      }
+    } else {
+      quote! {
+        napi::bindgen_prelude::NativeBorrowScope::new()
+      }
+    };
+    // Deferred handoff emitted inside the native-call block, between the call producing
+    // `_ret` and the return value's `ToNapiValue` conversion: only the conversion may see
+    // a deferred scope on this thread, so an async sink (`Env::spawn_future`, a nested
+    // `AsyncBlockBuilder::build`, a reentrant `#[napi]` conversion) invoked inside the
+    // callback body can never claim a scope that is not theirs. The guard releases the
+    // scope if the conversion doesn't (an `Err` return, a throw, or a panic unwinding
+    // out of the callback).
+    let defer_native_borrow_scope = if !zero_arg_shortcut {
+      quote! {
+        let _napi_deferred_scope_guard =
+          napi::bindgen_prelude::defer_native_borrow_scope(_napi_native_borrow_scope, env);
+      }
+    } else {
+      quote! {}
+    };
     let tracing_debug = gen_tracing_debug(&self.js_name, self.parent_js_name.as_ref());
 
     if self.module_exports {
@@ -123,6 +162,7 @@ impl TryToTokens for NapiFn {
             let #receiver_ret_name = {
               #receiver(#(#arg_names),*)
             };
+            #defer_native_borrow_scope
             #ret
           })
         }
@@ -131,6 +171,7 @@ impl TryToTokens for NapiFn {
           let #receiver_ret_name = {
             #receiver(#(#arg_names),*)
           };
+          #defer_native_borrow_scope
           #ret
         }
       };
@@ -147,7 +188,7 @@ impl TryToTokens for NapiFn {
         // the native call INCLUDING return-value conversion. That property is the
         // memory-safety invariant: a reentrant `&mut self` call during return-value
         // conversion must conflict instead of freeing memory the conversion still reads.
-        let mut _napi_native_borrow_scope = napi::bindgen_prelude::NativeBorrowScope::new();
+        let mut _napi_native_borrow_scope = #create_native_borrow_scope;
         let __wrapped_env = napi::bindgen_prelude::Env::from(env);
         #(#arg_conversions)*
         #(#this_conversions)*
@@ -243,19 +284,6 @@ impl TryToTokens for NapiFn {
     } else {
       quote! {}
     };
-    // Async callbacks root the exact source JavaScript values alongside their alias guards and
-    // release both on the owner thread once the generated future (and every reference it
-    // captured) is done. Synchronous callbacks only hold alias guards; the scope local's drop at
-    // the end of the callback block releases them after return-value conversion.
-    let create_native_borrow_scope = if self.is_async {
-      quote! {
-        napi::bindgen_prelude::NativeBorrowScope::new_async()
-      }
-    } else {
-      quote! {
-        napi::bindgen_prelude::NativeBorrowScope::new()
-      }
-    };
     let native_call = if !self.is_async {
       if self.within_async_runtime {
         quote! {
@@ -263,6 +291,7 @@ impl TryToTokens for NapiFn {
             let #receiver_ret_name = {
               #receiver(#(#arg_names),*)
             };
+            #defer_native_borrow_scope
             #ret
           })
         }
@@ -271,6 +300,7 @@ impl TryToTokens for NapiFn {
           let #receiver_ret_name = {
             #receiver(#(#arg_names),*)
           };
+          #defer_native_borrow_scope
           #ret
         }
       }
@@ -286,12 +316,20 @@ impl TryToTokens for NapiFn {
         quote! { Ok::<#ret_type, napi::Error>(#receiver(#(#arg_names),*).await) }
       };
       quote! {
-        napi::bindgen_prelude::execute_tokio_future_with_finalize_callback(env, async move { #call }, move |env, #receiver_ret_name| {
-          #ret
-        }, Some(Box::new(move |env| {
-          _napi_native_borrow_scope.release(env);
-          _args_ref.drop(env);
-        })))
+        {
+          // `NativeBorrowScopeRelease` — not the bare scope — travels in the settle slot so
+          // that a closure dropped uninvoked (env teardown aborts the threadsafe function,
+          // or a queued settle drains with a null env on a dead env) abandons the scope:
+          // alias guards released, roots leaked, no napi calls off the owner thread.
+          let _napi_borrow_scope_release =
+            napi::bindgen_prelude::NativeBorrowScopeRelease::new(_napi_native_borrow_scope);
+          napi::bindgen_prelude::execute_tokio_future_with_finalize_callback(env, async move { #call }, move |env, #receiver_ret_name| {
+            #ret
+          }, Some(Box::new(move |env| {
+            _napi_borrow_scope_release.release(env);
+            _args_ref.drop(env);
+          })))
+        }
       }
     };
 
@@ -325,12 +363,7 @@ impl TryToTokens for NapiFn {
         })
     };
 
-    let function_call = if args_len == 0
-      && self.fn_self.is_none()
-      && self.kind != FnKind::Constructor
-      && self.kind != FnKind::Factory
-      && !self.is_async
-    {
+    let function_call = if zero_arg_shortcut {
       quote! {
         let _napi_native_borrow_barrier =
           napi::bindgen_prelude::NativeBorrowBarrier::new();
