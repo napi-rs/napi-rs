@@ -1,1 +1,1 @@
-export * from '@examples/napi-wasm32-wasip1'
+export * from '@examples/napi-wasm32-wasi'

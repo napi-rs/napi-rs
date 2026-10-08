@@ -28,7 +28,7 @@ const bindingFile = isManualThreadlessWasi
   : isThreadlessWasi
     ? './custom_async_runtime.wasip1.cjs'
     : isThreadedWasi
-      ? './custom_async_runtime.wasi.cjs'
+      ? './custom_async_runtime.wasip1-threads.cjs'
       : './index.cjs'
 const resolvedBindingFile = require.resolve(bindingFile)
 const declarationFile = isManualThreadlessWasi
@@ -1522,7 +1522,7 @@ if (isThreadedWasi) {
   const packageDirectory = dirname(fileURLToPath(import.meta.url))
   const threadedLoaderPath = join(
     packageDirectory,
-    'custom_async_runtime.wasi.cjs',
+    'custom_async_runtime.wasip1-threads.cjs',
   )
   await access(threadedLoaderPath)
 

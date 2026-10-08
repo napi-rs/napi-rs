@@ -11,7 +11,8 @@
 /**
  * Named export every generated loader uses to report which binding artifact
  * actually loaded: `'native'` for a `.node` addon, otherwise the
- * `platformArchABI` of the WASI flavor (`'wasm32-wasi'`, `'wasm32-wasip1'`).
+ * `platformArchABI` of the WASI flavor (`'wasm32-wasip1-threads'`,
+ * `'wasm32-wasip1'`).
  */
 export const NAPI_BINDING_TARGET_EXPORT = '__napiBindingTarget'
 

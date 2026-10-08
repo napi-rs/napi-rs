@@ -15,7 +15,8 @@ const {
   tsfnReturnPromiseTimeout,
   asyncTaskReadFile,
   testWorkers,
-}: typeof import('../index.cjs') = await import('../example.wasi-browser')
+}: typeof import('../index.cjs') =
+  await import('../example.wasip1-threads-browser')
 
 describe('NAPI-RS wasi browser test', function () {
   it('DEFAULT_COST', function () {

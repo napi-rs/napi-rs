@@ -123,10 +123,43 @@ export interface WasiTarget {
 }
 
 /**
- * Resolve historical WASI spellings to one build target and one artifact
- * identity. `wasm32-wasi` historically produced the threaded package, so it
- * must never be inferred as threadless merely because its name lacks the
- * `-threads` suffix.
+ * Name of the WASI target *family*.
+ *
+ * Both WASI flavors compile to `target_os = "wasi"` / `target_arch = "wasm32"`
+ * in Rust, and the CLI mirrors that: `wasm32-wasi` is never one build target
+ * or one artifact. In `napi.targets` it is shorthand for both flavors, and it
+ * names the unified npm package (`<package>-wasm32-wasi`) that carries both
+ * flavors when both are configured.
+ */
+export const WASI_FAMILY_TARGET = 'wasm32-wasi'
+
+/** Canonical triples of the two WASI flavors, threaded first. */
+export const WASI_FLAVOR_TRIPLES = [
+  'wasm32-wasip1-threads',
+  'wasm32-wasip1',
+] as const
+
+export type WasiFlavorTriple = (typeof WASI_FLAVOR_TRIPLES)[number]
+
+/**
+ * Every identity a WASI npm package directory can have: the family name for
+ * the unified package, or one flavor's `platformArchABI` for a single-flavor
+ * package.
+ */
+export const WASI_PACKAGE_IDENTITIES = [
+  WASI_FAMILY_TARGET,
+  ...WASI_FLAVOR_TRIPLES,
+] as const
+
+export type WasiPackageIdentity = (typeof WASI_PACKAGE_IDENTITIES)[number]
+
+/**
+ * Resolve a WASI flavor spelling to one build target and one artifact
+ * identity. The artifact identity is the canonical triple, so the threaded
+ * flavor is `wasm32-wasip1-threads` and the threadless flavor is
+ * `wasm32-wasip1`. `wasm32-wasi-preview1-threads` is the historical spelling
+ * of the threaded flavor. The family name `wasm32-wasi` is not a flavor and is
+ * not resolved here; see {@link expandNapiTargets}.
  */
 export function getWasiTarget(
   target: string | Pick<Target, 'triple'>,
@@ -134,13 +167,12 @@ export function getWasiTarget(
   const triple = typeof target === 'string' ? target : target.triple
 
   switch (triple) {
-    case 'wasm32-wasi':
     case 'wasm32-wasi-preview1-threads':
     case 'wasm32-wasip1-threads':
       return {
         canonicalTriple: 'wasm32-wasip1-threads',
         flavor: 'threads',
-        platformArchABI: 'wasm32-wasi',
+        platformArchABI: 'wasm32-wasip1-threads',
       }
     case 'wasm32-wasip1':
       return {
@@ -157,6 +189,79 @@ export function wasiTargetHasThreads(
   target: string | Pick<Target, 'triple'>,
 ): boolean {
   return getWasiTarget(target)?.flavor === 'threads'
+}
+
+export function isWasiFamilyTarget(target: string): boolean {
+  return target === WASI_FAMILY_TARGET
+}
+
+/**
+ * Expand the `wasm32-wasi` family shorthand in a `napi.targets` list to both
+ * flavor triples, in place of the shorthand. Other entries are returned as
+ * written; duplicate detection runs on the expanded list, so a family entry
+ * next to an explicit flavor entry is reported as a duplicate artifact set.
+ */
+export function expandNapiTargets(targets: readonly string[]): string[] {
+  return targets.flatMap((target) =>
+    isWasiFamilyTarget(target) ? [...WASI_FLAVOR_TRIPLES] : [target],
+  )
+}
+
+/**
+ * Identity of the WASI npm package for a configured target list, or
+ * `undefined` when no WASI flavor is configured.
+ *
+ * Both flavors configured → the unified `wasm32-wasi` package carrying both.
+ * One flavor configured → that flavor's `platformArchABI`.
+ */
+export function getWasiPackageIdentity(
+  targets: readonly Pick<Target, 'triple'>[],
+): WasiPackageIdentity | undefined {
+  const flavors = new Set<WasiFlavor>()
+  for (const target of targets) {
+    const wasiTarget = getWasiTarget(target)
+    if (wasiTarget) {
+      flavors.add(wasiTarget.flavor)
+    }
+  }
+  if (flavors.size === 0) {
+    return
+  }
+  if (flavors.size > 1) {
+    return WASI_FAMILY_TARGET
+  }
+  return flavors.has('threads') ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
+}
+
+/**
+ * WASI package identity a single flavor belongs to, given the full configured
+ * target list: the unified package when both flavors are configured,
+ * otherwise the flavor's own identity.
+ */
+export function getWasiPackageIdentityForTarget(
+  target: Pick<Target, 'triple'>,
+  targets: readonly Pick<Target, 'triple'>[],
+): WasiPackageIdentity | undefined {
+  if (!getWasiTarget(target)) {
+    return
+  }
+  return getWasiPackageIdentity(targets)
+}
+
+/**
+ * Flavor `platformArchABI`s carried by a WASI package identity, threaded
+ * first.
+ */
+export function wasiPackageIdentityFlavors(
+  identity: WasiPackageIdentity,
+): WasiFlavorTriple[] {
+  return identity === WASI_FAMILY_TARGET ? [...WASI_FLAVOR_TRIPLES] : [identity]
+}
+
+export function isWasiPackageIdentity(
+  value: string,
+): value is WasiPackageIdentity {
+  return (WASI_PACKAGE_IDENTITIES as readonly string[]).includes(value)
 }
 
 function readTextFileOrNull(path: string): string | null {
@@ -327,9 +432,14 @@ export function parseTriple(rawTriple: string): Target {
       abi: 'wasi',
     }
   }
+  if (isWasiFamilyTarget(rawTriple)) {
+    throw new TypeError(
+      `${WASI_FAMILY_TARGET} names the WASI target family, not a build target. Build wasm32-wasip1-threads (threaded) or wasm32-wasip1 (threadless); in napi.targets, ${WASI_FAMILY_TARGET} expands to both flavors and publishes the unified <package>-${WASI_FAMILY_TARGET} package.`,
+    )
+  }
   if (/^wasm32-(?:wasip|wasi(?:-|$))/.test(rawTriple)) {
     throw new TypeError(
-      `Unsupported WASI target ${rawTriple}. Supported targets are wasm32-wasip1, wasm32-wasip1-threads, wasm32-wasi, and wasm32-wasi-preview1-threads.`,
+      `Unsupported WASI target ${rawTriple}. Supported targets are wasm32-wasip1, wasm32-wasip1-threads, and wasm32-wasi-preview1-threads.`,
     )
   }
   const triple = rawTriple.endsWith('eabi')
@@ -386,11 +496,11 @@ export function getTargetLinker(target: string): string | undefined {
 }
 
 /**
- * Loader-file suffix for a WASI flavor, derived from its `platformArchABI`:
- * the legacy threaded flavor keeps the historical `wasi` stem
- * (`<binaryName>.wasi.cjs`, `<binaryName>.wasi-browser.js`), while each
- * distinctly named non-threaded flavor derives its own
- * (`<binaryName>.wasip1.cjs`, `<binaryName>.wasip1-browser.js`, ...).
+ * Loader-file suffix for a WASI package identity or flavor, derived from its
+ * `platformArchABI`: `wasip1-threads` for the threaded flavor
+ * (`<binaryName>.wasip1-threads.cjs`), `wasip1` for the threadless flavor
+ * (`<binaryName>.wasip1.cjs`), and `wasi` for the unified package's
+ * dispatcher entry (`<binaryName>.wasi.cjs`).
  */
 export function wasiLoaderSuffix(platformArchABI: string): string {
   return platformArchABI.replace(/^wasm32-/, '')

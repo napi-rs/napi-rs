@@ -22,14 +22,18 @@ import {
   commitFileSystemTransaction,
   debugFactory,
   fileExists,
+  getWasiPackageIdentity,
   managedPackagePathIsWithin,
   parseTriple,
   readFileAsync,
   readNapiConfig,
   readdirAsync,
   resolvePackageReconciliationPaths,
+  scanExportedName,
   type Target,
   UniArchsByPlatform,
+  WASI_FAMILY_TARGET,
+  WASI_PACKAGE_IDENTITIES,
   wasiLoaderSuffix,
   wasiTargetHasThreads,
   withFileSystemReconciliation,
@@ -38,6 +42,11 @@ import {
   createWasiBrowserEntry,
   WASI_ARTIFACT_METADATA_PREFIX,
 } from './build.js'
+import {
+  createWasiDispatcherTypeDef,
+  NAPI_BINDING_TARGET_EXPORT,
+  wasiDispatcherFileNames,
+} from './templates/index.js'
 
 const debug = debugFactory('artifacts')
 
@@ -60,6 +69,24 @@ interface WasiArtifactMetadata {
 // Removed configured targets are recognizable only when their output identity
 // belongs to napi-rs's supported target set.
 const supportedArtifactTargets = AVAILABLE_TARGETS.map(parseTriple)
+
+/**
+ * Artifact identity the threaded WASI flavor carried before it moved to its
+ * canonical triple. Never written any more; recognised so an upgrade removes
+ * the files an older CLI copied.
+ */
+const LEGACY_THREADED_WASI_ARTIFACT_IDENTITY = 'wasm32-wasi'
+
+/**
+ * Directory under `npmDir` that holds a WASI target's package: the unified
+ * `wasm32-wasi` directory when both flavors are configured, otherwise the
+ * flavor's own.
+ */
+function wasiPackageDirName(target: Target, targets: Target[]) {
+  return target.platform === 'wasi'
+    ? (getWasiPackageIdentity(targets) ?? target.platformArchABI)
+    : target.platformArchABI
+}
 
 export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
@@ -99,11 +126,12 @@ async function collectArtifactsUnlocked(
     ? resolvePath(options.buildOutputDir)
     : cwd
   const managedTargetDirs = [
-    ...new Set(
-      [...supportedArtifactTargets, ...targets].map(
+    ...new Set([
+      ...[...supportedArtifactTargets, ...targets].map(
         (target) => target.platformArchABI,
       ),
-    ),
+      ...WASI_PACKAGE_IDENTITIES,
+    ]),
   ].map((target) => join(npmDir, target))
   const excludedSourceRoots = isStrictDescendant(outputDir, npmDir)
     ? [npmDir]
@@ -159,6 +187,7 @@ async function collectArtifactsUnlocked(
       binaryName,
       missingTargets,
       protectedSourcePaths,
+      targets,
     )
     throw new Error(
       `Missing artifacts for configured targets: ${missingTargets
@@ -191,6 +220,7 @@ async function collectArtifactsUnlocked(
         binaryName,
         [target],
         protectedSourcePaths,
+        targets,
       )
       throw error
     }
@@ -203,17 +233,18 @@ async function collectArtifactsUnlocked(
     const content = await readFileAsync(source)
     addPendingWrite(
       pendingWrites,
-      join(npmDir, target.platformArchABI, identity),
+      join(npmDir, wasiPackageDirName(target, targets), identity),
       source,
       content,
     )
     addPendingWrite(pendingWrites, join(packageRoot, identity), source, content)
   }
 
+  const wasiPackageIdentity = getWasiPackageIdentity(targets)
   const browserTarget =
     wasiTargets.find((target) => !wasiTargetHasThreads(target)) ??
     wasiTargets[0]
-  if (browserTarget) {
+  if (browserTarget && wasiPackageIdentity) {
     try {
       await addWasiBrowserEntry(
         pendingWrites,
@@ -221,6 +252,7 @@ async function collectArtifactsUnlocked(
         packageName,
         binaryName,
         browserTarget,
+        wasiPackageIdentity,
         wasiSources.get(browserTarget.platformArchABI)!,
       )
     } catch (error) {
@@ -231,6 +263,7 @@ async function collectArtifactsUnlocked(
         binaryName,
         [browserTarget],
         protectedSourcePaths,
+        targets,
       )
       throw error
     }
@@ -259,7 +292,7 @@ async function collectArtifactsUnlocked(
   for (const target of wasiTargets) {
     const source = wasiSources.get(target.platformArchABI)!
     const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
-    const wasiDir = join(npmDir, target.platformArchABI)
+    const wasiDir = join(npmDir, wasiPackageIdentity!)
     for (const fileName of requiredWasiFiles(binaryName, target)) {
       const sourcePath = source.files.get(fileName)!
       let content = await readFileAsync(sourcePath)
@@ -269,7 +302,7 @@ async function collectArtifactsUnlocked(
             .toString('utf8')
             .replace(
               `new URL('./wasi-worker-browser.mjs', import.meta.url)`,
-              `new URL('${packageName}-${target.platformArchABI}/wasi-worker-browser.mjs', import.meta.url)`,
+              `new URL('${packageName}-${wasiPackageIdentity}/wasi-worker-browser.mjs', import.meta.url)`,
             ),
         )
       }
@@ -280,6 +313,16 @@ async function collectArtifactsUnlocked(
         content,
       )
     }
+  }
+
+  if (wasiPackageIdentity === WASI_FAMILY_TARGET) {
+    await refreshWasiDispatcherTypeDef(
+      pendingWrites,
+      join(npmDir, wasiPackageIdentity),
+      binaryName,
+      wasiTargets,
+      wasiSources,
+    )
   }
 
   const staleManagedDestinations = await collectStaleManagedDestinations(
@@ -362,6 +405,47 @@ function requiredWasiFiles(binaryName: string, target: Target) {
   return files
 }
 
+/**
+ * `create-npm-dirs` writes the dispatcher declaration in the `export *` form,
+ * which is right for the declarations a `type-def` build emits. A build
+ * without `napi-derive`'s `type-def` feature declares its flavors with
+ * `export = binding` instead, and `export *` cannot re-export such a module
+ * (TS2498). Only the copied declarations reveal which form a build used, so
+ * the dispatcher declaration is rewritten here to match them, in whichever
+ * order `create-npm-dirs`, `build` and `artifacts` ran.
+ */
+async function refreshWasiDispatcherTypeDef(
+  pendingWrites: Map<string, PendingWrite>,
+  wasiDir: string,
+  binaryName: string,
+  wasiTargets: Target[],
+  wasiSources: Map<string, WasiArtifactSource>,
+) {
+  const threadedTarget = wasiTargets.find(wasiTargetHasThreads)
+  if (!threadedTarget) {
+    return
+  }
+  const typeDefName = `${binaryName}.${wasiLoaderSuffix(threadedTarget.platformArchABI)}.d.cts`
+  const typeDefSource = wasiSources
+    .get(threadedTarget.platformArchABI)
+    ?.files.get(typeDefName)
+  if (!typeDefSource) {
+    return
+  }
+  const { exportsByAssignment } = scanExportedName(
+    await readFileAsync(typeDefSource, 'utf8'),
+    NAPI_BINDING_TARGET_EXPORT,
+  )
+  addPendingWrite(
+    pendingWrites,
+    join(wasiDir, wasiDispatcherFileNames(binaryName).typeDef),
+    typeDefSource,
+    Buffer.from(
+      createWasiDispatcherTypeDef(binaryName, { exportsByAssignment }),
+    ),
+  )
+}
+
 async function findWasiArtifactSource(
   candidateDirs: string[],
   binaryName: string,
@@ -410,6 +494,7 @@ async function addWasiBrowserEntry(
   packageName: string,
   binaryName: string,
   target: Target,
+  packageIdentity: string,
   source: WasiArtifactSource,
 ) {
   const bindingSource = source.files.get(
@@ -425,11 +510,7 @@ async function addWasiBrowserEntry(
       join(packageRoot, 'browser.js'),
       bindingSource,
       Buffer.from(
-        createWasiBrowserEntry(
-          packageName,
-          target.platformArchABI,
-          metadata.exports,
-        ),
+        createWasiBrowserEntry(packageName, packageIdentity, metadata.exports),
       ),
     )
     return
@@ -1214,9 +1295,16 @@ async function removeTargetDestinations(
   binaryName: string,
   targets: Target[],
   protectedSourcePaths: Set<string>,
+  configuredTargets: Target[] = targets,
 ) {
   const paths = targets.flatMap((target) =>
-    targetDestinationPaths(packageRoot, npmDir, binaryName, target),
+    targetDestinationPaths(
+      packageRoot,
+      npmDir,
+      binaryName,
+      target,
+      configuredTargets,
+    ),
   )
   const removals = [
     ...new Set(
@@ -1233,14 +1321,15 @@ function targetDestinationPaths(
   npmDir: string,
   binaryName: string,
   target: Target,
+  configuredTargets: Target[],
 ) {
   const identity = artifactName(binaryName, target)
   const paths = [
     join(packageRoot, identity),
-    join(npmDir, target.platformArchABI, identity),
+    join(npmDir, wasiPackageDirName(target, configuredTargets), identity),
   ]
   if (target.platform === 'wasi') {
-    const wasiDir = join(npmDir, target.platformArchABI)
+    const wasiDir = join(npmDir, wasiPackageDirName(target, configuredTargets))
     for (const fileName of allManagedWasiFiles(binaryName, target)) {
       paths.push(join(wasiDir, fileName))
     }
@@ -1262,15 +1351,16 @@ async function collectStaleManagedDestinations(
   protectedSourcePaths: Set<string>,
 ) {
   const stalePaths: string[] = []
-  const managedBinaryFiles = new Set(
-    [...supportedArtifactTargets, ...targets].map((target) =>
+  const managedBinaryFiles = new Set([
+    ...[...supportedArtifactTargets, ...targets].map((target) =>
       artifactName(binaryName, target),
     ),
-  )
+    `${binaryName}.${LEGACY_THREADED_WASI_ARTIFACT_IDENTITY}.wasm`,
+    `${binaryName}.${LEGACY_THREADED_WASI_ARTIFACT_IDENTITY}.debug.wasm`,
+  ])
   const managedWasiFiles = new Set<string>()
   for (const loaderSuffix of new Set([
-    'wasi',
-    'wasip1',
+    ...WASI_PACKAGE_IDENTITIES.map(wasiLoaderSuffix),
     ...targets
       .filter((target) => target.platform === 'wasi')
       .map((target) => wasiLoaderSuffix(target.platformArchABI)),
@@ -1283,11 +1373,34 @@ async function collectStaleManagedDestinations(
     }
   }
 
+  // Every WASI package directory is swept, not only the configured one: a
+  // project that moved between the unified and a single-flavor layout leaves
+  // copied files behind in the directory it no longer uses.
+  const targetDirs = new Map<string, boolean>()
   for (const target of targets) {
-    const targetDir = join(npmDir, target.platformArchABI)
+    targetDirs.set(
+      join(npmDir, wasiPackageDirName(target, targets)),
+      target.platform === 'wasi',
+    )
+  }
+  for (const identity of WASI_PACKAGE_IDENTITIES) {
+    const dir = join(npmDir, identity)
+    if (!targetDirs.has(dir)) {
+      targetDirs.set(dir, true)
+    }
+  }
+  for (const [targetDir, isWasi] of targetDirs) {
     if (!(await fileExists(targetDir))) {
       continue
     }
+    // The unified package's dispatcher is `create-npm-dirs` output, not a
+    // copied build artifact, so the sweep leaves it alone there.
+    const dispatcherFiles =
+      isWasi &&
+      getWasiPackageIdentity(targets) === WASI_FAMILY_TARGET &&
+      targetDir === join(npmDir, WASI_FAMILY_TARGET)
+        ? new Set(Object.values(wasiDispatcherFileNames(binaryName)))
+        : undefined
     for (const entry of await readdirAsync(targetDir, {
       withFileTypes: true,
     })) {
@@ -1295,7 +1408,9 @@ async function collectStaleManagedDestinations(
       if (
         entry.isFile() &&
         (managedBinaryFiles.has(entry.name) ||
-          (target.platform === 'wasi' && managedWasiFiles.has(entry.name))) &&
+          (isWasi &&
+            managedWasiFiles.has(entry.name) &&
+            !dispatcherFiles?.has(entry.name))) &&
         !pendingWrites.has(path)
       ) {
         stalePaths.push(path)
@@ -1373,7 +1488,7 @@ async function collectManagedRootEntries(
 ) {
   const entries = new Set<string>()
   const loaderPaths = new Set<string>()
-  for (const loaderSuffix of ['wasi', 'wasip1']) {
+  for (const loaderSuffix of WASI_PACKAGE_IDENTITIES.map(wasiLoaderSuffix)) {
     loaderPaths.add(join(packageRoot, `${binaryName}.${loaderSuffix}.cjs`))
   }
   for (const source of wasiSources.values()) {

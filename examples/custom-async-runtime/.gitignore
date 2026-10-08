@@ -9,9 +9,9 @@ custom_async_runtime.wasip1.cjs
 custom_async_runtime.wasip1.d.cts
 *.wasip1-deferred.js
 *.wasip1-deferred.d.ts
-custom_async_runtime.wasi-browser.js
-custom_async_runtime.wasi.cjs
-custom_async_runtime.wasi.d.cts
+custom_async_runtime.wasip1-threads-browser.js
+custom_async_runtime.wasip1-threads.cjs
+custom_async_runtime.wasip1-threads.d.cts
 index.cjs
 index.d.cts
 index.js

@@ -8,7 +8,7 @@ import {
   __fs,
   asyncTaskReadFile,
   testWorkers,
-} from './example.wasi-browser'
+} from './example.wasip1-threads-browser'
 
 globalThis.Buffer = Buffer
 

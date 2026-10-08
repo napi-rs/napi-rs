@@ -28,8 +28,8 @@ const inWasiLane = Boolean(
 const FLAVORS = [
   {
     name: 'threaded',
-    loader: 'example.wasi.cjs',
-    wasm: 'example.wasm32-wasi.wasm',
+    loader: 'example.wasip1-threads.cjs',
+    wasm: 'example.wasm32-wasip1-threads.wasm',
   },
   {
     name: 'threadless',

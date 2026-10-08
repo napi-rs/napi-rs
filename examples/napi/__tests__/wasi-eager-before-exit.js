@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url)
 const loaderSuffix = process.argv[2]
 
 assert.ok(
-  loaderSuffix === 'wasi' || loaderSuffix === 'wasip1',
+  loaderSuffix === 'wasip1-threads' || loaderSuffix === 'wasip1',
   `unsupported WASI loader suffix: ${loaderSuffix}`,
 )
 

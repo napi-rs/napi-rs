@@ -21,8 +21,8 @@ const packageDirectory = join(__dirname, '..')
  * Node loader prefers the `.debug.wasm` artifact, so both are checked.
  */
 const THREADED_ARTIFACTS = [
-  'example.wasm32-wasi.wasm',
-  'example.wasm32-wasi.debug.wasm',
+  'example.wasm32-wasip1-threads.wasm',
+  'example.wasm32-wasip1-threads.debug.wasm',
 ]
 const THREADLESS_ARTIFACTS = ['example.wasm32-wasip1.wasm']
 

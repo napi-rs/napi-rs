@@ -19,6 +19,8 @@ import {
   serializeToml,
   serializeYaml,
   DEFAULT_TARGETS,
+  expandNapiTargets,
+  getWasiPackageIdentity,
   getWasiTarget,
   mkdirAsync,
   parseTriple,
@@ -62,16 +64,21 @@ const WASI_CI_ARTIFACT_PATTERNS = [
 ]
 // Exported for tests.
 export const GENERATED_WASI_BINDING =
-  /(?:\.(?:wasi|wasip\d+)(?:-browser|-deferred)?\.(?:cjs|js|d\.[cm]?ts)|wasi-worker(?:-browser)?\.mjs)/
+  /(?:\.(?:wasi|wasip\d+(?:-threads)?)(?:-browser|-deferred)?\.(?:cjs|js|d\.[cm]?ts)|wasi-worker(?:-browser)?\.mjs)/
 const TYPE_DEF_FILE = /\.d\.[cm]?ts$/
 const GLOB_PATTERN = /[*?[\]{}]/
 
+/**
+ * Root `browser.js`: re-export the WASI package root. The unified
+ * `<package>-wasm32-wasi` package selects the flavor through its `exports`
+ * conditions; a single-flavor package has one browser loader.
+ */
 function createWasiBrowserEntry(
   packageName: string,
-  platformArchABI: string,
+  packageIdentity: string,
   enableTypeDef: boolean,
 ) {
-  const packageSpecifier = `${packageName}-${platformArchABI}`
+  const packageSpecifier = `${packageName}-${packageIdentity}`
   return (
     `export * from '${packageSpecifier}'\n` +
     (enableTypeDef ? '' : `export { default } from '${packageSpecifier}'\n`)
@@ -300,15 +307,12 @@ async function filterTargetsInPackageJson(
     if (!packageJson.files.includes('browser.js')) {
       packageJson.files.push('browser.js')
     }
-    const browserTarget =
-      wasiTargets.find(
-        (target) => getWasiTarget(target)?.flavor === 'single',
-      ) ?? wasiTargets[0]
+    const packageIdentity = getWasiPackageIdentity(wasiTargets)!
     await fs.writeFile(
       path.join(path.dirname(filePath), 'browser.js'),
       createWasiBrowserEntry(
-        packageJson.name,
-        browserTarget.platformArchABI,
+        packageJson.napi.packageName ?? packageJson.name,
+        packageIdentity,
         enableTypeDef,
       ),
     )
@@ -724,7 +728,7 @@ function processOptions(options: RawNewOptions) {
       throw new Error('At least one target must be enabled')
     }
   }
-  const requestedTargets = options.targets.map((target) => ({
+  const requestedTargets = expandNapiTargets(options.targets).map((target) => ({
     target,
     parsed: parseTriple(target),
   }))

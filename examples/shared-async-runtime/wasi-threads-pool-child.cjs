@@ -45,7 +45,7 @@ ThreadManager.prototype.allocateUnusedWorker = function (...args) {
   return Reflect.apply(allocateUnusedWorker, this, args)
 }
 
-const binding = require('./shared_async_runtime.wasi.cjs')
+const binding = require('./shared_async_runtime.wasip1-threads.cjs')
 
 const poolWorkers = () => instance.exports.napi_wasm_runtime_pool_workers()
 const count = () => ({

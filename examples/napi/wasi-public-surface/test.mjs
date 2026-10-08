@@ -179,6 +179,14 @@ async function stageRelease(releaseDir) {
       copyFile(join(packageDir, file), join(releaseDir, file)),
     ),
   )
+  // The package dir is built with both WASI flavors, so its root `browser.js`
+  // re-exports the unified `-wasm32-wasi` package. This release is staged as
+  // threadless-only, so emit the single-flavor entry `napi build` generates
+  // for that configuration instead.
+  await writeFile(
+    join(releaseDir, 'browser.js'),
+    `export * from '${flavorPackageName}'\n`,
+  )
 
   await runNapi(['create-npm-dirs', '--cwd', releaseDir])
   const flavorDir = join(releaseDir, 'npm', 'wasm32-wasip1')

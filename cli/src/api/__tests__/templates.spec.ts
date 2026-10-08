@@ -16,6 +16,12 @@ import {
   createWasiDeferredBrowserBindingTypeDef,
 } from '../templates/load-wasi-template.js'
 import {
+  createWasiDispatcher,
+  createWasiDispatcherTypeDef,
+  WASI_THREADLESS_CONDITION,
+  wasiDispatcherFileNames,
+} from '../templates/wasi-dispatcher-template.js'
+import {
   createWasiBrowserWorkerBinding,
   WASI_WORKER_TEMPLATE,
 } from '../templates/wasi-worker-template.js'
@@ -262,7 +268,7 @@ const browserBindingCases: Array<{
       false,
       false,
       true,
-      'wasm32-wasi',
+      'wasm32-wasip1-threads',
       true,
     ],
   },
@@ -277,7 +283,7 @@ const browserBindingCases: Array<{
       true,
       true,
       true,
-      'wasm32-wasi',
+      'wasm32-wasip1-threads',
       true,
     ],
   },
@@ -375,7 +381,7 @@ const asyncRuntimeLoaderCases: Array<{
       4000,
       65536,
       true,
-      'wasm32-wasi',
+      'wasm32-wasip1-threads',
       'test',
       true,
     ),
@@ -406,7 +412,7 @@ const asyncRuntimeLoaderCases: Array<{
       false,
       false,
       true,
-      'wasm32-wasi',
+      'wasm32-wasip1-threads',
       true,
     ),
     install: "from '@napi-rs/async-runtime'",
@@ -1679,14 +1685,14 @@ test('deferred WASI loader never records a skipped destroy as completed', (t) =>
 
 test('createCjsBinding uses one statement dialect', (t) => {
   const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
-    'wasm32-wasi',
+    'wasm32-wasip1-threads',
   ])
   t.false(
     code.includes('NAPI_RS_NATIVE_LIBRARY_PATH);'),
     'native library require must not use a leftover semicolon',
   )
-  t.true(code.includes("const __napiWasiFlavors = ['wasm32-wasi']"))
-  t.false(code.includes('"wasm32-wasi"'))
+  t.true(code.includes("const __napiWasiFlavors = ['wasm32-wasip1-threads']"))
+  t.false(code.includes('"wasm32-wasip1-threads"'))
   t.true(code.includes("return require('./test.win32-x64-gnu.node')"))
   const win32Gnu = code.slice(
     code.indexOf("process.arch === 'x64'"),
@@ -1717,12 +1723,13 @@ test('the root CommonJS loader stamps before it aliases the addon', (t) => {
 })
 
 test('native loaders export the artifact that actually loaded', (t) => {
-  const flavors = ['wasm32-wasi', 'wasm32-wasip1']
+  const flavors = ['wasm32-wasip1-threads', 'wasm32-wasip1']
   const cjs = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
   assertValidJS(t, cjs, 'cjs binding target')
   t.true(cjs.includes("let __napiLoadedBindingTarget = 'native'"))
   t.true(cjs.includes(ROOT_CJS_STAMP_CALL))
-  // one assignment per candidate: 2 flavors x (local loader + flavor package)
+  // one assignment per candidate: 2 flavors x (local loader + pinned subpath
+  // of the unified package)
   for (const flavor of flavors) {
     t.is(
       cjs.split(`__napiLoadedBindingTarget = '${flavor}'`).length - 1,
@@ -1730,8 +1737,20 @@ test('native loaders export the artifact that actually loaded', (t) => {
       `${flavor} must be recorded on both its local and package candidates`,
     )
   }
-  // the target is never read back off the WASI module
-  t.false(cjs.includes('wasiBinding.__napiBindingTarget'))
+  // the unpinned unified-package candidate is the only one that reads the
+  // target back: the dispatcher inside `<pkg>-wasm32-wasi` picks the flavor
+  t.is(cjs.split('wasiBinding.__napiBindingTarget').length - 1, 2)
+
+  // a single-flavor layout knows the flavor statically
+  const single = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0', [
+    'wasm32-wasip1-threads',
+  ])
+  t.false(single.includes('wasiBinding.__napiBindingTarget'))
+  t.is(
+    single.split("__napiLoadedBindingTarget = 'wasm32-wasip1-threads'").length -
+      1,
+    2,
+  )
 
   const esm = createEsmBinding('test', '@scope/test', ['sum'], '1.0.0', flavors)
   assertValidJS(t, esm, 'esm binding target')
@@ -1774,7 +1793,7 @@ test('a napi export may not shadow __napiBindingTarget', (t) => {
 test('WASI loaders self-identify their flavor', (t) => {
   t.true(
     createWasiBinding('test', '@scope/test').includes(
-      "const __napiBindingTarget = 'wasm32-wasi'",
+      "const __napiBindingTarget = 'wasm32-wasip1-threads'",
     ),
   )
   t.true(
@@ -1789,7 +1808,7 @@ test('WASI loaders self-identify their flavor', (t) => {
   )
   t.true(
     createWasiBrowserBinding('test').includes(
-      "export const __napiBindingTarget = 'wasm32-wasi'",
+      "export const __napiBindingTarget = 'wasm32-wasip1-threads'",
     ),
   )
   t.true(
@@ -2532,7 +2551,7 @@ const threadedAsyncRuntimeCode = createWasiBinding(
   4000,
   65536,
   true,
-  'wasm32-wasi',
+  'wasm32-wasip1-threads',
   'test',
   true,
 )
@@ -4332,7 +4351,14 @@ return {
 }
 
 const threadedNodeLoader = () =>
-  createWasiBinding('test', '@scope/test', 4000, 65536, true, 'wasm32-wasi')
+  createWasiBinding(
+    'test',
+    '@scope/test',
+    4000,
+    65536,
+    true,
+    'wasm32-wasip1-threads',
+  )
 const threadedAsyncRuntimeNodeLoader = () =>
   createWasiBinding(
     'test',
@@ -4340,8 +4366,8 @@ const threadedAsyncRuntimeNodeLoader = () =>
     4000,
     65536,
     true,
-    'wasm32-wasi',
-    'test.wasm32-wasi',
+    'wasm32-wasip1-threads',
+    'test.wasm32-wasip1-threads',
     true,
   )
 
@@ -4715,4 +4741,51 @@ try {
     t.false(code.includes('reconcileThreadPool'))
     t.false(code.includes('__wrapWasiConfigureAsyncRuntime'))
   }
+})
+
+test('the unified WASI dispatcher selects a flavor and re-exports its loader', (t) => {
+  t.deepEqual(wasiDispatcherFileNames('test'), {
+    entry: 'test.wasi.cjs',
+    typeDef: 'test.wasi.d.cts',
+  })
+  const code = createWasiDispatcher('test')
+  assertValidJS(t, code, 'wasi dispatcher')
+  t.true(code.includes(`"${WASI_THREADLESS_CONDITION}"`))
+  // a pin never crosses flavors, the family name is rejected with a hint
+  t.true(
+    code.includes(
+      "const __napiWasiFlavors = ['wasm32-wasip1-threads', 'wasm32-wasip1']",
+    ),
+  )
+  t.true(code.includes('names the WASI target family, not one flavor'))
+  t.is(code.split("require('./test.wasip1-threads.cjs')").length - 1, 2)
+  t.is(code.split("require('./test.wasip1.cjs')").length - 1, 2)
+  // cjs-module-lexer reads the last `module.exports = require(...)` in
+  // source order as the re-export target
+  t.true(
+    code.lastIndexOf("module.exports = require('./test.wasip1.cjs')") >
+      code.lastIndexOf("module.exports = require('./test.wasip1-threads.cjs')"),
+  )
+  // the dispatcher never stamps a target of its own: the flavor loader does
+  t.false(code.includes('__napiBindingTarget ='))
+})
+
+test('the unified WASI dispatcher declaration widens __napiBindingTarget', (t) => {
+  const dts = createWasiDispatcherTypeDef('test')
+  t.true(dts.includes("export * from './test.wasip1-threads.cjs'"))
+  t.true(
+    dts.includes(
+      "export declare const __napiBindingTarget: 'wasm32-wasip1-threads' | 'wasm32-wasip1'",
+    ),
+  )
+  const byAssignment = createWasiDispatcherTypeDef('test', {
+    exportsByAssignment: true,
+  })
+  t.true(
+    byAssignment.includes(
+      "declare const __napiWasiBinding: typeof import('./test.wasip1-threads.cjs')",
+    ),
+  )
+  t.true(byAssignment.includes('export = __napiWasiBinding'))
+  t.false(byAssignment.includes('export *'))
 })

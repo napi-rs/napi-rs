@@ -7,7 +7,7 @@
 //            its worker reported the failed load (see `disposeAfterCrash`)
 
 const mode = process.argv[2]
-const binding = require('./shared_async_runtime.wasi.cjs')
+const binding = require('./shared_async_runtime.wasip1-threads.cjs')
 
 // Registered after the loader's own 'exit' listener, so it runs once that
 // teardown returned: how long the teardown waited in wasm.

@@ -48,38 +48,34 @@ function resolve(
   })
 }
 
-test('omits the WASI package when native targets are configured', (t) => {
-  // The WASI binary is a require-time fallback, not something npm should
-  // install on hosts that already resolved a native package.
-  t.deepEqual(resolve([...NATIVE_TARGETS, WASI_TARGET]), NATIVE_ENTRIES)
-})
-
-test('omits the threadless WASI package too', (t) => {
-  t.deepEqual(
-    resolve([...NATIVE_TARGETS, THREADLESS_WASI_TARGET]),
-    NATIVE_ENTRIES,
-  )
-})
-
-test('declares the WASI package when it is the only target', (t) => {
-  // With no native package to fall back from, WASI is the primary artifact.
-  t.deepEqual(resolve([WASI_TARGET]), {
-    [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
+test('declares the WASI package alongside native targets', (t) => {
+  // The root loader falls back to the WASI package on hosts without a native
+  // binary, so the package is always declared; the dependency carries the
+  // flavor-specific name when only one flavor is configured.
+  t.deepEqual(resolve([...NATIVE_TARGETS, WASI_TARGET]), {
+    ...NATIVE_ENTRIES,
+    [`${PACKAGE_NAME}-wasm32-wasip1-threads`]: VERSION,
   })
 })
 
-test('declares every WASI flavor when only WASI targets are configured', (t) => {
-  t.deepEqual(resolve([WASI_TARGET, THREADLESS_WASI_TARGET]), {
-    [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
+test('declares the threadless WASI package too', (t) => {
+  t.deepEqual(resolve([...NATIVE_TARGETS, THREADLESS_WASI_TARGET]), {
+    ...NATIVE_ENTRIES,
     [`${PACKAGE_NAME}-wasm32-wasip1`]: VERSION,
   })
 })
 
-test('wasm.optionalDependency=true opts back into declaring WASI', (t) => {
+test('declares the WASI package when it is the only target', (t) => {
+  t.deepEqual(resolve([WASI_TARGET]), {
+    [`${PACKAGE_NAME}-wasm32-wasip1-threads`]: VERSION,
+  })
+})
+
+test('declares one unified package when both WASI flavors are configured', (t) => {
+  // Both flavors ship inside `<package>-wasm32-wasi`; the flavor-specific
+  // packages do not exist in that layout.
   t.deepEqual(
-    resolve([...NATIVE_TARGETS, WASI_TARGET], {
-      wasm: { optionalDependency: true },
-    }),
+    resolve([...NATIVE_TARGETS, WASI_TARGET, THREADLESS_WASI_TARGET]),
     {
       ...NATIVE_ENTRIES,
       [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
@@ -87,24 +83,53 @@ test('wasm.optionalDependency=true opts back into declaring WASI', (t) => {
   )
 })
 
-test('wasm.optionalDependency=false opts out even for WASI-only builds', (t) => {
+test('wasm.optionalDependency=true is the default', (t) => {
+  t.deepEqual(
+    resolve([...NATIVE_TARGETS, WASI_TARGET], {
+      wasm: { optionalDependency: true },
+    }),
+    resolve([...NATIVE_TARGETS, WASI_TARGET]),
+  )
+})
+
+test('wasm.optionalDependency=false opts out, even for WASI-only builds', (t) => {
   t.deepEqual(
     resolve([WASI_TARGET], { wasm: { optionalDependency: false } }),
     {},
   )
+  t.deepEqual(
+    resolve([...NATIVE_TARGETS, WASI_TARGET, THREADLESS_WASI_TARGET], {
+      wasm: { optionalDependency: false },
+    }),
+    NATIVE_ENTRIES,
+  )
 })
 
-test('drops a stale WASI entry left over from a previous release', (t) => {
-  // Consumers upgrading from a release that did declare the WASI package must
-  // not keep the entry, otherwise the regression survives the fix.
+test('drops stale WASI entries left over from a previous layout', (t) => {
+  // A release that shipped the legacy threaded `-wasm32-wasi` package, or
+  // two flavor-specific packages, must not keep those entries once the
+  // layout changed.
   t.deepEqual(
     resolve([...NATIVE_TARGETS, WASI_TARGET], {
       existing: {
         ...NATIVE_ENTRIES,
         [`${PACKAGE_NAME}-wasm32-wasi`]: '1.2.2',
+        [`${PACKAGE_NAME}-wasm32-wasip1`]: '1.2.2',
       },
     }),
-    NATIVE_ENTRIES,
+    {
+      ...NATIVE_ENTRIES,
+      [`${PACKAGE_NAME}-wasm32-wasip1-threads`]: VERSION,
+    },
+  )
+  t.deepEqual(
+    resolve([WASI_TARGET, THREADLESS_WASI_TARGET], {
+      existing: {
+        [`${PACKAGE_NAME}-wasm32-wasip1-threads`]: '1.2.2',
+        [`${PACKAGE_NAME}-wasm32-wasip1`]: '1.2.2',
+      },
+    }),
+    { [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION },
   )
 })
 
@@ -116,6 +141,7 @@ test('preserves unmanaged optionalDependencies', (t) => {
     {
       'unrelated-package': '^1.0.0',
       ...NATIVE_ENTRIES,
+      [`${PACKAGE_NAME}-wasm32-wasip1-threads`]: VERSION,
     },
   )
 })
@@ -570,7 +596,7 @@ test('still rejects publishConfig.exports references omitted by npm pack', async
 const requireFromSpec = createRequire(import.meta.url)
 const EMNAPI_VERSION = requireFromSpec('emnapi/package.json').version as string
 const BINARY_NAME = 'pkg'
-const WASI_PLATFORM_ARCH_ABI = 'wasm32-wasi'
+const WASI_PLATFORM_ARCH_ABI = 'wasm32-wasip1-threads'
 const ASYNC_RUNTIME_PACKAGE = '@napi-rs/async-runtime'
 
 interface WasiReleasePackageOptions {
@@ -583,13 +609,13 @@ async function createWasiReleasePackage({
   declareAsyncRuntime,
 }: WasiReleasePackageOptions) {
   const rootDir = mkdtempSync(join(tmpdir(), 'napi-wasi-release-spec-'))
-  const pkgDir = join(rootDir, 'npm', 'wasm32-wasi')
+  const pkgDir = join(rootDir, 'npm', WASI_PLATFORM_ARCH_ABI)
   await mkdir(pkgDir, { recursive: true })
 
   const artifact = `${BINARY_NAME}.${WASI_PLATFORM_ARCH_ABI}.wasm`
-  const main = `${BINARY_NAME}.wasi.cjs`
-  const types = `${BINARY_NAME}.wasi.d.cts`
-  const browser = `${BINARY_NAME}.wasi-browser.js`
+  const main = `${BINARY_NAME}.wasip1-threads.cjs`
+  const types = `${BINARY_NAME}.wasip1-threads.d.cts`
+  const browser = `${BINARY_NAME}.wasip1-threads-browser.js`
   const files = [
     artifact,
     main,
@@ -653,7 +679,7 @@ function validateWasiReleasePackage(pkgDir: string, rootDir: string) {
     rootDir,
     packageName: PACKAGE_NAME,
     binaryName: BINARY_NAME,
-    target: WASI_TARGET,
+    spec: { identity: WASI_PLATFORM_ARCH_ABI, targets: [WASI_TARGET] },
     requireDirectBufferDependency: false,
   })
 }
@@ -709,4 +735,192 @@ test('rejects an invalid @napi-rs/async-runtime range', async (t) => {
   await t.throwsAsync(() => validateWasiReleasePackage(pkgDir, rootDir), {
     message: `Release package ${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI} has invalid ${ASYNC_RUNTIME_PACKAGE} dependency not a range`,
   })
+})
+
+const UNIFIED_WASI_FILES = {
+  threaded: [
+    `${BINARY_NAME}.wasm32-wasip1-threads.wasm`,
+    `${BINARY_NAME}.wasip1-threads.cjs`,
+    `${BINARY_NAME}.wasip1-threads.d.cts`,
+    `${BINARY_NAME}.wasip1-threads-browser.js`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ],
+  threadless: [
+    `${BINARY_NAME}.wasm32-wasip1.wasm`,
+    `${BINARY_NAME}.wasip1.cjs`,
+    `${BINARY_NAME}.wasip1.d.cts`,
+    `${BINARY_NAME}.wasip1-browser.js`,
+    `${BINARY_NAME}.wasip1-deferred.js`,
+    `${BINARY_NAME}.wasip1-deferred.d.ts`,
+    `${BINARY_NAME}.wasm32-wasip1.wasm.d.ts`,
+  ],
+  dispatcher: [`${BINARY_NAME}.wasi.cjs`, `${BINARY_NAME}.wasi.d.cts`],
+}
+
+function unifiedWasiExports() {
+  return {
+    '.': {
+      types: `./${BINARY_NAME}.wasi.d.cts`,
+      browser: {
+        'wasi-threadless': `./${BINARY_NAME}.wasip1-browser.js`,
+        default: `./${BINARY_NAME}.wasip1-threads-browser.js`,
+      },
+      'wasi-threadless': `./${BINARY_NAME}.wasip1.cjs`,
+      default: `./${BINARY_NAME}.wasi.cjs`,
+    },
+    './wasm32-wasip1-threads': {
+      types: `./${BINARY_NAME}.wasip1-threads.d.cts`,
+      browser: `./${BINARY_NAME}.wasip1-threads-browser.js`,
+      default: `./${BINARY_NAME}.wasip1-threads.cjs`,
+    },
+    './wasm32-wasip1': {
+      types: `./${BINARY_NAME}.wasip1.d.cts`,
+      browser: `./${BINARY_NAME}.wasip1-browser.js`,
+      default: `./${BINARY_NAME}.wasip1.cjs`,
+    },
+    './workerd': {
+      types: `./${BINARY_NAME}.wasip1-deferred.d.ts`,
+      default: `./${BINARY_NAME}.wasip1-deferred.js`,
+    },
+    './wasm': {
+      types: `./${BINARY_NAME}.wasm32-wasip1.wasm.d.ts`,
+      default: `./${BINARY_NAME}.wasm32-wasip1.wasm`,
+    },
+    './wasm.wasm': {
+      types: `./${BINARY_NAME}.wasm32-wasip1.wasm.d.ts`,
+      default: `./${BINARY_NAME}.wasm32-wasip1.wasm`,
+    },
+    './package.json': './package.json',
+  }
+}
+
+async function createUnifiedWasiReleasePackage(
+  mutate: (manifest: Record<string, unknown>) => void = () => {},
+) {
+  const rootDir = mkdtempSync(join(tmpdir(), 'napi-wasi-unified-spec-'))
+  const pkgDir = join(rootDir, 'npm', 'wasm32-wasi')
+  await mkdir(pkgDir, { recursive: true })
+  const files = [
+    ...UNIFIED_WASI_FILES.threaded,
+    ...UNIFIED_WASI_FILES.threadless,
+    ...UNIFIED_WASI_FILES.dispatcher,
+  ]
+  for (const file of files) {
+    const content = file.endsWith('.wasm')
+      ? '\0asm'
+      : file.endsWith('.d.cts') || file.endsWith('.d.ts')
+        ? 'export declare function noop(): void\n'
+        : file.endsWith('.cjs')
+          ? "const { instantiateNapiModuleSync } = require('@napi-rs/wasm-runtime')\nmodule.exports = { instantiateNapiModuleSync }\n"
+          : "import { instantiateNapiModule } from '@napi-rs/wasm-runtime'\nexport default instantiateNapiModule\n"
+    await writeFile(join(pkgDir, file), content)
+  }
+  const manifest: Record<string, unknown> = {
+    name: `${PACKAGE_NAME}-wasm32-wasi`,
+    version: VERSION,
+    type: 'module',
+    main: `${BINARY_NAME}.wasi.cjs`,
+    types: `${BINARY_NAME}.wasi.d.cts`,
+    browser: `${BINARY_NAME}.wasip1-threads-browser.js`,
+    files,
+    exports: unifiedWasiExports(),
+    dependencies: {
+      '@napi-rs/wasm-runtime': '^1.0.0',
+      '@emnapi/core': EMNAPI_VERSION,
+      '@emnapi/runtime': EMNAPI_VERSION,
+    },
+  }
+  mutate(manifest)
+  await writeFile(join(pkgDir, 'package.json'), JSON.stringify(manifest))
+  return { rootDir, pkgDir }
+}
+
+function validateUnifiedWasiReleasePackage(pkgDir: string, rootDir: string) {
+  return validateReleasePackageContents({
+    pkgDir,
+    rootDir,
+    packageName: PACKAGE_NAME,
+    binaryName: BINARY_NAME,
+    spec: {
+      identity: 'wasm32-wasi',
+      targets: [WASI_TARGET, THREADLESS_WASI_TARGET],
+    },
+    requireDirectBufferDependency: false,
+  })
+}
+
+test('accepts a unified WASI release package carrying both flavors', async (t) => {
+  const { rootDir, pkgDir } = await createUnifiedWasiReleasePackage()
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  await t.notThrowsAsync(() =>
+    validateUnifiedWasiReleasePackage(pkgDir, rootDir),
+  )
+})
+
+test('a unified WASI release package must route its root entry through the dispatcher', async (t) => {
+  const { rootDir, pkgDir } = await createUnifiedWasiReleasePackage(
+    (manifest) => {
+      manifest.main = `${BINARY_NAME}.wasip1-threads.cjs`
+    },
+  )
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  await t.throwsAsync(
+    () => validateUnifiedWasiReleasePackage(pkgDir, rootDir),
+    {
+      message: `Release package ${PACKAGE_NAME}-wasm32-wasi has stale main entry ${BINARY_NAME}.wasip1-threads.cjs; expected ${BINARY_NAME}.wasi.cjs`,
+    },
+  )
+})
+
+test('a unified WASI release package must expose the wasi-threadless condition', async (t) => {
+  const { rootDir, pkgDir } = await createUnifiedWasiReleasePackage(
+    (manifest) => {
+      const exportsMap = manifest.exports as Record<string, any>
+      delete exportsMap['.']['wasi-threadless']
+    },
+  )
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  await t.throwsAsync(
+    () => validateUnifiedWasiReleasePackage(pkgDir, rootDir),
+    {
+      message: `Release package ${PACKAGE_NAME}-wasm32-wasi has a stale or invalid . export`,
+    },
+  )
+})
+
+test('a unified WASI release package must publish both flavors', async (t) => {
+  const { rootDir, pkgDir } = await createUnifiedWasiReleasePackage(
+    (manifest) => {
+      manifest.files = (manifest.files as string[]).filter(
+        (file) => !UNIFIED_WASI_FILES.threadless.includes(file),
+      )
+    },
+  )
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  await t.throwsAsync(
+    () => validateUnifiedWasiReleasePackage(pkgDir, rootDir),
+    {
+      message: `Release package ${PACKAGE_NAME}-wasm32-wasi does not publish required files: ${UNIFIED_WASI_FILES.threadless.join(', ')}`,
+    },
+  )
+})
+
+test('a configured WASI flavor that was never built fails pre-publish with its build command', async (t) => {
+  // `files` still lists the flavor — create-npm-dirs wrote the manifest from
+  // the configuration — but `napi artifacts` never collected its outputs.
+  const { rootDir, pkgDir } = await createUnifiedWasiReleasePackage()
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  for (const file of UNIFIED_WASI_FILES.threadless) {
+    if (file !== `${BINARY_NAME}.wasm32-wasip1.wasm.d.ts`) {
+      await rm(join(pkgDir, file))
+    }
+  }
+  const error = await t.throwsAsync(() =>
+    validateUnifiedWasiReleasePackage(pkgDir, rootDir),
+  )
+  t.regex(
+    error.message,
+    /is missing configured WASI flavors: wasm32-wasip1 \(missing .*; build it with `napi build --target wasm32-wasip1` and collect it with `napi artifacts`\)/,
+  )
 })

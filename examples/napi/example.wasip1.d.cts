@@ -591,6 +591,12 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<import("buffer").Buffer>
 
+/**
+ * Whether the most recent [`async_task_signal_when_executing_reject`] task has
+ * entered its `compute`.
+ */
+export declare function asyncTaskRejectIsExecuting(): boolean
+
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
 
 /**
@@ -602,6 +608,14 @@ export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promis
  * transition a test would otherwise have to guess with a sleep.
  */
 export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promise<number>
+
+/**
+ * The rejecting counterpart of [`async_task_signal_when_executing`]: the task
+ * stays in `compute` for `duration_ms`, then rejects — so a test that waits on
+ * [`async_task_reject_is_executing`] knows the rejection is still pending, not
+ * already settled.
+ */
+export declare function asyncTaskSignalWhenExecutingReject(durationMs: number): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
@@ -870,6 +884,13 @@ export declare function createExternalTypedArray(): Uint32Array
 
 export declare function createExternalUtf16String(): string
 
+/**
+ * Create a `napi_external` whose payload is a foreign 1-byte allocation — not
+ * an `External<T>` produced by this crate. Passing it to APIs expecting
+ * `External<T>` must fail instead of dereferencing the foreign payload.
+ */
+export declare function createForeignExternal(): object
+
 export declare function createFunction(): (arg: number) => number
 
 export declare function createI32ArrayFromExternal(): Int32Array
@@ -1104,6 +1125,8 @@ export declare function getEmptyTypedArray(): Uint8Array
 
 export declare function getExternal(external: ExternalObject<number>): number
 
+export declare function getExternalRef(external: ExternalObject<number>): number
+
 export declare function getGlobal(): typeof globalThis
 
 export declare function getIndexMapping(): Record<string, number>
@@ -1231,6 +1254,8 @@ export interface LocalDates {
   start: Date
   end?: Date
 }
+
+export declare function makeDeepSerdeValue(depth: number): any
 
 /** By-value return -> stamp site W3 (`new_instance`). */
 export declare function makeTypeTagA(value: number): TypeTagA

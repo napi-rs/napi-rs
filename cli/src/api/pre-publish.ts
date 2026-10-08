@@ -57,14 +57,22 @@ import {
   writeFileAtomic,
   withFileSystemReconciliation,
   AVAILABLE_TARGETS,
+  getWasiPackageIdentity,
   parseTriple,
   serializeJson,
+  WASI_FAMILY_TARGET,
+  WASI_PACKAGE_IDENTITIES,
+  wasiPackageIdentityFlavors,
   type CommonPackageJsonFields,
   type FileSystemTransactionWrite,
   type RootPublisher,
   type Target,
   type UserNapiConfig,
 } from '../utils/index.js'
+import {
+  WASI_THREADLESS_CONDITION,
+  wasiDispatcherFileNames,
+} from './templates/index.js'
 
 const debug = debugFactory('pre-publish')
 const THREADLESS_WASI_ROOT_SUBPATHS = new Set([
@@ -72,9 +80,15 @@ const THREADLESS_WASI_ROOT_SUBPATHS = new Set([
   './wasm',
   './wasm.wasm',
 ])
-const MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES = new Set(
-  AVAILABLE_TARGETS.map((target) => parseTriple(target).platformArchABI),
-)
+/**
+ * Package-name suffixes this command may have declared in the root
+ * `optionalDependencies`: every native/flavor identity plus the unified WASI
+ * package, so a project that changed layout has its previous entry removed.
+ */
+const MANAGED_OPTIONAL_DEPENDENCY_SUFFIXES = new Set([
+  ...AVAILABLE_TARGETS.map((target) => parseTriple(target).platformArchABI),
+  ...WASI_PACKAGE_IDENTITIES,
+])
 const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 const RECONCILIATION_STATE_PREFIXES = [
@@ -129,9 +143,14 @@ interface PackageInfo {
   tag: string
 }
 
-interface PreparedReleasePackage {
-  artifactPath: string
+interface ReleaseArtifact {
   filename: string
+  path: string
+}
+
+interface PreparedReleasePackage {
+  /** Binaries uploaded as GitHub release assets; the unified WASI package carries one per flavor. */
+  artifacts: ReleaseArtifact[]
   packageDir: string
 }
 
@@ -242,20 +261,34 @@ function wasiIsOnlyTarget(targets: Target[]) {
 }
 
 /**
+ * The npm packages a configuration publishes: one per native target plus, when
+ * any WASI flavor is configured, the single WASI package — unified
+ * (`<package>-wasm32-wasi`, both flavors) or flavor-specific.
+ */
+export function resolveReleasePackageSpecs(targets: Target[]) {
+  const specs: ReleasePackageSpec[] = targets
+    .filter((target) => target.platform !== 'wasi')
+    .map((target) => ({ identity: target.platformArchABI, targets: [target] }))
+  const wasiPackageIdentity = getWasiPackageIdentity(targets)
+  if (wasiPackageIdentity) {
+    specs.push({
+      identity: wasiPackageIdentity,
+      targets: targets.filter((target) => target.platform === 'wasi'),
+    })
+  }
+  return specs
+}
+
+/**
  * Build the root package's `optionalDependencies` map.
  *
- * A WASI package is a fallback for hosts that cannot load a `.node` binary, and
- * the generated binding loader selects it at require time rather than npm
- * selecting it at install time. Declaring it as an `optionalDependency`
- * alongside the native packages cannot express "install this only when nothing
- * else matched": npm evaluates every entry independently, so every consumer
- * downloads a `.wasm` binary they will never load.
- *
- * It is therefore only declared when WASI is the only configured target, which
- * makes it the primary artifact rather than a fallback.
- * `napi.wasm.optionalDependency` overrides the default in both directions.
- *
- * See https://github.com/rolldown/rolldown/issues/10556
+ * Every release package is declared, including the WASI package: the root
+ * loader falls back to it on hosts without a matching native binary, and a
+ * consumer who never declared it would otherwise have to discover and install
+ * it by hand. npm evaluates each optional dependency independently, so native
+ * consumers download the `.wasm` binary too; `napi.wasm.optionalDependency:
+ * false` opts a project out of that cost and leaves the WASI package to be
+ * installed explicitly.
  */
 export function resolveRootOptionalDependencies({
   existing,
@@ -280,12 +313,12 @@ export function resolveRootOptionalDependencies({
       delete optionalDependencies[`${managedPackageName}-${suffix}`]
     }
   }
-  const declareWasi = wasm?.optionalDependency ?? wasiIsOnlyTarget(targets)
-  for (const target of targets) {
-    if (target.platform === 'wasi' && !declareWasi) {
+  const declareWasi = wasm?.optionalDependency !== false
+  for (const spec of resolveReleasePackageSpecs(targets)) {
+    if (spec.targets[0].platform === 'wasi' && !declareWasi) {
       continue
     }
-    optionalDependencies[`${packageName}-${target.platformArchABI}`] = version
+    optionalDependencies[`${packageName}-${spec.identity}`] = version
   }
   return optionalDependencies
 }
@@ -344,17 +377,20 @@ export async function prePublish(userOptions: PrePublishOptions) {
           preparedWorkspaceRoot = join(preparedSnapshotRoot, 'workspace')
         }
         const releasePackagePlans: ReleasePackageMaterializationPlan[] = []
-        for (const target of targets) {
-          const pkgDir = join(npmDir, target.platformArchABI)
+        for (const spec of resolveReleasePackageSpecs(targets)) {
+          const pkgDir = join(npmDir, spec.identity)
           const validationOptions: ReleasePackageValidationOptions = {
             pkgDir,
             rootDir,
             packageName,
             binaryName,
-            target,
+            spec,
             requireDirectBufferDependency:
               wasm?.browser?.buffer === true &&
-              (wasm.browser.fs !== true || !wasiTargetHasThreads(target)),
+              spec.targets.some(
+                (target) =>
+                  wasm.browser?.fs !== true || !wasiTargetHasThreads(target),
+              ),
           }
           releasePackagePlans.push(
             preparedWorkspaceRoot
@@ -382,13 +418,12 @@ export async function prePublish(userOptions: PrePublishOptions) {
             packageName,
             binaryName,
             target: threadlessWasiTarget,
+            wasiPackageIdentity: getWasiPackageIdentity(targets)!,
             npmDir,
             managedGeneratedFiles: rootFacadeReconciliation.staleGeneratedFiles,
           })
-          const stagedThreadlessPackage = releasePackagePlans.find(
-            (plan) =>
-              plan.target.platformArchABI ===
-              threadlessWasiTarget.platformArchABI,
+          const stagedThreadlessPackage = releasePackagePlans.find((plan) =>
+            plan.spec.targets.includes(threadlessWasiTarget),
           )?.stagedPkgDir
           if (stagedThreadlessPackage) {
             const stagedWasmSourcePath = join(
@@ -398,7 +433,7 @@ export async function prePublish(userOptions: PrePublishOptions) {
             rootFacade = {
               ...rootFacade,
               marker: createThreadlessWasiRootFacadeMarker(
-                `${packageName}-${threadlessWasiTarget.platformArchABI}`,
+                `${packageName}-${getWasiPackageIdentity(targets)!}`,
                 readFileSync(stagedWasmSourcePath),
               ),
               wasmSourcePath: stagedWasmSourcePath,
@@ -625,17 +660,21 @@ export async function prePublish(userOptions: PrePublishOptions) {
       : await createGhRelease(packageName, packageVersion)
 
     for (const releasePackage of releasePackages) {
-      const { artifactPath, filename, packageDir } = releasePackage
+      const { artifacts, packageDir } = releasePackage
       let publicationPackageDir = packageDir
-      let publicationArtifactPath = artifactPath
+      let publicationArtifacts = artifacts
       let publicationExecutionRoot: string | undefined
       let releaseFailed = false
       let releaseError: unknown
 
       try {
         if (!options.dryRun) {
-          if (!existsSync(artifactPath)) {
-            throw new Error(`Release artifact does not exist: ${artifactPath}`)
+          for (const artifact of artifacts) {
+            if (!existsSync(artifact.path)) {
+              throw new Error(
+                `Release artifact does not exist: ${artifact.path}`,
+              )
+            }
           }
 
           if (!options.skipOptionalPublish) {
@@ -648,7 +687,10 @@ export async function prePublish(userOptions: PrePublishOptions) {
               await createPublicationExecutionPackage(workspaceRoot, packageDir)
             publicationExecutionRoot = publicationExecution.root
             publicationPackageDir = publicationExecution.packageDir
-            publicationArtifactPath = join(publicationPackageDir, filename)
+            publicationArtifacts = artifacts.map(({ filename }) => ({
+              filename,
+              path: join(publicationExecution.packageDir, filename),
+            }))
             try {
               const output = execSync(`${npmClient} publish`, {
                 cwd: publicationPackageDir,
@@ -673,49 +715,51 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
           if (options.ghRelease && repo && owner) {
             debug.info(`Creating GitHub release ${pkgInfo.tag}`)
-            try {
-              const releaseId = options.ghReleaseId
-                ? Number(options.ghReleaseId)
-                : (
-                    await octokit!.repos.getReleaseByTag({
-                      repo: repo,
-                      owner: owner,
-                      tag: pkgInfo.tag,
-                    })
-                  ).data.id
-              const artifactStats = statSync(publicationArtifactPath)
-              const assetInfo = await octokit!.repos.uploadReleaseAsset({
-                owner: owner,
-                repo: repo,
-                name: filename,
-                release_id: releaseId,
-                mediaType: { format: 'raw' },
-                headers: {
-                  'content-length': artifactStats.size,
-                  'content-type': 'application/octet-stream',
-                },
-                // @ts-expect-error octokit types are wrong
-                data: await readFileAsync(publicationArtifactPath),
-              })
-              debug.info(`GitHub release created`)
-              debug.info(
-                `Download URL: %s`,
-                assetInfo.data.browser_download_url,
-              )
-            } catch (e) {
-              debug.error(
-                `Param: ${JSON.stringify(
-                  {
-                    owner,
-                    repo,
-                    tag: pkgInfo.tag,
-                    filename: publicationArtifactPath,
+            for (const { filename, path } of publicationArtifacts) {
+              try {
+                const releaseId = options.ghReleaseId
+                  ? Number(options.ghReleaseId)
+                  : (
+                      await octokit!.repos.getReleaseByTag({
+                        repo: repo,
+                        owner: owner,
+                        tag: pkgInfo.tag,
+                      })
+                    ).data.id
+                const artifactStats = statSync(path)
+                const assetInfo = await octokit!.repos.uploadReleaseAsset({
+                  owner: owner,
+                  repo: repo,
+                  name: filename,
+                  release_id: releaseId,
+                  mediaType: { format: 'raw' },
+                  headers: {
+                    'content-length': artifactStats.size,
+                    'content-type': 'application/octet-stream',
                   },
-                  null,
-                  2,
-                )}`,
-              )
-              debug.error(e)
+                  // @ts-expect-error octokit types are wrong
+                  data: await readFileAsync(path),
+                })
+                debug.info(`GitHub release created`)
+                debug.info(
+                  `Download URL: %s`,
+                  assetInfo.data.browser_download_url,
+                )
+              } catch (e) {
+                debug.error(
+                  `Param: ${JSON.stringify(
+                    {
+                      owner,
+                      repo,
+                      tag: pkgInfo.tag,
+                      filename: path,
+                    },
+                    null,
+                    2,
+                  )}`,
+                )
+                debug.error(e)
+              }
             }
           }
         }
@@ -758,6 +802,8 @@ interface ThreadlessWasiRootFacadeOptions {
   packageName: string
   binaryName: string
   target: Target
+  /** npm package the facade forwards to (unified or flavor-specific). */
+  wasiPackageIdentity: string
   npmDir: string
   managedGeneratedFiles: string[]
 }
@@ -973,7 +1019,6 @@ function getManagedThreadlessWasiRootFacadeFiles(
   ) {
     return undefined
   }
-  const flavorPackage = `${packageName}-wasm32-wasip1`
   const managedFlavorPackage =
     getManagedThreadlessWasiRootFacadeMarker(rootDir, files) ??
     getPartialManagedThreadlessWasiRootFacadeMarker(rootDir, npmDir, files) ??
@@ -982,7 +1027,13 @@ function getManagedThreadlessWasiRootFacadeFiles(
     return { files, flavorPackage: managedFlavorPackage }
   }
   if (
-    hasPartialOrCorruptThreadlessWasiRootFacade(rootDir, files, flavorPackage)
+    THREADLESS_WASI_FACADE_PACKAGE_IDENTITIES.some((identity) =>
+      hasPartialOrCorruptThreadlessWasiRootFacade(
+        rootDir,
+        files,
+        `${packageName}-${identity}`,
+      ),
+    )
   ) {
     throw new Error(
       'The threadless WASI root facade is partial or corrupt and ownership cannot be verified. Restore the generated facade files or remove the generated-shaped exports and files before running pre-publish.',
@@ -1048,7 +1099,7 @@ function getPartialManagedThreadlessWasiRootFacadeMarker(
   const availableWasmHashes = new Set<string>()
   for (const wasm of [
     readRegularFile(join(rootDir, files.wasmEntry)),
-    readRegularFile(join(npmDir, 'wasm32-wasip1', files.wasmEntry)),
+    ...threadlessWasiPackageWasmCandidates(npmDir, files),
   ]) {
     if (wasm) {
       availableWasmHashes.add(createHash('sha256').update(wasm).digest('hex'))
@@ -1090,10 +1141,12 @@ function getLegacyThreadlessWasiRootFacade(
   const workerdTypeDef = readRegularFile(join(rootDir, files.workerdTypeDef))
   const wasmEntry = readRegularFile(join(rootDir, files.wasmEntry))
   const wasmTypeDef = readRegularFile(join(rootDir, files.wasmTypeDef))
-  const flavorWasmEntry = readRegularFile(
-    join(npmDir, 'wasm32-wasip1', files.wasmEntry),
-  )
-  if (!wasmEntry || !flavorWasmEntry || !wasmEntry.equals(flavorWasmEntry)) {
+  if (
+    !wasmEntry ||
+    !threadlessWasiPackageWasmCandidates(npmDir, files).some((flavorWasm) =>
+      wasmEntry.equals(flavorWasm),
+    )
+  ) {
     return undefined
   }
 
@@ -1231,11 +1284,39 @@ function parseThreadlessWasiRootForwardingModule(source: string) {
   }
   if (
     typeof specifier !== 'string' ||
-    !specifier.endsWith('-wasm32-wasip1/workerd')
+    !THREADLESS_WASI_FACADE_PACKAGE_IDENTITIES.some((identity) =>
+      specifier.endsWith(`-${identity}/workerd`),
+    )
   ) {
     return undefined
   }
   return specifier.slice(0, -'/workerd'.length)
+}
+
+/**
+ * npm packages the root `./workerd` facade may forward to: the threadless
+ * flavor's own package, or the unified package when both flavors ship.
+ */
+const THREADLESS_WASI_FACADE_PACKAGE_IDENTITIES =
+  WASI_PACKAGE_IDENTITIES.filter((identity) =>
+    wasiPackageIdentityFlavors(identity).some(
+      (flavor) => !wasiTargetHasThreads(parseTriple(flavor)),
+    ),
+  )
+
+/** The threadless `.wasm` wherever a managed WASI package may hold it. */
+function threadlessWasiPackageWasmCandidates(
+  npmDir: string,
+  files: ThreadlessWasiRootFacadeFiles,
+) {
+  const candidates: NonNullable<ReturnType<typeof readRegularFile>>[] = []
+  for (const identity of THREADLESS_WASI_FACADE_PACKAGE_IDENTITIES) {
+    const wasm = readRegularFile(join(npmDir, identity, files.wasmEntry))
+    if (wasm) {
+      candidates.push(wasm)
+    }
+  }
+  return candidates
 }
 
 function applyThreadlessWasiRootFacade(
@@ -1299,11 +1380,12 @@ function planThreadlessWasiRootFacade({
   packageName,
   binaryName,
   target,
+  wasiPackageIdentity,
   npmDir,
   managedGeneratedFiles,
 }: ThreadlessWasiRootFacadeOptions): ThreadlessWasiRootFacade {
   const rootDir = dirname(packageJsonPath)
-  const flavorPackageName = `${packageName}-${target.platformArchABI}`
+  const flavorPackageName = `${packageName}-${wasiPackageIdentity}`
   const wasmFileName = `${binaryName}.${target.platformArchABI}.wasm`
   const generatedPrefix = `${binaryName}.${target.platformArchABI}`
   const files: ThreadlessWasiRootFacadeFiles = {
@@ -1330,7 +1412,7 @@ function planThreadlessWasiRootFacade({
     createThreadlessWasiRootForwardingModule(flavorPackageName)
   const generatedFiles = Object.values(files)
   const managedFiles = new Set(managedGeneratedFiles)
-  const wasmSourcePath = join(npmDir, target.platformArchABI, wasmFileName)
+  const wasmSourcePath = join(npmDir, wasiPackageIdentity, wasmFileName)
   const marker = createThreadlessWasiRootFacadeMarker(
     flavorPackageName,
     readFileSync(wasmSourcePath),
@@ -2406,17 +2488,27 @@ async function materializeRootReleasePlan(
   )
 }
 
+/**
+ * One published npm package: a native target, or the WASI package carrying
+ * every configured WASI flavor under its package identity.
+ */
+export interface ReleasePackageSpec {
+  /** Directory name under `npm/` and the package-name suffix. */
+  identity: string
+  targets: Target[]
+}
+
 interface ReleasePackageValidationOptions {
   pkgDir: string
   rootDir: string
   packageName: string
   binaryName: string
-  target: Target
+  spec: ReleasePackageSpec
   requireDirectBufferDependency: boolean
 }
 
 interface ReleasePackageMaterializationPlan {
-  target: Target
+  spec: ReleasePackageSpec
   pkgDir: string
   rootDir: string
   stagedPkgDir?: string
@@ -2465,7 +2557,7 @@ async function validateReleasePackage({
     return {
       pkgDir,
       rootDir: options.rootDir,
-      target: options.target,
+      spec: options.spec,
       ...validation,
     }
   } finally {
@@ -2499,7 +2591,7 @@ async function stageReleasePackage(
     pkgDir: options.pkgDir,
     rootDir: options.rootDir,
     stagedPkgDir,
-    target: options.target,
+    spec: options.spec,
     ...validation,
   }
 }
@@ -2509,16 +2601,19 @@ function prepareReleasePackage(
   binaryName: string,
 ): PreparedReleasePackage {
   const packageDir = plan.stagedPkgDir ?? plan.pkgDir
-  const artifactExtension =
-    plan.target.platform === 'wasi' || plan.target.platform === 'wasm'
-      ? 'wasm'
-      : 'node'
-  const filename = `${binaryName}.${plan.target.platformArchABI}.${artifactExtension}`
   return {
-    artifactPath: join(packageDir, filename),
-    filename,
+    artifacts: plan.spec.targets.map((target) => {
+      const filename = `${binaryName}.${target.platformArchABI}.${releaseArtifactExtension(target)}`
+      return { filename, path: join(packageDir, filename) }
+    }),
     packageDir,
   }
+}
+
+function releaseArtifactExtension(target: Target) {
+  return target.platform === 'wasi' || target.platform === 'wasm'
+    ? 'wasm'
+    : 'node'
 }
 
 function assertReleasePackageTree(pkgDir: string) {
@@ -2586,9 +2681,7 @@ export async function commitPrePublishFileSystemTransaction({
   const writes: FileSystemTransactionWrite[] = []
   for (const plan of releasePackagePlans) {
     if (!plan.stagedPkgDir) {
-      throw new Error(
-        `Release package ${plan.target.platformArchABI} was not staged`,
-      )
+      throw new Error(`Release package ${plan.spec.identity} was not staged`)
     }
     for (const declarationFile of plan.declarationDependencies) {
       writes.push({
@@ -2627,9 +2720,10 @@ export async function validateReleasePackageContents({
   rootDir,
   packageName,
   binaryName,
-  target,
+  spec,
   requireDirectBufferDependency,
 }: ReleasePackageValidationOptions) {
+  const isWasm = spec.targets[0].platform === 'wasi'
   const packageJsonPath = join(pkgDir, 'package.json')
   if (!existsSync(packageJsonPath)) {
     throw new Error(
@@ -2646,7 +2740,7 @@ export async function validateReleasePackageContents({
     })
   }
 
-  const expectedPackageName = `${packageName}-${target.platformArchABI}`
+  const expectedPackageName = `${packageName}-${spec.identity}`
   if (packageJson.name !== expectedPackageName) {
     throw new Error(
       `Release package ${pkgDir} has stale package name ${String(packageJson.name)}; expected ${expectedPackageName}`,
@@ -2665,24 +2759,26 @@ export async function validateReleasePackageContents({
   for (const file of packageFiles) {
     resolveReleasePackageContentPath(pkgDir, file, expectedPackageName)
   }
-  const packagedRuntimeImports =
-    target.arch === 'wasm32'
-      ? await releasePackageRuntimeImports(
-          pkgDir,
-          expectedPackageName,
-          packageFiles,
-        )
-      : new Set<string>()
+  const packagedRuntimeImports = isWasm
+    ? await releasePackageRuntimeImports(
+        pkgDir,
+        expectedPackageName,
+        packageFiles,
+      )
+    : new Set<string>()
   const packagedLoaderImportsBuffer = packagedRuntimeImports.has('buffer')
 
   validateExpectedReleasePackageManifest(
     packageJson,
     packageFiles,
     binaryName,
-    target,
+    spec,
     requireDirectBufferDependency || packagedLoaderImportsBuffer,
     packagedRuntimeImports,
   )
+  if (isWasm) {
+    assertWasiFlavorsBuilt(pkgDir, expectedPackageName, binaryName, spec)
+  }
 
   for (const file of packageFiles) {
     const path = resolveReleasePackageContentPath(
@@ -2839,88 +2935,174 @@ function loadTypeScript(): TypeScriptModule {
   return loadedTypeScript
 }
 
+interface ExpectedWasiFlavorFiles {
+  target: Target
+  artifact: string
+  entry: string
+  typeDef: string
+  browser: string
+  deferredEntry?: string
+  deferredTypeDef?: string
+  wasmTypeDef?: string
+  files: string[]
+}
+
+function expectedWasiFlavorFiles(
+  binaryName: string,
+  target: Target,
+): ExpectedWasiFlavorFiles {
+  const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
+  const artifact = `${binaryName}.${target.platformArchABI}.wasm`
+  const entry = `${binaryName}.${loaderSuffix}.cjs`
+  const typeDef = `${binaryName}.${loaderSuffix}.d.cts`
+  const browser = `${binaryName}.${loaderSuffix}-browser.js`
+  const files = [artifact, entry, typeDef, browser]
+  if (wasiTargetHasThreads(target)) {
+    files.push('wasi-worker.mjs', 'wasi-worker-browser.mjs')
+    return { target, artifact, entry, typeDef, browser, files }
+  }
+  const deferredEntry = `${binaryName}.${loaderSuffix}-deferred.js`
+  const deferredTypeDef = `${binaryName}.${loaderSuffix}-deferred.d.ts`
+  const wasmTypeDef = `${artifact}.d.ts`
+  files.push(deferredEntry, deferredTypeDef, wasmTypeDef)
+  return {
+    target,
+    artifact,
+    entry,
+    typeDef,
+    browser,
+    deferredEntry,
+    deferredTypeDef,
+    wasmTypeDef,
+    files,
+  }
+}
+
+function threadlessWasiSubpathExports(flavor: ExpectedWasiFlavorFiles) {
+  return {
+    './workerd': {
+      types: `./${flavor.deferredTypeDef}`,
+      default: `./${flavor.deferredEntry}`,
+    },
+    './wasm': {
+      types: `./${flavor.wasmTypeDef}`,
+      default: `./${flavor.artifact}`,
+    },
+    './wasm.wasm': {
+      types: `./${flavor.wasmTypeDef}`,
+      default: `./${flavor.artifact}`,
+    },
+  }
+}
+
+function assertExpectedExports(
+  packageJson: ReleasePackageManifest,
+  expectedExports: Record<string, unknown>,
+) {
+  const exportsMap = asRecord(packageJson.exports)
+  for (const [subpath, expectedExport] of Object.entries(expectedExports)) {
+    if (!isDeepStrictEqual(exportsMap?.[subpath], expectedExport)) {
+      throw new Error(
+        `Release package ${packageJson.name} has a stale or invalid ${subpath} export`,
+      )
+    }
+  }
+}
+
 function validateExpectedReleasePackageManifest(
   packageJson: ReleasePackageManifest,
   packageFiles: string[],
   binaryName: string,
-  target: Target,
+  spec: ReleasePackageSpec,
   requireDirectBufferDependency: boolean,
   packagedRuntimeImports: Set<string>,
 ) {
-  const isWasm = target.arch === 'wasm32'
-  const artifactExtension = isWasm ? 'wasm' : 'node'
-  const artifact = `${binaryName}.${target.platformArchABI}.${artifactExtension}`
-  const expectedFiles = [artifact]
-  const expectedMain = isWasm
-    ? `${binaryName}.${wasiLoaderSuffix(target.platformArchABI)}.cjs`
-    : artifact
-
-  if (packageJson.main !== expectedMain) {
-    throw new Error(
-      `Release package ${packageJson.name} has stale main entry ${String(packageJson.main)}; expected ${expectedMain}`,
-    )
+  const expectedFiles: string[] = []
+  const expectEntry = (
+    field: 'main' | 'types' | 'browser',
+    expected: string,
+  ) => {
+    if (packageJson[field] !== expected) {
+      throw new Error(
+        `Release package ${packageJson.name} has stale ${field} entry ${String(packageJson[field])}; expected ${expected}`,
+      )
+    }
   }
 
-  if (isWasm) {
+  if (spec.targets[0].platform !== 'wasi') {
+    const artifact = `${binaryName}.${spec.identity}.node`
+    expectedFiles.push(artifact)
+    expectEntry('main', artifact)
+  } else {
     validateWasiReleasePackageManifest(
       packageJson,
       requireDirectBufferDependency,
       packagedRuntimeImports,
     )
-    const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
-    const expectedTypes = `${binaryName}.${loaderSuffix}.d.cts`
-    const expectedBrowser = `${binaryName}.${loaderSuffix}-browser.js`
-    expectedFiles.push(expectedMain, expectedTypes, expectedBrowser)
-    if (packageJson.types !== expectedTypes) {
-      throw new Error(
-        `Release package ${packageJson.name} has stale types entry ${String(packageJson.types)}; expected ${expectedTypes}`,
-      )
+    const flavors = spec.targets.map((target) =>
+      expectedWasiFlavorFiles(binaryName, target),
+    )
+    for (const flavor of flavors) {
+      expectedFiles.push(...flavor.files)
     }
-    if (packageJson.browser !== expectedBrowser) {
-      throw new Error(
-        `Release package ${packageJson.name} has stale browser entry ${String(packageJson.browser)}; expected ${expectedBrowser}`,
-      )
-    }
-    if (wasiTargetHasThreads(target)) {
-      expectedFiles.push('wasi-worker.mjs', 'wasi-worker-browser.mjs')
-      if (packageJson.exports !== undefined) {
+    const threaded = flavors.find((flavor) =>
+      wasiTargetHasThreads(flavor.target),
+    )
+    const threadless = flavors.find(
+      (flavor) => !wasiTargetHasThreads(flavor.target),
+    )
+    if (spec.identity === WASI_FAMILY_TARGET) {
+      if (!threaded || !threadless) {
+        throw new Error(
+          `Release package ${packageJson.name} must carry both WASI flavors`,
+        )
+      }
+      const dispatcher = wasiDispatcherFileNames(binaryName)
+      expectedFiles.push(dispatcher.entry, dispatcher.typeDef)
+      expectEntry('main', dispatcher.entry)
+      expectEntry('types', dispatcher.typeDef)
+      expectEntry('browser', threaded.browser)
+      const fixedFlavorExport = (flavor: ExpectedWasiFlavorFiles) => ({
+        types: `./${flavor.typeDef}`,
+        browser: `./${flavor.browser}`,
+        default: `./${flavor.entry}`,
+      })
+      assertExpectedExports(packageJson, {
+        '.': {
+          types: `./${dispatcher.typeDef}`,
+          browser: {
+            [WASI_THREADLESS_CONDITION]: `./${threadless.browser}`,
+            default: `./${threaded.browser}`,
+          },
+          [WASI_THREADLESS_CONDITION]: `./${threadless.entry}`,
+          default: `./${dispatcher.entry}`,
+        },
+        [`./${threaded.target.platformArchABI}`]: fixedFlavorExport(threaded),
+        [`./${threadless.target.platformArchABI}`]:
+          fixedFlavorExport(threadless),
+        ...threadlessWasiSubpathExports(threadless),
+        './package.json': './package.json',
+      })
+    } else {
+      const [flavor] = flavors
+      expectEntry('main', flavor.entry)
+      expectEntry('types', flavor.typeDef)
+      expectEntry('browser', flavor.browser)
+      if (threadless) {
+        assertExpectedExports(packageJson, {
+          '.': {
+            types: `./${flavor.typeDef}`,
+            browser: `./${flavor.browser}`,
+            require: `./${flavor.entry}`,
+            default: `./${flavor.entry}`,
+          },
+          ...threadlessWasiSubpathExports(threadless),
+          './package.json': './package.json',
+        })
+      } else if (packageJson.exports !== undefined) {
         throw new Error(
           `Release package ${packageJson.name} must omit exports for its threaded WASI legacy entries`,
         )
-      }
-    } else {
-      const deferredEntry = `${binaryName}.${loaderSuffix}-deferred.js`
-      const deferredTypeDef = `${binaryName}.${loaderSuffix}-deferred.d.ts`
-      const wasmTypeDef = `${artifact}.d.ts`
-      expectedFiles.push(deferredEntry, deferredTypeDef, wasmTypeDef)
-      const exportsMap = asRecord(packageJson.exports)
-      const expectedExports = {
-        '.': {
-          types: `./${expectedTypes}`,
-          browser: `./${expectedBrowser}`,
-          require: `./${expectedMain}`,
-          default: `./${expectedMain}`,
-        },
-        './workerd': {
-          types: `./${deferredTypeDef}`,
-          default: `./${deferredEntry}`,
-        },
-        './wasm': {
-          types: `./${wasmTypeDef}`,
-          default: `./${artifact}`,
-        },
-        './wasm.wasm': {
-          types: `./${wasmTypeDef}`,
-          default: `./${artifact}`,
-        },
-        './package.json': './package.json',
-      }
-      for (const [subpath, expectedExport] of Object.entries(expectedExports)) {
-        if (!isDeepStrictEqual(exportsMap?.[subpath], expectedExport)) {
-          throw new Error(
-            `Release package ${packageJson.name} has a stale or invalid ${subpath} export`,
-          )
-        }
       }
     }
   }
@@ -2931,6 +3113,39 @@ function validateExpectedReleasePackageManifest(
   if (missingExpectedFiles.length > 0) {
     throw new Error(
       `Release package ${packageJson.name} does not publish required files: ${missingExpectedFiles.join(', ')}`,
+    )
+  }
+}
+
+/**
+ * Every configured WASI flavor must have been built and collected into the
+ * package before it is published: a missing flavor would turn the unified
+ * package's fallback — or a pinned `NAPI_RS_WASI_FLAVOR` — into a load error
+ * for every consumer.
+ */
+function assertWasiFlavorsBuilt(
+  pkgDir: string,
+  packageName: string,
+  binaryName: string,
+  spec: ReleasePackageSpec,
+) {
+  const missingFlavors: string[] = []
+  for (const target of spec.targets) {
+    const missing = expectedWasiFlavorFiles(binaryName, target).files.filter(
+      (file) => {
+        const path = resolveReleasePackageContentPath(pkgDir, file, packageName)
+        return !existsSync(path) || !lstatSync(path).isFile()
+      },
+    )
+    if (missing.length > 0) {
+      missingFlavors.push(
+        `${target.platformArchABI} (missing ${missing.join(', ')}; build it with \`napi build --target ${target.platformArchABI}\` and collect it with \`napi artifacts\`)`,
+      )
+    }
+  }
+  if (missingFlavors.length > 0) {
+    throw new Error(
+      `Release package ${packageName} is missing configured WASI flavors: ${missingFlavors.join('; ')}`,
     )
   }
 }

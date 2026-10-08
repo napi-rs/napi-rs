@@ -21,7 +21,10 @@ const isWasiLane = Boolean(
 /** The node CJS loader of whichever flavor this lane actually built. */
 const FLAVORS = [
   { loader: 'example.wasip1.cjs', wasm: 'example.wasm32-wasip1.wasm' },
-  { loader: 'example.wasi.cjs', wasm: 'example.wasm32-wasi.wasm' },
+  {
+    loader: 'example.wasip1-threads.cjs',
+    wasm: 'example.wasm32-wasip1-threads.wasm',
+  },
 ] as const
 
 const flavor = FLAVORS.find(({ loader, wasm }) =>

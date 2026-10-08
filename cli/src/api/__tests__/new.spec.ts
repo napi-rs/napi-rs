@@ -218,6 +218,59 @@ test('create a new project with custom path, name, and targets', async (t) => {
   )
 })
 
+test('wasm32-wasi expands to a CI matrix entry per WASI flavor', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'wasi-family')
+
+  await newProject({
+    path: projectPath,
+    name: '@custom/wasi-family',
+    targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasi'],
+    enableDefaultTargets: false,
+  })
+
+  const pkgJson = JSON.parse(
+    await readFile(join(projectPath, 'package.json'), 'utf-8'),
+  )
+  // the family shorthand is stored expanded, so every later command sees
+  // two flavor targets and the unified package identity
+  t.deepEqual(pkgJson.napi.targets, [
+    'x86_64-unknown-linux-gnu',
+    'wasm32-wasip1-threads',
+    'wasm32-wasip1',
+  ])
+  const browserEntry = await readFile(join(projectPath, 'browser.js'), 'utf-8')
+  t.true(browserEntry.includes("'@custom/wasi-family-wasm32-wasi'"))
+
+  const ciYaml = await readFile(
+    join(projectPath, '.github', 'workflows', 'CI.yml'),
+    'utf-8',
+  )
+  const yamlObject = yamlLoad(ciYaml) as any
+  const wasiSettings = yamlObject.jobs.build.strategy.matrix.settings.filter(
+    (setting: any) => String(setting.target).startsWith('wasm32-'),
+  )
+  t.deepEqual(
+    wasiSettings.map((setting: any) => setting.target),
+    ['wasm32-wasip1-threads', 'wasm32-wasip1'],
+  )
+  for (const setting of wasiSettings) {
+    t.true(
+      setting.build.includes(`--target ${setting.target}`),
+      `${setting.target} must build its own triple`,
+    )
+    t.false(setting.build.includes('wasm32-wasi '))
+  }
+  // each flavor is tested against the artifact it uploaded
+  t.deepEqual(yamlObject.jobs['test-wasi'].strategy.matrix.target, [
+    'wasm32-wasip1-threads',
+    'wasm32-wasip1',
+  ])
+  const download = yamlObject.jobs['test-wasi'].steps.find((step: any) =>
+    String(step.uses).startsWith('actions/download-artifact@'),
+  )
+  t.is(download.with.name, 'bindings-${{ matrix.target }}')
+})
+
 test('non Windows and macOS targets should remove test-macOS-windows-binding job', async (t) => {
   const projectPath = join(t.context.tmpDir, 'no-windows-macos')
   const targets = [

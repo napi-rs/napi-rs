@@ -1,11 +1,22 @@
 # WASI targets and loaders
 
-Use `wasm32-wasip1-threads` for the threaded runtime and `wasm32-wasip1` for
-the threadless runtime. The historical `wasm32-wasi` and
-`wasm32-wasi-preview1-threads` spellings are accepted as aliases for
-`wasm32-wasip1-threads`; they retain the existing `<package>-wasm32-wasi`
-package and artifact identity. Configuring more than one alias for the same
-artifact set is an error.
+NAPI-RS builds two WASI flavors, and `wasm32-wasi` is the name of the family
+they belong to — never of one build:
+
+| name                    | meaning                                                                                                                                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wasm32-wasip1-threads` | the threaded flavor: a build target, the artifact identity (`<name>.wasm32-wasip1-threads.wasm`, `<name>.wasip1-threads.cjs`), a `__napiBindingTarget` value, a `NAPI_RS_WASI_FLAVOR` value                                  |
+| `wasm32-wasip1`         | the threadless flavor, with the same roles (`<name>.wasm32-wasip1.wasm`, `<name>.wasip1.cjs`)                                                                                                                                |
+| `wasm32-wasi`           | the family. In `napi.targets` it is shorthand for both flavors. It names the unified `<package>-wasm32-wasi` npm package that carries both when both are configured. It is not a build target, an artifact or a flavor value |
+
+`wasm32-wasi-preview1-threads` is accepted as the historical spelling of
+`wasm32-wasip1-threads`. Listing two spellings of one flavor — or the family
+next to one of its flavors — is rejected as a duplicate artifact set.
+`napi build --target wasm32-wasi` is rejected too, with the two flavor triples
+to build instead.
+
+Which npm package a project publishes follows from the configured flavors; see
+[Publishing](#publishing).
 
 WASI packages use emnapi v2, whose runtime is ESM-only. The generated
 CommonJS entry therefore supports Node.js `^20.19.0`, `^22.13.0`, and
@@ -16,12 +27,15 @@ engine contract.
 ## Selecting a WASI flavor in Node.js
 
 The root Node.js entry prefers a native addon. When native loading is
-unavailable, it tries local WASI loaders and then installed flavor packages.
-Within each group the default order is threaded (`wasm32-wasi`) and then
-threadless (`wasm32-wasip1`).
+unavailable, it tries local WASI loaders and then the installed WASI package.
+Within each group the default order is threaded (`wasm32-wasip1-threads`) and
+then threadless (`wasm32-wasip1`). When the WASI package is the unified
+`<package>-wasm32-wasi`, its own entry applies the same rule: it loads the
+threaded flavor and falls back to the threadless one if the threaded loader
+throws while loading or instantiating.
 
-Set `NAPI_RS_WASI_FLAVOR` to a generated flavor identity to select it through
-the root package:
+Set `NAPI_RS_WASI_FLAVOR` to a flavor identity to select it through the root
+package, or through the unified package directly:
 
 ```sh
 NAPI_RS_WASI_FLAVOR=wasm32-wasip1 node app.js
@@ -30,26 +44,35 @@ NAPI_RS_WASI_FLAVOR=wasm32-wasip1 node app.js
 The selector enters the WASI path without requiring
 `NAPI_RS_FORCE_WASI`, skips every other WASI flavor, and does not fall back to
 a native addon if the selected flavor cannot load. This makes the result
-deterministic when both optional flavor packages are installed, including
-isolated pnpm and Yarn PnP layouts. Use `wasm32-wasi` to select the threaded
-flavor. An unsupported value reports the flavor identities generated for that
-package.
+deterministic in every layout, including isolated pnpm and Yarn PnP layouts.
+An unsupported value reports the flavor identities generated for that package;
+`wasm32-wasi` is unsupported there because it names the family, not a flavor.
 
 Without `NAPI_RS_WASI_FLAVOR`, existing behavior is unchanged.
 `NAPI_RS_FORCE_WASI=true` prefers the default WASI fallback chain but retains a
 lazy native fallback, while `NAPI_RS_FORCE_WASI=error` requires some generated
 WASI flavor to load.
 
+A unified package also exposes the choice statically, which is how browsers
+and bundlers select a flavor: the package-defined `wasi-threadless` `exports`
+condition, and the fixed-flavor subpaths `./wasm32-wasip1-threads` and
+`./wasm32-wasip1`. `node -C wasi-threadless app.js` is equivalent to the
+environment variable for the unified package's own entry. See
+[Publishing](#publishing).
+
 ## Identifying the loaded artifact
 
 Every generated loader exports `__napiBindingTarget`, a string naming the
 artifact that actually loaded:
 
-| value             | artifact                   |
-| ----------------- | -------------------------- |
-| `'native'`        | a `.node` addon            |
-| `'wasm32-wasi'`   | the threaded WASI flavor   |
-| `'wasm32-wasip1'` | the threadless WASI flavor |
+| value                     | artifact                   |
+| ------------------------- | -------------------------- |
+| `'native'`                | a `.node` addon            |
+| `'wasm32-wasip1-threads'` | the threaded WASI flavor   |
+| `'wasm32-wasip1'`         | the threadless WASI flavor |
+
+The family name `wasm32-wasi` is never reported: a unified package's entry
+re-exports the flavor loader it selected, so the value always names a flavor.
 
 The WASI values are the same flavor identities `NAPI_RS_WASI_FLAVOR` accepts,
 so a pinned flavor round-trips:
@@ -60,15 +83,15 @@ const binding = require('<package>')
 binding.__napiBindingTarget // 'wasm32-wasip1'
 ```
 
-Remember that `wasm32-wasi` is the _threaded_ flavor; see the target aliases at
-the top of this page.
-
 The root Node.js entry sets the value from the fallback candidate it resolved,
 not from anything the WASI loader reports, so it is correct even for a loader
-that fails to initialize its own exports. The one exception is
-`NAPI_RS_NATIVE_LIBRARY_PATH`: that override can point at a generated WASI
-loader, so the root entry adopts the `__napiBindingTarget` the required module
-reports and falls back to `'native'` when it reports none.
+that fails to initialize its own exports. Two candidates are the exception,
+because there the required module is the one that picked the flavor: the
+unified `<package>-wasm32-wasi` entry, whose selection the root adopts, and
+`NAPI_RS_NATIVE_LIBRARY_PATH`, which can point at a generated WASI loader. In
+both cases the root entry adopts the `__napiBindingTarget` the required module
+reports and falls back to the candidate's own identity (or `'native'` for the
+override) when it reports none.
 
 Each flavor's own loaders (the CommonJS loader, the browser loader and the
 deferred `./workerd` loader) carry their own fixed flavor identity, and they
@@ -366,27 +389,121 @@ module runs inside the host process, so `wasm32` or host-OS restrictions would
 make npm reject a direct install or skip the optional dependency on otherwise
 supported hosts.
 
-Because nothing gates the install, the root package does not declare the WASI
-package in `optionalDependencies` when native targets are also configured. npm
-evaluates every `optionalDependencies` entry independently, so a declared WASI
-package is downloaded by every consumer, including the ones that already
-resolved a native package and will never load the `.wasm` binary. The generated
-binding loader picks WASI at require time instead, and environments without a
-native package are expected to install it on demand.
-
-When WASI is the only configured target it is the primary artifact rather than a
-fallback, so it is declared by default. Set `napi.wasm.optionalDependency` to
-override the default in either direction:
+Because nothing gates the install, the WASI package is downloaded by every
+consumer that installs the root package, including the ones that resolve a
+native package and never load the `.wasm` binary. It is declared in the root
+`optionalDependencies` anyway: that is what makes `npm install <package>` work
+on hosts without a native build, and in isolated layouts (pnpm, Yarn PnP) where
+a package the loader `require()`s but the manifest never declared is not
+reachable. Set `napi.wasm.optionalDependency` to `false` to omit the
+declaration and have the environments that need WASI install the package on
+demand:
 
 ```json
 {
   "napi": {
     "wasm": {
-      "optionalDependency": true
+      "optionalDependency": false
     }
   }
 }
 ```
+
+The declared entry follows the layout in [Publishing](#publishing):
+`<package>-wasm32-wasi` when both flavors are configured, otherwise the single
+flavor's package. `napi pre-publish` rewrites the entry and drops the ones a
+previous layout declared.
+
+## Publishing
+
+The configured flavors decide which npm package carries the WASI build. There
+is always exactly one WASI package per release:
+
+| configured flavors   | `npm/` directory and package                                   | contents                                                     |
+| -------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| threaded only        | `npm/wasm32-wasip1-threads`, `<package>-wasm32-wasip1-threads` | the threaded loaders and `.wasm`                             |
+| threadless only      | `npm/wasm32-wasip1`, `<package>-wasm32-wasip1`                 | the threadless loaders, `.wasm` and the `./workerd` facade   |
+| both (`wasm32-wasi`) | `npm/wasm32-wasi`, `<package>-wasm32-wasi`                     | both flavors' loaders and `.wasm` binaries plus a dispatcher |
+
+`napi create-npm-dirs` writes the package directory and owns every static
+file in it (`package.json`, `README.md`, the `.wasm.d.ts` declaration and,
+for the unified package, the dispatcher `<name>.wasi.cjs` / `<name>.wasi.d.cts`).
+`napi artifacts` copies each flavor's build outputs into it; a flavor that was
+not built is simply absent. `napi pre-publish` then refuses to publish a
+unified package that is missing a configured flavor, naming the flavor and the
+`napi build --target …` command that produces it. Stale directories from
+another layout — `npm/wasm32-wasi` left over from a threaded-only release that
+predates this layout, or flavor directories after switching to both — are
+removed by `create-npm-dirs` once nothing in the configuration owns them.
+
+In CI this means one build job per flavor (`napi new` emits one matrix entry
+per configured flavor) and one `napi artifacts` run that sees both sets of
+outputs before `napi pre-publish`.
+
+### Changing the configured flavors
+
+Adding or removing a flavor changes the package name. A release that moves from
+threaded-only to both flavors stops publishing `<package>-wasm32-wasip1-threads`
+and starts publishing `<package>-wasm32-wasi`; consumers get the new name
+through the rewritten root `optionalDependencies`. Projects that configured the
+historical `wasm32-wasi` alias for a threaded-only build now publish
+`<package>-wasm32-wasip1-threads` — the family shorthand expands to both
+flavors, so keeping `wasm32-wasi` in `napi.targets` means building and
+publishing both.
+
+### The unified package
+
+`<package>-wasm32-wasi` is the only WASI package with an `exports` map that
+selects a flavor:
+
+```json
+{
+  "exports": {
+    ".": {
+      "types": "./<name>.wasi.d.cts",
+      "browser": {
+        "wasi-threadless": "./<name>.wasip1-browser.js",
+        "default": "./<name>.wasip1-threads-browser.js"
+      },
+      "wasi-threadless": "./<name>.wasip1.cjs",
+      "default": "./<name>.wasi.cjs"
+    },
+    "./wasm32-wasip1-threads": { "...": "the threaded loaders" },
+    "./wasm32-wasip1": { "...": "the threadless loaders" },
+    "./workerd": { "...": "the threadless deferred loader" },
+    "./wasm": { "...": "the threadless .wasm" },
+    "./wasm.wasm": { "...": "the threadless .wasm" }
+  }
+}
+```
+
+- **Node.js** resolves `.` to the dispatcher `<name>.wasi.cjs`, which applies
+  `NAPI_RS_WASI_FLAVOR` or loads threaded-then-threadless as described above,
+  and re-exports the selected loader. Its declaration re-exports one flavor's
+  types — both flavors declare the same surface — and widens
+  `__napiBindingTarget` to `'wasm32-wasip1-threads' | 'wasm32-wasip1'`.
+- **Browsers** get the threaded browser loader by default. There is no
+  runtime detection: a page that is not cross-origin isolated has no
+  `SharedArrayBuffer`, and the threaded loader throws an error that says so and
+  names the two ways out. Either serve `Cross-Origin-Opener-Policy: same-origin`
+  and `Cross-Origin-Embedder-Policy: require-corp`, or select the threadless
+  flavor at bundle time with the `wasi-threadless` condition — webpack
+  `resolve.conditionNames`, Vite `resolve.conditions`, esbuild `--conditions`,
+  Rollup `@rollup/plugin-node-resolve` `exportConditions` — or by importing
+  the fixed-flavor subpath `<package>-wasm32-wasi/wasm32-wasip1` directly.
+- **workerd / `WebAssembly.Module` consumers** import
+  `<package>-wasm32-wasi/workerd` and `<package>-wasm32-wasi/wasm`; the root
+  package's `./workerd`, `./wasm` and `./wasm.wasm` facade forwards there.
+
+`wasi-threadless` is a package-defined condition. Node's resolver ignores it
+unless it is enabled (`node -C wasi-threadless`), so an unaware consumer always
+gets the default branch, never a broken one. The fixed-flavor subpaths
+`./wasm32-wasip1-threads` and `./wasm32-wasip1` carry their own `types`,
+`browser` and `default` entries and never dispatch.
+
+The root package's `browser.js` re-exports the unified package root, so the
+consumer's bundler conditions select the flavor transitively; a single-flavor
+project's `browser.js` re-exports that flavor's browser loader.
 
 ## Shared async runtime hosts
 
@@ -541,7 +658,7 @@ boots once the spawning parent returns to its event loop.
 
 ## Thread pool preload
 
-The threaded Node loader (`<binary>.wasi.cjs`) creates its emnapi worker pool
+The threaded Node loader (`<binary>.wasip1-threads.cjs`) creates its emnapi worker pool
 empty (`reuseWorker: true`): emnapi's own preload (`reuseWorker.size > 0`)
 cannot run on a synchronous CommonJS load. Without help, every pool thread a
 `MultiThread` runtime spawns on its first async call would first boot a Worker
@@ -574,8 +691,8 @@ Workers idle in the pool:
   changing the configuration some other way. Like `napi.rs.wasi.dispose`, the
   symbol lives on the CommonJS loader object. The generated ESM entry
   re-exports named exports only, so an ESM consumer reaches it through
-  `createRequire(import.meta.url)('<pkg>-wasm32-wasi')` or the local
-  `./<name>.wasi.cjs`.
+  `createRequire(import.meta.url)('<pkg>-wasm32-wasi')` (or the single-flavor
+  package) or the local `./<name>.wasip1-threads.cjs`.
 
 A reconcile creates each missing Worker through `onCreateWorker` (so it is
 tracked, unref'd and gets the crash flags) and starts its load without waiting

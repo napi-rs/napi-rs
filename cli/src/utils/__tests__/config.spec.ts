@@ -1,4 +1,4 @@
-import { unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -78,4 +78,57 @@ test('should be able to read config from napi.json', async (t) => {
   const { packageJson, configPath } = t.context
   const config = await readNapiConfig(packageJson, configPath)
   t.snapshot(config)
+})
+
+async function readConfigWithTargets(targets: string[]) {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-config-targets-'))
+  const packageJson = join(dir, 'package.json')
+  await writeFile(
+    packageJson,
+    JSON.stringify({
+      name: '@napi-rs/testing',
+      version: '0.0.0',
+      napi: { binaryName: 'testing', targets },
+    }),
+  )
+  try {
+    return await readNapiConfig(packageJson)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+test('wasm32-wasi expands to both WASI flavors', async (t) => {
+  const config = await readConfigWithTargets([
+    'x86_64-unknown-linux-gnu',
+    'wasm32-wasi',
+  ])
+  t.deepEqual(
+    config.targets.map((target) => target.platformArchABI),
+    ['linux-x64-gnu', 'wasm32-wasip1-threads', 'wasm32-wasip1'],
+  )
+})
+
+test('wasm32-wasi next to an explicit flavor is a duplicate artifact set', async (t) => {
+  await t.throwsAsync(
+    () => readConfigWithTargets(['wasm32-wasi', 'wasm32-wasip1']),
+    {
+      message:
+        'Targets wasm32-wasip1 and wasm32-wasip1 produce the same wasm32-wasip1 artifact set. Choose one target spelling.',
+    },
+  )
+})
+
+test('the legacy threaded spelling and the canonical triple collide', async (t) => {
+  await t.throwsAsync(
+    () =>
+      readConfigWithTargets([
+        'wasm32-wasi-preview1-threads',
+        'wasm32-wasip1-threads',
+      ]),
+    {
+      message:
+        'Targets wasm32-wasi-preview1-threads and wasm32-wasip1-threads produce the same wasm32-wasip1-threads artifact set. Choose one target spelling.',
+    },
+  )
 })

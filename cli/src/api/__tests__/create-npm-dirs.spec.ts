@@ -248,7 +248,7 @@ test('should handle WASM targets correctly with publishConfig', async (t) => {
     })
 
     // Check that the scoped package directory was created
-    const scopedDir = join(tmpDir, 'npm', 'wasm32-wasi')
+    const scopedDir = join(tmpDir, 'npm', 'wasm32-wasip1-threads')
     t.true(existsSync(scopedDir))
 
     // Read the generated package.json for the scoped package
@@ -299,7 +299,10 @@ test('should preserve stricter node engine ranges for WASM targets', async (t) =
   })
 
   const scopedPackageJson = JSON.parse(
-    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+    await readFile(
+      join(tmpDir, 'npm', 'wasm32-wasip1-threads', 'package.json'),
+      'utf-8',
+    ),
   )
 
   t.is(scopedPackageJson.engines.node, '>=24')
@@ -328,7 +331,10 @@ test('should intersect mixed node engine ranges with the WASI minimum', async (t
   })
 
   const scopedPackageJson = JSON.parse(
-    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+    await readFile(
+      join(tmpDir, 'npm', 'wasm32-wasip1-threads', 'package.json'),
+      'utf-8',
+    ),
   )
 
   t.is(scopedPackageJson.engines.node, MINIMUM_WASI_NODE_VERSION)
@@ -357,7 +363,10 @@ test('should preserve sibling engine constraints when node is missing for WASM t
   })
 
   const scopedPackageJson = JSON.parse(
-    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+    await readFile(
+      join(tmpDir, 'npm', 'wasm32-wasip1-threads', 'package.json'),
+      'utf-8',
+    ),
   )
 
   t.deepEqual(scopedPackageJson.engines, {
@@ -416,7 +425,10 @@ test('should drop exact node engine branches below the WASI minimum for WASM tar
   })
 
   const scopedPackageJson = JSON.parse(
-    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+    await readFile(
+      join(tmpDir, 'npm', 'wasm32-wasip1-threads', 'package.json'),
+      'utf-8',
+    ),
   )
 
   t.is(scopedPackageJson.engines.node, MINIMUM_WASI_NODE_VERSION)
@@ -441,7 +453,7 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
     packageJsonPath: 'package.json',
   })
 
-  const scopedDir = join(tmpDir, 'npm', 'wasm32-wasi')
+  const scopedDir = join(tmpDir, 'npm', 'wasm32-wasip1-threads')
   const scopedPackageJson = JSON.parse(
     await readFile(join(scopedDir, 'package.json'), 'utf-8'),
   )
@@ -480,7 +492,7 @@ test.serial(
         packageJsonPath: 'package.json',
       })
 
-      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+      for (const packageDir of ['wasm32-wasi']) {
         const scopedPackageJson = JSON.parse(
           await readFile(
             join(tmpDir, 'npm', packageDir, 'package.json'),
@@ -529,7 +541,7 @@ test.serial(
         packageJsonPath: 'package.json',
       })
 
-      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+      for (const packageDir of ['wasm32-wasi']) {
         const scopedPackageJson = JSON.parse(
           await readFile(
             join(tmpDir, 'npm', packageDir, 'package.json'),
@@ -578,7 +590,7 @@ test.serial(
         packageJsonPath: 'package.json',
       })
 
-      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+      for (const packageDir of ['wasm32-wasi']) {
         const scopedPackageJson = JSON.parse(
           await readFile(
             join(tmpDir, 'npm', packageDir, 'package.json'),
@@ -704,5 +716,265 @@ test.serial(
     } finally {
       await registryServer.close()
     }
+  },
+)
+
+test.serial(
+  'both WASI flavors produce one unified wasm32-wasi package',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: '@scope/unified',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'unified',
+          // the family name expands to both flavors
+          targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasi'],
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({ cwd: tmpDir, packageJsonPath: 'package.json' })
+    } finally {
+      await registryServer.close()
+    }
+
+    t.true(existsSync(join(tmpDir, 'npm', 'linux-x64-gnu', 'package.json')))
+    t.false(existsSync(join(tmpDir, 'npm', 'wasm32-wasip1')))
+    t.false(existsSync(join(tmpDir, 'npm', 'wasm32-wasip1-threads')))
+
+    const unifiedDir = join(tmpDir, 'npm', 'wasm32-wasi')
+    const manifest = JSON.parse(
+      await readFile(join(unifiedDir, 'package.json'), 'utf8'),
+    )
+    t.is(manifest.name, '@scope/unified-wasm32-wasi')
+    t.is(manifest.type, 'module')
+    t.is(manifest.cpu, undefined)
+    t.is(manifest.os, undefined)
+    t.is(manifest.main, 'unified.wasi.cjs')
+    t.is(manifest.types, 'unified.wasi.d.cts')
+    t.is(manifest.browser, 'unified.wasip1-threads-browser.js')
+    t.deepEqual(manifest.exports, {
+      '.': {
+        types: './unified.wasi.d.cts',
+        browser: {
+          'wasi-threadless': './unified.wasip1-browser.js',
+          default: './unified.wasip1-threads-browser.js',
+        },
+        'wasi-threadless': './unified.wasip1.cjs',
+        default: './unified.wasi.cjs',
+      },
+      './wasm32-wasip1-threads': {
+        types: './unified.wasip1-threads.d.cts',
+        browser: './unified.wasip1-threads-browser.js',
+        default: './unified.wasip1-threads.cjs',
+      },
+      './wasm32-wasip1': {
+        types: './unified.wasip1.d.cts',
+        browser: './unified.wasip1-browser.js',
+        default: './unified.wasip1.cjs',
+      },
+      './workerd': {
+        types: './unified.wasip1-deferred.d.ts',
+        default: './unified.wasip1-deferred.js',
+      },
+      './wasm': {
+        types: './unified.wasm32-wasip1.wasm.d.ts',
+        default: './unified.wasm32-wasip1.wasm',
+      },
+      './wasm.wasm': {
+        types: './unified.wasm32-wasip1.wasm.d.ts',
+        default: './unified.wasm32-wasip1.wasm',
+      },
+      './package.json': './package.json',
+    })
+    t.deepEqual([...manifest.files].sort(), [
+      'unified.wasi.cjs',
+      'unified.wasi.d.cts',
+      'unified.wasip1-browser.js',
+      'unified.wasip1-deferred.d.ts',
+      'unified.wasip1-deferred.js',
+      'unified.wasip1-threads-browser.js',
+      'unified.wasip1-threads.cjs',
+      'unified.wasip1-threads.d.cts',
+      'unified.wasip1.cjs',
+      'unified.wasip1.d.cts',
+      'unified.wasm32-wasip1-threads.wasm',
+      'unified.wasm32-wasip1.wasm',
+      'unified.wasm32-wasip1.wasm.d.ts',
+      'wasi-worker-browser.mjs',
+      'wasi-worker.mjs',
+    ])
+    t.is(manifest.engines.node, MINIMUM_WASI_NODE_VERSION)
+
+    // static files owned by create-npm-dirs
+    const dispatcher = await readFile(
+      join(unifiedDir, 'unified.wasi.cjs'),
+      'utf8',
+    )
+    t.true(dispatcher.includes("require('./unified.wasip1-threads.cjs')"))
+    t.true(dispatcher.includes("require('./unified.wasip1.cjs')"))
+    const dispatcherTypeDef = await readFile(
+      join(unifiedDir, 'unified.wasi.d.cts'),
+      'utf8',
+    )
+    t.true(
+      dispatcherTypeDef.includes(
+        "export * from './unified.wasip1-threads.cjs'",
+      ),
+    )
+    t.true(
+      dispatcherTypeDef.includes(
+        "__napiBindingTarget: 'wasm32-wasip1-threads' | 'wasm32-wasip1'",
+      ),
+    )
+    t.true(existsSync(join(unifiedDir, 'unified.wasm32-wasip1.wasm.d.ts')))
+    const readme = await readFile(join(unifiedDir, 'README.md'), 'utf8')
+    t.true(readme.includes('wasm32-wasip1-threads'))
+    t.true(readme.includes('wasi-threadless'))
+  },
+)
+
+test.serial(
+  'a single WASI flavor keeps its flavor-specific package',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'threaded-only',
+        version: '1.0.0',
+        napi: { binaryName: 'threaded', targets: ['wasm32-wasip1-threads'] },
+      }),
+    )
+    try {
+      await createNpmDirs({ cwd: tmpDir, packageJsonPath: 'package.json' })
+    } finally {
+      await registryServer.close()
+    }
+
+    t.false(existsSync(join(tmpDir, 'npm', 'wasm32-wasi')))
+    const manifest = JSON.parse(
+      await readFile(
+        join(tmpDir, 'npm', 'wasm32-wasip1-threads', 'package.json'),
+        'utf8',
+      ),
+    )
+    t.is(manifest.name, 'threaded-only-wasm32-wasip1-threads')
+    t.is(manifest.main, 'threaded.wasip1-threads.cjs')
+    t.is(manifest.types, 'threaded.wasip1-threads.d.cts')
+    t.is(manifest.browser, 'threaded.wasip1-threads-browser.js')
+    t.is(manifest.exports, undefined)
+    t.deepEqual([...manifest.files].sort(), [
+      'threaded.wasip1-threads-browser.js',
+      'threaded.wasip1-threads.cjs',
+      'threaded.wasip1-threads.d.cts',
+      'threaded.wasm32-wasip1-threads.wasm',
+      'wasi-worker-browser.mjs',
+      'wasi-worker.mjs',
+    ])
+  },
+)
+
+test.serial(
+  'moving from the legacy threaded layout to the unified package sweeps the old files',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    // what a previous CLI wrote for `targets: ['wasm32-wasi-preview1-threads']`
+    const legacyDir = join(tmpDir, 'npm', 'wasm32-wasi')
+    await mkdir(legacyDir, { recursive: true })
+    await Promise.all([
+      writeFile(
+        join(legacyDir, 'package.json'),
+        JSON.stringify({
+          name: 'legacy-wasm32-wasi',
+          version: '0.9.0',
+          type: 'module',
+          main: 'legacy.wasi.cjs',
+          types: 'legacy.wasi.d.cts',
+          browser: 'legacy.wasi-browser.js',
+          files: [
+            'legacy.wasm32-wasi.wasm',
+            'legacy.wasi.cjs',
+            'legacy.wasi.d.cts',
+            'legacy.wasi-browser.js',
+            'wasi-worker.mjs',
+            'wasi-worker-browser.mjs',
+          ],
+        }),
+      ),
+      writeFile(join(legacyDir, 'legacy.wasm32-wasi.wasm'), 'wasm'),
+      writeFile(join(legacyDir, 'legacy.wasi.cjs'), 'legacy loader'),
+      writeFile(join(legacyDir, 'legacy.wasi.d.cts'), 'legacy types'),
+      writeFile(join(legacyDir, 'legacy.wasi-browser.js'), 'legacy browser'),
+      writeFile(join(legacyDir, 'wasi-worker.mjs'), 'worker'),
+      writeFile(join(legacyDir, 'wasi-worker-browser.mjs'), 'worker'),
+      writeFile(join(legacyDir, 'HANDWRITTEN.md'), 'keep me'),
+      writeFile(
+        join(legacyDir, 'README.md'),
+        '# `legacy-wasm32-wasi`\n\nThis is the **wasm32-wasip1-threads** binary for `legacy`\n',
+      ),
+    ])
+    // and a threadless-only package left over from another layout
+    const threadlessDir = join(tmpDir, 'npm', 'wasm32-wasip1')
+    await mkdir(threadlessDir, { recursive: true })
+    await writeFile(
+      join(threadlessDir, 'package.json'),
+      JSON.stringify({
+        name: 'legacy-wasm32-wasip1',
+        version: '0.9.0',
+        type: 'module',
+        main: 'legacy.wasip1.cjs',
+        files: ['legacy.wasip1.cjs'],
+      }),
+    )
+    await writeFile(join(threadlessDir, 'legacy.wasip1.cjs'), 'loader')
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'legacy',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'legacy',
+          targets: ['wasm32-wasip1-threads', 'wasm32-wasip1'],
+        },
+      }),
+    )
+    try {
+      await createNpmDirs({ cwd: tmpDir, packageJsonPath: 'package.json' })
+    } finally {
+      await registryServer.close()
+    }
+
+    // the unified package is written in place; legacy-only files are gone
+    t.false(existsSync(join(legacyDir, 'legacy.wasm32-wasi.wasm')))
+    t.false(existsSync(join(legacyDir, 'legacy.wasi-browser.js')))
+    t.true(existsSync(join(legacyDir, 'HANDWRITTEN.md')))
+    t.is(
+      await readFile(join(legacyDir, 'legacy.wasi.cjs'), 'utf8').then((s) =>
+        s.includes("require('./legacy.wasip1.cjs')"),
+      ),
+      true,
+    )
+    const manifest = JSON.parse(
+      await readFile(join(legacyDir, 'package.json'), 'utf8'),
+    )
+    t.is(manifest.version, '1.0.0')
+    t.true(manifest.files.includes('legacy.wasm32-wasip1-threads.wasm'))
+    // the stale flavor-specific package directory is removed entirely
+    t.false(existsSync(threadlessDir))
   },
 )
