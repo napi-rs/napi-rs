@@ -262,3 +262,46 @@ pub fn read_borrowed_cache_vec<'a>(
     AsyncTask::new(ReadBorrowedTask { cache, gate: gate2 }),
   ]
 }
+
+/// Fixed gate for the zero-argument nested callback: it takes no arguments, so the
+/// gate id cannot be passed in.
+#[napi]
+pub const REENTRY_GATE: u32 = 96;
+
+/// A zero-argument `#[napi]` fn returning an `AsyncTask`: the zero-arg fast path
+/// skips `CallbackInfo` and the borrow scope entirely, so its task must claim NOTHING.
+/// If the deferred scope of an outer callback — armed while that callback's return
+/// value converts — is still visible here, this task claims it and keeps the outer
+/// wrapper rooted until it settles.
+#[napi]
+pub fn nested_zero_arg_task() -> AsyncTask<BorrowGateBlockTask> {
+  AsyncTask::new(BorrowGateBlockTask { gate: REENTRY_GATE })
+}
+
+/// A return value whose `ToNapiValue` conversion calls back into JavaScript. While
+/// the outer callback's deferred borrow scope is armed, invoking `cb` re-enters a
+/// `#[napi]` callback — `nested_zero_arg_task` in the test — whose own return-value
+/// conversion must not claim the outer scope.
+pub struct ReentryDuringConversion {
+  cb: Function<'static, (), Unknown<'static>>,
+}
+
+impl ToNapiValue for ReentryDuringConversion {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    // JS runs here, inside the outer return-value conversion, while the outer
+    // deferred borrow scope is armed on this thread.
+    val.cb.call(())?;
+    <() as ToNapiValue>::to_napi_value(env, ())
+  }
+}
+
+/// Borrowed-argument function whose return value converts through a nested `#[napi]`
+/// call: `ReentryDuringConversion::to_napi_value` invokes `cb` (which calls
+/// `nested_zero_arg_task`) while the deferred scope for `cache` is still armed.
+#[napi(ts_return_type = "undefined")]
+pub fn read_borrowed_cache_with_reentry(
+  _cache: &BorrowedCache,
+  cb: Function<'static, (), Unknown<'static>>,
+) -> ReentryDuringConversion {
+  ReentryDuringConversion { cb }
+}

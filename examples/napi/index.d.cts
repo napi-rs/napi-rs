@@ -1328,6 +1328,15 @@ export interface NestedMetadata {
   hello: string
 }
 
+/**
+ * A zero-argument `#[napi]` fn returning an `AsyncTask`: the zero-arg fast path
+ * skips `CallbackInfo` and the borrow scope entirely, so its task must claim NOTHING.
+ * If the deferred scope of an outer callback — armed while that callback's return
+ * value converts — is still visible here, this task claims it and keeps the outer
+ * wrapper rooted until it settles.
+ */
+export declare function nestedZeroArgTask(): Promise<void>
+
 export interface NotUseNullableStruct {
   requiredNumberField: number
   requiredStringField: string
@@ -1507,6 +1516,13 @@ export declare function readBorrowedCacheSpawnInside(cache: BorrowedCache, gate:
 export declare function readBorrowedCacheVec(cache: BorrowedCache, gate1: number, gate2: number): Array<Promise<number>>
 
 /**
+ * Borrowed-argument function whose return value converts through a nested `#[napi]`
+ * call: `ReentryDuringConversion::to_napi_value` invokes `cb` (which calls
+ * `nested_zero_arg_task`) while the deferred scope for `cache` is still armed.
+ */
+export declare function readBorrowedCacheWithReentry(cache: BorrowedCache, cb: () => unknown): undefined
+
+/**
  * AbortSignal variant: a queued (not yet executing) task cancelled through
  * the signal settles as an AbortError rejection; the scope roots must be
  * released on that path too.
@@ -1539,6 +1555,12 @@ export declare function receiveObjectWithClassField(object: ObjectFieldClassInst
 export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
+
+/**
+ * Fixed gate for the zero-argument nested callback: it takes no arguments, so the
+ * gate id cannot be passed in.
+ */
+export declare const REENTRY_GATE: number
 
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 

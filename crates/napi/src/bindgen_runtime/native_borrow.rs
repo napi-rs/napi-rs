@@ -281,9 +281,19 @@ fn release_lease(storage: &Mutex<NativeBorrowStorage>, settle_env: Option<sys::n
   }
 }
 
-/// Prevents a reentrant callback from registering native references in an outer conversion scope.
+/// Prevents a reentrant callback from registering native references in an outer
+/// conversion scope, and from claiming an outer deferred borrow scope.
+///
+/// The deferred half matters for the zero-argument fast path: such a callback skips
+/// `CallbackInfo` and the defer emit entirely, so an `AsyncTask`/`AsyncBlock` it returns
+/// converts with no scope of its own — and without the barrier it would claim the
+/// OUTER deferred scope still armed for the outer callback's in-flight return-value
+/// conversion (a `Function`/`Promise`/container conversion that ran JavaScript).
 #[doc(hidden)]
 pub struct NativeBorrowBarrier {
+  // The outer callback's deferred scopes, parked while this frame runs. Claims inside
+  // the barrier observe only deferred scopes the reentrant frame itself pushed.
+  saved_deferred: Vec<FinishedNativeBorrowScope>,
   _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
@@ -291,7 +301,10 @@ impl NativeBorrowBarrier {
   #[doc(hidden)]
   pub fn new() -> Self {
     NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ptr::null()));
+    let saved_deferred =
+      DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| std::mem::take(&mut *scopes.borrow_mut()));
     Self {
+      saved_deferred,
       _not_send: std::marker::PhantomData,
     }
   }
@@ -308,6 +321,15 @@ impl Drop for NativeBorrowBarrier {
         barrier.is_null(),
         "native borrow barriers must not overlap conversion scopes"
       );
+    });
+    DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
+      let mut scopes = scopes.borrow_mut();
+      // A well-formed reentrant frame pops every scope it deferred through its own
+      // reclaim guards. Anything left belongs to a frame that unwound past them;
+      // dropping it takes the teardown-safe abandon path rather than leaking it back
+      // into the restored outer stack.
+      scopes.clear();
+      *scopes = std::mem::take(&mut self.saved_deferred);
     });
   }
 }
@@ -1089,6 +1111,47 @@ mod tests {
     drop(guard);
     assert!(claim_deferred_native_borrow_lease().unwrap().is_none());
     assert!(acquire_native_borrow(&mut value, true).is_ok());
+  }
+
+  #[test]
+  fn callback_barrier_hides_outer_deferred_scope() {
+    // A nested `#[napi]` callback invoked while the outer callback's return value is
+    // still converting — a `Function` call inside a `ToNapiValue` — must not see the
+    // outer deferred scope. The zero-argument fast path emits the barrier but no scope
+    // of its own, so without the barrier its returned `AsyncTask` would claim the
+    // outer scope and hold the outer callback's argument roots until it settled.
+    let mut outer_value = 1u32;
+    let mut outer_scope = unsafe { NativeBorrowScope::new() };
+    register_native_borrow(&mut outer_value, false).unwrap();
+    outer_scope.finish();
+    let outer_guard = defer_native_borrow_scope(outer_scope, ptr::null_mut());
+
+    {
+      let _barrier = NativeBorrowBarrier::new();
+      // The zero-arg fast path: no scope, no defer — the claim must see nothing.
+      assert!(claim_deferred_native_borrow_lease().unwrap().is_none());
+
+      // A nested callback WITH arguments still defers and claims its own scope.
+      let mut inner_scope = unsafe { NativeBorrowScope::new() };
+      inner_scope.finish();
+      let inner_guard = defer_native_borrow_scope(inner_scope, ptr::null_mut());
+      let inner_lease = claim_deferred_native_borrow_lease()
+        .unwrap()
+        .expect("inner scope must lease");
+      drop(inner_guard);
+      drop(inner_lease);
+      // The inner guard already reclaimed the inner scope; the barrier restores the
+      // outer stack on drop.
+      assert!(claim_deferred_native_borrow_lease().unwrap().is_none());
+    }
+
+    let outer_lease = claim_deferred_native_borrow_lease()
+      .unwrap()
+      .expect("outer scope must lease after the barrier drops");
+    drop(outer_guard);
+    drop(outer_lease);
+    assert!(acquire_native_borrow(&mut outer_value, true).is_ok());
+    assert!(claim_deferred_native_borrow_lease().unwrap().is_none());
   }
 
   #[test]
