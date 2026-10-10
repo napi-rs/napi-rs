@@ -33,6 +33,8 @@ export const AVAILABLE_TARGETS = [
   'loongarch64-unknown-linux-gnu',
   'riscv64gc-unknown-linux-gnu',
   'powerpc64le-unknown-linux-gnu',
+  'powerpc64le-unknown-freebsd',
+  'powerpc64-unknown-freebsd',
   's390x-unknown-linux-gnu',
   'wasm32-wasip1',
   'wasm32-wasip1-threads',
@@ -82,6 +84,7 @@ const CpuToNodeArch: Record<string, NodeJSArch> = {
   loongarch64: 'loong64',
   riscv64gc: 'riscv64',
   powerpc64le: 'ppc64',
+  powerpc64: 'ppc64',
 }
 
 export const NodeArchToCpu: Record<string, string> = {
