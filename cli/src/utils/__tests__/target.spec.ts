@@ -49,6 +49,18 @@ test('should parse triple correctly', (t) => {
   t.snapshot(AVAILABLE_TARGETS.map(parseTriple))
 })
 
+test('every available target has its own artifact identity', (t) => {
+  // `napi new --enable-all-targets` rejects two targets that produce the same
+  // `platformArchABI`, and the npm package name and optional dependency are
+  // keyed by it as well, so the managed list must not carry two spellings of
+  // one artifact.
+  const identities = AVAILABLE_TARGETS.map(
+    (target) => parseTriple(target).platformArchABI,
+  )
+
+  t.deepEqual([...new Set(identities)], identities)
+})
+
 test('should get system default target correctly', (t) => {
   const target = getSystemDefaultTarget()
 
