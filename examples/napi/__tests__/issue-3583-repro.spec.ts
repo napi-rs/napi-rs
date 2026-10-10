@@ -1,3 +1,5 @@
+import { loadavg } from 'node:os'
+
 import test, { type ExecutionContext } from 'ava'
 
 import {
@@ -63,13 +65,48 @@ async function collect(gc: () => void, times = 10): Promise<void> {
 // Poll until `count` tasks are blocked inside wait_borrow_gate — the only
 // reliable signal that a pool thread has actually picked the work up.
 async function waitForWaiters(gate: number, count: number): Promise<boolean> {
+  const start = performance.now()
   for (let i = 0; i < 10000; i++) {
     if (borrowGateWaiters(gate) >= count) {
       return true
     }
     await new Promise((resolve) => setImmediate(resolve))
   }
+  await reportStalledWait(gate, count, start)
   return false
+}
+
+// The wait above has failed intermittently on CI ("task did not start waiting
+// on gate") without reproducing locally. It still fails the test, but first
+// records whether the task reached its gate late (a scheduling delay longer
+// than the turn budget) or never did (no pool thread was free), so the next
+// occurrence tells the two apart.
+async function reportStalledWait(
+  gate: number,
+  count: number,
+  start: number,
+): Promise<void> {
+  const budgetMs = performance.now() - start
+  const waitersAtBudget = borrowGateWaiters(gate)
+  let arrivedAfterMs: number | undefined
+  while (performance.now() - start < 5000) {
+    if (borrowGateWaiters(gate) >= count) {
+      arrivedAfterMs = performance.now() - start
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  console.error(
+    `[issue-3583] gate ${gate}: ${waitersAtBudget}/${count} waiters ` +
+      `when the turn budget ran out after ${budgetMs.toFixed(1)}ms; ` +
+      (arrivedAfterMs === undefined
+        ? 'still not waiting after 5000ms'
+        : `reached the gate after ${arrivedAfterMs.toFixed(1)}ms`) +
+      `; UV_THREADPOOL_SIZE=${process.env.UV_THREADPOOL_SIZE ?? 'default'}` +
+      `; loadavg=${loadavg()
+        .map((load) => load.toFixed(2))
+        .join(',')}`,
+  )
 }
 
 // Wait until the waiter count stops growing — i.e. every thread the libuv
