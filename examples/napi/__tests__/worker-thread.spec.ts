@@ -26,6 +26,11 @@ const concurrency =
     ? 20
     : 1
 
+// Every worker below passes `execArgv: []` so it does not inherit ava's
+// `--import @oxc-node/core/register`: `worker.js` is plain JS, and a second
+// Node-API addon (the oxc-node loader) torn down with each worker hits a Node.js
+// use-after-free in the N-API finalizer immediate (`Unref()` deletes the env,
+// then `DrainFinalizerQueue()` reads it), which segfaults on musl.
 test.after(() => {
   if (process.platform !== 'win32') {
     shutdownRuntime()
@@ -37,6 +42,7 @@ test('should be able to require in worker thread', async (t) => {
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'), {
         env: process.env,
+        execArgv: [],
       })
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'require' })
@@ -64,6 +70,7 @@ test('custom GC works on worker_threads', async (t) => {
         new Promise<Worker>((resolve, reject) => {
           const w = new Worker(join(__dirname, 'worker.js'), {
             env: process.env,
+            execArgv: [],
           })
           w.postMessage({
             type: 'async:buffer',
@@ -110,6 +117,7 @@ test('custom GC cross-isolate off-thread drop (napi-rs#3357)', async (t) => {
         new Promise<Worker>((resolve, reject) => {
           const w = new Worker(join(__dirname, 'worker.js'), {
             env: process.env,
+            execArgv: [],
           })
           w.postMessage({ type: 'async:buffer:consume' })
           w.on('message', (msg) => {
@@ -146,6 +154,7 @@ test('custom GC same-thread post-teardown drop (napi-rs#3357 must_fix #1)', asyn
           new Promise<Worker>((resolve, reject) => {
             const w = new Worker(join(__dirname, 'worker.js'), {
               env: process.env,
+              execArgv: [],
             })
             w.postMessage({ type })
             w.on('message', (msg) => {
@@ -176,6 +185,7 @@ test('JS-derived Error released off-thread (napi-rs#3368)', async (t) => {
           new Promise<Worker>((resolve, reject) => {
             const w = new Worker(join(__dirname, 'worker.js'), {
               env: process.env,
+              execArgv: [],
             })
             w.postMessage({ type })
             w.on('message', (msg) => {
@@ -198,6 +208,7 @@ test('JS-derived Error same-thread post-teardown drop (napi-rs#3368)', async (t)
       new Promise<Worker>((resolve, reject) => {
         const w = new Worker(join(__dirname, 'worker.js'), {
           env: process.env,
+          execArgv: [],
         })
         w.postMessage({ type: 'stash:error:teardown' })
         w.on('message', (msg) => {
@@ -215,6 +226,7 @@ test('should be able to new Class in worker thread concurrently', async (t) => {
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'), {
         env: process.env,
+        execArgv: [],
       })
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'constructor' })
