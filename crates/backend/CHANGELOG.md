@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.6](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.1.5...napi-derive-backend-v6.1.6) - 2026-10-10
+
+### Fixed
+
+- *(napi)* keep borrowed class args alive across AsyncTask/AsyncBlock ([#3584](https://github.com/napi-rs/napi-rs/pull/3584))
+
 ## [6.1.5](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.1.4...napi-derive-backend-v6.1.5) - 2026-10-05
 
 ### Fixed
