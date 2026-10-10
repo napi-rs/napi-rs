@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.14.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.2...napi-v3.14.3) - 2026-10-10
+
+### Fixed
+
+- *(napi)* keep borrowed class args alive across AsyncTask/AsyncBlock ([#3584](https://github.com/napi-rs/napi-rs/pull/3584))
+
+### Other
+
+- *(cli)* record the design behind the threaded WASI heap sync ([#3581](https://github.com/napi-rs/napi-rs/pull/3581))
+
 ## [3.14.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.1...napi-v3.14.2) - 2026-10-06
 
 ### Fixed

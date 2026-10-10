@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.4.0...napi-sys-v3.4.1) - 2026-10-10
+
+### Other
+
+- *(cli)* record the design behind the threaded WASI heap sync ([#3581](https://github.com/napi-rs/napi-rs/pull/3581))
+
 ## [3.4.0](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.3.2...napi-sys-v3.4.0) - 2026-10-01
 
 ### Added
