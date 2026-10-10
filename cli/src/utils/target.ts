@@ -33,6 +33,7 @@ export const AVAILABLE_TARGETS = [
   'loongarch64-unknown-linux-gnu',
   'riscv64gc-unknown-linux-gnu',
   'powerpc64le-unknown-linux-gnu',
+  'powerpc64le-unknown-freebsd',
   's390x-unknown-linux-gnu',
   'wasm32-wasip1',
   'wasm32-wasip1-threads',
@@ -82,6 +83,9 @@ const CpuToNodeArch: Record<string, NodeJSArch> = {
   loongarch64: 'loong64',
   riscv64gc: 'riscv64',
   powerpc64le: 'ppc64',
+  // Node.js reports big-endian powerpc64 as `ppc64` too, so a native build
+  // on such a host is named the way the generated loader looks it up.
+  powerpc64: 'ppc64',
 }
 
 export const NodeArchToCpu: Record<string, string> = {
