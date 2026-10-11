@@ -356,6 +356,8 @@ function requireNative() {
       ${requireTuple('freebsd-x64')}
     } else if (process.arch === 'arm64') {
       ${requireTuple('freebsd-arm64')}
+    } else if (process.arch === 'ppc64') {
+      ${requireTuple('freebsd-ppc64')}
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on FreeBSD: \${process.arch}\`))
     }

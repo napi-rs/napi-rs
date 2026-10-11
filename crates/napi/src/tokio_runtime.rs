@@ -1262,9 +1262,10 @@ pub fn try_register_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()> {
 
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 fn create_runtime() -> Runtime {
-  // `RT` is process-global and its worker threads are never joined at
-  // environment teardown, so their task wakers keep vtable pointers into this
-  // addon's image after Node may have unloaded it. Pin the image first.
+  // `RT` is process-global and environment teardown joins its worker threads
+  // only for a bounded time (see `shutdown_tokio_runtime`), so a worker that is
+  // still busy outlives the teardown and its task wakers keep vtable pointers
+  // into this addon's image after Node may have unloaded it. Pin the image first.
   #[cfg(not(target_family = "wasm"))]
   crate::bindgen_runtime::retain_current_module_for_unload_safety();
 
@@ -1428,13 +1429,15 @@ pub fn start_async_runtime() {
 /// In combined `async-runtime` + `tokio_rt` builds a built-in Tokio runtime that a Tokio
 /// compatibility helper constructed lazily is also drained, on a best-effort basis: a helper's
 /// very first Tokio construction racing this teardown can leave the built-in runtime running,
-/// the same teardown-race window the plain `tokio_rt` path has (whose background shutdown never
-/// waits for Tokio quiescence either). The drained pair is restored together: the next
+/// the same teardown-race window the plain `tokio_rt` path has (whose bounded shutdown does not
+/// guarantee Tokio quiescence either). The drained pair is restored together: the next
 /// [`start_async_runtime`] *or* the next runtime-backed dispatch (which self-heals the idle
 /// custom backend) refills the drained Tokio runtime alongside the backend restart. Tokio
 /// compatibility helpers called after this shutdown but before either of those still panic on
 /// the empty slot, exactly as they do after a `tokio_rt`-only shutdown. Otherwise the built-in
-/// Tokio runtime is shut down in the background.
+/// Tokio runtime is shut down, waiting up to 100 ms for its threads to exit; threads still busy
+/// after that keep running in the background. Called from inside a Tokio runtime context, or on
+/// wasm, it does not wait at all.
 ///
 /// On wasm targets this is a no-op past the environment cleanup barrier, mirroring
 /// [`start_async_runtime`]: from the moment `napi_prepare_wasm_env_cleanup`(`_begin`) latches the
@@ -1463,8 +1466,51 @@ pub fn shutdown_async_runtime() {
   }
   #[cfg(feature = "tokio_rt")]
   if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
-    rt.shutdown_background();
+    shutdown_tokio_runtime(rt);
   }
+}
+
+/// How long [`shutdown_tokio_runtime`] waits for the built-in Tokio runtime's threads to exit
+/// before it detaches the ones still running.
+///
+/// Woken idle threads exit right away, so this only has to absorb scheduler latency on a loaded
+/// host; it is the worst-case delay a busy `spawn_blocking` closure adds to environment teardown.
+/// 100 ms is the value Tokio's own `shutdown_timeout` documentation uses.
+#[cfg(all(
+  feature = "tokio_rt",
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
+const TOKIO_SHUTDOWN_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Shut a built-in Tokio runtime down, joining its threads for a bounded time.
+///
+/// `Runtime::shutdown_background` is `shutdown_timeout(0)`: Tokio's blocking pool then drops every
+/// thread's `JoinHandle` without joining it, and each drop calls `pthread_detach` on a thread
+/// that was just woken to exit. glibc before 2.43 races `pthread_detach` against the exit of its
+/// target (Sourceware BZ #19951): the exiting thread can free and unmap its own descriptor
+/// after `pthread_detach` has claimed it but before it reads it again, and that read segfaults.
+/// That crashed processes at exit from the env cleanup hook (#3591).
+///
+/// Waiting lets the pool *join* every thread when they all exit within
+/// [`TOKIO_SHUTDOWN_JOIN_TIMEOUT`], so none of them is detached. Past the timeout the pool still
+/// detaches the rest, which is only racy for a thread exiting at that very moment, not for one
+/// that already exited or is still busy. The wait is bounded because the thread running this is
+/// the JavaScript thread at environment teardown, which a blocking closure may be waiting on (a
+/// threadsafe-function call that is never going to be answered).
+///
+/// Tokio panics when a runtime is shut down with a non-zero timeout from inside a runtime context
+/// (a `block_on` future or a Tokio worker, e.g. an explicit [`shutdown_async_runtime`] made from
+/// async code), so that case keeps the non-blocking `shutdown_background`. So does wasm, where
+/// the JavaScript thread must not block (see `napi_prepare_wasm_env_cleanup`).
+#[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
+fn shutdown_tokio_runtime(rt: Runtime) {
+  #[cfg(not(target_family = "wasm"))]
+  if tokio::runtime::Handle::try_current().is_err() {
+    rt.shutdown_timeout(TOKIO_SHUTDOWN_JOIN_TIMEOUT);
+    return;
+  }
+  rt.shutdown_background();
 }
 
 /// Drain a built-in Tokio runtime that lives *beside* a custom backend, after that backend's
@@ -1488,7 +1534,7 @@ fn drain_tokio_peer_after_backend_shutdown() {
     .then(|| RT.write().ok().and_then(|mut rt| rt.take()))
     .flatten()
   {
-    rt.shutdown_background();
+    shutdown_tokio_runtime(rt);
   }
   // Also drain a user-supplied runtime that `create_custom_tokio_runtime` parked in
   // `USER_DEFINED_RT` but no Tokio helper ever forced into `RT` (so `RT_CONSTRUCTED` is
@@ -1502,7 +1548,7 @@ fn drain_tokio_peer_after_backend_shutdown() {
     .get()
     .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
   {
-    user_rt.shutdown_background();
+    shutdown_tokio_runtime(user_rt);
   }
 }
 
@@ -2942,5 +2988,97 @@ mod spi_tests {
         tokio::runtime::Handle::try_current().is_ok()
       }));
     }
+  }
+}
+
+#[cfg(all(
+  test,
+  feature = "tokio_rt",
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
+mod tokio_shutdown_tests {
+  use std::{
+    sync::{
+      atomic::{AtomicUsize, Ordering as AtomicOrdering},
+      mpsc, Arc,
+    },
+    time::{Duration, Instant},
+  };
+
+  use super::*;
+
+  const WORKERS: usize = 4;
+
+  fn counting_runtime(started: &Arc<AtomicUsize>, stopped: &Arc<AtomicUsize>) -> Runtime {
+    let (started, stopped) = (Arc::clone(started), Arc::clone(stopped));
+    tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(WORKERS)
+      .enable_all()
+      .on_thread_start(move || {
+        started.fetch_add(1, AtomicOrdering::SeqCst);
+      })
+      .on_thread_stop(move || {
+        stopped.fetch_add(1, AtomicOrdering::SeqCst);
+      })
+      .build()
+      .unwrap()
+  }
+
+  /// #3591: threads that exit within the timeout are joined, never detached, so none of them can
+  /// hit the glibc `pthread_detach`-vs-exit race.
+  #[test]
+  fn shutdown_joins_idle_runtime_threads() {
+    let started = Arc::new(AtomicUsize::new(0));
+    let stopped = Arc::new(AtomicUsize::new(0));
+    let rt = counting_runtime(&started, &stopped);
+    rt.block_on(async {});
+
+    let begin = Instant::now();
+    shutdown_tokio_runtime(rt);
+    // Past the timeout the pool detaches whatever is left, so only a shutdown that returned
+    // early proves the join. An overloaded host can miss the window; that is not a failure.
+    if begin.elapsed() < TOKIO_SHUTDOWN_JOIN_TIMEOUT {
+      assert_eq!(started.load(AtomicOrdering::SeqCst), WORKERS);
+      assert_eq!(stopped.load(AtomicOrdering::SeqCst), WORKERS);
+    }
+  }
+
+  /// A closure that never finishes must not hold environment teardown hostage.
+  #[test]
+  fn shutdown_is_bounded_by_busy_blocking_task() {
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (entered_tx, entered_rx) = mpsc::channel::<()>();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(1)
+      .build()
+      .unwrap();
+    rt.spawn_blocking(move || {
+      entered_tx.send(()).unwrap();
+      let _ = release_rx.recv();
+    });
+    entered_rx.recv().unwrap();
+
+    let begin = Instant::now();
+    shutdown_tokio_runtime(rt);
+    let elapsed = begin.elapsed();
+    release_tx.send(()).unwrap();
+    assert!(elapsed >= TOKIO_SHUTDOWN_JOIN_TIMEOUT, "{elapsed:?}");
+    // Hang protection only: the bound is the timeout, plus scheduling slack.
+    assert!(elapsed < Duration::from_secs(30), "{elapsed:?}");
+  }
+
+  /// Tokio panics on a waiting shutdown from inside a runtime context; that case must fall back
+  /// to the non-blocking shutdown.
+  #[test]
+  fn shutdown_from_runtime_context_does_not_panic() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(1)
+      .build()
+      .unwrap();
+    let outer = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    outer.block_on(async move { shutdown_tokio_runtime(rt) });
   }
 }
