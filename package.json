@@ -95,6 +95,8 @@
     "emnapi": "2.0.0-alpha.6",
     "@emnapi/core": "2.0.0-alpha.6",
     "@emnapi/runtime": "2.0.0-alpha.6",
-    "@emnapi/wasi-threads": "2.2.0"
+    "@emnapi/wasi-threads": "2.2.0",
+    "miniflare/sharp": "^0.35.5",
+    "miniflare/undici": "^7.29.1"
   }
 }
