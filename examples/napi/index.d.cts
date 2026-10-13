@@ -373,6 +373,13 @@ export declare class GetterSetterWithClosures {
   constructor()
 }
 
+export declare class Issue3600Empty {}
+
+export declare class Issue3600Tracked {
+  constructor()
+  get size(): number
+}
+
 export declare class JsClassForEither {
   constructor()
 }
@@ -1236,6 +1243,29 @@ export declare function issue3427Option(input?: RenamedForIssue3427 | undefined 
  * threw for a valid instance.
  */
 export declare function issue3427Strict(input: RenamedForIssue3427): number
+
+export declare function issue3600EmptyDropped(): number
+
+/**
+ * Successful `into_instance` of an empty class: each instance must get its
+ * own native pointer so finalizers/references of distinct instances do not
+ * collide.
+ */
+export declare function issue3600EmptyInstances(): Array<Issue3600Empty>
+
+export declare function issue3600PendingEmptyIntoInstance(): void
+
+export declare function issue3600PendingEmptyIntoReference(): void
+
+export declare function issue3600PendingEmptyReturn(): Issue3600Empty
+
+export declare function issue3600PendingIntoInstance(): void
+
+export declare function issue3600PendingIntoReference(): void
+
+export declare function issue3600PendingReturn(): Issue3600Tracked
+
+export declare function issue3600TrackedDropped(): number
 
 export declare function joinPath(path: string, segment: string): string
 
