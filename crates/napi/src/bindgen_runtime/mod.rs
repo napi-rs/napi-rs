@@ -102,6 +102,10 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };
   }
+
+  // Released last so the address cannot be reused while the `REFERENCE_MAP`
+  // entry keyed on it is still being torn down.
+  unsafe { free_empty_class_placeholder::<T>(finalize_data) };
 }
 
 /// # Safety

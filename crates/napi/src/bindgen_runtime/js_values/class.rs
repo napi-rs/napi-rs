@@ -268,13 +268,26 @@ pub trait JavaScriptClassExt: Sized {
 /// finalizer.
 pub(crate) unsafe fn drop_unadopted_class_value<T>(wrapped_value: *mut std::ffi::c_void) {
   if std::mem::size_of::<T>() == 0 {
-    let dangling = ptr::NonNull::<T>::dangling().as_ptr();
-    unsafe { ptr::drop_in_place(dangling) };
-    if wrapped_value != dangling.cast() {
-      drop(unsafe { Box::from_raw(wrapped_value.cast::<u8>()) });
-    }
+    unsafe { ptr::drop_in_place(ptr::NonNull::<T>::dangling().as_ptr()) };
+    unsafe { free_empty_class_placeholder::<T>(wrapped_value) };
   } else {
     drop(unsafe { Box::from_raw(wrapped_value.cast::<T>()) });
+  }
+}
+
+/// Free the 1-byte heap placeholder that stands in for a zero-sized class
+/// value. Reconstructing a `Box<T>` for a ZST never deallocates, so the
+/// placeholder must be released separately. No-op for non-ZST `T` and for the
+/// unsubstituted dangling pointer.
+///
+/// # Safety
+///
+/// For a ZST `T`, `wrapped_value` must be either `NonNull::<T>::dangling()` or
+/// a live placeholder allocated as a `Box<u8>`-layout value.
+pub(crate) unsafe fn free_empty_class_placeholder<T>(wrapped_value: *mut std::ffi::c_void) {
+  if std::mem::size_of::<T>() == 0 && wrapped_value != ptr::NonNull::<T>::dangling().as_ptr().cast()
+  {
+    drop(unsafe { Box::from_raw(wrapped_value.cast::<u8>()) });
   }
 }
 

@@ -56,8 +56,10 @@ for (const [name, convert] of emptyConversions) {
     }
     t.is(issue3600EmptyDropped() - before, 10)
 
-    const instance = new Issue3600Tracked()
-    t.is(instance.size, 1024)
+    // The no-constructor stub only throws when the factory flag is reset.
+    t.throws(() => new Issue3600Empty(), {
+      message: 'Class contains no `constructor`, can not new it!',
+    })
   })
 }
 
