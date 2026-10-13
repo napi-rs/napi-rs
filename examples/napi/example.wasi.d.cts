@@ -822,6 +822,16 @@ export declare function contains(source: string, target: string): boolean
 
 export declare function convertU32Array(input: Uint32Array): Array<number>
 
+export declare function copiedBuffer(data: Array<number>): unknown
+
+export declare function copiedBytes(data: Array<number>): unknown
+
+export declare function copiedClamped(data: Array<number>): unknown
+
+export declare function copiedDoubles(data: Array<number>): unknown
+
+export declare function copiedWords(data: Array<number>): unknown
+
 export declare function createArraybuffer(): ArrayBuffer
 
 export declare function createBigInt(): bigint

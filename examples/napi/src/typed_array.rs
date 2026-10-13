@@ -527,3 +527,38 @@ pub fn mutate_arraybuffer(mut buf: ArrayBuffer) {
     *item *= 2;
   }
 }
+
+#[napi]
+pub fn copied_bytes(env: &Env, mut data: Vec<u8>) -> Result<Unknown<'_>> {
+  let output = Uint8ArraySlice::copy_from(env, &data)?;
+  data.fill(0);
+  output.into_unknown(env)
+}
+
+#[napi]
+pub fn copied_words(env: &Env, mut data: Vec<u16>) -> Result<Unknown<'_>> {
+  let output = Uint16ArraySlice::copy_from(env, &data)?;
+  data.fill(0);
+  output.into_unknown(env)
+}
+
+#[napi]
+pub fn copied_clamped(env: &Env, mut data: Vec<u8>) -> Result<Unknown<'_>> {
+  let output = Uint8ClampedSlice::copy_from(env, &data)?;
+  data.fill(0);
+  output.into_unknown(env)
+}
+
+#[napi]
+pub fn copied_buffer(env: &Env, mut data: Vec<u8>) -> Result<Unknown<'_>> {
+  let output = ArrayBuffer::copy_from(env, &data)?;
+  data.fill(0);
+  output.into_unknown(env)
+}
+
+#[napi]
+pub fn copied_doubles(env: &Env, mut data: Vec<f64>) -> Result<Unknown<'_>> {
+  let output = Float64ArraySlice::copy_from(env, &data)?;
+  data.fill(0.0);
+  output.into_unknown(env)
+}

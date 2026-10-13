@@ -90,10 +90,22 @@ extern "C" {
   fn emnapi_sync_memory(
     env: crate::sys::napi_env,
     js_to_wasm: bool,
-    arraybuffer_or_view: crate::sys::napi_value,
+    arraybuffer_or_view: *mut crate::sys::napi_value,
     byte_offset: usize,
     length: usize,
   ) -> crate::sys::napi_status;
+}
+
+#[cfg(target_family = "wasm")]
+fn sync_copied_arraybuffer(
+  env: sys::napi_env,
+  arraybuffer: &mut sys::napi_value,
+  byte_length: usize,
+) -> Result<()> {
+  check_status!(
+    unsafe { emnapi_sync_memory(env, false, arraybuffer, 0, byte_length) },
+    "Failed to sync ArrayBuffer memory"
+  )
 }
 
 #[derive(Clone, Copy)]
@@ -315,6 +327,12 @@ impl<'env> ArrayBuffer<'env> {
       },
       "Failed to create ArrayBuffer"
     )?;
+
+    if len > 0 {
+      unsafe { ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
+      #[cfg(target_family = "wasm")]
+      sync_copied_arraybuffer(env.0, &mut arraybuffer_value, len)?;
+    }
 
     Ok(Self {
       value: Value {
@@ -599,7 +617,7 @@ macro_rules! impl_typed_array {
               emnapi_sync_memory(
                 env.raw(),
                 false,
-                array_buffer,
+                &mut array_buffer,
                 self.byte_offset,
                 self.length,
               )
@@ -1200,13 +1218,19 @@ macro_rules! impl_from_slice {
           unsafe {
             sys::napi_create_arraybuffer(
               env.0,
-              len,
+              mem::size_of_val(data),
               &mut underlying_data,
               &mut arraybuffer_value,
             )
           },
           "Failed to create ArrayBuffer"
         )?;
+
+        if len > 0 {
+          unsafe { ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
+          #[cfg(target_family = "wasm")]
+          sync_copied_arraybuffer(env.0, &mut arraybuffer_value, mem::size_of_val(data))?;
+        }
 
         let mut napi_val = ptr::null_mut();
         check_status!(
@@ -1916,6 +1940,12 @@ impl<'env> Uint8ClampedSlice<'env> {
       },
       "Failed to create ArrayBuffer"
     )?;
+
+    if len > 0 {
+      unsafe { ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
+      #[cfg(target_family = "wasm")]
+      sync_copied_arraybuffer(env.0, &mut arraybuffer_value, len)?;
+    }
 
     let mut napi_val = ptr::null_mut();
     check_status!(
