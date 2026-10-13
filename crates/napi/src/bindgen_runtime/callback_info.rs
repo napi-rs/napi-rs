@@ -98,6 +98,22 @@ impl<const N: usize> CallbackInfo<N> {
       value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
     }
     let mut object_ref = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_wrap(
+        self.env,
+        this,
+        value_ref.cast(),
+        Some(raw_finalize_unchecked::<T>),
+        ptr::null_mut(),
+        &mut object_ref,
+      )
+    };
+    if status != sys::Status::napi_ok {
+      // Not adopted by a finalizer, so reclaim it here instead of leaking.
+      unsafe { drop_unadopted_class_value::<T>(value_ref.cast()) };
+      check_status!(status, "Failed to initialize class `{js_name}`")?;
+    }
+    // Allocated only after `napi_wrap` succeeds so a wrap failure cannot leak it.
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
     // `Reference` needs atomic ref-counting for its `unsafe impl Sync`, so the finalize
     // callbacks slot is an `Arc`. The inner `Cell` is only ever accessed on the JS thread
@@ -105,19 +121,6 @@ impl<const N: usize> CallbackInfo<N> {
     #[allow(clippy::arc_with_non_send_sync)]
     let finalize_callbacks_ptr =
       Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
-    unsafe {
-      check_status!(
-        sys::napi_wrap(
-          self.env,
-          this,
-          value_ref.cast(),
-          Some(raw_finalize_unchecked::<T>),
-          ptr::null_mut(),
-          &mut object_ref
-        ),
-        "Failed to initialize class `{js_name}`",
-      )?;
-    };
 
     Reference::<T>::add_ref(
       self.env,
@@ -238,12 +241,6 @@ impl<const N: usize> CallbackInfo<N> {
     }
     check_status!(status, "Failed to create instance of class `{}`", js_name)?;
     let obj = Box::new(obj);
-    let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-    // See `_construct`: `Arc` is required for `Reference`'s `Sync` impl; the `Cell` is
-    // only touched on the JS thread.
-    #[allow(clippy::arc_with_non_send_sync)]
-    let finalize_callbacks_ptr =
-      Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
     let mut object_ref = ptr::null_mut();
     let mut value_ref = Box::into_raw(obj);
 
@@ -252,20 +249,28 @@ impl<const N: usize> CallbackInfo<N> {
     if value_ref as usize == 0x1 {
       value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
     }
-    check_status!(
-      unsafe {
-        sys::napi_wrap(
-          self.env,
-          instance,
-          value_ref.cast(),
-          Some(raw_finalize_unchecked::<T>),
-          ptr::null_mut(),
-          &mut object_ref,
-        )
-      },
-      "Failed to initialize class `{}`",
-      js_name,
-    )?;
+    let status = unsafe {
+      sys::napi_wrap(
+        self.env,
+        instance,
+        value_ref.cast(),
+        Some(raw_finalize_unchecked::<T>),
+        ptr::null_mut(),
+        &mut object_ref,
+      )
+    };
+    if status != sys::Status::napi_ok {
+      // Not adopted by a finalizer, so reclaim it here instead of leaking.
+      unsafe { drop_unadopted_class_value::<T>(value_ref.cast()) };
+      check_status!(status, "Failed to initialize class `{}`", js_name)?;
+    }
+    // Allocated only after `napi_wrap` succeeds so a wrap failure cannot leak it.
+    let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
+    // See `_construct`: `Arc` is required for `Reference`'s `Sync` impl; the `Cell` is
+    // only touched on the JS thread.
+    #[allow(clippy::arc_with_non_send_sync)]
+    let finalize_callbacks_ptr =
+      Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
 
     Reference::<T>::add_ref(
       self.env,

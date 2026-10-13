@@ -254,6 +254,30 @@ pub trait JavaScriptClassExt: Sized {
   fn instance_of<'env, V: JsValue<'env>>(env: &Env, value: &V) -> Result<bool>;
 }
 
+/// Drop a class value whose raw pointer was produced by `Box::into_raw` but was
+/// never adopted by `napi_wrap` (so no finalizer will ever reclaim it).
+///
+/// Zero-sized classes are special: `Box::into_raw` of a ZST yields the dangling
+/// pointer, which callers may have replaced with a 1-byte heap placeholder so
+/// distinct instances get distinct `REFERENCE_MAP` keys. Both forms are handled.
+///
+/// # Safety
+///
+/// `wrapped_value` must come from `Box::<T>::into_raw` (or be the 1-byte
+/// placeholder substituted for a ZST `T`) and must not have been adopted by a
+/// finalizer.
+pub(crate) unsafe fn drop_unadopted_class_value<T>(wrapped_value: *mut std::ffi::c_void) {
+  if std::mem::size_of::<T>() == 0 {
+    let dangling = ptr::NonNull::<T>::dangling().as_ptr();
+    unsafe { ptr::drop_in_place(dangling) };
+    if wrapped_value != dangling.cast() {
+      drop(unsafe { Box::from_raw(wrapped_value.cast::<u8>()) });
+    }
+  } else {
+    drop(unsafe { Box::from_raw(wrapped_value.cast::<T>()) });
+  }
+}
+
 /// Non-generic core of [`new_instance`].
 ///
 /// Constructing and wrapping the JavaScript object does not depend on the
@@ -277,20 +301,12 @@ unsafe fn new_instance_raw(
 
   let mut result = std::ptr::null_mut();
   crate::__private::___CALL_FROM_FACTORY.with(|inner| inner.set(true));
-  check_status!(
-    sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
-    "Failed to construct class `{}`",
-    class_name,
-  )?;
+  let status = sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result);
+  // Reset before checking `status`: a stale `true` would make every later JS
+  // `new` of a `#[napi]` class on this thread skip its Rust constructor.
   crate::__private::___CALL_FROM_FACTORY.with(|inner| inner.set(false));
+  check_status!(status, "Failed to construct class `{}`", class_name)?;
   let mut object_ref = std::ptr::null_mut();
-  let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-  // `Arc` (not `Rc`) is required so it matches `Reference`'s `Arc<Cell<..>>` field and its
-  // `Sync` impl; the `Cell` is only accessed on the JS thread.
-  #[allow(clippy::arc_with_non_send_sync)]
-  let finalize_callbacks_ptr = std::sync::Arc::into_raw(std::sync::Arc::new(std::cell::Cell::new(
-    Box::into_raw(initial_finalize),
-  )));
   check_status!(
     sys::napi_wrap(
       env,
@@ -303,6 +319,15 @@ unsafe fn new_instance_raw(
     "Failed to wrap native object of class `{}`",
     class_name,
   )?;
+
+  // Allocated only after `napi_wrap` succeeds so a wrap failure cannot leak it.
+  let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
+  // `Arc` (not `Rc`) is required so it matches `Reference`'s `Arc<Cell<..>>` field and its
+  // `Sync` impl; the `Cell` is only accessed on the JS thread.
+  #[allow(clippy::arc_with_non_send_sync)]
+  let finalize_callbacks_ptr = std::sync::Arc::into_raw(std::sync::Arc::new(std::cell::Cell::new(
+    Box::into_raw(initial_finalize),
+  )));
 
   super::value_ref::add_ref(
     env,
@@ -322,7 +347,10 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
   wrapped_value: *mut std::ffi::c_void,
   ctor_ref: sys::napi_ref,
 ) -> Result<sys::napi_value> {
-  let result = unsafe {
+  // Every error from `new_instance_raw` happens before `napi_wrap` adopts
+  // `wrapped_value`, so ownership is still ours and it must be dropped here.
+  // Errors after this point (type tagging) must NOT free it: the finalizer owns it.
+  let result = match unsafe {
     new_instance_raw(
       env,
       wrapped_value,
@@ -330,7 +358,13 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
       Some(raw_finalize_unchecked::<T>),
       type_name::<T>(),
     )
-  }?;
+  } {
+    Ok(result) => result,
+    Err(err) => {
+      unsafe { drop_unadopted_class_value::<T>(wrapped_value) };
+      return Err(err);
+    }
+  };
 
   // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
   // napi_ref (see `CallbackInfo::_construct`). Compiled only on napi8 NATIVE

@@ -523,8 +523,11 @@ impl NapiStruct {
          {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let wrapped_value = Box::into_raw(Box::new(self));
-              let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
+              let mut wrapped_value = Box::into_raw(Box::new(self));
+              if wrapped_value as usize == 0x1 {
+                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
+              }
+              let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
               Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
             }
           } else {

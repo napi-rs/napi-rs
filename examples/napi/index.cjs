@@ -269,6 +269,22 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
+    } else if (process.arch === 'ppc64') {
+      try {
+        return require('./example.freebsd-ppc64.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        const binding = require('@examples/napi-freebsd-ppc64')
+        const bindingPackageVersion = require('@examples/napi-freebsd-ppc64/package.json').version
+        if (bindingPackageVersion !== '0.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        }
+        return binding
+      } catch (e) {
+        loadErrors.push(e)
+      }
     } else {
       loadErrors.push(new Error(`Unsupported architecture on FreeBSD: ${process.arch}`))
     }
@@ -868,6 +884,8 @@ module.exports.Fib2 = nativeBinding.Fib2
 module.exports.Fib3 = nativeBinding.Fib3
 module.exports.Fib4 = nativeBinding.Fib4
 module.exports.GetterSetterWithClosures = nativeBinding.GetterSetterWithClosures
+module.exports.Issue3600Empty = nativeBinding.Issue3600Empty
+module.exports.Issue3600Tracked = nativeBinding.Issue3600Tracked
 module.exports.JsClassForEither = nativeBinding.JsClassForEither
 module.exports.JSOnlyMethodsClass = nativeBinding.JSOnlyMethodsClass
 module.exports.RustOnlyMethodsClass = nativeBinding.RustOnlyMethodsClass
@@ -1115,6 +1133,15 @@ module.exports.intoUtf8 = nativeBinding.intoUtf8
 module.exports.issue3427Either = nativeBinding.issue3427Either
 module.exports.issue3427Option = nativeBinding.issue3427Option
 module.exports.issue3427Strict = nativeBinding.issue3427Strict
+module.exports.issue3600EmptyDropped = nativeBinding.issue3600EmptyDropped
+module.exports.issue3600EmptyInstances = nativeBinding.issue3600EmptyInstances
+module.exports.issue3600PendingEmptyIntoInstance = nativeBinding.issue3600PendingEmptyIntoInstance
+module.exports.issue3600PendingEmptyIntoReference = nativeBinding.issue3600PendingEmptyIntoReference
+module.exports.issue3600PendingEmptyReturn = nativeBinding.issue3600PendingEmptyReturn
+module.exports.issue3600PendingIntoInstance = nativeBinding.issue3600PendingIntoInstance
+module.exports.issue3600PendingIntoReference = nativeBinding.issue3600PendingIntoReference
+module.exports.issue3600PendingReturn = nativeBinding.issue3600PendingReturn
+module.exports.issue3600TrackedDropped = nativeBinding.issue3600TrackedDropped
 module.exports.joinPath = nativeBinding.joinPath
 module.exports.jsErrorCallback = nativeBinding.jsErrorCallback
 module.exports.jsErrorFromRetainedValue = nativeBinding.jsErrorFromRetainedValue
