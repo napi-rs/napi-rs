@@ -157,7 +157,6 @@ jobs:
             target: x86_64-pc-windows-msvc
             build: yarn workspace @examples/napi build
             test: |
-              yarn test:cli
               yarn workspace @examples/napi test
               yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
@@ -168,9 +167,25 @@ jobs:
             target: aarch64-pc-windows-msvc
             build: yarn build:test
             test: |
-              yarn test:cli
               yarn test
               yarn test:macro
+            toolchain: stable
+          # The Windows jobs are the critical path of this workflow, and the CLI
+          # suite does not use the examples built above (it builds its own
+          # throwaway crates in temp dirs). Running `yarn test:cli` in its own
+          # `shard: cli` job on each Windows host shortens the wall clock at the
+          # cost of one extra setup (checkout, toolchain, cache, install) per
+          # Windows job, an accepted runner-cost trade. A shard skips the
+          # workspace check/build steps, which the unsharded job still runs.
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            shard: cli
+            test: yarn test:cli
+            toolchain: stable
+          - host: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            shard: cli
+            test: yarn test:cli
             toolchain: stable
           # Electron 44 dropped win32-ia32 binaries, so skip Electron on i686.
           - host: windows-latest
@@ -182,7 +197,7 @@ jobs:
               export NODE_OPTIONS="--max-old-space-size=3072"
               yarn workspace @examples/napi test -s
             toolchain: stable
-    name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
+    name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}${{ matrix.settings.shard && format(' - {0}', matrix.settings.shard) || '' }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
@@ -225,7 +240,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ matrix.settings.host }}-${{ matrix.settings.toolchain }}-${{ matrix.settings.target }}-cargo-cache
+          key: ${{ matrix.settings.host }}-${{ matrix.settings.toolchain }}-${{ matrix.settings.target }}-cargo-cache${{ matrix.settings.shard && format('-{0}', matrix.settings.shard) || '' }}
 
       - name: 'Install dependencies'
         shell: bash
@@ -234,6 +249,7 @@ jobs:
           yarn install --mode=skip-build --immutable
 
       - name: Check build
+        if: ${{ !matrix.settings.shard }}
         run: cargo check --target ${{ matrix.settings.target }} --all --bins --examples --tests -vvv
 
       - name: Build tests
@@ -260,7 +276,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Electron tests
-        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        if: ${{ !matrix.settings.shard && (matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc') }}
         shell: bash
         run: |
           node ./.github/install-electron.mjs
@@ -276,6 +292,7 @@ jobs:
           xvfb-run --auto-servernum yarn test:electron
 
       - name: Test build with profile
+        if: ${{ !matrix.settings.shard }}
         run: yarn workspace @examples/napi build --profile napi-rs-custom
 
   build-and-test-msys2:
