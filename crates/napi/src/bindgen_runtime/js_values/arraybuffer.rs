@@ -590,7 +590,6 @@ macro_rules! impl_typed_array {
       pub fn sync(&mut self, env: &crate::Env) {
         if let Some((reference, _)) = self.raw {
           let mut value = ptr::null_mut();
-          let mut array_buffer = ptr::null_mut();
           crate::check_status_or_throw!(
             env.raw(),
             unsafe { crate::sys::napi_get_reference_value(env.raw(), reference, &mut value) },
@@ -605,21 +604,24 @@ macro_rules! impl_typed_array {
                 &mut ($typed_array_type as i32) as *mut i32,
                 &mut self.length as *mut usize,
                 ptr::null_mut(),
-                &mut array_buffer,
+                ptr::null_mut(),
                 &mut self.byte_offset as *mut usize,
               )
             },
-            "Failed to get ArrayBuffer under the TypedArray while syncing"
+            "Failed to get TypedArray info while syncing"
           );
+          if self.length == 0 {
+            return;
+          }
           crate::check_status_or_throw!(
             env.raw(),
             unsafe {
               emnapi_sync_memory(
                 env.raw(),
                 false,
-                &mut array_buffer,
-                self.byte_offset,
-                self.length,
+                &mut value,
+                0,
+                self.length * mem::size_of::<$rust_type>(),
               )
             },
             "Failed to sync memory"

@@ -562,3 +562,17 @@ pub fn copied_doubles(env: &Env, mut data: Vec<f64>) -> Result<Unknown<'_>> {
   data.fill(0.0);
   output.into_unknown(env)
 }
+
+#[napi]
+pub fn sync_words(_env: &Env, mut data: Uint16Array) {
+  unsafe { data.as_mut() }.fill(0x1234);
+  #[cfg(target_family = "wasm")]
+  data.sync(_env);
+}
+
+#[napi]
+pub fn sync_doubles(_env: &Env, mut data: Float64Array) {
+  unsafe { data.as_mut() }.fill(-2.25);
+  #[cfg(target_family = "wasm")]
+  data.sync(_env);
+}

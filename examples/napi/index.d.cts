@@ -1718,6 +1718,10 @@ export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
 
+export declare function syncDoubles(data: Float64Array): void
+
+export declare function syncWords(data: Uint16Array): void
+
 /**
  * Function to test escaped quotes in comments.
  * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
