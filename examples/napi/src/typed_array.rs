@@ -197,6 +197,16 @@ fn convert_u32_array(input: Uint32Array) -> Vec<u32> {
   input.to_vec()
 }
 
+// `Either` tries `Uint16Array` first, so a Float64Array goes through a failed
+// `Uint16Array` conversion before the `Float64Array` one succeeds.
+#[napi]
+fn either_uint16_or_float64_array(input: Either<Uint16Array, Float64Array>) -> String {
+  match input {
+    Either::A(input) => format!("Uint16Array {:?}", input.as_ref()),
+    Either::B(input) => format!("Float64Array {:?}", input.as_ref()),
+  }
+}
+
 #[napi]
 fn create_external_typed_array() -> Uint32Array {
   Uint32Array::new(vec![1, 2, 3, 4, 5])

@@ -1155,6 +1155,8 @@ export declare function eitherPromiseInEitherA(input: Promise<number> | number |
 
 export declare function eitherStringOrNumber(input: string | number): number
 
+export declare function eitherUint16OrFloat64Array(input: Uint16Array | Float64Array): string
+
 export declare const enum Empty {}
 
 export declare function enumToI32(e: CustomNumEnum): number

@@ -1089,6 +1089,7 @@ module.exports.eitherFromObjects = nativeBinding.eitherFromObjects
 module.exports.eitherFromOption = nativeBinding.eitherFromOption
 module.exports.eitherPromiseInEitherA = nativeBinding.eitherPromiseInEitherA
 module.exports.eitherStringOrNumber = nativeBinding.eitherStringOrNumber
+module.exports.eitherUint16OrFloat64Array = nativeBinding.eitherUint16OrFloat64Array
 module.exports.Empty = nativeBinding.Empty
 module.exports.enumToI32 = nativeBinding.enumToI32
 module.exports.errorMessageContainsNullByte = nativeBinding.errorMessageContainsNullByte

@@ -783,21 +783,21 @@ macro_rules! impl_typed_array {
           unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
           "Failed to create reference from TypedArray"
         )?;
-        check_status!(
-          unsafe {
-            sys::napi_get_typedarray_info(
-              env,
-              napi_val,
-              &mut typed_array_type,
-              &mut length,
-              &mut data,
-              &mut array_buffer,
-              &mut byte_offset,
-            )
-          },
-          "Get TypedArray info failed"
-        )?;
-        if typed_array_type != $typed_array_type as i32 {
+        let status = unsafe {
+          sys::napi_get_typedarray_info(
+            env,
+            napi_val,
+            &mut typed_array_type,
+            &mut length,
+            &mut data,
+            &mut array_buffer,
+            &mut byte_offset,
+          )
+        };
+        if status != sys::Status::napi_ok || typed_array_type != $typed_array_type as i32 {
+          // Nothing owns `ref_` yet: delete it, or the value is never collected.
+          unsafe { sys::napi_delete_reference(env, ref_) };
+          check_status!(status, "Get TypedArray info failed")?;
           return Err(Error::new(
             Status::InvalidArg,
             format!(
