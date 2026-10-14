@@ -380,6 +380,23 @@ export declare class Issue3600Tracked {
   get size(): number
 }
 
+export declare class Issue3602Empty {
+  constructor()
+  static create(): Issue3602Empty
+  ping(): boolean
+}
+
+export declare class Issue3602ThrowInCtor {
+  constructor()
+}
+
+export declare class Issue3602Tracked {
+  constructor()
+  static create(): Issue3602Tracked
+  get id(): number
+  get size(): number
+}
+
 export declare class Issue3608Holder {
   static create(): Issue3608Holder
   len(): number
@@ -1285,6 +1302,16 @@ export declare function issue3600PendingIntoReference(): void
 export declare function issue3600PendingReturn(): Issue3600Tracked
 
 export declare function issue3600TrackedDropped(): number
+
+export declare function issue3602EmptyCreated(): number
+
+export declare function issue3602EmptyDropped(): number
+
+export declare function issue3602ThrowInCtorDropped(): number
+
+export declare function issue3602TrackedCreated(): number
+
+export declare function issue3602TrackedDropped(): number
 
 export declare function issue3608BumpOther(other: Issue3608Other): number
 

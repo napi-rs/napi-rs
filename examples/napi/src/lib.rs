@@ -104,6 +104,7 @@ mod generator;
 mod issue_3427;
 mod issue_3583;
 mod issue_3600;
+mod issue_3602;
 mod issue_3608;
 mod js_mod;
 mod lifetime;
