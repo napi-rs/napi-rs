@@ -269,6 +269,7 @@ import {
   bufferSliceFromDataReadBack,
   bufferSliceFromExternalReadBack,
   bufferSliceCopyFromReadBack,
+  compatCreateBufferCopyReadBack,
   bufferSliceFromDataMutated,
   bufferSliceFromExternalMutated,
   bufferSliceCopyFromMutated,
@@ -1766,6 +1767,14 @@ for (const [name, readBack, mutated] of [
     }
   })
 }
+
+// Regression: compat-mode `Env::create_buffer_copy` built its Rust view from
+// `napi_create_buffer_copy`'s `result_data`, which under emnapi is a wasm
+// mirror filled before the bytes are copied in. Read direction only, like
+// `BufferSlice::copy_from` above.
+test('compat Env::create_buffer_copy reads back the copied data', (t) => {
+  t.is(compatCreateBufferCopyReadBack(), 'Hello world')
+})
 
 // Regression for the `from_external` copy fallback on `ArrayBuffer`,
 // `Uint8ArraySlice` and `Uint8ClampedSlice`: the fallback copies into an

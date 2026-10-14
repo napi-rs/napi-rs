@@ -1016,6 +1016,7 @@ module.exports.chronoUtcDateToMillis = nativeBinding.chronoUtcDateToMillis
 module.exports.churnGlobalHandles = nativeBinding.churnGlobalHandles
 module.exports.cleanupReentrantBorrowOrderTestTargets = nativeBinding.cleanupReentrantBorrowOrderTestTargets
 module.exports.closeBorrowGate = nativeBinding.closeBorrowGate
+module.exports.compatCreateBufferCopyReadBack = nativeBinding.compatCreateBufferCopyReadBack
 module.exports.compressSync = nativeBinding.compressSync
 module.exports.concatLatin1 = nativeBinding.concatLatin1
 module.exports.concatStr = nativeBinding.concatStr

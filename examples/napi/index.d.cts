@@ -850,6 +850,8 @@ export declare function cleanupReentrantBorrowOrderTestTargets(): number
  */
 export declare function closeBorrowGate(id: number): void
 
+export declare function compatCreateBufferCopyReadBack(): string
+
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
   noDocumentAll?: boolean

@@ -166,6 +166,17 @@ pub fn buffer_slice_copy_from_read_back(env: &Env) -> Result<String> {
   )?))
 }
 
+// What Rust reads back from the deprecated compat-mode
+// `Env::create_buffer_copy`. It used to build its view from
+// `napi_create_buffer_copy`'s `result_data`, which under emnapi points at a
+// wasm mirror that is still all zeros, so Rust read 11 NUL bytes on both WASI
+// lanes while JS held `Hello world`.
+#[napi]
+pub fn compat_create_buffer_copy_read_back(env: &Env) -> Result<String> {
+  let value = env.create_buffer_copy(BUFFER_SLICE_PROBE)?;
+  Ok(String::from_utf8_lossy(&value).into_owned())
+}
+
 #[napi]
 pub fn buffer_slice_from_data_mutated(env: &Env) -> Result<BufferSlice<'_>> {
   Ok(buffer_slice_mutate(BufferSlice::from_data(

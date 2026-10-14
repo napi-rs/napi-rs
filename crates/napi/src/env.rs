@@ -460,17 +460,19 @@ impl Env {
   {
     let length = data_to_copy.as_ref().len();
     let data_ptr = data_to_copy.as_ref().as_ptr();
-    let mut copy_data = ptr::null_mut();
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_buffer_copy(
         self.0,
         length,
         data_ptr as *mut c_void,
-        &mut copy_data,
+        ptr::null_mut(),
         &mut raw_value,
       )
     })?;
+    // Not the `result_data` out-param: under emnapi it points at a wasm mirror
+    // that is still all zeros. See `buffer_data_ptr`.
+    let copy_data = unsafe { crate::bindgen_runtime::buffer_data_ptr(self.0, raw_value)? };
     Ok(JsBufferValue::new(
       JsBuffer(Value {
         env: self.0,
@@ -480,7 +482,7 @@ impl Env {
       mem::ManuallyDrop::new(if length == 0 {
         Vec::new()
       } else {
-        unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) }
+        unsafe { Vec::from_raw_parts(copy_data, length, length) }
       }),
     ))
   }
