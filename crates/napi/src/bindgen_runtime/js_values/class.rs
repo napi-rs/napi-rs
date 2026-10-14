@@ -6,8 +6,9 @@ use std::ptr;
 
 use crate::{
   bindgen_runtime::{
-    raw_finalize_unchecked, FromNapiValue, JsObjectValue, MaybeTypeTag, Object, ObjectFinalize,
-    Reference, Result, TypeName, ValidateNapiValue,
+    check_class_identity, class_id_of, raw_finalize_unchecked, ClassId, FromNapiValue,
+    JsObjectValue, MaybeTypeTag, Object, ObjectFinalize, Reference, Result, TypeName,
+    ValidateNapiValue,
   },
   check_status, sys, Env, JsValue, Property, PropertyAttributes, Value, ValueType,
 };
@@ -211,12 +212,14 @@ impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
     )?;
 
     // Reject a wrong-class / prototype-spoofed object before the blind cast.
-    // Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag` bound provides
-    // `T::type_tag()` only there; elsewhere this is the pre-tag unchecked cast).
+    // The tag check is compiled only on napi8 NATIVE targets (the
+    // `T: MaybeTypeTag` bound provides `T::type_tag()` only there); elsewhere
+    // `check_class_identity` checks the class recorded at wrap time.
     #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
     unsafe {
       crate::bindgen_runtime::validate_type_tag(env, napi_val, &T::type_tag(), type_name::<T>())?;
     }
+    check_class_identity::<T>(value, type_name::<T>)?;
 
     let value = unsafe { Box::from_raw(value as *mut T) };
     Ok(Self {
@@ -304,6 +307,7 @@ unsafe fn new_instance_raw(
   ctor_ref: sys::napi_ref,
   finalize_cb: sys::napi_finalize,
   class_name: &str,
+  class_id: ClassId,
 ) -> Result<sys::napi_value> {
   let mut ctor = std::ptr::null_mut();
   check_status!(
@@ -342,10 +346,12 @@ unsafe fn new_instance_raw(
     Box::into_raw(initial_finalize),
   )));
 
+  // Record the wrapped class for builds without type tags (#3608).
   super::value_ref::add_ref(
     env,
     wrapped_value,
     (wrapped_value, object_ref, finalize_callbacks_ptr),
+    class_id,
   );
 
   Ok(result)
@@ -370,6 +376,7 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
       ctor_ref,
       Some(raw_finalize_unchecked::<T>),
       type_name::<T>(),
+      class_id_of::<T>(),
     )
   } {
     Ok(result) => result,

@@ -1534,6 +1534,53 @@ impl RuntimeAsyncIterator {
   }
 }
 
+// napi-rs#3608: this example builds with `napi4` natively, where `#[napi]`
+// objects carry no type tag. A factory called with another class as `this`
+// wraps its value onto an object of that class, whose methods and `&T`
+// arguments must then reject it instead of reading the value as their type.
+#[napi]
+pub struct Issue3608Holder {
+  payload: Vec<u8>,
+}
+
+#[napi]
+impl Issue3608Holder {
+  #[napi(factory)]
+  pub fn create() -> Self {
+    Self {
+      payload: vec![1, 2, 3],
+    }
+  }
+
+  #[napi]
+  pub fn payload_len(&self) -> u32 {
+    self.payload.len() as u32
+  }
+}
+
+#[napi]
+pub struct Issue3608Other {
+  value: f64,
+}
+
+#[napi]
+impl Issue3608Other {
+  #[napi(constructor)]
+  pub fn new(value: f64) -> Self {
+    Self { value }
+  }
+
+  #[napi]
+  pub fn value(&self) -> f64 {
+    self.value
+  }
+}
+
+#[napi]
+pub fn issue3608_other_value(other: &Issue3608Other) -> f64 {
+  other.value
+}
+
 #[cfg(not(target_family = "wasm"))]
 struct RetainTaskWaker;
 

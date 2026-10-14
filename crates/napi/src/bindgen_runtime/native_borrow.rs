@@ -768,6 +768,11 @@ pub unsafe fn register_native_borrow_with_value<T>(
   value: *mut T,
   mutable: bool,
 ) -> Result<()> {
+  // Generated `FromNapiRef` / `FromNapiMutRef` for `#[napi]` classes call this
+  // with the `napi_unwrap` result before handing out `&T` / `&mut T`. Reject a
+  // pointer wrapped for another class on builds without type tags (#3608).
+  // No-op on napi8 native, where the generated code checks the type tag.
+  super::check_class_identity::<T>(value.cast(), super::class_identity::short_type_name::<T>)?;
   let scope = current_native_borrow_scope()?;
   unsafe { register_native_borrow_with_value_in_scope(scope, env, napi_val, value, mutable) }
 }
