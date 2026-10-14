@@ -122,10 +122,12 @@ impl<const N: usize> CallbackInfo<N> {
     let finalize_callbacks_ptr =
       Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
 
-    Reference::<T>::add_ref(
+    // Record the wrapped class for builds without type tags (#3608).
+    crate::bindgen_runtime::add_ref(
       self.env,
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
+      class_id_of::<T>(),
     );
 
     // Stamp the object's type tag AFTER `add_ref` has adopted the Arc + napi_ref
@@ -272,10 +274,12 @@ impl<const N: usize> CallbackInfo<N> {
     let finalize_callbacks_ptr =
       Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
 
-    Reference::<T>::add_ref(
+    // Record the wrapped class for builds without type tags (#3608).
+    crate::bindgen_runtime::add_ref(
       self.env,
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
+      class_id_of::<T>(),
     );
 
     // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +
@@ -324,14 +328,17 @@ impl<const N: usize> CallbackInfo<N> {
       // rejected by the V8 FunctionTemplate signature that `napi_define_class`
       // installs on instance methods ("Illegal invocation", before the callback
       // runs) — but that signature is NOT enforced by every supported Node-API
-      // runtime: Bun (exercised by CI's `test-latest-bun` job) invokes the
-      // callback with a wrong-class receiver where Node throws. Without this tag
-      // check `napi_unwrap` hands back the other class's pointer and the cast
-      // below is type-confused (UB). Compiled only on napi8 NATIVE targets (the
-      // `T: MaybeTypeTag` bound provides `T::type_tag()` only there; elsewhere
-      // this is the pre-tag unchecked cast).
+      // runtime: Bun (exercised by CI's `test-latest-bun` job) and emnapi on wasm
+      // invoke the callback with a wrong-class receiver where Node throws, and
+      // it does not help when the receiver itself holds another class's value
+      // (#3608). Without this check `napi_unwrap` hands back the other class's
+      // pointer and the cast below is type-confused (UB). The tag check is
+      // compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag` bound
+      // provides `T::type_tag()` only there); elsewhere `check_class_identity`
+      // checks the class recorded at wrap time.
       #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
       validate_type_tag(self.env, self.this, &T::type_tag(), T::type_name())?;
+      check_class_identity::<T>(wrapped_val, T::type_name)?;
 
       Ok(wrapped_val.cast())
     }

@@ -252,6 +252,30 @@ assert.deepEqual(
   ],
 )
 
+// napi-rs#3608: without type tags (napi4 native, wasm) the class recorded at
+// wrap time rejects a factory value wrapped onto another class's object.
+{
+  const notOther = {
+    code: 'InvalidArg',
+    message: 'Value is not an instance of class `Issue3608Other`',
+  }
+  const fake = binding.Issue3608Holder.create.call(binding.Issue3608Other)
+  assert.ok(fake instanceof binding.Issue3608Other)
+  assert.throws(() => fake.value(), notOther)
+  assert.throws(() => binding.issue3608OtherValue(fake), notOther)
+  assert.throws(
+    () => binding.issue3608OtherValue(binding.Issue3608Holder.create()),
+    notOther,
+  )
+  const other = new binding.Issue3608Other(3.5)
+  assert.equal(other.value(), 3.5)
+  assert.equal(binding.issue3608OtherValue(other), 3.5)
+  class Sub extends binding.Issue3608Holder {}
+  const sub = Sub.create()
+  assert.ok(sub instanceof Sub)
+  assert.equal(sub.payloadLen(), 3)
+}
+
 binding.rejectNextSpawn()
 await assert.rejects(binding.asyncDouble(1), (error) => {
   assert.equal(error.code, 'QueueFull')

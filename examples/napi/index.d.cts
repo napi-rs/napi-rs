@@ -380,6 +380,25 @@ export declare class Issue3600Tracked {
   get size(): number
 }
 
+export declare class Issue3608Holder {
+  static create(): Issue3608Holder
+  len(): number
+  /** `Reference<T>` argument of another class. */
+  static readOtherReference(other: Issue3608Other): Array<number>
+}
+
+export declare class Issue3608Other {
+  a: number
+  constructor()
+  read(): Array<number>
+  bump(): number
+}
+
+export declare class Issue3608Wide {
+  constructor()
+  sum(): number
+}
+
 export declare class JsClassForEither {
   constructor()
 }
@@ -1266,6 +1285,12 @@ export declare function issue3600PendingIntoReference(): void
 export declare function issue3600PendingReturn(): Issue3600Tracked
 
 export declare function issue3600TrackedDropped(): number
+
+export declare function issue3608BumpOther(other: Issue3608Other): number
+
+export declare function issue3608ReadOther(other: Issue3608Other): Array<number>
+
+export declare function issue3608ReadOtherInstance(other: Issue3608Other): Array<number>
 
 export declare function joinPath(path: string, segment: string): string
 
