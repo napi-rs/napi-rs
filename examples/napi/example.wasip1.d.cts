@@ -555,6 +555,8 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function arrayBufferCopyFrom(data: Array<number>): ArrayBuffer
+
 export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
@@ -821,16 +823,6 @@ export declare function contains(source: string, target: string): boolean
 
 export declare function convertU32Array(input: Uint32Array): Array<number>
 
-export declare function copiedBuffer(data: Array<number>): unknown
-
-export declare function copiedBytes(data: Array<number>): unknown
-
-export declare function copiedClamped(data: Array<number>): unknown
-
-export declare function copiedDoubles(data: Array<number>): unknown
-
-export declare function copiedWords(data: Array<number>): unknown
-
 export declare function createArraybuffer(): ArrayBuffer
 
 export declare function createBigInt(): bigint
@@ -1087,6 +1079,10 @@ export declare function f32ArrayToArray(input: Float32Array): Array<number>
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
 export declare function fibonacci(n: number): number
+
+export declare function float64ArraySliceCopyFrom(data: Array<number>): Float64Array
+
+export declare function float64ArraySync(data: Float64Array): void
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
@@ -1546,10 +1542,6 @@ export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
 
-export declare function syncDoubles(data: Float64Array): void
-
-export declare function syncWords(data: Uint16Array): void
-
 /**
  * Function to test escaped quotes in comments.
  * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
@@ -1691,11 +1683,21 @@ export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 
+export declare function uint16ArraySliceCopyFrom(data: Array<number>): Uint16Array
+
+export declare function uint16ArraySync(data: Uint16Array): void
+
+export declare function uint16ArraySyncAfterCallback(data: Uint16Array, callback: () => void): void
+
 export declare function uint8ArrayFromData(): Uint8Array
 
 export declare function uint8ArrayFromExternal(): Uint8Array
 
+export declare function uint8ArraySliceCopyFrom(data: Array<number>): Uint8Array
+
 export declare function uint8ArraySliceFromExternalReadBack(): string
+
+export declare function uint8ClampedSliceCopyFrom(data: Array<number>): Uint8ClampedArray
 
 export declare function uint8ClampedSliceFromExternalReadBack(): string
 

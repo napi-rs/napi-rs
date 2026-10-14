@@ -108,6 +108,31 @@ fn sync_copied_arraybuffer(
   )
 }
 
+/// Create an engine-owned `ArrayBuffer` that holds a copy of `bytes`, and
+/// return it with its data pointer.
+fn create_arraybuffer_copy(
+  env: sys::napi_env,
+  bytes: &[u8],
+) -> Result<(sys::napi_value, *mut c_void)> {
+  let len = bytes.len();
+  let mut arraybuffer_value = ptr::null_mut();
+  let mut underlying_data = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_create_arraybuffer(env, len, &mut underlying_data, &mut arraybuffer_value) },
+    "Failed to create ArrayBuffer"
+  )?;
+  // Skip empty input: the data pointer is null then, and emnapi throws
+  // "Unknown ArrayBuffer address" when asked to sync an empty buffer.
+  if len > 0 {
+    unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), underlying_data.cast(), len) };
+    // Under emnapi the data pointer is a separate wasm-side copy of the new JS
+    // buffer, so the bytes written there must be pushed to JS.
+    #[cfg(target_family = "wasm")]
+    sync_copied_arraybuffer(env, &mut arraybuffer_value, len)?;
+  }
+  Ok((arraybuffer_value, underlying_data))
+}
+
 #[derive(Clone, Copy)]
 /// Represents a JavaScript ArrayBuffer
 pub struct ArrayBuffer<'env> {
@@ -318,21 +343,7 @@ impl<'env> ArrayBuffer<'env> {
   pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
     let data = data.as_ref();
     let len = data.len();
-    let mut arraybuffer_value = ptr::null_mut();
-    let mut underlying_data = ptr::null_mut();
-
-    check_status!(
-      unsafe {
-        sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
-      },
-      "Failed to create ArrayBuffer"
-    )?;
-
-    if len > 0 {
-      unsafe { ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
-      #[cfg(target_family = "wasm")]
-      sync_copied_arraybuffer(env.0, &mut arraybuffer_value, len)?;
-    }
+    let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, data)?;
 
     Ok(Self {
       value: Value {
@@ -586,6 +597,8 @@ macro_rules! impl_typed_array {
     }
 
     impl $name {
+      /// Copy the elements written through `as_mut()` back to the JS view. Under emnapi
+      /// the data of a TypedArray received from JS is a wasm-side copy of its buffer.
       #[cfg(target_family = "wasm")]
       pub fn sync(&mut self, env: &crate::Env) {
         if let Some((reference, _)) = self.raw {
@@ -595,6 +608,7 @@ macro_rules! impl_typed_array {
             unsafe { crate::sys::napi_get_reference_value(env.raw(), reference, &mut value) },
             "Failed to get reference value from TypedArray while syncing"
           );
+          let mut view_length = 0;
           crate::check_status_or_throw!(
             env.raw(),
             unsafe {
@@ -602,7 +616,7 @@ macro_rules! impl_typed_array {
                 env.raw(),
                 value,
                 &mut ($typed_array_type as i32) as *mut i32,
-                &mut self.length as *mut usize,
+                &mut view_length,
                 ptr::null_mut(),
                 ptr::null_mut(),
                 &mut self.byte_offset as *mut usize,
@@ -610,9 +624,19 @@ macro_rules! impl_typed_array {
             },
             "Failed to get TypedArray info while syncing"
           );
+          // Never sync more than the `capacity` elements that `from_napi_value` saw. For a
+          // length-tracking view that JS has grown since, emnapi would copy unrelated wasm heap
+          // bytes into JS. This cannot help when emnapi had already copied the buffer before it
+          // grew: emnapi reuses that smaller copy, which is an emnapi bug. After
+          // `ToNapiValue for &mut Self` hands the data to JS, `capacity` is 0, so this is a no-op.
+          self.length = view_length.min(self.capacity);
+          // Nothing to copy, and emnapi throws "Unknown ArrayBuffer address" for an empty
+          // buffer before it checks the length.
           if self.length == 0 {
             return;
           }
+          // Pass the view itself with offset 0: emnapi applies the view's byteOffset on
+          // both sides. The length is in bytes.
           crate::check_status_or_throw!(
             env.raw(),
             unsafe {
@@ -1213,26 +1237,11 @@ macro_rules! impl_from_slice {
       pub fn copy_from<D: AsRef<[$rust_type]>>(env: &Env, data: D) -> Result<Self> {
         let data = data.as_ref();
         let len = data.len();
-        let mut arraybuffer_value = ptr::null_mut();
-        let mut underlying_data = ptr::null_mut();
-
-        check_status!(
-          unsafe {
-            sys::napi_create_arraybuffer(
-              env.0,
-              mem::size_of_val(data),
-              &mut underlying_data,
-              &mut arraybuffer_value,
-            )
-          },
-          "Failed to create ArrayBuffer"
-        )?;
-
-        if len > 0 {
-          unsafe { ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
-          #[cfg(target_family = "wasm")]
-          sync_copied_arraybuffer(env.0, &mut arraybuffer_value, mem::size_of_val(data))?;
-        }
+        // The elements are plain numbers, so the slice can be read as its bytes.
+        let bytes = unsafe {
+          std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), mem::size_of_val(data))
+        };
+        let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, bytes)?;
 
         let mut napi_val = ptr::null_mut();
         check_status!(
@@ -1933,21 +1942,7 @@ impl<'env> Uint8ClampedSlice<'env> {
   pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
     let data = data.as_ref();
     let len = data.len();
-    let mut arraybuffer_value = ptr::null_mut();
-    let mut underlying_data = ptr::null_mut();
-
-    check_status!(
-      unsafe {
-        sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
-      },
-      "Failed to create ArrayBuffer"
-    )?;
-
-    if len > 0 {
-      unsafe { ptr::copy_nonoverlapping(data.as_ptr(), underlying_data.cast(), len) };
-      #[cfg(target_family = "wasm")]
-      sync_copied_arraybuffer(env.0, &mut arraybuffer_value, len)?;
-    }
+    let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, data)?;
 
     let mut napi_val = ptr::null_mut();
     check_status!(
