@@ -333,6 +333,7 @@ import {
   promiseRawReturnClassInstance,
   ClassReturnInPromise,
   acceptUntypedTypedArray,
+  acceptUntypedTypedArrayBytes,
   defineClass,
   callbackInSpawn,
   arrayParams,
@@ -1977,6 +1978,31 @@ test('deref uint8 array', (t) => {
 
 test('accept untyped typed array', (t) => {
   t.is(acceptUntypedTypedArray(new Uint8Array([1, 2, 3])), 3n)
+  // `arraybuffer` holds the view's bytes: its length is the view's
+  // byteLength, not the element count
+  t.is(acceptUntypedTypedArray(new Int16Array([1, 2, 3])), 6n)
+  t.is(acceptUntypedTypedArray(new Uint16Array([1, 2, 3, 4]).subarray(1)), 6n)
+  t.is(acceptUntypedTypedArray(new Int32Array([1, 2, 3])), 12n)
+  t.is(acceptUntypedTypedArray(new Uint32Array([1, 2, 3])), 12n)
+  t.is(acceptUntypedTypedArray(new Float32Array([1, 2, 3])), 12n)
+  t.is(
+    acceptUntypedTypedArray(new Float64Array(new ArrayBuffer(64), 8, 3)),
+    24n,
+  )
+  t.is(acceptUntypedTypedArray(new BigInt64Array([1n, 2n, 3n])), 24n)
+  t.is(acceptUntypedTypedArray(new BigUint64Array([1n, 2n, 3n])), 24n)
+})
+
+test('accept untyped typed array bytes start at the view', (t) => {
+  const bytes = Uint8Array.from({ length: 16 }, (_, i) => i)
+  t.deepEqual(
+    acceptUntypedTypedArrayBytes(new Uint16Array(bytes.buffer).subarray(1, 4)),
+    [2, 3, 4, 5, 6, 7],
+  )
+  t.deepEqual(
+    acceptUntypedTypedArrayBytes(new Uint32Array(bytes.buffer, 4, 2)),
+    [4, 5, 6, 7, 8, 9, 10, 11],
+  )
 })
 
 test('async', async (t) => {

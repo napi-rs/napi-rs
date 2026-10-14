@@ -588,6 +588,8 @@ export declare function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint
 
 export declare function acceptUntypedTypedArray(input: TypedArray): bigint
 
+export declare function acceptUntypedTypedArrayBytes(input: TypedArray): Array<number>
+
 export declare function add(a: number, b: number): number
 
 export declare const enum ALIAS {

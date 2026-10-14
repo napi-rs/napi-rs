@@ -561,6 +561,11 @@ pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
   input.arraybuffer.len()
 }
 
+#[napi]
+pub fn accept_untyped_typed_array_bytes(input: TypedArray) -> Vec<u8> {
+  input.arraybuffer.to_vec()
+}
+
 // Regression coverage for the `napi_no_external_buffers_allowed` fallback in
 // the `from_external` constructors (`ArrayBuffer`, `*ArraySlice`,
 // `Uint8ClampedSlice`): the fallback copies into an engine-owned
