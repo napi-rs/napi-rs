@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 pub use callback_info::*;
 pub use class_accessor::*;
+pub(crate) use class_identity::{check_class_identity, class_id_of, ClassId};
 pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
@@ -19,6 +20,7 @@ pub mod async_iterator;
 pub use async_iterator::AsyncGenerator;
 mod callback_info;
 mod class_accessor;
+mod class_identity;
 mod env;
 mod error;
 pub mod iterator;
@@ -75,7 +77,11 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
     .with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)));
   let finalize_result = data.finalize(Env::from_raw(env));
 
-  if let Some((_, ref_val, finalize_callbacks_ptr)) = ref_entry {
+  if let Some(RefEntry {
+    info: (_, ref_val, finalize_callbacks_ptr),
+    ..
+  }) = ref_entry
+  {
     let finalize_callbacks_rc = unsafe { Arc::from_raw(finalize_callbacks_ptr) };
 
     #[cfg(all(debug_assertions, not(target_family = "wasm")))]
