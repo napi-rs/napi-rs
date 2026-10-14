@@ -527,3 +527,79 @@ pub fn mutate_arraybuffer(mut buf: ArrayBuffer) {
     *item *= 2;
   }
 }
+
+// `copy_from` must copy its input into the new JS value. Each fixture zeroes
+// its input after the copy, so an output that still pointed at the input would
+// read 0.
+
+#[napi]
+pub fn uint8_array_slice_copy_from(env: &Env, mut data: Vec<u8>) -> Result<Uint8ArraySlice<'_>> {
+  let output = Uint8ArraySlice::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output)
+}
+
+#[napi]
+pub fn uint16_array_slice_copy_from(env: &Env, mut data: Vec<u16>) -> Result<Uint16ArraySlice<'_>> {
+  let output = Uint16ArraySlice::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output)
+}
+
+#[napi]
+pub fn uint8_clamped_slice_copy_from(
+  env: &Env,
+  mut data: Vec<u8>,
+) -> Result<Uint8ClampedSlice<'_>> {
+  let output = Uint8ClampedSlice::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output)
+}
+
+#[napi]
+pub fn array_buffer_copy_from(env: &Env, mut data: Vec<u8>) -> Result<ArrayBuffer<'_>> {
+  let output = ArrayBuffer::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output)
+}
+
+#[napi]
+pub fn float64_array_slice_copy_from(
+  env: &Env,
+  mut data: Vec<f64>,
+) -> Result<Float64ArraySlice<'_>> {
+  let output = Float64ArraySlice::copy_from(env, &data)?;
+  data.fill(0.0);
+  Ok(output)
+}
+
+// On wasm, `as_mut()` writes reach the JS view only through `sync()`.
+
+#[napi]
+pub fn uint16_array_sync(_env: &Env, mut data: Uint16Array) {
+  unsafe { data.as_mut() }.fill(0x1234);
+  #[cfg(target_family = "wasm")]
+  data.sync(_env);
+}
+
+#[napi]
+pub fn float64_array_sync(_env: &Env, mut data: Float64Array) {
+  unsafe { data.as_mut() }.fill(-2.25);
+  #[cfg(target_family = "wasm")]
+  data.sync(_env);
+}
+
+// Runs `callback` between the `as_mut()` write and `sync()`, so JS can resize
+// the buffer under the view in between.
+#[napi]
+pub fn uint16_array_sync_after_callback(
+  _env: &Env,
+  mut data: Uint16Array,
+  callback: Function<(), ()>,
+) -> Result<()> {
+  unsafe { data.as_mut() }.fill(0x1234);
+  callback.call(())?;
+  #[cfg(target_family = "wasm")]
+  data.sync(_env);
+  Ok(())
+}
