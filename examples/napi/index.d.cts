@@ -850,6 +850,14 @@ export declare function cleanupReentrantBorrowOrderTestTargets(): number
  */
 export declare function closeBorrowGate(id: number): void
 
+export declare function compatArraybufferIntoValueIntoRaw(input: ArrayBuffer, write: () => void): ArrayBuffer
+
+export declare function compatCreateArraybufferDetachIntoRaw(detach: (arg: unknown) => void): ArrayBuffer
+
+export declare function compatCreateArraybufferIntoRaw(len: number): ArrayBuffer
+
+export declare function compatCreateArraybufferIntoUnknown(len: number): unknown
+
 export declare function compatCreateBufferCopyReadBack(): string
 
 export interface CompilerAssumptions {

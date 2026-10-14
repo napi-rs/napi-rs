@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use napi::bindgen_prelude::*;
+use napi::{bindgen_prelude::*, JsArrayBuffer, JsArrayBufferValue};
 
 #[napi]
 fn get_buffer() -> Buffer {
@@ -175,6 +175,53 @@ pub fn buffer_slice_copy_from_read_back(env: &Env) -> Result<String> {
 pub fn compat_create_buffer_copy_read_back(env: &Env) -> Result<String> {
   let value = env.create_buffer_copy(BUFFER_SLICE_PROBE)?;
   Ok(String::from_utf8_lossy(&value).into_owned())
+}
+
+// The deprecated compat-mode `Env::create_arraybuffer`, filled from Rust with
+// 1, 2, 3, ... and handed to JS. Under emnapi the pointer it returns is a
+// wasm-side copy of the new `ArrayBuffer`, and nothing copied the bytes to JS,
+// so JS read zeros on both WASI lanes.
+fn compat_create_arraybuffer_filled(env: &Env, len: u32) -> Result<JsArrayBufferValue> {
+  let mut value = env.create_arraybuffer(len as usize)?;
+  for (i, byte) in value.iter_mut().enumerate() {
+    *byte = (i + 1) as u8;
+  }
+  Ok(value)
+}
+
+#[napi]
+pub fn compat_create_arraybuffer_into_raw(env: &Env, len: u32) -> Result<JsArrayBuffer> {
+  Ok(compat_create_arraybuffer_filled(env, len)?.into_raw())
+}
+
+#[napi]
+pub fn compat_create_arraybuffer_into_unknown(env: &Env, len: u32) -> Result<Unknown<'_>> {
+  Ok(compat_create_arraybuffer_filled(env, len)?.into_unknown())
+}
+
+// A value from `JsArrayBuffer::into_value` must not be copied to JS by
+// `into_raw`: on wasm its bytes are a copy taken before `write` runs, so the
+// copy would undo the JS writes.
+#[napi]
+pub fn compat_arraybuffer_into_value_into_raw(
+  input: JsArrayBuffer,
+  write: Function<(), ()>,
+) -> Result<JsArrayBuffer> {
+  let value = input.into_value()?;
+  write.call(())?;
+  Ok(value.into_raw())
+}
+
+// JS detaches the buffer between `Env::create_arraybuffer` and `into_raw`.
+// emnapi throws when asked to copy into a detached buffer.
+#[napi]
+pub fn compat_create_arraybuffer_detach_into_raw<'env>(
+  env: &'env Env,
+  detach: Function<'env, Unknown<'env>, ()>,
+) -> Result<JsArrayBuffer> {
+  let value = compat_create_arraybuffer_filled(env, 4)?;
+  detach.call(value.value.to_unknown())?;
+  Ok(value.into_raw())
 }
 
 #[napi]

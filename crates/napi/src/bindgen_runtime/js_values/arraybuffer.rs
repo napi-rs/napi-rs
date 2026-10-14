@@ -87,7 +87,8 @@ impl From<TypedArrayType> for sys::napi_typedarray_type {
 
 #[cfg(target_family = "wasm")]
 extern "C" {
-  fn emnapi_sync_memory(
+  // Also used by the compat `JsArrayBufferValue` in js_values/arraybuffer.rs.
+  pub(crate) fn emnapi_sync_memory(
     env: crate::sys::napi_env,
     js_to_wasm: bool,
     arraybuffer_or_view: *mut crate::sys::napi_value,
