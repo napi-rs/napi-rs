@@ -588,6 +588,8 @@ export declare function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint
 
 export declare function acceptUntypedTypedArray(input: TypedArray): bigint
 
+export declare function acceptUntypedTypedArrayBytes(input: TypedArray): Array<number>
+
 export declare function add(a: number, b: number): number
 
 export declare const enum ALIAS {
@@ -849,6 +851,16 @@ export declare function cleanupReentrantBorrowOrderTestTargets(): number
  * passes through.
  */
 export declare function closeBorrowGate(id: number): void
+
+export declare function compatArraybufferIntoValueIntoRaw(input: ArrayBuffer, write: () => void): ArrayBuffer
+
+export declare function compatCreateArraybufferDetachIntoRaw(detach: (arg: unknown) => void): ArrayBuffer
+
+export declare function compatCreateArraybufferIntoRaw(len: number): ArrayBuffer
+
+export declare function compatCreateArraybufferIntoUnknown(len: number): unknown
+
+export declare function compatCreateBufferCopyReadBack(): string
 
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
@@ -1154,6 +1166,8 @@ export declare function eitherFromOption(): JsClassForEither | undefined
 export declare function eitherPromiseInEitherA(input: Promise<number> | number | string): Promise<boolean>
 
 export declare function eitherStringOrNumber(input: string | number): number
+
+export declare function eitherUint16OrFloat64Array(input: Uint16Array | Float64Array): string
 
 export declare const enum Empty {}
 

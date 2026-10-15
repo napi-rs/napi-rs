@@ -99,9 +99,9 @@ unsafe fn create_external_buffer(
 /// and only then writes the bytes into the `ArrayBuffer` - so `result_data`
 /// still points at a zero-filled mirror. `napi_get_buffer_info` is the call
 /// that refreshes that mirror, so it is the only pointer that is correct on
-/// every target.
+/// every target. The compat-mode `Env::create_buffer_copy` uses it too.
 #[inline]
-unsafe fn buffer_data_ptr(env: sys::napi_env, buf: sys::napi_value) -> Result<*mut u8> {
+pub(crate) unsafe fn buffer_data_ptr(env: sys::napi_env, buf: sys::napi_value) -> Result<*mut u8> {
   let mut data = ptr::null_mut();
   let mut len = 0usize;
   check_status!(

@@ -460,17 +460,19 @@ impl Env {
   {
     let length = data_to_copy.as_ref().len();
     let data_ptr = data_to_copy.as_ref().as_ptr();
-    let mut copy_data = ptr::null_mut();
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_buffer_copy(
         self.0,
         length,
         data_ptr as *mut c_void,
-        &mut copy_data,
+        ptr::null_mut(),
         &mut raw_value,
       )
     })?;
+    // Not the `result_data` out-param: under emnapi it points at a wasm mirror
+    // that is still all zeros. See `buffer_data_ptr`.
+    let copy_data = unsafe { crate::bindgen_runtime::buffer_data_ptr(self.0, raw_value)? };
     Ok(JsBufferValue::new(
       JsBuffer(Value {
         env: self.0,
@@ -480,13 +482,16 @@ impl Env {
       mem::ManuallyDrop::new(if length == 0 {
         Vec::new()
       } else {
-        unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) }
+        unsafe { Vec::from_raw_parts(copy_data, length, length) }
       }),
     ))
   }
 
   #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `ArrayBuffer::from_data` instead")]
+  /// On wasm, the bytes written through the returned value reach JS when you
+  /// call `into_raw()` or `into_unknown()`. Moving out the `value` field skips
+  /// that copy, and JS writes made before that call are overwritten.
   pub fn create_arraybuffer(&self, length: usize) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
     let mut data_ptr = ptr::null_mut();
@@ -494,11 +499,14 @@ impl Env {
       sys::napi_create_arraybuffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
 
-    Ok(JsArrayBufferValue::new(
-      unsafe { JsArrayBuffer::from_raw_unchecked(self.0, raw_value) },
-      data_ptr as *mut c_void,
-      length,
-    ))
+    Ok(JsArrayBufferValue {
+      value: unsafe { JsArrayBuffer::from_raw_unchecked(self.0, raw_value) },
+      data: data_ptr as *mut c_void,
+      len: length,
+      // Under emnapi `data_ptr` is a wasm-side copy of the new buffer.
+      #[cfg(target_family = "wasm")]
+      sync_to_js: true,
+    })
   }
 
   #[cfg(feature = "compat-mode")]
