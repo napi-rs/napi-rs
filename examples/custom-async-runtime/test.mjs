@@ -2099,7 +2099,7 @@ if (isThreadedWasi) {
 
       let task = 'PENDING'
       binding.parkNextSpawnOnWorker()
-      binding.asyncNever().then(
+      const settled = binding.asyncNever().then(
         () => { task = 'RESOLVED' },
         (error) => { task = 'REJECTED: ' + error.message },
       )
@@ -2127,10 +2127,18 @@ if (isThreadedWasi) {
       // The worker is released only now, from a host turn: its cancellation
       // takes the ordinary queue path (the mailbox is closed and the barrier is
       // down) into an environment that is still alive, so the promise settles.
+      // The cancellation runs on the worker thread once it wakes, and only then
+      // queues the settlement for this thread, so wait for the settlement itself
+      // rather than a fixed number of turns that can end before the worker is
+      // scheduled. The guard only reports a promise that never settles.
       binding.releaseParkedWorker()
-      for (let index = 0; index < 100; index++) {
-        await new Promise((resolve) => setImmediate(resolve))
-      }
+      const neverSettled = setTimeout(() => {
+        console.error('ABANDONED_PENDING_TASK ' + task)
+        process.exit(45)
+      }, 30_000)
+      neverSettled.unref()
+      await settled
+      clearTimeout(neverSettled)
       console.error('ABANDONED_PENDING_TASK ' + task)
       console.error(
         'ABANDONED_PENDING_POLL_AFTER ' +
