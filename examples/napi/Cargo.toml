@@ -49,7 +49,6 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "web_stream",
   "error_anyhow",
   "dyn-symbols",
-  "compat-mode",
 ] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]

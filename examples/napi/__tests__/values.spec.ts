@@ -269,11 +269,6 @@ import {
   bufferSliceFromDataReadBack,
   bufferSliceFromExternalReadBack,
   bufferSliceCopyFromReadBack,
-  compatCreateBufferCopyReadBack,
-  compatCreateArraybufferIntoRaw,
-  compatCreateArraybufferIntoUnknown,
-  compatArraybufferIntoValueIntoRaw,
-  compatCreateArraybufferDetachIntoRaw,
   bufferSliceFromDataMutated,
   bufferSliceFromExternalMutated,
   bufferSliceCopyFromMutated,
@@ -1772,52 +1767,6 @@ for (const [name, readBack, mutated] of [
     }
   })
 }
-
-// Regression: compat-mode `Env::create_buffer_copy` built its Rust view from
-// `napi_create_buffer_copy`'s `result_data`, which under emnapi is a wasm
-// mirror filled before the bytes are copied in. Read direction only, like
-// `BufferSlice::copy_from` above.
-test('compat Env::create_buffer_copy reads back the copied data', (t) => {
-  t.is(compatCreateBufferCopyReadBack(), 'Hello world')
-})
-
-// Regression: compat-mode `Env::create_arraybuffer` hands Rust a pointer that,
-// under emnapi, is a wasm-side copy of the new ArrayBuffer. Rust's writes reach
-// JS only because `into_raw` / `into_unknown` copy them over.
-test('compat Env::create_arraybuffer writes reach JS', (t) => {
-  t.deepEqual(
-    new Uint8Array(compatCreateArraybufferIntoRaw(4)),
-    new Uint8Array([1, 2, 3, 4]),
-  )
-  t.deepEqual(
-    new Uint8Array(compatCreateArraybufferIntoUnknown(4) as ArrayBuffer),
-    new Uint8Array([1, 2, 3, 4]),
-  )
-  // An empty buffer has no wasm-side copy, so there is nothing to copy.
-  t.is(compatCreateArraybufferIntoRaw(0).byteLength, 0)
-})
-
-test('compat JsArrayBuffer::into_value keeps JS writes through into_raw', (t) => {
-  const input = new Uint8Array([1, 2, 3, 4]).buffer
-  const output = compatArraybufferIntoValueIntoRaw(input, () => {
-    new Uint8Array(input).set([9, 9, 9, 9])
-  })
-  t.is(output, input)
-  t.deepEqual(new Uint8Array(input), new Uint8Array([9, 9, 9, 9]))
-})
-
-test('compat Env::create_arraybuffer into_raw after JS detached it', (t) => {
-  if (typeof ArrayBuffer.prototype.transfer !== 'function') {
-    t.pass('ArrayBuffer.prototype.transfer is not available')
-    return
-  }
-  let moved: ArrayBuffer | undefined
-  const output = compatCreateArraybufferDetachIntoRaw((buffer) => {
-    moved = (buffer as ArrayBuffer).transfer()
-  })
-  t.is(output.byteLength, 0)
-  t.is(moved?.byteLength, 4)
-})
 
 // Regression for the `from_external` copy fallback on `ArrayBuffer`,
 // `Uint8ArraySlice` and `Uint8ClampedSlice`: the fallback copies into an
