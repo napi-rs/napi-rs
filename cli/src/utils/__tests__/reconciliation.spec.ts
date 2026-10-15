@@ -19,6 +19,7 @@ import ava, { type TestFn } from 'ava'
 
 import {
   createProcessIncarnationGetter,
+  executeProcessIncarnationCommand,
   getCurrentProcessExecutionIdentity,
   type ProcessExecutionIdentity,
   resolveProcessExecutionIdentityForLocking,
@@ -221,6 +222,12 @@ test('createProcessIncarnationGetter recovers after a failed probe and then stop
   t.is(await getIncarnation(), 'probe:recovered')
   t.is(await getIncarnation(), 'probe:recovered')
   t.is(reads, 2)
+})
+
+test('executeProcessIncarnationCommand resolves null when execFile throws synchronously', async (t) => {
+  // A null byte makes execFile throw before spawning, the same synchronous
+  // path Node takes for spawn errors such as EPERM.
+  t.is(await executeProcessIncarnationCommand('/bin/ps\u0000', []), null)
 })
 
 test('withFileSystemReconciliation publishes lock owners stamped with the injected process incarnation', async (t) => {

@@ -3956,31 +3956,38 @@ async function readPosixProcessIncarnation(pid: number) {
     : null
 }
 
-function executeProcessIncarnationCommand(
+export function executeProcessIncarnationCommand(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
   timeout: number = processIncarnationCommandTimeout,
 ): Promise<string | null> {
   return new Promise((resolveCommand) => {
-    execFile(
-      command,
-      args,
-      {
-        encoding: 'utf8',
-        env,
-        timeout,
-        windowsHide: true,
-      },
-      (error, stdout) => {
-        if (error) {
-          resolveCommand(null)
-          return
-        }
-        const output = stdout.trim()
-        resolveCommand(output || null)
-      },
-    )
+    // Node reports only some spawn failures (ENOENT, EACCES, EAGAIN, EMFILE,
+    // ENFILE) through the callback; others, such as EPERM when a sandbox
+    // refuses to run the setuid /bin/ps, are thrown synchronously.
+    try {
+      execFile(
+        command,
+        args,
+        {
+          encoding: 'utf8',
+          env,
+          timeout,
+          windowsHide: true,
+        },
+        (error, stdout) => {
+          if (error) {
+            resolveCommand(null)
+            return
+          }
+          const output = stdout.trim()
+          resolveCommand(output || null)
+        },
+      )
+    } catch {
+      resolveCommand(null)
+    }
   })
 }
 
