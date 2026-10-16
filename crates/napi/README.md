@@ -48,6 +48,9 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 | Linux aarch64 android | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
 | Linux armv7 android   | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
 | FreeBSD x64           | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
+| FreeBSD aarch64       | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
+
+FreeBSD aarch64 (`aarch64-unknown-freebsd`) is a tier 3 Rust target, so `rustup` has no prebuilt `std` for it. Build on a FreeBSD aarch64 host with the toolchain from `pkg install rust`; `napi build --platform` names the output `<name>.freebsd-arm64.node`, which the generated `index.js` loads.
 
 This library depends on Node-API and requires `Node@10.0.0` or later.
 
