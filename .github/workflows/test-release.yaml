@@ -833,6 +833,55 @@ jobs:
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn workspace @examples/napi test-js -s
 
+  test-freebsd-arm64:
+    runs-on: ubuntu-latest
+    name: Test freebsd arm64 target
+    needs: audit
+    # The VM is emulated, so the native build is slow.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+      - name: 'Install dependencies'
+        run: yarn install --mode=skip-build --immutable
+      # `napi-raw` runs the CLI from source through @oxc-node/core, which has
+      # no FreeBSD arm64 binary, so the VM runs the bundled CLI instead.
+      - name: Build CLI
+        run: yarn workspace @napi-rs/cli build
+      - name: Test
+        uses: cross-platform-actions/action@v1.6.0
+        with:
+          operating_system: freebsd
+          architecture: arm64
+          version: '15.0'
+          memory: 8G
+          cpu_count: 4
+          shell: bash
+          # rustup ships no std for the tier 3 aarch64-unknown-freebsd target,
+          # so build natively with the toolchain from pkg.
+          run: |
+            sudo pkg install -y -f node rust
+            freebsd-version
+            node -v
+            rustc -V
+            cd examples/shared-async-runtime
+            node ../../cli/dist/cli.js build --platform --js index.cjs --dts index.d.cts
+            test -f shared_async_runtime.freebsd-arm64.node
+            node -e "
+              const b = require('./index.cjs')
+              if (b.__napiBindingTarget !== 'native') throw new Error('loaded ' + b.__napiBindingTarget)
+              b.plus100(1).then((v) => {
+                if (v !== 101) throw new Error('plus100(1) returned ' + v)
+                console.log('ok')
+              })
+            "
+
   napi-async-runtime:
     runs-on: ubuntu-latest
     name: Test napi-async-runtime shared scheduler (cargo)
@@ -1362,6 +1411,7 @@ jobs:
       - build_binary_crate
       - check-all-features
       - test-freebsd
+      - test-freebsd-arm64
       - napi-async-runtime
       - test-custom-async-runtime-wasi
       - test-custom-async-runtime-wasi-threads
