@@ -1139,6 +1139,12 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
  */
 export declare function dropErrorFromValueOffThread(value: unknown): void
 
+/**
+ * Adds an env cleanup hook that lets the thread started by
+ * [`hold_function_refs_on_thread`] drop its references, and waits for it.
+ */
+export declare function dropHeldFunctionRefsAtTeardown(): void
+
 export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
@@ -1190,6 +1196,12 @@ export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 export interface FunctionData {
   handle: () => number
 }
+
+/**
+ * How many references the threads from [`hold_function_refs_on_thread`]
+ * have dropped, in this process.
+ */
+export declare function functionRefsDroppedAtTeardown(): number
 
 export declare function generateFunctionAndCallIt(): FunctionData
 
@@ -1251,6 +1263,12 @@ export declare function getTuple(val: [number, string, number]): number
 export declare function getUndefined(): void
 
 export declare function getWords(): Array<string>
+
+/**
+ * Moves `callbacks` to a new thread, which drops them all at once (one `Vec`
+ * drop) when the hook added by [`drop_held_function_refs_at_teardown`] runs.
+ */
+export declare function holdFunctionRefsOnThread(callbacks: Array<() => void>): void
 
 export declare function i16ArrayToArray(input: Int16Array): Array<number>
 

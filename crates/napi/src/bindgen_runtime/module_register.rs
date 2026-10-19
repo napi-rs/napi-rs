@@ -139,6 +139,10 @@ thread_local! {
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
   tsfn: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__>,
+  // Set when env teardown starts (`custom_gc_env_cleanup`, before Node closes the TSFN), or by
+  // the finalizer if that hook could not be added. Once set, no drop calls the TSFN: it leaks its
+  // reference, which deleting the env reclaims. The drop paths' "env is gone" comments cover the
+  // span from here to the finalizer too.
   aborted: std::sync::RwLock<bool>,
 }
 
@@ -1246,7 +1250,51 @@ fn create_custom_gc(env: sys::napi_env) {
     unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
     "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
   );
+  // At env teardown Node closes the TSFN from the cleanup hook it added in
+  // `napi_create_threadsafe_function` above, and calls `custom_gc_handle_finalize`
+  // (which sets `aborted`) only later, from the uv close callback. In between,
+  // `napi_call_threadsafe_function` returns `napi_closing` once, which uses up
+  // the TSFN's only thread count, and `napi_invalid_arg` after that. The drop
+  // paths assert on that status, so a second off-thread drop in that window
+  // panics, and two such panics in one destructor abort the process.
+  //
+  // Node runs cleanup hooks last added first, so this hook runs before Node
+  // closes the TSFN. It sets `aborted` under the write lock (which waits for a
+  // drop that is calling the TSFN right now), and every later drop leaks its
+  // reference, as a drop after the finalizer already does (deleting the env
+  // releases the reference's V8 handle). The argument is this handle's own
+  // allocation, which the `Weak` keeps alive until the hook runs, so a second
+  // registration in the same env adds a different `(fn, arg)` pair.
+  //
+  // Native only, like the `JsDeferred` teardown hook.
+  #[cfg(not(target_family = "wasm"))]
+  {
+    let hook_data = std::sync::Arc::downgrade(&handle).into_raw();
+    let status = unsafe {
+      sys::napi_add_env_cleanup_hook(
+        env,
+        Some(custom_gc_env_cleanup),
+        hook_data.cast_mut().cast(),
+      )
+    };
+    if status != sys::Status::napi_ok {
+      // No hook: `custom_gc_handle_finalize` still sets `aborted`, as before.
+      drop(unsafe { std::sync::Weak::from_raw(hook_data) });
+    }
+  }
   CURRENT_CUSTOM_GC_HANDLE.with(|c| *c.borrow_mut() = Some(handle));
+}
+
+// Env cleanup hook added by `create_custom_gc`: marks the handle aborted before
+// Node closes its TSFN. `data` is the `Weak<CustomGcHandle>` passed there; its
+// weak count is reclaimed here.
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
+unsafe extern "C" fn custom_gc_env_cleanup(data: *mut std::ffi::c_void) {
+  if let Some(handle) =
+    unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(data.cast()) }.upgrade()
+  {
+    handle.set_aborted();
+  }
 }
 
 #[cfg(all(
@@ -1267,8 +1315,9 @@ unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) ->
 }
 
 // Per-env custom-GC finalize (#3357): sets the per-handle `aborted` flag when Node tears down the
-// owner env's TSFN. `finalize_data` is the `Weak<CustomGcHandle>` smuggled in via
-// `thread_finalize_data`; we reclaim that weak count here.
+// owner env's TSFN (on native targets `custom_gc_env_cleanup` has already set it). `finalize_data`
+// is the `Weak<CustomGcHandle>` smuggled in via `thread_finalize_data`; we reclaim that weak count
+// here.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 unsafe extern "C" fn custom_gc_handle_finalize(
   _env: sys::napi_env,
