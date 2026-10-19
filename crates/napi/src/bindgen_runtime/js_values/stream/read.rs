@@ -18,8 +18,8 @@ use tokio_stream::StreamExt;
 
 use crate::{
   bindgen_prelude::{
-    BufferSlice, CallbackContext, FromNapiValue, Function, JsObjectValue, Object, PromiseRaw,
-    ToNapiValue, TypeName, Unknown, ValidateNapiValue, NAPI_AUTO_LENGTH,
+    BufferSlice, CallbackContext, Either, FromNapiValue, Function, JsObjectValue, Object,
+    PromiseRaw, ToNapiValue, TypeName, Undefined, Unknown, ValidateNapiValue, NAPI_AUTO_LENGTH,
   },
   check_status, sys,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
@@ -100,7 +100,18 @@ impl<T> ReadableStream<'_, T> {
     unsafe { FromNapiValue::from_napi_value(self.env, locked) }
   }
 
-  /// The `cancel()` method of the `ReadableStream` interface returns a Promise that resolves when the stream is canceled.
+  /// Calls `stream.cancel(reason)` and returns its Promise, which resolves when the stream
+  /// is canceled. `None` passes `undefined` as the reason.
+  ///
+  /// A locked stream cannot be canceled this way: the Promise rejects with a `TypeError`
+  /// and the underlying source's `cancel` is not called. [`ReadableStream::read`] locks the
+  /// stream to its reader, so this always rejects after `read()`.
+  ///
+  /// The Promise also rejects when the source's `cancel` throws. Do not just drop it: a
+  /// rejected Promise that nothing handles is an unhandled rejection, and by default
+  /// Node.js then exits with code 1. Return it to JavaScript, attach a handler with
+  /// [`PromiseRaw::catch`], or turn it into a [`Promise`](crate::bindgen_prelude::Promise)
+  /// with [`PromiseRaw::into_sendable_promise`] and await it.
   pub fn cancel(&mut self, reason: Option<String>) -> Result<PromiseRaw<'_, ()>> {
     let mut cancel_fn = ptr::null_mut();
     check_status!(
@@ -108,13 +119,13 @@ impl<T> ReadableStream<'_, T> {
         sys::napi_get_named_property(
           self.env,
           self.value,
-          c"abort".as_ptr().cast(),
+          c"cancel".as_ptr().cast(),
           &mut cancel_fn,
         )
       },
-      "Get abort property failed"
+      "Get cancel property failed"
     )?;
-    let reason_value = unsafe { ToNapiValue::to_napi_value(self.env, reason)? };
+    let reason_value = unsafe { ToNapiValue::to_napi_value(self.env, cancel_reason(reason))? };
     let mut promise = ptr::null_mut();
     check_status!(
       unsafe {
@@ -127,7 +138,7 @@ impl<T> ReadableStream<'_, T> {
           &mut promise,
         )
       },
-      "Call abort function failed"
+      "Call cancel function failed"
     )?;
     Ok(PromiseRaw::new(self.env, promise))
   }
@@ -217,6 +228,15 @@ impl<T: FromNapiValue> ReadableStream<'_, T> {
         }),
       }),
     })
+  }
+}
+
+/// A `None` reason is passed to JavaScript as `undefined` (what `cancel()` with no
+/// argument gives the source), not as `null`.
+fn cancel_reason(reason: Option<String>) -> Either<String, Undefined> {
+  match reason {
+    Some(reason) => Either::A(reason),
+    None => Either::B(()),
   }
 }
 

@@ -171,3 +171,14 @@ pub fn create_readable_stream_from_class<'env>(
     ReceiverStream::new(rx),
   )
 }
+
+/// Calls `ReadableStream::cancel`, which calls `stream.cancel(reason)`.
+#[napi]
+pub fn cancel_readable_stream(
+  env: &Env,
+  mut stream: ReadableStream<Uint8Array>,
+  reason: Option<String>,
+) -> Result<AsyncBlock<()>> {
+  let cancelled = stream.cancel(reason)?.into_sendable_promise()?;
+  AsyncBlockBuilder::new(cancelled).build(env)
+}

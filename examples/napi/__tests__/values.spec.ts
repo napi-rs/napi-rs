@@ -291,6 +291,7 @@ import {
   callRuleHandler,
   acceptStream,
   drainStreamCount,
+  cancelReadableStream,
   createReadableStream,
   createReadableStreamWithObject,
   createReadableStreamFromClass,
@@ -3386,6 +3387,26 @@ test('reading a stream that rejects with a throwing message getter does not abor
     },
   })
   t.is(await drainStreamCount(stream), 0)
+})
+
+test('ReadableStream::cancel cancels an unlocked stream and rejects on a locked one', async (t) => {
+  const cancels: unknown[][] = []
+  const makeStream = () =>
+    new ReadableStream<Uint8Array>({
+      cancel(...args: unknown[]) {
+        cancels.push(args)
+      },
+    })
+  await cancelReadableStream(makeStream())
+  await cancelReadableStream(makeStream(), 'bye')
+  t.deepEqual(cancels, [[undefined], ['bye']])
+
+  const locked = makeStream()
+  locked.getReader()
+  await t.throwsAsync(() => cancelReadableStream(locked), {
+    message: /locked/,
+  })
+  t.is(cancels.length, 2)
 })
 
 test('create readable stream from channel', async (t) => {

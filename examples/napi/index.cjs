@@ -1002,6 +1002,7 @@ module.exports.callThenOnPromiseCapturing = nativeBinding.callThenOnPromiseCaptu
 module.exports.callThreadsafeFunction = nativeBinding.callThreadsafeFunction
 module.exports.callWithNestedFunctionArg = nativeBinding.callWithNestedFunctionArg
 module.exports.callWithTupleArg = nativeBinding.callWithTupleArg
+module.exports.cancelReadableStream = nativeBinding.cancelReadableStream
 module.exports.captureErrorInCallback = nativeBinding.captureErrorInCallback
 module.exports.chronoDateAdd1Minute = nativeBinding.chronoDateAdd1Minute
 module.exports.chronoDateFixtureReturn1 = nativeBinding.chronoDateFixtureReturn1
