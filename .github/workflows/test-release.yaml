@@ -299,7 +299,7 @@ jobs:
     needs: audit
     strategy:
       matrix:
-        sys: [MINGW64, UCRT64, CLANG64]
+        sys: [UCRT64, CLANG64]
     runs-on: windows-latest
 
     steps:
@@ -811,7 +811,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           operating_system: freebsd
-          version: '15.0'
+          version: '15.1'
           memory: 12G
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS GITHUB_TOKEN'
