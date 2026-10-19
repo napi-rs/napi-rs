@@ -55,3 +55,39 @@ test('load module multi times', (t) => {
   )
   t.is(add2(1, 2), 3)
 })
+
+test('a stream reader from before the module is loaded again still cancels on the JS thread', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const { ClosableStreamRead } = require(`../${binaryName}`)
+  let pulled
+  const isPulled = new Promise((resolve) => {
+    pulled = resolve
+  })
+  const cancels = []
+  const stream = new ReadableStream(
+    {
+      pull() {
+        pulled()
+      },
+      cancel(reason) {
+        cancels.push(reason)
+      },
+    },
+    { highWaterMark: 0 },
+  )
+  const read = new ClosableStreamRead(stream)
+  const done = read.readToEnd()
+  await isPulled
+  // Loading the module again gives it a second env on this same thread.
+  delete require.cache[require.resolve(`../${binaryName}`)]
+  const { add } = require(`../${binaryName}`)
+  t.is(add(1, 2), 3)
+  // `close()` comes from the earlier load, so it runs with the env the stream was read in.
+  const closed = read.close('reload')
+  t.deepEqual(cancels, ['reload'])
+  t.is(await closed, null)
+  t.is(await done, 0)
+})

@@ -182,3 +182,235 @@ pub fn cancel_readable_stream(
   let cancelled = stream.cancel(reason)?.into_sendable_promise()?;
   AsyncBlockBuilder::new(cancelled).build(env)
 }
+
+/// What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
+/// that cancel resolved, or holds the error message when it failed.
+#[napi(object)]
+pub struct ReaderCancelOutcome {
+  /// Chunks read before the cancel.
+  pub chunks: u32,
+  pub cancel_error: Option<String>,
+  pub second_cancel_error: Option<String>,
+  /// `next()` returned `None` after the cancel.
+  pub ended: bool,
+  /// `next()` still returned `None` when polled once more.
+  pub stays_ended: bool,
+}
+
+/// Reads up to `chunks` chunks, then cancels the stream through the reader twice and
+/// polls the reader again.
+#[napi]
+pub fn read_then_cancel(
+  env: &Env,
+  stream: ReadableStream<Uint8Array>,
+  chunks: u32,
+  reason: Option<String>,
+) -> Result<AsyncBlock<ReaderCancelOutcome>> {
+  let mut reader = stream.read()?;
+  AsyncBlockBuilder::new(async move {
+    let mut read = 0u32;
+    while read < chunks {
+      match reader.next().await {
+        Some(chunk) => {
+          chunk?;
+          read += 1;
+        }
+        None => break,
+      }
+    }
+    let cancel_error = reader.cancel(reason.clone()).await.err().map(|e| e.reason);
+    let second_cancel_error = reader.cancel(reason).await.err().map(|e| e.reason);
+    let ended = reader.next().await.is_none();
+    let stays_ended = reader.next().await.is_none();
+    Ok(ReaderCancelOutcome {
+      chunks: read,
+      cancel_error,
+      second_cancel_error,
+      ended,
+      stays_ended,
+    })
+  })
+  .build(env)
+}
+
+/// Starts reading the stream on another task, waits until JavaScript has a read in flight
+/// (the test resolves `pulled` from the source's `pull` or a custom reader's `read`), then
+/// cancels twice through a `ReaderCancelHandle` while that read is still pending.
+#[napi]
+pub fn cancel_pending_read(
+  env: &Env,
+  stream: ReadableStream<Uint8Array>,
+  pulled: Promise<()>,
+  reason: Option<String>,
+) -> Result<AsyncBlock<ReaderCancelOutcome>> {
+  let mut reader = stream.read()?;
+  let cancel = reader.cancel_handle();
+  AsyncBlockBuilder::new(async move {
+    let reading = tokio::spawn(async move {
+      let ended = reader.next().await.is_none();
+      let stays_ended = reader.next().await.is_none();
+      (ended, stays_ended)
+    });
+    pulled.await?;
+    // Both calls are sent before either is awaited.
+    let first = cancel.cancel(reason.clone());
+    let second = cancel.cancel(reason);
+    let cancel_error = first.await.err().map(|e| e.reason);
+    let second_cancel_error = second.await.err().map(|e| e.reason);
+    let (ended, stays_ended) = reading
+      .await
+      .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
+    Ok(ReaderCancelOutcome {
+      chunks: 0,
+      cancel_error,
+      second_cancel_error,
+      ended,
+      stays_ended,
+    })
+  })
+  .build(env)
+}
+
+// The cancel handle can be cloned and shared between threads.
+const _: fn() = || {
+  fn shareable<T: Clone + Send + Sync + 'static>() {}
+  shareable::<ReaderCancelHandle>();
+};
+
+/// Reads a stream on a task and cancels it from a JavaScript call, like a decoder whose
+/// `close()` cancels the stream it reads.
+#[napi]
+pub struct ClosableStreamRead {
+  // `read_to_end` moves the reader out and takes `&self`, so that `close()` can be called
+  // while its Promise is pending.
+  reader: std::cell::Cell<Option<Reader<Uint8Array>>>,
+  cancel: ReaderCancelHandle,
+}
+
+#[napi]
+impl ClosableStreamRead {
+  #[napi(constructor)]
+  pub fn new(stream: ReadableStream<Uint8Array>) -> Result<Self> {
+    let reader = stream.read()?;
+    let cancel = reader.cancel_handle();
+    Ok(Self {
+      reader: std::cell::Cell::new(Some(reader)),
+      cancel,
+    })
+  }
+
+  /// Reads until the reader ends, and resolves with the number of chunks read.
+  #[napi]
+  pub fn read_to_end(&self, env: &Env) -> Result<AsyncBlock<u32>> {
+    let mut reader = self
+      .reader
+      .take()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "readToEnd was already called"))?;
+    AsyncBlockBuilder::new(async move {
+      let mut chunks = 0u32;
+      while let Some(chunk) = reader.next().await {
+        chunk?;
+        chunks += 1;
+      }
+      Ok(chunks)
+    })
+    .build(env)
+  }
+
+  /// Cancels with `ReaderCancelHandle::cancel_on_js_thread`, and throws the error it
+  /// returns right away. The Promise resolves with `null` when the cancel settled as
+  /// fulfilled, or with the error message.
+  #[napi]
+  pub fn close(&self, env: &Env, reason: Option<String>) -> Result<AsyncBlock<Option<String>>> {
+    let settled = self.cancel.cancel_on_js_thread(env, reason)?;
+    AsyncBlockBuilder::new(async move { Ok(settled.await.err().map(|e| e.reason)) }).build(env)
+  }
+
+  /// Same as `close`, with the queued `ReaderCancelHandle::cancel`.
+  #[napi]
+  pub fn close_queued(
+    &self,
+    env: &Env,
+    reason: Option<String>,
+  ) -> Result<AsyncBlock<Option<String>>> {
+    let settled = self.cancel.cancel(reason);
+    AsyncBlockBuilder::new(async move { Ok(settled.await.err().map(|e| e.reason)) }).build(env)
+  }
+
+  /// Keeps a clone of the cancel handle in a global, so that `cancelStashedOnJsThread` can
+  /// use it from another environment (a worker).
+  #[napi]
+  pub fn stash_cancel_handle(&self) {
+    *STASHED_CANCEL_HANDLE
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(self.cancel.clone());
+  }
+
+  /// Makes a queued `ReaderCancelHandle::cancel` from an env cleanup hook, when this
+  /// environment is torn down. Node.js runs cleanup hooks in reverse order, so the hook
+  /// runs before the stream's threadsafe functions are closed: the call is queued, and the
+  /// environment goes away before it runs. The future is kept in a global for
+  /// `queuedCancelAtTeardownOutcome`.
+  #[napi]
+  pub fn close_queued_at_env_teardown(&self, env: &Env) -> Result<()> {
+    env.add_env_cleanup_hook(self.cancel.clone(), |cancel| {
+      *QUEUED_CANCEL_AT_TEARDOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::pin(cancel.cancel(None)));
+    })?;
+    Ok(())
+  }
+}
+
+type CancelFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>;
+
+static QUEUED_CANCEL_AT_TEARDOWN: std::sync::Mutex<Option<CancelFuture>> =
+  std::sync::Mutex::new(None);
+
+/// Awaits the future of `closeQueuedAtEnvTeardown` for up to `ms` milliseconds. Resolves
+/// with `null` when it resolved to `Ok`, the error message when it resolved to `Err`, or
+/// `"still pending"`.
+#[napi]
+pub fn queued_cancel_at_teardown_outcome(env: &Env, ms: u32) -> Result<AsyncBlock<Option<String>>> {
+  let settled = QUEUED_CANCEL_AT_TEARDOWN
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .take()
+    .ok_or_else(|| Error::new(Status::GenericFailure, "no queued cancel kept"))?;
+  AsyncBlockBuilder::new(async move {
+    Ok(
+      match tokio::time::timeout(std::time::Duration::from_millis(ms.into()), settled).await {
+        Ok(outcome) => outcome.err().map(|e| e.reason),
+        Err(_) => Some("still pending".to_owned()),
+      },
+    )
+  })
+  .build(env)
+}
+
+static STASHED_CANCEL_HANDLE: std::sync::Mutex<Option<ReaderCancelHandle>> =
+  std::sync::Mutex::new(None);
+
+/// Calls `cancel_on_js_thread` on the stashed handle with the caller's env. Returns the
+/// error message if it returned `Err`, or `null` if it returned a future (dropped here).
+#[napi]
+pub fn cancel_stashed_on_js_thread(env: &Env) -> Result<Option<String>> {
+  // Cloned out first, so that the lock is not held while JavaScript runs.
+  let handle = STASHED_CANCEL_HANDLE
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .clone()
+    .ok_or_else(|| Error::new(Status::GenericFailure, "no cancel handle stashed"))?;
+  let outcome = handle.cancel_on_js_thread(env, None);
+  Ok(outcome.err().map(|e| e.reason))
+}
+
+/// Drops the stashed cancel handle, on the calling thread.
+#[napi]
+pub fn drop_stashed_cancel_handle() {
+  let handle = STASHED_CANCEL_HANDLE
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .take();
+  drop(handle);
+}
