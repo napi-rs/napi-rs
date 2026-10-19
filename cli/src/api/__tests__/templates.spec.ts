@@ -345,6 +345,64 @@ for (const { name, code } of cjsBindingCases) {
   })
 }
 
+// Runs the generated CJS loader against a fake host, so platform branches can
+// be exercised without the matching OS or a built `.node` file.
+function loadCjsBindingOn(
+  code: string,
+  platform: string,
+  arch: string,
+  available: string[],
+) {
+  const attempted: string[] = []
+  const binding = { sum: () => 3 }
+  const fakeRequire = (id: string) => {
+    if (id === 'fs') {
+      return {
+        readFileSync: () => {
+          throw new Error('ENOENT')
+        },
+      }
+    }
+    attempted.push(id)
+    if (available.includes(id)) {
+      return binding
+    }
+    throw new Error(`Cannot find module '${id}'`)
+  }
+  const module = { exports: {} as Record<string, unknown> }
+  new Function('require', 'module', 'exports', 'process', code)(
+    fakeRequire,
+    module,
+    module.exports,
+    { platform, arch, env: {} },
+  )
+  return { exports: module.exports, attempted }
+}
+
+for (const arch of ['x64', 'arm64']) {
+  const code = createCjsBinding('test', '@scope/test', ['sum'])
+
+  test(`createCjsBinding loads the local FreeBSD ${arch} binding`, (t) => {
+    const { exports, attempted } = loadCjsBindingOn(code, 'freebsd', arch, [
+      `./test.freebsd-${arch}.node`,
+    ])
+    t.deepEqual(attempted, [`./test.freebsd-${arch}.node`])
+    t.is((exports.sum as () => number)(), 3)
+    t.is(exports.__napiBindingTarget, 'native')
+  })
+
+  test(`createCjsBinding falls back to the FreeBSD ${arch} package`, (t) => {
+    const { exports, attempted } = loadCjsBindingOn(code, 'freebsd', arch, [
+      `@scope/test-freebsd-${arch}`,
+    ])
+    t.deepEqual(attempted, [
+      `./test.freebsd-${arch}.node`,
+      `@scope/test-freebsd-${arch}`,
+    ])
+    t.is((exports.sum as () => number)(), 3)
+  })
+}
+
 // `napi_prepare_wasm_env_cleanup` only *queues* the promise settlements of the
 // tasks it cancels: `napi_call_threadsafe_function` appends to the
 // threadsafe-function queue, and @emnapi/core dispatches that queue from a
