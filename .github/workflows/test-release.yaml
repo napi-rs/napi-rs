@@ -859,7 +859,7 @@ jobs:
         with:
           operating_system: freebsd
           architecture: arm64
-          version: '15.0'
+          version: '15.1'
           memory: 8G
           cpu_count: 4
           shell: bash
