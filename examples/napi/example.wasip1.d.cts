@@ -162,6 +162,15 @@ export type Blake2bHasher = Blake2BHasher
 export declare class Blake2BKey {}
 export type Blake2bKey = Blake2BKey
 
+export declare class BorrowedCache {
+  constructor(size: number)
+  /**
+   * `&self` receiver variant: the `cb.this()` wrapper must stay rooted until
+   * the returned task settles.
+   */
+  readAsync(gate: number): Promise<number>
+}
+
 export declare class CatchOnConstructor {
   constructor()
 }
@@ -187,6 +196,37 @@ export declare class ClassWithFactory {
 export declare class ClassWithLifetime {
   constructor()
   getName(): string
+}
+
+/**
+ * Reads a stream on a task and cancels it from a JavaScript call, like a decoder whose
+ * `close()` cancels the stream it reads.
+ */
+export declare class ClosableStreamRead {
+  constructor(stream: ReadableStream<Uint8Array>)
+  /** Reads until the reader ends, and resolves with the number of chunks read. */
+  readToEnd(): Promise<number>
+  /**
+   * Cancels with `ReaderCancelHandle::cancel_on_js_thread`, and throws the error it
+   * returns right away. The Promise resolves with `null` when the cancel settled as
+   * fulfilled, or with the error message.
+   */
+  close(reason?: string | undefined | null): Promise<string | undefined | null>
+  /** Same as `close`, with the queued `ReaderCancelHandle::cancel`. */
+  closeQueued(reason?: string | undefined | null): Promise<string | undefined | null>
+  /**
+   * Keeps a clone of the cancel handle in a global, so that `cancelStashedOnJsThread` can
+   * use it from another environment (a worker).
+   */
+  stashCancelHandle(): void
+  /**
+   * Makes a queued `ReaderCancelHandle::cancel` from an env cleanup hook, when this
+   * environment is torn down. Node.js runs cleanup hooks in reverse order, so the hook
+   * runs before the stream's threadsafe functions are closed: the call is queued, and the
+   * environment goes away before it runs. The future is kept in a global for
+   * `queuedCancelAtTeardownOutcome`.
+   */
+  closeQueuedAtEnvTeardown(): void
 }
 
 export declare class Context {
@@ -356,6 +396,49 @@ export interface Fib4 extends globalThis.Omit<globalThis.IteratorObject<unknown,
 
 export declare class GetterSetterWithClosures {
   constructor()
+}
+
+export declare class Issue3600Empty {}
+
+export declare class Issue3600Tracked {
+  constructor()
+  get size(): number
+}
+
+export declare class Issue3602Empty {
+  constructor()
+  static create(): Issue3602Empty
+  ping(): boolean
+}
+
+export declare class Issue3602ThrowInCtor {
+  constructor()
+}
+
+export declare class Issue3602Tracked {
+  constructor()
+  static create(): Issue3602Tracked
+  get id(): number
+  get size(): number
+}
+
+export declare class Issue3608Holder {
+  static create(): Issue3608Holder
+  len(): number
+  /** `Reference<T>` argument of another class. */
+  static readOtherReference(other: Issue3608Other): Array<number>
+}
+
+export declare class Issue3608Other {
+  a: number
+  constructor()
+  read(): Array<number>
+  bump(): number
+}
+
+export declare class Issue3608Wide {
+  constructor()
+  sum(): number
 }
 
 export declare class JsClassForEither {
@@ -530,6 +613,8 @@ export declare function acceptUint8ClampedSliceAndBufferSlice(a: import("buffer"
 
 export declare function acceptUntypedTypedArray(input: TypedArray): bigint
 
+export declare function acceptUntypedTypedArrayBytes(input: TypedArray): Array<number>
+
 export declare function add(a: number, b: number): number
 
 export declare const enum ALIAS {
@@ -593,6 +678,12 @@ export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<import("buffer").Buffer>
 
+/**
+ * Whether the most recent [`async_task_signal_when_executing_reject`] task has
+ * entered its `compute`.
+ */
+export declare function asyncTaskRejectIsExecuting(): boolean
+
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
 
 /**
@@ -604,6 +695,14 @@ export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promis
  * transition a test would otherwise have to guess with a sleep.
  */
 export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promise<number>
+
+/**
+ * The rejecting counterpart of [`async_task_signal_when_executing`]: the task
+ * stays in `compute` for `duration_ms`, then rejects — so a test that waits on
+ * [`async_task_reject_is_executing`] knows the rejection is still pending, not
+ * already settled.
+ */
+export declare function asyncTaskSignalWhenExecutingReject(durationMs: number): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
@@ -629,6 +728,16 @@ export declare function bigintGetU64AsString(bi: bigint): string
 export interface BindingVitePluginMeta {
   'vite:import-glob': ViteImportGlobMeta
 }
+
+/**
+ * A gate-blocked task with no borrowed arguments: used to saturate the libuv
+ * pool so a later task is known to be queued, and to exercise the defer →
+ * drain path for a scope with no roots at all.
+ */
+export declare function blockBorrowGate(gate: number): Promise<void>
+
+/** Number of tasks currently blocked inside `wait_borrow_gate`. */
+export declare function borrowGateWaiters(id: number): number
 
 export declare function btreeSetToJs(): Set<string>
 
@@ -729,6 +838,22 @@ export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) 
 
 export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
 
+/**
+ * Starts reading the stream on another task, waits until JavaScript has a read in flight
+ * (the test resolves `pulled` from the source's `pull` or a custom reader's `read`), then
+ * cancels twice through a `ReaderCancelHandle` while that read is still pending.
+ */
+export declare function cancelPendingRead(stream: ReadableStream<Uint8Array>, pulled: Promise<undefined>, reason?: string | undefined | null): Promise<ReaderCancelOutcome>
+
+/** Calls `ReadableStream::cancel`, which calls `stream.cancel(reason)`. */
+export declare function cancelReadableStream(stream: ReadableStream<Uint8Array>, reason?: string | undefined | null): Promise<undefined>
+
+/**
+ * Calls `cancel_on_js_thread` on the stashed handle with the caller's env. Returns the
+ * error message if it returned `Err`, or `null` if it returned a future (dropped here).
+ */
+export declare function cancelStashedOnJsThread(): string | null
+
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
 export declare function chronoDateAdd1Minute(input: Date): Date
@@ -761,6 +886,12 @@ export declare function chronoUtcDateToMillis(input: Date): number
 export declare function churnGlobalHandles(value: unknown, count: number): void
 
 export declare function cleanupReentrantBorrowOrderTestTargets(): number
+
+/**
+ * Open the gate: every task currently waiting — and any queued behind it —
+ * passes through.
+ */
+export declare function closeBorrowGate(id: number): void
 
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
@@ -871,6 +1002,13 @@ export declare function createExternalString(content: string): ExternalObject<st
 export declare function createExternalTypedArray(): Uint32Array
 
 export declare function createExternalUtf16String(): string
+
+/**
+ * Create a `napi_external` whose payload is a foreign 1-byte allocation — not
+ * an `External<T>` produced by this crate. Passing it to APIs expecting
+ * `External<T>` must fail instead of dereferencing the foreign payload.
+ */
+export declare function createForeignExternal(): object
 
 export declare function createFunction(): (arg: number) => number
 
@@ -1042,6 +1180,15 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
  */
 export declare function dropErrorFromValueOffThread(value: unknown): void
 
+/**
+ * Adds an env cleanup hook that lets the thread started by
+ * [`hold_function_refs_on_thread`] drop its references, and waits for it.
+ */
+export declare function dropHeldFunctionRefsAtTeardown(): void
+
+/** Drops the stashed cancel handle, on the calling thread. */
+export declare function dropStashedCancelHandle(): void
+
 export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
@@ -1059,6 +1206,8 @@ export declare function eitherFromOption(): JsClassForEither | undefined
 export declare function eitherPromiseInEitherA(input: Promise<number> | number | string): Promise<boolean>
 
 export declare function eitherStringOrNumber(input: string | number): number
+
+export declare function eitherUint16OrFloat64Array(input: Uint16Array | Float64Array): string
 
 export declare const enum Empty {}
 
@@ -1090,6 +1239,12 @@ export interface FunctionData {
   handle: () => number
 }
 
+/**
+ * How many references the threads from [`hold_function_refs_on_thread`]
+ * have dropped, in this process.
+ */
+export declare function functionRefsDroppedAtTeardown(): number
+
 export declare function generateFunctionAndCallIt(): FunctionData
 
 export declare function getBigintJsonValue(value: bigint): void
@@ -1109,6 +1264,8 @@ export declare function getEmptyBuffer(): import("buffer").Buffer
 export declare function getEmptyTypedArray(): Uint8Array
 
 export declare function getExternal(external: ExternalObject<number>): number
+
+export declare function getExternalRef(external: ExternalObject<number>): number
 
 export declare function getGlobal(): typeof globalThis
 
@@ -1149,6 +1306,12 @@ export declare function getUndefined(): void
 
 export declare function getWords(): Array<string>
 
+/**
+ * Moves `callbacks` to a new thread, which drops them all at once (one `Vec`
+ * drop) when the hook added by [`drop_held_function_refs_at_teardown`] runs.
+ */
+export declare function holdFunctionRefsOnThread(callbacks: Array<() => void>): void
+
 export declare function i16ArrayToArray(input: Int16Array): Array<number>
 
 export declare function i32ArrayToArray(input: Int32Array): Array<number>
@@ -1186,6 +1349,45 @@ export declare function issue3427Option(input?: RenamedForIssue3427 | undefined 
  * threw for a valid instance.
  */
 export declare function issue3427Strict(input: RenamedForIssue3427): number
+
+export declare function issue3600EmptyDropped(): number
+
+/**
+ * Successful `into_instance` of an empty class: each instance must get its
+ * own native pointer so finalizers/references of distinct instances do not
+ * collide.
+ */
+export declare function issue3600EmptyInstances(): Array<Issue3600Empty>
+
+export declare function issue3600PendingEmptyIntoInstance(): void
+
+export declare function issue3600PendingEmptyIntoReference(): void
+
+export declare function issue3600PendingEmptyReturn(): Issue3600Empty
+
+export declare function issue3600PendingIntoInstance(): void
+
+export declare function issue3600PendingIntoReference(): void
+
+export declare function issue3600PendingReturn(): Issue3600Tracked
+
+export declare function issue3600TrackedDropped(): number
+
+export declare function issue3602EmptyCreated(): number
+
+export declare function issue3602EmptyDropped(): number
+
+export declare function issue3602ThrowInCtorDropped(): number
+
+export declare function issue3602TrackedCreated(): number
+
+export declare function issue3602TrackedDropped(): number
+
+export declare function issue3608BumpOther(other: Issue3608Other): number
+
+export declare function issue3608ReadOther(other: Issue3608Other): Array<number>
+
+export declare function issue3608ReadOtherInstance(other: Issue3608Other): Array<number>
 
 export declare function joinPath(path: string, segment: string): string
 
@@ -1238,6 +1440,8 @@ export interface LocalDates {
   end?: Date
 }
 
+export declare function makeDeepSerdeValue(depth: number): any
+
 /** By-value return -> stamp site W3 (`new_instance`). */
 export declare function makeTypeTagA(value: number): TypeTagA
 
@@ -1275,6 +1479,15 @@ export type MyVec = Array<number | string>
 export interface NestedMetadata {
   hello: string
 }
+
+/**
+ * A zero-argument `#[napi]` fn returning an `AsyncTask`: the zero-arg fast path
+ * skips `CallbackInfo` and the borrow scope entirely, so its task must claim NOTHING.
+ * If the deferred scope of an outer callback — armed while that callback's return
+ * value converts — is still visible here, this task claims it and keeps the outer
+ * wrapper rooted until it settles.
+ */
+export declare function nestedZeroArgTask(): Promise<void>
 
 export interface NotUseNullableStruct {
   requiredNumberField: number
@@ -1318,6 +1531,9 @@ export declare function objectWrapMismatchKeepsWrap(): number
 export declare function objectWrapRoundtrip(): number
 
 export declare function objectWrapWithA(obj: object): void
+
+/** Create (or reset to closed) the gate with the given id. */
+export declare function openBorrowGate(id: number): void
 
 export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
@@ -1404,12 +1620,115 @@ export interface PropertyNameValidTest {
   with123Numbers: string
 }
 
+/**
+ * Awaits the future of `closeQueuedAtEnvTeardown` for up to `ms` milliseconds. Resolves
+ * with `null` when it resolved to `Ok`, the error message when it resolved to `Err`, or
+ * `"still pending"`.
+ */
+export declare function queuedCancelAtTeardownOutcome(ms: number): Promise<string | undefined | null>
+
+/**
+ * Free-function variant: the `&BorrowedCache` argument wrapper must stay
+ * rooted until the returned task settles.
+ */
+export declare function readBorrowedCache(cache: BorrowedCache, gate: number): Promise<number>
+
+export declare function readBorrowedCacheAlias(cache: BorrowedCache, gate: number): Promise<number>
+
+/**
+ * The `AsyncBlock` variant of the same misroute: the scope is claimed by the
+ * returned block's own conversion, not by whatever drains first. `AsyncBlock`
+ * futures must be `'static`, so the borrow cannot be captured — the read runs
+ * eagerly while the scope's alias guard is held; what stays deferred is the
+ * wrapper rooting and guard release until the block settles. The deliberately
+ * discarded `AsyncBlockBuilder::build` is an extra in-body sink that must
+ * leave the deferred scope for the returned value.
+ */
+export declare function readBorrowedCacheAsyncBlock(cache: BorrowedCache, gate: number): Promise<number>
+
+/**
+ * `Option<AsyncTask>` spelling: the outermost return type is `Option`, so no
+ * syntactic check on the declared return type can see the task. The deferred
+ * scope claim inside `AsyncTask`'s `ToNapiValue` conversion protects the
+ * borrow regardless of how the return type is spelled.
+ */
+export declare function readBorrowedCacheMaybe(cache: BorrowedCache, gate: number, skip: boolean): Promise<number> | null
+
+/** `Result<Option<AsyncTask>>`: two layers of wrapper around the async sink. */
+export declare function readBorrowedCacheMaybeResult(cache: BorrowedCache, gate: number): Promise<number> | null
+
+/**
+ * Regression for the deferred-scope misroute: a future spawned inside the
+ * callback body must not claim the borrow scope deferred for the returned
+ * `AsyncTask`. Under the positional drain this `env.spawn_future` stole the
+ * scope, leaving the returned task unrooted while its settle held (and then
+ * released) the `cache` wrapper roots.
+ */
+export declare function readBorrowedCacheSpawnInside(cache: BorrowedCache, gate: number): Promise<number>
+
+/**
+ * `Vec<AsyncTask>` spelling: every element claims its own lease on the same deferred
+ * scope during the array conversion, so the wrapper must stay rooted until the LAST
+ * task settles — a first task finishing early must not release roots a sibling still
+ * needs.
+ */
+export declare function readBorrowedCacheVec(cache: BorrowedCache, gate1: number, gate2: number): Array<Promise<number>>
+
+/**
+ * Borrowed-argument function whose return value converts through a nested `#[napi]`
+ * call: `ReentryDuringConversion::to_napi_value` invokes `cb` (which calls
+ * `nested_zero_arg_task`) while the deferred scope for `cache` is still armed.
+ */
+export declare function readBorrowedCacheWithReentry(cache: BorrowedCache, cb: () => unknown): undefined
+
+/**
+ * AbortSignal variant: a queued (not yet executing) task cancelled through
+ * the signal settles as an AbortError rejection; the scope roots must be
+ * released on that path too.
+ */
+export declare function readBorrowedCacheWithSignal(cache: BorrowedCache, gate: number, signal: AbortSignal): Promise<number>
+
+/**
+ * What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
+ * that cancel resolved, or holds the error message when it failed.
+ */
+export interface ReaderCancelOutcome {
+  /** Chunks read before the cancel. */
+  chunks: number
+  cancelError?: string
+  secondCancelError?: string
+  /** `next()` returned `None` after the cancel. */
+  ended: boolean
+  /** `next()` still returned `None` when polled once more. */
+  staysEnded: boolean
+}
+
+/**
+ * Reads the stream with a waker that counts its clones, and keeps a cancel handle.
+ * Resolves with the number of clones that napi-rs still holds when the read stops:
+ * - `"end"`: reads like `while let Some(chunk) = reader.next().await { chunk?; }`, so it
+ *   stops at the end of the stream or at the first error.
+ * - `"cancel"`: cancels through the handle while the first read is pending, then reads to
+ *   the end. Use a reader whose read never settles, so that no read callback holds a
+ *   clone while the clones are counted.
+ * - `"drop"`: reads one chunk, then drops the reader.
+ * - `"drop-pending"`: drops the reader while the first read is pending. Use a reader whose
+ *   read never settles, as for `"cancel"`.
+ */
+export declare function readerWakerClonesAfterRead(stream: ReadableStream<Uint8Array>, mode: string): Promise<number>
+
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
 export declare function readFileAsync(path: string): Promise<import("buffer").Buffer>
 
 export declare function readPackageJson(): PackageJson
+
+/**
+ * Reads up to `chunks` chunks, then cancels the stream through the reader twice and
+ * polls the reader again.
+ */
+export declare function readThenCancel(stream: ReadableStream<Uint8Array>, chunks: number, reason?: string | undefined | null): Promise<ReaderCancelOutcome>
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
 
@@ -1430,6 +1749,12 @@ export declare function receiveObjectWithClassField(object: ObjectFieldClassInst
 export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
+
+/**
+ * Fixed gate for the zero-argument nested callback: it takes no arguments, so the
+ * gate id cannot be passed in.
+ */
+export declare const REENTRY_GATE: number
 
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 

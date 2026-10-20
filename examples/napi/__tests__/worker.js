@@ -148,6 +148,26 @@ parentPort.on('message', ({ type }) => {
       }
       parentPort.postMessage('done')
       break
+    case 'stream:stash': {
+      // Stashes the cancel handle of a stream read in THIS worker; the test then ends the
+      // worker and uses the handle from other environments.
+      const read = new native.ClosableStreamRead(new ReadableStream())
+      read.stashCancelHandle()
+      parentPort.postMessage('stashed')
+      break
+    }
+    case 'stream:cancel-at-teardown': {
+      // Queues a cancel when THIS worker's environment is torn down (see
+      // `closeQueuedAtEnvTeardown`); the test then ends the worker.
+      const read = new native.ClosableStreamRead(new ReadableStream())
+      read.closeQueuedAtEnvTeardown()
+      parentPort.postMessage('armed')
+      break
+    }
+    case 'stream:cancel-stashed':
+      // `cancel_on_js_thread` on a handle from another environment, with this worker's env.
+      parentPort.postMessage(native.cancelStashedOnJsThread())
+      break
     case 'constructor':
       let ellie
       for (let i = 0; i < (isWasiTest ? 10 : 1000); i++) {

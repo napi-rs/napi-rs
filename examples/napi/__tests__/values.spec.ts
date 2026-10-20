@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { createReadStream } from 'node:fs'
 import { readFile as nodeReadFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
-import { ReadableStream } from 'node:stream/web'
+import {
+  ReadableStream,
+  type ReadableStreamDefaultController,
+} from 'node:stream/web'
+import { Worker } from 'node:worker_threads'
 import { Subject, take } from 'rxjs'
 import Sinon, { spy } from 'sinon'
 
@@ -291,6 +295,14 @@ import {
   callRuleHandler,
   acceptStream,
   drainStreamCount,
+  readThenCancel,
+  cancelPendingRead,
+  cancelReadableStream,
+  ClosableStreamRead,
+  cancelStashedOnJsThread,
+  dropStashedCancelHandle,
+  queuedCancelAtTeardownOutcome,
+  readerWakerClonesAfterRead,
   createReadableStream,
   createReadableStreamWithObject,
   createReadableStreamFromClass,
@@ -3386,6 +3398,554 @@ test('reading a stream that rejects with a throwing message getter does not abor
     },
   })
   t.is(await drainStreamCount(stream), 0)
+})
+
+test('Reader::cancel cancels the source once and keeps the stream locked', async (t) => {
+  for (const type of [undefined, 'bytes'] as const) {
+    for (const reason of [undefined, 'why']) {
+      const label = `type=${type}, reason=${reason}`
+      const pulls: number[] = []
+      const cancels: unknown[][] = []
+      const source = {
+        pull(controller: { enqueue(chunk: Uint8Array<ArrayBuffer>): void }) {
+          pulls.push(pulls.length + 1)
+          controller.enqueue(new Uint8Array([pulls.length]))
+        },
+        cancel(...args: unknown[]) {
+          cancels.push(args)
+        },
+      }
+      // highWaterMark 0: `pull` runs only for a read that is waiting, so the number of
+      // pulls is the number of reads the Reader sent.
+      const stream =
+        type === 'bytes'
+          ? new ReadableStream({ ...source, type }, { highWaterMark: 0 })
+          : new ReadableStream<Uint8Array>(source, { highWaterMark: 0 })
+      const outcome = await readThenCancel(stream, 2, reason)
+      t.is(outcome.chunks, 2, label)
+      t.is(outcome.cancelError, undefined, label)
+      t.is(outcome.secondCancelError, undefined, label)
+      t.true(outcome.ended, label)
+      t.true(outcome.staysEnded, label)
+      // The source's cancel ran once, with `undefined` for no reason (as
+      // `reader.cancel()` passes), and nothing was read after it.
+      t.deepEqual(cancels, [[reason]], label)
+      t.deepEqual(pulls, [1, 2], label)
+      // The Reader never releases its lock.
+      t.true(stream.locked, label)
+      t.throws(() => stream.getReader(), { instanceOf: TypeError }, label)
+    }
+  }
+})
+
+test('Reader cancel handle settles a pending read and ends the reader', async (t) => {
+  let markPulled!: () => void
+  const pulled = new Promise<undefined>((resolve) => {
+    markPulled = () => resolve(undefined)
+  })
+  let pulls = 0
+  const cancels: unknown[][] = []
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      // Never enqueues, so the Reader's read stays pending until the cancel.
+      pull() {
+        pulls++
+        markPulled()
+      },
+      cancel(...args: unknown[]) {
+        cancels.push(args)
+      },
+    },
+    { highWaterMark: 0 },
+  )
+  const outcome = await cancelPendingRead(stream, pulled, 'stop')
+  t.is(outcome.cancelError, undefined)
+  t.is(outcome.secondCancelError, undefined)
+  // `next()` was waiting on the pending read; the cancel settled it and the reader ended.
+  t.true(outcome.ended)
+  t.true(outcome.staysEnded)
+  t.deepEqual(cancels, [['stop']])
+  t.is(pulls, 1)
+  t.true(stream.locked)
+})
+
+test('Reader::cancel returns an error when the cancel fails', async (t) => {
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        controller.enqueue(new Uint8Array([1]))
+      },
+      cancel() {
+        throw new Error('cancel threw')
+      },
+    },
+    { highWaterMark: 0 },
+  )
+  // A rejected reader.cancel() comes back as Err, not as an unhandled rejection (ava
+  // fails the run on those).
+  const outcome = await readThenCancel(stream, 1)
+  t.is(outcome.chunks, 1)
+  t.is(outcome.cancelError, 'cancel threw')
+  // The stream is closed by then, so the second cancel resolves.
+  t.is(outcome.secondCancelError, undefined)
+  t.true(outcome.ended)
+  t.true(outcome.staysEnded)
+})
+
+test('Reader::cancel on a reader without cancel() fails and read() still works', async (t) => {
+  const stream = new ReadableStream<Uint8Array>()
+  // A custom reader with no cancel method: read() must work as before.
+  ;(stream as unknown as { getReader: () => unknown }).getReader = () => ({
+    read() {
+      return Promise.resolve({ done: false, value: new Uint8Array([1]) })
+    },
+    releaseLock() {},
+  })
+  const outcome = await readThenCancel(stream, 2)
+  t.is(outcome.chunks, 2)
+  t.is(outcome.cancelError, 'ReadableStream reader has no cancel method')
+  t.is(outcome.secondCancelError, 'ReadableStream reader has no cancel method')
+  t.true(outcome.ended)
+  t.true(outcome.staysEnded)
+})
+
+// A stream whose custom reader's `read()` never settles, so only the cancel itself can
+// end the Reader. `pulled` resolves once the Reader has a read in flight.
+function neverSettlingReader(cancel?: (reason: unknown) => unknown) {
+  const { promise: pulled, resolve } = Promise.withResolvers<undefined>()
+  const stream = new ReadableStream<Uint8Array>()
+  ;(stream as unknown as { getReader: () => unknown }).getReader = () => ({
+    read() {
+      resolve(undefined)
+      return new Promise(() => {})
+    },
+    ...(cancel ? { cancel } : {}),
+    releaseLock() {},
+  })
+  return { stream, pulled }
+}
+
+test('Reader cancel wakes a pending next() even when the read never settles', async (t) => {
+  const cases: [
+    string,
+    ((reason: unknown) => unknown) | undefined,
+    string | undefined,
+  ][] = [
+    [
+      'no cancel method',
+      undefined,
+      'ReadableStream reader has no cancel method',
+    ],
+    [
+      'cancel throws',
+      () => {
+        throw new Error('cancel threw')
+      },
+      'cancel threw',
+    ],
+    ['cancel resolves', () => Promise.resolve(), undefined],
+  ]
+  for (const [label, cancel, error] of cases) {
+    const { stream, pulled } = neverSettlingReader(cancel)
+    const outcome = await cancelPendingRead(stream, pulled, 'stop')
+    t.is(outcome.cancelError, error, label)
+    t.is(outcome.secondCancelError, error, label)
+    // The JS read is still pending, but the cancel woke the task and the reader ended.
+    t.true(outcome.ended, label)
+    t.true(outcome.staysEnded, label)
+  }
+})
+
+test('a kept cancel handle does not keep the waker of a finished reader', async (t) => {
+  const cases: [string, () => ReadableStream<Uint8Array>, string][] = [
+    [
+      'end',
+      () =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]))
+            controller.enqueue(new Uint8Array([2]))
+            controller.close()
+          },
+        }),
+      'end',
+    ],
+    [
+      'error',
+      () =>
+        new ReadableStream({
+          pull(controller) {
+            controller.error(new Error('boom'))
+          },
+        }),
+      'end',
+    ],
+    [
+      'cancel',
+      () => neverSettlingReader(() => Promise.resolve()).stream,
+      'cancel',
+    ],
+    [
+      'drop',
+      () =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]))
+          },
+        }),
+      'drop',
+    ],
+    [
+      'drop while a read is pending',
+      () => neverSettlingReader().stream,
+      'drop-pending',
+    ],
+  ]
+  for (const [label, makeStream, mode] of cases) {
+    // The cancel handle is still alive when the clones are counted.
+    t.is(await readerWakerClonesAfterRead(makeStream(), mode), 0, label)
+  }
+})
+
+test('what reader.cancel() returns is followed like await', async (t) => {
+  const cases: [string, () => unknown, string | undefined][] = [
+    ['undefined', () => undefined, undefined],
+    ['a number', () => 42, undefined],
+    ['an object without then', () => ({}), undefined],
+    [
+      'a thenable that fulfills',
+      () => ({
+        // oxlint-disable-next-line unicorn/no-thenable
+        then(resolve: (value: unknown) => void) {
+          resolve(undefined)
+        },
+      }),
+      undefined,
+    ],
+    [
+      'a thenable that rejects',
+      () => ({
+        // oxlint-disable-next-line unicorn/no-thenable
+        then(_: unknown, reject: (error: unknown) => void) {
+          reject(new Error('thenable rejected'))
+        },
+      }),
+      'thenable rejected',
+    ],
+    [
+      'a thenable whose then throws',
+      () => ({
+        // oxlint-disable-next-line unicorn/no-thenable
+        then() {
+          throw new Error('then threw')
+        },
+      }),
+      'then threw',
+    ],
+    [
+      'a then getter that throws',
+      () => ({
+        // oxlint-disable-next-line unicorn/no-thenable
+        get then() {
+          throw new Error('then getter threw')
+        },
+      }),
+      'then getter threw',
+    ],
+    // `await` follows a native Promise without looking up `then`, so its own `then`
+    // being removed changes nothing.
+    [
+      'a rejected Promise whose own then is undefined',
+      () =>
+        Object.assign(Promise.reject(new Error('failed')), {
+          // oxlint-disable-next-line unicorn/no-thenable
+          then: undefined,
+        }),
+      'failed',
+    ],
+    [
+      'a fulfilled Promise whose own then is undefined',
+      // oxlint-disable-next-line unicorn/no-thenable
+      () => Object.assign(Promise.resolve(), { then: undefined }),
+      undefined,
+    ],
+  ]
+  for (const [label, cancel, error] of cases) {
+    const queued = neverSettlingReader(cancel)
+    const outcome = await cancelPendingRead(queued.stream, queued.pulled)
+    t.is(outcome.cancelError, error, `queued: ${label}`)
+    t.true(outcome.ended, `queued: ${label}`)
+
+    const now = neverSettlingReader(cancel)
+    const read = new ClosableStreamRead(now.stream)
+    const done = read.readToEnd()
+    await now.pulled
+    t.is(await read.close(), error ?? null, `on the JS thread: ${label}`)
+    t.is(await done, 0, `on the JS thread: ${label}`)
+  }
+})
+
+test('ReaderCancelHandle::cancel_on_js_thread runs the source cancel before it returns', async (t) => {
+  for (const reason of [undefined, 'why']) {
+    const log: string[] = []
+    const cancels: unknown[][] = []
+    const { promise: pulled, resolve: markPulled } =
+      Promise.withResolvers<undefined>()
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        // Never enqueues, so the Reader's read stays in flight until the cancel.
+        pull() {
+          log.push('pull')
+          markPulled(undefined)
+        },
+        cancel(...args: unknown[]) {
+          log.push('cancel')
+          cancels.push(args)
+        },
+      },
+      { highWaterMark: 0 },
+    )
+    const read = new ClosableStreamRead(stream)
+    const done = read.readToEnd()
+    await pulled
+    const first = read.close(reason)
+    log.push('close returned')
+    const second = read.close(reason)
+    log.push('close returned')
+    t.deepEqual(
+      log,
+      ['pull', 'cancel', 'close returned', 'close returned'],
+      `${reason}`,
+    )
+    t.deepEqual(cancels, [[reason]], `${reason}`)
+    t.is(await first, null, `${reason}`)
+    t.is(await second, null, `${reason}`)
+    // The read in flight was settled as done and the reader ended.
+    t.is(await done, 0, `${reason}`)
+    t.deepEqual(
+      log,
+      ['pull', 'cancel', 'close returned', 'close returned'],
+      `${reason}`,
+    )
+    t.true(stream.locked, `${reason}`)
+  }
+})
+
+test('ReaderCancelHandle::cancel runs the source cancel later, even from the JS thread', async (t) => {
+  const log: string[] = []
+  const { promise: pulled, resolve: markPulled } =
+    Promise.withResolvers<undefined>()
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull() {
+        log.push('pull')
+        markPulled(undefined)
+      },
+      cancel() {
+        log.push('cancel')
+      },
+    },
+    { highWaterMark: 0 },
+  )
+  const read = new ClosableStreamRead(stream)
+  const done = read.readToEnd()
+  await pulled
+  const settled = read.closeQueued()
+  log.push('close returned')
+  t.deepEqual(log, ['pull', 'close returned'])
+  t.is(await settled, null)
+  t.deepEqual(log, ['pull', 'close returned', 'cancel'])
+  t.is(await done, 0)
+})
+
+test('cancel_on_js_thread can be called again from inside the source cancel', async (t) => {
+  const log: string[] = []
+  let nested: Promise<string | null | undefined> | undefined
+  const stream = new ReadableStream<Uint8Array>({
+    cancel(reason) {
+      log.push(`cancel ${reason}`)
+      // The stream is closed by now: this resolves and does not call here again.
+      nested = read.close('nested')
+      log.push('nested close returned')
+    },
+  })
+  const read = new ClosableStreamRead(stream)
+  const outer = read.close('outer')
+  log.push('close returned')
+  t.deepEqual(log, ['cancel outer', 'nested close returned', 'close returned'])
+  t.is(await outer, null)
+  t.is(await nested, null)
+})
+
+test('cancel_on_js_thread after the stream ended or errored', async (t) => {
+  const cancels: unknown[] = []
+  const ended = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.close()
+    },
+    cancel(reason) {
+      cancels.push(reason)
+    },
+  })
+  const endedRead = new ClosableStreamRead(ended)
+  t.is(await endedRead.readToEnd(), 0)
+  t.is(await endedRead.close(), null)
+  t.is(await endedRead.close(), null)
+
+  const errored = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error('boom'))
+    },
+    cancel(reason) {
+      cancels.push(reason)
+    },
+  })
+  const erroredRead = new ClosableStreamRead(errored)
+  await t.throwsAsync(() => erroredRead.readToEnd(), { message: 'boom' })
+  // reader.cancel() rejects with the stored error. It comes back as the outcome, not as an
+  // unhandled rejection (ava fails the run on those).
+  t.is(await erroredRead.close(), 'boom')
+  t.deepEqual(cancels, [])
+})
+
+test('cancel_on_js_thread on a custom reader throws at once and still ends the reader', async (t) => {
+  const cases: [string, ((reason: unknown) => unknown) | undefined, string][] =
+    [
+      [
+        'no cancel method',
+        undefined,
+        'ReadableStream reader has no cancel method',
+      ],
+      [
+        'cancel throws',
+        () => {
+          throw new Error('cancel threw')
+        },
+        'cancel threw',
+      ],
+    ]
+  for (const [label, cancel, message] of cases) {
+    const { stream, pulled } = neverSettlingReader(cancel)
+    const read = new ClosableStreamRead(stream)
+    const done = read.readToEnd()
+    await pulled
+    t.throws(() => read.close(), { message }, label)
+    // The read never settles, but the cancel woke the task and the reader ended.
+    t.is(await done, 0, label)
+  }
+})
+
+// Runs one message of `worker.js` in a new worker and ends the worker. `execArgv: []`
+// keeps ava's `--import` out of it, as in worker-thread.spec.ts.
+function inWorker(type: string): Promise<unknown> {
+  const worker = new Worker(join(__dirname, 'worker.js'), {
+    env: process.env,
+    execArgv: [],
+  })
+  return new Promise((resolve, reject) => {
+    worker.once('error', reject)
+    worker.once('message', (message) => {
+      worker.terminate().then(() => resolve(message), reject)
+    })
+    worker.postMessage({ type })
+  })
+}
+
+test('cancel_on_js_thread from another env returns an error and does nothing else', async (t) => {
+  if (process.env.WASI_TEST) {
+    // Each worker gets its own wasm memory, so a worker cannot see the stashed handle.
+    t.pass()
+    return
+  }
+  const envError =
+    /must be called on the stream's JavaScript thread, with its env/
+
+  // A handle made here, used in a worker.
+  const cancels: unknown[] = []
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c
+    },
+    cancel(reason) {
+      cancels.push(reason)
+    },
+  })
+  const read = new ClosableStreamRead(stream)
+  read.stashCancelHandle()
+  const done = read.readToEnd()
+  t.regex(String(await inWorker('stream:cancel-stashed')), envError)
+  dropStashedCancelHandle()
+  // Nothing happened: the source's cancel did not run and the reader still reads.
+  controller.enqueue(new Uint8Array([1]))
+  controller.close()
+  t.is(await done, 1)
+  t.deepEqual(cancels, [])
+
+  // The same with a custom reader that has no cancel method: the env is checked first.
+  const { promise: chunkReady, resolve: releaseChunk } =
+    Promise.withResolvers<undefined>()
+  const noCancel = new ReadableStream<Uint8Array>()
+  let reads = 0
+  ;(noCancel as unknown as { getReader: () => unknown }).getReader = () => ({
+    read: () =>
+      reads++ === 0
+        ? chunkReady.then(() => ({ done: false, value: new Uint8Array([1]) }))
+        : Promise.resolve({ done: true, value: undefined }),
+    releaseLock() {},
+  })
+  const noCancelRead = new ClosableStreamRead(noCancel)
+  noCancelRead.stashCancelHandle()
+  const noCancelDone = noCancelRead.readToEnd()
+  t.regex(String(await inWorker('stream:cancel-stashed')), envError)
+  dropStashedCancelHandle()
+  releaseChunk(undefined)
+  // Not ended by the failed call: the chunk still arrives.
+  t.is(await noCancelDone, 1)
+
+  // A handle from a worker that is gone, used here and in new workers. A new worker's env
+  // often gets the address of the one that is gone.
+  t.is(await inWorker('stream:stash'), 'stashed')
+  t.regex(String(cancelStashedOnJsThread()), envError)
+  for (let i = 0; i < 3; i++) {
+    t.regex(String(await inWorker('stream:cancel-stashed')), envError)
+  }
+  dropStashedCancelHandle()
+})
+
+test('a queued cancel settles when its env is torn down before the call runs', async (t) => {
+  if (process.env.WASI_TEST) {
+    // Each worker gets its own wasm memory, so the kept future is not visible here.
+    t.pass()
+    return
+  }
+  // The worker queues a cancel while its environment is torn down, after the last call
+  // that can still run; the future must not stay pending.
+  t.is(await inWorker('stream:cancel-at-teardown'), 'armed')
+  t.is(
+    await queuedCancelAtTeardownOutcome(5000),
+    'ReadableStream cancel was dropped before it settled',
+  )
+})
+
+test('ReadableStream::cancel cancels an unlocked stream and rejects on a locked one', async (t) => {
+  const cancels: unknown[][] = []
+  const makeStream = () =>
+    new ReadableStream<Uint8Array>({
+      cancel(...args: unknown[]) {
+        cancels.push(args)
+      },
+    })
+  await cancelReadableStream(makeStream())
+  await cancelReadableStream(makeStream(), 'bye')
+  t.deepEqual(cancels, [[undefined], ['bye']])
+
+  const locked = makeStream()
+  locked.getReader()
+  await t.throwsAsync(() => cancelReadableStream(locked), {
+    message: /locked/,
+  })
+  t.is(cancels.length, 2)
 })
 
 test('create readable stream from channel', async (t) => {

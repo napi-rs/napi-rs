@@ -204,6 +204,37 @@ export declare class ClassWithLifetime {
   getName(): string
 }
 
+/**
+ * Reads a stream on a task and cancels it from a JavaScript call, like a decoder whose
+ * `close()` cancels the stream it reads.
+ */
+export declare class ClosableStreamRead {
+  constructor(stream: ReadableStream<Uint8Array>)
+  /** Reads until the reader ends, and resolves with the number of chunks read. */
+  readToEnd(): Promise<number>
+  /**
+   * Cancels with `ReaderCancelHandle::cancel_on_js_thread`, and throws the error it
+   * returns right away. The Promise resolves with `null` when the cancel settled as
+   * fulfilled, or with the error message.
+   */
+  close(reason?: string | undefined | null): Promise<string | undefined | null>
+  /** Same as `close`, with the queued `ReaderCancelHandle::cancel`. */
+  closeQueued(reason?: string | undefined | null): Promise<string | undefined | null>
+  /**
+   * Keeps a clone of the cancel handle in a global, so that `cancelStashedOnJsThread` can
+   * use it from another environment (a worker).
+   */
+  stashCancelHandle(): void
+  /**
+   * Makes a queued `ReaderCancelHandle::cancel` from an env cleanup hook, when this
+   * environment is torn down. Node.js runs cleanup hooks in reverse order, so the hook
+   * runs before the stream's threadsafe functions are closed: the call is queued, and the
+   * environment goes away before it runs. The future is kept in a global for
+   * `queuedCancelAtTeardownOutcome`.
+   */
+  closeQueuedAtEnvTeardown(): void
+}
+
 export declare class Context {
   maybeNeed?: boolean
   buffer: Uint8Array
@@ -813,6 +844,22 @@ export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) 
 
 export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
 
+/**
+ * Starts reading the stream on another task, waits until JavaScript has a read in flight
+ * (the test resolves `pulled` from the source's `pull` or a custom reader's `read`), then
+ * cancels twice through a `ReaderCancelHandle` while that read is still pending.
+ */
+export declare function cancelPendingRead(stream: ReadableStream<Uint8Array>, pulled: Promise<undefined>, reason?: string | undefined | null): Promise<ReaderCancelOutcome>
+
+/** Calls `ReadableStream::cancel`, which calls `stream.cancel(reason)`. */
+export declare function cancelReadableStream(stream: ReadableStream<Uint8Array>, reason?: string | undefined | null): Promise<undefined>
+
+/**
+ * Calls `cancel_on_js_thread` on the stashed handle with the caller's env. Returns the
+ * error message if it returned `Err`, or `null` if it returned a future (dropped here).
+ */
+export declare function cancelStashedOnJsThread(): string | null
+
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
 export declare function chronoDateAdd1Minute(input: Date): Date
@@ -1144,6 +1191,9 @@ export declare function dropErrorFromValueOffThread(value: unknown): void
  * [`hold_function_refs_on_thread`] drop its references, and waits for it.
  */
 export declare function dropHeldFunctionRefsAtTeardown(): void
+
+/** Drops the stashed cancel handle, on the calling thread. */
+export declare function dropStashedCancelHandle(): void
 
 export declare function either3(input: string | number | boolean): number
 
@@ -1579,6 +1629,13 @@ export interface PropertyNameValidTest {
 }
 
 /**
+ * Awaits the future of `closeQueuedAtEnvTeardown` for up to `ms` milliseconds. Resolves
+ * with `null` when it resolved to `Ok`, the error message when it resolved to `Err`, or
+ * `"still pending"`.
+ */
+export declare function queuedCancelAtTeardownOutcome(ms: number): Promise<string | undefined | null>
+
+/**
  * Free-function variant: the `&BorrowedCache` argument wrapper must stay
  * rooted until the returned task settles.
  */
@@ -1639,12 +1696,47 @@ export declare function readBorrowedCacheWithReentry(cache: BorrowedCache, cb: (
  */
 export declare function readBorrowedCacheWithSignal(cache: BorrowedCache, gate: number, signal: AbortSignal): Promise<number>
 
+/**
+ * What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
+ * that cancel resolved, or holds the error message when it failed.
+ */
+export interface ReaderCancelOutcome {
+  /** Chunks read before the cancel. */
+  chunks: number
+  cancelError?: string
+  secondCancelError?: string
+  /** `next()` returned `None` after the cancel. */
+  ended: boolean
+  /** `next()` still returned `None` when polled once more. */
+  staysEnded: boolean
+}
+
+/**
+ * Reads the stream with a waker that counts its clones, and keeps a cancel handle.
+ * Resolves with the number of clones that napi-rs still holds when the read stops:
+ * - `"end"`: reads like `while let Some(chunk) = reader.next().await { chunk?; }`, so it
+ *   stops at the end of the stream or at the first error.
+ * - `"cancel"`: cancels through the handle while the first read is pending, then reads to
+ *   the end. Use a reader whose read never settles, so that no read callback holds a
+ *   clone while the clones are counted.
+ * - `"drop"`: reads one chunk, then drops the reader.
+ * - `"drop-pending"`: drops the reader while the first read is pending. Use a reader whose
+ *   read never settles, as for `"cancel"`.
+ */
+export declare function readerWakerClonesAfterRead(stream: ReadableStream<Uint8Array>, mode: string): Promise<number>
+
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
 export declare function readFileAsync(path: string): Promise<Buffer>
 
 export declare function readPackageJson(): PackageJson
+
+/**
+ * Reads up to `chunks` chunks, then cancels the stream through the reader twice and
+ * polls the reader again.
+ */
+export declare function readThenCancel(stream: ReadableStream<Uint8Array>, chunks: number, reason?: string | undefined | null): Promise<ReaderCancelOutcome>
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
 
