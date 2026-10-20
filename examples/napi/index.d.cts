@@ -1717,7 +1717,8 @@ export interface ReaderCancelOutcome {
  * - `"end"`: reads like `while let Some(chunk) = reader.next().await { chunk?; }`, so it
  *   stops at the end of the stream or at the first error.
  * - `"cancel"`: cancels through the handle while the first read is pending, then reads to
- *   the end.
+ *   the end. Use a reader whose read never settles, so that no read callback holds a
+ *   clone while the clones are counted.
  * - `"drop"`: reads one chunk, then drops the reader.
  */
 export declare function readerWakerClonesAfterRead(stream: ReadableStream<Uint8Array>, mode: string): Promise<number>

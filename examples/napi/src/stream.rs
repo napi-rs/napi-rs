@@ -421,18 +421,29 @@ struct CountedWaker {
   task: std::sync::Mutex<Option<std::task::Waker>>,
 }
 
-impl std::task::Wake for CountedWaker {
-  fn wake(self: std::sync::Arc<Self>) {
-    self.wake_by_ref();
-  }
-
-  fn wake_by_ref(self: &std::sync::Arc<Self>) {
-    if let Some(task) = &*self
+impl CountedWaker {
+  fn task(&self) -> Option<std::task::Waker> {
+    self
       .task
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-      task.wake_by_ref();
+      .clone()
+  }
+}
+
+impl std::task::Wake for CountedWaker {
+  fn wake(self: std::sync::Arc<Self>) {
+    // Drop this clone before the task can run, so that the task does not count it.
+    let task = self.task();
+    drop(self);
+    if let Some(task) = task {
+      task.wake();
+    }
+  }
+
+  fn wake_by_ref(self: &std::sync::Arc<Self>) {
+    if let Some(task) = self.task() {
+      task.wake();
     }
   }
 }
@@ -442,7 +453,8 @@ impl std::task::Wake for CountedWaker {
 /// - `"end"`: reads like `while let Some(chunk) = reader.next().await { chunk?; }`, so it
 ///   stops at the end of the stream or at the first error.
 /// - `"cancel"`: cancels through the handle while the first read is pending, then reads to
-///   the end.
+///   the end. Use a reader whose read never settles, so that no read callback holds a
+///   clone while the clones are counted.
 /// - `"drop"`: reads one chunk, then drops the reader.
 #[napi]
 pub fn reader_waker_clones_after_read(
