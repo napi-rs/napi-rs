@@ -1430,6 +1430,17 @@ impl<T: FromNapiValue + 'static> Drop for Reader<T> {
   fn drop(&mut self) {
     // Cancel handles and read callbacks can keep the signal alive after the reader.
     self.state.signal.release_waker();
+    // The callbacks of a read in flight keep `state` alive until the read settles, which
+    // may be never. They must not keep the task's waker too; their `finally` then finds
+    // no waker to wake. Dropped after the lock is released.
+    let waker = self
+      .state
+      .inner
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .waker
+      .take();
+    drop(waker);
   }
 }
 

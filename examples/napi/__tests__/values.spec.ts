@@ -3595,6 +3595,11 @@ test('a kept cancel handle does not keep the waker of a finished reader', async 
         }),
       'drop',
     ],
+    [
+      'drop while a read is pending',
+      () => neverSettlingReader().stream,
+      'drop-pending',
+    ],
   ]
   for (const [label, makeStream, mode] of cases) {
     // The cancel handle is still alive when the clones are counted.

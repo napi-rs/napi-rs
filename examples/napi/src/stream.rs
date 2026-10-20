@@ -456,6 +456,8 @@ impl std::task::Wake for CountedWaker {
 ///   the end. Use a reader whose read never settles, so that no read callback holds a
 ///   clone while the clones are counted.
 /// - `"drop"`: reads one chunk, then drops the reader.
+/// - `"drop-pending"`: drops the reader while the first read is pending. Use a reader whose
+///   read never settles, as for `"cancel"`.
 #[napi]
 pub fn reader_waker_clones_after_read(
   env: &Env,
@@ -484,16 +486,18 @@ pub fn reader_waker_clones_after_read(
       let waker = Waker::from(counted.clone());
       Pin::new(reader).poll_next(&mut Context::from_waker(&waker))
     };
+    if mode == "cancel" || mode == "drop-pending" {
+      let first = std::future::poll_fn(|cx| Poll::Ready(poll_counted(&mut reader, cx))).await;
+      if first.is_ready() {
+        return Err(Error::new(
+          Status::GenericFailure,
+          "the first read was not pending",
+        ));
+      }
+    }
     match mode.as_str() {
       "end" | "cancel" => {
         if mode == "cancel" {
-          let first = std::future::poll_fn(|cx| Poll::Ready(poll_counted(&mut reader, cx))).await;
-          if first.is_ready() {
-            return Err(Error::new(
-              Status::GenericFailure,
-              "the first read was not pending",
-            ));
-          }
           drop(cancel.cancel(None));
         }
         while let Some(chunk) = std::future::poll_fn(|cx| poll_counted(&mut reader, cx)).await {
@@ -508,6 +512,7 @@ pub fn reader_waker_clones_after_read(
           .ok_or_else(|| Error::new(Status::GenericFailure, "the stream had no chunk"))??;
         drop(reader);
       }
+      "drop-pending" => drop(reader),
       _ => {
         return Err(Error::new(
           Status::InvalidArg,

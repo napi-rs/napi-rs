@@ -1720,6 +1720,8 @@ export interface ReaderCancelOutcome {
  *   the end. Use a reader whose read never settles, so that no read callback holds a
  *   clone while the clones are counted.
  * - `"drop"`: reads one chunk, then drops the reader.
+ * - `"drop-pending"`: drops the reader while the first read is pending. Use a reader whose
+ *   read never settles, as for `"cancel"`.
  */
 export declare function readerWakerClonesAfterRead(stream: ReadableStream<Uint8Array>, mode: string): Promise<number>
 
