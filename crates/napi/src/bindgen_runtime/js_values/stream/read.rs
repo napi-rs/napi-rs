@@ -957,8 +957,9 @@ impl ReaderCancelHandle {
   ///   runs, and then the source's `cancel` never runs.
   /// - The future does not have to be awaited: the cancel is already sent, and dropping the
   ///   future only drops the result. The compiler's warning that futures do nothing unless
-  ///   polled is wrong here; drop it with `let _ = handle.cancel(None);`. Do not block the
-  ///   JavaScript thread on the future: it can only settle once that thread runs.
+  ///   polled is wrong here; drop it with `drop(handle.cancel(None));` (Clippy warns on
+  ///   `let _ =` with a future). Do not block the JavaScript thread on the future: it can
+  ///   only settle once that thread runs.
   /// - The [`Reader`] ends right away, without waiting for JavaScript: a task waiting for
   ///   its next chunk is woken, its next poll returns `None`, and any chunk that was read
   ///   but not yet yielded is dropped. This also holds when the JavaScript read never
