@@ -302,6 +302,7 @@ import {
   cancelStashedOnJsThread,
   dropStashedCancelHandle,
   queuedCancelAtTeardownOutcome,
+  readerWakerClonesAfterRead,
   createReadableStream,
   createReadableStreamWithObject,
   createReadableStreamFromClass,
@@ -3552,6 +3553,60 @@ test('Reader cancel wakes a pending next() even when the read never settles', as
     // The JS read is still pending, but the cancel woke the task and the reader ended.
     t.true(outcome.ended, label)
     t.true(outcome.staysEnded, label)
+  }
+})
+
+test('a kept cancel handle does not keep the waker of a finished reader', async (t) => {
+  const cases: [string, () => ReadableStream<Uint8Array>, string][] = [
+    [
+      'end',
+      () =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]))
+            controller.enqueue(new Uint8Array([2]))
+            controller.close()
+          },
+        }),
+      'end',
+    ],
+    [
+      'error',
+      () =>
+        new ReadableStream({
+          pull(controller) {
+            controller.error(new Error('boom'))
+          },
+        }),
+      'end',
+    ],
+    [
+      'cancel',
+      () =>
+        new ReadableStream(
+          {
+            pull() {
+              return new Promise(() => {})
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+      'cancel',
+    ],
+    [
+      'drop',
+      () =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]))
+          },
+        }),
+      'drop',
+    ],
+  ]
+  for (const [label, makeStream, mode] of cases) {
+    // The cancel handle is still alive when the clones are counted.
+    t.is(await readerWakerClonesAfterRead(makeStream(), mode), 0, label)
   }
 })
 

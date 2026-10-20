@@ -818,6 +818,14 @@ impl CancelSignal {
   fn is_cancelled(&self) -> bool {
     self.cancelled.load(Ordering::SeqCst)
   }
+
+  /// Drops the waker of the task that polled last, once the reader has ended or is
+  /// dropped. No poll waits for a cancel then, and a later poll registers again before it
+  /// checks `cancelled`. Without this, a cancel handle kept after the reader ended would
+  /// keep that task's allocation alive.
+  fn release_waker(&self) {
+    drop(self.waker.take());
+  }
 }
 
 // `AtomicWaker` holds an `UnsafeCell`, so without this `CancelSignal` is not
@@ -1418,6 +1426,13 @@ fn rejection_message(value: Unknown) -> String {
   message
 }
 
+impl<T: FromNapiValue + 'static> Drop for Reader<T> {
+  fn drop(&mut self) {
+    // Cancel handles and read callbacks can keep the signal alive after the reader.
+    self.state.signal.release_waker();
+  }
+}
+
 impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
   type Item = Result<T>;
 
@@ -1436,16 +1451,22 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
         inner.chunk = Ok(None);
         inner.done = true;
         inner.waker = None;
+        self.state.signal.release_waker();
         return Poll::Ready(None);
       }
       // 1. Surface any buffered chunk or error first.
       match mem::replace(&mut inner.chunk, Ok(None)) {
         Ok(Some(chunk)) => return Poll::Ready(Some(Ok(chunk))),
-        Err(err) => return Poll::Ready(Some(Err(err))),
+        Err(err) => {
+          // An error always ends the stream (`done` is set with it).
+          self.state.signal.release_waker();
+          return Poll::Ready(Some(Err(err)));
+        }
         Ok(None) => {}
       }
       // 2. If the stream finished (or errored) and nothing is buffered, end iteration.
       if inner.done {
+        self.state.signal.release_waker();
         return Poll::Ready(None);
       }
       // 3. Remember the latest waker so the in-flight read can wake this task.
@@ -1582,6 +1603,7 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
         inner.reading = false;
         inner.done = true;
         inner.waker = None;
+        self.state.signal.release_waker();
         return Poll::Ready(Some(Err(Error::new(
           status,
           "Failed to schedule ReadableStream read",

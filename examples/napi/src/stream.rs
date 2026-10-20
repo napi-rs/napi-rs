@@ -414,3 +414,99 @@ pub fn drop_stashed_cancel_handle() {
     .take();
   drop(handle);
 }
+
+/// A waker that passes each wake on to the task's own waker. Each clone of it is one
+/// strong count on its `Arc`.
+struct CountedWaker {
+  task: std::sync::Mutex<Option<std::task::Waker>>,
+}
+
+impl std::task::Wake for CountedWaker {
+  fn wake(self: std::sync::Arc<Self>) {
+    self.wake_by_ref();
+  }
+
+  fn wake_by_ref(self: &std::sync::Arc<Self>) {
+    if let Some(task) = &*self
+      .task
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+      task.wake_by_ref();
+    }
+  }
+}
+
+/// Reads the stream with a waker that counts its clones, and keeps a cancel handle.
+/// Resolves with the number of clones that napi-rs still holds when the read stops:
+/// - `"end"`: reads like `while let Some(chunk) = reader.next().await { chunk?; }`, so it
+///   stops at the end of the stream or at the first error.
+/// - `"cancel"`: cancels through the handle while the first read is pending, then reads to
+///   the end.
+/// - `"drop"`: reads one chunk, then drops the reader.
+#[napi]
+pub fn reader_waker_clones_after_read(
+  env: &Env,
+  stream: ReadableStream<Uint8Array>,
+  mode: String,
+) -> Result<AsyncBlock<u32>> {
+  use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll, Waker},
+  };
+
+  use tokio_stream::Stream as _;
+
+  let mut reader = stream.read()?;
+  let cancel = reader.cancel_handle();
+  AsyncBlockBuilder::new(async move {
+    let counted = Arc::new(CountedWaker {
+      task: std::sync::Mutex::new(None),
+    });
+    let poll_counted = |reader: &mut Reader<Uint8Array>, cx: &mut Context<'_>| {
+      *counted
+        .task
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cx.waker().clone());
+      let waker = Waker::from(counted.clone());
+      Pin::new(reader).poll_next(&mut Context::from_waker(&waker))
+    };
+    match mode.as_str() {
+      "end" | "cancel" => {
+        if mode == "cancel" {
+          let first = std::future::poll_fn(|cx| Poll::Ready(poll_counted(&mut reader, cx))).await;
+          if first.is_ready() {
+            return Err(Error::new(
+              Status::GenericFailure,
+              "the first read was not pending",
+            ));
+          }
+          drop(cancel.cancel(None));
+        }
+        while let Some(chunk) = std::future::poll_fn(|cx| poll_counted(&mut reader, cx)).await {
+          if chunk.is_err() {
+            break;
+          }
+        }
+      }
+      "drop" => {
+        std::future::poll_fn(|cx| poll_counted(&mut reader, cx))
+          .await
+          .ok_or_else(|| Error::new(Status::GenericFailure, "the stream had no chunk"))??;
+        drop(reader);
+      }
+      _ => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          format!("unknown mode {mode}"),
+        ))
+      }
+    }
+    // `counted` itself is one strong count.
+    let clones = Arc::strong_count(&counted) as u32 - 1;
+    drop(cancel);
+    Ok(clones)
+  })
+  .build(env)
+}

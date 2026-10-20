@@ -1226,6 +1226,7 @@ module.exports.readBorrowedCacheSpawnInside = nativeBinding.readBorrowedCacheSpa
 module.exports.readBorrowedCacheVec = nativeBinding.readBorrowedCacheVec
 module.exports.readBorrowedCacheWithReentry = nativeBinding.readBorrowedCacheWithReentry
 module.exports.readBorrowedCacheWithSignal = nativeBinding.readBorrowedCacheWithSignal
+module.exports.readerWakerClonesAfterRead = nativeBinding.readerWakerClonesAfterRead
 module.exports.readFile = nativeBinding.readFile
 module.exports.readFileAsync = nativeBinding.readFileAsync
 module.exports.readPackageJson = nativeBinding.readPackageJson
