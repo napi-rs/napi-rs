@@ -225,9 +225,23 @@ test('createProcessIncarnationGetter recovers after a failed probe and then stop
 })
 
 test('executeProcessIncarnationCommand resolves null when execFile throws synchronously', async (t) => {
-  // A null byte makes execFile throw before spawning, the same synchronous
-  // path Node takes for spawn errors such as EPERM.
+  // A null byte fails execFile's argument check, which throws
+  // ERR_INVALID_ARG_VALUE synchronously, before anything is spawned.
   t.is(await executeProcessIncarnationCommand('/bin/ps\u0000', []), null)
+})
+
+test('executeProcessIncarnationCommand resolves null when spawn throws an errno synchronously', async (t) => {
+  // An argument over the OS limit makes the spawn fail with E2BIG. Node throws
+  // that errno synchronously from ChildProcess.prototype.spawn, the same place
+  // it throws EPERM when a sandbox refuses to run /bin/ps.
+  t.is(
+    await executeProcessIncarnationCommand(process.execPath, [
+      '-e',
+      '0',
+      'x'.repeat(4 * 1024 * 1024),
+    ]),
+    null,
+  )
 })
 
 test('withFileSystemReconciliation publishes lock owners stamped with the injected process incarnation', async (t) => {
