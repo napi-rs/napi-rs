@@ -1,3 +1,12 @@
+use std::{
+  cell::RefCell,
+  sync::{
+    atomic::{AtomicU32, Ordering},
+    mpsc,
+  },
+  thread::JoinHandle,
+};
+
 use napi::{
   bindgen_prelude::{ClassInstance, FnArgs, Function, FunctionRef, PromiseRaw},
   threadsafe_function::{ThreadsafeFunctionCallMode, UnknownReturnValue},
@@ -185,4 +194,54 @@ pub fn optional_callback_types(
     callback.call("Hello".to_owned())?;
   }
   Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// `FunctionRef`s dropped off the JS thread after the env's custom-GC
+// threadsafe function was closed (`__tests__/custom-gc-teardown.spec.ts`).
+// Node closes that threadsafe function from a cleanup hook added when the
+// addon registers, and runs cleanup hooks last added first, so a hook added
+// before the registration (here: by an earlier registration of this addon in
+// the same env) runs after it is closed.
+// ---------------------------------------------------------------------------
+
+thread_local! {
+  static HELD_FUNCTION_REFS: RefCell<Option<(mpsc::Sender<()>, JoinHandle<()>)>> =
+    const { RefCell::new(None) };
+}
+
+static FUNCTION_REFS_DROPPED_AT_TEARDOWN: AtomicU32 = AtomicU32::new(0);
+
+/// Adds an env cleanup hook that lets the thread started by
+/// [`hold_function_refs_on_thread`] drop its references, and waits for it.
+#[napi]
+pub fn drop_held_function_refs_at_teardown(env: Env) -> Result<()> {
+  env.add_env_cleanup_hook((), |()| {
+    if let Some((go, thread)) = HELD_FUNCTION_REFS.with(|held| held.borrow_mut().take()) {
+      let _ = go.send(());
+      let _ = thread.join();
+    }
+  })?;
+  Ok(())
+}
+
+/// Moves `callbacks` to a new thread, which drops them all at once (one `Vec`
+/// drop) when the hook added by [`drop_held_function_refs_at_teardown`] runs.
+#[napi]
+pub fn hold_function_refs_on_thread(callbacks: Vec<FunctionRef<(), ()>>) {
+  let (go, wait) = mpsc::channel::<()>();
+  let thread = std::thread::spawn(move || {
+    let _ = wait.recv();
+    let count = callbacks.len() as u32;
+    drop(callbacks);
+    FUNCTION_REFS_DROPPED_AT_TEARDOWN.fetch_add(count, Ordering::SeqCst);
+  });
+  HELD_FUNCTION_REFS.with(|held| *held.borrow_mut() = Some((go, thread)));
+}
+
+/// How many references the threads from [`hold_function_refs_on_thread`]
+/// have dropped, in this process.
+#[napi]
+pub fn function_refs_dropped_at_teardown() -> u32 {
+  FUNCTION_REFS_DROPPED_AT_TEARDOWN.load(Ordering::SeqCst)
 }
