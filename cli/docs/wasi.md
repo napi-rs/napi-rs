@@ -70,6 +70,18 @@ that fails to initialize its own exports. The one exception is
 loader, so the root entry adopts the `__napiBindingTarget` the required module
 reports and falls back to `'native'` when it reports none.
 
+A binding the root entry did not load itself is a separate case. Code outside
+the generated loader can put one in place, such as a WebContainer fallback
+through `napi-postinstall/fallback` patched in front of the loader's
+`if (!nativeBinding) {` check, and that fallback hands back a generated WASI
+loader's exports, which already carry their flavor. When such an object owns
+`__napiBindingTarget` as a data property that reads back the same, and its
+value is a flavor the root entry's own WASI chain can report (the package's
+WASI flavors, or `'wasm32-wasi'` for a package without a WASI target), the root
+entry takes that value over. Otherwise, any value other than `'native'` is
+still rejected with `ERR_NAPI_BINDING_TARGET_CONFLICT` by the CommonJS entry,
+and the ESM entry keeps reporting `'native'`.
+
 Each flavor's own loaders (the CommonJS loader, the browser loader and the
 deferred `./workerd` loader) carry their own fixed flavor identity, and they
 carry it on the binding object they hand out — not only as a module export. So
