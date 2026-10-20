@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -310,6 +311,68 @@ test.skipIf(!isWasiLane || !loaderPath)(
     t.is(result.code, null)
     t.not(result.target, 'claimed-by-addon')
     t.is(typeof result.target, 'string')
+  },
+)
+
+test.skipIf(!isWasiLane || !loaderPath)(
+  'the root entry reports the flavor of a WASI binding a postbuild fallback swapped in',
+  async (t) => {
+    // #3624. tombit, rolldown and oxc-resolver patch a WebContainer fallback in
+    // front of the root loader's `if (!nativeBinding) {` check. It hands back
+    // this very WASI loader's exports, already stamped, while the root target
+    // is still 'native'. The root is copied out of the package, so neither the
+    // native addon nor the root's own WASI chain resolves: only the fallback
+    // loads.
+    const source = await readFile(join(packageDirectory, 'index.cjs'), 'utf8')
+    const anchor = '\nif (!nativeBinding) {'
+    t.is(source.split(anchor).length - 1, 1, 'the patch anchor must be unique')
+    const dir = await mkdtemp(join(tmpdir(), 'napi-binding-target-fallback-'))
+    const rootPath = join(dir, 'index.cjs')
+    await writeFile(
+      rootPath,
+      source.replace(
+        anchor,
+        (match) => `
+if (!nativeBinding) {
+  try {
+    nativeBinding = require(${JSON.stringify(loaderPath)})
+  } catch (err) {
+    loadErrors.push(err)
+  }
+}
+${match}`,
+      ),
+    )
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '-e',
+          `const binding = require(${JSON.stringify(rootPath)})
+console.log(JSON.stringify({ target: binding.__napiBindingTarget, aliased: binding === require(${JSON.stringify(loaderPath)}), sum: binding.add(1, 2) }))
+process.exit(0)`,
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 120_000,
+          // NAPI_RS_FORCE_WASI=error would fail the root's own WASI chain first
+          env: Object.fromEntries(
+            Object.entries(process.env).filter(
+              ([key]) => !key.startsWith('NAPI_RS_'),
+            ),
+          ),
+        },
+      )
+      t.is(result.error, undefined, result.error?.stack)
+      t.is(result.status, 0, `${result.stdout}\n${result.stderr}`)
+      t.deepEqual(JSON.parse(result.stdout), {
+        target: expectedTarget,
+        aliased: true,
+        sum: 3,
+      })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   },
 )
 

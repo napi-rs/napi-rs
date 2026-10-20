@@ -247,8 +247,13 @@ ${identLow}}${versionCheck}`
 let nativeBinding = null
 // Which artifact actually loaded. The WASI fallback chain overwrites it with
 // the flavor it resolved; the late native retry below leaves it alone because
-// it only runs while no WASI candidate has been loaded.
+// it only runs while no WASI candidate has been loaded. The take-over check
+// after the load-failure block can also set it.
 let __napiLoadedBindingTarget = 'native'
+// What this loader's own \`requireNative()\` calls returned. The check after
+// the load-failure block compares it with \`nativeBinding\` to tell a binding
+// this loader loaded from one that code outside it put in its place.
+let __napiRequiredNativeBinding = null
 const loadErrors = []
 
 const isMusl = () => {
@@ -464,6 +469,7 @@ const forceWasi =
 
 if (!forceWasi) {
   nativeBinding = requireNative()
+  __napiRequiredNativeBinding = nativeBinding
 }
 
 if (!nativeBinding || forceWasi) {
@@ -484,6 +490,7 @@ ${createWasiFallbackChain(
     !__napiWasiFlavorRequested
   ) {
     nativeBinding = requireNative()
+    __napiRequiredNativeBinding = nativeBinding
   }
   if ((forceWasiError || __napiWasiFlavorRequested) && !wasiBindingLoaded) {
     const error = new Error(
@@ -509,6 +516,40 @@ if (!nativeBinding) {
     throw error
   }
   throw new Error(\`Failed to load native binding\`)
+}
+
+// A package can patch its own fallback in front of the load-failure check
+// above, e.g. a WebContainer download through \`napi-postinstall/fallback\`.
+// That fallback swaps \`nativeBinding\` for a generated WASI loader, which has
+// already stamped its own flavor, while the target above still says 'native'.
+// Take that flavor over, or the CommonJS stamp throws a conflict and the ESM
+// export reports the wrong artifact. Three limits keep the conflict check:
+// - only a binding this loader did not load itself, so a native addon whose
+//   \`#[napi(module_exports)]\` hook claims the name is still rejected;
+// - only an own data property, read through its descriptor, so no addon
+//   getter runs here, and it must read back the same, as the stamp reads it;
+// - only a flavor in \`__napiWasiFlavors\`, the ones this loader's own WASI
+//   chain can report ('wasm32-wasi' for a package without a WASI target).
+// This is metadata and never fails a load: a throwing Proxy trap keeps 'native'.
+if (
+  __napiLoadedBindingTarget === 'native' &&
+  nativeBinding !== __napiRequiredNativeBinding
+) {
+  try {
+    const __napiBindingTargetDescriptor = Object.getOwnPropertyDescriptor(
+      nativeBinding,
+      '${NAPI_BINDING_TARGET_EXPORT}',
+    )
+    if (
+      __napiBindingTargetDescriptor &&
+      __napiWasiFlavors.indexOf(__napiBindingTargetDescriptor.value) !== -1 &&
+      nativeBinding.${NAPI_BINDING_TARGET_EXPORT} === __napiBindingTargetDescriptor.value
+    ) {
+      __napiLoadedBindingTarget = __napiBindingTargetDescriptor.value
+    }
+  } catch {
+    // keep 'native'
+  }
 }
 `
 }

@@ -643,6 +643,329 @@ test('an exotic binding object never fails the load', async (t) => {
   })
 })
 
+// #3624. Every downstream WebContainer patch found (tombit, rolldown,
+// oxc-resolver, unrs-resolver, oxc-transform, astro, satteri, csslit) is a
+// `String.prototype.replace` that puts a fallback in front of the FIRST
+// `\nif (!nativeBinding) {` and assigns `nativeBinding` only, leaving the
+// recorded target at 'native'.
+const swapInFallback = (source: string, fallbackPath: string) => {
+  const anchor = '\nif (!nativeBinding) {'
+  if (!source.includes(anchor)) {
+    throw new Error('the load-failure anchor is missing')
+  }
+  return source.replace(
+    anchor,
+    (match) => `
+if (!nativeBinding) {
+  try {
+    nativeBinding = require(${JSON.stringify(fallbackPath)})
+  } catch (err) {
+    loadErrors.push(err)
+  }
+}
+${match}`,
+  )
+}
+
+// What a generated WASI loader hands back: its exports object with its own
+// flavor stamped as an own data property.
+const stampedExportsSource = (target: string) =>
+  `const exportsObject = { sum: (a, b) => a + b }
+Object.defineProperty(exportsObject, '__napiBindingTarget', {
+  configurable: true,
+  enumerable: true,
+  value: ${JSON.stringify(target)},
+  writable: true,
+})
+module.exports = exportsObject
+`
+
+// Root CJS (index.js) and ESM (index.mjs) loaders of a package that, by
+// default, builds only the threaded WASI flavor, both patched like the
+// downstream packages.
+const writeSwappedRootLoaders = async (
+  projectDir: string,
+  fallbackPath: string,
+  wasiFlavors: string[] = ['wasm32-wasi'],
+) => {
+  for (const [jsBinding, format] of [
+    ['index.js', 'commonjs'],
+    ['index.mjs', 'esm'],
+  ] as const) {
+    await writeJsBinding({
+      platform: true,
+      idents: ['sum'],
+      wasiFlavors,
+      binaryName: 'build-integration',
+      packageName: 'build-integration',
+      version: '0.1.0',
+      outputDir: projectDir,
+      jsBinding,
+      format,
+    })
+    const loaderPath = join(projectDir, jsBinding)
+    await writeFile(
+      loaderPath,
+      swapInFallback(await readFile(loaderPath, 'utf8'), fallbackPath),
+    )
+  }
+}
+
+const importRootLoaderInChild = (rootPath: string, body: string) =>
+  spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const binding = await import(${JSON.stringify(pathToFileURL(rootPath).href)})
+${body}`,
+    ],
+    { encoding: 'utf8' },
+  )
+
+test('a fallback swapped in front of the load-failure check reports the flavor it loaded', async (t) => {
+  const { projectDir } = t.context
+  const fallbackPath = join(projectDir, 'fake-wasi.cjs')
+  for (const [shape, wasiFlavors, flavor, source] of [
+    [
+      'plain',
+      ['wasm32-wasi'],
+      'wasm32-wasi',
+      stampedExportsSource('wasm32-wasi'),
+    ],
+    [
+      'frozen',
+      ['wasm32-wasi'],
+      'wasm32-wasi',
+      `${stampedExportsSource('wasm32-wasi')}Object.freeze(module.exports)\n`,
+    ],
+    // the flavor the fallback owns, not the first one the root lists
+    [
+      'second listed flavor',
+      ['wasm32-wasi', 'wasm32-wasip1'],
+      'wasm32-wasip1',
+      stampedExportsSource('wasm32-wasip1'),
+    ],
+  ] as const) {
+    await writeSwappedRootLoaders(projectDir, fallbackPath, [...wasiFlavors])
+    await writeFile(fallbackPath, source)
+    const required = requireRootLoaderInChild(
+      join(projectDir, 'index.js'),
+      `console.log(
+  JSON.stringify({
+    target: binding.__napiBindingTarget,
+    aliased: binding === require(${JSON.stringify(fallbackPath)}),
+    sum: binding.sum(1, 2),
+  }),
+)`,
+    )
+    t.is(required.status, 0, `${shape}: ${required.stdout}\n${required.stderr}`)
+    t.deepEqual(
+      JSON.parse(required.stdout),
+      { target: flavor, aliased: true, sum: 3 },
+      shape,
+    )
+    // the lexer-visible named export links and reads the taken-over value
+    const named = importBindingTargetInChild(join(projectDir, 'index.js'))
+    t.is(named.status, 0, `${shape}: ${named.stdout}\n${named.stderr}`)
+    t.is(named.stdout.trim(), JSON.stringify(flavor), shape)
+    // the ESM root never stamps: before the fix it reported 'native' silently
+    const esm = importBindingTargetInChild(join(projectDir, 'index.mjs'))
+    t.is(esm.status, 0, `${shape}: ${esm.stdout}\n${esm.stderr}`)
+    t.is(esm.stdout.trim(), JSON.stringify(flavor), shape)
+  }
+})
+
+test('a swapped-in binding may only report a flavor its own WASI chain can report', async (t) => {
+  const { projectDir } = t.context
+  const fallbackPath = join(projectDir, 'fake-claimed.cjs')
+  await writeSwappedRootLoaders(projectDir, fallbackPath)
+  // a foreign string is a real name collision; a flavor outside this root's
+  // `__napiWasiFlavors` is nothing its own WASI chain could have loaded
+  for (const claimed of ['addon-owned-value', 'wasm32-wasip1']) {
+    await writeFile(fallbackPath, stampedExportsSource(claimed))
+    const required = requireRootLoaderInChild(
+      join(projectDir, 'index.js'),
+      `console.log(binding.__napiBindingTarget)`,
+    )
+    t.not(required.status, 0, `${claimed}: ${required.stdout}`)
+    t.regex(required.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/, claimed)
+    const esm = importBindingTargetInChild(join(projectDir, 'index.mjs'))
+    t.is(esm.status, 0, `${claimed}: ${esm.stdout}\n${esm.stderr}`)
+    t.is(esm.stdout.trim(), '"native"', claimed)
+  }
+})
+
+test('a package without a WASI target takes over only the legacy wasm32-wasi flavor', async (t) => {
+  const { projectDir } = t.context
+  const fallbackPath = join(projectDir, 'fake-legacy.cjs')
+  // what declaredWasiFlavors() passes for a native-only package: the root
+  // chain then defaults to the legacy ['wasm32-wasi'] candidates
+  await writeSwappedRootLoaders(projectDir, fallbackPath, [])
+  for (const [claimed, expected] of [
+    ['wasm32-wasi', '"wasm32-wasi"'],
+    ['wasm32-wasip1', '"native"'],
+  ] as const) {
+    await writeFile(fallbackPath, stampedExportsSource(claimed))
+    const esm = importBindingTargetInChild(join(projectDir, 'index.mjs'))
+    t.is(esm.status, 0, `${claimed}: ${esm.stdout}\n${esm.stderr}`)
+    t.is(esm.stdout.trim(), expected, claimed)
+  }
+})
+
+test('taking over a swapped-in flavor never runs an addon getter', async (t) => {
+  const { projectDir } = t.context
+  const fallbackPath = join(projectDir, 'fake-getter.cjs')
+  await writeFile(
+    fallbackPath,
+    `globalThis.__getterCalls = 0
+const exportsObject = { sum: (a, b) => a + b }
+Object.defineProperty(exportsObject, '__napiBindingTarget', {
+  configurable: true,
+  enumerable: true,
+  get() {
+    globalThis.__getterCalls++
+    return 'wasm32-wasi'
+  },
+})
+module.exports = exportsObject
+`,
+  )
+  await writeSwappedRootLoaders(projectDir, fallbackPath)
+  // a generated loader writes a data property; an accessor is not taken over,
+  // and the step reads the descriptor, so the getter never runs during load
+  const esm = importRootLoaderInChild(
+    join(projectDir, 'index.mjs'),
+    `console.log(JSON.stringify({ target: binding.__napiBindingTarget, getterCalls: globalThis.__getterCalls }))`,
+  )
+  t.is(esm.status, 0, `${esm.stdout}\n${esm.stderr}`)
+  t.deepEqual(JSON.parse(esm.stdout), { target: 'native', getterCalls: 0 })
+  // unchanged: the CommonJS stamp reads it the ordinary way and conflicts
+  const required = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(binding.__napiBindingTarget)`,
+  )
+  t.not(required.status, 0, required.stdout)
+  t.regex(required.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/)
+})
+
+test('a swapped-in binding whose descriptor and read disagree is not taken over', async (t) => {
+  const { projectDir } = t.context
+  const fallbackPath = join(projectDir, 'fake-proxy.cjs')
+  await writeFile(
+    fallbackPath,
+    `${stampedExportsSource('wasm32-wasi')}module.exports = new Proxy(module.exports, {
+  get: (target, key, receiver) =>
+    key === '__napiBindingTarget' ? 'native' : Reflect.get(target, key, receiver),
+})
+`,
+  )
+  await writeSwappedRootLoaders(projectDir, fallbackPath)
+  // the CommonJS stamp reads with [[Get]]; taking the descriptor's value over
+  // would turn this load, which works today, into a conflict
+  const required = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(JSON.stringify({ target: binding.__napiBindingTarget, sum: binding.sum(1, 2) }))`,
+  )
+  t.is(required.status, 0, `${required.stdout}\n${required.stderr}`)
+  t.deepEqual(JSON.parse(required.stdout), { target: 'native', sum: 3 })
+})
+
+test('reading a swapped-in binding target never fails an ESM load', async (t) => {
+  const { projectDir } = t.context
+  // the step adds a read the ESM root never made before; a Proxy trap that
+  // throws must leave the target where it was, not fail the import
+  const fallbackPath = join(projectDir, 'fake-trap.cjs')
+  await writeFile(
+    fallbackPath,
+    `module.exports = new Proxy(
+  { sum: (a, b) => a + b, __napiBindingTarget: 'wasm32-wasi' },
+  {
+    getOwnPropertyDescriptor() {
+      const error = new Error('trap refused')
+      error.code = 'ERR_ADDON_TRAP'
+      throw error
+    },
+  },
+)
+`,
+  )
+  await writeSwappedRootLoaders(projectDir, fallbackPath)
+  const esm = importBindingTargetInChild(join(projectDir, 'index.mjs'))
+  t.is(esm.status, 0, `${esm.stdout}\n${esm.stderr}`)
+  t.is(esm.stdout.trim(), '"native"')
+})
+
+test('a module_exports hook may not claim a WASI flavor either', async (t) => {
+  const { projectDir } = t.context
+  // Only a binding the generated loader did not load itself is taken over, so
+  // a native addon whose hook writes a flavor name is still a conflict, on
+  // both generated native loads: the first attempt and the late retry under
+  // NAPI_RS_FORCE_WASI=true.
+  await writeFakePlatformPackage(
+    projectDir,
+    stampedExportsSource('wasm32-wasi'),
+  )
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    wasiFlavors: ['wasm32-wasi'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+  for (const forceWasi of [undefined, 'true']) {
+    const env = { ...process.env }
+    delete env.NAPI_RS_FORCE_WASI
+    if (forceWasi) env.NAPI_RS_FORCE_WASI = forceWasi
+    const result = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const binding = require(${JSON.stringify(join(projectDir, 'index.js'))})
+console.log(binding.__napiBindingTarget)`,
+      ],
+      { encoding: 'utf8', env },
+    )
+    t.not(result.status, 0, `FORCE_WASI=${forceWasi}: ${result.stdout}`)
+    t.regex(
+      result.stderr,
+      /ERR_NAPI_BINDING_TARGET_CONFLICT/,
+      `FORCE_WASI=${forceWasi}`,
+    )
+  }
+})
+
+test('a binding the root WASI chain loaded keeps the chain verdict', async (t) => {
+  const { projectDir } = t.context
+  // Only a binding the loader still records as 'native' is taken over. Here
+  // the local wasm32-wasi candidate resolves, but its loader owns another
+  // listed flavor: the chain's 'wasm32-wasi' stands and the stamp conflicts.
+  await Promise.all([
+    writeFile(
+      join(projectDir, 'build-integration.wasi.cjs'),
+      stampedExportsSource('wasm32-wasip1'),
+    ),
+    writeFile(join(projectDir, 'build-integration.wasm32-wasi.wasm'), ''),
+  ])
+  await writeJsBinding({
+    platform: true,
+    idents: ['sum'],
+    wasiFlavors: ['wasm32-wasi', 'wasm32-wasip1'],
+    binaryName: 'build-integration',
+    packageName: 'build-integration',
+    version: '0.1.0',
+    outputDir: projectDir,
+  })
+  const result = requireRootLoaderInChild(
+    join(projectDir, 'index.js'),
+    `console.log(binding.__napiBindingTarget)`,
+  )
+  t.not(result.status, 0, result.stdout)
+  t.regex(result.stderr, /ERR_NAPI_BINDING_TARGET_CONFLICT/)
+})
+
 const bindingTargetDeclarationOf = (source: string) =>
   source
     .split('\n')

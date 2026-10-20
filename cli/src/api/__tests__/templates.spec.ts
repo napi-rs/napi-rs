@@ -2162,6 +2162,80 @@ test('NAPI_RS_NATIVE_LIBRARY_PATH keeps the flavor its override reports', (t) =>
   }
 })
 
+test('the root loaders take over a WASI flavor only from a binding swapped in after their chain', (t) => {
+  // #3624: downstream WebContainer patches insert a fallback in front of the
+  // FIRST `\nif (!nativeBinding) {`. The step has to run after that point and
+  // before the target is stamped or exported.
+  const ANCHOR = '\nif (!nativeBinding) {'
+  const STEP = 'nativeBinding !== __napiRequiredNativeBinding'
+  const ESM_EXPORT =
+    'export const __napiBindingTarget = __napiLoadedBindingTarget'
+  for (const [name, code, consumer] of [
+    [
+      'cjs',
+      createCjsBinding('test', '@scope/test', ['sum'], '1.0.0'),
+      ROOT_CJS_STAMP_CALL,
+    ],
+    [
+      'esm',
+      createEsmBinding('test', '@scope/test', ['sum'], '1.0.0'),
+      ESM_EXPORT,
+    ],
+    [
+      'esm without idents',
+      createEsmBinding('test', '@scope/test', [], '1.0.0'),
+      ESM_EXPORT,
+    ],
+  ] as const) {
+    assertValidJS(t, code, `${name} binding target take-over`)
+    t.is(code.split(ANCHOR).length - 1, 1, `${name} keeps one patch anchor`)
+    t.is(code.split(STEP).length - 1, 1, `${name} takes over in one place`)
+    t.true(
+      code.indexOf(ANCHOR) < code.indexOf(STEP),
+      `${name} must run after anything patched in front of the anchor`,
+    )
+    t.true(
+      code.indexOf(STEP) < code.indexOf(consumer),
+      `${name} must run before the target is stamped or exported`,
+    )
+    // every generated native load is recorded right after it, so a native
+    // addon whose hook claims a flavor name is never taken over
+    const loads = code.split('nativeBinding = requireNative()').length - 1
+    t.is(loads, 2, `${name} has two generated native loads`)
+    t.is(
+      code.split(
+        /nativeBinding = requireNative\(\)\n *__napiRequiredNativeBinding = nativeBinding\n/,
+      ).length - 1,
+      loads,
+      `${name} must record every generated native load`,
+    )
+    // an own data property, a flavor its own WASI chain can report, read back
+    // the same
+    t.true(
+      code.includes(
+        "Object.getOwnPropertyDescriptor(\n      nativeBinding,\n      '__napiBindingTarget',\n    )",
+      ),
+      `${name} reads the descriptor, so no addon getter runs`,
+    )
+    t.true(
+      code.includes(
+        '__napiWasiFlavors.indexOf(__napiBindingTargetDescriptor.value) !== -1',
+      ),
+      `${name} takes over only a flavor its own WASI chain can report`,
+    )
+    t.true(
+      code.includes(
+        'nativeBinding.__napiBindingTarget === __napiBindingTargetDescriptor.value',
+      ),
+      `${name} takes over only a value the stamp will read back`,
+    )
+    t.false(
+      /nativeBinding\.__napiBindingTarget\s*=[^=]/.test(code),
+      `${name} never writes onto the binding outside the stamp helper`,
+    )
+  }
+})
+
 test('WASI worker template matches the CJS/ESM quote and semicolon dialect', (t) => {
   t.true(WASI_WORKER_TEMPLATE.includes("import fs from 'node:fs'"))
   t.false(WASI_WORKER_TEMPLATE.includes('from "node:fs"'))
