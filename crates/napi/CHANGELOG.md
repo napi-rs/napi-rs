@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.15.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.2...napi-v3.15.0) - 2026-10-21
+
+### Added
+
+- *(napi)* cancel a ReadableStream through its Reader, and fix ReadableStream::cancel ([#3623](https://github.com/napi-rs/napi-rs/pull/3623))
+
+### Fixed
+
+- *(napi)* set the custom GC aborted flag before Node closes its tsfn ([#3626](https://github.com/napi-rs/napi-rs/pull/3626))
+- *(napi)* TypedArray input leaks and compat buffer copies on wasm ([#3612](https://github.com/napi-rs/napi-rs/pull/3612))
+- *(napi)* copy managed array inputs ([#3607](https://github.com/napi-rs/napi-rs/pull/3607))
+- *(napi)* reject a value of another class on builds without type tags ([#3610](https://github.com/napi-rs/napi-rs/pull/3610))
+- *(napi)* drop unadopted class value and reset factory flag on failed conversion ([#3603](https://github.com/napi-rs/napi-rs/pull/3603))
+- *(napi)* join the Tokio runtime threads at env teardown ([#3592](https://github.com/napi-rs/napi-rs/pull/3592))
+- *(napi)* keep borrowed class args alive across AsyncTask/AsyncBlock ([#3584](https://github.com/napi-rs/napi-rs/pull/3584))
+
+### Other
+
+- *(cli)* cover FreeBSD arm64 ([#3620](https://github.com/napi-rs/napi-rs/pull/3620))
+- *(cli)* record the design behind the threaded WASI heap sync ([#3581](https://github.com/napi-rs/napi-rs/pull/3581))
+
 ## [3.14.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.1...napi-v3.14.2) - 2026-10-06
 
 ### Fixed
