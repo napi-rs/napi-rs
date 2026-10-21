@@ -75,8 +75,8 @@
     "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@emnapi/core": "^2.0.0-alpha.4",
-    "@emnapi/runtime": "^2.0.0-alpha.4",
+    "@emnapi/core": "^2.0.0-beta.2",
+    "@emnapi/runtime": "^2.0.0-beta.2",
     "@oxc-node/core": "^0.1.0",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/inquirer": "^9.0.9",
@@ -84,7 +84,7 @@
     "@types/node": "^26.6.5",
     "@types/semver": "^7.7.1",
     "ava": "^8.0.1",
-    "emnapi": "^2.0.0-alpha.4",
+    "emnapi": "^2.0.0-beta.2",
     "empathic": "^2.0.1",
     "env-paths": "^4.0.0",
     "oxc-parser": "^0.155.0",
@@ -92,9 +92,9 @@
     "tslib": "^2.8.1"
   },
   "peerDependencies": {
-    "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.4",
-    "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.4",
-    "emnapi": "^1.7.1 || ^2.0.0-alpha.4"
+    "@emnapi/core": "^1.7.1 || ^2.0.0-beta.2",
+    "@emnapi/runtime": "^1.7.1 || ^2.0.0-beta.2",
+    "emnapi": "^1.7.1 || ^2.0.0-beta.2"
   },
   "peerDependenciesMeta": {
     "@emnapi/core": {
