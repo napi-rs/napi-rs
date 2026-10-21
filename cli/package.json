@@ -77,7 +77,7 @@
   "devDependencies": {
     "@emnapi/core": "^2.0.0-beta.2",
     "@emnapi/runtime": "^2.0.0-beta.2",
-    "@oxc-node/core": "^0.1.0",
+    "@oxc-node/core": "^1.0.0",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/inquirer": "^9.0.9",
     "@types/js-yaml": "^4.0.9",
