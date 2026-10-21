@@ -63,7 +63,7 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@oxc-node/core": "^0.1.0",
+    "@oxc-node/core": "^1.0.0",
     "@taplo/cli": "^0.7.0",
     "@types/debug": "^4.1.13",
     "@types/node": "^26.6.5",
