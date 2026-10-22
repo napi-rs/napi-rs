@@ -21,6 +21,10 @@
     {
       "matchPackageNames": ["@oxc-node/**"],
       "groupName": "oxc-node"
+    },
+    {
+      "matchPackageNames": ["vitest", "@vitest/**", "vitest-browser-vue"],
+      "groupName": "vitest"
     }
   ],
   "postUpdateOptions": ["yarnDedupeHighest"],
