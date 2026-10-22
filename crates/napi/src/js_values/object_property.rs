@@ -97,6 +97,11 @@ impl Property {
 
   pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
     self.utf8_name = Some(CString::new(name)?);
+    self.name = ptr::null_mut();
+    #[cfg(feature = "napi9")]
+    {
+      self.symbol_name = None;
+    }
     Ok(self)
   }
 
@@ -114,6 +119,11 @@ impl Property {
 
   pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
     self.name = unsafe { T::to_napi_value(env.0, name)? };
+    self.utf8_name = None;
+    #[cfg(feature = "napi9")]
+    {
+      self.symbol_name = None;
+    }
     Ok(self)
   }
 
@@ -229,5 +239,62 @@ impl Property {
     self.method = Some(callback);
     self.is_ctor = true;
     self
+  }
+}
+
+#[cfg(all(test, feature = "napi9"))]
+mod tests {
+  use super::*;
+
+  // Name conversion is stubbed so the builder can be tested without a JS
+  // environment. The opaque value is only compared, never dereferenced.
+  struct TestName;
+
+  impl ToNapiValue for TestName {
+    unsafe fn to_napi_value(_env: sys::napi_env, _value: Self) -> Result<sys::napi_value> {
+      Ok(ptr::dangling_mut())
+    }
+  }
+
+  #[test]
+  fn utf8_name_replaces_symbol_and_value_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in [
+      Property::new().with_symbol_name("old"),
+      Property::new().with_name(&env, TestName).unwrap(),
+    ] {
+      let property = property.with_utf8_name("new").unwrap();
+      assert_eq!(property.utf8_name.as_ref().unwrap().as_bytes(), b"new");
+      assert!(property.symbol_name.is_none());
+      assert!(property.raw().name.is_null());
+    }
+  }
+
+  #[test]
+  fn value_name_replaces_symbol_and_utf8_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in [
+      Property::new().with_symbol_name("old"),
+      Property::new().with_utf8_name("old").unwrap(),
+    ] {
+      let property = property.with_name(&env, TestName).unwrap();
+      assert!(property.raw().utf8name.is_null());
+      assert!(property.symbol_name.is_none());
+      assert_eq!(property.raw().name, ptr::dangling_mut());
+    }
+  }
+
+  #[test]
+  fn symbol_name_replaces_utf8_and_value_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in [
+      Property::new().with_utf8_name("old").unwrap(),
+      Property::new().with_name(&env, TestName).unwrap(),
+    ] {
+      let property = property.with_symbol_name("new");
+      assert_eq!(property.symbol_name.as_deref(), Some("new"));
+      assert!(property.raw().utf8name.is_null());
+      assert!(property.raw().name.is_null());
+    }
   }
 }
