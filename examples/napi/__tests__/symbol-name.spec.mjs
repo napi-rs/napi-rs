@@ -127,12 +127,7 @@ test('declarations omit symbol members and retain constructor arguments', async 
   const classBody = declarations.match(
     /export declare class SymbolNamedClass \{([^}]+)\}/,
   )[1]
-  t.regex(classBody, /constructor\(value: number\)/)
-  t.regex(classBody, /get _value\(\): number/)
-  t.notRegex(
-    classBody,
-    /increment|napi\.test\.field|readonlyField|staticMethod|emptyName|unusualName/,
-  )
+  t.is(classBody.trim(), 'constructor(value: number)')
   const fieldsBody = declarations.match(
     /export declare class SymbolNamedFields \{([^}]+)\}/,
   )[1]
