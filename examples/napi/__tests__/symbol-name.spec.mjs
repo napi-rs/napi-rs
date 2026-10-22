@@ -127,7 +127,19 @@ test('declarations omit symbol members and retain constructor arguments', async 
   const classBody = declarations.match(
     /export declare class SymbolNamedClass \{([^}]+)\}/,
   )[1]
-  t.is(classBody.trim(), 'constructor(value: number)')
+  // Only the constructor and string-key controls are declared.
+  t.deepEqual(
+    classBody
+      .trim()
+      .split('\n')
+      .map((line) => line.trim()),
+    [
+      'constructor(value: number)',
+      'get _value(): number',
+      'set _value(value: number)',
+      '_method(): number',
+    ],
+  )
   const fieldsBody = declarations.match(
     /export declare class SymbolNamedFields \{([^}]+)\}/,
   )[1]

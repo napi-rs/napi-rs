@@ -60,13 +60,12 @@ impl SymbolNamedClass {
     self.value = value;
   }
 
-  // String-key controls for the collision test are internal too.
-  #[napi(getter, js_name = "_value", skip_typescript)]
+  #[napi(getter, js_name = "_value")]
   pub fn get_string_value(&self) -> u32 {
     self.value + 100
   }
 
-  #[napi(setter, js_name = "_value", skip_typescript)]
+  #[napi(setter, js_name = "_value")]
   pub fn set_string_value(&mut self, value: u32) {
     self.value = value + 100;
   }
@@ -77,7 +76,7 @@ impl SymbolNamedClass {
     self.value
   }
 
-  #[napi(js_name = "_method", skip_typescript)]
+  #[napi(js_name = "_method")]
   pub fn string_method(&self) -> u32 {
     self.value + 200
   }

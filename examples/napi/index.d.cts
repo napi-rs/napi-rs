@@ -544,6 +544,9 @@ export declare class Selector {
 /** Class members exposed through the global symbol registry. */
 export declare class SymbolNamedClass {
   constructor(value: number)
+  get _value(): number
+  set _value(value: number)
+  _method(): number
 }
 
 /** Symbol fields still accept positional constructor arguments. */
