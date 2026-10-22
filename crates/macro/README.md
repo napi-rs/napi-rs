@@ -61,6 +61,7 @@ the registry key can access them with `Symbol.for`. Property attributes such as
 `enumerable`, `writable`, `configurable`, and `readonly` retain their usual meaning.
 For class members, inspect the class prototype (or constructor for static methods).
 
-Symbols are resolved in each Node environment during class registration. With
-`napi9`, registration uses `node_api_symbol_for`; older Node-API configurations call
-the JavaScript `Symbol.for` function.
+`symbol_name` requires enabling the `napi9` feature (or a higher Node-API feature)
+on the `napi` dependency. Using it with a lower Node-API configuration fails to
+compile. Symbols are resolved with `node_api_symbol_for` in each Node environment
+during class registration; there is no JavaScript fallback.

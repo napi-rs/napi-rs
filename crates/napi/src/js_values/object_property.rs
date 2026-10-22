@@ -33,6 +33,7 @@ impl Default for PropertyClosures {
 #[derive(Clone)]
 pub struct Property {
   utf8_name: Option<CString>,
+  #[cfg(feature = "napi9")]
   pub(crate) symbol_name: Option<String>,
   name: sys::napi_value,
   getter: sys::napi_callback,
@@ -50,6 +51,7 @@ impl Default for Property {
   fn default() -> Self {
     Property {
       utf8_name: Default::default(),
+      #[cfg(feature = "napi9")]
       symbol_name: None,
       name: ptr::null_mut(),
       getter: Default::default(),
@@ -100,6 +102,8 @@ impl Property {
 
   /// Stores a global symbol key for class registration by the `napi` macro.
   /// The symbol is resolved separately in each environment during registration.
+  /// Requires the `napi9` feature or a higher Node-API feature.
+  #[cfg(feature = "napi9")]
   #[doc(hidden)]
   pub fn with_symbol_name(mut self, name: &str) -> Self {
     self.utf8_name = None;
