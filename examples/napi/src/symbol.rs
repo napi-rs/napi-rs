@@ -109,3 +109,41 @@ pub struct SymbolNamedFields {
   pub value: u32,
   pub label: String,
 }
+
+#[napi]
+pub fn define_symbol_object<'env>(env: &'env Env, name: String) -> Result<Object<'env>> {
+  let mut object = Object::new(env)?;
+  object.define_properties(&symbol_properties(env, &name)?)?;
+  Ok(object)
+}
+
+#[napi(ts_return_type = "new () => object")]
+pub fn define_symbol_class<'env>(env: &'env Env, name: String) -> Result<Function<'env>> {
+  env.define_class(
+    "SymbolPropertyClass",
+    symbol_property_constructor_c_callback,
+    &symbol_properties(env, &name)?,
+  )
+}
+
+fn symbol_properties(env: &Env, name: &str) -> Result<[Property; 3]> {
+  Ok([
+    Property::new()
+      .with_symbol_name(name)
+      .with_getter(symbol_property_value_c_callback),
+    Property::new()
+      .with_utf8_name("stringValue")?
+      .with_getter(symbol_property_value_c_callback),
+    Property::new()
+      .with_name(env, env.create_string("valueName")?)?
+      .with_getter(symbol_property_value_c_callback),
+  ])
+}
+
+#[napi(no_export)]
+fn symbol_property_constructor() {}
+
+#[napi(no_export)]
+fn symbol_property_value() -> u32 {
+  42
+}

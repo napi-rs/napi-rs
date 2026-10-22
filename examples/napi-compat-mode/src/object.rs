@@ -143,6 +143,16 @@ fn test_define_properties(ctx: CallContext) -> Result<()> {
   Ok(())
 }
 
+#[cfg(feature = "latest")]
+#[js_function(2)]
+fn test_define_symbol_property(ctx: CallContext) -> Result<()> {
+  let mut object = ctx.get::<JsObject>(0)?;
+  let name = ctx.get::<JsString>(1)?.into_utf8()?;
+  object.define_properties(&[Property::new()
+    .with_symbol_name(name.as_str()?)
+    .with_getter(readonly_getter)])
+}
+
 #[js_function(1)]
 fn add(ctx: CallContext) -> Result<()> {
   let mut this: JsObject = ctx.this_unchecked();
@@ -184,6 +194,8 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("testGetElement", test_get_element)?;
   exports.create_named_method("testDeleteElement", test_delete_element)?;
   exports.create_named_method("testDefineProperties", test_define_properties)?;
+  #[cfg(feature = "latest")]
+  exports.create_named_method("testDefineSymbolProperty", test_define_symbol_property)?;
 
   exports.create_named_method("testIsPromise", test_is_promise)?;
   Ok(())

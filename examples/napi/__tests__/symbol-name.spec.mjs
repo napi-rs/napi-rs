@@ -4,7 +4,12 @@ import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
 
-import { SymbolNamedClass, SymbolNamedFields } from '../index.cjs'
+import {
+  defineSymbolObject,
+  defineSymbolClass,
+  SymbolNamedClass,
+  SymbolNamedFields,
+} from '../index.cjs'
 
 const valueKey = Symbol.for('_value')
 const field = Symbol.for('napi.test.field')
@@ -146,3 +151,21 @@ test('declarations omit symbol members and retain constructor arguments', async 
   t.regex(fieldsBody, /constructor\(value: number, label: string\)/)
   t.notRegex(fieldsBody, /^\s+value:/m)
 })
+
+for (const name of ['napi.test.property', '', '内部\0属性']) {
+  for (const kind of ['object', 'class']) {
+    test(`public ${kind} definitions resolve symbol name ${JSON.stringify(name)}`, (t) => {
+      const value =
+        kind === 'object'
+          ? defineSymbolObject(name)
+          : new (defineSymbolClass(name))()
+      const target = kind === 'object' ? value : Object.getPrototypeOf(value)
+      t.is(value[Symbol.for(name)], 42)
+      t.is(value[name], undefined)
+      t.is(value[Symbol(name)], undefined)
+      t.deepEqual(Object.getOwnPropertySymbols(target), [Symbol.for(name)])
+      t.is(value.stringValue, 42)
+      t.is(value.valueName, 42)
+    })
+  }
+}

@@ -34,7 +34,7 @@ impl Default for PropertyClosures {
 pub struct Property {
   utf8_name: Option<CString>,
   #[cfg(feature = "napi9")]
-  pub(crate) symbol_name: Option<String>,
+  symbol_name: Option<String>,
   name: sys::napi_value,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
@@ -105,8 +105,8 @@ impl Property {
     Ok(self)
   }
 
-  /// Stores a global symbol key for class registration by the `napi` macro.
-  /// The symbol is resolved separately in each environment during registration.
+  /// Stores a global symbol key, resolved in the current environment when the
+  /// property is defined.
   /// Requires the `napi9` feature or a higher Node-API feature.
   #[cfg(feature = "napi9")]
   #[doc(hidden)]
@@ -205,7 +205,25 @@ impl Property {
       && (!self.closures.getter_closure.is_null() || !self.closures.setter_closure.is_null())
   }
 
-  pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
+  pub(crate) fn raw(&self, _env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
+    let name = self.name;
+    // Only the registry key is shared across environments, never a napi_value.
+    // Resolve before allocating closure data so a lookup error cannot leak it.
+    #[cfg(feature = "napi9")]
+    let name = if let Some(symbol_name) = &self.symbol_name {
+      let mut symbol = ptr::null_mut();
+      crate::check_status!(unsafe {
+        sys::node_api_symbol_for(
+          _env,
+          symbol_name.as_ptr().cast(),
+          symbol_name.len() as isize,
+          &mut symbol,
+        )
+      })?;
+      symbol
+    } else {
+      name
+    };
     #[cfg(feature = "napi5")]
     let data = if !self.data.is_null() {
       self.data
@@ -217,12 +235,12 @@ impl Property {
       Box::into_raw(Box::new(self.closures)).cast()
     };
 
-    sys::napi_property_descriptor {
+    Ok(sys::napi_property_descriptor {
       utf8name: match self.utf8_name {
         Some(ref name) => name.as_ptr(),
         None => ptr::null(),
       },
-      name: self.name,
+      name,
       method: self.method,
       getter: self.getter,
       setter: self.setter,
@@ -232,7 +250,7 @@ impl Property {
       data: self.data,
       #[cfg(feature = "napi5")]
       data,
-    }
+    })
   }
 
   pub fn with_ctor(mut self, callback: Callback) -> Self {
@@ -266,7 +284,7 @@ mod tests {
       let property = property.with_utf8_name("new").unwrap();
       assert_eq!(property.utf8_name.as_ref().unwrap().as_bytes(), b"new");
       assert!(property.symbol_name.is_none());
-      assert!(property.raw().name.is_null());
+      assert!(property.name.is_null());
     }
   }
 
@@ -278,9 +296,9 @@ mod tests {
       Property::new().with_utf8_name("old").unwrap(),
     ] {
       let property = property.with_name(&env, TestName).unwrap();
-      assert!(property.raw().utf8name.is_null());
+      assert!(property.utf8_name.is_none());
       assert!(property.symbol_name.is_none());
-      assert_eq!(property.raw().name, ptr::dangling_mut());
+      assert_eq!(property.name, ptr::dangling_mut());
     }
   }
 
@@ -293,8 +311,8 @@ mod tests {
     ] {
       let property = property.with_symbol_name("new");
       assert_eq!(property.symbol_name.as_deref(), Some("new"));
-      assert!(property.raw().utf8name.is_null());
-      assert!(property.raw().name.is_null());
+      assert!(property.utf8_name.is_none());
+      assert!(property.name.is_null());
     }
   }
 }
