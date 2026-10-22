@@ -588,6 +588,21 @@ fn napi_fn_from_decl(
   parent: Option<&Ident>,
   parent_js_name: Option<String>,
 ) -> BindgenResult<NapiFn> {
+  let symbol_name = opts.symbol_name().map(|(name, _)| name.to_owned());
+  if let Some((_, span)) = opts.symbol_name() {
+    if opts.js_name().is_some() {
+      return Err(Diagnostic::span_error(
+        span,
+        "symbol_name cannot be combined with js_name",
+      ));
+    }
+    if parent.is_none() || opts.constructor().is_some() || opts.module_exports().is_some() {
+      return Err(Diagnostic::span_error(
+        span,
+        "symbol_name is only supported on class methods, accessors and fields",
+      ));
+    }
+  }
   let mut errors = vec![];
 
   let syn::Signature {
@@ -877,6 +892,7 @@ fn napi_fn_from_decl(
     Ok(NapiFn {
       name: ident.clone(),
       js_name,
+      symbol_name: symbol_name.clone(),
       module_exports: opts.module_exports().is_some(),
       args,
       ret,
@@ -897,7 +913,7 @@ fn napi_fn_from_decl(
       ts_generic_types: opts.ts_generic_types().map(|(m, _)| m.to_owned()),
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
-      skip_typescript: opts.skip_typescript().is_some(),
+      skip_typescript: opts.skip_typescript().is_some() || symbol_name.is_some(),
       parent_is_generator,
       parent_is_async_generator,
       writable: opts.writable(),
@@ -913,6 +929,14 @@ fn napi_fn_from_decl(
 
 impl ParseNapi for syn::Item {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: &BindgenAttrs) -> BindgenResult<Napi> {
+    if !matches!(self, syn::Item::Fn(_)) {
+      if let Some((_, span)) = opts.symbol_name() {
+        return Err(Diagnostic::span_error(
+          span,
+          "symbol_name is only supported on class methods, accessors and fields",
+        ));
+      }
+    }
     match self {
       syn::Item::Fn(f) => f.parse_napi(tokens, opts),
       syn::Item::Struct(s) => s.parse_napi(tokens, opts),
@@ -1178,6 +1202,7 @@ impl ConvertToAST for syn::ItemFn {
 fn convert_fields(
   fields: &mut syn::Fields,
   check_vis: bool,
+  allow_symbol: bool,
 ) -> BindgenResult<(Vec<NapiStructField>, bool)> {
   let mut napi_fields = vec![];
   let is_tuple = matches!(fields, syn::Fields::Unnamed(_));
@@ -1187,6 +1212,22 @@ fn convert_fields(
     }
 
     let field_opts = BindgenAttrs::find(&mut field.attrs)?;
+
+    let symbol_name = field_opts.symbol_name().map(|(name, _)| name.to_owned());
+    if let Some((_, span)) = field_opts.symbol_name() {
+      if field_opts.js_name().is_some() {
+        return Err(Diagnostic::span_error(
+          span,
+          "symbol_name cannot be combined with js_name",
+        ));
+      }
+      if !allow_symbol {
+        return Err(Diagnostic::span_error(
+          span,
+          "symbol_name is only supported on class fields",
+        ));
+      }
+    }
 
     let (js_name, name) = match &field.ident {
       Some(ident) => (
@@ -1242,6 +1283,7 @@ fn convert_fields(
     napi_fields.push(NapiStructField {
       name,
       js_name,
+      symbol_name,
       ty,
       getter: !ignored,
       setter: !(ignored || readonly),
@@ -1268,7 +1310,11 @@ impl ConvertToAST for syn::ItemStruct {
     );
 
     let use_nullable = opts.use_nullable();
-    let (fields, is_tuple) = convert_fields(&mut self.fields, true)?;
+    let (fields, is_tuple) = convert_fields(
+      &mut self.fields,
+      true,
+      opts.object().is_none() && opts.array().is_none() && opts.transparent().is_none(),
+    )?;
 
     record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
@@ -1591,7 +1637,7 @@ impl ConvertToAST for syn::ItemEnum {
       let mut errors = vec![];
       let mut variants = vec![];
       for variant in self.variants.iter_mut() {
-        let (fields, is_tuple) = convert_fields(&mut variant.fields, false)?;
+        let (fields, is_tuple) = convert_fields(&mut variant.fields, false, false)?;
         for field in fields.iter() {
           if field.js_name == discriminant {
             errors.push(err_span!(

@@ -33,6 +33,7 @@ impl Default for PropertyClosures {
 #[derive(Clone)]
 pub struct Property {
   utf8_name: Option<CString>,
+  pub(crate) symbol_name: Option<String>,
   name: sys::napi_value,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
@@ -49,6 +50,7 @@ impl Default for Property {
   fn default() -> Self {
     Property {
       utf8_name: Default::default(),
+      symbol_name: None,
       name: ptr::null_mut(),
       getter: Default::default(),
       setter: Default::default(),
@@ -94,6 +96,16 @@ impl Property {
   pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
     self.utf8_name = Some(CString::new(name)?);
     Ok(self)
+  }
+
+  /// Stores a global symbol key for class registration by the `napi` macro.
+  /// The symbol is resolved separately in each environment during registration.
+  #[doc(hidden)]
+  pub fn with_symbol_name(mut self, name: &str) -> Self {
+    self.utf8_name = None;
+    self.name = ptr::null_mut();
+    self.symbol_name = Some(name.to_owned());
+    self
   }
 
   pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {

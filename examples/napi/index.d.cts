@@ -541,6 +541,20 @@ export declare class Selector {
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
 
+/** Class members exposed through the global symbol registry. */
+export declare class SymbolNamedClass {
+  constructor(value: number)
+  get _value(): number
+  set _value(value: number)
+  _method(): number
+}
+
+/** Symbol fields still accept positional constructor arguments. */
+export declare class SymbolNamedFields {
+  label: string
+  constructor(value: number, label: string)
+}
+
 export declare class Thing {}
 
 export declare class ThingList {

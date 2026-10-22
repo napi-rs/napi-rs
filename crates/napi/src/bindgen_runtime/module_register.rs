@@ -1044,7 +1044,20 @@ pub unsafe extern "C" fn napi_register_module_v1(
             .first()
             .map(|c| c.raw().method.unwrap())
             .unwrap_or(noop);
-          let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
+          let mut raw_props = Vec::with_capacity(props.len());
+          for prop in props {
+            let mut raw = prop.raw();
+            if let Some(name) = &prop.symbol_name {
+              match symbol_for(env, name) {
+                Ok(symbol) => raw.name = symbol,
+                Err(error) => {
+                  JsError::from(error).throw_into(env);
+                  return;
+                }
+              }
+            }
+            raw_props.push(raw);
+          }
 
           let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
           let mut class_ptr = ptr::null_mut();
@@ -1515,3 +1528,49 @@ fn retain_current_module() {
   ))
 ))]
 fn retain_current_module() {}
+
+// Only the registry key is shared across environments, never a napi_value.
+#[cfg(not(feature = "noop"))]
+unsafe fn symbol_for(env: sys::napi_env, name: &str) -> crate::Result<sys::napi_value> {
+  let mut symbol = ptr::null_mut();
+  #[cfg(feature = "napi9")]
+  check_status!(unsafe {
+    sys::node_api_symbol_for(env, name.as_ptr().cast(), name.len() as isize, &mut symbol)
+  })?;
+
+  #[cfg(not(feature = "napi9"))]
+  unsafe {
+    let mut global = ptr::null_mut();
+    let mut constructor = ptr::null_mut();
+    let mut for_fn = ptr::null_mut();
+    let mut key = ptr::null_mut();
+    check_status!(sys::napi_get_global(env, &mut global))?;
+    check_status!(sys::napi_get_named_property(
+      env,
+      global,
+      c"Symbol".as_ptr(),
+      &mut constructor
+    ))?;
+    check_status!(sys::napi_get_named_property(
+      env,
+      constructor,
+      c"for".as_ptr(),
+      &mut for_fn
+    ))?;
+    check_status!(sys::napi_create_string_utf8(
+      env,
+      name.as_ptr().cast(),
+      name.len() as isize,
+      &mut key
+    ))?;
+    check_status!(sys::napi_call_function(
+      env,
+      constructor,
+      for_fn,
+      1,
+      &key,
+      &mut symbol
+    ))?;
+  }
+  Ok(symbol)
+}
