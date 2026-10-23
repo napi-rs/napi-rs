@@ -247,9 +247,11 @@ impl NapiStruct {
           .iter()
           .filter(|f| f.getter)
           .filter_map(|f| {
-            self.gen_field(f).map(|(field, arg)| {
+            self.gen_field(f).and_then(|(field, arg)| {
               ctor_args.push(arg);
-              field
+              // Keep positional constructor arguments, but do not advertise a
+              // symbol-keyed field as a string-keyed property.
+              f.symbol_name.is_none().then_some(field)
             })
           })
           .collect::<Vec<_>>()

@@ -161,7 +161,7 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
           self.env,
           this.object.value().value,
           1,
-          [property.raw()].as_ptr(),
+          [property.raw(self.env)?].as_ptr(),
         )
       },
       "Failed to define properties on This in `assign_to_this_with_attributes`"

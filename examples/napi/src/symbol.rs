@@ -23,3 +23,127 @@ pub fn create_symbol_ref(env: &Env, desc: String) -> Result<SymbolRef> {
   let js_symbol = symbol.into_js_symbol(env)?;
   js_symbol.create_ref()
 }
+
+/// Class members exposed through the global symbol registry.
+#[napi]
+pub struct SymbolNamedClass {
+  #[napi(symbol_name = "napi.test.field")]
+  pub field: u32,
+  #[napi(symbol_name = "napi.test.readonly", readonly)]
+  pub readonly_field: u32,
+  value: u32,
+}
+
+#[napi]
+impl SymbolNamedClass {
+  #[napi(constructor)]
+  pub fn new(value: u32) -> Self {
+    Self {
+      field: value,
+      readonly_field: value,
+      value,
+    }
+  }
+
+  #[napi(
+    getter,
+    symbol_name = "_value",
+    ts_return_type = "number",
+    enumerable = false
+  )]
+  pub fn get_value(&self) -> u32 {
+    self.value
+  }
+
+  #[napi(setter, symbol_name = "_value", enumerable = false)]
+  pub fn set_value(&mut self, value: u32) {
+    self.value = value;
+  }
+
+  #[napi(getter, js_name = "_value")]
+  pub fn get_string_value(&self) -> u32 {
+    self.value + 100
+  }
+
+  #[napi(setter, js_name = "_value")]
+  pub fn set_string_value(&mut self, value: u32) {
+    self.value = value + 100;
+  }
+
+  #[napi(symbol_name = "_method", writable = false, configurable = false)]
+  pub fn increment(&mut self) -> u32 {
+    self.value += 1;
+    self.value
+  }
+
+  #[napi(js_name = "_method")]
+  pub fn string_method(&self) -> u32 {
+    self.value + 200
+  }
+
+  #[napi(symbol_name = "_method")]
+  pub fn static_method(value: u32) -> u32 {
+    value + 1
+  }
+
+  #[napi(factory, symbol_name = "napi.test.factory")]
+  pub fn factory(value: u32) -> Self {
+    Self::new(value)
+  }
+
+  #[napi(symbol_name = "")]
+  pub fn empty_name(&self) -> u32 {
+    self.value
+  }
+
+  #[napi(getter, symbol_name = "内部\0属性")]
+  pub fn unusual_name(&self) -> u32 {
+    self.value
+  }
+}
+
+/// Symbol fields still accept positional constructor arguments.
+#[napi(constructor)]
+pub struct SymbolNamedFields {
+  #[napi(symbol_name = "napi.test.autoField")]
+  pub value: u32,
+  pub label: String,
+}
+
+#[napi]
+pub fn define_symbol_object<'env>(env: &'env Env, name: String) -> Result<Object<'env>> {
+  let mut object = Object::new(env)?;
+  object.define_properties(&symbol_properties(env, &name)?)?;
+  Ok(object)
+}
+
+#[napi(ts_return_type = "new () => object")]
+pub fn define_symbol_class<'env>(env: &'env Env, name: String) -> Result<Function<'env>> {
+  env.define_class(
+    "SymbolPropertyClass",
+    symbol_property_constructor_c_callback,
+    &symbol_properties(env, &name)?,
+  )
+}
+
+fn symbol_properties(env: &Env, name: &str) -> Result<[Property; 3]> {
+  Ok([
+    Property::new()
+      .with_symbol_name(name)
+      .with_getter(symbol_property_value_c_callback),
+    Property::new()
+      .with_utf8_name("stringValue")?
+      .with_getter(symbol_property_value_c_callback),
+    Property::new()
+      .with_name(env, env.create_string("valueName")?)?
+      .with_getter(symbol_property_value_c_callback),
+  ])
+}
+
+#[napi(no_export)]
+fn symbol_property_constructor() {}
+
+#[napi(no_export)]
+fn symbol_property_value() -> u32 {
+  42
+}

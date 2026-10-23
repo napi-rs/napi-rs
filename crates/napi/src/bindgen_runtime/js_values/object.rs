@@ -465,11 +465,11 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
 
   /// This method allows the efficient definition of multiple properties on a given object.
   fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
+    let env = self.value().env;
     let property_descriptors = properties
       .iter()
-      .map(|property| property.raw())
-      .collect::<Vec<sys::napi_property_descriptor>>();
-    let env = self.value().env;
+      .map(|property| property.raw(env))
+      .collect::<Result<Vec<_>>>()?;
     #[cfg(feature = "napi5")]
     {
       if !properties.is_empty() {

@@ -30,6 +30,12 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
   let opts: BindgenAttrs = syn::parse2(attr)?;
   let mut tokens = proc_macro2::TokenStream::new();
   if let Item::Mod(mut js_mod) = item {
+    if let Some((_, span)) = opts.symbol_name() {
+      return Err(napi_derive_backend::Diagnostic::span_error(
+        span,
+        "symbol_name is only supported on class methods, accessors and fields",
+      ));
+    }
     let js_name = opts.js_name().map_or_else(
       || js_mod.ident.to_string(),
       |(js_name, _)| js_name.to_owned(),

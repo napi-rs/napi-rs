@@ -1,0 +1,53 @@
+error: symbol_name is only supported on class methods, accessors and fields
+ --> tests/build_error_tests/symbol_name_invalid.rs:3:22
+  |
+3 | #[napi(symbol_name = "function")]
+  |                      ^^^^^^^^^^
+
+error: symbol_name cannot be combined with js_name
+  --> tests/build_error_tests/symbol_name_invalid.rs:11:42
+   |
+11 |   #[napi(js_name = "name", symbol_name = "name")]
+   |                                          ^^^^^^
+
+error: symbol_name is only supported on class methods, accessors and fields
+  --> tests/build_error_tests/symbol_name_invalid.rs:17:37
+   |
+17 |   #[napi(constructor, symbol_name = "constructor")]
+   |                                     ^^^^^^^^^^^^^
+
+error: symbol_name cannot be combined with js_name
+  --> tests/build_error_tests/symbol_name_invalid.rs:25:43
+   |
+25 |   #[napi(js_name = "value", symbol_name = "value")]
+   |                                           ^^^^^^^
+
+error: symbol_name is only supported on class fields
+  --> tests/build_error_tests/symbol_name_invalid.rs:31:24
+   |
+31 |   #[napi(symbol_name = "value")]
+   |                        ^^^^^^^
+
+error: symbol_name is only supported on class fields
+  --> tests/build_error_tests/symbol_name_invalid.rs:36:44
+   |
+36 | pub struct ArrayField(#[napi(symbol_name = "value")] pub u32);
+   |                                            ^^^^^^^
+
+error: symbol_name is only supported on class fields
+  --> tests/build_error_tests/symbol_name_invalid.rs:39:50
+   |
+39 | pub struct TransparentField(#[napi(symbol_name = "value")] pub u32);
+   |                                                  ^^^^^^^
+
+error: symbol_name is only supported on class methods, accessors and fields
+  --> tests/build_error_tests/symbol_name_invalid.rs:41:22
+   |
+41 | #[napi(symbol_name = "Class")]
+   |                      ^^^^^^^
+
+error: symbol_name is only supported on class methods, accessors and fields
+  --> tests/build_error_tests/symbol_name_invalid.rs:44:22
+   |
+44 | #[napi(symbol_name = "module")]
+   |                      ^^^^^^^^
