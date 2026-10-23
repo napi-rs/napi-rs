@@ -439,7 +439,7 @@ __metadata:
     buffer: "npm:^6.0.3"
     core-js: "npm:^3.49.0"
     cross-env: "npm:10.1.0"
-    electron: "npm:^44.0.0"
+    electron: "npm:^45.0.0"
     esbuild: "npm:^0.28.1"
     lodash: "npm:^4.18.1"
     miniflare: "npm:^4.20260630.0"
@@ -6042,9 +6042,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"electron@npm:^44.0.0":
-  version: 44.5.1
-  resolution: "electron@npm:44.5.1"
+"electron@npm:^45.0.0":
+  version: 45.0.0
+  resolution: "electron@npm:45.0.0"
   dependencies:
     "@electron-internal/extract-zip": "npm:^1.0.1"
     "@electron/get": "npm:^5.0.0"
@@ -6052,7 +6052,7 @@ __metadata:
   bin:
     electron: cli.js
     install-electron: install.js
-  checksum: 10c0/37fa3bbb95698dc8066c192146d34f1623e21e60cd47420f495868039a3506684d285da208808e297a38805ee58a876d7967500de6955156a977a7edd7fcd271
+  checksum: 10c0/53dc878a72815e89aadccb125d137d1e2dbeabbe9b8c0f2c1a49c114e85c4635aa32c83af6074f11e6ccbe433069c6c57299a5b473a63322e7957da1348c7d8d
   languageName: node
   linkType: hard
 
@@ -8569,7 +8569,7 @@ __metadata:
     bun-types: "npm:^1.3.14"
     c8: "npm:^12.0.0"
     cross-env: "npm:^10.1.0"
-    electron: "npm:^44.0.0"
+    electron: "npm:^45.0.0"
     esbuild: "npm:^0.28.0"
     husky: "npm:^9.1.7"
     lerna: "npm:^10.0.0"
@@ -11187,14 +11187,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tinybench@npm:^6.0.2":
-  version: 6.2.0
-  resolution: "tinybench@npm:6.2.0"
-  checksum: 10c0/ae821428f0412324611d449290f8497c886c94f04bad8e19aa9b3a5060b4802e738c49f9eb493e4fd17e4d5e792290565e5079be647df1995aea731c82363815
-  languageName: node
-  linkType: hard
-
-"tinybench@npm:^6.2.2":
+"tinybench@npm:^6.0.2, tinybench@npm:^6.2.2":
   version: 6.2.2
   resolution: "tinybench@npm:6.2.2"
   checksum: 10c0/f0e6391f4ca86875ce5a64510696323aa841c10495fdd1c6ca530457c7e77f2b3aa82d9d6f1553126420062b1008607257677ce2b25ff1948732a79d7a56514a
