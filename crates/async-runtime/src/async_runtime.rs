@@ -35407,7 +35407,12 @@ mod tests {
 
     let executor = multi_thread_executor(1, None, "timer-final-arc");
     let (completed_tx, completed_rx) = mpsc::channel();
-    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_millis(80));
+    // The deadline must not pass before this thread has dropped its Arc: a
+    // timer that fires first (a starved runner, or a timekeeper that starts
+    // late) leaves `timekeeper_parker` at None for good, and the wait below
+    // could never succeed. Arm it far out and pull it in by hand once the
+    // timekeeper is asleep on it.
+    let mut sleep = heap_sleep(&executor, Instant::now() + Duration::from_secs(3600));
     {
       let waker = Waker::from(Arc::new(DropFinalExecutorOnWake {
         executor: Mutex::new(Some(Arc::clone(&executor))),
@@ -35416,6 +35421,9 @@ mod tests {
       let mut cx = Context::from_waker(&waker);
       assert!(Pin::new(&mut sleep).poll(&mut cx).is_pending());
     }
+    // SLEEPING, not just published: a registration permit left over from
+    // `poll` would otherwise let the timekeeper loop once more and fire the
+    // pulled-in deadline while this thread still holds an Arc.
     wait_until(
       "the timer thread parked before owning the final executor Arc",
       || {
@@ -35425,16 +35433,25 @@ mod tests {
           .lock()
           .unwrap()
           .timekeeper_parker
-          .is_some()
+          .as_ref()
+          .is_some_and(|parker| parker.state.load(Ordering::SeqCst) == PARKER_SLEEPING)
       },
     );
+    let parker = {
+      let mut inner = executor.timers.inner.lock().unwrap();
+      let (_, id) = inner.queue.peek().expect("the sleep's timer must be armed");
+      inner.queue.remove(id);
+      inner.queue.push(Instant::now(), id);
+      Arc::clone(inner.timekeeper_parker.as_ref().unwrap())
+    };
 
     // `Sleep` retains only a Weak reference. Once this local Arc is gone, the
     // heap waker owns the final direct executor Arc and releases it from the
     // timer thread while `TimerHeap::drop` still owns that thread's handle.
     drop(executor);
-    // Hang detector: the fire needs the (already spawned) timer thread to
-    // reach its 80ms deadline -- generous for starved CI runners.
+    parker.unpark();
+    // Hang detector: the fire needs only the unparked timer thread to run --
+    // generous for starved CI runners.
     completed_rx
       .recv_timeout(Duration::from_secs(10))
       .expect("dropping the final executor Arc on the timer thread attempted to join itself");
