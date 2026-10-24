@@ -20,8 +20,10 @@ type BorrowGate = Arc<(Mutex<bool>, Condvar)>;
 
 static BORROW_GATES: LazyLock<Mutex<HashMap<u32, BorrowGate>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
-static BORROW_GATE_WAITERS: LazyLock<Mutex<HashMap<u32, usize>>> =
-  LazyLock::new(|| Mutex::new(HashMap::new()));
+// Waiter counts, plus a condvar signalled whenever one of them grows, so a
+// test can wait for a task to reach its gate instead of polling for it.
+static BORROW_GATE_WAITERS: LazyLock<(Mutex<HashMap<u32, usize>>, Condvar)> =
+  LazyLock::new(|| (Mutex::new(HashMap::new()), Condvar::new()));
 
 /// Create (or reset to closed) the gate with the given id.
 #[napi]
@@ -30,7 +32,7 @@ pub fn open_borrow_gate(id: u32) {
     .lock()
     .unwrap()
     .insert(id, Arc::new((Mutex::new(false), Condvar::new())));
-  BORROW_GATE_WAITERS.lock().unwrap().insert(id, 0);
+  BORROW_GATE_WAITERS.0.lock().unwrap().insert(id, 0);
 }
 
 /// Open the gate: every task currently waiting — and any queued behind it —
@@ -48,6 +50,7 @@ pub fn close_borrow_gate(id: u32) {
 #[napi]
 pub fn borrow_gate_waiters(id: u32) -> u32 {
   BORROW_GATE_WAITERS
+    .0
     .lock()
     .unwrap()
     .get(&id)
@@ -67,12 +70,45 @@ fn wait_borrow_gate(id: u32) -> Result<()> {
         format!("borrow gate {id} does not exist"),
       )
     })?;
-  *BORROW_GATE_WAITERS.lock().unwrap().entry(id).or_insert(0) += 1;
+  *BORROW_GATE_WAITERS.0.lock().unwrap().entry(id).or_insert(0) += 1;
+  BORROW_GATE_WAITERS.1.notify_all();
   let mut open = gate.0.lock().unwrap();
   while !*open {
     open = gate.1.wait(open).unwrap();
   }
   Ok(())
+}
+
+pub struct BorrowGateWaitersTask {
+  gate: u32,
+  count: u32,
+}
+
+#[napi]
+impl Task for BorrowGateWaitersTask {
+  type Output = ();
+  type JsValue = ();
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    let (waiters, grew) = &*BORROW_GATE_WAITERS;
+    let mut waiters = waiters.lock().unwrap();
+    while waiters.get(&self.gate).copied().unwrap_or(0) < self.count as usize {
+      waiters = grew.wait(waiters).unwrap();
+    }
+    Ok(())
+  }
+
+  fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+    Ok(())
+  }
+}
+
+/// Resolves once at least `count` tasks are blocked inside `wait_borrow_gate`
+/// for gate `id`: a pool thread has picked the work up, however long the
+/// scheduler took to run it.
+#[napi]
+pub fn wait_for_borrow_gate_waiters(id: u32, count: u32) -> AsyncTask<BorrowGateWaitersTask> {
+  AsyncTask::new(BorrowGateWaitersTask { gate: id, count })
 }
 
 pub struct ReadBorrowedTask<'a> {
