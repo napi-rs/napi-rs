@@ -1390,6 +1390,7 @@ module.exports.validateTypedArray = nativeBinding.validateTypedArray
 module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = nativeBinding.validateUint8ClampedSlice
 module.exports.validateUndefined = nativeBinding.validateUndefined
+module.exports.waitForBorrowGateWaiters = nativeBinding.waitForBorrowGateWaiters
 module.exports.wasmMemorySizeBytes = nativeBinding.wasmMemorySizeBytes
 module.exports.withAbortController = nativeBinding.withAbortController
 module.exports.withAbortSignalHandle = nativeBinding.withAbortSignalHandle
