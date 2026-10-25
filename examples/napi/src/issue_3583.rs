@@ -3,7 +3,7 @@ use std::{
   sync::{Arc, Condvar, LazyLock, Mutex},
 };
 
-use napi::{bindgen_prelude::*, Task};
+use napi::{bindgen_prelude::*, JsDeferred, Task};
 
 // Repro coverage for napi-rs#3583: a synchronous `#[napi]` callback returning
 // `AsyncTask` lets the task capture forged `&'static` references to borrowed
@@ -20,10 +20,20 @@ type BorrowGate = Arc<(Mutex<bool>, Condvar)>;
 
 static BORROW_GATES: LazyLock<Mutex<HashMap<u32, BorrowGate>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
-// Waiter counts, plus a condvar signalled whenever one of them grows, so a
-// test can wait for a task to reach its gate instead of polling for it.
-static BORROW_GATE_WAITERS: LazyLock<(Mutex<HashMap<u32, usize>>, Condvar)> =
-  LazyLock::new(|| (Mutex::new(HashMap::new()), Condvar::new()));
+type WaitersReached = JsDeferred<(), fn(Env) -> Result<()>>;
+
+#[derive(Default)]
+struct BorrowGateWaiters {
+  counts: HashMap<u32, usize>,
+  // Promises from `wait_for_borrow_gate_waiters`, as (gate, count, deferred),
+  // resolved by the task that brings the gate's count up to `count`. Nothing
+  // here runs on the libuv pool or the async runtime: the gated tasks may
+  // hold every thread of either.
+  pending: Vec<(u32, usize, WaitersReached)>,
+}
+
+static BORROW_GATE_WAITERS: LazyLock<Mutex<BorrowGateWaiters>> =
+  LazyLock::new(|| Mutex::new(BorrowGateWaiters::default()));
 
 /// Create (or reset to closed) the gate with the given id.
 #[napi]
@@ -32,7 +42,7 @@ pub fn open_borrow_gate(id: u32) {
     .lock()
     .unwrap()
     .insert(id, Arc::new((Mutex::new(false), Condvar::new())));
-  BORROW_GATE_WAITERS.0.lock().unwrap().insert(id, 0);
+  BORROW_GATE_WAITERS.lock().unwrap().counts.insert(id, 0);
 }
 
 /// Open the gate: every task currently waiting — and any queued behind it —
@@ -50,9 +60,9 @@ pub fn close_borrow_gate(id: u32) {
 #[napi]
 pub fn borrow_gate_waiters(id: u32) -> u32 {
   BORROW_GATE_WAITERS
-    .0
     .lock()
     .unwrap()
+    .counts
     .get(&id)
     .copied()
     .unwrap_or(0) as u32
@@ -70,8 +80,20 @@ fn wait_borrow_gate(id: u32) -> Result<()> {
         format!("borrow gate {id} does not exist"),
       )
     })?;
-  *BORROW_GATE_WAITERS.0.lock().unwrap().entry(id).or_insert(0) += 1;
-  BORROW_GATE_WAITERS.1.notify_all();
+  let reached = {
+    let mut waiters = BORROW_GATE_WAITERS.lock().unwrap();
+    let waiting = waiters.counts.entry(id).or_insert(0);
+    *waiting += 1;
+    let waiting = *waiting;
+    let (reached, pending): (Vec<_>, Vec<_>) = std::mem::take(&mut waiters.pending)
+      .into_iter()
+      .partition(|(gate, count, _)| *gate == id && waiting >= *count);
+    waiters.pending = pending;
+    reached
+  };
+  for (_, _, deferred) in reached {
+    deferred.resolve(|_| Ok(()));
+  }
   let mut open = gate.0.lock().unwrap();
   while !*open {
     open = gate.1.wait(open).unwrap();
@@ -79,36 +101,20 @@ fn wait_borrow_gate(id: u32) -> Result<()> {
   Ok(())
 }
 
-pub struct BorrowGateWaitersTask {
-  gate: u32,
-  count: u32,
-}
-
-#[napi]
-impl Task for BorrowGateWaitersTask {
-  type Output = ();
-  type JsValue = ();
-
-  fn compute(&mut self) -> Result<Self::Output> {
-    let (waiters, grew) = &*BORROW_GATE_WAITERS;
-    let mut waiters = waiters.lock().unwrap();
-    while waiters.get(&self.gate).copied().unwrap_or(0) < self.count as usize {
-      waiters = grew.wait(waiters).unwrap();
-    }
-    Ok(())
-  }
-
-  fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
-    Ok(())
-  }
-}
-
 /// Resolves once at least `count` tasks are blocked inside `wait_borrow_gate`
 /// for gate `id`: a pool thread has picked the work up, however long the
 /// scheduler took to run it.
-#[napi]
-pub fn wait_for_borrow_gate_waiters(id: u32, count: u32) -> AsyncTask<BorrowGateWaitersTask> {
-  AsyncTask::new(BorrowGateWaitersTask { gate: id, count })
+#[napi(ts_return_type = "Promise<void>")]
+pub fn wait_for_borrow_gate_waiters(env: &Env, id: u32, count: u32) -> Result<Object<'_>> {
+  let (deferred, promise) = env.create_deferred::<(), fn(Env) -> Result<()>>()?;
+  let mut waiters = BORROW_GATE_WAITERS.lock().unwrap();
+  if waiters.counts.get(&id).copied().unwrap_or(0) >= count as usize {
+    drop(waiters);
+    deferred.resolve(|_| Ok(()));
+  } else {
+    waiters.pending.push((id, count as usize, deferred));
+  }
+  Ok(promise)
 }
 
 pub struct ReadBorrowedTask<'a> {
