@@ -111,6 +111,41 @@ jobs:
       - name: Clippy
         run: cargo clippy
 
+  wasm-runtime:
+    name: wasm-runtime (Node ${{ matrix.node }}, emnapi ${{ matrix.emnapi }})
+    runs-on: ubuntu-latest
+    needs: audit
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.19.0', '22.13.0', '24', '26']
+        emnapi: ['1.7.1', '1.11.1', '2.0.0-beta.2']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+      - name: Install runtime build and test dependencies
+        run: yarn workspaces focus @napi-rs/wasm-runtime
+      - name: Pack runtime (prepack builds the bundles)
+        run: yarn workspace @napi-rs/wasm-runtime pack --out "$RUNNER_TEMP/wasm-runtime.tgz"
+      - name: Install packed runtime with consumer peers
+        # Install outside the workspace so root resolutions cannot mask a
+        # broken peer contract or substitute source files for the tarball.
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/wasm-runtime-consumer"
+          --ignore-scripts --no-audit --no-fund
+          "$RUNNER_TEMP/wasm-runtime.tgz"
+          @emnapi/core@${{ matrix.emnapi }}
+          @emnapi/runtime@${{ matrix.emnapi }}
+      - name: Exercise real plugins from packed CommonJS and ESM entries
+        run: >-
+          WASM_RUNTIME_TEST_PACKAGE="$RUNNER_TEMP/wasm-runtime-consumer/node_modules/@napi-rs/wasm-runtime"
+          node --test wasm-runtime/plugins.test.js
+
   build_and_test:
     needs: audit
     permissions:
