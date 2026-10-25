@@ -1849,7 +1849,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
-    "@emnapi/core": "npm:^2.0.0-alpha.4"
+    "@emnapi/core": "npm:2.0.0-beta.2"
+    "@emnapi/runtime": "npm:2.0.0-beta.2"
     "@tybys/wasm-util": "npm:^0.10.3"
     buffer: "npm:^6.0.3"
     events: "npm:^3.3.0"
@@ -1860,9 +1861,10 @@ __metadata:
     readable-stream: "npm:^4.7.0"
     rolldown: "npm:^1.2.1"
     tslib: "npm:^2.8.1"
+    wabt: "npm:^1.0.39"
   peerDependencies:
-    "@emnapi/core": ^1.7.1 || ^2.0.0-alpha.4
-    "@emnapi/runtime": ^1.7.1 || ^2.0.0-alpha.4
+    "@emnapi/core": ^1.7.1 || 2.0.0-beta.2
+    "@emnapi/runtime": ^1.7.1 || 2.0.0-beta.2
   languageName: unknown
   linkType: soft
 
@@ -11766,6 +11768,23 @@ __metadata:
   version: 1.1.2
   resolution: "vm-browserify@npm:1.1.2"
   checksum: 10c0/0cc1af6e0d880deb58bc974921320c187f9e0a94f25570fca6b1bd64e798ce454ab87dfd797551b1b0cc1849307421aae0193cedf5f06bdb5680476780ee344b
+  languageName: node
+  linkType: hard
+
+"wabt@npm:^1.0.39":
+  version: 1.0.39
+  resolution: "wabt@npm:1.0.39"
+  bin:
+    wasm-decompile: bin/wasm-decompile
+    wasm-interp: bin/wasm-interp
+    wasm-objdump: bin/wasm-objdump
+    wasm-stats: bin/wasm-stats
+    wasm-strip: bin/wasm-strip
+    wasm-validate: bin/wasm-validate
+    wasm2c: bin/wasm2c
+    wasm2wat: bin/wasm2wat
+    wat2wasm: bin/wat2wasm
+  checksum: 10c0/6ada63c4c882688bf8d15f3b3a2a1d7edb9b83a976afa2d5754c6a991ae6372600f8ff2337aa1da8f8cb18b91cec8d93cd04e8f48e8f22b06f70915041cd6a89
   languageName: node
   linkType: hard
 

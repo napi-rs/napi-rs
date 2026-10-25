@@ -1,7 +1,27 @@
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 import { defineConfig } from 'rolldown'
 import { replacePlugin as replace } from 'rolldown/plugins'
+
+// v2 plugins use private core context/ABI fields that can change between
+// prereleases. A root resolution must not silently change the bundled plugins
+// without updating the exact v2 peer contract and exercising the package tests.
+const require = createRequire(import.meta.url)
+const { version: coreVersion } = require('@emnapi/core/package.json')
+const { devDependencies, peerDependencies } = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+)
+if (
+  coreVersion !== devDependencies['@emnapi/core'] ||
+  !peerDependencies['@emnapi/core'].split(' || ').includes(coreVersion) ||
+  !peerDependencies['@emnapi/runtime'].split(' || ').includes(coreVersion)
+) {
+  throw new Error(
+    `Bundled emnapi ${coreVersion} must match the exact v2 development and peer versions`,
+  )
+}
 
 export default defineConfig([
   {

@@ -47,7 +47,7 @@ const createRuntimeFixture = async (generation) => {
   const fixtureDirectory = await mkdtemp(
     join(tmpdir(), `napi-rs-wasm-runtime-${generation}-`),
   )
-  const emnapiVersion = generation === 'v1' ? '1.11.1' : '2.0.0-alpha.3'
+  const emnapiVersion = generation === 'v1' ? '1.11.1' : '2.0.0-beta.2'
 
   await mkdir(join(fixtureDirectory, 'dist'), { recursive: true })
   await Promise.all([
