@@ -301,6 +301,8 @@ export declare class DefaultUseNullableClass {
 export declare class DelayedCounter {
   /** Creates a counter that yields values from 0 to max-1 with a delay between each */
   constructor(max: number, delayMs: number)
+  /** Like the constructor, but every sleep is counted by `probe` */
+  static withProbe(max: number, delayMs: number, probe: SleepOverlapProbe): DelayedCounter
   [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<DelayedCounter, number, string, undefined>
 }
 
@@ -539,6 +541,13 @@ export declare class Selector {
   struct: string
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
+}
+
+/** Counts how many `DelayedCounter` sleeps are pending at the same time */
+export declare class SleepOverlapProbe {
+  constructor()
+  /** The most sleeps that were pending at once */
+  get maxInFlight(): number
 }
 
 export declare class Thing {}

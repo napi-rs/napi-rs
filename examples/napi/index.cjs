@@ -951,6 +951,7 @@ module.exports.ReentrantBorrowOrderTest = nativeBinding.ReentrantBorrowOrderTest
 module.exports.RenamedForIssue3427 = nativeBinding.RenamedForIssue3427
 module.exports.RenamedForIssue3427Rust = nativeBinding.RenamedForIssue3427Rust
 module.exports.Selector = nativeBinding.Selector
+module.exports.SleepOverlapProbe = nativeBinding.SleepOverlapProbe
 module.exports.Thing = nativeBinding.Thing
 module.exports.ThingList = nativeBinding.ThingList
 module.exports.TypeTagA = nativeBinding.TypeTagA

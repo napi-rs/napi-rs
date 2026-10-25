@@ -1,4 +1,10 @@
-use std::future::Future;
+use std::{
+  future::Future,
+  sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+  },
+};
 
 use napi::{bindgen_prelude::*, iterator::ScopedGenerator};
 
@@ -213,6 +219,7 @@ pub struct DelayedCounter {
   current: u32,
   max: u32,
   delay_ms: u64,
+  probe: Option<Arc<SleepOverlapCounts>>,
 }
 
 #[napi]
@@ -228,11 +235,19 @@ impl AsyncGenerator for DelayedCounter {
     let current = self.current;
     let max = self.max;
     let delay_ms = self.delay_ms;
+    let probe = self.probe.clone();
     self.current += 1;
 
     async move {
+      if let Some(probe) = &probe {
+        let in_flight = probe.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        probe.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
+      }
       // Actually sleep - this is truly async!
       tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+      if let Some(probe) = &probe {
+        probe.in_flight.fetch_sub(1, Ordering::SeqCst);
+      }
 
       if current >= max {
         Ok(None) // Signal completion
@@ -252,7 +267,48 @@ impl DelayedCounter {
       current: 0,
       max,
       delay_ms: delay_ms as u64,
+      probe: None,
     }
+  }
+
+  /// Like the constructor, but every sleep is counted by `probe`
+  #[napi(factory)]
+  pub fn with_probe(max: u32, delay_ms: u32, probe: &SleepOverlapProbe) -> Self {
+    DelayedCounter {
+      current: 0,
+      max,
+      delay_ms: delay_ms as u64,
+      probe: Some(probe.counts.clone()),
+    }
+  }
+}
+
+#[derive(Default)]
+struct SleepOverlapCounts {
+  in_flight: AtomicU32,
+  max_in_flight: AtomicU32,
+}
+
+/// Counts how many `DelayedCounter` sleeps are pending at the same time
+#[napi]
+pub struct SleepOverlapProbe {
+  counts: Arc<SleepOverlapCounts>,
+}
+
+#[napi]
+impl SleepOverlapProbe {
+  #[allow(clippy::new_without_default)]
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    SleepOverlapProbe {
+      counts: Arc::default(),
+    }
+  }
+
+  /// The most sleeps that were pending at once
+  #[napi(getter)]
+  pub fn max_in_flight(&self) -> u32 {
+    self.counts.max_in_flight.load(Ordering::SeqCst)
   }
 }
 
