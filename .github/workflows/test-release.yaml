@@ -837,7 +837,7 @@ jobs:
           mv examples/napi/dist/__tests__ examples/napi/
       - name: Test
         id: build
-        uses: cross-platform-actions/action@v1.6.0
+        uses: cross-platform-actions/action@v1.7.0
         env:
           DEBUG: 'napi:*'
           RUSTUP_HOME: /home/runner/rustup
@@ -890,7 +890,7 @@ jobs:
       - name: Build CLI
         run: yarn workspace @napi-rs/cli build
       - name: Test
-        uses: cross-platform-actions/action@v1.6.0
+        uses: cross-platform-actions/action@v1.7.0
         with:
           operating_system: freebsd
           architecture: arm64
