@@ -1664,7 +1664,12 @@ class Builder {
     }
 
     try {
-      const { version, download } = require('@napi-rs/cross-toolchain')
+      const crossToolchain = require('@napi-rs/cross-toolchain')
+      const { version, download } = crossToolchain
+      const {
+        xz: { decompressSync },
+      } = require('@napi-rs/lzma')
+      const { Archive } = require('@napi-rs/tar')
 
       const toolchainPath = join(
         homedir(),
@@ -1677,7 +1682,15 @@ class Builder {
       if (existsSync(join(toolchainPath, 'package.json'))) {
         debug(`Toolchain ${toolchainPath} exists, skip extracting`)
       } else {
-        const tarArchive = download(process.arch, this.target.triple)
+        let tarArchive
+        if (crossToolchain[process.arch][this.target.triple]) {
+          const decompressed = decompressSync(
+            readFileSync(crossToolchain[process.arch][this.target.triple]),
+          )
+          tarArchive = new Archive(decompressed)
+        } else {
+          tarArchive = download(process.arch, this.target.triple)
+        }
         tarArchive.unpack(toolchainPath)
       }
       Object.assign(
