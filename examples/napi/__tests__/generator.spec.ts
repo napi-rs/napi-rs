@@ -7,6 +7,7 @@ import {
   Fib4,
   AsyncFib,
   DelayedCounter,
+  SleepOverlapProbe,
   AsyncDataSource,
   shutdownRuntime,
 } from '../index.cjs'
@@ -321,11 +322,13 @@ const CONCURRENCY_DELAY_MS = 10
 async function drainDelayedCounter(
   label: string,
   order: string[],
+  probe: SleepOverlapProbe,
 ): Promise<number[]> {
   const values: number[] = []
-  for await (const value of new DelayedCounter(
+  for await (const value of DelayedCounter.withProbe(
     CONCURRENCY_YIELDS,
     CONCURRENCY_DELAY_MS,
+    probe,
   )) {
     order.push(label)
     values.push(value)
@@ -341,36 +344,22 @@ test('async generators should run concurrently', async (t) => {
     return
   }
 
-  // A fixed millisecond budget cannot express "these ran concurrently". Each
-  // `next()` costs a promise, a tokio wake-up and a threadsafe-function hop on
-  // top of its `delay_ms` sleep, and on an emulated target that per-yield cost
-  // dwarfs the sleeping and swings with whatever else the runner is doing: the
-  // QEMU armv7 job has measured this exact loop anywhere from 132ms to 362ms
-  // across CI runs with nothing in the async-generator path changing between
-  // them. A budget tight enough to catch serialisation there is a budget the
-  // slow end of that range trips on its own.
-  //
-  // So measure both shapes in the same process moments apart and assert on the
-  // thing concurrency actually buys — the sleeps overlap instead of adding up —
-  // which is a property of the ratio, not of the absolute numbers.
+  // Wall-clock budgets cannot express "these ran concurrently": one runner
+  // stall during the concurrent run eats the whole saving. So each counter
+  // reports its sleeps to a probe, and the test asserts on how many sleeps were
+  // pending at the same time, which does not depend on how fast the machine is.
 
-  // Warm the path first so the serial baseline is not paying one-time costs the
-  // concurrent run would then get for free.
-  await drainDelayedCounter('warmup', [])
-
+  const serialProbe = new SleepOverlapProbe()
   const serialOrder: string[] = []
-  const serialStart = Date.now()
-  const serial1 = await drainDelayedCounter('a', serialOrder)
-  const serial2 = await drainDelayedCounter('b', serialOrder)
-  const serialElapsed = Date.now() - serialStart
+  const serial1 = await drainDelayedCounter('a', serialOrder, serialProbe)
+  const serial2 = await drainDelayedCounter('b', serialOrder, serialProbe)
 
+  const concurrentProbe = new SleepOverlapProbe()
   const concurrentOrder: string[] = []
-  const concurrentStart = Date.now()
   const [results1, results2] = await Promise.all([
-    drainDelayedCounter('a', concurrentOrder),
-    drainDelayedCounter('b', concurrentOrder),
+    drainDelayedCounter('a', concurrentOrder, concurrentProbe),
+    drainDelayedCounter('b', concurrentOrder, concurrentProbe),
   ])
-  const concurrentElapsed = Date.now() - concurrentStart
 
   const expected = [0, 1, 2, 3, 4]
   t.deepEqual(serial1, expected)
@@ -378,10 +367,11 @@ test('async generators should run concurrently', async (t) => {
   t.deepEqual(results1, expected)
   t.deepEqual(results2, expected)
 
-  // The serial baseline is what "not concurrent" looks like on this machine
-  // right now: every value of the first counter lands before the first value of
-  // the second.
+  // The serial baseline is what "not concurrent" looks like: every value of the
+  // first counter lands before the first value of the second, and no two sleeps
+  // are ever pending together.
   t.is(serialOrder.join(''), 'aaaaabbbbb')
+  t.is(serialProbe.maxInFlight, 1)
 
   // Concurrently, the two counters make progress against each other, so the
   // second one yields before the first one is done. This alone catches a
@@ -390,8 +380,6 @@ test('async generators should run concurrently', async (t) => {
     concurrentOrder.indexOf('b') < concurrentOrder.lastIndexOf('a'),
     `Expected the two counters to interleave, got ${concurrentOrder.join('')}`,
   )
-
-  const saved = serialElapsed - concurrentElapsed
 
   // The remaining claim — that the sleeps overlap rather than merely
   // interleaving — is not true on the WASI lane, and the reason is below
@@ -411,35 +399,21 @@ test('async generators should run concurrently', async (t) => {
   // so the single worker owns the time driver, and a task injected from the
   // JavaScript thread is not polled until whatever sleep is already in flight
   // runs out — measured on this lane, a task submitted 30ms into a 200ms sleep
-  // waits ~165ms for its first poll. Nothing else on the path is at fault:
-  // eight 50ms sleeps joined *inside* one task still finish in 51ms, and eight
-  // spawned from within the runtime in 53ms; only the cross-thread wake-up is
-  // lost. Two DelayedCounters therefore add up instead of overlapping, on this
-  // branch and on `main` alike (serial 153ms vs concurrent 153ms for both).
-  // Patching that single `cfg` in a local Tokio checkout takes the same
-  // measurement to serial 184ms / concurrent 98ms.
+  // waits ~165ms for its first poll. Two DelayedCounters therefore add up
+  // instead of overlapping there.
   //
-  // Lowering the threshold until this passes would mean shipping a
-  // "concurrency" assertion that accepts fully serialised execution, so the
-  // saving is asserted only where the executor can actually overlap timers.
   // The interleaving assertion above still runs on every target, including
   // this one, and still fails there if a generator blocks the runtime.
   if (process.env.WASI_TEST) {
     t.log(
-      `WASI: sleeps do not overlap here (tokio-rs/tokio park_timeout is thread::sleep on wasm); serial ${serialElapsed}ms, concurrent ${concurrentElapsed}ms, saved ${saved}ms`,
+      `WASI: sleeps do not overlap here (tokio-rs/tokio park_timeout is thread::sleep on wasm); at most ${concurrentProbe.maxInFlight} pending at once`,
     )
     return
   }
 
-  // Running both counters serially sleeps 2 * (CONCURRENCY_YIELDS + 1) *
-  // delay; running them concurrently sleeps half of that, so concurrency is
-  // worth at least CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS of wall clock
-  // however slow the per-yield machinery is. Requiring half of that leaves
-  // room for a scheduling hiccup while still going to zero the moment the two
-  // counters stop overlapping.
-  const minimumSaving = (CONCURRENCY_YIELDS * CONCURRENCY_DELAY_MS) / 2
+  // Both counters' sleeps were pending at the same moment at least once.
   t.true(
-    saved > minimumSaving,
-    `Expected concurrent execution to save more than ${minimumSaving}ms over the serial baseline, but serial took ${serialElapsed}ms and concurrent took ${concurrentElapsed}ms (saved ${saved}ms)`,
+    concurrentProbe.maxInFlight >= 2,
+    `Expected the two counters' sleeps to overlap, but at most ${concurrentProbe.maxInFlight} was pending at once`,
   )
 })
