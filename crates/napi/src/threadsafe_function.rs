@@ -512,6 +512,29 @@ impl<
   }
 }
 
+/// Boxes `data` and queues it on the threadsafe function.
+///
+/// Node-API only takes ownership of the data pointer when the call succeeds. On any other
+/// status (`napi_queue_full`, `napi_closing`, ...) nothing was queued and the caller still owns
+/// the data, so the box is reclaimed here instead of being leaked.
+///
+/// # Safety
+///
+/// `raw_tsfn` must be a valid threadsafe function whose `call_js_cb` expects a `Box<Data>`.
+unsafe fn call_threadsafe_function_with_data<Data>(
+  raw_tsfn: sys::napi_threadsafe_function,
+  data: Data,
+  mode: ThreadsafeFunctionCallMode,
+) -> sys::napi_status {
+  let data_ptr = Box::into_raw(Box::new(data));
+  let status =
+    unsafe { sys::napi_call_threadsafe_function(raw_tsfn, data_ptr.cast(), mode.into()) };
+  if status != sys::Status::napi_ok {
+    drop(unsafe { Box::from_raw(data_ptr) });
+  }
+  status
+}
+
 impl<
     T: 'static,
     Return: FromNapiValue,
@@ -530,17 +553,14 @@ impl<
       }
 
       unsafe {
-        sys::napi_call_threadsafe_function(
+        call_threadsafe_function_with_data(
           self.handle.get_raw(),
-          Box::into_raw(Box::new(value.map(|data| {
-            ThreadsafeFunctionCallJsBackData {
-              data,
-              call_variant: ThreadsafeFunctionCallVariant::Direct,
-              callback: Box::new(|_d: Result<Return>, _| Ok(())),
-            }
-          })))
-          .cast(),
-          mode.into(),
+          value.map(|data| ThreadsafeFunctionCallJsBackData {
+            data,
+            call_variant: ThreadsafeFunctionCallVariant::Direct,
+            callback: Box::new(|_d: Result<Return>, _| Ok(())),
+          }),
+          mode,
         )
       }
       .into()
@@ -560,17 +580,14 @@ impl<
       }
 
       unsafe {
-        sys::napi_call_threadsafe_function(
+        call_threadsafe_function_with_data(
           self.handle.get_raw(),
-          Box::into_raw(Box::new(value.map(|data| {
-            ThreadsafeFunctionCallJsBackData {
-              data,
-              call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-              callback: Box::new(move |d: Result<Return>, env: Env| cb(d, env)),
-            }
-          })))
-          .cast(),
-          mode.into(),
+          value.map(|data| ThreadsafeFunctionCallJsBackData {
+            data,
+            call_variant: ThreadsafeFunctionCallVariant::WithCallback,
+            callback: Box::new(move |d: Result<Return>, env: Env| cb(d, env)),
+          }),
+          mode,
         )
       }
       .into()
@@ -588,23 +605,20 @@ impl<
 
       check_status!(
         unsafe {
-          sys::napi_call_threadsafe_function(
+          call_threadsafe_function_with_data(
             self.handle.get_raw(),
-            Box::into_raw(Box::new(value.map(|data| {
-              ThreadsafeFunctionCallJsBackData {
-                data,
-                call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-                callback: Box::new(move |d: Result<Return>, _| {
-                  sender
-                    .send(d)
-                    // The only reason for send to return Err is if the receiver isn't listening
-                    // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
-                    .or(Ok(()))
-                }),
-              }
-            })))
-            .cast(),
-            ThreadsafeFunctionCallMode::NonBlocking.into(),
+            value.map(|data| ThreadsafeFunctionCallJsBackData {
+              data,
+              call_variant: ThreadsafeFunctionCallVariant::WithCallback,
+              callback: Box::new(move |d: Result<Return>, _| {
+                sender
+                  .send(d)
+                  // The only reason for send to return Err is if the receiver isn't listening
+                  // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                  .or(Ok(()))
+              }),
+            }),
+            ThreadsafeFunctionCallMode::NonBlocking,
           )
         },
         "Threadsafe function call_async failed"
@@ -645,15 +659,14 @@ impl<
       }
 
       unsafe {
-        sys::napi_call_threadsafe_function(
+        call_threadsafe_function_with_data(
           self.handle.get_raw(),
-          Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
+          ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::Direct,
             callback: Box::new(|_d: Result<Return>, _: Env| Ok(())),
-          }))
-          .cast(),
-          mode.into(),
+          },
+          mode,
         )
       }
       .into()
@@ -673,15 +686,14 @@ impl<
       }
 
       unsafe {
-        sys::napi_call_threadsafe_function(
+        call_threadsafe_function_with_data(
           self.handle.get_raw(),
-          Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
+          ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
             callback: Box::new(cb),
-          }))
-          .cast(),
-          mode.into(),
+          },
+          mode,
         )
       }
       .into()
@@ -704,9 +716,9 @@ impl<
       }
 
       check_status!(unsafe {
-        sys::napi_call_threadsafe_function(
+        call_threadsafe_function_with_data(
           self.handle.get_raw(),
-          Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
+          ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
             callback: Box::new(move |d, _| {
@@ -718,9 +730,8 @@ impl<
                   .or(Ok(()))
               })
             }),
-          }))
-          .cast(),
-          ThreadsafeFunctionCallMode::NonBlocking.into(),
+          },
+          ThreadsafeFunctionCallMode::NonBlocking,
         )
       })
     })?;
@@ -751,9 +762,9 @@ impl<
 
       check_status!(
         unsafe {
-          sys::napi_call_threadsafe_function(
+          call_threadsafe_function_with_data(
             self.handle.get_raw(),
-            Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
+            ThreadsafeFunctionCallJsBackData {
               data: value,
               call_variant: ThreadsafeFunctionCallVariant::WithCallback,
               callback: Box::new(move |d: Result<Return>, _| {
@@ -763,9 +774,8 @@ impl<
                   // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
                   .or(Ok(()))
               }),
-            }))
-            .cast(),
-            ThreadsafeFunctionCallMode::NonBlocking.into(),
+            },
+            ThreadsafeFunctionCallMode::NonBlocking,
           )
         },
         "Threadsafe function call_async_catch failed"

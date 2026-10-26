@@ -1406,6 +1406,16 @@ export declare function issue3608ReadOther(other: Issue3608Other): Array<number>
 
 export declare function issue3608ReadOtherInstance(other: Issue3608Other): Array<number>
 
+export interface Issue3655Outcome {
+  firstCallQueued: boolean
+  queueFull: number
+  dropped: number
+}
+
+export declare function issue3655RejectedCalls(callback: () => void, api: string): Issue3655Outcome
+
+export declare function issue3655RejectedCallsCalleeHandled(callback: () => void, api: string): Issue3655Outcome
+
 export declare function joinPath(path: string, segment: string): string
 
 export declare function jsErrorCallback(value: unknown): Array<Error>
