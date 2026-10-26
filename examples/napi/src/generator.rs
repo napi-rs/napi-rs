@@ -239,15 +239,10 @@ impl AsyncGenerator for DelayedCounter {
     self.current += 1;
 
     async move {
-      if let Some(probe) = &probe {
-        let in_flight = probe.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
-        probe.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
-      }
+      // Dropped when the sleep ends or the future is cancelled
+      let _sleep_guard = probe.map(SleepOverlapGuard::new);
       // Actually sleep - this is truly async!
       tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-      if let Some(probe) = &probe {
-        probe.in_flight.fetch_sub(1, Ordering::SeqCst);
-      }
 
       if current >= max {
         Ok(None) // Signal completion
@@ -287,6 +282,22 @@ impl DelayedCounter {
 struct SleepOverlapCounts {
   in_flight: AtomicU32,
   max_in_flight: AtomicU32,
+}
+
+struct SleepOverlapGuard(Arc<SleepOverlapCounts>);
+
+impl SleepOverlapGuard {
+  fn new(counts: Arc<SleepOverlapCounts>) -> Self {
+    let in_flight = counts.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+    counts.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
+    SleepOverlapGuard(counts)
+  }
+}
+
+impl Drop for SleepOverlapGuard {
+  fn drop(&mut self) {
+    self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
+  }
 }
 
 /// Counts how many `DelayedCounter` sleeps are pending at the same time
