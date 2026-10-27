@@ -550,6 +550,19 @@ export declare class SleepOverlapProbe {
   get maxInFlight(): number
 }
 
+/**
+ * Static methods and factories keep their default descriptor (not writable,
+ * not enumerable, not configurable) unless a flag is written out.
+ */
+export declare class StaticPropertyFlags {
+  static defaultFlags(): number
+  static writableConfigurable(): number
+  static enumerableOnly(): number
+  static allOff(): number
+  static create(): StaticPropertyFlags
+  instanceNotWritable(): number
+}
+
 /** Class members exposed through the global symbol registry. */
 export declare class SymbolNamedClass {
   constructor(value: number)

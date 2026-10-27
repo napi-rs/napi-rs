@@ -1736,6 +1736,11 @@ impl NapiImpl {
       if item.configurable {
         attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
       }
+      let is_static =
+        item.fn_self.is_none() && matches!(item.kind, FnKind::Normal | FnKind::Factory);
+      if is_static {
+        attribute |= super::PROPERTY_ATTRIBUTE_STATIC;
+      }
 
       // String and symbol keys, and static and instance members, are distinct.
       let property_key = (
@@ -1744,7 +1749,7 @@ impl NapiImpl {
           .symbol_for
           .as_ref()
           .map_or(&item.js_name, |(name, _)| name),
-        item.fn_self.is_none() && matches!(item.kind, FnKind::Normal | FnKind::Factory),
+        is_static,
       );
       let property = match &item.symbol_for {
         Some((key, span)) => {
@@ -1800,13 +1805,8 @@ impl NapiImpl {
         }
         FnKind::Getter => quote! { .with_getter(#intermediate_name) },
         FnKind::Setter => quote! { .with_setter(#intermediate_name) },
-        _ => {
-          if item.fn_self.is_some() {
-            quote! { .with_method(#intermediate_name) }
-          } else {
-            quote! { .with_method(#intermediate_name).with_property_attributes(napi::bindgen_prelude::PropertyAttributes::Static) }
-          }
-        }
+        // Static members carry `PROPERTY_ATTRIBUTE_STATIC` in `attribute`.
+        _ => quote! { .with_method(#intermediate_name) },
       };
 
       appendix.to_tokens(prop);

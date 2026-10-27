@@ -952,6 +952,7 @@ module.exports.RenamedForIssue3427 = nativeBinding.RenamedForIssue3427
 module.exports.RenamedForIssue3427Rust = nativeBinding.RenamedForIssue3427Rust
 module.exports.Selector = nativeBinding.Selector
 module.exports.SleepOverlapProbe = nativeBinding.SleepOverlapProbe
+module.exports.StaticPropertyFlags = nativeBinding.StaticPropertyFlags
 module.exports.SymbolNamedClass = nativeBinding.SymbolNamedClass
 module.exports.SymbolNamedFields = nativeBinding.SymbolNamedFields
 module.exports.Thing = nativeBinding.Thing
