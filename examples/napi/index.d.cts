@@ -1416,6 +1416,13 @@ export declare function issue3655RejectedCalls(callback: () => void, api: string
 
 export declare function issue3655RejectedCallsCalleeHandled(callback: () => void, api: string): Issue3655Outcome
 
+/**
+ * A rejected payload whose `Drop` locks the same threadsafe function must not
+ * block the call that rejected it. Returns how many rejected payloads were
+ * dropped.
+ */
+export declare function issue3655RejectedPayloadLocksHandle(callback: () => void): number
+
 export declare function joinPath(path: string, segment: string): string
 
 export declare function jsErrorCallback(value: unknown): Array<Error>

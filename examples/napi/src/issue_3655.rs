@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use futures::FutureExt;
-use napi::{bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode};
+use napi::{
+  bindgen_prelude::*,
+  threadsafe_function::{ThreadsafeFunctionCallMode, ThreadsafeFunctionHandle},
+};
 
 // Repro coverage for napi-rs#3655: `napi_call_threadsafe_function` only takes
 // ownership of the data pointer when it returns `napi_ok`. On `napi_queue_full`
@@ -126,4 +129,45 @@ pub fn issue3655_rejected_calls_callee_handled(
     _ => return Err(Error::new(Status::InvalidArg, format!("Unknown api {api}"))),
   };
   Ok(outcome)
+}
+
+struct Issue3655LockingPayload {
+  handle: Arc<ThreadsafeFunctionHandle>,
+  drops: Arc<AtomicU32>,
+}
+
+impl Drop for Issue3655LockingPayload {
+  fn drop(&mut self) {
+    // Takes the write lock of the threadsafe function that rejected this
+    // payload. This only works if the payload is dropped after the call has
+    // released its read lock.
+    self.handle.with_write_aborted(|_aborted| {
+      self.drops.fetch_add(1, Ordering::SeqCst);
+    });
+  }
+}
+
+/// A rejected payload whose `Drop` locks the same threadsafe function must not
+/// block the call that rejected it. Returns how many rejected payloads were
+/// dropped.
+#[napi]
+pub fn issue3655_rejected_payload_locks_handle(callback: Function<(), ()>) -> Result<u32> {
+  let tsfn = callback
+    .build_threadsafe_function::<Issue3655LockingPayload>()
+    .max_queue_size::<1>()
+    .build_callback(|_| Ok(()))?;
+  let drops = Arc::new(AtomicU32::new(0));
+  let new_payload = || Issue3655LockingPayload {
+    handle: tsfn.handle.clone(),
+    drops: drops.clone(),
+  };
+  let first = tsfn.call(new_payload(), ThreadsafeFunctionCallMode::NonBlocking);
+  if first != Status::Ok {
+    return Err(Error::new(first, "The first call was not queued"));
+  }
+  let rejected = tsfn.call(new_payload(), ThreadsafeFunctionCallMode::NonBlocking);
+  if rejected != Status::QueueFull {
+    return Err(Error::new(rejected, "The second call was not rejected"));
+  }
+  Ok(drops.load(Ordering::SeqCst))
 }

@@ -1213,6 +1213,7 @@ module.exports.issue3608ReadOther = nativeBinding.issue3608ReadOther
 module.exports.issue3608ReadOtherInstance = nativeBinding.issue3608ReadOtherInstance
 module.exports.issue3655RejectedCalls = nativeBinding.issue3655RejectedCalls
 module.exports.issue3655RejectedCallsCalleeHandled = nativeBinding.issue3655RejectedCallsCalleeHandled
+module.exports.issue3655RejectedPayloadLocksHandle = nativeBinding.issue3655RejectedPayloadLocksHandle
 module.exports.joinPath = nativeBinding.joinPath
 module.exports.jsErrorCallback = nativeBinding.jsErrorCallback
 module.exports.jsErrorFromRetainedValue = nativeBinding.jsErrorFromRetainedValue
