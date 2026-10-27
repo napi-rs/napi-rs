@@ -95,6 +95,7 @@ impl Property {
     Default::default()
   }
 
+  /// Replaces any key set earlier on this `Property`.
   pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
     self.utf8_name = Some(CString::new(name)?);
     self.name = ptr::null_mut();
@@ -106,7 +107,7 @@ impl Property {
   }
 
   /// Stores a global symbol key, resolved in the current environment when the
-  /// property is defined.
+  /// property is defined. Replaces any key set earlier on this `Property`.
   /// Requires the `napi9` feature or a higher Node-API feature.
   #[cfg(feature = "napi9")]
   #[doc(hidden)]
@@ -117,6 +118,7 @@ impl Property {
     self
   }
 
+  /// Replaces any key set earlier on this `Property`.
   pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
     self.name = unsafe { T::to_napi_value(env.0, name)? };
     self.utf8_name = None;
@@ -208,7 +210,7 @@ impl Property {
   pub(crate) fn raw(&self, _env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
     let name = self.name;
     // Only the registry key is shared across environments, never a napi_value.
-    // Resolve before allocating closure data so a lookup error cannot leak it.
+    // The lookup runs before this property's closure data is allocated.
     #[cfg(feature = "napi9")]
     let name = if let Some(symbol_name) = &self.symbol_name {
       let mut symbol = ptr::null_mut();
