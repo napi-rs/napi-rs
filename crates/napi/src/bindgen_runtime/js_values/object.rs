@@ -11,7 +11,7 @@ use crate::{
   unregister_payload, unwrap_tagged_object, Callback, TaggedObject, Value,
 };
 #[cfg(feature = "napi5")]
-use crate::{Env, PropertyClosures};
+use crate::{Env, PropertyClosuresData};
 
 pub trait JsObjectValue<'env>: JsValue<'env> {
   /// Set the property value to the `Object`
@@ -1138,22 +1138,17 @@ pub(crate) unsafe extern "C" fn finalize_closures(
   len: *mut c_void,
 ) {
   let (length, capacity): (usize, usize) = *unsafe { Box::from_raw(len.cast()) };
-  let closures: Vec<*mut PropertyClosures> =
+  let closures: Vec<*mut PropertyClosuresData> =
     unsafe { Vec::from_raw_parts(data.cast(), length, capacity) };
+  unsafe { drop_property_closures(closures) };
+}
+
+/// Frees the data that `Property::raw` boxed for closure-backed accessors.
+#[cfg(feature = "napi5")]
+pub(crate) unsafe fn drop_property_closures(closures: Vec<*mut PropertyClosuresData>) {
   for closure_ptr in closures.into_iter() {
     if !closure_ptr.is_null() {
-      let closures = unsafe { Box::from_raw(closure_ptr) };
-      // Free the actual closure functions using the stored drop functions
-      if !closures.getter_closure.is_null() {
-        if let Some(drop_fn) = closures.getter_drop_fn {
-          unsafe { drop_fn(closures.getter_closure) };
-        }
-      }
-      if !closures.setter_closure.is_null() {
-        if let Some(drop_fn) = closures.setter_drop_fn {
-          unsafe { drop_fn(closures.setter_closure) };
-        }
-      }
+      drop(unsafe { Box::from_raw(closure_ptr) });
     }
   }
 }

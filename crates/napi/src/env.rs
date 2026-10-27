@@ -841,7 +841,19 @@ impl Env {
       .iter()
       .map(|prop| prop.raw(self.0))
       .collect::<Result<Vec<_>>>()?;
-    check_status!(unsafe {
+    // `raw()` boxed the data of closure-backed accessors. Node-API leaves that
+    // data to us. Freeing it when the constructor is collected is not safe: an
+    // accessor taken off the prototype can outlive the constructor. Free it
+    // when the environment is torn down instead, when no JavaScript can run.
+    #[cfg(feature = "napi5")]
+    let closures = properties
+      .iter()
+      .zip(raw_properties.iter())
+      .filter(|(property, _)| property.has_closure_data())
+      .map(|(_, descriptor)| descriptor.data.cast::<crate::PropertyClosuresData>())
+      .filter(|data| !data.is_null())
+      .collect::<Vec<_>>();
+    let status = unsafe {
       sys::napi_define_class(
         self.0,
         name.as_ptr().cast(),
@@ -852,7 +864,19 @@ impl Env {
         raw_properties.as_ptr(),
         &mut raw_result,
       )
-    })?;
+    };
+    #[cfg(feature = "napi5")]
+    if !closures.is_empty() {
+      if status == sys::Status::napi_ok {
+        self.add_env_cleanup_hook(closures, |closures| unsafe {
+          crate::bindgen_runtime::drop_property_closures(closures)
+        })?;
+      } else {
+        // No class holds the data, free it now.
+        unsafe { crate::bindgen_runtime::drop_property_closures(closures) };
+      }
+    }
+    check_status!(status)?;
 
     unsafe { Function::from_napi_value(self.0, raw_result) }
   }

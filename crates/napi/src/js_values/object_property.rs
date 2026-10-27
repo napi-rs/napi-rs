@@ -2,6 +2,8 @@ use std::convert::From;
 use std::ffi::c_void;
 use std::ffi::CString;
 use std::ptr;
+#[cfg(feature = "napi5")]
+use std::rc::Rc;
 
 use bitflags::bitflags;
 
@@ -30,6 +32,29 @@ impl Default for PropertyClosures {
   }
 }
 
+/// Owns one boxed accessor closure and drops it with the last reference.
+#[cfg(feature = "napi5")]
+pub(crate) struct OwnedClosure {
+  ptr: *mut c_void,
+  drop_fn: unsafe fn(*mut c_void),
+}
+
+#[cfg(feature = "napi5")]
+impl Drop for OwnedClosure {
+  fn drop(&mut self) {
+    unsafe { (self.drop_fn)(self.ptr) };
+  }
+}
+
+/// The callback data `Property::raw` boxes. `closures` comes first, so the
+/// trampolines can read the data as a `PropertyClosures`.
+#[cfg(feature = "napi5")]
+#[repr(C)]
+pub(crate) struct PropertyClosuresData {
+  closures: PropertyClosures,
+  _owners: [Option<Rc<OwnedClosure>>; 2],
+}
+
 #[derive(Clone)]
 pub struct Property {
   utf8_name: Option<CString>,
@@ -45,6 +70,10 @@ pub struct Property {
   pub(crate) is_ctor: bool,
   #[cfg(feature = "napi5")]
   pub(crate) closures: PropertyClosures,
+  #[cfg(feature = "napi5")]
+  getter_owner: Option<Rc<OwnedClosure>>,
+  #[cfg(feature = "napi5")]
+  setter_owner: Option<Rc<OwnedClosure>>,
 }
 
 impl Default for Property {
@@ -63,6 +92,10 @@ impl Default for Property {
       is_ctor: Default::default(),
       #[cfg(feature = "napi5")]
       closures: PropertyClosures::default(),
+      #[cfg(feature = "napi5")]
+      getter_owner: None,
+      #[cfg(feature = "napi5")]
+      setter_owner: None,
     }
   }
 }
@@ -150,10 +183,15 @@ impl Property {
   {
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
-    self.closures.getter_closure = closure_data_ptr.cast();
-    self.closures.getter_drop_fn = Some(|ptr: *mut c_void| unsafe {
+    let drop_fn = |ptr: *mut c_void| unsafe {
       drop(Box::from_raw(ptr as *mut F));
-    });
+    };
+    self.closures.getter_closure = closure_data_ptr.cast();
+    self.closures.getter_drop_fn = Some(drop_fn);
+    self.getter_owner = Some(Rc::new(OwnedClosure {
+      ptr: closure_data_ptr.cast(),
+      drop_fn,
+    }));
 
     let fun = crate::trampoline_getter::<R, F>;
     self.getter = Some(fun);
@@ -173,10 +211,15 @@ impl Property {
   {
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
-    self.closures.setter_closure = closure_data_ptr.cast();
-    self.closures.setter_drop_fn = Some(|ptr: *mut c_void| unsafe {
+    let drop_fn = |ptr: *mut c_void| unsafe {
       drop(Box::from_raw(ptr as *mut F));
-    });
+    };
+    self.closures.setter_closure = closure_data_ptr.cast();
+    self.closures.setter_drop_fn = Some(drop_fn);
+    self.setter_owner = Some(Rc::new(OwnedClosure {
+      ptr: closure_data_ptr.cast(),
+      drop_fn,
+    }));
 
     let fun = crate::trampoline_setter::<V, F>;
     self.setter = Some(fun);
@@ -237,7 +280,11 @@ impl Property {
       ptr::null_mut()
     } else {
       // Only allocate when we actually have closures
-      Box::into_raw(Box::new(self.closures)).cast()
+      Box::into_raw(Box::new(PropertyClosuresData {
+        closures: self.closures,
+        _owners: [self.getter_owner.clone(), self.setter_owner.clone()],
+      }))
+      .cast()
     };
 
     Ok(sys::napi_property_descriptor {

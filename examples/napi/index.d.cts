@@ -924,6 +924,9 @@ export declare function cleanupReentrantBorrowOrderTestTargets(): number
  */
 export declare function closeBorrowGate(id: number): void
 
+/** How many accessor closures have been dropped in this process. */
+export declare function closureDropCount(): number
+
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
   noDocumentAll?: boolean
@@ -1150,6 +1153,15 @@ declare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }
+
+/** Passes one `&[Property]` to two `Env::define_class` calls. */
+export declare function defineClassTwiceWithClosures(): Array<new () => { value: number; readonly lastSet?: number }>
+
+/** A class whose `value` accessor is backed by closures. */
+export declare function defineClassWithClosures(): new () => { value: number; readonly lastSet?: number }
+
+/** Passes one `&[Property]` to `define_properties` on two objects. */
+export declare function definePropertiesTwiceWithClosures(): Array<{ value: number; readonly lastSet?: number }>
 
 export declare function defineSymbolClass(name: string): new () => object
 
