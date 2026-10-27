@@ -44,4 +44,18 @@ pub struct UnsupportedClass {}
 #[napi(symbol_name = "module")]
 pub mod unsupported_module {}
 
+#[napi]
+impl Example {
+  #[napi(getter = name, symbol_name = "name")]
+  pub fn named_getter(&self) -> u32 {
+    0
+  }
+}
+
+#[napi]
+pub struct SkippedField {
+  #[napi(skip, symbol_name = "value")]
+  pub value: u32,
+}
+
 fn main() {}

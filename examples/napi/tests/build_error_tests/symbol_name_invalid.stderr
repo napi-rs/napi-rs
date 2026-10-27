@@ -10,7 +10,7 @@ error: symbol_name cannot be combined with js_name
 11 |   #[napi(js_name = "name", symbol_name = "name")]
    |                                          ^^^^^^
 
-error: symbol_name is only supported on class methods, accessors and fields
+error: symbol_name is not supported on constructors
   --> tests/build_error_tests/symbol_name_invalid.rs:17:37
    |
 17 |   #[napi(constructor, symbol_name = "constructor")]
@@ -51,3 +51,15 @@ error: symbol_name is only supported on class methods, accessors and fields
    |
 44 | #[napi(symbol_name = "module")]
    |                      ^^^^^^^^
+
+error: symbol_name cannot be combined with a getter or setter name
+  --> tests/build_error_tests/symbol_name_invalid.rs:49:39
+   |
+49 |   #[napi(getter = name, symbol_name = "name")]
+   |                                       ^^^^^^
+
+error: symbol_name has no effect on a skipped field
+  --> tests/build_error_tests/symbol_name_invalid.rs:57:30
+   |
+57 |   #[napi(skip, symbol_name = "value")]
+   |                              ^^^^^^^

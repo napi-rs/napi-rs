@@ -596,7 +596,19 @@ fn napi_fn_from_decl(
         "symbol_name cannot be combined with js_name",
       ));
     }
-    if parent.is_none() || opts.constructor().is_some() || opts.module_exports().is_some() {
+    if matches!(opts.getter(), Some(Some(_))) || matches!(opts.setter(), Some(Some(_))) {
+      return Err(Diagnostic::span_error(
+        span,
+        "symbol_name cannot be combined with a getter or setter name",
+      ));
+    }
+    if opts.constructor().is_some() {
+      return Err(Diagnostic::span_error(
+        span,
+        "symbol_name is not supported on constructors",
+      ));
+    }
+    if parent.is_none() || opts.module_exports().is_some() {
       return Err(Diagnostic::span_error(
         span,
         "symbol_name is only supported on class methods, accessors and fields",
@@ -1225,6 +1237,12 @@ fn convert_fields(
         return Err(Diagnostic::span_error(
           span,
           "symbol_name is only supported on class fields",
+        ));
+      }
+      if field_opts.skip().is_some() {
+        return Err(Diagnostic::span_error(
+          span,
+          "symbol_name has no effect on a skipped field",
         ));
       }
     }
