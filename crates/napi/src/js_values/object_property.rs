@@ -250,6 +250,11 @@ impl Property {
     self
   }
 
+  #[cfg(all(feature = "napi5", not(feature = "noop")))]
+  pub(crate) fn has_owned_closure(&self) -> bool {
+    self.getter_owner.is_some() || self.setter_owner.is_some()
+  }
+
   #[cfg(feature = "napi5")]
   pub(crate) fn has_closure_data(&self) -> bool {
     self.data.is_null()
@@ -391,5 +396,23 @@ mod tests {
       assert!(property.utf8_name.is_none());
       assert!(property.name.is_null());
     }
+  }
+
+  #[cfg(not(feature = "noop"))]
+  #[test]
+  #[should_panic(expected = "register_class does not accept closure-backed properties")]
+  fn register_class_rejects_closure_properties() {
+    struct ClosureClass;
+    let property = Property::new()
+      .with_utf8_name("value")
+      .unwrap()
+      .with_getter_closure(|_env, _this| Ok(1u32));
+    crate::bindgen_runtime::register_class(
+      std::any::TypeId::of::<ClosureClass>(),
+      None,
+      "ClosureClass",
+      vec![property],
+      false,
+    );
   }
 }
