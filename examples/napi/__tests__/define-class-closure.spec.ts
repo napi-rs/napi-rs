@@ -18,8 +18,9 @@ function run(scenario: string, execArgv: string[] = []) {
   return { result, output, drops: /drops (\d+)/.exec(result.stdout)?.[1] }
 }
 
-// The worker scenarios count drops at worker teardown, which WASI lanes do
-// not run through the native env cleanup path.
+// The worker scenarios count drops at worker teardown. On WASI the closures
+// are never dropped, because emnapi runs env cleanup hooks while JavaScript
+// can still call the accessors.
 test.skipIf(Boolean(process.env.WASI_TEST))(
   'closure accessors passed to Env::define_class are dropped at env teardown',
   (t) => {
@@ -51,4 +52,15 @@ test('define_class accessors keep their closures after the constructor is collec
   t.is(result.status, 0, output)
   t.regex(result.stdout, /kept 1500\/1500/, output)
   t.is(drops, '0', output)
+})
+
+test('define_class accessors still work after env cleanup', (t) => {
+  for (const scenario of ['exit', 'dispose']) {
+    const { result, output, drops } = run(scenario)
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, `${scenario}: ${output}`)
+    t.is(result.status, 0, `${scenario}: ${output}`)
+    t.regex(result.stdout, /get 42 42\b/, `${scenario}: ${output}`)
+    t.is(drops, '0', `${scenario}: ${output}`)
+  }
 })
