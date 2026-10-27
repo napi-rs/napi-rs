@@ -70,7 +70,8 @@ test('symbol names are exact registry keys, including empty, Unicode and NUL key
 test('symbols are absent from string lookup and enumeration but remain reflectable', (t) => {
   const value = new SymbolNamedClass(3)
   const prototype = SymbolNamedClass.prototype
-  // Both the symbol key and the Rust-derived name of every instance member.
+  // Symbol keys and Rust-derived names of the instance members (`_value` and
+  // `_method` are real string-key controls, so they are left out).
   for (const key of [
     'napi.test.field',
     'field',
