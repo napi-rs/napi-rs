@@ -143,6 +143,8 @@ fn test_define_properties(ctx: CallContext) -> Result<()> {
   Ok(())
 }
 
+// Calls the macro-internal `with_symbol_name` on purpose to cover the shared
+// descriptor path (`define_properties`).
 #[cfg(feature = "latest")]
 #[js_function(2)]
 fn test_define_symbol_property(ctx: CallContext) -> Result<()> {

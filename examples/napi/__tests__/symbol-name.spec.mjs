@@ -181,7 +181,7 @@ test('declarations omit symbol members and retain constructor arguments', async 
 
 for (const name of ['napi.test.property', '', '内部\0属性']) {
   for (const kind of ['object', 'class']) {
-    test(`public ${kind} definitions resolve symbol name ${JSON.stringify(name)}`, (t) => {
+    test(`descriptor path: ${kind} definitions resolve symbol key ${JSON.stringify(name)}`, (t) => {
       const value =
         kind === 'object'
           ? defineSymbolObject(name)

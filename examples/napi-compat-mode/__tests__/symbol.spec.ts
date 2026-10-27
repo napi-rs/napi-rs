@@ -21,7 +21,7 @@ const testNapi9 = napiVersion >= 9 ? test : test.skip
 
 for (const name of ['napi.test.property', '', '内部\0属性']) {
   testNapi9(
-    `define_properties resolves symbol name ${JSON.stringify(name)}`,
+    `descriptor path: define_properties resolves symbol key ${JSON.stringify(name)}`,
     (t) => {
       const object: Record<PropertyKey, unknown> = {}
       bindings.testDefineSymbolProperty(object, name)

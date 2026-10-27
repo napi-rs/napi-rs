@@ -137,6 +137,8 @@ pub fn define_symbol_class<'env>(env: &'env Env, name: String) -> Result<Functio
   )
 }
 
+// Calls the macro-internal `with_symbol_name` on purpose to cover the shared
+// descriptor path (`define_properties`, `Env::define_class`).
 fn symbol_properties(env: &Env, name: &str) -> Result<[Property; 3]> {
   Ok([
     Property::new()

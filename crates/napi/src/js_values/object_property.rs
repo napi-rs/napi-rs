@@ -109,6 +109,9 @@ impl Property {
   /// Stores a global symbol key, resolved in the current environment when the
   /// property is defined. Replaces any key set earlier on this `Property`.
   /// Requires the `napi9` feature or a higher Node-API feature.
+  ///
+  /// Used by `#[napi(symbol_for)]` codegen. Not public API and not covered by
+  /// semver.
   #[cfg(feature = "napi9")]
   #[doc(hidden)]
   pub fn with_symbol_name(mut self, name: &str) -> Self {
