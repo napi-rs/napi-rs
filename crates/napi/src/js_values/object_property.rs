@@ -16,7 +16,10 @@ use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, JsValue, Result};
 pub struct PropertyClosures {
   pub setter_closure: *mut c_void,
   pub getter_closure: *mut c_void,
+  /// Still filled, but no longer used to drop the closure: the boxed callback
+  /// data owns it now. Kept so this public struct does not change.
   pub setter_drop_fn: Option<unsafe fn(*mut c_void)>,
+  /// See `setter_drop_fn`.
   pub getter_drop_fn: Option<unsafe fn(*mut c_void)>,
 }
 

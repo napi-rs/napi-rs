@@ -830,6 +830,10 @@ impl Env {
   }
 
   /// Create JavaScript class
+  ///
+  /// Closures passed through `with_getter_closure` or `with_setter_closure`
+  /// live as long as the environment, not the class: they are dropped when
+  /// the environment is torn down.
   pub fn define_class<Args: JsValuesTupleIntoVec>(
     &self,
     name: &str,
@@ -837,22 +841,31 @@ impl Env {
     properties: &[Property],
   ) -> Result<Function<'_, Args, Unknown<'_>>> {
     let mut raw_result = ptr::null_mut();
-    let raw_properties = properties
-      .iter()
-      .map(|prop| prop.raw(self.0))
-      .collect::<Result<Vec<_>>>()?;
-    // `raw()` boxed the data of closure-backed accessors. Node-API leaves that
+    let mut raw_properties = Vec::with_capacity(properties.len());
+    // `raw()` boxes the data of closure-backed accessors. Node-API leaves that
     // data to us. Freeing it when the constructor is collected is not safe: an
     // accessor taken off the prototype can outlive the constructor. Free it
     // when the environment is torn down instead, when no JavaScript can run.
     #[cfg(feature = "napi5")]
-    let closures = properties
-      .iter()
-      .zip(raw_properties.iter())
-      .filter(|(property, _)| property.has_closure_data())
-      .map(|(_, descriptor)| descriptor.data.cast::<crate::PropertyClosuresData>())
-      .filter(|data| !data.is_null())
-      .collect::<Vec<_>>();
+    let mut closures = Vec::new();
+    for property in properties {
+      let descriptor = match property.raw(self.0) {
+        Ok(descriptor) => descriptor,
+        Err(err) => {
+          // Free the data boxed for the properties before this one.
+          #[cfg(feature = "napi5")]
+          unsafe {
+            crate::bindgen_runtime::drop_property_closures(closures)
+          }
+          return Err(err);
+        }
+      };
+      #[cfg(feature = "napi5")]
+      if property.has_closure_data() && !descriptor.data.is_null() {
+        closures.push(descriptor.data.cast::<crate::PropertyClosuresData>());
+      }
+      raw_properties.push(descriptor);
+    }
     let status = unsafe {
       sys::napi_define_class(
         self.0,
