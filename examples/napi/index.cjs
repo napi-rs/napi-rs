@@ -946,6 +946,7 @@ module.exports.NotUseNullableClass = nativeBinding.NotUseNullableClass
 module.exports.NotWritableClass = nativeBinding.NotWritableClass
 module.exports.Optional = nativeBinding.Optional
 module.exports.OptionalBeforeRequiredClass = nativeBinding.OptionalBeforeRequiredClass
+module.exports.OptionalConditionalBeforeRequiredClass = nativeBinding.OptionalConditionalBeforeRequiredClass
 module.exports.PackageJsonReader = nativeBinding.PackageJsonReader
 module.exports.Reader = nativeBinding.Reader
 module.exports.ReentrantBorrowOrderTest = nativeBinding.ReentrantBorrowOrderTest

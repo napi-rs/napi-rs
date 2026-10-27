@@ -221,7 +221,9 @@ impl NapiStruct {
       false => (format!("{}: {}", js_name, arg), None),
       true => match self.use_nullable {
         false => {
-          let union_arg = if arg.contains("=>") {
+          // `| undefined` would bind to the return type of a function type
+          // or to the false branch of a conditional type.
+          let union_arg = if arg.contains("=>") || arg.contains("extends") {
             format!("({arg})")
           } else {
             arg.clone()

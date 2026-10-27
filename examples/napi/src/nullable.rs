@@ -89,3 +89,11 @@ struct OptionalBeforeRequiredClass {
   pub required_number_field: u32,
   pub optional_string_field: Option<String>,
 }
+
+/// `| undefined` stays outside a conditional `ts_type` when the `?` is dropped.
+#[napi(constructor)]
+struct OptionalConditionalBeforeRequiredClass {
+  #[napi(ts_type = "number extends number ? number : never")]
+  pub optional_conditional_field: Option<u32>,
+  pub required_number_field: u32,
+}
