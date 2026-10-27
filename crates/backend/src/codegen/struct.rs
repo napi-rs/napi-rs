@@ -1117,7 +1117,10 @@ impl NapiStruct {
       }
 
       let property = match &field.symbol_name {
-        Some(symbol_name) => quote! { napi::symbol_named_property!(#symbol_name) },
+        // Spanned so a missing `napi9` points at the `symbol_name` attribute.
+        Some((symbol_name, span)) => {
+          quote_spanned! { *span=> napi::symbol_named_property!(#symbol_name) }
+        }
         None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
       };
       let mut prop = quote! {
@@ -1737,11 +1740,16 @@ impl NapiImpl {
       // String and symbol keys, and static and instance members, are distinct.
       let property_key = (
         item.symbol_name.is_some(),
-        item.symbol_name.as_ref().unwrap_or(&item.js_name),
+        item
+          .symbol_name
+          .as_ref()
+          .map_or(&item.js_name, |(name, _)| name),
         item.fn_self.is_none() && matches!(item.kind, FnKind::Normal | FnKind::Factory),
       );
       let property = match &item.symbol_name {
-        Some(symbol_name) => quote! { napi::symbol_named_property!(#symbol_name) },
+        Some((symbol_name, span)) => {
+          quote_spanned! { *span=> napi::symbol_named_property!(#symbol_name) }
+        }
         None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
       };
       let prop = props.entry(property_key).or_insert_with(|| {

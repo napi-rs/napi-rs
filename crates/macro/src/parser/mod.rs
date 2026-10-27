@@ -588,7 +588,9 @@ fn napi_fn_from_decl(
   parent: Option<&Ident>,
   parent_js_name: Option<String>,
 ) -> BindgenResult<NapiFn> {
-  let symbol_name = opts.symbol_name().map(|(name, _)| name.to_owned());
+  let symbol_name = opts
+    .symbol_name()
+    .map(|(name, span)| (name.to_owned(), span));
   if let Some((_, span)) = opts.symbol_name() {
     if opts.js_name().is_some() {
       return Err(Diagnostic::span_error(
@@ -1225,7 +1227,9 @@ fn convert_fields(
 
     let field_opts = BindgenAttrs::find(&mut field.attrs)?;
 
-    let symbol_name = field_opts.symbol_name().map(|(name, _)| name.to_owned());
+    let symbol_name = field_opts
+      .symbol_name()
+      .map(|(name, span)| (name.to_owned(), span));
     if let Some((_, span)) = field_opts.symbol_name() {
       if field_opts.js_name().is_some() {
         return Err(Diagnostic::span_error(
