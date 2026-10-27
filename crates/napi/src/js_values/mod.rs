@@ -621,10 +621,29 @@ macro_rules! impl_object_methods {
 
       /// This method allows the efficient definition of multiple properties on a given object.
       pub fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
-        let property_descriptors = properties
-          .iter()
-          .map(|property| property.raw(self.0.env))
-          .collect::<Result<Vec<_>>>()?;
+        let mut property_descriptors = Vec::with_capacity(properties.len());
+        for property in properties {
+          match property.raw(self.0.env) {
+            Ok(descriptor) => property_descriptors.push(descriptor),
+            Err(err) => {
+              // Free the data boxed for the properties before this one.
+              #[cfg(feature = "napi5")]
+              unsafe {
+                crate::bindgen_runtime::drop_property_closures(
+                  properties
+                    .iter()
+                    .zip(property_descriptors.iter())
+                    .filter(|(property, descriptor)| {
+                      property.has_closure_data() && !descriptor.data.is_null()
+                    })
+                    .map(|(_, descriptor)| descriptor.data.cast())
+                    .collect(),
+                )
+              }
+              return Err(err);
+            }
+          }
+        }
         #[cfg(feature = "napi5")]
         {
           let mut closures = properties
