@@ -15,7 +15,9 @@ const {
 // this mirrors the upstream @emnapi/core v2 plugin split (v1 bundled these
 // implementations in the core runtime). The plugins are bundled into this
 // package so loading the runtime with @emnapi/core v1 does not resolve the
-// v2-only `@emnapi/core/plugins` package export.
+// v2-only `@emnapi/core/plugins` package export. v1 ignores the plugins
+// option. v2 must match the exact peer version: the bundled plugins depend
+// on private core context/ABI fields, which can change between prereleases.
 const {
   emnapiAsyncWorkPlugin,
   emnapiTSFNPlugin,

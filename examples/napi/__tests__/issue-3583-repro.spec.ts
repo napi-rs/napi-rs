@@ -18,6 +18,7 @@ import {
   readBorrowedCacheWithReentry,
   readBorrowedCacheWithSignal,
   shutdownRuntime,
+  waitForBorrowGateWaiters,
 } from '../index.cjs'
 
 // Regression coverage for napi-rs/napi-rs#3583: a synchronous `#[napi]`
@@ -60,16 +61,13 @@ async function collect(gc: () => void, times = 10): Promise<void> {
   }
 }
 
-// Poll until `count` tasks are blocked inside wait_borrow_gate — the only
-// reliable signal that a pool thread has actually picked the work up.
-async function waitForWaiters(gate: number, count: number): Promise<boolean> {
-  for (let i = 0; i < 10000; i++) {
-    if (borrowGateWaiters(gate) >= count) {
-      return true
-    }
-    await new Promise((resolve) => setImmediate(resolve))
-  }
-  return false
+// Wait until `count` tasks are blocked inside wait_borrow_gate — the only
+// reliable signal that a pool thread has actually picked the work up. The
+// wait ends when a task reaches the gate, not after a fixed number of event
+// loop turns: those take ~15ms in all, and a loaded runner can leave a pool
+// thread unscheduled for longer than that.
+async function waitForWaiters(gate: number, count: number): Promise<void> {
+  await waitForBorrowGateWaiters(gate, count)
 }
 
 // Wait until the waiter count stops growing — i.e. every thread the libuv
@@ -147,10 +145,7 @@ poolTest(
     // The task must be in-flight (blocked on the gate) before GC; without
     // rooting the wrapper would be collected here and the Box freed under it.
     try {
-      t.true(
-        await waitForWaiters(gate, 1),
-        'task did not start waiting on gate',
-      )
+      await waitForWaiters(gate, 1)
       await collect(gc)
       t.false(
         finalized.has(1),
@@ -194,10 +189,7 @@ poolTest(
     })()
 
     try {
-      t.true(
-        await waitForWaiters(gate, 1),
-        'task did not start waiting on gate',
-      )
+      await waitForWaiters(gate, 1)
       await collect(gc)
       t.false(
         finalized.has(2),
@@ -347,10 +339,7 @@ poolTest(
     })()
 
     try {
-      t.true(
-        await waitForWaiters(gate, 1),
-        'task did not start waiting on gate',
-      )
+      await waitForWaiters(gate, 1)
       await collect(gc)
       t.false(
         finalized.has(5),
@@ -391,10 +380,7 @@ poolTest(
     })()
 
     try {
-      t.true(
-        await waitForWaiters(gate, 1),
-        'async block did not start waiting on gate',
-      )
+      await waitForWaiters(gate, 1)
       await collect(gc)
       t.false(
         finalized.has(6),
@@ -437,7 +423,7 @@ async function expectRootedWhileTaskRuns(
   })()
 
   try {
-    t.true(await waitForWaiters(gate, 1), 'task did not start waiting on gate')
+    await waitForWaiters(gate, 1)
     await collect(gc)
     t.false(
       finalized.has(held),
@@ -537,14 +523,8 @@ poolTest(
     // Both tasks in-flight: GC must not collect the wrapper while either holds
     // the borrow.
     try {
-      t.true(
-        await waitForWaiters(gateFast, 1),
-        'first task did not start waiting',
-      )
-      t.true(
-        await waitForWaiters(gateSlow, 1),
-        'second task did not start waiting',
-      )
+      await waitForWaiters(gateFast, 1)
+      await waitForWaiters(gateSlow, 1)
       await collect(gc)
       t.false(
         finalized.has(10),
@@ -608,7 +588,7 @@ poolTest(
 
     try {
       // The nested zero-arg task started and is blocked on its gate.
-      t.true(await waitForWaiters(REENTRY_GATE, 1), 'nested task did not start')
+      await waitForWaiters(REENTRY_GATE, 1)
 
       // The outer scope's conversion ended with no claim: the wrapper must be
       // collectible even though the nested task is still blocked. Under the bug

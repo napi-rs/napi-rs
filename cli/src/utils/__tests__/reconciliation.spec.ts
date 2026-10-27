@@ -512,13 +512,22 @@ test('degraded acquisition heals when identity probes recover and reclaims a sta
     child.once('exit', () => resolvePid(child.pid as number))
   })
 
-  // Rewrite each owner with a guaranteed-dead PID: same real host identity,
-  // so the dead-PID check in processOwnerState proves staleness before any
-  // incarnation comparison.
+  // Rewrite each owner with a dead PID: same real host identity, so the
+  // dead-PID check in processOwnerState proves staleness. The OS may hand that
+  // PID to a new process before the lock is inspected (Windows recycles PIDs
+  // quickly), so also record an incarnation in this platform's format that no
+  // live process can have: a reused PID is then proven stale by the
+  // incarnation mismatch instead of blocking as a live owner.
+  const unmatchableIncarnation =
+    process.platform === 'linux'
+      ? 'linux-proc:00000000-0000-0000-0000-000000000000:0'
+      : process.platform === 'win32'
+        ? 'windows-start:0'
+        : 'ps-lstart:AA'
   for (const { name, content } of recorded) {
     const owner = JSON.parse(content)
     owner.pid = deadPid
-    owner.incarnation = null
+    owner.incarnation = unmatchableIncarnation
     await writeFile(join(t.context.tmpDir, name), JSON.stringify(owner))
   }
 
