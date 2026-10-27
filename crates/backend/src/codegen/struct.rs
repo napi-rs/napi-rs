@@ -1116,10 +1116,10 @@ impl NapiStruct {
         attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
       }
 
-      let property = match &field.symbol_name {
-        // Spanned so a missing `napi9` points at the `symbol_name` attribute.
-        Some((symbol_name, span)) => {
-          quote_spanned! { *span=> napi::symbol_named_property!(#symbol_name) }
+      let property = match &field.symbol_for {
+        // Spanned so a missing `napi9` points at the `symbol_for` attribute.
+        Some((key, span)) => {
+          quote_spanned! { *span=> napi::symbol_for_property!(#key) }
         }
         None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
       };
@@ -1739,16 +1739,16 @@ impl NapiImpl {
 
       // String and symbol keys, and static and instance members, are distinct.
       let property_key = (
-        item.symbol_name.is_some(),
+        item.symbol_for.is_some(),
         item
-          .symbol_name
+          .symbol_for
           .as_ref()
           .map_or(&item.js_name, |(name, _)| name),
         item.fn_self.is_none() && matches!(item.kind, FnKind::Normal | FnKind::Factory),
       );
-      let property = match &item.symbol_name {
-        Some((symbol_name, span)) => {
-          quote_spanned! { *span=> napi::symbol_named_property!(#symbol_name) }
+      let property = match &item.symbol_for {
+        Some((key, span)) => {
+          quote_spanned! { *span=> napi::symbol_for_property!(#key) }
         }
         None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
       };

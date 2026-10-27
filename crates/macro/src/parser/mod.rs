@@ -588,32 +588,32 @@ fn napi_fn_from_decl(
   parent: Option<&Ident>,
   parent_js_name: Option<String>,
 ) -> BindgenResult<NapiFn> {
-  let symbol_name = opts
-    .symbol_name()
+  let symbol_for = opts
+    .symbol_for()
     .map(|(name, span)| (name.to_owned(), span));
-  if let Some((_, span)) = opts.symbol_name() {
+  if let Some((_, span)) = opts.symbol_for() {
     if opts.js_name().is_some() {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_name cannot be combined with js_name",
+        "symbol_for cannot be combined with js_name",
       ));
     }
     if matches!(opts.getter(), Some(Some(_))) || matches!(opts.setter(), Some(Some(_))) {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_name cannot be combined with a getter or setter name",
+        "symbol_for cannot be combined with a getter or setter name",
       ));
     }
     if opts.constructor().is_some() {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_name is not supported on constructors",
+        "symbol_for is not supported on constructors",
       ));
     }
     if parent.is_none() || opts.module_exports().is_some() {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_name is only supported on class methods, accessors and fields",
+        "symbol_for is only supported on class methods, accessors and fields",
       ));
     }
   }
@@ -906,7 +906,7 @@ fn napi_fn_from_decl(
     Ok(NapiFn {
       name: ident.clone(),
       js_name,
-      symbol_name: symbol_name.clone(),
+      symbol_for: symbol_for.clone(),
       module_exports: opts.module_exports().is_some(),
       args,
       ret,
@@ -927,7 +927,7 @@ fn napi_fn_from_decl(
       ts_generic_types: opts.ts_generic_types().map(|(m, _)| m.to_owned()),
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
-      skip_typescript: opts.skip_typescript().is_some() || symbol_name.is_some(),
+      skip_typescript: opts.skip_typescript().is_some() || symbol_for.is_some(),
       parent_is_generator,
       parent_is_async_generator,
       writable: opts.writable(),
@@ -944,10 +944,10 @@ fn napi_fn_from_decl(
 impl ParseNapi for syn::Item {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: &BindgenAttrs) -> BindgenResult<Napi> {
     if !matches!(self, syn::Item::Fn(_)) {
-      if let Some((_, span)) = opts.symbol_name() {
+      if let Some((_, span)) = opts.symbol_for() {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_name is only supported on class methods, accessors and fields",
+          "symbol_for is only supported on class methods, accessors and fields",
         ));
       }
     }
@@ -1227,26 +1227,26 @@ fn convert_fields(
 
     let field_opts = BindgenAttrs::find(&mut field.attrs)?;
 
-    let symbol_name = field_opts
-      .symbol_name()
+    let symbol_for = field_opts
+      .symbol_for()
       .map(|(name, span)| (name.to_owned(), span));
-    if let Some((_, span)) = field_opts.symbol_name() {
+    if let Some((_, span)) = field_opts.symbol_for() {
       if field_opts.js_name().is_some() {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_name cannot be combined with js_name",
+          "symbol_for cannot be combined with js_name",
         ));
       }
       if !allow_symbol {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_name is only supported on class fields",
+          "symbol_for is only supported on class fields",
         ));
       }
       if field_opts.skip().is_some() {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_name has no effect on a skipped field",
+          "symbol_for has no effect on a skipped field",
         ));
       }
     }
@@ -1305,7 +1305,7 @@ fn convert_fields(
     napi_fields.push(NapiStructField {
       name,
       js_name,
-      symbol_name,
+      symbol_for,
       ty,
       getter: !ignored,
       setter: !(ignored || readonly),

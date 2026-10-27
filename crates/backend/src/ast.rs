@@ -6,7 +6,7 @@ use syn::{Attribute, Expr, Type};
 pub struct NapiFn {
   pub name: Ident,
   pub js_name: String,
-  pub symbol_name: Option<(String, Span)>,
+  pub symbol_for: Option<(String, Span)>,
   pub module_exports: bool,
   pub attrs: Vec<Attribute>,
   pub args: Vec<NapiFnArg>,
@@ -164,7 +164,7 @@ pub struct NapiStructuredEnumVariant {
 pub struct NapiStructField {
   pub name: syn::Member,
   pub js_name: String,
-  pub symbol_name: Option<(String, Span)>,
+  pub symbol_for: Option<(String, Span)>,
   pub ty: syn::Type,
   pub getter: bool,
   pub setter: bool,

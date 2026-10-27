@@ -262,13 +262,13 @@ impl Property {
   }
 }
 
-/// Builds the symbol-keyed `Property` for `#[napi(symbol_name = "...")]`.
+/// Builds the symbol-keyed `Property` for `#[napi(symbol_for = "...")]`.
 /// Checked against the features of this crate, so a missing `napi9` gives a
 /// clear error instead of a missing method.
 #[cfg(feature = "napi9")]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! symbol_named_property {
+macro_rules! symbol_for_property {
   ($name:expr) => {
     $crate::bindgen_prelude::Property::new().with_symbol_name($name)
   };
@@ -277,9 +277,9 @@ macro_rules! symbol_named_property {
 #[cfg(not(feature = "napi9"))]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! symbol_named_property {
+macro_rules! symbol_for_property {
   ($name:expr) => {{
-    compile_error!("`symbol_name` requires the `napi9` feature of the `napi` crate");
+    compile_error!("`symbol_for` requires the `napi9` feature of the `napi` crate");
     $crate::bindgen_prelude::Property::new()
   }};
 }

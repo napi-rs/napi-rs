@@ -251,7 +251,7 @@ impl NapiStruct {
               ctor_args.push(arg);
               // Keep positional constructor arguments, but do not advertise a
               // symbol-keyed field as a string-keyed property.
-              f.symbol_name.is_none().then_some(field)
+              f.symbol_for.is_none().then_some(field)
             })
           })
           .collect::<Vec<_>>()

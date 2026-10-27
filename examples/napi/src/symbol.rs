@@ -27,9 +27,9 @@ pub fn create_symbol_ref(env: &Env, desc: String) -> Result<SymbolRef> {
 /// Class members exposed through the global symbol registry.
 #[napi]
 pub struct SymbolNamedClass {
-  #[napi(symbol_name = "napi.test.field")]
+  #[napi(symbol_for = "napi.test.field")]
   pub field: u32,
-  #[napi(symbol_name = "napi.test.readonly", readonly)]
+  #[napi(symbol_for = "napi.test.readonly", readonly)]
   pub readonly_field: u32,
   value: u32,
 }
@@ -47,7 +47,7 @@ impl SymbolNamedClass {
 
   #[napi(
     getter,
-    symbol_name = "_value",
+    symbol_for = "_value",
     ts_return_type = "number",
     enumerable = false
   )]
@@ -55,7 +55,7 @@ impl SymbolNamedClass {
     self.value
   }
 
-  #[napi(setter, symbol_name = "_value", enumerable = false)]
+  #[napi(setter, symbol_for = "_value", enumerable = false)]
   pub fn set_value(&mut self, value: u32) {
     self.value = value;
   }
@@ -70,7 +70,7 @@ impl SymbolNamedClass {
     self.value = value + 100;
   }
 
-  #[napi(symbol_name = "_method", writable = false, configurable = false)]
+  #[napi(symbol_for = "_method", writable = false, configurable = false)]
   pub fn increment(&mut self) -> u32 {
     self.value += 1;
     self.value
@@ -81,7 +81,7 @@ impl SymbolNamedClass {
     self.value + 200
   }
 
-  #[napi(symbol_name = "_method")]
+  #[napi(symbol_for = "_method")]
   pub fn static_method(value: u32) -> u32 {
     value + 1
   }
@@ -97,17 +97,17 @@ impl SymbolNamedClass {
     value + 400
   }
 
-  #[napi(factory, symbol_name = "napi.test.factory")]
+  #[napi(factory, symbol_for = "napi.test.factory")]
   pub fn factory(value: u32) -> Self {
     Self::new(value)
   }
 
-  #[napi(symbol_name = "")]
+  #[napi(symbol_for = "")]
   pub fn empty_name(&self) -> u32 {
     self.value
   }
 
-  #[napi(getter, symbol_name = "内部\0属性")]
+  #[napi(getter, symbol_for = "内部\0属性")]
   pub fn unusual_name(&self) -> u32 {
     self.value
   }
@@ -116,7 +116,7 @@ impl SymbolNamedClass {
 /// Symbol fields still accept positional constructor arguments.
 #[napi(constructor)]
 pub struct SymbolNamedFields {
-  #[napi(symbol_name = "napi.test.autoField")]
+  #[napi(symbol_for = "napi.test.autoField")]
   pub value: u32,
   pub label: String,
 }

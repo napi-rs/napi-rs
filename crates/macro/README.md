@@ -28,15 +28,15 @@ fn get_cwd<T: Fn(String) -> Result<()>>(callback: T) {
 }
 ```
 
-## Symbol-named class members
+## Symbol-keyed class members
 
-Use `symbol_name` on a class method, getter, setter, or public field to expose it
+Use `symbol_for` on a class method, getter, setter, or public field to expose it
 under `Symbol.for(name)` instead of a string property name:
 
 ```rust
 #[napi]
 impl Chunk {
-  #[napi(getter, symbol_name = "_runtime")]
+  #[napi(getter, symbol_for = "_runtime")]
   pub fn runtime(&self) -> ChunkRuntime {
     // ...
   }
@@ -44,12 +44,12 @@ impl Chunk {
 ```
 
 JavaScript can read it as `chunk[Symbol.for('_runtime')]`. Use the same
-`symbol_name` on a getter and setter to define a single accessor; they share one
+`symbol_for` on a getter and setter to define a single accessor; they share one
 descriptor only when they are in the same `#[napi]` impl block. Static methods
 and factories are also supported. Names are used verbatim, without case conversion.
-`symbol_name` cannot be combined with `js_name` or a named `getter`/`setter`.
+`symbol_for` cannot be combined with `js_name` or a named `getter`/`setter`.
 Constructors, top-level exports, and fields of `object`, `array`, or `transparent`
-structs and structured enums do not support `symbol_name`.
+structs and structured enums do not support `symbol_for`.
 
 These members are omitted from generated TypeScript declarations, including when
 `ts_return_type` is supplied. Positional arguments of a generated constructor are
@@ -62,8 +62,8 @@ the registry key can access them with `Symbol.for`. Property attributes such as
 `enumerable`, `writable`, `configurable`, and `readonly` retain their usual meaning.
 For class members, inspect the class prototype (or constructor for static methods).
 
-`symbol_name` requires enabling the `napi9` feature (or a higher Node-API feature)
+`symbol_for` requires enabling the `napi9` feature (or a higher Node-API feature)
 on the `napi` dependency. With a lower Node-API configuration it fails to compile
-with "`symbol_name` requires the `napi9` feature of the `napi` crate". Symbols are
+with "`symbol_for` requires the `napi9` feature of the `napi` crate". Symbols are
 resolved with `node_api_symbol_for` in each Node environment during class
 registration; there is no JavaScript fallback.
