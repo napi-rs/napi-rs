@@ -59,7 +59,7 @@ test('symbol fields support setters, readonly fields and generated constructors'
   t.is(generated.value, undefined)
 })
 
-test('symbol names are exact registry keys, including empty, Unicode and NUL keys', (t) => {
+test('symbol keys are exact registry keys, including empty, Unicode and NUL keys', (t) => {
   const value = new SymbolNamedClass(12)
   t.is(value[Symbol.for('')](), 12)
   t.is(value[Symbol.for('内部\0属性')], 12)
