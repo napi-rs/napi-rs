@@ -80,3 +80,12 @@ struct DefaultUseNullableClass {
   pub optional_number_field: Option<u32>,
   pub optional_string_field: Option<String>,
 }
+
+/// An optional field before a required one is still a positional constructor
+/// argument, so it is not marked `?` in the constructor.
+#[napi(constructor)]
+struct OptionalBeforeRequiredClass {
+  pub optional_number_field: Option<u32>,
+  pub required_number_field: u32,
+  pub optional_string_field: Option<String>,
+}

@@ -508,6 +508,17 @@ export declare class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+/**
+ * An optional field before a required one is still a positional constructor
+ * argument, so it is not marked `?` in the constructor.
+ */
+export declare class OptionalBeforeRequiredClass {
+  optionalNumberField?: number
+  requiredNumberField: number
+  optionalStringField?: string
+  constructor(optionalNumberField: number | undefined, requiredNumberField: number, optionalStringField?: string)
+}
+
 export declare class PackageJsonReader {
   constructor()
   read(): any
