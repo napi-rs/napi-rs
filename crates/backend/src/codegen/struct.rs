@@ -1116,12 +1116,12 @@ impl NapiStruct {
         attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
       }
 
-      let property_name = match &field.symbol_name {
-        Some(symbol_name) => quote! { .with_symbol_name(#symbol_name) },
-        None => quote! { .with_utf8_name(#js_name).unwrap() },
+      let property = match &field.symbol_name {
+        Some(symbol_name) => quote! { napi::symbol_named_property!(#symbol_name) },
+        None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
       };
       let mut prop = quote! {
-        napi::bindgen_prelude::Property::new()#property_name
+        #property
           .with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
       };
 
@@ -1740,13 +1740,13 @@ impl NapiImpl {
         item.symbol_name.as_ref().unwrap_or(&item.js_name),
         item.fn_self.is_none() && matches!(item.kind, FnKind::Normal | FnKind::Factory),
       );
-      let property_name = match &item.symbol_name {
-        Some(symbol_name) => quote! { .with_symbol_name(#symbol_name) },
-        None => quote! { .with_utf8_name(#js_name).unwrap() },
+      let property = match &item.symbol_name {
+        Some(symbol_name) => quote! { napi::symbol_named_property!(#symbol_name) },
+        None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
       };
       let prop = props.entry(property_key).or_insert_with(|| {
         quote! {
-          napi::bindgen_prelude::Property::new()#property_name.with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
+          #property.with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
         }
       });
 
