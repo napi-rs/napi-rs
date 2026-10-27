@@ -17,15 +17,18 @@ test('should create unnamed symbol', (t) => {
   t.is(symbol.toString(), 'Symbol()')
 })
 
-if (napiVersion >= 9) {
-  for (const name of ['napi.test.property', '', '内部\0属性']) {
-    test(`define_properties resolves symbol name ${JSON.stringify(name)}`, (t) => {
+const testNapi9 = napiVersion >= 9 ? test : test.skip
+
+for (const name of ['napi.test.property', '', '内部\0属性']) {
+  testNapi9(
+    `define_properties resolves symbol name ${JSON.stringify(name)}`,
+    (t) => {
       const object: Record<PropertyKey, unknown> = {}
       bindings.testDefineSymbolProperty(object, name)
       t.deepEqual(Object.getOwnPropertySymbols(object), [Symbol.for(name)])
       t.is(object[Symbol.for(name)], 'readonly')
       t.is(object[name], undefined)
       t.is(object[Symbol(name)], undefined)
-    })
-  }
+    },
+  )
 }

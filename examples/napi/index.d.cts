@@ -556,6 +556,8 @@ export declare class SymbolNamedClass {
   get _value(): number
   set _value(value: number)
   _method(): number
+  shared(): number
+  static shared(value: number): number
 }
 
 /** Symbol fields still accept positional constructor arguments. */

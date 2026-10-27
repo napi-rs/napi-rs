@@ -86,6 +86,17 @@ impl SymbolNamedClass {
     value + 1
   }
 
+  // A static and an instance member with the same string key stay separate.
+  #[napi(js_name = "shared")]
+  pub fn shared_instance(&self) -> u32 {
+    self.value + 300
+  }
+
+  #[napi(js_name = "shared")]
+  pub fn shared_static(value: u32) -> u32 {
+    value + 400
+  }
+
   #[napi(factory, symbol_name = "napi.test.factory")]
   pub fn factory(value: u32) -> Self {
     Self::new(value)

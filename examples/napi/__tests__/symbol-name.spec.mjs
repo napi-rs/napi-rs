@@ -1,3 +1,5 @@
+// Plain JS on purpose: symbol members are left out of index.d.cts, so typed
+// code could not reach them without casts.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
@@ -33,6 +35,11 @@ test('symbol accessors and string accessors with the same name stay independent'
   t.is(factoryValue[valueKey], 9)
 })
 
+test('a static and an instance method with the same string name stay separate', (t) => {
+  t.is(new SymbolNamedClass(1).shared(), 301)
+  t.is(SymbolNamedClass.shared(1), 401)
+})
+
 test('symbol fields support setters, readonly fields and generated constructors', (t) => {
   const value = new SymbolNamedClass(4)
   t.is(value[field], 4)
@@ -63,21 +70,36 @@ test('symbol names are exact registry keys, including empty, Unicode and NUL key
 test('symbols are absent from string lookup and enumeration but remain reflectable', (t) => {
   const value = new SymbolNamedClass(3)
   const prototype = SymbolNamedClass.prototype
+  // Both the symbol key and the Rust-derived name of every instance member.
   for (const key of [
     'napi.test.field',
-    'napi.test.readonly',
-    'staticMethod',
-    'increment',
     'field',
+    'napi.test.readonly',
+    'readonlyField',
+    'value',
+    'increment',
+    '',
+    'emptyName',
+    '内部\0属性',
+    'unusualName',
   ]) {
     t.is(value[key], undefined)
     t.false(key in value)
     t.false(Object.keys(prototype).includes(key))
     t.false(Object.getOwnPropertyNames(prototype).includes(key))
   }
+  for (const key of [
+    '_method',
+    'staticMethod',
+    'napi.test.factory',
+    'factory',
+  ]) {
+    t.is(SymbolNamedClass[key], undefined)
+    t.false(Object.getOwnPropertyNames(SymbolNamedClass).includes(key))
+  }
   const keys = []
   for (const key in value) keys.push(key)
-  t.deepEqual(keys.sort(), ['_method', '_value'])
+  t.deepEqual(keys.sort(), ['_method', '_value', 'shared'])
   t.deepEqual(Object.keys(value), [])
   t.is(JSON.stringify(value), '{}')
   t.true(Object.getOwnPropertySymbols(prototype).includes(valueKey))
@@ -103,7 +125,9 @@ test('symbol registrations work in concurrent workers and after worker teardown'
         value[Symbol.for('_value')] = 20
         parentPort.postMessage([value[Symbol.for('_value')], value[Symbol.for('napi.test.field')]])
       `,
-        { eval: true, workerData: filename },
+        // Same as worker-thread.spec.ts: do not inherit ava's
+        // `--import @oxc-node/core/register`.
+        { eval: true, execArgv: [], workerData: filename },
       )
       let result
       worker.on('message', (message) => {
@@ -143,6 +167,8 @@ test('declarations omit symbol members and retain constructor arguments', async 
       'get _value(): number',
       'set _value(value: number)',
       '_method(): number',
+      'shared(): number',
+      'static shared(value: number): number',
     ],
   )
   const fieldsBody = declarations.match(
