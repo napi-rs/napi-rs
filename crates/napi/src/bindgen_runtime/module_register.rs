@@ -21,7 +21,7 @@ use rustc_hash::FxBuildHasher;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use crate::NodeVersion;
 #[cfg(not(feature = "noop"))]
-use crate::{check_status, check_status_or_throw, JsError};
+use crate::{check_status, check_status_or_throw, Error, JsError, Status};
 use crate::{sys, Property, Result};
 
 // #[napi] fn
@@ -1006,137 +1006,56 @@ pub unsafe extern "C" fn napi_register_module_v1(
       });
   }
 
-  let mut registered_classes = HashMap::default();
-
-  MODULE_CLASS_PROPERTIES.borrow(|inner| {
-    inner.iter().for_each(|(_, js_mods)| {
-      for (js_mod, class_registration) in js_mods {
-        let mut exports_js_mod = ptr::null_mut();
-        unsafe {
-          let js_name = class_registration.js_name;
-          let props = &class_registration.props;
-          if let Some(js_mod_str) = js_mod {
-            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-            if exports_objects.contains(*js_mod_str) {
-              check_status_or_throw!(
-                env,
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                ),
-                "Get mod {} from exports failed",
-                js_mod_str,
-              );
-            } else {
-              check_status_or_throw!(
-                env,
-                sys::napi_create_object(env, &mut exports_js_mod),
-                "Create export JavaScript Object [{}] failed",
-                js_mod_str
-              );
-              check_status_or_throw!(
-                env,
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
-                "Set exports Object [{}] into exports object failed",
-                js_mod_str
-              );
-              exports_objects.insert(js_mod_str.to_string());
-            }
-          }
-          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
-
-          let ctor = match ctor.first().map(|c| c.raw(env)).transpose() {
-            Ok(ctor) => ctor.and_then(|c| c.method).unwrap_or(noop),
-            Err(error) => {
-              JsError::from(error).throw_into(env);
-              return;
-            }
-          };
-          let raw_props = match props
-            .iter()
-            .map(|prop| prop.raw(env))
-            .collect::<crate::Result<Vec<_>>>()
-          {
-            Ok(props) => props,
-            Err(error) => {
-              JsError::from(error).throw_into(env);
-              return;
-            }
-          };
-
-          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
-          let mut class_ptr = ptr::null_mut();
-
-          check_status_or_throw!(
-            env,
-            sys::napi_define_class(
-              env,
-              js_class_name.as_ptr(),
-              js_name.len() as isize - 1,
-              Some(ctor),
-              ptr::null_mut(),
-              raw_props.len(),
-              raw_props.as_ptr(),
-              &mut class_ptr,
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
-
-          if class_registration.implement_iterator {
-            crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr);
-          }
-
-          let mut ctor_ref = ptr::null_mut();
-          sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
-
-          registered_classes.insert(js_name.to_string(), ctor_ref);
-
-          check_status_or_throw!(
-            env,
-            sys::napi_set_named_property(
-              env,
-              if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              },
-              js_class_name.as_ptr(),
-              class_ptr
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
+  // Class registration is all or nothing. The same addon can be loaded again into an env
+  // that already uses it (`unload.spec.js`), and `REGISTERED_CLASSES` is what every
+  // class lookup of the earlier load reads (class-returning exports, strict and `Either`
+  // validation, `instance_of`). A load that fails part way must not replace that map
+  // with a partial one, so the first failure stops the loop, deletes the constructor
+  // references this load made, and leaves the map alone. The module-init hooks below
+  // assume a complete registration and are skipped too; the async runtime and its
+  // cleanup hook still run, because `MODULE_COUNT` was already bumped above and
+  // `thread_cleanup` is its only decrement.
+  let mut ctor_refs = Vec::new();
+  let classes_registered =
+    match unsafe { register_classes(env, exports, &mut exports_objects, &mut ctor_refs) } {
+      Ok(()) => true,
+      Err(error) => {
+        for (_, ctor_ref) in ctor_refs.drain(..) {
+          unsafe { sys::napi_delete_reference(env, ctor_ref) };
         }
+        unsafe { JsError::from(error).throw_into(env) };
+        false
       }
+    };
+
+  if classes_registered {
+    REGISTERED_CLASSES.with(|cell| {
+      cell.borrow_mut(|map| {
+        *map = ctor_refs
+          .into_iter()
+          .map(|(js_name, ctor_ref)| (js_name.to_string(), ctor_ref))
+          .collect();
+      })
     });
-  });
 
-  REGISTERED_CLASSES.with(|cell| {
-    cell.borrow_mut(|map| {
-      *map = registered_classes;
-    })
-  });
-
-  let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
-    .read()
-    .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
-  if let Some(cb) = module_register_hook_callback.as_ref() {
-    if let Err(e) = cb(env, exports) {
-      JsError::from(e).throw_into(env);
-    }
-  }
-
-  #[cfg(feature = "compat-mode")]
-  {
-    let module_exports = MODULE_EXPORTS.read().expect("Read MODULE_EXPORTS failed");
-    module_exports.iter().for_each(|callback| unsafe {
-      if let Err(e) = callback(env, exports) {
+    let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
+      .read()
+      .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
+    if let Some(cb) = module_register_hook_callback.as_ref() {
+      if let Err(e) = cb(env, exports) {
         JsError::from(e).throw_into(env);
       }
-    })
+    }
+
+    #[cfg(feature = "compat-mode")]
+    {
+      let module_exports = MODULE_EXPORTS.read().expect("Read MODULE_EXPORTS failed");
+      module_exports.iter().for_each(|callback| unsafe {
+        if let Err(e) = callback(env, exports) {
+          JsError::from(e).throw_into(env);
+        }
+      })
+    }
   }
 
   #[cfg(feature = "napi4")]
@@ -1183,6 +1102,129 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
+}
+
+/// Defines every registered class and sets it on `exports` (or its `js_mod` object).
+///
+/// Stops at the first failure and returns it without throwing. Every constructor
+/// reference made before that point is in `ctor_refs`, so the caller can delete them.
+#[cfg(not(feature = "noop"))]
+unsafe fn register_classes(
+  env: sys::napi_env,
+  exports: sys::napi_value,
+  exports_objects: &mut HashSet<String, FxBuildHasher>,
+  ctor_refs: &mut Vec<(&'static str, sys::napi_ref)>,
+) -> Result<()> {
+  MODULE_CLASS_PROPERTIES.borrow(|inner| {
+    for js_mods in inner.values() {
+      for (js_mod, class_registration) in js_mods {
+        let mut exports_js_mod = ptr::null_mut();
+        unsafe {
+          let js_name = class_registration.js_name;
+          let props = &class_registration.props;
+          if let Some(js_mod_str) = js_mod {
+            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
+            if exports_objects.contains(*js_mod_str) {
+              check_status!(
+                sys::napi_get_named_property(
+                  env,
+                  exports,
+                  mod_name_c_str.as_ptr(),
+                  &mut exports_js_mod,
+                ),
+                "Get mod {} from exports failed",
+                js_mod_str,
+              )?;
+            } else {
+              check_status!(
+                sys::napi_create_object(env, &mut exports_js_mod),
+                "Create export JavaScript Object [{}] failed",
+                js_mod_str
+              )?;
+              check_status!(
+                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
+                "Set exports Object [{}] into exports object failed",
+                js_mod_str
+              )?;
+              exports_objects.insert(js_mod_str.to_string());
+            }
+          }
+          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
+
+          let ctor = ctor
+            .first()
+            .map(|c| c.raw(env))
+            .transpose()?
+            .and_then(|c| c.method)
+            .unwrap_or(noop);
+          let raw_props = props
+            .iter()
+            .map(|prop| prop.raw(env))
+            .collect::<Result<Vec<_>>>()?;
+
+          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
+          let mut class_ptr = ptr::null_mut();
+
+          check_status!(
+            sys::napi_define_class(
+              env,
+              js_class_name.as_ptr(),
+              js_name.len() as isize - 1,
+              Some(ctor),
+              ptr::null_mut(),
+              raw_props.len(),
+              raw_props.as_ptr(),
+              &mut class_ptr,
+            ),
+            "Failed to register class `{}`",
+            &js_name,
+          )?;
+
+          if class_registration.implement_iterator {
+            crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr);
+            // `setup_iterator_class` throws instead of returning its error.
+            let mut is_pending = false;
+            check_status!(
+              sys::napi_is_exception_pending(env, &mut is_pending),
+              "Failed to register class `{}`",
+              &js_name,
+            )?;
+            if is_pending {
+              return Err(Error::new(
+                Status::PendingException,
+                format!("Failed to set up the iterator of class `{}`", js_name),
+              ));
+            }
+          }
+
+          let mut ctor_ref = ptr::null_mut();
+          check_status!(
+            sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref),
+            "Failed to register class `{}`",
+            &js_name,
+          )?;
+
+          ctor_refs.push((js_name, ctor_ref));
+
+          check_status!(
+            sys::napi_set_named_property(
+              env,
+              if exports_js_mod.is_null() {
+                exports
+              } else {
+                exports_js_mod
+              },
+              js_class_name.as_ptr(),
+              class_ptr
+            ),
+            "Failed to register class `{}`",
+            &js_name,
+          )?;
+        }
+      }
+    }
+    Ok(())
+  })
 }
 
 #[cfg(not(feature = "noop"))]
