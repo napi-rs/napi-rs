@@ -131,15 +131,16 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
-  /// Cookie of the `registered_classes_env_cleanup` hook added by the successful load that
-  /// built this thread's `REGISTERED_CLASSES`, or 0. The hook resets it when that load's env
-  /// is torn down, so a nonzero value means the map's constructor references are still alive.
-  #[cfg(all(feature = "napi3", not(feature = "noop")))]
+  /// Cookie of the teardown callback (`registered_classes_env_cleanup` or, without `napi3`,
+  /// `registered_classes_env_finalize`) added by the successful load that built this
+  /// thread's `REGISTERED_CLASSES`, or 0. The callback resets it when that load's env is
+  /// torn down, so a nonzero value means the map's constructor references are still alive.
+  #[cfg(not(feature = "noop"))]
   static REGISTERED_CLASSES_OWNER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 /// Distinct `(fn, arg)` pair for every `registered_classes_env_cleanup` registration, as
 /// `ENV_CLEANUP_HOOK_COOKIE` is for `thread_cleanup`. Starts at 1, because 0 means "no owner".
-#[cfg(all(feature = "napi3", not(feature = "noop")))]
+#[cfg(not(feature = "noop"))]
 static REGISTERED_CLASSES_COOKIE: AtomicUsize = AtomicUsize::new(1);
 // Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per isolate in
 // `create_custom_gc`, and every Buffer/TypedArray drop routes through it.
@@ -1055,10 +1056,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
           .collect();
       })
     });
-    #[cfg(feature = "napi3")]
-    unsafe {
-      track_registered_classes_owner(env)
-    };
+    unsafe { track_registered_classes_owner(env) };
 
     let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
       .read()
@@ -1382,20 +1380,9 @@ unsafe extern "C" fn custom_gc_env_cleanup(data: *mut std::ffi::c_void) {
 }
 
 /// Whether the env whose load built this thread's `REGISTERED_CLASSES` is still alive.
-///
-/// Without `napi3` there is no env cleanup hook to see the teardown. One thread can still
-/// host several envs one after another, so the owner is never proven alive there, and a
-/// failed load clears the map instead of keeping references that may belong to a dead env.
 #[cfg(not(feature = "noop"))]
 fn registered_classes_owner_alive() -> bool {
-  #[cfg(feature = "napi3")]
-  {
-    REGISTERED_CLASSES_OWNER.with(|owner| owner.get() != 0)
-  }
-  #[cfg(not(feature = "napi3"))]
-  {
-    false
-  }
+  REGISTERED_CLASSES_OWNER.with(|owner| owner.get() != 0)
 }
 
 /// Marks `REGISTERED_CLASSES` as built by `env` until `env` is torn down. If the hook cannot
@@ -1427,14 +1414,53 @@ unsafe fn track_registered_classes_owner(env: sys::napi_env) {
   REGISTERED_CLASSES_OWNER.with(|cell| cell.set(owner));
 }
 
+/// Without `napi3` there is no env cleanup hook, so the teardown is seen through a finalizer
+/// instead: the env runs the finalizers of the externals it still holds when it is torn down,
+/// and the strong reference keeps this one from being collected before that. Neither the
+/// external nor the reference is freed here, because the env frees both at teardown. If one
+/// of the calls fails, the map has no owner, as in the `napi3` version.
+#[cfg(all(not(feature = "napi3"), not(feature = "noop")))]
+unsafe fn track_registered_classes_owner(env: sys::napi_env) {
+  let cookie = REGISTERED_CLASSES_COOKIE.fetch_add(1, Ordering::Relaxed);
+  let mut sentinel = ptr::null_mut();
+  let mut sentinel_ref = ptr::null_mut();
+  let tracked = unsafe {
+    sys::napi_create_external(
+      env,
+      cookie as *mut std::ffi::c_void,
+      Some(registered_classes_env_finalize),
+      ptr::null_mut(),
+      &mut sentinel,
+    ) == sys::Status::napi_ok
+      && sys::napi_create_reference(env, sentinel, 1, &mut sentinel_ref) == sys::Status::napi_ok
+  };
+  REGISTERED_CLASSES_OWNER.with(|cell| cell.set(if tracked { cookie } else { 0 }));
+}
+
 // Env cleanup hook added by `track_registered_classes_owner`. It only drops the owner mark
 // and leaves the map alone, so lookups during the rest of the teardown behave as before.
 // A later successful load in the same env took the mark over, so only the current owner's
 // hook resets it.
 #[cfg(all(feature = "napi3", not(feature = "noop")))]
 unsafe extern "C" fn registered_classes_env_cleanup(cookie: *mut std::ffi::c_void) {
+  reset_registered_classes_owner(cookie as usize);
+}
+
+// Finalizer of the sentinel external added by `track_registered_classes_owner` without
+// `napi3`. The strong reference means it runs only when the env is torn down.
+#[cfg(all(not(feature = "napi3"), not(feature = "noop")))]
+unsafe extern "C" fn registered_classes_env_finalize(
+  _env: sys::napi_env,
+  cookie: *mut std::ffi::c_void,
+  _hint: *mut std::ffi::c_void,
+) {
+  reset_registered_classes_owner(cookie as usize);
+}
+
+#[cfg(not(feature = "noop"))]
+fn reset_registered_classes_owner(cookie: usize) {
   let _ = REGISTERED_CLASSES_OWNER.try_with(|owner| {
-    if owner.get() == cookie as usize {
+    if owner.get() == cookie {
       owner.set(0);
     }
   });
