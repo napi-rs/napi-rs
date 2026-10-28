@@ -1116,13 +1116,7 @@ impl NapiStruct {
         attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
       }
 
-      let property = match &field.symbol_for {
-        // Spanned so a missing `napi9` points at the `symbol_for` attribute.
-        Some((key, span)) => {
-          quote_spanned! { *span=> napi::symbol_for_property!(#key) }
-        }
-        None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
-      };
+      let property = gen_member_property(js_name, &field.symbol_for, &field.well_known_symbol);
       let mut prop = quote! {
         #property
           .with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
@@ -1721,7 +1715,6 @@ impl NapiImpl {
     let mut accessor_descriptor_count = 0u32;
 
     for item in self.items.iter() {
-      let js_name = Literal::string(&item.js_name);
       let item_str = item.name.to_string();
       let intermediate_name = get_intermediate_ident(&item_str);
       methods.push(item.try_to_token_stream()?);
@@ -1742,21 +1735,19 @@ impl NapiImpl {
         attribute |= super::PROPERTY_ATTRIBUTE_STATIC;
       }
 
-      // String and symbol keys, and static and instance members, are distinct.
+      // String, registry symbol and well-known symbol keys, and static and
+      // instance members, are distinct.
       let property_key = (
         item.symbol_for.is_some(),
+        item.well_known_symbol.is_some(),
         item
           .symbol_for
           .as_ref()
+          .or(item.well_known_symbol.as_ref())
           .map_or(&item.js_name, |(name, _)| name),
         is_static,
       );
-      let property = match &item.symbol_for {
-        Some((key, span)) => {
-          quote_spanned! { *span=> napi::symbol_for_property!(#key) }
-        }
-        None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
-      };
+      let property = gen_member_property(&item.js_name, &item.symbol_for, &item.well_known_symbol);
       let prop = props.entry(property_key).or_insert_with(|| {
         quote! {
           #property.with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
@@ -1858,6 +1849,27 @@ impl NapiImpl {
         }
       }
     })
+  }
+}
+
+/// Builds the `Property` of a class member, keyed by its `symbol_for` key, its
+/// well-known symbol or its string name.
+fn gen_member_property(
+  js_name: &str,
+  symbol_for: &Option<(String, Span)>,
+  well_known_symbol: &Option<(String, Span)>,
+) -> TokenStream {
+  match (symbol_for, well_known_symbol) {
+    // Spanned so a missing `napi9` points at the `symbol_for` attribute.
+    (Some((key, span)), _) => {
+      quote_spanned! { *span=> napi::symbol_for_property!(#key) }
+    }
+    (None, Some((name, span))) => {
+      quote_spanned! { *span=> napi::bindgen_prelude::Property::new().with_well_known_symbol(#name) }
+    }
+    (None, None) => {
+      quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() }
+    }
   }
 }
 

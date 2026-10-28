@@ -213,30 +213,36 @@ impl NapiStruct {
       field_str.push_str("readonly ")
     }
 
-    let (arg, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
-    let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
+    let (ty, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
+    let ty = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(ty);
     let js_name = format_js_property_name(&f.js_name);
 
-    let (arg, required_arg) = match is_optional {
-      false => (format!("{}: {}", js_name, arg), None),
+    let gen_arg = |name: &str| match is_optional {
+      false => (format!("{}: {}", name, ty), None),
       true => match self.use_nullable {
         false => {
           // `| undefined` would bind to the return type of a function type
           // or to the false branch of a conditional type.
-          let union_arg = if arg.contains("=>") || arg.contains("extends") {
-            format!("({arg})")
+          let union_ty = if ty.contains("=>") || ty.contains("extends") {
+            format!("({ty})")
           } else {
-            arg.clone()
+            ty.clone()
           };
           (
-            format!("{}?: {}", js_name, arg),
-            Some(format!("{}: {} | undefined", js_name, union_arg)),
+            format!("{}?: {}", name, ty),
+            Some(format!("{}: {} | undefined", name, union_ty)),
           )
         }
-        true => (format!("{}: {} | null", js_name, arg), None),
+        true => (format!("{}: {} | null", name, ty), None),
       },
     };
-    field_str.push_str(&arg);
+    let (arg, required_arg) = gen_arg(&js_name);
+    // A well-known symbol field is declared with a computed key, while its
+    // constructor argument keeps the Rust-derived name.
+    match &f.well_known_symbol {
+      Some((name, _)) => field_str.push_str(&gen_arg(&format!("[Symbol.{name}]")).0),
+      None => field_str.push_str(&arg),
+    }
     Some((field_str, arg, required_arg))
   }
 
