@@ -1383,9 +1383,9 @@ unsafe extern "C" fn custom_gc_env_cleanup(data: *mut std::ffi::c_void) {
 
 /// Whether the env whose load built this thread's `REGISTERED_CLASSES` is still alive.
 ///
-/// Without `napi3` there is no env cleanup hook to see the teardown, so the map is assumed
-/// to belong to the current env, which holds for one env per thread (see
-/// `CURRENT_CUSTOM_GC_HANDLE`).
+/// Without `napi3` there is no env cleanup hook to see the teardown. One thread can still
+/// host several envs one after another, so the owner is never proven alive there, and a
+/// failed load clears the map instead of keeping references that may belong to a dead env.
 #[cfg(not(feature = "noop"))]
 fn registered_classes_owner_alive() -> bool {
   #[cfg(feature = "napi3")]
@@ -1394,7 +1394,7 @@ fn registered_classes_owner_alive() -> bool {
   }
   #[cfg(not(feature = "napi3"))]
   {
-    true
+    false
   }
 }
 
