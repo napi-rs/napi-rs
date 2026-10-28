@@ -962,6 +962,19 @@ fn napi_fn_from_decl(
     // that default for them and apply only the flags that are written out.
     let is_static =
       parent.is_some() && fn_self.is_none() && matches!(kind, FnKind::Normal | FnKind::Factory);
+    // A static `Symbol.hasInstance` replaces `instanceof` for the class, and
+    // napi-rs uses `instanceof` itself to check class arguments.
+    if is_static {
+      if let Some((name, span)) = &well_known_symbol {
+        if name == "hasInstance" {
+          return Err(Diagnostic::span_error(
+            *span,
+            "well_known_symbol = \"hasInstance\" is not supported on static methods and factories, \
+             because it changes the instanceof checks that napi-rs runs on this class",
+          ));
+        }
+      }
+    }
     let [writable, enumerable, configurable] = if is_static {
       opts
         .given_property_flags()

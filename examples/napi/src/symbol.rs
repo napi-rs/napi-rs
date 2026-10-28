@@ -162,20 +162,10 @@ impl WellKnownSymbolClass {
     }
   }
 
-  /// `instanceof` accepts any object whose `kind` is `"wellKnown"`.
-  #[napi(well_known_symbol = "hasInstance")]
-  pub fn has_instance(value: Unknown) -> Result<bool> {
-    if value.get_type()? != ValueType::Object {
-      return Ok(false);
-    }
-    let object = unsafe { value.cast::<Object>()? };
-    let kind = object.get_named_property::<Unknown>("kind")?;
-    Ok(kind.get_type()? == ValueType::String && unsafe { kind.cast::<String>()? } == "wellKnown")
-  }
-
-  #[napi(getter)]
-  pub fn kind(&self) -> &'static str {
-    "wellKnown"
+  /// Converts the class itself, not its instances, to a primitive.
+  #[napi(well_known_symbol = "toPrimitive")]
+  pub fn class_to_primitive(hint: String) -> String {
+    format!("WellKnownSymbolClass:{hint}")
   }
 
   #[napi(well_known_symbol = "dispose")]

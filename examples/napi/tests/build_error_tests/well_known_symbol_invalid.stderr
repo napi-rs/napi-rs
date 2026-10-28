@@ -34,8 +34,20 @@ error: well_known_symbol is not supported on constructors
 35 |   #[napi(constructor, well_known_symbol = "species")]
    |                                           ^^^^^^^^^
 
-error: well_known_symbol is only supported on class fields
+error: well_known_symbol = "hasInstance" is not supported on static methods and factories, because it changes the instanceof checks that napi-rs runs on this class
   --> tests/build_error_tests/well_known_symbol_invalid.rs:43:30
    |
-43 |   #[napi(well_known_symbol = "toStringTag")]
+43 |   #[napi(well_known_symbol = "hasInstance")]
+   |                              ^^^^^^^^^^^^^
+
+error: well_known_symbol = "hasInstance" is not supported on static methods and factories, because it changes the instanceof checks that napi-rs runs on this class
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:51:39
+   |
+51 |   #[napi(factory, well_known_symbol = "hasInstance")]
+   |                                       ^^^^^^^^^^^^^
+
+error: well_known_symbol is only supported on class fields
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:69:30
+   |
+69 |   #[napi(well_known_symbol = "toStringTag")]
    |                              ^^^^^^^^^^^^^

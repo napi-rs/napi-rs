@@ -106,7 +106,7 @@ same `#[napi]` impl block, static methods and factories are supported, and
 
 Unlike `symbol_for`, these members are declared in the generated TypeScript with
 computed keys, for example `get [globalThis.Symbol.toStringTag](): string` and
-`static [globalThis.Symbol.hasInstance](value: unknown): boolean`. The keys go
+`static [globalThis.Symbol.toPrimitive](hint: string): string`. The keys go
 through `globalThis`, so an export named `Symbol` does not shadow them. The
 consuming project needs a TypeScript `lib` that declares the symbol (for example
 `esnext.disposable` for `dispose` and `asyncDispose`).
@@ -114,10 +114,13 @@ consuming project needs a TypeScript `lib` that declares the symbol (for example
 No Node-API feature is required. The symbol is read from `globalThis.Symbol` in
 each environment during class registration. If it is not a symbol there, the
 registration fails with "Symbol.dispose is not available in this runtime" (for
-`dispose`) rather than defining the member under another key.
+`dispose`) rather than defining the member under another key, so the addon fails
+to load.
 
-A static `hasInstance` also decides the `instanceof` checks that napi-rs itself
-runs, such as `strict` argument validation, `Either` dispatch, and `instance_of`.
+`hasInstance` is not accepted on static methods and factories. A static
+`Symbol.hasInstance` replaces `instanceof` for the class, and napi-rs uses
+`instanceof` itself for `strict` argument validation, `Either` dispatch, and
+`instance_of`.
 Do not use `well_known_symbol = "iterator"` on a class with `#[napi(iterator)]`,
 or `"asyncIterator"` on one with `#[napi(async_iterator)]`: those features set
 the same symbol as an own property of every instance, which shadows the class

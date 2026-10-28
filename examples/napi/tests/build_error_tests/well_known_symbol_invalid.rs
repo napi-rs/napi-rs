@@ -38,6 +38,32 @@ impl Example {
   }
 }
 
+#[napi]
+impl Example {
+  #[napi(well_known_symbol = "hasInstance")]
+  pub fn static_has_instance(_value: u32) -> bool {
+    true
+  }
+}
+
+#[napi]
+impl Example {
+  #[napi(factory, well_known_symbol = "hasInstance")]
+  pub fn factory_has_instance() -> Self {
+    Self {}
+  }
+}
+
+// An instance method keyed by `hasInstance` does not change `instanceof` for
+// the class, so it compiles.
+#[napi]
+impl Example {
+  #[napi(well_known_symbol = "hasInstance")]
+  pub fn instance_has_instance(&self, _value: u32) -> bool {
+    true
+  }
+}
+
 #[napi(object)]
 pub struct ObjectField {
   #[napi(well_known_symbol = "toStringTag")]

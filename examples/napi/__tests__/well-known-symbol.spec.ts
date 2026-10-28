@@ -25,13 +25,16 @@ test('toPrimitive receives the conversion hint', (t) => {
   t.is((value as unknown as number) + 1, 6)
 })
 
-test('static hasInstance decides instanceof', (t) => {
+test('static toPrimitive converts the class, not its instances', (t) => {
+  t.is(String(WellKnownSymbolClass), 'WellKnownSymbolClass:string')
+  t.is(`${WellKnownSymbolClass}`, 'WellKnownSymbolClass:string')
+  t.is(
+    (WellKnownSymbolClass as unknown as string) + '',
+    'WellKnownSymbolClass:default',
+  )
+  t.is(String(new WellKnownSymbolClass(3)), 'value:3')
   t.true(new WellKnownSymbolClass(1) instanceof WellKnownSymbolClass)
-  t.true({ kind: 'wellKnown' } instanceof WellKnownSymbolClass)
-  t.false({ kind: 'other' } instanceof WellKnownSymbolClass)
   t.false({} instanceof WellKnownSymbolClass)
-  t.false((1 as unknown) instanceof WellKnownSymbolClass)
-  t.true(WellKnownSymbolClass[Symbol.hasInstance]({ kind: 'wellKnown' }))
 })
 
 test('dispose method runs', (t) => {
@@ -65,7 +68,7 @@ test('members are keyed by the well-known symbols with the usual flags', (t) => 
     ],
   )
   t.deepEqual(Object.getOwnPropertySymbols(WellKnownSymbolClass), [
-    Symbol.hasInstance,
+    Symbol.toPrimitive,
   ])
 
   // The getter and setter of one symbol share a single accessor.
@@ -87,14 +90,14 @@ test('members are keyed by the well-known symbols with the usual flags', (t) => 
   t.true(method.writable)
 
   // Static methods keep their all-off default flags.
-  const hasInstance = Object.getOwnPropertyDescriptor(
+  const staticMethod = Object.getOwnPropertyDescriptor(
     WellKnownSymbolClass,
-    Symbol.hasInstance,
+    Symbol.toPrimitive,
   )!
-  t.is(typeof hasInstance.value, 'function')
-  t.false(hasInstance.writable)
-  t.false(hasInstance.enumerable)
-  t.false(hasInstance.configurable)
+  t.is(typeof staticMethod.value, 'function')
+  t.false(staticMethod.writable)
+  t.false(staticMethod.enumerable)
+  t.false(staticMethod.configurable)
 })
 
 test('members are not string-keyed', (t) => {
@@ -113,13 +116,12 @@ test('members are not string-keyed', (t) => {
     t.false(key in value, key)
     t.false(Object.getOwnPropertyNames(prototype).includes(key), key)
   }
-  for (const key of ['hasInstance', 'Symbol.hasInstance']) {
-    t.false(Object.getOwnPropertyNames(WellKnownSymbolClass).includes(key))
+  for (const key of ['toPrimitive', 'classToPrimitive', 'Symbol.toPrimitive']) {
+    t.false(Object.getOwnPropertyNames(WellKnownSymbolClass).includes(key), key)
   }
   t.deepEqual(Object.getOwnPropertyNames(prototype).sort(), [
     'constructor',
     'disposed',
-    'kind',
   ])
 })
 
@@ -143,8 +145,7 @@ test('declarations use computed well-known symbol keys', async (t) => {
       'get [globalThis.Symbol.toStringTag](): string',
       'set [globalThis.Symbol.toStringTag](tag: string)',
       '[globalThis.Symbol.toPrimitive](hint: string): number | string',
-      'static [globalThis.Symbol.hasInstance](value: unknown): boolean',
-      'get kind(): string',
+      'static [globalThis.Symbol.toPrimitive](hint: string): string',
       '[globalThis.Symbol.dispose](): void',
       'get disposed(): boolean',
     ],
