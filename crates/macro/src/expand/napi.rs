@@ -30,10 +30,10 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
   let opts: BindgenAttrs = syn::parse2(attr)?;
   let mut tokens = proc_macro2::TokenStream::new();
   if let Item::Mod(mut js_mod) = item {
-    if let Some((_, span)) = opts.symbol_for() {
+    if let Some((attr, span)) = crate::parser::symbol_key_attr(&opts)? {
       return Err(napi_derive_backend::Diagnostic::span_error(
         span,
-        "symbol_for is only supported on class methods, accessors and fields",
+        format!("{attr} is only supported on class methods, accessors and fields"),
       ));
     }
     let js_name = opts.js_name().map_or_else(

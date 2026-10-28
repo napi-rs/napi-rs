@@ -580,6 +580,57 @@ fn extract_fn_closure_generics(
   Diagnostic::from_vec(errors).and(Ok(map))
 }
 
+/// Names accepted by `well_known_symbol`: the static members of `Symbol` that
+/// hold a well-known symbol.
+const WELL_KNOWN_SYMBOLS: &[&str] = &[
+  "asyncDispose",
+  "asyncIterator",
+  "dispose",
+  "hasInstance",
+  "isConcatSpreadable",
+  "iterator",
+  "match",
+  "matchAll",
+  "replace",
+  "search",
+  "species",
+  "split",
+  "toPrimitive",
+  "toStringTag",
+  "unscopables",
+];
+
+/// Returns the symbol key attribute of an item, `symbol_for` or
+/// `well_known_symbol`, with the span of its value, so both share one set of
+/// placement checks.
+pub(crate) fn symbol_key_attr(opts: &BindgenAttrs) -> BindgenResult<Option<(&'static str, Span)>> {
+  let Some((name, span)) = opts.well_known_symbol() else {
+    return Ok(opts.symbol_for().map(|(_, span)| ("symbol_for", span)));
+  };
+  if !WELL_KNOWN_SYMBOLS.contains(&name) {
+    let problem = match name.strip_prefix("Symbol.") {
+      Some(bare) if WELL_KNOWN_SYMBOLS.contains(&bare) => {
+        format!("well_known_symbol takes the bare name, write \"{bare}\" instead of \"{name}\"")
+      }
+      _ => format!("unknown well_known_symbol \"{name}\""),
+    };
+    return Err(Diagnostic::span_error(
+      span,
+      format!(
+        "{problem}; expected one of: {}",
+        WELL_KNOWN_SYMBOLS.join(", ")
+      ),
+    ));
+  }
+  if opts.symbol_for().is_some() {
+    return Err(Diagnostic::span_error(
+      span,
+      "well_known_symbol cannot be combined with symbol_for",
+    ));
+  }
+  Ok(Some(("well_known_symbol", span)))
+}
+
 fn napi_fn_from_decl(
   sig: &mut Signature,
   opts: &BindgenAttrs,
@@ -591,29 +642,32 @@ fn napi_fn_from_decl(
   let symbol_for = opts
     .symbol_for()
     .map(|(name, span)| (name.to_owned(), span));
-  if let Some((_, span)) = opts.symbol_for() {
+  let well_known_symbol = opts
+    .well_known_symbol()
+    .map(|(name, span)| (name.to_owned(), span));
+  if let Some((attr, span)) = symbol_key_attr(opts)? {
     if opts.js_name().is_some() {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_for cannot be combined with js_name",
+        format!("{attr} cannot be combined with js_name"),
       ));
     }
     if matches!(opts.getter(), Some(Some(_))) || matches!(opts.setter(), Some(Some(_))) {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_for cannot be combined with a getter or setter name",
+        format!("{attr} cannot be combined with a getter or setter name"),
       ));
     }
     if opts.constructor().is_some() {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_for is not supported on constructors",
+        format!("{attr} is not supported on constructors"),
       ));
     }
     if parent.is_none() || opts.module_exports().is_some() {
       return Err(Diagnostic::span_error(
         span,
-        "symbol_for is only supported on class methods, accessors and fields",
+        format!("{attr} is only supported on class methods, accessors and fields"),
       ));
     }
   }
@@ -908,6 +962,19 @@ fn napi_fn_from_decl(
     // that default for them and apply only the flags that are written out.
     let is_static =
       parent.is_some() && fn_self.is_none() && matches!(kind, FnKind::Normal | FnKind::Factory);
+    // A static `Symbol.hasInstance` replaces `instanceof` for the class, and
+    // napi-rs uses `instanceof` itself to check class arguments.
+    if is_static {
+      if let Some((name, span)) = &well_known_symbol {
+        if name == "hasInstance" {
+          return Err(Diagnostic::span_error(
+            *span,
+            "well_known_symbol = \"hasInstance\" is not supported on static methods and factories, \
+             because it changes the instanceof checks that napi-rs runs on this class",
+          ));
+        }
+      }
+    }
     let [writable, enumerable, configurable] = if is_static {
       opts
         .given_property_flags()
@@ -920,6 +987,7 @@ fn napi_fn_from_decl(
       name: ident.clone(),
       js_name,
       symbol_for: symbol_for.clone(),
+      well_known_symbol,
       module_exports: opts.module_exports().is_some(),
       args,
       ret,
@@ -957,10 +1025,10 @@ fn napi_fn_from_decl(
 impl ParseNapi for syn::Item {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: &BindgenAttrs) -> BindgenResult<Napi> {
     if !matches!(self, syn::Item::Fn(_)) {
-      if let Some((_, span)) = opts.symbol_for() {
+      if let Some((attr, span)) = symbol_key_attr(opts)? {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_for is only supported on class methods, accessors and fields",
+          format!("{attr} is only supported on class methods, accessors and fields"),
         ));
       }
     }
@@ -1243,23 +1311,26 @@ fn convert_fields(
     let symbol_for = field_opts
       .symbol_for()
       .map(|(name, span)| (name.to_owned(), span));
-    if let Some((_, span)) = field_opts.symbol_for() {
+    let well_known_symbol = field_opts
+      .well_known_symbol()
+      .map(|(name, span)| (name.to_owned(), span));
+    if let Some((attr, span)) = symbol_key_attr(&field_opts)? {
       if field_opts.js_name().is_some() {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_for cannot be combined with js_name",
+          format!("{attr} cannot be combined with js_name"),
         ));
       }
       if !allow_symbol {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_for is only supported on class fields",
+          format!("{attr} is only supported on class fields"),
         ));
       }
       if field_opts.skip().is_some() {
         return Err(Diagnostic::span_error(
           span,
-          "symbol_for has no effect on a skipped field",
+          format!("{attr} has no effect on a skipped field"),
         ));
       }
     }
@@ -1319,6 +1390,7 @@ fn convert_fields(
       name,
       js_name,
       symbol_for,
+      well_known_symbol,
       ty,
       getter: !ignored,
       setter: !(ignored || readonly),

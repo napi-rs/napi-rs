@@ -55,6 +55,7 @@ macro_rules! attrgen {
       (module_exports, ModuleExports(Span)),
       (js_name, JsName(Span, String, Span)),
       (symbol_for, SymbolFor(Span, String, Span)),
+      (well_known_symbol, WellKnownSymbol(Span, String, Span)),
       (constructor, Constructor(Span)),
       (factory, Factory(Span)),
       (getter, Getter(Span, Option<Ident>)),

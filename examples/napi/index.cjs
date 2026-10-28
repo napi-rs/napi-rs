@@ -963,6 +963,7 @@ module.exports.TypeTagA = nativeBinding.TypeTagA
 module.exports.TypeTagB = nativeBinding.TypeTagB
 module.exports.UnwrapForgerySurface = nativeBinding.UnwrapForgerySurface
 module.exports.UseNullableClass = nativeBinding.UseNullableClass
+module.exports.WellKnownSymbolClass = nativeBinding.WellKnownSymbolClass
 module.exports.Width = nativeBinding.Width
 module.exports.acceptArraybuffer = nativeBinding.acceptArraybuffer
 module.exports.acceptSlice = nativeBinding.acceptSlice

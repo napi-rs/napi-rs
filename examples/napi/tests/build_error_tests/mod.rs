@@ -8,3 +8,4 @@ pub mod ts_arg_type_3;
 pub mod ts_arg_type_4;
 
 mod symbol_for_invalid;
+mod well_known_symbol_invalid;

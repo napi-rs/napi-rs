@@ -67,3 +67,62 @@ on the `napi` dependency. With a lower Node-API configuration it fails to compil
 with "`symbol_for` requires the `napi9` feature of the `napi` crate". Symbols are
 resolved with `node_api_symbol_for` in each Node environment during class
 registration; there is no JavaScript fallback.
+
+## Well-known symbol class members
+
+Use `well_known_symbol` to key a class method, getter, setter, or public field by
+one of JavaScript's well-known symbols. The value is the bare name, without the
+`Symbol.` prefix:
+
+```rust
+#[napi]
+impl Chunk {
+  #[napi(getter, well_known_symbol = "toStringTag")]
+  pub fn tag(&self) -> String {
+    "Chunk".to_owned()
+  }
+
+  #[napi(well_known_symbol = "toPrimitive")]
+  pub fn to_primitive(&self, hint: String) -> String {
+    // ...
+  }
+
+  #[napi(well_known_symbol = "dispose")]
+  pub fn dispose(&mut self) {
+    // ...
+  }
+}
+```
+
+The accepted names are `asyncDispose`, `asyncIterator`, `dispose`, `hasInstance`,
+`isConcatSpreadable`, `iterator`, `match`, `matchAll`, `replace`, `search`,
+`species`, `split`, `toPrimitive`, `toStringTag`, and `unscopables`; any other
+value fails to compile. The placement rules are the same as for `symbol_for`:
+a getter and setter with the same name share one accessor when they are in the
+same `#[napi]` impl block, static methods and factories are supported (except
+for `hasInstance`, see below), and
+`well_known_symbol` cannot be combined with `js_name`, `symbol_for`, or a named
+`getter`/`setter`, nor used on constructors, top-level exports, or fields of
+`object`, `array`, or `transparent` structs and structured enums.
+
+Unlike `symbol_for`, these members are declared in the generated TypeScript with
+computed keys, for example `get [globalThis.Symbol.toStringTag](): string` and
+`static [globalThis.Symbol.toPrimitive](hint: string): string`. The keys go
+through `globalThis`, so an export named `Symbol` does not shadow them. The
+consuming project needs a TypeScript `lib` that declares the symbol (for example
+`esnext.disposable` for `dispose` and `asyncDispose`).
+
+No Node-API feature is required. The symbol is read from `globalThis.Symbol` in
+each environment during class registration. If it is not a symbol there, the
+registration fails with "Symbol.dispose is not available in this runtime" (for
+`dispose`) rather than defining the member under another key, so the addon fails
+to load.
+
+`hasInstance` is not accepted on static methods and factories. A static
+`Symbol.hasInstance` replaces `instanceof` for the class, and napi-rs uses
+`instanceof` itself for `strict` argument validation, `Either` dispatch, and
+`instance_of`.
+Do not use `well_known_symbol = "iterator"` on a class with `#[napi(iterator)]`,
+or `"asyncIterator"` on one with `#[napi(async_iterator)]`: those features set
+the same symbol as an own property of every instance, which shadows the class
+member.
