@@ -12,8 +12,12 @@ function runChecks(binding) {
     classReturningExport: () => binding.returnEitherClass(-1).constructor.name,
     classField: () =>
       binding.createObjectWithClassField().bird.constructor.name,
+    // A failed load stops at the failing class, and the registry order is
+    // arbitrary, so this class may not be exported by it.
     instanceOf: () =>
-      binding.NinjaTurtle.isInstanceOf(binding.NinjaTurtle.newRaph()),
+      binding.NinjaTurtle
+        ? binding.NinjaTurtle.isInstanceOf(binding.NinjaTurtle.newRaph())
+        : 'class not exported',
   }
   const results = {}
   for (const [name, check] of Object.entries(checks)) {

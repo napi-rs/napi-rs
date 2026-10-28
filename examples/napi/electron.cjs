@@ -164,6 +164,7 @@ const checkFailedReloadInNewEnv = async () => {
   })
   assert.match(reload, /^Symbol\.\w+ is not available in this runtime$/)
   for (const [name, message] of Object.entries(results)) {
+    if (name === 'instanceOf' && message === 'class not exported') continue
     assert.match(message, /^Failed to get constructor of class `/, name)
   }
 }
