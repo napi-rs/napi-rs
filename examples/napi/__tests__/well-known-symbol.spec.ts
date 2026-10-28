@@ -152,34 +152,26 @@ test('declarations use computed well-known symbol keys', async (t) => {
   )
 })
 
-// Loads the native addon in a worker after `setup` has changed
-// `globalThis.Symbol`, and returns the load error message.
-async function loadWithSymbol(setup: string) {
-  // The binding that index.cjs loaded, not any binding in the folder.
+// The binding that index.cjs loaded, not any binding in the folder.
+function loadedAddon() {
   const addons = Object.keys(createRequire(import.meta.url).cache).filter(
     (file) => /^example\..+\.node$/.test(basename(file)),
   )
   if (addons.length !== 1) {
     throw new Error(`expected one loaded addon, found ${addons.join(', ')}`)
   }
+  return addons[0]
+}
+
+// Runs `source` in a worker that gets the addon path as `workerData`, and
+// returns the last message it posted.
+function runInWorker(source: string) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(
-      `
-      const { parentPort, workerData } = require('node:worker_threads')
-      ${setup}
-      try {
-        process.dlopen({ exports: {} }, workerData)
-        parentPort.postMessage('loaded')
-      } catch (error) {
-        parentPort.postMessage(error.message)
-      }
-    `,
-      {
-        eval: true,
-        execArgv: [],
-        workerData: addons[0],
-      },
-    )
+    const worker = new Worker(source, {
+      eval: true,
+      execArgv: [],
+      workerData: loadedAddon(),
+    })
     let result: unknown
     worker.on('message', (message) => {
       result = message
@@ -190,6 +182,21 @@ async function loadWithSymbol(setup: string) {
       else reject(new Error(`Worker exited with code ${code}`))
     })
   })
+}
+
+// Loads the native addon in a worker after `setup` has changed
+// `globalThis.Symbol`, and returns the load error message.
+function loadWithSymbol(setup: string) {
+  return runInWorker(`
+    const { parentPort, workerData } = require('node:worker_threads')
+    ${setup}
+    try {
+      process.dlopen({ exports: {} }, workerData)
+      parentPort.postMessage('loaded')
+    } catch (error) {
+      parentPort.postMessage(error.message)
+    }
+  `)
 }
 
 // The class registration must fail instead of keying the member by a string.
@@ -230,5 +237,67 @@ test.skipIf(Boolean(process.env.WASI_TEST))(
         setup,
       )
     }
+  },
+)
+
+// A failed second load into the same env must not replace the class
+// constructors that the first load registered.
+test.skipIf(Boolean(process.env.WASI_TEST))(
+  'a failed reload keeps the classes of the first load working',
+  async (t) => {
+    const result = await runInWorker(`
+      const { parentPort, workerData } = require('node:worker_threads')
+      const first = { exports: {} }
+      process.dlopen(first, workerData)
+      const binding = first.exports
+      const checks = {
+        classReturningExport: () =>
+          binding.returnEitherClass(-1) instanceof binding.JsClassForEither,
+        classField: () =>
+          binding.createObjectWithClassField().bird instanceof binding.Bird,
+        instanceOf: () =>
+          binding.NinjaTurtle.isInstanceOf(binding.NinjaTurtle.newRaph()),
+        strictArgument: () =>
+          binding.issue3427Strict(new binding.RenamedForIssue3427(7)),
+        eitherArgument: () =>
+          binding.issue3427Either(new binding.RenamedForIssue3427(8)),
+        eitherOfClasses: () =>
+          binding.receiveDifferentClass(new binding.AnotherClassForEither()),
+      }
+      const run = () => {
+        const results = {}
+        for (const [name, check] of Object.entries(checks)) {
+          try {
+            results[name] = check()
+          } catch (error) {
+            results[name] = error.message
+          }
+        }
+        return results
+      }
+      const before = run()
+      const RealSymbol = Symbol
+      globalThis.Symbol = null
+      let reload = 'loaded'
+      try {
+        process.dlopen({ exports: {} }, workerData)
+      } catch (error) {
+        reload = error.message
+      }
+      globalThis.Symbol = RealSymbol
+      parentPort.postMessage({ before, reload, after: run() })
+    `)
+    const expected = {
+      classReturningExport: true,
+      classField: true,
+      instanceOf: true,
+      strictArgument: 7,
+      eitherArgument: 8,
+      eitherOfClasses: 100,
+    }
+    const { before, reload, after } = result as Record<string, unknown>
+    t.deepEqual(before, expected)
+    t.regex(String(reload), /^Symbol\.\w+ is not available in this runtime$/)
+    t.deepEqual(after, expected)
   },
 )
