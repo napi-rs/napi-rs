@@ -131,7 +131,16 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
+  /// Cookie of the `registered_classes_env_cleanup` hook added by the successful load that
+  /// built this thread's `REGISTERED_CLASSES`, or 0. The hook resets it when that load's env
+  /// is torn down, so a nonzero value means the map's constructor references are still alive.
+  #[cfg(all(feature = "napi3", not(feature = "noop")))]
+  static REGISTERED_CLASSES_OWNER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+/// Distinct `(fn, arg)` pair for every `registered_classes_env_cleanup` registration, as
+/// `ENV_CLEANUP_HOOK_COOKIE` is for `thread_cleanup`. Starts at 1, because 0 means "no owner".
+#[cfg(all(feature = "napi3", not(feature = "noop")))]
+static REGISTERED_CLASSES_COOKIE: AtomicUsize = AtomicUsize::new(1);
 // Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per isolate in
 // `create_custom_gc`, and every Buffer/TypedArray drop routes through it.
 // `AtomicPtr<_>` + `RwLock<bool>` are auto `Send + Sync`, so no `unsafe impl` is required.
@@ -1015,6 +1024,12 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // assume a complete registration and are skipped too; the async runtime and its
   // cleanup hook still run, because `MODULE_COUNT` was already bumped above and
   // `thread_cleanup` is its only decrement.
+  //
+  // The map is only worth keeping while the env that built it is alive. Nothing clears it
+  // at env teardown, so when a later env on the same thread (Electron renderer reload)
+  // fails here, the map still holds the dead env's references, and reading them from the
+  // new env reads a reset (or freed) handle. In that case the map is cleared instead, so
+  // the lookups fail with a clean "Failed to get constructor".
   let mut ctor_refs = Vec::new();
   let classes_registered =
     match unsafe { register_classes(env, exports, &mut exports_objects, &mut ctor_refs) } {
@@ -1022,6 +1037,9 @@ pub unsafe extern "C" fn napi_register_module_v1(
       Err(error) => {
         for (_, ctor_ref) in ctor_refs.drain(..) {
           unsafe { sys::napi_delete_reference(env, ctor_ref) };
+        }
+        if !registered_classes_owner_alive() {
+          REGISTERED_CLASSES.with(|cell| cell.borrow_mut(|map| map.clear()));
         }
         unsafe { JsError::from(error).throw_into(env) };
         false
@@ -1037,6 +1055,10 @@ pub unsafe extern "C" fn napi_register_module_v1(
           .collect();
       })
     });
+    #[cfg(feature = "napi3")]
+    unsafe {
+      track_registered_classes_owner(env)
+    };
 
     let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
       .read()
@@ -1357,6 +1379,65 @@ unsafe extern "C" fn custom_gc_env_cleanup(data: *mut std::ffi::c_void) {
   {
     handle.set_aborted();
   }
+}
+
+/// Whether the env whose load built this thread's `REGISTERED_CLASSES` is still alive.
+///
+/// Without `napi3` there is no env cleanup hook to see the teardown, so the map is assumed
+/// to belong to the current env, which holds for one env per thread (see
+/// `CURRENT_CUSTOM_GC_HANDLE`).
+#[cfg(not(feature = "noop"))]
+fn registered_classes_owner_alive() -> bool {
+  #[cfg(feature = "napi3")]
+  {
+    REGISTERED_CLASSES_OWNER.with(|owner| owner.get() != 0)
+  }
+  #[cfg(not(feature = "napi3"))]
+  {
+    true
+  }
+}
+
+/// Marks `REGISTERED_CLASSES` as built by `env` until `env` is torn down. If the hook cannot
+/// be added, the map has no owner, so a later failed load clears it instead of keeping it.
+#[cfg(all(feature = "napi3", not(feature = "noop")))]
+unsafe fn track_registered_classes_owner(env: sys::napi_env) {
+  let cookie = REGISTERED_CLASSES_COOKIE.fetch_add(1, Ordering::Relaxed);
+  #[cfg(not(target_family = "wasm"))]
+  let status = unsafe {
+    sys::napi_add_env_cleanup_hook(
+      env,
+      Some(registered_classes_env_cleanup),
+      cookie as *mut std::ffi::c_void,
+    )
+  };
+  #[cfg(target_family = "wasm")]
+  let status = unsafe {
+    crate::napi_add_env_cleanup_hook(
+      env,
+      Some(registered_classes_env_cleanup),
+      cookie as *mut std::ffi::c_void,
+    )
+  };
+  let owner = if status == sys::Status::napi_ok {
+    cookie
+  } else {
+    0
+  };
+  REGISTERED_CLASSES_OWNER.with(|cell| cell.set(owner));
+}
+
+// Env cleanup hook added by `track_registered_classes_owner`. It only drops the owner mark
+// and leaves the map alone, so lookups during the rest of the teardown behave as before.
+// A later successful load in the same env took the mark over, so only the current owner's
+// hook resets it.
+#[cfg(all(feature = "napi3", not(feature = "noop")))]
+unsafe extern "C" fn registered_classes_env_cleanup(cookie: *mut std::ffi::c_void) {
+  let _ = REGISTERED_CLASSES_OWNER.try_with(|owner| {
+    if owner.get() == cookie as usize {
+      owner.set(0);
+    }
+  });
 }
 
 #[cfg(all(
