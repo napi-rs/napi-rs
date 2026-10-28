@@ -21,7 +21,7 @@ use rustc_hash::FxBuildHasher;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use crate::NodeVersion;
 #[cfg(not(feature = "noop"))]
-use crate::{check_status, check_status_or_throw, JsError};
+use crate::{check_status, check_status_or_throw, Error, JsError, Status};
 use crate::{sys, Property, Result};
 
 // #[napi] fn
@@ -131,7 +131,20 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
+  /// Cookie of the teardown callback (`registered_classes_env_cleanup` or, without `napi3`,
+  /// `registered_classes_env_finalize`) added by the successful load that built this
+  /// thread's `REGISTERED_CLASSES`, or 0. The callback resets it when that load's env is
+  /// torn down, so a nonzero value means the map's constructor references are still alive.
+  #[cfg(not(feature = "noop"))]
+  static REGISTERED_CLASSES_OWNER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+/// Distinct `(fn, arg)` pair for every `registered_classes_env_cleanup` registration, as
+/// `ENV_CLEANUP_HOOK_COOKIE` is for `thread_cleanup`. Starts at 1, because 0 means "no owner".
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi3", not(target_family = "wasm"))
+))]
+static REGISTERED_CLASSES_COOKIE: AtomicUsize = AtomicUsize::new(1);
 // Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per isolate in
 // `create_custom_gc`, and every Buffer/TypedArray drop routes through it.
 // `AtomicPtr<_>` + `RwLock<bool>` are auto `Send + Sync`, so no `unsafe impl` is required.
@@ -1006,137 +1019,66 @@ pub unsafe extern "C" fn napi_register_module_v1(
       });
   }
 
-  let mut registered_classes = HashMap::default();
-
-  MODULE_CLASS_PROPERTIES.borrow(|inner| {
-    inner.iter().for_each(|(_, js_mods)| {
-      for (js_mod, class_registration) in js_mods {
-        let mut exports_js_mod = ptr::null_mut();
-        unsafe {
-          let js_name = class_registration.js_name;
-          let props = &class_registration.props;
-          if let Some(js_mod_str) = js_mod {
-            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-            if exports_objects.contains(*js_mod_str) {
-              check_status_or_throw!(
-                env,
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                ),
-                "Get mod {} from exports failed",
-                js_mod_str,
-              );
-            } else {
-              check_status_or_throw!(
-                env,
-                sys::napi_create_object(env, &mut exports_js_mod),
-                "Create export JavaScript Object [{}] failed",
-                js_mod_str
-              );
-              check_status_or_throw!(
-                env,
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
-                "Set exports Object [{}] into exports object failed",
-                js_mod_str
-              );
-              exports_objects.insert(js_mod_str.to_string());
-            }
-          }
-          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
-
-          let ctor = match ctor.first().map(|c| c.raw(env)).transpose() {
-            Ok(ctor) => ctor.and_then(|c| c.method).unwrap_or(noop),
-            Err(error) => {
-              JsError::from(error).throw_into(env);
-              return;
-            }
-          };
-          let raw_props = match props
-            .iter()
-            .map(|prop| prop.raw(env))
-            .collect::<crate::Result<Vec<_>>>()
-          {
-            Ok(props) => props,
-            Err(error) => {
-              JsError::from(error).throw_into(env);
-              return;
-            }
-          };
-
-          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
-          let mut class_ptr = ptr::null_mut();
-
-          check_status_or_throw!(
-            env,
-            sys::napi_define_class(
-              env,
-              js_class_name.as_ptr(),
-              js_name.len() as isize - 1,
-              Some(ctor),
-              ptr::null_mut(),
-              raw_props.len(),
-              raw_props.as_ptr(),
-              &mut class_ptr,
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
-
-          if class_registration.implement_iterator {
-            crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr);
-          }
-
-          let mut ctor_ref = ptr::null_mut();
-          sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
-
-          registered_classes.insert(js_name.to_string(), ctor_ref);
-
-          check_status_or_throw!(
-            env,
-            sys::napi_set_named_property(
-              env,
-              if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              },
-              js_class_name.as_ptr(),
-              class_ptr
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
+  // Class registration is all or nothing. The same addon can be loaded again into an env
+  // that already uses it (`unload.spec.js`), and `REGISTERED_CLASSES` is what every
+  // class lookup of the earlier load reads (class-returning exports, strict and `Either`
+  // validation, `instance_of`). A load that fails part way must not replace that map
+  // with a partial one, so the first failure stops the loop, deletes the constructor
+  // references this load made, and leaves the map alone. The module-init hooks below
+  // assume a complete registration and are skipped too; the async runtime and its
+  // cleanup hook still run, because `MODULE_COUNT` was already bumped above and
+  // `thread_cleanup` is its only decrement.
+  //
+  // The map is only worth keeping while the env that built it is alive. Nothing clears it
+  // at env teardown, so when a later env on the same thread (Electron renderer reload)
+  // fails here, the map still holds the dead env's references, and reading them from the
+  // new env reads a reset (or freed) handle. In that case the map is cleared instead, so
+  // the lookups fail with a clean "Failed to get constructor".
+  let mut ctor_refs = Vec::new();
+  let classes_registered =
+    match unsafe { register_classes(env, exports, &mut exports_objects, &mut ctor_refs) } {
+      Ok(()) => true,
+      Err(error) => {
+        for (_, ctor_ref) in ctor_refs.drain(..) {
+          unsafe { sys::napi_delete_reference(env, ctor_ref) };
         }
+        if !registered_classes_owner_alive() {
+          REGISTERED_CLASSES.with(|cell| cell.borrow_mut(|map| map.clear()));
+        }
+        unsafe { JsError::from(error).throw_into(env) };
+        false
       }
+    };
+
+  if classes_registered {
+    REGISTERED_CLASSES.with(|cell| {
+      cell.borrow_mut(|map| {
+        *map = ctor_refs
+          .into_iter()
+          .map(|(js_name, ctor_ref)| (js_name.to_string(), ctor_ref))
+          .collect();
+      })
     });
-  });
+    unsafe { track_registered_classes_owner(env) };
 
-  REGISTERED_CLASSES.with(|cell| {
-    cell.borrow_mut(|map| {
-      *map = registered_classes;
-    })
-  });
-
-  let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
-    .read()
-    .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
-  if let Some(cb) = module_register_hook_callback.as_ref() {
-    if let Err(e) = cb(env, exports) {
-      JsError::from(e).throw_into(env);
-    }
-  }
-
-  #[cfg(feature = "compat-mode")]
-  {
-    let module_exports = MODULE_EXPORTS.read().expect("Read MODULE_EXPORTS failed");
-    module_exports.iter().for_each(|callback| unsafe {
-      if let Err(e) = callback(env, exports) {
+    let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
+      .read()
+      .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
+    if let Some(cb) = module_register_hook_callback.as_ref() {
+      if let Err(e) = cb(env, exports) {
         JsError::from(e).throw_into(env);
       }
-    })
+    }
+
+    #[cfg(feature = "compat-mode")]
+    {
+      let module_exports = MODULE_EXPORTS.read().expect("Read MODULE_EXPORTS failed");
+      module_exports.iter().for_each(|callback| unsafe {
+        if let Err(e) = callback(env, exports) {
+          JsError::from(e).throw_into(env);
+        }
+      })
+    }
   }
 
   #[cfg(feature = "napi4")]
@@ -1183,6 +1125,129 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
+}
+
+/// Defines every registered class and sets it on `exports` (or its `js_mod` object).
+///
+/// Stops at the first failure and returns it without throwing. Every constructor
+/// reference made before that point is in `ctor_refs`, so the caller can delete them.
+#[cfg(not(feature = "noop"))]
+unsafe fn register_classes(
+  env: sys::napi_env,
+  exports: sys::napi_value,
+  exports_objects: &mut HashSet<String, FxBuildHasher>,
+  ctor_refs: &mut Vec<(&'static str, sys::napi_ref)>,
+) -> Result<()> {
+  MODULE_CLASS_PROPERTIES.borrow(|inner| {
+    for js_mods in inner.values() {
+      for (js_mod, class_registration) in js_mods {
+        let mut exports_js_mod = ptr::null_mut();
+        unsafe {
+          let js_name = class_registration.js_name;
+          let props = &class_registration.props;
+          if let Some(js_mod_str) = js_mod {
+            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
+            if exports_objects.contains(*js_mod_str) {
+              check_status!(
+                sys::napi_get_named_property(
+                  env,
+                  exports,
+                  mod_name_c_str.as_ptr(),
+                  &mut exports_js_mod,
+                ),
+                "Get mod {} from exports failed",
+                js_mod_str,
+              )?;
+            } else {
+              check_status!(
+                sys::napi_create_object(env, &mut exports_js_mod),
+                "Create export JavaScript Object [{}] failed",
+                js_mod_str
+              )?;
+              check_status!(
+                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
+                "Set exports Object [{}] into exports object failed",
+                js_mod_str
+              )?;
+              exports_objects.insert(js_mod_str.to_string());
+            }
+          }
+          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
+
+          let ctor = ctor
+            .first()
+            .map(|c| c.raw(env))
+            .transpose()?
+            .and_then(|c| c.method)
+            .unwrap_or(noop);
+          let raw_props = props
+            .iter()
+            .map(|prop| prop.raw(env))
+            .collect::<Result<Vec<_>>>()?;
+
+          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
+          let mut class_ptr = ptr::null_mut();
+
+          check_status!(
+            sys::napi_define_class(
+              env,
+              js_class_name.as_ptr(),
+              js_name.len() as isize - 1,
+              Some(ctor),
+              ptr::null_mut(),
+              raw_props.len(),
+              raw_props.as_ptr(),
+              &mut class_ptr,
+            ),
+            "Failed to register class `{}`",
+            &js_name,
+          )?;
+
+          if class_registration.implement_iterator {
+            crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr);
+            // `setup_iterator_class` throws instead of returning its error.
+            let mut is_pending = false;
+            check_status!(
+              sys::napi_is_exception_pending(env, &mut is_pending),
+              "Failed to register class `{}`",
+              &js_name,
+            )?;
+            if is_pending {
+              return Err(Error::new(
+                Status::PendingException,
+                format!("Failed to set up the iterator of class `{}`", js_name),
+              ));
+            }
+          }
+
+          let mut ctor_ref = ptr::null_mut();
+          check_status!(
+            sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref),
+            "Failed to register class `{}`",
+            &js_name,
+          )?;
+
+          ctor_refs.push((js_name, ctor_ref));
+
+          check_status!(
+            sys::napi_set_named_property(
+              env,
+              if exports_js_mod.is_null() {
+                exports
+              } else {
+                exports_js_mod
+              },
+              js_class_name.as_ptr(),
+              class_ptr
+            ),
+            "Failed to register class `{}`",
+            &js_name,
+          )?;
+        }
+      }
+    }
+    Ok(())
+  })
 }
 
 #[cfg(not(feature = "noop"))]
@@ -1315,6 +1380,111 @@ unsafe extern "C" fn custom_gc_env_cleanup(data: *mut std::ffi::c_void) {
   {
     handle.set_aborted();
   }
+}
+
+/// Whether the env whose load built this thread's `REGISTERED_CLASSES` is still alive.
+#[cfg(not(feature = "noop"))]
+fn registered_classes_owner_alive() -> bool {
+  REGISTERED_CLASSES_OWNER.with(|owner| owner.get() != 0)
+}
+
+/// Marks `REGISTERED_CLASSES` as built by `env` until `env` is torn down. If the hook cannot
+/// be added, the map has no owner, so a later failed load clears it instead of keeping it.
+#[cfg(all(feature = "napi3", not(feature = "noop")))]
+unsafe fn track_registered_classes_owner(env: sys::napi_env) {
+  let cookie = REGISTERED_CLASSES_COOKIE.fetch_add(1, Ordering::Relaxed);
+  #[cfg(not(target_family = "wasm"))]
+  let status = unsafe {
+    sys::napi_add_env_cleanup_hook(
+      env,
+      Some(registered_classes_env_cleanup),
+      cookie as *mut std::ffi::c_void,
+    )
+  };
+  #[cfg(target_family = "wasm")]
+  let status = unsafe {
+    crate::napi_add_env_cleanup_hook(
+      env,
+      Some(registered_classes_env_cleanup),
+      cookie as *mut std::ffi::c_void,
+    )
+  };
+  let owner = if status == sys::Status::napi_ok {
+    cookie
+  } else {
+    0
+  };
+  REGISTERED_CLASSES_OWNER.with(|cell| cell.set(owner));
+}
+
+/// Without `napi3` there is no env cleanup hook, so the teardown is seen through a finalizer
+/// instead: the env runs the finalizers of the externals it still holds when it is torn down,
+/// and the strong reference keeps this one from being collected before that. Neither the
+/// external nor the reference is freed here, because the env frees both at teardown. If one
+/// of the calls fails, the map has no owner, as in the `napi3` version.
+#[cfg(all(
+  not(feature = "napi3"),
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
+unsafe fn track_registered_classes_owner(env: sys::napi_env) {
+  let cookie = REGISTERED_CLASSES_COOKIE.fetch_add(1, Ordering::Relaxed);
+  let mut sentinel = ptr::null_mut();
+  let mut sentinel_ref = ptr::null_mut();
+  let tracked = unsafe {
+    sys::napi_create_external(
+      env,
+      cookie as *mut std::ffi::c_void,
+      Some(registered_classes_env_finalize),
+      ptr::null_mut(),
+      &mut sentinel,
+    ) == sys::Status::napi_ok
+      && sys::napi_create_reference(env, sentinel, 1, &mut sentinel_ref) == sys::Status::napi_ok
+  };
+  REGISTERED_CLASSES_OWNER.with(|cell| cell.set(if tracked { cookie } else { 0 }));
+}
+
+// Env cleanup hook added by `track_registered_classes_owner`. It only drops the owner mark
+// and leaves the map alone, so lookups during the rest of the teardown behave as before.
+// A later successful load in the same env took the mark over, so only the current owner's
+// hook resets it.
+#[cfg(all(feature = "napi3", not(feature = "noop")))]
+unsafe extern "C" fn registered_classes_env_cleanup(cookie: *mut std::ffi::c_void) {
+  reset_registered_classes_owner(cookie as usize);
+}
+
+/// On wasm every load is a new instance with its own `REGISTERED_CLASSES`, so a failed load
+/// never finds a map that another env built, and the map needs no owner. The sentinel is not
+/// used there: emnapi's finalization registry holds the env, so a strongly referenced
+/// external with a finalizer would keep the whole instance and its memory alive.
+#[cfg(all(not(feature = "napi3"), not(feature = "noop"), target_family = "wasm"))]
+unsafe fn track_registered_classes_owner(_env: sys::napi_env) {}
+
+// Finalizer of the sentinel external added by `track_registered_classes_owner` without
+// `napi3`. The strong reference means it runs only when the env is torn down.
+#[cfg(all(
+  not(feature = "napi3"),
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
+unsafe extern "C" fn registered_classes_env_finalize(
+  _env: sys::napi_env,
+  cookie: *mut std::ffi::c_void,
+  _hint: *mut std::ffi::c_void,
+) {
+  reset_registered_classes_owner(cookie as usize);
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi3", not(target_family = "wasm"))
+))]
+fn reset_registered_classes_owner(cookie: usize) {
+  let _ = REGISTERED_CLASSES_OWNER.try_with(|owner| {
+    if owner.get() == cookie {
+      owner.set(0);
+    }
+  });
 }
 
 #[cfg(all(

@@ -1,5 +1,6 @@
 const assert = require('node:assert')
 const { readFileSync } = require('node:fs')
+const { basename } = require('node:path')
 
 const { app, BrowserWindow, ipcMain } = require('electron')
 
@@ -119,7 +120,57 @@ async function main() {
   assert(Buffer.from(uint8ArrayFromExternal()).toString('utf8'), 'Hello world')
 }
 
+// The binding that index.cjs loaded, not any binding in the folder.
+function loadedAddon() {
+  const addons = Object.keys(require.cache).filter((file) =>
+    /^example\..+\.node$/.test(basename(file)),
+  )
+  assert.strictEqual(addons.length, 1, addons.join(', '))
+  return addons[0]
+}
+
+// A renderer reload gives the page a new Node env on the same thread. If the
+// addon fails to load there, the class lookups of its surviving exports must
+// fail cleanly instead of reading the constructors of the env that is gone.
+const checkFailedReloadInNewEnv = async () => {
+  const win = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  })
+
+  const result = new Promise((resolve, reject) => {
+    win.webContents.on('render-process-gone', (e, detail) => {
+      reject(new Error(`Renderer process crashed: ${detail.reason}`))
+    })
+    ipcMain.once('failed-reload', (e, message) => resolve(message))
+  })
+  await win.loadFile('./electron-renderer/failed-reload.html', {
+    query: { addon: loadedAddon() },
+  })
+  const { first, pid, reload, results } = await result
+  win.destroy()
+
+  // Same renderer process, so the same thread and thread locals.
+  assert.strictEqual(pid, first.pid)
+  assert.deepStrictEqual(first.results, {
+    classReturningExport: 'JsClassForEither',
+    classField: 'Bird',
+    instanceOf: true,
+  })
+  assert.match(reload, /^Symbol\.\w+ is not available in this runtime$/)
+  for (const [name, message] of Object.entries(results)) {
+    if (name === 'instanceOf' && message === 'class not exported') continue
+    assert.match(message, /^Failed to get constructor of class `/, name)
+  }
+}
+
 Promise.all([main(), createWindowAndReload()])
+  .then(checkFailedReloadInNewEnv)
   .then(() => {
     process.exit(0)
   })
