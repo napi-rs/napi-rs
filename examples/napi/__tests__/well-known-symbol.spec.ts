@@ -1,6 +1,6 @@
-import { readdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
+import { basename } from 'node:path'
 import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
@@ -154,11 +154,13 @@ test('declarations use computed well-known symbol keys', async (t) => {
 // Loads the native addon in a worker after `setup` has changed
 // `globalThis.Symbol`, and returns the load error message.
 async function loadWithSymbol(setup: string) {
-  const directory = new URL('..', import.meta.url)
-  const addon = readdirSync(directory).find((file) =>
-    /^example\..+\.node$/.test(file),
+  // The binding that index.cjs loaded, not any binding in the folder.
+  const addons = Object.keys(createRequire(import.meta.url).cache).filter(
+    (file) => /^example\..+\.node$/.test(basename(file)),
   )
-  if (!addon) throw new Error('native addon not found')
+  if (addons.length !== 1) {
+    throw new Error(`expected one loaded addon, found ${addons.join(', ')}`)
+  }
   return new Promise((resolve, reject) => {
     const worker = new Worker(
       `
@@ -174,7 +176,7 @@ async function loadWithSymbol(setup: string) {
       {
         eval: true,
         execArgv: [],
-        workerData: fileURLToPath(new URL(addon, directory)),
+        workerData: addons[0],
       },
     )
     let result: unknown
