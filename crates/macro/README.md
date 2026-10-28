@@ -99,7 +99,8 @@ The accepted names are `asyncDispose`, `asyncIterator`, `dispose`, `hasInstance`
 `species`, `split`, `toPrimitive`, `toStringTag`, and `unscopables`; any other
 value fails to compile. The placement rules are the same as for `symbol_for`:
 a getter and setter with the same name share one accessor when they are in the
-same `#[napi]` impl block, static methods and factories are supported, and
+same `#[napi]` impl block, static methods and factories are supported (except
+for `hasInstance`, see below), and
 `well_known_symbol` cannot be combined with `js_name`, `symbol_for`, or a named
 `getter`/`setter`, nor used on constructors, top-level exports, or fields of
 `object`, `array`, or `transparent` structs and structured enums.
