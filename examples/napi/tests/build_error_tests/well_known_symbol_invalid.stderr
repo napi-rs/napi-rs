@@ -1,0 +1,41 @@
+error: well_known_symbol is only supported on class methods, accessors and fields
+ --> tests/build_error_tests/well_known_symbol_invalid.rs:3:28
+  |
+3 | #[napi(well_known_symbol = "iterator")]
+  |                            ^^^^^^^^^^
+
+error: unknown well_known_symbol "toStringtag"; expected one of: asyncDispose, asyncIterator, dispose, hasInstance, isConcatSpreadable, iterator, match, matchAll, replace, search, species, split, toPrimitive, toStringTag, unscopables
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:11:30
+   |
+11 |   #[napi(well_known_symbol = "toStringtag")]
+   |                              ^^^^^^^^^^^^^
+
+error: well_known_symbol takes the bare name, write "iterator" instead of "Symbol.iterator"; expected one of: asyncDispose, asyncIterator, dispose, hasInstance, isConcatSpreadable, iterator, match, matchAll, replace, search, species, split, toPrimitive, toStringTag, unscopables
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:17:30
+   |
+17 |   #[napi(well_known_symbol = "Symbol.iterator")]
+   |                              ^^^^^^^^^^^^^^^^^
+
+error: well_known_symbol cannot be combined with js_name
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:23:48
+   |
+23 |   #[napi(js_name = "name", well_known_symbol = "iterator")]
+   |                                                ^^^^^^^^^^
+
+error: well_known_symbol cannot be combined with symbol_for
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:29:55
+   |
+29 |   #[napi(symbol_for = "iterator", well_known_symbol = "iterator")]
+   |                                                       ^^^^^^^^^^
+
+error: well_known_symbol is not supported on constructors
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:35:43
+   |
+35 |   #[napi(constructor, well_known_symbol = "species")]
+   |                                           ^^^^^^^^^
+
+error: well_known_symbol is only supported on class fields
+  --> tests/build_error_tests/well_known_symbol_invalid.rs:43:30
+   |
+43 |   #[napi(well_known_symbol = "toStringTag")]
+   |                              ^^^^^^^^^^^^^

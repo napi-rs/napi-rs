@@ -646,6 +646,20 @@ export declare class UseNullableClass {
   constructor(requiredNumberField: number, requiredStringField: string, nullableNumberField: number | null, nullableStringField: string | null)
 }
 
+/** Class members keyed by well-known symbols. */
+export declare class WellKnownSymbolClass {
+  [Symbol.isConcatSpreadable]: boolean
+  constructor(value: number)
+  get [Symbol.toStringTag](): string
+  set [Symbol.toStringTag](tag: string)
+  [Symbol.toPrimitive](hint: string): number | string
+  /** `instanceof` accepts any object whose `kind` is `"wellKnown"`. */
+  static [Symbol.hasInstance](value: unknown): boolean
+  get kind(): string
+  [Symbol.dispose](): void
+  get disposed(): boolean
+}
+
 export declare class Width {
   value: number
   constructor(value: number)

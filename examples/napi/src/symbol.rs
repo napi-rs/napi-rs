@@ -121,6 +121,74 @@ pub struct SymbolNamedFields {
   pub label: String,
 }
 
+/// Class members keyed by well-known symbols.
+#[napi]
+pub struct WellKnownSymbolClass {
+  #[napi(well_known_symbol = "isConcatSpreadable")]
+  pub spreadable: bool,
+  tag: String,
+  value: u32,
+  disposed: bool,
+}
+
+#[napi]
+impl WellKnownSymbolClass {
+  #[napi(constructor)]
+  pub fn new(value: u32) -> Self {
+    Self {
+      spreadable: false,
+      tag: "WellKnownSymbolClass".to_owned(),
+      value,
+      disposed: false,
+    }
+  }
+
+  #[napi(getter, well_known_symbol = "toStringTag")]
+  pub fn tag(&self) -> String {
+    self.tag.clone()
+  }
+
+  #[napi(setter, well_known_symbol = "toStringTag")]
+  pub fn set_tag(&mut self, tag: String) {
+    self.tag = tag;
+  }
+
+  #[napi(well_known_symbol = "toPrimitive")]
+  pub fn to_primitive(&self, hint: String) -> Either<u32, String> {
+    if hint == "string" {
+      Either::B(format!("value:{}", self.value))
+    } else {
+      Either::A(self.value)
+    }
+  }
+
+  /// `instanceof` accepts any object whose `kind` is `"wellKnown"`.
+  #[napi(well_known_symbol = "hasInstance")]
+  pub fn has_instance(value: Unknown) -> Result<bool> {
+    if value.get_type()? != ValueType::Object {
+      return Ok(false);
+    }
+    let object = unsafe { value.cast::<Object>()? };
+    let kind = object.get_named_property::<Unknown>("kind")?;
+    Ok(kind.get_type()? == ValueType::String && unsafe { kind.cast::<String>()? } == "wellKnown")
+  }
+
+  #[napi(getter)]
+  pub fn kind(&self) -> &'static str {
+    "wellKnown"
+  }
+
+  #[napi(well_known_symbol = "dispose")]
+  pub fn dispose(&mut self) {
+    self.disposed = true;
+  }
+
+  #[napi(getter)]
+  pub fn disposed(&self) -> bool {
+    self.disposed
+  }
+}
+
 #[napi]
 pub fn define_symbol_object<'env>(env: &'env Env, name: String) -> Result<Object<'env>> {
   let mut object = Object::new(env)?;
