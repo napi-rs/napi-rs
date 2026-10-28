@@ -105,10 +105,11 @@ same `#[napi]` impl block, static methods and factories are supported, and
 `object`, `array`, or `transparent` structs and structured enums.
 
 Unlike `symbol_for`, these members are declared in the generated TypeScript with
-computed keys, for example `get [Symbol.toStringTag](): string` and
-`static [Symbol.hasInstance](value: unknown): boolean`. The consuming project
-needs a TypeScript `lib` that declares the symbol (for example `esnext.disposable`
-for `dispose` and `asyncDispose`).
+computed keys, for example `get [globalThis.Symbol.toStringTag](): string` and
+`static [globalThis.Symbol.hasInstance](value: unknown): boolean`. The keys go
+through `globalThis`, so an export named `Symbol` does not shadow them. The
+consuming project needs a TypeScript `lib` that declares the symbol (for example
+`esnext.disposable` for `dispose` and `asyncDispose`).
 
 No Node-API feature is required. The symbol is read from `globalThis.Symbol` in
 each environment during class registration. If it is not a symbol there, the

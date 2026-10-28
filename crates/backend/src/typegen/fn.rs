@@ -86,7 +86,7 @@ impl ToTypeDef for NapiFn {
     let prefix = self.gen_ts_func_prefix();
     // A well-known symbol member is declared with a computed key.
     let name = match &self.well_known_symbol {
-      Some((name, _)) => format!("[Symbol.{name}]"),
+      Some((name, _)) => format!("[globalThis.Symbol.{name}]"),
       None => self.js_name.clone(),
     };
     let def = match self.ts_type.as_ref() {

@@ -138,14 +138,14 @@ test('declarations use computed well-known symbol keys', async (t) => {
       .map((line) => line.trim())
       .filter((line) => !line.startsWith('/**')),
     [
-      '[Symbol.isConcatSpreadable]: boolean',
+      '[globalThis.Symbol.isConcatSpreadable]: boolean',
       'constructor(value: number)',
-      'get [Symbol.toStringTag](): string',
-      'set [Symbol.toStringTag](tag: string)',
-      '[Symbol.toPrimitive](hint: string): number | string',
-      'static [Symbol.hasInstance](value: unknown): boolean',
+      'get [globalThis.Symbol.toStringTag](): string',
+      'set [globalThis.Symbol.toStringTag](tag: string)',
+      '[globalThis.Symbol.toPrimitive](hint: string): number | string',
+      'static [globalThis.Symbol.hasInstance](value: unknown): boolean',
       'get kind(): string',
-      '[Symbol.dispose](): void',
+      '[globalThis.Symbol.dispose](): void',
       'get disposed(): boolean',
     ],
   )

@@ -120,6 +120,19 @@ test('empty classes do not contain a blank body', async (t) => {
   t.false(dts.includes('class Blake2BKey {\n\n}'))
 })
 
+test('well-known symbol members are not taken as the async iterator helper', async (t) => {
+  // `#[napi(well_known_symbol = "asyncIterator")]` emits a `globalThis` key,
+  // which the `#[napi(async_iterator)]` rewrite must leave alone.
+  const member =
+    '[globalThis.Symbol.asyncIterator](): AsyncGenerator<number, void, undefined>'
+  const { dts } = await processInlineTypeDef([
+    { kind: 'struct', name: 'Stream', def: '' },
+    { kind: 'impl', name: 'Stream', def: ` ${member}` },
+  ])
+  t.true(dts.includes(member))
+  t.false(dts.includes('__NapiRsAsyncGenerator'))
+})
+
 test('no-const-enum string enums emit a spaced union', async (t) => {
   const { dts } = await processTypeDef(flagFixture, false, false)
   t.true(dts.includes("export type Status = 'Active' | 'Inactive'"))

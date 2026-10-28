@@ -240,7 +240,7 @@ impl NapiStruct {
     // A well-known symbol field is declared with a computed key, while its
     // constructor argument keeps the Rust-derived name.
     match &f.well_known_symbol {
-      Some((name, _)) => field_str.push_str(&gen_arg(&format!("[Symbol.{name}]")).0),
+      Some((name, _)) => field_str.push_str(&gen_arg(&format!("[globalThis.Symbol.{name}]")).0),
       None => field_str.push_str(&arg),
     }
     Some((field_str, arg, required_arg))
