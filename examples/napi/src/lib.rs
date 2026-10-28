@@ -89,6 +89,7 @@ mod class;
 mod class_factory;
 mod constructor;
 mod date;
+mod define_class_closure;
 mod either;
 mod r#enum;
 mod env;

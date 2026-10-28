@@ -404,6 +404,44 @@ impl NotWritableClass {
   }
 }
 
+/// Static methods and factories keep their default descriptor (not writable,
+/// not enumerable, not configurable) unless a flag is written out.
+#[napi]
+pub struct StaticPropertyFlags {}
+
+#[napi]
+impl StaticPropertyFlags {
+  #[napi]
+  pub fn default_flags() -> u32 {
+    1
+  }
+
+  #[napi(writable, configurable)]
+  pub fn writable_configurable() -> u32 {
+    2
+  }
+
+  #[napi(enumerable)]
+  pub fn enumerable_only() -> u32 {
+    3
+  }
+
+  #[napi(writable = false, enumerable = false, configurable = false)]
+  pub fn all_off() -> u32 {
+    4
+  }
+
+  #[napi(factory, writable)]
+  pub fn create() -> Self {
+    StaticPropertyFlags {}
+  }
+
+  #[napi(writable = false)]
+  pub fn instance_not_writable(&self) -> u32 {
+    5
+  }
+}
+
 #[napi(custom_finalize)]
 pub struct CustomFinalize {
   width: u32,

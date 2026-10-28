@@ -830,6 +830,12 @@ impl Env {
   }
 
   /// Create JavaScript class
+  ///
+  /// Closures passed through `with_getter_closure` or `with_setter_closure`
+  /// live as long as the environment, not the class. On native runtimes they
+  /// are dropped when the environment is torn down, after the last JavaScript
+  /// has run. On WebAssembly (emnapi) they are never dropped: emnapi runs env
+  /// cleanup hooks while JavaScript can still call the accessors.
   pub fn define_class<Args: JsValuesTupleIntoVec>(
     &self,
     name: &str,
@@ -837,11 +843,32 @@ impl Env {
     properties: &[Property],
   ) -> Result<Function<'_, Args, Unknown<'_>>> {
     let mut raw_result = ptr::null_mut();
-    let raw_properties = properties
-      .iter()
-      .map(|prop| prop.raw(self.0))
-      .collect::<Result<Vec<_>>>()?;
-    check_status!(unsafe {
+    let mut raw_properties = Vec::with_capacity(properties.len());
+    // `raw()` boxes the data of closure-backed accessors. Node-API leaves that
+    // data to us. Freeing it when the constructor is collected is not safe: an
+    // accessor taken off the prototype can outlive the constructor. Free it
+    // when the environment is torn down instead. See below for WebAssembly.
+    #[cfg(feature = "napi5")]
+    let mut closures = Vec::new();
+    for property in properties {
+      let descriptor = match property.raw(self.0) {
+        Ok(descriptor) => descriptor,
+        Err(err) => {
+          // Free the data boxed for the properties before this one.
+          #[cfg(feature = "napi5")]
+          unsafe {
+            crate::bindgen_runtime::drop_property_closures(closures)
+          }
+          return Err(err);
+        }
+      };
+      #[cfg(feature = "napi5")]
+      if property.has_closure_data() && !descriptor.data.is_null() {
+        closures.push(descriptor.data.cast::<crate::PropertyClosuresData>());
+      }
+      raw_properties.push(descriptor);
+    }
+    let status = unsafe {
       sys::napi_define_class(
         self.0,
         name.as_ptr().cast(),
@@ -852,7 +879,25 @@ impl Env {
         raw_properties.as_ptr(),
         &mut raw_result,
       )
-    })?;
+    };
+    #[cfg(feature = "napi5")]
+    if !closures.is_empty() {
+      if status != sys::Status::napi_ok {
+        // No class holds the data, free it now.
+        unsafe { crate::bindgen_runtime::drop_property_closures(closures) };
+      } else if cfg!(not(target_family = "wasm")) {
+        // Native runtimes run env cleanup hooks only after the last
+        // JavaScript: Node disallows JavaScript before `RunCleanup`.
+        self.add_env_cleanup_hook(closures, |closures| unsafe {
+          crate::bindgen_runtime::drop_property_closures(closures)
+        })?;
+      }
+      // On WebAssembly the data is leaked. emnapi runs env cleanup hooks from
+      // `Context.destroy()`, at `beforeExit`, at the loader's `exit` listener
+      // or on an explicit dispose, and JavaScript can still call the accessors
+      // after that, for example from a later `exit` listener.
+    }
+    check_status!(status)?;
 
     unsafe { Function::from_napi_value(self.0, raw_result) }
   }

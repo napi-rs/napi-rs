@@ -196,7 +196,9 @@ impl ToTypeDef for NapiImpl {
 }
 
 impl NapiStruct {
-  fn gen_field(&self, f: &NapiStructField) -> Option<(String, String)> {
+  /// Returns the property line, the constructor argument, and for an argument
+  /// spelled `name?: T` the same argument spelled `name: T | undefined`.
+  fn gen_field(&self, f: &NapiStructField) -> Option<(String, String, Option<String>)> {
     if f.skip_typescript {
       return None;
     }
@@ -215,15 +217,27 @@ impl NapiStruct {
     let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
     let js_name = format_js_property_name(&f.js_name);
 
-    let arg = match is_optional {
-      false => format!("{}: {}", js_name, arg),
+    let (arg, required_arg) = match is_optional {
+      false => (format!("{}: {}", js_name, arg), None),
       true => match self.use_nullable {
-        false => format!("{}?: {}", js_name, arg),
-        true => format!("{}: {} | null", js_name, arg),
+        false => {
+          // `| undefined` would bind to the return type of a function type
+          // or to the false branch of a conditional type.
+          let union_arg = if arg.contains("=>") || arg.contains("extends") {
+            format!("({arg})")
+          } else {
+            arg.clone()
+          };
+          (
+            format!("{}?: {}", js_name, arg),
+            Some(format!("{}: {} | undefined", js_name, union_arg)),
+          )
+        }
+        true => (format!("{}: {} | null", js_name, arg), None),
       },
     };
     field_str.push_str(&arg);
-    Some((field_str, arg))
+    Some((field_str, arg, required_arg))
   }
 
   fn gen_ts_class(&self) -> String {
@@ -235,7 +249,7 @@ impl NapiStruct {
         let def = array
           .fields
           .iter()
-          .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
+          .filter_map(|f| self.gen_field(f).map(|(field, _, _)| field))
           .collect::<Vec<_>>()
           .join(", ");
         format!("[{def}]")
@@ -247,8 +261,8 @@ impl NapiStruct {
           .iter()
           .filter(|f| f.getter)
           .filter_map(|f| {
-            self.gen_field(f).and_then(|(field, arg)| {
-              ctor_args.push(arg);
+            self.gen_field(f).and_then(|(field, arg, required_arg)| {
+              ctor_args.push((arg, required_arg));
               // Keep positional constructor arguments, but do not advertise a
               // symbol-keyed field as a string-keyed property.
               f.symbol_for.is_none().then_some(field)
@@ -257,6 +271,19 @@ impl NapiStruct {
           .collect::<Vec<_>>()
           .join("\n");
         if class.ctor {
+          // TS1016: a required parameter cannot follow an optional one, so an
+          // optional field before the last required field drops its `?`.
+          let last_required = ctor_args
+            .iter()
+            .rposition(|(_, required_arg)| required_arg.is_none());
+          let ctor_args = ctor_args
+            .into_iter()
+            .enumerate()
+            .map(|(i, (arg, required_arg))| match required_arg {
+              Some(required_arg) if last_required.is_some_and(|last| i < last) => required_arg,
+              _ => arg,
+            })
+            .collect::<Vec<_>>();
           if def.is_empty() {
             format!("constructor({})", ctor_args.join(", "))
           } else {
@@ -270,7 +297,7 @@ impl NapiStruct {
         .fields
         .iter()
         .filter(|f| f.getter)
-        .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
+        .filter_map(|f| self.gen_field(f).map(|(field, _, _)| field))
         .collect::<Vec<_>>()
         .join("\n"),
       NapiStructKind::StructuredEnum(structured_enum) => structured_enum
@@ -291,7 +318,7 @@ impl NapiStruct {
               .fields
               .iter()
               .filter(|f| f.getter)
-              .filter_map(|f| self.gen_field(f).map(|(field, _)| field)),
+              .filter_map(|f| self.gen_field(f).map(|(field, _, _)| field)),
           )
           .collect::<Vec<_>>()
           .join("; ");

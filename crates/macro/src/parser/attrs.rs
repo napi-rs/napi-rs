@@ -245,6 +245,25 @@ impl BindgenAttrs {
     Ok(BindgenAttrs::default())
   }
 
+  /// The `writable`, `enumerable` and `configurable` flags, in that order, each
+  /// `None` when it is not written out. `writable()` and the others fill a
+  /// missing flag with `true` instead.
+  pub fn given_property_flags(&self) -> [Option<bool>; 3] {
+    let mut flags = [None; 3];
+    for (used, attr) in self.attrs.iter() {
+      let (index, value) = match attr {
+        BindgenAttr::Writable(_, value) => (0, value),
+        BindgenAttr::Enumerable(_, value) => (1, value),
+        BindgenAttr::Configurable(_, value) => (2, value),
+        _ => continue,
+      };
+      used.set(true);
+      // The first one wins, as in `writable()`.
+      flags[index] = flags[index].or(*value);
+    }
+    flags
+  }
+
   attrgen!(methods);
 }
 

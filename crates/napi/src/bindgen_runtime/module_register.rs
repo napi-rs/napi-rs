@@ -78,6 +78,7 @@ struct ClassRegistration {
 
 // Stores class metadata registered by napi macros.
 // Since class properties do not contain any napi_value, ModuleClassProperty is thread-safe.
+// `register_class` rejects accessor closures, so their non-thread-safe closure owners stay empty.
 // This structure is shared between the main JS thread and worker threads.
 #[cfg(not(feature = "noop"))]
 #[derive(Default)]
@@ -282,6 +283,12 @@ pub fn register_class(
   props: Vec<Property>,
   implement_iterator: bool,
 ) {
+  // Worker threads read this registry, and closure owners are not thread-safe.
+  #[cfg(feature = "napi5")]
+  assert!(
+    !props.iter().any(|prop| prop.has_owned_closure()),
+    "register_class does not accept closure-backed properties"
+  );
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
     let val = inner.entry(rust_type_id).or_default();
     let val = val.entry(js_mod).or_insert_with(|| ClassRegistration {

@@ -903,6 +903,19 @@ fn napi_fn_from_decl(
       bail_span!(sig.ident, "Constructor don't support asynchronous function");
     }
 
+    // `writable`, `enumerable` and `configurable` default to `true`, but static
+    // methods and factories have always been defined with all three off. Keep
+    // that default for them and apply only the flags that are written out.
+    let is_static =
+      parent.is_some() && fn_self.is_none() && matches!(kind, FnKind::Normal | FnKind::Factory);
+    let [writable, enumerable, configurable] = if is_static {
+      opts
+        .given_property_flags()
+        .map(|flag| flag.unwrap_or(false))
+    } else {
+      [opts.writable(), opts.enumerable(), opts.configurable()]
+    };
+
     Ok(NapiFn {
       name: ident.clone(),
       js_name,
@@ -930,9 +943,9 @@ fn napi_fn_from_decl(
       skip_typescript: opts.skip_typescript().is_some() || symbol_for.is_some(),
       parent_is_generator,
       parent_is_async_generator,
-      writable: opts.writable(),
-      enumerable: opts.enumerable(),
-      configurable: opts.configurable(),
+      writable,
+      enumerable,
+      configurable,
       catch_unwind: opts.catch_unwind().is_some(),
       unsafe_: matches!(sig.safety, syn::Safety::Unsafe(_)),
       register_name: get_register_ident(ident.to_string().as_str()),

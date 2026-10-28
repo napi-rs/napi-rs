@@ -508,6 +508,24 @@ export declare class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+/**
+ * An optional field before a required one is still a positional constructor
+ * argument, so it is not marked `?` in the constructor.
+ */
+export declare class OptionalBeforeRequiredClass {
+  optionalNumberField?: number
+  requiredNumberField: number
+  optionalStringField?: string
+  constructor(optionalNumberField: number | undefined, requiredNumberField: number, optionalStringField?: string)
+}
+
+/** `| undefined` stays outside a conditional `ts_type` when the `?` is dropped. */
+export declare class OptionalConditionalBeforeRequiredClass {
+  optionalConditionalField?: number extends number ? number : never
+  requiredNumberField: number
+  constructor(optionalConditionalField: (number extends number ? number : never) | undefined, requiredNumberField: number)
+}
+
 export declare class PackageJsonReader {
   constructor()
   read(): any
@@ -548,6 +566,19 @@ export declare class SleepOverlapProbe {
   constructor()
   /** The most sleeps that were pending at once */
   get maxInFlight(): number
+}
+
+/**
+ * Static methods and factories keep their default descriptor (not writable,
+ * not enumerable, not configurable) unless a flag is written out.
+ */
+export declare class StaticPropertyFlags {
+  static defaultFlags(): number
+  static writableConfigurable(): number
+  static enumerableOnly(): number
+  static allOff(): number
+  static create(): StaticPropertyFlags
+  instanceNotWritable(): number
 }
 
 /** Class members exposed through the global symbol registry. */
@@ -924,6 +955,9 @@ export declare function cleanupReentrantBorrowOrderTestTargets(): number
  */
 export declare function closeBorrowGate(id: number): void
 
+/** How many accessor closures have been dropped in this process. */
+export declare function closureDropCount(): number
+
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
   noDocumentAll?: boolean
@@ -1150,6 +1184,15 @@ declare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }
+
+/** Passes one `&[Property]` to two `Env::define_class` calls. */
+export declare function defineClassTwiceWithClosures(): Array<new () => { value: number; readonly lastSet?: number }>
+
+/** A class whose `value` accessor is backed by closures. */
+export declare function defineClassWithClosures(): new () => { value: number; readonly lastSet?: number }
+
+/** Passes one `&[Property]` to `define_properties` on two objects. */
+export declare function definePropertiesTwiceWithClosures(): Array<{ value: number; readonly lastSet?: number }>
 
 export declare function defineSymbolClass(name: string): new () => object
 
