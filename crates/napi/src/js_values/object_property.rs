@@ -33,6 +33,8 @@ impl Default for PropertyClosures {
 #[derive(Clone)]
 pub struct Property {
   utf8_name: Option<CString>,
+  #[cfg(feature = "napi9")]
+  symbol_name: Option<String>,
   name: sys::napi_value,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
@@ -49,6 +51,8 @@ impl Default for Property {
   fn default() -> Self {
     Property {
       utf8_name: Default::default(),
+      #[cfg(feature = "napi9")]
+      symbol_name: None,
       name: ptr::null_mut(),
       getter: Default::default(),
       setter: Default::default(),
@@ -91,13 +95,40 @@ impl Property {
     Default::default()
   }
 
+  /// Replaces any key set earlier on this `Property`.
   pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
     self.utf8_name = Some(CString::new(name)?);
+    self.name = ptr::null_mut();
+    #[cfg(feature = "napi9")]
+    {
+      self.symbol_name = None;
+    }
     Ok(self)
   }
 
+  /// Stores a global symbol key, resolved in the current environment when the
+  /// property is defined. Replaces any key set earlier on this `Property`.
+  /// Requires the `napi9` feature or a higher Node-API feature.
+  ///
+  /// Used by `#[napi(symbol_for)]` codegen. Not public API and not covered by
+  /// semver.
+  #[cfg(feature = "napi9")]
+  #[doc(hidden)]
+  pub fn with_symbol_name(mut self, name: &str) -> Self {
+    self.utf8_name = None;
+    self.name = ptr::null_mut();
+    self.symbol_name = Some(name.to_owned());
+    self
+  }
+
+  /// Replaces any key set earlier on this `Property`.
   pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
     self.name = unsafe { T::to_napi_value(env.0, name)? };
+    self.utf8_name = None;
+    #[cfg(feature = "napi9")]
+    {
+      self.symbol_name = None;
+    }
     Ok(self)
   }
 
@@ -179,7 +210,25 @@ impl Property {
       && (!self.closures.getter_closure.is_null() || !self.closures.setter_closure.is_null())
   }
 
-  pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
+  pub(crate) fn raw(&self, _env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
+    let name = self.name;
+    // Only the registry key is shared across environments, never a napi_value.
+    // The lookup runs before this property's closure data is allocated.
+    #[cfg(feature = "napi9")]
+    let name = if let Some(symbol_name) = &self.symbol_name {
+      let mut symbol = ptr::null_mut();
+      crate::check_status!(unsafe {
+        sys::node_api_symbol_for(
+          _env,
+          symbol_name.as_ptr().cast(),
+          symbol_name.len() as isize,
+          &mut symbol,
+        )
+      })?;
+      symbol
+    } else {
+      name
+    };
     #[cfg(feature = "napi5")]
     let data = if !self.data.is_null() {
       self.data
@@ -191,12 +240,12 @@ impl Property {
       Box::into_raw(Box::new(self.closures)).cast()
     };
 
-    sys::napi_property_descriptor {
+    Ok(sys::napi_property_descriptor {
       utf8name: match self.utf8_name {
         Some(ref name) => name.as_ptr(),
         None => ptr::null(),
       },
-      name: self.name,
+      name,
       method: self.method,
       getter: self.getter,
       setter: self.setter,
@@ -206,12 +255,91 @@ impl Property {
       data: self.data,
       #[cfg(feature = "napi5")]
       data,
-    }
+    })
   }
 
   pub fn with_ctor(mut self, callback: Callback) -> Self {
     self.method = Some(callback);
     self.is_ctor = true;
     self
+  }
+}
+
+/// Builds the symbol-keyed `Property` for `#[napi(symbol_for = "...")]`.
+/// Checked against the features of this crate, so a missing `napi9` gives a
+/// clear error instead of a missing method.
+#[cfg(feature = "napi9")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! symbol_for_property {
+  ($name:expr) => {
+    $crate::bindgen_prelude::Property::new().with_symbol_name($name)
+  };
+}
+
+#[cfg(not(feature = "napi9"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! symbol_for_property {
+  ($name:expr) => {{
+    compile_error!("`symbol_for` requires the `napi9` feature of the `napi` crate");
+    $crate::bindgen_prelude::Property::new()
+  }};
+}
+
+#[cfg(all(test, feature = "napi9"))]
+mod tests {
+  use super::*;
+
+  // Name conversion is stubbed so the builder can be tested without a JS
+  // environment. The opaque value is only compared, never dereferenced.
+  struct TestName;
+
+  impl ToNapiValue for TestName {
+    unsafe fn to_napi_value(_env: sys::napi_env, _value: Self) -> Result<sys::napi_value> {
+      Ok(ptr::dangling_mut())
+    }
+  }
+
+  #[test]
+  fn utf8_name_replaces_symbol_and_value_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in [
+      Property::new().with_symbol_name("old"),
+      Property::new().with_name(&env, TestName).unwrap(),
+    ] {
+      let property = property.with_utf8_name("new").unwrap();
+      assert_eq!(property.utf8_name.as_ref().unwrap().as_bytes(), b"new");
+      assert!(property.symbol_name.is_none());
+      assert!(property.name.is_null());
+    }
+  }
+
+  #[test]
+  fn value_name_replaces_symbol_and_utf8_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in [
+      Property::new().with_symbol_name("old"),
+      Property::new().with_utf8_name("old").unwrap(),
+    ] {
+      let property = property.with_name(&env, TestName).unwrap();
+      assert!(property.utf8_name.is_none());
+      assert!(property.symbol_name.is_none());
+      assert_eq!(property.name, ptr::dangling_mut());
+    }
+  }
+
+  #[test]
+  fn symbol_name_replaces_utf8_and_value_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in [
+      Property::new().with_utf8_name("old").unwrap(),
+      Property::new().with_name(&env, TestName).unwrap(),
+    ] {
+      let property = property.with_symbol_name("new");
+      assert_eq!(property.symbol_name.as_deref(), Some("new"));
+      assert!(property.utf8_name.is_none());
+      assert!(property.name.is_null());
+    }
   }
 }

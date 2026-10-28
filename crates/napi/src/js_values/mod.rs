@@ -623,8 +623,8 @@ macro_rules! impl_object_methods {
       pub fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
         let property_descriptors = properties
           .iter()
-          .map(|property| property.raw())
-          .collect::<Vec<sys::napi_property_descriptor>>();
+          .map(|property| property.raw(self.0.env))
+          .collect::<Result<Vec<_>>>()?;
         #[cfg(feature = "napi5")]
         {
           let mut closures = properties

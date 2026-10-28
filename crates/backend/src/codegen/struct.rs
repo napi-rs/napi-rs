@@ -1116,9 +1116,15 @@ impl NapiStruct {
         attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
       }
 
+      let property = match &field.symbol_for {
+        // Spanned so a missing `napi9` points at the `symbol_for` attribute.
+        Some((key, span)) => {
+          quote_spanned! { *span=> napi::symbol_for_property!(#key) }
+        }
+        None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
+      };
       let mut prop = quote! {
-        napi::bindgen_prelude::Property::new().with_utf8_name(#js_name)
-          .unwrap()
+        #property
           .with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
       };
 
@@ -1731,24 +1737,37 @@ impl NapiImpl {
         attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
       }
 
-      let prop = props.entry(&item.js_name).or_insert_with(|| {
+      // String and symbol keys, and static and instance members, are distinct.
+      let property_key = (
+        item.symbol_for.is_some(),
+        item
+          .symbol_for
+          .as_ref()
+          .map_or(&item.js_name, |(name, _)| name),
+        item.fn_self.is_none() && matches!(item.kind, FnKind::Normal | FnKind::Factory),
+      );
+      let property = match &item.symbol_for {
+        Some((key, span)) => {
+          quote_spanned! { *span=> napi::symbol_for_property!(#key) }
+        }
+        None => quote! { napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap() },
+      };
+      let prop = props.entry(property_key).or_insert_with(|| {
         quote! {
-          napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap().with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
+          #property.with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
         }
       });
 
       let accessor_descriptor_ident =
         if matches!(item.kind, FnKind::Getter | FnKind::Setter) && !item.is_async {
-          let entry = accessor_descriptors
-            .entry(item.js_name.clone())
-            .or_insert_with(|| {
-              let ident = Ident::new(
-                &format!("__napi_accessor_descriptor_{accessor_descriptor_count}"),
-                Span::call_site(),
-              );
-              accessor_descriptor_count += 1;
-              (ident, None, None)
-            });
+          let entry = accessor_descriptors.entry(property_key).or_insert_with(|| {
+            let ident = Ident::new(
+              &format!("__napi_accessor_descriptor_{accessor_descriptor_count}"),
+              Span::call_site(),
+            );
+            accessor_descriptor_count += 1;
+            (ident, None, None)
+          });
           match item.kind {
             FnKind::Getter => {
               entry.1 = Some(intermediate_name.clone());

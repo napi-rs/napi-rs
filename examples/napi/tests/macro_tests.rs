@@ -7,6 +7,7 @@ mod build_error_tests;
 #[test]
 fn run_build_error_tests() {
   let t = trybuild::TestCases::new();
+  t.compile_fail("tests/build_error_tests/symbol_for_invalid.rs");
   t.compile_fail("tests/build_error_tests/ts_arg_type_*.rs");
   t.compile_fail("tests/build_error_tests/fn_outside_impl_factory.rs");
   t.compile_fail("tests/build_error_tests/assign_js_value_to_class.rs");

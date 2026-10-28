@@ -839,8 +839,8 @@ impl Env {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .iter()
-      .map(|prop| prop.raw())
-      .collect::<Vec<sys::napi_property_descriptor>>();
+      .map(|prop| prop.raw(self.0))
+      .collect::<Result<Vec<_>>>()?;
     check_status!(unsafe {
       sys::napi_define_class(
         self.0,

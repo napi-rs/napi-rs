@@ -550,6 +550,22 @@ export declare class SleepOverlapProbe {
   get maxInFlight(): number
 }
 
+/** Class members exposed through the global symbol registry. */
+export declare class SymbolNamedClass {
+  constructor(value: number)
+  get _value(): number
+  set _value(value: number)
+  _method(): number
+  shared(): number
+  static shared(value: number): number
+}
+
+/** Symbol fields still accept positional constructor arguments. */
+export declare class SymbolNamedFields {
+  label: string
+  constructor(value: number, label: string)
+}
+
 export declare class Thing {}
 
 export declare class ThingList {
@@ -1134,6 +1150,10 @@ declare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }
+
+export declare function defineSymbolClass(name: string): new () => object
+
+export declare function defineSymbolObject(name: string): object
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 

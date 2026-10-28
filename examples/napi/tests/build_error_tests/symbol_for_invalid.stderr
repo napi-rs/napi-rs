@@ -1,0 +1,65 @@
+error: symbol_for is only supported on class methods, accessors and fields
+ --> tests/build_error_tests/symbol_for_invalid.rs:3:21
+  |
+3 | #[napi(symbol_for = "function")]
+  |                     ^^^^^^^^^^
+
+error: symbol_for cannot be combined with js_name
+  --> tests/build_error_tests/symbol_for_invalid.rs:11:41
+   |
+11 |   #[napi(js_name = "name", symbol_for = "name")]
+   |                                         ^^^^^^
+
+error: symbol_for is not supported on constructors
+  --> tests/build_error_tests/symbol_for_invalid.rs:17:36
+   |
+17 |   #[napi(constructor, symbol_for = "constructor")]
+   |                                    ^^^^^^^^^^^^^
+
+error: symbol_for cannot be combined with js_name
+  --> tests/build_error_tests/symbol_for_invalid.rs:25:42
+   |
+25 |   #[napi(js_name = "value", symbol_for = "value")]
+   |                                          ^^^^^^^
+
+error: symbol_for is only supported on class fields
+  --> tests/build_error_tests/symbol_for_invalid.rs:31:23
+   |
+31 |   #[napi(symbol_for = "value")]
+   |                       ^^^^^^^
+
+error: symbol_for is only supported on class fields
+  --> tests/build_error_tests/symbol_for_invalid.rs:36:43
+   |
+36 | pub struct ArrayField(#[napi(symbol_for = "value")] pub u32);
+   |                                           ^^^^^^^
+
+error: symbol_for is only supported on class fields
+  --> tests/build_error_tests/symbol_for_invalid.rs:39:49
+   |
+39 | pub struct TransparentField(#[napi(symbol_for = "value")] pub u32);
+   |                                                 ^^^^^^^
+
+error: symbol_for is only supported on class methods, accessors and fields
+  --> tests/build_error_tests/symbol_for_invalid.rs:41:21
+   |
+41 | #[napi(symbol_for = "Class")]
+   |                     ^^^^^^^
+
+error: symbol_for is only supported on class methods, accessors and fields
+  --> tests/build_error_tests/symbol_for_invalid.rs:44:21
+   |
+44 | #[napi(symbol_for = "module")]
+   |                     ^^^^^^^^
+
+error: symbol_for cannot be combined with a getter or setter name
+  --> tests/build_error_tests/symbol_for_invalid.rs:49:38
+   |
+49 |   #[napi(getter = name, symbol_for = "name")]
+   |                                      ^^^^^^
+
+error: symbol_for has no effect on a skipped field
+  --> tests/build_error_tests/symbol_for_invalid.rs:57:29
+   |
+57 |   #[napi(skip, symbol_for = "value")]
+   |                             ^^^^^^^
