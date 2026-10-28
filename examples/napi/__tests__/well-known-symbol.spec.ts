@@ -151,54 +151,81 @@ test('declarations use computed well-known symbol keys', async (t) => {
   )
 })
 
-// Loads the native addon in a worker whose `Symbol.dispose` is not a symbol.
+// Loads the native addon in a worker after `setup` has changed
+// `globalThis.Symbol`, and returns the load error message.
+async function loadWithSymbol(setup: string) {
+  const directory = new URL('..', import.meta.url)
+  const addon = readdirSync(directory).find((file) =>
+    /^example\..+\.node$/.test(file),
+  )
+  if (!addon) throw new Error('native addon not found')
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      `
+      const { parentPort, workerData } = require('node:worker_threads')
+      ${setup}
+      try {
+        process.dlopen({ exports: {} }, workerData)
+        parentPort.postMessage('loaded')
+      } catch (error) {
+        parentPort.postMessage(error.message)
+      }
+    `,
+      {
+        eval: true,
+        execArgv: [],
+        workerData: fileURLToPath(new URL(addon, directory)),
+      },
+    )
+    let result: unknown
+    worker.on('message', (message) => {
+      result = message
+    })
+    worker.on('error', reject)
+    worker.on('exit', (code) => {
+      if (code === 0) resolve(result)
+      else reject(new Error(`Worker exited with code ${code}`))
+    })
+  })
+}
+
 // The class registration must fail instead of keying the member by a string.
 test.skipIf(Boolean(process.env.WASI_TEST))(
   'registration fails when a well-known symbol is missing',
   async (t) => {
-    const directory = new URL('..', import.meta.url)
-    const addon = readdirSync(directory).find((file) =>
-      /^example\..+\.node$/.test(file),
-    )
-    t.truthy(addon)
-    const message = await new Promise((resolve, reject) => {
-      const worker = new Worker(
-        `
-        const { parentPort, workerData } = require('node:worker_threads')
-        const RealSymbol = Symbol
-        const FakeSymbol = function Symbol(description) {
-          return RealSymbol(description)
+    const message = await loadWithSymbol(`
+      const RealSymbol = Symbol
+      const FakeSymbol = function Symbol(description) {
+        return RealSymbol(description)
+      }
+      for (const key of Object.getOwnPropertyNames(RealSymbol)) {
+        if (!['length', 'name', 'prototype'].includes(key)) {
+          FakeSymbol[key] = RealSymbol[key]
         }
-        for (const key of Object.getOwnPropertyNames(RealSymbol)) {
-          if (!['length', 'name', 'prototype'].includes(key)) {
-            FakeSymbol[key] = RealSymbol[key]
-          }
-        }
-        FakeSymbol.dispose = 'dispose'
-        globalThis.Symbol = FakeSymbol
-        try {
-          process.dlopen({ exports: {} }, workerData)
-          parentPort.postMessage('loaded')
-        } catch (error) {
-          parentPort.postMessage(error.message)
-        }
-      `,
-        {
-          eval: true,
-          execArgv: [],
-          workerData: fileURLToPath(new URL(addon!, directory)),
-        },
-      )
-      let result: unknown
-      worker.on('message', (message) => {
-        result = message
-      })
-      worker.on('error', reject)
-      worker.on('exit', (code) => {
-        if (code === 0) resolve(result)
-        else reject(new Error(`Worker exited with code ${code}`))
-      })
-    })
+      }
+      FakeSymbol.dispose = 'dispose'
+      globalThis.Symbol = FakeSymbol
+    `)
     t.is(message, 'Symbol.dispose is not available in this runtime')
+  },
+)
+
+// Reading a member of a missing `globalThis.Symbol` must not leave a JS
+// exception that hides the registration error.
+test.skipIf(Boolean(process.env.WASI_TEST))(
+  'registration fails clearly when globalThis.Symbol is missing',
+  async (t) => {
+    for (const setup of [
+      'delete globalThis.Symbol',
+      'globalThis.Symbol = null',
+      'globalThis.Symbol = 1',
+    ]) {
+      const message = await loadWithSymbol(setup)
+      t.regex(
+        String(message),
+        /^Symbol\.\w+ is not available in this runtime$/,
+        setup,
+      )
+    }
   },
 )

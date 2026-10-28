@@ -352,6 +352,19 @@ fn well_known_symbol(env: sys::napi_env, name: &str) -> Result<sys::napi_value> 
     unsafe { sys::napi_get_named_property(env, global, c"Symbol".as_ptr(), &mut symbol_ctor) },
     "Get global Symbol failed"
   )?;
+  let not_available = || {
+    crate::Error::new(
+      crate::Status::GenericFailure,
+      format!("Symbol.{name} is not available in this runtime"),
+    )
+  };
+  // Reading a property of `undefined` or `null` would throw a JS exception,
+  // which hides the error below.
+  let mut value_type = 0;
+  crate::check_status!(unsafe { sys::napi_typeof(env, symbol_ctor, &mut value_type) })?;
+  if value_type != sys::ValueType::napi_function && value_type != sys::ValueType::napi_object {
+    return Err(not_available());
+  }
   let mut key = ptr::null_mut();
   crate::check_status!(unsafe {
     sys::napi_create_string_utf8(env, name.as_ptr().cast(), name.len() as isize, &mut key)
@@ -362,13 +375,9 @@ fn well_known_symbol(env: sys::napi_env, name: &str) -> Result<sys::napi_value> 
     "Get Symbol.{} failed",
     name
   )?;
-  let mut value_type = 0;
   crate::check_status!(unsafe { sys::napi_typeof(env, symbol, &mut value_type) })?;
   if value_type != sys::ValueType::napi_symbol {
-    return Err(crate::Error::new(
-      crate::Status::GenericFailure,
-      format!("Symbol.{name} is not available in this runtime"),
-    ));
+    return Err(not_available());
   }
   Ok(symbol)
 }
