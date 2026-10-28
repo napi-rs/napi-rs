@@ -26,6 +26,7 @@ RUN apt-get update && \
   lld-18 \
   libc++-18-dev \
   libc++abi-18-dev \
+  libc6-dev \
   nodejs \
   xz-utils \
   rcs \
