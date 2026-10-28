@@ -58,11 +58,21 @@ pub(crate) struct PropertyClosuresData {
   _owners: [Option<Rc<OwnedClosure>>; 2],
 }
 
+/// A symbol key, resolved in the current environment when the property is
+/// defined.
+#[derive(Clone)]
+enum SymbolKey {
+  /// A `Symbol.for` registry key.
+  #[cfg(feature = "napi9")]
+  For(String),
+  /// The name of a well-known symbol, such as `iterator` for `Symbol.iterator`.
+  WellKnown(&'static str),
+}
+
 #[derive(Clone)]
 pub struct Property {
   utf8_name: Option<CString>,
-  #[cfg(feature = "napi9")]
-  symbol_name: Option<String>,
+  symbol: Option<SymbolKey>,
   name: sys::napi_value,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
@@ -83,8 +93,7 @@ impl Default for Property {
   fn default() -> Self {
     Property {
       utf8_name: Default::default(),
-      #[cfg(feature = "napi9")]
-      symbol_name: None,
+      symbol: None,
       name: ptr::null_mut(),
       getter: Default::default(),
       setter: Default::default(),
@@ -135,10 +144,7 @@ impl Property {
   pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
     self.utf8_name = Some(CString::new(name)?);
     self.name = ptr::null_mut();
-    #[cfg(feature = "napi9")]
-    {
-      self.symbol_name = None;
-    }
+    self.symbol = None;
     Ok(self)
   }
 
@@ -153,7 +159,22 @@ impl Property {
   pub fn with_symbol_name(mut self, name: &str) -> Self {
     self.utf8_name = None;
     self.name = ptr::null_mut();
-    self.symbol_name = Some(name.to_owned());
+    self.symbol = Some(SymbolKey::For(name.to_owned()));
+    self
+  }
+
+  /// Stores the name of a well-known symbol, such as `iterator` for
+  /// `Symbol.iterator`. The symbol is read from `globalThis.Symbol` in the
+  /// current environment when the property is defined. Replaces any key set
+  /// earlier on this `Property`.
+  ///
+  /// Used by `#[napi(well_known_symbol)]` codegen. Not public API and not
+  /// covered by semver.
+  #[doc(hidden)]
+  pub fn with_well_known_symbol(mut self, name: &'static str) -> Self {
+    self.utf8_name = None;
+    self.name = ptr::null_mut();
+    self.symbol = Some(SymbolKey::WellKnown(name));
     self
   }
 
@@ -161,10 +182,7 @@ impl Property {
   pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
     self.name = unsafe { T::to_napi_value(env.0, name)? };
     self.utf8_name = None;
-    #[cfg(feature = "napi9")]
-    {
-      self.symbol_name = None;
-    }
+    self.symbol = None;
     Ok(self)
   }
 
@@ -261,24 +279,25 @@ impl Property {
       && (!self.closures.getter_closure.is_null() || !self.closures.setter_closure.is_null())
   }
 
-  pub(crate) fn raw(&self, _env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
-    let name = self.name;
-    // Only the registry key is shared across environments, never a napi_value.
+  pub(crate) fn raw(&self, env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
+    // Only the symbol key is shared across environments, never a napi_value.
     // The lookup runs before this property's closure data is allocated.
-    #[cfg(feature = "napi9")]
-    let name = if let Some(symbol_name) = &self.symbol_name {
-      let mut symbol = ptr::null_mut();
-      crate::check_status!(unsafe {
-        sys::node_api_symbol_for(
-          _env,
-          symbol_name.as_ptr().cast(),
-          symbol_name.len() as isize,
-          &mut symbol,
-        )
-      })?;
-      symbol
-    } else {
-      name
+    let name = match &self.symbol {
+      None => self.name,
+      #[cfg(feature = "napi9")]
+      Some(SymbolKey::For(symbol_name)) => {
+        let mut symbol = ptr::null_mut();
+        crate::check_status!(unsafe {
+          sys::node_api_symbol_for(
+            env,
+            symbol_name.as_ptr().cast(),
+            symbol_name.len() as isize,
+            &mut symbol,
+          )
+        })?;
+        symbol
+      }
+      Some(SymbolKey::WellKnown(name)) => well_known_symbol(env, name)?,
     };
     #[cfg(feature = "napi5")]
     let data = if !self.data.is_null() {
@@ -320,6 +339,40 @@ impl Property {
   }
 }
 
+/// Reads `globalThis.Symbol[name]`, and fails instead of returning a value
+/// that is not a symbol, so a missing symbol is never used as a property key.
+fn well_known_symbol(env: sys::napi_env, name: &str) -> Result<sys::napi_value> {
+  let mut global = ptr::null_mut();
+  crate::check_status!(
+    unsafe { sys::napi_get_global(env, &mut global) },
+    "Get global object failed"
+  )?;
+  let mut symbol_ctor = ptr::null_mut();
+  crate::check_status!(
+    unsafe { sys::napi_get_named_property(env, global, c"Symbol".as_ptr(), &mut symbol_ctor) },
+    "Get global Symbol failed"
+  )?;
+  let mut key = ptr::null_mut();
+  crate::check_status!(unsafe {
+    sys::napi_create_string_utf8(env, name.as_ptr().cast(), name.len() as isize, &mut key)
+  })?;
+  let mut symbol = ptr::null_mut();
+  crate::check_status!(
+    unsafe { sys::napi_get_property(env, symbol_ctor, key, &mut symbol) },
+    "Get Symbol.{} failed",
+    name
+  )?;
+  let mut value_type = 0;
+  crate::check_status!(unsafe { sys::napi_typeof(env, symbol, &mut value_type) })?;
+  if value_type != sys::ValueType::napi_symbol {
+    return Err(crate::Error::new(
+      crate::Status::GenericFailure,
+      format!("Symbol.{name} is not available in this runtime"),
+    ));
+  }
+  Ok(symbol)
+}
+
 /// Builds the symbol-keyed `Property` for `#[napi(symbol_for = "...")]`.
 /// Checked against the features of this crate, so a missing `napi9` gives a
 /// clear error instead of a missing method.
@@ -356,43 +409,57 @@ mod tests {
     }
   }
 
-  #[test]
-  fn utf8_name_replaces_symbol_and_value_names() {
-    let env = Env::from_raw(ptr::null_mut());
-    for property in [
+  fn old_keys(env: &Env) -> [Property; 4] {
+    [
+      Property::new().with_utf8_name("old").unwrap(),
+      Property::new().with_name(env, TestName).unwrap(),
       Property::new().with_symbol_name("old"),
-      Property::new().with_name(&env, TestName).unwrap(),
-    ] {
+      Property::new().with_well_known_symbol("dispose"),
+    ]
+  }
+
+  #[test]
+  fn utf8_name_replaces_other_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in old_keys(&env) {
       let property = property.with_utf8_name("new").unwrap();
       assert_eq!(property.utf8_name.as_ref().unwrap().as_bytes(), b"new");
-      assert!(property.symbol_name.is_none());
+      assert!(property.symbol.is_none());
       assert!(property.name.is_null());
     }
   }
 
   #[test]
-  fn value_name_replaces_symbol_and_utf8_names() {
+  fn value_name_replaces_other_names() {
     let env = Env::from_raw(ptr::null_mut());
-    for property in [
-      Property::new().with_symbol_name("old"),
-      Property::new().with_utf8_name("old").unwrap(),
-    ] {
+    for property in old_keys(&env) {
       let property = property.with_name(&env, TestName).unwrap();
       assert!(property.utf8_name.is_none());
-      assert!(property.symbol_name.is_none());
+      assert!(property.symbol.is_none());
       assert_eq!(property.name, ptr::dangling_mut());
     }
   }
 
   #[test]
-  fn symbol_name_replaces_utf8_and_value_names() {
+  fn symbol_name_replaces_other_names() {
     let env = Env::from_raw(ptr::null_mut());
-    for property in [
-      Property::new().with_utf8_name("old").unwrap(),
-      Property::new().with_name(&env, TestName).unwrap(),
-    ] {
+    for property in old_keys(&env) {
       let property = property.with_symbol_name("new");
-      assert_eq!(property.symbol_name.as_deref(), Some("new"));
+      assert!(matches!(&property.symbol, Some(SymbolKey::For(name)) if name == "new"));
+      assert!(property.utf8_name.is_none());
+      assert!(property.name.is_null());
+    }
+  }
+
+  #[test]
+  fn well_known_symbol_replaces_other_names() {
+    let env = Env::from_raw(ptr::null_mut());
+    for property in old_keys(&env) {
+      let property = property.with_well_known_symbol("iterator");
+      assert!(matches!(
+        property.symbol,
+        Some(SymbolKey::WellKnown("iterator"))
+      ));
       assert!(property.utf8_name.is_none());
       assert!(property.name.is_null());
     }
