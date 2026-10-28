@@ -140,7 +140,10 @@ thread_local! {
 }
 /// Distinct `(fn, arg)` pair for every `registered_classes_env_cleanup` registration, as
 /// `ENV_CLEANUP_HOOK_COOKIE` is for `thread_cleanup`. Starts at 1, because 0 means "no owner".
-#[cfg(not(feature = "noop"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi3", not(target_family = "wasm"))
+))]
 static REGISTERED_CLASSES_COOKIE: AtomicUsize = AtomicUsize::new(1);
 // Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per isolate in
 // `create_custom_gc`, and every Buffer/TypedArray drop routes through it.
@@ -1419,7 +1422,11 @@ unsafe fn track_registered_classes_owner(env: sys::napi_env) {
 /// and the strong reference keeps this one from being collected before that. Neither the
 /// external nor the reference is freed here, because the env frees both at teardown. If one
 /// of the calls fails, the map has no owner, as in the `napi3` version.
-#[cfg(all(not(feature = "napi3"), not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "napi3"),
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
 unsafe fn track_registered_classes_owner(env: sys::napi_env) {
   let cookie = REGISTERED_CLASSES_COOKIE.fetch_add(1, Ordering::Relaxed);
   let mut sentinel = ptr::null_mut();
@@ -1446,9 +1453,20 @@ unsafe extern "C" fn registered_classes_env_cleanup(cookie: *mut std::ffi::c_voi
   reset_registered_classes_owner(cookie as usize);
 }
 
+/// On wasm every load is a new instance with its own `REGISTERED_CLASSES`, so a failed load
+/// never finds a map that another env built, and the map needs no owner. The sentinel is not
+/// used there: emnapi's finalization registry holds the env, so a strongly referenced
+/// external with a finalizer would keep the whole instance and its memory alive.
+#[cfg(all(not(feature = "napi3"), not(feature = "noop"), target_family = "wasm"))]
+unsafe fn track_registered_classes_owner(_env: sys::napi_env) {}
+
 // Finalizer of the sentinel external added by `track_registered_classes_owner` without
 // `napi3`. The strong reference means it runs only when the env is torn down.
-#[cfg(all(not(feature = "napi3"), not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "napi3"),
+  not(feature = "noop"),
+  not(target_family = "wasm")
+))]
 unsafe extern "C" fn registered_classes_env_finalize(
   _env: sys::napi_env,
   cookie: *mut std::ffi::c_void,
@@ -1457,7 +1475,10 @@ unsafe extern "C" fn registered_classes_env_finalize(
   reset_registered_classes_owner(cookie as usize);
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi3", not(target_family = "wasm"))
+))]
 fn reset_registered_classes_owner(cookie: usize) {
   let _ = REGISTERED_CLASSES_OWNER.try_with(|owner| {
     if owner.get() == cookie {
