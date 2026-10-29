@@ -8,7 +8,7 @@ const native = require('../index.cjs')
 // spawned thread. The callback below starts a worker that loads this addon, and
 // the call settles only after that worker exits. So the worker registers the
 // addon while the spawned thread is still inside `block_on`. If the registration
-// waits for `block_on` to return, neither side can go on.
+// waits for `block_on` to return, neither side can continue.
 let workerExitCode
 await new Promise((resolve, reject) => {
   native

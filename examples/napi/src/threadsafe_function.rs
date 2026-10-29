@@ -338,6 +338,8 @@ pub async fn tsfn_throw_from_js_catch_drop_in_thread(
   }
 }
 
+// `__tests__/block-on-worker-register.js` depends on the `block_on` call on a spawned thread
+// below. If you change it, keep a `block_on` that waits for the JS callback.
 #[napi]
 pub async fn tsfn_throw_from_js_callback_contains_tsfn(
   tsfn: ThreadsafeFunction<u32, Promise<u32>>,

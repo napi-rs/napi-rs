@@ -1320,10 +1320,12 @@ static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
 
 /// Create the built-in Tokio runtime if `RT` is empty.
 ///
-/// Every module registration calls this, also from a new `worker_threads` env while another
-/// thread is inside [`block_on`]. `block_on` holds the read lock of `RT` until its future is
-/// done, and that future can wait for the new env. A writer would then wait for `block_on`, and
-/// `block_on` would wait for the writer. So take the write lock only when `RT` is empty.
+/// [`start_async_runtime`] calls this on every module registration, and
+/// `refill_drained_tokio_runtime` calls it after a combined-build drain. A registration can come
+/// from a new `worker_threads` env while another thread is inside [`block_on`]. `block_on` holds
+/// the read lock of `RT` until its future is done, and that future can wait for the new env. A
+/// writer would then wait for `block_on`, and `block_on` would wait for the writer. So take the
+/// write lock only when `RT` is empty.
 #[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
 fn fill_empty_tokio_runtime() {
   if RT.read().map_or(true, |rt| rt.is_none()) {
