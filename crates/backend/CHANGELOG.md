@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.1.6...napi-derive-backend-v7.0.0) - 2026-10-30
+
+### Added
+
+- *(napi)* support well-known symbol keys for class members ([#3665](https://github.com/napi-rs/napi-rs/pull/3665))
+- *(napi)* support symbol_for keys for class members ([#3661](https://github.com/napi-rs/napi-rs/pull/3661))
+
+### Fixed
+
+- *(napi)* free define_class closures, honour static flags, avoid TS1016 in constructors ([#3662](https://github.com/napi-rs/napi-rs/pull/3662))
+
 ## [6.1.6](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v6.1.5...napi-derive-backend-v6.1.6) - 2026-10-21
 
 ### Fixed
