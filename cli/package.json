@@ -79,7 +79,7 @@
     "@emnapi/runtime": "^2.0.0-beta.2",
     "@oxc-node/core": "^1.0.0",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
-    "@types/inquirer": "^9.0.9",
+    "@types/inquirer": "^10.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.6.5",
     "@types/semver": "^7.7.1",
