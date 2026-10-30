@@ -1318,6 +1318,22 @@ static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
   RwLock::new(Some(create_runtime()))
 });
 
+/// Create the built-in Tokio runtime if `RT` is empty.
+///
+/// Check with the read lock first, and take the write lock only when `RT` is empty. Otherwise a
+/// module registration in a new `worker_threads` env deadlocks: [`block_on`] holds the read lock
+/// while its future waits for that env, and the write lock waits for [`block_on`].
+#[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
+fn fill_empty_tokio_runtime() {
+  if RT.read().map_or(true, |rt| rt.is_none()) {
+    if let Ok(mut rt) = RT.write() {
+      if rt.is_none() {
+        *rt = Some(create_runtime());
+      }
+    }
+  }
+}
+
 /// Refill the built-in Tokio runtime's slot after a combined-build drain: when a custom
 /// backend owns the runtime lifecycle, `shutdown_async_runtime` takes a lazily-created
 /// runtime out of `RT`, and every Tokio compatibility helper (`spawn`, `block_on`,
@@ -1327,11 +1343,7 @@ static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
 #[cfg(all(feature = "async-runtime", feature = "tokio_rt", not(feature = "noop")))]
 fn refill_drained_tokio_runtime() {
   if RT_CONSTRUCTED.load(Ordering::SeqCst) {
-    if let Ok(mut rt) = RT.write() {
-      if rt.is_none() {
-        *rt = Some(create_runtime());
-      }
-    }
+    fill_empty_tokio_runtime();
   }
 }
 
@@ -1414,11 +1426,7 @@ pub fn start_async_runtime() {
     return;
   }
   #[cfg(feature = "tokio_rt")]
-  if let Ok(mut rt) = RT.write() {
-    if rt.is_none() {
-      *rt = Some(create_runtime());
-    }
-  }
+  fill_empty_tokio_runtime();
 }
 
 #[cfg(not(feature = "noop"))]
