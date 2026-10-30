@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.15.0...napi-v3.16.0) - 2026-10-30
+
+### Added
+
+- *(napi)* support well-known symbol keys for class members ([#3665](https://github.com/napi-rs/napi-rs/pull/3665))
+- *(napi)* support symbol_for keys for class members ([#3661](https://github.com/napi-rs/napi-rs/pull/3661))
+
+### Fixed
+
+- *(napi)* compact class identity metadata ([#3667](https://github.com/napi-rs/napi-rs/pull/3667))
+- *(napi)* keep the registered classes when a later load fails ([#3666](https://github.com/napi-rs/napi-rs/pull/3666))
+- *(napi)* free define_class closures, honour static flags, avoid TS1016 in constructors ([#3662](https://github.com/napi-rs/napi-rs/pull/3662))
+- *(napi)* free threadsafe function call data when the call fails ([#3656](https://github.com/napi-rs/napi-rs/pull/3656))
+
 ## [3.15.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.14.2...napi-v3.15.0) - 2026-10-21
 
 ### Added
