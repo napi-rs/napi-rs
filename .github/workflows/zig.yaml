@@ -156,7 +156,7 @@ jobs:
           --platform linux/${{ matrix.settings.docker-platform }}
           -v ${{ github.workspace }}:/build -w /build
           node:lts-alpine
-          sh -c "set -e && yarn test"
+          sh -c "set -e && node .yarn/releases/yarn-4.18.1.cjs test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Test
@@ -171,10 +171,10 @@ jobs:
           node:18-alpine
           sh -c "set -e &&
           export NODE_OPTIONS='--max-old-space-size=8192' &&
-          yarn tsc -p examples/napi/tsconfig.json &&
+          node .yarn/releases/yarn-4.18.1.cjs tsc -p examples/napi/tsconfig.json &&
           rm -rf examples/napi/__tests__ &&
           mv examples/napi/dist/__tests__ examples/napi/ &&
-          yarn workspace @examples/napi test -s --verbose"
+          node .yarn/releases/yarn-4.18.1.cjs workspace @examples/napi test -s --verbose"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Test
@@ -183,7 +183,7 @@ jobs:
           docker run --rm
           -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           node:lts-alpine
-          sh -c "yarn test"
+          node .yarn/releases/yarn-4.18.1.cjs test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

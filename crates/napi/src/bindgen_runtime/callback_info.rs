@@ -89,6 +89,7 @@ impl<const N: usize> CallbackInfo<N> {
     js_name: &str,
     obj: T,
   ) -> Result<(sys::napi_value, *mut T)> {
+    let class_id = class_id_of::<T>()?;
     let obj = Box::new(obj);
     let this = self.this();
     let mut value_ref = Box::into_raw(obj);
@@ -127,7 +128,7 @@ impl<const N: usize> CallbackInfo<N> {
       self.env,
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
-      class_id_of::<T>(),
+      class_id,
     );
 
     // Stamp the object's type tag AFTER `add_ref` has adopted the Arc + napi_ref
@@ -230,6 +231,8 @@ impl<const N: usize> CallbackInfo<N> {
         "Failed to delete reference for `this` in async class factory"
       )?;
     }
+    // Intern after releasing the factory reference so saturation cannot leak it.
+    let class_id = class_id_of::<T>()?;
     ___CALL_FROM_FACTORY.with(|s| s.set(true));
     let status =
       unsafe { sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance) };
@@ -279,7 +282,7 @@ impl<const N: usize> CallbackInfo<N> {
       self.env,
       value_ref.cast(),
       (value_ref.cast(), object_ref, finalize_callbacks_ptr),
-      class_id_of::<T>(),
+      class_id,
     );
 
     // Stamp the type tag AFTER `add_ref` so a tag failure cannot leak the Arc +

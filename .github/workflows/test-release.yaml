@@ -574,9 +574,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 26 images ship without a bundled yarn/corepack launcher, so
-        # `yarn` is not found inside the containers. Test Node 26 in the
-        # build_and_test matrix instead (which uses the repo-pinned Yarn 4).
+        # Node 26 is covered by the build_and_test matrix.
         node: [22, 24]
         settings:
           - image: 'node:{:version}-slim'
@@ -657,7 +655,7 @@ jobs:
           ${{ matrix.settings.args }}
           -v ${{ github.workspace }}:/build -w /build
           ${{ steps.image-name.outputs.docker-image }}
-          sh -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && yarn workspace @examples/napi test"
+          sh -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && node .yarn/releases/yarn-4.18.1.cjs workspace @examples/napi test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -708,7 +706,7 @@ jobs:
           --platform linux/arm/v7
           -v ${{ github.workspace }}:/build -w /build
           node:22-slim
-          sh -c "yarn test"
+          node .yarn/releases/yarn-4.18.1.cjs test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

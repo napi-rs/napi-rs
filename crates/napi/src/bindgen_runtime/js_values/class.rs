@@ -366,6 +366,10 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
   wrapped_value: *mut std::ffi::c_void,
   ctor_ref: sys::napi_ref,
 ) -> Result<sys::napi_value> {
+  let class_id = class_id_of::<T>().inspect_err(|_| {
+    // Interning failed before the finalizer adopted the value.
+    unsafe { drop_unadopted_class_value::<T>(wrapped_value) };
+  })?;
   // Every error from `new_instance_raw` happens before `napi_wrap` adopts
   // `wrapped_value`, so ownership is still ours and it must be dropped here.
   // Errors after this point (type tagging) must NOT free it: the finalizer owns it.
@@ -376,7 +380,7 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
       ctor_ref,
       Some(raw_finalize_unchecked::<T>),
       type_name::<T>(),
-      class_id_of::<T>(),
+      class_id,
     )
   } {
     Ok(result) => result,
