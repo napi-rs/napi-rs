@@ -9,40 +9,40 @@ const native = require('../index.cjs')
 // the call settles only after that worker exits. So the worker registers the
 // addon while the spawned thread is still inside `block_on`. If the registration
 // waits for `block_on` to return, neither side can continue.
-let workerExitCode
-await new Promise((resolve, reject) => {
-  native
-    .tsfnThrowFromJsCallbackContainsTsfn((err) => {
-      if (err) {
-        reject(err)
-        return Promise.reject(err)
-      }
-      return new Promise((resolveCall, rejectCall) => {
-        const worker = new Worker(
-          "require(process.env.NAPI_ADDON_INDEX); require('node:worker_threads').parentPort.postMessage('loaded')",
-          {
-            eval: true,
-            execArgv: [],
-            env: {
-              ...process.env,
-              NAPI_ADDON_INDEX: require.resolve('../index.cjs'),
-            },
-          },
-        )
-        worker.once('message', () => worker.terminate())
-        worker.once('error', (e) => {
-          rejectCall(e)
-          reject(e)
-        })
-        worker.once('exit', (code) => {
-          workerExitCode = code
-          resolveCall(1)
-          resolve()
-        })
-      })
+// `done` settles with the worker's exit code. `call` is the value that the
+// callback returns to the spawned thread.
+const done = Promise.withResolvers()
+const call = Promise.withResolvers()
+native
+  .tsfnThrowFromJsCallbackContainsTsfn((err) => {
+    if (err) {
+      done.reject(err)
+      return Promise.reject(err)
+    }
+    const worker = new Worker(
+      "require(process.env.NAPI_ADDON_INDEX); require('node:worker_threads').parentPort.postMessage('loaded')",
+      {
+        eval: true,
+        execArgv: [],
+        env: {
+          ...process.env,
+          NAPI_ADDON_INDEX: require.resolve('../index.cjs'),
+        },
+      },
+    )
+    worker.once('message', () => worker.terminate())
+    worker.once('error', (e) => {
+      call.reject(e)
+      done.reject(e)
     })
-    .catch(reject)
-})
+    worker.once('exit', (code) => {
+      call.resolve(1)
+      done.resolve(code)
+    })
+    return call.promise
+  })
+  .catch(done.reject)
+const workerExitCode = await done.promise
 
 // The runtime still works after the worker env is gone.
 const value = await native.asyncMultiTwo(21)
