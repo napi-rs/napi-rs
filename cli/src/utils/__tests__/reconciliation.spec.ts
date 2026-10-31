@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
@@ -506,28 +505,20 @@ test('degraded acquisition heals when identity probes recover and reclaims a sta
   )
   t.true(recorded.length > 0)
 
-  const deadPid = await new Promise<number>((resolvePid, rejectPid) => {
-    const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })
-    child.once('error', rejectPid)
-    child.once('exit', () => resolvePid(child.pid as number))
-  })
-
   // Rewrite each owner with a dead PID: same real host identity, so the
-  // dead-PID check in processOwnerState proves staleness. The OS may hand that
-  // PID to a new process before the lock is inspected (Windows recycles PIDs
-  // quickly), so also record an incarnation in this platform's format that no
-  // live process can have: a reused PID is then proven stale by the
-  // incarnation mismatch instead of blocking as a live owner.
-  const unmatchableIncarnation =
-    process.platform === 'linux'
-      ? 'linux-proc:00000000-0000-0000-0000-000000000000:0'
-      : process.platform === 'win32'
-        ? 'windows-start:0'
-        : 'ps-lstart:AA'
+  // dead-PID check in processOwnerState proves staleness. The PID of an exited
+  // child is not dead for long: the OS can hand it to a new process before the
+  // lock is inspected (Windows recycles PIDs quickly). Then only the
+  // incarnation probe can prove staleness, and on Windows that probe is a
+  // powershell call with a 2s kill timeout, which a loaded runner can miss on
+  // every retry until the acquisition deadline. 2^31 - 4 is a valid
+  // process.kill argument, a multiple of 4 like Windows PIDs, and above every
+  // PID limit (Linux pid_max <= 2^22, macOS 99999, Windows far below 2^31),
+  // so no process can have it.
+  const deadPid = 2 ** 31 - 4
   for (const { name, content } of recorded) {
     const owner = JSON.parse(content)
     owner.pid = deadPid
-    owner.incarnation = unmatchableIncarnation
     await writeFile(join(t.context.tmpDir, name), JSON.stringify(owner))
   }
 
