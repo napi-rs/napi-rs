@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.0...napi-v3.16.1) - 2026-10-30
+
+### Fixed
+
+- *(napi)* avoid a deadlock when a worker loads the addon during `block_on` ([#3670](https://github.com/napi-rs/napi-rs/pull/3670))
+
 ## [3.16.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.15.0...napi-v3.16.0) - 2026-10-30
 
 ### Added
