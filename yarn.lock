@@ -1384,6 +1384,8 @@ __metadata:
     "@emnapi/runtime": "npm:^2.0.0-beta.2"
     "@inquirer/prompts": "npm:^8.5.2"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
+    "@napi-rs/lzma": "npm:^1.5.1"
+    "@napi-rs/tar": "npm:^1.1.1"
     "@napi-rs/wasm-tools": "npm:^1.1.0"
     "@octokit/rest": "npm:^22.0.1"
     "@oxc-node/core": "npm:^1.0.0"
@@ -1590,7 +1592,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/lzma@npm:^1.4.5":
+"@napi-rs/lzma@npm:^1.4.5, @napi-rs/lzma@npm:^1.5.1":
   version: 1.5.1
   resolution: "@napi-rs/lzma@npm:1.5.1"
   dependencies:
@@ -1766,7 +1768,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/tar@npm:^1.1.0":
+"@napi-rs/tar@npm:^1.1.0, @napi-rs/tar@npm:^1.1.1":
   version: 1.1.1
   resolution: "@napi-rs/tar@npm:1.1.1"
   dependencies:
