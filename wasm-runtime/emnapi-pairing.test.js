@@ -15,9 +15,10 @@ const runtimeDirectory = dirname(fileURLToPath(import.meta.url))
 // version apart. `createContext` returns an instance of the copy's own
 // `Context` (with the generation's `createEnv` arity), the core records which
 // copy ran and with which options, and v2 copies export their own plugins.
+// The modules are fixed source; the label and version come from `copy.json`.
 const writeEmnapi = async (nodeModules, version, label) => {
   const generation = version.split('.')[0]
-  const copy = JSON.stringify(`${version} ${label}`)
+  const copyJson = JSON.stringify({ copy: `${version} ${label}`, version })
   const coreDirectory = join(nodeModules, '@emnapi', 'core')
   const emnapiRuntimeDirectory = join(nodeModules, '@emnapi', 'runtime')
   await Promise.all([
@@ -36,13 +37,16 @@ const writeEmnapi = async (nodeModules, version, label) => {
         },
       }),
     ),
+    writeFile(join(coreDirectory, 'copy.json'), copyJson),
+    writeFile(join(emnapiRuntimeDirectory, 'copy.json'), copyJson),
     writeFile(
       join(coreDirectory, 'index.cjs'),
-      `const result = (mode) => (wasm, options) => ({ copy: ${copy}, mode, wasm, options })
+      `const { copy, version } = require('./copy.json')
+const result = (mode) => (wasm, options) => ({ copy, mode, wasm, options })
 module.exports = {
-  version: ${JSON.stringify(version)},
+  version,
   MessageHandler: class MessageHandler {
-    constructor(options) { this.copy = ${copy}; this.options = options }
+    constructor(options) { this.copy = copy; this.options = options }
   },
   instantiateNapiModuleSync: result('sync'),
   instantiateNapiModule: async (...args) => result('async')(...args),
@@ -51,10 +55,11 @@ module.exports = {
     ),
     writeFile(
       join(coreDirectory, 'plugins.cjs'),
-      `function asyncWork() {}
-asyncWork.copy = ${copy}
+      `const { copy } = require('./copy.json')
+function asyncWork() {}
+asyncWork.copy = copy
 function tsfn() {}
-tsfn.copy = ${copy}
+tsfn.copy = copy
 module.exports = { asyncWork, tsfn }
 `,
     ),
@@ -68,13 +73,14 @@ module.exports = { asyncWork, tsfn }
     ),
     writeFile(
       join(emnapiRuntimeDirectory, 'index.cjs'),
-      `class Context {
-  constructor() { this.copy = ${copy} }
+      `const { copy, version } = require('./copy.json')
+class Context {
+  constructor() { this.copy = copy }
   ${generation === '1' ? 'createEnv(a, b, c, d, e, f) {}' : 'createEnv(a, b, c, d) {}'}
 }
 let defaultContext
 module.exports = {
-  version: ${JSON.stringify(version)},
+  version,
   Context,
   createContext: () => new Context(),
   getDefaultContext: () => (defaultContext ??= new Context()),
