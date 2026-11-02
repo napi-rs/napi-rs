@@ -34,6 +34,7 @@ import {
   ensureBindingTargetDeclaration,
   generateTypeDef,
   napiCrossToolchainEnvs,
+  resolveNapiCrossHostTriple,
   prepareWasiBindingTypeDef,
   resolveBuildFormat,
   resolveWasmMemory,
@@ -3392,7 +3393,8 @@ test('napiCrossToolchainEnvs recognizes path-qualified, prefixed and versioned c
 test('napiCrossToolchainEnvs ignores CC/CXX when the toolchain compiler is effective', (t) => {
   // With TARGET_CC/TARGET_CXX unset, the function itself exports the
   // toolchain gcc/g++ as TARGET_CC/TARGET_CXX — and cc-rs prefers TARGET_CC
-  // over CC for cross builds, so a clang in CC/CXX never actually runs.
+  // over CC for cross builds (and CC_<target> over CC for host builds, see
+  // the host-build tests below), so a clang in CC/CXX never actually runs.
   // Injecting the clang-only `--gcc-toolchain=` flag here would hard-error
   // the gcc that does run.
   const envs = napiCrossToolchainEnvs(
@@ -3624,6 +3626,262 @@ test('napiCrossToolchainEnvs does not mistake wrapped or argument-form non-clang
     t.is(envs.TARGET_CFLAGS, undefined, `TARGET_CC=${cc}`)
     t.is(envs.TARGET_CXXFLAGS, undefined, `TARGET_CXX=${cxx}`)
   }
+})
+
+// #3677: cc-rs reads `TARGET_CC`/`TARGET_CFLAGS` only when HOST != TARGET
+// (cc `target_envs`); a build whose target is the rustc host needs the
+// target-scoped names `CC_<target_u>`/`CFLAGS_<target_u>` instead.
+const napiCrossTarget = 'aarch64-unknown-linux-gnu'
+const napiCrossTargetU = 'aarch64_unknown_linux_gnu'
+const napiCrossClangFlags = `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath}`
+const napiCrossTool = (tool: string) =>
+  join(napiCrossToolchainPath, 'bin', `${napiCrossTarget}-${tool}`)
+const hostEnvs = (env: NodeJS.ProcessEnv) =>
+  napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    napiCrossTarget,
+    { PATH: '/usr/bin', ...env },
+    napiCrossTarget,
+  )
+const crossEnvs = (env: NodeJS.ProcessEnv) =>
+  napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    napiCrossTarget,
+    { PATH: '/usr/bin', ...env },
+    'x86_64-unknown-linux-gnu',
+  )
+// Any target-scoped key (either spelling) other than the cargo linker.
+const targetScopedKeys = (envs: Record<string, string>) =>
+  Object.keys(envs).filter(
+    (key) =>
+      /_aarch64[-_]unknown[-_]linux[-_]gnu$/i.test(key) &&
+      !key.startsWith('CARGO_TARGET_'),
+  )
+
+test('napiCrossToolchainEnvs cross build output is unchanged by a different host triple', (t) => {
+  for (const env of [
+    {},
+    { TARGET_CC: 'clang', TARGET_CXX: 'clang++' },
+    { TARGET_CFLAGS: '-DU' },
+    { TARGET_SYSROOT: '/opt/custom-sysroot' },
+    { TARGET_CC: 'clang', TARGET_CFLAGS: '-DU' },
+  ] as NodeJS.ProcessEnv[]) {
+    const withoutHost = napiCrossToolchainEnvs(
+      napiCrossToolchainPath,
+      napiCrossTarget,
+      { PATH: '/usr/bin', ...env },
+    )
+    const withHost = crossEnvs(env)
+    t.deepEqual(withHost, withoutHost, JSON.stringify(env))
+    t.deepEqual(targetScopedKeys(withHost), [], JSON.stringify(env))
+  }
+  // Snapshot of the full default cross build output.
+  t.deepEqual(crossEnvs({}), {
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: napiCrossTool('gcc'),
+    TARGET_SYSROOT: napiCrossDownloadedSysroot,
+    TARGET_AR: napiCrossTool('ar'),
+    TARGET_RANLIB: napiCrossTool('ranlib'),
+    TARGET_READELF: napiCrossTool('readelf'),
+    TARGET_C_INCLUDE_PATH: join(
+      napiCrossToolchainPath,
+      napiCrossTarget,
+      'sysroot',
+      'usr',
+      'include/',
+    ),
+    TARGET_CC: napiCrossTool('gcc'),
+    TARGET_CXX: napiCrossTool('g++'),
+    BINDGEN_EXTRA_CLANG_ARGS: `--sysroot=${napiCrossDownloadedSysroot}`,
+    PATH: `${napiCrossToolchainPath}/bin:/usr/bin`,
+  })
+})
+
+test('napiCrossToolchainEnvs host build mirrors the toolchain into target-scoped names', (t) => {
+  const envs = hostEnvs({})
+
+  t.is(envs[`CC_${napiCrossTargetU}`], napiCrossTool('gcc'))
+  t.is(envs[`CXX_${napiCrossTargetU}`], napiCrossTool('g++'))
+  t.is(envs[`AR_${napiCrossTargetU}`], napiCrossTool('ar'))
+  t.is(envs[`RANLIB_${napiCrossTargetU}`], napiCrossTool('ranlib'))
+  // The cross-build names are still exported...
+  t.is(envs.TARGET_CC, napiCrossTool('gcc'))
+  t.is(envs.TARGET_SYSROOT, napiCrossDownloadedSysroot)
+  t.is(envs.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER, napiCrossTool('gcc'))
+  // ...gcc needs no flags, and nothing else is mirrored.
+  t.is(envs.TARGET_CFLAGS, undefined)
+  t.is(envs.TARGET_CXXFLAGS, undefined)
+  t.deepEqual(targetScopedKeys(envs).sort(), [
+    `AR_${napiCrossTargetU}`,
+    `CC_${napiCrossTargetU}`,
+    `CXX_${napiCrossTargetU}`,
+    `RANLIB_${napiCrossTargetU}`,
+  ])
+})
+
+test('napiCrossToolchainEnvs host build applies a user TARGET_CC=clang with the sysroot flags', (t) => {
+  const envs = hostEnvs({ TARGET_CC: 'clang', TARGET_CXX: 'clang++' })
+
+  t.is(envs[`CC_${napiCrossTargetU}`], 'clang')
+  t.is(envs[`CXX_${napiCrossTargetU}`], 'clang++')
+  // No trailing space, and only in the name cc-rs reads in a host build.
+  t.is(envs[`CFLAGS_${napiCrossTargetU}`], napiCrossClangFlags)
+  t.is(envs[`CXXFLAGS_${napiCrossTargetU}`], napiCrossClangFlags)
+  t.is(envs.TARGET_CFLAGS, undefined)
+  t.is(envs.TARGET_CXXFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs host build keeps a user-set CC_<target> in either spelling', (t) => {
+  for (const ccKey of [`CC_${napiCrossTargetU}`, `CC_${napiCrossTarget}`]) {
+    const envs = hostEnvs({ [ccKey]: 'clang' })
+
+    // cc-rs reads the user's value first, so napi exports no CC_ name...
+    t.is(envs[`CC_${napiCrossTargetU}`], undefined, ccKey)
+    t.is(envs[`CC_${napiCrossTarget}`], undefined, ccKey)
+    // ...but the user's clang still gets the sysroot flags, and the other
+    // tools are still mirrored.
+    t.is(envs[`CFLAGS_${napiCrossTargetU}`], napiCrossClangFlags, ccKey)
+    t.is(envs[`CXX_${napiCrossTargetU}`], napiCrossTool('g++'), ccKey)
+    t.is(envs[`CXXFLAGS_${napiCrossTargetU}`], undefined, ccKey)
+  }
+})
+
+test('napiCrossToolchainEnvs host build folds user flags into one name without repeats', (t) => {
+  // (a) TARGET_CFLAGS with gcc: cc-rs ignores TARGET_CFLAGS in a host build,
+  // so it is carried over into CFLAGS_<target_u>.
+  t.is(hostEnvs({ TARGET_CFLAGS: '-DU' })[`CFLAGS_${napiCrossTargetU}`], '-DU')
+  t.is(hostEnvs({ TARGET_CFLAGS: '-DU' }).TARGET_CFLAGS, undefined)
+
+  // (b) User CFLAGS_<target_u> with clang: replaced by a superset.
+  const b = hostEnvs({
+    TARGET_CC: 'clang',
+    [`CFLAGS_${napiCrossTargetU}`]: '-DV',
+  })
+  t.is(b[`CFLAGS_${napiCrossTargetU}`], `${napiCrossClangFlags} -DV`)
+
+  // (c) User dash-form CFLAGS_<target> with clang: napi writes the dash
+  // name (read first by cc <= 1.2.14) and leaves the underscore one alone.
+  const c = hostEnvs({
+    TARGET_CC: 'clang',
+    [`CFLAGS_${napiCrossTarget}`]: '-DW',
+  })
+  t.is(c[`CFLAGS_${napiCrossTarget}`], `${napiCrossClangFlags} -DW`)
+  t.is(c[`CFLAGS_${napiCrossTargetU}`], undefined)
+
+  // All of it together: each user flag appears exactly once.
+  const all = hostEnvs({
+    TARGET_CC: 'clang',
+    TARGET_CFLAGS: '-DU',
+    [`CFLAGS_${napiCrossTargetU}`]: '-DV',
+  })
+  t.is(all[`CFLAGS_${napiCrossTargetU}`], `${napiCrossClangFlags} -DU -DV`)
+  t.is(all.TARGET_CFLAGS, undefined)
+
+  // (d) The same for CXXFLAGS, detected per language.
+  const d = hostEnvs({
+    TARGET_CXX: 'clang++',
+    TARGET_CXXFLAGS: '-DX',
+    [`CXXFLAGS_${napiCrossTarget}`]: '-DY',
+    TARGET_CFLAGS: '-DU',
+  })
+  t.is(d[`CXXFLAGS_${napiCrossTarget}`], `${napiCrossClangFlags} -DX -DY`)
+  t.is(d[`CXXFLAGS_${napiCrossTargetU}`], undefined)
+  // CC stays on the toolchain gcc: no clang flags on the C side.
+  t.is(d[`CFLAGS_${napiCrossTargetU}`], '-DU')
+})
+
+test('napiCrossToolchainEnvs host build lets the toolchain beat HOST_CC and plain CC', (t) => {
+  for (const env of [
+    { CC: 'clang', CXX: 'clang++' },
+    { HOST_CC: 'clang', HOST_CXX: 'clang++' },
+    // An empty target-scoped value counts as unset.
+    { [`CC_${napiCrossTargetU}`]: '', [`CXX_${napiCrossTarget}`]: '' },
+  ] as NodeJS.ProcessEnv[]) {
+    const envs = hostEnvs(env)
+    t.is(
+      envs[`CC_${napiCrossTargetU}`],
+      napiCrossTool('gcc'),
+      JSON.stringify(env),
+    )
+    t.is(
+      envs[`CXX_${napiCrossTargetU}`],
+      napiCrossTool('g++'),
+      JSON.stringify(env),
+    )
+    t.is(envs[`CFLAGS_${napiCrossTargetU}`], undefined, JSON.stringify(env))
+    t.is(envs[`CXXFLAGS_${napiCrossTargetU}`], undefined, JSON.stringify(env))
+  }
+
+  // A user AR/RANLIB in either spelling only skips that one tool.
+  const envs = hostEnvs({
+    [`AR_${napiCrossTargetU}`]: '/usr/bin/ar',
+    [`RANLIB_${napiCrossTarget}`]: '/usr/bin/ranlib',
+  })
+  t.is(envs[`AR_${napiCrossTargetU}`], undefined)
+  t.is(envs[`RANLIB_${napiCrossTargetU}`], undefined)
+  t.is(envs[`RANLIB_${napiCrossTarget}`], undefined)
+  t.is(envs[`CC_${napiCrossTargetU}`], napiCrossTool('gcc'))
+})
+
+test('napiCrossToolchainEnvs cross build checks clang on the compiler cc-rs runs', (t) => {
+  // cc-rs reads CC_<target> before TARGET_CC, in both spellings.
+  for (const ccKey of [`CC_${napiCrossTargetU}`, `CC_${napiCrossTarget}`]) {
+    const envs = crossEnvs({ [ccKey]: 'clang' })
+    t.is(envs.TARGET_CFLAGS, `${napiCrossClangFlags} `, ccKey)
+    t.deepEqual(targetScopedKeys(envs), [], ccKey)
+  }
+  // A user gcc in CC_<target> beats TARGET_CC=clang, so the clang-only
+  // `--gcc-toolchain=` must not reach it.
+  const envs = crossEnvs({
+    [`CC_${napiCrossTargetU}`]: 'gcc',
+    TARGET_CC: 'clang',
+  })
+  t.is(envs.TARGET_CFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs host build uses the cargo triple for keys and the alias for tools', (t) => {
+  const s390x = 's390x-unknown-linux-gnu'
+  const s390xPath = posixJoin(
+    '/home/user/.napi-rs/cross-toolchain/1.0.0',
+    s390x,
+  )
+  const envs = napiCrossToolchainEnvs(
+    s390xPath,
+    s390x,
+    { PATH: '/usr/bin' },
+    s390x,
+  )
+
+  t.is(
+    envs.CC_s390x_unknown_linux_gnu,
+    join(s390xPath, 'bin', 's390x-ibm-linux-gnu-gcc'),
+  )
+  t.true(envs.AR_s390x_unknown_linux_gnu.endsWith('s390x-ibm-linux-gnu-ar'))
+})
+
+test('resolveNapiCrossHostTriple returns the rustc host triple', (t) => {
+  t.is(
+    resolveNapiCrossHostTriple(() => ({
+      triple: 'aarch64-unknown-linux-gnu',
+      platformArchABI: 'linux-arm64-gnu',
+      platform: 'linux',
+      arch: 'arm64',
+      abi: 'gnu',
+    })),
+    'aarch64-unknown-linux-gnu',
+  )
+  // The real helper agrees with the target the CLI defaults to.
+  t.is(resolveNapiCrossHostTriple(), getSystemDefaultTarget().triple)
+})
+
+test('resolveNapiCrossHostTriple does not blame the network when rustc fails', (t) => {
+  const error = t.throws(() =>
+    resolveNapiCrossHostTriple(() => {
+      throw new Error('spawnSync rustc ENOENT')
+    }),
+  )
+  t.regex(error!.message, /Rust host triple/)
+  t.regex(error!.message, /rustc ENOENT/)
+  t.notRegex(error!.message, /network/)
 })
 
 test('buildProject rejects invalid cross flag combinations upfront', async (t) => {
