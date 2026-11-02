@@ -1613,13 +1613,13 @@ export function napiCrossToolchainEnvs(
 }
 
 /**
- * Read the `host:` line of `$RUSTC -vV` (or `rustc -vV`). Cargo runs the
- * same `$RUSTC` and sets the build-script `HOST` from it.
+ * Read the `host:` line of `$RUSTC -vV` (or `rustc -vV`), run from `cwd`
+ * with `env`. Cargo is spawned the same way (`cwd: this.options.cwd`), so a
+ * relative `$RUSTC` and a `rust-toolchain.toml` there resolve to the same
+ * compiler Cargo takes its build-script `HOST` from.
  */
-function readRustcHostTriple(): string {
-  const host = execFileSync(process.env.RUSTC || 'rustc', ['-vV'], {
-    env: process.env,
-  })
+function readRustcHostTriple(cwd: string, env: NodeJS.ProcessEnv): string {
+  const host = execFileSync(env.RUSTC || 'rustc', ['-vV'], { cwd, env })
     .toString('utf8')
     .split('\n')
     .find((line) => line.startsWith('host: '))
@@ -1637,16 +1637,18 @@ function readRustcHostTriple(): string {
  * cross build, which is exactly what napi exported before host builds were
  * handled, so a cross build never fails because of this probe.
  *
- * Known limit: it does not see a `rust-toolchain.toml` under `--cwd` that
- * selects a toolchain with a different host triple.
- *
  * Exported for tests.
  */
 export function resolveNapiCrossHostTriple(
-  readHostTriple: () => string = readRustcHostTriple,
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+  readHostTriple: (
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+  ) => string = readRustcHostTriple,
 ): string | undefined {
   try {
-    return readHostTriple()
+    return readHostTriple(cwd, env)
   } catch (e) {
     debug.warn(
       `Could not detect the Rust host triple (\`rustc -vV\`): ${(e as Error).message}. \`--use-napi-cross\` assumes a cross build, so if the target is the host's own triple, C/C++ code may not use the napi-cross compiler.`,
@@ -1807,7 +1809,7 @@ class Builder {
     // Resolved outside the toolchain `try` below: a missing or broken
     // `rustc` only warns and falls back to a cross build, and must not be
     // reported as a download or network failure.
-    const hostTriple = resolveNapiCrossHostTriple()
+    const hostTriple = resolveNapiCrossHostTriple(this.options.cwd)
 
     try {
       const { version, download } = require('@napi-rs/cross-toolchain')

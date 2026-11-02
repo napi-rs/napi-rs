@@ -3928,18 +3928,49 @@ test('napiCrossToolchainEnvs host build uses the cargo triple for keys and the a
 
 test('resolveNapiCrossHostTriple returns the rustc host triple', (t) => {
   t.is(
-    resolveNapiCrossHostTriple(() => 'aarch64-unknown-linux-gnu'),
+    resolveNapiCrossHostTriple('/project', {}, (cwd) => {
+      t.is(cwd, '/project')
+      return 'aarch64-unknown-linux-gnu'
+    }),
     'aarch64-unknown-linux-gnu',
   )
   // The real probe agrees with the target the CLI defaults to.
-  t.is(resolveNapiCrossHostTriple(), getSystemDefaultTarget().triple)
+  t.is(
+    resolveNapiCrossHostTriple(process.cwd()),
+    getSystemDefaultTarget().triple,
+  )
+})
+
+test('resolveNapiCrossHostTriple runs $RUSTC from the project directory like Cargo', async (t) => {
+  if (process.platform === 'win32') {
+    t.pass('uses a POSIX shell script as the fake rustc')
+    return
+  }
+  // Cargo is spawned with `cwd: options.cwd`, so a relative RUSTC resolves
+  // there. The probe must find the same compiler, or a host build is
+  // mistaken for a cross build and #3677 comes back.
+  const { projectDir } = t.context
+  await mkdir(join(projectDir, 'tools'), { recursive: true })
+  const fakeRustc = join(projectDir, 'tools', 'rustc')
+  await writeFile(
+    fakeRustc,
+    '#!/bin/sh\necho "rustc 1.0.0"\necho "host: fake-host-triple"\n',
+    { mode: 0o755 },
+  )
+  t.is(
+    resolveNapiCrossHostTriple(projectDir, {
+      ...process.env,
+      RUSTC: 'tools/rustc',
+    }),
+    'fake-host-triple',
+  )
 })
 
 test('resolveNapiCrossHostTriple falls back to a cross build when rustc fails', (t) => {
   // A cross build must not start failing because `rustc` is not on PATH:
   // `undefined` makes napiCrossToolchainEnvs export what it did before.
   t.is(
-    resolveNapiCrossHostTriple(() => {
+    resolveNapiCrossHostTriple('/project', {}, () => {
       throw new Error('spawnSync rustc ENOENT')
     }),
     undefined,
