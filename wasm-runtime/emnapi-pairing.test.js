@@ -3,12 +3,16 @@ import { once } from 'node:events'
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
-const runtimeDirectory = dirname(fileURLToPath(import.meta.url))
+// CI points this at the installed tarball, so the fixtures run the packed
+// runtime files instead of the source tree.
+const runtimeDirectory = process.env.WASM_RUNTIME_TEST_PACKAGE
+  ? resolve(process.env.WASM_RUNTIME_TEST_PACKAGE)
+  : dirname(fileURLToPath(import.meta.url))
 
 // A fake emnapi copy. Every value it hands out carries `copy`, a label unique
 // to this installed directory, so a test can tell two copies of the same
@@ -456,6 +460,40 @@ test('a context from the runtime peer runtime uses the matching core', async (t)
   const context = loader.ownContext()
   assert.equal(context.copy, `${BETA} root`)
   assert.equal(loader.sync({ context }).copy, `${BETA} binding`)
+})
+
+test('a core of another prerelease is never paired with a context', async (t) => {
+  const root = await tempRoot(t)
+  const nodeModules = join(root, 'node_modules')
+  await writeRuntimePackage(nodeModules)
+  await writeEmnapi(nodeModules, BETA, 'root')
+  // A package whose @emnapi/runtime and @emnapi/core are different 2.0.0
+  // prereleases.
+  const other = join(nodeModules, 'other')
+  await writeEmnapi(join(root, 'alpha'), '2.0.0-alpha.6', 'other')
+  await writeEmnapi(join(root, 'beta'), BETA, 'other')
+  await cp(
+    join(root, 'alpha', '@emnapi', 'core'),
+    join(other, 'node_modules', '@emnapi', 'core'),
+    { recursive: true },
+  )
+  await cp(
+    join(root, 'beta', '@emnapi', 'runtime'),
+    join(other, 'node_modules', '@emnapi', 'runtime'),
+    { recursive: true },
+  )
+  await writeFile(
+    join(other, 'context.cjs'),
+    "module.exports = require('@emnapi/runtime').createContext()\n",
+  )
+  const plain = join(nodeModules, 'plain')
+  await writeCaller(plain, 'plain', { '@napi-rs/wasm-runtime': '*' })
+  const require = createRequire(import.meta.url)
+  const loader = require(join(plain, 'loader.cjs'))
+  const context = require(join(other, 'context.cjs'))
+  assert.equal(context.copy, `${BETA} other`)
+  // Not the alpha.6 core next to it: the runtime's own peers, as before.
+  assert.equal(loader.sync({ context }).copy, `${BETA} root`)
 })
 
 test('a context from another emnapi generation is a clear error', async (t) => {

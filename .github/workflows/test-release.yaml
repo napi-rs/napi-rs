@@ -150,7 +150,7 @@ jobs:
       - name: Exercise real plugins from packed CommonJS and ESM entries
         run: >-
           WASM_RUNTIME_TEST_PACKAGE="$RUNNER_TEMP/wasm-runtime-consumer/node_modules/@napi-rs/wasm-runtime"
-          node --test wasm-runtime/plugins.test.js
+          node --test wasm-runtime/plugins.test.js wasm-runtime/emnapi-pairing.test.js
 
   build_and_test:
     needs: audit

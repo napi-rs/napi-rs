@@ -254,7 +254,6 @@ function pairOfContext(context) {
   const b = builtins()
   if (b === null) return undefined
   const modules = cachedModules()
-  let sameGeneration
   for (const runtimeModule of modules) {
     // Check the path first: reading `exports.Context` of an unrelated module
     // can run its getters or proxy traps.
@@ -286,15 +285,13 @@ function pairOfContext(context) {
         continue
       }
       const candidate = resolvePair(b, parent.filename, runtime)
-      if (candidate === undefined) continue
-      if (candidate.core.version === runtimeVersion) {
-        return internPair(candidate)
-      }
+      // Only the exact version: different 2.0.0 prereleases are not
+      // compatible with each other, and a mismatch can fail without an error.
       if (
-        sameGeneration === undefined &&
-        generationOf(candidate.core.version) === generationOf(runtimeVersion)
+        candidate !== undefined &&
+        candidate.core.version === runtimeVersion
       ) {
-        sameGeneration = candidate
+        return internPair(candidate)
       }
     }
     // npm's nested layout: the core of the same version next to the runtime
@@ -326,7 +323,7 @@ function pairOfContext(context) {
       }
     } catch {}
   }
-  return sameGeneration === undefined ? undefined : internPair(sameGeneration)
+  return undefined
 }
 
 function declaresOwnEmnapi(manifest) {
