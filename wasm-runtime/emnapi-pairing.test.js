@@ -280,6 +280,44 @@ module.exports = {
   assert.equal(reads(), 0)
 })
 
+test('replacing the plugins keeps every other option', async (t) => {
+  const { binding } = await createNpmFixture(t)
+  const loader = createRequire(import.meta.url)(join(binding, 'loader.cjs'))
+  const { runtime } = loader
+  const context = loader.ownContext()
+  class Options {
+    #wasi = { kind: 'wasi' }
+    constructor() {
+      this.context = context
+      this.plugins = [runtime.emnapiAsyncWorkPlugin, runtime.emnapiTSFNPlugin]
+      Object.defineProperty(this, 'hidden', { value: 'own non-enumerable' })
+    }
+    get wasi() {
+      return this.#wasi
+    }
+  }
+  Options.prototype.overwriteImports = function overwriteImports(imports) {
+    return imports
+  }
+  const options = new Options()
+  for (const result of [loader.sync(options), await loader.async(options)]) {
+    assert.equal(result.copy, `${BETA} binding`)
+    assert.deepEqual(
+      result.options.plugins.map((plugin) => plugin.copy),
+      [`${BETA} binding`, `${BETA} binding`],
+    )
+    assert.equal(result.options.context, context)
+    assert.equal(
+      result.options.overwriteImports,
+      Options.prototype.overwriteImports,
+    )
+    assert.equal(result.options.hidden, 'own non-enumerable')
+    assert.deepEqual(result.options.wasi, { kind: 'wasi' })
+  }
+  // The caller's object is not changed.
+  assert.equal(options.plugins[0], runtime.emnapiAsyncWorkPlugin)
+})
+
 test('a worker of a binding runs on the binding copy', async (t) => {
   const { binding, plain } = await createNpmFixture(t)
   assert.deepEqual(await runWorker(join(binding, 'worker.mjs')), {

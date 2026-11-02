@@ -441,6 +441,27 @@ function pluginsOf(pair) {
   return pair.plugins
 }
 
+// The caller's options with only `plugins` replaced. emnapi reads these
+// options by property access, so a proxy keeps every other property as it was:
+// own, inherited, non-enumerable and accessor properties alike. A copy would
+// drop all but the own enumerable ones. Getters run on the original object.
+function withPlugins(options, plugins) {
+  const own = Object.getOwnPropertyDescriptor(options, 'plugins')
+  if (
+    own !== undefined &&
+    own.configurable === false &&
+    ('value' in own ? own.writable === false : own.get === undefined)
+  ) {
+    // A proxy may not report another value for this property.
+    return options
+  }
+  return new Proxy(options, {
+    get(target, key) {
+      return key === 'plugins' ? plugins : Reflect.get(target, key)
+    },
+  })
+}
+
 function prepare(options) {
   const context = options != null ? options.context : undefined
   let pair
@@ -485,7 +506,7 @@ function prepare(options) {
         return plugin
       })
       if (changed) {
-        options = { ...options, plugins }
+        options = withPlugins(options, plugins)
       }
     }
   }
