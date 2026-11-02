@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdtemp as mkdtempAsync, rm } from 'node:fs/promises'
@@ -1379,9 +1379,18 @@ export function validateNapiCrossSupport(
  * Follows the same rule as `Builder#setEnvIfNotExists`: a variable the user
  * already set in `env` wins and is not returned, and a present-but-empty
  * variable counts as unset (falsy semantics). The only exceptions are the
- * clang-specific `TARGET_CFLAGS`/`TARGET_CXXFLAGS`, which prepend the sysroot
- * flags to the user's value, and `PATH`, which always gets the toolchain
- * `bin` directory prepended.
+ * clang-specific `TARGET_CFLAGS`/`TARGET_CXXFLAGS` (in a host build:
+ * `CFLAGS_<target>`/`CXXFLAGS_<target>`), which prepend the sysroot flags to
+ * the user's value, and `PATH`, which always gets the toolchain `bin`
+ * directory prepended.
+ *
+ * `hostTriple` is the Rust host triple (`rustc -vV`). cc-rs only reads the
+ * `TARGET_`-prefixed names (`TARGET_CC`, `TARGET_CFLAGS`, ...) when HOST !=
+ * TARGET; when the build targets the host's own triple it reads `HOST_CC`
+ * instead (cc `target_envs`). So for a host build (`hostTriple ===
+ * targetTriple`) the target-scoped names cc-rs reads in both modes
+ * (`CC_<target>`, `CFLAGS_<target>`, ...) are exported as well. When
+ * `hostTriple` is omitted the build is treated as a cross build.
  *
  * Exported for tests.
  */
@@ -1389,6 +1398,7 @@ export function napiCrossToolchainEnvs(
   toolchainPath: string,
   targetTriple: string,
   env: NodeJS.ProcessEnv = process.env,
+  hostTriple?: string,
 ): Record<string, string> {
   const alias: Record<string, string> = {
     's390x-unknown-linux-gnu': 's390x-ibm-linux-gnu',
@@ -1493,25 +1503,158 @@ export function napiCrossToolchainEnvs(
     )
   }
 
-  // Detect clang on the EFFECTIVE target compiler: the user's TARGET_CC if
-  // set, otherwise the toolchain gcc exported above (`envs.TARGET_CC`).
-  // cc-rs prefers TARGET_CC over CC for cross builds, so a plain `CC=clang`
-  // never runs here and must not trigger the clang-only `--gcc-toolchain=`
-  // flag (gcc hard-errors on it). The trailing `env.CC`/`env.CXX` terms are
-  // unreachable today (exactly one of the first two is always truthy) but
-  // keep the check correct if the toolchain default ever becomes conditional.
-  if (isClangCompiler(env.TARGET_CC || envs.TARGET_CC || env.CC)) {
-    const TARGET_CFLAGS = env.TARGET_CFLAGS || ''
-    envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
-  }
-  if (isClangCompiler(env.TARGET_CXX || envs.TARGET_CXX || env.CXX)) {
-    const TARGET_CXXFLAGS = env.TARGET_CXXFLAGS || ''
-    envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
+  // cc-rs looks a tool up in this order (cc `target_envs`):
+  //   `<VAR>_<target>`, `<VAR>_<target_u>`, `<KIND>_<VAR>`, `<VAR>`
+  // where `<target_u>` is the triple with `-`/`.` replaced by `_` (lowercase,
+  // NOT `targetToEnvVar`'s uppercase form) and KIND is `TARGET` only when
+  // HOST != TARGET; in a host build it is `HOST`, so `TARGET_CC` and
+  // `TARGET_CFLAGS` are never read there. The two target-scoped names win in
+  // both modes.
+  //
+  // cc-rs takes the first of these names that is SET, even when its value is
+  // empty: `env_tool` then trims it, finds nothing and falls back to the
+  // built-in default compiler (`cc`) instead of reading the next name. For
+  // `*FLAGS`, cc < 1.2.15 also reads only the first name set, while
+  // cc >= 1.2.15 adds up every name that is set.
+  const isHostBuild = hostTriple === targetTriple
+  const dashedKey = (name: string) => `${name}_${targetTriple}`
+  const underscoredKey = (name: string) =>
+    `${name}_${targetTriple.replace(/[-.]/g, '_')}`
+  const clangFlags = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath}`
+
+  if (!isHostBuild) {
+    // Cross build: cc-rs reads the `TARGET_` names exported above, and napi
+    // exports no target-scoped names. The clang check reads `TARGET_CC`
+    // only: a compiler the user chose with `CC_<target>` gets no napi flags,
+    // so a user `--sysroot` there is not overridden. cc-rs prefers
+    // `TARGET_CC` over plain `CC`, so a `CC=clang` never runs here and must
+    // not trigger the clang-only `--gcc-toolchain=` flag (gcc hard-errors on
+    // it). The trailing `env.CC`/`env.CXX` terms are unreachable today
+    // (exactly one of the first two is always truthy) but keep the check
+    // correct if the toolchain default ever becomes conditional.
+    if (isClangCompiler(env.TARGET_CC || envs.TARGET_CC || env.CC)) {
+      const TARGET_CFLAGS = env.TARGET_CFLAGS || ''
+      envs.TARGET_CFLAGS = `${clangFlags} ${TARGET_CFLAGS}`
+    }
+    if (isClangCompiler(env.TARGET_CXX || envs.TARGET_CXX || env.CXX)) {
+      const TARGET_CXXFLAGS = env.TARGET_CXXFLAGS || ''
+      envs.TARGET_CXXFLAGS = `${clangFlags} ${TARGET_CXXFLAGS}`
+    }
+  } else {
+    // Host build: mirror the compiler/archiver into a target-scoped name,
+    // unless the user already chose one there (cc-rs reads that first
+    // anyway). The value is the user's `TARGET_<VAR>` if set, else the
+    // toolchain tool, so `TARGET_CC=clang` keeps working. `HOST_CC` and
+    // plain `CC` lose to this on purpose, matching cross builds where
+    // `TARGET_CC` beats them (#2764): the same `--use-napi-cross --target T`
+    // must not depend on whether the runner happens to be T.
+    //
+    // A set-but-empty target-scoped name counts as unset here (the same
+    // rule as `setEnvIfNotExists`), but cc-rs would stop at it and run its
+    // default `cc`. So napi writes into that same name to replace the empty
+    // one: the dash spelling when it is set, else the underscore spelling.
+    //
+    // As in a cross build, only a compiler that comes from `TARGET_<VAR>`
+    // (the user's or the toolchain's) gets the clang flags below; a
+    // compiler the user chose with `CC_<target>` is left as it is.
+    const fromTarget: Record<string, string> = {}
+    for (const tool of ['CC', 'CXX', 'AR', 'RANLIB']) {
+      const dashed = env[dashedKey(tool)]
+      const underscored = env[underscoredKey(tool)]?.trim()
+      if (dashed?.trim() || (dashed === undefined && underscored)) {
+        continue
+      }
+      if (underscored) {
+        // An empty dash spelling hides the user's underscore choice.
+        envs[dashedKey(tool)] = underscored
+        continue
+      }
+      const value = env[`TARGET_${tool}`] || envs[`TARGET_${tool}`]
+      envs[dashed === undefined ? underscoredKey(tool) : dashedKey(tool)] =
+        value
+      fromTarget[tool] = value
+    }
+
+    // Flags go into exactly ONE name: the first of `<FLAGS>_<target>`,
+    // `<FLAGS>_<target_u>` and `HOST_<FLAGS>` that the user set (even to an
+    // empty value), else `<FLAGS>_<target_u>`. napi's value replaces the
+    // user's value of that name with a superset. So cc < 1.2.15, which
+    // reads only the first name set, still sees the user's flags, and
+    // cc >= 1.2.15 sees no flag twice. Plain `CFLAGS` is never written,
+    // because tools other than cc-rs read it too; on cc < 1.2.15 it is
+    // hidden by napi's name, exactly as `TARGET_CFLAGS` hides it in a cross
+    // build. `TARGET_<FLAGS>` is not exported: cc-rs does not read it here,
+    // but the user's value is folded in so it applies as in a cross build.
+    for (const [flags, compiler] of [
+      ['CFLAGS', 'CC'],
+      ['CXXFLAGS', 'CXX'],
+    ] as const) {
+      const key =
+        [dashedKey(flags), underscoredKey(flags), `HOST_${flags}`].find(
+          (name) => env[name] !== undefined,
+        ) ?? underscoredKey(flags)
+      const value = [
+        isClangCompiler(fromTarget[compiler]) ? clangFlags : '',
+        env[`TARGET_${flags}`] || '',
+        env[key] || '',
+      ]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(' ')
+      if (value) {
+        envs[key] = value
+      }
+    }
   }
   envs.PATH = env.PATH
     ? `${toolchainPath}/bin:${env.PATH}`
     : `${toolchainPath}/bin`
   return envs
+}
+
+/**
+ * Read the `host:` line of `$RUSTC -vV` (or `rustc -vV`), run from `cwd`
+ * with `env`. Cargo is spawned the same way (`cwd: this.options.cwd`), so a
+ * relative `$RUSTC` and a `rust-toolchain.toml` there resolve to the same
+ * compiler Cargo takes its build-script `HOST` from.
+ */
+function readRustcHostTriple(cwd: string, env: NodeJS.ProcessEnv): string {
+  const host = execFileSync(env.RUSTC || 'rustc', ['-vV'], { cwd, env })
+    .toString('utf8')
+    .split('\n')
+    .find((line) => line.startsWith('host: '))
+    ?.slice('host: '.length)
+    .trim()
+  if (!host) {
+    throw new TypeError('`rustc -vV` printed no `host:` line')
+  }
+  return host
+}
+
+/**
+ * The Rust host triple a `--use-napi-cross` build compares its target with,
+ * or `undefined` when it cannot be read. Then the build is treated as a
+ * cross build, which is exactly what napi exported before host builds were
+ * handled, so a cross build never fails because of this probe.
+ *
+ * Exported for tests.
+ */
+export function resolveNapiCrossHostTriple(
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+  readHostTriple: (
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+  ) => string = readRustcHostTriple,
+): string | undefined {
+  try {
+    return readHostTriple(cwd, env)
+  } catch (e) {
+    debug.warn(
+      `Could not detect the Rust host triple (\`rustc -vV\`): ${(e as Error).message}. \`--use-napi-cross\` assumes a cross build, so if the target is the host's own triple, C/C++ code may not use the napi-cross compiler.`,
+    )
+    return undefined
+  }
 }
 
 class Builder {
@@ -1663,6 +1806,11 @@ class Builder {
       return this
     }
 
+    // Resolved outside the toolchain `try` below: a missing or broken
+    // `rustc` only warns and falls back to a cross build, and must not be
+    // reported as a download or network failure.
+    const hostTriple = resolveNapiCrossHostTriple(this.options.cwd)
+
     try {
       const { version, download } = require('@napi-rs/cross-toolchain')
 
@@ -1682,7 +1830,12 @@ class Builder {
       }
       Object.assign(
         this.envs,
-        napiCrossToolchainEnvs(toolchainPath, this.target.triple),
+        napiCrossToolchainEnvs(
+          toolchainPath,
+          this.target.triple,
+          process.env,
+          hostTriple,
+        ),
       )
     } catch (e) {
       throw new Error(
