@@ -49,7 +49,7 @@ jobs:
       # job installs deps with its own normal `yarn install`. This job is the
       # gate for the whole pipeline.
       - name: script-jail audit (enforce committed lock)
-        uses: Brooooooklyn/script-jail@v0.2.10
+        uses: Brooooooklyn/script-jail@v0.2.11
         with:
           mode: check
           backend: docker
