@@ -3793,8 +3793,8 @@ test('napiCrossToolchainEnvs host build lets the toolchain beat HOST_CC and plai
   for (const env of [
     { CC: 'clang', CXX: 'clang++' },
     { HOST_CC: 'clang', HOST_CXX: 'clang++' },
-    // An empty target-scoped value counts as unset.
-    { [`CC_${napiCrossTargetU}`]: '', [`CXX_${napiCrossTarget}`]: '' },
+    // An empty underscore-spelling value counts as unset and is replaced.
+    { [`CC_${napiCrossTargetU}`]: '', [`CXX_${napiCrossTargetU}`]: '' },
   ] as NodeJS.ProcessEnv[]) {
     const envs = hostEnvs(env)
     t.is(
@@ -3822,6 +3822,48 @@ test('napiCrossToolchainEnvs host build lets the toolchain beat HOST_CC and plai
   t.is(envs[`CC_${napiCrossTargetU}`], napiCrossTool('gcc'))
 })
 
+test('napiCrossToolchainEnvs host build replaces an empty dash-spelling tool in place', (t) => {
+  // cc-rs stops at the first spelling that is SET, even when empty, and
+  // then runs its default `cc`. So napi must write the dash spelling itself;
+  // writing only the underscore spelling would leave #3677 unfixed.
+  const envs = hostEnvs({ [`CC_${napiCrossTarget}`]: '' })
+  t.is(envs[`CC_${napiCrossTarget}`], napiCrossTool('gcc'))
+  t.is(envs[`CC_${napiCrossTargetU}`], undefined)
+  t.is(envs[`CFLAGS_${napiCrossTargetU}`], undefined)
+
+  // A user TARGET_CC=clang goes into the dash spelling, with the clang
+  // flags, so host gcc never sees `--gcc-toolchain=`.
+  const clang = hostEnvs({
+    [`CC_${napiCrossTarget}`]: '',
+    TARGET_CC: 'clang',
+  })
+  t.is(clang[`CC_${napiCrossTarget}`], 'clang')
+  t.is(clang[`CFLAGS_${napiCrossTargetU}`], napiCrossClangFlags)
+
+  // An empty dash spelling over a user underscore value: cc-rs would read
+  // the empty one, so napi copies the user's underscore choice over it.
+  const both = hostEnvs({
+    [`CC_${napiCrossTarget}`]: ' ',
+    [`CC_${napiCrossTargetU}`]: 'clang',
+  })
+  t.is(both[`CC_${napiCrossTarget}`], 'clang')
+  t.is(both[`CC_${napiCrossTargetU}`], undefined)
+  t.is(both[`CFLAGS_${napiCrossTargetU}`], napiCrossClangFlags)
+})
+
+test('napiCrossToolchainEnvs host build writes flags into an empty dash-spelling name', (t) => {
+  // cc <= 1.2.14 reads only the first FLAGS spelling that is set, even
+  // when empty, so the sysroot flags must land in the dash spelling.
+  const envs = hostEnvs({
+    TARGET_CC: 'clang',
+    [`CFLAGS_${napiCrossTarget}`]: '',
+    [`CFLAGS_${napiCrossTargetU}`]: '-DU',
+  })
+  t.is(envs[`CFLAGS_${napiCrossTarget}`], napiCrossClangFlags)
+  // The user's underscore value stays as it is (cc >= 1.2.15 adds it).
+  t.is(envs[`CFLAGS_${napiCrossTargetU}`], undefined)
+})
+
 test('napiCrossToolchainEnvs cross build checks clang on the compiler cc-rs runs', (t) => {
   // cc-rs reads CC_<target> before TARGET_CC, in both spellings.
   for (const ccKey of [`CC_${napiCrossTargetU}`, `CC_${napiCrossTarget}`]) {
@@ -3836,6 +3878,15 @@ test('napiCrossToolchainEnvs cross build checks clang on the compiler cc-rs runs
     TARGET_CC: 'clang',
   })
   t.is(envs.TARGET_CFLAGS, undefined)
+
+  // A set-but-empty CC_<target> makes cc-rs run its default compiler, not
+  // the clang in the next spelling, so no clang flags are added.
+  const empty = crossEnvs({
+    [`CC_${napiCrossTarget}`]: '',
+    [`CC_${napiCrossTargetU}`]: 'clang',
+  })
+  t.is(empty.TARGET_CFLAGS, undefined)
+  t.deepEqual(targetScopedKeys(empty), [])
 })
 
 test('napiCrossToolchainEnvs host build uses the cargo triple for keys and the alias for tools', (t) => {
@@ -3860,28 +3911,22 @@ test('napiCrossToolchainEnvs host build uses the cargo triple for keys and the a
 
 test('resolveNapiCrossHostTriple returns the rustc host triple', (t) => {
   t.is(
-    resolveNapiCrossHostTriple(() => ({
-      triple: 'aarch64-unknown-linux-gnu',
-      platformArchABI: 'linux-arm64-gnu',
-      platform: 'linux',
-      arch: 'arm64',
-      abi: 'gnu',
-    })),
+    resolveNapiCrossHostTriple(() => 'aarch64-unknown-linux-gnu'),
     'aarch64-unknown-linux-gnu',
   )
-  // The real helper agrees with the target the CLI defaults to.
+  // The real probe agrees with the target the CLI defaults to.
   t.is(resolveNapiCrossHostTriple(), getSystemDefaultTarget().triple)
 })
 
-test('resolveNapiCrossHostTriple does not blame the network when rustc fails', (t) => {
-  const error = t.throws(() =>
+test('resolveNapiCrossHostTriple falls back to a cross build when rustc fails', (t) => {
+  // A cross build must not start failing because `rustc` is not on PATH:
+  // `undefined` makes napiCrossToolchainEnvs export what it did before.
+  t.is(
     resolveNapiCrossHostTriple(() => {
       throw new Error('spawnSync rustc ENOENT')
     }),
+    undefined,
   )
-  t.regex(error!.message, /Rust host triple/)
-  t.regex(error!.message, /rustc ENOENT/)
-  t.notRegex(error!.message, /network/)
 })
 
 test('buildProject rejects invalid cross flag combinations upfront', async (t) => {
