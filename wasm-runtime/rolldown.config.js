@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { defineConfig } from 'rolldown'
 import { replacePlugin as replace } from 'rolldown/plugins'
 
-// v2 plugins use private core context/ABI fields that can change between
-// prereleases. A root resolution must not silently change the bundled plugins
-// without updating the exact v2 peer contract and exercising the package tests.
+// The bundled plugins use private core context fields. Build them only from
+// the exact v2 version the package tests run against, which must also be the
+// v2 version in the peer range. `emnapi-plugins.js` adapts them to the
+// 2.0.0-alpha context, and the CommonJS entry passes a v2 binding's own
+// `@emnapi/core/plugins` when it can find them.
 const require = createRequire(import.meta.url)
 const { version: coreVersion } = require('@emnapi/core/package.json')
 const { devDependencies, peerDependencies } = JSON.parse(
@@ -15,6 +17,7 @@ const { devDependencies, peerDependencies } = JSON.parse(
 )
 if (
   coreVersion !== devDependencies['@emnapi/core'] ||
+  coreVersion !== devDependencies['@emnapi/runtime'] ||
   !peerDependencies['@emnapi/core'].split(' || ').includes(coreVersion) ||
   !peerDependencies['@emnapi/runtime'].split(' || ').includes(coreVersion)
 ) {
