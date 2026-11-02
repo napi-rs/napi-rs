@@ -3734,12 +3734,13 @@ test('napiCrossToolchainEnvs host build keeps a user-set CC_<target> in either s
   for (const ccKey of [`CC_${napiCrossTargetU}`, `CC_${napiCrossTarget}`]) {
     const envs = hostEnvs({ [ccKey]: 'clang' })
 
-    // cc-rs reads the user's value first, so napi exports no CC_ name...
+    // cc-rs reads the user's value first, so napi exports no CC_ name and,
+    // as in a cross build, adds no flags to a compiler the user chose
+    // there (a user `--sysroot` in it must not be overridden). The other
+    // tools are still mirrored.
     t.is(envs[`CC_${napiCrossTargetU}`], undefined, ccKey)
     t.is(envs[`CC_${napiCrossTarget}`], undefined, ccKey)
-    // ...but the user's clang still gets the sysroot flags, and the other
-    // tools are still mirrored.
-    t.is(envs[`CFLAGS_${napiCrossTargetU}`], napiCrossClangFlags, ccKey)
+    t.is(envs[`CFLAGS_${napiCrossTargetU}`], undefined, ccKey)
     t.is(envs[`CXX_${napiCrossTargetU}`], napiCrossTool('g++'), ccKey)
     t.is(envs[`CXXFLAGS_${napiCrossTargetU}`], undefined, ccKey)
   }
@@ -3848,7 +3849,8 @@ test('napiCrossToolchainEnvs host build replaces an empty dash-spelling tool in 
   })
   t.is(both[`CC_${napiCrossTarget}`], 'clang')
   t.is(both[`CC_${napiCrossTargetU}`], undefined)
-  t.is(both[`CFLAGS_${napiCrossTargetU}`], napiCrossClangFlags)
+  // It is still the user's own compiler, so no napi flags.
+  t.is(both[`CFLAGS_${napiCrossTargetU}`], undefined)
 })
 
 test('napiCrossToolchainEnvs host build writes flags into an empty dash-spelling name', (t) => {
@@ -3864,29 +3866,44 @@ test('napiCrossToolchainEnvs host build writes flags into an empty dash-spelling
   t.is(envs[`CFLAGS_${napiCrossTargetU}`], undefined)
 })
 
-test('napiCrossToolchainEnvs cross build checks clang on the compiler cc-rs runs', (t) => {
-  // cc-rs reads CC_<target> before TARGET_CC, in both spellings.
-  for (const ccKey of [`CC_${napiCrossTargetU}`, `CC_${napiCrossTarget}`]) {
-    const envs = crossEnvs({ [ccKey]: 'clang' })
-    t.is(envs.TARGET_CFLAGS, `${napiCrossClangFlags} `, ccKey)
-    t.deepEqual(targetScopedKeys(envs), [], ccKey)
+test('napiCrossToolchainEnvs cross build ignores target-scoped compiler names', (t) => {
+  // The cross build output must not change: the clang check reads
+  // TARGET_CC only, so a user clang in CC_<target> (which may carry its own
+  // `--sysroot`) gets no napi flags, in either spelling, even when empty.
+  for (const scoped of [
+    { [`CC_${napiCrossTargetU}`]: 'clang --sysroot=/custom' },
+    { [`CC_${napiCrossTarget}`]: 'clang' },
+    { [`CC_${napiCrossTarget}`]: '', [`CC_${napiCrossTargetU}`]: 'clang' },
+    { [`CXX_${napiCrossTargetU}`]: 'clang++' },
+  ] as NodeJS.ProcessEnv[]) {
+    for (const base of [{}, { TARGET_CC: 'clang' }] as NodeJS.ProcessEnv[]) {
+      const envs = crossEnvs({ ...base, ...scoped })
+      t.deepEqual(envs, crossEnvs(base), JSON.stringify({ base, scoped }))
+      t.deepEqual(targetScopedKeys(envs), [], JSON.stringify(scoped))
+    }
   }
-  // A user gcc in CC_<target> beats TARGET_CC=clang, so the clang-only
-  // `--gcc-toolchain=` must not reach it.
-  const envs = crossEnvs({
-    [`CC_${napiCrossTargetU}`]: 'gcc',
-    TARGET_CC: 'clang',
-  })
-  t.is(envs.TARGET_CFLAGS, undefined)
+})
 
-  // A set-but-empty CC_<target> makes cc-rs run its default compiler, not
-  // the clang in the next spelling, so no clang flags are added.
-  const empty = crossEnvs({
-    [`CC_${napiCrossTarget}`]: '',
-    [`CC_${napiCrossTargetU}`]: 'clang',
+test('napiCrossToolchainEnvs host build keeps the user flags on every cc version', (t) => {
+  // HOST_CFLAGS is the name cc < 1.2.15 reads first when no target-scoped
+  // flags are set, so napi's flags join it instead of hiding it.
+  const host = hostEnvs({ TARGET_CC: 'clang', HOST_CFLAGS: '-DREQUIRED=1' })
+  t.is(host.HOST_CFLAGS, `${napiCrossClangFlags} -DREQUIRED=1`)
+  t.is(host[`CFLAGS_${napiCrossTargetU}`], undefined)
+
+  // A target-scoped name the user set comes before HOST_CFLAGS.
+  const scoped = hostEnvs({
+    TARGET_CC: 'clang',
+    HOST_CFLAGS: '-DH',
+    [`CFLAGS_${napiCrossTargetU}`]: '-DV',
   })
-  t.is(empty.TARGET_CFLAGS, undefined)
-  t.deepEqual(targetScopedKeys(empty), [])
+  t.is(scoped[`CFLAGS_${napiCrossTargetU}`], `${napiCrossClangFlags} -DV`)
+  t.is(scoped.HOST_CFLAGS, undefined)
+
+  // Plain CFLAGS is never written: other tools read it too.
+  const plain = hostEnvs({ TARGET_CXX: 'clang++', CXXFLAGS: '-DP' })
+  t.is(plain[`CXXFLAGS_${napiCrossTargetU}`], napiCrossClangFlags)
+  t.is(plain.CXXFLAGS, undefined)
 })
 
 test('napiCrossToolchainEnvs host build uses the cargo triple for keys and the alias for tools', (t) => {
