@@ -394,10 +394,12 @@ yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
 When WASI is the only configured target, the WASI package is the primary
 artifact. It omits `cpu` so that it installs on every host.
 
-Set `napi.wasm.cpu` to `false` when the WASI package must install on every
-host. An example is a package whose root `browser.js` imports the WASI package
-by name, so browser bundlers must resolve it. Every consumer then downloads the
-`.wasm` binary:
+Set `napi.wasm.cpu` to `false` to remove the `cpu` field, so package managers
+do not skip the WASI package on any host architecture. Use it when the root
+`browser.js` imports the WASI package by name and browser bundlers must resolve
+it. Every consumer then downloads the `.wasm` binary. The package is still an
+optional dependency: `npm install --omit=optional` skips it, and npm also skips
+it on a Node.js version outside its `engines.node` range:
 
 ```json
 {
