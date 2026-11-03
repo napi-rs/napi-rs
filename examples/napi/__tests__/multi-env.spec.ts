@@ -113,7 +113,7 @@ test('each load builds and checks its own classes', async (t) => {
     try {
       crossLoad = first.issue3427Strict(new second.RenamedForIssue3427(7))
     } catch (error) {
-      crossLoad = 'rejected'
+      crossLoad = String(error?.message)
     }
     parentPort.postMessage({
       first: checks(first),
@@ -137,7 +137,7 @@ test('each load builds and checks its own classes', async (t) => {
     second: expected,
     distinctClasses: true,
     // Two loads are two sets of classes, like two realms.
-    crossLoad: 'rejected',
+    crossLoad: 'Value is not instanceof class `RenamedForIssue3427Rust`',
   })
 })
 
@@ -160,7 +160,7 @@ test('the env-less class lookup answers with the newest live load', async (t) =>
       load()
       failed = 'loaded'
     } catch (error) {
-      failed = 'failed'
+      failed = String(error?.message)
     }
     globalThis.Symbol = RealSymbol
     parentPort.postMessage({
@@ -169,5 +169,12 @@ test('the env-less class lookup answers with the newest live load', async (t) =>
       fromSecond: second.legacyNinjaTurtleConstructor() === second.NinjaTurtle,
     })
   `)
-  t.deepEqual(result, { failed: 'failed', fromFirst: true, fromSecond: true })
+  const { failed, ...lookups } = result as {
+    failed: string
+    fromFirst: boolean
+    fromSecond: boolean
+  }
+  // The third load fails in class registration, on a missing well-known Symbol.
+  t.regex(String(failed), /^Symbol\.\w+ is not available in this runtime$/)
+  t.deepEqual(lookups, { fromFirst: true, fromSecond: true })
 })
