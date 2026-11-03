@@ -14,6 +14,8 @@ use crate::{
 
 mod promise;
 
+#[doc(hidden)]
+pub use promise::async_task_resolvers_released;
 #[cfg(all(feature = "napi3", not(feature = "noop")))]
 pub(crate) use promise::cache_promise_intrinsics_for_env;
 use promise::{PromiseSettler, Settlement};

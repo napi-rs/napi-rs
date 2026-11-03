@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use napi::{bindgen_prelude::*, AsyncWorkPromise};
 
@@ -10,13 +10,15 @@ use napi::{bindgen_prelude::*, AsyncWorkPromise};
 // * `AsyncWorkPromise::cancel` on a task that already started used to leave the promise pending
 //   forever;
 // * a worker terminated with tasks still queued or running must drop every task without
-//   crashing (the promise's resolving functions are released on that path too).
+//   crashing, and release every promise's resolving functions (`resolvers_released`; a
+//   `napi_create_promise` deferred refused there is never freed).
 
 static RESOLVE_CALLS: AtomicU32 = AtomicU32::new(0);
 static FINALLY_CALLS: AtomicU32 = AtomicU32::new(0);
 static TASKS_CREATED: AtomicU32 = AtomicU32::new(0);
 static TASKS_DROPPED: AtomicU32 = AtomicU32::new(0);
 static SPAWNED_EXECUTING: AtomicBool = AtomicBool::new(false);
+static SPAWNED_RELEASED: AtomicBool = AtomicBool::new(false);
 
 #[napi(object)]
 pub struct AsyncTaskSettleCounters {
@@ -24,6 +26,9 @@ pub struct AsyncTaskSettleCounters {
   pub finally_calls: u32,
   pub created: u32,
   pub dropped: u32,
+  /// Promises built through the cached intrinsic `Promise` whose resolving functions were
+  /// released. A `napi_create_promise` fallback promise never counts.
+  pub resolvers_released: u32,
 }
 
 #[napi]
@@ -33,6 +38,7 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
     finally_calls: FINALLY_CALLS.load(Ordering::SeqCst),
     created: TASKS_CREATED.load(Ordering::SeqCst),
     dropped: TASKS_DROPPED.load(Ordering::SeqCst),
+    resolvers_released: napi::bindgen_prelude::async_task_resolvers_released() as u32,
   }
 }
 
@@ -75,7 +81,13 @@ impl Task for SpawnedSignalWhenExecuting {
 
   fn compute(&mut self) -> Result<Self::Output> {
     SPAWNED_EXECUTING.store(true, Ordering::SeqCst);
-    sleep(Duration::from_millis(u64::from(self.0)));
+    // Runs until JavaScript calls `release()`, so the completion cannot reach the JavaScript
+    // thread before the test has tried to cancel. The deadline only keeps a failed test from
+    // holding a pool thread forever.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !SPAWNED_RELEASED.load(Ordering::SeqCst) && Instant::now() < deadline {
+      sleep(Duration::from_millis(1));
+    }
     Ok(self.0)
   }
 
@@ -85,7 +97,7 @@ impl Task for SpawnedSignalWhenExecuting {
 }
 
 /// Holds an `Env::spawn` result so JavaScript can wait for `compute` to start before it
-/// cancels.
+/// cancels, and let `compute` finish afterwards.
 #[napi]
 pub struct SpawnedAsyncTask {
   inner: AsyncWorkPromise<u32>,
@@ -104,14 +116,22 @@ impl SpawnedAsyncTask {
   pub fn cancel(&mut self) -> bool {
     self.inner.cancel().is_ok()
   }
+
+  /// Lets `compute` return.
+  #[napi]
+  pub fn release(&self) {
+    SPAWNED_RELEASED.store(true, Ordering::SeqCst);
+  }
 }
 
-/// Spawns a task that runs `compute` for `duration_ms`. The promise is handed out here, in the
-/// scope that created it: the `napi_value` inside `AsyncWorkPromise` does not outlive it.
+/// Spawns a task whose `compute` runs until `task.release()` and then resolves with `value`.
+/// The promise is handed out here, in the scope that created it: the `napi_value` inside
+/// `AsyncWorkPromise` does not outlive it.
 #[napi(ts_return_type = "{ promise: Promise<number>, task: SpawnedAsyncTask }")]
-pub fn spawn_async_task(env: &Env, duration_ms: u32) -> Result<Object<'_>> {
+pub fn spawn_async_task(env: &Env, value: u32) -> Result<Object<'_>> {
   SPAWNED_EXECUTING.store(false, Ordering::SeqCst);
-  let inner = env.spawn(SpawnedSignalWhenExecuting(duration_ms))?;
+  SPAWNED_RELEASED.store(false, Ordering::SeqCst);
+  let inner = env.spawn(SpawnedSignalWhenExecuting(value))?;
   let mut result = Object::new(env)?;
   result.set("promise", inner.promise_object())?;
   result.set("task", SpawnedAsyncTask { inner })?;

@@ -31,9 +31,19 @@ if (!isMainThread) {
   const after = native.asyncTaskSettleCounters()
   const created = after.created - before.created
   const dropped = after.dropped - before.dropped
-  if (created !== TASKS_PER_WORKER * WORKERS || dropped !== created) {
-    console.error({ created, dropped })
+  // Each promise was built through the env's cached intrinsic `Promise` and its resolving
+  // functions were released even though teardown refused the settlement. A
+  // `napi_create_promise` deferred refused there is never freed, and never counts here.
+  const resolversReleased = after.resolversReleased - before.resolversReleased
+  if (
+    created !== TASKS_PER_WORKER * WORKERS ||
+    dropped !== created ||
+    resolversReleased !== created
+  ) {
+    console.error({ created, dropped, resolversReleased })
     process.exit(1)
   }
-  console.log('dropped every AsyncTask on worker terminate')
+  console.log(
+    'dropped every AsyncTask and released its resolving functions on worker terminate',
+  )
 }
