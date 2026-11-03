@@ -1,6 +1,7 @@
 import test from 'ava'
 
 import {
+  classRefsDeletedAtTeardown,
   customGcTsfnsReleasedAtTeardown,
   reflectRefsDeletedAtTeardown,
 } from '../index.cjs'
@@ -44,3 +45,16 @@ for (const loads of [1, 3]) {
     },
   )
 }
+
+test.serial(
+  'env teardown deletes the class constructors of each load',
+  async (t) => {
+    if (process.env.WASI_TEST) {
+      t.pass()
+      return
+    }
+    const one = await teardownDelta(classRefsDeletedAtTeardown, 1)
+    t.true(one > 0)
+    t.is(await teardownDelta(classRefsDeletedAtTeardown, 3), 3 * one)
+  },
+)
