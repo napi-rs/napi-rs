@@ -23,8 +23,9 @@ const { createContext, getDefaultContext } = emnapiRuntime
 // implementations in the core runtime). The plugins are bundled into this
 // package so loading the runtime with @emnapi/core v1 does not resolve the
 // v2-only `@emnapi/core/plugins` package export. v1 ignores the plugins
-// option. v2 must match the exact peer version: the bundled plugins depend
-// on private core context/ABI fields, which can change between prereleases.
+// option. The bundled plugins come from one v2 release and depend on private
+// core context fields; `emnapi-plugins.js` maps the 2.0.0-alpha context
+// (`napiModule`) to the beta name (`addonModule`).
 export {
   MessageHandler,
   createContext,

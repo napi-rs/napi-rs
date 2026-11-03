@@ -121,7 +121,12 @@ jobs:
       fail-fast: false
       matrix:
         node: ['20.19.0', '22.13.0', '24', '26']
-        emnapi: ['1.7.1', '1.11.1', '2.0.0-beta.2']
+        # alpha.3 and alpha.6 are pinned by published bindings that float
+        # @napi-rs/wasm-runtime with `~1.2.x` (oxc-parser 0.150.0 / 0.156.0).
+        # They are outside the peer range, so their install skips the peer
+        # check, as npm's own resolution does for those bindings.
+        emnapi:
+          ['1.7.1', '1.11.1', '2.0.0-alpha.3', '2.0.0-alpha.6', '2.0.0-beta.2']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -138,13 +143,14 @@ jobs:
         run: >-
           npm install --prefix "$RUNNER_TEMP/wasm-runtime-consumer"
           --ignore-scripts --no-audit --no-fund
+          ${{ startsWith(matrix.emnapi, '2.0.0-alpha.') && '--legacy-peer-deps' || '' }}
           "$RUNNER_TEMP/wasm-runtime.tgz"
           @emnapi/core@${{ matrix.emnapi }}
           @emnapi/runtime@${{ matrix.emnapi }}
       - name: Exercise real plugins from packed CommonJS and ESM entries
         run: >-
           WASM_RUNTIME_TEST_PACKAGE="$RUNNER_TEMP/wasm-runtime-consumer/node_modules/@napi-rs/wasm-runtime"
-          node --test wasm-runtime/plugins.test.js
+          node --test wasm-runtime/plugins.test.js wasm-runtime/emnapi-pairing.test.js
 
   build_and_test:
     needs: audit

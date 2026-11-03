@@ -210,8 +210,13 @@ for (const format of ['cjs', 'esm']) {
   })
 
   // v1's thread manager deliberately rethrows worker errors on the parent.
-  // v2 reports preload failures through the instantiation promise.
-  if (coreVersion.startsWith('2.')) {
+  // v2 reports preload failures through the instantiation promise, starting
+  // with 2.0.0-alpha.5 (@emnapi/wasi-threads 2.1.0). alpha.1 to alpha.4 throw
+  // the failure inside the worker instead, whichever plugins are passed.
+  if (
+    coreVersion.startsWith('2.') &&
+    !/^2\.0\.0-alpha\.[1-4]$/.test(coreVersion)
+  ) {
     test(
       `${format}: rejects a failed worker load and permits cleanup`,
       { timeout: 10000 },
