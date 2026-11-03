@@ -163,6 +163,30 @@ export function wasiTargetHasThreads(
   return getWasiTarget(target)?.flavor === 'threads'
 }
 
+export function wasiIsOnlyTarget(targets: Pick<Target, 'platform'>[]) {
+  return (
+    targets.length > 0 && targets.every((target) => target.platform === 'wasi')
+  )
+}
+
+/**
+ * The npm `cpu` field of a generated WASI package.
+ *
+ * When native targets are also configured, the WASI package is a fallback that
+ * the root package still declares in `optionalDependencies`. `cpu: ["wasm32"]`
+ * makes package managers skip it on ordinary hosts, while environments that
+ * need it opt in with `npm install --cpu=wasm32` or yarn's
+ * `supportedArchitectures.cpu`.
+ *
+ * When WASI is the only target it is the primary artifact, so it must install
+ * on every host and carries no `cpu` field.
+ */
+export function wasiPackageCpu(
+  targets: Pick<Target, 'platform'>[],
+): string[] | undefined {
+  return wasiIsOnlyTarget(targets) ? undefined : ['wasm32']
+}
+
 function readTextFileOrNull(path: string): string | null {
   try {
     return readFileSync(path, 'utf8')

@@ -127,21 +127,17 @@ export interface UserNapiConfig {
     maximumMemory?: number
 
     /**
-     * Whether the generated `<packageName>-wasm32-wasi` package is declared as
-     * an `optionalDependency` of the root package.
+     * Whether the generated WASI packages are declared as
+     * `optionalDependencies` of the root package.
      *
-     * When native targets are configured the WASI package is a fallback for
-     * hosts that cannot load a `.node` binary, so declaring it would make every
-     * consumer download the `.wasm` binary they will never load. It is
-     * therefore omitted by default and is expected to be installed on demand by
-     * the environments that need it.
+     * When native targets are also configured, the WASI packages carry
+     * `cpu: ["wasm32"]`, so package managers skip them on ordinary hosts.
+     * Environments that need the WASI fallback install it with
+     * `npm install --cpu=wasm32` or yarn's `supportedArchitectures.cpu`.
      *
-     * When WASI is the only configured target it is the primary artifact and is
-     * declared by default.
+     * Set this to `false` to leave the WASI packages out.
      *
-     * Set this explicitly to override either default.
-     *
-     * @default true when every configured target is WASI, false otherwise
+     * @default true
      */
     optionalDependency?: boolean
 
