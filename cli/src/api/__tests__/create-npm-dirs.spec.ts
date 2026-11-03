@@ -305,6 +305,60 @@ test('should preserve stricter node engine ranges for WASM targets', async (t) =
   t.is(scopedPackageJson.engines.node, '>=24')
 })
 
+test('should gate WASI packages with cpu wasm32 when native targets exist', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  await writeFile(
+    packageJsonPath,
+    JSON.stringify({
+      name: 'test-wasm-cpu',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-cpu',
+        targets: [
+          'x86_64-unknown-linux-gnu',
+          'wasm32-wasip1-threads',
+          'wasm32-wasip1',
+        ],
+      },
+    }),
+  )
+
+  await createNpmDirs({ cwd: tmpDir, packageJsonPath: 'package.json' })
+
+  for (const dir of ['wasm32-wasi', 'wasm32-wasip1']) {
+    const scopedPackageJson = JSON.parse(
+      await readFile(join(tmpDir, 'npm', dir, 'package.json'), 'utf-8'),
+    )
+    t.deepEqual(scopedPackageJson.cpu, ['wasm32'], dir)
+  }
+})
+
+test('should not gate WASI packages with cpu when WASI is the only target', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  await writeFile(
+    packageJsonPath,
+    JSON.stringify({
+      name: 'test-wasm-only-cpu',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-only-cpu',
+        targets: ['wasm32-wasip1-threads', 'wasm32-wasip1'],
+      },
+    }),
+  )
+
+  await createNpmDirs({ cwd: tmpDir, packageJsonPath: 'package.json' })
+
+  for (const dir of ['wasm32-wasi', 'wasm32-wasip1']) {
+    const scopedPackageJson = JSON.parse(
+      await readFile(join(tmpDir, 'npm', dir, 'package.json'), 'utf-8'),
+    )
+    t.false('cpu' in scopedPackageJson, dir)
+  }
+})
+
 test('should intersect mixed node engine ranges with the WASI minimum', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
