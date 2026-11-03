@@ -126,7 +126,14 @@ jobs:
         # They are outside the peer range, so their install skips the peer
         # check, as npm's own resolution does for those bindings.
         emnapi:
-          ['1.7.1', '1.11.1', '2.0.0-alpha.3', '2.0.0-alpha.6', '2.0.0-beta.2']
+          [
+            '1.7.1',
+            '1.11.1',
+            '2.0.0-alpha.3',
+            '2.0.0-alpha.6',
+            '2.0.0-beta.2',
+            '2.0.0-beta.3',
+          ]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
