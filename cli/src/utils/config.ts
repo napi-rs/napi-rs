@@ -142,6 +142,22 @@ export interface UserNapiConfig {
     optionalDependency?: boolean
 
     /**
+     * Whether the generated WASI packages declare `cpu: ["wasm32"]` when
+     * native targets are also configured.
+     *
+     * Set this to `false` when the WASI package must install on every host,
+     * for example because the root `browser.js` imports it by name and browser
+     * bundlers must resolve it. Every consumer then downloads the `.wasm`
+     * binary.
+     *
+     * It has no effect when WASI is the only configured target, because those
+     * packages never declare `cpu`.
+     *
+     * @default true
+     */
+    cpu?: boolean
+
+    /**
      * Whether the generated WASI loaders bootstrap the `napi-async-runtime`
      * CurrentThread JavaScript hosts.
      *

@@ -334,6 +334,30 @@ test('should gate WASI packages with cpu wasm32 when native targets exist', asyn
   }
 })
 
+test('should not gate WASI packages with cpu when napi.wasm.cpu is false', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  await writeFile(
+    packageJsonPath,
+    JSON.stringify({
+      name: 'test-wasm-cpu-opt-out',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-cpu-opt-out',
+        targets: ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+        wasm: { cpu: false },
+      },
+    }),
+  )
+
+  await createNpmDirs({ cwd: tmpDir, packageJsonPath: 'package.json' })
+
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  )
+  t.false('cpu' in scopedPackageJson)
+})
+
 test('should not gate WASI packages with cpu when WASI is the only target', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 

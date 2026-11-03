@@ -179,12 +179,16 @@ export function wasiIsOnlyTarget(targets: Pick<Target, 'platform'>[]) {
  * `supportedArchitectures.cpu`.
  *
  * When WASI is the only target it is the primary artifact, so it must install
- * on every host and carries no `cpu` field.
+ * on every host and carries no `cpu` field. `napi.wasm.cpu: false` also omits
+ * the field.
  */
 export function wasiPackageCpu(
   targets: Pick<Target, 'platform'>[],
+  wasm?: { cpu?: boolean },
 ): string[] | undefined {
-  return wasiIsOnlyTarget(targets) ? undefined : ['wasm32']
+  return wasiIsOnlyTarget(targets) || wasm?.cpu === false
+    ? undefined
+    : ['wasm32']
 }
 
 function readTextFileOrNull(path: string): string | null {
