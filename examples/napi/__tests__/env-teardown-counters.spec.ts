@@ -5,7 +5,7 @@ import {
   customGcTsfnsReleasedAtTeardown,
   reflectRefsDeletedAtTeardown,
 } from '../index.cjs'
-import { LOAD_IN_WORKER, runInWorker } from './multi-env-helpers'
+import { LOAD_IN_WORKER, runInWorker } from './multi-env-helpers.js'
 
 // The counters are process-wide, so these tests run one at a time.
 
