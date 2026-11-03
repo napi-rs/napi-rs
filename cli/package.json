@@ -75,8 +75,8 @@
     "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@emnapi/core": "^2.0.0-beta.2",
-    "@emnapi/runtime": "^2.0.0-beta.2",
+    "@emnapi/core": "^2.0.0-beta.3",
+    "@emnapi/runtime": "^2.0.0-beta.3",
     "@oxc-node/core": "^1.0.0",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/inquirer": "^10.0.0",
@@ -84,7 +84,7 @@
     "@types/node": "^26.6.5",
     "@types/semver": "^7.7.1",
     "ava": "^8.0.1",
-    "emnapi": "^2.0.0-beta.2",
+    "emnapi": "^2.0.0-beta.3",
     "empathic": "^2.0.1",
     "env-paths": "^4.0.0",
     "oxc-parser": "^0.157.0",

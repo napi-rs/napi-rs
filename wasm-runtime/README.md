@@ -9,12 +9,14 @@ Use matching versions of `@emnapi/core` and `@emnapi/runtime`:
 - v1: `^1.7.1`. Core includes async work and threadsafe functions and ignores the
   plugins option. Loading this package does not resolve the v2-only
   `@emnapi/core/plugins` export.
-- v2: the peer range is exactly `2.0.0-beta.2`, and this package bundles the
-  async-work and TSFN plugins from that version. They depend on private core
-  context fields. `2.0.0-beta.1` renamed the context field `napiModule` to
-  `addonModule`; the bundled plugins accept both names, so bindings that pin a
-  2.0.0 alpha keep loading. A later prerelease that changes the context again
-  needs a new release of this package.
+- v2: the peer range is exactly `2.0.0-beta.2` or `2.0.0-beta.3`, and this
+  package bundles the async-work and TSFN plugins from `2.0.0-beta.3`. They
+  depend on private core context fields, which are the same in both betas
+  (`2.0.0-beta.3` changed only the TSFN release order). `2.0.0-beta.1` renamed
+  the context field `napiModule` to `addonModule`; the bundled plugins accept
+  both names, so bindings that pin a 2.0.0 alpha keep loading. A later
+  prerelease that changes the context again needs a new release of this
+  package.
 
 The v2 peer range stays narrow on purpose. With an open range, npm can hoist a
 binding's 2.0.0 alpha core next to this package, and then v1 bindings that
@@ -51,11 +53,14 @@ napi-rs loaders already supply these plugins.
 
 Update the exact v2 development dependencies together with the workspace
 resolutions. `build` checks that the resolved core version is the exact
-development version and the v2 version in the peer range, and `prepack`
-rebuilds the bundles so a package cannot silently reuse output from an earlier
-build. Before a release, compare the new plugin context with the oldest
-supported alpha (`2.0.0-alpha.3` is the oldest still pinned by published
-bindings), and keep the CI matrix covering it.
+development version and one of the v2 versions in the peer range, and
+`prepack` rebuilds the bundles so a package cannot silently reuse output from
+an earlier build. Before a release, compare the new plugin context with the
+oldest supported alpha (`2.0.0-alpha.3` is the oldest still pinned by published
+bindings), and keep the CI matrix covering it. Keep earlier v2 versions in the
+peer range while published bindings pin them (rolldown 1.2.16 pins
+`2.0.0-beta.2`); removing one makes npm install a v1 core for this package
+next to those bindings.
 
 `yarn workspace @napi-rs/wasm-runtime test` exercises actual WebAssembly
 initialization, async work, TSFN calls from a worker, worker load failures, and

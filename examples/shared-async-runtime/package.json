@@ -28,7 +28,7 @@
     "@napi-rs/wasm-runtime": "workspace:*"
   },
   "dependencies": {
-    "@emnapi/core": "^2.0.0-alpha.4",
-    "@emnapi/runtime": "^2.0.0-alpha.4"
+    "@emnapi/core": "2.0.0-beta.3",
+    "@emnapi/runtime": "2.0.0-beta.3"
   }
 }
