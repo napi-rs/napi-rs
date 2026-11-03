@@ -1148,6 +1148,13 @@ export declare function createZeroCopyLatin1String(): string
 
 export declare function createZeroCopyUtf16String(): string
 
+/**
+ * How many custom-GC threadsafe functions env teardown has released in this
+ * process. Each load of the addon creates one, so each torn-down load must add
+ * exactly one.
+ */
+export declare function customGcTsfnsReleasedAtTeardown(): number
+
 /** You could break the step and for an new continuous value. */
 export declare const enum CustomNumEnum {
   One = 1,

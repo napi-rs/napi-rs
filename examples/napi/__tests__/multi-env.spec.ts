@@ -45,3 +45,26 @@ test('a second load does not take the first load’s Reflect cache', async (t) =
     secondRejection: expected,
   })
 })
+
+test('a second load does not cut the first load off from its references', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const result = await runInWorker(`
+    ${LOAD_IN_WORKER}
+    const first = load()
+    const value = { id: 'retained' }
+    // The rejection reason is held as a reference in the first load's env and
+    // read back on its JS thread once the task completes, after the second load.
+    const pending = first.asyncTaskRejectWithCapturedValue(value)
+    load()
+    pending.then(
+      () => parentPort.postMessage('resolved'),
+      (reason) => parentPort.postMessage(reason === value ? 'same' : String(reason)),
+    )
+  `)
+  // Without per-env custom-GC handles the second load takes over the thread's
+  // handle, and the first load's references read as foreign.
+  t.is(result, 'same')
+})

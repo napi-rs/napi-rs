@@ -1,6 +1,9 @@
 import test from 'ava'
 
-import { reflectRefsDeletedAtTeardown } from '../index.cjs'
+import {
+  customGcTsfnsReleasedAtTeardown,
+  reflectRefsDeletedAtTeardown,
+} from '../index.cjs'
 import { LOAD_IN_WORKER, runInWorker } from './multi-env-helpers'
 
 // The counters are process-wide, so these tests run one at a time.
@@ -25,6 +28,19 @@ for (const loads of [1, 3]) {
         return
       }
       t.is(await teardownDelta(reflectRefsDeletedAtTeardown, loads), loads)
+    },
+  )
+}
+
+for (const loads of [1, 3]) {
+  test.serial(
+    `env teardown releases the custom-GC threadsafe function of each of ${loads} load(s)`,
+    async (t) => {
+      if (process.env.WASI_TEST) {
+        t.pass()
+        return
+      }
+      t.is(await teardownDelta(customGcTsfnsReleasedAtTeardown, loads), loads)
     },
   )
 }
