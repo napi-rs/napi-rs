@@ -569,6 +569,17 @@ export declare class SleepOverlapProbe {
 }
 
 /**
+ * Holds an `Env::spawn` result so JavaScript can wait for `compute` to start before it
+ * cancels.
+ */
+export declare class SpawnedAsyncTask {
+  /** Whether `compute` has started, so a cancel can no longer take the work. */
+  isExecuting(): boolean
+  /** Returns whether `AsyncWorkPromise::cancel` succeeded. */
+  cancel(): boolean
+}
+
+/**
  * Static methods and factories keep their default descriptor (not writable,
  * not enumerable, not configurable) unless a flag is written out.
  */
@@ -741,6 +752,9 @@ export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
 export declare function asyncTaskArraybuffer(data: Array<number>): Promise<ArrayBuffer>
 
+/** A task that counts its creation and its drop, for the worker-terminate test. */
+export declare function asyncTaskCounted(): Promise<number>
+
 export declare function asyncTaskFinally(inner: object): Promise<void>
 
 /**
@@ -761,6 +775,15 @@ export declare function asyncTaskRejectIsExecuting(): boolean
 
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
 
+export declare function asyncTaskSettleCounters(): AsyncTaskSettleCounters
+
+export interface AsyncTaskSettleCounters {
+  resolveCalls: number
+  finallyCalls: number
+  created: number
+  dropped: number
+}
+
 /**
  * An `AsyncTask` that announces the start of its own `compute`, then runs for
  * `duration_ms`.
@@ -778,6 +801,9 @@ export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promis
  * already settled.
  */
 export declare function asyncTaskSignalWhenExecutingReject(durationMs: number): Promise<number>
+
+/** A task whose `resolve` leaves an exception pending: the promise must reject with it. */
+export declare function asyncTaskThrowInResolve(): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
@@ -1943,6 +1969,12 @@ export declare function shorterEscapableScope(createString: () => string | null)
 export declare function shorterScope(arr: unknown[]): Array<number>
 
 export declare function shutdownRuntime(): void
+
+/**
+ * Spawns a task that runs `compute` for `duration_ms`. The promise is handed out here, in the
+ * scope that created it: the `napi_value` inside `AsyncWorkPromise` does not outlive it.
+ */
+export declare function spawnAsyncTask(durationMs: number): { promise: Promise<number>, task: SpawnedAsyncTask }
 
 export declare function spawnFutureLifetime(input: number): Promise<string>
 
