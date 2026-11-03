@@ -789,6 +789,11 @@ export interface AsyncTaskSettleCounters {
    * outcome kept for them), settled or not.
    */
   promiseStatesFreed: number
+  /**
+   * Pairs of promise resolving functions released, settled or not: the freed states whose
+   * `then` had already run.
+   */
+  promiseResolversReleased: number
 }
 
 /**

@@ -125,21 +125,27 @@ for (const mode of ['proxy', 'throwing', 'constructor', 'then-accessors']) {
 // Teardown runs every queued completion while JavaScript is disabled; each task must still be
 // dropped and the process must not crash. Spawned so a crash is reported, not fatal to ava.
 // WASI lanes dispose through the emnapi loader instead (wasi-worker-termination.spec.ts).
-test.skipIf(Boolean(process.env.WASI_TEST))(
-  'terminating a Worker with queued AsyncTasks drops every task and frees its promise state',
-  (t) => {
-    const result = spawnSync(
-      process.execPath,
-      [join(__dirname, 'async-task-settle-terminate.js')],
-      { encoding: 'utf8', env: process.env, timeout: 120_000 },
-    )
-    const output = `${result.stdout}\n${result.stderr}`
-    t.is(result.error, undefined, result.error?.stack)
-    t.is(result.signal, null, output)
-    t.is(result.status, 0, output)
-    t.regex(
-      result.stdout,
-      /dropped every AsyncTask and freed its promise state on worker terminate/,
-    )
-  },
-)
+// `blocked`: no promise's `then` ran yet; `then-ran`: every promise holds its resolving
+// functions, which must be released although teardown refuses to call them.
+for (const mode of ['blocked', 'then-ran']) {
+  test.skipIf(Boolean(process.env.WASI_TEST))(
+    `terminating a Worker with queued AsyncTasks drops every task and frees its promise state (${mode})`,
+    (t) => {
+      const result = spawnSync(
+        process.execPath,
+        [join(__dirname, 'async-task-settle-terminate.js'), mode],
+        { encoding: 'utf8', env: process.env, timeout: 120_000 },
+      )
+      const output = `${result.stdout}\n${result.stderr}`
+      t.is(result.error, undefined, result.error?.stack)
+      t.is(result.signal, null, output)
+      t.is(result.status, 0, output)
+      t.true(
+        result.stdout.includes(
+          `dropped every AsyncTask and freed its promise state on worker terminate (${mode})`,
+        ),
+        output,
+      )
+    },
+  )
+}
