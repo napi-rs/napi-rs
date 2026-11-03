@@ -2,7 +2,7 @@ import test from 'ava'
 
 // Ensures index.cjs loaded the addon, so `loadedAddon()` can find it.
 import '../index.cjs'
-import { LOAD_IN_WORKER, runInWorker } from './multi-env-helpers'
+import { LOAD_IN_WORKER, runInWorker } from './multi-env-helpers.js'
 
 // One addon image loaded twice on one thread gets two envs that share the
 // image's statics. Each load must keep its own per-env state. These run in a
