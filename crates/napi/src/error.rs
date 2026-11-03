@@ -958,9 +958,9 @@ pub(crate) fn cache_reflect_intrinsics_for_env(
 ///
 /// `None` — an env with no usable cache, because `Reflect` was missing or
 /// unusable at registration, the env never registered this addon, its teardown
-/// already ran, or the build cannot observe teardown (below Node-API 3) — makes
-/// the capture degrade to an empty reason/cause. It never falls back to a
-/// `[[Get]]`. The lookup is by `env`, so several loads of the addon on one
+/// already ran, or the build cannot observe teardown (on wasm below Node-API
+/// 3) — makes the capture degrade to an empty reason/cause. It never falls back
+/// to a `[[Get]]`. The lookup is by `env`, so several loads of the addon on one
 /// thread each read their own pair.
 ///
 /// Reading the pair back off the private holder is safe: both are its own

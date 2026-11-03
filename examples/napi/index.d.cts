@@ -570,13 +570,15 @@ export declare class SleepOverlapProbe {
 
 /**
  * Holds an `Env::spawn` result so JavaScript can wait for `compute` to start before it
- * cancels.
+ * cancels, and let `compute` finish afterwards.
  */
 export declare class SpawnedAsyncTask {
   /** Whether `compute` has started, so a cancel can no longer take the work. */
   isExecuting(): boolean
   /** Returns whether `AsyncWorkPromise::cancel` succeeded. */
   cancel(): boolean
+  /** Lets `compute` return. */
+  release(): void
 }
 
 /**
@@ -782,6 +784,11 @@ export interface AsyncTaskSettleCounters {
   finallyCalls: number
   created: number
   dropped: number
+  /**
+   * Promises built through the cached intrinsic `Promise` whose resolving functions were
+   * released. A `napi_create_promise` fallback promise never counts.
+   */
+  resolversReleased: number
 }
 
 /**
@@ -1971,10 +1978,11 @@ export declare function shorterScope(arr: unknown[]): Array<number>
 export declare function shutdownRuntime(): void
 
 /**
- * Spawns a task that runs `compute` for `duration_ms`. The promise is handed out here, in the
- * scope that created it: the `napi_value` inside `AsyncWorkPromise` does not outlive it.
+ * Spawns a task whose `compute` runs until `task.release()` and then resolves with `value`.
+ * The promise is handed out here, in the scope that created it: the `napi_value` inside
+ * `AsyncWorkPromise` does not outlive it.
  */
-export declare function spawnAsyncTask(durationMs: number): { promise: Promise<number>, task: SpawnedAsyncTask }
+export declare function spawnAsyncTask(value: number): { promise: Promise<number>, task: SpawnedAsyncTask }
 
 export declare function spawnFutureLifetime(input: number): Promise<string>
 

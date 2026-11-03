@@ -136,8 +136,9 @@ impl NativeBorrowStorage {
   /// JavaScript root to the owning env's custom-GC threadsafe function — callable from
   /// any thread, and it unref+deletes the ref on the JavaScript thread (same protocol
   /// as `Buffer`/`FunctionRef` off-thread drops). The roots are leaked only when no
-  /// handle was captured or the handle reports the env already gone — env teardown has
-  /// then reclaimed the refs anyway, so the leak is free.
+  /// handle was captured or the handle reports the env already gone. Env teardown then
+  /// resets the refs' V8 handles, so nothing stays alive in JavaScript, but Node never
+  /// frees the `napi_ref` boxes themselves (48 bytes each).
   fn release_or_delegate(&mut self) {
     self.guards.clear();
     self.borrowed_values.clear();
@@ -159,8 +160,8 @@ impl NativeBorrowStorage {
           // Even on the owner thread the enqueue is the safe route: this path runs
           // precisely when the env may already be dying (uninvoked settle closures),
           // and a direct `napi_reference_unref` on a dead env is a use-after-free.
-          // A `napi_closing` status means the tsfn is draining; the ref then dies
-          // with the env.
+          // A `napi_closing` status means the tsfn is draining and nothing will
+          // delete the ref: teardown resets its handle, but its 48-byte box leaks.
           let status = unsafe {
             sys::napi_call_threadsafe_function(handle.get_raw(), root.reference.cast(), 1)
           };

@@ -15,9 +15,12 @@
 //! The constructor is read off the global object **once per env, at module registration**
 //! ([`cache_promise_intrinsics_for_env`]), never per task: `globalThis.Promise` is writable, and
 //! a later reassignment must not change what an `AsyncTask` returns. Registration is the same
-//! trust boundary as the `Reflect` capture in `error.rs`. The candidate is also probed there and
-//! only kept when it builds a real promise whose prototype is the one `napi_create_promise`
-//! uses, so a replaced global (a polyfill, `zone.js`, a subclass) keeps today's behavior.
+//! trust boundary as the `Reflect` capture in `error.rs`. The candidate is only kept when it is
+//! the intrinsic itself — the `constructor` of the prototype `napi_create_promise` uses — and
+//! then builds a real promise with that prototype. A replaced global (a polyfill, `zone.js`, a
+//! subclass, a wrapper function or `Proxy` from an instrumentation preload) is rejected before
+//! it is ever called, and keeps today's behavior: `napi_create_promise`. Only a preload that
+//! also rewrites `Promise.prototype.constructor` to its wrapper gets past this check.
 //!
 //! Whenever the cache is missing — `napi1`/`napi2` builds (no env cleanup hook to release the
 //! cache with), a failed probe or hook, an env that never registered this addon, or a teardown
@@ -30,8 +33,24 @@ use std::cell::{Cell, RefCell};
 #[cfg(all(feature = "napi3", not(feature = "noop")))]
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{check_status, sys, Error, Result, Status};
+
+/// Counts [`PromiseSettler::release`] calls that deleted a pair of resolving-function
+/// references, read through [`async_task_resolvers_released`].
+static RESOLVERS_RELEASED: AtomicUsize = AtomicUsize::new(0);
+
+/// How many `AsyncTask` / `Env::spawn` promises built through the cached intrinsic `Promise`
+/// have had their resolving functions released in this process — settled or refused, on every
+/// env and every load of this addon. A promise from the `napi_create_promise` fallback never
+/// counts, so a test can tell which path a task took.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn async_task_resolvers_released() -> usize {
+  RESOLVERS_RELEASED.load(Ordering::Relaxed)
+}
 
 /// The value a promise is settled with.
 pub(super) enum Settlement {
@@ -126,6 +145,7 @@ impl PromiseSettler {
         sys::napi_delete_reference(self.env, resolve);
         sys::napi_delete_reference(self.env, reject);
       }
+      RESOLVERS_RELEASED.fetch_add(1, Ordering::Relaxed);
     }
   }
 }
@@ -455,29 +475,23 @@ pub(crate) fn cache_promise_intrinsics_for_env(env: sys::napi_env) {
   });
 }
 
-/// Accepts `constructor` only when `new constructor(executor)` calls the executor with two
-/// resolving functions and returns a native promise whose prototype is the one
-/// `napi_create_promise` uses — so an `AsyncTask` keeps returning exactly what it returned
-/// before this cache existed.
+/// Accepts `constructor` only when it is the intrinsic `Promise` — strict-equal to the
+/// `constructor` of the prototype `napi_create_promise` uses — and `new constructor(executor)`
+/// calls the executor with two resolving functions and returns a native promise with that
+/// prototype. So an `AsyncTask` keeps returning exactly what it returned before this cache
+/// existed, and settling it runs no user code.
+///
+/// The identity check runs first, so a wrapper or `Proxy` around the intrinsic (which builds a
+/// promise with the same prototype, but hands the executor its own resolving functions) is
+/// rejected without being called. Reading `constructor` is an ordinary `[[Get]]`; like reading
+/// `globalThis.Promise` itself, it happens once, here, where registration already runs
+/// JavaScript.
 #[cfg(all(feature = "napi3", not(feature = "noop")))]
 fn probe_promise_constructor(
   env: sys::napi_env,
   constructor: sys::napi_value,
   executor: sys::napi_value,
 ) -> bool {
-  let Some((probe, resolve, reject)) = construct(env, constructor, executor) else {
-    return false;
-  };
-  unsafe {
-    sys::napi_delete_reference(env, resolve);
-    sys::napi_delete_reference(env, reject);
-  }
-  let mut is_promise = false;
-  if unsafe { sys::napi_is_promise(env, probe, &mut is_promise) } != sys::Status::napi_ok
-    || !is_promise
-  {
-    return false;
-  }
   let mut intrinsic = ptr::null_mut();
   let mut deferred = ptr::null_mut();
   if unsafe { sys::napi_create_promise(env, &mut deferred, &mut intrinsic) } != sys::Status::napi_ok
@@ -494,12 +508,40 @@ fn probe_promise_constructor(
     return false;
   }
   // `napi_get_prototype` is the internal [[GetPrototypeOf]] of an ordinary promise: no user code.
-  let mut probe_prototype = ptr::null_mut();
   let mut intrinsic_prototype = ptr::null_mut();
+  let mut intrinsic_constructor = ptr::null_mut();
+  let mut is_intrinsic = false;
+  if !unsafe {
+    sys::napi_get_prototype(env, intrinsic, &mut intrinsic_prototype) == sys::Status::napi_ok
+      && sys::napi_get_named_property(
+        env,
+        intrinsic_prototype,
+        c"constructor".as_ptr(),
+        &mut intrinsic_constructor,
+      ) == sys::Status::napi_ok
+      && sys::napi_strict_equals(env, constructor, intrinsic_constructor, &mut is_intrinsic)
+        == sys::Status::napi_ok
+      && is_intrinsic
+  } {
+    return false;
+  }
+  let Some((probe, resolve, reject)) = construct(env, constructor, executor) else {
+    return false;
+  };
+  unsafe {
+    sys::napi_delete_reference(env, resolve);
+    sys::napi_delete_reference(env, reject);
+  }
+  let mut is_promise = false;
+  if unsafe { sys::napi_is_promise(env, probe, &mut is_promise) } != sys::Status::napi_ok
+    || !is_promise
+  {
+    return false;
+  }
+  let mut probe_prototype = ptr::null_mut();
   let mut same = false;
   unsafe {
     sys::napi_get_prototype(env, probe, &mut probe_prototype) == sys::Status::napi_ok
-      && sys::napi_get_prototype(env, intrinsic, &mut intrinsic_prototype) == sys::Status::napi_ok
       && sys::napi_strict_equals(env, probe_prototype, intrinsic_prototype, &mut same)
         == sys::Status::napi_ok
       && same
