@@ -10,8 +10,8 @@ use napi::{bindgen_prelude::*, AsyncWorkPromise};
 // * `AsyncWorkPromise::cancel` on a task that already started used to leave the promise pending
 //   forever;
 // * a worker terminated with tasks still queued or running must drop every task without
-//   crashing, and release every promise's resolving functions (`resolvers_released`; a
-//   `napi_create_promise` deferred refused there is never freed).
+//   crashing, and free every promise's settle state (`promise_states_freed`; a
+//   `napi_create_promise` deferred settled there is refused and never freed).
 
 static RESOLVE_CALLS: AtomicU32 = AtomicU32::new(0);
 static FINALLY_CALLS: AtomicU32 = AtomicU32::new(0);
@@ -26,9 +26,9 @@ pub struct AsyncTaskSettleCounters {
   pub finally_calls: u32,
   pub created: u32,
   pub dropped: u32,
-  /// Promises built through the cached intrinsic `Promise` whose resolving functions were
-  /// released. A `napi_create_promise` fallback promise never counts.
-  pub resolvers_released: u32,
+  /// `AsyncTask` / `Env::spawn` promise settle states freed (resolving functions, or an
+  /// outcome kept for them), settled or not.
+  pub promise_states_freed: u32,
 }
 
 #[napi]
@@ -38,7 +38,7 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
     finally_calls: FINALLY_CALLS.load(Ordering::SeqCst),
     created: TASKS_CREATED.load(Ordering::SeqCst),
     dropped: TASKS_DROPPED.load(Ordering::SeqCst),
-    resolvers_released: napi::bindgen_prelude::async_task_resolvers_released() as u32,
+    promise_states_freed: napi::bindgen_prelude::async_task_promise_states_freed() as u32,
   }
 }
 

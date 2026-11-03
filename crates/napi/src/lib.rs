@@ -227,7 +227,7 @@ macro_rules! assert_type_of {
 
 pub mod bindgen_prelude {
   #[doc(hidden)]
-  pub use crate::async_work::async_task_resolvers_released;
+  pub use crate::async_work::async_task_promise_states_freed;
   #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
   pub use crate::bindgen_runtime::register_module_exports;
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]

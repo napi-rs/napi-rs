@@ -15,9 +15,12 @@ use crate::{
 mod promise;
 
 #[doc(hidden)]
-pub use promise::async_task_resolvers_released;
-#[cfg(all(feature = "napi3", not(feature = "noop")))]
-pub(crate) use promise::cache_promise_intrinsics_for_env;
+pub use promise::async_task_promise_states_freed;
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi3", not(target_family = "wasm"))
+))]
+pub(crate) use promise::release_env_promise_states;
 use promise::{PromiseSettler, Settlement};
 
 struct AsyncWork<'task, T: ScopedTask<'task>> {

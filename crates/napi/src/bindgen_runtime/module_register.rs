@@ -1007,17 +1007,6 @@ pub unsafe extern "C" fn napi_register_module_v1(
     crate::error::cache_reflect_intrinsics_for_env(env, registration);
   }
 
-  // Same reasoning for the `Promise` constructor that `AsyncTask` promises are built with:
-  // read once here, so a later reassignment of `globalThis.Promise` cannot change them. Its
-  // cleanup hook releases the cache at env teardown. Best effort: without it, tasks use
-  // `napi_create_promise`. Skipped when there is no registration record: the load has already
-  // failed with a pending "Failed to add env cleanup hook" error, and a probe failure here would
-  // clear that exception and let the failed load look successful.
-  #[cfg(feature = "napi3")]
-  if registration.is_some() {
-    crate::async_work::cache_promise_intrinsics_for_env(env);
-  }
-
   // Registration keys are compile-time strings. Avoid `RandomState` so WASI module
   // registration does not request randomness during workerd global initialization.
   let mut exports_objects: HashSet<String, FxBuildHasher> = HashSet::with_hasher(FxBuildHasher);
