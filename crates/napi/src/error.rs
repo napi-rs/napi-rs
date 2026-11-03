@@ -595,41 +595,14 @@ fn type_without_coercion(
   Some(value_type)
 }
 
-/// The load-time `Reflect` / `Reflect.getOwnPropertyDescriptor` pair of the env
-/// this thread registered, kept as own data properties of a private holder
-/// object behind a single `napi_ref`.
-struct ReflectIntrinsics {
-  env: sys::napi_env,
-  holder: sys::napi_ref,
-  // Whether `napi_add_env_cleanup_hook` SUCCEEDED for this env. Only then does
-  // a later pointer-equal entry prove the env is alive: the hook clears the
-  // slot at teardown, so a stale entry cannot survive to be matched. Without
-  // it (pre-napi3, or a hook call that failed) an embedder can tear the env
-  // down and receive the same `napi_env` address for a new one — and deleting
-  // the superseded reference through that recycled pointer would hand a dead
-  // ref to a live env. Only `cache_reflect_intrinsics_for_env` reads it, so it
-  // goes dead when `noop` compiles that registration out.
-  #[cfg_attr(feature = "noop", allow(dead_code))]
-  cleanup_hook_installed: bool,
-}
-
-thread_local! {
-  // One slot per OS thread, keyed by env — the same one-env-per-OS-thread
-  // invariant `CURRENT_CUSTOM_GC_HANDLE` documents and relies on. Installed by
-  // `cache_reflect_intrinsics_for_env` on the registering (env's own) thread;
-  // read by `reflect_get_own_property_descriptor` on that same thread, which is
-  // the only thread whose napi implementation can resolve the env at all.
-  static REFLECT_INTRINSICS: std::cell::RefCell<Option<ReflectIntrinsics>> =
-    const { std::cell::RefCell::new(None) };
-}
-
 #[cfg(not(feature = "noop"))]
 thread_local! {
   // Counts invocations of the probe object's accessor getter, so
   // `probe_get_own_property_descriptor` can prove the candidate descriptor
-  // reader did not fall back to a `[[Get]]`. Thread-local for the same
-  // one-env-per-OS-thread reason as `REFLECT_INTRINSICS`; registration and the
-  // probe calls all run on the env's own thread.
+  // reader did not fall back to a `[[Get]]`. Thread-local because the probe
+  // runs synchronously on the registering env's own thread, from the call into
+  // the candidate to the check of the count, so the getter it counts runs there
+  // too.
   static PROBE_ACCESSOR_HITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
@@ -860,13 +833,19 @@ fn probe_get_own_property_descriptor(
 /// to an empty reason/cause permanently, and the impostor is never invoked
 /// during capture. The retained value itself never depends on any of this.
 ///
-/// Best effort: any failure clears the pending exception and leaves the slot
-/// unchanged. `napi_get_global`, `napi_get_named_property` and
-/// `napi_create_reference` (on an object) are all implemented by emnapi, so
-/// the cache works on `wasm32-wasip1` and `wasm32-wasip1-threads` too — only
-/// the env-cleanup hook is skipped there (see below).
+/// Best effort: any failure clears the pending exception and leaves `env`
+/// without a cache. The cache lives in `env`'s own registration record
+/// (`registration`, from `env_registration::begin`), so every load of the addon
+/// keeps its own pair, and the record's env cleanup hook deletes the reference
+/// at teardown. That hook is added through emnapi's shim on wasm, so the cache
+/// works the same on `wasm32-wasip1` and `wasm32-wasip1-threads`:
+/// `napi_get_global`, `napi_get_named_property` and `napi_create_reference` (on
+/// an object) are all implemented by emnapi.
 #[cfg(not(feature = "noop"))]
-pub(crate) fn cache_reflect_intrinsics_for_env(env: sys::napi_env) {
+pub(crate) fn cache_reflect_intrinsics_for_env(
+  env: sys::napi_env,
+  registration: crate::bindgen_runtime::env_registration::RegistrationId,
+) {
   let mut global = ptr::null_mut();
   if unsafe { sys::napi_get_global(env, &mut global) } != sys::Status::napi_ok {
     clear_pending_exception(env);
@@ -901,10 +880,9 @@ pub(crate) fn cache_reflect_intrinsics_for_env(env: sys::napi_env) {
   }
   // Registration-time sanity probe: only a candidate that behaves like the
   // intrinsic on an object of known, non-interposable shape is cached. A
-  // failing candidate is dropped here — leaving the slot as it was, so this
-  // env's captures degrade to an empty reason/cause (or, on a re-registration,
-  // keep the pair the first load vetted) — rather than being invoked during
-  // every capture.
+  // failing candidate is dropped here — this env then has no cache, so its
+  // captures degrade to an empty reason/cause — rather than being invoked
+  // during every capture.
   if !probe_get_own_property_descriptor(env, reflect, get_own_property_descriptor) {
     return;
   }
@@ -948,97 +926,12 @@ pub(crate) fn cache_reflect_intrinsics_for_env(env: sys::napi_env) {
     clear_pending_exception(env);
     return;
   }
-  REFLECT_INTRINSICS.with(|slot| {
-    let mut slot = slot.borrow_mut();
-    let previous = slot.take();
-    let cleanup_hook_installed = match previous {
-      Some(superseded) if superseded.env == env => {
-        // A pointer-equal entry. Whether it belongs to a LIVE env depends on
-        // the cleanup hook: with it installed, teardown clears the slot, so a
-        // surviving entry proves this is the same live env re-registering
-        // (`delete require.cache` and re-`require`, see unload.spec.js) and
-        // the superseded holder can be released immediately. The hook from the
-        // first registration stays in place — Node aborts on a duplicate
-        // `(fn, arg)` cleanup-hook pair, so it must not be registered again.
-        //
-        // Without the hook (pre-napi3, or an installation that failed),
-        // pointer equality proves nothing: an embedder can destroy the env and
-        // recreate one at the same address on this thread, and the entry would
-        // be the DEAD env's. Deleting its already-reclaimed reference through
-        // the new env risks corrupting the live runtime, so the superseded
-        // reference is deliberately leaked instead — one reference per env
-        // recreation, bounded, and only on configurations that cannot observe
-        // teardown. On wasm the delete stays unconditional: the slot lives in
-        // the instance's own linear memory and dies with it, so a pointer
-        // match there is the same live instance by construction.
-        if superseded.cleanup_hook_installed || cfg!(target_family = "wasm") {
-          let _ = unsafe { sys::napi_delete_reference(env, superseded.holder) };
-          clear_pending_exception(env);
-        }
-        superseded.cleanup_hook_installed
-      }
-      _ => {
-        // Empty slot, or a different env owned this thread before. In the latter
-        // case that env is gone (one env per OS thread) and its teardown already
-        // reclaimed the superseded reference — reachable only on builds without
-        // napi3's cleanup hook, which would have cleared the slot — so there is
-        // nothing to release and deleting through a dead env would be the real
-        // bug. Either way this is the first hook registration for `env`.
-        //
-        // Registration is best effort, like the cache itself: without the hook
-        // the slot is cleared by thread death instead (a worker's thread dies
-        // with its env), and the reference is reclaimed by env teardown.
-        //
-        // Not on wasm: referencing `napi_add_env_cleanup_hook` from Rust imports
-        // it under the `env` wasm module, while emnapi's static archive declares
-        // it under `napi` — wasm-ld refuses the mismatch. The hook exists for a
-        // native embedder tearing an env down and reusing its thread (and
-        // possibly the env pointer); on wasm this thread-local lives inside the
-        // instance's own linear memory and dies with the instance, whose
-        // context is never reused after `Context.destroy()`, so there is no
-        // stale slot for a later env to match.
-        #[cfg(all(feature = "napi3", not(target_family = "wasm")))]
-        {
-          let hook_status = unsafe {
-            sys::napi_add_env_cleanup_hook(env, Some(reflect_intrinsics_env_cleanup), env.cast())
-          };
-          hook_status == sys::Status::napi_ok
-        }
-        #[cfg(not(all(feature = "napi3", not(target_family = "wasm"))))]
-        {
-          false
-        }
-      }
-    };
-    *slot = Some(ReflectIntrinsics {
-      env,
-      holder: reference,
-      cleanup_hook_installed,
-    });
-  });
-}
-
-/// Env-teardown counterpart of [`cache_reflect_intrinsics_for_env`]: drops the
-/// cached holder reference while the env can still delete it, and clears the
-/// slot so a later env reusing this thread (an embedder reload) can never match
-/// a stale entry through a recycled env pointer.
-///
-/// Runs on the env's own thread, before the env is destroyed — napi calls are
-/// still legal here.
-#[cfg(all(not(feature = "noop"), feature = "napi3", not(target_family = "wasm")))]
-unsafe extern "C" fn reflect_intrinsics_env_cleanup(arg: *mut c_void) {
-  REFLECT_INTRINSICS.with(|slot| {
-    let mut slot = slot.borrow_mut();
-    if slot
-      .as_ref()
-      .is_some_and(|cache| cache.env.cast::<c_void>() == arg)
-    {
-      if let Some(cache) = slot.take() {
-        let _ = unsafe { sys::napi_delete_reference(cache.env, cache.holder) };
-        clear_pending_exception(cache.env);
-      }
-    }
-  });
+  // The record keeps the reference and deletes it at `env`'s teardown. If the
+  // record is already gone, nothing would delete it, so drop it now.
+  if !crate::bindgen_runtime::env_registration::set_reflect_intrinsics(registration, reference) {
+    let _ = unsafe { sys::napi_delete_reference(env, reference) };
+    clear_pending_exception(env);
+  }
 }
 
 /// Resolves the env's **cached** `Reflect.getOwnPropertyDescriptor`, returning
@@ -1061,8 +954,11 @@ unsafe extern "C" fn reflect_intrinsics_env_cleanup(arg: *mut c_void) {
 /// all (a strictly stronger property than observing the patch late).
 ///
 /// `None` — an env with no usable cache, because `Reflect` was missing or
-/// unusable at registration or the env never registered this addon — makes the
-/// capture degrade to an empty reason/cause. It never falls back to a `[[Get]]`.
+/// unusable at registration, the env never registered this addon, its teardown
+/// already ran, or the build cannot observe teardown (below Node-API 3) — makes
+/// the capture degrade to an empty reason/cause. It never falls back to a
+/// `[[Get]]`. The lookup is by `env`, so several loads of the addon on one
+/// thread each read their own pair.
 ///
 /// Reading the pair back off the private holder is safe: both are its own
 /// **data** properties on an ordinary object that never escaped to JavaScript,
@@ -1071,12 +967,7 @@ unsafe extern "C" fn reflect_intrinsics_env_cleanup(arg: *mut c_void) {
 fn reflect_get_own_property_descriptor(
   env: sys::napi_env,
 ) -> Option<(sys::napi_value, sys::napi_value)> {
-  let holder = REFLECT_INTRINSICS.with(|slot| {
-    slot
-      .borrow()
-      .as_ref()
-      .and_then(|cache| (cache.env == env).then_some(cache.holder))
-  })?;
+  let holder = crate::bindgen_runtime::env_registration::reflect_intrinsics(env)?;
   let mut holder_value = ptr::null_mut();
   if unsafe { sys::napi_get_reference_value(env, holder, &mut holder_value) }
     != sys::Status::napi_ok

@@ -93,6 +93,7 @@ mod define_class_closure;
 mod either;
 mod r#enum;
 mod env;
+mod env_teardown;
 mod error;
 mod external;
 #[cfg(not(target_family = "wasm"))]

@@ -924,6 +924,14 @@ pub unsafe extern "C" fn napi_register_module_v1(
   #[cfg(feature = "napi4")]
   create_custom_gc(env);
 
+  // Record this load's per-env state and add the one env cleanup hook that
+  // tears it down. Keep this AFTER `create_custom_gc` and BEFORE the first
+  // module-init callback: hooks run newest first, so the record's hook then runs
+  // after every hook the module's exports add (they can still use the record)
+  // and before Node's own custom-GC TSFN cleanup. `None` means teardown cannot
+  // be observed, so nothing may be cached for this env.
+  let registration = crate::bindgen_runtime::env_registration::begin(env);
+
   // Resolve and cache this env's `Reflect.getOwnPropertyDescriptor` pair NOW,
   // at registration, so `Error::from_unknown_without_coercion` never reads
   // `Reflect` off the global object mid-capture. That read is an ordinary
@@ -931,8 +939,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // a per-capture read would run that accessor — arbitrary user code, free to
   // reenter the addon — while an error is unwinding. Registration is the
   // defined moment where the one unavoidable `[[Get]]` may happen. Best effort:
-  // a failure leaves capture degrading to an empty reason/cause.
-  crate::error::cache_reflect_intrinsics_for_env(env);
+  // a failure, or no registration record, leaves capture degrading to an empty
+  // reason/cause.
+  if let Some(registration) = registration {
+    crate::error::cache_reflect_intrinsics_for_env(env, registration);
+  }
 
   // Registration keys are compile-time strings. Avoid `RandomState` so WASI module
   // registration does not request randomness during workerd global initialization.

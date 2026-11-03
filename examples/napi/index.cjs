@@ -1301,6 +1301,7 @@ module.exports.receiveString = nativeBinding.receiveString
 module.exports.REENTRY_GATE = nativeBinding.REENTRY_GATE
 module.exports.referenceAsCallback = nativeBinding.referenceAsCallback
 module.exports.referenceWithTupleArg = nativeBinding.referenceWithTupleArg
+module.exports.reflectRefsDeletedAtTeardown = nativeBinding.reflectRefsDeletedAtTeardown
 module.exports.removeWrappedObjectAsU8Rejected = nativeBinding.removeWrappedObjectAsU8Rejected
 module.exports.returnCString = nativeBinding.returnCString
 module.exports.returnEither = nativeBinding.returnEither
