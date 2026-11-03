@@ -1870,6 +1870,13 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+/**
+ * How many cached `Reflect` holder references env teardown has deleted in this
+ * process. Each load of the addon caches one, so each torn-down load must add
+ * exactly one.
+ */
+export declare function reflectRefsDeletedAtTeardown(): number
+
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
 
 export interface RequestInit {
