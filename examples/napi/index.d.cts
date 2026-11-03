@@ -785,10 +785,10 @@ export interface AsyncTaskSettleCounters {
   created: number
   dropped: number
   /**
-   * Promises built through the cached intrinsic `Promise` whose resolving functions were
-   * released. A `napi_create_promise` fallback promise never counts.
+   * `AsyncTask` / `Env::spawn` promise settle states freed (resolving functions, or an
+   * outcome kept for them), settled or not.
    */
-  resolversReleased: number
+  promiseStatesFreed: number
 }
 
 /**

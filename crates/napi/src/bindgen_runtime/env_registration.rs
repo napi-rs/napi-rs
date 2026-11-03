@@ -70,6 +70,9 @@ pub(crate) struct EnvRegistration {
   /// Holder object for the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
   /// pair, see `crate::error::cache_reflect_intrinsics_for_env`.
   reflect_intrinsics: Option<sys::napi_ref>,
+  /// The native `then` shared by the thenables that settle this env's `AsyncTask`
+  /// promises, see `crate::async_work::promise`. Created on first use.
+  promise_then: Option<sys::napi_ref>,
   /// This env's custom-GC threadsafe function, see
   /// `crate::bindgen_runtime::module_register::create_custom_gc`. The record
   /// holds a strong `Arc`, so teardown can always reach the function to release
@@ -194,6 +197,7 @@ fn new_registration(id: RegistrationId, env: sys::napi_env) -> EnvRegistration {
     id,
     env,
     reflect_intrinsics: None,
+    promise_then: None,
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     custom_gc: None,
     classes: ClassConstructors::default(),
@@ -313,6 +317,11 @@ unsafe fn release_registration(registration: EnvRegistration) {
       REFLECT_REFS_DELETED.fetch_add(1, Ordering::Relaxed);
     }
   }
+  if let Some(reference) = registration.promise_then {
+    unsafe { sys::napi_delete_reference(registration.env, reference) };
+  }
+  // `AsyncTask` outcomes kept for a promise whose `then` never ran: nothing can run it now.
+  crate::async_work::release_env_promise_states(registration.env);
   #[cfg(all(
     not(feature = "napi3"),
     not(feature = "noop"),
@@ -351,6 +360,51 @@ pub(crate) fn set_reflect_intrinsics(id: RegistrationId, reference: sys::napi_re
       }
     })
     .unwrap_or(false)
+}
+
+/// Stores the shared `then` of `AsyncTask` thenables in `env`'s newest live record.
+///
+/// Returns `false` when there is no such record or it already has one, or on wasm
+/// below Node-API 3; the caller then still owns `reference` and must delete it.
+pub(crate) fn set_promise_then(env: sys::napi_env, reference: sys::napi_ref) -> bool {
+  // Nothing observes teardown on wasm below Node-API 3 (see [`begin`]), so
+  // nothing would ever delete the reference: cache nothing there.
+  if cfg!(all(not(feature = "napi3"), target_family = "wasm")) {
+    return false;
+  }
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(mut registrations) = registrations.try_borrow_mut() else {
+        return false;
+      };
+      match registrations
+        .iter_mut()
+        .rev()
+        .find(|registration| registration.env == env)
+      {
+        Some(registration) if registration.promise_then.is_none() => {
+          registration.promise_then = Some(reference);
+          true
+        }
+        _ => false,
+      }
+    })
+    .unwrap_or(false)
+}
+
+/// The shared `then` of `AsyncTask` thenables in `env`, from its newest live record.
+pub(crate) fn promise_then(env: sys::napi_env) -> Option<sys::napi_ref> {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let registrations = registrations.try_borrow().ok()?;
+      registrations
+        .iter()
+        .rev()
+        .find(|registration| registration.env == env)?
+        .promise_then
+    })
+    .ok()
+    .flatten()
 }
 
 /// Stores this load's class constructor references in the record with `id`.

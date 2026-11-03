@@ -73,7 +73,7 @@ test.serial(
 )
 
 test.serial(
-  'AsyncTask promises keep the intrinsic Promise after globalThis.Promise is replaced',
+  'AsyncTask promises settle after globalThis.Promise is replaced',
   async (t) => {
     const OriginalPromise = globalThis.Promise
     class ReplacedPromise<T> extends OriginalPromise<T> {}
@@ -85,22 +85,25 @@ test.serial(
     } finally {
       globalThis.Promise = OriginalPromise
     }
-    t.is(Object.getPrototypeOf(promise), OriginalPromise.prototype)
+    // emnapi's `napi_create_promise` builds the promise with the `globalThis.Promise` of the
+    // moment (`Promise.withResolvers.call(Promise)`), so only Node keeps the intrinsic here.
+    if (!process.env.WASI_TEST) {
+      t.is(Object.getPrototypeOf(promise), OriginalPromise.prototype)
+    }
     t.is(await settledWithin(promise), 0)
-    // Built by the constructor cached at load, not by `napi_create_promise`: its resolving
-    // functions were released when it settled.
     const after = asyncTaskSettleCounters()
-    t.is(after.resolversReleased - before.resolversReleased, 1)
+    t.is(after.promiseStatesFreed - before.promiseStatesFreed, 1)
   },
 )
 
-// A wrapper installed before the addon loads (an instrumentation preload) builds promises with
-// the intrinsic prototype, but hands the executor its own resolving functions. The addon must
-// not cache it: no AsyncTask may call it, and a wrapper whose resolving functions throw must
-// not leave the promise pending. Spawned, since the global must be replaced before the load.
-for (const mode of ['proxy', 'throwing']) {
+// Tampering installed before the addon loads (an instrumentation preload) or afterwards (a
+// hostile script): wrappers around `globalThis.Promise`, one that also claims the intrinsic
+// prototype's `constructor`, and throwing `Object.prototype.then` accessors with a replaced
+// `Promise.prototype.then`. No AsyncTask may run any of it, and every promise must settle.
+// Spawned, since the global must be replaced before the load.
+for (const mode of ['proxy', 'throwing', 'constructor', 'then-accessors']) {
   test.skipIf(Boolean(process.env.WASI_TEST))(
-    `AsyncTask promises ignore a ${mode} globalThis.Promise wrapper installed before load`,
+    `AsyncTask promises ignore ${mode} Promise tampering`,
     (t) => {
       const result = spawnSync(
         process.execPath,
@@ -113,7 +116,7 @@ for (const mode of ['proxy', 'throwing']) {
       t.is(result.status, 0, output)
       t.regex(
         result.stdout,
-        new RegExp(`AsyncTasks ignored the ${mode} Promise wrapper`),
+        new RegExp(`AsyncTasks ignored the ${mode} Promise tampering`),
       )
     },
   )
@@ -123,7 +126,7 @@ for (const mode of ['proxy', 'throwing']) {
 // dropped and the process must not crash. Spawned so a crash is reported, not fatal to ava.
 // WASI lanes dispose through the emnapi loader instead (wasi-worker-termination.spec.ts).
 test.skipIf(Boolean(process.env.WASI_TEST))(
-  'terminating a Worker with queued AsyncTasks drops every task and releases its resolvers',
+  'terminating a Worker with queued AsyncTasks drops every task and frees its promise state',
   (t) => {
     const result = spawnSync(
       process.execPath,
@@ -136,7 +139,7 @@ test.skipIf(Boolean(process.env.WASI_TEST))(
     t.is(result.status, 0, output)
     t.regex(
       result.stdout,
-      /dropped every AsyncTask and released its resolving functions on worker terminate/,
+      /dropped every AsyncTask and freed its promise state on worker terminate/,
     )
   },
 )
