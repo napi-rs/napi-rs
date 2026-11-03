@@ -182,7 +182,7 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
       inner: reference,
       env: self.env,
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+      custom_gc: crate::bindgen_prelude::custom_gc_handle_for_env(self.env),
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
@@ -506,9 +506,10 @@ impl<Args: JsValuesTupleIntoVec, Return> Drop for FunctionRef<Args, Return> {
       // mid-call (same protocol as ArrayBuffer/TypedArray/Error drops).
       handle.with_read_aborted(|aborted| {
         if aborted {
-          // Owning env is gone and V8 has already invalidated the reference —
-          // releasing it now would be a use-after-free. Leaking is safe: env
-          // teardown reclaimed the handle's storage.
+          // Owning env is being torn down and V8 has reset the reference's
+          // handle — releasing it now could be a use-after-free. Leak it: Node
+          // never frees the `napi_ref` box (48 bytes), as it frees only
+          // references it owns.
           return;
         }
         if crate::bindgen_prelude::current_thread_owns_custom_gc(&handle) {
@@ -557,7 +558,7 @@ impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for FunctionRef<Args, Ret
       inner: reference,
       env,
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+      custom_gc: crate::bindgen_prelude::custom_gc_handle_for_env(env),
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })

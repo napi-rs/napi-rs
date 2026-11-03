@@ -114,7 +114,7 @@ impl ErrorRef {
       env,
       owner_thread: std::thread::current().id(),
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+      custom_gc: crate::bindgen_prelude::custom_gc_handle_for_env(env),
     }
   }
 
@@ -158,9 +158,10 @@ impl Drop for ErrorRef {
       // finalized mid-call (same protocol as ArrayBuffer/TypedArray drops).
       handle.with_read_aborted(|aborted| {
         if aborted {
-          // The owning env is gone and V8 has already invalidated the
-          // reference — releasing it now would be a use-after-free. Leaking
-          // it is safe: the env teardown reclaimed the handle's storage.
+          // The owning env is being torn down and V8 has reset the
+          // reference's handle — releasing it now could be a use-after-free.
+          // Leak it instead: the `napi_ref` box (48 bytes on Node) is never
+          // freed, because Node frees only references it owns.
           return;
         }
         if crate::bindgen_prelude::current_thread_owns_custom_gc(&handle) {
@@ -183,8 +184,10 @@ impl Drop for ErrorRef {
     // No custom-GC handle captured (pre-napi4 build, or the reference was
     // created before module registration), so there is nothing to route the
     // release through. Releasing is only correct on the owning JS thread; from
-    // anywhere else, leak instead. The leak is bounded — env teardown reclaims
-    // the reference — whereas an off-thread `napi_reference_unref` corrupts V8's
+    // anywhere else, leak instead. The leak is bounded — env teardown resets the
+    // reference's V8 handle, though Node never frees the `napi_ref` box (48 bytes),
+    // as it frees only references it owns — whereas an off-thread
+    // `napi_reference_unref` corrupts V8's
     // `GlobalHandles` on native and, on `wasm32-wasip1-threads`, faults inside
     // the emnapi shim because the calling agent has no entry for `env`.
     if self.owner_thread != std::thread::current().id() {

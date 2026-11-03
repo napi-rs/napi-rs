@@ -1121,6 +1121,7 @@ module.exports.createUint8ClampedArrayFromExternal = nativeBinding.createUint8Cl
 module.exports.createUseNullableStruct = nativeBinding.createUseNullableStruct
 module.exports.createZeroCopyLatin1String = nativeBinding.createZeroCopyLatin1String
 module.exports.createZeroCopyUtf16String = nativeBinding.createZeroCopyUtf16String
+module.exports.customGcTsfnsReleasedAtTeardown = nativeBinding.customGcTsfnsReleasedAtTeardown
 module.exports.CustomNumEnum = nativeBinding.CustomNumEnum
 module.exports.customStatusCode = nativeBinding.customStatusCode
 module.exports.CustomStringEnum = nativeBinding.CustomStringEnum

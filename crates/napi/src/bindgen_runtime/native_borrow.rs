@@ -7,7 +7,7 @@ use std::{
 };
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-use crate::bindgen_runtime::module_register::{current_custom_gc_handle, CustomGcHandle};
+use crate::bindgen_runtime::module_register::{custom_gc_handle_for_env, CustomGcHandle};
 use crate::{sys, Error, Result, Status};
 
 #[derive(Clone, Copy)]
@@ -149,9 +149,10 @@ impl NativeBorrowStorage {
       let roots = std::mem::take(&mut self.roots);
       handle.with_read_aborted(|aborted| {
         if aborted {
-          // The owner env is gone and V8 has already invalidated the refs — the
-          // drained queue would deliver them to `custom_gc` with a null env. Leaking
-          // is safe: env teardown reclaimed the storage.
+          // The owner env is being torn down and V8 has reset the refs' handles — the
+          // drained queue would deliver them to `custom_gc` with a null env. Leak them:
+          // Node never frees the `napi_ref` boxes (48 bytes each), as it frees only
+          // references it owns.
           return;
         }
         for root in roots {
@@ -208,7 +209,7 @@ impl NativeBorrowStorage {
           "Failed to root JavaScript value for a native borrow".to_owned(),
         ));
       }
-      self.capture_custom_gc();
+      self.capture_custom_gc(borrowed.env);
       self.roots.push(NativeBorrowRoot {
         env: borrowed.env,
         reference,
@@ -218,16 +219,16 @@ impl NativeBorrowStorage {
   }
 
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
-  fn capture_custom_gc(&mut self) {
+  fn capture_custom_gc(&mut self, env: sys::napi_env) {
     // The caller is on the owning JavaScript thread (root creation only ever happens
-    // there), so the thread-local handle is this env's own custom-GC tsfn.
+    // there), and `env` is the env the root was created in.
     if self.custom_gc.is_none() {
-      self.custom_gc = current_custom_gc_handle();
+      self.custom_gc = custom_gc_handle_for_env(env);
     }
   }
 
   #[cfg(not(all(feature = "napi4", not(feature = "noop"))))]
-  fn capture_custom_gc(&mut self) {}
+  fn capture_custom_gc(&mut self, _env: sys::napi_env) {}
 }
 
 /// Closes a scope and releases its storage if no lease still holds it. `settle_env` is
@@ -831,7 +832,7 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
         "Failed to root JavaScript value for a native borrow".to_owned(),
       ));
     }
-    storage.capture_custom_gc();
+    storage.capture_custom_gc(env);
     storage.roots.push(NativeBorrowRoot { env, reference });
   } else if !napi_val.is_null() {
     // Synchronous scopes only record the source value: the pair costs two stores and no

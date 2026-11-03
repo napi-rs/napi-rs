@@ -6,7 +6,7 @@ use std::ptr::{self, NonNull};
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_prelude::{
-  current_custom_gc_handle, current_thread_owns_custom_gc, CustomGcHandle,
+  current_thread_owns_custom_gc, custom_gc_handle_for_env, CustomGcHandle,
 };
 use crate::{
   bindgen_prelude::{
@@ -844,7 +844,7 @@ macro_rules! impl_typed_array {
           byte_offset,
           raw: Some((ref_, env)),
           #[cfg(all(feature = "napi4", not(feature = "noop")))]
-          custom_gc_handle: current_custom_gc_handle(),
+          custom_gc_handle: custom_gc_handle_for_env(env),
           finalizer_notify: ptr::null_mut::<fn(*mut $rust_type, usize)>(),
         })
       }
@@ -1033,7 +1033,7 @@ macro_rules! impl_typed_array {
         val.raw = Some((ref_, env));
         #[cfg(all(feature = "napi4", not(feature = "noop")))]
         {
-          val.custom_gc_handle = current_custom_gc_handle();
+          val.custom_gc_handle = custom_gc_handle_for_env(env);
         }
         if let Some(copied_val) = copied_val {
           val.finalizer_notify = ptr::null_mut::<fn(*mut $rust_type, usize)>();

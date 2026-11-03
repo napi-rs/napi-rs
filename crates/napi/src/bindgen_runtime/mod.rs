@@ -5,7 +5,7 @@ pub use callback_info::*;
 pub use class_accessor::*;
 pub(crate) use class_identity::{check_class_identity, class_id_of, ClassId};
 pub use env::*;
-pub use env_registration::env_teardown_reflect_refs_deleted;
+pub use env_registration::{env_teardown_custom_gc_released, env_teardown_reflect_refs_deleted};
 pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;

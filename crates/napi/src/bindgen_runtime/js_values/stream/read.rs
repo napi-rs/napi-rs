@@ -22,7 +22,7 @@ use futures_core::Stream;
 use tokio_stream::StreamExt;
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-use crate::bindgen_prelude::{current_custom_gc_handle, CustomGcHandle};
+use crate::bindgen_prelude::{custom_gc_handle_for_env, CustomGcHandle};
 use crate::{
   bindgen_prelude::{
     BufferSlice, CallbackContext, Either, FromNapiValue, Function, FunctionRef, JsObjectValue,
@@ -847,11 +847,8 @@ struct ReaderEnv {
   /// environment on another thread does not pass, even when it got the address of a dead
   /// one (a new worker, for example).
   thread: ThreadId,
-  /// The custom-GC handle of this thread when the `Reader` was made, for its `aborted`
-  /// flag, which is set when the environment is torn down. If the addon was loaded more
-  /// than once on this thread, it can be the handle of another load; that load lives in the
-  /// same Node.js environment, which tears both down. Only the flag is used: after a new
-  /// load, the thread holds a new handle, so comparing handles would refuse this env.
+  /// The custom-GC handle of this env when the `Reader` was made, for its `aborted` flag,
+  /// which is set when the env is torn down.
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
   custom_gc: Option<Arc<CustomGcHandle>>,
 }
@@ -863,7 +860,7 @@ impl ReaderEnv {
       address: env as usize,
       thread: thread::current().id(),
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc: current_custom_gc_handle(),
+      custom_gc: custom_gc_handle_for_env(env),
     }
   }
 
@@ -877,7 +874,7 @@ impl ReaderEnv {
     if let Some(custom_gc) = &self.custom_gc {
       return !custom_gc.with_read_aborted(|aborted| aborted);
     }
-    // No custom-GC handle (a `noop` build, or none was set on this thread): the address
+    // No custom-GC handle (a `noop` build, or none for this env): the address
     // and the thread are all that is checked.
     true
   }

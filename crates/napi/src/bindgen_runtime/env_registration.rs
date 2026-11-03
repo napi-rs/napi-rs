@@ -23,7 +23,11 @@ use std::cell::RefCell;
 #[cfg(all(not(feature = "noop"), feature = "napi3"))]
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+use std::sync::Arc;
 
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+use crate::bindgen_runtime::module_register::CustomGcHandle;
 use crate::sys;
 
 /// Identifies one registration of this addon into one env. Starts at 1 and is
@@ -37,6 +41,10 @@ static NEXT_REGISTRATION_ID: AtomicUsize = AtomicUsize::new(1);
 /// every env of this process.
 static REFLECT_REFS_DELETED: AtomicUsize = AtomicUsize::new(0);
 
+/// How many custom-GC threadsafe functions env teardown has released, across
+/// every env of this process.
+static CUSTOM_GC_RELEASED: AtomicUsize = AtomicUsize::new(0);
+
 /// What napi-rs keeps for one registration of this addon into one env.
 // Under `noop`, or below Node-API 3, nothing registers yet, so no record is
 // ever built.
@@ -47,6 +55,12 @@ pub(crate) struct EnvRegistration {
   /// Holder object for the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
   /// pair, see `crate::error::cache_reflect_intrinsics_for_env`.
   reflect_intrinsics: Option<sys::napi_ref>,
+  /// This env's custom-GC threadsafe function, see
+  /// `crate::bindgen_runtime::module_register::create_custom_gc`. The record
+  /// holds a strong `Arc`, so teardown can always reach the function to release
+  /// it, even when no value captured the handle.
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc: Option<Arc<CustomGcHandle>>,
 }
 
 thread_local! {
@@ -95,6 +109,8 @@ pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
           id,
           env,
           reflect_intrinsics: None,
+          #[cfg(all(feature = "napi4", not(feature = "noop")))]
+          custom_gc: None,
         });
         true
       })
@@ -147,6 +163,21 @@ fn take_registration(id: RegistrationId) -> Option<EnvRegistration> {
 #[cfg(not(feature = "noop"))]
 #[cfg_attr(not(feature = "napi3"), allow(dead_code))]
 unsafe fn release_registration(registration: EnvRegistration) {
+  // Release the custom-GC threadsafe function first-hand: its initial thread
+  // count is 1 and nothing else ever releases it. The hook runs before Node's
+  // own cleanup for that function (hooks run newest first, and the function was
+  // created before this record's hook was added), so the function is still
+  // open: the release only drops the thread count to 0. Node's cleanup then
+  // closes it and, with the count at 0, frees it. Without this, Node >= 24.13.1,
+  // >= 25.4.0 and emnapi keep the function alive forever (their final delete is
+  // gated on a zero thread count); older Node frees it either way.
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  if let Some(handle) = registration.custom_gc {
+    if handle.abort_and_release(sys::ThreadsafeFunctionReleaseMode::release) == sys::Status::napi_ok
+    {
+      CUSTOM_GC_RELEASED.fetch_add(1, Ordering::Relaxed);
+    }
+  }
   if let Some(reference) = registration.reflect_intrinsics {
     // `napi_delete_reference` does not throw, on Node or on emnapi, so there is
     // no pending exception to clear.
@@ -181,6 +212,76 @@ pub(crate) fn set_reflect_intrinsics(id: RegistrationId, reference: sys::napi_re
     .unwrap_or(false)
 }
 
+/// Stores the custom-GC handle in the record with `id`.
+///
+/// Gives the handle back when the record is gone or already has one; the caller
+/// then still owns it and must release it.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+pub(crate) fn set_custom_gc(
+  id: RegistrationId,
+  handle: Arc<CustomGcHandle>,
+) -> Result<(), Arc<CustomGcHandle>> {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(mut registrations) = registrations.try_borrow_mut() else {
+        return Err(handle);
+      };
+      match registrations
+        .iter_mut()
+        .find(|registration| registration.id == id)
+      {
+        Some(registration) if registration.custom_gc.is_none() => {
+          registration.custom_gc = Some(handle);
+          Ok(())
+        }
+        _ => Err(handle),
+      }
+    })
+    // The thread-local is gone, which only happens while this thread exits:
+    // the closure (and `handle` with it) was never run, so nothing to give back.
+    .unwrap_or(Ok(()))
+}
+
+/// The custom-GC handle of `env`, from its newest live record.
+///
+/// `None` when `env` has no live record (never registered, already torn down)
+/// or no handle.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+pub(crate) fn custom_gc(env: sys::napi_env) -> Option<Arc<CustomGcHandle>> {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let registrations = registrations.try_borrow().ok()?;
+      registrations
+        .iter()
+        .rev()
+        .find(|registration| registration.env == env)?
+        .custom_gc
+        .clone()
+    })
+    .ok()
+    .flatten()
+}
+
+/// Whether a live record on this thread holds exactly `handle`, that is, whether
+/// this thread is the JavaScript thread of `handle`'s env and that env is not
+/// torn down yet. Compares allocations, so it is immune to env-pointer reuse.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+pub(crate) fn holds_custom_gc(handle: &Arc<CustomGcHandle>) -> bool {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(registrations) = registrations.try_borrow() else {
+        return false;
+      };
+      registrations.iter().any(|registration| {
+        registration
+          .custom_gc
+          .as_ref()
+          .is_some_and(|held| Arc::ptr_eq(held, handle))
+      })
+    })
+    .unwrap_or(false)
+}
+
 /// The cached `Reflect` holder reference of `env`, from its newest live record.
 ///
 /// `None` when `env` has no live record (never registered, already torn down,
@@ -206,4 +307,13 @@ pub(crate) fn reflect_intrinsics(env: sys::napi_env) -> Option<sys::napi_ref> {
 #[doc(hidden)]
 pub fn env_teardown_reflect_refs_deleted() -> usize {
   REFLECT_REFS_DELETED.load(Ordering::Relaxed)
+}
+
+/// How many custom-GC threadsafe functions env teardown has released in this
+/// process, across every env and every load of this addon.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn env_teardown_custom_gc_released() -> usize {
+  CUSTOM_GC_RELEASED.load(Ordering::Relaxed)
 }

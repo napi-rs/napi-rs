@@ -11,3 +11,11 @@ use napi_derive::napi;
 pub fn reflect_refs_deleted_at_teardown() -> u32 {
   napi::bindgen_prelude::env_teardown_reflect_refs_deleted() as u32
 }
+
+/// How many custom-GC threadsafe functions env teardown has released in this
+/// process. Each load of the addon creates one, so each torn-down load must add
+/// exactly one.
+#[napi]
+pub fn custom_gc_tsfns_released_at_teardown() -> u32 {
+  napi::bindgen_prelude::env_teardown_custom_gc_released() as u32
+}

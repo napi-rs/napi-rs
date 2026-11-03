@@ -145,18 +145,25 @@ thread_local! {
   any(feature = "napi3", not(target_family = "wasm"))
 ))]
 static REGISTERED_CLASSES_COOKIE: AtomicUsize = AtomicUsize::new(1);
-// Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per isolate in
-// `create_custom_gc`, and every Buffer/TypedArray drop routes through it.
+// Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per env
+// (per load of this addon) in `create_custom_gc`, and every Buffer/TypedArray/Error/FunctionRef/
+// native-borrow root dropped off its env's JS thread routes its reference through it.
 // `AtomicPtr<_>` + `RwLock<bool>` are auto `Send + Sync`, so no `unsafe impl` is required.
-// No `impl Drop`: freeing the `Arc` touches zero Node/V8 resources; Node owns the TSFN (created +
-// unref'd at module load, destroyed at env teardown which fires `custom_gc_handle_finalize`).
+// No `impl Drop`: freeing the `Arc` touches zero Node/V8 resources. The env's registration record
+// (`env_registration`) holds a strong `Arc` and releases the TSFN's only thread count from its env
+// cleanup hook (`abort_and_release`); Node then closes and frees the TSFN, and its finalizer
+// (`custom_gc_handle_finalize`) runs.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
+  // Null once `abort_and_release` has released the TSFN.
   tsfn: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__>,
-  // Set when env teardown starts (`custom_gc_env_cleanup`, before Node closes the TSFN), or by
-  // the finalizer if that hook could not be added. Once set, no drop calls the TSFN: it leaks its
-  // reference, which deleting the env reclaims. The drop paths' "env is gone" comments cover the
-  // span from here to the finalizer too.
+  // Set when env teardown starts (`abort_and_release`, from the registration record's cleanup
+  // hook, before Node closes the TSFN), or at the latest by the TSFN finalizer. Once set, no drop
+  // calls the TSFN, and `get_raw` is only ever read while it is unset. A drop that sees it set
+  // leaks its reference: env teardown resets the reference's V8 handle, but Node frees only
+  // references it owns, so the `napi_ref` box itself (48 bytes on Node) is never freed. A safe
+  // fix would need a registry of every live reference per handle on the hot path, and still
+  // could not reach references already queued in the TSFN, which Node drains with a null env.
   aborted: std::sync::RwLock<bool>,
 }
 
@@ -179,39 +186,58 @@ impl CustomGcHandle {
       .write()
       .expect("custom gc aborted lock poisoned") = true;
   }
+  /// Marks the handle aborted, then releases the TSFN's only thread count with `mode`.
+  ///
+  /// It must run before Node closes the TSFN at env teardown: after that, a call returns
+  /// `napi_closing` once (using up the thread count) and `napi_invalid_arg` after, the drop
+  /// paths assert on that status, and two such panics in one destructor abort the process.
+  ///
+  /// Taking the write lock waits for any drop that is calling the TSFN right now (drops hold
+  /// the read lock across the call), and no drop calls it afterwards. The pointer is swapped
+  /// out under the lock, so the release happens at most once, however often this is called.
+  /// Returns the release status, or `napi_ok` when there was nothing left to release.
+  pub(crate) fn abort_and_release(
+    &self,
+    mode: sys::napi_threadsafe_function_release_mode,
+  ) -> sys::napi_status {
+    let tsfn = {
+      let mut aborted = self
+        .aborted
+        .write()
+        .expect("custom gc aborted lock poisoned");
+      *aborted = true;
+      self
+        .tsfn
+        .swap(ptr::null_mut(), std::sync::atomic::Ordering::SeqCst)
+    };
+    if tsfn.is_null() {
+      return sys::Status::napi_ok;
+    }
+    unsafe { sys::napi_release_threadsafe_function(tsfn, mode) }
+  }
 }
 
-// INVARIANT: this per-OS-thread slot relies on ONE `napi_env` per OS thread, which holds for every
-// supported runtime — Node's main thread, each `worker_threads` worker (its own V8 isolate + env +
-// loop thread), and Electron. `create_custom_gc` installs the handle once per env on its registering
-// thread, and `FromNapiValue` always runs on that same thread for that env, so a captured handle is
-// always the value's OWNING env. An embedder hosting multiple `napi_env` on a single shared OS thread
-// is out of scope: the per-env `Arc` identity (see `current_thread_owns_custom_gc`) is immune to
-// env-pointer reuse, and the single public `Env::set_instance_data` slot is reserved for addon authors
-// so it cannot be co-opted to key the handle by env.
-thread_local! {
-  #[cfg(all(feature = "napi4", not(feature = "noop")))]
-  // Per-thread "this isolate's custom-GC handle".
-  pub(crate) static CURRENT_CUSTOM_GC_HANDLE:
-    std::cell::RefCell<Option<std::sync::Arc<CustomGcHandle>>> = const { std::cell::RefCell::new(None) };
-}
-
+/// The custom-GC handle of `env`, to capture when a value takes a reference in `env`. Call it on
+/// `env`'s JS thread.
+///
+/// Keyed by env, not by thread: one addon image can be registered into several live envs on one
+/// thread (`process.dlopen` twice, a hardlinked `.node`, Electron frames), and each load has its
+/// own TSFN that is released at its own env's teardown. `None` when `env` has no live
+/// registration record (registration failed, or teardown already ran).
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-pub(crate) fn current_custom_gc_handle() -> Option<std::sync::Arc<CustomGcHandle>> {
+pub(crate) fn custom_gc_handle_for_env(
+  env: sys::napi_env,
+) -> Option<std::sync::Arc<CustomGcHandle>> {
   // clone = one refcount inc, at from_napi_value capture
-  CURRENT_CUSTOM_GC_HANDLE.with(|c| c.borrow().clone())
+  crate::bindgen_runtime::env_registration::custom_gc(env)
 }
 
+/// Whether the current thread is the JS thread of `handle`'s env and that env is not torn down:
+/// a live registration record on this thread holds this exact handle. Compares allocations, so it
+/// is immune to env-pointer reuse.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) fn current_thread_owns_custom_gc(handle: &std::sync::Arc<CustomGcHandle>) -> bool {
-  // same-isolate-JS-thread test by ALLOCATION identity (immune to env-pointer reuse).
-  // `is_some_and` (NOT `map_or(false, ..)`): clippy::unnecessary_map_or is denied by
-  // `#![deny(clippy::all)]` and would turn CI's `cargo clippy` red.
-  CURRENT_CUSTOM_GC_HANDLE.with(|c| {
-    c.borrow()
-      .as_ref()
-      .is_some_and(|cur| std::sync::Arc::ptr_eq(cur, handle))
-  })
+  crate::bindgen_runtime::env_registration::holds_custom_gc(handle)
 }
 
 type RegisteredClasses = PersistedPerInstanceHashMap<
@@ -910,19 +936,21 @@ pub unsafe extern "C" fn napi_register_module_v1(
     wait_first_thread_registered();
   }
 
-  // Install the per-env custom-GC handle (#3357) BEFORE running ANY module-init
+  // Create the per-env custom-GC handle (#3357) BEFORE running ANY module-init
   // callback below (the export-register callbacks, `module_register_hook_callback`,
   // and the compat `MODULE_EXPORTS` callbacks). Those callbacks can capture a
-  // `Buffer`/`TypedArray` via `from_napi_value`, which snapshots the thread-local
-  // `CURRENT_CUSTOM_GC_HANDLE`. If the handle were installed afterwards (as it was
+  // `Buffer`/`TypedArray` via `from_napi_value`, which looks up this env's handle
+  // in its registration record. If the handle were stored afterwards (as it was
   // originally), such a value would record `None`; because `Buffer`/`TypedArray`
   // are `Send`, dropping it later on a non-JS thread would fall through to a direct
   // `napi_reference_unref(env, ..)` on the WRONG thread — the cross-isolate
   // use-after-free this change exists to prevent. `create_custom_gc` only needs a
   // valid `env` (it creates a dummy function + the per-env TSFN and never reads
-  // `exports`), so running it this early is safe.
+  // `exports`), so running it this early is safe. It must also run BEFORE
+  // `env_registration::begin` below, so the record's cleanup hook (added later)
+  // runs before Node's own cleanup for the TSFN (added by its creation).
   #[cfg(feature = "napi4")]
-  create_custom_gc(env);
+  let custom_gc = create_custom_gc(env);
 
   // Record this load's per-env state and add the one env cleanup hook that
   // tears it down. Keep this AFTER `create_custom_gc` and BEFORE the first
@@ -931,6 +959,25 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // and before Node's own custom-GC TSFN cleanup. `None` means teardown cannot
   // be observed, so nothing may be cached for this env.
   let registration = crate::bindgen_runtime::env_registration::begin(env);
+
+  // Hand the custom-GC handle to the record, which releases the TSFN from its
+  // cleanup hook. Without a record nothing would ever release it (and on Node
+  // >= 24.13.1, >= 25.4.0 and emnapi it would never be freed), so release it
+  // right away instead. No value can capture it, because captures look the
+  // handle up in the record: values captured in this env then record no
+  // handle, as when `create_custom_gc` fails.
+  #[cfg(feature = "napi4")]
+  if let Some(custom_gc) = custom_gc {
+    let unowned = match registration {
+      Some(registration) => {
+        crate::bindgen_runtime::env_registration::set_custom_gc(registration, custom_gc).err()
+      }
+      None => Some(custom_gc),
+    };
+    if let Some(custom_gc) = unowned {
+      custom_gc.abort_and_release(sys::ThreadsafeFunctionReleaseMode::abort);
+    }
+  }
 
   // Resolve and cache this env's `Reflect.getOwnPropertyDescriptor` pair NOW,
   // at registration, so `Error::from_unknown_without_coercion` never reads
@@ -1278,11 +1325,15 @@ pub(crate) unsafe extern "C" fn noop(
   ptr::null_mut()
 }
 
+/// Creates this env's custom-GC TSFN and its handle. Publishes nothing and adds no hook: the
+/// caller hands the handle to the env's registration record, whose cleanup hook releases the
+/// TSFN. `None` when the TSFN could not be created (an exception is then pending).
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-fn create_custom_gc(env: sys::napi_env) {
-  // Per-env custom-GC TSFN (#3357): created for EVERY isolate. It is `napi_unref`'d so it never pins
-  // the event loop (worker terminate/exit cannot hang), and Node owns it (torn down via
-  // `custom_gc_handle_finalize` at env teardown).
+fn create_custom_gc(env: sys::napi_env) -> Option<std::sync::Arc<CustomGcHandle>> {
+  // Per-env custom-GC TSFN (#3357): created for EVERY env. It is `napi_unref`'d so it never pins
+  // the event loop (worker terminate/exit cannot hang). Its initial thread count of 1 is released
+  // by the registration record's cleanup hook; Node then closes it at env teardown and calls
+  // `custom_gc_handle_finalize`.
   let mut custom_gc_fn = ptr::null_mut();
   check_status_or_throw!(
     env,
@@ -1333,64 +1384,22 @@ fn create_custom_gc(env: sys::napi_env) {
       status,
       "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
     );
-    // `napi_create_threadsafe_function` only fails under resource exhaustion; `check_status_or_throw!`
-    // above leaves a pending exception, which aborts the addon load (`require` throws). No user
-    // `#[napi]` code then runs, so no Buffer/TypedArray is ever created with this env's (unset) handle.
-    return;
+    // `napi_create_threadsafe_function` only fails under resource exhaustion;
+    // `check_status_or_throw!` above leaves a pending exception. Values captured in this env then
+    // record no handle.
+    return None;
   }
   handle
     .tsfn
     .store(custom_gc_tsfn, std::sync::atomic::Ordering::SeqCst);
+  // Unreachable in practice: Node and emnapi (with threads) both return `napi_ok` for a TSFN
+  // they just created. The handle is still returned, so the record releases the TSFN at teardown.
   check_status_or_throw!(
     env,
     unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
     "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
   );
-  // At env teardown Node closes the TSFN from the cleanup hook it added in
-  // `napi_create_threadsafe_function` above, and calls `custom_gc_handle_finalize`
-  // (which sets `aborted`) only later, from the uv close callback. In between,
-  // `napi_call_threadsafe_function` returns `napi_closing` once, which uses up
-  // the TSFN's only thread count, and `napi_invalid_arg` after that. The drop
-  // paths assert on that status, so a second off-thread drop in that window
-  // panics, and two such panics in one destructor abort the process.
-  //
-  // Node runs cleanup hooks last added first, so this hook runs before Node
-  // closes the TSFN. It sets `aborted` under the write lock (which waits for a
-  // drop that is calling the TSFN right now), and every later drop leaks its
-  // reference, as a drop after the finalizer already does (deleting the env
-  // releases the reference's V8 handle). The argument is this handle's own
-  // allocation, which the `Weak` keeps alive until the hook runs, so a second
-  // registration in the same env adds a different `(fn, arg)` pair.
-  //
-  // Native only, like the `JsDeferred` teardown hook.
-  #[cfg(not(target_family = "wasm"))]
-  {
-    let hook_data = std::sync::Arc::downgrade(&handle).into_raw();
-    let status = unsafe {
-      sys::napi_add_env_cleanup_hook(
-        env,
-        Some(custom_gc_env_cleanup),
-        hook_data.cast_mut().cast(),
-      )
-    };
-    if status != sys::Status::napi_ok {
-      // No hook: `custom_gc_handle_finalize` still sets `aborted`, as before.
-      drop(unsafe { std::sync::Weak::from_raw(hook_data) });
-    }
-  }
-  CURRENT_CUSTOM_GC_HANDLE.with(|c| *c.borrow_mut() = Some(handle));
-}
-
-// Env cleanup hook added by `create_custom_gc`: marks the handle aborted before
-// Node closes its TSFN. `data` is the `Weak<CustomGcHandle>` passed there; its
-// weak count is reclaimed here.
-#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
-unsafe extern "C" fn custom_gc_env_cleanup(data: *mut std::ffi::c_void) {
-  if let Some(handle) =
-    unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(data.cast()) }.upgrade()
-  {
-    handle.set_aborted();
-  }
+  Some(handle)
 }
 
 /// Whether the env whose load built this thread's `REGISTERED_CLASSES` is still alive.
@@ -1515,10 +1524,12 @@ unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) ->
   ptr::null_mut()
 }
 
-// Per-env custom-GC finalize (#3357): sets the per-handle `aborted` flag when Node tears down the
-// owner env's TSFN (on native targets `custom_gc_env_cleanup` has already set it). `finalize_data`
-// is the `Weak<CustomGcHandle>` smuggled in via `thread_finalize_data`; we reclaim that weak count
-// here.
+// Per-env custom-GC finalize (#3357): sets the per-handle `aborted` flag when Node closes the TSFN.
+// `abort_and_release` (from the registration record's cleanup hook, or right at registration when
+// there is no record) has already set it; this is a backstop. `finalize_data` is the
+// `Weak<CustomGcHandle>` smuggled in via `thread_finalize_data`; we reclaim that weak count here.
+// It stays a `Weak`, so a runtime that never runs TSFN finalizers (Deno at worker terminate) does
+// not leak the handle.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 unsafe extern "C" fn custom_gc_handle_finalize(
   _env: sys::napi_env,
@@ -1531,7 +1542,7 @@ unsafe extern "C" fn custom_gc_handle_finalize(
   if let Some(handle) =
     unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(finalize_data.cast()) }.upgrade()
   {
-    // owner env gone, ref already invalidated by V8 -> mark aborted (write-lock)
+    // TSFN closed -> mark aborted (write-lock), so no drop calls it again
     handle.set_aborted();
   }
   // temp Weak dropped here -> reclaims the weak count
@@ -1545,9 +1556,11 @@ extern "C" fn custom_gc(
   _context: *mut std::ffi::c_void,
   data: *mut std::ffi::c_void,
 ) {
-  // env can be null while the owning env/TSFN is shutting down and Node drains the
-  // queue (mirrors the generic call_js_cb guard in threadsafe_function.rs). The owner
-  // env is gone and V8 has already invalidated the ref, so this is a safe no-op.
+  // env is null while the owning env/TSFN is shutting down and Node drains the
+  // queue (mirrors the generic call_js_cb guard in threadsafe_function.rs). The
+  // owner env is being torn down: its V8 handle is reset, but the `napi_ref` box
+  // (48 bytes on Node) is leaked, because Node frees only references it owns and
+  // there is no env left to delete it with.
   if env.is_null() || data.is_null() {
     return;
   }

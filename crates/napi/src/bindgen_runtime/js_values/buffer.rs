@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_prelude::{
-  current_custom_gc_handle, current_thread_owns_custom_gc, CustomGcHandle,
+  current_thread_owns_custom_gc, custom_gc_handle_for_env, CustomGcHandle,
 };
 use crate::{
   bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsValue, Result, Value, ValueType,
@@ -623,7 +623,7 @@ impl FromNapiValue for Buffer {
       capacity: len,
       raw: Some((ref_, env)),
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      custom_gc_handle: current_custom_gc_handle(),
+      custom_gc_handle: custom_gc_handle_for_env(env),
     })
   }
 }
