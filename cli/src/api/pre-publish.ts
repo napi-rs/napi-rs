@@ -352,7 +352,7 @@ export async function prePublish(userOptions: PrePublishOptions) {
                   preparedWorkspaceRoot,
                   reconciliationRoot,
                   packageJson.version,
-                  wasiPackageCpu(targets),
+                  wasiPackageCpu(targets, wasm),
                   validationOptions,
                 )
               : await validateReleasePackage(validationOptions),

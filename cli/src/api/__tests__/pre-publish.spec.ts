@@ -693,6 +693,7 @@ test('rejects a WASI release package with a host cpu', async (t) => {
 async function prePublishWithStaleWasiCpu(
   targets: string[],
   staleCpu: string[] | undefined,
+  wasm?: { cpu?: boolean },
 ) {
   const { rootDir, pkgDir } = await createWasiReleasePackage({
     loadersImportAsyncRuntime: false,
@@ -730,7 +731,7 @@ async function prePublishWithStaleWasiCpu(
     JSON.stringify({
       name: PACKAGE_NAME,
       version: VERSION,
-      napi: { binaryName: BINARY_NAME, targets },
+      napi: { binaryName: BINARY_NAME, targets, wasm },
     }),
   )
 
@@ -778,4 +779,15 @@ test('pre-publish removes cpu from a WASI-only manifest', async (t) => {
   t.deepEqual(rootPackageJson.optionalDependencies, {
     [`${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI}`]: VERSION,
   })
+})
+
+test('pre-publish removes cpu when napi.wasm.cpu is false', async (t) => {
+  const { rootDir, wasiPackageJson } = await prePublishWithStaleWasiCpu(
+    ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+    ['wasm32'],
+    { cpu: false },
+  )
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  t.false('cpu' in wasiPackageJson)
 })

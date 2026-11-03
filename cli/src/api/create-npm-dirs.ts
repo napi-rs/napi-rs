@@ -473,7 +473,7 @@ async function createNpmDirsUnlocked(
       version: packageJson.version,
       cpu:
         target.arch === 'wasm32'
-          ? wasiPackageCpu(targets)
+          ? wasiPackageCpu(targets, wasm)
           : target.arch !== 'universal'
             ? [target.arch]
             : undefined,
