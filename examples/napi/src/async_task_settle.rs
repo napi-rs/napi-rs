@@ -11,7 +11,8 @@ use napi::{bindgen_prelude::*, AsyncWorkPromise};
 //   forever;
 // * a worker terminated with tasks still queued or running must drop every task without
 //   crashing, and free every promise's settle state (`promise_states_freed`; a
-//   `napi_create_promise` deferred settled there is refused and never freed).
+//   `napi_create_promise` deferred settled there is refused and never freed), including the
+//   resolving functions of promises whose `then` already ran (`promise_resolvers_released`).
 
 static RESOLVE_CALLS: AtomicU32 = AtomicU32::new(0);
 static FINALLY_CALLS: AtomicU32 = AtomicU32::new(0);
@@ -29,6 +30,9 @@ pub struct AsyncTaskSettleCounters {
   /// `AsyncTask` / `Env::spawn` promise settle states freed (resolving functions, or an
   /// outcome kept for them), settled or not.
   pub promise_states_freed: u32,
+  /// Pairs of promise resolving functions released, settled or not: the freed states whose
+  /// `then` had already run.
+  pub promise_resolvers_released: u32,
 }
 
 #[napi]
@@ -39,6 +43,8 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
     created: TASKS_CREATED.load(Ordering::SeqCst),
     dropped: TASKS_DROPPED.load(Ordering::SeqCst),
     promise_states_freed: napi::bindgen_prelude::async_task_promise_states_freed() as u32,
+    promise_resolvers_released: napi::bindgen_prelude::async_task_promise_resolvers_released()
+      as u32,
   }
 }
 

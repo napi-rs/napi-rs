@@ -14,13 +14,13 @@ use crate::{
 
 mod promise;
 
-#[doc(hidden)]
-pub use promise::async_task_promise_states_freed;
 #[cfg(all(
   not(feature = "noop"),
   any(feature = "napi3", not(target_family = "wasm"))
 ))]
 pub(crate) use promise::release_env_promise_states;
+#[doc(hidden)]
+pub use promise::{async_task_promise_resolvers_released, async_task_promise_states_freed};
 use promise::{PromiseSettler, Settlement};
 
 struct AsyncWork<'task, T: ScopedTask<'task>> {
@@ -345,7 +345,7 @@ fn settle<'task, T: ScopedTask<'task>>(
       // dereferencing a foreign reference). `JsError::into_value` cannot
       // be used here: it gates reuse on `napi_is_error`, so a task
       // rejecting with a retained primitive or plain object — same
-      // contract as the deferred settlement path — would settle with a
+      // contract as the promise settlement path — would settle with a
       // synthesized `Error` instead of the captured value.
       Err(e) => unsafe { ToNapiValue::to_napi_value(env, e) }.map(Settlement::Reject),
     };
@@ -367,7 +367,7 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   // A work stops being outstanding when this callback *finishes*, not when it starts. Settling
-  // the deferred and running the task's own `resolve`/`finally` can re-enter JavaScript — a
+  // the promise and running the task's own `resolve`/`finally` can re-enter JavaScript — a
   // setter on the value being handed back, a threadsafe-function callback — and that JavaScript
   // can call `dispose()`. Unregistering up front would let such a disposal read zero and tear
   // the environment down from inside this frame, before the promise is settled and before

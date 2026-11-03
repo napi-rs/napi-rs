@@ -7,30 +7,50 @@
 //! frees the env), and a deferred settled there is never freed: 16 bytes of C++ heap per task,
 //! per terminated worker, on every Node version.
 //!
-//! So the deferred is settled right away, in [`create`], while the env is certainly live. It is
-//! resolved with a fresh plain object (the *thenable*) whose own `then` data property is a
-//! native function of this module. Resolving a promise with a thenable reads `then` once, at
-//! once, and queues a job that later calls `then.call(thenable, resolve, reject)` with the
-//! engine's own resolving functions for the promise. The native `then` keeps them behind two
-//! `napi_ref`s, and the completion callback settles the promise by calling one of them.
-//! `napi_delete_reference` has no `NAPI_PREAMBLE` (Node and emnapi alike), so the references
-//! are deleted on every path, including a settlement the env refused.
+//! So the deferred is settled right away, in [`create`], on the JavaScript thread that just
+//! created it. It is resolved with a fresh plain object (the *thenable*) whose own `then` data
+//! property is a native function of this module. Resolving a promise with a thenable reads
+//! `then` once, at once, and queues a job that later calls `then.call(thenable, resolve, reject)`
+//! with the engine's own resolving functions for the promise. The native `then` keeps them
+//! behind two `napi_ref`s, and the completion callback settles the promise by calling one of
+//! them. `napi_delete_reference` has no `NAPI_PREAMBLE` (Node and emnapi alike), so the
+//! references are deleted on every path, including a settlement the env refused.
+//!
+//! One deferred can still leak: `worker.terminate()` runs on the parent thread, so the env can
+//! start refusing JavaScript between `napi_create_promise` and `napi_resolve_deferred`. Every
+//! later `napi_create_promise` on that env is refused, so it is at most one per terminated
+//! worker (settling at completion leaked one per task).
 //!
 //! Nothing here reads a property user code can reach, and nothing calls user code to build or
-//! settle the promise: the promise comes from `napi_create_promise` (not from
-//! `globalThis.Promise`), `then` is an own data property of an object no JavaScript can see
-//! (defined, not assigned, so an `Object.prototype.then` accessor is never consulted), and
-//! `resolve` / `reject` are the built-in resolving functions of this very promise.
+//! settle the promise on Node: the promise comes from `napi_create_promise` (not from
+//! `globalThis.Promise`), `then` is an own data property of an object no script holds (defined,
+//! not assigned, so an `Object.prototype.then` accessor is never consulted), and `resolve` /
+//! `reject` are the built-in resolving functions of this very promise. Only the inspector
+//! (`Runtime.queryObjects`) can reach the thenable; calling its `then` first steals the
+//! promise's settlement, which then never happens.
+//!
+//! On WASI, emnapi builds these calls in JavaScript: `napi_create_promise` uses the
+//! `globalThis.Promise` of the moment, and `napi_call_function` uses the current
+//! `Array.prototype.push` and `Function.prototype.apply`. Replacing those can run user code
+//! while a task settles; a throwing replacement leaves the promise pending and its exception
+//! reported as uncaught.
 //!
 //! The `then` function is shared by every task of an env (kept in the env's registration
 //! record, released at its teardown); the thenable carries a number naming the task's [`Slot`].
 //!
-//! The one observable difference from settling the deferred directly: one extra microtask job
-//! per task, the one that calls `then`, at the first microtask checkpoint after the task is
-//! created. The task cannot settle the promise before it. If the task completes earlier (only
-//! possible when its completion runs inside a nested event loop, before the outer callback
-//! drained its microtasks), the outcome is kept and `then` settles the promise with it. A kept
-//! outcome whose `then` never comes is released at env teardown.
+//! Observable differences from settling the deferred directly:
+//!
+//! * One extra microtask job per task, the one that calls `then`, at the first microtask
+//!   checkpoint after the task is created. The task cannot settle the promise before it.
+//! * That job runs with the task's promise as its resource, so `async_hooks` and
+//!   `v8.promiseHooks` see one extra `before`/`after` pair for the promise, while it is still
+//!   pending (standard behaviour for a promise resolved with a thenable).
+//! * If the task completes before that job (only possible when its completion runs inside a
+//!   nested event loop, before the outer callback drained its microtasks), the outcome is kept
+//!   and `then` settles the promise with it. Kept outcomes settle at the next microtask
+//!   checkpoint in task-creation order, not completion order, and the task's `finally` runs
+//!   before its promise is settled. A kept outcome whose `then` never comes is released at env
+//!   teardown.
 
 use std::cell::RefCell;
 use std::ptr;
@@ -40,6 +60,9 @@ use crate::{check_status, sys, Error, Result, Status};
 
 /// Counts the per-task promise states freed, read through [`async_task_promise_states_freed`].
 static STATES_FREED: AtomicUsize = AtomicUsize::new(0);
+/// Counts the resolving-function pairs released, read through
+/// [`async_task_promise_resolvers_released`].
+static RESOLVERS_RELEASED: AtomicUsize = AtomicUsize::new(0);
 
 /// How many `AsyncTask` / `Env::spawn` promise states have been freed in this process — settled
 /// or refused, on every env and every load of this addon. Each state holds what is needed to
@@ -50,6 +73,16 @@ static STATES_FREED: AtomicUsize = AtomicUsize::new(0);
 #[doc(hidden)]
 pub fn async_task_promise_states_freed() -> usize {
   STATES_FREED.load(Ordering::Relaxed)
+}
+
+/// How many pairs of promise resolving functions (the references `then` keeps) have been
+/// released in this process, settled or not. A subset of
+/// [`async_task_promise_states_freed`]: the states whose `then` had already run.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn async_task_promise_resolvers_released() -> usize {
+  RESOLVERS_RELEASED.load(Ordering::Relaxed)
 }
 
 /// The value a promise is settled with.
@@ -287,6 +320,7 @@ impl PromiseSettler {
         sys::napi_delete_reference(env, resolve);
         sys::napi_delete_reference(env, reject);
       }
+      RESOLVERS_RELEASED.fetch_add(1, Ordering::Relaxed);
     }
   }
 }
@@ -398,7 +432,11 @@ fn data_property(key: &std::ffi::CStr, value: sys::napi_value) -> sys::napi_prop
     getter: None,
     setter: None,
     value,
-    attributes: sys::PropertyAttributes::default,
+    // All three attributes send Node to its `CreateDataProperty` fast path, which still defines
+    // an own property and never consults the prototype chain. Nothing else holds the object.
+    attributes: sys::PropertyAttributes::writable
+      | sys::PropertyAttributes::enumerable
+      | sys::PropertyAttributes::configurable,
     data: ptr::null_mut(),
   }
 }
@@ -703,7 +741,9 @@ pub(super) fn conclude(
             continue;
           }
         }
-        // No exception pending: the env refused because it cannot run JavaScript.
+        // Either the env refused because it cannot run JavaScript (no exception pending), or the
+        // retried settlement threw again (only a tampered emnapi `napi_call_function` on WASI):
+        // that exception stays pending for the completion callback's caller to report.
         return Ok(false);
       }
       status => {
