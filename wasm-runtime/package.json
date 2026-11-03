@@ -29,8 +29,8 @@
     "dist/*.js"
   ],
   "devDependencies": {
-    "@emnapi/core": "2.0.0-beta.2",
-    "@emnapi/runtime": "2.0.0-beta.2",
+    "@emnapi/core": "2.0.0-beta.3",
+    "@emnapi/runtime": "2.0.0-beta.3",
     "buffer": "^6.0.3",
     "events": "^3.3.0",
     "memfs": "^4.64.0",
