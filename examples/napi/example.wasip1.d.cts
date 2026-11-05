@@ -794,6 +794,10 @@ export interface AsyncTaskSettleCounters {
    * `then` had already run.
    */
   promiseResolversReleased: number
+  /** Promise wrappers compiled: one per env that made a thenable-mode promise. */
+  promiseWrappersCompiled: number
+  /** Thenable-mode promises made from a deferred, because their env had no promise wrapper. */
+  promiseWrapperFallbacks: number
 }
 
 /**
@@ -877,6 +881,9 @@ export interface BufferOverrideObject {
 }
 
 export declare function bufferPassThrough(buf: import("buffer").Buffer): Promise<import("buffer").Buffer>
+
+/** How many Buffers `dropBuffersOffThread` has dropped in this process. */
+export declare function buffersDroppedOffThread(): number
 
 export declare function bufferSliceCopyFromMutated(): import("buffer").Buffer
 
@@ -1193,6 +1200,28 @@ export declare function createZeroCopyLatin1String(): string
 
 export declare function createZeroCopyUtf16String(): string
 
+export declare function customGcRefCounts(): CustomGcRefCounts
+
+/**
+ * What happened to the references released through the custom-GC handles of this process
+ * (Buffers, TypedArrays, Errors and function references dropped off their env's JS thread, or
+ * during its teardown).
+ */
+export interface CustomGcRefCounts {
+  /** Deleted while their env ran. */
+  deletedWhileRunning: number
+  /** Deleted at env teardown, by the cleanup hook or the late sentinel. */
+  deletedAtTeardown: number
+  /** Released too late in env teardown to be deleted: leaked. */
+  leakedAtTeardown: number
+  /** Still waiting when their env's handle was freed: leaked. */
+  leftPending: number
+  /** Custom-GC callbacks that deleted references. */
+  drainCallbacks: number
+  /** The most references one custom-GC callback deleted. */
+  largestDrain: number
+}
+
 /**
  * How many custom-GC threadsafe functions env teardown has released in this
  * process. Each load of the addon creates one, so each torn-down load must add
@@ -1305,6 +1334,9 @@ export declare function detachReentrantBorrowOrderTestTarget(target: unknown): v
  * aborting the process; the owned-error conversion makes this safe.
  */
 export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Promise<number>
+
+/** Drops `buffers` on a new thread, then counts them in `buffersDroppedOffThread`. */
+export declare function dropBuffersOffThread(buffers: Array<import("buffer").Buffer>): void
 
 /**
  * `try_clone` shares one `napi_ref` between siblings via an `Arc<ErrorRef>`;
