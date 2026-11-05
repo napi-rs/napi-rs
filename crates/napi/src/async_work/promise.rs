@@ -7,14 +7,34 @@
 //! frees the env), and a deferred settled there is never freed: 16 bytes of C++ heap per task,
 //! per terminated worker, on every Node version.
 //!
-//! So the deferred is settled right away, in [`create`], on the JavaScript thread that just
-//! created it. It is resolved with a fresh plain object (the *thenable*) whose own `then` data
-//! property is a native function of this module. Resolving a promise with a thenable reads
-//! `then` once, at once, and queues a job that later calls `then.call(thenable, resolve, reject)`
-//! with the engine's own resolving functions for the promise. The native `then` keeps them
-//! behind two `napi_ref`s, and the completion callback settles the promise by calling one of
-//! them. `napi_delete_reference` has no `NAPI_PREAMBLE` (Node and emnapi alike), so the
-//! references are deleted on every path, including a settlement the env refused.
+//! Each env settles its promises one of two ways, picked once when this addon registers into it
+//! ([`SettleMode`], `settle_mode.rs`):
+//!
+//! * **Deferred**, where the env can only die with its process: the main env of Node and Bun
+//!   (the env's loop is `uv_default_loop()`), and every wasm env (emnapi refuses JavaScript only
+//!   after `Context.destroy()`; the refused deferred dies with the realm, or stays until process
+//!   exit if the process continues after `beforeExit`, the same as before). The deferred is
+//!   settled when the task completes, as before. A task still in flight when such an env is torn
+//!   down leaks its deferred, which only happens on process exit there.
+//! * **Thenable**, everywhere else: workers, Electron and NW.js (whose renderer envs are freed
+//!   on navigation), Bun before 1.4.4 and Bun on Windows, Deno, and any host the check cannot
+//!   place. Described below. It costs about 2 µs more main-thread CPU per task.
+//!
+//! In deferred mode a settling call behaves as before #3689: one that fails after Node freed the
+//! deferred gives `Err(generic_failure)` or `Ok(false)` from [`conclude`] and the promise stays
+//! pending; `napi_invalid_arg` from a null `napi_value` leaves the deferred unsettled; on WASI, a
+//! replaced `globalThis.Promise` whose resolving functions throw leaves one emnapi deferred
+//! reference and its promise pending.
+//!
+//! In thenable mode the deferred is settled right away, in [`create`], on the JavaScript thread
+//! that just created it. It is resolved with a fresh plain object (the *thenable*) whose own
+//! `then` data property is a native function of this module. Resolving a promise with a thenable
+//! reads `then` once, at once, and queues a job that later calls
+//! `then.call(thenable, resolve, reject)` with the engine's own resolving functions for the
+//! promise. The native `then` keeps them behind two `napi_ref`s, and the completion callback
+//! settles the promise by calling one of them. `napi_delete_reference` has no `NAPI_PREAMBLE`
+//! (Node and emnapi alike), so the references are deleted on every path, including a settlement
+//! the env refused.
 //!
 //! One deferred can still leak: `worker.terminate()` runs on the parent thread, so the env can
 //! start refusing JavaScript between `napi_create_promise` and `napi_resolve_deferred`. Every
@@ -38,7 +58,8 @@
 //! The `then` function is shared by every task of an env (kept in the env's registration
 //! record, released at its teardown); the thenable carries a number naming the task's [`Slot`].
 //!
-//! Observable differences from settling the deferred directly:
+//! Observable differences of thenable mode from deferred mode (workers, Electron and the other
+//! thenable hosts only):
 //!
 //! * One extra microtask job per task, the one that calls `then`, at the first microtask
 //!   checkpoint after the task is created. The task cannot settle the promise before it.
@@ -56,6 +77,7 @@ use std::cell::RefCell;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::settle_mode::SettleMode;
 use crate::{check_status, sys, Error, Result, Status};
 
 /// Counts the per-task promise states freed, read through [`async_task_promise_states_freed`].
@@ -67,7 +89,7 @@ static RESOLVERS_RELEASED: AtomicUsize = AtomicUsize::new(0);
 /// How many `AsyncTask` / `Env::spawn` promise states have been freed in this process — settled
 /// or refused, on every env and every load of this addon. Each state holds what is needed to
 /// settle one promise (its resolving functions, or an outcome kept for them), so a test can tell
-/// that teardown left none behind.
+/// that teardown left none behind. Deferred-mode envs never move it.
 ///
 /// Introspection hook for napi-rs' own tests. No stability guarantee.
 #[doc(hidden)]
@@ -77,12 +99,32 @@ pub fn async_task_promise_states_freed() -> usize {
 
 /// How many pairs of promise resolving functions (the references `then` keeps) have been
 /// released in this process, settled or not. A subset of
-/// [`async_task_promise_states_freed`]: the states whose `then` had already run.
+/// [`async_task_promise_states_freed`]: the states whose `then` had already run. Deferred-mode
+/// envs never move it.
 ///
 /// Introspection hook for napi-rs' own tests. No stability guarantee.
 #[doc(hidden)]
 pub fn async_task_promise_resolvers_released() -> usize {
   RESOLVERS_RELEASED.load(Ordering::Relaxed)
+}
+
+/// `"deferred"` or `"thenable"`: how `AsyncTask` / `Env::spawn` promises created in `env`
+/// right now are settled. `"thenable"` for an env this addon has no record of.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn async_task_promise_settle_mode(env: sys::napi_env) -> &'static str {
+  settle_mode_of(env).0.as_str()
+}
+
+/// The settle mode of `env`, and its cached `then` when it has one: one record lookup on
+/// native, none on wasm.
+fn settle_mode_of(env: sys::napi_env) -> (SettleMode, Option<sys::napi_ref>) {
+  if cfg!(target_family = "wasm") {
+    return (SettleMode::Deferred, None);
+  }
+  crate::bindgen_runtime::env_registration::promise_settle(env)
+    .unwrap_or((SettleMode::Thenable, None))
 }
 
 /// The value a promise is settled with.
@@ -142,7 +184,7 @@ enum SlotState {
 /// What one task's promise needs to be settled.
 struct Slot {
   env: sys::napi_env,
-  /// Whether the task's [`PromiseSettler`] still exists.
+  /// Whether the task's [`ThenableSettler`] still exists.
   owned: bool,
   state: SlotState,
 }
@@ -235,7 +277,7 @@ fn with_slots<R>(f: impl FnOnce(&mut Slots) -> R) -> Option<R> {
     .flatten()
 }
 
-/// What [`PromiseSettler::settle`] found in its slot.
+/// What [`ThenableSettler::settle`] found in its slot.
 enum Observed {
   Waiting,
   Resolvers(sys::napi_ref, sys::napi_ref),
@@ -243,17 +285,117 @@ enum Observed {
   Settled,
 }
 
-/// Owns the settle side of one promise. Dropping it releases what it holds, settled or not, so
-/// every path that ends an `AsyncWork` — normal settlement, a settlement refused during
-/// teardown, a failed create/queue, a cancellation — frees it.
-pub(super) struct PromiseSettler {
-  env: sys::napi_env,
-  handle: Option<Handle>,
+/// Owns the settle side of one promise.
+pub(super) enum PromiseSettler {
+  Deferred(DeferredSettler),
+  Thenable(ThenableSettler),
 }
 
 impl PromiseSettler {
   /// Settles the promise once. Returns the raw status of the settling call, so the caller can
   /// tell a refusal (teardown, pending exception) from success.
+  fn settle(&mut self, settlement: &Settlement) -> sys::napi_status {
+    match self {
+      PromiseSettler::Deferred(settler) => settler.settle(settlement),
+      PromiseSettler::Thenable(settler) => settler.settle(settlement),
+    }
+  }
+
+  /// Whether `settle` may run again after it reported an exception. A deferred whose settling
+  /// call ran is gone (Node frees it before it reports what the call caught), so it may not.
+  fn can_retry(&self) -> bool {
+    match self {
+      PromiseSettler::Deferred(settler) => settler.deferred.is_some(),
+      PromiseSettler::Thenable(_) => true,
+    }
+  }
+
+  /// Ends a promise that was never handed to JavaScript (`async_work::run` failed to create or
+  /// queue the work): a deferred is resolved with `undefined`, so it is freed and no rejection
+  /// goes unhandled; a thenable state is released.
+  pub(super) fn discard(&mut self) {
+    match self {
+      PromiseSettler::Deferred(settler) => settler.discard(),
+      PromiseSettler::Thenable(settler) => settler.release(),
+    }
+  }
+}
+
+/// The deferred of a promise settled at completion ([`SettleMode::Deferred`]). Dropping it
+/// settles nothing: a deferred nobody settled stays with the env, as before #3689. Deferred mode
+/// is only picked where that env dies with its process or realm.
+pub(super) struct DeferredSettler {
+  env: sys::napi_env,
+  /// `None` once a settling call ran: Node frees the deferred inside that call.
+  deferred: Option<sys::napi_deferred>,
+  /// The env refused a settling call because it cannot run JavaScript any more.
+  refused: bool,
+}
+
+impl DeferredSettler {
+  fn settle(&mut self, settlement: &Settlement) -> sys::napi_status {
+    let Some(deferred) = self.deferred.take() else {
+      return sys::Status::napi_generic_failure;
+    };
+    let status = unsafe {
+      match *settlement {
+        Settlement::Fulfill(value) => sys::napi_resolve_deferred(self.env, deferred, value),
+        Settlement::Reject(value) => sys::napi_reject_deferred(self.env, deferred, value),
+      }
+    };
+    // `NAPI_PREAMBLE` refused before the deferred was touched (Node and emnapi). Node also
+    // returns `napi_pending_exception` AFTER it freed the deferred when the call caught an
+    // exception (`delete deferred_ref`, then `GET_RETURN_STATUS`). `conclude` clears
+    // exceptions before calling, so an exception pending now came from inside the call: then
+    // the deferred is gone.
+    if matches!(
+      status,
+      sys::Status::napi_pending_exception | sys::Status::napi_cannot_run_js
+    ) && !exception_pending(self.env)
+    {
+      self.deferred = Some(deferred);
+      self.refused = true;
+    }
+    status
+  }
+
+  /// Resolves a deferred nobody settled with `undefined`, so it is freed. Skipped after a
+  /// refusal: the env is going away and would refuse again. A pending exception is set aside
+  /// and thrown again afterwards.
+  fn discard(&mut self) {
+    if self.deferred.is_none() || self.refused {
+      return;
+    }
+    let env = self.env;
+    let pending = take_pending_exception(env);
+    let mut undefined = ptr::null_mut();
+    if unsafe { sys::napi_get_undefined(env, &mut undefined) } == sys::Status::napi_ok {
+      let _ = self.settle(&Settlement::Fulfill(undefined));
+    }
+    if let Some(exception) = pending {
+      unsafe { sys::napi_throw(env, exception) };
+    }
+  }
+}
+
+/// Whether an exception is pending on `env`. `napi_is_exception_pending` has no
+/// `NAPI_PREAMBLE`. `false` when it cannot tell.
+fn exception_pending(env: sys::napi_env) -> bool {
+  let mut pending = false;
+  (unsafe { sys::napi_is_exception_pending(env, &mut pending) } == sys::Status::napi_ok) && pending
+}
+
+/// The thenable state of one promise ([`SettleMode::Thenable`]). Dropping it releases what it
+/// holds, settled or not, so every path that ends an `AsyncWork` — normal settlement, a
+/// settlement refused during teardown, a failed create/queue, a cancellation — frees it.
+pub(super) struct ThenableSettler {
+  env: sys::napi_env,
+  handle: Option<Handle>,
+}
+
+impl ThenableSettler {
+  /// Settles the promise once, in thenable mode. Returns the raw status of the settling call,
+  /// so the caller can tell a refusal (teardown, pending exception) from success.
   fn settle(&mut self, settlement: &Settlement) -> sys::napi_status {
     let Some(handle) = self.handle else {
       return sys::Status::napi_generic_failure;
@@ -325,7 +467,7 @@ impl PromiseSettler {
   }
 }
 
-impl Drop for PromiseSettler {
+impl Drop for ThenableSettler {
   fn drop(&mut self) {
     self.release();
   }
@@ -544,11 +686,11 @@ fn thenable_handle(env: sys::napi_env, thenable: sys::napi_value) -> Option<Hand
   Handle::from_f64(number)
 }
 
-/// The `then` function of `env`: the one cached in the env's registration record, created and
-/// cached on first use. A fresh one when there is no record to keep it in (wasm below
-/// Node-API 3, an env that never registered this addon).
-fn then_function(env: sys::napi_env) -> Result<sys::napi_value> {
-  if let Some(reference) = crate::bindgen_runtime::env_registration::promise_then(env) {
+/// The `then` function of `env`: `cached`, the one in the env's registration record, or one
+/// created and cached on first use. A fresh one when there is no record to keep it in (wasm
+/// below Node-API 3, an env that never registered this addon).
+fn then_function(env: sys::napi_env, cached: Option<sys::napi_ref>) -> Result<sys::napi_value> {
+  if let Some(reference) = cached {
     let mut function = ptr::null_mut();
     if unsafe { sys::napi_get_reference_value(env, reference, &mut function) }
       == sys::Status::napi_ok
@@ -581,8 +723,12 @@ fn then_function(env: sys::napi_env) -> Result<sys::napi_value> {
 }
 
 /// `{ then, handle }` as own data properties.
-fn create_thenable(env: sys::napi_env, handle: Handle) -> Result<sys::napi_value> {
-  let then = then_function(env)?;
+fn create_thenable(
+  env: sys::napi_env,
+  handle: Handle,
+  cached_then: Option<sys::napi_ref>,
+) -> Result<sys::napi_value> {
+  let then = then_function(env, cached_then)?;
   let mut number = ptr::null_mut();
   check_status!(
     unsafe { sys::napi_create_double(env, handle.to_f64(), &mut number) },
@@ -604,15 +750,39 @@ fn create_thenable(env: sys::napi_env, handle: Handle) -> Result<sys::napi_value
   Ok(thenable)
 }
 
-/// Creates the promise for one task, and settles its deferred right away with a thenable whose
-/// `then` hands the promise's resolving functions to the returned settler.
+/// Creates the promise for one task, settled the way `env`'s [`SettleMode`] says: in deferred
+/// mode the returned settler keeps the deferred for the task's completion; in thenable mode the
+/// deferred is settled right away with a thenable whose `then` hands the promise's resolving
+/// functions to the returned settler.
 pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSettler)> {
+  let (mode, cached_then) = settle_mode_of(env);
   let mut promise = ptr::null_mut();
   let mut deferred = ptr::null_mut();
   check_status!(
     unsafe { sys::napi_create_promise(env, &mut deferred, &mut promise) },
     "Create promise failed in async_work::run"
   )?;
+  match mode {
+    SettleMode::Deferred => Ok((
+      promise,
+      PromiseSettler::Deferred(DeferredSettler {
+        env,
+        deferred: Some(deferred),
+        refused: false,
+      }),
+    )),
+    SettleMode::Thenable => create_thenable_settler(env, deferred, cached_then)
+      .map(|settler| (promise, PromiseSettler::Thenable(settler))),
+  }
+}
+
+/// Settles `deferred` right away with a thenable whose `then` hands the promise's resolving
+/// functions to the returned settler.
+fn create_thenable_settler(
+  env: sys::napi_env,
+  deferred: sys::napi_deferred,
+  cached_then: Option<sys::napi_ref>,
+) -> Result<ThenableSettler> {
   let handle = with_slots(|slots| {
     slots.insert(Slot {
       env,
@@ -621,9 +791,9 @@ pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSett
     })
   });
   // Dropping the settler on an error below frees the slot.
-  let settler = PromiseSettler { env, handle };
+  let settler = ThenableSettler { env, handle };
   let thenable = match handle {
-    Some(handle) => create_thenable(env, handle),
+    Some(handle) => create_thenable(env, handle, cached_then),
     None => Err(Error::new(
       Status::GenericFailure,
       "Promise state unavailable in async_work::run".to_owned(),
@@ -646,7 +816,7 @@ pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSett
     status,
     "Resolve promise with thenable failed in async_work::run"
   )?;
-  Ok((promise, settler))
+  Ok(settler)
 }
 
 /// Env-teardown sweep, called from the env's registration cleanup: frees the kept outcomes of
@@ -684,7 +854,7 @@ pub(crate) fn release_env_promise_states(env: sys::napi_env) {
 }
 
 /// Takes the exception pending on `env`, if any. Neither call has a `NAPI_PREAMBLE`.
-fn take_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
+pub(super) fn take_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
   let mut pending = false;
   if unsafe { sys::napi_is_exception_pending(env, &mut pending) } != sys::Status::napi_ok
     || !pending
@@ -701,8 +871,9 @@ fn take_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
 
 /// Settles `settler` with `settlement`, reporting whether the promise was settled.
 ///
-/// Node and emnapi refuse every settling call (`napi_call_function`, and the
-/// `napi_strict_equals` probe before keeping an outcome) in two unrelated states, with the same
+/// Node and emnapi refuse every settling call (`napi_resolve_deferred` /
+/// `napi_reject_deferred` in deferred mode; `napi_call_function`, and the `napi_strict_equals`
+/// probe before keeping an outcome, in thenable mode) in two unrelated states, with the same
 /// status for module API < 10 (`napi_pending_exception`; API >= 10 says `napi_cannot_run_js`
 /// for the first one):
 ///
@@ -717,7 +888,9 @@ fn take_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
 /// A pending exception is checked before settling, and again after a refusal, because the
 /// settling call itself can throw (a `then` getter cannot: the resolving functions catch it).
 /// It is retried once, so a callee that keeps throwing ends with the exception still pending,
-/// where the completion callback's caller reports it as uncaught.
+/// where the completion callback's caller reports it as uncaught. A deferred settler retries
+/// nothing: Node frees the deferred before it reports an exception the call caught, so the
+/// exception stays pending and `finally` is skipped.
 pub(super) fn conclude(
   env: sys::napi_env,
   settler: &mut PromiseSettler,
@@ -734,7 +907,7 @@ pub(super) fn conclude(
     match settler.settle(&settlement) {
       sys::Status::napi_ok => return Ok(true),
       sys::Status::napi_pending_exception | sys::Status::napi_cannot_run_js => {
-        if !retried {
+        if !retried && settler.can_retry() {
           if let Some(exception) = take_pending_exception(env) {
             settlement = Settlement::Reject(exception);
             retried = true;
