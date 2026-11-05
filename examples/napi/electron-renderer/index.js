@@ -2,6 +2,7 @@ const { ipcRenderer } = require('electron')
 
 const {
   callLongThreadsafeFunction,
+  asyncFnSleep,
   asyncTaskCounted,
   asyncTaskPromiseSettleMode,
   asyncTaskSettleCounters,
@@ -24,6 +25,9 @@ ipcRenderer.on('ping', async () => {
   const before = asyncTaskSettleCounters()
   const value = await asyncTaskCounted()
   const after = asyncTaskSettleCounters()
+  // An async fn promise is made by the same wrapper.
+  const asyncFnValue = await asyncFnSleep(1)
+  const end = asyncTaskSettleCounters()
   ipcRenderer.send('pong', {
     mode: asyncTaskPromiseSettleMode(),
     value,
@@ -34,5 +38,10 @@ ipcRenderer.on('ping', async () => {
       after.promiseWrappersCompiled - before.promiseWrappersCompiled,
     wrapperFallbacks:
       after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
+    asyncFnValue,
+    asyncFnThenable:
+      end.jsDeferredThenableCreated - after.jsDeferredThenableCreated,
+    asyncFnFallbacks: end.jsDeferredFallbacks - after.jsDeferredFallbacks,
+    asyncFnStatesFreed: end.promiseStatesFreed - after.promiseStatesFreed,
   })
 })
