@@ -346,10 +346,17 @@ unsafe fn release_registration(registration: EnvRegistration) {
   // open: the release only drops the thread count to 0. Node's cleanup then
   // closes it and, with the count at 0, frees it. Without this, Node >= 24.13.1,
   // >= 25.4.0 and emnapi keep the function alive forever (their final delete is
-  // gated on a zero thread count); older Node frees it either way.
+  // gated on a zero thread count); older Node frees it either way. The same call
+  // deletes the references released off-thread that the JS thread has not
+  // deleted yet.
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
   if let Some(handle) = registration.custom_gc {
-    if handle.abort_and_release(sys::ThreadsafeFunctionReleaseMode::release) == sys::Status::napi_ok
+    if unsafe {
+      handle.close(
+        registration.env,
+        sys::ThreadsafeFunctionReleaseMode::release,
+      )
+    } == sys::Status::napi_ok
     {
       CUSTOM_GC_RELEASED.fetch_add(1, Ordering::Relaxed);
     }

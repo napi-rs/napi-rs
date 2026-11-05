@@ -502,31 +502,11 @@ impl<Args: JsValuesTupleIntoVec, Return> Drop for FunctionRef<Args, Return> {
     if let Some(handle) = self.custom_gc.take() {
       let env = self.env;
       let inner = self.inner;
-      // Read-lock held across the call so the custom-GC TSFN can't be finalized
-      // mid-call (same protocol as ArrayBuffer/TypedArray/Error drops).
-      handle.with_read_aborted(|aborted| {
-        if aborted {
-          // Owning env is being torn down and V8 has reset the reference's
-          // handle — releasing it now could be a use-after-free. Leak it: Node
-          // never frees the `napi_ref` box (48 bytes), as it frees only
-          // references it owns.
-          return;
-        }
-        if crate::bindgen_prelude::current_thread_owns_custom_gc(&handle) {
-          let status = unsafe { sys::napi_delete_reference(env, inner) };
-          debug_assert_eq!(status, sys::Status::napi_ok, "Drop FunctionRef failed");
-        } else {
-          // Dropped off the owning JS thread. Route the release through the env's
-          // custom-GC TSFN (unref-to-0 + delete on the JS thread), exactly like
-          // Buffer/TypedArray/Error drops.
-          let status =
-            unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), inner.cast(), 1) };
-          assert!(
-            status == sys::Status::napi_ok || status == sys::Status::napi_closing,
-            "Call custom GC in FunctionRef::drop failed {}",
-            Status::from(status)
-          );
-        }
+      // On the env's JS thread while the env runs: delete now. Anywhere else, the
+      // handle keeps the reference for the JS thread to delete.
+      crate::bindgen_prelude::CustomGcHandle::release_ref(&handle, inner, || {
+        let status = unsafe { sys::napi_delete_reference(env, inner) };
+        debug_assert_eq!(status, sys::Status::napi_ok, "Drop FunctionRef failed");
       });
       return;
     }

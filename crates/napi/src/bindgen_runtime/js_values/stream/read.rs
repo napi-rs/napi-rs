@@ -847,8 +847,8 @@ struct ReaderEnv {
   /// environment on another thread does not pass, even when it got the address of a dead
   /// one (a new worker, for example).
   thread: ThreadId,
-  /// The custom-GC handle of this env when the `Reader` was made, for its `aborted` flag,
-  /// which is set when the env is torn down.
+  /// The custom-GC handle of this env when the `Reader` was made, which tells whether the
+  /// env is torn down.
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
   custom_gc: Option<Arc<CustomGcHandle>>,
 }
@@ -872,7 +872,7 @@ impl ReaderEnv {
     }
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     if let Some(custom_gc) = &self.custom_gc {
-      return !custom_gc.with_read_aborted(|aborted| aborted);
+      return custom_gc.is_open();
     }
     // No custom-GC handle (a `noop` build, or none for this env): the address
     // and the thread are all that is checked.
