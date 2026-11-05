@@ -800,6 +800,10 @@ export interface AsyncTaskSettleCounters {
    * `then` had already run.
    */
   promiseResolversReleased: number
+  /** Promise wrappers compiled: one per env that made a thenable-mode promise. */
+  promiseWrappersCompiled: number
+  /** Thenable-mode promises made from a deferred, because their env had no promise wrapper. */
+  promiseWrapperFallbacks: number
 }
 
 /**

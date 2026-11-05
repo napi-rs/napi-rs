@@ -174,6 +174,10 @@ async function runChecks() {
     ),
     promiseStatesFreed: after.promiseStatesFreed - before.promiseStatesFreed,
     dropped: after.dropped - before.dropped,
+    wrappersCompiled:
+      after.promiseWrappersCompiled - before.promiseWrappersCompiled,
+    wrapperFallbacks:
+      after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
   }
   if (
     settleMode !== expectedMode ||
@@ -184,7 +188,11 @@ async function runChecks() {
     !result.prototypeIsIntrinsic ||
     // Deferred mode creates no promise state.
     result.promiseStatesFreed !== (expectedMode === 'thenable' ? TASKS : 0) ||
-    result.dropped !== TASKS
+    result.dropped !== TASKS ||
+    // A thenable-mode env compiles its promise wrapper at its first task, in the tampered realm,
+    // and makes every promise with it.
+    result.wrappersCompiled !== (expectedMode === 'thenable' ? 1 : 0) ||
+    result.wrapperFallbacks !== 0
   ) {
     console.error(JSON.stringify(result))
     process.exitCode = 1

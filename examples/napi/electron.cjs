@@ -42,6 +42,9 @@ const createWindowAndReload = async () => {
           mode: 'thenable',
           value: 0,
           statesFreed: 1,
+          evalBlocked: true,
+          wrappersCompiled: 1,
+          wrapperFallbacks: 0,
         })
         resolve()
       } catch (error) {
@@ -82,9 +85,15 @@ async function main() {
   assert.strictEqual(asyncTaskPromiseSettleMode(), 'thenable')
   const before = asyncTaskSettleCounters()
   assert.strictEqual(await asyncTaskCounted(), 0)
+  const after = asyncTaskSettleCounters()
+  assert.strictEqual(after.promiseStatesFreed - before.promiseStatesFreed, 1)
   assert.strictEqual(
-    asyncTaskSettleCounters().promiseStatesFreed - before.promiseStatesFreed,
+    after.promiseWrappersCompiled - before.promiseWrappersCompiled,
     1,
+  )
+  assert.strictEqual(
+    after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
+    0,
   )
 
   const buf = await readFileAsync(__filename)

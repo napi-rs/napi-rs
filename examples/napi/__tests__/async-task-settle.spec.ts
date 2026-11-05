@@ -49,6 +49,8 @@ test.serial(
     const after = asyncTaskSettleCounters()
     t.is(after.promiseStatesFreed - before.promiseStatesFreed, 0)
     t.is(after.promiseResolversReleased - before.promiseResolversReleased, 0)
+    t.is(after.promiseWrappersCompiled - before.promiseWrappersCompiled, 0)
+    t.is(after.promiseWrapperFallbacks - before.promiseWrapperFallbacks, 0)
     t.is(after.created - before.created, TASKS)
     t.is(after.dropped - before.dropped, TASKS)
   },
@@ -172,6 +174,20 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
           (error) => error.name + ': ' + error.message,
         )
         out.blockers = (await Promise.all(blockers.map(({ promise }) => promise))).length
+        // The env compiled its promise wrapper once, at its first task, and made every promise
+        // with it. A second load is a second env, with a wrapper of its own.
+        const again = load()
+        const beforeAgain = native.asyncTaskSettleCounters()
+        out.againValues = (
+          await Promise.all(Array.from({ length: 10 }, () => again.asyncTaskCounted()))
+        ).length
+        const end = native.asyncTaskSettleCounters()
+        out.wrappersCompiled =
+          beforeAgain.promiseWrappersCompiled - before.promiseWrappersCompiled
+        out.againWrappersCompiled =
+          end.promiseWrappersCompiled - beforeAgain.promiseWrappersCompiled
+        out.wrapperFallbacks =
+          end.promiseWrapperFallbacks - before.promiseWrapperFallbacks
         out.uncaught = uncaught
         parentPort.postMessage(out)
       })()
@@ -187,6 +203,10 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
       cancelValue: 200,
       accepted: 'AbortError: AbortError',
       blockers: Number(process.env.UV_THREADPOOL_SIZE) || 4,
+      againValues: 10,
+      wrappersCompiled: 1,
+      againWrappersCompiled: 1,
+      wrapperFallbacks: 0,
       uncaught: [],
     })
   },
