@@ -330,7 +330,7 @@ for (const [kind, call] of [
   test.serial.skipIf(Boolean(process.env.WASI_TEST))(
     `a worker ${kind} started near the stack limit gets a promise that settles with its value`,
     async (t) => {
-      const result = await runInWorker(`
+      const result = (await runInWorker(`
         ${LOAD_IN_WORKER}
         const native = load()
         ;(async () => {
@@ -383,7 +383,16 @@ for (const [kind, call] of [
             asyncFnFallbacks: after.jsDeferredFallbacks - before.jsDeferredFallbacks,
           })
         })()
-      `)
+      `)) as {
+        outcomes: Record<string, number>
+        calls: number
+        threw: number
+        promises: number
+        statesFreed: number
+        taskFallbacks: number
+        asyncFnCreated: number
+        asyncFnFallbacks: number
+      }
       const message = JSON.stringify(result)
       t.deepEqual(Object.keys(result.outcomes), ['fulfilled with 0'], message)
       t.is(result.calls, 80 * 20)
