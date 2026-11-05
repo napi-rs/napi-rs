@@ -77,6 +77,10 @@ pub(crate) struct EnvRegistration {
   /// promises, see `crate::async_work::promise`. Created on first use. Only used on the
   /// thenable path.
   promise_then: Option<sys::napi_ref>,
+  /// The env's promise wrapper, `async (then, handle) => ({ then, handle })`, which makes the
+  /// promise of a thenable-mode task in one call, see `crate::async_work::promise`. Compiled at
+  /// the first thenable-mode task.
+  promise_wrapper: PromiseWrapper,
   /// This env's custom-GC threadsafe function, see
   /// `crate::bindgen_runtime::module_register::create_custom_gc`. The record
   /// holds a strong `Arc`, so teardown can always reach the function to release
@@ -96,6 +100,27 @@ pub(crate) struct EnvRegistration {
     not(target_family = "wasm")
   ))]
   sentinel_ref: sys::napi_ref,
+}
+
+/// The per-env function that creates a thenable-mode promise. See `crate::async_work::promise`.
+#[cfg_attr(feature = "noop", allow(dead_code))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PromiseWrapper {
+  /// Not compiled yet.
+  Unset,
+  /// A strong reference to the compiled function.
+  Ready(sys::napi_ref),
+  /// The host will never compile it (it blocks code generation): the env's thenable-mode
+  /// promises are made from a deferred from now on.
+  Unavailable,
+}
+
+/// The cached functions of an env's thenable-mode promises.
+#[cfg_attr(feature = "noop", allow(dead_code))]
+#[derive(Clone, Copy)]
+pub(crate) struct PromiseCache {
+  pub(crate) then: Option<sys::napi_ref>,
+  pub(crate) wrapper: PromiseWrapper,
 }
 
 /// Where an env's settle mode stands. See `crate::async_work::promise`.
@@ -221,6 +246,7 @@ fn new_registration(id: RegistrationId, env: sys::napi_env) -> EnvRegistration {
     reflect_intrinsics: None,
     promise_settle: PromiseSettle::Registering,
     promise_then: None,
+    promise_wrapper: PromiseWrapper::Unset,
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     custom_gc: None,
     classes: ClassConstructors::default(),
@@ -343,6 +369,9 @@ unsafe fn release_registration(registration: EnvRegistration) {
   if let Some(reference) = registration.promise_then {
     unsafe { sys::napi_delete_reference(registration.env, reference) };
   }
+  if let PromiseWrapper::Ready(reference) = registration.promise_wrapper {
+    unsafe { sys::napi_delete_reference(registration.env, reference) };
+  }
   // `AsyncTask` outcomes kept for a promise whose `then` never ran: nothing can run it now.
   crate::async_work::release_env_promise_states(registration.env);
   #[cfg(all(
@@ -415,11 +444,40 @@ pub(crate) fn set_promise_then(env: sys::napi_env, reference: sys::napi_ref) -> 
     .unwrap_or(false)
 }
 
-/// The id, the settle mode and the cached shared `then` of `env`'s `AsyncTask` promises,
-/// from its newest live record, in one scan. `None` when `env` has no live record.
+/// Stores the compiled promise wrapper (or that it is unavailable) in `env`'s newest live
+/// record, if that record has none yet.
+///
+/// Returns `false` when there is no such record or it already has one, or on wasm below
+/// Node-API 3; the caller then still owns a `Ready` reference and must delete it.
+pub(crate) fn set_promise_wrapper(env: sys::napi_env, wrapper: PromiseWrapper) -> bool {
+  if cfg!(all(not(feature = "napi3"), target_family = "wasm")) {
+    return false;
+  }
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(mut registrations) = registrations.try_borrow_mut() else {
+        return false;
+      };
+      match registrations
+        .iter_mut()
+        .rev()
+        .find(|registration| registration.env == env)
+      {
+        Some(registration) if registration.promise_wrapper == PromiseWrapper::Unset => {
+          registration.promise_wrapper = wrapper;
+          true
+        }
+        _ => false,
+      }
+    })
+    .unwrap_or(false)
+}
+
+/// The id, the settle mode and the cached functions of `env`'s `AsyncTask` promises, from its
+/// newest live record, in one scan. `None` when `env` has no live record.
 pub(crate) fn promise_settle(
   env: sys::napi_env,
-) -> Option<(RegistrationId, PromiseSettle, Option<sys::napi_ref>)> {
+) -> Option<(RegistrationId, PromiseSettle, PromiseCache)> {
   ENV_REGISTRATIONS
     .try_with(|registrations| {
       let registrations = registrations.try_borrow().ok()?;
@@ -430,7 +488,10 @@ pub(crate) fn promise_settle(
       Some((
         registration.id,
         registration.promise_settle,
-        registration.promise_then,
+        PromiseCache {
+          then: registration.promise_then,
+          wrapper: registration.promise_wrapper,
+        },
       ))
     })
     .ok()
