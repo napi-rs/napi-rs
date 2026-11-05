@@ -295,6 +295,8 @@ export declare class DefaultUseNullableClass {
 export declare class DelayedCounter {
   /** Creates a counter that yields values from 0 to max-1 with a delay between each */
   constructor(max: number, delayMs: number)
+  /** Like the constructor, but every sleep is counted by `probe` */
+  static withProbe(max: number, delayMs: number, probe: SleepOverlapProbe): DelayedCounter
   [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<DelayedCounter, number, string, undefined>
 }
 
@@ -500,6 +502,24 @@ export declare class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+/**
+ * An optional field before a required one is still a positional constructor
+ * argument, so it is not marked `?` in the constructor.
+ */
+export declare class OptionalBeforeRequiredClass {
+  optionalNumberField?: number
+  requiredNumberField: number
+  optionalStringField?: string
+  constructor(optionalNumberField: number | undefined, requiredNumberField: number, optionalStringField?: string)
+}
+
+/** `| undefined` stays outside a conditional `ts_type` when the `?` is dropped. */
+export declare class OptionalConditionalBeforeRequiredClass {
+  optionalConditionalField?: number extends number ? number : never
+  requiredNumberField: number
+  constructor(optionalConditionalField: (number extends number ? number : never) | undefined, requiredNumberField: number)
+}
+
 export declare class PackageJsonReader {
   constructor()
   read(): any
@@ -533,6 +553,55 @@ export declare class Selector {
   struct: string
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
+}
+
+/** Counts how many `DelayedCounter` sleeps are pending at the same time */
+export declare class SleepOverlapProbe {
+  constructor()
+  /** The most sleeps that were pending at once */
+  get maxInFlight(): number
+}
+
+/**
+ * Holds an `Env::spawn` result so JavaScript can wait for `compute` to start before it
+ * cancels, and let `compute` finish afterwards.
+ */
+export declare class SpawnedAsyncTask {
+  /** Whether `compute` has started, so a cancel can no longer take the work. */
+  isExecuting(): boolean
+  /** Returns whether `AsyncWorkPromise::cancel` succeeded. */
+  cancel(): boolean
+  /** Lets `compute` return. */
+  release(): void
+}
+
+/**
+ * Static methods and factories keep their default descriptor (not writable,
+ * not enumerable, not configurable) unless a flag is written out.
+ */
+export declare class StaticPropertyFlags {
+  static defaultFlags(): number
+  static writableConfigurable(): number
+  static enumerableOnly(): number
+  static allOff(): number
+  static create(): StaticPropertyFlags
+  instanceNotWritable(): number
+}
+
+/** Class members exposed through the global symbol registry. */
+export declare class SymbolNamedClass {
+  constructor(value: number)
+  get _value(): number
+  set _value(value: number)
+  _method(): number
+  shared(): number
+  static shared(value: number): number
+}
+
+/** Symbol fields still accept positional constructor arguments. */
+export declare class SymbolNamedFields {
+  label: string
+  constructor(value: number, label: string)
 }
 
 export declare class Thing {}
@@ -582,6 +651,19 @@ export declare class UseNullableClass {
   nullableNumberField: number | null
   nullableStringField: string | null
   constructor(requiredNumberField: number, requiredStringField: string, nullableNumberField: number | null, nullableStringField: string | null)
+}
+
+/** Class members keyed by well-known symbols. */
+export declare class WellKnownSymbolClass {
+  [globalThis.Symbol.isConcatSpreadable]: boolean
+  constructor(value: number)
+  get [globalThis.Symbol.toStringTag](): string
+  set [globalThis.Symbol.toStringTag](tag: string)
+  [globalThis.Symbol.toPrimitive](hint: string): number | string
+  /** Converts the class itself, not its instances, to a primitive. */
+  static [globalThis.Symbol.toPrimitive](hint: string): string
+  [globalThis.Symbol.dispose](): void
+  get disposed(): boolean
 }
 
 export declare class Width {
@@ -666,6 +748,9 @@ export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
 export declare function asyncTaskArraybuffer(data: Array<number>): Promise<ArrayBuffer>
 
+/** A task that counts its creation and its drop, for the worker-terminate test. */
+export declare function asyncTaskCounted(): Promise<number>
+
 export declare function asyncTaskFinally(inner: object): Promise<void>
 
 /**
@@ -676,6 +761,12 @@ export declare function asyncTaskIsExecuting(): boolean
 
 export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
+/**
+ * How this env settles `AsyncTask` promises: `deferred` (main thread, WASI) or `thenable`
+ * (workers, Electron).
+ */
+export declare function asyncTaskPromiseSettleMode(): 'deferred' | 'thenable'
+
 export declare function asyncTaskReadFile(path: string): Promise<import("buffer").Buffer>
 
 /**
@@ -685,6 +776,25 @@ export declare function asyncTaskReadFile(path: string): Promise<import("buffer"
 export declare function asyncTaskRejectIsExecuting(): boolean
 
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
+
+export declare function asyncTaskSettleCounters(): AsyncTaskSettleCounters
+
+export interface AsyncTaskSettleCounters {
+  resolveCalls: number
+  finallyCalls: number
+  created: number
+  dropped: number
+  /**
+   * `AsyncTask` / `Env::spawn` promise settle states freed (resolving functions, or an
+   * outcome kept for them), settled or not.
+   */
+  promiseStatesFreed: number
+  /**
+   * Pairs of promise resolving functions released, settled or not: the freed states whose
+   * `then` had already run.
+   */
+  promiseResolversReleased: number
+}
 
 /**
  * An `AsyncTask` that announces the start of its own `compute`, then runs for
@@ -703,6 +813,9 @@ export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promis
  * already settled.
  */
 export declare function asyncTaskSignalWhenExecutingReject(durationMs: number): Promise<number>
+
+/** A task whose `resolve` leaves an exception pending: the promise must reject with it. */
+export declare function asyncTaskThrowInResolve(): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
@@ -885,6 +998,13 @@ export declare function chronoUtcDateToMillis(input: Date): number
  */
 export declare function churnGlobalHandles(value: unknown, count: number): void
 
+/**
+ * How many class constructor references env teardown has deleted in this
+ * process. Each load of the addon defines every `#[napi]` class once, so each
+ * torn-down load must add the same amount.
+ */
+export declare function classRefsDeletedAtTeardown(): number
+
 export declare function cleanupReentrantBorrowOrderTestTargets(): number
 
 /**
@@ -892,6 +1012,9 @@ export declare function cleanupReentrantBorrowOrderTestTargets(): number
  * passes through.
  */
 export declare function closeBorrowGate(id: number): void
+
+/** How many accessor closures have been dropped in this process. */
+export declare function closureDropCount(): number
 
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
@@ -1070,6 +1193,13 @@ export declare function createZeroCopyLatin1String(): string
 
 export declare function createZeroCopyUtf16String(): string
 
+/**
+ * How many custom-GC threadsafe functions env teardown has released in this
+ * process. Each load of the addon creates one, so each torn-down load must add
+ * exactly one.
+ */
+export declare function customGcTsfnsReleasedAtTeardown(): number
+
 /** You could break the step and for an new continuous value. */
 export declare const enum CustomNumEnum {
   One = 1,
@@ -1119,6 +1249,19 @@ declare class DynamicRustClass {
   constructor(value: number)
   rustMethod(): number
 }
+
+/** Passes one `&[Property]` to two `Env::define_class` calls. */
+export declare function defineClassTwiceWithClosures(): Array<new () => { value: number; readonly lastSet?: number }>
+
+/** A class whose `value` accessor is backed by closures. */
+export declare function defineClassWithClosures(): new () => { value: number; readonly lastSet?: number }
+
+/** Passes one `&[Property]` to `define_properties` on two objects. */
+export declare function definePropertiesTwiceWithClosures(): Array<{ value: number; readonly lastSet?: number }>
+
+export declare function defineSymbolClass(name: string): new () => object
+
+export declare function defineSymbolObject(name: string): object
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
@@ -1389,6 +1532,23 @@ export declare function issue3608ReadOther(other: Issue3608Other): Array<number>
 
 export declare function issue3608ReadOtherInstance(other: Issue3608Other): Array<number>
 
+export interface Issue3655Outcome {
+  firstCallQueued: boolean
+  queueFull: number
+  dropped: number
+}
+
+export declare function issue3655RejectedCalls(callback: () => void, api: string): Issue3655Outcome
+
+export declare function issue3655RejectedCallsCalleeHandled(callback: () => void, api: string): Issue3655Outcome
+
+/**
+ * A rejected payload whose `Drop` locks the same threadsafe function must not
+ * block the call that rejected it. Returns how many rejected payloads were
+ * dropped.
+ */
+export declare function issue3655RejectedPayloadLocksHandle(callback: () => void): number
+
 export declare function joinPath(path: string, segment: string): string
 
 export declare function jsErrorCallback(value: unknown): Array<Error>
@@ -1430,6 +1590,13 @@ export interface Latin1MethodsResult {
   isEmpty: boolean
   asSlice: Array<number>
 }
+
+/**
+ * The `NinjaTurtle` constructor as code generated by an older napi-derive finds
+ * it: through `get_class_constructor`, which takes no env and answers with the
+ * newest live load on this thread that defined the class.
+ */
+export declare function legacyNinjaTurtleConstructor(): unknown
 
 export type LifetimeOnlyHandler = (arg: string) => string
 
@@ -1760,6 +1927,13 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+/**
+ * How many cached `Reflect` holder references env teardown has deleted in this
+ * process. Each load of the addon caches one, so each torn-down load must add
+ * exactly one.
+ */
+export declare function reflectRefsDeletedAtTeardown(): number
+
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
 
 export declare function returnCString(): string
@@ -1800,6 +1974,13 @@ export declare function shorterEscapableScope(createString: () => string | null)
 export declare function shorterScope(arr: unknown[]): Array<number>
 
 export declare function shutdownRuntime(): void
+
+/**
+ * Spawns a task whose `compute` runs until `task.release()` and then resolves with `value`.
+ * The promise is handed out here, in the scope that created it: the `napi_value` inside
+ * `AsyncWorkPromise` does not outlive it.
+ */
+export declare function spawnAsyncTask(value: number): { promise: Promise<number>, task: SpawnedAsyncTask }
 
 export declare function spawnFutureLifetime(input: number): Promise<string>
 
@@ -2101,6 +2282,13 @@ export interface ViteImportGlobMeta {
 }
 
 export type VoidNullable<T = void> = Nullable<T>
+
+/**
+ * Resolves once at least `count` tasks are blocked inside `wait_borrow_gate`
+ * for gate `id`: a pool thread has picked the work up, however long the
+ * scheduler took to run it.
+ */
+export declare function waitForBorrowGateWaiters(id: number, count: number): Promise<void>
 
 /**
  * Bytes of wasm linear memory currently owned by this instance, `0` on native
