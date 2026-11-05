@@ -212,6 +212,82 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   },
 )
 
+// A thenable-mode promise is made by a call into JavaScript, which can throw near the stack limit
+// where `napi_create_promise` does not. The wrapper must throw before its promise exists, and the
+// task then makes its promise from a deferred: no call may return a promise already rejected
+// with a `RangeError` while the task still runs. Each call is made at a stack depth found by
+// recursing until the stack overflows and stepping back `pad` frames, with `k` extra arguments
+// for a finer step.
+test.serial.skipIf(Boolean(process.env.WASI_TEST))(
+  'a worker task started near the stack limit gets a promise that settles with its value',
+  async (t) => {
+    const result = await runInWorker(`
+      ${LOAD_IN_WORKER}
+      const native = load()
+      ;(async () => {
+        await native.asyncTaskCounted()
+        const callers = Array.from({ length: 40 }, (_, k) =>
+          new Function('n', ...Array.from({ length: k }, (_, i) => 'a' + i), 'return n.asyncTaskCounted()'),
+        )
+        const before = native.asyncTaskSettleCounters()
+        const promises = []
+        let threw = 0
+        for (let pad = 0; pad < 80; pad++) {
+          for (let k = 0; k < 40; k += 2) {
+            const probe = (depth) => {
+              let up
+              try {
+                up = probe(depth + 1)
+              } catch {
+                return 0
+              }
+              if (up === pad) {
+                try {
+                  promises.push(callers[k](native))
+                } catch {
+                  threw++
+                }
+              }
+              return up + 1
+            }
+            probe(0)
+          }
+        }
+        const outcomes = {}
+        for (const promise of promises) {
+          const outcome = await promise.then(
+            (value) => 'fulfilled with ' + value,
+            (error) => 'rejected with ' + (error && error.name),
+          )
+          outcomes[outcome] = (outcomes[outcome] || 0) + 1
+        }
+        const after = native.asyncTaskSettleCounters()
+        parentPort.postMessage({
+          outcomes,
+          calls: promises.length + threw,
+          threw,
+          statesFreed: after.promiseStatesFreed - before.promiseStatesFreed,
+          fallbacks: after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
+          promises: promises.length,
+        })
+      })()
+    `)
+    t.deepEqual(
+      Object.keys(result.outcomes),
+      ['fulfilled with 0'],
+      JSON.stringify(result),
+    )
+    t.is(result.calls, 80 * 20)
+    // Some calls had stack enough for the task but not for the wrapper: they fell back.
+    t.true(result.fallbacks > 0, JSON.stringify(result))
+    // Every promise has one state, and every state was freed. A wrapper call that threw had one
+    // too (freed at once), and its promise then got another from the fallback. A call that threw
+    // to JavaScript after its state was made (a later step ran out of stack) freed that one.
+    const extra = result.statesFreed - result.promises - result.fallbacks
+    t.true(extra >= 0 && extra <= result.threw, JSON.stringify(result))
+  },
+)
+
 // The settle mode is picked at the env's first task, from `process.versions` before the loop
 // check: Electron, NW.js and a read that throws give `thenable` on the main thread too. Without
 // `versions.bun`, Node is still found by its exported symbol (`deleted-bun`). A faked

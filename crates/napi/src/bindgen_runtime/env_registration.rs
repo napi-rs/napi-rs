@@ -77,9 +77,9 @@ pub(crate) struct EnvRegistration {
   /// promises, see `crate::async_work::promise`. Created on first use. Only used on the
   /// thenable path.
   promise_then: Option<sys::napi_ref>,
-  /// The env's promise wrapper, `async (then, handle) => ({ then, handle })`, which makes the
-  /// promise of a thenable-mode task in one call, see `crate::async_work::promise`. Compiled at
-  /// the first thenable-mode task.
+  /// The env's promise wrapper, `(then, handle) => settle({ then, handle })` with an `async`
+  /// `settle`, which makes the promise of a thenable-mode task or `JsDeferred` in one call, see
+  /// `crate::async_work::promise`. Compiled at the first thenable-mode promise.
   promise_wrapper: PromiseWrapper,
   /// This env's custom-GC threadsafe function, see
   /// `crate::bindgen_runtime::module_register::create_custom_gc`. The record
