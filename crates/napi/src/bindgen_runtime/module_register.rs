@@ -146,7 +146,7 @@ static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 // A reference is either with its owner or in `pending`, never both.
 //
 // Why not through the TSFN: at env teardown Node's `RunCleanup` first runs `CleanupHandles`,
-// whose `uv_run(UV_RUN_ONCE)` still delivers up to 1000 queued TSFN items (one dispatch) with a
+// whose `uv_run(UV_RUN_ONCE)` still delivers queued TSFN items (up to 999 per dispatch) with a
 // live env. Only then do the cleanup hooks run, and the TSFN's own hook hands every item still
 // queued to the callback with a null env, where nothing can be deleted. One reference per item
 // leaked all of that overflow (48 B each on Node). Now only a wake token can be queued, and the
@@ -554,8 +554,9 @@ impl CustomGcHandle {
 /// (`napi_env__::DeleteMe`), so deleting it from the sentinel's finalizer is allowed.
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 fn delete_sentinel_ref(env: sys::napi_env, sentinel_ref: sys::napi_ref) {
-  unsafe { sys::napi_delete_reference(env, sentinel_ref) };
-  SENTINEL_REFS_DELETED.fetch_add(1, Ordering::Relaxed);
+  if unsafe { sys::napi_delete_reference(env, sentinel_ref) } == sys::Status::napi_ok {
+    SENTINEL_REFS_DELETED.fetch_add(1, Ordering::Relaxed);
+  }
 }
 
 /// Unrefs each reference and deletes it at refcount 0, as each was created at refcount 1. Returns
