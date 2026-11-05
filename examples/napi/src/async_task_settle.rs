@@ -35,6 +35,10 @@ pub struct AsyncTaskSettleCounters {
   /// Pairs of promise resolving functions released, settled or not: the freed states whose
   /// `then` had already run.
   pub promise_resolvers_released: u32,
+  /// Promise wrappers compiled: one per env that made a thenable-mode promise.
+  pub promise_wrappers_compiled: u32,
+  /// Thenable-mode promises made from a deferred, because their env had no promise wrapper.
+  pub promise_wrapper_fallbacks: u32,
 }
 
 #[napi]
@@ -47,6 +51,8 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
     promise_states_freed: napi::bindgen_prelude::async_task_promise_states_freed() as u32,
     promise_resolvers_released: napi::bindgen_prelude::async_task_promise_resolvers_released()
       as u32,
+    promise_wrappers_compiled: napi::bindgen_prelude::async_task_promise_wrappers_compiled() as u32,
+    promise_wrapper_fallbacks: napi::bindgen_prelude::async_task_promise_wrapper_fallbacks() as u32,
   }
 }
 
