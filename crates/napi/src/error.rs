@@ -78,8 +78,8 @@ pub(crate) struct ErrorRef {
 // SAFETY: the raw `napi_ref`/`napi_env` are only ever dereferenced via napi FFI
 // on the owning JS thread — `Error::referenced_value` gates reads on `env`
 // identity, `owner_thread` and `current_thread_owns_custom_gc`, and
-// `ErrorRef::drop` releases on the owning thread directly, routes the release
-// through the env's custom-GC TSFN, or leaks. Moving or sharing an `ErrorRef`
+// `ErrorRef::drop` releases on the owning thread directly, hands the reference
+// to the env's custom-GC handle, or leaks. Moving or sharing an `ErrorRef`
 // (and cloning its `Arc`) only copies/reads the pointer values; it never touches
 // V8 off-thread. The captured `Arc<CustomGcHandle>` is itself `Send + Sync`.
 // Mirrors the `unsafe impl Send/Sync for Error`.
@@ -154,30 +154,10 @@ impl Drop for ErrorRef {
     if let Some(handle) = self.custom_gc.take() {
       let env = self.env;
       let raw = self.raw;
-      // Read-lock held across the call so the custom-GC TSFN can't be
-      // finalized mid-call (same protocol as ArrayBuffer/TypedArray drops).
-      handle.with_read_aborted(|aborted| {
-        if aborted {
-          // The owning env is being torn down and V8 has reset the
-          // reference's handle — releasing it now could be a use-after-free.
-          // Leak it instead: the `napi_ref` box (48 bytes on Node) is never
-          // freed, because Node frees only references it owns.
-          return;
-        }
-        if crate::bindgen_prelude::current_thread_owns_custom_gc(&handle) {
-          release_error_reference(env, raw);
-        } else {
-          // The last `Arc` dropped off the owning JS thread. Route the release
-          // through the env's custom-GC TSFN, exactly like Buffer/TypedArray
-          // drops.
-          let status =
-            unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), raw.cast(), 1) };
-          assert!(
-            status == sys::Status::napi_ok || status == sys::Status::napi_closing,
-            "Call custom GC in ErrorRef::drop failed {}",
-            Status::from(status)
-          );
-        }
+      // On the env's JS thread while the env runs: release now. Anywhere else, the handle
+      // keeps the reference for the JS thread (or for env teardown) to release.
+      crate::bindgen_prelude::CustomGcHandle::release_ref(&handle, raw, || {
+        release_error_reference(env, raw)
       });
       return;
     }

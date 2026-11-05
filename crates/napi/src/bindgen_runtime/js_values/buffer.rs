@@ -9,9 +9,7 @@ use std::slice;
 use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-use crate::bindgen_prelude::{
-  current_thread_owns_custom_gc, custom_gc_handle_for_env, CustomGcHandle,
-};
+use crate::bindgen_prelude::{custom_gc_handle_for_env, CustomGcHandle};
 use crate::{
   bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsValue, Result, Value, ValueType,
 };
@@ -427,41 +425,24 @@ impl Drop for Buffer {
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
       {
         if let Some(handle) = self.custom_gc_handle.as_ref() {
-          handle.with_read_aborted(|aborted| {
-            if aborted {
-              // owner env gone, V8 already invalidated the ref -> no-op (safe leak).
-              // Reached on BOTH the off-thread AND the same-thread (cached-value-at-thread-exit) paths.
-              return;
-            }
-            if current_thread_owns_custom_gc(handle) {
-              // same isolate's JS thread, owner alive -> direct unref+delete on the OWNER env.
-              // DELIBERATE copy of the trailing direct block below; the copy is `aborted`-gated, the
-              // trailing block is the non-napi4 / None-handle fallback. Do NOT "dedupe" either away.
-              let mut ref_count = 0;
-              check_status_or_throw!(
-                env,
-                unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
-                "Failed to unref Buffer reference in drop"
-              );
-              debug_assert!(
-                ref_count == 0,
-                "Buffer reference count in Buffer::drop is not zero"
-              );
-              check_status_or_throw!(
-                env,
-                unsafe { sys::napi_delete_reference(env, ref_) },
-                "Failed to delete Buffer reference in drop"
-              );
-            } else {
-              // off-thread OR a different isolate's JS thread (fixes F5) -> route to ITS tsfn
-              let status =
-                unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), ref_.cast(), 1) };
-              assert!(
-                status == sys::Status::napi_ok || status == sys::Status::napi_closing,
-                "Call custom GC in Buffer::drop failed {}",
-                Status::from(status)
-              );
-            }
+          // On the env's JS thread while the env runs: delete now. Anywhere else, the handle
+          // keeps the reference for the JS thread to delete.
+          CustomGcHandle::release_ref(handle, ref_, || {
+            let mut ref_count = 0;
+            check_status_or_throw!(
+              env,
+              unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
+              "Failed to unref Buffer reference in drop"
+            );
+            debug_assert!(
+              ref_count == 0,
+              "Buffer reference count in Buffer::drop is not zero"
+            );
+            check_status_or_throw!(
+              env,
+              unsafe { sys::napi_delete_reference(env, ref_) },
+              "Failed to delete Buffer reference in drop"
+            );
           });
           return;
         }

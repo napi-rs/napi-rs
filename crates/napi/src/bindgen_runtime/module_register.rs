@@ -130,76 +130,302 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
   not(feature = "noop")
 ))]
 static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
-// Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created + unref'd per env
-// (per load of this addon) in `create_custom_gc`, and every Buffer/TypedArray/Error/FunctionRef/
-// native-borrow root dropped off its env's JS thread routes its reference through it.
-// `AtomicPtr<_>` + `RwLock<bool>` are auto `Send + Sync`, so no `unsafe impl` is required.
-// No `impl Drop`: freeing the `Arc` touches zero Node/V8 resources. The env's registration record
-// (`env_registration`) holds a strong `Arc` and releases the TSFN's only thread count from its env
-// cleanup hook (`abort_and_release`); Node then closes and frees the TSFN, and its finalizer
-// (`custom_gc_handle_finalize`) runs.
+// Per-env custom-GC infrastructure (#3357). One `CustomGcHandle` is created per env (per load of
+// this addon) in `create_custom_gc`. Every Buffer/TypedArray/Error/FunctionRef/native-borrow
+// reference released off its env's JS thread goes through it.
+//
+// References never travel through the TSFN: they wait in `pending`, and the TSFN only wakes the
+// JS thread, with at most one wake in flight (`wake`). Node-API is called on `pending` only on
+// the env's JS thread with the env alive, from two places:
+//   1. the TSFN callback (`custom_gc`), while the env runs, at most `MAX_DRAIN` references per
+//      call;
+//   2. the registration record's cleanup hook (`CustomGcHandle::close`), which also moves the
+//      phase to `Closing`.
+// A reference is either with its owner or in `pending`, never both.
+//
+// Why not through the TSFN: at env teardown Node's `RunCleanup` first runs `CleanupHandles`,
+// whose `uv_run(UV_RUN_ONCE)` still delivers up to 1000 queued TSFN items (one dispatch) with a
+// live env. Only then do the cleanup hooks run, and the TSFN's own hook hands every item still
+// queued to the callback with a null env, where nothing can be deleted. One reference per item
+// leaked all of that overflow (48 B each on Node). Now only a wake token can be queued, and the
+// record's hook, which runs before the TSFN's, deletes what is pending.
+//
+// The env's registration record (`env_registration`) holds a strong `Arc`. Freeing the handle
+// touches no Node/V8 resource.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
-  // Null once `abort_and_release` has released the TSFN.
+  /// Null once the TSFN is released.
   tsfn: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__>,
-  // Set when env teardown starts (`abort_and_release`, from the registration record's cleanup
-  // hook, before Node closes the TSFN), or at the latest by the TSFN finalizer. Once set, no drop
-  // calls the TSFN, and `get_raw` is only ever read while it is unset. A drop that sees it set
-  // leaks its reference: env teardown resets the reference's V8 handle, but Node frees only
-  // references it owns, so the `napi_ref` box itself (48 bytes on Node) is never freed. A safe
-  // fix would need a registry of every live reference per handle on the hot path, and still
-  // could not reach references already queued in the TSFN, which Node drains with a null env.
-  aborted: std::sync::RwLock<bool>,
+  /// Only moves forward. A drop holds the read lock while it adds to `pending` and calls the
+  /// TSFN, so a phase change (under the write lock) waits for it, and nothing is added between
+  /// taking `pending` and changing the phase.
+  phase: RwLock<CustomGcPhase>,
+  /// References released off the JS thread, as addresses, waiting for the JS thread.
+  pending: std::sync::Mutex<Vec<usize>>,
+  /// Whether a wake is in flight. The callback clears it, under the `pending` lock, when it takes
+  /// the last references, so a reference added after that sends a new wake.
+  wake: AtomicBool,
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CustomGcPhase {
+  /// The env runs. A drop on its JS thread deletes its reference right away; a drop anywhere
+  /// else adds it to `pending` and wakes the JS thread.
+  Open,
+  /// The registration record's cleanup hook ran (or, as a backstop, Node closed the TSFN): the
+  /// TSFN is released. A drop leaks its reference: env teardown resets the reference's V8
+  /// handle, but Node frees only references it owns, so the `napi_ref` box (48 B on Node) stays.
+  Closing,
+}
+
+/// The most references one custom-GC callback deletes (Node's TSFN dispatch also stops after
+/// 1000 items, `kMaxIterationCount`), so each callback stays short. A larger backlog wakes the JS
+/// thread again. Node runs a wake sent from inside its callback in the same dispatch, after the
+/// callback's microtasks, so one event-loop turn can still run many such batches.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+const MAX_DRAIN: usize = 1000;
+
+static REFS_DELETED_RUNNING: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+static REFS_DELETED_AT_TEARDOWN: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+static REFS_LEAKED_AFTER_CLOSE: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+static REFS_LEFT_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static DRAIN_CALLBACKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static LARGEST_DRAIN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// What happened to the references released through the custom-GC handles of this process, on
+/// every env and every load of this addon. See [`custom_gc_ref_counters`].
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CustomGcRefCounters {
+  /// Deleted by the custom-GC callback while their env ran.
+  pub deleted_while_running: usize,
+  /// Deleted at env teardown.
+  pub deleted_at_teardown: usize,
+  /// Released too late in env teardown to be deleted: leaked (48 B each on Node).
+  pub leaked_at_teardown: usize,
+  /// Still waiting when their handle was freed: leaked.
+  pub left_pending: usize,
+  /// Custom-GC callbacks that deleted references.
+  pub drain_callbacks: usize,
+  /// The most references one custom-GC callback deleted.
+  pub largest_drain: usize,
+}
+
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn custom_gc_ref_counters() -> CustomGcRefCounters {
+  CustomGcRefCounters {
+    deleted_while_running: REFS_DELETED_RUNNING.load(std::sync::atomic::Ordering::Relaxed),
+    deleted_at_teardown: REFS_DELETED_AT_TEARDOWN.load(std::sync::atomic::Ordering::Relaxed),
+    leaked_at_teardown: REFS_LEAKED_AFTER_CLOSE.load(std::sync::atomic::Ordering::Relaxed),
+    left_pending: REFS_LEFT_PENDING.load(std::sync::atomic::Ordering::Relaxed),
+    drain_callbacks: DRAIN_CALLBACKS.load(std::sync::atomic::Ordering::Relaxed),
+    largest_drain: LARGEST_DRAIN.load(std::sync::atomic::Ordering::Relaxed),
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+impl Drop for CustomGcHandle {
+  fn drop(&mut self) {
+    // Only counts what was never deleted; there is no env to delete it with.
+    let left = self.pending.get_mut().map_or_else(
+      |poisoned| poisoned.into_inner().len(),
+      |pending| pending.len(),
+    );
+    if left != 0 {
+      REFS_LEFT_PENDING.fetch_add(left, Ordering::Relaxed);
+    }
+  }
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 impl CustomGcHandle {
-  pub(crate) fn get_raw(&self) -> sys::napi_threadsafe_function {
-    self.tsfn.load(std::sync::atomic::Ordering::SeqCst)
+  fn new() -> Self {
+    Self {
+      tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
+      phase: RwLock::new(CustomGcPhase::Open),
+      pending: std::sync::Mutex::new(Vec::new()),
+      wake: AtomicBool::new(false),
+    }
   }
-  // drop path: read-lock held ACROSS the napi_call so finalize's write-lock blocks until the call returns
-  pub(crate) fn with_read_aborted<RT>(&self, f: impl FnOnce(bool) -> RT) -> RT {
-    let g = self
-      .aborted
+
+  fn read_phase(&self) -> std::sync::RwLockReadGuard<'_, CustomGcPhase> {
+    self
+      .phase
       .read()
-      .expect("custom gc aborted lock poisoned");
-    f(*g)
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
   }
-  fn set_aborted(&self) {
-    *self
-      .aborted
+
+  fn write_phase(&self) -> std::sync::RwLockWriteGuard<'_, CustomGcPhase> {
+    self
+      .phase
       .write()
-      .expect("custom gc aborted lock poisoned") = true;
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
   }
-  /// Marks the handle aborted, then releases the TSFN's only thread count with `mode`.
+
+  fn lock_pending(&self) -> std::sync::MutexGuard<'_, Vec<usize>> {
+    self
+      .pending
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+  }
+
+  /// Whether the env is not torn down yet: its cleanup hook has not run.
+  #[cfg(feature = "web_stream")]
+  pub(crate) fn is_open(&self) -> bool {
+    *self.read_phase() == CustomGcPhase::Open
+  }
+
+  /// Releases `reference`, created in this handle's env at refcount 1. On the env's JS thread
+  /// while the env runs, calls `direct`, which must unref and delete it right now. Anywhere
+  /// else, it waits for the env's JS thread.
+  pub(crate) fn release_ref(
+    handle: &std::sync::Arc<Self>,
+    reference: sys::napi_ref,
+    direct: impl FnOnce(),
+  ) {
+    let phase = handle.read_phase();
+    match *phase {
+      CustomGcPhase::Open if current_thread_owns_custom_gc(handle) => direct(),
+      phase => handle.defer(phase, reference),
+    }
+  }
+
+  /// Like [`Self::release_ref`], but never deletes right away, even on the env's JS thread.
+  pub(crate) fn defer_ref(handle: &std::sync::Arc<Self>, reference: sys::napi_ref) {
+    let phase = handle.read_phase();
+    handle.defer(*phase, reference);
+  }
+
+  /// The caller holds the phase read lock, and `phase` is what it read.
+  fn defer(self: &std::sync::Arc<Self>, phase: CustomGcPhase, reference: sys::napi_ref) {
+    if phase != CustomGcPhase::Open {
+      REFS_LEAKED_AFTER_CLOSE.fetch_add(1, Ordering::Relaxed);
+      return;
+    }
+    self.lock_pending().push(reference as usize);
+    if !self.wake.swap(true, Ordering::SeqCst) && !self.send_wake() {
+      // The reference waits for the next wake or for the cleanup hook.
+      self.wake.store(false, Ordering::SeqCst);
+    }
+  }
+
+  /// Queues one wake. The caller holds the phase read lock, in `Open`, so the TSFN is not
+  /// released meanwhile. The token is a `Weak`, consumed by the callback on every path.
+  fn send_wake(self: &std::sync::Arc<Self>) -> bool {
+    let tsfn = self.tsfn.load(Ordering::SeqCst);
+    if tsfn.is_null() {
+      return false;
+    }
+    let token = std::sync::Arc::downgrade(self).into_raw();
+    let status = unsafe {
+      sys::napi_call_threadsafe_function(
+        tsfn,
+        token.cast_mut().cast(),
+        sys::ThreadsafeFunctionCallMode::nonblocking,
+      )
+    };
+    if status != sys::Status::napi_ok {
+      drop(unsafe { std::sync::Weak::from_raw(token) });
+      return false;
+    }
+    true
+  }
+
+  /// From the custom-GC callback: deletes up to [`MAX_DRAIN`] pending references, and wakes the
+  /// JS thread again when more are left. On `env`'s JS thread, env alive.
+  fn drain_while_running(self: &std::sync::Arc<Self>, env: sys::napi_env) {
+    let batch = {
+      let phase = self.read_phase();
+      let mut pending = self.lock_pending();
+      if pending.len() <= MAX_DRAIN {
+        // Under the `pending` lock: a reference added after this sends a new wake.
+        self.wake.store(false, Ordering::SeqCst);
+        std::mem::take(&mut *pending)
+      } else {
+        let keep = pending.len() - MAX_DRAIN;
+        let batch = pending.split_off(keep);
+        drop(pending);
+        // `wake` stays set while the next wake is in flight. In `Closing` the cleanup hook
+        // already took what was pending, so this never leaves references behind.
+        if *phase != CustomGcPhase::Open || !self.send_wake() {
+          self.wake.store(false, Ordering::SeqCst);
+        }
+        batch
+      }
+    };
+    if batch.is_empty() {
+      return;
+    }
+    let deleted = delete_refs(env, batch);
+    REFS_DELETED_RUNNING.fetch_add(deleted, Ordering::Relaxed);
+    DRAIN_CALLBACKS.fetch_add(1, Ordering::Relaxed);
+    LARGEST_DRAIN.fetch_max(deleted, Ordering::Relaxed);
+  }
+
+  /// Moves the phase to `Closing`, releases the TSFN's only thread count with `mode`, and
+  /// deletes every pending reference. Called from the registration record's cleanup hook, or
+  /// right at registration when there is no record.
   ///
-  /// It must run before Node closes the TSFN at env teardown: after that, a call returns
-  /// `napi_closing` once (using up the thread count) and `napi_invalid_arg` after, the drop
-  /// paths assert on that status, and two such panics in one destructor abort the process.
+  /// It must run before Node closes the TSFN at env teardown: the record's hook runs before the
+  /// TSFN's own (hooks run newest first), so the release only drops the thread count to 0.
+  /// Taking the write lock waits for any drop that is calling the TSFN right now, and no drop
+  /// calls it afterwards. The pointer is swapped out under the lock, so the release happens at
+  /// most once. Returns the release status, or `napi_ok` when there was nothing left to release.
   ///
-  /// Taking the write lock waits for any drop that is calling the TSFN right now (drops hold
-  /// the read lock across the call), and no drop calls it afterwards. The pointer is swapped
-  /// out under the lock, so the release happens at most once, however often this is called.
-  /// Returns the release status, or `napi_ok` when there was nothing left to release.
-  pub(crate) fn abort_and_release(
+  /// # Safety
+  ///
+  /// On `env`'s JS thread, while `env` can still delete references.
+  pub(crate) unsafe fn close(
     &self,
+    env: sys::napi_env,
     mode: sys::napi_threadsafe_function_release_mode,
   ) -> sys::napi_status {
-    let tsfn = {
-      let mut aborted = self
-        .aborted
-        .write()
-        .expect("custom gc aborted lock poisoned");
-      *aborted = true;
-      self
-        .tsfn
-        .swap(ptr::null_mut(), std::sync::atomic::Ordering::SeqCst)
+    let (tsfn, refs) = {
+      let mut phase = self.write_phase();
+      *phase = CustomGcPhase::Closing;
+      (
+        self.tsfn.swap(ptr::null_mut(), Ordering::SeqCst),
+        std::mem::take(&mut *self.lock_pending()),
+      )
     };
-    if tsfn.is_null() {
-      return sys::Status::napi_ok;
-    }
-    unsafe { sys::napi_release_threadsafe_function(tsfn, mode) }
+    let status = if tsfn.is_null() {
+      sys::Status::napi_ok
+    } else {
+      unsafe { sys::napi_release_threadsafe_function(tsfn, mode) }
+    };
+    let deleted = delete_refs(env, refs);
+    REFS_DELETED_AT_TEARDOWN.fetch_add(deleted, Ordering::Relaxed);
+    status
   }
+
+  /// Backstop for when Node closes the TSFN: no drop calls it again.
+  fn mark_closing(&self) {
+    *self.write_phase() = CustomGcPhase::Closing;
+  }
+}
+
+/// Unrefs each reference and deletes it at refcount 0, as each was created at refcount 1. Returns
+/// how many were deleted. On `env`'s JS thread, env alive. Neither call has a `NAPI_PREAMBLE`, on
+/// Node or on emnapi, so this works while the env refuses JavaScript.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn delete_refs(env: sys::napi_env, refs: Vec<usize>) -> usize {
+  let mut deleted = 0;
+  for reference in refs {
+    let reference = reference as sys::napi_ref;
+    let mut ref_count = 0;
+    if unsafe { sys::napi_reference_unref(env, reference, &mut ref_count) } == sys::Status::napi_ok
+      && ref_count == 0
+      && unsafe { sys::napi_delete_reference(env, reference) } == sys::Status::napi_ok
+    {
+      deleted += 1;
+    }
+  }
+  deleted
 }
 
 /// The custom-GC handle of `env`, to capture when a value takes a reference in `env`. Call it on
@@ -997,7 +1223,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       None => Some(custom_gc),
     };
     if let Some(custom_gc) = unowned {
-      custom_gc.abort_and_release(sys::ThreadsafeFunctionReleaseMode::abort);
+      unsafe { custom_gc.close(env, sys::ThreadsafeFunctionReleaseMode::abort) };
     }
   }
 
@@ -1388,10 +1614,7 @@ fn create_custom_gc(env: sys::napi_env) -> Option<std::sync::Arc<CustomGcHandle>
     unsafe { sys::napi_create_string_utf8(env, c"CustomGC".as_ptr(), 8, &mut async_resource_name) },
     "Create async resource string in napi_register_module_v1"
   );
-  let handle = std::sync::Arc::new(CustomGcHandle {
-    tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
-    aborted: std::sync::RwLock::new(false),
-  });
+  let handle = std::sync::Arc::new(CustomGcHandle::new());
   let weak_ptr = std::sync::Arc::downgrade(&handle).into_raw();
   let mut custom_gc_tsfn = ptr::null_mut();
   let status = unsafe {
@@ -1452,9 +1675,9 @@ unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) ->
   ptr::null_mut()
 }
 
-// Per-env custom-GC finalize (#3357): sets the per-handle `aborted` flag when Node closes the TSFN.
-// `abort_and_release` (from the registration record's cleanup hook, or right at registration when
-// there is no record) has already set it; this is a backstop. `finalize_data` is the
+// Per-env custom-GC finalize (#3357): moves the handle to `Closing` when Node closes the TSFN.
+// `CustomGcHandle::close` (from the registration record's cleanup hook, or right at registration
+// when there is no record) has already done it; this is a backstop. `finalize_data` is the
 // `Weak<CustomGcHandle>` smuggled in via `thread_finalize_data`; we reclaim that weak count here.
 // It stays a `Weak`, so a runtime that never runs TSFN finalizers (Deno at worker terminate) does
 // not leak the handle.
@@ -1470,43 +1693,32 @@ unsafe extern "C" fn custom_gc_handle_finalize(
   if let Some(handle) =
     unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(finalize_data.cast()) }.upgrade()
   {
-    // TSFN closed -> mark aborted (write-lock), so no drop calls it again
-    handle.set_aborted();
+    handle.mark_closing();
   }
   // temp Weak dropped here -> reclaims the weak count
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-// recycle a napi_ref (ArrayBuffer/Buffer/Error) that is not dropped on the main thread
+// The custom-GC TSFN's wake: deletes pending references on the env's JS thread. `data` is a
+// `Weak<CustomGcHandle>` token, one per wake, consumed on every path (a `Weak` drop needs no env).
 extern "C" fn custom_gc(
   env: sys::napi_env,
   _js_callback: sys::napi_value,
   _context: *mut std::ffi::c_void,
   data: *mut std::ffi::c_void,
 ) {
-  // env is null while the owning env/TSFN is shutting down and Node drains the
-  // queue (mirrors the generic call_js_cb guard in threadsafe_function.rs). The
-  // owner env is being torn down: its V8 handle is reset, but the `napi_ref` box
-  // (48 bytes on Node) is leaked, because Node frees only references it owns and
-  // there is no env left to delete it with.
-  if env.is_null() || data.is_null() {
+  if data.is_null() {
     return;
   }
-  let mut ref_count = 0;
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_reference_unref(env, data.cast(), &mut ref_count) },
-    "Failed to unref reference in Custom GC"
-  );
-  // Both ArrayBuffer/Buffer and `Error` references reach 0 here: each is created
-  // at refcount 1 and routed through this TSFN exactly once, by its owner's drop
-  // (for `Error`, the last `Arc<ErrorRef>`), so the unref above always hits 0.
-  if ref_count == 0 {
-    check_status_or_throw!(
-      env,
-      unsafe { sys::napi_delete_reference(env, data.cast()) },
-      "Failed to delete reference in Custom GC"
-    );
+  let token = unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(data.cast()) };
+  // A null env: Node empties the queue while it closes the TSFN at env teardown (mirrors the
+  // generic call_js_cb guard in threadsafe_function.rs). Nothing is lost: references wait in
+  // `pending`, never in the queue, and the cleanup hook, which ran before, deleted them.
+  if env.is_null() {
+    return;
+  }
+  if let Some(handle) = token.upgrade() {
+    handle.drain_while_running(env);
   }
 }
 

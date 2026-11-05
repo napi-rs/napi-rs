@@ -133,9 +133,9 @@ impl NativeBorrowStorage {
   /// shutdown dropping pending futures' `JsDeferred` clones on worker threads.
   ///
   /// Drops the alias guards (that only needs the global borrow map), then hands each
-  /// JavaScript root to the owning env's custom-GC threadsafe function — callable from
-  /// any thread, and it unref+deletes the ref on the JavaScript thread (same protocol
-  /// as `Buffer`/`FunctionRef` off-thread drops). The roots are leaked only when no
+  /// JavaScript root to the owning env's custom-GC handle — callable from any thread;
+  /// the ref is unref+deleted on the JavaScript thread (same protocol as
+  /// `Buffer`/`FunctionRef` off-thread drops). The roots are leaked only when no
   /// handle was captured or the handle reports the env already gone. Env teardown then
   /// resets the refs' V8 handles, so nothing stays alive in JavaScript, but Node never
   /// frees the `napi_ref` boxes themselves (48 bytes each).
@@ -147,37 +147,12 @@ impl NativeBorrowStorage {
     }
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     if let Some(handle) = self.custom_gc.clone() {
-      let roots = std::mem::take(&mut self.roots);
-      handle.with_read_aborted(|aborted| {
-        if aborted {
-          // The owner env is being torn down and V8 has reset the refs' handles — the
-          // drained queue would deliver them to `custom_gc` with a null env. Leak them:
-          // Node never frees the `napi_ref` boxes (48 bytes each), as it frees only
-          // references it owns.
-          return;
-        }
-        for root in roots {
-          // Even on the owner thread the enqueue is the safe route: this path runs
-          // precisely when the env may already be dying (uninvoked settle closures),
-          // and a direct `napi_reference_unref` on a dead env is a use-after-free.
-          // A `napi_closing` status means the tsfn is draining and nothing will
-          // delete the ref: teardown resets its handle, but its 48-byte box leaks.
-          let status = unsafe {
-            sys::napi_call_threadsafe_function(handle.get_raw(), root.reference.cast(), 1)
-          };
-          if cfg!(debug_assertions)
-            && status != sys::Status::napi_ok
-            && status != sys::Status::napi_closing
-          {
-            crate::bindgen_runtime::catch_unwind_safely(|| {
-              eprintln!(
-                "Failed to enqueue native borrow root for release: {}",
-                Status::from(status)
-              );
-            });
-          }
-        }
-      });
+      // Even on the owner thread the handle's route is the safe one: this path runs
+      // precisely when the env may already be dying (uninvoked settle closures), and a
+      // direct `napi_reference_unref` on a dead env is a use-after-free.
+      for root in std::mem::take(&mut self.roots) {
+        CustomGcHandle::defer_ref(&handle, root.reference);
+      }
       return;
     }
     // No handle captured (pre-napi4/noop build, or the scope rooted before module
