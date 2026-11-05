@@ -357,7 +357,8 @@ unsafe impl Sync for DeferredHandle {}
 /// * Everywhere else (workers, Electron and NW.js renderers, Bun on Windows, Deno), by a small
 ///   per-env JavaScript function, so no `napi_deferred` exists. A promise still pending, or a
 ///   settle still queued, when the env is torn down leaves nothing behind: env teardown frees its
-///   state. This costs about 0.2 µs more JavaScript-thread CPU per promise, and is observable:
+///   state. This costs about 0.5 to 1.3 µs (about 10%) more JavaScript-thread CPU per
+///   `async fn` call in a worker (release builds, Node 20 to 26), and is observable:
 ///   * one extra microtask job right after the promise is made, and one extra
 ///     `async_hooks` / `v8.promiseHooks` `before`/`after` pair for the promise (standard for a
 ///     promise resolved with a thenable);

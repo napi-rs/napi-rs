@@ -235,8 +235,12 @@ enum CustomGcPhase {
 
 /// The most references one custom-GC callback deletes (Node's TSFN dispatch also stops after
 /// 1000 items, `kMaxIterationCount`), so each callback stays short. A larger backlog wakes the JS
-/// thread again. Node runs a wake sent from inside its callback in the same dispatch, after the
-/// callback's microtasks, so one event-loop turn can still run many such batches.
+/// thread again. That wake is sent from inside the callback, and Node runs it in the same
+/// dispatch, after the callback's microtasks (`Send` while the dispatch runs only sets
+/// `kDispatchPending`). So this bounds one callback, not one event-loop turn: one dispatch runs
+/// up to 999 callbacks, about a million references. Measured in a Node 26 worker, a backlog of 1e6
+/// references dropped off-thread is deleted in one turn of about 13 ms; one TSFN item per
+/// reference spread it over many turns of about 1 to 2 ms, but cost about 70 ms in all.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 const MAX_DRAIN: usize = 1000;
 
