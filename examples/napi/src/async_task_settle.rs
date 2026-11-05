@@ -12,7 +12,9 @@ use napi::{bindgen_prelude::*, AsyncWorkPromise};
 // * a worker terminated with tasks still queued or running must drop every task without
 //   crashing, and free every promise's settle state (`promise_states_freed`; a
 //   `napi_create_promise` deferred settled there is refused and never freed), including the
-//   resolving functions of promises whose `then` already ran (`promise_resolvers_released`).
+//   resolving functions of promises whose `then` already ran (`promise_resolvers_released`);
+// * the main thread and WASI settle through the deferred; a worker, Electron and the other hosts
+//   whose envs can die before the process settle through the thenable.
 
 static RESOLVE_CALLS: AtomicU32 = AtomicU32::new(0);
 static FINALLY_CALLS: AtomicU32 = AtomicU32::new(0);
@@ -46,6 +48,13 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
     promise_resolvers_released: napi::bindgen_prelude::async_task_promise_resolvers_released()
       as u32,
   }
+}
+
+/// How this env settles `AsyncTask` promises: `deferred` (main thread, WASI) or `thenable`
+/// (workers, Electron).
+#[napi(ts_return_type = "'deferred' | 'thenable'")]
+pub fn async_task_promise_settle_mode(env: &Env) -> &'static str {
+  napi::bindgen_prelude::async_task_promise_settle_mode(env.raw())
 }
 
 pub struct ThrowInResolve;

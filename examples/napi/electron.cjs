@@ -33,10 +33,20 @@ const createWindowAndReload = async () => {
     // reload to check if there is any crash
     win.reload()
 
-    // make sure the renderer process is still alive
-    ipcMain.once('pong', () => {
+    // make sure the renderer process is still alive, and that its env (freed on every
+    // reload) settles AsyncTask promises through the thenable
+    ipcMain.once('pong', (_event, payload) => {
       console.info('pong')
-      resolve()
+      try {
+        assert.deepStrictEqual(payload, {
+          mode: 'thenable',
+          value: 0,
+          statesFreed: 1,
+        })
+        resolve()
+      } catch (error) {
+        reject(error)
+      }
     })
 
     // Wait for a while to make sure if a crash happens, the 'resolve' function should be called after the crash
@@ -63,7 +73,19 @@ async function main() {
     uint8ClampedSliceFromExternalReadBack,
     createExternalTypedArray,
     createReadableStream,
+    asyncTaskPromiseSettleMode,
+    asyncTaskCounted,
+    asyncTaskSettleCounters,
   } = require('./index.cjs')
+
+  // Electron always uses the thenable path, in its main process too.
+  assert.strictEqual(asyncTaskPromiseSettleMode(), 'thenable')
+  const before = asyncTaskSettleCounters()
+  assert.strictEqual(await asyncTaskCounted(), 0)
+  assert.strictEqual(
+    asyncTaskSettleCounters().promiseStatesFreed - before.promiseStatesFreed,
+    1,
+  )
 
   const buf = await readFileAsync(__filename)
   assert(FILE_CONTENT === buf.toString('utf8'))

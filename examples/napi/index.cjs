@@ -1001,6 +1001,7 @@ module.exports.asyncTaskCounted = nativeBinding.asyncTaskCounted
 module.exports.asyncTaskFinally = nativeBinding.asyncTaskFinally
 module.exports.asyncTaskIsExecuting = nativeBinding.asyncTaskIsExecuting
 module.exports.asyncTaskOptionalReturn = nativeBinding.asyncTaskOptionalReturn
+module.exports.asyncTaskPromiseSettleMode = nativeBinding.asyncTaskPromiseSettleMode
 module.exports.asyncTaskReadFile = nativeBinding.asyncTaskReadFile
 module.exports.asyncTaskRejectIsExecuting = nativeBinding.asyncTaskRejectIsExecuting
 module.exports.asyncTaskRejectWithCapturedValue = nativeBinding.asyncTaskRejectWithCapturedValue
