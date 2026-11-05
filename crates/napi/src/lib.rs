@@ -230,7 +230,8 @@ pub mod bindgen_prelude {
   pub use crate::async_work::{
     async_task_promise_resolvers_released, async_task_promise_settle_mode,
     async_task_promise_states_freed, async_task_promise_wrapper_fallbacks,
-    async_task_promise_wrappers_compiled,
+    async_task_promise_wrappers_compiled, js_deferred_promise_fallbacks,
+    js_deferred_thenable_promises_created,
   };
   #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
   pub use crate::bindgen_runtime::register_module_exports;

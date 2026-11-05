@@ -1,4 +1,6 @@
-//! The promise an `AsyncTask` / `Env::spawn` hands to JavaScript, and how it is settled.
+//! The promise an `AsyncTask` / `Env::spawn` hands to JavaScript, and how it is settled. The
+//! promise of a `JsDeferred` (`#[napi] async fn`, `Env::spawn_future`, `Env::create_deferred`)
+//! uses the same machinery, see [`DetachedPromise`].
 //!
 //! `napi_create_promise` hands back a `napi_deferred` that only `napi_resolve_deferred` /
 //! `napi_reject_deferred` free. Both begin with `NAPI_PREAMBLE`, which refuses once the env can
@@ -8,7 +10,7 @@
 //! per terminated worker, on every Node version.
 //!
 //! Each env settles its promises one of two ways ([`SettleMode`], `settle_mode.rs`), picked once,
-//! at the env's first task after this addon's registration into it has returned. Not while it
+//! at the env's first task or `JsDeferred` after this addon's registration into it has returned. Not while it
 //! registers: the check reads `process.versions`, whose getter may load another addon, and Node
 //! holds its addon-loader lock while an addon registers. That lock is not re-entrant, so the
 //! nested load would abort the process. A task created while this addon registers (by module-init
@@ -110,6 +112,18 @@
 //!   checkpoint in task-creation order, not completion order, and the task's `finally` runs
 //!   before its promise is settled. A kept outcome whose `then` never comes is released at env
 //!   teardown.
+//!
+//! A `JsDeferred` settles from any thread, through a threadsafe function that env teardown can
+//! cut off, so nothing is sure to come back to its state. In thenable mode its promise is made
+//! by the same wrapper, and its state is a [`DetachedPromise`]: a slot that is not owned, so the
+//! env-teardown sweep ([`release_env_promise_states`], run from the env's registration cleanup
+//! hook) frees it, settled or not, with its resolving functions and the `deferred_trace` error
+//! reference. On Node that hook runs before the threadsafe functions' close callbacks hand
+//! their leftover settles to the callback with a null env, so those touch nothing. Only plain
+//! numbers travel off the thread. The same differences as above apply, and the env's first
+//! `JsDeferred` may pick its settle mode and compile the wrapper. A `JsDeferred` made in
+//! deferred mode, or without the wrapper, keeps its `napi_deferred` as before (16 B leaked if
+//! its env is torn down before it settles).
 
 use std::cell::RefCell;
 use std::ptr;
@@ -129,11 +143,18 @@ static WRAPPERS_COMPILED: AtomicUsize = AtomicUsize::new(0);
 /// Counts the thenable-mode promises made without a wrapper, read through
 /// [`async_task_promise_wrapper_fallbacks`].
 static WRAPPER_FALLBACKS: AtomicUsize = AtomicUsize::new(0);
+/// Counts the `JsDeferred` promises made by the wrapper, read through
+/// [`js_deferred_thenable_promises_created`].
+static DETACHED_CREATED: AtomicUsize = AtomicUsize::new(0);
+/// Counts the thenable-mode `JsDeferred` promises made from a deferred, read through
+/// [`js_deferred_promise_fallbacks`].
+static DETACHED_FALLBACKS: AtomicUsize = AtomicUsize::new(0);
 
-/// How many `AsyncTask` / `Env::spawn` promise states have been freed in this process — settled
-/// or refused, on every env and every load of this addon. Each state holds what is needed to
-/// settle one promise (its resolving functions, or an outcome kept for them), so a test can tell
-/// that teardown left none behind. Deferred-mode envs never move it.
+/// How many promise states have been freed in this process — settled or refused, on every env
+/// and every load of this addon — for `AsyncTask` / `Env::spawn` and for `JsDeferred`
+/// (`#[napi] async fn`, `Env::spawn_future`, `Env::create_deferred`). Each state holds what is
+/// needed to settle one promise (its resolving functions, or an outcome kept for them), so a
+/// test can tell that teardown left none behind. Deferred-mode envs never move it.
 ///
 /// Introspection hook for napi-rs' own tests. No stability guarantee.
 #[doc(hidden)]
@@ -142,9 +163,9 @@ pub fn async_task_promise_states_freed() -> usize {
 }
 
 /// How many pairs of promise resolving functions (the references `then` keeps) have been
-/// released in this process, settled or not. A subset of
-/// [`async_task_promise_states_freed`]: the states whose `then` had already run. Deferred-mode
-/// envs never move it.
+/// released in this process, settled or not, for `AsyncTask` and `JsDeferred` promises alike. A
+/// subset of [`async_task_promise_states_freed`]: the states whose `then` had already run.
+/// Deferred-mode envs never move it.
 ///
 /// Introspection hook for napi-rs' own tests. No stability guarantee.
 #[doc(hidden)]
@@ -168,6 +189,28 @@ pub fn async_task_promise_wrappers_compiled() -> usize {
 #[doc(hidden)]
 pub fn async_task_promise_wrapper_fallbacks() -> usize {
   WRAPPER_FALLBACKS.load(Ordering::Relaxed)
+}
+
+/// How many `JsDeferred` promises (`#[napi] async fn`, `Env::spawn_future`,
+/// `Env::create_deferred`) have been made by the promise wrapper in this process, so without a
+/// `napi_deferred`. Each one has a promise state, counted by [`async_task_promise_states_freed`]
+/// once it is freed.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn js_deferred_thenable_promises_created() -> usize {
+  DETACHED_CREATED.load(Ordering::Relaxed)
+}
+
+/// How many `JsDeferred` promises created in a thenable-mode env have been made with
+/// `napi_create_promise` instead, in this process: the env had no registration record, the host
+/// blocks the wrapper, or the wrapper could not be used for that one promise (see the module
+/// docs). Such a promise leaks its 16 B deferred if its env is torn down before it settles.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn js_deferred_promise_fallbacks() -> usize {
+  DETACHED_FALLBACKS.load(Ordering::Relaxed)
 }
 
 /// `"deferred"` or `"thenable"`: how `AsyncTask` / `Env::spawn` promises created in `env`
@@ -278,9 +321,14 @@ enum SlotState {
 /// What one task's promise needs to be settled.
 struct Slot {
   env: sys::napi_env,
-  /// Whether the task's [`ThenableSettler`] still exists.
+  /// Whether the task's [`ThenableSettler`] still exists. Always `false` for a
+  /// [`DetachedPromise`]: nothing is sure to come back to it on the JavaScript thread, so the
+  /// env-teardown sweep frees it.
   owned: bool,
   state: SlotState,
+  /// One more reference the slot's owner keeps here, so that the env-teardown sweep deletes it
+  /// if the owner never comes back (a `JsDeferred`'s trace error). Null when there is none.
+  extra: sys::napi_ref,
 }
 
 struct Entry {
@@ -527,17 +575,18 @@ impl ThenableSettler {
       return;
     };
     let env = self.env;
+    let mut extra = ptr::null_mut();
     let resolvers = with_slots(|slots| {
       let slot = slots.get_mut(handle, env)?;
       match slot.state {
         // Settled or not, `then` has run and will not run again.
         SlotState::Resolvers { resolve, reject } => {
-          slots.remove(handle);
+          extra = slots.remove(handle).extra;
           Some((resolve, reject))
         }
         // Nothing to settle any more; a `then` that still comes finds no slot and does nothing.
         SlotState::Waiting => {
-          slots.remove(handle);
+          extra = slots.remove(handle).extra;
           None
         }
         // The kept outcome now waits for `then` alone (or for env teardown).
@@ -548,6 +597,9 @@ impl ThenableSettler {
       }
     })
     .flatten();
+    if !extra.is_null() {
+      unsafe { sys::napi_delete_reference(env, extra) };
+    }
     if let Some((resolve, reject)) = resolvers {
       // No `NAPI_PREAMBLE` on Node or emnapi: legal while the env refuses to run JavaScript
       // and while an exception is pending. The completion callback that drops this runs before
@@ -742,13 +794,16 @@ unsafe extern "C" fn thenable_then(
       SlotState::Kept { fulfill, holder } => {
         // Settle below, outside the borrow. A task that still owns the slot stops caring once
         // its outcome is kept, so the slot goes now either way.
-        slots.remove(handle);
-        Some((fulfill, holder))
+        let extra = slots.remove(handle).extra;
+        Some((fulfill, holder, extra))
       }
     }
   })
   .flatten();
-  if let Some((fulfill, holder)) = kept {
+  if let Some((fulfill, holder, extra)) = kept {
+    if !extra.is_null() {
+      unsafe { sys::napi_delete_reference(env, extra) };
+    }
     let mut holder_value = ptr::null_mut();
     if unsafe { sys::napi_get_reference_value(env, holder, &mut holder_value) }
       == sys::Status::napi_ok
@@ -941,7 +996,7 @@ pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSett
     if let Some((cache, wrapper)) =
       cache.and_then(|cache| promise_wrapper(env, cache.wrapper).map(|wrapper| (cache, wrapper)))
     {
-      if let Some((promise, settler)) = create_wrapped(env, wrapper, cache.then)? {
+      if let Some((promise, settler)) = create_wrapped(env, wrapper, cache.then, true)? {
         return Ok((promise, PromiseSettler::Thenable(settler)));
       }
     }
@@ -980,10 +1035,14 @@ pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSett
 /// `napi_create_promise` does not, and the wrapper throws it before any promise exists (see
 /// [`PROMISE_WRAPPER_SOURCE`]). That exception is the call's own, so it is cleared, and the
 /// promise does not depend on how much stack is left.
+///
+/// `owned` is `true` for a task, whose settler always comes back to the slot, and `false` for a
+/// [`DetachedPromise`], whose slot the env-teardown sweep frees.
 fn create_wrapped(
   env: sys::napi_env,
   wrapper: sys::napi_value,
   cached_then: Option<sys::napi_ref>,
+  owned: bool,
 ) -> Result<Option<(sys::napi_value, ThenableSettler)>> {
   if exception_pending(env) {
     return Ok(None);
@@ -991,8 +1050,9 @@ fn create_wrapped(
   let handle = with_slots(|slots| {
     slots.insert(Slot {
       env,
-      owned: true,
+      owned,
       state: SlotState::Waiting,
+      extra: ptr::null_mut(),
     })
   });
   let Some(handle) = handle else {
@@ -1051,6 +1111,7 @@ fn create_thenable_settler(
       env,
       owned: true,
       state: SlotState::Waiting,
+      extra: ptr::null_mut(),
     })
   });
   // Dropping the settler on an error below frees the slot.
@@ -1082,16 +1143,129 @@ fn create_thenable_settler(
   Ok(settler)
 }
 
+/// The promise of a `JsDeferred` (`#[napi] async fn`, `Env::spawn_future`,
+/// `Env::create_deferred`) in a thenable-mode env, made by the env's promise wrapper, so no
+/// `napi_deferred` exists. Its settle comes back through a threadsafe function, which env
+/// teardown may cut off, so its slot is not owned: the env-teardown sweep frees it if the settle
+/// never comes.
+///
+/// Plain data, so it may travel to any thread with the `JsDeferred`; only its env's JavaScript
+/// thread uses it. A stale one (the sweep already freed its slot) matches nothing and does
+/// nothing.
+#[cfg(feature = "napi4")]
+#[derive(Clone, Copy)]
+pub(crate) struct DetachedPromise {
+  handle: Handle,
+}
+
+/// The promise of a `JsDeferred` made in `env`, in thenable mode: `Ok(None)` when the caller
+/// must use `napi_create_promise` as before, that is on wasm, in deferred mode, without a
+/// registration record (no sweep would free the slot), or when the wrapper cannot be used for
+/// this one promise (see [`create_wrapped`] and the module docs).
+///
+/// The first call in an env may pick its settle mode (see the module docs): until now only an
+/// `AsyncTask` did that.
+#[cfg(feature = "napi4")]
+pub(crate) fn create_detached(
+  env: sys::napi_env,
+) -> Result<Option<(sys::napi_value, DetachedPromise)>> {
+  if cfg!(target_family = "wasm") {
+    return Ok(None);
+  }
+  let (mode, cache) = settle_mode_of(env);
+  if mode != SettleMode::Thenable {
+    return Ok(None);
+  }
+  if let Some((cache, wrapper)) =
+    cache.and_then(|cache| promise_wrapper(env, cache.wrapper).map(|wrapper| (cache, wrapper)))
+  {
+    if let Some((promise, mut settler)) = create_wrapped(env, wrapper, cache.then, false)? {
+      // The slot is not owned: dropping the settler must not free it.
+      if let Some(handle) = settler.handle.take() {
+        DETACHED_CREATED.fetch_add(1, Ordering::Relaxed);
+        return Ok(Some((promise, DetachedPromise { handle })));
+      }
+    }
+  }
+  DETACHED_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+  Ok(None)
+}
+
+#[cfg(feature = "napi4")]
+impl DetachedPromise {
+  /// Settles the promise once, on its env's JavaScript thread: through its resolving functions,
+  /// or kept for `then` when it has not run yet. Returns the raw status of the settling call.
+  /// Call [`Self::release`] afterwards on every path.
+  pub(crate) fn settle(
+    self,
+    env: sys::napi_env,
+    fulfill: bool,
+    value: sys::napi_value,
+  ) -> sys::napi_status {
+    let mut settler = ThenableSettler {
+      env,
+      handle: Some(self.handle),
+    };
+    let settlement = if fulfill {
+      Settlement::Fulfill(value)
+    } else {
+      Settlement::Reject(value)
+    };
+    let status = settler.settle(&settlement);
+    // Not owned: `release` frees the slot, not this drop.
+    settler.handle = None;
+    status
+  }
+
+  /// Frees the slot and what it holds, settled, refused or never settled. A kept outcome stays
+  /// for `then` (or for the sweep). On its env's JavaScript thread only.
+  pub(crate) fn release(self, env: sys::napi_env) {
+    ThenableSettler {
+      env,
+      handle: Some(self.handle),
+    }
+    .release();
+  }
+
+  /// Keeps `reference` in the slot, so that the env-teardown sweep deletes it if nothing takes it
+  /// back. `false` when the slot is gone or already keeps one: the caller still owns `reference`
+  /// then.
+  #[cfg_attr(not(feature = "deferred_trace"), allow(dead_code))]
+  pub(crate) fn set_extra(self, env: sys::napi_env, reference: sys::napi_ref) -> bool {
+    with_slots(|slots| match slots.get_mut(self.handle, env) {
+      Some(slot) if slot.extra.is_null() => {
+        slot.extra = reference;
+        true
+      }
+      _ => false,
+    })
+    .unwrap_or(false)
+  }
+
+  /// Takes back what [`Self::set_extra`] kept, if the slot still has it.
+  #[cfg_attr(not(feature = "deferred_trace"), allow(dead_code))]
+  pub(crate) fn take_extra(self, env: sys::napi_env) -> Option<sys::napi_ref> {
+    with_slots(|slots| {
+      let slot = slots.get_mut(self.handle, env)?;
+      let extra = std::mem::replace(&mut slot.extra, ptr::null_mut());
+      (!extra.is_null()).then_some(extra)
+    })
+    .flatten()
+  }
+}
+
 /// Env-teardown sweep, called from the env's registration cleanup: frees the kept outcomes of
-/// tasks whose `then` never came. Nothing can call `then` for this env any more. Slots still
-/// owned by a task are left to it: its completion callback runs before the env is freed.
+/// tasks whose `then` never came, and every [`DetachedPromise`] slot of the env, settled or not.
+/// Nothing can call `then` for this env any more, and a `JsDeferred` settle that still comes
+/// finds no slot. Slots still owned by a task are left to it: its completion callback runs
+/// before the env is freed.
 #[cfg(all(
   not(feature = "noop"),
   any(feature = "napi3", not(target_family = "wasm"))
 ))]
 pub(crate) fn release_env_promise_states(env: sys::napi_env) {
-  let holders = with_slots(|slots| {
-    let mut holders = Vec::new();
+  let references = with_slots(|slots| {
+    let mut references = Vec::new();
     for index in 0..slots.entries.len() {
       let entry = &slots.entries[index];
       let Some(slot) = entry.slot.as_ref() else {
@@ -1104,15 +1278,28 @@ pub(crate) fn release_env_promise_states(env: sys::napi_env) {
         index: index as u32,
         generation: entry.generation,
       };
-      if let SlotState::Kept { holder, .. } = slots.remove(handle).state {
-        holders.push(holder);
+      let slot = slots.remove(handle);
+      if !slot.extra.is_null() {
+        references.push(slot.extra);
+      }
+      match slot.state {
+        SlotState::Kept { holder, .. } => references.push(holder),
+        // Only a detached promise gets here with its resolving functions: its settle never came
+        // back to this env.
+        SlotState::Resolvers { resolve, reject } => {
+          references.push(resolve);
+          references.push(reject);
+          RESOLVERS_RELEASED.fetch_add(1, Ordering::Relaxed);
+        }
+        SlotState::Waiting => {}
       }
     }
-    holders
+    references
   })
   .unwrap_or_default();
-  for holder in holders {
-    unsafe { sys::napi_delete_reference(env, holder) };
+  // No `NAPI_PREAMBLE`: legal while the env refuses JavaScript.
+  for reference in references {
+    unsafe { sys::napi_delete_reference(env, reference) };
   }
 }
 

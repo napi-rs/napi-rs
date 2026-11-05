@@ -24,8 +24,11 @@ pub(crate) use promise::release_env_promise_states;
 pub use promise::{
   async_task_promise_resolvers_released, async_task_promise_settle_mode,
   async_task_promise_states_freed, async_task_promise_wrapper_fallbacks,
-  async_task_promise_wrappers_compiled,
+  async_task_promise_wrappers_compiled, js_deferred_promise_fallbacks,
+  js_deferred_thenable_promises_created,
 };
+#[cfg(feature = "napi4")]
+pub(crate) use promise::{create_detached, DetachedPromise};
 use promise::{PromiseSettler, Settlement};
 pub(crate) use settle_mode::SettleMode;
 
