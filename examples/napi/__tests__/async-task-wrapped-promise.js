@@ -2,7 +2,8 @@ import { createRequire } from 'node:module'
 import { Worker, isMainThread } from 'node:worker_threads'
 
 // Tampers with the Promise machinery the way an instrumentation preload or a hostile script can,
-// then runs AsyncTasks. No AsyncTask may run the tampered code, and every promise must settle.
+// then runs AsyncTasks and `#[napi] async fn`s. None may run the tampered code, and every promise
+// must settle.
 // Usage: node <this file> proxy|throwing|constructor|then-accessors [main|worker]
 // `worker` runs the same checks in a worker, whose env settles through the thenable; the main
 // thread settles through the deferred.
@@ -146,9 +147,12 @@ async function runChecks() {
   for (let i = 0; i < TASKS; i++) {
     promises.push(native.asyncTaskCounted())
   }
+  for (let i = 0; i < TASKS; i++) {
+    promises.push(native.asyncFnSleep(0))
+  }
 
   const timeout = setTimeout(() => {
-    console.error('AsyncTask promise still pending after 5000 ms')
+    console.error('AsyncTask or async fn promise still pending after 5000 ms')
     process.exit(1)
   }, 5000)
   // `await` on a native promise whose `constructor` is the intrinsic reads no `then`; otherwise it
@@ -178,21 +182,28 @@ async function runChecks() {
       after.promiseWrappersCompiled - before.promiseWrappersCompiled,
     wrapperFallbacks:
       after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
+    asyncFnThenable:
+      after.jsDeferredThenableCreated - before.jsDeferredThenableCreated,
+    asyncFnFallbacks: after.jsDeferredFallbacks - before.jsDeferredFallbacks,
   }
   if (
     settleMode !== expectedMode ||
     callsDuringTasks !== 0 ||
-    values.length !== TASKS ||
+    values.length !== 2 * TASKS ||
     values.some((value) => value !== 0) ||
     uncaught.length !== 0 ||
     !result.prototypeIsIntrinsic ||
     // Deferred mode creates no promise state.
-    result.promiseStatesFreed !== (expectedMode === 'thenable' ? TASKS : 0) ||
+    result.promiseStatesFreed !==
+      (expectedMode === 'thenable' ? 2 * TASKS : 0) ||
     result.dropped !== TASKS ||
     // A thenable-mode env compiles its promise wrapper at its first task, in the tampered realm,
     // and makes every promise with it.
     result.wrappersCompiled !== (expectedMode === 'thenable' ? 1 : 0) ||
-    result.wrapperFallbacks !== 0
+    result.wrapperFallbacks !== 0 ||
+    // The async fns used the same wrapper.
+    result.asyncFnThenable !== (expectedMode === 'thenable' ? TASKS : 0) ||
+    result.asyncFnFallbacks !== 0
   ) {
     console.error(JSON.stringify(result))
     process.exitCode = 1

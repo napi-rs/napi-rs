@@ -14,7 +14,10 @@ use napi::{bindgen_prelude::*, AsyncWorkPromise};
 //   `napi_create_promise` deferred settled there is refused and never freed), including the
 //   resolving functions of promises whose `then` already ran (`promise_resolvers_released`);
 // * the main thread and WASI settle through the deferred; a worker, Electron and the other hosts
-//   whose envs can die before the process settle through the thenable.
+//   whose envs can die before the process settle through the thenable;
+// * the same for `#[napi] async fn` promises (`JsDeferred`), whose settle comes back through a
+//   threadsafe function: a worker terminated with them in flight or queued must free every
+//   promise's settle state too.
 
 static RESOLVE_CALLS: AtomicU32 = AtomicU32::new(0);
 static FINALLY_CALLS: AtomicU32 = AtomicU32::new(0);
@@ -22,6 +25,8 @@ static TASKS_CREATED: AtomicU32 = AtomicU32::new(0);
 static TASKS_DROPPED: AtomicU32 = AtomicU32::new(0);
 static SPAWNED_EXECUTING: AtomicBool = AtomicBool::new(false);
 static SPAWNED_RELEASED: AtomicBool = AtomicBool::new(false);
+static ASYNC_FN_SLEEPS_STARTED: AtomicU32 = AtomicU32::new(0);
+static ASYNC_FN_SLEEPS_FINISHED: AtomicU32 = AtomicU32::new(0);
 
 #[napi(object)]
 pub struct AsyncTaskSettleCounters {
@@ -39,6 +44,14 @@ pub struct AsyncTaskSettleCounters {
   pub promise_wrappers_compiled: u32,
   /// Thenable-mode promises made from a deferred, because their env had no promise wrapper.
   pub promise_wrapper_fallbacks: u32,
+  /// `#[napi] async fn` (`JsDeferred`) promises made by the promise wrapper, without a deferred.
+  /// Their settle states are counted in `promise_states_freed` too.
+  pub js_deferred_thenable_created: u32,
+  /// Thenable-mode `#[napi] async fn` promises made from a deferred instead.
+  pub js_deferred_fallbacks: u32,
+  /// `asyncFnSleep` calls whose future started, and whose future finished.
+  pub async_fn_sleeps_started: u32,
+  pub async_fn_sleeps_finished: u32,
 }
 
 #[napi]
@@ -53,7 +66,22 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
       as u32,
     promise_wrappers_compiled: napi::bindgen_prelude::async_task_promise_wrappers_compiled() as u32,
     promise_wrapper_fallbacks: napi::bindgen_prelude::async_task_promise_wrapper_fallbacks() as u32,
+    js_deferred_thenable_created: napi::bindgen_prelude::js_deferred_thenable_promises_created()
+      as u32,
+    js_deferred_fallbacks: napi::bindgen_prelude::js_deferred_promise_fallbacks() as u32,
+    async_fn_sleeps_started: ASYNC_FN_SLEEPS_STARTED.load(Ordering::SeqCst),
+    async_fn_sleeps_finished: ASYNC_FN_SLEEPS_FINISHED.load(Ordering::SeqCst),
   }
+}
+
+/// An `async fn` that sleeps `ms` on the async runtime and resolves with `ms`. It counts when its
+/// future starts and finishes, so a test can tell that a worker was terminated while it ran.
+#[napi]
+pub async fn async_fn_sleep(ms: u32) -> u32 {
+  ASYNC_FN_SLEEPS_STARTED.fetch_add(1, Ordering::SeqCst);
+  tokio::time::sleep(Duration::from_millis(ms as u64)).await;
+  ASYNC_FN_SLEEPS_FINISHED.fetch_add(1, Ordering::SeqCst);
+  ms
 }
 
 /// How this env settles `AsyncTask` promises: `deferred` (main thread, WASI) or `thenable`
