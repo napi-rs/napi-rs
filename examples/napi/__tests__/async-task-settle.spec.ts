@@ -192,11 +192,13 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   },
 )
 
-// The settle mode is picked from `process.versions` before the loop check: Electron, NW.js and a
-// read that throws give `thenable` on the main thread too. Without `versions.bun`, Node is still
-// found by its exported symbol (`deleted-bun`). A faked `versions.bun` (any version) is placed by
-// its OS thread, never by libuv: `deferred` on the main thread (`thenable` on Windows), and
-// `thenable` in a Worker (`bun-worker`). Spawned, since the versions must be faked before the load.
+// The settle mode is picked at the env's first task, from `process.versions` before the loop
+// check: Electron, NW.js and a read that throws give `thenable` on the main thread too. Without
+// `versions.bun`, Node is still found by its exported symbol (`deleted-bun`). A faked
+// `versions.bun` (any version) is placed by its OS thread, never by libuv: `deferred` on the main
+// thread (`thenable` on Windows), and `thenable` in a Worker (`bun-worker`). A getter that loads
+// another addon must not run while the addon registers, where Node holds its addon-loader lock,
+// which is not re-entrant (`getter-dlopen`). Spawned, since the versions are faked before the load.
 for (const [variant, expected] of [
   ['control', 'deferred'],
   ['deleted-bun', 'deferred'],
@@ -205,6 +207,7 @@ for (const [variant, expected] of [
   ['bun', process.platform === 'win32' ? 'thenable' : 'deferred'],
   ['bun-worker', 'thenable'],
   ['throwing-versions', 'thenable'],
+  ['getter-dlopen', 'deferred'],
 ] as const) {
   test.skipIf(Boolean(process.env.WASI_TEST))(
     `the settle mode follows process.versions (${variant})`,

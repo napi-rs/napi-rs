@@ -26,8 +26,6 @@ pub use promise::{
   async_task_promise_states_freed,
 };
 use promise::{PromiseSettler, Settlement};
-#[cfg(not(feature = "noop"))]
-pub(crate) use settle_mode::detect as detect_settle_mode;
 pub(crate) use settle_mode::SettleMode;
 
 struct AsyncWork<'task, T: ScopedTask<'task>> {

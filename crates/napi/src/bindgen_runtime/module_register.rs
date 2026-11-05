@@ -964,14 +964,14 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // because class lookups read the record. The async runtime and its cleanup hook
   // still run, because `MODULE_COUNT` was already bumped above and
   // `thread_cleanup` is its only decrement.
-  //
-  // Pick how this env's `AsyncTask` promises settle (see
-  // `crate::async_work::detect_settle_mode`) before its record exists, so every task of
-  // this env sees the mode, including tasks that the module-init callbacks below spawn.
-  // It may read `process.versions`, so it runs while no registration borrow is held. It
-  // never throws and never clears an exception it did not cause.
-  let settle_mode = crate::async_work::detect_settle_mode(env);
-  let registration = crate::bindgen_runtime::env_registration::begin(env, settle_mode);
+  let registration = crate::bindgen_runtime::env_registration::begin(env);
+  // The record stays marked as registering until this function returns, on every path. How
+  // this env's `AsyncTask` promises settle is picked at its first task after that (see
+  // `crate::async_work::promise`): the check reads `process.versions`, whose getter may load
+  // another addon, and Node holds its addon-loader lock, which is not re-entrant, while this
+  // addon registers. Tasks that the module-init callbacks below create take the thenable path.
+  let _registering =
+    registration.map(crate::bindgen_runtime::env_registration::RegisteringGuard::new);
   if registration.is_none() {
     unsafe {
       sys::napi_throw_error(

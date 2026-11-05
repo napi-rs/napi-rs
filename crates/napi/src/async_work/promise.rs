@@ -7,8 +7,13 @@
 //! frees the env), and a deferred settled there is never freed: 16 bytes of C++ heap per task,
 //! per terminated worker, on every Node version.
 //!
-//! Each env settles its promises one of two ways, picked once when this addon registers into it
-//! ([`SettleMode`], `settle_mode.rs`):
+//! Each env settles its promises one of two ways ([`SettleMode`], `settle_mode.rs`), picked once,
+//! at the env's first task after this addon's registration into it has returned. Not while it
+//! registers: the check reads `process.versions`, whose getter may load another addon, and Node
+//! holds its addon-loader lock while an addon registers. That lock is not re-entrant, so the
+//! nested load would abort the process. A task created while this addon registers (by module-init
+//! code) takes the thenable path and decides nothing; so does a task created by a getter while
+//! the check runs.
 //!
 //! * **Deferred**, where the env can only die with its process: the main env of Node (the env's
 //!   loop is `uv_default_loop()`), the main env of Bun (it runs on the process main thread), and
@@ -90,6 +95,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::settle_mode::SettleMode;
+use crate::bindgen_runtime::env_registration::RegistrationId;
 use crate::{check_status, sys, Error, Result, Status};
 
 /// Counts the per-task promise states freed, read through [`async_task_promise_states_freed`].
@@ -121,7 +127,9 @@ pub fn async_task_promise_resolvers_released() -> usize {
 }
 
 /// `"deferred"` or `"thenable"`: how `AsyncTask` / `Env::spawn` promises created in `env`
-/// right now are settled. `"thenable"` for an env this addon has no record of.
+/// right now are settled. Picks the env's mode the way its first task would, when it is not
+/// picked yet: `"thenable"`, picking nothing, while this addon registers into `env`.
+/// `"thenable"` for an env this addon has no record of.
 ///
 /// Introspection hook for napi-rs' own tests. No stability guarantee.
 #[doc(hidden)]
@@ -130,13 +138,43 @@ pub fn async_task_promise_settle_mode(env: sys::napi_env) -> &'static str {
 }
 
 /// The settle mode of `env`, and its cached `then` when it has one: one record lookup on
-/// native, none on wasm.
+/// native once the mode is picked, none on wasm. Picks it at the env's first call after
+/// registration (see the module docs).
 fn settle_mode_of(env: sys::napi_env) -> (SettleMode, Option<sys::napi_ref>) {
+  use crate::bindgen_runtime::env_registration::{self, PromiseSettle};
+
   if cfg!(target_family = "wasm") {
     return (SettleMode::Deferred, None);
   }
-  crate::bindgen_runtime::env_registration::promise_settle(env)
-    .unwrap_or((SettleMode::Thenable, None))
+  match env_registration::promise_settle(env) {
+    Some((_, PromiseSettle::Decided(mode), then)) => (mode, then),
+    Some((id, PromiseSettle::Undecided, then)) => (decide_settle_mode(env, id), then),
+    // Still registering, or another call is picking the mode right now.
+    Some((_, PromiseSettle::Registering | PromiseSettle::Deciding, then)) => {
+      (SettleMode::Thenable, then)
+    }
+    None => (SettleMode::Thenable, None),
+  }
+}
+
+/// Picks and stores the settle mode of the record `id` of `env`. Runs inside a call into
+/// `env` on its thread, after registration returned: no loader lock is held. The check may
+/// run user getters, which may create tasks; those see `Deciding` and take the thenable path.
+#[cold]
+fn decide_settle_mode(env: sys::napi_env, id: RegistrationId) -> SettleMode {
+  use crate::bindgen_runtime::env_registration;
+
+  // An exception pending now says nothing about the host: decide at a later task.
+  if exception_pending(env) || !env_registration::start_promise_settle_decision(id) {
+    return SettleMode::Thenable;
+  }
+  #[cfg(not(feature = "noop"))]
+  let mode = super::settle_mode::detect(env);
+  // Nothing registers under `noop`, so there is no record to decide for.
+  #[cfg(feature = "noop")]
+  let mode = SettleMode::Thenable;
+  env_registration::finish_promise_settle_decision(id, mode);
+  mode
 }
 
 /// The value a promise is settled with.
