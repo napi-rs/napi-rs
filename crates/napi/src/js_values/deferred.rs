@@ -837,6 +837,18 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
 /// the environment cleanup barrier is running on the owning thread and the queue would not be
 /// dispatched in time. It must therefore assume nothing about which one it is: `env` is a live
 /// environment on the owning thread in both.
+/// Whether `err` is an env's refusal to run JavaScript, not an exception: the status of a
+/// refused call (`napi_pending_exception`, or `napi_cannot_run_js` for a Node-API 10 module,
+/// which has no [`Status`](crate::Status) of its own) with no exception pending.
+fn refused_by_env(env: sys::napi_env, err: &Error) -> bool {
+  let mut pending = false;
+  matches!(
+    err.status,
+    crate::Status::PendingException | crate::Status::Unknown
+  ) && unsafe { sys::napi_is_exception_pending(env, &mut pending) } == sys::Status::napi_ok
+    && !pending
+}
+
 fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   env: sys::napi_env,
   deferred_data: DeferredData<Data, Resolver>,
@@ -909,7 +921,12 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
           finalize_callback(env);
         }
         if cfg!(debug_assertions) {
-          eprintln!("Failed to reject deferred: {err:?}");
+          // An env that cannot run JavaScript any more (worker terminate, env teardown) refuses
+          // to build the rejection, and would refuse to deliver it. That is expected, and it
+          // happens once per promise in flight: say nothing.
+          if !refused_by_env(env, &err) {
+            eprintln!("Failed to reject deferred: {err:?}");
+          }
           let mut err = ptr::null_mut();
           let mut err_msg = ptr::null_mut();
           unsafe {
