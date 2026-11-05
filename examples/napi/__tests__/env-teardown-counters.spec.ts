@@ -53,6 +53,28 @@ for (const loads of [1, 3]) {
   )
 }
 
+// The late sentinel's strong reference must be deleted at every env teardown, also when no value
+// keeps the env's custom-GC handle alive by then (here: nothing is used at all). Node never frees
+// a reference the addon created, so a missed one leaks 48 B per env.
+for (const loads of [1, 3]) {
+  test.serial(
+    `env teardown deletes the late sentinel of each of ${loads} load(s)`,
+    async (t) => {
+      if (process.env.WASI_TEST) {
+        t.pass()
+        return
+      }
+      t.is(
+        await teardownDelta(
+          () => customGcRefCounts().sentinelRefsDeleted,
+          loads,
+        ),
+        loads,
+      )
+    },
+  )
+}
+
 test.serial(
   'env teardown deletes the class constructors of each load',
   async (t) => {
@@ -79,6 +101,7 @@ function customGcDelta(before: CustomGcRefCounts) {
     leftPending: after.leftPending - before.leftPending,
     drainCallbacks: after.drainCallbacks - before.drainCallbacks,
     largestDrain: after.largestDrain,
+    sentinelRefsDeleted: after.sentinelRefsDeleted - before.sentinelRefsDeleted,
   }
 }
 
@@ -175,6 +198,8 @@ test.serial(
     t.is(delta.deletedAtTeardown, 100)
     t.is(delta.leakedAtTeardown, 0)
     t.is(delta.leftPending, 0)
+    // Here the handle is still alive when the sentinel runs.
+    t.is(delta.sentinelRefsDeleted, 1)
   },
 )
 
