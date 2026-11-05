@@ -30,6 +30,7 @@ import {
   restrictWasiNodeEngine,
   serializeJson,
   wasiLoaderSuffix,
+  wasiPackageCpu,
   wasiTargetHasThreads,
   withFileSystemReconciliation,
   type FileSystemTransactionWrite,
@@ -470,14 +471,12 @@ async function createNpmDirsUnlocked(
     const scopedPackageJson: CommonPackageJsonFields = {
       name: `${packageName}-${target.platformArchABI}`,
       version: packageJson.version,
-      // WASI modules execute inside a normal host Node/browser/workerd process.
-      // Marking them as cpu=wasm32 makes npm reject direct installation and
-      // silently skip the package when it is an optional dependency on x64 or
-      // arm64 hosts.
       cpu:
-        target.arch !== 'universal' && target.arch !== 'wasm32'
-          ? [target.arch]
-          : undefined,
+        target.arch === 'wasm32'
+          ? wasiPackageCpu(targets, wasm)
+          : target.arch !== 'universal'
+            ? [target.arch]
+            : undefined,
       main: binaryFileName,
       files: [binaryFileName],
       ...pick(

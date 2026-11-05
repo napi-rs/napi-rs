@@ -9,6 +9,7 @@ import test from 'ava'
 import {
   collectRootPackagePathReferences,
   parseNpmPackFiles,
+  prePublish,
   resolveRootOptionalDependencies,
   resolveRootPublisher,
   rootPublisherRewritesRootExports,
@@ -25,7 +26,6 @@ const NATIVE_TARGETS = ['aarch64-apple-darwin', 'x86_64-unknown-linux-gnu'].map(
   parseTriple,
 )
 const WASI_TARGET = parseTriple('wasm32-wasip1-threads')
-const THREADLESS_WASI_TARGET = parseTriple('wasm32-wasip1')
 
 const NATIVE_ENTRIES = {
   [`${PACKAGE_NAME}-darwin-arm64`]: VERSION,
@@ -48,63 +48,25 @@ function resolve(
   })
 }
 
-test('omits the WASI package when native targets are configured', (t) => {
-  // The WASI binary is a require-time fallback, not something npm should
-  // install on hosts that already resolved a native package.
-  t.deepEqual(resolve([...NATIVE_TARGETS, WASI_TARGET]), NATIVE_ENTRIES)
-})
-
-test('omits the threadless WASI package too', (t) => {
-  t.deepEqual(
-    resolve([...NATIVE_TARGETS, THREADLESS_WASI_TARGET]),
-    NATIVE_ENTRIES,
-  )
-})
-
-test('declares the WASI package when it is the only target', (t) => {
-  // With no native package to fall back from, WASI is the primary artifact.
-  t.deepEqual(resolve([WASI_TARGET]), {
+test('declares the WASI package alongside native targets', (t) => {
+  // The WASI package carries cpu: ["wasm32"] in this case, so package managers
+  // skip it on ordinary hosts and install it only with --cpu=wasm32.
+  t.deepEqual(resolve([...NATIVE_TARGETS, WASI_TARGET]), {
+    ...NATIVE_ENTRIES,
     [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
   })
 })
 
-test('declares every WASI flavor when only WASI targets are configured', (t) => {
-  t.deepEqual(resolve([WASI_TARGET, THREADLESS_WASI_TARGET]), {
-    [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
-    [`${PACKAGE_NAME}-wasm32-wasip1`]: VERSION,
-  })
-})
-
-test('wasm.optionalDependency=true opts back into declaring WASI', (t) => {
+test('wasm.optionalDependency=false omits the WASI package', (t) => {
   t.deepEqual(
     resolve([...NATIVE_TARGETS, WASI_TARGET], {
-      wasm: { optionalDependency: true },
+      wasm: { optionalDependency: false },
     }),
-    {
-      ...NATIVE_ENTRIES,
-      [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
-    },
+    NATIVE_ENTRIES,
   )
-})
-
-test('wasm.optionalDependency=false opts out even for WASI-only builds', (t) => {
   t.deepEqual(
     resolve([WASI_TARGET], { wasm: { optionalDependency: false } }),
     {},
-  )
-})
-
-test('drops a stale WASI entry left over from a previous release', (t) => {
-  // Consumers upgrading from a release that did declare the WASI package must
-  // not keep the entry, otherwise the regression survives the fix.
-  t.deepEqual(
-    resolve([...NATIVE_TARGETS, WASI_TARGET], {
-      existing: {
-        ...NATIVE_ENTRIES,
-        [`${PACKAGE_NAME}-wasm32-wasi`]: '1.2.2',
-      },
-    }),
-    NATIVE_ENTRIES,
   )
 })
 
@@ -116,6 +78,7 @@ test('preserves unmanaged optionalDependencies', (t) => {
     {
       'unrelated-package': '^1.0.0',
       ...NATIVE_ENTRIES,
+      [`${PACKAGE_NAME}-wasm32-wasi`]: VERSION,
     },
   )
 })
@@ -709,4 +672,122 @@ test('rejects an invalid @napi-rs/async-runtime range', async (t) => {
   await t.throwsAsync(() => validateWasiReleasePackage(pkgDir, rootDir), {
     message: `Release package ${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI} has invalid ${ASYNC_RUNTIME_PACKAGE} dependency not a range`,
   })
+})
+
+test('rejects a WASI release package with a host cpu', async (t) => {
+  const { rootDir, pkgDir } = await createWasiReleasePackage({
+    loadersImportAsyncRuntime: false,
+    declareAsyncRuntime: false,
+  })
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+  const packageJsonPath = join(pkgDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.cpu = ['x64']
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
+
+  await t.throwsAsync(() => validateWasiReleasePackage(pkgDir, rootDir), {
+    message: `Release package ${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI} must declare cpu ["wasm32"] or omit cpu`,
+  })
+})
+
+async function prePublishWithStaleWasiCpu(
+  targets: string[],
+  staleCpu: string[] | undefined,
+  wasm?: { cpu?: boolean },
+) {
+  const { rootDir, pkgDir } = await createWasiReleasePackage({
+    loadersImportAsyncRuntime: false,
+    declareAsyncRuntime: false,
+  })
+  const wasiPackageJsonPath = join(pkgDir, 'package.json')
+  const wasiPackageJson = JSON.parse(
+    await readFile(wasiPackageJsonPath, 'utf8'),
+  )
+  if (staleCpu) {
+    wasiPackageJson.cpu = staleCpu
+  }
+  await writeFile(wasiPackageJsonPath, JSON.stringify(wasiPackageJson))
+
+  if (targets.includes('x86_64-unknown-linux-gnu')) {
+    const nativeDir = join(rootDir, 'npm', 'linux-x64-gnu')
+    const nativeArtifact = `${BINARY_NAME}.linux-x64-gnu.node`
+    await mkdir(nativeDir, { recursive: true })
+    await writeFile(join(nativeDir, nativeArtifact), '')
+    await writeFile(
+      join(nativeDir, 'package.json'),
+      JSON.stringify({
+        name: `${PACKAGE_NAME}-linux-x64-gnu`,
+        version: VERSION,
+        cpu: ['x64'],
+        main: nativeArtifact,
+        files: [nativeArtifact],
+        os: ['linux'],
+        libc: ['glibc'],
+      }),
+    )
+  }
+  await writeFile(
+    join(rootDir, 'package.json'),
+    JSON.stringify({
+      name: PACKAGE_NAME,
+      version: VERSION,
+      napi: { binaryName: BINARY_NAME, targets, wasm },
+    }),
+  )
+
+  await prePublish({
+    cwd: rootDir,
+    ghRelease: false,
+    skipOptionalPublish: true,
+  })
+
+  return {
+    rootDir,
+    wasiPackageJson: JSON.parse(await readFile(wasiPackageJsonPath, 'utf8')),
+    rootPackageJson: JSON.parse(
+      await readFile(join(rootDir, 'package.json'), 'utf8'),
+    ),
+  }
+}
+
+test('pre-publish adds cpu wasm32 to a WASI manifest from an older CLI', async (t) => {
+  const { rootDir, wasiPackageJson, rootPackageJson } =
+    await prePublishWithStaleWasiCpu(
+      ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+      undefined,
+    )
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  t.deepEqual(wasiPackageJson.cpu, ['wasm32'])
+  t.deepEqual(Object.keys(wasiPackageJson).slice(0, 3), [
+    'name',
+    'version',
+    'cpu',
+  ])
+  t.deepEqual(rootPackageJson.optionalDependencies, {
+    [`${PACKAGE_NAME}-linux-x64-gnu`]: VERSION,
+    [`${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI}`]: VERSION,
+  })
+})
+
+test('pre-publish removes cpu from a WASI-only manifest', async (t) => {
+  const { rootDir, wasiPackageJson, rootPackageJson } =
+    await prePublishWithStaleWasiCpu(['wasm32-wasip1-threads'], ['wasm32'])
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  t.false('cpu' in wasiPackageJson)
+  t.deepEqual(rootPackageJson.optionalDependencies, {
+    [`${PACKAGE_NAME}-${WASI_PLATFORM_ARCH_ABI}`]: VERSION,
+  })
+})
+
+test('pre-publish removes cpu when napi.wasm.cpu is false', async (t) => {
+  const { rootDir, wasiPackageJson } = await prePublishWithStaleWasiCpu(
+    ['x86_64-unknown-linux-gnu', 'wasm32-wasip1-threads'],
+    ['wasm32'],
+    { cpu: false },
+  )
+  t.teardown(() => rm(rootDir, { recursive: true, force: true }))
+
+  t.false('cpu' in wasiPackageJson)
 })
