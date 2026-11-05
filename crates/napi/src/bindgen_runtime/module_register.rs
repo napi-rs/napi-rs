@@ -964,7 +964,14 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // because class lookups read the record. The async runtime and its cleanup hook
   // still run, because `MODULE_COUNT` was already bumped above and
   // `thread_cleanup` is its only decrement.
-  let registration = crate::bindgen_runtime::env_registration::begin(env);
+  //
+  // Pick how this env's `AsyncTask` promises settle (see
+  // `crate::async_work::detect_settle_mode`) before its record exists, so every task of
+  // this env sees the mode, including tasks that the module-init callbacks below spawn.
+  // It may read `process.versions`, so it runs while no registration borrow is held. It
+  // never throws and never clears an exception it did not cause.
+  let settle_mode = crate::async_work::detect_settle_mode(env);
+  let registration = crate::bindgen_runtime::env_registration::begin(env, settle_mode);
   if registration.is_none() {
     unsafe {
       sys::napi_throw_error(

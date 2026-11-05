@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod promise;
+mod settle_mode;
 
 #[cfg(all(
   not(feature = "noop"),
@@ -20,8 +21,14 @@ mod promise;
 ))]
 pub(crate) use promise::release_env_promise_states;
 #[doc(hidden)]
-pub use promise::{async_task_promise_resolvers_released, async_task_promise_states_freed};
+pub use promise::{
+  async_task_promise_resolvers_released, async_task_promise_settle_mode,
+  async_task_promise_states_freed,
+};
 use promise::{PromiseSettler, Settlement};
+#[cfg(not(feature = "noop"))]
+pub(crate) use settle_mode::detect as detect_settle_mode;
+pub(crate) use settle_mode::SettleMode;
 
 struct AsyncWork<'task, T: ScopedTask<'task>> {
   // `Option` so `finally` can consume the task while the rest of the box stays owned here:
@@ -32,8 +39,9 @@ struct AsyncWork<'task, T: ScopedTask<'task>> {
   /// thread and released on the JavaScript thread in [`complete_impl`] once the task is
   /// destroyed; the scope's guards and roots go out with the last lease, not this one.
   borrow_lease: Option<NativeBorrowLease>,
-  /// Settles the promise handed to JavaScript. Dropped with the box on every path, which
-  /// releases the promise's resolving functions whether or not it settled.
+  /// Settles the promise handed to JavaScript. Dropped with the box on every path: a thenable
+  /// settler releases the promise's resolving functions whether or not it settled; a deferred
+  /// settler holds nothing to release (a deferred nobody settled stays with the env, as before).
   settler: PromiseSettler,
   value: mem::MaybeUninit<Result<T::Output>>,
   napi_async_work: sys::napi_async_work,
@@ -210,7 +218,7 @@ pub fn run<'task, T: ScopedTask<'task>>(
     status: task_status.clone(),
   }));
   // `run` still owns the `AsyncWork` allocation until `napi_queue_async_work` succeeds, so a
-  // failed create/queue must reclaim it: the task, the promise's resolving functions and the
+  // failed create/queue must reclaim it: the task, the promise's settle state and the
   // deferred borrow lease drop here on the JavaScript thread instead of leaking.
   if let Err(err) = check_status!(
     unsafe {
@@ -229,7 +237,10 @@ pub fn run<'task, T: ScopedTask<'task>>(
     // `env` is live on the owner thread here, so the lease releases its roots directly
     // instead of leaking them on builds without the custom-GC delegate.
     let borrow_lease = result.borrow_lease.take();
-    drop(unsafe { Box::from_raw(result) });
+    let mut work = unsafe { Box::from_raw(result) };
+    // The promise was never handed out: end its settle state, so its deferred is freed.
+    work.settler.discard();
+    drop(work);
     if let Some(borrow_lease) = borrow_lease {
       borrow_lease.release(env);
     }
@@ -241,7 +252,10 @@ pub fn run<'task, T: ScopedTask<'task>>(
   ) {
     unsafe { sys::napi_delete_async_work(env, result.napi_async_work) };
     let borrow_lease = result.borrow_lease.take();
-    drop(unsafe { Box::from_raw(result) });
+    let mut work = unsafe { Box::from_raw(result) };
+    // The promise was never handed out: end its settle state, so its deferred is freed.
+    work.settler.discard();
+    drop(work);
     if let Some(borrow_lease) = borrow_lease {
       borrow_lease.release(env);
     }
@@ -295,7 +309,8 @@ unsafe extern "C" fn complete<'task, T: ScopedTask<'task>>(
 /// left alone; callers then skip `finally` just as they do after a settlement
 /// error, because there is no JavaScript left for it to run against. An
 /// exception left pending on a live env rejects the promise instead (see
-/// [`promise::conclude`]).
+/// [`promise::conclude`]; a deferred refused during teardown stays with the env,
+/// which only deferred-mode envs do, and only at process or realm exit).
 fn settle<'task, T: ScopedTask<'task>>(
   env: sys::napi_env,
   status: sys::napi_status,
@@ -354,8 +369,9 @@ fn settle<'task, T: ScopedTask<'task>>(
   // The work was cancelled through `AsyncWorkPromise`/`AbortSignal` and still completed with
   // `napi_ok`. Both reset the status when the cancellation is refused, so only a host that
   // reports success for a cancellation and then completes the work anyway gets here. The
-  // promise is deliberately left alone (the settler releases its references when the box
-  // drops), but settlement ran its course, so `finally` still applies.
+  // promise is deliberately left alone, as before: a thenable settler releases its references
+  // when the box drops, a deferred settler leaves the deferred to the env. Settlement ran its
+  // course, so `finally` still applies.
   Ok(true)
 }
 
@@ -387,8 +403,8 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   // it reads 1, and a stale status would send them to freed memory.
   work.status.set(1);
   // `finally` runs only when settlement ran — an error or a dead env skips it,
-  // same as before. Dropping the box below releases the promise's resolving
-  // functions on every one of these paths.
+  // same as before. Dropping the box below releases the promise's settle state
+  // on every one of these paths.
   let result = match settle_result {
     Ok(true) => work
       .inner_task

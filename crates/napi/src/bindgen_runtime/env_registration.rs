@@ -36,7 +36,7 @@ use rustc_hash::FxBuildHasher;
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_runtime::module_register::CustomGcHandle;
-use crate::sys;
+use crate::{async_work::SettleMode, sys};
 
 /// Identifies one registration of this addon into one env. Starts at 1 and is
 /// never reused.
@@ -70,8 +70,12 @@ pub(crate) struct EnvRegistration {
   /// Holder object for the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
   /// pair, see `crate::error::cache_reflect_intrinsics_for_env`.
   reflect_intrinsics: Option<sys::napi_ref>,
+  /// How this env's `AsyncTask` promises are settled, picked once before the record was
+  /// made (see `crate::async_work::detect_settle_mode`). Holds no reference.
+  promise_settle: SettleMode,
   /// The native `then` shared by the thenables that settle this env's `AsyncTask`
-  /// promises, see `crate::async_work::promise`. Created on first use.
+  /// promises, see `crate::async_work::promise`. Created on first use. Only used when
+  /// `promise_settle` is `Thenable`.
   promise_then: Option<sys::napi_ref>,
   /// This env's custom-GC threadsafe function, see
   /// `crate::bindgen_runtime::module_register::create_custom_gc`. The record
@@ -119,11 +123,12 @@ thread_local! {
 /// could not be added. In that case nothing is recorded, and the load must fail,
 /// because nothing would ever delete what it caches.
 ///
-/// Call it after `create_custom_gc` and before the first module-init callback:
-/// hooks run newest first, so this record then outlives every hook that the
-/// module's exports add, and is gone before Node's own custom-GC TSFN cleanup.
+/// Call it after `create_custom_gc` and `detect_settle_mode`, and before the first
+/// module-init callback: hooks run newest first, so this record then outlives every
+/// hook that the module's exports add, and is gone before Node's own custom-GC TSFN
+/// cleanup. `promise_settle` is kept in the record for every task of `env`.
 #[cfg(not(feature = "noop"))]
-pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
+pub(crate) fn begin(env: sys::napi_env, promise_settle: SettleMode) -> Option<RegistrationId> {
   let id = NEXT_REGISTRATION_ID.fetch_add(1, Ordering::Relaxed);
   #[cfg(feature = "napi3")]
   {
@@ -142,7 +147,7 @@ pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
       return None;
     }
     // The hook stays added either way; finding no record, it does nothing.
-    push_registration(new_registration(id, env)).then_some(id)
+    push_registration(new_registration(id, env, promise_settle)).then_some(id)
   }
   #[cfg(all(not(feature = "napi3"), not(target_family = "wasm")))]
   {
@@ -164,7 +169,7 @@ pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
     if !observed {
       return None;
     }
-    let mut registration = new_registration(id, env);
+    let mut registration = new_registration(id, env, promise_settle);
     registration.sentinel_ref = sentinel_ref;
     if push_registration(registration) {
       Some(id)
@@ -182,7 +187,7 @@ pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
         // longer serves, and dropping them keeps a reused env address from
         // matching a stale record.
         registrations.clear();
-        registrations.push(new_registration(id, env));
+        registrations.push(new_registration(id, env, promise_settle));
         Some(id)
       })
       .ok()
@@ -192,11 +197,16 @@ pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
 
 /// An empty record for `id` in `env`.
 #[cfg(not(feature = "noop"))]
-fn new_registration(id: RegistrationId, env: sys::napi_env) -> EnvRegistration {
+fn new_registration(
+  id: RegistrationId,
+  env: sys::napi_env,
+  promise_settle: SettleMode,
+) -> EnvRegistration {
   EnvRegistration {
     id,
     env,
     reflect_intrinsics: None,
+    promise_settle,
     promise_then: None,
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     custom_gc: None,
@@ -392,16 +402,17 @@ pub(crate) fn set_promise_then(env: sys::napi_env, reference: sys::napi_ref) -> 
     .unwrap_or(false)
 }
 
-/// The shared `then` of `AsyncTask` thenables in `env`, from its newest live record.
-pub(crate) fn promise_then(env: sys::napi_env) -> Option<sys::napi_ref> {
+/// The settle mode and the cached shared `then` of `env`'s `AsyncTask` promises, from
+/// its newest live record, in one scan. `None` when `env` has no live record.
+pub(crate) fn promise_settle(env: sys::napi_env) -> Option<(SettleMode, Option<sys::napi_ref>)> {
   ENV_REGISTRATIONS
     .try_with(|registrations| {
       let registrations = registrations.try_borrow().ok()?;
-      registrations
+      let registration = registrations
         .iter()
         .rev()
-        .find(|registration| registration.env == env)?
-        .promise_then
+        .find(|registration| registration.env == env)?;
+      Some((registration.promise_settle, registration.promise_then))
     })
     .ok()
     .flatten()
