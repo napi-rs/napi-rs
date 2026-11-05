@@ -10,21 +10,25 @@
 //! Each env settles its promises one of two ways, picked once when this addon registers into it
 //! ([`SettleMode`], `settle_mode.rs`):
 //!
-//! * **Deferred**, where the env can only die with its process: the main env of Node and Bun
-//!   (the env's loop is `uv_default_loop()`), and every wasm env (emnapi refuses JavaScript only
-//!   after `Context.destroy()`; the refused deferred dies with the realm, or stays until process
-//!   exit if the process continues after `beforeExit`, the same as before). The deferred is
-//!   settled when the task completes, as before. A task still in flight when such an env is torn
-//!   down leaks its deferred, which only happens on process exit there.
+//! * **Deferred**, where the env can only die with its process: the main env of Node (the env's
+//!   loop is `uv_default_loop()`), the main env of Bun (it runs on the process main thread), and
+//!   every wasm env (emnapi refuses JavaScript only after `Context.destroy()`; the refused
+//!   deferred dies with the realm, or stays until process exit if the process continues after
+//!   `beforeExit`, the same as before). The deferred is settled when the task completes, as
+//!   before. A task still in flight when such an env is torn down leaks its deferred, which only
+//!   happens on process exit there.
 //! * **Thenable**, everywhere else: workers, Electron and NW.js (whose renderer envs are freed
-//!   on navigation), Bun before 1.4.4 and Bun on Windows, Deno, and any host the check cannot
-//!   place. Described below. It costs about 2 µs more main-thread CPU per task.
+//!   on navigation), Bun on Windows, Deno, and any host the check cannot place. Described
+//!   below. It costs about 2 µs more main-thread CPU per task.
 //!
-//! On macOS, Linux and the other Unix hosts, a host that is neither Node-based (it exports
-//! `node::Buffer::Data`) nor Bun 1.4.4+ never has `uv_default_loop()` called. So a Bun below
-//! 1.4.4 whose `process.versions.bun` was removed takes the thenable path instead of reaching
-//! Bun's crash stub. Windows is unchanged: Node, Electron and Bun all have a real libuv there,
-//! and Deno does not export `uv_default_loop`.
+//! Bun is placed by its OS thread, never by libuv. Bun before 1.4.4 exports `uv_default_loop`
+//! as a stub that aborts the process, and `process.versions.bun` is writable, so no Bun ever
+//! has `uv_default_loop()` called. On other Unix hosts it is called only when the host is
+//! Node-based (it exports `node::Buffer::Data`). A faked `process.versions` can only move an env
+//! to the other mode: more CPU, or the 16 B deferred leak of the code before #3689. It never
+//! crashes the process or settles a promise wrongly. Windows is unchanged: Node, Electron and
+//! Bun all have a real libuv there, Deno does not export `uv_default_loop`, and Bun takes the
+//! thenable path because its main thread does not run the default loop there.
 //!
 //! In deferred mode a settling call behaves as before #3689: one that fails after Node freed the
 //! deferred gives `Err(generic_failure)` or `Ok(false)` from [`conclude`] and the promise stays

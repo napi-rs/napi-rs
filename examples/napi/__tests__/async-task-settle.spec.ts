@@ -192,21 +192,22 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   },
 )
 
-// The settle mode is picked from `process.versions` before the loop check: hosts that must use
-// the thenable path (Electron, NW.js, Bun before 1.4.4, Bun on Windows), and a read that throws,
-// give `thenable` on the main thread too. Without `versions.bun`, Node is still found by its
-// exported symbol (`deleted-bun`). Spawned, since the versions must be faked before the load.
+// The settle mode is picked from `process.versions` before the loop check: Electron, NW.js and a
+// read that throws give `thenable` on the main thread too. Without `versions.bun`, Node is still
+// found by its exported symbol (`deleted-bun`). A faked `versions.bun` (any version) is placed by
+// its OS thread, never by libuv: `deferred` on the main thread (`thenable` on Windows), and
+// `thenable` in a Worker (`bun-worker`). Spawned, since the versions must be faked before the load.
 for (const [variant, expected] of [
   ['control', 'deferred'],
   ['deleted-bun', 'deferred'],
   ['electron', 'thenable'],
   ['nw', 'thenable'],
-  ['bun-1.4.3', 'thenable'],
-  ['bun-1.4.4', process.platform === 'win32' ? 'thenable' : 'deferred'],
+  ['bun', process.platform === 'win32' ? 'thenable' : 'deferred'],
+  ['bun-worker', 'thenable'],
   ['throwing-versions', 'thenable'],
 ] as const) {
   test.skipIf(Boolean(process.env.WASI_TEST))(
-    `the main thread settle mode follows process.versions (${variant})`,
+    `the settle mode follows process.versions (${variant})`,
     (t) => {
       const result = spawnSync(
         process.execPath,
