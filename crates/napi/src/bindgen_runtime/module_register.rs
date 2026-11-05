@@ -178,17 +178,21 @@ static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 //   worker exits or is terminated while idle, but finalizes no wrapped object there, so neither
 //   the class instances nor the sentinel are finalized; a worker terminated while its JavaScript
 //   runs does not run the hook either, so the references waiting in `pending` leak too. The
-//   sentinel's own wrap and reference stay with Deno's env.
+//   sentinel's own wrap, wrap data (a `Weak` and an `Arc`, about 40 B) and reference stay with
+//   Deno's env.
 // * on wasm, references released after the hook: there is no sentinel, because a strongly
 //   referenced object would keep the whole emnapi instance alive.
 //
 // The env's registration record (`env_registration`) holds a strong `Arc` until its cleanup
 // hook runs. After that, the first reference that waits for the sentinel hands one to the handle
 // itself (`teardown_keep_alive`), which the sentinel takes back, so the handle and `pending`
-// outlive every class instance finalizer. The sentinel's wrap data is only a `Weak`, and nothing
-// waits for a sentinel that never runs unless a reference was released after the hook, so on
-// Deno nothing keeps the handle alive longer than before. Freeing the handle touches no Node/V8
-// resource.
+// outlive every class instance finalizer. The sentinel's wrap data (`CustomGcSentinel`) holds
+// only a `Weak` of the handle, and nothing waits for a sentinel that never runs unless a
+// reference was released after the hook, so on Deno nothing keeps the handle alive longer than
+// before. The wrap data also shares the sentinel's strong reference with the handle, so the
+// finalizer deletes that reference even when the handle is already gone, which is the usual
+// case: no value holds the handle after the hook. Otherwise every env would leak that reference
+// (48 B on Node), because Node never frees a reference the addon created, not even at teardown.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
   /// Null once the TSFN is released.
@@ -202,10 +206,11 @@ pub(crate) struct CustomGcHandle {
   /// Whether a wake is in flight. The callback clears it, under the `pending` lock, when it takes
   /// the last references, so a reference added after that sends a new wake.
   wake: AtomicBool,
-  /// Strong reference to the late sentinel. Null when there is none (creating it failed, or it
-  /// was given up at registration), and once its finalizer ran.
+  /// Strong reference to the late sentinel, shared with the sentinel's wrap data. Null when
+  /// there is none (creating it failed, or it was given up at registration), and once its
+  /// finalizer ran. Whoever swaps it out deletes it.
   #[cfg(not(target_family = "wasm"))]
-  sentinel_ref: std::sync::atomic::AtomicPtr<sys::napi_ref__>,
+  sentinel_ref: std::sync::Arc<std::sync::atomic::AtomicPtr<sys::napi_ref__>>,
   /// The handle itself, from the first reference that waits for the sentinel to the sentinel's
   /// finalizer.
   #[cfg(not(target_family = "wasm"))]
@@ -244,6 +249,8 @@ static REFS_LEAKED_AFTER_CLOSE: std::sync::atomic::AtomicUsize =
 static REFS_LEFT_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static DRAIN_CALLBACKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static LARGEST_DRAIN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static SENTINEL_REFS_DELETED: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
 
 /// What happened to the references released through the custom-GC handles of this process, on
 /// every env and every load of this addon. See [`custom_gc_ref_counters`].
@@ -262,6 +269,9 @@ pub struct CustomGcRefCounters {
   pub drain_callbacks: usize,
   /// The most references one custom-GC callback deleted.
   pub largest_drain: usize,
+  /// Strong references to late sentinels deleted (one per env that had a sentinel, at its
+  /// teardown or when it was given up at registration).
+  pub sentinel_refs_deleted: usize,
 }
 
 /// Introspection hook for napi-rs' own tests. No stability guarantee.
@@ -274,6 +284,7 @@ pub fn custom_gc_ref_counters() -> CustomGcRefCounters {
     left_pending: REFS_LEFT_PENDING.load(std::sync::atomic::Ordering::Relaxed),
     drain_callbacks: DRAIN_CALLBACKS.load(std::sync::atomic::Ordering::Relaxed),
     largest_drain: LARGEST_DRAIN.load(std::sync::atomic::Ordering::Relaxed),
+    sentinel_refs_deleted: SENTINEL_REFS_DELETED.load(std::sync::atomic::Ordering::Relaxed),
   }
 }
 
@@ -300,7 +311,7 @@ impl CustomGcHandle {
       pending: std::sync::Mutex::new(Vec::new()),
       wake: AtomicBool::new(false),
       #[cfg(not(target_family = "wasm"))]
-      sentinel_ref: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
+      sentinel_ref: std::sync::Arc::new(std::sync::atomic::AtomicPtr::new(ptr::null_mut())),
       #[cfg(not(target_family = "wasm"))]
       teardown_keep_alive: std::sync::Mutex::new(None),
     }
@@ -504,22 +515,17 @@ impl CustomGcHandle {
     {
       let sentinel_ref = self.sentinel_ref.swap(ptr::null_mut(), Ordering::SeqCst);
       if !sentinel_ref.is_null() {
-        unsafe { sys::napi_delete_reference(env, sentinel_ref) };
+        delete_sentinel_ref(env, sentinel_ref);
       }
     }
     #[cfg(target_family = "wasm")]
     let _ = env;
   }
 
-  /// From the late sentinel's finalizer: moves the phase to `Dead` and deletes every pending
-  /// reference, then the sentinel's own reference. On `env`'s JS thread, at env teardown.
+  /// From the late sentinel's finalizer, after it took the sentinel's reference: moves the phase
+  /// to `Dead` and deletes every pending reference. On `env`'s JS thread, at env teardown.
   #[cfg(not(target_family = "wasm"))]
   fn finish_teardown(&self, env: sys::napi_env) {
-    let sentinel_ref = self.sentinel_ref.swap(ptr::null_mut(), Ordering::SeqCst);
-    if sentinel_ref.is_null() {
-      // Given up at registration: collected as an ordinary object.
-      return;
-    }
     let (refs, keep_alive) = {
       let mut phase = self.write_phase();
       *phase = CustomGcPhase::Dead;
@@ -534,11 +540,18 @@ impl CustomGcHandle {
     };
     let deleted = delete_refs(env, refs);
     REFS_DELETED_AT_TEARDOWN.fetch_add(deleted, Ordering::Relaxed);
-    // A reference on the env's plain-reference list, which Node finalizes after this list, so
-    // deleting it here is allowed.
-    unsafe { sys::napi_delete_reference(env, sentinel_ref) };
     drop(keep_alive);
   }
+}
+
+/// Deletes the sentinel's strong reference, which the caller swapped out of `sentinel_ref`, so it
+/// is deleted once. On `env`'s JS thread, env alive or tearing down: the reference is on the env's
+/// plain-reference list, which Node finalizes after the list of wrapped objects
+/// (`napi_env__::DeleteMe`), so deleting it from the sentinel's finalizer is allowed.
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
+fn delete_sentinel_ref(env: sys::napi_env, sentinel_ref: sys::napi_ref) {
+  unsafe { sys::napi_delete_reference(env, sentinel_ref) };
+  SENTINEL_REFS_DELETED.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Unrefs each reference and deletes it at refcount 0, as each was created at refcount 1. Returns
@@ -1795,8 +1808,18 @@ fn create_custom_gc(env: sys::napi_env) -> Option<std::sync::Arc<CustomGcHandle>
   Some(handle)
 }
 
+/// Wrap data of a late sentinel.
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
+struct CustomGcSentinel {
+  /// Only a `Weak`: the sentinel must not keep the handle alive (on Deno it is never finalized).
+  handle: std::sync::Weak<CustomGcHandle>,
+  /// The handle's `sentinel_ref`. The finalizer deletes the reference through it even when the
+  /// handle is gone.
+  sentinel_ref: std::sync::Arc<std::sync::atomic::AtomicPtr<sys::napi_ref__>>,
+}
+
 /// Adds the late sentinel of `handle` (see `CustomGcHandle`): a plain object wrapped with
-/// `napi_wrap`, whose wrap data is a `Weak` of the handle, kept by a strong reference. Called
+/// `napi_wrap`, whose wrap data is a `CustomGcSentinel`, kept by a strong reference. Called
 /// before any module-init code. Best effort: without it, references released after the cleanup
 /// hook leak, as they did before.
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
@@ -1805,19 +1828,22 @@ fn create_custom_gc_sentinel(env: sys::napi_env, handle: &std::sync::Arc<CustomG
   if unsafe { sys::napi_create_object(env, &mut object) } != sys::Status::napi_ok {
     return;
   }
-  let token = std::sync::Arc::downgrade(handle).into_raw();
+  let data = Box::into_raw(Box::new(CustomGcSentinel {
+    handle: std::sync::Arc::downgrade(handle),
+    sentinel_ref: handle.sentinel_ref.clone(),
+  }));
   if unsafe {
     sys::napi_wrap(
       env,
       object,
-      token.cast_mut().cast(),
+      data.cast(),
       Some(custom_gc_sentinel_finalize),
       ptr::null_mut(),
       ptr::null_mut(),
     )
   } != sys::Status::napi_ok
   {
-    drop(unsafe { std::sync::Weak::from_raw(token) });
+    drop(unsafe { Box::from_raw(data) });
     return;
   }
   let mut sentinel_ref = ptr::null_mut();
@@ -1831,7 +1857,7 @@ fn create_custom_gc_sentinel(env: sys::napi_env, handle: &std::sync::Arc<CustomG
 }
 
 /// Finalizer of the late sentinel. Kept by a strong reference, it runs at env teardown, on the
-/// env's JS thread, while the env can still delete references. `data` is the `Weak` token.
+/// env's JS thread, while the env can still delete references. `data` is the `CustomGcSentinel`.
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 unsafe extern "C" fn custom_gc_sentinel_finalize(
   env: sys::napi_env,
@@ -1841,11 +1867,21 @@ unsafe extern "C" fn custom_gc_sentinel_finalize(
   if data.is_null() {
     return;
   }
-  // Reclaims the weak count on every path.
-  let token = unsafe { std::sync::Weak::<CustomGcHandle>::from_raw(data.cast()) };
-  if let Some(handle) = token.upgrade() {
+  let sentinel = unsafe { Box::from_raw(data.cast::<CustomGcSentinel>()) };
+  // Taken first, as before the phase change: a drop that finds no sentinel leaks its reference
+  // instead of waiting. Null when the sentinel was given up at registration and then collected
+  // as an ordinary object, or never got its reference: nothing to do.
+  let sentinel_ref = sentinel
+    .sentinel_ref
+    .swap(ptr::null_mut(), Ordering::SeqCst);
+  if sentinel_ref.is_null() {
+    return;
+  }
+  if let Some(handle) = sentinel.handle.upgrade() {
     handle.finish_teardown(env);
   }
+  // Deleted whether or not the handle is still alive.
+  delete_sentinel_ref(env, sentinel_ref);
 }
 
 #[cfg(all(
