@@ -45,6 +45,10 @@ const createWindowAndReload = async () => {
           evalBlocked: true,
           wrappersCompiled: 1,
           wrapperFallbacks: 0,
+          asyncFnValue: 1,
+          asyncFnThenable: 1,
+          asyncFnFallbacks: 0,
+          asyncFnStatesFreed: 1,
         })
         resolve()
       } catch (error) {
@@ -79,6 +83,7 @@ async function main() {
     asyncTaskPromiseSettleMode,
     asyncTaskCounted,
     asyncTaskSettleCounters,
+    asyncFnSleep,
   } = require('./index.cjs')
 
   // Electron always uses the thenable path, in its main process too.
@@ -95,6 +100,15 @@ async function main() {
     after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
     0,
   )
+  // An async fn promise is made by the same wrapper, without a deferred.
+  assert.strictEqual(await asyncFnSleep(1), 1)
+  const end = asyncTaskSettleCounters()
+  assert.strictEqual(
+    end.jsDeferredThenableCreated - after.jsDeferredThenableCreated,
+    1,
+  )
+  assert.strictEqual(end.jsDeferredFallbacks - after.jsDeferredFallbacks, 0)
+  assert.strictEqual(end.promiseStatesFreed - after.promiseStatesFreed, 1)
 
   const buf = await readFileAsync(__filename)
   assert(FILE_CONTENT === buf.toString('utf8'))
