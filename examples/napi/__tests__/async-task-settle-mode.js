@@ -1,7 +1,9 @@
-// Fakes `process.versions` the way another host would show it, then loads the addon and reports
-// the settle mode its env picked: the main-thread env, or for `bun-worker` the env of a
-// worker_threads Worker that fakes `versions.bun` and loads the addon itself.
-// Usage: node <this file> control|deleted-bun|electron|nw|bun|bun-worker|throwing-versions <addon>
+// Fakes `process.versions` the way another host would show it, loads the addon, starts its first
+// task (which picks the env's settle mode) and reports that mode: for the main-thread env, or for
+// `bun-worker` the env of a worker_threads Worker that fakes `versions.bun` and loads the addon
+// itself. `process.versions` stays faked until the mode is picked.
+// Usage: node <this file> <variant> <addon>, where <variant> is one of
+// control|deleted-bun|electron|nw|bun|bun-worker|throwing-versions|getter-dlopen
 import {
   Worker,
   isMainThread,
@@ -68,6 +70,26 @@ if (variant === 'bun-worker') {
       },
     })
     restore.push(() => Object.defineProperty(process, 'versions', descriptor))
+  } else if (variant === 'getter-dlopen') {
+    // A getter that loads another native addon. Node holds its addon-loader lock while an addon
+    // registers, and that lock is not re-entrant, so this getter aborts the process if the addon
+    // reads `process.versions` while it registers.
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'versions')
+    const versions = process.versions
+    let loading = false
+    Object.defineProperty(process, 'versions', {
+      configurable: true,
+      get() {
+        versionsRead++
+        if (!loading) {
+          loading = true
+          process.dlopen({ exports: {} }, addon)
+          loading = false
+        }
+        return versions
+      },
+    })
+    restore.push(() => Object.defineProperty(process, 'versions', descriptor))
   } else if (variant === 'deleted-bun') {
     // What a script may do under Bun. Node is still found by its exported symbol.
     delete process.versions.bun
@@ -81,15 +103,17 @@ if (variant === 'bun-worker') {
 
   const module = { exports: {} }
   process.dlopen(module, addon)
-  for (const undo of restore) undo()
   const native = module.exports
 
+  // The env's first task picks its settle mode, after the load has returned.
+  const pending = native.asyncTaskCounted()
   const mode = native.asyncTaskPromiseSettleMode()
+  for (const undo of restore) undo()
   const timeout = setTimeout(() => {
     console.error('AsyncTask promise still pending after 5000 ms')
     process.exit(1)
   }, 5000)
-  const value = await native.asyncTaskCounted()
+  const value = await pending
   clearTimeout(timeout)
   report({ mode, value, versionsRead: versionsRead > 0, uncaught })
 }

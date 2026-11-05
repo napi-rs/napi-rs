@@ -70,12 +70,12 @@ pub(crate) struct EnvRegistration {
   /// Holder object for the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
   /// pair, see `crate::error::cache_reflect_intrinsics_for_env`.
   reflect_intrinsics: Option<sys::napi_ref>,
-  /// How this env's `AsyncTask` promises are settled, picked once before the record was
-  /// made (see `crate::async_work::detect_settle_mode`). Holds no reference.
-  promise_settle: SettleMode,
+  /// How this env's `AsyncTask` promises are settled. Picked at the env's first task after
+  /// this registration has returned (see `crate::async_work::promise`). Holds no reference.
+  promise_settle: PromiseSettle,
   /// The native `then` shared by the thenables that settle this env's `AsyncTask`
-  /// promises, see `crate::async_work::promise`. Created on first use. Only used when
-  /// `promise_settle` is `Thenable`.
+  /// promises, see `crate::async_work::promise`. Created on first use. Only used on the
+  /// thenable path.
   promise_then: Option<sys::napi_ref>,
   /// This env's custom-GC threadsafe function, see
   /// `crate::bindgen_runtime::module_register::create_custom_gc`. The record
@@ -96,6 +96,22 @@ pub(crate) struct EnvRegistration {
     not(target_family = "wasm")
   ))]
   sentinel_ref: sys::napi_ref,
+}
+
+/// Where an env's settle mode stands. See `crate::async_work::promise`.
+// Under `noop` nothing registers, so no record is ever built.
+#[cfg_attr(feature = "noop", allow(dead_code))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PromiseSettle {
+  /// `napi_register_module_v1` is still running for this record. Tasks take the thenable path
+  /// and decide nothing.
+  Registering,
+  /// Registration has returned; the next task decides.
+  Undecided,
+  /// A task is deciding right now. A task made meanwhile (by a getter the check ran) takes the
+  /// thenable path and decides nothing.
+  Deciding,
+  Decided(SettleMode),
 }
 
 thread_local! {
@@ -123,12 +139,13 @@ thread_local! {
 /// could not be added. In that case nothing is recorded, and the load must fail,
 /// because nothing would ever delete what it caches.
 ///
-/// Call it after `create_custom_gc` and `detect_settle_mode`, and before the first
-/// module-init callback: hooks run newest first, so this record then outlives every
-/// hook that the module's exports add, and is gone before Node's own custom-GC TSFN
-/// cleanup. `promise_settle` is kept in the record for every task of `env`.
+/// Call it after `create_custom_gc` and before the first module-init callback: hooks
+/// run newest first, so this record then outlives every hook that the module's exports
+/// add, and is gone before Node's own custom-GC TSFN cleanup. The record starts in
+/// [`PromiseSettle::Registering`]; keep a [`RegisteringGuard`] for it until
+/// registration returns.
 #[cfg(not(feature = "noop"))]
-pub(crate) fn begin(env: sys::napi_env, promise_settle: SettleMode) -> Option<RegistrationId> {
+pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
   let id = NEXT_REGISTRATION_ID.fetch_add(1, Ordering::Relaxed);
   #[cfg(feature = "napi3")]
   {
@@ -147,7 +164,7 @@ pub(crate) fn begin(env: sys::napi_env, promise_settle: SettleMode) -> Option<Re
       return None;
     }
     // The hook stays added either way; finding no record, it does nothing.
-    push_registration(new_registration(id, env, promise_settle)).then_some(id)
+    push_registration(new_registration(id, env)).then_some(id)
   }
   #[cfg(all(not(feature = "napi3"), not(target_family = "wasm")))]
   {
@@ -169,7 +186,7 @@ pub(crate) fn begin(env: sys::napi_env, promise_settle: SettleMode) -> Option<Re
     if !observed {
       return None;
     }
-    let mut registration = new_registration(id, env, promise_settle);
+    let mut registration = new_registration(id, env);
     registration.sentinel_ref = sentinel_ref;
     if push_registration(registration) {
       Some(id)
@@ -187,7 +204,7 @@ pub(crate) fn begin(env: sys::napi_env, promise_settle: SettleMode) -> Option<Re
         // longer serves, and dropping them keeps a reused env address from
         // matching a stale record.
         registrations.clear();
-        registrations.push(new_registration(id, env, promise_settle));
+        registrations.push(new_registration(id, env));
         Some(id)
       })
       .ok()
@@ -197,16 +214,12 @@ pub(crate) fn begin(env: sys::napi_env, promise_settle: SettleMode) -> Option<Re
 
 /// An empty record for `id` in `env`.
 #[cfg(not(feature = "noop"))]
-fn new_registration(
-  id: RegistrationId,
-  env: sys::napi_env,
-  promise_settle: SettleMode,
-) -> EnvRegistration {
+fn new_registration(id: RegistrationId, env: sys::napi_env) -> EnvRegistration {
   EnvRegistration {
     id,
     env,
     reflect_intrinsics: None,
-    promise_settle,
+    promise_settle: PromiseSettle::Registering,
     promise_then: None,
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     custom_gc: None,
@@ -402,9 +415,11 @@ pub(crate) fn set_promise_then(env: sys::napi_env, reference: sys::napi_ref) -> 
     .unwrap_or(false)
 }
 
-/// The settle mode and the cached shared `then` of `env`'s `AsyncTask` promises, from
-/// its newest live record, in one scan. `None` when `env` has no live record.
-pub(crate) fn promise_settle(env: sys::napi_env) -> Option<(SettleMode, Option<sys::napi_ref>)> {
+/// The id, the settle mode and the cached shared `then` of `env`'s `AsyncTask` promises,
+/// from its newest live record, in one scan. `None` when `env` has no live record.
+pub(crate) fn promise_settle(
+  env: sys::napi_env,
+) -> Option<(RegistrationId, PromiseSettle, Option<sys::napi_ref>)> {
   ENV_REGISTRATIONS
     .try_with(|registrations| {
       let registrations = registrations.try_borrow().ok()?;
@@ -412,10 +427,69 @@ pub(crate) fn promise_settle(env: sys::napi_env) -> Option<(SettleMode, Option<s
         .iter()
         .rev()
         .find(|registration| registration.env == env)?;
-      Some((registration.promise_settle, registration.promise_then))
+      Some((
+        registration.id,
+        registration.promise_settle,
+        registration.promise_then,
+      ))
     })
     .ok()
     .flatten()
+}
+
+/// Moves the settle mode of the record with `id` from `from` to `to`. `false` when the
+/// record is gone, busy, or not in `from`.
+fn move_promise_settle(id: RegistrationId, from: PromiseSettle, to: PromiseSettle) -> bool {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(mut registrations) = registrations.try_borrow_mut() else {
+        return false;
+      };
+      match registrations
+        .iter_mut()
+        .find(|registration| registration.id == id)
+      {
+        Some(registration) if registration.promise_settle == from => {
+          registration.promise_settle = to;
+          true
+        }
+        _ => false,
+      }
+    })
+    .unwrap_or(false)
+}
+
+/// Claims the settle decision of the record with `id`: `Undecided` becomes `Deciding`.
+/// `false` when it was not `Undecided`; the caller then decides nothing.
+pub(crate) fn start_promise_settle_decision(id: RegistrationId) -> bool {
+  move_promise_settle(id, PromiseSettle::Undecided, PromiseSettle::Deciding)
+}
+
+/// Stores the settle mode a claimed decision picked.
+pub(crate) fn finish_promise_settle_decision(id: RegistrationId, mode: SettleMode) {
+  move_promise_settle(id, PromiseSettle::Deciding, PromiseSettle::Decided(mode));
+}
+
+/// Marks the record with `id` as registering until it is dropped, on every path out of
+/// `napi_register_module_v1`. While it lives, the env's tasks decide no settle mode: the
+/// check reads `process.versions`, whose getter may load another addon, and Node holds its
+/// addon-loader lock, which is not re-entrant, while this addon registers.
+#[cfg(not(feature = "noop"))]
+pub(crate) struct RegisteringGuard(RegistrationId);
+
+#[cfg(not(feature = "noop"))]
+impl RegisteringGuard {
+  /// For a record [`begin`] just made, which starts as registering.
+  pub(crate) fn new(id: RegistrationId) -> Self {
+    RegisteringGuard(id)
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for RegisteringGuard {
+  fn drop(&mut self) {
+    move_promise_settle(self.0, PromiseSettle::Registering, PromiseSettle::Undecided);
+  }
 }
 
 /// Stores this load's class constructor references in the record with `id`.

@@ -1,5 +1,11 @@
-//! Picks, once per env when this addon registers into it, how that env's `AsyncTask` /
-//! `Env::spawn` promises are settled. See `promise.rs` for the two ways.
+//! Picks, once per env, how that env's `AsyncTask` / `Env::spawn` promises are settled. See
+//! `promise.rs` for the two ways.
+//!
+//! The pick is made at the env's first task after this addon's registration into it has
+//! returned, not while it registers. The check reads `process.versions`, and a getter there may
+//! load another addon. Node holds its addon-loader lock while an addon registers, and that lock
+//! is not re-entrant: a nested load there aborts the process. After registration no loader lock
+//! is held. A task created while this addon registers takes the thenable path and picks nothing.
 
 /// How the promises of one env are settled.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -9,8 +15,8 @@ pub(crate) enum SettleMode {
   /// (the main env of Node and Bun) or with its realm (wasm). Some hosts are not told apart: an
   /// embedder that links `libnode.so` and creates and frees several envs on the default loop
   /// gets this mode too, and leaks one deferred per task in flight at each teardown, as before.
-  /// So does a host that is not Bun but fakes `process.versions.bun` before the load, on its
-  /// main OS thread.
+  /// So does a host that is not Bun but fakes `process.versions.bun` before the env's first
+  /// task, on its main OS thread.
   Deferred,
   /// The deferred is settled at once with a thenable (see `promise.rs`). Costs more main-thread
   /// CPU per task, but a task still in flight when the env is torn down leaks nothing.
@@ -26,10 +32,10 @@ impl SettleMode {
   }
 }
 
-/// Picks the settle mode of `env`. Called once per load from `napi_register_module_v1`,
-/// before the env's registration record is made. Never throws, never fails the load, and
-/// never clears an exception it did not cause. Every doubt gives `Thenable`, which is
-/// always correct, only slower.
+/// Picks the settle mode of `env`. Called once per load, at the env's first task after
+/// `napi_register_module_v1` returned, inside that call into `env` on its thread. Never
+/// throws, and never clears an exception it did not cause. Every doubt gives `Thenable`,
+/// which is always correct, only slower.
 ///
 /// Native, in this order:
 ///
@@ -101,7 +107,7 @@ mod host {
 
   pub(super) fn read_versions(env: sys::napi_env) -> Versions {
     let mut pending = false;
-    // An exception left by `create_custom_gc` must reach the loader untouched.
+    // An exception pending on entry is not ours: it must stay pending, untouched.
     if unsafe { sys::napi_is_exception_pending(env, &mut pending) } != sys::Status::napi_ok
       || pending
     {
