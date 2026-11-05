@@ -1116,6 +1116,20 @@ fn data_property_without_get(
   None
 }
 
+/// Whether `value` is a native error whose `name` data property, own or inherited, is
+/// `"EvalError"`. Reads it as [`data_property_without_get`] does, so no getter runs, and
+/// `napi_is_error` rules out a `Proxy` first, so no trap runs either. `false` when it cannot
+/// tell. Must be called with no exception pending.
+pub(crate) fn is_eval_error_without_get(env: sys::napi_env, value: sys::napi_value) -> bool {
+  let mut is_error = false;
+  if unsafe { sys::napi_is_error(env, value, &mut is_error) } != sys::Status::napi_ok || !is_error {
+    return false;
+  }
+  data_property_without_get(env, value, c"name")
+    .and_then(|name| owned_string_without_coercion(env, name))
+    .is_some_and(|name| name == "EvalError")
+}
+
 /// Copies `value` into an owned `String` when — and only when — it is already a
 /// JavaScript string. Returns `None` for every other value type instead of
 /// coercing it.

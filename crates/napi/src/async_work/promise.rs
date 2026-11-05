@@ -41,30 +41,47 @@
 //! replaced `globalThis.Promise` whose resolving functions throw leaves one emnapi deferred
 //! reference and its promise pending.
 //!
-//! In thenable mode the deferred is settled right away, in [`create`], on the JavaScript thread
-//! that just created it. It is resolved with a fresh plain object (the *thenable*) whose own
-//! `then` data property is a native function of this module. Resolving a promise with a thenable
-//! reads `then` once, at once, and queues a job that later calls
-//! `then.call(thenable, resolve, reject)` with the engine's own resolving functions for the
-//! promise. The native `then` keeps them behind two `napi_ref`s, and the completion callback
-//! settles the promise by calling one of them. `napi_delete_reference` has no `NAPI_PREAMBLE`
-//! (Node and emnapi alike), so the references are deleted on every path, including a settlement
-//! the env refused.
+//! In thenable mode no deferred exists. [`create`] calls the env's *promise wrapper*, a function
+//! compiled once per env, `(async (then, handle) => ({ then, handle }))`, and hands out the
+//! promise it returns. That promise is resolved with the object the function returns (the
+//! *thenable*): a fresh plain object whose own `then` data property is a native function of this
+//! module. Resolving a promise with a thenable reads `then` once, at once, and queues a job that
+//! later calls `then.call(thenable, resolve, reject)` with the engine's own resolving functions
+//! for the promise. The native `then` keeps them behind two `napi_ref`s, and the completion
+//! callback settles the promise by calling one of them. `napi_delete_reference` has no
+//! `NAPI_PREAMBLE` (Node and emnapi alike), so the references are deleted on every path,
+//! including a settlement the env refused.
 //!
-//! One deferred can still leak: `worker.terminate()` runs on the parent thread, so the env can
-//! start refusing JavaScript between `napi_create_promise` and `napi_resolve_deferred`. Every
-//! later `napi_create_promise` on that env is refused, so it is at most one per terminated
-//! worker (settling at completion leaked one per task).
+//! Building the promise is one call that the env can refuse (`napi_call_function`), and nothing
+//! native is allocated before it. `worker.terminate()` runs on the parent thread and can make the
+//! env refuse JavaScript at any moment, so this matters: a refused call leaves nothing behind,
+//! and a call that ran made a promise the GC owns.
+//!
+//! The wrapper costs, per env, one `napi_run_script` at the env's first thenable-mode task (an
+//! anonymous script, so the inspector reports one more `scriptParsed`) and one reference, deleted
+//! at teardown. Calling it is a JavaScript call, so near the stack limit it can throw a
+//! `RangeError` where `napi_create_promise` did not: the task then fails to start, with that
+//! exception pending.
+//!
+//! Without the wrapper, a thenable-mode task creates a deferred and resolves it right away with
+//! the thenable. A terminate that lands between those two calls leaks the deferred (16 B; at most
+//! one per terminated worker, since every later `napi_create_promise` on that env is refused).
+//! That path keeps that window. It is taken when the env has no registration record to keep the
+//! wrapper in, when compiling fails (for this task only; the next task compiles again), and for
+//! good when the host blocks code generation (compiling threw an `EvalError`). Node, Electron, Bun and Deno compile the wrapper with the engine's own script
+//! compiler, which `--disallow-code-generation-from-strings` and a Content Security Policy
+//! without `'unsafe-eval'` do not block.
 //!
 //! In thenable mode, nothing here reads a property user code can reach, and nothing calls user
-//! code to build or settle the promise on Node: the promise comes from `napi_create_promise` (not from
-//! `globalThis.Promise`), `then` is an own data property of an object no script holds (defined,
-//! not assigned, so an `Object.prototype.then` accessor is never consulted), and `resolve` /
-//! `reject` are the built-in resolving functions of this very promise. Only the inspector
-//! (`Runtime.queryObjects`) can reach the thenable; calling its `then` first steals the
-//! promise's settlement, which then never happens. In deferred mode the task's value goes
-//! straight to `napi_resolve_deferred`, as before #3689, so V8 reads `then` on an object value
-//! and an `Object.prototype.then` accessor runs there.
+//! code to build or settle the promise on Node: the promise is an `async` function's (made from
+//! the intrinsic `%Promise%`, not `globalThis.Promise`), the function is called by
+//! `napi_call_function` (not through `Function.prototype.call`), `then` is an own data property of
+//! an object no script holds (an object literal defines it, so an `Object.prototype.then`
+//! accessor or setter is never consulted), and `resolve` / `reject` are the built-in resolving
+//! functions of this very promise. Only the inspector (`Runtime.queryObjects`) can reach the
+//! thenable; calling its `then` first steals the promise's settlement, which then never happens.
+//! In deferred mode the task's value goes straight to `napi_resolve_deferred`, as before #3689,
+//! so V8 reads `then` on an object value and an `Object.prototype.then` accessor runs there.
 //!
 //! On WASI, emnapi builds these calls in JavaScript: `napi_create_promise` uses the
 //! `globalThis.Promise` of the moment, and `napi_call_function` uses the current
@@ -72,8 +89,9 @@
 //! while a task settles; a throwing replacement leaves the promise pending and its exception
 //! reported as uncaught.
 //!
-//! The `then` function is shared by every task of an env (kept in the env's registration
-//! record, released at its teardown); the thenable carries a number naming the task's [`Slot`].
+//! The `then` function and the promise wrapper are shared by every task of an env (kept in the
+//! env's registration record, released at its teardown); the thenable carries a number naming the
+//! task's [`Slot`].
 //!
 //! Observable differences of thenable mode from deferred mode (workers, Electron and the other
 //! thenable hosts only):
@@ -95,7 +113,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::settle_mode::SettleMode;
-use crate::bindgen_runtime::env_registration::RegistrationId;
+use crate::bindgen_runtime::env_registration::{PromiseCache, PromiseWrapper, RegistrationId};
 use crate::{check_status, sys, Error, Result, Status};
 
 /// Counts the per-task promise states freed, read through [`async_task_promise_states_freed`].
@@ -103,6 +121,11 @@ static STATES_FREED: AtomicUsize = AtomicUsize::new(0);
 /// Counts the resolving-function pairs released, read through
 /// [`async_task_promise_resolvers_released`].
 static RESOLVERS_RELEASED: AtomicUsize = AtomicUsize::new(0);
+/// Counts the promise wrappers compiled, read through [`async_task_promise_wrappers_compiled`].
+static WRAPPERS_COMPILED: AtomicUsize = AtomicUsize::new(0);
+/// Counts the thenable-mode promises made without a wrapper, read through
+/// [`async_task_promise_wrapper_fallbacks`].
+static WRAPPER_FALLBACKS: AtomicUsize = AtomicUsize::new(0);
 
 /// How many `AsyncTask` / `Env::spawn` promise states have been freed in this process — settled
 /// or refused, on every env and every load of this addon. Each state holds what is needed to
@@ -126,6 +149,24 @@ pub fn async_task_promise_resolvers_released() -> usize {
   RESOLVERS_RELEASED.load(Ordering::Relaxed)
 }
 
+/// How many promise wrappers (see the module docs) have been compiled in this process, on every
+/// env and every load of this addon: one per env that created a thenable-mode promise.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn async_task_promise_wrappers_compiled() -> usize {
+  WRAPPERS_COMPILED.load(Ordering::Relaxed)
+}
+
+/// How many thenable-mode promises have been made without a promise wrapper in this process, by
+/// creating a deferred and resolving it with the thenable at once (see the module docs).
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn async_task_promise_wrapper_fallbacks() -> usize {
+  WRAPPER_FALLBACKS.load(Ordering::Relaxed)
+}
+
 /// `"deferred"` or `"thenable"`: how `AsyncTask` / `Env::spawn` promises created in `env`
 /// right now are settled. Picks the env's mode the way its first task would, when it is not
 /// picked yet: `"thenable"`, picking nothing, while this addon registers into `env`.
@@ -137,21 +178,21 @@ pub fn async_task_promise_settle_mode(env: sys::napi_env) -> &'static str {
   settle_mode_of(env).0.as_str()
 }
 
-/// The settle mode of `env`, and its cached `then` when it has one: one record lookup on
+/// The settle mode of `env`, and its cached functions when it has a record: one record lookup on
 /// native once the mode is picked, none on wasm. Picks it at the env's first call after
 /// registration (see the module docs).
-fn settle_mode_of(env: sys::napi_env) -> (SettleMode, Option<sys::napi_ref>) {
+fn settle_mode_of(env: sys::napi_env) -> (SettleMode, Option<PromiseCache>) {
   use crate::bindgen_runtime::env_registration::{self, PromiseSettle};
 
   if cfg!(target_family = "wasm") {
     return (SettleMode::Deferred, None);
   }
   match env_registration::promise_settle(env) {
-    Some((_, PromiseSettle::Decided(mode), then)) => (mode, then),
-    Some((id, PromiseSettle::Undecided, then)) => (decide_settle_mode(env, id), then),
+    Some((_, PromiseSettle::Decided(mode), cache)) => (mode, Some(cache)),
+    Some((id, PromiseSettle::Undecided, cache)) => (decide_settle_mode(env, id), Some(cache)),
     // Still registering, or another call is picking the mode right now.
-    Some((_, PromiseSettle::Registering | PromiseSettle::Deciding, then)) => {
-      (SettleMode::Thenable, then)
+    Some((_, PromiseSettle::Registering | PromiseSettle::Deciding, cache)) => {
+      (SettleMode::Thenable, Some(cache))
     }
     None => (SettleMode::Thenable, None),
   }
@@ -800,12 +841,97 @@ fn create_thenable(
   Ok(thenable)
 }
 
+/// Source of the env's promise wrapper (see the module docs). Its promise is the task's promise:
+/// the engine resolves it with the object the function returns, so it reads `then` (an own data
+/// property, which the object literal defines) and queues the job that calls it, as
+/// `napi_resolve_deferred` with the same thenable does. The keys must equal `then` and
+/// [`HANDLE_KEY`].
+const PROMISE_WRAPPER_SOURCE: &str = "(async (then, handle) => ({ then, handle }))";
+
+/// The env's promise wrapper: the one in its registration record, or one compiled now and kept
+/// there. `None` when there is none to use for this task; the caller then takes the deferred
+/// path.
+fn promise_wrapper(env: sys::napi_env, cached: PromiseWrapper) -> Option<sys::napi_value> {
+  match cached {
+    PromiseWrapper::Ready(reference) => {
+      let mut function = ptr::null_mut();
+      (unsafe { sys::napi_get_reference_value(env, reference, &mut function) }
+        == sys::Status::napi_ok
+        && !function.is_null())
+      .then_some(function)
+    }
+    PromiseWrapper::Unavailable => None,
+    PromiseWrapper::Unset => compile_promise_wrapper(env),
+  }
+}
+
+/// Compiles the env's promise wrapper and keeps it in the env's record. `None` when it could not
+/// be compiled. Only a failure that will happen again (the host blocks code generation, so
+/// compiling threw an `EvalError`) is remembered; any other one (a refusal, a termination, a
+/// `RangeError` near the stack limit) leaves the next task to try again.
+#[cold]
+fn compile_promise_wrapper(env: sys::napi_env) -> Option<sys::napi_value> {
+  use crate::bindgen_runtime::env_registration;
+
+  // An exception pending now is not ours to clear, and would make the compile fail for a
+  // reason unrelated to the host.
+  if exception_pending(env) {
+    return None;
+  }
+  let mut source = ptr::null_mut();
+  if unsafe {
+    sys::napi_create_string_utf8(
+      env,
+      PROMISE_WRAPPER_SOURCE.as_ptr().cast(),
+      PROMISE_WRAPPER_SOURCE.len() as isize,
+      &mut source,
+    )
+  } != sys::Status::napi_ok
+  {
+    return None;
+  }
+  let mut function = ptr::null_mut();
+  if unsafe { sys::napi_run_script(env, source, &mut function) } != sys::Status::napi_ok {
+    // Nothing was pending before the compile, so what is pending now is what it threw.
+    if let Some(thrown) = take_pending_exception(env) {
+      if crate::error::is_eval_error_without_get(env, thrown) {
+        env_registration::set_promise_wrapper(env, PromiseWrapper::Unavailable);
+      }
+    }
+    return None;
+  }
+  let mut value_type = sys::ValueType::napi_undefined;
+  if unsafe { sys::napi_typeof(env, function, &mut value_type) } != sys::Status::napi_ok
+    || value_type != sys::ValueType::napi_function
+  {
+    // The script ran but gave no function: the host would answer the same every time.
+    env_registration::set_promise_wrapper(env, PromiseWrapper::Unavailable);
+    return None;
+  }
+  WRAPPERS_COMPILED.fetch_add(1, Ordering::Relaxed);
+  let mut reference = ptr::null_mut();
+  if unsafe { sys::napi_create_reference(env, function, 1, &mut reference) } == sys::Status::napi_ok
+    && !env_registration::set_promise_wrapper(env, PromiseWrapper::Ready(reference))
+  {
+    unsafe { sys::napi_delete_reference(env, reference) };
+  }
+  Some(function)
+}
+
 /// Creates the promise for one task, settled the way `env`'s [`SettleMode`] says: in deferred
 /// mode the returned settler keeps the deferred for the task's completion; in thenable mode the
-/// deferred is settled right away with a thenable whose `then` hands the promise's resolving
-/// functions to the returned settler.
+/// promise comes from the env's promise wrapper (or, without one, from a deferred settled right
+/// away), and the thenable's `then` hands the promise's resolving functions to the returned
+/// settler.
 pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSettler)> {
-  let (mode, cached_then) = settle_mode_of(env);
+  let (mode, cache) = settle_mode_of(env);
+  if mode == SettleMode::Thenable {
+    // Without a record there is nowhere to keep a wrapper.
+    if let Some(wrapper) = cache.and_then(|cache| promise_wrapper(env, cache.wrapper)) {
+      return create_wrapped(env, wrapper, cache.and_then(|cache| cache.then));
+    }
+    WRAPPER_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+  }
   let mut promise = ptr::null_mut();
   let mut deferred = ptr::null_mut();
   check_status!(
@@ -821,13 +947,66 @@ pub(super) fn create(env: sys::napi_env) -> Result<(sys::napi_value, PromiseSett
         refused: false,
       }),
     )),
-    SettleMode::Thenable => create_thenable_settler(env, deferred, cached_then)
-      .map(|settler| (promise, PromiseSettler::Thenable(settler))),
+    SettleMode::Thenable => {
+      create_thenable_settler(env, deferred, cache.and_then(|cache| cache.then))
+        .map(|settler| (promise, PromiseSettler::Thenable(settler)))
+    }
   }
 }
 
+/// Thenable mode with the env's promise wrapper: the promise is made by one call, and nothing
+/// native is allocated before it. If the env refuses that call (it started tearing down) or the
+/// call throws, only the slot is left, and dropping the settler frees it.
+fn create_wrapped(
+  env: sys::napi_env,
+  wrapper: sys::napi_value,
+  cached_then: Option<sys::napi_ref>,
+) -> Result<(sys::napi_value, PromiseSettler)> {
+  let handle = with_slots(|slots| {
+    slots.insert(Slot {
+      env,
+      owned: true,
+      state: SlotState::Waiting,
+    })
+  });
+  // Dropping the settler on an error below frees the slot.
+  let settler = ThenableSettler { env, handle };
+  let Some(handle) = handle else {
+    return Err(Error::new(
+      Status::GenericFailure,
+      "Promise state unavailable in async_work::run".to_owned(),
+    ));
+  };
+  let then = then_function(env, cached_then)?;
+  let mut args = [then, ptr::null_mut()];
+  check_status!(
+    unsafe { sys::napi_create_double(env, handle.to_f64(), &mut args[1]) },
+    "Create promise thenable failed in async_work::run"
+  )?;
+  let mut undefined = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_get_undefined(env, &mut undefined) },
+    "Create promise failed in async_work::run"
+  )?;
+  let mut promise = ptr::null_mut();
+  check_status!(
+    unsafe {
+      sys::napi_call_function(
+        env,
+        undefined,
+        wrapper,
+        args.len(),
+        args.as_ptr(),
+        &mut promise,
+      )
+    },
+    "Create promise failed in async_work::run"
+  )?;
+  Ok((promise, PromiseSettler::Thenable(settler)))
+}
+
 /// Settles `deferred` right away with a thenable whose `then` hands the promise's resolving
-/// functions to the returned settler.
+/// functions to the returned settler. Only used without a promise wrapper (see the module docs).
 fn create_thenable_settler(
   env: sys::napi_env,
   deferred: sys::napi_deferred,

@@ -23,7 +23,8 @@ pub(crate) use promise::release_env_promise_states;
 #[doc(hidden)]
 pub use promise::{
   async_task_promise_resolvers_released, async_task_promise_settle_mode,
-  async_task_promise_states_freed,
+  async_task_promise_states_freed, async_task_promise_wrapper_fallbacks,
+  async_task_promise_wrappers_compiled,
 };
 use promise::{PromiseSettler, Settlement};
 pub(crate) use settle_mode::SettleMode;
