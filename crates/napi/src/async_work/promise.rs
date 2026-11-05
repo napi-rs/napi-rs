@@ -10,10 +10,10 @@
 //! per terminated worker, on every Node version.
 //!
 //! Each env settles its promises one of two ways ([`SettleMode`], `settle_mode.rs`), picked once,
-//! at the env's first task or `JsDeferred` after this addon's registration into it has returned. Not while it
-//! registers: the check reads `process.versions`, whose getter may load another addon, and Node
-//! holds its addon-loader lock while an addon registers. That lock is not re-entrant, so the
-//! nested load would abort the process. A task created while this addon registers (by module-init
+//! at the env's first task or `JsDeferred` after this addon's registration into it has returned.
+//! Not while it registers: the check reads `process.versions`, whose getter may load another
+//! addon, and Node holds its addon-loader lock while an addon registers. That lock is not
+//! re-entrant, so the nested load would abort the process. A task created while this addon registers (by module-init
 //! code) takes the thenable path and decides nothing; so does a task created by a getter while
 //! the check runs.
 //!
@@ -47,9 +47,10 @@
 //! compiled once per env, `(then, handle) => settle({ then, handle })` where `settle` is
 //! `async (thenable) => thenable`, and hands out the promise it returns. That promise is resolved
 //! with the object `settle` returns (the *thenable*): a fresh plain object whose own `then` data
-//! property is a native function of this module. Resolving a promise with a thenable reads `then` once, at once, and queues a job that
-//! later calls `then.call(thenable, resolve, reject)` with the engine's own resolving functions
-//! for the promise. The native `then` keeps them behind two `napi_ref`s, and the completion
+//! property is a native function of this module. Resolving a promise with a thenable reads
+//! `then` once, at once, and queues a job that later calls
+//! `then.call(thenable, resolve, reject)` with the engine's own resolving functions for the
+//! promise. The native `then` keeps them behind two `napi_ref`s, and the completion
 //! callback settles the promise by calling one of them. `napi_delete_reference` has no
 //! `NAPI_PREAMBLE` (Node and emnapi alike), so the references are deleted on every path,
 //! including a settlement the env refused.
@@ -85,6 +86,10 @@
 //! accessor or setter is never consulted), and `resolve` / `reject` are the built-in resolving
 //! functions of this very promise. Only the inspector (`Runtime.queryObjects`) can reach the
 //! thenable; calling its `then` first steals the promise's settlement, which then never happens.
+//! A promise hook (`async_hooks`, `v8.promiseHooks`) does run user code while the promise is
+//! made, as it does for `napi_create_promise`. It cannot reach the `then` function, the thenable
+//! or the wrapper's functions (the wrapper is strict code, so a structured stack trace hides
+//! them).
 //! In deferred mode the task's value goes straight to `napi_resolve_deferred`, as before #3689,
 //! so V8 reads `then` on an object value and an `Object.prototype.then` accessor runs there.
 //!
@@ -911,8 +916,10 @@ fn create_thenable(
 /// `napi_ok`, so the task would run with a promise already rejected. In the plain function it is
 /// thrown before any promise exists, and [`create_wrapped`] sees it. The `async` body only
 /// returns its argument, which does not check the stack.
+///
+/// The script is strict, so `CallSite.getFunction()` gives a promise hook neither function.
 const PROMISE_WRAPPER_SOURCE: &str =
-  "(() => { const settle = async (thenable) => thenable; return (then, handle) => settle({ then, handle }) })()";
+  "'use strict';(() => { const settle = async (thenable) => thenable; return (then, handle) => settle({ then, handle }) })()";
 
 /// The env's promise wrapper: the one in its registration record, or one compiled now and kept
 /// there. `None` when there is none to use for this task; the caller then takes the deferred
