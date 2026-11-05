@@ -48,3 +48,54 @@ pub fn legacy_ninja_turtle_constructor(env: &Env) -> Result<Unknown<'_>> {
   )?;
   Ok(unsafe { Unknown::from_raw_unchecked(env.raw(), ctor) })
 }
+
+/// What happened to the references released through the custom-GC handles of this process
+/// (Buffers, TypedArrays, Errors and function references dropped off their env's JS thread, or
+/// during its teardown).
+#[napi(object)]
+pub struct CustomGcRefCounts {
+  /// Deleted while their env ran.
+  pub deleted_while_running: u32,
+  /// Deleted at env teardown, by the cleanup hook or the late sentinel.
+  pub deleted_at_teardown: u32,
+  /// Released too late in env teardown to be deleted: leaked.
+  pub leaked_at_teardown: u32,
+  /// Still waiting when their env's handle was freed: leaked.
+  pub left_pending: u32,
+  /// Custom-GC callbacks that deleted references.
+  pub drain_callbacks: u32,
+  /// The most references one custom-GC callback deleted.
+  pub largest_drain: u32,
+}
+
+#[napi]
+pub fn custom_gc_ref_counts() -> CustomGcRefCounts {
+  let counters = napi::bindgen_prelude::custom_gc_ref_counters();
+  CustomGcRefCounts {
+    deleted_while_running: counters.deleted_while_running as u32,
+    deleted_at_teardown: counters.deleted_at_teardown as u32,
+    leaked_at_teardown: counters.leaked_at_teardown as u32,
+    left_pending: counters.left_pending as u32,
+    drain_callbacks: counters.drain_callbacks as u32,
+    largest_drain: counters.largest_drain as u32,
+  }
+}
+
+static BUFFERS_DROPPED_OFF_THREAD: std::sync::atomic::AtomicU32 =
+  std::sync::atomic::AtomicU32::new(0);
+
+/// Drops `buffers` on a new thread, then counts them in `buffersDroppedOffThread`.
+#[napi]
+pub fn drop_buffers_off_thread(buffers: Vec<Buffer>) {
+  std::thread::spawn(move || {
+    let count = buffers.len() as u32;
+    drop(buffers);
+    BUFFERS_DROPPED_OFF_THREAD.fetch_add(count, std::sync::atomic::Ordering::SeqCst);
+  });
+}
+
+/// How many Buffers `dropBuffersOffThread` has dropped in this process.
+#[napi]
+pub fn buffers_dropped_off_thread() -> u32 {
+  BUFFERS_DROPPED_OFF_THREAD.load(std::sync::atomic::Ordering::SeqCst)
+}
