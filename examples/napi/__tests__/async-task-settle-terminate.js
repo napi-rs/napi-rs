@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url'
 import native from '../index.cjs'
 
 // Each worker queues tasks and blocks its event loop, so every completion runs during
-// `terminate()`, while the env refuses to run JavaScript. The addon image is shared with the
+// `terminate()`, while the env refuses to run JavaScript. A worker env settles its promises
+// through the thenable, so nothing it created is left behind. The addon image is shared with the
 // worker, so the counters below see the worker's tasks too.
 //
 // Modes (argv[2]):
@@ -28,6 +29,10 @@ function block() {
 }
 
 if (!isMainThread) {
+  const settleMode = native.asyncTaskPromiseSettleMode()
+  if (settleMode !== 'thenable') {
+    throw new Error(`worker settle mode is ${settleMode}`)
+  }
   for (let i = 0; i < TASKS_PER_WORKER; i++) {
     native.asyncTaskCounted().catch(() => {})
   }
@@ -56,9 +61,9 @@ if (!isMainThread) {
   const after = native.asyncTaskSettleCounters()
   const created = after.created - before.created
   const dropped = after.dropped - before.dropped
-  // Each promise's deferred was settled when the task was created, and its settle state was
-  // freed even though teardown refused the settlement. A `napi_create_promise` deferred settled
-  // only there is refused, and never freed.
+  // Each promise's deferred was settled when the task was created (the worker uses the
+  // thenable), and its settle state was freed even though teardown refused the settlement. A
+  // `napi_create_promise` deferred settled only there is refused, and never freed.
   const promiseStatesFreed =
     after.promiseStatesFreed - before.promiseStatesFreed
   const resolversReleased =

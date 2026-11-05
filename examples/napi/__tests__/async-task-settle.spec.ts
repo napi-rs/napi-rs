@@ -6,10 +6,17 @@ import test from 'ava'
 
 import {
   asyncTaskCounted,
+  asyncTaskPromiseSettleMode,
   asyncTaskSettleCounters,
   asyncTaskThrowInResolve,
   spawnAsyncTask,
 } from '../index.cjs'
+
+import {
+  LOAD_IN_WORKER,
+  loadedAddon,
+  runInWorker,
+} from './multi-env-helpers.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -27,9 +34,30 @@ function settledWithin<T>(promise: Promise<T>, ms = 5000) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
+// The main thread (and every WASI env) settles through the deferred, as before the thenable:
+// no promise state is created, so the thenable counters stay put.
+test.serial(
+  'the main thread settles AsyncTask promises through the deferred',
+  async (t) => {
+    t.is(asyncTaskPromiseSettleMode(), 'deferred')
+    const TASKS = 100
+    const before = asyncTaskSettleCounters()
+    const values = await settledWithin(
+      Promise.all(Array.from({ length: TASKS }, () => asyncTaskCounted())),
+    )
+    t.true(values.every((value) => value === 0))
+    const after = asyncTaskSettleCounters()
+    t.is(after.promiseStatesFreed - before.promiseStatesFreed, 0)
+    t.is(after.promiseResolversReleased - before.promiseResolversReleased, 0)
+    t.is(after.created - before.created, TASKS)
+    t.is(after.dropped - before.dropped, TASKS)
+  },
+)
+
 test.serial(
   'an exception left pending by Task::resolve rejects the promise and finally still runs',
   async (t) => {
+    t.is(asyncTaskPromiseSettleMode(), 'deferred')
     const before = asyncTaskSettleCounters()
     const uncaught: unknown[] = []
     const onUncaught = (error: unknown) => uncaught.push(error)
@@ -51,6 +79,7 @@ test.serial(
 test.serial(
   'a refused AsyncWorkPromise::cancel still settles the promise',
   async (t) => {
+    t.is(asyncTaskPromiseSettleMode(), 'deferred')
     const { promise, task } = spawnAsyncTask(200)
     try {
       const deadline = Date.now() + 10_000
@@ -75,6 +104,7 @@ test.serial(
 test.serial(
   'AsyncTask promises settle after globalThis.Promise is replaced',
   async (t) => {
+    t.is(asyncTaskPromiseSettleMode(), 'deferred')
     const OriginalPromise = globalThis.Promise
     class ReplacedPromise<T> extends OriginalPromise<T> {}
     const before = asyncTaskSettleCounters()
@@ -92,34 +122,143 @@ test.serial(
     }
     t.is(await settledWithin(promise), 0)
     const after = asyncTaskSettleCounters()
-    t.is(after.promiseStatesFreed - before.promiseStatesFreed, 1)
+    t.is(after.promiseStatesFreed - before.promiseStatesFreed, 0)
   },
 )
 
-// Tampering installed before the addon loads (an instrumentation preload) or afterwards (a
-// hostile script): wrappers around `globalThis.Promise`, one that also claims the intrinsic
-// prototype's `constructor`, and throwing `Object.prototype.then` accessors with a replaced
-// `Promise.prototype.then`. No AsyncTask may run any of it, and every promise must settle.
-// Spawned, since the global must be replaced before the load.
-for (const mode of ['proxy', 'throwing', 'constructor', 'then-accessors']) {
+// A worker env can be torn down before the process exits, so it settles through the thenable.
+// The same live-env cases as above, plus one cancellation the pool accepts.
+test.serial.skipIf(Boolean(process.env.WASI_TEST))(
+  'a worker settles AsyncTask promises through the thenable',
+  async (t) => {
+    const result = await runInWorker(`
+      ${LOAD_IN_WORKER}
+      const native = load()
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      ;(async () => {
+        const uncaught = []
+        process.on('uncaughtException', (error) => uncaught.push(String(error)))
+        const out = { mode: native.asyncTaskPromiseSettleMode() }
+        const before = native.asyncTaskSettleCounters()
+        const values = await Promise.all(
+          Array.from({ length: 100 }, () => native.asyncTaskCounted()),
+        )
+        const mid = native.asyncTaskSettleCounters()
+        out.values = values.length === 100 && values.every((value) => value === 0)
+        out.statesFreed = mid.promiseStatesFreed - before.promiseStatesFreed
+        out.resolversReleased =
+          mid.promiseResolversReleased - before.promiseResolversReleased
+        out.throwInResolve = await native
+          .asyncTaskThrowInResolve()
+          .then(() => 'fulfilled', (error) => error.message)
+        out.finallyCalls = native.asyncTaskSettleCounters().finallyCalls - mid.finallyCalls
+        // Refused: \`compute\` is running, so the work completes and settles normally.
+        const refused = native.spawnAsyncTask(200)
+        const deadline = Date.now() + 10_000
+        while (!refused.task.isExecuting() && Date.now() < deadline) await sleep(1)
+        out.cancelRefused = !refused.task.cancel()
+        refused.task.release()
+        out.cancelValue = await refused.promise
+        // Accepted: every pool thread is held by a blocker queued first, and the pool takes
+        // work in order, so the aborted task cannot have started.
+        const poolSize = Number(process.env.UV_THREADPOOL_SIZE) || 4
+        const blockers = Array.from({ length: poolSize }, () => native.spawnAsyncTask(1))
+        const controller = new AbortController()
+        const aborted = native.withAbortController(1, 2, controller.signal)
+        controller.abort()
+        blockers[0].task.release()
+        out.accepted = await aborted.then(
+          (value) => 'fulfilled with ' + value,
+          (error) => error.name + ': ' + error.message,
+        )
+        out.blockers = (await Promise.all(blockers.map(({ promise }) => promise))).length
+        out.uncaught = uncaught
+        parentPort.postMessage(out)
+      })()
+    `)
+    t.deepEqual(result, {
+      mode: 'thenable',
+      values: true,
+      statesFreed: 100,
+      resolversReleased: 100,
+      throwInResolve: 'thrown inside resolve',
+      finallyCalls: 1,
+      cancelRefused: true,
+      cancelValue: 200,
+      accepted: 'AbortError: AbortError',
+      blockers: Number(process.env.UV_THREADPOOL_SIZE) || 4,
+      uncaught: [],
+    })
+  },
+)
+
+// The settle mode is picked from `process.versions` before the loop check: hosts that must use
+// the thenable path (Electron, NW.js, Bun before 1.4.4, Bun on Windows), and a read that throws,
+// give `thenable` on the main thread too. Spawned, since the versions must be faked before the
+// load.
+for (const [variant, expected] of [
+  ['control', 'deferred'],
+  ['electron', 'thenable'],
+  ['nw', 'thenable'],
+  ['bun-1.4.3', 'thenable'],
+  ['bun-1.4.4', process.platform === 'win32' ? 'thenable' : 'deferred'],
+  ['throwing-versions', 'thenable'],
+] as const) {
   test.skipIf(Boolean(process.env.WASI_TEST))(
-    `AsyncTask promises ignore ${mode} Promise tampering`,
+    `the main thread settle mode follows process.versions (${variant})`,
     (t) => {
       const result = spawnSync(
         process.execPath,
-        [join(__dirname, 'async-task-wrapped-promise.js'), mode],
+        [join(__dirname, 'async-task-settle-mode.js'), variant, loadedAddon()],
         { encoding: 'utf8', env: process.env, timeout: 60_000 },
       )
       const output = `${result.stdout}\n${result.stderr}`
       t.is(result.error, undefined, result.error?.stack)
       t.is(result.signal, null, output)
       t.is(result.status, 0, output)
-      t.regex(
-        result.stdout,
-        new RegExp(`AsyncTasks ignored the ${mode} Promise tampering`),
-      )
+      const line = result.stdout
+        .split('\n')
+        .find((text) => text.startsWith('settle-mode '))
+      t.truthy(line, output)
+      t.deepEqual(JSON.parse(line!.slice('settle-mode '.length)), {
+        mode: expected,
+        value: 0,
+        versionsRead: variant !== 'control',
+        uncaught: [],
+      })
     },
   )
+}
+
+// Tampering installed before the addon loads (an instrumentation preload) or afterwards (a
+// hostile script): wrappers around `globalThis.Promise`, one that also claims the intrinsic
+// prototype's `constructor`, and throwing `Object.prototype.then` accessors with a replaced
+// `Promise.prototype.then`. No AsyncTask may run any of it, and every promise must settle.
+// Spawned, since the global must be replaced before the load.
+// Run on the main thread (deferred) and in a worker (thenable).
+for (const mode of ['proxy', 'throwing', 'constructor', 'then-accessors']) {
+  for (const thread of ['main', 'worker']) {
+    test.skipIf(Boolean(process.env.WASI_TEST))(
+      `AsyncTask promises ignore ${mode} Promise tampering (${thread})`,
+      (t) => {
+        const result = spawnSync(
+          process.execPath,
+          [join(__dirname, 'async-task-wrapped-promise.js'), mode, thread],
+          { encoding: 'utf8', env: process.env, timeout: 60_000 },
+        )
+        const output = `${result.stdout}\n${result.stderr}`
+        t.is(result.error, undefined, result.error?.stack)
+        t.is(result.signal, null, output)
+        t.is(result.status, 0, output)
+        t.regex(
+          result.stdout,
+          new RegExp(
+            `AsyncTasks ignored the ${mode} Promise tampering \\(${thread}\\)`,
+          ),
+        )
+      },
+    )
+  }
 }
 
 // Teardown runs every queued completion while JavaScript is disabled; each task must still be

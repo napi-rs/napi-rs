@@ -767,6 +767,12 @@ export declare function asyncTaskIsExecuting(): boolean
 
 export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
+/**
+ * How this env settles `AsyncTask` promises: `deferred` (main thread, WASI) or `thenable`
+ * (workers, Electron).
+ */
+export declare function asyncTaskPromiseSettleMode(): 'deferred' | 'thenable'
+
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
 /**
