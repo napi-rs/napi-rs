@@ -271,10 +271,48 @@ impl DeferredTrace {
 
 pub(crate) type FinalizeCallback = Arc<RwLock<Option<Box<dyn FnOnce(sys::napi_env)>>>>;
 
+/// What settles the promise. A `napi_deferred` in deferred-mode envs (the Node and Bun main env,
+/// wasm) and wherever the thenable path cannot be used; else the env's slot of a thenable-mode
+/// promise (see `crate::async_work::promise`), which owns no `napi_deferred` and which the
+/// env-teardown sweep frees if the settle never comes back. Only a `napi_deferred` leaks (16 B)
+/// when the env is torn down first: `napi_resolve_deferred` / `napi_reject_deferred` are the only
+/// calls that free it, and a tearing-down env refuses both.
+#[derive(Clone, Copy)]
+enum SettleTarget {
+  Deferred(sys::napi_deferred),
+  Thenable(crate::async_work::DetachedPromise),
+}
+
+impl SettleTarget {
+  /// Settles once. On the env's JavaScript thread.
+  fn settle(self, env: sys::napi_env, fulfill: bool, value: sys::napi_value) -> sys::napi_status {
+    match self {
+      SettleTarget::Deferred(deferred) => unsafe {
+        if fulfill {
+          sys::napi_resolve_deferred(env, deferred, value)
+        } else {
+          sys::napi_reject_deferred(env, deferred, value)
+        }
+      },
+      SettleTarget::Thenable(promise) => promise.settle(env, fulfill, value),
+    }
+  }
+
+  /// Frees the thenable slot, settled or not. Nothing for a deferred: the settling call frees
+  /// it, or nothing does.
+  fn release(self, env: sys::napi_env) {
+    if let SettleTarget::Thenable(promise) = self {
+      promise.release(env);
+    }
+  }
+}
+
 struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   resolver: Result<Resolver>,
+  target: SettleTarget,
+  /// `None` when the promise's slot keeps the trace reference (see [`JsDeferred::trace`]).
   #[cfg(feature = "deferred_trace")]
-  trace: DeferredTrace,
+  trace: Option<DeferredTrace>,
   tsfn: sys::napi_threadsafe_function,
   finalize_callback: FinalizeCallback,
 }
@@ -307,19 +345,46 @@ struct DeferredHookData {
 unsafe impl Send for DeferredHandle {}
 unsafe impl Sync for DeferredHandle {}
 
+/// The settling side of a promise ([`Env::create_deferred`], `#[napi] async fn`,
+/// `Env::spawn_future`), which any thread may resolve or reject once. The settle goes back to
+/// the env's JavaScript thread through a threadsafe function.
+///
+/// How the promise is made depends on the env (see `crate::async_work::promise`):
+///
+/// * On the main thread of Node and Bun, and on wasm, with `napi_create_promise`, as before
+///   #3689. A promise still pending when such an env is torn down (process exit) leaks its 16 B
+///   deferred.
+/// * Everywhere else (workers, Electron and NW.js renderers, Bun on Windows, Deno), by a small
+///   per-env JavaScript function, so no `napi_deferred` exists. A promise still pending, or a
+///   settle still queued, when the env is torn down leaves nothing behind: env teardown frees its
+///   state. This costs about 0.2 µs more JavaScript-thread CPU per promise, and is observable:
+///   * one extra microtask job right after the promise is made, and one extra
+///     `async_hooks` / `v8.promiseHooks` `before`/`after` pair for the promise (standard for a
+///     promise resolved with a thenable);
+///   * a settle that comes back before that job ran (only inside a nested event loop) is kept,
+///     and settles the promise at the next microtask checkpoint;
+///   * the env's first such promise may pick the env's settle mode (it reads
+///     `process.versions`, once) and compiles the function (`napi_run_script`: one anonymous
+///     script in the inspector);
+///   * near the stack limit, calling that function can throw where `napi_create_promise` did
+///     not. The exception is cleared and that one promise is made with `napi_create_promise`,
+///     which keeps the old 16 B leak if its env is torn down before it settles. So does every
+///     promise of an env that has no registration record of this addon, or whose host blocks
+///     the compile.
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   handle: Arc<DeferredHandle>,
+  target: SettleTarget,
+  /// `None` in thenable mode: the promise's slot keeps the trace reference, so the env-teardown
+  /// sweep deletes it if the settle never comes back.
   #[cfg(feature = "deferred_trace")]
-  trace: DeferredTrace,
+  trace: Option<DeferredTrace>,
   finalize_callback: FinalizeCallback,
-  /// What the threadsafe-function callback would otherwise receive as `env` and `context`.
-  /// Kept so a settle made on the owning thread *inside* the wasm environment cleanup barrier
-  /// can reach the promise directly, without the host's macrotask dispatch. wasm only: every
-  /// other target settles through the queue exclusively.
+  /// What the threadsafe-function callback would otherwise receive as `env`. Kept so a settle
+  /// made on the owning thread *inside* the wasm environment cleanup barrier can reach the
+  /// promise directly, without the host's macrotask dispatch. wasm only: every other target
+  /// settles through the queue exclusively.
   #[cfg(target_family = "wasm")]
   env: sys::napi_env,
-  #[cfg(target_family = "wasm")]
-  raw_deferred: sys::napi_deferred,
   #[cfg(target_family = "wasm")]
   owner_thread: std::thread::ThreadId,
   _data: PhantomData<Data>,
@@ -334,13 +399,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
   fn clone(&self) -> Self {
     Self {
       handle: self.handle.clone(),
+      target: self.target,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace.clone(),
       finalize_callback: self.finalize_callback.clone(),
       #[cfg(target_family = "wasm")]
       env: self.env,
-      #[cfg(target_family = "wasm")]
-      raw_deferred: self.raw_deferred,
       #[cfg(target_family = "wasm")]
       owner_thread: self.owner_thread,
       _data: PhantomData,
@@ -364,7 +428,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       hook_registered: AtomicBool::new(false),
     }));
 
-    let (tsfn, _raw_deferred, promise) = match js_deferred_new_raw(
+    let (tsfn, target, promise) = match js_deferred_new_raw(
       env,
       Some(napi_resolve_deferred::<Data, Resolver>),
       hook_data_ptr.cast(),
@@ -412,6 +476,8 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
             sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::abort)
           };
         }
+        // The promise is never handed out.
+        target.release(env.0);
         return Err(err);
       }
       unsafe { &*hook_data_ptr }
@@ -426,7 +492,12 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     // finalize still frees the boxed `DeferredHookData`, so (as above) we must not free it here.
     #[cfg(feature = "deferred_trace")]
     let trace = match DeferredTrace::new(env.0) {
-      Ok(trace) => trace,
+      // Thenable mode: the slot keeps the reference, so the env-teardown sweep deletes it if the
+      // settle never comes back.
+      Ok(trace) => match target {
+        SettleTarget::Thenable(promise) if promise.set_extra(env.0, trace.0) => None,
+        _ => Some(trace),
+      },
       Err(err) => {
         if let Some(tsfn) = handle
           .pending_tsfn
@@ -438,19 +509,19 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
             sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::abort)
           };
         }
+        target.release(env.0);
         return Err(err);
       }
     };
 
     let deferred = Self {
       handle,
+      target,
       #[cfg(feature = "deferred_trace")]
       trace,
       finalize_callback: Default::default(),
       #[cfg(target_family = "wasm")]
       env: env.0,
-      #[cfg(target_family = "wasm")]
-      raw_deferred: _raw_deferred,
       #[cfg(target_family = "wasm")]
       owner_thread: std::thread::current().id(),
       _data: PhantomData,
@@ -512,6 +583,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
 
     let data = DeferredData {
       resolver: result,
+      target: self.target,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace,
       tsfn,
@@ -531,7 +603,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     // already been taken out of the handle, so a concurrent settle from a worker returns early.
     #[cfg(target_family = "wasm")]
     let data = if settles_synchronously(self.owner_thread) {
-      let (env, raw_deferred) = (self.env, self.raw_deferred);
+      let env = self.env;
       // `napi_prepare_wasm_env_cleanup` is a bare wasm export: JavaScript enters it directly,
       // not through a napi entry point, so — unlike the threadsafe-function dispatch that
       // normally runs the settle — there is no handle scope open. Settling creates
@@ -539,7 +611,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       match WasmHandleScope::open(env) {
         Some(_scope) => {
           drop(pending);
-          settle_deferred::<Data, Resolver>(env, raw_deferred, data);
+          settle_deferred::<Data, Resolver>(env, data);
           return;
         }
         // No scope, so nothing here may create a `napi_value`. Fall back to the queue: worse,
@@ -642,11 +714,7 @@ fn js_deferred_new_raw(
   env: &Env,
   resolve_deferred: sys::napi_threadsafe_function_call_js,
   finalize_data: *mut c_void,
-) -> Result<(
-  sys::napi_threadsafe_function,
-  sys::napi_deferred,
-  Object<'_>,
-)> {
+) -> Result<(sys::napi_threadsafe_function, SettleTarget, Object<'_>)> {
   // Same reasoning as `ThreadsafeFunction::create`: a `JsDeferred` is `Send`
   // precisely so a foreign thread can settle it, so this addon's code becomes
   // reachable from a thread that can outlive the environment. `Env::create_deferred`
@@ -655,12 +723,25 @@ fn js_deferred_new_raw(
   #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
   crate::bindgen_runtime::retain_current_module_for_unload_safety();
 
-  let mut raw_promise = ptr::null_mut();
-  let mut raw_deferred = ptr::null_mut();
-  check_status!(
-    unsafe { sys::napi_create_promise(env.0, &mut raw_deferred, &mut raw_promise) },
-    "Create promise in JsDeferred failed"
-  )?;
+  // Thenable mode: a promise without a `napi_deferred`, so an env torn down before the settle
+  // comes back leaks nothing (see `crate::async_work::promise`). Else, as before.
+  let (raw_promise, target) = match crate::async_work::create_detached(env.0)? {
+    Some((promise, detached)) => (promise, SettleTarget::Thenable(detached)),
+    None => {
+      let mut raw_promise = ptr::null_mut();
+      let mut raw_deferred = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_create_promise(env.0, &mut raw_deferred, &mut raw_promise) },
+        "Create promise in JsDeferred failed"
+      )?;
+      (raw_promise, SettleTarget::Deferred(raw_deferred))
+    }
+  };
+  // The promise is never handed out on an error below: free its slot (thenable mode).
+  let fail = |err: Error| {
+    target.release(env.0);
+    err
+  };
 
   // Create a threadsafe function so we can call back into the JS thread when we are done.
   let mut async_resource_name = ptr::null_mut();
@@ -674,7 +755,8 @@ fn js_deferred_new_raw(
       )
     },
     "Create async resource name in JsDeferred failed"
-  )?;
+  )
+  .map_err(fail)?;
 
   let mut tsfn = ptr::null_mut();
   check_status!(
@@ -688,17 +770,19 @@ fn js_deferred_new_raw(
         1,
         finalize_data,
         Some(deferred_finalize_cb),
-        raw_deferred.cast(),
+        // The settle target travels in each queued `DeferredData`.
+        ptr::null_mut(),
         resolve_deferred,
         &mut tsfn,
       )
     },
     "Create threadsafe function in JsDeferred failed"
-  )?;
+  )
+  .map_err(fail)?;
 
   let promise = Object::from_raw(env.0, raw_promise);
 
-  Ok((tsfn, raw_deferred, promise))
+  Ok((tsfn, target, promise))
 }
 
 /// Saturating decrement, so a decrement that is somehow unpaired cannot wrap the counter to
@@ -713,7 +797,7 @@ fn release_pending_deferred_settle() {
 extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   env: sys::napi_env,
   _js_callback: sys::napi_value,
-  context: *mut c_void,
+  _context: *mut c_void,
   data: *mut c_void,
 ) {
   // The item has left the queue, whichever branch below handles it. Release it first so an
@@ -741,7 +825,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     return;
   }
 
-  settle_deferred::<Data, Resolver>(env, context.cast(), *deferred_data);
+  settle_deferred::<Data, Resolver>(env, *deferred_data);
 }
 
 /// Settles the promise this deferred owns, releasing the threadsafe function's thread count on
@@ -754,13 +838,19 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
 /// environment on the owning thread in both.
 fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   env: sys::napi_env,
-  deferred: sys::napi_deferred,
   deferred_data: DeferredData<Data, Resolver>,
 ) {
+  let target = deferred_data.target;
   let tsfn: sys::napi_threadsafe_function = deferred_data.tsfn;
   let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
     .expect("RwLock Poison")
     .take();
+  // Thenable mode keeps the trace reference in the slot: take it back before settling.
+  #[cfg(feature = "deferred_trace")]
+  let trace = deferred_data.trace.or_else(|| match target {
+    SettleTarget::Thenable(promise) => promise.take_extra(env).map(DeferredTrace),
+    SettleTarget::Deferred(_) => None,
+  });
   let result = deferred_data
     .resolver
     .and_then(|resolver| resolver(Env::from_raw(env)))
@@ -775,13 +865,13 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
 
   if let Err(e) = release_tsfn_result.and(result).and_then(|res| {
     check_status!(
-      unsafe { sys::napi_resolve_deferred(env, deferred, res) },
+      target.settle(env, true, res),
       "Resolve deferred value failed"
     )
     .map(|_| {
       #[cfg(feature = "deferred_trace")]
-      {
-        let _status = unsafe { sys::napi_delete_reference(env, deferred_data.trace.0) };
+      if let Some(trace) = &trace {
+        let _status = unsafe { sys::napi_delete_reference(env, trace.0) };
         if _status != sys::Status::napi_ok && cfg!(debug_assertions) {
           eprintln!(
             "Failed to delete reference in deferred {}",
@@ -792,7 +882,11 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     })
   }) {
     #[cfg(feature = "deferred_trace")]
-    let error = deferred_data.trace.into_rejected(env, e);
+    let error = match trace {
+      Some(trace) => trace.into_rejected(env, e),
+      // No trace: the slot is gone, so the settle below finds nothing to settle.
+      None => unsafe { ToNapiValue::to_napi_value(env, e) },
+    };
     // `ToNapiValue for Error` hands back the retained value verbatim and only
     // synthesizes a fresh `Error` when there is nothing to hand back.
     // `JsError::into_value` cannot be used here: it gates the reuse on
@@ -804,7 +898,7 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
 
     match error {
       Ok(error) => {
-        unsafe { sys::napi_reject_deferred(env, deferred, error) };
+        target.settle(env, false, error);
         if let Some(finalize_callback) = finalize_callback {
           finalize_callback(env);
         }
@@ -820,12 +914,14 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
           unsafe {
             sys::napi_create_string_utf8(env, c"Rejection failed".as_ptr().cast(), 0, &mut err_msg);
             sys::napi_create_error(env, ptr::null_mut(), err_msg, &mut err);
-            sys::napi_reject_deferred(env, deferred, err);
           }
+          target.settle(env, false, err);
         }
       }
     }
   } else if let Some(finalize_callback) = finalize_callback {
     finalize_callback(env);
   }
+  // Settled, refused or failed: the slot goes. A kept outcome stays for `then` (or the sweep).
+  target.release(env);
 }

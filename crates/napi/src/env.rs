@@ -1349,6 +1349,12 @@ impl Env {
   }
 
   /// Creates a deferred promise, which can be resolved or rejected from a background thread.
+  ///
+  /// In a worker, an Electron renderer and the other envs that can be torn down before the
+  /// process ends, the promise is made without a `napi_deferred`, so a promise that never
+  /// settles before its env is torn down leaks nothing. See [`JsDeferred`] for what is
+  /// observable there. `#[napi] async fn` and `Env::spawn_future` promises are made the same
+  /// way.
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     &self,
