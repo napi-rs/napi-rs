@@ -66,6 +66,8 @@ pub struct CustomGcRefCounts {
   pub drain_callbacks: u32,
   /// The most references one custom-GC callback deleted.
   pub largest_drain: u32,
+  /// Strong references to late sentinels deleted. Each torn-down load adds exactly one.
+  pub sentinel_refs_deleted: u32,
 }
 
 #[napi]
@@ -78,6 +80,7 @@ pub fn custom_gc_ref_counts() -> CustomGcRefCounts {
     left_pending: counters.left_pending as u32,
     drain_callbacks: counters.drain_callbacks as u32,
     largest_drain: counters.largest_drain as u32,
+    sentinel_refs_deleted: counters.sentinel_refs_deleted as u32,
   }
 }
 

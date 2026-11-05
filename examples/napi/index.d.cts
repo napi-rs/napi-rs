@@ -1242,6 +1242,8 @@ export interface CustomGcRefCounts {
   drainCallbacks: number
   /** The most references one custom-GC callback deleted. */
   largestDrain: number
+  /** Strong references to late sentinels deleted. Each torn-down load adds exactly one. */
+  sentinelRefsDeleted: number
 }
 
 /**
