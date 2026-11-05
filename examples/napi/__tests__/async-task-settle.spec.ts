@@ -194,10 +194,11 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
 
 // The settle mode is picked from `process.versions` before the loop check: hosts that must use
 // the thenable path (Electron, NW.js, Bun before 1.4.4, Bun on Windows), and a read that throws,
-// give `thenable` on the main thread too. Spawned, since the versions must be faked before the
-// load.
+// give `thenable` on the main thread too. Without `versions.bun`, Node is still found by its
+// exported symbol (`deleted-bun`). Spawned, since the versions must be faked before the load.
 for (const [variant, expected] of [
   ['control', 'deferred'],
+  ['deleted-bun', 'deferred'],
   ['electron', 'thenable'],
   ['nw', 'thenable'],
   ['bun-1.4.3', 'thenable'],
@@ -223,7 +224,7 @@ for (const [variant, expected] of [
       t.deepEqual(JSON.parse(line!.slice('settle-mode '.length)), {
         mode: expected,
         value: 0,
-        versionsRead: variant !== 'control',
+        versionsRead: variant !== 'control' && variant !== 'deleted-bun',
         uncaught: [],
       })
     },

@@ -20,6 +20,12 @@
 //!   on navigation), Bun before 1.4.4 and Bun on Windows, Deno, and any host the check cannot
 //!   place. Described below. It costs about 2 µs more main-thread CPU per task.
 //!
+//! On macOS, Linux and the other Unix hosts, a host that is neither Node-based (it exports
+//! `node::Buffer::Data`) nor Bun 1.4.4+ never has `uv_default_loop()` called. So a Bun below
+//! 1.4.4 whose `process.versions.bun` was removed takes the thenable path instead of reaching
+//! Bun's crash stub. Windows is unchanged: Node, Electron and Bun all have a real libuv there,
+//! and Deno does not export `uv_default_loop`.
+//!
 //! In deferred mode a settling call behaves as before #3689: one that fails after Node freed the
 //! deferred gives `Err(generic_failure)` or `Ok(false)` from [`conclude`] and the promise stays
 //! pending; `napi_invalid_arg` from a null `napi_value` leaves the deferred unsettled; on WASI, a
