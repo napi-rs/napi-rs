@@ -31,15 +31,20 @@ impl SettleMode {
 ///
 /// Native, in this order:
 ///
-/// 1. `globalThis.process.versions` is read first, because the next step calls
-///    `uv_default_loop()`, which Bun before 1.4.4 exports as a stub that aborts the process.
-///    Electron and NW.js (`versions.electron` / `versions.nw` set), Bun before 1.4.4, Bun on
-///    Windows (its main thread does not run libuv's default loop there), a pending exception,
-///    and a read that fails or finds the wrong types all give `Thenable`.
-/// 2. `Deferred` only when the host exports both `uv_default_loop` and
+/// 1. `globalThis.process.versions` is read first. Electron and NW.js (`versions.electron` /
+///    `versions.nw` set), Bun before 1.4.4, Bun on Windows (its main thread does not run
+///    libuv's default loop there), a pending exception, and a read that fails or finds the
+///    wrong types all give `Thenable`.
+/// 2. macOS, Linux and the other Unix hosts: `uv_default_loop()` is called only in a host that
+///    is Node-based (it exports `node::Buffer::Data`) or that `versions.bun` names as Bun
+///    1.4.4 or later. Bun before 1.4.4 exports `uv_default_loop` as a stub that aborts the
+///    process, and a script can remove `versions.bun`; such a host is neither, so it gets
+///    `Thenable` and the stub is never reached. Any other host (Deno too) gets `Thenable`.
+///    Windows skips this step: Node, Electron and Bun all have a real libuv there, and Deno
+///    does not export `uv_default_loop`.
+/// 3. `Deferred` only when the host exports both `uv_default_loop` and
 ///    `napi_get_uv_event_loop` (found at run time, never linked) and the env's loop is the
-///    default loop: the main env of Node and Bun. Workers, and Deno (where `uv_default_loop`
-///    is missing or returns null), give `Thenable`.
+///    default loop: the main env of Node and Bun. Workers give `Thenable`.
 #[cfg(not(feature = "noop"))]
 pub(crate) fn detect(env: crate::sys::napi_env) -> SettleMode {
   #[cfg(target_family = "wasm")]
@@ -51,11 +56,16 @@ pub(crate) fn detect(env: crate::sys::napi_env) -> SettleMode {
   }
   #[cfg(not(target_family = "wasm"))]
   {
-    // `||` keeps the order: the loop check must not run where the versions read said no.
-    if host::runs_in_embedder(env) || !host::runs_on_default_loop(env) {
-      SettleMode::Thenable
-    } else {
+    // The loop check must not run where the versions read said no.
+    let bun_with_default_loop = match host::read_versions(env) {
+      host::Versions::Thenable => return SettleMode::Thenable,
+      host::Versions::BunWithDefaultLoop => true,
+      host::Versions::NotBun => false,
+    };
+    if host::runs_on_default_loop(env, bun_with_default_loop) {
       SettleMode::Deferred
+    } else {
+      SettleMode::Thenable
     }
   }
 }
@@ -69,35 +79,47 @@ mod host {
   use crate::sys;
 
   /// The first Bun release whose `uv_default_loop` is a real function on macOS, Linux and
-  /// FreeBSD. Earlier ones export a stub that panics (`unsupported uv function`).
+  /// FreeBSD. Earlier ones export a stub that aborts the process (`panic: unsupported uv
+  /// function: uv_default_loop`).
   const BUN_WITH_DEFAULT_LOOP: (u32, u32, u32) = (1, 4, 4);
 
-  /// Whether `env` runs in a host whose envs can die before the process, or where the loop
-  /// check must not run, as far as `globalThis.process.versions` tells. `true` too when it
-  /// cannot tell: an exception was already pending, or a read failed, threw or found the wrong
-  /// type.
-  pub(super) fn runs_in_embedder(env: sys::napi_env) -> bool {
+  /// What `globalThis.process.versions` tells about the host.
+  #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+  pub(super) enum Versions {
+    /// A host whose envs can die before the process, or where the loop check must not run.
+    /// Also given when it cannot tell: an exception was already pending, or a read failed,
+    /// threw or found the wrong type.
+    Thenable,
+    /// `versions.bun` names Bun 1.4.4 or later (not on Windows): `uv_default_loop` is real.
+    BunWithDefaultLoop,
+    /// No `versions.bun`, `versions.electron` or `versions.nw`.
+    NotBun,
+  }
+
+  pub(super) fn read_versions(env: sys::napi_env) -> Versions {
     let mut pending = false;
     // An exception left by `create_custom_gc` must reach the loader untouched.
     if unsafe { sys::napi_is_exception_pending(env, &mut pending) } != sys::Status::napi_ok
       || pending
     {
-      return true;
+      return Versions::Thenable;
     }
     let mut scope = ptr::null_mut();
     if unsafe { sys::napi_open_handle_scope(env, &mut scope) } != sys::Status::napi_ok {
-      return true;
+      return Versions::Thenable;
     }
     let verdict = versions_verdict(env);
     // Nothing was pending before, so anything pending now came from the reads above.
     let threw = crate::async_work::promise::take_pending_exception(env).is_some();
     unsafe { sys::napi_close_handle_scope(env, scope) };
-    threw || verdict.unwrap_or(true)
+    if threw {
+      return Versions::Thenable;
+    }
+    verdict.unwrap_or(Versions::Thenable)
   }
 
-  /// `Some(true)` when `process.versions` names a host that must use the thenable path,
-  /// `Some(false)` when it names none, `None` when it cannot be read.
-  fn versions_verdict(env: sys::napi_env) -> Option<bool> {
+  /// `None` when `process.versions` cannot be read.
+  fn versions_verdict(env: sys::napi_env) -> Option<Versions> {
     let mut global = ptr::null_mut();
     if unsafe { sys::napi_get_global(env, &mut global) } != sys::Status::napi_ok || global.is_null()
     {
@@ -108,18 +130,22 @@ mod host {
     for embedder in [c"electron", c"nw"] {
       let value = named_property(env, versions, embedder)?;
       if value_type(env, value)? != sys::ValueType::napi_undefined {
-        return Some(true);
+        return Some(Versions::Thenable);
       }
     }
     let bun = named_property(env, versions, c"bun")?;
     match value_type(env, bun)? {
-      sys::ValueType::napi_undefined => Some(false),
+      sys::ValueType::napi_undefined => Some(Versions::NotBun),
       // Bun on Windows runs its main thread on its own loop, not on libuv's default one;
       // calling `uv_default_loop()` there would only create an unused loop.
-      sys::ValueType::napi_string if cfg!(windows) => Some(true),
+      sys::ValueType::napi_string if cfg!(windows) => Some(Versions::Thenable),
       sys::ValueType::napi_string => {
         let version = string_value(env, bun)?;
-        Some(bun_version_below(&version, BUN_WITH_DEFAULT_LOOP)?)
+        Some(if bun_version_below(&version, BUN_WITH_DEFAULT_LOOP)? {
+          Versions::Thenable
+        } else {
+          Versions::BunWithDefaultLoop
+        })
       }
       _ => None,
     }
@@ -197,18 +223,23 @@ mod host {
   type GetUvEventLoop = unsafe extern "C" fn(sys::napi_env, *mut *mut c_void) -> sys::napi_status;
 
   struct HostLoop {
-    /// `uv_default_loop()`, called once. libuv keeps the default loop in one static struct,
-    /// so the address never changes for the life of the process. In a host that never used the
-    /// default loop, this first call creates it: one loop and its backend fd stay open for the
-    /// life of the process (Node, Bun 1.4.4+ and Electron create it at startup, so nothing
-    /// changes there).
+    /// `uv_default_loop()`, called once, and only in a host [`may_call_default_loop`] allows.
+    /// libuv keeps the default loop in one static struct, so the address never changes for the
+    /// life of the process. In a host that never used the default loop, this first call creates
+    /// it: one loop and its backend fd stay open for the life of the process (Node, Bun 1.4.4+
+    /// and Electron create it at startup, so nothing changes there).
     default_loop: usize,
     get_uv_event_loop: GetUvEventLoop,
   }
 
+  /// Set by the first env that may call `uv_default_loop()`. An env that may not leaves it
+  /// unset, so a later env that may still sets it.
   static HOST_LOOP: OnceLock<Option<HostLoop>> = OnceLock::new();
 
-  fn host_loop() -> Option<&'static HostLoop> {
+  fn host_loop(bun_with_default_loop: bool) -> Option<&'static HostLoop> {
+    if !may_call_default_loop(bun_with_default_loop) {
+      return None;
+    }
     HOST_LOOP
       .get_or_init(|| {
         let (uv_default_loop, get_uv_event_loop) = host_symbols()?;
@@ -222,9 +253,11 @@ mod host {
   }
 
   /// Whether `env` runs on libuv's default loop, the loop of the host's main thread. `false`
-  /// when the host does not export both symbols, or `uv_default_loop()` gives null.
-  pub(super) fn runs_on_default_loop(env: sys::napi_env) -> bool {
-    let Some(host) = host_loop() else {
+  /// when `uv_default_loop()` may not be called, the host does not export both symbols, or
+  /// `uv_default_loop()` gives null. `bun_with_default_loop`: `process.versions` names Bun
+  /// 1.4.4 or later.
+  pub(super) fn runs_on_default_loop(env: sys::napi_env, bun_with_default_loop: bool) -> bool {
+    let Some(host) = host_loop(bun_with_default_loop) else {
       return false;
     };
     let mut event_loop = ptr::null_mut();
@@ -232,6 +265,58 @@ mod host {
     (unsafe { (host.get_uv_event_loop)(env, &mut event_loop) } == sys::Status::napi_ok)
       && !event_loop.is_null()
       && event_loop as usize == host.default_loop
+  }
+
+  /// Whether `uv_default_loop()` may be called: only in a Node-based host or in Bun 1.4.4+.
+  /// Bun before 1.4.4 exports it as a stub that aborts the process. `process.versions.bun` is
+  /// the only sign of Bun, and a script can delete it, so a missing `versions.bun` does not
+  /// prove the host is not Bun. A host that is neither (a Bun below 1.4.4 whose
+  /// `versions.bun` was removed, Deno, any other) never has it called and takes the thenable
+  /// path.
+  #[cfg(any(
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  ))]
+  fn may_call_default_loop(bun_with_default_loop: bool) -> bool {
+    bun_with_default_loop || node_host()
+  }
+
+  /// Whether the host exports `node::Buffer::Data(v8::Local<v8::Value>)` (Itanium-mangled),
+  /// declared `NODE_EXTERN` in `node_buffer.h` since Node 0.x. Exported by Node and Electron;
+  /// not by Bun (which exports some other `node::` functions) nor Deno. Looked up once.
+  #[cfg(any(
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  ))]
+  fn node_host() -> bool {
+    static NODE_HOST: OnceLock<bool> = OnceLock::new();
+    *NODE_HOST.get_or_init(|| {
+      // glibc before 2.34 keeps `dlsym` in a separate library.
+      #[cfg(any(target_os = "linux", target_os = "android"))]
+      #[link(name = "dl")]
+      unsafe extern "C" {}
+
+      // `dlsym` adds the leading `_` of Mach-O names itself.
+      !unsafe {
+        libc::dlsym(
+          libc::RTLD_DEFAULT,
+          c"_ZN4node6Buffer4DataEN2v85LocalINS1_5ValueEEE".as_ptr(),
+        )
+      }
+      .is_null()
+    })
   }
 
   /// `uv_default_loop` and `napi_get_uv_event_loop` from the global scope, the same scope
@@ -272,6 +357,13 @@ mod host {
     })
   }
 
+  /// Windows: always, as before. Node, Electron and Bun all have a real libuv there, so the
+  /// call cannot abort, and Deno does not export `uv_default_loop`.
+  #[cfg(windows)]
+  fn may_call_default_loop(_bun_with_default_loop: bool) -> bool {
+    true
+  }
+
   /// Windows: the process executable only, not `libnode.dll` / `node.dll`. A host that keeps
   /// Node in a DLL is an embedder, which may create and free several envs on the default loop.
   #[cfg(windows)]
@@ -299,6 +391,22 @@ mod host {
         std::mem::transmute::<*mut c_void, GetUvEventLoop>(get_uv_event_loop),
       )
     })
+  }
+
+  /// No portable way to find the symbols: the thenable path.
+  #[cfg(not(any(
+    windows,
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  )))]
+  fn may_call_default_loop(_bun_with_default_loop: bool) -> bool {
+    false
   }
 
   /// No portable way to find the symbols: the thenable path.

@@ -1,6 +1,6 @@
 // Fakes `process.versions` the way another host would show it, then loads the addon and reports
 // the settle mode its main-thread env picked.
-// Usage: node <this file> control|electron|nw|bun-1.4.3|bun-1.4.4|throwing-versions <addon>
+// Usage: node <this file> control|deleted-bun|electron|nw|bun-1.4.3|bun-1.4.4|throwing-versions <addon>
 const variant = process.argv[2]
 const addon = process.argv[3]
 
@@ -36,6 +36,9 @@ if (variant === 'electron') {
     },
   })
   restore.push(() => Object.defineProperty(process, 'versions', descriptor))
+} else if (variant === 'deleted-bun') {
+  // What a script may do under Bun. Node is still found by its exported symbol.
+  delete process.versions.bun
 } else if (variant !== 'control') {
   console.error(`unknown variant ${variant}`)
   process.exit(2)
