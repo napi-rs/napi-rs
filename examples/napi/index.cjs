@@ -992,6 +992,7 @@ module.exports.arrayBufferLenAsync = nativeBinding.arrayBufferLenAsync
 module.exports.arrayBufferPassThrough = nativeBinding.arrayBufferPassThrough
 module.exports.arrayParams = nativeBinding.arrayParams
 module.exports.asyncBufferToArray = nativeBinding.asyncBufferToArray
+module.exports.asyncFnSleep = nativeBinding.asyncFnSleep
 module.exports.asyncMultiTwo = nativeBinding.asyncMultiTwo
 module.exports.asyncPlus100 = nativeBinding.asyncPlus100
 module.exports.asyncReduceBuffer = nativeBinding.asyncReduceBuffer

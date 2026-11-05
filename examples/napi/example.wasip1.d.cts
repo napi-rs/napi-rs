@@ -738,6 +738,12 @@ export declare function arrayParams(arr: Array<number>): number
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
+/**
+ * An `async fn` that sleeps `ms` on the async runtime and resolves with `ms`. It counts when its
+ * future starts and finishes, so a test can tell that a worker was terminated while it ran.
+ */
+export declare function asyncFnSleep(ms: number): Promise<number>
+
 export declare function asyncMultiTwo(arg: number): Promise<number>
 
 export declare function asyncPlus100(p: Promise<number>): Promise<number>
@@ -798,6 +804,16 @@ export interface AsyncTaskSettleCounters {
   promiseWrappersCompiled: number
   /** Thenable-mode promises made from a deferred, because their env had no promise wrapper. */
   promiseWrapperFallbacks: number
+  /**
+   * `#[napi] async fn` (`JsDeferred`) promises made by the promise wrapper, without a deferred.
+   * Their settle states are counted in `promise_states_freed` too.
+   */
+  jsDeferredThenableCreated: number
+  /** Thenable-mode `#[napi] async fn` promises made from a deferred instead. */
+  jsDeferredFallbacks: number
+  /** `asyncFnSleep` calls whose future started, and whose future finished. */
+  asyncFnSleepsStarted: number
+  asyncFnSleepsFinished: number
 }
 
 /**
