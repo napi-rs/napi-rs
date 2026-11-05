@@ -41,13 +41,15 @@
 //! later `napi_create_promise` on that env is refused, so it is at most one per terminated
 //! worker (settling at completion leaked one per task).
 //!
-//! Nothing here reads a property user code can reach, and nothing calls user code to build or
-//! settle the promise on Node: the promise comes from `napi_create_promise` (not from
+//! In thenable mode, nothing here reads a property user code can reach, and nothing calls user
+//! code to build or settle the promise on Node: the promise comes from `napi_create_promise` (not from
 //! `globalThis.Promise`), `then` is an own data property of an object no script holds (defined,
 //! not assigned, so an `Object.prototype.then` accessor is never consulted), and `resolve` /
 //! `reject` are the built-in resolving functions of this very promise. Only the inspector
 //! (`Runtime.queryObjects`) can reach the thenable; calling its `then` first steals the
-//! promise's settlement, which then never happens.
+//! promise's settlement, which then never happens. In deferred mode the task's value goes
+//! straight to `napi_resolve_deferred`, as before #3689, so V8 reads `then` on an object value
+//! and an `Object.prototype.then` accessor runs there.
 //!
 //! On WASI, emnapi builds these calls in JavaScript: `napi_create_promise` uses the
 //! `globalThis.Promise` of the moment, and `napi_call_function` uses the current

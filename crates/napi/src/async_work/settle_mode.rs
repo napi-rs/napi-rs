@@ -6,7 +6,9 @@
 pub(crate) enum SettleMode {
   /// `napi_create_promise`, then `napi_resolve_deferred` / `napi_reject_deferred` when the task
   /// completes. The cheap way, as before #3689. Chosen only where the env dies with its process
-  /// (the main env of Node and Bun) or with its realm (wasm).
+  /// (the main env of Node and Bun) or with its realm (wasm). One host is not told apart: an
+  /// embedder that links `libnode.so` and creates and frees several envs on the default loop
+  /// gets this mode too, and leaks one deferred per task in flight at each teardown, as before.
   Deferred,
   /// The deferred is settled at once with a thenable (see `promise.rs`). Costs more main-thread
   /// CPU per task, but a task still in flight when the env is torn down leaks nothing.
@@ -196,7 +198,10 @@ mod host {
 
   struct HostLoop {
     /// `uv_default_loop()`, called once. libuv keeps the default loop in one static struct,
-    /// so the address never changes for the life of the process.
+    /// so the address never changes for the life of the process. In a host that never used the
+    /// default loop, this first call creates it: one loop and its backend fd stay open for the
+    /// life of the process (Node, Bun 1.4.4+ and Electron create it at startup, so nothing
+    /// changes there).
     default_loop: usize,
     get_uv_event_loop: GetUvEventLoop,
   }
@@ -232,7 +237,10 @@ mod host {
   /// `uv_default_loop` and `napi_get_uv_event_loop` from the global scope, the same scope
   /// napi-sys loads every Node-API function from. Found at run time, not linked: a link-time
   /// import of `uv_default_loop` fails to load on Deno, which does not export it. Also finds
-  /// them in a `libnode.so` the executable depends on.
+  /// them in a `libnode.so` the executable depends on, so a distro `node` built against it is
+  /// placed correctly, and an embedder that links it is not told apart (see
+  /// [`SettleMode::Deferred`]). Windows checks the executable only; this difference between the
+  /// platforms is accepted.
   #[cfg(any(
     target_vendor = "apple",
     target_os = "linux",
