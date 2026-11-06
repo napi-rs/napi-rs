@@ -530,6 +530,64 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
 })
 
 test.serial(
+  'should depend on the WASM runtime version the project has installed',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '1.1.6',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-installed-wasm-runtime',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-installed-wasm-runtime',
+        targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+    // Like the real package, the installed runtime doesn't export
+    // `./package.json`.
+    const runtimeDir = join(tmpDir, 'node_modules', '@napi-rs', 'wasm-runtime')
+    await mkdir(runtimeDir, { recursive: true })
+    await writeFile(
+      join(runtimeDir, 'package.json'),
+      JSON.stringify({
+        name: '@napi-rs/wasm-runtime',
+        version: '1.1.2',
+        exports: { '.': './runtime.js' },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+        const scopedPackageJson = JSON.parse(
+          await readFile(
+            join(tmpDir, 'npm', packageDir, 'package.json'),
+            'utf-8',
+          ),
+        )
+
+        t.is(scopedPackageJson.dependencies['@napi-rs/wasm-runtime'], '~1.1.2')
+      }
+      t.deepEqual(registryServer.requests, [])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
   'should keep generated WASM runtime dependencies within the resolved minor',
   async (t) => {
     const { tmpDir, packageJsonPath } = t.context

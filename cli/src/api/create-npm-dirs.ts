@@ -68,6 +68,63 @@ interface OwnedWasiPackage {
   target: Target
 }
 
+/**
+ * Returns the version of `packageName` installed for the project whose
+ * `package.json` is at `packageJsonPath`, or `undefined` when the project
+ * doesn't have it installed.
+ *
+ * The package's `package.json` is read directly from each `node_modules`
+ * directory Node would search, because packages such as
+ * `@napi-rs/wasm-runtime` don't export `./package.json`.
+ */
+async function getInstalledPackageVersion(
+  packageJsonPath: string,
+  packageName: string,
+) {
+  const searchPaths =
+    createRequire(packageJsonPath).resolve.paths(packageName) ?? []
+  for (const searchPath of searchPaths) {
+    let manifest: unknown
+    try {
+      manifest = JSON.parse(
+        await readFile(join(searchPath, packageName, 'package.json'), 'utf8'),
+      )
+    } catch {
+      continue
+    }
+    const version = (manifest as { version?: unknown }).version
+    if (typeof version === 'string' && version.trim().length > 0) {
+      return version.trim()
+    }
+  }
+  return undefined
+}
+
+/**
+ * Returns the version of `packageName` to depend on from generated packages:
+ * the version the project builds with, or the registry's latest version when
+ * the project doesn't have the package installed.
+ *
+ * Preferring the installed version keeps the runtime that generated packages
+ * depend on in step with the emnapi version they pin, which is also read from
+ * the build environment. A newer runtime can require a different emnapi
+ * generation.
+ */
+async function getRuntimePackageVersion(
+  packageJsonPath: string,
+  packageName: string,
+) {
+  const installedVersion = await getInstalledPackageVersion(
+    packageJsonPath,
+    packageName,
+  )
+  if (installedVersion !== undefined) {
+    debug(`Use installed ${packageName}@${installedVersion}`)
+    return installedVersion
+  }
+  return getLatestPackageVersion(packageName)
+}
+
 async function getLatestPackageVersion(packageName: string) {
   const npmRegistryBase =
     process.env.npm_config_registry?.replace(/\/?$/, '/') ??
@@ -451,7 +508,7 @@ async function createNpmDirsUnlocked(
   const hasWasmTarget = targets.some((target) => target.arch === 'wasm32')
   const [wasmRuntimeVersion, asyncRuntimeVersion] = await Promise.all([
     hasWasmTarget
-      ? getLatestPackageVersion(WASM_RUNTIME_PACKAGE_NAME)
+      ? getRuntimePackageVersion(packageJsonPath, WASM_RUNTIME_PACKAGE_NAME)
       : undefined,
     hasWasmTarget && wasm?.asyncRuntime === true
       ? getLatestPackageVersion(ASYNC_RUNTIME_PACKAGE_NAME)
