@@ -1358,7 +1358,8 @@ impl Env {
   ///
   /// Dropping the deferred (and every clone) without settling it leaves the promise pending for
   /// ever. On native targets it no longer keeps the event loop alive. On wasm, dropping still
-  /// does nothing, as before.
+  /// does nothing, as before. The settle-time callback is then dropped without running, as
+  /// before.
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     &self,
