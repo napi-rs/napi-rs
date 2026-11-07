@@ -110,6 +110,7 @@ pub async fn async_fn_pending_forever() -> u32 {
 /// that runs no other `async fn` afterwards.
 #[napi]
 pub fn shutdown_async_runtime_now() {
+  #[cfg(not(feature = "noop"))]
   napi::bindgen_prelude::shutdown_async_runtime();
 }
 
