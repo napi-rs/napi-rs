@@ -33,7 +33,7 @@ fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
 //
 // `js_name` is the class's registered JS name (`#[napi(js_name = "...")]`, or the
 // Rust ident when not overridden). It is the key constructors are registered under,
-// so it must be the `get_class_constructor` lookup key in `validate()` below. `name`
+// so it must be the `get_class_constructor_in_env` lookup key in `validate()` below. `name`
 // stays the Rust ident and is used only for cosmetic identifiers (`type_name()`,
 // error text, the content-derived type tag), which are not registry lookups.
 fn gen_napi_value_map_impl(
@@ -92,7 +92,7 @@ fn gen_napi_value_map_impl(
   let js_name_str = format!("{js_name}\0");
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
-      if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+      if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env, #js_name_str) {
         let mut ctor = std::ptr::null_mut();
         napi::check_status!(
           napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
@@ -498,7 +498,7 @@ impl NapiStruct {
           env: napi::sys::napi_env,
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
-          if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) = napi::__private::get_class_constructor_in_env(env, #js_name_str) {
             let mut wrapped_value = Box::into_raw(Box::new(val));
             if wrapped_value as usize == 0x1 {
               wrapped_value = Box::into_raw(Box::new(0u8)).cast();
@@ -521,7 +521,7 @@ impl NapiStruct {
       #javascript_class_ext_impl {
         fn into_instance<'scope>(self, env: &'scope napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<'scope, Self>>
          {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             unsafe {
               let mut wrapped_value = Box::into_raw(Box::new(self));
               if wrapped_value as usize == 0x1 {
@@ -538,7 +538,7 @@ impl NapiStruct {
         }
 
         fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             unsafe {
               let mut wrapped_value = Box::into_raw(Box::new(self));
               if wrapped_value as usize == 0x1 {
@@ -560,7 +560,7 @@ impl NapiStruct {
         }
 
         fn instance_of<'env, V: napi::JsValue<'env>>(env: &napi::bindgen_prelude::Env, value: &V) -> napi::bindgen_prelude::Result<bool> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             let mut ctor = std::ptr::null_mut();
             napi::check_status!(
               unsafe { napi::sys::napi_get_reference_value(env.raw(), ctor_ref, &mut ctor) },
@@ -666,7 +666,7 @@ impl NapiStruct {
           env: napi::bindgen_prelude::sys::napi_env,
           val: #name,
         ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env, #js_name_str) {
             let mut ctor = std::ptr::null_mut();
 
             napi::bindgen_prelude::check_status!(

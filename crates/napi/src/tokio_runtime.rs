@@ -288,8 +288,11 @@ pub(crate) fn drain_wasm_cancel_mailbox() {
 /// A parked entry is a callback *and* an [`Error`], and neither is inert. `Error` carries
 /// `maybe_ref: Option<Arc<ErrorRef>>`, whose `Drop` calls `napi_delete_reference` on the owning
 /// thread (`error.rs`) — this thread — against exactly the environment that must not be touched.
-/// The callback owns the task's `JsDeferred`, whose `DeferredHandle` has no `Drop` at all, so
-/// dropping it would not settle or release anything anyway. So each entry is `mem::forget`ed:
+/// The callback owns the task's `JsDeferred`. On native its `Drop` abandons the promise through
+/// the threadsafe function; on wasm, the only target of this function, it has no `Drop`, so
+/// dropping it would not settle or release anything anyway. The `mem::forget` stays load-bearing
+/// for the `Error`, and for the `JsDeferred` should wasm ever get a `Drop`. So each entry is
+/// `mem::forget`ed:
 /// the leak is bounded by the cancellations of one abandoned teardown, it happens only on this
 /// path, and it buys the guarantee that unwinding an abandoned cleanup makes no napi call.
 ///

@@ -12,6 +12,26 @@ use crate::{
   check_status, sys, Env, Error, JsError, Result, ScopedTask, Status,
 };
 
+mod promise;
+mod settle_mode;
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi3", not(target_family = "wasm"))
+))]
+pub(crate) use promise::release_env_promise_states;
+#[doc(hidden)]
+pub use promise::{
+  async_task_promise_resolvers_released, async_task_promise_settle_mode,
+  async_task_promise_states_freed, async_task_promise_wrapper_fallbacks,
+  async_task_promise_wrappers_compiled, js_deferred_promise_fallbacks,
+  js_deferred_thenable_promises_created,
+};
+#[cfg(feature = "napi4")]
+pub(crate) use promise::{create_detached, DetachedPromise};
+use promise::{PromiseSettler, Settlement};
+pub(crate) use settle_mode::SettleMode;
+
 struct AsyncWork<'task, T: ScopedTask<'task>> {
   // `Option` so `finally` can consume the task while the rest of the box stays owned here:
   // `complete_impl` must still release `borrow_lease` after `inner_task` is gone.
@@ -21,7 +41,10 @@ struct AsyncWork<'task, T: ScopedTask<'task>> {
   /// thread and released on the JavaScript thread in [`complete_impl`] once the task is
   /// destroyed; the scope's guards and roots go out with the last lease, not this one.
   borrow_lease: Option<NativeBorrowLease>,
-  deferred: sys::napi_deferred,
+  /// Settles the promise handed to JavaScript. Dropped with the box on every path: a thenable
+  /// settler releases the promise's resolving functions whether or not it settled; a deferred
+  /// settler holds nothing to release (a deferred nobody settled stays with the env, as before).
+  settler: PromiseSettler,
   value: mem::MaybeUninit<Result<T::Output>>,
   napi_async_work: sys::napi_async_work,
   status: Rc<Cell<u8>>,
@@ -152,10 +175,14 @@ impl<T> AsyncWorkPromise<T> {
     }
     // must be happened in the main thread, relaxed is enough
     self.status.set(2);
-    check_status!(
-      unsafe { sys::napi_cancel_async_work(self.env, self.napi_async_work) },
-      "Cancel async work failed"
-    )
+    let status = unsafe { sys::napi_cancel_async_work(self.env, self.napi_async_work) };
+    if status != sys::Status::napi_ok {
+      // The work already started (or the host refused), so it completes normally with
+      // `napi_ok`. Status 2 would tell `settle` to leave the promise alone and it would never
+      // settle; go back to "not started", as the `AbortSignal` path does.
+      self.status.set(0);
+    }
+    check_status!(status, "Cancel async work failed")
   }
 }
 
@@ -166,28 +193,35 @@ pub fn run<'task, T: ScopedTask<'task>>(
   borrow_lease: Option<NativeBorrowLease>,
 ) -> Result<AsyncWorkPromise<T::JsValue>> {
   let mut undefined = ptr::null_mut();
-  check_status!(
+  let setup = check_status!(
     unsafe { sys::napi_get_undefined(env, &mut undefined) },
     "Get undefined failed in async_work::run"
-  )?;
-  let mut raw_promise = ptr::null_mut();
-  let mut deferred = ptr::null_mut();
-  check_status!(
-    unsafe { sys::napi_create_promise(env, &mut deferred, &mut raw_promise) },
-    "Create promise failed in async_work::run"
-  )?;
+  )
+  .and_then(|_| promise::create(env));
+  let (raw_promise, settler) = match setup {
+    Ok(setup) => setup,
+    Err(err) => {
+      // Same order as the failure paths below: the task (and every reference it captured)
+      // goes first, then the lease on the borrow scope.
+      drop(task);
+      if let Some(borrow_lease) = borrow_lease {
+        borrow_lease.release(env);
+      }
+      return Err(err);
+    }
+  };
   let task_status = abort_status.unwrap_or_else(|| Rc::new(Cell::new(0)));
   let result = Box::leak(Box::new(AsyncWork {
     inner_task: Some(task),
     borrow_lease,
-    deferred,
+    settler,
     value: mem::MaybeUninit::uninit(),
     napi_async_work: ptr::null_mut(),
     status: task_status.clone(),
   }));
   // `run` still owns the `AsyncWork` allocation until `napi_queue_async_work` succeeds, so a
-  // failed create/queue must reclaim it: the task and the deferred borrow lease drop here on
-  // the JavaScript thread instead of leaking.
+  // failed create/queue must reclaim it: the task, the promise's settle state and the
+  // deferred borrow lease drop here on the JavaScript thread instead of leaking.
   if let Err(err) = check_status!(
     unsafe {
       sys::napi_create_async_work(
@@ -205,7 +239,10 @@ pub fn run<'task, T: ScopedTask<'task>>(
     // `env` is live on the owner thread here, so the lease releases its roots directly
     // instead of leaking them on builds without the custom-GC delegate.
     let borrow_lease = result.borrow_lease.take();
-    drop(unsafe { Box::from_raw(result) });
+    let mut work = unsafe { Box::from_raw(result) };
+    // The promise was never handed out: end its settle state, so its deferred is freed.
+    work.settler.discard();
+    drop(work);
     if let Some(borrow_lease) = borrow_lease {
       borrow_lease.release(env);
     }
@@ -217,7 +254,10 @@ pub fn run<'task, T: ScopedTask<'task>>(
   ) {
     unsafe { sys::napi_delete_async_work(env, result.napi_async_work) };
     let borrow_lease = result.borrow_lease.take();
-    drop(unsafe { Box::from_raw(result) });
+    let mut work = unsafe { Box::from_raw(result) };
+    // The promise was never handed out: end its settle state, so its deferred is freed.
+    work.settler.discard();
+    drop(work);
     if let Some(borrow_lease) = borrow_lease {
       borrow_lease.release(env);
     }
@@ -263,46 +303,31 @@ unsafe extern "C" fn complete<'task, T: ScopedTask<'task>>(
   }
 }
 
-/// Checks the status of `napi_resolve_deferred`/`napi_reject_deferred`,
-/// reporting whether the deferred was actually settled.
-///
-/// Both refuse to run JavaScript once the environment starts tearing down —
-/// Worker exit can outlive a queued completion callback (#3535) — reporting
-/// `napi_pending_exception` for module API < 10 or `napi_cannot_run_js` for
-/// API >= 10. The deferred is already dead in that state, so those statuses
-/// settle as a no-op instead of propagating: handing them to `throw_into` would
-/// fail the same way, and its debug assertion would abort the process.
-fn check_settle_status(status: sys::napi_status, message: &str) -> Result<bool> {
-  match status {
-    sys::Status::napi_ok => Ok(true),
-    sys::Status::napi_pending_exception | sys::Status::napi_cannot_run_js => Ok(false),
-    _ => Err(Error::new(Status::from(status), message.to_owned())),
-  }
-}
-
-/// The JavaScript-facing half of [`complete_impl`]: settle the deferred and
+/// The JavaScript-facing half of [`complete_impl`]: settle the promise and
 /// hand the task's output or error back to it.
 ///
 /// Returns whether settlement ran its course. `Ok(false)` means the
-/// environment refused every attempt — teardown — so the deferred was left
-/// alone; callers then skip `finally` just as they do after a settlement
-/// error, because there is no JavaScript left for it to run against.
+/// environment can no longer run JavaScript — teardown — so the promise was
+/// left alone; callers then skip `finally` just as they do after a settlement
+/// error, because there is no JavaScript left for it to run against. An
+/// exception left pending on a live env rejects the promise instead (see
+/// [`promise::conclude`]; a deferred refused during teardown stays with the env,
+/// which only deferred-mode envs do, and only at process or realm exit).
 fn settle<'task, T: ScopedTask<'task>>(
   env: sys::napi_env,
   status: sys::napi_status,
   work: &mut AsyncWork<'task, T>,
-  deferred: sys::napi_deferred,
 ) -> Result<bool> {
   if status == sys::Status::napi_cancelled {
     const ABORT_ERROR_NAME: &str = "AbortError";
     let wrapped_env = Env::from_raw(env);
-    let mut error =
-      wrapped_env.create_error(Error::new(Status::Cancelled, ABORT_ERROR_NAME.to_owned()))?;
-    error.set_named_property("name", ABORT_ERROR_NAME)?;
-    return check_settle_status(
-      unsafe { sys::napi_reject_deferred(env, deferred, error.0.value) },
-      "Reject AbortError failed",
-    );
+    let rejection = wrapped_env
+      .create_error(Error::new(Status::Cancelled, ABORT_ERROR_NAME.to_owned()))
+      .and_then(|mut error| {
+        error.set_named_property("name", ABORT_ERROR_NAME)?;
+        Ok(Settlement::Reject(error.0.value))
+      });
+    return promise::conclude(env, &mut work.settler, rejection);
   }
   let inner_task = work
     .inner_task
@@ -322,38 +347,33 @@ fn settle<'task, T: ScopedTask<'task>>(
     ),
   };
   if work.status.get() != 2 {
-    return match check_status!(status)
+    let settlement = match check_status!(status)
       .and_then(move |_| value)
       .and_then(|v| unsafe { ToNapiValue::to_napi_value(env, v) })
     {
-      Ok(v) => check_settle_status(
-        unsafe { sys::napi_resolve_deferred(env, deferred, v) },
-        "Resolve promise failed",
-      ),
-      Err(e) => {
-        // `ToNapiValue for Error` hands the retained value back verbatim —
-        // the completion callback runs on the owning env/thread, exactly
-        // where the retained reference is restorable — and synthesizes a
-        // fresh `Error` from `status`/`reason`/`cause` when there is nothing
-        // to hand back (an error built on the libuv thread holds no
-        // reference; one captured on a foreign env or thread fails the owner
-        // gates in `referenced_value` and falls back to synthesis instead of
-        // dereferencing a foreign reference). `JsError::into_value` cannot
-        // be used here: it gates reuse on `napi_is_error`, so a task
-        // rejecting with a retained primitive or plain object — same
-        // contract as the deferred settlement path — would settle with a
-        // synthesized `Error` instead of the captured value.
-        let rejection = unsafe { ToNapiValue::to_napi_value(env, e) }?;
-        check_settle_status(
-          unsafe { sys::napi_reject_deferred(env, deferred, rejection) },
-          "Reject promise failed",
-        )
-      }
+      Ok(v) => Ok(Settlement::Fulfill(v)),
+      // `ToNapiValue for Error` hands the retained value back verbatim —
+      // the completion callback runs on the owning env/thread, exactly
+      // where the retained reference is restorable — and synthesizes a
+      // fresh `Error` from `status`/`reason`/`cause` when there is nothing
+      // to hand back (an error built on the libuv thread holds no
+      // reference; one captured on a foreign env or thread fails the owner
+      // gates in `referenced_value` and falls back to synthesis instead of
+      // dereferencing a foreign reference). `JsError::into_value` cannot
+      // be used here: it gates reuse on `napi_is_error`, so a task
+      // rejecting with a retained primitive or plain object — same
+      // contract as the promise settlement path — would settle with a
+      // synthesized `Error` instead of the captured value.
+      Err(e) => unsafe { ToNapiValue::to_napi_value(env, e) }.map(Settlement::Reject),
     };
+    return promise::conclude(env, &mut work.settler, settlement);
   }
-  // The promise was cancelled through `AsyncWorkPromise`/`AbortSignal`: the
-  // deferred is deliberately left alone, but settlement ran its course, so
-  // `finally` still applies.
+  // The work was cancelled through `AsyncWorkPromise`/`AbortSignal` and still completed with
+  // `napi_ok`. Both reset the status when the cancellation is refused, so only a host that
+  // reports success for a cancellation and then completes the work anyway gets here. The
+  // promise is deliberately left alone, as before: a thenable settler releases its references
+  // when the box drops, a deferred settler leaves the deferred to the env. Settlement ran its
+  // course, so `finally` still applies.
   Ok(true)
 }
 
@@ -365,7 +385,7 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   // A work stops being outstanding when this callback *finishes*, not when it starts. Settling
-  // the deferred and running the task's own `resolve`/`finally` can re-enter JavaScript — a
+  // the promise and running the task's own `resolve`/`finally` can re-enter JavaScript — a
   // setter on the value being handed back, a threadsafe-function callback — and that JavaScript
   // can call `dispose()`. Unregistering up front would let such a disposal read zero and tear
   // the environment down from inside this frame, before the promise is settled and before
@@ -378,15 +398,15 @@ fn complete_impl<'task, T: ScopedTask<'task>>(
   // cancel sweep can never be handed a dangling one.
   #[cfg(all(target_family = "wasm", not(feature = "noop")))]
   let outstanding_entry = OutstandingAsyncWorkGuard(napi_async_work);
-  let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
-  let settle_result = settle::<T>(env, status, &mut work, deferred);
+  let settle_result = settle::<T>(env, status, &mut work);
   // The handle is freed below no matter how settlement went, so the shared
   // status must read terminal on every path: `on_abort` and
   // `AsyncWorkPromise::cancel` only refrain from `napi_cancel_async_work` once
   // it reads 1, and a stale status would send them to freed memory.
   work.status.set(1);
   // `finally` runs only when settlement ran — an error or a dead env skips it,
-  // same as before.
+  // same as before. Dropping the box below releases the promise's settle state
+  // on every one of these paths.
   let result = match settle_result {
     Ok(true) => work
       .inner_task

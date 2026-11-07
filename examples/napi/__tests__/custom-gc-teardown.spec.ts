@@ -7,8 +7,8 @@ import test from 'ava'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // The failure this guards against aborts the whole process, so the reproducer
-// runs in a child process (as in worker-task-teardown.spec.ts). The custom-GC
-// env cleanup hook is native only; WASI lanes do not take this path.
+// runs in a child process (as in worker-task-teardown.spec.ts), which loads
+// the native addon; WASI lanes do not run it.
 test.skipIf(Boolean(process.env.WASI_TEST))(
   'FunctionRefs dropped off-thread during worker teardown do not abort the process',
   (t) => {

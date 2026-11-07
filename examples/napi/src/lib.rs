@@ -83,16 +83,19 @@ pub fn exports(mut export: Object) -> Result<()> {
 mod array;
 mod r#async;
 mod async_generator_repro;
+mod async_task_settle;
 mod bigint;
 mod callback;
 mod class;
 mod class_factory;
 mod constructor;
 mod date;
+mod deferred_drop;
 mod define_class_closure;
 mod either;
 mod r#enum;
 mod env;
+mod env_teardown;
 mod error;
 mod external;
 #[cfg(not(target_family = "wasm"))]
