@@ -128,7 +128,8 @@
 //! numbers travel off the thread. The same differences as above apply, and the env's first
 //! `JsDeferred` may pick its settle mode and compile the wrapper. A `JsDeferred` made in
 //! deferred mode, or without the wrapper, keeps its `napi_deferred` as before (16 B leaked if
-//! its env is torn down before it settles).
+//! its env is torn down before it settles). If every clone is dropped unsettled first, the
+//! abandon frees it (`release_deferred_pending`) and the promise stays pending, held by nothing.
 
 use std::cell::RefCell;
 use std::ptr;
@@ -1259,6 +1260,55 @@ impl DetachedPromise {
     })
     .flatten()
   }
+}
+
+/// Frees the `napi_deferred` of a promise whose `JsDeferred` was dropped unsettled. On its env's
+/// JavaScript thread, with the env live; `deferred` must never be settled again.
+///
+/// A `napi_deferred` is a strong handle to the promise, freed only by `napi_resolve_deferred` or
+/// `napi_reject_deferred`, so it pins the promise and everything that awaits it until the process
+/// exits. This resolves it with `{ then }`, `then` an own data property holding a native function
+/// that does nothing: the engine reads `then` without a getter and queues a job that calls it,
+/// which never calls the resolving functions. The promise stays pending (its awaiters never
+/// resume or throw) and nothing holds it any more. No user code runs and no exception is
+/// reported. When the env refuses (an exception pending, or teardown), nothing is freed, as
+/// before.
+#[cfg(feature = "napi4")]
+pub(crate) fn release_deferred_pending(env: sys::napi_env, deferred: sys::napi_deferred) {
+  // Never touch an exception that is not ours.
+  if exception_pending(env) {
+    return;
+  }
+  let mut then = ptr::null_mut();
+  let mut thenable = ptr::null_mut();
+  let made = unsafe {
+    sys::napi_create_function(
+      env,
+      c"".as_ptr().cast(),
+      0,
+      Some(inert_then),
+      ptr::null_mut(),
+      &mut then,
+    )
+  } == sys::Status::napi_ok
+    && unsafe { sys::napi_create_object(env, &mut thenable) } == sys::Status::napi_ok
+    && define_own_data_property(env, thenable, c"then", then) == sys::Status::napi_ok;
+  if made {
+    // Exactly once, status ignored: the call frees the deferred even when it fails, and a refused
+    // call frees nothing (as before).
+    unsafe { sys::napi_resolve_deferred(env, deferred, thenable) };
+  }
+  // None was pending above: any exception now is from these calls.
+  let _ = take_pending_exception(env);
+}
+
+/// The `then` of [`release_deferred_pending`]: reads nothing, calls nothing.
+#[cfg(feature = "napi4")]
+unsafe extern "C" fn inert_then(
+  _env: sys::napi_env,
+  _info: sys::napi_callback_info,
+) -> sys::napi_value {
+  ptr::null_mut()
 }
 
 /// Env-teardown sweep, called from the env's registration cleanup: frees the kept outcomes of

@@ -1658,6 +1658,7 @@ export const detachReentrantBorrowOrderTestTarget =
 export const drainStreamCount = __napiModule.exports.drainStreamCount;
 export const dropBuffersOffThread = __napiModule.exports.dropBuffersOffThread;
 export const dropClonedErrorsOnTwoThreads = __napiModule.exports.dropClonedErrorsOnTwoThreads;
+export const dropDeferredAfterObserve = __napiModule.exports.dropDeferredAfterObserve;
 export const dropDeferredAtEnvTeardown = __napiModule.exports.dropDeferredAtEnvTeardown;
 export const dropDeferredOffThread = __napiModule.exports.dropDeferredOffThread;
 export const dropDeferredOffThreadWithCallback =

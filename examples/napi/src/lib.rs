@@ -80,6 +80,7 @@ pub fn exports(mut export: Object) -> Result<()> {
   Ok(())
 }
 
+mod abandoned_promise;
 mod array;
 mod r#async;
 mod async_generator_repro;

@@ -1153,6 +1153,7 @@ module.exports.detachReentrantBorrowOrderTestTarget = nativeBinding.detachReentr
 module.exports.drainStreamCount = nativeBinding.drainStreamCount
 module.exports.dropBuffersOffThread = nativeBinding.dropBuffersOffThread
 module.exports.dropClonedErrorsOnTwoThreads = nativeBinding.dropClonedErrorsOnTwoThreads
+module.exports.dropDeferredAfterObserve = nativeBinding.dropDeferredAfterObserve
 module.exports.dropDeferredAtEnvTeardown = nativeBinding.dropDeferredAtEnvTeardown
 module.exports.dropDeferredOffThread = nativeBinding.dropDeferredOffThread
 module.exports.dropDeferredOffThreadWithCallback = nativeBinding.dropDeferredOffThreadWithCallback

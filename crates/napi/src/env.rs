@@ -1357,9 +1357,10 @@ impl Env {
   /// way.
   ///
   /// Dropping the deferred (and every clone) without settling it leaves the promise pending for
-  /// ever. On native targets it no longer keeps the event loop alive. On wasm, dropping still
-  /// does nothing, as before. The settle-time callback is then dropped without running, as
-  /// before.
+  /// ever. On native targets it no longer keeps the event loop alive, and napi-rs releases the
+  /// promise, so it and its awaiters can be collected (they never resume or throw). On wasm,
+  /// dropping still does nothing, as before. The settle-time callback is then dropped without
+  /// running, as before.
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     &self,

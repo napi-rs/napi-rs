@@ -1393,6 +1393,12 @@ export declare function dropBuffersOffThread(buffers: Array<import("buffer").Buf
 export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
 
 /**
+ * Makes `n` deferreds, hands their promises to `observe` (which attaches awaiters), then drops
+ * every deferred unsettled, all on the JavaScript thread.
+ */
+export declare function dropDeferredAfterObserve(n: number, observe: (promise: Promise<number>) => void): void
+
+/**
  * Makes `n` deferreds and keeps them in an env cleanup hook, which drops them unsettled when the
  * env is torn down. The hook is newer than the deferreds' own teardown hooks, so it runs first.
  */
