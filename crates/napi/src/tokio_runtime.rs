@@ -288,8 +288,11 @@ pub(crate) fn drain_wasm_cancel_mailbox() {
 /// A parked entry is a callback *and* an [`Error`], and neither is inert. `Error` carries
 /// `maybe_ref: Option<Arc<ErrorRef>>`, whose `Drop` calls `napi_delete_reference` on the owning
 /// thread (`error.rs`) — this thread — against exactly the environment that must not be touched.
-/// The callback owns the task's `JsDeferred`, whose `DeferredHandle` has no `Drop` at all, so
-/// dropping it would not settle or release anything anyway. So each entry is `mem::forget`ed:
+/// The callback owns the task's `JsDeferred`. On native its `Drop` abandons the promise through
+/// the threadsafe function; on wasm, the only target of this function, it has no `Drop`, so
+/// dropping it would not settle or release anything anyway. The `mem::forget` stays load-bearing
+/// for the `Error`, and for the `JsDeferred` should wasm ever get a `Drop`. So each entry is
+/// `mem::forget`ed:
 /// the leak is bounded by the cancellations of one abandoned teardown, it happens only on this
 /// path, and it buys the guarantee that unwinding an abandoned cleanup makes no napi call.
 ///
@@ -1811,6 +1814,113 @@ pub fn execute_tokio_future<
   execute_future_impl(env, fut, resolver, None).map(|(promise, _)| promise)
 }
 
+/// A future and the `JsDeferred` it settles, in the order they must drop. Struct fields drop in
+/// declaration order; the captures of a closure or an async block have no specified order.
+#[cfg(not(feature = "noop"))]
+struct FutThenDeferred<F, D> {
+  fut: F,
+  deferred: D,
+}
+
+/// Awaits `fut`, then hands its output and `deferred` to `settle`.
+///
+/// A task dropped before it finished (runtime shutdown, a backend dropping it) must drop `fut`
+/// before `deferred`: on native the last `JsDeferred` clone's `Drop` abandons the promise, and the
+/// abandon runs the settle-time callback (borrow-scope release, argument references) on the
+/// JavaScript thread, which must not happen while `fut` still holds those borrows. Dropped before
+/// its first poll, the returned future drops `parts` (so `fut`, then `deferred`); dropped while
+/// suspended, it drops the awaited `fut` (a temporary of the last expression) before the local
+/// `deferred`. The unit test `fut_then_settle_drop_order` checks both.
+#[cfg(not(feature = "noop"))]
+fn fut_then_settle<F: Future, D, S: FnOnce(F::Output, D)>(
+  fut: F,
+  deferred: D,
+  settle: S,
+) -> impl Future<Output = ()> {
+  let parts = FutThenDeferred { fut, deferred };
+  async move {
+    // Moved as a whole, so the unpolled future holds `parts` and not its fields one by one.
+    let parts = { parts };
+    let deferred = parts.deferred;
+    let fut = parts.fut;
+    settle(fut.await, deferred)
+  }
+}
+
+#[cfg(all(test, not(feature = "noop")))]
+mod fut_then_settle_tests {
+  use std::{
+    pin::pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll, Waker},
+  };
+
+  use super::*;
+
+  struct Record(&'static str, Arc<Mutex<Vec<&'static str>>>);
+
+  impl Drop for Record {
+    fn drop(&mut self) {
+      self.1.lock().unwrap().push(self.0);
+    }
+  }
+
+  /// Pending for ever, and records its drop.
+  struct PendingFut {
+    _record: Record,
+  }
+
+  impl Future for PendingFut {
+    type Output = ();
+    fn poll(self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+      Poll::Pending
+    }
+  }
+
+  fn task(log: &Arc<Mutex<Vec<&'static str>>>) -> impl Future<Output = ()> {
+    fut_then_settle(
+      PendingFut {
+        _record: Record("fut", log.clone()),
+      },
+      Record("deferred", log.clone()),
+      |(), _deferred| unreachable!("the future never completes"),
+    )
+  }
+
+  #[test]
+  fn fut_then_settle_drop_order() {
+    // Dropped before its first poll.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    drop(task(&log));
+    assert_eq!(*log.lock().unwrap(), ["fut", "deferred"]);
+
+    // Dropped while suspended on `fut`.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    {
+      let mut fut = Box::pin(task(&log));
+      let mut cx = Context::from_waker(Waker::noop());
+      assert!(fut.as_mut().poll(&mut cx).is_pending());
+      assert!(log.lock().unwrap().is_empty());
+      drop(fut);
+    }
+    assert_eq!(*log.lock().unwrap(), ["fut", "deferred"]);
+
+    // Completed: `settle` gets the output and the deferred.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let done = fut_then_settle(
+      std::future::ready(()),
+      Record("deferred", log.clone()),
+      |(), deferred| {
+        log.lock().unwrap().push("settle");
+        drop(deferred);
+      },
+    );
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(pin!(done).poll(&mut cx).is_ready());
+    assert_eq!(*log.lock().unwrap(), ["settle", "deferred"]);
+  }
+}
+
 /// Shared future → Promise bridge behind [`execute_tokio_future`] and
 /// [`execute_tokio_future_with_finalize_callback`].
 ///
@@ -1890,16 +2000,15 @@ pub(crate) fn execute_future_impl<
   let deferred_for_threadless = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
-  let inner = async move {
-    match fut.await {
-      Ok(v) => deferred.resolve(move |env| {
-        sendable_resolver
-          .resolve(env.raw(), v)
-          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-      }),
-      Err(e) => deferred.reject(e.into()),
-    }
-  };
+  // `fut` drops before `deferred` however the task ends (see `fut_then_settle`).
+  let inner = fut_then_settle(fut, deferred, move |output, deferred| match output {
+    Ok(v) => deferred.resolve(move |env| {
+      sendable_resolver
+        .resolve(env.raw(), v)
+        .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+    }),
+    Err(e) => deferred.reject(e.into()),
+  });
 
   #[cfg(feature = "async-runtime")]
   if let Some(backend) = ASYNC_RUNTIME_REGISTRY.commit_selection(cfg!(feature = "tokio_rt")) {

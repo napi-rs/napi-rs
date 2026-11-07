@@ -90,6 +90,7 @@ mod class;
 mod class_factory;
 mod constructor;
 mod date;
+mod deferred_drop;
 mod define_class_closure;
 mod either;
 mod r#enum;

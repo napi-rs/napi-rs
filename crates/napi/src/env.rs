@@ -1355,6 +1355,10 @@ impl Env {
   /// settles before its env is torn down leaks nothing. See [`JsDeferred`] for what is
   /// observable there. `#[napi] async fn` and `Env::spawn_future` promises are made the same
   /// way.
+  ///
+  /// Dropping the deferred (and every clone) without settling it leaves the promise pending for
+  /// ever. On native targets it no longer keeps the event loop alive. On wasm, dropping still
+  /// does nothing, as before.
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     &self,
