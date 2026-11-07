@@ -9,6 +9,8 @@ use napi::bindgen_prelude::*;
 static OFF_THREAD_DROPPED: AtomicU32 = AtomicU32::new(0);
 static PENDING_FUTURES_STARTED: AtomicU32 = AtomicU32::new(0);
 static PENDING_FUTURES_DROPPED: AtomicU32 = AtomicU32::new(0);
+static CALLBACK_CAPTURES_DROPPED: AtomicU32 = AtomicU32::new(0);
+static CALLBACKS_INVOKED: AtomicU32 = AtomicU32::new(0);
 
 /// Makes `n` deferreds and drops each one at once, unsettled. Returns their promises.
 #[napi(ts_return_type = "Promise<number>[]")]
@@ -30,6 +32,45 @@ pub fn drop_deferred_off_thread(env: &Env, n: u32, delay_ms: u32) -> Result<Vec<
   let mut deferreds = Vec::with_capacity(n as usize);
   for _ in 0..n {
     let (deferred, promise) = env.create_deferred::<u32, fn(Env) -> Result<u32>>()?;
+    deferreds.push(deferred);
+    promises.push(promise);
+  }
+  std::thread::spawn(move || {
+    std::thread::sleep(Duration::from_millis(delay_ms as u64));
+    let count = deferreds.len() as u32;
+    drop(deferreds);
+    OFF_THREAD_DROPPED.fetch_add(count, Ordering::SeqCst);
+  });
+  Ok(promises)
+}
+
+/// What a settle-time callback captures. Counts its drop.
+struct CallbackCapture;
+
+impl Drop for CallbackCapture {
+  fn drop(&mut self) {
+    CALLBACK_CAPTURES_DROPPED.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+/// Like [`drop_deferred_off_thread`], but each deferred has a settle-time callback that captures a
+/// [`CallbackCapture`]. A dropped deferred must drop its callback (and so the capture) without
+/// running it, even when its env can no longer run anything (a busy worker that was terminated).
+#[napi(ts_return_type = "Promise<number>[]")]
+pub fn drop_deferred_off_thread_with_callback(
+  env: &Env,
+  n: u32,
+  delay_ms: u32,
+) -> Result<Vec<Object<'_>>> {
+  let mut promises = Vec::with_capacity(n as usize);
+  let mut deferreds = Vec::with_capacity(n as usize);
+  for _ in 0..n {
+    let (mut deferred, promise) = env.create_deferred::<u32, fn(Env) -> Result<u32>>()?;
+    let capture = CallbackCapture;
+    deferred.set_finalize_callback(Some(Box::new(move |_| {
+      let _capture = capture;
+      CALLBACKS_INVOKED.fetch_add(1, Ordering::SeqCst);
+    })));
     deferreds.push(deferred);
     promises.push(promise);
   }
@@ -119,6 +160,8 @@ pub struct DeferredDropCounters {
   pub off_thread_dropped: u32,
   pub pending_futures_started: u32,
   pub pending_futures_dropped: u32,
+  pub callback_captures_dropped: u32,
+  pub callbacks_invoked: u32,
 }
 
 #[napi]
@@ -127,5 +170,7 @@ pub fn deferred_drop_counters() -> DeferredDropCounters {
     off_thread_dropped: OFF_THREAD_DROPPED.load(Ordering::SeqCst),
     pending_futures_started: PENDING_FUTURES_STARTED.load(Ordering::SeqCst),
     pending_futures_dropped: PENDING_FUTURES_DROPPED.load(Ordering::SeqCst),
+    callback_captures_dropped: CALLBACK_CAPTURES_DROPPED.load(Ordering::SeqCst),
+    callbacks_invoked: CALLBACKS_INVOKED.load(Ordering::SeqCst),
   }
 }

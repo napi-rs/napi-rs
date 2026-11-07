@@ -313,10 +313,10 @@ impl SettleTarget {
 enum Outcome<Resolver> {
   /// Settle the promise: resolve it with what the resolver returns, or reject it.
   Settle(Result<Resolver>),
-  /// Every `JsDeferred` clone was dropped unsettled. Free what a settle frees (the thread count,
-  /// the settle-time callback, the trace reference, the thenable slot) and leave the promise
-  /// pending. Built only by [`queue_abandon`], from the `Drop` of [`DeferredInner`], which wasm
-  /// does not have.
+  /// Every `JsDeferred` clone was dropped unsettled. Release the thread count, delete the trace
+  /// reference, free the thenable slot, and leave the promise pending. The settle-time callback
+  /// is not here: the dropping thread drops it without running it. Built only by
+  /// [`queue_abandon`], from the `Drop` of [`DeferredInner`], which wasm does not have.
   #[cfg_attr(target_family = "wasm", allow(dead_code))]
   Abandon,
 }
@@ -403,10 +403,18 @@ unsafe impl Sync for DeferredHandle {}
 /// Dropping every clone without settling leaves the promise pending for ever (it is neither
 /// resolved nor rejected). It no longer keeps the event loop alive: the threadsafe function is
 /// released on the JavaScript thread, and the trace reference and the thenable slot are freed
-/// there. The settle-time callback (see [`JsDeferred::set_finalize_callback`]) now runs there
-/// too; before, it was dropped without running. In deferred mode (the main thread of Node and
-/// Bun) the 16 B `napi_deferred` and the promise stay until the process exits. On wasm,
-/// dropping does nothing, as before.
+/// there. In deferred mode (the main thread of Node and Bun) the 16 B `napi_deferred` and the
+/// promise stay until the process exits. On wasm, dropping does nothing, as before.
+///
+/// The settle-time callback (see [`JsDeferred::set_finalize_callback`]) does not run then: it is
+/// dropped without running, as before, by the last holder of its slot (normally the thread that
+/// drops the last clone). Nothing user-owned travels to the JavaScript thread with the abandon,
+/// because a host may never deliver it (Deno does not run the env cleanup hooks of a busy worker
+/// that is terminated, and then accepts the call but never runs it).
+///
+/// Known limit (not new): a `#[napi] async fn` with `&T` arguments holds a reference to each of
+/// them, which only the settle deletes. If the task is dropped unsettled (runtime shutdown, a
+/// dropped future), napi-rs never deletes those references, and they keep their values alive.
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   /// Everything a settle or an abandon needs, and the drop duty. Not generic, so dropping a
   /// `JsDeferred` never needs `Data` or `Resolver` to be alive (no drop-check constraint on them).
@@ -582,10 +590,10 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
   /// earlier — `AsyncBlock` installs its deferred borrow scope this way — can never
   /// detach from the callback `settle_deferred` reads.
   ///
-  /// The callback runs once, on the JavaScript thread, when the promise settles. It also runs
-  /// there when every clone is dropped without settling (not on wasm); the promise then stays
-  /// pending. Before, a dropped deferred dropped the callback without running it. It does not
-  /// run when the env is torn down first.
+  /// The callback runs once, on the JavaScript thread, when the promise settles. It does not run
+  /// when every clone is dropped without settling: it is then dropped, without running, on the
+  /// thread that drops the last clone, as before. It does not run either when the env is torn
+  /// down first.
   #[allow(clippy::arc_with_non_send_sync)]
   pub fn set_finalize_callback(
     &mut self,
@@ -705,12 +713,8 @@ type MaybeTrace = ();
 /// Builds and queues the abandon item of one `JsDeferred<Data, Resolver>` (see [`queue_abandon`]).
 /// A plain function pointer, so [`DeferredInner`] needs no type parameter.
 #[cfg(not(target_family = "wasm"))]
-type QueueAbandon = unsafe fn(
-  sys::napi_threadsafe_function,
-  SettleTarget,
-  MaybeTrace,
-  FinalizeCallback,
-) -> sys::napi_status;
+type QueueAbandon =
+  unsafe fn(sys::napi_threadsafe_function, SettleTarget, MaybeTrace) -> sys::napi_status;
 
 /// What a `JsDeferred` and each of its clones own, and the drop duty: the last one dropped with
 /// the promise still pending abandons it (see the `Drop` impl).
@@ -751,9 +755,16 @@ impl Clone for DeferredInner {
 }
 
 /// The last clone dropped with the promise still pending abandons it: the queued item releases the
-/// threadsafe function on the JavaScript thread, runs the settle-time callback and frees the
-/// settle state, and leaves the promise pending. Unreleased, the threadsafe function is ref'd and
-/// keeps the event loop alive for ever, and Node >= 24.13.1 / 25.4 / 26 leaks it at env teardown.
+/// threadsafe function on the JavaScript thread, frees the settle state, and leaves the promise
+/// pending. Unreleased, the threadsafe function is ref'd and keeps the event loop alive for ever,
+/// and Node >= 24.13.1 / 25.4 / 26 leaks it at env teardown.
+///
+/// The settle-time callback stays here: the `finalize_callback` field drops after this function,
+/// so after the unlock, on this thread, without running, as before the abandon existed. Nothing
+/// user-owned goes into the item: no host promises to deliver an item queued after its env
+/// stopped running. Deno 2.6.1 does not run the env cleanup hooks of a busy worker that is
+/// terminated, so the teardown hook never empties the slot; the call then returns `napi_ok` and
+/// the item is never delivered nor freed.
 ///
 /// The lock is held across the queue call, like a settle, so the env teardown hook and the
 /// finalize callback (which take it) cannot let the host free the threadsafe function meanwhile.
@@ -780,29 +791,21 @@ impl Drop for DeferredInner {
     let trace = self.trace.take();
     #[cfg(not(feature = "deferred_trace"))]
     let trace = ();
-    let status = unsafe {
-      (self.abandon)(
-        tsfn,
-        self.target,
-        trace,
-        // A clone: this field drops after the unlock, so the callback is never dropped here.
-        self.finalize_callback.clone(),
-      )
-    };
+    let status = unsafe { (self.abandon)(tsfn, self.target, trace) };
     release_unqueued_count(tsfn, status);
   }
 }
 
-/// [`QueueAbandon`] for one `Data` / `Resolver`: queues an [`Outcome::Abandon`] item. A call that
-/// queued nothing hands the item back, and it is freed here, under the caller's lock: it holds no
-/// resolver, a trace reference with no `Drop`, and a clone of the callback slot the caller still
-/// holds, so freeing it runs no user code.
+/// [`QueueAbandon`] for one `Data` / `Resolver`: queues an [`Outcome::Abandon`] item. The item
+/// holds no resolver, a trace reference with no `Drop`, and an empty callback slot: nothing
+/// user-owned, so an item the host never delivers leaks only napi-rs state (this box, the empty
+/// slot, the trace reference). A call that queued nothing hands the item back, and it is freed
+/// here, under the caller's lock; that runs no user code.
 #[cfg(not(target_family = "wasm"))]
 unsafe fn queue_abandon<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   tsfn: sys::napi_threadsafe_function,
   target: SettleTarget,
   trace: MaybeTrace,
-  finalize_callback: FinalizeCallback,
 ) -> sys::napi_status {
   #[cfg(not(feature = "deferred_trace"))]
   let () = trace;
@@ -812,7 +815,8 @@ unsafe fn queue_abandon<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>
     #[cfg(feature = "deferred_trace")]
     trace,
     tsfn,
-    finalize_callback,
+    // Empty. The settle-time callback stays with the dropping thread (see the `Drop`).
+    finalize_callback: Default::default(),
   }));
   let status = unsafe {
     sys::napi_call_threadsafe_function(tsfn, item.cast(), sys::ThreadsafeFunctionCallMode::blocking)
@@ -1043,17 +1047,12 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   let resolver = match deferred_data.outcome {
     Outcome::Settle(resolver) => resolver,
     Outcome::Abandon => {
-      // Every clone was dropped unsettled: free what a settle frees, and leave the promise
-      // pending. No `napi_value`, no JavaScript call.
-      let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
-        .expect("RwLock Poison")
-        .take();
+      // Every clone was dropped unsettled: free the settle state and leave the promise pending.
+      // No `napi_value`, no JavaScript call. The settle-time callback is not here: the dropping
+      // thread dropped it, unrun.
       unsafe {
         sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::release)
       };
-      if let Some(finalize_callback) = finalize_callback {
-        finalize_callback(env);
-      }
       // Deferred mode. Thenable mode keeps the reference in the slot, which `release` deletes.
       #[cfg(feature = "deferred_trace")]
       if let Some(trace) = deferred_data.trace {

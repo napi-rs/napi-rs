@@ -1660,6 +1660,8 @@ export const dropBuffersOffThread = __napiModule.exports.dropBuffersOffThread;
 export const dropClonedErrorsOnTwoThreads = __napiModule.exports.dropClonedErrorsOnTwoThreads;
 export const dropDeferredAtEnvTeardown = __napiModule.exports.dropDeferredAtEnvTeardown;
 export const dropDeferredOffThread = __napiModule.exports.dropDeferredOffThread;
+export const dropDeferredOffThreadWithCallback =
+  __napiModule.exports.dropDeferredOffThreadWithCallback;
 export const dropDeferredUnsettled = __napiModule.exports.dropDeferredUnsettled;
 export const dropErrorFromValueOffThread = __napiModule.exports.dropErrorFromValueOffThread;
 export const dropHeldFunctionRefsAtTeardown = __napiModule.exports.dropHeldFunctionRefsAtTeardown;

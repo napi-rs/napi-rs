@@ -115,3 +115,65 @@ for (const kase of ['drop', 'env-teardown']) {
     },
   )
 }
+
+// The settle-time callback of an abandoned deferred is dropped on the dropping thread, unrun. It
+// never travels to the JavaScript thread: a host that lost its env (Deno 2.6.1 after a busy
+// worker is terminated) accepts the threadsafe-function call but never runs it, and the callback
+// and its captures would leak. With the env alive, this is what Node shows: before the fix the
+// callback ran on the JavaScript thread (callbacksInvoked n).
+for (const where of ['main', 'worker'] as const) {
+  test.skipIf(Boolean(process.env.WASI_TEST))(
+    `a deferred dropped off-thread with the env alive drops its callback unrun: ${where}`,
+    (t) => {
+      const n = 12
+      const { result, output, report } = run('late-drop-live', where, n)
+      t.is(result.error, undefined, result.error?.stack)
+      t.is(result.signal, null, output)
+      t.is(result.status, 0, output)
+      const common = {
+        pending: n,
+        caught: [],
+        unhandled: [],
+        callbackCapturesDropped: n,
+        callbacksInvoked: 0,
+      }
+      t.deepEqual(
+        report,
+        where === 'main'
+          ? { mode: 'deferred', code: 0, ...common }
+          : {
+              mode: 'thenable',
+              freedWhileAlive: n,
+              ...common,
+              exitedByItself: true,
+            },
+        output,
+      )
+    },
+  )
+}
+
+// A busy worker is terminated while a native thread still holds its deferreds, and that thread
+// drops them later. Deno 2.6.1 runs no env cleanup hook for such a worker, and then accepts a
+// threadsafe-function call but never runs it. On Node the hooks run, so this case passes with or
+// without the fix; the live-env case above is the one that catches it on Node.
+test.skipIf(Boolean(process.env.WASI_TEST))(
+  'a deferred dropped after its busy worker was terminated drops its callback',
+  (t) => {
+    const n = 12
+    const { result, output, report } = run('late-drop-busy', 'terminate', n)
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.deepEqual(
+      report,
+      {
+        results: [{ mode: 'thenable' }],
+        offThreadDropped: n,
+        callbackCapturesDropped: n,
+        callbacksInvoked: 0,
+      },
+      output,
+    )
+  },
+)

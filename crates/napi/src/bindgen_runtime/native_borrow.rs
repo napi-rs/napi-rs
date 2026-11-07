@@ -130,9 +130,8 @@ impl NativeBorrowStorage {
   /// Release reached without a known-live owner thread: the scope/lease was dropped
   /// rather than released through a settle path — a settle callback discarded during
   /// env teardown, an `AsyncWork` box reclaimed on a foreign thread, a runtime
-  /// shutdown dropping pending futures' `JsDeferred` clones on worker threads after their
-  /// env is gone, or on wasm. (On native, with the env alive, the last clone's `Drop`
-  /// abandons the promise and the settle callback runs on the JavaScript thread.)
+  /// shutdown dropping pending futures' `JsDeferred` clones on worker threads, or any
+  /// `JsDeferred` dropped unsettled (its settle callback is dropped without running).
   ///
   /// Drops the alias guards (that only needs the global borrow map), then hands each
   /// JavaScript root to the owning env's custom-GC handle — callable from any thread;

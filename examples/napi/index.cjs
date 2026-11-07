@@ -1155,6 +1155,7 @@ module.exports.dropBuffersOffThread = nativeBinding.dropBuffersOffThread
 module.exports.dropClonedErrorsOnTwoThreads = nativeBinding.dropClonedErrorsOnTwoThreads
 module.exports.dropDeferredAtEnvTeardown = nativeBinding.dropDeferredAtEnvTeardown
 module.exports.dropDeferredOffThread = nativeBinding.dropDeferredOffThread
+module.exports.dropDeferredOffThreadWithCallback = nativeBinding.dropDeferredOffThreadWithCallback
 module.exports.dropDeferredUnsettled = nativeBinding.dropDeferredUnsettled
 module.exports.dropErrorFromValueOffThread = nativeBinding.dropErrorFromValueOffThread
 module.exports.dropHeldFunctionRefsAtTeardown = nativeBinding.dropHeldFunctionRefsAtTeardown
