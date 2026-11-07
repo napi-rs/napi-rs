@@ -739,6 +739,15 @@ export declare function arrayParams(arr: Array<number>): number
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
 /**
+ * An `async fn` that never completes. Its future and its deferred are dropped unsettled only
+ * when the async runtime drops the task ([`shutdown_async_runtime_now`]).
+ */
+export declare function asyncFnPendingForever(): Promise<number>
+
+/** An `async fn` that resolves at once. */
+export declare function asyncFnResolveNow(): Promise<number>
+
+/**
  * An `async fn` that sleeps `ms` on the async runtime and resolves with `ms`. It counts when its
  * future starts and finishes, so a test can tell that a worker was terminated while it ran.
  */
@@ -1108,6 +1117,12 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): import("buffer").Buffer
 
+/**
+ * Makes a deferred, then fails before the promise is handed out: the early `?` drops the
+ * deferred unsettled. Throws, and must not leave a rejection behind.
+ */
+export declare function createDeferredThenFail(): void
+
 export declare function createErrorFromRetainedValue(value: unknown): object
 
 /**
@@ -1236,6 +1251,8 @@ export interface CustomGcRefCounts {
   drainCallbacks: number
   /** The most references one custom-GC callback deleted. */
   largestDrain: number
+  /** Strong references to late sentinels deleted. Each torn-down load adds exactly one. */
+  sentinelRefsDeleted: number
 }
 
 /**
@@ -1286,6 +1303,14 @@ export interface DefaultUseNullableStruct {
   requiredStringField: string
   optionalNumberField?: number
   optionalStringField?: string
+}
+
+export declare function deferredDropCounters(): DeferredDropCounters
+
+export interface DeferredDropCounters {
+  offThreadDropped: number
+  pendingFuturesStarted: number
+  pendingFuturesDropped: number
 }
 
 export declare function defineClass(): typeof DynamicRustClass
@@ -1364,6 +1389,21 @@ export declare function dropBuffersOffThread(buffers: Array<import("buffer").Buf
  * V8's GlobalHandles from a foreign thread.
  */
 export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
+
+/**
+ * Makes `n` deferreds and keeps them in an env cleanup hook, which drops them unsettled when the
+ * env is torn down. The hook is newer than the deferreds' own teardown hooks, so it runs first.
+ */
+export declare function dropDeferredAtEnvTeardown(n: number): Promise<number>[]
+
+/**
+ * Makes `n` deferreds and moves them to a new thread, which drops them unsettled after
+ * `delay_ms`. Returns their promises.
+ */
+export declare function dropDeferredOffThread(n: number, delayMs: number): Promise<number>[]
+
+/** Makes `n` deferreds and drops each one at once, unsettled. Returns their promises. */
+export declare function dropDeferredUnsettled(n: number): Promise<number>[]
 
 /**
  * Converts `value` into an `Error` — creating a `napi_ref` to it, the same
@@ -2017,9 +2057,18 @@ export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
+/** Makes `n` deferreds and resolves each one at once with 7. */
+export declare function settledDeferreds(n: number): Promise<number>[]
+
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
+
+/**
+ * Shuts the async runtime down now, dropping every pending task. Only for a process or worker
+ * that runs no other `async fn` afterwards.
+ */
+export declare function shutdownAsyncRuntimeNow(): void
 
 export declare function shutdownRuntime(): void
 
