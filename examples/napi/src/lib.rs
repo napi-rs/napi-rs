@@ -83,6 +83,7 @@ pub fn exports(mut export: Object) -> Result<()> {
 mod abandoned_promise;
 mod array;
 mod r#async;
+mod async_arg_refs;
 mod async_generator_repro;
 mod async_task_settle;
 mod bigint;

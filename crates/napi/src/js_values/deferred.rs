@@ -418,9 +418,13 @@ unsafe impl Sync for DeferredHandle {}
 /// because a host may never deliver it (Deno does not run the env cleanup hooks of a busy worker
 /// that is terminated, and then accepts the call but never runs it).
 ///
-/// Known limit (not new): a `#[napi] async fn` with `&T` arguments holds a reference to each of
-/// them, which only the settle deletes. If the task is dropped unsettled (runtime shutdown, a
-/// dropped future), napi-rs never deletes those references, and they keep their values alive.
+/// A `#[napi] async fn` roots each of its `&T` arguments in its borrow scope. When the task is
+/// dropped unsettled (runtime shutdown, a dropped future), dropping the settle-time callback hands
+/// those roots to the env's custom-GC handle, which deletes them on the JavaScript thread, so the
+/// values can be collected (on wasm the instance of an abandoned async `&self` method was still
+/// seen alive after that; not investigated). Known limit: output of `napi-derive` older than this
+/// release keeps one extra reference per argument that only the settle deletes; dropped
+/// unsettled, it is never deleted and keeps its value alive until the env is torn down.
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   /// Everything a settle or an abandon needs, and the drop duty. Not generic, so dropping a
   /// `JsDeferred` never needs `Data` or `Resolver` to be alive (no drop-check constraint on them).

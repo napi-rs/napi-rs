@@ -43,7 +43,6 @@ impl TryToTokens for NapiFn {
       unsafe_,
     } = self.gen_arg_conversions()?;
     let attrs = &self.attrs;
-    let arg_ref_count = refs.len();
     let receiver = self.gen_fn_receiver();
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name)?;
@@ -238,49 +237,11 @@ impl TryToTokens for NapiFn {
       return Ok(());
     }
 
+    // An async callback roots each referenced argument in its borrow scope. The scope
+    // deletes the roots when the promise settles, and hands them to the custom-GC handle
+    // when the settle callback is dropped unrun (the deferred was dropped unsettled).
     let build_ref_container = if self.is_async {
-      quote! {
-          struct NapiRefContainer([napi::sys::napi_ref; #arg_ref_count]);
-          impl NapiRefContainer {
-            fn drop(self, env: napi::sys::napi_env) {
-              for r in self.0.into_iter() {
-                assert_eq!(
-                  unsafe { napi::sys::napi_reference_unref(env, r, &mut 0) },
-                  napi::sys::Status::napi_ok,
-                  "failed to delete napi ref"
-                );
-                assert_eq!(
-                  unsafe { napi::sys::napi_delete_reference(env, r) },
-                  napi::sys::Status::napi_ok,
-                  "failed to delete napi ref"
-                );
-              }
-            }
-          }
-          unsafe impl Send for NapiRefContainer {}
-          unsafe impl Sync for NapiRefContainer {}
-          let _make_ref = |a: ::std::ptr::NonNull<napi::bindgen_prelude::sys::napi_value__>| {
-            let mut node_ref = ::std::mem::MaybeUninit::uninit();
-            napi::bindgen_prelude::check_status!(unsafe {
-                napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 1, node_ref.as_mut_ptr())
-              },
-              "failed to create napi ref"
-            )?;
-            Ok::<napi::sys::napi_ref, napi::Error>(unsafe { node_ref.assume_init() })
-          };
-          let mut _args_array = [::std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_ref__>(); #arg_ref_count];
-          let mut _arg_write_index = 0;
-
-          #(#refs)*
-
-          #[cfg(debug_assertions)]
-          {
-            for a in &_args_array {
-              assert!(!a.is_null(), "failed to initialize napi ref");
-            }
-          }
-          let _args_ref = NapiRefContainer(_args_array);
-      }
+      quote! { #(#refs)* }
     } else {
       quote! {}
     };
@@ -327,7 +288,6 @@ impl TryToTokens for NapiFn {
             #ret
           }, Some(Box::new(move |env| {
             _napi_borrow_scope_release.release(env);
-            _args_ref.drop(env);
           })))
         }
       }
@@ -440,8 +400,10 @@ impl NapiFn {
     // fetch this
     if let Some(parent) = &self.parent {
       match self.fn_self {
+        // `receiver_unwrap` always calls `register_native_borrow_with_value`. In a
+        // `new_async` scope (root_values = true) that roots `cb.this()` or returns `Err`, so
+        // `this` needs no second root.
         Some(FnSelf::Ref) => {
-          refs.push(make_ref(quote! { cb.this() }));
           receiver_unwrap = quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
             napi::bindgen_prelude::register_native_borrow_with_value(
@@ -456,7 +418,6 @@ impl NapiFn {
           };
         }
         Some(FnSelf::MutRef) => {
-          refs.push(make_ref(quote! { cb.this() }));
           receiver_unwrap = quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
             napi::bindgen_prelude::register_native_borrow_with_value(
@@ -1112,11 +1073,7 @@ fn hidden_ty_lifetime(ty: &mut syn::Type) -> BindgenResult<()> {
 
 fn make_ref(input: TokenStream) -> TokenStream {
   quote! {
-    _args_array[_arg_write_index] = _make_ref(
-      ::std::ptr::NonNull::new(#input)
-        .ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, "referenced ptr is null".to_owned()))?
-    )?;
-    _arg_write_index += 1;
+    _napi_native_borrow_scope.root_value(env, #input)?;
   }
 }
 

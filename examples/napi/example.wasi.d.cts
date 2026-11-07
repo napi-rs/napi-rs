@@ -105,6 +105,15 @@ export declare class AnotherCssStyleSheet {
 }
 export type AnotherCSSStyleSheet = AnotherCssStyleSheet
 
+/** A class whose finalizer is counted. */
+export declare class ArgRefHolder {
+  constructor()
+  /** An async `&self` method that never completes. */
+  pendingForever(): Promise<number>
+  /** An async `&self` method that resolves at once. */
+  resolveNow(): Promise<number>
+}
+
 export declare class Asset {
   constructor()
   get filePath(): number
@@ -722,6 +731,23 @@ export declare function appendToOsString(s: string): string
 export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
+
+export declare function argRefCounters(): ArgRefCounters
+
+export interface ArgRefCounters {
+  holdersDropped: number
+  futuresStarted: number
+  futuresDropped: number
+}
+
+/** An `async fn` with a class `&T` and a typed-slice argument that never completes. */
+export declare function argRefsPendingForever(holder: ArgRefHolder, data: Uint8Array): Promise<number>
+
+/** Same arguments, resolves at once. */
+export declare function argRefsResolveNow(holder: ArgRefHolder, data: Uint8Array): Promise<number>
+
+/** Only a typed-slice argument, resolves at once. */
+export declare function argRefsSliceNow(data: Uint8Array): Promise<number>
 
 export declare function arrayBufferCopyFrom(data: Array<number>): ArrayBuffer
 

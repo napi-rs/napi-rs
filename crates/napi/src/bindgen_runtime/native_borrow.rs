@@ -372,6 +372,49 @@ impl NativeBorrowScope {
     }
   }
 
+  /// Roots `value` in this async scope, with no borrow guard.
+  ///
+  /// Generated `async fn` glue calls it once for each referenced argument (`&T`, `&mut T`,
+  /// typed slices, `This`, `Vec<&T>`), before `finish`. The root then has the scope's
+  /// lifetime: the settle deletes it on the JavaScript thread, and a settle callback dropped
+  /// unrun (an abandoned deferred, env teardown) hands it to the custom-GC handle. A `?` later
+  /// in the same frame deletes it at once.
+  ///
+  /// A class argument is rooted twice: once here and once by its borrow registration. Both
+  /// roots are freed the same way.
+  ///
+  /// # Safety
+  ///
+  /// Call it on the callback's JavaScript thread, inside the callback, with a live `value` of
+  /// `env`.
+  #[doc(hidden)]
+  pub unsafe fn root_value(&mut self, env: sys::napi_env, value: sys::napi_value) -> Result<()> {
+    if value.is_null() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "referenced ptr is null".to_owned(),
+      ));
+    }
+    let mut storage = lock_storage(&self.storage);
+    if !self.collecting || !storage.root_values {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "Only a collecting async native borrow scope can root a value".to_owned(),
+      ));
+    }
+    let mut reference = ptr::null_mut();
+    let status = unsafe { sys::napi_create_reference(env, value, 1, &mut reference) };
+    if status != sys::Status::napi_ok {
+      return Err(Error::new(
+        Status::from(status),
+        "failed to create napi ref".to_owned(),
+      ));
+    }
+    storage.capture_custom_gc(env);
+    storage.roots.push(NativeBorrowRoot { env, reference });
+    Ok(())
+  }
+
   /// Stops argument conversion from adding guards while retaining all acquired borrows.
   #[doc(hidden)]
   pub fn finish(&mut self) {
@@ -626,6 +669,13 @@ impl Drop for DeferredNativeBorrowScopeGuard {
 /// environment or from a foreign thread. It holds the `Send`-able finished form:
 /// `new` finishes the collecting scope eagerly on the owner thread so a drop on any
 /// thread can never touch the creator's TLS conversion stack.
+///
+/// The scope's roots are the only roots of an `async fn`'s referenced arguments, so this
+/// wrapper must not drop while the future still holds those references: the built-in tokio
+/// task drops its future before the deferred that owns the settle callback (`fut_then_settle`
+/// in `tokio_runtime.rs`). A custom `AsyncRuntime` backend that cancels a task settles it from
+/// `AsyncRuntimeTask::drop`, before the boxed future drops; that order is older than this
+/// change.
 #[doc(hidden)]
 pub struct NativeBorrowScopeRelease {
   scope: Option<FinishedNativeBorrowScope>,
