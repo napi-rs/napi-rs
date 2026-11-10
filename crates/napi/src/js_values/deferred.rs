@@ -1022,6 +1022,14 @@ type QueueAbandon = unsafe fn(
   Option<AbandonReason>,
 ) -> sys::napi_status;
 
+/// Whether a JavaScript exception is pending on `env`. The call has no `NAPI_PREAMBLE`.
+#[cfg(any(not(target_family = "wasm"), feature = "deferred_trace"))]
+fn exception_pending(env: sys::napi_env) -> bool {
+  let mut pending = false;
+  let status = unsafe { sys::napi_is_exception_pending(env, &mut pending) };
+  status == sys::Status::napi_ok && pending
+}
+
 /// What a `JsDeferred` and each of its clones own, and the drop duty: the last one dropped with
 /// the promise still pending abandons it (see the `Drop` impl).
 ///
@@ -1111,11 +1119,7 @@ impl Drop for DeferredInner {
     let on_owner = self.handle.owner_thread == std::thread::current().id();
     let origin = self.handle.origin.load(Ordering::Relaxed);
     let is_deferred = matches!(self.target, SettleTarget::Deferred(_));
-    let exception_pending = on_owner && is_deferred && {
-      let mut pending = false;
-      let status = unsafe { sys::napi_is_exception_pending(env, &mut pending) };
-      status == sys::Status::napi_ok && pending
-    };
+    let exception_pending = on_owner && is_deferred && exception_pending(env);
     match abandon_action(on_owner, origin, is_deferred, exception_pending) {
       AbandonAction::Queue(reason) => {
         let status = unsafe { (self.abandon)(tsfn, self.target, trace, reason) };
@@ -1472,7 +1476,15 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     "Release threadsafe function in JsDeferred failed"
   );
 
+  // Whether the resolving call ran. It may have freed a `napi_deferred` even when it failed, so
+  // only a promise it never touched is rejected with an exception from building the rejection.
+  #[cfg(feature = "deferred_trace")]
+  let mut resolve_attempted = false;
   if let Err(e) = release_tsfn_result.and(result).and_then(|res| {
+    #[cfg(feature = "deferred_trace")]
+    {
+      resolve_attempted = true;
+    }
     check_status!(
       target.settle(env, true, res),
       "Resolve deferred value failed"
@@ -1490,6 +1502,9 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
       }
     })
   }) {
+    // An exception pending now is not from building the rejection (the resolver left it).
+    #[cfg(feature = "deferred_trace")]
+    let pending_before_build = exception_pending(env);
     #[cfg(feature = "deferred_trace")]
     let error = match trace {
       Some(trace) => trace.into_rejected(env, e),
@@ -1504,15 +1519,17 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     // JavaScript actually rejected with.
     #[cfg(not(feature = "deferred_trace"))]
     let error = unsafe { ToNapiValue::to_napi_value(env, e) };
-    // An abandon that rejects clears the exceptions of its own calls below, so it must not leave
-    // its promise pending, with nothing reported, because building the rejection threw: reject
-    // with what was thrown. Nothing settled the promise yet, so this is still its one settling
-    // call. This runs in the threadsafe-function dispatch, entered with no exception pending, so
-    // the one taken here came from the calls above. (No path is known to throw there: the trace
-    // error gets own data properties, so no JavaScript setter runs.)
-    #[cfg(not(target_family = "wasm"))]
+    // Building the rejection on the trace error can throw. On wasm, emnapi defines a property
+    // through a JavaScript descriptor object, which a polluted `Object.prototype` (`get`, `set`)
+    // makes invalid. The promise must not stay pending for ever, with the exception reported as
+    // uncaught (or, for an abandon that rejects, cleared below and never reported): reject with
+    // what was thrown. Only an exception that building the rejection made is taken, and only
+    // when nothing called the promise's settling function yet, so this is its one settling call.
+    #[cfg(feature = "deferred_trace")]
     let error = match error {
-      Err(err) if abandon_rejects => crate::async_work::take_pending_exception(env).ok_or(err),
+      Err(err) if !resolve_attempted && !pending_before_build => {
+        crate::async_work::take_pending_exception(env).ok_or(err)
+      }
       error => error,
     };
 

@@ -15,11 +15,18 @@ use crate::{
 mod promise;
 mod settle_mode;
 
+#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
+pub(crate) use promise::release_deferred_pending;
 #[cfg(all(
   not(feature = "noop"),
   any(feature = "napi3", not(target_family = "wasm"))
 ))]
 pub(crate) use promise::release_env_promise_states;
+#[cfg(all(
+  feature = "napi4",
+  any(not(target_family = "wasm"), feature = "deferred_trace")
+))]
+pub(crate) use promise::take_pending_exception;
 #[doc(hidden)]
 pub use promise::{
   async_task_promise_resolvers_released, async_task_promise_settle_mode,
@@ -29,8 +36,6 @@ pub use promise::{
 };
 #[cfg(feature = "napi4")]
 pub(crate) use promise::{create_detached, DetachedPromise};
-#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
-pub(crate) use promise::{release_deferred_pending, take_pending_exception};
 use promise::{PromiseSettler, Settlement};
 pub(crate) use settle_mode::SettleMode;
 
