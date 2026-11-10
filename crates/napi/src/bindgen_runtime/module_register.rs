@@ -1781,10 +1781,16 @@ unsafe fn register_classes(
           for property in inherited_methods {
             let mut descriptor = property.raw(env)?;
             let mut function = ptr::null_mut();
+            // Keep `Parent.prototype.method.name` and stack traces as they are
+            // for signature-bound methods. Symbol-keyed methods stay unnamed.
             check_status!(sys::napi_create_function(
               env,
-              ptr::null(),
-              0,
+              descriptor.utf8name,
+              if descriptor.utf8name.is_null() {
+                0
+              } else {
+                super::NAPI_AUTO_LENGTH
+              },
               descriptor.method,
               descriptor.data,
               &mut function

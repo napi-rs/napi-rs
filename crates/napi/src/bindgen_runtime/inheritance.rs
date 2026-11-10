@@ -5,20 +5,22 @@
 //! At load, each child's prototype is linked to its parent's with
 //! `Object.setPrototypeOf`; constructors and statics are not inherited.
 //!
+//! Requires `napi8` on native targets (a compile error otherwise): the
+//! receiver check for inherited methods is a type-tag check, and without it a
+//! descendant could only be checked through V8's exact-class method signature.
+//!
 //! Inherited members:
-//! - Field accessors and `#[napi(getter/setter)]` work on descendants on every
-//!   Node-API version, since `napi_define_class` binds accessors without a
-//!   receiver signature.
-//! - Borrowed (`&self` / `&mut self`) methods of a parent class are defined on
-//!   its prototype as plain functions on native `napi8` builds, and the
-//!   generated callback validates the receiver against this hierarchy. On
-//!   native builds without `napi8` they stay signature-bound by
-//!   `napi_define_class`, so calling one on a descendant throws
-//!   `TypeError: Illegal invocation`; this is deliberate rather than weakening
-//!   the receiver check. emnapi (wasm) does not enforce method signatures, so
-//!   there the generated callback's class-identity check is what accepts a
-//!   descendant or rejects a foreign receiver.
-//! - Methods taking `Reference<Self>`, and `&Parent` arguments, stay exact.
+//! - Field accessors and `#[napi(getter/setter)]`.
+//! - Borrowed (`&self` / `&mut self`) methods. For a class that has children
+//!   they are defined on its prototype as plain named functions (no V8 method
+//!   signature) and the generated callback validates the receiver: an exact
+//!   type tag, else one tag check per descendant of that class. On wasm,
+//!   emnapi enforces no method signature for any class, and the class identity
+//!   recorded at wrap time is checked instead.
+//! - Exact-only: methods taking `Reference<Self>` or a typed `This<T>`, and
+//!   `&Parent` arguments. Generated declarations `Omit` these from the child.
+//! - A parent cannot use `custom_finalize`: a child is finalized as the child,
+//!   so the parent's `ObjectFinalize::finalize` would never run.
 //!
 //! This module holds the validated, addon-wide layout relationships. No
 //! JavaScript handles live here: prototypes and constructor references remain
@@ -139,11 +141,14 @@ pub unsafe fn unwrap_inherited_receiver<T: super::TypeName + super::MaybeTypeTag
   }
   #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
   {
-    if super::class_identity::check_inherited_class_identity::<T>(wrapped) {
-      Ok(wrapped.cast())
-    } else {
-      super::check_class_identity::<T>(wrapped, T::type_name)?;
-      Ok(wrapped.cast())
+    // Exact receivers (every non-inheritance class) take the existing check
+    // alone; only a mismatch consults the hierarchy.
+    match super::check_class_identity::<T>(wrapped, T::type_name) {
+      Ok(()) => Ok(wrapped.cast()),
+      Err(_) if super::class_identity::check_inherited_class_identity::<T>(wrapped) => {
+        Ok(wrapped.cast())
+      }
+      Err(error) => Err(error),
     }
   }
 }
