@@ -1479,6 +1479,48 @@ impl ConvertToAST for syn::ItemStruct {
       })
       .transpose()?;
 
+    // A child must embed its parent at offset zero. Keep this validation in the
+    // parser so misuse is rejected before code generation can create unsafe
+    // receiver conversions.
+    if opts.extends().is_some()
+      && (transparent.is_some() || opts.array().is_some() || opts.object().is_some())
+    {
+      errors.push(err_span!(
+        self,
+        "#[napi(extends = ...)] is only valid on a class struct"
+      ));
+    }
+    if opts.extends().is_some()
+      && transparent.is_none()
+      && opts.array().is_none()
+      && opts.object().is_none()
+    {
+      let has_repr_c = self.attrs.iter().any(|attr| {
+        attr.path().is_ident("repr") && attr.meta.to_token_stream().to_string().contains('C')
+      });
+      if !has_repr_c {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] requires #[repr(C)]"
+        ));
+      }
+      if self.fields.is_empty() {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] requires the embedded parent as its first field"
+        ));
+      }
+      if implement_iterator || implement_async_iterator {
+        errors.push(err_span!(self, "#[napi(extends = ...)] cannot be combined with #[napi(iterator)] or #[napi(async_iterator)]"));
+      }
+      if opts.constructor().is_some() {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] cannot be combined with #[napi(constructor)]; use a factory"
+        ));
+      }
+    }
+
     let struct_kind = if let Some(transparent) = transparent {
       NapiStructKind::Transparent(NapiTransparent {
         ty: transparent,
