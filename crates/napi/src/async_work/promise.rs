@@ -342,10 +342,19 @@ struct Slot {
 struct Entry {
   generation: u32,
   slot: Option<Slot>,
+  /// Not null: the slot was freed before its `then` job ran, and this is its env. The job is
+  /// still queued in JavaScript and carries this entry's handle, so the index stays reserved
+  /// until the job comes ([`Slots::retire`]) or the env is torn down ([`Slots::retire_env`]).
+  /// Reused at once, the index could meet that job again with the same generation after the
+  /// generation counter wrapped (2^20 slots made and freed in one synchronous job), and the job
+  /// would put another promise's resolving functions into the new slot.
+  awaiting_then: sys::napi_env,
 }
 
 /// A table of [`Slot`]s. Generations come from one counter, not per entry, so the table can be
 /// dropped whole once it is empty without a later slot reusing a stale handle's generation.
+/// The generation is a second line of defense: an index is never reused while a queued `then`
+/// job can still carry its handle (see [`Entry::awaiting_then`]).
 #[derive(Default)]
 struct Slots {
   entries: Vec<Entry>,
@@ -363,6 +372,7 @@ impl Slots {
     let entry = Entry {
       generation,
       slot: Some(slot),
+      awaiting_then: ptr::null_mut(),
     };
     let index = match self.free.pop() {
       Some(index) => {
@@ -386,14 +396,53 @@ impl Slots {
   }
 
   /// Frees the slot `handle` names (which must exist), so the handle never matches again.
-  fn remove(&mut self, handle: Handle) -> Slot {
-    let slot = self.entries[handle.index as usize]
-      .slot
-      .take()
-      .expect("a slot is removed once");
-    self.free.push(handle.index);
+  ///
+  /// `then_may_come`: a `then` job for this slot may still be queued in JavaScript. When it has
+  /// not run yet (the slot is `Waiting`), the index is not reused until it does (see
+  /// [`Entry::awaiting_then`]). `false` when no job was ever queued, when the caller is that job,
+  /// or when the env can run no job any more.
+  fn remove(&mut self, handle: Handle, then_may_come: bool) -> Slot {
+    let entry = &mut self.entries[handle.index as usize];
+    let slot = entry.slot.take().expect("a slot is removed once");
+    if then_may_come && matches!(slot.state, SlotState::Waiting) {
+      entry.awaiting_then = slot.env;
+    } else {
+      self.free.push(handle.index);
+    }
     STATES_FREED.fetch_add(1, Ordering::Relaxed);
     slot
+  }
+
+  /// The `then` job of a slot freed before it ran has come: nothing carries `handle` any more,
+  /// so its index can be reused. `true` when `handle` named such a slot.
+  fn retire(&mut self, handle: Handle, env: sys::napi_env) -> bool {
+    let Some(entry) = self.entries.get_mut(handle.index as usize) else {
+      return false;
+    };
+    if entry.generation != handle.generation
+      || entry.slot.is_some()
+      || entry.awaiting_then.is_null()
+      || entry.awaiting_then != env
+    {
+      return false;
+    }
+    entry.awaiting_then = ptr::null_mut();
+    self.free.push(handle.index);
+    true
+  }
+
+  /// `env` is torn down: its queued `then` jobs never run, so the indexes they reserved are free.
+  #[cfg(all(
+    not(feature = "noop"),
+    any(feature = "napi3", not(target_family = "wasm"))
+  ))]
+  fn retire_env(&mut self, env: sys::napi_env) {
+    for (index, entry) in self.entries.iter_mut().enumerate() {
+      if entry.slot.is_none() && !entry.awaiting_then.is_null() && entry.awaiting_then == env {
+        entry.awaiting_then = ptr::null_mut();
+        self.free.push(index as u32);
+      }
+    }
   }
 
   /// Gives the memory of a large table back once no slot is in use. Kept apart from
@@ -541,6 +590,9 @@ fn exception_pending(env: sys::napi_env) -> bool {
 pub(super) struct ThenableSettler {
   env: sys::napi_env,
   handle: Option<Handle>,
+  /// Whether the promise's `then` job was queued in JavaScript (the promise was made). Until
+  /// then, a freed slot's index is reused at once: no job carries its handle.
+  then_queued: bool,
 }
 
 impl ThenableSettler {
@@ -583,18 +635,20 @@ impl ThenableSettler {
       return;
     };
     let env = self.env;
+    let then_queued = self.then_queued;
     let mut extra = ptr::null_mut();
     let resolvers = with_slots(|slots| {
       let slot = slots.get_mut(handle, env)?;
       match slot.state {
         // Settled or not, `then` has run and will not run again.
         SlotState::Resolvers { resolve, reject } => {
-          extra = slots.remove(handle).extra;
+          extra = slots.remove(handle, false).extra;
           Some((resolve, reject))
         }
-        // Nothing to settle any more; a `then` that still comes finds no slot and does nothing.
+        // Nothing to settle any more; a `then` that still comes finds no slot, gives the index
+        // back and does nothing else.
         SlotState::Waiting => {
-          extra = slots.remove(handle).extra;
+          extra = slots.remove(handle, then_queued).extra;
           None
         }
         // The kept outcome now waits for `then` alone (or for env teardown).
@@ -779,6 +833,10 @@ unsafe extern "C" fn thenable_then(
     return ptr::null_mut();
   };
   let kept = with_slots(|slots| {
+    // The slot was freed before this job ran: the index it reserved is free now.
+    if slots.retire(handle, env) {
+      return None;
+    }
     let slot = slots.get_mut(handle, env)?;
     match slot.state {
       SlotState::Waiting => {
@@ -802,7 +860,7 @@ unsafe extern "C" fn thenable_then(
       SlotState::Kept { fulfill, holder } => {
         // Settle below, outside the borrow. A task that still owns the slot stops caring once
         // its outcome is kept, so the slot goes now either way.
-        let extra = slots.remove(handle).extra;
+        let extra = slots.remove(handle, false).extra;
         Some((fulfill, holder, extra))
       }
     }
@@ -1069,9 +1127,10 @@ fn create_wrapped(
     return Ok(None);
   };
   // Dropping the settler on an error below frees the slot.
-  let settler = ThenableSettler {
+  let mut settler = ThenableSettler {
     env,
     handle: Some(handle),
+    then_queued: false,
   };
   let then = then_function(env, cached_then)?;
   let mut args = [then, ptr::null_mut()];
@@ -1096,6 +1155,8 @@ fn create_wrapped(
     )
   };
   if status == sys::Status::napi_ok {
+    // The promise exists, and its `then` job is queued.
+    settler.then_queued = true;
     return Ok(Some((promise, settler)));
   }
   // Nothing was pending before the call, so a pending exception is what the call threw.
@@ -1125,7 +1186,11 @@ fn create_thenable_settler(
     })
   });
   // Dropping the settler on an error below frees the slot.
-  let settler = ThenableSettler { env, handle };
+  let mut settler = ThenableSettler {
+    env,
+    handle,
+    then_queued: false,
+  };
   let thenable = match handle {
     Some(handle) => create_thenable(env, handle, cached_then),
     None => Err(Error::new(
@@ -1150,6 +1215,8 @@ fn create_thenable_settler(
     status,
     "Resolve promise with thenable failed in async_work::run"
   )?;
+  // Resolved with the thenable: its `then` job is queued.
+  settler.then_queued = true;
   Ok(settler)
 }
 
@@ -1215,6 +1282,8 @@ impl DetachedPromise {
     let mut settler = ThenableSettler {
       env,
       handle: Some(self.handle),
+      // A `DetachedPromise` only exists once its promise was made.
+      then_queued: true,
     };
     let settlement = if fulfill {
       Settlement::Fulfill(value)
@@ -1233,6 +1302,8 @@ impl DetachedPromise {
     ThenableSettler {
       env,
       handle: Some(self.handle),
+      // A `DetachedPromise` only exists once its promise was made.
+      then_queued: true,
     }
     .release();
   }
@@ -1337,7 +1408,8 @@ pub(crate) fn release_env_promise_states(env: sys::napi_env) {
         index: index as u32,
         generation: entry.generation,
       };
-      let slot = slots.remove(handle);
+      // No `then` job of this env runs any more.
+      let slot = slots.remove(handle, false);
       if !slot.extra.is_null() {
         references.push(slot.extra);
       }
@@ -1353,6 +1425,7 @@ pub(crate) fn release_env_promise_states(env: sys::napi_env) {
         SlotState::Waiting => {}
       }
     }
+    slots.retire_env(env);
     references
   })
   .unwrap_or_default();
@@ -1435,5 +1508,107 @@ pub(super) fn conclude(
         ))
       }
     }
+  }
+}
+
+/// The index rule of the slot table: an index is not reused while a queued `then` job can still
+/// carry its handle.
+#[cfg(test)]
+mod slot_tests {
+  use super::*;
+
+  const ENV: usize = 0x1000;
+  const OTHER_ENV: usize = 0x2000;
+
+  fn waiting(env: usize) -> Slot {
+    Slot {
+      env: env as sys::napi_env,
+      owned: false,
+      state: SlotState::Waiting,
+      extra: ptr::null_mut(),
+    }
+  }
+
+  /// 2^20 slots made and freed before any `then` job ran wrap the generation counter. The job of
+  /// the first one must not find the slot made after the wrap, which has its generation.
+  #[test]
+  fn a_stale_then_job_never_names_a_slot_made_after_the_generation_wrap() {
+    let env = ENV as sys::napi_env;
+    let mut slots = Slots::default();
+    let first = slots.insert(waiting(ENV));
+    slots.remove(first, true);
+    for _ in 0..GENERATION_MASK {
+      let handle = slots.insert(waiting(ENV));
+      slots.remove(handle, true);
+    }
+    let after_wrap = slots.insert(waiting(ENV));
+    assert_eq!(after_wrap.generation, first.generation);
+    assert_ne!(after_wrap.index, first.index);
+    assert!(slots.get_mut(first, env).is_none());
+    assert!(slots.get_mut(after_wrap, env).is_some());
+
+    // The job of `first` comes: it finds no slot, and only now is its index free.
+    assert!(slots.retire(first, env));
+    assert!(!slots.retire(first, env));
+    let reuse = slots.insert(waiting(ENV));
+    assert_eq!(reuse.index, first.index);
+    assert_ne!(reuse.generation, first.generation);
+  }
+
+  /// No job was queued (the promise was never made), or the job already ran: the index is free at
+  /// once.
+  #[test]
+  fn a_slot_no_then_job_can_name_frees_its_index_at_once() {
+    let env = ENV as sys::napi_env;
+    let mut slots = Slots::default();
+    let never_queued = slots.insert(waiting(ENV));
+    slots.remove(never_queued, false);
+    let second = slots.insert(waiting(ENV));
+    assert_eq!(second.index, never_queued.index);
+
+    // `then` ran: the slot has the resolving functions.
+    slots.get_mut(second, env).unwrap().state = SlotState::Resolvers {
+      resolve: ptr::null_mut(),
+      reject: ptr::null_mut(),
+    };
+    slots.remove(second, true);
+    assert!(!slots.retire(second, env));
+    let third = slots.insert(waiting(ENV));
+    assert_eq!(third.index, second.index);
+  }
+
+  /// A job of another env, or with another generation, does not free a reserved index.
+  #[test]
+  fn only_the_job_of_the_freed_slot_frees_its_index() {
+    let mut slots = Slots::default();
+    let handle = slots.insert(waiting(ENV));
+    slots.remove(handle, true);
+    assert!(!slots.retire(handle, OTHER_ENV as sys::napi_env));
+    let forged = Handle {
+      index: handle.index,
+      generation: handle.generation + 1,
+    };
+    assert!(!slots.retire(forged, ENV as sys::napi_env));
+    let other = slots.insert(waiting(ENV));
+    assert_ne!(other.index, handle.index);
+    assert!(slots.retire(handle, ENV as sys::napi_env));
+  }
+
+  /// Env teardown frees the indexes its queued jobs reserved, and no other env's.
+  #[cfg(all(
+    not(feature = "noop"),
+    any(feature = "napi3", not(target_family = "wasm"))
+  ))]
+  #[test]
+  fn env_teardown_frees_the_indexes_its_jobs_reserved() {
+    let mut slots = Slots::default();
+    let mine = slots.insert(waiting(ENV));
+    let theirs = slots.insert(waiting(OTHER_ENV));
+    slots.remove(mine, true);
+    slots.remove(theirs, true);
+    slots.retire_env(ENV as sys::napi_env);
+    assert_eq!(slots.free, vec![mine.index]);
+    assert!(slots.retire(theirs, OTHER_ENV as sys::napi_env));
+    assert_eq!(slots.free.len(), slots.entries.len());
   }
 }
