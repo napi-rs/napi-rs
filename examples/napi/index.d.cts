@@ -110,6 +110,15 @@ export declare class AnotherCssStyleSheet {
 }
 export type AnotherCSSStyleSheet = AnotherCssStyleSheet
 
+/** A class whose finalizer is counted. */
+export declare class ArgRefHolder {
+  constructor()
+  /** An async `&self` method that never completes. */
+  pendingForever(): Promise<number>
+  /** An async `&self` method that resolves at once. */
+  resolveNow(): Promise<number>
+}
+
 export declare class Asset {
   constructor()
   get filePath(): number
@@ -569,6 +578,19 @@ export declare class SleepOverlapProbe {
 }
 
 /**
+ * Holds an `Env::spawn` result so JavaScript can wait for `compute` to start before it
+ * cancels, and let `compute` finish afterwards.
+ */
+export declare class SpawnedAsyncTask {
+  /** Whether `compute` has started, so a cancel can no longer take the work. */
+  isExecuting(): boolean
+  /** Returns whether `AsyncWorkPromise::cancel` succeeded. */
+  cancel(): boolean
+  /** Lets `compute` return. */
+  release(): void
+}
+
+/**
  * Static methods and factories keep their default descriptor (not writable,
  * not enumerable, not configurable) unless a flag is written out.
  */
@@ -715,6 +737,23 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function argRefCounters(): ArgRefCounters
+
+export interface ArgRefCounters {
+  holdersDropped: number
+  futuresStarted: number
+  futuresDropped: number
+}
+
+/** An `async fn` with a class `&T` and a typed-slice argument that never completes. */
+export declare function argRefsPendingForever(holder: ArgRefHolder, data: Uint8Array): Promise<number>
+
+/** Same arguments, resolves at once. */
+export declare function argRefsResolveNow(holder: ArgRefHolder, data: Uint8Array): Promise<number>
+
+/** Only a typed-slice argument, resolves at once. */
+export declare function argRefsSliceNow(data: Uint8Array): Promise<number>
+
 export declare function arrayBufferCopyFrom(data: Array<number>): ArrayBuffer
 
 export declare function arrayBufferFromData(): ArrayBuffer
@@ -731,6 +770,21 @@ export declare function arrayParams(arr: Array<number>): number
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
+/**
+ * An `async fn` that never completes. Its future and its deferred are dropped unsettled only
+ * when the async runtime drops the task ([`shutdown_async_runtime_now`]).
+ */
+export declare function asyncFnPendingForever(): Promise<number>
+
+/** An `async fn` that resolves at once. */
+export declare function asyncFnResolveNow(): Promise<number>
+
+/**
+ * An `async fn` that sleeps `ms` on the async runtime and resolves with `ms`. It counts when its
+ * future starts and finishes, so a test can tell that a worker was terminated while it ran.
+ */
+export declare function asyncFnSleep(ms: number): Promise<number>
+
 export declare function asyncMultiTwo(arg: number): Promise<number>
 
 export declare function asyncPlus100(p: Promise<number>): Promise<number>
@@ -740,6 +794,9 @@ export declare function asyncReduceBuffer(buf: Buffer): Promise<number>
 export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
 export declare function asyncTaskArraybuffer(data: Array<number>): Promise<ArrayBuffer>
+
+/** A task that counts its creation and its drop, for the worker-terminate test. */
+export declare function asyncTaskCounted(): Promise<number>
 
 export declare function asyncTaskFinally(inner: object): Promise<void>
 
@@ -751,6 +808,12 @@ export declare function asyncTaskIsExecuting(): boolean
 
 export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
+/**
+ * How this env settles `AsyncTask` promises: `deferred` (main thread, WASI) or `thenable`
+ * (workers, Electron).
+ */
+export declare function asyncTaskPromiseSettleMode(): 'deferred' | 'thenable'
+
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
 /**
@@ -760,6 +823,48 @@ export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 export declare function asyncTaskRejectIsExecuting(): boolean
 
 export declare function asyncTaskRejectWithCapturedValue(value: unknown): Promise<void>
+
+export declare function asyncTaskSettleCounters(): AsyncTaskSettleCounters
+
+export interface AsyncTaskSettleCounters {
+  resolveCalls: number
+  finallyCalls: number
+  created: number
+  dropped: number
+  /**
+   * `AsyncTask` / `Env::spawn` promise settle states freed (resolving functions, or an
+   * outcome kept for them), settled or not.
+   */
+  promiseStatesFreed: number
+  /**
+   * Pairs of promise resolving functions released, settled or not: the freed states whose
+   * `then` had already run.
+   */
+  promiseResolversReleased: number
+  /** Promise wrappers compiled: one per env that made a thenable-mode promise. */
+  promiseWrappersCompiled: number
+  /** Thenable-mode promises made from a deferred, because their env had no promise wrapper. */
+  promiseWrapperFallbacks: number
+  /**
+   * `#[napi] async fn` (`JsDeferred`) promises made by the promise wrapper, without a deferred.
+   * Their settle states are counted in `promise_states_freed` too.
+   */
+  jsDeferredThenableCreated: number
+  /** Thenable-mode `#[napi] async fn` promises made from a deferred instead. */
+  jsDeferredFallbacks: number
+  /** `asyncFnSleep` calls whose future started, and whose future finished. */
+  asyncFnSleepsStarted: number
+  asyncFnSleepsFinished: number
+  /**
+   * `JsDeferred`s dropped unsettled and cleaned up at once, inside the drop, on their
+   * JavaScript thread.
+   */
+  jsDeferredAbandonedSync: number
+  /** `JsDeferred`s dropped unsettled whose cleanup (no rejection) was queued, once it ran. */
+  jsDeferredAbandonedQueued: number
+  /** `JsDeferred`s dropped unsettled whose promise was rejected, once the rejection ran. */
+  jsDeferredAbandonRejected: number
+}
 
 /**
  * An `AsyncTask` that announces the start of its own `compute`, then runs for
@@ -778,6 +883,9 @@ export declare function asyncTaskSignalWhenExecuting(durationMs: number): Promis
  * already settled.
  */
 export declare function asyncTaskSignalWhenExecutingReject(durationMs: number): Promise<number>
+
+/** A task whose `resolve` leaves an exception pending: the promise must reject with it. */
+export declare function asyncTaskThrowInResolve(): Promise<number>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
@@ -839,6 +947,9 @@ export interface BufferOverrideObject {
 }
 
 export declare function bufferPassThrough(buf: Buffer): Promise<Buffer>
+
+/** How many Buffers `dropBuffersOffThread` has dropped in this process. */
+export declare function buffersDroppedOffThread(): number
 
 export declare function bufferSliceCopyFromMutated(): Buffer
 
@@ -960,6 +1071,13 @@ export declare function chronoUtcDateToMillis(input: Date): number
  */
 export declare function churnGlobalHandles(value: unknown, count: number): void
 
+/**
+ * How many class constructor references env teardown has deleted in this
+ * process. Each load of the addon defines every `#[napi]` class once, so each
+ * torn-down load must add the same amount.
+ */
+export declare function classRefsDeletedAtTeardown(): number
+
 export declare function cleanupReentrantBorrowOrderTestTargets(): number
 
 /**
@@ -1039,6 +1157,12 @@ export declare function createBigInt(): bigint
 export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
+
+/**
+ * Makes a deferred, then fails before the promise is handed out: the early `?` drops the
+ * deferred unsettled. Throws, and must not leave a rejection behind.
+ */
+export declare function createDeferredThenFail(): void
 
 export declare function createErrorFromRetainedValue(value: unknown): object
 
@@ -1148,6 +1272,37 @@ export declare function createZeroCopyLatin1String(): string
 
 export declare function createZeroCopyUtf16String(): string
 
+export declare function customGcRefCounts(): CustomGcRefCounts
+
+/**
+ * What happened to the references released through the custom-GC handles of this process
+ * (Buffers, TypedArrays, Errors and function references dropped off their env's JS thread, or
+ * during its teardown).
+ */
+export interface CustomGcRefCounts {
+  /** Deleted while their env ran. */
+  deletedWhileRunning: number
+  /** Deleted at env teardown, by the cleanup hook or the late sentinel. */
+  deletedAtTeardown: number
+  /** Released too late in env teardown to be deleted: leaked. */
+  leakedAtTeardown: number
+  /** Still waiting when their env's handle was freed: leaked. */
+  leftPending: number
+  /** Custom-GC callbacks that deleted references. */
+  drainCallbacks: number
+  /** The most references one custom-GC callback deleted. */
+  largestDrain: number
+  /** Strong references to late sentinels deleted. Each torn-down load adds exactly one. */
+  sentinelRefsDeleted: number
+}
+
+/**
+ * How many custom-GC threadsafe functions env teardown has released in this
+ * process. Each load of the addon creates one, so each torn-down load must add
+ * exactly one.
+ */
+export declare function customGcTsfnsReleasedAtTeardown(): number
+
 /** You could break the step and for an new continuous value. */
 export declare const enum CustomNumEnum {
   One = 1,
@@ -1189,6 +1344,16 @@ export interface DefaultUseNullableStruct {
   requiredStringField: string
   optionalNumberField?: number
   optionalStringField?: string
+}
+
+export declare function deferredDropCounters(): DeferredDropCounters
+
+export interface DeferredDropCounters {
+  offThreadDropped: number
+  pendingFuturesStarted: number
+  pendingFuturesDropped: number
+  callbackCapturesDropped: number
+  callbacksInvoked: number
 }
 
 export declare function defineClass(): typeof DynamicRustClass
@@ -1254,6 +1419,9 @@ export declare function detachReentrantBorrowOrderTestTarget(target: unknown): v
  */
 export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Promise<number>
 
+/** Drops `buffers` on a new thread, then counts them in `buffersDroppedOffThread`. */
+export declare function dropBuffersOffThread(buffers: Array<Buffer>): void
+
 /**
  * `try_clone` shares one `napi_ref` between siblings via an `Arc<ErrorRef>`;
  * dropping a sibling is an atomic refcount decrement, and the underlying
@@ -1266,6 +1434,42 @@ export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Pr
 export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
 
 /**
+ * Makes `n` deferreds, hands their promises to `observe` (which attaches awaiters), then drops
+ * every deferred unsettled, all on the JavaScript thread. The drop cleans up at once and does
+ * not reject, although JavaScript already holds the promises (a documented limit).
+ */
+export declare function dropDeferredAfterObserve(n: number, observe: (promise: Promise<number>) => void): void
+
+/**
+ * Makes `n` deferreds and keeps them in an env cleanup hook, which drops them unsettled when the
+ * env is torn down. The hook is newer than the deferreds' own teardown hooks, so it runs first.
+ */
+export declare function dropDeferredAtEnvTeardown(n: number): Promise<number>[]
+
+/**
+ * Makes `n` deferreds and moves them to a new thread, which drops them unsettled after
+ * `delay_ms`. Returns their promises.
+ */
+export declare function dropDeferredOffThread(n: number, delayMs: number): Promise<number>[]
+
+/**
+ * Like [`drop_deferred_off_thread`], but each deferred has a settle-time callback that captures a
+ * [`CallbackCapture`]. A dropped deferred must drop its callback (and so the capture) without
+ * running it, even when its env can no longer run anything (a busy worker that was terminated).
+ */
+export declare function dropDeferredOffThreadWithCallback(n: number, delayMs: number): Promise<number>[]
+
+/** Makes `n` deferreds and drops each one at once, unsettled. Returns their promises. */
+export declare function dropDeferredUnsettled(n: number): Promise<number>[]
+
+/**
+ * Makes a deferred, throws `thrown`, then drops the deferred unsettled with that exception
+ * pending, and returns. JavaScript must catch `thrown` itself: the drop must not read, clear or
+ * replace it. In deferred mode the cleanup is queued then; in thenable mode it runs at once.
+ */
+export declare function dropDeferredWithExceptionPending(thrown: unknown): void
+
+/**
  * Converts `value` into an `Error` — creating a `napi_ref` to it, the same
  * code path a `Promise` rejection takes — and drops it on a spawned thread.
  */
@@ -1276,6 +1480,12 @@ export declare function dropErrorFromValueOffThread(value: unknown): void
  * [`hold_function_refs_on_thread`] drop its references, and waits for it.
  */
 export declare function dropHeldFunctionRefsAtTeardown(): void
+
+/**
+ * Drops the deferreds `keep_deferreds` kept on this thread, unsettled, in this later call.
+ * Returns how many.
+ */
+export declare function dropKeptDeferreds(): number
 
 /** Drops the stashed cancel handle, on the calling thread. */
 export declare function dropStashedCancelHandle(): void
@@ -1515,6 +1725,9 @@ export declare function jsTypeErrorFromRetainedValue(value: unknown): TypeError
 
 export declare function jsTypeErrorWithoutRetainedValue(reason: string): TypeError
 
+/** Makes `n` deferreds and keeps them in a thread local of this thread. Returns their promises. */
+export declare function keepDeferreds(n: number): Promise<number>[]
+
 /** default enum values are continuos i32s start from 0 */
 export declare const enum Kind {
   /** Barks */
@@ -1540,6 +1753,13 @@ export interface Latin1MethodsResult {
   isEmpty: boolean
   asSlice: Array<number>
 }
+
+/**
+ * The `NinjaTurtle` constructor as code generated by an older napi-derive finds
+ * it: through `get_class_constructor`, which takes no env and answers with the
+ * newest live load on this thread that defined the class.
+ */
+export declare function legacyNinjaTurtleConstructor(): unknown
 
 export type LifetimeOnlyHandler = (arg: string) => string
 
@@ -1870,6 +2090,13 @@ export declare function referenceAsCallback(callback: (arg0: number, arg1: numbe
 
 export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
+/**
+ * How many cached `Reflect` holder references env teardown has deleted in this
+ * process. Each load of the addon caches one, so each torn-down load must add
+ * exactly one.
+ */
+export declare function reflectRefsDeletedAtTeardown(): number
+
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
 
 export interface RequestInit {
@@ -1910,11 +2137,27 @@ export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
+/** Makes `n` deferreds and resolves each one at once with 7. */
+export declare function settledDeferreds(n: number): Promise<number>[]
+
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
 
+/**
+ * Shuts the async runtime down now, dropping every pending task. Only for a process or worker
+ * that runs no other `async fn` afterwards.
+ */
+export declare function shutdownAsyncRuntimeNow(): void
+
 export declare function shutdownRuntime(): void
+
+/**
+ * Spawns a task whose `compute` runs until `task.release()` and then resolves with `value`.
+ * The promise is handed out here, in the scope that created it: the `napi_value` inside
+ * `AsyncWorkPromise` does not outlive it.
+ */
+export declare function spawnAsyncTask(value: number): { promise: Promise<number>, task: SpawnedAsyncTask }
 
 export declare function spawnFutureLifetime(input: number): Promise<string>
 

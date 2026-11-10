@@ -1299,6 +1299,11 @@ impl Env {
   ))]
   /// Spawn a future, return a JavaScript Promise which takes the result of the future
   ///
+  /// On native targets the promise is rejected with `Error("task was cancelled before
+  /// completion")` (`code` `GenericFailure`) when the task is dropped before it completed, for
+  /// example by a runtime shutdown. Return the promise to JavaScript: a promise dropped in Rust
+  /// has no handler, so that rejection (like an `Err` of the future) is an unhandled rejection.
+  ///
   /// A future spawned mid-callback does not inherit the borrow-scope rooting generated glue
   /// defers for `&T`/`&self` arguments — that scope is claimable only by the callback's own
   /// returned `AsyncTask`/`AsyncBlock` while its return value is converted. A spawned future
@@ -1325,6 +1330,8 @@ impl Env {
   ))]
   /// Spawn a future with a callback
   /// So you can access the `Env` and resolved value after the future completed
+  ///
+  /// A task dropped before it completed rejects the promise, as in [`Env::spawn_future`].
   pub fn spawn_future_with_callback<
     'env,
     T: 'static + Send,
@@ -1349,6 +1356,46 @@ impl Env {
   }
 
   /// Creates a deferred promise, which can be resolved or rejected from a background thread.
+  ///
+  /// # Warning
+  ///
+  /// This is a low-level API. Always settle the deferred: call [`JsDeferred::resolve`] or
+  /// [`JsDeferred::reject`] on every path, also on the error paths. Do not drop it without
+  /// settling it:
+  ///
+  /// * dropped on its own JavaScript thread, its promise stays pending for ever, so JavaScript
+  ///   that awaits it never continues;
+  /// * dropped on another thread, its promise is rejected. If nothing handles that rejection
+  ///   (for example the promise was never returned to JavaScript), it is an unhandled rejection:
+  ///   Node ends the process with exit code 1 on the main thread, and a worker emits `'error'`.
+  ///
+  /// The details are below. A `#[napi] async fn` or [`Env::spawn_future`] settles its promise
+  /// for you; prefer them when they fit.
+  ///
+  /// # Details
+  ///
+  /// In a worker, an Electron renderer and the other envs that can be torn down before the
+  /// process ends, the promise is made without a `napi_deferred`, so a promise that never
+  /// settles before its env is torn down leaks nothing. See [`JsDeferred`] for what is
+  /// observable there. `#[napi] async fn` and `Env::spawn_future` promises are made the same
+  /// way.
+  ///
+  /// Dropping the deferred (and every clone) without settling it, on native targets:
+  ///
+  /// * on its own JavaScript thread (for example an early `?` before the promise is returned),
+  ///   cleans up at once, before control returns to JavaScript. The promise is not rejected: it
+  ///   stays pending for ever, held by nothing, so it and its awaiters can be collected. This
+  ///   holds even when JavaScript already has the promise (dropped in a later call, or after the
+  ///   promise went to a JavaScript callback): settle it explicitly then.
+  /// * on another thread, rejects the promise with
+  ///   `Error("JsDeferred was dropped without being settled")` (`code` `GenericFailure`), even
+  ///   when the promise never reached JavaScript: that is an unhandled rejection (Node exits with
+  ///   code 1 on the main thread; a worker emits `'error'`). Settle it explicitly instead.
+  ///
+  /// In deferred mode (the main thread of Node and Bun) the cleanup resolves the promise's
+  /// `napi_deferred` with an inert thenable inside the `Drop`, so a promise hook can run
+  /// JavaScript there. On wasm, dropping still does nothing, as before. The settle-time callback
+  /// is dropped without running, as before. See [`JsDeferred`].
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     &self,

@@ -7,7 +7,7 @@ use std::{
 };
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-use crate::bindgen_runtime::module_register::{current_custom_gc_handle, CustomGcHandle};
+use crate::bindgen_runtime::module_register::{custom_gc_handle_for_env, CustomGcHandle};
 use crate::{sys, Error, Result, Status};
 
 #[derive(Clone, Copy)]
@@ -130,14 +130,16 @@ impl NativeBorrowStorage {
   /// Release reached without a known-live owner thread: the scope/lease was dropped
   /// rather than released through a settle path — a settle callback discarded during
   /// env teardown, an `AsyncWork` box reclaimed on a foreign thread, a runtime
-  /// shutdown dropping pending futures' `JsDeferred` clones on worker threads.
+  /// shutdown dropping pending futures' `JsDeferred` clones on worker threads, or any
+  /// `JsDeferred` dropped unsettled (its settle callback is dropped without running).
   ///
   /// Drops the alias guards (that only needs the global borrow map), then hands each
-  /// JavaScript root to the owning env's custom-GC threadsafe function — callable from
-  /// any thread, and it unref+deletes the ref on the JavaScript thread (same protocol
-  /// as `Buffer`/`FunctionRef` off-thread drops). The roots are leaked only when no
-  /// handle was captured or the handle reports the env already gone — env teardown has
-  /// then reclaimed the refs anyway, so the leak is free.
+  /// JavaScript root to the owning env's custom-GC handle — callable from any thread;
+  /// the ref is unref+deleted on the JavaScript thread (same protocol as
+  /// `Buffer`/`FunctionRef` off-thread drops). The roots are leaked only when no
+  /// handle was captured or the handle reports the env already gone. Env teardown then
+  /// resets the refs' V8 handles, so nothing stays alive in JavaScript, but Node never
+  /// frees the `napi_ref` boxes themselves (48 bytes each).
   fn release_or_delegate(&mut self) {
     self.guards.clear();
     self.borrowed_values.clear();
@@ -146,36 +148,12 @@ impl NativeBorrowStorage {
     }
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     if let Some(handle) = self.custom_gc.clone() {
-      let roots = std::mem::take(&mut self.roots);
-      handle.with_read_aborted(|aborted| {
-        if aborted {
-          // The owner env is gone and V8 has already invalidated the refs — the
-          // drained queue would deliver them to `custom_gc` with a null env. Leaking
-          // is safe: env teardown reclaimed the storage.
-          return;
-        }
-        for root in roots {
-          // Even on the owner thread the enqueue is the safe route: this path runs
-          // precisely when the env may already be dying (uninvoked settle closures),
-          // and a direct `napi_reference_unref` on a dead env is a use-after-free.
-          // A `napi_closing` status means the tsfn is draining; the ref then dies
-          // with the env.
-          let status = unsafe {
-            sys::napi_call_threadsafe_function(handle.get_raw(), root.reference.cast(), 1)
-          };
-          if cfg!(debug_assertions)
-            && status != sys::Status::napi_ok
-            && status != sys::Status::napi_closing
-          {
-            crate::bindgen_runtime::catch_unwind_safely(|| {
-              eprintln!(
-                "Failed to enqueue native borrow root for release: {}",
-                Status::from(status)
-              );
-            });
-          }
-        }
-      });
+      // Even on the owner thread the handle's route is the safe one: this path runs
+      // precisely when the env may already be dying (uninvoked settle closures), and a
+      // direct `napi_reference_unref` on a dead env is a use-after-free.
+      for root in std::mem::take(&mut self.roots) {
+        CustomGcHandle::defer_ref(&handle, root.reference);
+      }
       return;
     }
     // No handle captured (pre-napi4/noop build, or the scope rooted before module
@@ -208,7 +186,7 @@ impl NativeBorrowStorage {
           "Failed to root JavaScript value for a native borrow".to_owned(),
         ));
       }
-      self.capture_custom_gc();
+      self.capture_custom_gc(borrowed.env);
       self.roots.push(NativeBorrowRoot {
         env: borrowed.env,
         reference,
@@ -218,16 +196,16 @@ impl NativeBorrowStorage {
   }
 
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
-  fn capture_custom_gc(&mut self) {
+  fn capture_custom_gc(&mut self, env: sys::napi_env) {
     // The caller is on the owning JavaScript thread (root creation only ever happens
-    // there), so the thread-local handle is this env's own custom-GC tsfn.
+    // there), and `env` is the env the root was created in.
     if self.custom_gc.is_none() {
-      self.custom_gc = current_custom_gc_handle();
+      self.custom_gc = custom_gc_handle_for_env(env);
     }
   }
 
   #[cfg(not(all(feature = "napi4", not(feature = "noop"))))]
-  fn capture_custom_gc(&mut self) {}
+  fn capture_custom_gc(&mut self, _env: sys::napi_env) {}
 }
 
 /// Closes a scope and releases its storage if no lease still holds it. `settle_env` is
@@ -392,6 +370,49 @@ impl NativeBorrowScope {
       collecting: true,
       _not_send: std::marker::PhantomData,
     }
+  }
+
+  /// Roots `value` in this async scope, with no borrow guard.
+  ///
+  /// Generated `async fn` glue calls it once for each referenced argument (`&T`, `&mut T`,
+  /// typed slices, `This`, `Vec<&T>`), before `finish`. The root then has the scope's
+  /// lifetime: the settle deletes it on the JavaScript thread, and a settle callback dropped
+  /// unrun (an abandoned deferred, env teardown) hands it to the custom-GC handle. A `?` later
+  /// in the same frame deletes it at once.
+  ///
+  /// A class argument is rooted twice: once here and once by its borrow registration. Both
+  /// roots are freed the same way.
+  ///
+  /// # Safety
+  ///
+  /// Call it on the callback's JavaScript thread, inside the callback, with a live `value` of
+  /// `env`.
+  #[doc(hidden)]
+  pub unsafe fn root_value(&mut self, env: sys::napi_env, value: sys::napi_value) -> Result<()> {
+    if value.is_null() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "referenced ptr is null".to_owned(),
+      ));
+    }
+    let mut storage = lock_storage(&self.storage);
+    if !self.collecting || !storage.root_values {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "Only a collecting async native borrow scope can root a value".to_owned(),
+      ));
+    }
+    let mut reference = ptr::null_mut();
+    let status = unsafe { sys::napi_create_reference(env, value, 1, &mut reference) };
+    if status != sys::Status::napi_ok {
+      return Err(Error::new(
+        Status::from(status),
+        "failed to create napi ref".to_owned(),
+      ));
+    }
+    storage.capture_custom_gc(env);
+    storage.roots.push(NativeBorrowRoot { env, reference });
+    Ok(())
   }
 
   /// Stops argument conversion from adding guards while retaining all acquired borrows.
@@ -648,6 +669,13 @@ impl Drop for DeferredNativeBorrowScopeGuard {
 /// environment or from a foreign thread. It holds the `Send`-able finished form:
 /// `new` finishes the collecting scope eagerly on the owner thread so a drop on any
 /// thread can never touch the creator's TLS conversion stack.
+///
+/// The scope's roots are the only roots of an `async fn`'s referenced arguments, so this
+/// wrapper must not drop while the future still holds those references: the built-in tokio
+/// task drops its future before the deferred that owns the settle callback (`fut_then_settle`
+/// in `tokio_runtime.rs`). A task a custom `AsyncRuntime` backend cancels drops its boxed
+/// future before its cancellation callback rejects the promise, which is what runs this
+/// wrapper's `release` (`AsyncRuntimeTask` in `tokio_runtime.rs`).
 #[doc(hidden)]
 pub struct NativeBorrowScopeRelease {
   scope: Option<FinishedNativeBorrowScope>,
@@ -831,7 +859,7 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
         "Failed to root JavaScript value for a native borrow".to_owned(),
       ));
     }
-    storage.capture_custom_gc();
+    storage.capture_custom_gc(env);
     storage.roots.push(NativeBorrowRoot { env, reference });
   } else if !napi_val.is_null() {
     // Synchronous scopes only record the source value: the pair costs two stores and no

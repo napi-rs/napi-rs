@@ -27,6 +27,16 @@ static ALLOC: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
 #[cfg(not(target_family = "wasm"))]
 #[napi_derive::module_init]
 fn init() {
+  // `current_thread`: a shutdown on the JavaScript thread drops the tasks there, after their
+  // promises were handed to JavaScript (`__tests__/deferred-drop.spec.ts`).
+  if std::env::var("NAPI_EXAMPLE_TOKIO_CURRENT_THREAD").as_deref() == Ok("1") {
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .unwrap();
+    create_custom_tokio_runtime(rt);
+    return;
+  }
   let rt = tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .on_thread_start(|| {
@@ -80,19 +90,24 @@ pub fn exports(mut export: Object) -> Result<()> {
   Ok(())
 }
 
+mod abandoned_promise;
 mod array;
 mod r#async;
+mod async_arg_refs;
 mod async_generator_repro;
+mod async_task_settle;
 mod bigint;
 mod callback;
 mod class;
 mod class_factory;
 mod constructor;
 mod date;
+mod deferred_drop;
 mod define_class_closure;
 mod either;
 mod r#enum;
 mod env;
+mod env_teardown;
 mod error;
 mod external;
 #[cfg(not(target_family = "wasm"))]
