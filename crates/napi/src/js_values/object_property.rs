@@ -81,6 +81,7 @@ pub struct Property {
   value: sys::napi_value,
   data: *mut c_void,
   pub(crate) is_ctor: bool,
+  pub(crate) inherited_receiver: bool,
   #[cfg(feature = "napi5")]
   pub(crate) closures: PropertyClosures,
   #[cfg(feature = "napi5")]
@@ -102,6 +103,7 @@ impl Default for Property {
       value: ptr::null_mut(),
       data: ptr::null_mut(),
       is_ctor: Default::default(),
+      inherited_receiver: false,
       #[cfg(feature = "napi5")]
       closures: PropertyClosures::default(),
       #[cfg(feature = "napi5")]
@@ -136,6 +138,12 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl Property {
+  /// Marks a generated method whose callback validates a borrowed class receiver.
+  #[doc(hidden)]
+  pub fn with_inherited_receiver(mut self) -> Self {
+    self.inherited_receiver = true;
+    self
+  }
   pub fn new() -> Self {
     Default::default()
   }

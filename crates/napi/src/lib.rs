@@ -274,11 +274,18 @@ pub mod bindgen_prelude {
 pub mod __private {
   pub use crate::bindgen_runtime::{
     get_class_constructor, get_class_constructor_in_env, iterator::create_iterator, register_class,
-    ___CALL_FROM_FACTORY,
+    register_class_with_parent, ___CALL_FROM_FACTORY,
   };
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub use crate::bindgen_runtime::async_iterator::create_async_iterator;
+
+  /// Compile-time guard for `#[napi(extends = Parent)]`. A child class
+  /// implements this for every marker, and each `#[napi(constructor)]`
+  /// implements it for its own marker, so a child with a constructor fails
+  /// with a conflicting-implementation error that names this rule.
+  #[doc(hidden)]
+  pub trait ExtendsClassCannotDeclareAConstructor<Marker> {}
 
   use crate::sys;
 
