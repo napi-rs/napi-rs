@@ -266,7 +266,9 @@ test.skipIf(Boolean(process.env.WASI_TEST))(
 // Deferreds kept in a thread local of the main thread are dropped by its destructor when
 // `process.exit()` ends the process: on the JavaScript thread, with no napi callback running and
 // an env that can no longer run JavaScript. The cleanup must not crash the exit. Rust runs the
-// main thread's thread-local destructors there on Linux (glibc) and macOS.
+// main thread's thread-local destructors there on Linux with glibc and on macOS. With musl it
+// does not (no `__cxa_thread_atexit_impl`: the destructors are pthread keys, which `exit()`
+// does not run), so nothing is dropped and only the clean exit is checked.
 test.skipIf(Boolean(process.env.WASI_TEST))(
   'deferreds dropped by a thread-local destructor at process.exit() end the process cleanly',
   (t) => {
@@ -275,7 +277,14 @@ test.skipIf(Boolean(process.env.WASI_TEST))(
     t.is(result.signal, null, output)
     t.is(result.status, 0, output)
     t.deepEqual(report, expected('main', n, { pending: n }), output)
-    if (process.platform === 'linux' || process.platform === 'darwin') {
+    const glibc = Boolean(
+      // @ts-expect-error
+      process.report?.getReport()?.header?.glibcVersionRuntime,
+    )
+    if (
+      process.platform === 'darwin' ||
+      (process.platform === 'linux' && glibc)
+    ) {
       t.true(
         result.stderr.includes(
           `kept deferreds dropped by the thread-local destructor: ${n}, cleaned up at once: ${n}`,
