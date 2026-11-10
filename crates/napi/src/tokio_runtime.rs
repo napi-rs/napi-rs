@@ -1484,6 +1484,19 @@ pub fn start_async_runtime() {
 /// On wasm targets this is a no-op past the environment cleanup barrier, mirroring
 /// [`start_async_runtime`]: from the moment `napi_prepare_wasm_env_cleanup`(`_begin`) latches the
 /// disposal, the loader owns the teardown and its `…_finish` call is the one that joins.
+///
+/// # Warning
+///
+/// You do not need to call this: napi-rs shuts the runtime down when the last environment that
+/// loaded the addon is torn down. Do not call it while a `#[napi] async fn`, `Env::spawn_future`
+/// or `AsyncBlock` promise is still pending. The shutdown drops the tasks that did not complete,
+/// and on native targets each of their promises is rejected with
+/// `Error("task was cancelled before completion")` (`code` `GenericFailure`). JavaScript that
+/// awaits such a promise gets that error. A promise that nothing handles (a call whose result
+/// JavaScript ignored) becomes an unhandled rejection: Node ends the process with exit code 1 on
+/// the main thread, and a worker emits `'error'`. The shutdown at environment teardown delivers
+/// no rejection, because that environment can no longer run JavaScript. On wasm the promises of
+/// dropped tasks stay pending.
 pub fn shutdown_async_runtime() {
   // Past the wasm environment cleanup barrier the loader owns the teardown, so this must not
   // perform the join itself. The two-phase handshake yields real event-loop turns between

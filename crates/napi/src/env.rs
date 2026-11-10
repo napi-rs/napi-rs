@@ -1357,6 +1357,23 @@ impl Env {
 
   /// Creates a deferred promise, which can be resolved or rejected from a background thread.
   ///
+  /// # Warning
+  ///
+  /// This is a low-level API. Always settle the deferred: call [`JsDeferred::resolve`] or
+  /// [`JsDeferred::reject`] on every path, also on the error paths. Do not drop it without
+  /// settling it:
+  ///
+  /// * dropped on its own JavaScript thread, its promise stays pending for ever, so JavaScript
+  ///   that awaits it never continues;
+  /// * dropped on another thread, its promise is rejected. If nothing handles that rejection
+  ///   (for example the promise was never returned to JavaScript), it is an unhandled rejection:
+  ///   Node ends the process with exit code 1 on the main thread, and a worker emits `'error'`.
+  ///
+  /// The details are below. A `#[napi] async fn` or [`Env::spawn_future`] settles its promise
+  /// for you; prefer them when they fit.
+  ///
+  /// # Details
+  ///
   /// In a worker, an Electron renderer and the other envs that can be torn down before the
   /// process ends, the promise is made without a `napi_deferred`, so a promise that never
   /// settles before its env is torn down leaks nothing. See [`JsDeferred`] for what is
