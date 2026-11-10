@@ -412,6 +412,14 @@ unsafe impl Sync for DeferredHandle {}
 /// napi-rs holds the promise any more, so it and its awaiters can be collected. On wasm, dropping
 /// does nothing, as before.
 ///
+/// A deferred that is neither settled nor dropped (for example one passed to `mem::forget`) still
+/// holds its threadsafe function, so the event loop of its thread stays alive: the process or the
+/// worker does not exit on its own. Only an end of the env from outside releases it. In a worker
+/// (`worker.terminate()`, `process.exit()` in the worker, or the parent exiting) the env cleanup
+/// hook releases the threadsafe function, and only the memory the leaked value owns stays
+/// allocated. `process.exit()` on the main thread runs no env cleanup hooks: the process ends and
+/// the operating system takes the memory back.
+///
 /// The settle-time callback (see [`JsDeferred::set_finalize_callback`]) does not run then: it is
 /// dropped without running, as before, by the last holder of its slot (normally the thread that
 /// drops the last clone). Nothing user-owned travels to the JavaScript thread with the abandon,
