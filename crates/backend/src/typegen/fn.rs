@@ -111,6 +111,8 @@ impl ToTypeDef for NapiFn {
     };
 
     Some(TypeDef {
+      instance_parent: None,
+      exact_methods: Vec::new(),
       kind: "fn".to_owned(),
       name: self.js_name.clone(),
       original_name: None,

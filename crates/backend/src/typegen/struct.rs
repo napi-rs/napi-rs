@@ -70,6 +70,15 @@ impl ToTypeDef for NapiStruct {
     }
 
     Some(TypeDef {
+      instance_parent: match &self.kind {
+        NapiStructKind::Class(class) => class
+          .extends
+          .as_ref()
+          .and_then(|path| path.segments.last())
+          .map(|s| s.ident.to_string()),
+        _ => None,
+      },
+      exact_methods: Vec::new(),
       kind: String::from(match self.kind {
         NapiStructKind::Transparent(_) => "type",
         NapiStructKind::Class(_) => "struct",
@@ -121,6 +130,8 @@ impl ToTypeDef for NapiImpl {
         "void".to_owned()
       };
       Some(TypeDef {
+        instance_parent: None,
+        exact_methods: Vec::new(),
         kind: "extends".to_owned(),
         name: self.js_name.to_owned(),
         original_name: None,
@@ -156,6 +167,8 @@ impl ToTypeDef for NapiImpl {
       // Use "impl" kind to add the [Symbol.asyncIterator]() method to the class
       // instead of "extends AsyncGenerator" which is not valid TypeScript
       Some(TypeDef {
+        instance_parent: None,
+        exact_methods: Vec::new(),
         kind: "impl".to_owned(),
         name: self.js_name.to_owned(),
         original_name: None,
@@ -168,6 +181,13 @@ impl ToTypeDef for NapiImpl {
       })
     } else {
       Some(TypeDef {
+        instance_parent: None,
+        exact_methods: self
+          .items
+          .iter()
+          .filter(|f| f.fn_self.is_some() && !f.has_inherited_receiver())
+          .map(|f| f.js_name.clone())
+          .collect(),
         kind: "impl".to_owned(),
         name: self.js_name.to_owned(),
         original_name: None,
@@ -265,6 +285,7 @@ impl NapiStruct {
         let def = class
           .fields
           .iter()
+          .filter(|f| !class.is_parent_field(&f.name))
           .filter(|f| f.getter)
           .filter_map(|f| {
             self.gen_field(f).and_then(|(field, arg, required_arg)| {

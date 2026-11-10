@@ -18,6 +18,8 @@ const BUFFER_TYPE_IMPORT_MARKER_BASE: &str = "__NAPI_RS_TYPE_IMPORT_BUFFER__";
 
 #[derive(Default, Debug)]
 pub struct TypeDef {
+  pub instance_parent: Option<String>,
+  pub exact_methods: Vec<String>,
   pub kind: String,
   pub name: String,
   pub original_name: Option<String>,
@@ -276,7 +278,7 @@ impl Display for TypeDef {
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
@@ -284,6 +286,24 @@ impl Display for TypeDef {
       original_name,
       js_mod,
       imported_types,
+      self
+        .instance_parent
+        .as_ref()
+        .map(|p| format!(", \"instance_parent\": \"{}\"", escape_json(p)))
+        .unwrap_or_default(),
+      if self.exact_methods.is_empty() {
+        String::new()
+      } else {
+        format!(
+          ", \"exact_methods\": [{}]",
+          self
+            .exact_methods
+            .iter()
+            .map(|m| format!("\"{}\"", escape_json(m)))
+            .collect::<Vec<_>>()
+            .join(",")
+        )
+      },
     )
   }
 }
@@ -950,6 +970,7 @@ mod tests {
       def: "method(): \"value\"".to_owned(),
       js_mod: Some("namespace\\\"name".to_owned()),
       js_doc: JSDoc::new(["A \"quoted\" doc"]),
+      ..Default::default()
     };
 
     let parsed: serde_json::Value =

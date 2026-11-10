@@ -19,6 +19,8 @@ impl ToTypeDef for NapiConst {
     );
 
     Some(TypeDef {
+      instance_parent: None,
+      exact_methods: Vec::new(),
       kind: "const".to_owned(),
       name: self.js_name.to_owned(),
       original_name: Some(self.name.to_string()),
