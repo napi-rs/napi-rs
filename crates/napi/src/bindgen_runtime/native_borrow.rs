@@ -673,9 +673,9 @@ impl Drop for DeferredNativeBorrowScopeGuard {
 /// The scope's roots are the only roots of an `async fn`'s referenced arguments, so this
 /// wrapper must not drop while the future still holds those references: the built-in tokio
 /// task drops its future before the deferred that owns the settle callback (`fut_then_settle`
-/// in `tokio_runtime.rs`). A custom `AsyncRuntime` backend that cancels a task settles it from
-/// `AsyncRuntimeTask::drop`, before the boxed future drops; that order is older than this
-/// change.
+/// in `tokio_runtime.rs`). A task a custom `AsyncRuntime` backend cancels drops its boxed
+/// future before its cancellation callback rejects the promise, which is what runs this
+/// wrapper's `release` (`AsyncRuntimeTask` in `tokio_runtime.rs`).
 #[doc(hidden)]
 pub struct NativeBorrowScopeRelease {
   scope: Option<FinishedNativeBorrowScope>,

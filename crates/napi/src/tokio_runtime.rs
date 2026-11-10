@@ -358,12 +358,19 @@ fn park_cancel_for_js_thread(
 /// exactly as the built-in Tokio path does for `Err`-completing futures and for futures dropped
 /// at shutdown, so the hazard is not specific to custom backends.
 ///
+/// A cancelled task (dropped, declined, or panicked in `poll`) drops its future before the
+/// cancellation callback runs. The callback rejects the promise, and for a generated `async fn`
+/// the JavaScript thread then releases the `&self`/`&T` alias guards and deletes the roots of
+/// those arguments; the future holds those references, so it must be gone first. A panic from
+/// the future's `Drop` is contained and the callback still runs.
+///
 /// The first poll commits ownership and may run user code immediately. napi wraps every poll in
 /// `catch_unwind` on unwind-enabled builds, so a panicking future settles its promise as rejected
 /// instead of tearing down the backend's worker; do not add another panic-containment layer.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub struct AsyncRuntimeTask {
-  fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+  /// `None` only after a cancellation, which also took `on_cancel`.
+  fut: Option<Pin<Box<dyn Future<Output = ()> + Send + 'static>>>,
   on_cancel: Option<AsyncRuntimeTaskCancelCallback>,
 }
 
@@ -374,7 +381,7 @@ impl AsyncRuntimeTask {
     on_cancel: AsyncRuntimeTaskCancelCallback,
   ) -> Self {
     Self {
-      fut,
+      fut: Some(fut),
       on_cancel: Some(on_cancel),
     }
   }
@@ -384,8 +391,27 @@ impl AsyncRuntimeTask {
   /// callback is disarmed, so the subsequent drop is a no-op.
   fn reject_with(mut self, error: Error) {
     if let Some(on_cancel) = self.on_cancel.take() {
-      invoke_cancel_callback(on_cancel, error);
+      self.cancel_after_dropping_future(on_cancel, error);
     }
+  }
+
+  /// Drop the future, then invoke `on_cancel` (see the type docs for why in this order).
+  ///
+  /// The future's `Drop` is user code. A panic from it is caught and its payload disposed of
+  /// with [`drop_contained`], like a panic from the callback itself: an unwind here would skip
+  /// the callback and leave the promise pending, and this often runs inside `Drop`, where a
+  /// second unwind aborts.
+  fn cancel_after_dropping_future(
+    &mut self,
+    on_cancel: AsyncRuntimeTaskCancelCallback,
+    error: Error,
+  ) {
+    if let Some(fut) = self.fut.take() {
+      if let Err(payload) = catch_unwind(AssertUnwindSafe(move || drop(fut))) {
+        drop_contained(payload);
+      }
+    }
+    invoke_cancel_callback(on_cancel, error);
   }
 }
 
@@ -401,7 +427,10 @@ impl Future for AsyncRuntimeTask {
       // Already completed, panicked, or rejected — never touch the inner future again.
       return Poll::Ready(());
     }
-    match catch_unwind(AssertUnwindSafe(|| this.fut.as_mut().poll(cx))) {
+    let Some(fut) = this.fut.as_mut() else {
+      return Poll::Ready(());
+    };
+    match catch_unwind(AssertUnwindSafe(|| fut.as_mut().poll(cx))) {
       Ok(Poll::Pending) => Poll::Pending,
       Ok(Poll::Ready(())) => {
         // Completed: disarm the cancellation callback without invoking it.
@@ -412,7 +441,7 @@ impl Future for AsyncRuntimeTask {
         // A panicking future settles its promise as rejected rather than aborting the
         // backend's worker thread. Exactly-once is guaranteed by taking the callback.
         if let Some(on_cancel) = this.on_cancel.take() {
-          invoke_cancel_callback(on_cancel, async_task_panic_error(panic_payload));
+          this.cancel_after_dropping_future(on_cancel, async_task_panic_error(panic_payload));
         }
         Poll::Ready(())
       }
@@ -426,7 +455,7 @@ impl Drop for AsyncRuntimeTask {
     // Dropping an accepted task before completion (backend shutdown, queue teardown, …)
     // cancels it: the callback fires exactly once and rejects the associated promise.
     if let Some(on_cancel) = self.on_cancel.take() {
-      invoke_cancel_callback(
+      self.cancel_after_dropping_future(
         on_cancel,
         Error::new(crate::Status::GenericFailure, TASK_CANCELLED_ERROR),
       );
@@ -1826,10 +1855,13 @@ struct FutThenDeferred<F, D> {
 ///
 /// A task dropped before it finished (runtime shutdown, a backend dropping it) must drop `fut`
 /// before `deferred`. This wrapper gives that order to the built-in tokio path; a custom
-/// `AsyncRuntime` backend that cancels a task settles it from `AsyncRuntimeTask::drop` first. The last `JsDeferred` clone drops the settle-time callback unrun, and for a
-/// generated `async fn` that drops its `NativeBorrowScopeRelease`: the alias guards are released
-/// and the roots of the `&T` arguments go to the custom-GC handle, which deletes them on the
-/// JavaScript thread. Those roots are the only roots of the arguments, so this must not happen
+/// `AsyncRuntime` backend that cancels a task gets it from `AsyncRuntimeTask`, which drops this
+/// future before its cancellation callback rejects the promise through the last `JsDeferred`
+/// clone (the rejection runs the settle-time callback on the JavaScript thread, which releases
+/// the same guards and roots). The last `JsDeferred` clone drops the settle-time callback unrun,
+/// and for a generated `async fn` that drops its `NativeBorrowScopeRelease`: the alias guards are
+/// released and the roots of the `&T` arguments go to the custom-GC handle, which deletes them on
+/// the JavaScript thread. Those roots are the only roots of the arguments, so this must not happen
 /// while `fut` still holds the references (the value could be collected under it). Dropped before
 /// its first poll, the returned future drops `parts` (so `fut`, then `deferred`); dropped while
 /// suspended, it drops the awaited `fut` (a temporary of the last expression) before the local
@@ -2739,6 +2771,173 @@ mod spi_tests {
       message.lock().unwrap().as_deref(),
       Some("boom in async task")
     );
+  }
+
+  /// Pushes its label into the shared log when dropped.
+  struct OrderRecord(&'static str, Arc<Mutex<Vec<&'static str>>>);
+
+  impl Drop for OrderRecord {
+    fn drop(&mut self) {
+      self.1.lock().unwrap().push(self.0);
+    }
+  }
+
+  /// A cancellation callback that only pushes "callback fired" into the log.
+  fn ordering_cancel_callback(
+    log: &Arc<Mutex<Vec<&'static str>>>,
+  ) -> AsyncRuntimeTaskCancelCallback {
+    let log = log.clone();
+    Box::new(move |_error: Error| log.lock().unwrap().push("callback fired"))
+  }
+
+  /// The cancellation callback rejects the promise; for a generated `async fn` the JS thread then
+  /// runs the settle-time callback, which releases the `&self`/`&T` alias guards and deletes the
+  /// roots of those arguments. So the future (which still holds those references) must be gone
+  /// before the callback fires. Path: an accepted task, polled once (suspended), then dropped by
+  /// the backend.
+  #[test]
+  fn cancel_order_drop_of_suspended_task_drops_future_before_callback() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let record = OrderRecord("future dropped", log.clone());
+    let mut task = AsyncRuntimeTask::new(
+      Box::pin(async move {
+        let _local_guard = record;
+        std::future::pending::<()>().await;
+      }),
+      ordering_cancel_callback(&log),
+    );
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(Pin::new(&mut task).poll(&mut cx).is_pending());
+    assert!(log.lock().unwrap().is_empty());
+    drop(task);
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+  }
+
+  /// Same question for `reject_with` (the backend declined the task and handed it back unpolled).
+  #[test]
+  fn cancel_order_reject_with_drops_future_before_callback() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let record = OrderRecord("future dropped", log.clone());
+    let task = AsyncRuntimeTask::new(
+      Box::pin(async move {
+        let _local_guard = record;
+        std::future::pending::<()>().await;
+      }),
+      ordering_cancel_callback(&log),
+    );
+    task.reject_with(Error::new(crate::Status::GenericFailure, "declined"));
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+  }
+
+  /// Same question for a future that panics inside `poll` while it holds a local guard.
+  #[test]
+  fn cancel_order_panic_in_poll_drops_future_before_callback() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let record = OrderRecord("future dropped", log.clone());
+    let mut task = AsyncRuntimeTask::new(
+      Box::pin(async move {
+        let _local_guard = record;
+        panic!("boom while holding a guard");
+      }),
+      ordering_cancel_callback(&log),
+    );
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(Pin::new(&mut task).poll(&mut cx).is_ready());
+    let after_poll = log.lock().unwrap().clone();
+    drop(task);
+    assert_eq!(after_poll, ["future dropped", "callback fired"]);
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+  }
+
+  /// Panics in `poll` and keeps its fields: the unwind of a hand-written future does not drop
+  /// them, unlike the locals of an async block.
+  struct PanickingPoll {
+    _record: OrderRecord,
+  }
+
+  impl Future for PanickingPoll {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+      panic!("boom in a hand-written poll");
+    }
+  }
+
+  /// The panic branch drops the future itself before it fires the callback, whatever future
+  /// was boxed.
+  #[test]
+  fn cancel_order_panic_in_hand_written_poll_drops_future_before_callback() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut task = AsyncRuntimeTask::new(
+      Box::pin(PanickingPoll {
+        _record: OrderRecord("future dropped", log.clone()),
+      }),
+      ordering_cancel_callback(&log),
+    );
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(Pin::new(&mut task).poll(&mut cx).is_ready());
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+    drop(task);
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+  }
+
+  /// Pending for ever; its `Drop` logs and then panics.
+  struct PanickingDrop(Arc<Mutex<Vec<&'static str>>>);
+
+  impl Future for PanickingDrop {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+      Poll::Pending
+    }
+  }
+
+  impl Drop for PanickingDrop {
+    fn drop(&mut self) {
+      self.0.lock().unwrap().push("future dropped");
+      panic!("boom in the future's Drop");
+    }
+  }
+
+  /// A panic from the future's `Drop` neither escapes the cancellation nor skips the callback,
+  /// on every cancel path, and also when the task drops during an unrelated unwind (where an
+  /// escaping second panic would abort the test binary).
+  #[test]
+  fn cancel_contains_a_panicking_future_drop_and_still_fires_callback() {
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+
+    // Drop of a suspended task.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut task = AsyncRuntimeTask::new(
+      Box::pin(PanickingDrop(log.clone())),
+      ordering_cancel_callback(&log),
+    );
+    assert!(Pin::new(&mut task).poll(&mut cx).is_pending());
+    assert!(catch_unwind(AssertUnwindSafe(move || drop(task))).is_ok());
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+
+    // reject_with.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let task = AsyncRuntimeTask::new(
+      Box::pin(PanickingDrop(log.clone())),
+      ordering_cancel_callback(&log),
+    );
+    let declined = Error::new(crate::Status::GenericFailure, "declined");
+    assert!(catch_unwind(AssertUnwindSafe(move || task.reject_with(declined))).is_ok());
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
+
+    // Dropped while the thread is already unwinding.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut task = AsyncRuntimeTask::new(
+      Box::pin(PanickingDrop(log.clone())),
+      ordering_cancel_callback(&log),
+    );
+    assert!(Pin::new(&mut task).poll(&mut cx).is_pending());
+    let outer = catch_unwind(AssertUnwindSafe(move || {
+      let _task = task;
+      panic!("outer unwind");
+    }))
+    .unwrap_err();
+    assert_eq!(outer.downcast_ref::<&str>(), Some(&"outer unwind"));
+    assert_eq!(*log.lock().unwrap(), ["future dropped", "callback fired"]);
   }
 
   #[test]
