@@ -1106,11 +1106,21 @@ impl NapiStruct {
           let _ = check::<#ty>;
           fn parent_is_class<T: napi::bindgen_prelude::TypeTag>() {}
           let _ = parent_is_class::<#parent>;
+          fn parent_is_extendable<T: napi::__private::ExtendableClass>() {}
+          let _ = parent_is_extendable::<#parent>;
+          fn inheritance_supported<T: napi::__private::InheritanceSupported>() {}
+          let _ = inheritance_supported::<()>;
           assert!(std::mem::offset_of!(#name, #member) == 0);
           impl<M> napi::__private::ExtendsClassCannotDeclareAConstructor<M> for #name {}
         };
       },
       _ => quote! {},
+    };
+    // Classes with a lifetime cannot be embedded by a (lifetime-free) child.
+    let extendable_marker = if class.use_custom_finalize || self.has_lifetime {
+      quote! {}
+    } else {
+      quote! { impl napi::__private::ExtendableClass for #name {} }
     };
     let mut props = vec![];
 
@@ -1184,6 +1194,7 @@ impl NapiStruct {
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     quote! {
       #layout_assertion
+      #extendable_marker
       #[cfg(all(not(test), not(target_family = "wasm")))]
       napi::ctor::declarative::ctor! {
         #[allow(non_snake_case)]

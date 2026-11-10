@@ -287,6 +287,30 @@ pub mod __private {
   #[doc(hidden)]
   pub trait ExtendsClassCannotDeclareAConstructor<Marker> {}
 
+  /// Implemented by every `#[napi]` class without `custom_finalize`. A child
+  /// is finalized as itself, so a parent's `ObjectFinalize::finalize` would
+  /// never run for it; such parents cannot be extended.
+  #[doc(hidden)]
+  #[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be a #[napi(extends)] parent",
+    label = "this class uses #[napi(custom_finalize)] or is not a #[napi] class",
+    note = "a child is finalized as the child, so the parent's `ObjectFinalize::finalize` would never run"
+  )]
+  pub trait ExtendableClass {}
+
+  /// `#[napi(extends)]` relies on a receiver check that only native `napi8`
+  /// (type tags) or wasm (class identity, no V8 method signatures) provide.
+  #[doc(hidden)]
+  #[diagnostic::on_unimplemented(
+    message = "#[napi(extends = ...)] requires the `napi8` feature of `napi` on native targets",
+    label = "inheritance is used here",
+    note = "enable `napi8` (or later) on the `napi` dependency"
+  )]
+  pub trait InheritanceSupported {}
+
+  #[cfg(any(feature = "napi8", target_family = "wasm"))]
+  impl InheritanceSupported for () {}
+
   use crate::sys;
 
   pub unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(

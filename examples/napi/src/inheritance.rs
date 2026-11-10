@@ -4,9 +4,8 @@ use napi::bindgen_prelude::*;
 
 static BASE_DROPS: AtomicU32 = AtomicU32::new(0);
 static CHILD_DROPS: AtomicU32 = AtomicU32::new(0);
-static BASE_FINALIZES: AtomicU32 = AtomicU32::new(0);
 
-#[napi(custom_finalize, js_name = "InheritanceBase")]
+#[napi(js_name = "InheritanceBase")]
 pub struct InheritanceRoot {
   pub value: i32,
 }
@@ -48,6 +47,18 @@ impl InheritanceRoot {
     self.value
   }
 
+  /// A typed `This` converts with the exact-class check, so this stays exact.
+  #[napi]
+  pub fn this_value(&self, this: This<&InheritanceRoot>) -> i32 {
+    self.value + this.value
+  }
+
+  /// An untyped `This` is the receiver object itself, which is fine to inherit.
+  #[napi]
+  pub fn same_object<'scope>(&'scope self, this: This<'scope>) -> This<'scope> {
+    this
+  }
+
   #[napi(well_known_symbol = "toPrimitive")]
   pub fn primitive(&self, _hint: String) -> i32 {
     self.value
@@ -56,13 +67,6 @@ impl InheritanceRoot {
   #[napi]
   pub fn reenter(&mut self, callback: Function<(), ()>) -> Result<()> {
     callback.call(())?;
-    Ok(())
-  }
-}
-
-impl ObjectFinalize for InheritanceRoot {
-  fn finalize(self, _env: Env) -> Result<()> {
-    BASE_FINALIZES.fetch_add(1, Ordering::SeqCst);
     Ok(())
   }
 }
@@ -142,7 +146,6 @@ pub fn inheritance_drop_counts() -> Vec<u32> {
   vec![
     BASE_DROPS.load(Ordering::SeqCst),
     CHILD_DROPS.load(Ordering::SeqCst),
-    BASE_FINALIZES.load(Ordering::SeqCst),
   ]
 }
 

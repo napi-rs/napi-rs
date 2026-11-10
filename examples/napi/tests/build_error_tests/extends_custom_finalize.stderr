@@ -1,0 +1,23 @@
+error[E0277]: `Parent` cannot be a #[napi(extends)] parent
+  --> tests/build_error_tests/extends_custom_finalize.rs:15:18
+   |
+15 | #[napi(extends = Parent)]
+   |                  ^^^^^^ this class uses #[napi(custom_finalize)] or is not a #[napi] class
+   |
+help: the trait `napi::__private::ExtendableClass` is not implemented for `Parent`
+  --> tests/build_error_tests/extends_custom_finalize.rs:5:1
+   |
+ 5 | pub struct Parent {
+   | ^^^^^^^^^^^^^^^^^
+   = note: a child is finalized as the child, so the parent's `ObjectFinalize::finalize` would never run
+help: the trait `napi::__private::ExtendableClass` is implemented for `Child`
+  --> tests/build_error_tests/extends_custom_finalize.rs:15:1
+   |
+15 | #[napi(extends = Parent)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `parent_is_extendable`
+  --> tests/build_error_tests/extends_custom_finalize.rs:15:1
+   |
+15 | #[napi(extends = Parent)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `parent_is_extendable`
+   = note: this error originates in the attribute macro `napi` (in Nightly builds, run with -Z macro-backtrace for more info)
