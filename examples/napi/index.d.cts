@@ -424,6 +424,10 @@ export declare class InheritanceBase {
   get amount(): number
   set amount(value: number)
   exactValue(): number
+  /** A typed `This` converts with the exact-class check, so this stays exact. */
+  thisValue(this: InheritanceBase): number
+  /** An untyped `This` is the receiver object itself, which is fine to inherit. */
+  sameObject(): this
   [globalThis.Symbol.toPrimitive](hint: string): number
   reenter(callback: () => void): void
 }
@@ -435,7 +439,7 @@ export declare class InheritanceChild {
   ownValue(): number
 }
 
-export interface InheritanceChild extends Omit<InheritanceBase, "exactValue"> {}
+export interface InheritanceChild extends Omit<InheritanceBase, "exactValue" | "thisValue"> {}
 
 export declare class InheritanceGrandchild {
   leaf: number
@@ -448,7 +452,7 @@ export declare class InheritanceSibling {
   static create(value: number): InheritanceSibling
 }
 
-export interface InheritanceSibling extends Omit<InheritanceBase, "exactValue"> {}
+export interface InheritanceSibling extends Omit<InheritanceBase, "exactValue" | "thisValue"> {}
 
 export declare class Issue3600Empty {}
 
@@ -1563,6 +1567,8 @@ export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
+export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
+
 export declare function fibonacci(n: number): number
 
 export declare function float64ArraySliceCopyFrom(data: Array<number>): Float64Array
@@ -2135,6 +2141,11 @@ export declare function referenceWithTupleArg(callback: (arg: [number, number]) 
 export declare function reflectRefsDeletedAtTeardown(): number
 
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
+
+export interface RequestInit {
+  method?: string
+  headers?: Record<string, string>
+}
 
 export declare function returnCString(): string
 

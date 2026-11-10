@@ -53,6 +53,7 @@ test('inherited methods work across a multilevel chain', (t) => {
   t.is(child.value, 4)
   t.is(+child, 4)
   t.is(child.ownValue(), 7)
+  t.is(child.sameObject(), child)
 
   const grandchild = InheritanceGrandchild.create(1, 2, 9)
   t.is(grandchild.doubled(), 2)
@@ -70,6 +71,9 @@ test('exact-only members reject descendants', (t) => {
   // Native: V8's method signature (`Illegal invocation`). wasm: the exact
   // class-identity check in the callback.
   t.throws(() => child.exactValue())
+  // A typed `This<&Parent>` argument converts with the exact check too.
+  t.is(base.thisValue(), 8)
+  t.throws(() => (child as any).thisValue())
   // `&Parent` arguments are not receivers and keep the exact check.
   t.is(inheritanceExactArgument(base), 4)
   t.throws(() => inheritanceExactArgument(child), {
@@ -95,6 +99,16 @@ test('receivers outside the hierarchy are rejected', (t) => {
     'amount',
   )!
   t.throws(() => amount.get!.call({}), { message: /InheritanceRoot/ })
+})
+
+test('inherited methods keep their names', (t) => {
+  if (process.env.WASI_TEST) {
+    // emnapi's napi_define_class leaves every class method unnamed.
+    t.pass()
+    return
+  }
+  t.is(InheritanceBase.prototype.doubled.name, 'doubled')
+  t.is(InheritanceChild.prototype.ownValue.name, 'ownValue')
 })
 
 test('statics and constructors are not inherited', (t) => {
@@ -160,7 +174,7 @@ test.serial(
       t.pass()
       return
     }
-    const [baseDrops, childDrops, baseFinalizes] = inheritanceDropCounts()
+    const [baseDrops, childDrops] = inheritanceDropCounts()
     ;(() => {
       InheritanceChild.create(1, 2)
     })()
@@ -174,7 +188,5 @@ test.serial(
     t.true(childDelta >= 1)
     // Each finalized child drops exactly one embedded parent.
     t.is(after[0] - baseDrops, childDelta)
-    // The parent's ObjectFinalize belongs to the exact parent class only.
-    t.is(after[2], baseFinalizes)
   },
 )

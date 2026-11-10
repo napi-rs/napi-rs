@@ -20,10 +20,12 @@ export const own: number =
 
 // A child is assignable to its parent's instance type, minus exact-only members.
 export const asChild: InheritanceChild = grandchild
-export const asBase: Omit<InheritanceBase, 'exactValue'> = child
+export const asBase: Omit<InheritanceBase, 'exactValue' | 'thisValue'> = child
 
 // @ts-expect-error `Reference<Self>` methods are exact-only.
 child.exactValue()
+// @ts-expect-error typed `This<&Parent>` methods are exact-only.
+child.thisValue()
 // @ts-expect-error a child is not a full `InheritanceBase` (exactValue is missing).
 export const notBase: InheritanceBase = child
 // @ts-expect-error `&Parent` arguments keep exact-class checks.

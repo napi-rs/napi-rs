@@ -419,6 +419,10 @@ export declare class InheritanceBase {
   get amount(): number
   set amount(value: number)
   exactValue(): number
+  /** A typed `This` converts with the exact-class check, so this stays exact. */
+  thisValue(this: InheritanceBase): number
+  /** An untyped `This` is the receiver object itself, which is fine to inherit. */
+  sameObject(): this
   [globalThis.Symbol.toPrimitive](hint: string): number
   reenter(callback: () => void): void
 }
@@ -430,7 +434,7 @@ export declare class InheritanceChild {
   ownValue(): number
 }
 
-export interface InheritanceChild extends Omit<InheritanceBase, "exactValue"> {}
+export interface InheritanceChild extends Omit<InheritanceBase, "exactValue" | "thisValue"> {}
 
 export declare class InheritanceGrandchild {
   leaf: number
@@ -443,7 +447,7 @@ export declare class InheritanceSibling {
   static create(value: number): InheritanceSibling
 }
 
-export interface InheritanceSibling extends Omit<InheritanceBase, "exactValue"> {}
+export interface InheritanceSibling extends Omit<InheritanceBase, "exactValue" | "thisValue"> {}
 
 export declare class Issue3600Empty {}
 

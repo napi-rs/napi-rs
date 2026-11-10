@@ -1190,6 +1190,7 @@ module.exports.esmResolve = nativeBinding.esmResolve
 module.exports.extendsJavascriptError = nativeBinding.extendsJavascriptError
 module.exports.f32ArrayToArray = nativeBinding.f32ArrayToArray
 module.exports.f64ArrayToArray = nativeBinding.f64ArrayToArray
+module.exports.fetch = nativeBinding.fetch
 module.exports.fibonacci = nativeBinding.fibonacci
 module.exports.float64ArraySliceCopyFrom = nativeBinding.float64ArraySliceCopyFrom
 module.exports.float64ArraySync = nativeBinding.float64ArraySync
