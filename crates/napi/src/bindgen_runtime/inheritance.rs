@@ -29,8 +29,12 @@
 #![cfg_attr(feature = "noop", allow(dead_code))]
 use std::{any::TypeId, collections::HashMap, sync::OnceLock};
 
+use rustc_hash::FxBuildHasher;
+
 use crate::{sys, Result};
 
+/// Layout metadata a class struct registers: its identity, type tag, and
+/// optional `#[napi(extends)]` parent.
 #[derive(Clone, Copy)]
 pub(crate) struct ClassLayout {
   pub id: TypeId,
@@ -43,17 +47,21 @@ pub(crate) struct ClassLayout {
   pub iterator: bool,
 }
 
+/// The validated class hierarchy: for each base class, its descendants.
 #[derive(Default)]
 pub(crate) struct Hierarchy {
   // Includes every transitive descendant, but not the class itself.
-  descendants: HashMap<TypeId, Vec<ClassLayout>>,
+  descendants: HashMap<TypeId, Vec<ClassLayout>, FxBuildHasher>,
 }
 
+/// Built once, on the first module load, from every registered class.
 pub(crate) static HIERARCHY: OnceLock<std::result::Result<Hierarchy, String>> = OnceLock::new();
 
 impl Hierarchy {
+  /// Builds the hierarchy, rejecting missing parents, cycles, and iterator
+  /// classes on either side of an edge.
   pub fn build(classes: &[ClassLayout]) -> std::result::Result<Self, String> {
-    let classes: HashMap<_, _> = classes.iter().map(|c| (c.id, *c)).collect();
+    let classes: HashMap<_, _, FxBuildHasher> = classes.iter().map(|c| (c.id, *c)).collect();
     let mut result = Self::default();
     for child in classes.values() {
       let mut visited = vec![child.id];
@@ -80,11 +88,13 @@ impl Hierarchy {
     not(all(feature = "napi8", not(target_family = "wasm"))),
     allow(dead_code)
   )]
+  /// Whether `id` has at least one descendant.
   pub fn is_base(&self, id: TypeId) -> bool {
     self.descendants.contains_key(&id)
   }
 
   #[cfg(any(test, not(all(feature = "napi8", not(target_family = "wasm")))))]
+  /// Whether `child` is a (transitive) descendant of `base`.
   pub fn accepts(&self, base: TypeId, child: TypeId) -> bool {
     self
       .descendants

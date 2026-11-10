@@ -1668,8 +1668,11 @@ unsafe fn register_classes(
   ctor_refs: &mut Vec<(&'static str, sys::napi_ref)>,
 ) -> Result<()> {
   MODULE_CLASS_PROPERTIES.borrow(|inner| {
-    let mut prototypes: HashMap<TypeId, Vec<(Option<&'static str>, sys::napi_value)>> =
-      HashMap::new();
+    let mut prototypes: HashMap<
+      TypeId,
+      Vec<(Option<&'static str>, sys::napi_value)>,
+      FxBuildHasher,
+    > = HashMap::default();
     let mut edges = Vec::new();
     #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
     let hierarchy = super::inheritance::HIERARCHY
@@ -1831,10 +1834,13 @@ unsafe fn register_classes(
   })
 }
 
+/// Links each child prototype to its parent's with `Object.setPrototypeOf`,
+/// once every class of this env is defined. A parent is looked up in the
+/// child's namespace first, then as the only candidate; anything else fails.
 #[cfg(not(feature = "noop"))]
 unsafe fn wire_class_parents(
   env: sys::napi_env,
-  prototypes: &HashMap<TypeId, Vec<(Option<&'static str>, sys::napi_value)>>,
+  prototypes: &HashMap<TypeId, Vec<(Option<&'static str>, sys::napi_value)>, FxBuildHasher>,
   edges: &[(Option<&'static str>, TypeId, sys::napi_value)],
 ) -> Result<()> {
   if edges.is_empty() {
