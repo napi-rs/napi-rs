@@ -55,8 +55,9 @@ use syn::{parse_macro_input, ItemFn};
 ///   `Animal` as a class. TypeScript declarations emit
 ///   `interface Dog extends Animal {}`, not `class Dog extends Animal`.
 /// - Methods taking `Reference<Self>` or a typed `This<T>`, and functions
-///   taking `&Animal`, still require an exact `Animal`; they are left out of
-///   `Dog`'s declared type. Note that `x instanceof Animal` narrows a `Dog` to
+///   taking `&Animal`, still require an exact `Animal`. When `Animal` has such
+///   methods, the declaration is `interface Dog extends Omit<Animal, ...> {}`
+///   so they are left out of `Dog`'s type. Note that `x instanceof Animal` narrows a `Dog` to
 ///   `Animal` in TypeScript, including those exact-only members.
 /// - The parent cannot use `custom_finalize`, and the child cannot be generic,
 ///   packed, an iterator, or an `object`.

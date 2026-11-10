@@ -55,6 +55,10 @@ impl NapiFn {
   /// be reconstructed for an embedded parent, and a typed `This<T>` converts
   /// `this` with the exact-class `FromNapiValue`/`FromNapiRef` check. Methods
   /// taking either remain exact-only. An untyped `This` is a plain object.
+  ///
+  /// The macro cannot tell whether `T` is a class, so this is conservative:
+  /// `This<Object>` or `This<JsObject>` would accept a descendant but are
+  /// also kept exact-only. Narrowing it is a possible later refinement.
   pub fn has_inherited_receiver(&self) -> bool {
     matches!(self.fn_self, Some(FnSelf::Ref | FnSelf::MutRef))
       && !self.args.iter().any(|arg| match &arg.kind {
