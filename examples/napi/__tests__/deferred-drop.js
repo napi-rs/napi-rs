@@ -258,18 +258,29 @@ async function start(native) {
         })
     // falls through
     case 'trace': {
+      // Normal rejections: `async fn`s that return an error.
+      const failing = []
       function callerMarker() {
         const tasks = []
         for (let i = 0; i < n; i++) tasks.push(native.asyncFnPendingForever())
-        // A normal rejection: the `async fn` returns an error.
         if (kase === 'throwing-setter')
-          for (let i = 0; i < n; i++) tasks.push(native.throwAsyncError())
-        return [...tasks, ...native.dropDeferredOffThread(n, 0)]
+          for (let i = 0; i < n; i++) failing.push(native.throwAsyncError())
+        return [...tasks, ...failing, ...native.dropDeferredOffThread(n, 0)]
       }
       const before = native.deferredDropCounters().pendingFuturesStarted
       promises = callerMarker().map(handle)
+      // The failing tasks must end by themselves: one still queued at the shutdown below is
+      // dropped by it, and rejected as a cancelled task.
+      let failed = 0
+      for (const promise of failing)
+        promise.then(
+          () => failed++,
+          () => failed++,
+        )
       await until(
-        () => native.deferredDropCounters().pendingFuturesStarted - before >= n,
+        () =>
+          failed >= failing.length &&
+          native.deferredDropCounters().pendingFuturesStarted - before >= n,
       )
       run(() => native.shutdownAsyncRuntimeNow())
       break
