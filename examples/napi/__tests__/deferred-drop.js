@@ -13,8 +13,9 @@
 //   - unhandled-async-shutdown: `async fn` promises with no handler, then a runtime shutdown. No
 //     'unhandledRejection' listener: the host's own handling must show.
 //   - trace: rejections made through a JavaScript function named `callerMarker`.
-//   - throwing-setter: as `trace`, with a setter on `Error.prototype.code` that throws while the
-//     rejection is built (the addon is built with `deferred_trace`).
+//   - throwing-setter: as `trace`, plus `async fn`s that return an error, with setters on
+//     `Error.prototype` that throw. Building a rejection must not run them (the addon is built
+//     with `deferred_trace`, which puts the message and the code on the trace error).
 //   - tls-exit (main): the addon keeps deferreds in a thread local, then process.exit(0).
 //   - current-thread-shutdown (main, NAPI_EXAMPLE_TOKIO_CURRENT_THREAD=1): `async fn` tasks never
 //     polled, dropped on the JavaScript thread by the shutdown of a `current_thread` runtime.
@@ -245,20 +246,24 @@ async function start(native) {
       break
     }
     case 'throwing-setter':
-      Object.defineProperty(Error.prototype, 'code', {
-        configurable: true,
-        get() {
-          return undefined
-        },
-        set() {
-          throw new Error('thrown by the code setter')
-        },
-      })
+      for (const key of ['code', 'message'])
+        Object.defineProperty(Error.prototype, key, {
+          configurable: true,
+          get() {
+            return undefined
+          },
+          set() {
+            throw new Error(`thrown by the ${key} setter`)
+          },
+        })
     // falls through
     case 'trace': {
       function callerMarker() {
         const tasks = []
         for (let i = 0; i < n; i++) tasks.push(native.asyncFnPendingForever())
+        // A normal rejection: the `async fn` returns an error.
+        if (kase === 'throwing-setter')
+          for (let i = 0; i < n; i++) tasks.push(native.throwAsyncError())
         return [...tasks, ...native.dropDeferredOffThread(n, 0)]
       }
       const before = native.deferredDropCounters().pendingFuturesStarted
@@ -322,7 +327,8 @@ if (!isMainThread) {
     while (Date.now() - t0 < 60_000) {}
   } else {
     // Each abandoned deferred frees its promise's slot on this thread, while the env is alive.
-    const slots = kase === 'trace' || kase === 'throwing-setter' ? 2 * n : n
+    const slots =
+      kase === 'trace' ? 2 * n : kase === 'throwing-setter' ? 3 * n : n
     await until(() => freed() - before.freed >= slots)
     // A few more turns, so a handler or a rejection that wrongly comes is seen.
     await sleep(20)

@@ -242,7 +242,7 @@ pub(crate) fn reset_wasm_env_cleanup_barrier() {
 }
 
 #[cfg(feature = "deferred_trace")]
-use crate::{bindgen_runtime::JsObjectValue, JsValue};
+use crate::JsValue;
 use crate::{
   bindgen_runtime::{Object, ToNapiValue},
   check_status, sys, Env, Error, Result,
@@ -302,11 +302,43 @@ impl DeferredTrace {
       if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
         return Ok(err_raw_value);
       }
-      let mut obj = Object::from_raw(raw_env, raw);
-      obj.set_named_property("message", &err.reason)?;
-      obj.set_named_property(
-        "code",
-        env.create_string_from_std(format!("{}", err.status))?,
+      // Own data properties, never an assignment. An assignment of `code` runs a setter that
+      // JavaScript put on `Error.prototype` or `Object.prototype`, and one that throws left the
+      // rejection unbuilt: the promise stayed pending for ever, and the exception was reported
+      // as uncaught. `message` keeps the attributes `napi_create_error` gave it (not
+      // enumerable); `code` gets the attributes an assignment gave it.
+      let message = env.create_string(&err.reason)?;
+      let code = env.create_string_from_std(format!("{}", err.status))?;
+      let own_data_property =
+        |name: &'static std::ffi::CStr, value: sys::napi_value, attributes| {
+          sys::napi_property_descriptor {
+            utf8name: name.as_ptr(),
+            name: ptr::null_mut(),
+            method: None,
+            getter: None,
+            setter: None,
+            value,
+            attributes,
+            data: ptr::null_mut(),
+          }
+        };
+      let properties = [
+        own_data_property(
+          c"message",
+          message.raw(),
+          sys::PropertyAttributes::writable | sys::PropertyAttributes::configurable,
+        ),
+        own_data_property(
+          c"code",
+          code.raw(),
+          sys::PropertyAttributes::writable
+            | sys::PropertyAttributes::enumerable
+            | sys::PropertyAttributes::configurable,
+        ),
+      ];
+      check_status!(
+        unsafe { sys::napi_define_properties(raw_env, raw, properties.len(), properties.as_ptr()) },
+        "Failed to define the message and the code in DeferredTrace"
       )?;
       Ok(raw)
     })();
@@ -1472,11 +1504,12 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     // JavaScript actually rejected with.
     #[cfg(not(feature = "deferred_trace"))]
     let error = unsafe { ToNapiValue::to_napi_value(env, e) };
-    // An abandon that rejects must not leave its promise pending because building the rejection
-    // threw (with `deferred_trace`, a throwing setter on `Error.prototype`): reject with what
-    // was thrown. Nothing settled the promise yet, so this is still its one settling call. This
-    // runs in the threadsafe-function dispatch, entered with no exception pending, so the one
-    // taken here came from the calls above.
+    // An abandon that rejects clears the exceptions of its own calls below, so it must not leave
+    // its promise pending, with nothing reported, because building the rejection threw: reject
+    // with what was thrown. Nothing settled the promise yet, so this is still its one settling
+    // call. This runs in the threadsafe-function dispatch, entered with no exception pending, so
+    // the one taken here came from the calls above. (No path is known to throw there: the trace
+    // error gets own data properties, so no JavaScript setter runs.)
     #[cfg(not(target_family = "wasm"))]
     let error = match error {
       Err(err) if abandon_rejects => crate::async_work::take_pending_exception(env).ok_or(err),

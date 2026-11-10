@@ -192,12 +192,14 @@ for (const where of ['main', 'worker'] as const) {
   )
 }
 
-// Building the rejection can throw: with `deferred_trace` the message and the code are set on
-// the trace error, and a setter on `Error.prototype` runs. The promise must still be rejected,
-// with what was thrown, and nothing may reach the host as an uncaught exception (status 0).
+// With `deferred_trace` the message and the code of a rejection are put on the trace error. They
+// must be own data properties: an assignment ran a setter on `Error.prototype`, and one that
+// throws left the promise pending for ever (a normal rejection also reported the exception as
+// uncaught). Normal rejections (an `async fn` that returns an error) and both abandon rejections
+// keep their message, code and stack, and nothing reaches the host as uncaught (status 0).
 for (const where of ['main', 'worker'] as const) {
   test.skipIf(Boolean(process.env.WASI_TEST))(
-    `a dropped deferred is rejected when building its rejection throws (${where})`,
+    `a throwing setter on Error.prototype does not stop a rejection (${where})`,
     (t) => {
       const n = 12
       const { result, output, report } = run('throwing-setter', where, n)
@@ -206,9 +208,15 @@ for (const where of ['main', 'worker'] as const) {
       t.deepEqual(
         report,
         {
-          ...expected(where, 2 * n, {
-            ...rejectedLater(2 * n),
-            reasons: [{ message: 'thrown by the code setter' }],
+          ...expected(where, 3 * n, {
+            rejected: 3 * n,
+            reasons: [
+              { message: 'Async Error', code: 'InvalidArg' },
+              DROPPED,
+              TASK,
+            ],
+            traced: 3 * n,
+            total: { sync: 0, queued: 0, rejected: 2 * n },
           }),
         },
         output,
