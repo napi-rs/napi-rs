@@ -129,6 +129,9 @@ pub struct NapiClass {
   pub implement_async_iterator: bool,
   pub is_tuple: bool,
   pub use_custom_finalize: bool,
+  /// Rust identifier of the single embedded parent class, when this class
+  /// participates in `#[napi(extends = Parent)]` inheritance.
+  pub extends: Option<String>,
 }
 
 #[derive(Debug, Clone)]

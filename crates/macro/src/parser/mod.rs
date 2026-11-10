@@ -1533,6 +1533,7 @@ impl ConvertToAST for syn::ItemStruct {
         implement_async_iterator,
         is_tuple,
         use_custom_finalize: opts.custom_finalize().is_some(),
+        extends: opts.extends().map(|(parent, _)| parent.to_owned()),
       })
     };
 
