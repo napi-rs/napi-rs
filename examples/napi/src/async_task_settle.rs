@@ -52,6 +52,13 @@ pub struct AsyncTaskSettleCounters {
   /// `asyncFnSleep` calls whose future started, and whose future finished.
   pub async_fn_sleeps_started: u32,
   pub async_fn_sleeps_finished: u32,
+  /// `JsDeferred`s dropped unsettled and cleaned up at once, inside the drop, on their
+  /// JavaScript thread.
+  pub js_deferred_abandoned_sync: u32,
+  /// `JsDeferred`s dropped unsettled whose cleanup (no rejection) was queued, once it ran.
+  pub js_deferred_abandoned_queued: u32,
+  /// `JsDeferred`s dropped unsettled whose promise was rejected, once the rejection ran.
+  pub js_deferred_abandon_rejected: u32,
 }
 
 #[napi]
@@ -71,6 +78,9 @@ pub fn async_task_settle_counters() -> AsyncTaskSettleCounters {
     js_deferred_fallbacks: napi::bindgen_prelude::js_deferred_promise_fallbacks() as u32,
     async_fn_sleeps_started: ASYNC_FN_SLEEPS_STARTED.load(Ordering::SeqCst),
     async_fn_sleeps_finished: ASYNC_FN_SLEEPS_FINISHED.load(Ordering::SeqCst),
+    js_deferred_abandoned_sync: napi::js_deferred_abandoned_sync() as u32,
+    js_deferred_abandoned_queued: napi::js_deferred_abandoned_queued() as u32,
+    js_deferred_abandon_rejected: napi::js_deferred_abandon_rejected() as u32,
   }
 }
 

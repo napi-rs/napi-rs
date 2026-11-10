@@ -1669,8 +1669,11 @@ export const dropDeferredOffThread = __napiModule.exports.dropDeferredOffThread;
 export const dropDeferredOffThreadWithCallback =
   __napiModule.exports.dropDeferredOffThreadWithCallback;
 export const dropDeferredUnsettled = __napiModule.exports.dropDeferredUnsettled;
+export const dropDeferredWithExceptionPending =
+  __napiModule.exports.dropDeferredWithExceptionPending;
 export const dropErrorFromValueOffThread = __napiModule.exports.dropErrorFromValueOffThread;
 export const dropHeldFunctionRefsAtTeardown = __napiModule.exports.dropHeldFunctionRefsAtTeardown;
+export const dropKeptDeferreds = __napiModule.exports.dropKeptDeferreds;
 export const dropStashedCancelHandle = __napiModule.exports.dropStashedCancelHandle;
 export const either3 = __napiModule.exports.either3;
 export const either4 = __napiModule.exports.either4;
@@ -1769,6 +1772,7 @@ export const jsRangeErrorWithoutRetainedValue =
   __napiModule.exports.jsRangeErrorWithoutRetainedValue;
 export const jsTypeErrorFromRetainedValue = __napiModule.exports.jsTypeErrorFromRetainedValue;
 export const jsTypeErrorWithoutRetainedValue = __napiModule.exports.jsTypeErrorWithoutRetainedValue;
+export const keepDeferreds = __napiModule.exports.keepDeferreds;
 export const Kind = __napiModule.exports.Kind;
 export const KindInValidate = __napiModule.exports.KindInValidate;
 export const legacyNinjaTurtleConstructor = __napiModule.exports.legacyNinjaTurtleConstructor;

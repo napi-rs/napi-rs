@@ -40,8 +40,10 @@ function run(kase: string, where: string, n: number) {
 
 const N = 20
 const EXPECTED = {
-  // `&ArgRefHolder` + `&[u8]`, and `&self`, dropped by a runtime shutdown.
+  // `&ArgRefHolder` + `&[u8]`, and `&self`, dropped by a runtime shutdown: rejected.
   shutdown: {
+    rejected: 2 * N,
+    reasons: ['task was cancelled before completion'],
     holdersFreedWhileAlive: 2 * N,
     buffersFreedWhileAlive: N,
     results: [],
@@ -49,6 +51,8 @@ const EXPECTED = {
   },
   // The same shapes, plus a slice-only `async fn`, settled.
   settle: {
+    rejected: 0,
+    reasons: [],
     holdersFreedWhileAlive: 2 * N,
     buffersFreedWhileAlive: 2 * N,
     results: [1024, 64 * 1024, 1024 + 64 * 1024],
@@ -56,6 +60,8 @@ const EXPECTED = {
   },
   // The second argument fails to convert after the first one was rooted.
   'conversion-error': {
+    rejected: 0,
+    reasons: [],
     holdersFreedWhileAlive: N,
     buffersFreedWhileAlive: 0,
     results: [],

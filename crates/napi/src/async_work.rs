@@ -28,7 +28,9 @@ pub use promise::{
   js_deferred_thenable_promises_created,
 };
 #[cfg(feature = "napi4")]
-pub(crate) use promise::{create_detached, release_deferred_pending, DetachedPromise};
+pub(crate) use promise::{create_detached, DetachedPromise};
+#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
+pub(crate) use promise::{release_deferred_pending, take_pending_exception};
 use promise::{PromiseSettler, Settlement};
 pub(crate) use settle_mode::SettleMode;
 

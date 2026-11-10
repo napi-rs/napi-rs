@@ -1,5 +1,7 @@
 //! `JsDeferred` values dropped without being settled. Each one must free its threadsafe function,
-//! so the thread that made it can still exit by itself.
+//! so the thread that made it can still exit by itself. Dropped on its JavaScript thread, a user
+//! deferred is cleaned up at once and its promise stays pending; dropped on another thread, its
+//! promise is rejected. The promise of an `async fn` whose task is dropped is rejected.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -94,6 +96,68 @@ pub fn create_deferred_then_fail(env: &Env) -> Result<()> {
 
 fn step_that_fails() -> Result<()> {
   Err(Error::from_reason("failed after create_deferred"))
+}
+
+/// Makes a deferred, throws `thrown`, then drops the deferred unsettled with that exception
+/// pending, and returns. JavaScript must catch `thrown` itself: the drop must not read, clear or
+/// replace it. In deferred mode the cleanup is queued then; in thenable mode it runs at once.
+#[napi]
+pub fn drop_deferred_with_exception_pending(env: &Env, thrown: Unknown) -> Result<()> {
+  let (deferred, _promise) = env.create_deferred::<u32, fn(Env) -> Result<u32>>()?;
+  env.throw(thrown)?;
+  drop(deferred);
+  Ok(())
+}
+
+type KeptDeferred = napi::JsDeferred<u32, fn(Env) -> Result<u32>>;
+
+/// The deferreds of [`keep_deferreds`]. Its `Drop` runs when the thread's locals are destroyed
+/// (`process.exit()` on the main thread), and reports that on stderr.
+struct KeptDeferreds(Vec<KeptDeferred>);
+
+impl Drop for KeptDeferreds {
+  fn drop(&mut self) {
+    let count = self.0.len();
+    if count == 0 {
+      return;
+    }
+    let before = napi::js_deferred_abandoned_sync();
+    self.0.clear();
+    let after = napi::js_deferred_abandoned_sync();
+    use std::io::Write;
+    let _ = writeln!(
+      std::io::stderr(),
+      "kept deferreds dropped by the thread-local destructor: {count}, cleaned up at once: {}",
+      after - before
+    );
+  }
+}
+
+thread_local! {
+  static KEPT_DEFERREDS: std::cell::RefCell<KeptDeferreds> =
+    const { std::cell::RefCell::new(KeptDeferreds(Vec::new())) };
+}
+
+/// Makes `n` deferreds and keeps them in a thread local of this thread. Returns their promises.
+#[napi(ts_return_type = "Promise<number>[]")]
+pub fn keep_deferreds(env: &Env, n: u32) -> Result<Vec<Object<'_>>> {
+  let mut promises = Vec::with_capacity(n as usize);
+  for _ in 0..n {
+    let (deferred, promise) = env.create_deferred::<u32, fn(Env) -> Result<u32>>()?;
+    KEPT_DEFERREDS.with(|kept| kept.borrow_mut().0.push(deferred));
+    promises.push(promise);
+  }
+  Ok(promises)
+}
+
+/// Drops the deferreds `keep_deferreds` kept on this thread, unsettled, in this later call.
+/// Returns how many.
+#[napi]
+pub fn drop_kept_deferreds() -> u32 {
+  let kept = KEPT_DEFERREDS.with(|kept| std::mem::take(&mut kept.borrow_mut().0));
+  let count = kept.len() as u32;
+  drop(kept);
+  count
 }
 
 /// Makes `n` deferreds and keeps them in an env cleanup hook, which drops them unsettled when the

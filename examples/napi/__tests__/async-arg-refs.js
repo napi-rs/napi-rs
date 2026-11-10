@@ -1,6 +1,6 @@
 // `#[napi] async fn` calls with `&T` arguments whose tasks are dropped unsettled. Before the fix
 // each call kept a reference to every `&T` argument that only the settle deleted, so the values
-// stayed alive until the env was torn down.
+// stayed alive until the env was torn down. The promises of the dropped tasks are rejected.
 // Usage: node --expose-gc <this file> <addon> <case> <main|worker> <n>
 // * case: shutdown | settle | conversion-error
 // * main: run in the main thread, which must exit by itself (the parent checks the status).
@@ -69,6 +69,19 @@ async function run(native) {
     return data
   }
   const caught = []
+  // Handlers are attached when each promise is created: a rejection must find them.
+  const rejections = { count: 0, messages: [] }
+  const handled = (promise) => {
+    promise.then(
+      () => {},
+      (error) => {
+        rejections.count++
+        if (!rejections.messages.includes(error?.message))
+          rejections.messages.push(error?.message)
+      },
+    )
+    return promise
+  }
   let holders = 0
   let buffers = 0
   let results = []
@@ -78,9 +91,11 @@ async function run(native) {
       // `&ArgRefHolder` + `&[u8]`, and an async `&self` method. All stay pending.
       for (let i = 0; i < n; i++) {
         promises.push(
-          native.argRefsPendingForever(new native.ArgRefHolder(), buffer()),
+          handled(
+            native.argRefsPendingForever(new native.ArgRefHolder(), buffer()),
+          ),
         )
-        promises.push(new native.ArgRefHolder().pendingForever())
+        promises.push(handled(new native.ArgRefHolder().pendingForever()))
       }
       holders = 2 * n
       buffers = n
@@ -95,11 +110,13 @@ async function run(native) {
     case 'settle':
       for (let i = 0; i < n; i++) {
         promises.push(
-          native.argRefsResolveNow(new native.ArgRefHolder(), buffer()),
+          handled(
+            native.argRefsResolveNow(new native.ArgRefHolder(), buffer()),
+          ),
         )
-        promises.push(new native.ArgRefHolder().resolveNow())
+        promises.push(handled(new native.ArgRefHolder().resolveNow()))
         // Only a typed slice: no class borrow roots anything for it.
-        promises.push(native.argRefsSliceNow(buffer()))
+        promises.push(handled(native.argRefsSliceNow(buffer())))
       }
       holders = 2 * n
       buffers = 2 * n
@@ -119,11 +136,6 @@ async function run(native) {
     default:
       throw new Error(`unknown case ${kase}`)
   }
-  for (const promise of promises)
-    promise.then(
-      () => {},
-      () => {},
-    )
   promises = null
   await gcUntil(
     () =>
@@ -131,6 +143,8 @@ async function run(native) {
       buffersFreed >= buffers,
   )
   return {
+    rejected: rejections.count,
+    reasons: rejections.messages,
     holdersFreedWhileAlive: counters().holdersDropped - before.holdersDropped,
     buffersFreedWhileAlive: buffersFreed,
     results,

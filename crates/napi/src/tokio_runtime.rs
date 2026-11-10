@@ -39,7 +39,7 @@ const LATE_RUNTIME_REGISTRATION_ERROR: &str = "register_async_runtime must be ca
 ))]
 const MISSING_RUNTIME_BACKEND_ERROR: &str = "no AsyncRuntime backend is registered; call `register_async_runtime` from `#[module_init]` before invoking runtime-backed operations";
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-const TASK_CANCELLED_ERROR: &str = "task was cancelled before completion";
+use crate::js_values::TASK_CANCELLED_ERROR;
 
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
 const WASM_ENV_DISPOSING_ERROR: &str = "the wasm environment is being disposed: its async runtime was shut down by napi_prepare_wasm_env_cleanup and cannot accept new work";
@@ -288,8 +288,8 @@ pub(crate) fn drain_wasm_cancel_mailbox() {
 /// A parked entry is a callback *and* an [`Error`], and neither is inert. `Error` carries
 /// `maybe_ref: Option<Arc<ErrorRef>>`, whose `Drop` calls `napi_delete_reference` on the owning
 /// thread (`error.rs`) — this thread — against exactly the environment that must not be touched.
-/// The callback owns the task's `JsDeferred`. On native its `Drop` abandons the promise through
-/// the threadsafe function; on wasm, the only target of this function, it has no `Drop`, so
+/// The callback owns the task's `JsDeferred`. On native its `Drop` cleans the promise up or
+/// rejects it (see `JsDeferred`); on wasm, the only target of this function, it has no `Drop`, so
 /// dropping it would not settle or release anything anyway. The `mem::forget` stays load-bearing
 /// for the `Error`, and for the `JsDeferred` should wasm ever get a `Drop`. So each entry is
 /// `mem::forget`ed:
@@ -356,7 +356,9 @@ fn park_cancel_for_js_thread(
 ///
 /// Dropping a task destroys its captured promise/resolver state on the dropping thread —
 /// exactly as the built-in Tokio path does for `Err`-completing futures and for futures dropped
-/// at shutdown, so the hazard is not specific to custom backends.
+/// at shutdown, so the hazard is not specific to custom backends. The built-in Tokio path rejects
+/// the promise of a task dropped at shutdown too, with the same message and code (on native; see
+/// `JsDeferred`).
 ///
 /// A cancelled task (dropped, declined, or panicked in `poll`) drops its future before the
 /// cancellation callback runs. The callback rejects the promise, and for a generated `async fn`
@@ -1858,7 +1860,8 @@ struct FutThenDeferred<F, D> {
 /// `AsyncRuntime` backend that cancels a task gets it from `AsyncRuntimeTask`, which drops this
 /// future before its cancellation callback rejects the promise through the last `JsDeferred`
 /// clone (the rejection runs the settle-time callback on the JavaScript thread, which releases
-/// the same guards and roots). The last `JsDeferred` clone drops the settle-time callback unrun,
+/// the same guards and roots). On the built-in path the last `JsDeferred` clone drops the
+/// settle-time callback unrun, also when its drop rejects the promise (see `JsDeferred`),
 /// and for a generated `async fn` that drops its `NativeBorrowScopeRelease`: the alias guards are
 /// released and the roots of the `&T` arguments go to the custom-GC handle, which deletes them on
 /// the JavaScript thread. Those roots are the only roots of the arguments, so this must not happen
@@ -1977,7 +1980,9 @@ pub(crate) fn execute_future_impl<
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 ) -> Result<(sys::napi_value, FinalizeCallback)> {
   let env = Env::from_raw(env);
-  let (mut deferred, promise) = JsDeferred::new(&env)?;
+  // A task's deferred: dropped unsettled once its promise was handed to JavaScript, the promise
+  // is rejected (see `JsDeferred`).
+  let (mut deferred, promise) = JsDeferred::new_task(&env)?;
   // Generated `async fn` callbacks already pass a finalize callback that releases their
   // borrow scope. A synchronous callback returning an `AsyncBlock` defers its borrow scope
   // around the return-value conversion instead: `AsyncBlock::to_napi_value` claims it and
@@ -2077,26 +2082,45 @@ pub(crate) fn execute_future_impl<
       all(target_family = "wasm", tokio_unstable),
       not(target_family = "wasm")
     ))]
-    let jh = spawn(inner);
-
-    #[cfg(any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    ))]
-    spawn(async move {
-      if let Err(err) = jh.await {
-        if let Ok(reason) = err.try_into_panic() {
-          if let Some(s) = reason.downcast_ref::<&str>() {
-            deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
-          } else {
-            deferred_for_panic.reject(Error::new(
-              crate::Status::GenericFailure,
-              "Panic in async function",
-            ));
+    {
+      // The same refusal as `spawn`, before `RT` is touched (see there).
+      #[cfg(target_family = "wasm")]
+      if wasm_env_disposing() {
+        refuse_tokio_helper_during_wasm_env_disposal("spawn");
+      }
+      // Both spawns under ONE read guard: `shutdown_async_runtime` takes the runtime under the
+      // write lock, so once `inner` is accepted the watcher spawn cannot fail. With two guards a
+      // shutdown on another thread could slip between them: the watcher spawn panicked,
+      // JavaScript got an exception instead of the promise, and `inner`, dropped later on a
+      // worker, rejected the promise no one held (an unhandled rejection).
+      let guard = RT.read().ok();
+      let rt = guard
+        .as_ref()
+        .and_then(|rt| rt.as_ref())
+        .expect("Access tokio runtime failed in spawn");
+      let jh = rt.spawn(inner);
+      // Accepted: the promise is returned to JavaScript below, so a drop of the task now rejects
+      // it, even one on this thread (a `current_thread` runtime shut down on the JavaScript
+      // thread drops its tasks there). Not before: when the spawn panics (no runtime), the
+      // deferred is dropped on this thread unmarked, and cleaned up without a rejection no one
+      // could handle.
+      deferred_for_panic.mark_returned();
+      rt.spawn(async move {
+        if let Err(err) = jh.await {
+          if let Ok(reason) = err.try_into_panic() {
+            if let Some(s) = reason.downcast_ref::<&str>() {
+              deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
+            } else {
+              deferred_for_panic.reject(Error::new(
+                crate::Status::GenericFailure,
+                "Panic in async function",
+              ));
+            }
           }
         }
-      }
-    });
+      });
+      drop(guard);
+    }
 
     #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
     {
@@ -2213,6 +2237,11 @@ impl<
     self
   }
 
+  /// Spawns the future. On native targets the promise of the returned [`AsyncBlock`] is rejected
+  /// with `Error("task was cancelled before completion")` (`code` `GenericFailure`) when the task
+  /// is dropped before it completed, for example by a runtime shutdown. Return the `AsyncBlock`
+  /// to JavaScript: one dropped in Rust leaves a promise with no handler, so that rejection is
+  /// an unhandled rejection.
   pub fn build(self, env: &Env) -> Result<AsyncBlock<V>> {
     let (promise, finalize_callback) = execute_future_impl(
       env.0,

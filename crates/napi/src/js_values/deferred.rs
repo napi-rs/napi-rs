@@ -3,14 +3,65 @@ use std::ptr;
 #[cfg(target_family = "wasm")]
 use std::sync::atomic::AtomicU32;
 #[cfg(not(target_family = "wasm"))]
-use std::sync::{atomic::AtomicUsize, PoisonError};
+use std::sync::{atomic::AtomicU8, PoisonError};
 use std::{
   marker::PhantomData,
   sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex, RwLock,
   },
 };
+
+/// The rejection message of a promise whose task was dropped before it completed: a `#[napi]
+/// async fn`, `Env::spawn_future` or `AsyncBlock` task dropped by a runtime shutdown, or a task a
+/// custom `AsyncRuntime` backend cancelled. The code is `GenericFailure` in both cases.
+#[cfg(any(
+  not(target_family = "wasm"),
+  all(feature = "async-runtime", not(feature = "noop"))
+))]
+pub(crate) const TASK_CANCELLED_ERROR: &str = "task was cancelled before completion";
+
+/// The rejection message of a promise whose user `JsDeferred` (`Env::create_deferred`) was
+/// dropped unsettled on a thread other than its JavaScript thread.
+#[cfg(not(target_family = "wasm"))]
+const DEFERRED_DROPPED_ERROR: &str = "JsDeferred was dropped without being settled";
+
+/// `JsDeferred`s dropped unsettled and cleaned up at once, inside the `Drop`, on their own
+/// JavaScript thread. Read through [`js_deferred_abandoned_sync`].
+static ABANDONED_SYNC: AtomicUsize = AtomicUsize::new(0);
+/// `JsDeferred`s dropped unsettled whose cleanup (no rejection) was queued to the JavaScript
+/// thread, counted when it runs there. Read through [`js_deferred_abandoned_queued`].
+static ABANDONED_QUEUED: AtomicUsize = AtomicUsize::new(0);
+/// `JsDeferred`s dropped unsettled whose promise was rejected, counted when the rejecting call
+/// runs on the JavaScript thread. Read through [`js_deferred_abandon_rejected`].
+static ABANDON_REJECTED: AtomicUsize = AtomicUsize::new(0);
+
+/// How many `JsDeferred`s dropped unsettled were cleaned up synchronously, inside their `Drop`,
+/// on their own JavaScript thread (their promise stays pending). Always 0 on wasm.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn js_deferred_abandoned_sync() -> usize {
+  ABANDONED_SYNC.load(Ordering::Relaxed)
+}
+
+/// How many `JsDeferred`s dropped unsettled had their cleanup queued to the JavaScript thread
+/// without a rejection (their promise stays pending), counted when it ran. Always 0 on wasm.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn js_deferred_abandoned_queued() -> usize {
+  ABANDONED_QUEUED.load(Ordering::Relaxed)
+}
+
+/// How many `JsDeferred`s dropped unsettled had their promise rejected, counted when the
+/// rejection ran on the JavaScript thread. Always 0 on wasm.
+///
+/// Introspection hook for napi-rs' own tests. No stability guarantee.
+#[doc(hidden)]
+pub fn js_deferred_abandon_rejected() -> usize {
+  ABANDON_REJECTED.load(Ordering::Relaxed)
+}
 
 /// How many promise settlements this addon has handed to the threadsafe-function queue that
 /// have not been dispatched back into JavaScript yet.
@@ -83,18 +134,22 @@ pub(crate) fn in_wasm_env_cleanup() -> bool {
 ///
 /// The threadsafe-function dispatch opens one around the callback; a settle delivered straight
 /// out of `napi_prepare_wasm_env_cleanup` has to open its own, because that export is entered
-/// from JavaScript as a bare wasm function with no napi machinery around it.
-#[cfg(target_family = "wasm")]
-struct WasmHandleScope {
+/// from JavaScript as a bare wasm function with no napi machinery around it. On native, the
+/// cleanup of a `JsDeferred` dropped on its JavaScript thread opens one too: that `Drop` can run
+/// outside any napi callback (an env cleanup hook, where Node has no `HandleScope` and aborts
+/// the process on the first handle made without one; a thread-local destructor).
+struct DeferredHandleScope {
   env: sys::napi_env,
   scope: sys::napi_handle_scope,
 }
 
-#[cfg(target_family = "wasm")]
-impl WasmHandleScope {
+impl DeferredHandleScope {
   fn open(env: sys::napi_env) -> Option<Self> {
     let mut scope = ptr::null_mut();
     let status = unsafe { sys::napi_open_handle_scope(env, &mut scope) };
+    // Not on native: there this runs inside a `Drop`, which must not panic, and a caller that
+    // gets `None` makes no handle.
+    #[cfg(target_family = "wasm")]
     debug_assert!(
       status == sys::Status::napi_ok,
       "Open handle scope in JsDeferred failed"
@@ -103,8 +158,7 @@ impl WasmHandleScope {
   }
 }
 
-#[cfg(target_family = "wasm")]
-impl Drop for WasmHandleScope {
+impl Drop for DeferredHandleScope {
   fn drop(&mut self) {
     let status = unsafe { sys::napi_close_handle_scope(self.env, self.scope) };
     debug_assert!(
@@ -279,8 +333,10 @@ pub(crate) type FinalizeCallback = Arc<RwLock<Option<Box<dyn FnOnce(sys::napi_en
 /// env-teardown sweep frees if the settle never comes back. Only a `napi_deferred` leaks (16 B)
 /// when the env is torn down first: `napi_resolve_deferred` / `napi_reject_deferred` are the only
 /// calls that free it, and a tearing-down env refuses both. One whose `JsDeferred` was dropped
-/// unsettled is freed by the abandon (`release_deferred_pending`), which leaves its promise
-/// pending.
+/// unsettled is either rejected (exactly one `napi_reject_deferred`), or freed by the cleanup
+/// (`release_deferred_pending`), which leaves its promise pending; never both. A `JsDeferred`
+/// made in a thenable-mode env can still have this variant (the fallback), so code that differs
+/// between the two branches on the variant, not on the env's mode.
 #[derive(Clone, Copy)]
 enum SettleTarget {
   Deferred(sys::napi_deferred),
@@ -315,13 +371,110 @@ impl SettleTarget {
 enum Outcome<Resolver> {
   /// Settle the promise: resolve it with what the resolver returns, or reject it.
   Settle(Result<Resolver>),
-  /// Every `JsDeferred` clone was dropped unsettled. Release the thread count, delete the trace
-  /// reference, free the `napi_deferred` or the thenable slot, and leave the promise pending,
-  /// held by nothing. The settle-time callback is not here: the dropping thread drops it without
-  /// running it. Built only by [`queue_abandon`], from the `Drop` of [`DeferredInner`], which
-  /// wasm does not have.
+  /// Every `JsDeferred` clone was dropped unsettled, and the `Drop` could not clean up at once.
+  ///
+  /// * `None`: dropped on its JavaScript thread with a JavaScript exception pending, in deferred
+  ///   mode. Release the thread count, delete the trace reference, free the `napi_deferred`
+  ///   (or the thenable slot), and leave the promise pending, held by nothing
+  ///   ([`abandon_on_js_thread`]).
+  /// * `Some(reason)`: dropped on another thread, or a task's promise that was handed to
+  ///   JavaScript. Reject the promise with the error of `reason`, through the normal settle path.
+  ///
+  /// The settle-time callback is not here: the dropping thread drops it without running it. The
+  /// reason is a tag; the error is built on the JavaScript thread. Built only by
+  /// [`queue_abandon`], from the `Drop` of [`DeferredInner`], which wasm does not have.
   #[cfg_attr(target_family = "wasm", allow(dead_code))]
-  Abandon,
+  Abandon(Option<AbandonReason>),
+}
+
+/// Why the promise of a `JsDeferred` dropped unsettled is rejected. A tag only: the item that
+/// carries it must own nothing user-owned (see [`queue_abandon`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
+enum AbandonReason {
+  /// The task of a promise napi-rs hands to JavaScript (`#[napi] async fn`, `Env::spawn_future`,
+  /// `AsyncBlock`) was dropped before it completed, or the task's deferred was dropped on
+  /// another thread.
+  TaskDropped,
+  /// A user `JsDeferred` (`Env::create_deferred`) was dropped on another thread.
+  DeferredDropped,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl AbandonReason {
+  /// The rejection. On the JavaScript thread.
+  fn error(self) -> Error {
+    let reason = match self {
+      AbandonReason::TaskDropped => TASK_CANCELLED_ERROR,
+      AbandonReason::DeferredDropped => DEFERRED_DROPPED_ERROR,
+    };
+    Error::new(crate::Status::GenericFailure, reason)
+  }
+}
+
+/// [`DeferredHandle::origin`] of a user deferred (`Env::create_deferred`).
+#[cfg(not(target_family = "wasm"))]
+const ORIGIN_USER: u8 = 0;
+/// [`DeferredHandle::origin`] of a task's deferred whose promise is not sure to reach
+/// JavaScript yet.
+#[cfg(all(
+  not(target_family = "wasm"),
+  any(
+    test,
+    all(
+      not(feature = "noop"),
+      any(feature = "tokio_rt", feature = "async-runtime")
+    )
+  )
+))]
+const ORIGIN_TASK: u8 = 1;
+/// [`DeferredHandle::origin`] of a task's deferred whose promise is handed to JavaScript.
+#[cfg(not(target_family = "wasm"))]
+const ORIGIN_TASK_RETURNED: u8 = 2;
+
+/// What the `Drop` of the last [`DeferredInner`] does with a promise still pending.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AbandonAction {
+  /// Clean up now, on this thread (its JavaScript thread): [`abandon_on_js_thread`].
+  Sync,
+  /// Queue an [`Outcome::Abandon`] item to the JavaScript thread.
+  Queue(Option<AbandonReason>),
+}
+
+/// The abandon rule (see [`JsDeferred`]).
+///
+/// * Another thread: the deferred was sent away, so its promise went to JavaScript: reject it.
+/// * Its JavaScript thread, a task's promise already handed to JavaScript (a `current_thread`
+///   runtime shut down on the JavaScript thread drops its tasks there): reject it.
+/// * Its JavaScript thread otherwise: clean up at once, before control returns to JavaScript.
+///   In deferred mode that resolves the `napi_deferred` with an inert thenable, which the env
+///   refuses while an exception is pending: then queue the cleanup instead, so the exception is
+///   never touched. A thenable slot is freed without running JavaScript, so always at once.
+///
+/// `exception_pending` is only asked for (and only meaningful) on the JavaScript thread with a
+/// deferred target.
+#[cfg(not(target_family = "wasm"))]
+fn abandon_action(
+  on_owner: bool,
+  origin: u8,
+  is_deferred: bool,
+  exception_pending: bool,
+) -> AbandonAction {
+  if !on_owner {
+    return AbandonAction::Queue(Some(if origin == ORIGIN_USER {
+      AbandonReason::DeferredDropped
+    } else {
+      AbandonReason::TaskDropped
+    }));
+  }
+  if origin == ORIGIN_TASK_RETURNED {
+    return AbandonAction::Queue(Some(AbandonReason::TaskDropped));
+  }
+  if is_deferred && exception_pending {
+    return AbandonAction::Queue(None);
+  }
+  AbandonAction::Sync
 }
 
 struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
@@ -351,6 +504,19 @@ struct DeferredHandle {
   /// abandons the promise. Not the `Arc` count: [`DeferredHookData`] holds one too.
   #[cfg(not(target_family = "wasm"))]
   owners: AtomicUsize,
+  /// The env that made the deferred. The `Drop` reads it only after it took the threadsafe
+  /// function out of `pending_tsfn` under the lock: that proves the env teardown hook has not
+  /// run, so the env is alive (the hook is newer than everything that frees the env and its
+  /// promise slots).
+  #[cfg(not(target_family = "wasm"))]
+  env: sys::napi_env,
+  /// The thread that made the deferred: the env's JavaScript thread.
+  #[cfg(not(target_family = "wasm"))]
+  owner_thread: std::thread::ThreadId,
+  /// [`ORIGIN_USER`], `ORIGIN_TASK` or [`ORIGIN_TASK_RETURNED`]. Read only by an abandon on the
+  /// owner thread, which is program-ordered after the store: `Relaxed` is enough.
+  #[cfg(not(target_family = "wasm"))]
+  origin: AtomicU8,
 }
 
 /// Shared by the env teardown hook and the threadsafe function's finalize callback; boxed, and
@@ -403,14 +569,48 @@ unsafe impl Sync for DeferredHandle {}
 ///     promise of an env that has no registration record of this addon, or whose host blocks
 ///     the compile.
 ///
-/// Dropping every clone without settling leaves the promise pending for ever (it is neither
-/// resolved nor rejected): its awaiters never resume or throw. It no longer keeps the event loop
-/// alive: the threadsafe function is released on the JavaScript thread, and the trace reference
-/// and the thenable slot are freed there. In deferred mode (the main thread of Node and Bun) the
-/// `napi_deferred` is freed there too, by resolving it with an inert thenable (one extra
-/// microtask job and `async_hooks` `before`/`after` pair, as in thenable mode). Nothing in
-/// napi-rs holds the promise any more, so it and its awaiters can be collected. On wasm, dropping
-/// does nothing, as before.
+/// Dropping every clone without settling (native targets):
+///
+/// * The promise of a `#[napi] async fn`, `Env::spawn_future`, `Env::spawn_future_with_callback`
+///   or `AsyncBlock` is **rejected** when its task is dropped before it completed, for example
+///   by a runtime shutdown:
+///   `Error("task was cancelled before completion")`, `code` `GenericFailure` (what a custom
+///   `AsyncRuntime` backend that cancels a task already did).
+/// * A deferred of [`Env::create_deferred`] dropped on **another thread** was sent away, so its
+///   promise went to JavaScript: it is **rejected** with
+///   `Error("JsDeferred was dropped without being settled")`, `code` `GenericFailure`.
+/// * A deferred of [`Env::create_deferred`] dropped on **its own JavaScript thread** (the common
+///   case: `let (d, p) = env.create_deferred()?; step()?;` returns the error, so the promise never
+///   reaches JavaScript) is **cleaned up at once**, inside the `Drop`, before control returns to
+///   JavaScript: the threadsafe function is released, the trace reference and the thenable slot
+///   are freed. In deferred mode (the main thread of Node and Bun) the `napi_deferred` is freed
+///   too, by resolving it with an inert thenable (one extra microtask job and `async_hooks`
+///   `before`/`after` pair, as in thenable mode). The promise is not rejected: it stays pending
+///   for ever, held by nothing, so it and its awaiters can be collected. With a JavaScript
+///   exception pending in deferred mode, the cleanup is queued to the JavaScript thread instead,
+///   and the exception is left untouched.
+///
+/// A rejection is built and delivered on the JavaScript thread; with `deferred_trace` its stack
+/// is the JavaScript caller that made the promise. Limits:
+///
+/// * A deferred of [`Env::create_deferred`] dropped on its own JavaScript thread is cleaned up
+///   silently and stays pending **even when JavaScript already holds its promise**: dropped in a
+///   later call, after its promise was handed to a JavaScript callback, or after it was sent to
+///   another thread and came back (dropped inside a threadsafe-function callback or another
+///   deferred's resolver). Settle it explicitly when JavaScript may await it.
+/// * A deferred of [`Env::create_deferred`] dropped on another thread is rejected **even when its
+///   promise never reached JavaScript** (a `?` after the deferred was sent away). Nothing handles
+///   that rejection: Node reports an unhandled rejection, which ends the process with exit code
+///   1 on the main thread and emits `'error'` on a worker (Bun does the same). Settle it
+///   explicitly instead of dropping it.
+/// * `Env::spawn_future`, `Env::spawn_future_with_callback` and `AsyncBlockBuilder::build` give
+///   the promise to the Rust caller. A caller that drops it instead of returning it to JavaScript
+///   leaves a promise that nothing can handle: when its task is dropped (or fails), the rejection
+///   is unhandled, with the same result as above.
+/// * In deferred mode the cleanup on the JavaScript thread calls `napi_resolve_deferred` inside
+///   the `Drop`, so an `async_hooks` / `v8.promiseHooks` callback can run JavaScript there.
+/// * On wasm, dropping does nothing, as before, also for the task of an `async fn` dropped by a
+///   runtime shutdown: its promise stays pending.
 ///
 /// A deferred that is neither settled nor dropped (for example one passed to `mem::forget`) still
 /// holds its threadsafe function, so the event loop of its thread stays alive: the process or the
@@ -420,9 +620,10 @@ unsafe impl Sync for DeferredHandle {}
 /// allocated. `process.exit()` on the main thread runs no env cleanup hooks: the process ends and
 /// the operating system takes the memory back.
 ///
-/// The settle-time callback (see [`JsDeferred::set_finalize_callback`]) does not run then: it is
-/// dropped without running, as before, by the last holder of its slot (normally the thread that
-/// drops the last clone). Nothing user-owned travels to the JavaScript thread with the abandon,
+/// The settle-time callback (see [`JsDeferred::set_finalize_callback`]) does not run then, not
+/// even when the promise is rejected: it is dropped without running, as before, by the last
+/// holder of its slot (normally the thread that drops the last clone). Nothing user-owned travels
+/// to the JavaScript thread with the abandon (a rejection carries only a tag),
 /// because a host may never deliver it (Deno does not run the env cleanup hooks of a busy worker
 /// that is terminated, and then accepts the call but never runs it).
 ///
@@ -473,11 +674,62 @@ unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send
 }
 
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
+  /// A user deferred ([`Env::create_deferred`]): napi-rs cannot see whether its promise reaches
+  /// JavaScript (see the type docs for what a drop does).
   pub(crate) fn new(env: &Env) -> Result<(Self, Object<'_>)> {
+    #[cfg(not(target_family = "wasm"))]
+    return Self::new_with_origin(env, ORIGIN_USER);
+    #[cfg(target_family = "wasm")]
+    Self::new_with_origin(env)
+  }
+
+  /// The deferred of a task whose promise napi-rs hands to JavaScript (`#[napi] async fn`,
+  /// `Env::spawn_future`, `AsyncBlock`). Dropped unsettled on another thread, or on its own
+  /// thread after [`Self::mark_returned`], its promise is rejected.
+  #[cfg(all(
+    not(feature = "noop"),
+    any(feature = "tokio_rt", feature = "async-runtime")
+  ))]
+  pub(crate) fn new_task(env: &Env) -> Result<(Self, Object<'_>)> {
+    #[cfg(not(target_family = "wasm"))]
+    return Self::new_with_origin(env, ORIGIN_TASK);
+    #[cfg(target_family = "wasm")]
+    Self::new_with_origin(env)
+  }
+
+  /// Marks the promise of a [`Self::new_task`] deferred as handed to JavaScript: from now on, a
+  /// drop on the JavaScript thread rejects it too (a `current_thread` runtime shut down on the
+  /// JavaScript thread drops its tasks there). One `Relaxed` store. Nothing on wasm, where a
+  /// dropped deferred does nothing. Gated like its only caller, the Tokio spawn in
+  /// `execute_future_impl`.
+  #[cfg(all(
+    not(feature = "noop"),
+    feature = "tokio_rt",
+    any(not(target_family = "wasm"), tokio_unstable)
+  ))]
+  pub(crate) fn mark_returned(&self) {
+    #[cfg(not(target_family = "wasm"))]
+    self
+      .inner
+      .handle
+      .origin
+      .store(ORIGIN_TASK_RETURNED, Ordering::Relaxed);
+  }
+
+  fn new_with_origin(
+    env: &Env,
+    #[cfg(not(target_family = "wasm"))] origin: u8,
+  ) -> Result<(Self, Object<'_>)> {
     let handle = Arc::new(DeferredHandle {
       pending_tsfn: Mutex::new(None),
       #[cfg(not(target_family = "wasm"))]
       owners: AtomicUsize::new(1),
+      #[cfg(not(target_family = "wasm"))]
+      env: env.0,
+      #[cfg(not(target_family = "wasm"))]
+      owner_thread: std::thread::current().id(),
+      #[cfg(not(target_family = "wasm"))]
+      origin: AtomicU8::new(origin),
     });
     let hook_data_ptr = Box::into_raw(Box::new(DeferredHookData {
       handle: handle.clone(),
@@ -609,9 +861,9 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
   /// detach from the callback `settle_deferred` reads.
   ///
   /// The callback runs once, on the JavaScript thread, when the promise settles. It does not run
-  /// when every clone is dropped without settling: it is then dropped, without running, on the
-  /// thread that drops the last clone, as before. It does not run either when the env is torn
-  /// down first.
+  /// when every clone is dropped without settling, also when that rejects the promise: it is then
+  /// dropped, without running, on the thread that drops the last clone, as before. It does not
+  /// run either when the env is torn down first.
   #[allow(clippy::arc_with_non_send_sync)]
   pub fn set_finalize_callback(
     &mut self,
@@ -678,7 +930,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       // not through a napi entry point, so — unlike the threadsafe-function dispatch that
       // normally runs the settle — there is no handle scope open. Settling creates
       // `napi_value`s, so open the scope the dispatcher would have opened.
-      match WasmHandleScope::open(env) {
+      match DeferredHandleScope::open(env) {
         Some(_scope) => {
           drop(pending);
           settle_deferred::<Data, Resolver>(env, data);
@@ -731,8 +983,12 @@ type MaybeTrace = ();
 /// Builds and queues the abandon item of one `JsDeferred<Data, Resolver>` (see [`queue_abandon`]).
 /// A plain function pointer, so [`DeferredInner`] needs no type parameter.
 #[cfg(not(target_family = "wasm"))]
-type QueueAbandon =
-  unsafe fn(sys::napi_threadsafe_function, SettleTarget, MaybeTrace) -> sys::napi_status;
+type QueueAbandon = unsafe fn(
+  sys::napi_threadsafe_function,
+  SettleTarget,
+  MaybeTrace,
+  Option<AbandonReason>,
+) -> sys::napi_status;
 
 /// What a `JsDeferred` and each of its clones own, and the drop duty: the last one dropped with
 /// the promise still pending abandons it (see the `Drop` impl).
@@ -751,7 +1007,7 @@ struct DeferredInner {
   #[cfg(feature = "deferred_trace")]
   trace: Option<DeferredTrace>,
   finalize_callback: FinalizeCallback,
-  /// `queue_abandon::<Data, Resolver>`, chosen in [`JsDeferred::new`].
+  /// `queue_abandon::<Data, Resolver>`, chosen in `JsDeferred::new_with_origin`.
   #[cfg(not(target_family = "wasm"))]
   abandon: QueueAbandon,
 }
@@ -772,22 +1028,28 @@ impl Clone for DeferredInner {
   }
 }
 
-/// The last clone dropped with the promise still pending abandons it: the queued item releases the
-/// threadsafe function on the JavaScript thread, frees the settle state, and leaves the promise
-/// pending. Unreleased, the threadsafe function is ref'd and keeps the event loop alive for ever,
-/// and Node >= 24.13.1 / 25.4 / 26 leaks it at env teardown.
+/// The last clone dropped with the promise still pending abandons it, by the rule of
+/// [`abandon_action`]: on its JavaScript thread it is cleaned up here, at once
+/// ([`abandon_on_js_thread`]); otherwise an item is queued to the JavaScript thread, which
+/// rejects the promise or (with an exception pending) cleans up. Either way the threadsafe
+/// function is released. Unreleased, it is ref'd and keeps the event loop alive for ever, and
+/// Node >= 24.13.1 / 25.4 / 26 leaks it at env teardown.
 ///
 /// The settle-time callback stays here: the `finalize_callback` field drops after this function,
 /// so after the unlock, on this thread, without running, as before the abandon existed. Nothing
-/// user-owned goes into the item: no host promises to deliver an item queued after its env
-/// stopped running. Deno 2.6.1 does not run the env cleanup hooks of a busy worker that is
-/// terminated, so the teardown hook never empties the slot; the call then returns `napi_ok` and
-/// the item is never delivered nor freed.
+/// user-owned goes into the item (a rejection carries a tag, its error is built on the JavaScript
+/// thread): no host promises to deliver an item queued after its env stopped running. Deno 2.6.1
+/// does not run the env cleanup hooks of a busy worker that is terminated, so the teardown hook
+/// never empties the slot; the call then returns `napi_ok` and the item is never delivered nor
+/// freed.
 ///
 /// The lock is held across the queue call, like a settle, so the env teardown hook and the
 /// finalize callback (which take it) cannot let the host free the threadsafe function meanwhile.
-/// After a settle or an env teardown the slot is empty, and this is one atomic decrement and one
-/// uncontended lock. Never panics: a poisoned lock is taken anyway.
+/// The cleanup here unlocks first: releasing the threadsafe function can run its finalize
+/// callback at once (Bun, emnapi), which takes the lock. Nothing else can take the slot meanwhile:
+/// it is already empty. After a settle or an env teardown the slot is empty, and this is one
+/// atomic decrement and one uncontended lock, with no napi call and no read of the env. Never
+/// panics: a poisoned lock is taken anyway.
 ///
 /// Not on wasm, where nothing changes: there is no env teardown hook to order a `Drop` against, and
 /// `discard_wasm_cancel_mailbox` relies on a dropped deferred making no napi call.
@@ -803,32 +1065,99 @@ impl Drop for DeferredInner {
       .lock()
       .unwrap_or_else(PoisonError::into_inner);
     let Some(tsfn) = pending.take() else {
+      // Settled, or the env teardown hook or the finalize callback ran: the env may be gone.
       return;
     };
     #[cfg(feature = "deferred_trace")]
     let trace = self.trace.take();
     #[cfg(not(feature = "deferred_trace"))]
     let trace = ();
-    let status = unsafe { (self.abandon)(tsfn, self.target, trace) };
-    release_unqueued_count(tsfn, status);
+    // Only now may the env be read: the slot was `Some`, so the env teardown hook has not run,
+    // and the env is alive (see `DeferredHandle::env`). The thread alone proves nothing: a
+    // thread may run several envs, and outlive them.
+    let env = self.handle.env;
+    let on_owner = self.handle.owner_thread == std::thread::current().id();
+    let origin = self.handle.origin.load(Ordering::Relaxed);
+    let is_deferred = matches!(self.target, SettleTarget::Deferred(_));
+    let exception_pending = on_owner && is_deferred && {
+      let mut pending = false;
+      let status = unsafe { sys::napi_is_exception_pending(env, &mut pending) };
+      status == sys::Status::napi_ok && pending
+    };
+    match abandon_action(on_owner, origin, is_deferred, exception_pending) {
+      AbandonAction::Queue(reason) => {
+        let status = unsafe { (self.abandon)(tsfn, self.target, trace, reason) };
+        release_unqueued_count(tsfn, status);
+      }
+      AbandonAction::Sync => {
+        drop(pending);
+        abandon_on_js_thread(env, tsfn, self.target, trace, true);
+        ABANDONED_SYNC.fetch_add(1, Ordering::Relaxed);
+      }
+    }
   }
 }
 
+/// Cleans up the promise of a `JsDeferred` dropped unsettled, on its env's JavaScript thread with
+/// the env alive, and leaves it pending: frees the `napi_deferred` (an inert thenable, refused
+/// and so leaked, 16 B, while the env cannot run JavaScript), releases the threadsafe function's
+/// thread count, deletes the trace reference and frees the thenable slot. Runs from the `Drop`
+/// itself (`open_scope`: it may run outside any napi callback, where Node has no handle scope),
+/// or from the queued [`Outcome::Abandon`]`(None)` item (the dispatch has a scope open).
+///
+/// Never reads, clears or replaces a pending exception that is not its own. Called without the
+/// `pending_tsfn` lock: the release can run the finalize callback at once, which takes it.
+#[cfg(not(target_family = "wasm"))]
+fn abandon_on_js_thread(
+  env: sys::napi_env,
+  tsfn: sys::napi_threadsafe_function,
+  target: SettleTarget,
+  trace: MaybeTrace,
+  open_scope: bool,
+) {
+  if let SettleTarget::Deferred(deferred) = target {
+    let scope = if open_scope {
+      DeferredHandleScope::open(env)
+    } else {
+      None
+    };
+    // No scope where one is needed: make no handle, and leak the 16 B deferred.
+    if !open_scope || scope.is_some() {
+      // Returns at once with an exception pending; clears only the exceptions it made.
+      crate::async_work::release_deferred_pending(env, deferred);
+    }
+    drop(scope);
+  }
+  unsafe {
+    sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::release)
+  };
+  // Deferred mode. Thenable mode keeps the reference in the slot, which `release` deletes.
+  #[cfg(feature = "deferred_trace")]
+  if let Some(trace) = trace {
+    unsafe { sys::napi_delete_reference(env, trace.0) };
+  }
+  #[cfg(not(feature = "deferred_trace"))]
+  let () = trace;
+  // No JavaScript, no handle: legal with an exception pending and during teardown.
+  target.release(env);
+}
+
 /// [`QueueAbandon`] for one `Data` / `Resolver`: queues an [`Outcome::Abandon`] item. The item
-/// holds no resolver, a trace reference with no `Drop`, and an empty callback slot: nothing
-/// user-owned, so an item the host never delivers leaks only napi-rs state (this box, the empty
-/// slot, the trace reference). A call that queued nothing hands the item back, and it is freed
-/// here, under the caller's lock; that runs no user code.
+/// holds no resolver, a trace reference with no `Drop`, an empty callback slot and at most a
+/// [`AbandonReason`] tag: nothing user-owned, so an item the host never delivers leaks only
+/// napi-rs state (this box, the empty slot, the trace reference). A call that queued nothing
+/// hands the item back, and it is freed here, under the caller's lock; that runs no user code.
 #[cfg(not(target_family = "wasm"))]
 unsafe fn queue_abandon<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   tsfn: sys::napi_threadsafe_function,
   target: SettleTarget,
   trace: MaybeTrace,
+  reason: Option<AbandonReason>,
 ) -> sys::napi_status {
   #[cfg(not(feature = "deferred_trace"))]
   let () = trace;
   let item = Box::into_raw(Box::new(DeferredData::<Data, Resolver> {
-    outcome: Outcome::Abandon,
+    outcome: Outcome::Abandon(reason),
     target,
     #[cfg(feature = "deferred_trace")]
     trace,
@@ -1062,27 +1391,34 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
 ) {
   let target = deferred_data.target;
   let tsfn: sys::napi_threadsafe_function = deferred_data.tsfn;
+  // An abandon that rejects goes down the normal settle path below, with an error built here
+  // from its tag. The settle-time callback is not in the item (the dropping thread dropped it,
+  // unrun), so nothing user-owned runs.
+  #[cfg(not(target_family = "wasm"))]
+  let mut abandon_rejects = false;
   let resolver = match deferred_data.outcome {
     Outcome::Settle(resolver) => resolver,
-    Outcome::Abandon => {
-      // Every clone was dropped unsettled: free the settle state and leave the promise pending,
-      // but held by nothing, so it and its awaiters can be collected. The settle-time callback
-      // is not here: the dropping thread dropped it, unrun.
-      if let SettleTarget::Deferred(deferred) = target {
-        // Thenable mode needs nothing: `release` below frees the slot that holds the promise.
-        crate::async_work::release_deferred_pending(env, deferred);
-      }
-      unsafe {
-        sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::release)
-      };
-      // Deferred mode. Thenable mode keeps the reference in the slot, which `release` deletes.
+    #[cfg(not(target_family = "wasm"))]
+    Outcome::Abandon(Some(reason)) => {
+      abandon_rejects = true;
+      Err(reason.error())
+    }
+    #[cfg(not(target_family = "wasm"))]
+    Outcome::Abandon(None) => {
+      // Dropped on this thread with an exception pending, in deferred mode: free the settle state
+      // and leave the promise pending, but held by nothing, so it and its awaiters can be
+      // collected. The dispatch has a handle scope open.
       #[cfg(feature = "deferred_trace")]
-      if let Some(trace) = deferred_data.trace {
-        unsafe { sys::napi_delete_reference(env, trace.0) };
-      }
-      target.release(env);
+      let trace = deferred_data.trace;
+      #[cfg(not(feature = "deferred_trace"))]
+      let trace = ();
+      abandon_on_js_thread(env, tsfn, target, trace, false);
+      ABANDONED_QUEUED.fetch_add(1, Ordering::Relaxed);
       return;
     }
+    // Never built on wasm.
+    #[cfg(target_family = "wasm")]
+    Outcome::Abandon(_) => return,
   };
   let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
     .expect("RwLock Poison")
@@ -1136,10 +1472,24 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     // JavaScript actually rejected with.
     #[cfg(not(feature = "deferred_trace"))]
     let error = unsafe { ToNapiValue::to_napi_value(env, e) };
+    // An abandon that rejects must not leave its promise pending because building the rejection
+    // threw (with `deferred_trace`, a throwing setter on `Error.prototype`): reject with what
+    // was thrown. Nothing settled the promise yet, so this is still its one settling call. This
+    // runs in the threadsafe-function dispatch, entered with no exception pending, so the one
+    // taken here came from the calls above.
+    #[cfg(not(target_family = "wasm"))]
+    let error = match error {
+      Err(err) if abandon_rejects => crate::async_work::take_pending_exception(env).ok_or(err),
+      error => error,
+    };
 
     match error {
       Ok(error) => {
         target.settle(env, false, error);
+        #[cfg(not(target_family = "wasm"))]
+        if abandon_rejects {
+          ABANDON_REJECTED.fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(finalize_callback) = finalize_callback {
           finalize_callback(env);
         }
@@ -1170,6 +1520,12 @@ fn settle_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
   }
   // Settled, refused or failed: the slot goes. A kept outcome stays for `then` (or the sweep).
   target.release(env);
+  #[cfg(not(target_family = "wasm"))]
+  if abandon_rejects {
+    // Entered with no exception pending (see above), so one pending now came from the calls
+    // above. Left pending, Node would report it as uncaught.
+    let _ = crate::async_work::take_pending_exception(env);
+  }
 }
 
 /// Compile-only: never called. A resolver that borrows a local declared after the deferred, with
@@ -1185,4 +1541,58 @@ fn dropck_resolver_borrows_later_local(env: &Env, cond: bool) -> Result<()> {
     deferred.resolve(resolver);
   }
   Ok(())
+}
+
+/// The abandon rule, row by row: every combination of thread, origin, settle target and pending
+/// exception.
+#[cfg(all(test, not(target_family = "wasm")))]
+mod abandon_action_tests {
+  use super::AbandonAction::{Queue, Sync};
+  use super::*;
+
+  const U: u8 = ORIGIN_USER;
+  const T: u8 = ORIGIN_TASK;
+  const R: u8 = ORIGIN_TASK_RETURNED;
+  const REJECT_DROPPED: AbandonAction = Queue(Some(AbandonReason::DeferredDropped));
+  const REJECT_TASK: AbandonAction = Queue(Some(AbandonReason::TaskDropped));
+  const QUEUE_CLEANUP: AbandonAction = Queue(None);
+
+  #[test]
+  fn abandon_action_table() {
+    // (on_owner, origin, is_deferred, exception_pending, expected)
+    let table = [
+      (false, U, false, false, REJECT_DROPPED),
+      (false, U, false, true, REJECT_DROPPED),
+      (false, U, true, false, REJECT_DROPPED),
+      (false, U, true, true, REJECT_DROPPED),
+      (false, T, false, false, REJECT_TASK),
+      (false, T, false, true, REJECT_TASK),
+      (false, T, true, false, REJECT_TASK),
+      (false, T, true, true, REJECT_TASK),
+      (false, R, false, false, REJECT_TASK),
+      (false, R, false, true, REJECT_TASK),
+      (false, R, true, false, REJECT_TASK),
+      (false, R, true, true, REJECT_TASK),
+      (true, U, false, false, Sync),
+      (true, U, false, true, Sync),
+      (true, U, true, false, Sync),
+      (true, U, true, true, QUEUE_CLEANUP),
+      (true, T, false, false, Sync),
+      (true, T, false, true, Sync),
+      (true, T, true, false, Sync),
+      (true, T, true, true, QUEUE_CLEANUP),
+      (true, R, false, false, REJECT_TASK),
+      (true, R, false, true, REJECT_TASK),
+      (true, R, true, false, REJECT_TASK),
+      (true, R, true, true, REJECT_TASK),
+    ];
+    assert_eq!(table.len(), 2 * 3 * 2 * 2);
+    for (on_owner, origin, is_deferred, exception_pending, expected) in table {
+      assert_eq!(
+        abandon_action(on_owner, origin, is_deferred, exception_pending),
+        expected,
+        "on_owner={on_owner} origin={origin} is_deferred={is_deferred} exception_pending={exception_pending}",
+      );
+    }
+  }
 }

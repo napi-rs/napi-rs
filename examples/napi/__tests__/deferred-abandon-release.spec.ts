@@ -10,10 +10,12 @@ import { loadedAddon } from './multi-env-helpers.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// The promise of a `JsDeferred` dropped unsettled stays pending, and nothing may keep it: on the
-// main thread (deferred mode) its `napi_deferred` used to pin it, with every awaiter, until the
-// process exited. Each case runs in a child process: `async-shutdown` stops the async runtime of
-// the whole process, and the gc loop needs `--expose-gc`.
+// Nothing may keep the promise of a `JsDeferred` dropped unsettled: on the main thread (deferred
+// mode) its `napi_deferred` used to pin it, with every awaiter, until the process exited. Dropped
+// on its JavaScript thread, the promise stays pending; dropped on another thread, or as an
+// `async fn` task dropped by a runtime shutdown, it is rejected. Each case runs in a child
+// process: `async-shutdown` stops the async runtime of the whole process, and the gc loop needs
+// `--expose-gc`.
 function run(kase: string, where: string, n: number) {
   const result = spawnSync(
     process.execPath,
@@ -42,20 +44,22 @@ function run(kase: string, where: string, n: number) {
 
 const N = 100
 const settled = { resumed: 0, threw: 0, lateHandlerRuns: 0, unhandled: [] }
+// Rejected: the `then` reaction and the `await` of each promise throw once.
+const rejected = { ...settled, threw: 2 * N }
 
-for (const kase of [
-  // Made and dropped on the JavaScript thread, observed after the drop.
-  'drop',
-  // Observed before the drop.
-  'observe',
-  // Dropped on another thread.
-  'off-thread',
-  // `#[napi] async fn` tasks dropped by an explicit runtime shutdown.
-  'async-shutdown',
+for (const [kase, outcome] of [
+  // Made and dropped on the JavaScript thread, observed after the drop: pending.
+  ['drop', settled],
+  // Observed before the drop, on the JavaScript thread: still pending (a documented limit).
+  ['observe', settled],
+  // Dropped on another thread: rejected.
+  ['off-thread', rejected],
+  // `#[napi] async fn` tasks dropped by an explicit runtime shutdown: rejected.
+  ['async-shutdown', rejected],
 ] as const) {
   for (const where of ['main', 'worker'] as const) {
     test.skipIf(Boolean(process.env.WASI_TEST))(
-      `the promise of a dropped deferred is collected and stays pending: ${kase}, ${where}`,
+      `the promise of a dropped deferred is collected: ${kase}, ${where}`,
       (t) => {
         const { result, output, report } = run(kase, where, N)
         t.is(result.error, undefined, result.error?.stack)
@@ -68,14 +72,14 @@ for (const kase of [
                 mode: 'deferred',
                 allCollected: true,
                 collected: N,
-                ...settled,
+                ...outcome,
                 code: 0,
               }
             : {
                 mode: 'thenable',
                 allCollected: true,
                 collected: N,
-                ...settled,
+                ...outcome,
                 exitedByItself: true,
               },
           output,

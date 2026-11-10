@@ -1,11 +1,13 @@
-//! The promise of a `JsDeferred` dropped unsettled stays pending, but napi-rs must not keep it:
-//! in deferred mode (the Node and Bun main thread) its `napi_deferred` used to pin the promise,
-//! and everything that awaits it, until the process exited.
+//! The promise of a `JsDeferred` dropped unsettled on its JavaScript thread stays pending (one
+//! dropped on another thread is rejected), but napi-rs must not keep it: in deferred mode (the
+//! Node and Bun main thread) its `napi_deferred` used to pin the promise, and everything that
+//! awaits it, until the process exited.
 
 use napi::bindgen_prelude::*;
 
 /// Makes `n` deferreds, hands their promises to `observe` (which attaches awaiters), then drops
-/// every deferred unsettled, all on the JavaScript thread.
+/// every deferred unsettled, all on the JavaScript thread. The drop cleans up at once and does
+/// not reject, although JavaScript already holds the promises (a documented limit).
 #[napi]
 pub fn drop_deferred_after_observe(
   env: &Env,

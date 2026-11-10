@@ -129,7 +129,9 @@
 //! `JsDeferred` may pick its settle mode and compile the wrapper. A `JsDeferred` made in
 //! deferred mode, or without the wrapper, keeps its `napi_deferred` as before (16 B leaked if
 //! its env is torn down before it settles). If every clone is dropped unsettled first, the
-//! abandon frees it (`release_deferred_pending`) and the promise stays pending, held by nothing.
+//! promise is either rejected (a task's promise, or a deferred dropped on another thread), or
+//! cleaned up on its JavaScript thread: `release_deferred_pending` frees the deferred, and the
+//! promise stays pending, held by nothing (see `JsDeferred`).
 
 use std::cell::RefCell;
 use std::ptr;
@@ -1273,7 +1275,7 @@ impl DetachedPromise {
 /// resume or throw) and nothing holds it any more. No user code runs and no exception is
 /// reported. When the env refuses (an exception pending, or teardown), nothing is freed, as
 /// before.
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
 pub(crate) fn release_deferred_pending(env: sys::napi_env, deferred: sys::napi_deferred) {
   // Never touch an exception that is not ours.
   if exception_pending(env) {
@@ -1303,7 +1305,7 @@ pub(crate) fn release_deferred_pending(env: sys::napi_env, deferred: sys::napi_d
 }
 
 /// The `then` of [`release_deferred_pending`]: reads nothing, calls nothing.
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
 unsafe extern "C" fn inert_then(
   _env: sys::napi_env,
   _info: sys::napi_callback_info,
@@ -1361,7 +1363,7 @@ pub(crate) fn release_env_promise_states(env: sys::napi_env) {
 }
 
 /// Takes the exception pending on `env`, if any. Neither call has a `NAPI_PREAMBLE`.
-pub(super) fn take_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
+pub(crate) fn take_pending_exception(env: sys::napi_env) -> Option<sys::napi_value> {
   let mut pending = false;
   if unsafe { sys::napi_is_exception_pending(env, &mut pending) } != sys::Status::napi_ok
     || !pending

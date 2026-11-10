@@ -1,7 +1,9 @@
 // Drops `JsDeferred`s unsettled while JavaScript awaits their promises, then checks that nothing
 // keeps those promises: each one, and what awaits it, must be collected. In deferred mode (the
 // main thread of Node and Bun) the promise's `napi_deferred` used to pin it until the process
-// exited. The promises stay pending: their awaiters must never resume or throw.
+// exited. Dropped on the JavaScript thread, the promises stay pending: their awaiters must never
+// resume or throw. Dropped on another thread, or as `async fn` tasks dropped by a runtime
+// shutdown, they are rejected: each awaiter throws once.
 // Usage: node --expose-gc <this file> <addon> <case> <main|worker|terminate|exit> <n>
 // * case: drop | off-thread | async-shutdown | observe | polluted | late-handler
 //   polluted: throwing getters on Object.prototype.then and .handle while the deferreds are
@@ -113,9 +115,10 @@ async function start(native) {
       native.dropDeferredUnsettled(n).forEach(observe)
       return
     case 'polluted': {
-      const promises = native.dropDeferredUnsettled(n)
-      // The abandons are queued, not run yet: they run with the getters installed.
+      // The getters are installed first: each drop releases its deferred at once, inside the
+      // native call, so that release runs with them.
       pollute()
+      const promises = native.dropDeferredUnsettled(n)
       promises.forEach(observe)
       return
     }
@@ -140,8 +143,8 @@ async function start(native) {
       return
     }
     case 'late-handler': {
-      // Kept: the first half. The abandons run in order, so once the second half is collected
-      // the kept ones were released too.
+      // Kept: the first half. Every deferred was released inside the native call, so once the
+      // second half is collected the kept ones were released too.
       const promises = native.dropDeferredUnsettled(n)
       kept = promises.slice(0, n / 2)
       promises.slice(n / 2).forEach(observe)

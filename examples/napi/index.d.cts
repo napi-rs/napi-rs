@@ -855,6 +855,15 @@ export interface AsyncTaskSettleCounters {
   /** `asyncFnSleep` calls whose future started, and whose future finished. */
   asyncFnSleepsStarted: number
   asyncFnSleepsFinished: number
+  /**
+   * `JsDeferred`s dropped unsettled and cleaned up at once, inside the drop, on their
+   * JavaScript thread.
+   */
+  jsDeferredAbandonedSync: number
+  /** `JsDeferred`s dropped unsettled whose cleanup (no rejection) was queued, once it ran. */
+  jsDeferredAbandonedQueued: number
+  /** `JsDeferred`s dropped unsettled whose promise was rejected, once the rejection ran. */
+  jsDeferredAbandonRejected: number
 }
 
 /**
@@ -1426,7 +1435,8 @@ export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
 
 /**
  * Makes `n` deferreds, hands their promises to `observe` (which attaches awaiters), then drops
- * every deferred unsettled, all on the JavaScript thread.
+ * every deferred unsettled, all on the JavaScript thread. The drop cleans up at once and does
+ * not reject, although JavaScript already holds the promises (a documented limit).
  */
 export declare function dropDeferredAfterObserve(n: number, observe: (promise: Promise<number>) => void): void
 
@@ -1453,6 +1463,13 @@ export declare function dropDeferredOffThreadWithCallback(n: number, delayMs: nu
 export declare function dropDeferredUnsettled(n: number): Promise<number>[]
 
 /**
+ * Makes a deferred, throws `thrown`, then drops the deferred unsettled with that exception
+ * pending, and returns. JavaScript must catch `thrown` itself: the drop must not read, clear or
+ * replace it. In deferred mode the cleanup is queued then; in thenable mode it runs at once.
+ */
+export declare function dropDeferredWithExceptionPending(thrown: unknown): void
+
+/**
  * Converts `value` into an `Error` — creating a `napi_ref` to it, the same
  * code path a `Promise` rejection takes — and drops it on a spawned thread.
  */
@@ -1463,6 +1480,12 @@ export declare function dropErrorFromValueOffThread(value: unknown): void
  * [`hold_function_refs_on_thread`] drop its references, and waits for it.
  */
 export declare function dropHeldFunctionRefsAtTeardown(): void
+
+/**
+ * Drops the deferreds `keep_deferreds` kept on this thread, unsettled, in this later call.
+ * Returns how many.
+ */
+export declare function dropKeptDeferreds(): number
 
 /** Drops the stashed cancel handle, on the calling thread. */
 export declare function dropStashedCancelHandle(): void
@@ -1701,6 +1724,9 @@ export declare function jsRangeErrorWithoutRetainedValue(reason: string): RangeE
 export declare function jsTypeErrorFromRetainedValue(value: unknown): TypeError
 
 export declare function jsTypeErrorWithoutRetainedValue(reason: string): TypeError
+
+/** Makes `n` deferreds and keeps them in a thread local of this thread. Returns their promises. */
+export declare function keepDeferreds(n: number): Promise<number>[]
 
 /** default enum values are continuos i32s start from 0 */
 export declare const enum Kind {
