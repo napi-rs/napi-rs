@@ -1,0 +1,5 @@
+error: #[napi(extends = ...)] requires #[repr(C)]
+ --> tests/build_error_tests/extends_missing_repr.rs:7:1
+  |
+7 | pub struct Child { parent: Parent }
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

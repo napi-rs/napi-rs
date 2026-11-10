@@ -1,0 +1,6 @@
+error: #[napi(extends = ...)] requires the embedded parent as its first field
+ --> tests/build_error_tests/extends_empty.rs:7:1
+  |
+7 | / #[repr(C)]
+8 | | pub struct Child {}
+  | |___________________^

@@ -13,3 +13,9 @@ fn run_build_error_tests() {
   t.compile_fail("tests/build_error_tests/fn_outside_impl_factory.rs");
   t.compile_fail("tests/build_error_tests/assign_js_value_to_class.rs");
 }
+
+#[test]
+fn inheritance_layout_errors() {
+  let t = trybuild::TestCases::new();
+  t.compile_fail("tests/build_error_tests/extends_*.rs");
+}

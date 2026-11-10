@@ -415,6 +415,41 @@ export declare class GetterSetterWithClosures {
   constructor()
 }
 
+export declare class InheritanceBase {
+  value: number
+  constructor(value: number)
+  static fromValue(value: number): InheritanceBase
+  doubled(): number
+  increment(): void
+  get amount(): number
+  set amount(value: number)
+  exactValue(): number
+  [globalThis.Symbol.toPrimitive](hint: string): number
+  reenter(callback: () => void): void
+}
+export type InheritanceRoot = InheritanceBase
+
+export declare class InheritanceChild {
+  extra: number
+  static create(value: number, extra: number): InheritanceChild
+  ownValue(): number
+}
+
+export interface InheritanceChild extends Omit<InheritanceBase, "exactValue"> {}
+
+export declare class InheritanceGrandchild {
+  leaf: number
+  static create(value: number, extra: number, leaf: number): InheritanceGrandchild
+}
+
+export interface InheritanceGrandchild extends InheritanceChild {}
+
+export declare class InheritanceSibling {
+  static create(value: number): InheritanceSibling
+}
+
+export interface InheritanceSibling extends Omit<InheritanceBase, "exactValue"> {}
+
 export declare class Issue3600Empty {}
 
 export declare class Issue3600Tracked {
@@ -1528,8 +1563,6 @@ export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
-export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
-
 export declare function fibonacci(n: number): number
 
 export declare function float64ArraySliceCopyFrom(data: Array<number>): Float64Array
@@ -1628,6 +1661,10 @@ export declare function indexmapPassthrough(fixture: Record<string, number>): Re
 export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
+
+export declare function inheritanceDropCounts(): Array<number>
+
+export declare function inheritanceExactArgument(value: InheritanceBase): number
 
 export declare function intoUtf8(s: string): string
 
@@ -2098,11 +2135,6 @@ export declare function referenceWithTupleArg(callback: (arg: [number, number]) 
 export declare function reflectRefsDeletedAtTeardown(): number
 
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
-
-export interface RequestInit {
-  method?: string
-  headers?: Record<string, string>
-}
 
 export declare function returnCString(): string
 

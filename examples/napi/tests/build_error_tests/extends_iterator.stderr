@@ -1,0 +1,6 @@
+error: #[napi(extends = ...)] cannot be combined with #[napi(iterator)] or #[napi(async_iterator)]
+ --> tests/build_error_tests/extends_iterator.rs:7:1
+  |
+7 | / #[repr(C)]
+8 | | pub struct Child { parent: Parent }
+  | |___________________________________^
