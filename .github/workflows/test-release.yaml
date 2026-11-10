@@ -111,6 +111,11 @@ jobs:
       - name: Clippy
         run: cargo clippy
 
+      # Every workspace crate enables napi10, so this standalone crate is the
+      # only build of #[napi(extends)] against napi's default features.
+      - name: '#[napi(extends)] requires napi8'
+        run: ./testing/extends-requires-napi8/check.sh
+
   wasm-runtime:
     name: wasm-runtime (Node ${{ matrix.node }}, emnapi ${{ matrix.emnapi }})
     runs-on: ubuntu-latest
