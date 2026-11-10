@@ -23,6 +23,44 @@ use syn::{parse_macro_input, ItemFn};
 ///   "hello" + name
 /// }
 /// ```
+///
+/// # Class inheritance: `#[napi(extends = Parent)]`
+///
+/// A class can extend one other `#[napi]` class by embedding it, by value, as
+/// its first field of a `#[repr(C)]` struct:
+///
+/// ```ignore
+/// #[napi]
+/// pub struct Animal { pub name: String }
+///
+/// #[napi(extends = Animal)]
+/// #[repr(C)]
+/// pub struct Dog { parent: Animal, pub breed: String }
+///
+/// #[napi]
+/// impl Dog {
+///   #[napi(factory)]
+///   pub fn create(name: String, breed: String) -> Self {
+///     Self { parent: Animal { name }, breed }
+///   }
+/// }
+/// ```
+///
+/// `Dog.prototype` inherits from `Animal.prototype`, so `dog instanceof Animal`
+/// holds and a `Dog` gets `Animal`'s fields, getters/setters and `&self` /
+/// `&mut self` methods. Only instances inherit:
+///
+/// - The child cannot have a constructor; create it with a `factory`.
+/// - Statics and factories are not inherited, and `Dog` does not extend
+///   `Animal` as a class. TypeScript declarations emit
+///   `interface Dog extends Animal {}`, not `class Dog extends Animal`.
+/// - Methods taking `Reference<Self>` or a typed `This<T>`, and functions
+///   taking `&Animal`, still require an exact `Animal`; they are left out of
+///   `Dog`'s declared type. Note that `x instanceof Animal` narrows a `Dog` to
+///   `Animal` in TypeScript, including those exact-only members.
+/// - The parent cannot use `custom_finalize`, and the child cannot be generic,
+///   packed, an iterator, or an `object`.
+/// - Requires the `napi8` feature on native targets.
 #[proc_macro_attribute]
 pub fn napi(attr: TokenStream, input: TokenStream) -> TokenStream {
   match expand::expand(attr.into(), input.into()) {
