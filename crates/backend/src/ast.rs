@@ -49,17 +49,22 @@ pub struct CallbackArg {
 }
 
 impl NapiFn {
-  /// Reference<Self> owns bookkeeping for the concrete allocation and cannot
-  /// be reconstructed for an embedded parent. Such methods remain exact-only.
+  /// Whether a descendant may be this method's receiver.
+  ///
+  /// `Reference<Self>` owns bookkeeping for the concrete allocation and cannot
+  /// be reconstructed for an embedded parent, and a typed `This<T>` converts
+  /// `this` with the exact-class `FromNapiValue`/`FromNapiRef` check. Methods
+  /// taking either remain exact-only. An untyped `This` is a plain object.
   pub fn has_inherited_receiver(&self) -> bool {
     matches!(self.fn_self, Some(FnSelf::Ref | FnSelf::MutRef))
       && !self.args.iter().any(|arg| match &arg.kind {
         NapiFnArgKind::PatType(arg) => match arg.ty.as_ref() {
-          syn::Type::Path(ty) => ty
-            .path
-            .segments
-            .last()
-            .is_some_and(|s| s.ident == "Reference"),
+          syn::Type::Path(ty) => ty.path.segments.last().is_some_and(|s| {
+            s.ident == "Reference"
+              || (s.ident == "This"
+                && matches!(&s.arguments, syn::PathArguments::AngleBracketed(args)
+                  if args.args.iter().any(|a| matches!(a, syn::GenericArgument::Type(_)))))
+          }),
           _ => false,
         },
         _ => false,
