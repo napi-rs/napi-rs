@@ -164,6 +164,8 @@ pub struct NapiClass {
 }
 
 impl NapiClass {
+  /// Whether `member` is the embedded `#[napi(extends)]` parent field, which
+  /// never gets a JavaScript accessor.
   pub fn is_parent_field(&self, member: &syn::Member) -> bool {
     self
       .parent_field

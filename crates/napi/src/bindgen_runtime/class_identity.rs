@@ -151,6 +151,8 @@ pub(crate) fn type_id_of<T: ?Sized>() -> TypeId {
   })
 }
 
+/// Whether the class recorded when `wrapped` was wrapped is a descendant of
+/// `T` in the validated hierarchy. Used where type tags are unavailable.
 #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 pub(crate) fn check_inherited_class_identity<T>(wrapped: *mut c_void) -> bool {
   let recorded = super::REFERENCE_MAP
