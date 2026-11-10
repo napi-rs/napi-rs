@@ -961,6 +961,9 @@ impl NapiStruct {
     let js_name_str = &self.js_name;
 
     for field in class.fields.iter() {
+      if class.is_parent_field(&field.name) {
+        continue;
+      }
       let field_ident = &field.name;
       let field_name = match &field.name {
         syn::Member::Named(ident) => ident.to_string(),
@@ -1019,13 +1022,13 @@ impl NapiStruct {
             ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
               #tracing_debug
               let this_ptr = unsafe {
-                napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
+                napi::bindgen_prelude::unwrap_inherited_receiver::<#struct_name>(env, this)?
               };
               // Held until the end of this call, so the field borrow stays exclusive
               // across return-value conversion.
               let _napi_native_borrow =
                 napi::bindgen_prelude::acquire_native_borrow(this_ptr, true)?;
-              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              let obj: &mut #struct_name = unsafe { &mut *this_ptr };
               #to_napi_value_convert
             }
           },
@@ -1048,12 +1051,12 @@ impl NapiStruct {
                 <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, value)?
               };
               let this_ptr = unsafe {
-                napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
+                napi::bindgen_prelude::unwrap_inherited_receiver::<#struct_name>(env, this)?
               };
               // Held until the end of this call, so the field assignment stays exclusive.
               let _napi_native_borrow =
                 napi::bindgen_prelude::acquire_native_borrow(this_ptr, true)?;
-              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              let obj: &mut #struct_name = unsafe { &mut *this_ptr };
               obj.#field_ident = val;
               unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }
             }
@@ -1088,6 +1091,27 @@ impl NapiStruct {
     let struct_register_name = &self.register_name;
     let js_name = format!("{}\0", self.js_name);
     let implement_iterator = class.implement_iterator;
+    let inheritance_iterator = class.implement_iterator || class.implement_async_iterator;
+    let parent_id = match &class.extends {
+      Some(parent) => quote! { Some(std::any::TypeId::of::<#parent>()) },
+      None => quote! { None },
+    };
+    let layout_assertion = match (&class.extends, &class.parent_field) {
+      (Some(parent), Some((member, ty))) => quote! {
+        const _: () = {
+          #[diagnostic::on_unimplemented(message = "the first field must be exactly the #[napi(extends)] parent type")]
+          trait ExactParent<T> {}
+          impl<T> ExactParent<T> for T {}
+          fn check<T: ExactParent<#parent>>() {}
+          let _ = check::<#ty>;
+          fn parent_is_class<T: napi::bindgen_prelude::TypeTag>() {}
+          let _ = parent_is_class::<#parent>;
+          assert!(std::mem::offset_of!(#name, #member) == 0);
+          impl<M> napi::__private::ExtendsClassCannotDeclareAConstructor<M> for #name {}
+        };
+      },
+      _ => quote! {},
+    };
     let mut props = vec![];
 
     if class.ctor {
@@ -1095,6 +1119,9 @@ impl NapiStruct {
     }
 
     for field in class.fields.iter() {
+      if class.is_parent_field(&field.name) {
+        continue;
+      }
       let field_name = match &field.name {
         syn::Member::Named(ident) => ident.to_string(),
         syn::Member::Unnamed(i) => format!("field{}", i.index),
@@ -1156,13 +1183,14 @@ impl NapiStruct {
     }
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     quote! {
+      #layout_assertion
       #[cfg(all(not(test), not(target_family = "wasm")))]
       napi::ctor::declarative::ctor! {
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
         #[ctor(unsafe)]
         fn #struct_register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
+          unsafe { napi::__private::register_class_with_parent(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator, <#name as napi::bindgen_prelude::TypeTag>::type_tag(), #parent_id, #inheritance_iterator); }
         }
       }
 
@@ -1171,7 +1199,7 @@ impl NapiStruct {
       #[cfg(all(not(test), target_family = "wasm"))]
       #[no_mangle]
       extern "C" fn #struct_register_name() {
-        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
+        unsafe { napi::__private::register_class_with_parent(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator, <#name as napi::bindgen_prelude::TypeTag>::type_tag(), #parent_id, #inheritance_iterator); }
       }
     }
   }
@@ -1710,6 +1738,7 @@ impl NapiImpl {
     let register_name = &self.register_name;
 
     let mut methods = vec![];
+    let mut constructor_guards = vec![];
     let mut props = HashMap::new();
     let mut accessor_descriptors = HashMap::new();
     let mut accessor_descriptor_count = 0u32;
@@ -1718,6 +1747,20 @@ impl NapiImpl {
       let item_str = item.name.to_string();
       let intermediate_name = get_intermediate_ident(&item_str);
       methods.push(item.try_to_token_stream()?);
+      if item.kind == FnKind::Constructor {
+        // Conflicts with the blanket impl a `#[napi(extends)]` child emits.
+        let self_ty = if self.has_lifetime {
+          quote! { #name<'_> }
+        } else {
+          quote! { #name }
+        };
+        constructor_guards.push(quote_spanned! { item.name.span()=>
+          const _: () = {
+            struct ConstructorMarker;
+            impl napi::__private::ExtendsClassCannotDeclareAConstructor<ConstructorMarker> for #self_ty {}
+          };
+        });
+      }
 
       let mut attribute = super::PROPERTY_ATTRIBUTE_DEFAULT;
       if item.writable {
@@ -1796,6 +1839,9 @@ impl NapiImpl {
         }
         FnKind::Getter => quote! { .with_getter(#intermediate_name) },
         FnKind::Setter => quote! { .with_setter(#intermediate_name) },
+        FnKind::Normal if item.has_inherited_receiver() => quote! {
+          .with_method(#intermediate_name).with_inherited_receiver()
+        },
         // Static members carry `PROPERTY_ATTRIBUTE_STATIC` in `attribute`.
         _ => quote! { .with_method(#intermediate_name) },
       };
@@ -1833,6 +1879,7 @@ impl NapiImpl {
         use super::*;
         #(#accessor_descriptors)*
         #(#methods)*
+        #(#constructor_guards)*
 
         #[cfg(all(not(test), not(target_family = "wasm")))]
         napi::ctor::declarative::ctor! {

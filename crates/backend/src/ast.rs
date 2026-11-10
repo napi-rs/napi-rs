@@ -48,6 +48,25 @@ pub struct CallbackArg {
   pub ret: Option<syn::Type>,
 }
 
+impl NapiFn {
+  /// Reference<Self> owns bookkeeping for the concrete allocation and cannot
+  /// be reconstructed for an embedded parent. Such methods remain exact-only.
+  pub fn has_inherited_receiver(&self) -> bool {
+    matches!(self.fn_self, Some(FnSelf::Ref | FnSelf::MutRef))
+      && !self.args.iter().any(|arg| match &arg.kind {
+        NapiFnArgKind::PatType(arg) => match arg.ty.as_ref() {
+          syn::Type::Path(ty) => ty
+            .path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "Reference"),
+          _ => false,
+        },
+        _ => false,
+      })
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct NapiFnArg {
   pub kind: NapiFnArgKind,
@@ -131,7 +150,17 @@ pub struct NapiClass {
   pub use_custom_finalize: bool,
   /// Rust identifier of the single embedded parent class, when this class
   /// participates in `#[napi(extends = Parent)]` inheritance.
-  pub extends: Option<String>,
+  pub extends: Option<syn::Path>,
+  pub parent_field: Option<(syn::Member, syn::Type)>,
+}
+
+impl NapiClass {
+  pub fn is_parent_field(&self, member: &syn::Member) -> bool {
+    self
+      .parent_field
+      .as_ref()
+      .is_some_and(|(field, _)| field == member)
+  }
 }
 
 #[derive(Debug, Clone)]

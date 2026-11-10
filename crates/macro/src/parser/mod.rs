@@ -1495,19 +1495,43 @@ impl ConvertToAST for syn::ItemStruct {
       && opts.array().is_none()
       && opts.object().is_none()
     {
-      let has_repr_c = self.attrs.iter().any(|attr| {
-        attr.path().is_ident("repr") && attr.meta.to_token_stream().to_string().contains('C')
-      });
+      let mut has_repr_c = false;
+      let mut has_packed = false;
+      for attr in self
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("repr"))
+      {
+        let reprs = attr.parse_args_with(
+          syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+        )?;
+        for repr in reprs {
+          has_repr_c |= repr.path().is_ident("C");
+          has_packed |= repr.path().is_ident("packed");
+        }
+      }
       if !has_repr_c {
         errors.push(err_span!(
           self,
           "#[napi(extends = ...)] requires #[repr(C)]"
         ));
       }
+      if !self.generics.params.is_empty() {
+        errors.push(err_span!(
+          self.generics,
+          "#[napi(extends = ...)] does not support generic or lifetime parameters"
+        ));
+      }
       if self.fields.is_empty() {
         errors.push(err_span!(
           self,
           "#[napi(extends = ...)] requires the embedded parent as its first field"
+        ));
+      }
+      if has_packed {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] cannot use #[repr(packed)]: the parent must be aligned"
         ));
       }
       if implement_iterator || implement_async_iterator {
@@ -1575,7 +1599,20 @@ impl ConvertToAST for syn::ItemStruct {
         implement_async_iterator,
         is_tuple,
         use_custom_finalize: opts.custom_finalize().is_some(),
-        extends: opts.extends().map(|(parent, _)| parent.to_owned()),
+        extends: opts.extends().cloned(),
+        parent_field: opts
+          .extends()
+          .and_then(|_| self.fields.iter().next())
+          .map(|field| {
+            (
+              field
+                .ident
+                .clone()
+                .map(syn::Member::Named)
+                .unwrap_or_else(|| syn::Member::Unnamed(0.into())),
+              field.ty.clone(),
+            )
+          }),
       })
     };
 
