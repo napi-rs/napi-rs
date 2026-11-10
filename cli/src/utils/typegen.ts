@@ -512,10 +512,12 @@ export async function processTypeDefs(
     reservedDeclarationText,
   )
   const typeImports = collectTypeImports(typeDefsWithUniqueMarkers.flat())
+  const groupedTypeDefs = typeDefsWithUniqueMarkers.map((defs) =>
+    preprocessTypeDef(preserveTypeImportMarkers(defs)),
+  )
+  resolveInstanceParents(groupedTypeDefs)
   const dtsWithTypeImportMarkers = renderTypeDefs(
-    typeDefsWithUniqueMarkers.map((defs) =>
-      preprocessTypeDef(preserveTypeImportMarkers(defs)),
-    ),
+    groupedTypeDefs,
     constEnum,
     runtimeStringEnum,
     exports,
@@ -2189,15 +2191,32 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
     }
   }
 
-  // Resolve after collecting every crate's fragments, independent of macro
-  // expansion order. Never silently select between ambiguous Rust names.
+  return namespaceGrouped
+}
+
+/**
+ * Resolves each `#[napi(extends)]` class's `instance_parent` (a Rust name)
+ * to the parent's declared type, after every intermediate file has been
+ * preprocessed. A parent may live in another crate's file, so this must see
+ * all of them. Prefers a parent in the child's namespace, then a unique one
+ * anywhere; a missing or ambiguous parent, or a cycle, is an error.
+ */
+function resolveInstanceParents(
+  groupedTypeDefs: Map<string, TypeDefLine[]>[],
+): void {
+  const classDefs = groupedTypeDefs.flatMap((grouped) =>
+    [...grouped.values()]
+      .flat()
+      .filter((def) => def.kind === TypeDefKind.Struct),
+  )
+  // Never silently select between ambiguous Rust names.
   const visiting = new Set<TypeDefLine>()
   const resolved = new Set<TypeDefLine>()
   const resolveParent = (child: TypeDefLine): void => {
     if (!child.instance_parent || resolved.has(child)) return
     if (visiting.has(child)) throw new Error('Cycle in #[napi(extends)] types')
     visiting.add(child)
-    const candidates = [...classDefs.values()].filter(
+    const candidates = classDefs.filter(
       (candidate) => candidate.original_name === child.instance_parent,
     )
     const local = candidates.filter(
@@ -2221,8 +2240,7 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
     visiting.delete(child)
     resolved.add(child)
   }
-  for (const child of classDefs.values()) resolveParent(child)
-  return namespaceGrouped
+  for (const child of classDefs) resolveParent(child)
 }
 
 export function correctStringIdent(src: string, ident: number): string {

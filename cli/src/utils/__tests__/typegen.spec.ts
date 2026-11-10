@@ -5,7 +5,11 @@ import { fileURLToPath } from 'url'
 
 import test from 'ava'
 
-import { correctStringIdent, processTypeDef } from '../typegen.js'
+import {
+  correctStringIdent,
+  processTypeDef,
+  processTypeDefs,
+} from '../typegen.js'
 
 async function processInlineTypeDef(
   lines: Array<Record<string, unknown>>,
@@ -287,4 +291,36 @@ test('extends rejects an ambiguous parent', async (t) => {
     ]),
     { message: /ambiguous #\[napi\(extends\)\] parent Base for Child/ },
   )
+})
+
+test('extends resolves a parent from another crate’s type-def file', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-typegen-'))
+  const parentFile = join(dir, 'parent-crate')
+  const childFile = join(dir, 'child-crate')
+  await writeFile(
+    parentFile,
+    JSON.stringify({
+      kind: 'struct',
+      name: 'Base',
+      original_name: 'Base',
+      def: '',
+    }) + '\n',
+  )
+  await writeFile(
+    childFile,
+    JSON.stringify({
+      kind: 'struct',
+      name: 'Child',
+      original_name: 'Child',
+      def: '',
+      instance_parent: 'Base',
+    }) + '\n',
+  )
+  try {
+    // Child first: resolution must not depend on file order.
+    const { dts } = await processTypeDefs([childFile, parentFile], true)
+    t.true(dts.includes('export interface Child extends Base {}'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
