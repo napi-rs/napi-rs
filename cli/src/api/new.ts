@@ -493,6 +493,8 @@ async function filterTargetsInGithubActions(
     'x86_64-unknown-linux-musl',
     'aarch64-unknown-linux-gnu',
     'aarch64-unknown-linux-musl',
+    'i686-unknown-linux-gnu',
+    'i686-unknown-linux-musl',
     'armv7-unknown-linux-gnueabihf',
     'armv7-unknown-linux-musleabihf',
     'loongarch64-unknown-linux-gnu',

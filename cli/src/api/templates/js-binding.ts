@@ -373,6 +373,12 @@ function requireNative() {
       } else {
         ${requireTuple('linux-x64-gnu', 10)}
       }
+    } else if (process.arch === 'ia32') {
+      if (isMusl()) {
+        ${requireTuple('linux-ia32-musl', 10)}
+      } else {
+        ${requireTuple('linux-ia32-gnu', 10)}
+      }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         ${requireTuple('linux-arm64-musl', 10)}
