@@ -2051,7 +2051,12 @@ pub(crate) fn execute_future_impl<
   let deferred_for_panic = deferred.clone();
   #[cfg(all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable)))]
   let deferred_for_threadless = deferred.clone();
-  let sendable_resolver = SendableResolver::new(resolver);
+  // SAFETY: the resolver is called in `deferred.resolve`, on the JavaScript thread. On the error
+  // path, and when the future is cancelled, it is dropped on the runtime thread instead, so a
+  // resolver that captures data which is not `Send` is still not fully covered here. Requiring
+  // `Resolver: Send` would close that, but it changes public signatures that forward a resolver
+  // here, such as `Env::spawn_future_with_callback`.
+  let sendable_resolver = unsafe { SendableResolver::new_unchecked(resolver) };
 
   // `fut` drops before `deferred` however the task ends (see `fut_then_settle`).
   let inner = fut_then_settle(fut, deferred, move |output, deferred| match output {
