@@ -48,6 +48,34 @@ pub struct CallbackArg {
   pub ret: Option<syn::Type>,
 }
 
+impl NapiFn {
+  /// Whether a descendant may be this method's receiver.
+  ///
+  /// `Reference<Self>` owns bookkeeping for the concrete allocation and cannot
+  /// be reconstructed for an embedded parent, and a typed `This<T>` converts
+  /// `this` with the exact-class `FromNapiValue`/`FromNapiRef` check. Methods
+  /// taking either remain exact-only. An untyped `This` is a plain object.
+  ///
+  /// The macro cannot tell whether `T` is a class, so this is conservative:
+  /// `This<Object>` or `This<JsObject>` would accept a descendant but are
+  /// also kept exact-only. Narrowing it is a possible later refinement.
+  pub fn has_inherited_receiver(&self) -> bool {
+    matches!(self.fn_self, Some(FnSelf::Ref | FnSelf::MutRef))
+      && !self.args.iter().any(|arg| match &arg.kind {
+        NapiFnArgKind::PatType(arg) => match arg.ty.as_ref() {
+          syn::Type::Path(ty) => ty.path.segments.last().is_some_and(|s| {
+            s.ident == "Reference"
+              || (s.ident == "This"
+                && matches!(&s.arguments, syn::PathArguments::AngleBracketed(args)
+                  if args.args.iter().any(|a| matches!(a, syn::GenericArgument::Type(_)))))
+          }),
+          _ => false,
+        },
+        _ => false,
+      })
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct NapiFnArg {
   pub kind: NapiFnArgKind,
@@ -129,6 +157,21 @@ pub struct NapiClass {
   pub implement_async_iterator: bool,
   pub is_tuple: bool,
   pub use_custom_finalize: bool,
+  /// Rust identifier of the single embedded parent class, when this class
+  /// participates in `#[napi(extends = Parent)]` inheritance.
+  pub extends: Option<syn::Path>,
+  pub parent_field: Option<(syn::Member, syn::Type)>,
+}
+
+impl NapiClass {
+  /// Whether `member` is the embedded `#[napi(extends)]` parent field, which
+  /// never gets a JavaScript accessor.
+  pub fn is_parent_field(&self, member: &syn::Member) -> bool {
+    self
+      .parent_field
+      .as_ref()
+      .is_some_and(|(field, _)| field == member)
+  }
 }
 
 #[derive(Debug, Clone)]

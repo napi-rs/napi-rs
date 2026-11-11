@@ -66,6 +66,9 @@ interface TypeDefLine {
   def: string
   def_with_type_import_markers?: string
   extends?: string
+  instance_parent?: string
+  instanceParentType?: string
+  exact_methods?: string[]
   asyncIterator?: [yieldType: string, returnType: string, nextType: string]
   js_doc?: string
   js_mod?: string
@@ -265,6 +268,9 @@ function prettyPrint(
       }
       s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} ${blockBody(classDef)}`
       s += iteratorInterface
+      if (line.instanceParentType) {
+        s += `\n\nexport interface ${line.name} extends ${line.instanceParentType} {}`
+      }
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
       }
@@ -506,10 +512,12 @@ export async function processTypeDefs(
     reservedDeclarationText,
   )
   const typeImports = collectTypeImports(typeDefsWithUniqueMarkers.flat())
+  const groupedTypeDefs = typeDefsWithUniqueMarkers.map((defs) =>
+    preprocessTypeDef(preserveTypeImportMarkers(defs)),
+  )
+  resolveInstanceParents(groupedTypeDefs)
   const dtsWithTypeImportMarkers = renderTypeDefs(
-    typeDefsWithUniqueMarkers.map((defs) =>
-      preprocessTypeDef(preserveTypeImportMarkers(defs)),
-    ),
+    groupedTypeDefs,
     constEnum,
     runtimeStringEnum,
     exports,
@@ -2159,6 +2167,10 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
       // merge `impl` into class definition
       const classDef = classDefs.get(classKey)
       if (classDef) {
+        classDef.exact_methods = [
+          ...(classDef.exact_methods ?? []),
+          ...(def.exact_methods ?? []),
+        ]
         const asyncIterator = parseAsyncGeneratorImpl(def.def)
         if (asyncIterator) {
           classDef.asyncIterator = asyncIterator
@@ -2180,6 +2192,55 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
   }
 
   return namespaceGrouped
+}
+
+/**
+ * Resolves each `#[napi(extends)]` class's `instance_parent` (a Rust name)
+ * to the parent's declared type, after every intermediate file has been
+ * preprocessed. A parent may live in another crate's file, so this must see
+ * all of them. Prefers a parent in the child's namespace, then a unique one
+ * anywhere; a missing or ambiguous parent, or a cycle, is an error.
+ */
+function resolveInstanceParents(
+  groupedTypeDefs: Map<string, TypeDefLine[]>[],
+): void {
+  const classDefs = groupedTypeDefs.flatMap((grouped) =>
+    [...grouped.values()]
+      .flat()
+      .filter((def) => def.kind === TypeDefKind.Struct),
+  )
+  // Never silently select between ambiguous Rust names.
+  const visiting = new Set<TypeDefLine>()
+  const resolved = new Set<TypeDefLine>()
+  const resolveParent = (child: TypeDefLine): void => {
+    if (!child.instance_parent || resolved.has(child)) return
+    if (visiting.has(child)) throw new Error('Cycle in #[napi(extends)] types')
+    visiting.add(child)
+    const candidates = classDefs.filter(
+      (candidate) => candidate.original_name === child.instance_parent,
+    )
+    const local = candidates.filter(
+      (candidate) => candidate.js_mod === child.js_mod,
+    )
+    const matches = local.length ? local : candidates
+    if (matches.length !== 1) {
+      throw new Error(
+        `Missing or ambiguous #[napi(extends)] parent ${child.instance_parent} for ${child.name}`,
+      )
+    }
+    const parent = matches[0]!
+    resolveParent(parent)
+    const parentName = parent.js_mod
+      ? `${parent.js_mod}.${parent.name}`
+      : parent.name
+    const excluded = parent.exact_methods ?? []
+    child.instanceParentType = excluded.length
+      ? `Omit<${parentName}, ${excluded.map((name) => JSON.stringify(name)).join(' | ')}>`
+      : parentName
+    visiting.delete(child)
+    resolved.add(child)
+  }
+  for (const child of classDefs) resolveParent(child)
 }
 
 export function correctStringIdent(src: string, ident: number): string {

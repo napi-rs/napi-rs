@@ -75,6 +75,7 @@ struct ClassRegistration {
   js_name: &'static str,
   props: Vec<Property>,
   implement_iterator: bool,
+  layout: Option<super::inheritance::ClassLayout>,
 }
 
 // Stores class metadata registered by napi macros.
@@ -712,6 +713,7 @@ pub fn register_class(
       js_name,
       props: Vec::new(),
       implement_iterator,
+      layout: None,
     });
     val.js_name = js_name;
     val.implement_iterator |= implement_iterator;
@@ -729,6 +731,41 @@ pub fn register_class(
   props: Vec<Property>,
   implement_iterator: bool,
 ) {
+}
+
+/// Registers the layout metadata emitted for a class struct. Impl blocks keep
+/// using register_class, so their order relative to the struct is immaterial.
+///
+/// # Safety
+/// If parent is present, this type must embed that exact parent type by value
+/// at offset zero with compatible alignment. The derive asserts these facts.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments, unused_variables)]
+pub unsafe fn register_class_with_parent(
+  rust_type_id: TypeId,
+  js_mod: Option<&'static str>,
+  js_name: &'static str,
+  props: Vec<Property>,
+  implement_iterator: bool,
+  tag: sys::napi_type_tag,
+  parent: Option<TypeId>,
+  inheritance_iterator: bool,
+) {
+  register_class(rust_type_id, js_mod, js_name, props, implement_iterator);
+  #[cfg(not(feature = "noop"))]
+  MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
+    inner
+      .get_mut(&rust_type_id)
+      .unwrap()
+      .get_mut(&js_mod)
+      .unwrap()
+      .layout = Some(super::inheritance::ClassLayout {
+      id: rust_type_id,
+      tag: [tag.lower, tag.upper],
+      parent,
+      iterator: inheritance_iterator,
+    });
+  });
 }
 
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
@@ -1310,6 +1347,28 @@ pub unsafe extern "C" fn napi_register_module_v1(
     });
   }
 
+  // Validate before entering first-load coordination: a malformed addon must
+  // fail on every worker without leaving another worker waiting for this load.
+  if let Err(error) = super::inheritance::HIERARCHY.get_or_init(|| {
+    MODULE_CLASS_PROPERTIES.borrow(|inner| {
+      let classes: Vec<_> = inner
+        .values()
+        .flat_map(|mods| mods.values())
+        .filter_map(|class| {
+          class.layout.map(|mut layout| {
+            layout.iterator |= class.implement_iterator;
+            layout
+          })
+        })
+        .collect();
+      super::inheritance::Hierarchy::build(&classes)
+    })
+  }) {
+    unsafe {
+      JsError::from(Error::from_reason(error.clone())).throw_into(env);
+    }
+    return exports;
+  }
   if MODULE_COUNT.fetch_add(1, Ordering::SeqCst) != 0 {
     wait_first_thread_registered();
   }
@@ -1609,7 +1668,17 @@ unsafe fn register_classes(
   ctor_refs: &mut Vec<(&'static str, sys::napi_ref)>,
 ) -> Result<()> {
   MODULE_CLASS_PROPERTIES.borrow(|inner| {
-    for js_mods in inner.values() {
+    let mut prototypes: HashMap<
+      TypeId,
+      Vec<(Option<&'static str>, sys::napi_value)>,
+      FxBuildHasher,
+    > = HashMap::default();
+    let mut edges = Vec::new();
+    #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+    let hierarchy = super::inheritance::HIERARCHY
+      .get()
+      .and_then(|h| h.as_ref().ok());
+    for (type_id, js_mods) in inner {
       for (js_mod, class_registration) in js_mods {
         let mut exports_js_mod = ptr::null_mut();
         unsafe {
@@ -1650,6 +1719,10 @@ unsafe fn register_classes(
             .transpose()?
             .and_then(|c| c.method)
             .unwrap_or(noop);
+          #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+          let (inherited_methods, props): (Vec<_>, Vec<_>) = props.into_iter().partition(|prop| {
+            prop.inherited_receiver && hierarchy.is_some_and(|h| h.is_base(*type_id))
+          });
           let raw_props = props
             .iter()
             .map(|prop| prop.raw(env))
@@ -1690,6 +1763,47 @@ unsafe fn register_classes(
             }
           }
 
+          let mut prototype = ptr::null_mut();
+          check_status!(sys::napi_get_named_property(
+            env,
+            class_ptr,
+            c"prototype".as_ptr(),
+            &mut prototype
+          ))?;
+          prototypes
+            .entry(*type_id)
+            .or_default()
+            .push((*js_mod, prototype));
+          if let Some(parent) = class_registration.layout.and_then(|layout| layout.parent) {
+            edges.push((*js_mod, parent, prototype));
+          }
+          // Standalone functions avoid V8's exact-class method signature.
+          // Their generated callback still validates the native receiver and
+          // holds the existing borrow guard for the full callback lifetime.
+          #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
+          for property in inherited_methods {
+            let mut descriptor = property.raw(env)?;
+            let mut function = ptr::null_mut();
+            // Keep `Parent.prototype.method.name` and stack traces as they are
+            // for signature-bound methods. Symbol-keyed methods stay unnamed.
+            check_status!(sys::napi_create_function(
+              env,
+              descriptor.utf8name,
+              if descriptor.utf8name.is_null() {
+                0
+              } else {
+                super::NAPI_AUTO_LENGTH
+              },
+              descriptor.method,
+              descriptor.data,
+              &mut function
+            ))?;
+            descriptor.method = None;
+            descriptor.data = ptr::null_mut();
+            descriptor.value = function;
+            check_status!(sys::napi_define_properties(env, prototype, 1, &descriptor))?;
+          }
+
           let mut ctor_ref = ptr::null_mut();
           check_status!(
             sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref),
@@ -1716,8 +1830,57 @@ unsafe fn register_classes(
         }
       }
     }
-    Ok(())
+    unsafe { wire_class_parents(env, &prototypes, &edges) }
   })
+}
+
+/// Links each child prototype to its parent's with `Object.setPrototypeOf`,
+/// once every class of this env is defined. A parent is looked up in the
+/// child's namespace first, then as the only candidate; anything else fails.
+#[cfg(not(feature = "noop"))]
+unsafe fn wire_class_parents(
+  env: sys::napi_env,
+  prototypes: &HashMap<TypeId, Vec<(Option<&'static str>, sys::napi_value)>, FxBuildHasher>,
+  edges: &[(Option<&'static str>, TypeId, sys::napi_value)],
+) -> Result<()> {
+  if edges.is_empty() {
+    return Ok(());
+  }
+  let mut resolved = Vec::new();
+  for (namespace, parent, child) in edges {
+    let candidates = prototypes
+      .get(parent)
+      .ok_or_else(|| Error::from_reason("Missing #[napi(extends)] parent prototype"))?;
+    let parent = candidates
+      .iter()
+      .find(|(ns, _)| ns == namespace)
+      .or_else(|| (candidates.len() == 1).then(|| &candidates[0]))
+      .ok_or_else(|| Error::from_reason("Ambiguous #[napi(extends)] parent namespace"))?;
+    resolved.push((*child, parent.1));
+  }
+  let mut global = ptr::null_mut();
+  let mut object = ptr::null_mut();
+  let mut set_prototype = ptr::null_mut();
+  check_status!(unsafe { sys::napi_get_global(env, &mut global) })?;
+  check_status!(unsafe {
+    sys::napi_get_named_property(env, global, c"Object".as_ptr(), &mut object)
+  })?;
+  check_status!(unsafe {
+    sys::napi_get_named_property(env, object, c"setPrototypeOf".as_ptr(), &mut set_prototype)
+  })?;
+  for (child, parent) in resolved {
+    check_status!(unsafe {
+      sys::napi_call_function(
+        env,
+        object,
+        set_prototype,
+        2,
+        [child, parent].as_ptr(),
+        ptr::null_mut(),
+      )
+    })?;
+  }
+  Ok(())
 }
 
 #[cfg(not(feature = "noop"))]

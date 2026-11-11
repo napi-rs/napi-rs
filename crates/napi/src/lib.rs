@@ -274,11 +274,42 @@ pub mod bindgen_prelude {
 pub mod __private {
   pub use crate::bindgen_runtime::{
     get_class_constructor, get_class_constructor_in_env, iterator::create_iterator, register_class,
-    ___CALL_FROM_FACTORY,
+    register_class_with_parent, ___CALL_FROM_FACTORY,
   };
 
   #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub use crate::bindgen_runtime::async_iterator::create_async_iterator;
+
+  /// Compile-time guard for `#[napi(extends = Parent)]`. A child class
+  /// implements this for every marker, and each `#[napi(constructor)]`
+  /// implements it for its own marker, so a child with a constructor fails
+  /// with a conflicting-implementation error that names this rule.
+  #[doc(hidden)]
+  pub trait ExtendsClassCannotDeclareAConstructor<Marker> {}
+
+  /// Implemented by every `#[napi]` class without `custom_finalize`. A child
+  /// is finalized as itself, so a parent's `ObjectFinalize::finalize` would
+  /// never run for it; such parents cannot be extended.
+  #[doc(hidden)]
+  #[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be a #[napi(extends)] parent",
+    label = "this class uses #[napi(custom_finalize)] or is not a #[napi] class",
+    note = "a child is finalized as the child, so the parent's `ObjectFinalize::finalize` would never run"
+  )]
+  pub trait ExtendableClass {}
+
+  /// `#[napi(extends)]` relies on a receiver check that only native `napi8`
+  /// (type tags) or wasm (class identity, no V8 method signatures) provide.
+  #[doc(hidden)]
+  #[diagnostic::on_unimplemented(
+    message = "#[napi(extends = ...)] requires the `napi8` feature of `napi` on native targets",
+    label = "inheritance is used here",
+    note = "enable `napi8` (or later) on the `napi` dependency"
+  )]
+  pub trait InheritanceSupported {}
+
+  #[cfg(any(feature = "napi8", target_family = "wasm"))]
+  impl InheritanceSupported for () {}
 
   use crate::sys;
 

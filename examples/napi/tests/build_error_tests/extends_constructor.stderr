@@ -1,0 +1,8 @@
+error: #[napi(extends = ...)] cannot be combined with #[napi(constructor)]; use a factory
+  --> tests/build_error_tests/extends_constructor.rs:9:1
+   |
+ 9 | / #[repr(C)]
+10 | | pub struct Child {
+11 | |   pub parent: Parent,
+12 | | }
+   | |_^

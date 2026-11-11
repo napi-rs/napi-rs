@@ -399,14 +399,25 @@ impl NapiFn {
     let mut receiver_conversion = quote! {};
     // fetch this
     if let Some(parent) = &self.parent {
+      let (unwrap_receiver, borrow_receiver) = if self.has_inherited_receiver() {
+        (
+          quote! { napi::bindgen_prelude::unwrap_inherited_receiver::<#parent>(env, cb.this())? },
+          quote! { napi::bindgen_prelude::register_inherited_borrow_with_value },
+        )
+      } else {
+        (
+          quote! { cb.unwrap_raw::<#parent>()? },
+          quote! { napi::bindgen_prelude::register_native_borrow_with_value },
+        )
+      };
       match self.fn_self {
         // `receiver_unwrap` always calls `register_native_borrow_with_value`. In a
         // `new_async` scope (root_values = true) that roots `cb.this()` or returns `Err`, so
         // `this` needs no second root.
         Some(FnSelf::Ref) => {
           receiver_unwrap = quote! {
-            let this_ptr = cb.unwrap_raw::<#parent>()?;
-            napi::bindgen_prelude::register_native_borrow_with_value(
+            let this_ptr = #unwrap_receiver;
+            #borrow_receiver(
               env,
               cb.this(),
               this_ptr,
@@ -414,13 +425,13 @@ impl NapiFn {
             )?;
           };
           receiver_conversion = quote! {
-            let this: &#parent = Box::leak(Box::from_raw(this_ptr));
+            let this: &#parent = &*this_ptr;
           };
         }
         Some(FnSelf::MutRef) => {
           receiver_unwrap = quote! {
-            let this_ptr = cb.unwrap_raw::<#parent>()?;
-            napi::bindgen_prelude::register_native_borrow_with_value(
+            let this_ptr = #unwrap_receiver;
+            #borrow_receiver(
               env,
               cb.this(),
               this_ptr,
@@ -428,7 +439,7 @@ impl NapiFn {
             )?;
           };
           receiver_conversion = quote! {
-            let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
+            let this: &mut #parent = &mut *this_ptr;
           };
         }
         _ => {}

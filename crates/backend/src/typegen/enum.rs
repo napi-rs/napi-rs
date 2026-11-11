@@ -14,6 +14,8 @@ impl ToTypeDef for NapiEnum {
     );
 
     Some(TypeDef {
+      instance_parent: None,
+      exact_methods: Vec::new(),
       kind: if self.is_string_enum {
         "string_enum".to_owned()
       } else {

@@ -1,0 +1,8 @@
+error: #[napi(extends = ...)] cannot use #[repr(packed)]: the parent must be aligned
+  --> tests/build_error_tests/extends_packed.rs:9:1
+   |
+ 9 | / #[repr(C, packed(2))]
+10 | | pub struct Child {
+11 | |   parent: Parent,
+12 | | }
+   | |_^

@@ -1,0 +1,5 @@
+error: #[napi(extends = ...)] does not support generic or lifetime parameters
+  --> tests/build_error_tests/extends_lifetime.rs:10:17
+   |
+10 | pub struct Child<'a> {
+   |                 ^^^^

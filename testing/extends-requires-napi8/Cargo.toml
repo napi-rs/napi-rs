@@ -1,0 +1,19 @@
+# Standalone (excluded from the workspace) so it can build `napi` with its
+# default features: every workspace crate enables napi10.
+[package]
+name = "extends-requires-napi8"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+napi8 = ["napi/napi8"]
+
+[dependencies]
+napi = { path = "../../crates/napi" }
+napi-derive = { path = "../../crates/macro" }
+
+[workspace]

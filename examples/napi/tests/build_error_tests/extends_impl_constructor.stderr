@@ -1,0 +1,8 @@
+error[E0119]: conflicting implementations of trait `napi::__private::ExtendsClassCannotDeclareAConstructor<ConstructorMarker>` for type `Child`
+  --> tests/build_error_tests/extends_impl_constructor.rs:17:10
+   |
+ 8 | #[napi(extends = Parent)]
+   | ------------------------- first implementation here
+...
+17 |   pub fn new() -> Self {
+   |          ^^^ conflicting implementation for `Child`

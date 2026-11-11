@@ -5,7 +5,11 @@ import { fileURLToPath } from 'url'
 
 import test from 'ava'
 
-import { correctStringIdent, processTypeDef } from '../typegen.js'
+import {
+  correctStringIdent,
+  processTypeDef,
+  processTypeDefs,
+} from '../typegen.js'
 
 async function processInlineTypeDef(
   lines: Array<Record<string, unknown>>,
@@ -210,4 +214,113 @@ external: Buffer
   t.true(formatted.includes('  mapped: { [Buffer in keyof T]: T[Buffer] }'))
   t.true(formatted.includes('  external: Buffer'))
   t.false(formatted.includes('\nmapped:'))
+})
+
+test('extends emits an instance-only interface, whatever the fragment order', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'struct',
+      name: 'Child',
+      original_name: 'Child',
+      def: 'extra: number',
+      instance_parent: 'Root',
+    },
+    {
+      kind: 'struct',
+      name: 'Base',
+      original_name: 'Root',
+      def: 'value: number',
+    },
+    {
+      kind: 'impl',
+      name: 'Base',
+      def: 'exact(): number\nshared(): number',
+      exact_methods: ['exact'],
+    },
+  ])
+  t.true(dts.includes('export interface Child extends Omit<Base, "exact"> {}'))
+  t.false(/class Child extends/.test(dts))
+})
+
+test('extends prefers a parent in the same namespace', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    { kind: 'struct', name: 'Base', original_name: 'Base', def: '' },
+    {
+      kind: 'struct',
+      name: 'Base',
+      original_name: 'Base',
+      def: '',
+      js_mod: 'ns',
+    },
+    {
+      kind: 'struct',
+      name: 'Child',
+      original_name: 'Child',
+      def: '',
+      js_mod: 'ns',
+      instance_parent: 'Base',
+    },
+  ])
+  t.true(dts.includes('export interface Child extends ns.Base {}'))
+})
+
+test('extends rejects an ambiguous parent', async (t) => {
+  await t.throwsAsync(
+    processInlineTypeDef([
+      {
+        kind: 'struct',
+        name: 'Base',
+        original_name: 'Base',
+        def: '',
+        js_mod: 'a',
+      },
+      {
+        kind: 'struct',
+        name: 'Base',
+        original_name: 'Base',
+        def: '',
+        js_mod: 'b',
+      },
+      {
+        kind: 'struct',
+        name: 'Child',
+        original_name: 'Child',
+        def: '',
+        instance_parent: 'Base',
+      },
+    ]),
+    { message: /ambiguous #\[napi\(extends\)\] parent Base for Child/ },
+  )
+})
+
+test('extends resolves a parent from another crate’s type-def file', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-typegen-'))
+  const parentFile = join(dir, 'parent-crate')
+  const childFile = join(dir, 'child-crate')
+  await writeFile(
+    parentFile,
+    JSON.stringify({
+      kind: 'struct',
+      name: 'Base',
+      original_name: 'Base',
+      def: '',
+    }) + '\n',
+  )
+  await writeFile(
+    childFile,
+    JSON.stringify({
+      kind: 'struct',
+      name: 'Child',
+      original_name: 'Child',
+      def: '',
+      instance_parent: 'Base',
+    }) + '\n',
+  )
+  try {
+    // Child first: resolution must not depend on file order.
+    const { dts } = await processTypeDefs([childFile, parentFile], true)
+    t.true(dts.includes('export interface Child extends Base {}'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

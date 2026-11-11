@@ -9,6 +9,7 @@ pub use env_registration::{
   env_teardown_class_refs_deleted, env_teardown_custom_gc_released,
   env_teardown_reflect_refs_deleted,
 };
+pub use inheritance::unwrap_inherited_receiver;
 pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
@@ -28,6 +29,7 @@ mod class_identity;
 mod env;
 pub(crate) mod env_registration;
 mod error;
+mod inheritance;
 pub mod iterator;
 mod js_values;
 mod module_register;

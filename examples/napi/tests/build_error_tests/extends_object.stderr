@@ -1,0 +1,7 @@
+error: #[napi(extends = ...)] is only valid on a class struct
+  --> tests/build_error_tests/extends_object.rs:9:1
+   |
+ 9 | / pub struct Child {
+10 | |   pub value: i32,
+11 | | }
+   | |_^

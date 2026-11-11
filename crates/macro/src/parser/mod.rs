@@ -1479,6 +1479,72 @@ impl ConvertToAST for syn::ItemStruct {
       })
       .transpose()?;
 
+    // A child must embed its parent at offset zero. Keep this validation in the
+    // parser so misuse is rejected before code generation can create unsafe
+    // receiver conversions.
+    if opts.extends().is_some()
+      && (transparent.is_some() || opts.array().is_some() || opts.object().is_some())
+    {
+      errors.push(err_span!(
+        self,
+        "#[napi(extends = ...)] is only valid on a class struct"
+      ));
+    }
+    if opts.extends().is_some()
+      && transparent.is_none()
+      && opts.array().is_none()
+      && opts.object().is_none()
+    {
+      let mut has_repr_c = false;
+      let mut has_packed = false;
+      for attr in self
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("repr"))
+      {
+        let reprs = attr.parse_args_with(
+          syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+        )?;
+        for repr in reprs {
+          has_repr_c |= repr.path().is_ident("C");
+          has_packed |= repr.path().is_ident("packed");
+        }
+      }
+      if !has_repr_c {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] requires #[repr(C)]"
+        ));
+      }
+      if !self.generics.params.is_empty() {
+        errors.push(err_span!(
+          self.generics,
+          "#[napi(extends = ...)] does not support generic or lifetime parameters"
+        ));
+      }
+      if self.fields.is_empty() {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] requires the embedded parent as its first field"
+        ));
+      }
+      if has_packed {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] cannot use #[repr(packed)]: the parent must be aligned"
+        ));
+      }
+      if implement_iterator || implement_async_iterator {
+        errors.push(err_span!(self, "#[napi(extends = ...)] cannot be combined with #[napi(iterator)] or #[napi(async_iterator)]"));
+      }
+      if opts.constructor().is_some() {
+        errors.push(err_span!(
+          self,
+          "#[napi(extends = ...)] cannot be combined with #[napi(constructor)]; use a factory"
+        ));
+      }
+    }
+
     let struct_kind = if let Some(transparent) = transparent {
       NapiStructKind::Transparent(NapiTransparent {
         ty: transparent,
@@ -1533,6 +1599,20 @@ impl ConvertToAST for syn::ItemStruct {
         implement_async_iterator,
         is_tuple,
         use_custom_finalize: opts.custom_finalize().is_some(),
+        extends: opts.extends().cloned(),
+        parent_field: opts
+          .extends()
+          .and_then(|_| self.fields.iter().next())
+          .map(|field| {
+            (
+              field
+                .ident
+                .clone()
+                .map(syn::Member::Named)
+                .unwrap_or_else(|| syn::Member::Unnamed(0.into())),
+              field.ty.clone(),
+            )
+          }),
       })
     };
 
