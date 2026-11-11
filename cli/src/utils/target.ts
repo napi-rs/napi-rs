@@ -38,6 +38,7 @@ export const AVAILABLE_TARGETS = [
   'powerpc64le-unknown-linux-musl',
   'powerpc64le-unknown-freebsd',
   's390x-unknown-linux-gnu',
+  's390x-unknown-linux-musl',
   'wasm32-wasip1',
   'wasm32-wasip1-threads',
 ] as const

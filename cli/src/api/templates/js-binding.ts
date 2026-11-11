@@ -410,7 +410,11 @@ function requireNative() {
         ${requireTuple('linux-ppc64-gnu', 10)}
       }
     } else if (process.arch === 's390x') {
-      ${requireTuple('linux-s390x-gnu')}
+      if (isMusl()) {
+        ${requireTuple('linux-s390x-musl', 10)}
+      } else {
+        ${requireTuple('linux-s390x-gnu', 10)}
+      }
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on Linux: \${process.arch}\`))
     }

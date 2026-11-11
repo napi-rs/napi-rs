@@ -502,6 +502,7 @@ async function filterTargetsInGithubActions(
     'powerpc64le-unknown-linux-gnu',
     'powerpc64le-unknown-linux-musl',
     's390x-unknown-linux-gnu',
+    's390x-unknown-linux-musl',
     'aarch64-linux-android',
     'armv7-linux-androideabi',
   ])
