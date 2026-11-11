@@ -500,6 +500,7 @@ async function filterTargetsInGithubActions(
     'loongarch64-unknown-linux-gnu',
     'riscv64gc-unknown-linux-gnu',
     'powerpc64le-unknown-linux-gnu',
+    'powerpc64le-unknown-linux-musl',
     's390x-unknown-linux-gnu',
     'aarch64-linux-android',
     'armv7-linux-androideabi',

@@ -404,7 +404,11 @@ function requireNative() {
         ${requireTuple('linux-riscv64-gnu', 10)}
       }
     } else if (process.arch === 'ppc64') {
-      ${requireTuple('linux-ppc64-gnu')}
+      if (isMusl()) {
+        ${requireTuple('linux-ppc64-musl', 10)}
+      } else {
+        ${requireTuple('linux-ppc64-gnu', 10)}
+      }
     } else if (process.arch === 's390x') {
       ${requireTuple('linux-s390x-gnu')}
     } else {

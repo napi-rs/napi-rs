@@ -35,6 +35,7 @@ export const AVAILABLE_TARGETS = [
   'loongarch64-unknown-linux-gnu',
   'riscv64gc-unknown-linux-gnu',
   'powerpc64le-unknown-linux-gnu',
+  'powerpc64le-unknown-linux-musl',
   'powerpc64le-unknown-freebsd',
   's390x-unknown-linux-gnu',
   'wasm32-wasip1',
