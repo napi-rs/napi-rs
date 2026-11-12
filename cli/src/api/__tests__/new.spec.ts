@@ -298,6 +298,7 @@ test('should generate builds for new Linux targets and skip empty Linux tests', 
     'i686-unknown-linux-gnu',
     'i686-unknown-linux-musl',
     'powerpc64le-unknown-linux-musl',
+    's390x-unknown-linux-musl',
   ]
 
   await newProject({

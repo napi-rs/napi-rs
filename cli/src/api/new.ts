@@ -64,6 +64,7 @@ const EXTRA_LINUX_BUILD_TARGETS = new Set([
   'i686-unknown-linux-gnu',
   'i686-unknown-linux-musl',
   'powerpc64le-unknown-linux-musl',
+  's390x-unknown-linux-musl',
 ])
 // Exported for tests.
 export const GENERATED_WASI_BINDING =

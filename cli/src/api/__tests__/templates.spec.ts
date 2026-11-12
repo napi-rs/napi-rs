@@ -415,6 +415,8 @@ const linuxBindingCases = [
   { arch: 'ia32', tuple: 'linux-ia32-musl', musl: true },
   { arch: 'ppc64', tuple: 'linux-ppc64-gnu' },
   { arch: 'ppc64', tuple: 'linux-ppc64-musl', musl: true },
+  { arch: 's390x', tuple: 'linux-s390x-gnu' },
+  { arch: 's390x', tuple: 'linux-s390x-musl', musl: true },
 ]
 
 for (const { arch, tuple, musl = false } of linuxBindingCases) {
