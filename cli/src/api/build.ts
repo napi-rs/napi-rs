@@ -14,6 +14,7 @@ import {
   resolve,
   sep,
 } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import * as colors from 'colorette'
 
@@ -265,10 +266,58 @@ export function checkAsyncRuntimeHostContract({
 
 type CargoConfigFingerprint = readonly [path: string, hash: string]
 
+// The type-def cache folder name feeds `NAPI_TYPE_DEF_TMP_FOLDER`, which
+// napi-build marks `rerun-if-env-changed`. Any absolute path baked into it
+// makes two checkouts of the same workspace (e.g. git worktrees) sharing a
+// `CARGO_TARGET_DIR` rerun the build script and recompile the addon on every
+// alternation, even though Cargo itself would reuse the artifacts: Cargo
+// fingerprints workspace packages by their workspace-relative path. Identify
+// paths inside the workspace the same way. Paths outside it (registry and git
+// sources, `CARGO_HOME` config) are left absolute; they are shared by every
+// checkout anyway.
+export function toWorkspaceRelativePath(
+  path: string,
+  workspaceRoot: string | undefined,
+): string {
+  if (!workspaceRoot) {
+    return path
+  }
+  const relativePath = relative(workspaceRoot, path)
+  if (
+    isAbsolute(relativePath) ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`)
+  ) {
+    return path
+  }
+  return relativePath === '' ? '.' : relativePath.split(sep).join('/')
+}
+
+const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Cargo package ids of path packages embed the absolute source URL, in both the
+// current (`path+file:///ws/crate#name@1.0.0`) and the legacy
+// (`name 1.0.0 (path+file:///ws/crate)`) formats.
+function workspacePackageIdNormalizer(
+  workspaceRoot: string | undefined,
+): (id: string) => string {
+  if (!workspaceRoot) {
+    return (id) => id
+  }
+  const rootUrl = pathToFileURL(workspaceRoot).href.replace(/\/$/, '')
+  const pattern = new RegExp(`${escapeRegExp(rootUrl)}(?=[/#)?]|$)`, 'g')
+  return (id) => id.replace(pattern, `file://${WORKSPACE_ROOT_PLACEHOLDER}`)
+}
+
 export function getCargoDependencyGraphFingerprint(
   metadata: CargoWorkspaceMetadata,
   rootPackageId: string,
 ): string {
+  const normalizeId = workspacePackageIdNormalizer(metadata.workspace_root)
   const packages = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]))
   const nodes = new Map(
     (metadata.resolve?.nodes ?? []).map((node) => [node.id, node]),
@@ -289,7 +338,7 @@ export function getCargoDependencyGraphFingerprint(
     const dependencies = (node?.deps ?? [])
       .map((dependency) => ({
         name: dependency.name,
-        pkg: dependency.pkg,
+        pkg: normalizeId(dependency.pkg),
         kinds: dependency.dep_kinds
           .map(({ kind, target }) => ({ kind, target }))
           .sort(
@@ -301,13 +350,15 @@ export function getCargoDependencyGraphFingerprint(
       .sort((left, right) =>
         JSON.stringify(left).localeCompare(JSON.stringify(right)),
       )
-    for (const dependency of dependencies) {
+    for (const dependency of node?.deps ?? []) {
       pending.push(dependency.pkg)
     }
 
     graph.push({
-      id,
-      manifestPath: pkg?.manifest_path,
+      id: normalizeId(id),
+      manifestPath:
+        pkg?.manifest_path &&
+        toWorkspaceRelativePath(pkg.manifest_path, metadata.workspace_root),
       resolvedFeatures: [...(node?.features ?? [])].sort(),
       dependencies,
       declaredDependencies: (pkg?.dependencies ?? [])
@@ -340,6 +391,7 @@ export function getTypeDefCacheFolder(options: {
   targetDir: string
   crateName: string
   manifestPath: string
+  workspaceRoot?: string
   targetTriple: string
   profile: string
   features?: string[]
@@ -361,16 +413,22 @@ export function getTypeDefCacheFolder(options: {
   const rustFlags = Object.entries(options.rustFlags ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
-  const cargoConfig = [...(options.cargoConfig ?? [])].sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
+  const cargoConfig = (options.cargoConfig ?? [])
+    .map(
+      ([path, hash]) =>
+        [toWorkspaceRelativePath(path, options.workspaceRoot), hash] as const,
+    )
+    .sort(([left], [right]) => left.localeCompare(right))
   const cargoProfileEnv = Object.entries(options.cargoProfileEnv ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
   const identity = JSON.stringify({
-    version: 4,
+    version: 5,
     cliVersion: CLI_VERSION,
-    manifestPath: options.manifestPath,
+    manifestPath: toWorkspaceRelativePath(
+      options.manifestPath,
+      options.workspaceRoot,
+    ),
     cargoDependencyGraph: options.cargoDependencyGraph,
     targetTriple: options.targetTriple,
     profile: options.profile,
@@ -2434,6 +2492,7 @@ class Builder {
       targetDir: this.targetDir,
       crateName: this.crate.name,
       manifestPath: this.crate.manifest_path,
+      workspaceRoot: this.metadata.workspace_root,
       targetTriple: this.cargoTriple,
       profile:
         this.options.profile ?? (this.options.release ? 'release' : 'dev'),
