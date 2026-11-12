@@ -352,6 +352,7 @@ function loadCjsBindingOn(
   platform: string,
   arch: string,
   available: string[],
+  { musl = false }: { musl?: boolean } = {},
 ) {
   const attempted: string[] = []
   const binding = { sum: () => 3 }
@@ -359,9 +360,15 @@ function loadCjsBindingOn(
     if (id === 'fs') {
       return {
         readFileSync: () => {
+          if (musl) {
+            return 'ld-musl-x86_64.so.1'
+          }
           throw new Error('ENOENT')
         },
       }
+    }
+    if (id === 'child_process') {
+      return { execSync: () => 'ldd (GNU libc) 2.36' }
     }
     attempted.push(id)
     if (available.includes(id)) {
@@ -399,6 +406,42 @@ for (const arch of ['x64', 'arm64']) {
       `./test.freebsd-${arch}.node`,
       `@scope/test-freebsd-${arch}`,
     ])
+    t.is((exports.sum as () => number)(), 3)
+  })
+}
+
+const linuxBindingCases = [
+  { arch: 'ia32', tuple: 'linux-ia32-gnu' },
+  { arch: 'ia32', tuple: 'linux-ia32-musl', musl: true },
+]
+
+for (const { arch, tuple, musl = false } of linuxBindingCases) {
+  const code = createCjsBinding('test', '@scope/test', ['sum'])
+  const local = `./test.${tuple}.node`
+  const pkg = `@scope/test-${tuple}`
+
+  test(`createCjsBinding loads the local Linux ${tuple} binding`, (t) => {
+    const { exports, attempted } = loadCjsBindingOn(
+      code,
+      'linux',
+      arch,
+      [local],
+      { musl },
+    )
+    t.deepEqual(attempted, [local])
+    t.is((exports.sum as () => number)(), 3)
+    t.is(exports.__napiBindingTarget, 'native')
+  })
+
+  test(`createCjsBinding falls back to the Linux ${tuple} package`, (t) => {
+    const { exports, attempted } = loadCjsBindingOn(
+      code,
+      'linux',
+      arch,
+      [pkg],
+      { musl },
+    )
+    t.deepEqual(attempted, [local, pkg])
     t.is((exports.sum as () => number)(), 3)
   })
 }

@@ -60,6 +60,10 @@ const WASI_CI_ARTIFACT_PATTERNS = [
   '*.wasi*-deferred.d.ts',
   'wasi-worker*.mjs',
 ]
+const EXTRA_LINUX_BUILD_TARGETS = new Set([
+  'i686-unknown-linux-gnu',
+  'i686-unknown-linux-musl',
+])
 // Exported for tests.
 export const GENERATED_WASI_BINDING =
   /(?:\.(?:wasi|wasip\d+)(?:-browser|-deferred)?\.(?:cjs|js|d\.[cm]?ts)|wasi-worker(?:-browser)?\.mjs)/
@@ -551,6 +555,46 @@ async function filterTargetsInGithubActions(
       }
       filteredSettings.push(setting)
     }
+    const packageManager =
+      settings
+        .find((setting: any) => typeof setting.build === 'string')
+        ?.build.trim()
+        .split(/\s+/)[0] ?? 'yarn'
+    const additionalZigTargets: string[] = []
+    for (const target of enabledTargets) {
+      if (
+        EXTRA_LINUX_BUILD_TARGETS.has(target) &&
+        !filteredSettings.some((setting: any) => setting.target === target)
+      ) {
+        filteredSettings.push({
+          host: 'ubuntu-latest',
+          target,
+          build: `${packageManager} build --target ${target} -x`,
+        })
+        if (!target.endsWith('-musl')) {
+          additionalZigTargets.push(target)
+        }
+      }
+    }
+    if (additionalZigTargets.length > 0) {
+      const zigCondition = additionalZigTargets
+        .map((target) => `contains(matrix.settings.target, '${target}')`)
+        .join(' || ')
+      for (const step of yaml.jobs.build.steps ?? []) {
+        if (
+          typeof step.if === 'string' &&
+          typeof step.uses === 'string' &&
+          (step.uses.startsWith('mlugg/setup-zig@') ||
+            (step.uses.startsWith('taiki-e/install-action@') &&
+              step.with?.tool === 'cargo-zigbuild'))
+        ) {
+          step.if = step.if.replace(
+            /^\$\{\{\s*(.*?)\s*\}\}$/,
+            `\${{ $1 || ${zigCondition} }}`,
+          )
+        }
+      }
+    }
     yaml.jobs.build.strategy.matrix.settings = filteredSettings
 
     for (const step of yaml.jobs.build.steps ?? []) {
@@ -611,7 +655,7 @@ async function filterTargetsInGithubActions(
   } else {
     // Filter the matrix configurations in the test-linux-x64-gnu-binding job
     if (yaml?.jobs?.['test-linux-binding']?.strategy?.matrix?.target) {
-      yaml.jobs['test-linux-binding'].strategy.matrix.target = yaml.jobs[
+      const linuxTestTargets = yaml.jobs[
         'test-linux-binding'
       ].strategy.matrix.target.filter((target: string) => {
         if (target) {
@@ -619,6 +663,10 @@ async function filterTargetsInGithubActions(
         }
         return true
       })
+      yaml.jobs['test-linux-binding'].strategy.matrix.target = linuxTestTargets
+      if (linuxTestTargets.length === 0) {
+        jobsToRemove.push('test-linux-binding')
+      }
     }
   }
 
@@ -687,6 +735,20 @@ async function filterTargetsInGithubActions(
     yaml.jobs.publish.needs = yaml.jobs.publish.needs.filter(
       (need: string) => !jobsToRemove.includes(need),
     )
+    const buildSettings = yaml.jobs?.build?.strategy?.matrix?.settings
+    const needsBuild = yaml.jobs.publish.needs.some(
+      (need: string) =>
+        Array.isArray(yaml.jobs[need]?.needs) &&
+        yaml.jobs[need].needs.includes('build'),
+    )
+    if (
+      !needsBuild &&
+      Array.isArray(buildSettings) &&
+      buildSettings.length > 0 &&
+      !yaml.jobs.publish.needs.includes('build')
+    ) {
+      yaml.jobs.publish.needs.push('build')
+    }
   }
 
   // Write back the filtered YAML
