@@ -294,7 +294,11 @@ test('should remove test-linux-binding job if no Linux targets are enabled', asy
 
 test('should generate builds for new Linux targets and skip empty Linux tests', async (t) => {
   const projectPath = join(t.context.tmpDir, 'new-linux-targets')
-  const targets = ['i686-unknown-linux-gnu', 'i686-unknown-linux-musl']
+  const targets = [
+    'i686-unknown-linux-gnu',
+    'i686-unknown-linux-musl',
+    'powerpc64le-unknown-linux-musl',
+  ]
 
   await newProject({
     path: projectPath,
