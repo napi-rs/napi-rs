@@ -292,6 +292,38 @@ test('should remove test-linux-binding job if no Linux targets are enabled', asy
   t.falsy(yamlObject.jobs.publish.needs.includes('test-linux-binding'))
 })
 
+test('should generate builds for new Linux targets and skip empty Linux tests', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'new-linux-targets')
+  const targets = [
+    'i686-unknown-linux-gnu',
+    'i686-unknown-linux-musl',
+    'powerpc64le-unknown-linux-musl',
+    's390x-unknown-linux-musl',
+  ]
+
+  await newProject({
+    path: projectPath,
+    targets,
+    enableDefaultTargets: false,
+  })
+
+  const ciYaml = await readFile(
+    join(projectPath, '.github', 'workflows', 'CI.yml'),
+    'utf-8',
+  )
+  const yamlObject = yamlLoad(ciYaml) as any
+  const settings = yamlObject.jobs.build.strategy.matrix.settings
+
+  for (const target of targets) {
+    const setting = settings.find((entry: any) => entry.target === target)
+    t.truthy(setting, `${target} should have a build entry`)
+    t.true(setting.build.includes(`--target ${target}`))
+  }
+  t.falsy(yamlObject.jobs['test-linux-binding'])
+  t.falsy(yamlObject.jobs.publish.needs.includes('test-linux-binding'))
+  t.true(yamlObject.jobs.publish.needs.includes('build'))
+})
+
 test('should fail when no path is provided', async (t) => {
   await t.throwsAsync(
     async () => {
