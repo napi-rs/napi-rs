@@ -3,6 +3,7 @@ use crate::parser::{attrs::BindgenAttrs, ParseNapi};
 use napi_derive_backend::{BindgenResult, TryToTokens};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use syn::{Attribute, Item};
 
@@ -113,21 +114,9 @@ fn replace_napi_attr_in_mod(
 
   if let Some((index, napi_attr)) = napi_attr {
     // adds `namespace = #js_namespace` into `#[napi]` attribute
-    let new_attr = match &napi_attr.meta {
-      syn::Meta::Path(_) => {
-        syn::parse_quote!(#[napi(namespace = #js_namespace)])
-      }
-      syn::Meta::List(list) => {
-        let existing = list.tokens.clone();
-        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
-      }
-      syn::Meta::NameValue(name_value) => {
-        let existing = &name_value.value;
-        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
-      }
-    };
-
-    let struct_opts = BindgenAttrs::try_from(&new_attr).unwrap();
+    let mut struct_opts = BindgenAttrs::try_from(napi_attr).unwrap();
+    let namespace = syn::parse_quote!(namespace = #js_namespace);
+    struct_opts.attrs.push((Cell::new(false), namespace));
     attrs.remove(index);
     Some(struct_opts)
   } else {
