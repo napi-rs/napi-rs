@@ -1,11 +1,11 @@
-#[napi]
+#[napi_derive::napi]
 mod xxh3 {
   use napi::bindgen_prelude::{BigInt, Buffer};
 
-  #[napi]
+  #[::napi_derive::napi]
   pub const ALIGNMENT: u32 = 16;
 
-  #[napi(js_name = "xxh3_64")]
+  #[napi_derive::napi(js_name = "xxh3_64")]
   pub fn xxh64(input: Buffer) -> u64 {
     let mut h: u64 = 0;
     for i in input.as_ref() {
@@ -24,13 +24,13 @@ mod xxh3 {
     h
   }
 
-  #[napi]
+  #[napi_derive::napi]
   /// Xxh3 class
   pub struct Xxh3 {
     inner: BigInt,
   }
 
-  #[napi]
+  #[napi_derive::napi]
   impl Xxh3 {
     #[napi(constructor)]
     #[allow(clippy::new_without_default)]

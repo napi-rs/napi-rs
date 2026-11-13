@@ -52,11 +52,12 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
             Item::Const(ref mut const_) => &mut const_.attrs,
             Item::Impl(ref mut impl_) => &mut impl_.attrs,
             Item::Mod(mod_) => {
-              let mod_in_mod = mod_
-                .attrs
-                .iter()
-                .enumerate()
-                .find(|(_, m)| m.path().is_ident("napi"));
+              let mod_in_mod = mod_.attrs.iter().enumerate().find(|(_, m)| {
+                m.path()
+                  .segments
+                  .last()
+                  .is_some_and(|segment| segment.ident == "napi")
+              });
               if mod_in_mod.is_some() {
                 bail_span!(
                   mod_,
@@ -103,10 +104,12 @@ fn replace_napi_attr_in_mod(
   js_namespace: String,
   attrs: &mut Vec<syn::Attribute>,
 ) -> Option<BindgenAttrs> {
-  let napi_attr = attrs
-    .iter()
-    .enumerate()
-    .find(|(_, m)| m.path().is_ident("napi"));
+  let napi_attr = attrs.iter().enumerate().find(|(_, m)| {
+    m.path()
+      .segments
+      .last()
+      .is_some_and(|segment| segment.ident == "napi")
+  });
 
   if let Some((index, napi_attr)) = napi_attr {
     // adds `namespace = #js_namespace` into `#[napi]` attribute
