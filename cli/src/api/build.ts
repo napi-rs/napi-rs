@@ -1911,54 +1911,77 @@ class Builder {
     const controller = new AbortController()
 
     const watch = this.options.watch
-    const buildTask = new Promise<void>((resolve, reject) => {
-      const cargoOverride = process.env.CARGO
-      if (
-        cargoOverride &&
-        (this.options.useCross || this.options.crossCompile)
-      ) {
-        const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
-        const requestedFlag = this.options.useCross
-          ? '`--use-cross`'
-          : '`--cross-compile` (`-x`)'
-        debug.warn(
-          `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
-        )
-      }
-      const command =
-        cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
-      const buildProcess = spawn(command, this.args, {
-        env: { ...process.env, ...this.envs },
-        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
-        cwd: this.options.cwd,
-        signal: controller.signal,
-      })
-
-      buildProcess.once('exit', (code) => {
-        if (code === 0) {
-          debug('%i', `Build crate ${this.crate.name} successfully!`)
-          resolve()
-        } else {
-          reject(new Error(`Build failed with exit code ${code}`))
+    const runCargo = () =>
+      new Promise<void>((resolve, reject) => {
+        const cargoOverride = process.env.CARGO
+        if (
+          cargoOverride &&
+          (this.options.useCross || this.options.crossCompile)
+        ) {
+          const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
+          const requestedFlag = this.options.useCross
+            ? '`--use-cross`'
+            : '`--cross-compile` (`-x`)'
+          debug.warn(
+            `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
+          )
         }
+        const command =
+          cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
+        const buildProcess = spawn(command, this.args, {
+          env: { ...process.env, ...this.envs },
+          stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
+          cwd: this.options.cwd,
+          signal: controller.signal,
+        })
+
+        buildProcess.once('exit', (code) => {
+          if (code === 0) {
+            debug('%i', `Build crate ${this.crate.name} successfully!`)
+            resolve()
+          } else {
+            reject(new Error(`Build failed with exit code ${code}`))
+          }
+        })
+
+        buildProcess.once('error', (e) => {
+          reject(
+            new Error(`Build failed with error: ${e.message}`, { cause: e }),
+          )
+        })
+
+        // watch mode only, they are piped through stderr
+        buildProcess.stderr?.on('data', (data) => {
+          const output = data.toString()
+          console.error(output)
+          if (/Finished\s(`dev`|`release`)/.test(output)) {
+            this.postBuild().catch(() => {})
+          }
+        })
       })
 
-      buildProcess.once('error', (e) => {
-        reject(new Error(`Build failed with error: ${e.message}`, { cause: e }))
-      })
-
-      // watch mode only, they are piped through stderr
-      buildProcess.stderr?.on('data', (data) => {
-        const output = data.toString()
-        console.error(output)
-        if (/Finished\s(`dev`|`release`)/.test(output)) {
-          this.postBuild().catch(() => {})
-        }
-      })
-    })
+    // The type-def cache folder is keyed on workspace-relative inputs, so
+    // checkouts of one workspace sharing a CARGO_TARGET_DIR (e.g. git
+    // worktrees) share it, along with Cargo's artifacts. Cargo's own lock
+    // ends when Cargo exits, and the post-build lock is per package
+    // directory, so without this another checkout's build could rewrite the
+    // intermediate type defs or the artifact between this Cargo run and the
+    // post-build that reads them. Hold a lock on the folder across both, and
+    // wait as long as Cargo would. Watch mode re-runs post-build for the
+    // whole session, so it keeps the post-build lock only; a `--no-dts-cache`
+    // folder is unique to this build and needs no lock.
+    const sharedTypeDefFolder =
+      !watch && this.enableTypeDef && this.options.dtsCache !== false
+        ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
+        : undefined
+    const runBuild = () => runCargo().then(() => this.postBuild())
 
     return {
-      task: buildTask.then(() => this.postBuild()),
+      task: sharedTypeDefFolder
+        ? withFileSystemReconciliation(sharedTypeDefFolder, runBuild, {
+            lockAcquisitionTimeout: Number.POSITIVE_INFINITY,
+          })
+        : runBuild(),
       abort: () => controller.abort(),
     }
   }
