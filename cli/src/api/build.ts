@@ -293,6 +293,28 @@ export function toWorkspaceRelativePath(
   return relativePath === '' ? '.' : relativePath.split(sep).join('/')
 }
 
+/**
+ * Settles with `task`, or rejects as soon as `signal` aborts. `task` keeps
+ * running; callers must make it observe the signal and stop on its own.
+ */
+export function rejectOnAbort<T>(
+  task: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () =>
+      reject(new Error('Build aborted', { cause: signal.reason }))
+    if (signal.aborted) {
+      onAbort()
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+    task
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
 const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
 
 function escapeRegExp(value: string) {
@@ -1967,9 +1989,11 @@ class Builder {
     // directory, so without this another checkout's build could rewrite the
     // intermediate type defs or the artifact between this Cargo run and the
     // post-build that reads them. Hold a lock on the folder across both, and
-    // wait as long as Cargo would. Watch mode re-runs post-build for the
-    // whole session, so it keeps the post-build lock only; a `--no-dts-cache`
-    // folder is unique to this build and needs no lock.
+    // wait as long as Cargo would; `abort()` still settles the task at once,
+    // and a lock acquired after that is released without running Cargo.
+    // Watch mode re-runs post-build for the whole session, so it keeps the
+    // post-build lock only and uses a per-checkout folder instead; a
+    // `--no-dts-cache` folder is unique to this build and needs no lock.
     const sharedTypeDefFolder =
       !watch && this.enableTypeDef && this.options.dtsCache !== false
         ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
@@ -1978,9 +2002,17 @@ class Builder {
 
     return {
       task: sharedTypeDefFolder
-        ? withFileSystemReconciliation(sharedTypeDefFolder, runBuild, {
-            lockAcquisitionTimeout: Number.POSITIVE_INFINITY,
-          })
+        ? rejectOnAbort(
+            withFileSystemReconciliation(
+              sharedTypeDefFolder,
+              () => {
+                controller.signal.throwIfAborted()
+                return runBuild()
+              },
+              { lockAcquisitionTimeout: Number.POSITIVE_INFINITY },
+            ),
+            controller.signal,
+          )
         : runBuild(),
       abort: () => controller.abort(),
     }
@@ -2515,7 +2547,12 @@ class Builder {
       targetDir: this.targetDir,
       crateName: this.crate.name,
       manifestPath: this.crate.manifest_path,
-      workspaceRoot: this.metadata.workspace_root,
+      // Watch mode keeps writing intermediate type defs for the whole session
+      // without holding the shared-folder lock (see `exec()`), so it keeps a
+      // folder of its own per checkout instead of sharing one across them.
+      workspaceRoot: this.options.watch
+        ? undefined
+        : this.metadata.workspace_root,
       targetTriple: this.cargoTriple,
       profile:
         this.options.profile ?? (this.options.release ? 'release' : 'dev'),
