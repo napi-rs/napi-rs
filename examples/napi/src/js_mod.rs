@@ -1,11 +1,13 @@
-#[napi]
+#[napi_derive::napi]
 mod xxh3 {
   use napi::bindgen_prelude::{BigInt, Buffer};
 
-  #[napi]
+  #[::napi_derive::napi()]
   pub const ALIGNMENT: u32 = 16;
 
-  #[napi(js_name = "xxh3_64")]
+  // Preserve the trailing comma to exercise module attribute parsing.
+  #[rustfmt::skip]
+  #[napi_derive::napi(js_name = "xxh3_64",)]
   pub fn xxh64(input: Buffer) -> u64 {
     let mut h: u64 = 0;
     for i in input.as_ref() {
@@ -14,7 +16,7 @@ mod xxh3 {
     h
   }
 
-  #[napi]
+  #[napi()]
   /// xxh128 function
   pub fn xxh128(input: Buffer) -> u128 {
     let mut h: u128 = 0;
@@ -24,13 +26,13 @@ mod xxh3 {
     h
   }
 
-  #[napi]
+  #[napi_derive::napi()]
   /// Xxh3 class
   pub struct Xxh3 {
     inner: BigInt,
   }
 
-  #[napi]
+  #[napi_derive::napi]
   impl Xxh3 {
     #[napi(constructor)]
     #[allow(clippy::new_without_default)]
@@ -64,12 +66,14 @@ mod xxh3 {
 mod xxh2 {
   use napi::bindgen_prelude::*;
 
-  #[napi]
+  #[rustfmt::skip]
+  #[::napi_derive::napi(js_name = "xxh2Plus",)]
   pub fn xxh2_plus(a: u32, b: u32) -> u32 {
     a + b
   }
 
-  #[napi]
+  #[rustfmt::skip]
+  #[napi(js_name = "xxh3Xxh64Alias",)]
   pub fn xxh3_xxh64_alias(input: Buffer) -> u64 {
     super::xxh3::xxh64(input)
   }

@@ -3,6 +3,7 @@ use crate::parser::{attrs::BindgenAttrs, ParseNapi};
 use napi_derive_backend::{BindgenResult, TryToTokens};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use syn::{Attribute, Item};
 
@@ -52,11 +53,12 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
             Item::Const(ref mut const_) => &mut const_.attrs,
             Item::Impl(ref mut impl_) => &mut impl_.attrs,
             Item::Mod(mod_) => {
-              let mod_in_mod = mod_
-                .attrs
-                .iter()
-                .enumerate()
-                .find(|(_, m)| m.path().is_ident("napi"));
+              let mod_in_mod = mod_.attrs.iter().enumerate().find(|(_, m)| {
+                m.path()
+                  .segments
+                  .last()
+                  .is_some_and(|segment| segment.ident == "napi")
+              });
               if mod_in_mod.is_some() {
                 bail_span!(
                   mod_,
@@ -103,28 +105,18 @@ fn replace_napi_attr_in_mod(
   js_namespace: String,
   attrs: &mut Vec<syn::Attribute>,
 ) -> Option<BindgenAttrs> {
-  let napi_attr = attrs
-    .iter()
-    .enumerate()
-    .find(|(_, m)| m.path().is_ident("napi"));
+  let napi_attr = attrs.iter().enumerate().find(|(_, m)| {
+    m.path()
+      .segments
+      .last()
+      .is_some_and(|segment| segment.ident == "napi")
+  });
 
   if let Some((index, napi_attr)) = napi_attr {
     // adds `namespace = #js_namespace` into `#[napi]` attribute
-    let new_attr = match &napi_attr.meta {
-      syn::Meta::Path(_) => {
-        syn::parse_quote!(#[napi(namespace = #js_namespace)])
-      }
-      syn::Meta::List(list) => {
-        let existing = list.tokens.clone();
-        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
-      }
-      syn::Meta::NameValue(name_value) => {
-        let existing = &name_value.value;
-        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
-      }
-    };
-
-    let struct_opts = BindgenAttrs::try_from(&new_attr).unwrap();
+    let mut struct_opts = BindgenAttrs::try_from(napi_attr).unwrap();
+    let namespace = syn::parse_quote!(namespace = #js_namespace);
+    struct_opts.attrs.push((Cell::new(false), namespace));
     attrs.remove(index);
     Some(struct_opts)
   } else {
