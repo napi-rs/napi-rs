@@ -7,6 +7,7 @@ import type { CargoWorkspaceMetadata } from '../../utils/metadata.js'
 import {
   getCargoDependencyGraphFingerprint,
   getTypeDefCacheFolder,
+  rejectOnAbort,
   toWorkspaceRelativePath,
 } from '../build.js'
 
@@ -68,12 +69,13 @@ function checkout(root: string, legacyIds = false) {
 function cacheFolder(
   { root, metadata, addonId }: ReturnType<typeof checkout>,
   crateDir = 'crates/addon',
+  workspaceRelative = true,
 ) {
   return getTypeDefCacheFolder({
     targetDir: '/shared/target',
     crateName: 'addon',
     manifestPath: join(root, crateDir, 'Cargo.toml'),
-    workspaceRoot: root,
+    workspaceRoot: workspaceRelative ? root : undefined,
     targetTriple: 'aarch64-apple-darwin',
     profile: 'dev',
     cargoConfig: [
@@ -129,4 +131,42 @@ test('toWorkspaceRelativePath only rewrites paths inside the workspace', (t) => 
     '/src/project-other/Cargo.toml',
   )
   t.is(toWorkspaceRelativePath('/x/Cargo.toml', undefined), '/x/Cargo.toml')
+})
+
+test('without a workspace root (watch mode), checkouts keep separate folders', (t) => {
+  const project = checkout('/src/project')
+  const worktree = checkout('/worktrees/feature-branch')
+  t.not(
+    cacheFolder(project, 'crates/addon', false),
+    cacheFolder(worktree, 'crates/addon', false),
+  )
+})
+
+test('rejectOnAbort settles with the task when not aborted', async (t) => {
+  const controller = new AbortController()
+  t.is(await rejectOnAbort(Promise.resolve(42), controller.signal), 42)
+  await t.throwsAsync(
+    rejectOnAbort(Promise.reject(new Error('boom')), controller.signal),
+    { message: 'boom' },
+  )
+})
+
+test('rejectOnAbort rejects at once while the task is still pending', async (t) => {
+  const controller = new AbortController()
+  let settleTask!: () => void
+  const task = new Promise<void>((resolve) => {
+    settleTask = resolve
+  })
+  const pending = rejectOnAbort(task, controller.signal)
+  controller.abort()
+  await t.throwsAsync(pending, { message: 'Build aborted' })
+  settleTask()
+})
+
+test('rejectOnAbort rejects an already aborted signal', async (t) => {
+  const controller = new AbortController()
+  controller.abort()
+  await t.throwsAsync(rejectOnAbort(new Promise(() => {}), controller.signal), {
+    message: 'Build aborted',
+  })
 })
