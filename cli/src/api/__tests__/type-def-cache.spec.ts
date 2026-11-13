@@ -170,3 +170,15 @@ test('rejectOnAbort rejects an already aborted signal', async (t) => {
     message: 'Build aborted',
   })
 })
+
+test('rejectOnAbort leaves an abort to the task once it is no longer cancellable', async (t) => {
+  const controller = new AbortController()
+  let settleTask!: (value: string) => void
+  const task = new Promise<string>((resolve) => {
+    settleTask = resolve
+  })
+  const pending = rejectOnAbort(task, controller.signal, () => false)
+  controller.abort()
+  settleTask('published')
+  t.is(await pending, 'published')
+})
