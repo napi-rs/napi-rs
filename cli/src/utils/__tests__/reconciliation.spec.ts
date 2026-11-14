@@ -730,3 +730,128 @@ test('#3444: nested symlink guard lands at the fully-canonical walk-time root', 
   t.true(locksDuringOp.every((lock) => dirname(lock) === 'real/sub'))
   t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
 })
+
+test('aborting lock acquisition stops waiting and keeps no lock', async (t) => {
+  const realDir = join(t.context.tmpDir, 'real')
+  await mkdir(join(realDir, 'pkg'), { recursive: true })
+  await symlink('pkg', join(realDir, 'holder'), 'dir')
+  await symlink('pkg', join(realDir, 'waiter'), 'dir')
+  const options = {
+    getProcessExecutionIdentity: async () => completeIdentity,
+    getProcessIncarnation,
+  }
+
+  // A live owner holds the shared locks. The waiter goes through another
+  // spelling, so it skips the in-process queue and waits on the lock files,
+  // as a build in another process would. Its own spelling guard is free, so
+  // it may hold that lock while it waits for the shared ones.
+  let releaseHolder!: () => void
+  let holderLocks: string[] = []
+  const holding = new Promise<void>((resolveHolding) => {
+    void withFileSystemReconciliation(
+      join(realDir, 'holder'),
+      async () => {
+        holderLocks = await collectReconciliationLocks(t.context.tmpDir)
+        resolveHolding()
+        await new Promise<void>((resolveRelease) => {
+          releaseHolder = resolveRelease
+        })
+      },
+      { ...options, lockAcquisitionTimeout: 10_000 },
+    )
+  })
+  await holding
+
+  const controller = new AbortController()
+  let operationRan = false
+  const waiting = withFileSystemReconciliation(
+    join(realDir, 'waiter'),
+    async () => {
+      operationRan = true
+    },
+    {
+      ...options,
+      lockAcquisitionTimeout: Number.POSITIVE_INFINITY,
+      signal: controller.signal,
+    },
+  )
+  await delay(200)
+  const reason = new Error('stop waiting')
+  controller.abort(reason)
+  const startedAt = performance.now()
+  t.is(await t.throwsAsync(waiting), reason)
+  t.true(performance.now() - startedAt < 1_000)
+  t.false(operationRan)
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), holderLocks)
+
+  releaseHolder()
+  await delay(50)
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('an already aborted signal never runs the operation', async (t) => {
+  const anchor = join(t.context.tmpDir, 'pkg')
+  await mkdir(anchor)
+  const controller = new AbortController()
+  controller.abort()
+  let operationRan = false
+  await t.throwsAsync(
+    withFileSystemReconciliation(
+      anchor,
+      async () => {
+        operationRan = true
+      },
+      {
+        getProcessExecutionIdentity: async () => completeIdentity,
+        getProcessIncarnation,
+        signal: controller.signal,
+      },
+    ),
+    { name: 'AbortError' },
+  )
+  t.false(operationRan)
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('aborting a waiter queued in the same process rejects at once', async (t) => {
+  const anchor = join(t.context.tmpDir, 'pkg')
+  await mkdir(anchor)
+  const options = {
+    getProcessExecutionIdentity: async () => completeIdentity,
+    getProcessIncarnation,
+    lockAcquisitionTimeout: 10_000,
+  }
+  let releaseHolder!: () => void
+  let holderStarted!: () => void
+  const started = new Promise<void>((resolveStarted) => {
+    holderStarted = resolveStarted
+  })
+  const holder = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      holderStarted()
+      await new Promise<void>((resolveRelease) => {
+        releaseHolder = resolveRelease
+      })
+    },
+    options,
+  )
+  await started
+
+  const controller = new AbortController()
+  let operationRan = false
+  const waiting = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      operationRan = true
+    },
+    { ...options, signal: controller.signal },
+  )
+  controller.abort()
+  await t.throwsAsync(waiting, { name: 'AbortError' })
+  t.false(operationRan)
+
+  releaseHolder()
+  await holder
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})

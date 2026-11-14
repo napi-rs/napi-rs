@@ -7,7 +7,6 @@ import type { CargoWorkspaceMetadata } from '../../utils/metadata.js'
 import {
   getCargoDependencyGraphFingerprint,
   getTypeDefCacheFolder,
-  rejectOnAbort,
   toWorkspaceRelativePath,
 } from '../build.js'
 
@@ -140,45 +139,4 @@ test('without a workspace root (watch mode), checkouts keep separate folders', (
     cacheFolder(project, 'crates/addon', false),
     cacheFolder(worktree, 'crates/addon', false),
   )
-})
-
-test('rejectOnAbort settles with the task when not aborted', async (t) => {
-  const controller = new AbortController()
-  t.is(await rejectOnAbort(Promise.resolve(42), controller.signal), 42)
-  await t.throwsAsync(
-    rejectOnAbort(Promise.reject(new Error('boom')), controller.signal),
-    { message: 'boom' },
-  )
-})
-
-test('rejectOnAbort rejects at once while the task is still pending', async (t) => {
-  const controller = new AbortController()
-  let settleTask!: () => void
-  const task = new Promise<void>((resolve) => {
-    settleTask = resolve
-  })
-  const pending = rejectOnAbort(task, controller.signal)
-  controller.abort()
-  await t.throwsAsync(pending, { message: 'Build aborted' })
-  settleTask()
-})
-
-test('rejectOnAbort rejects an already aborted signal', async (t) => {
-  const controller = new AbortController()
-  controller.abort()
-  await t.throwsAsync(rejectOnAbort(new Promise(() => {}), controller.signal), {
-    message: 'Build aborted',
-  })
-})
-
-test('rejectOnAbort leaves an abort to the task once it is no longer cancellable', async (t) => {
-  const controller = new AbortController()
-  let settleTask!: (value: string) => void
-  const task = new Promise<string>((resolve) => {
-    settleTask = resolve
-  })
-  const pending = rejectOnAbort(task, controller.signal, () => false)
-  controller.abort()
-  settleTask('published')
-  t.is(await pending, 'published')
 })
