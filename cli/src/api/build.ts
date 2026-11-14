@@ -293,35 +293,6 @@ export function toWorkspaceRelativePath(
   return relativePath === '' ? '.' : relativePath.split(sep).join('/')
 }
 
-/**
- * Settles with `task`, or rejects as soon as `signal` aborts while
- * `cancellable()` still holds. `task` keeps running either way; callers must
- * make it observe the signal and stop on its own. Once `cancellable()` turns
- * false, an abort is left to `task` to report, so the outcome matches what
- * `task` actually did.
- */
-export function rejectOnAbort<T>(
-  task: Promise<T>,
-  signal: AbortSignal,
-  cancellable: () => boolean = () => true,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      if (cancellable()) {
-        reject(new Error('Build aborted', { cause: signal.reason }))
-      }
-    }
-    if (signal.aborted) {
-      onAbort()
-    } else {
-      signal.addEventListener('abort', onAbort, { once: true })
-    }
-    task
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener('abort', onAbort))
-  })
-}
-
 const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
 
 function escapeRegExp(value: string) {
@@ -1996,10 +1967,10 @@ class Builder {
     // directory, so without this another checkout's build could rewrite the
     // intermediate type defs or the artifact between this Cargo run and the
     // post-build that reads them. Hold a lock on the folder across both, and
-    // wait as long as Cargo would. `abort()` while waiting settles the task at
-    // once, and a lock acquired after that is released without running Cargo;
-    // once the build has started, an abort is reported as it was without the
-    // lock (Cargo is killed, a finished post-build still publishes).
+    // wait as long as Cargo would. `abort()` while waiting stops the wait,
+    // releases any lock taken so far and rejects without running Cargo; once
+    // the build has started, an abort is reported as it was without the lock
+    // (Cargo is killed, a finished post-build still publishes).
     // Watch mode re-runs post-build for the whole session, so it keeps the
     // post-build lock only and uses a per-checkout folder instead; a
     // `--no-dts-cache` folder is unique to this build and needs no lock.
@@ -2008,23 +1979,28 @@ class Builder {
         ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
         : undefined
     const runBuild = () => runCargo().then(() => this.postBuild())
-    let waitingForLock = true
+    let buildStarted = false
 
     return {
       task: sharedTypeDefFolder
-        ? rejectOnAbort(
-            withFileSystemReconciliation(
-              sharedTypeDefFolder,
-              () => {
-                controller.signal.throwIfAborted()
-                waitingForLock = false
-                return runBuild()
-              },
-              { lockAcquisitionTimeout: Number.POSITIVE_INFINITY },
-            ),
-            controller.signal,
-            () => waitingForLock,
-          )
+        ? withFileSystemReconciliation(
+            sharedTypeDefFolder,
+            () => {
+              buildStarted = true
+              return runBuild()
+            },
+            {
+              lockAcquisitionTimeout: Number.POSITIVE_INFINITY,
+              signal: controller.signal,
+            },
+          ).catch((error: unknown) => {
+            if (!buildStarted && controller.signal.aborted) {
+              throw new Error('Build aborted', {
+                cause: controller.signal.reason,
+              })
+            }
+            throw error
+          })
         : runBuild(),
       abort: () => controller.abort(),
     }

@@ -173,6 +173,10 @@ export interface FileSystemReconciliationOptions {
   getProcessIncarnation?: () => Promise<string | null>
   identityWaitTimeout?: number
   lockAcquisitionTimeout?: number
+  // Aborting stops lock acquisition: polling ends, locks acquired so far are
+  // released, and the operation never runs. A running operation is not
+  // affected.
+  signal?: AbortSignal
 }
 
 interface ProcessOwnerState {
@@ -183,6 +187,7 @@ interface ProcessOwnerState {
 interface ReconciliationLockDeadline {
   expiresAt: number
   timeout: number
+  signal?: AbortSignal
 }
 
 interface ReconciliationLockIdentity {
@@ -381,7 +386,10 @@ export async function withFileSystemReconciliation<T>(
   let operationError: unknown
   let result!: T
   try {
-    await previous.catch(() => {})
+    await rejectOnReconciliationAbort(
+      previous.catch(() => {}),
+      options?.signal,
+    )
     const identities = await resolveReconciliationLockIdentities(path)
     const injectedIdentityGetter = options?.getProcessExecutionIdentity
     const identityWaitTimeout =
@@ -404,6 +412,7 @@ export async function withFileSystemReconciliation<T>(
       options?.getProcessIncarnation ?? getCurrentProcessIncarnation
     const acquisitionDeadline = createReconciliationLockDeadline(
       options?.lockAcquisitionTimeout ?? reconciliationLockAcquisitionTimeout,
+      options?.signal,
     )
     for (const identity of identities) {
       const acquisition = await acquireReconciliationLock(
@@ -424,6 +433,7 @@ export async function withFileSystemReconciliation<T>(
       // next run whose identity probes succeed.
       await recoverFileSystemTransaction(identities[0].anchorPath)
     }
+    options?.signal?.throwIfAborted()
     const currentCapability = fileSystemReconciliationCapability.getStore()
     const roots = new Set(currentCapability?.roots)
     roots.add(fileSystemReconciliationCapabilityRoot(identities[0].anchorPath))
@@ -1856,6 +1866,7 @@ async function acquireReconciliationLock(
   getProcessIncarnation: () => Promise<string | null>,
 ) {
   const { key } = identity
+  acquisitionDeadline.signal?.throwIfAborted()
   const [incarnation, identityResolution] = await Promise.all([
     getProcessIncarnation(),
     resolveExecutionIdentity(),
@@ -2700,7 +2711,10 @@ async function waitForUnverifiableReconciliationLock(
   const expiresAt = performance.now() + timeout
   let current = expected
   while (performance.now() < expiresAt) {
-    await delay(Math.max(0, Math.min(20, expiresAt - performance.now())))
+    await delayReconciliationPoll(
+      Math.max(0, Math.min(20, expiresAt - performance.now())),
+      acquisitionDeadline.signal,
+    )
     const observed = await inspectReconciliationLock(identity, lockPath)
     if (
       !observed ||
@@ -2759,7 +2773,10 @@ async function waitForUnverifiableReconciliationReclaim(
   const expiresAt = performance.now() + timeout
   let current = expected
   while (performance.now() < expiresAt) {
-    await delay(Math.max(0, Math.min(20, expiresAt - performance.now())))
+    await delayReconciliationPoll(
+      Math.max(0, Math.min(20, expiresAt - performance.now())),
+      acquisitionDeadline.signal,
+    )
     const observed = await inspectReconciliationReclaim(identity)
     if (
       !observed ||
@@ -3995,6 +4012,7 @@ function assertReconciliationLockAcquisitionTimeRemaining(
   acquisitionDeadline: ReconciliationLockDeadline,
   key: string,
 ) {
+  acquisitionDeadline.signal?.throwIfAborted()
   if (performance.now() < acquisitionDeadline.expiresAt) {
     return
   }
@@ -4010,21 +4028,57 @@ async function delayReconciliationLockRetry(
   key: string,
 ) {
   assertReconciliationLockAcquisitionTimeRemaining(acquisitionDeadline, key)
-  await delay(
+  await delayReconciliationPoll(
     Math.max(
       0,
       Math.min(20, acquisitionDeadline.expiresAt - performance.now()),
     ),
+    acquisitionDeadline.signal,
   )
+}
+
+// Waits between lock polls. An abort ends the wait and rejects with the
+// signal's reason, as every other abort check in acquisition does.
+async function delayReconciliationPoll(ms: number, signal?: AbortSignal) {
+  try {
+    await delay(ms, undefined, { signal })
+  } catch (error) {
+    signal?.throwIfAborted()
+    throw error
+  }
 }
 
 function createReconciliationLockDeadline(
   timeout: number,
+  signal?: AbortSignal,
 ): ReconciliationLockDeadline {
   return {
     expiresAt: performance.now() + timeout,
     timeout,
+    signal,
   }
+}
+
+// Settles with `task`, or rejects with the abort reason as soon as `signal`
+// aborts. `task` keeps running; callers only stop waiting for it.
+function rejectOnReconciliationAbort<T>(
+  task: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) {
+    return task
+  }
+  return new Promise<T>((resolveTask, rejectTask) => {
+    const onAbort = () => rejectTask(signal.reason)
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    task
+      .then(resolveTask, rejectTask)
+      .finally(() => signal.removeEventListener('abort', onAbort))
+  })
 }
 
 function resolveTransactionPath(root: string, path: string) {
