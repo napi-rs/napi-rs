@@ -32,7 +32,9 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
       }
       ValueType::Number => {
         let js_number: f64 = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };
-        if (js_number.trunc() - js_number).abs() < f64::EPSILON {
+        if js_number.trunc() == js_number
+          && ((i64::MIN as f64)..(i64::MAX as f64)).contains(&js_number)
+        {
           visitor.visit_i64(js_number as i64)
         } else {
           visitor.visit_f64(js_number)

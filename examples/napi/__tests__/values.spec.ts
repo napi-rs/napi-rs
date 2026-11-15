@@ -192,6 +192,7 @@ import {
   makeDeepSerdeValue,
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
+  testSerdeNumberFromJs,
   getBigintJsonValue,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
@@ -1613,6 +1614,18 @@ test('serde-roundtrip', (t) => {
 
   err = t.throws(() => testSerdeRoundtrip(Symbol.for('foo')))
   t.is(err!.message, 'JS symbols cannot be represented as a serde_json::Value')
+})
+
+test('serde-number-from-js-range', (t) => {
+  t.is(testSerdeNumberFromJs(1e300), 1e300)
+  t.is(testSerdeNumberFromJs(-1e300), -1e300)
+  t.is(testSerdeNumberFromJs(2 ** 63), 2 ** 63)
+  t.is(testSerdeNumberFromJs(-1e19), -1e19)
+  t.is(testSerdeNumberFromJs(1e-20), 1e-20)
+  t.is(testSerdeNumberFromJs(-(2 ** 63)), -(2 ** 63))
+  t.is(testSerdeNumberFromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+  t.is(testSerdeNumberFromJs(-42), -42)
+  t.is(testSerdeNumberFromJs(1.5), 1.5)
 })
 
 test('serde-roundtrip-depth-limit', (t) => {

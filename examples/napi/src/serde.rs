@@ -61,6 +61,11 @@ fn test_serde_buffer_bytes(obj: Object, env: Env) -> napi::Result<usize> {
 }
 
 #[napi]
+fn test_serde_number_from_js(value: Unknown, env: Env) -> napi::Result<f64> {
+  env.from_js_value(value)
+}
+
+#[napi]
 struct PackageJsonReader {
   i: Value,
 }
