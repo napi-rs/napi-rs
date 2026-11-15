@@ -257,6 +257,10 @@ async function execCargoMetadata(invocation: {
     cwd: invocation.cwd,
     stdio: 'pipe',
   })
+  // Decode across chunk boundaries so a multi-byte UTF-8 character split
+  // between pipe reads is not replaced with U+FFFD.
+  childProcess.stdout.setEncoding('utf8')
+  childProcess.stderr.setEncoding('utf8')
 
   let stdout = ''
   let stderr = ''
