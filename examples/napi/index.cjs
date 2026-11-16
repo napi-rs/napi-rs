@@ -1368,6 +1368,7 @@ module.exports.testLatin1Methods = nativeBinding.testLatin1Methods
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
+module.exports.testUtf8Methods = nativeBinding.testUtf8Methods
 module.exports.testWorkers = nativeBinding.testWorkers
 module.exports.threadsafeFunctionBuildThrowErrorWithStatus = nativeBinding.threadsafeFunctionBuildThrowErrorWithStatus
 module.exports.threadsafeFunctionClosureCapture = nativeBinding.threadsafeFunctionClosureCapture

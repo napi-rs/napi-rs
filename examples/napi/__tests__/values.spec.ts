@@ -45,6 +45,7 @@ import {
   createStaticLatin1String,
   createStaticUtf16String,
   testLatin1Methods,
+  testUtf8Methods,
   roundtripStr,
   appendToOsString,
   joinPath,
@@ -420,6 +421,33 @@ test('string', (t) => {
   for (const s of ['', 'a', 'ÿ', longAscii, 'æ¶½¾'.repeat(512)]) {
     t.is(concatLatin1(s), s + suffix)
   }
+})
+
+test('JsStringUtf8 methods', (t) => {
+  for (const input of [
+    '',
+    'Hello',
+    'JavaScript 🌳 你好 napi',
+    'what up?!\u0000after the NULL',
+  ]) {
+    const bytes = Array.from(Buffer.from(input))
+    t.deepEqual(testUtf8Methods(input), {
+      asStr: input,
+      length: bytes.length,
+      isEmpty: bytes.length === 0,
+      asSlice: bytes,
+      intoOwned: input,
+      take: bytes,
+    })
+  }
+
+  // A lone surrogate has no UTF-8 encoding. V8 writes U+FFFD, emnapi merges it
+  // with the next code unit, so only check that all accessors agree.
+  const lone = testUtf8Methods('a\uD800b')
+  t.is(lone.intoOwned, lone.asStr)
+  t.deepEqual(lone.take, lone.asSlice)
+  t.is(lone.length, lone.asSlice.length)
+  t.is(Buffer.from(lone.asSlice).toString('utf8'), lone.asStr)
 })
 
 test('OsString / OsStr', (t) => {

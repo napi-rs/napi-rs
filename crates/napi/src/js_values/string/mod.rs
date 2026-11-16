@@ -114,10 +114,11 @@ impl<'env> JsString<'env> {
     // followed by a NUL terminator, so `written_byte_count < len`
     unsafe { bytes.set_len(written_byte_count) };
 
-    Ok(JsStringUtf8 {
-      inner: self,
-      buf: bytes,
-    })
+    // SAFETY: `napi_get_value_string_utf8` only writes valid UTF-8, and `bytes` holds the whole
+    // string, so it does not end partway through a multi-byte character
+    let buf = unsafe { String::from_utf8_unchecked(bytes) };
+
+    Ok(JsStringUtf8 { inner: self, buf })
   }
 
   pub fn into_utf16(self) -> Result<JsStringUtf16<'env>> {
