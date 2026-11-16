@@ -30,11 +30,11 @@ impl<'env> JsStringUtf8<'env> {
   }
 
   pub fn into_owned(self) -> Result<String> {
-    Ok(self.buf.as_str().to_owned())
+    Ok(self.buf)
   }
 
   pub fn take(self) -> Vec<u8> {
-    self.buf.as_bytes().to_vec()
+    self.buf.into_bytes()
   }
 
   pub fn into_value(self) -> JsString<'env> {
