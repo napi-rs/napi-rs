@@ -1150,7 +1150,9 @@ fn owned_string_without_coercion(env: sys::napi_env, value: sys::napi_value) -> 
   // followed by a NUL terminator, so `written_byte_count < len`
   unsafe { bytes.set_len(written_byte_count) };
 
-  String::from_utf8(bytes).ok()
+  // SAFETY: `napi_get_value_string_utf8` only writes valid UTF-8, and `bytes` holds the whole
+  // string, so it does not end partway through a multi-byte character
+  Some(unsafe { String::from_utf8_unchecked(bytes) })
 }
 
 /// Drops any exception a failed N-API call left pending.
