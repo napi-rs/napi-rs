@@ -1,3 +1,4 @@
+use std::ffi::c_char;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
@@ -95,71 +96,77 @@ impl<'env> JsString<'env> {
   }
 
   pub fn into_utf8(self) -> Result<JsStringUtf8<'env>> {
-    let mut written_char_count = 0;
+    // `+ 1` for the NUL terminator `napi_get_value_string_utf8` writes after the string bytes
     let len = self.utf8_len()? + 1;
-    let mut result = vec![0; len];
-    let buf_ptr = result.as_mut_ptr();
+    let mut bytes: Vec<c_char> = vec![0; len];
+    let buf_ptr = bytes.as_mut_ptr();
+
+    let mut written_byte_count = 0;
     check_status!(unsafe {
       sys::napi_get_value_string_utf8(
         self.0.env,
         self.0.value,
         buf_ptr,
         len,
-        &mut written_char_count,
+        &mut written_byte_count,
       )
     })?;
 
-    mem::forget(result);
+    mem::forget(bytes);
 
     Ok(JsStringUtf8 {
       inner: self,
-      buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_char_count, len) },
+      buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_byte_count, len) },
     })
   }
 
   pub fn into_utf16(self) -> Result<JsStringUtf16<'env>> {
-    let mut written_char_count = 0usize;
+    // `+ 1` for the NUL terminator `napi_get_value_string_utf16` writes after the string data
     let len = self.utf16_len()? + 1;
-    let mut result = vec![0; len];
-    let buf_ptr = result.as_mut_ptr();
+    let mut code_units: Vec<u16> = vec![0; len];
+    let buf_ptr = code_units.as_mut_ptr();
+
+    let mut written_code_unit_count = 0usize;
     check_status!(unsafe {
       sys::napi_get_value_string_utf16(
         self.0.env,
         self.0.value,
         buf_ptr,
         len,
-        &mut written_char_count,
+        &mut written_code_unit_count,
       )
     })?;
 
     Ok(JsStringUtf16 {
       inner: self,
-      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), len) },
-      _inner_buf: result,
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr, len) },
+      _inner_buf: code_units,
     })
   }
 
   pub fn into_latin1(self) -> Result<JsStringLatin1<'env>> {
-    let mut written_char_count = 0usize;
+    // `+ 1` for the NUL terminator `napi_get_value_string_latin1` writes after the string bytes
     let len = self.latin1_len()? + 1;
-    let mut result = vec![0; len];
-    let buf_ptr = result.as_mut_ptr();
+    let mut bytes: Vec<c_char> = vec![0; len];
+    let buf_ptr = bytes.as_mut_ptr();
+
+    let mut written_byte_count = 0usize;
     check_status!(unsafe {
       sys::napi_get_value_string_latin1(
         self.0.env,
         self.0.value,
         buf_ptr,
         len,
-        &mut written_char_count,
+        &mut written_byte_count,
       )
     })?;
 
-    mem::forget(result);
+    mem::forget(bytes);
 
     Ok(JsStringLatin1 {
       inner: self,
-      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) },
-      _inner_buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_char_count, len) },
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_byte_count) },
+      _inner_buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_byte_count, len) },
     })
   }
 }

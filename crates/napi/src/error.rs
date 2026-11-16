@@ -1118,29 +1118,35 @@ fn owned_string_without_coercion(env: sys::napi_env, value: sys::napi_value) -> 
     return None;
   }
 
-  let mut length = 0;
-  if unsafe { sys::napi_get_value_string_utf8(env, value, ptr::null_mut(), 0, &mut length) }
+  let mut len = 0;
+  if unsafe { sys::napi_get_value_string_utf8(env, value, ptr::null_mut(), 0, &mut len) }
     != sys::Status::napi_ok
   {
     clear_pending_exception(env);
     return None;
   }
-  let mut bytes = vec![0; length + 1];
-  let mut written = 0;
+
+  // `+= 1` for the NUL terminator `napi_get_value_string_utf8` writes after the string bytes
+  len += 1;
+  let mut bytes: Vec<u8> = vec![0; len];
+
+  let mut written_byte_count = 0;
   let status = unsafe {
     sys::napi_get_value_string_utf8(
       env,
       value,
       bytes.as_mut_ptr().cast(),
-      bytes.len(),
-      &mut written,
+      len,
+      &mut written_byte_count,
     )
   };
   if status != sys::Status::napi_ok {
     clear_pending_exception(env);
     return None;
   }
-  bytes.truncate(written);
+
+  bytes.truncate(written_byte_count);
+
   String::from_utf8(bytes).ok()
 }
 

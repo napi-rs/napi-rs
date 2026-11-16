@@ -59,20 +59,19 @@ impl FromNapiValue for String {
       "Failed to convert JavaScript value `{}` into rust type `String`"
     )?;
 
-    // end char len in C
+    // `+= 1` for the NUL terminator `napi_get_value_string_utf8` writes after the string bytes
     len += 1;
-    let mut ret: Vec<u8> = vec![0; len];
+    let mut bytes: Vec<u8> = vec![0; len];
 
-    let mut written_char_count = 0;
-
+    let mut written_byte_count = 0;
     check_status_and_type!(
       unsafe {
         sys::napi_get_value_string_utf8(
           env,
           napi_val,
-          ret.as_mut_ptr().cast(),
+          bytes.as_mut_ptr().cast(),
           len,
-          &mut written_char_count,
+          &mut written_byte_count,
         )
       },
       env,
@@ -80,9 +79,11 @@ impl FromNapiValue for String {
       "Failed to convert napi `{}` into rust type `String`"
     )?;
 
-    ret.truncate(written_char_count);
+    bytes.truncate(written_byte_count);
 
-    Ok(unsafe { String::from_utf8_unchecked(ret) })
+    // SAFETY: `napi_get_value_string_utf8` only writes valid UTF-8, and `bytes` holds the whole
+    // string, so it does not end partway through a multi-byte character
+    Ok(unsafe { String::from_utf8_unchecked(bytes) })
   }
 }
 
@@ -151,27 +152,27 @@ impl FromNapiValue for Utf16String {
       "Failed to convert napi `utf16 string` into rust type `String`",
     )?;
 
-    // end char len in C
+    // `+= 1` for the NUL terminator `napi_get_value_string_utf16` writes after the string data
     len += 1;
-    let mut ret = vec![0; len];
-    let mut written_char_count = 0;
+    let mut code_units: Vec<u16> = vec![0; len];
 
+    let mut written_code_unit_count = 0;
     check_status!(
       unsafe {
         sys::napi_get_value_string_utf16(
           env,
           napi_val,
-          ret.as_mut_ptr(),
+          code_units.as_mut_ptr(),
           len,
-          &mut written_char_count,
+          &mut written_code_unit_count,
         )
       },
       "Failed to convert napi `utf16 string` into rust type `String`",
     )?;
 
-    ret.truncate(written_char_count);
+    code_units.truncate(written_code_unit_count);
 
-    Ok(Utf16String(ret))
+    Ok(Utf16String(code_units))
   }
 }
 
@@ -239,26 +240,27 @@ impl FromNapiValue for Latin1String {
       "Failed to convert napi `latin1 string` into rust type `String`",
     )?;
 
-    // end char len in C
+    // `+= 1` for the NUL terminator `napi_get_value_string_latin1` writes after the string bytes
     len += 1;
-    let mut buf: Vec<u8> = vec![0; len];
+    let mut bytes: Vec<u8> = vec![0; len];
 
-    let mut written_char_count = 0;
-
+    let mut written_byte_count = 0;
     check_status!(
       unsafe {
         sys::napi_get_value_string_latin1(
           env,
           napi_val,
-          buf.as_mut_ptr().cast(),
+          bytes.as_mut_ptr().cast(),
           len,
-          &mut written_char_count,
+          &mut written_byte_count,
         )
       },
       "Failed to convert napi `latin1 string` into rust type `String`"
     )?;
-    buf.truncate(written_char_count);
-    Ok(Latin1String(buf))
+
+    bytes.truncate(written_byte_count);
+
+    Ok(Latin1String(bytes))
   }
 }
 
