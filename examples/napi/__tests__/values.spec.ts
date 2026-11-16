@@ -407,6 +407,19 @@ test('string', (t) => {
   t.is(createStaticLatin1String(), 'Static Latin1 string')
   t.is(createStaticUtf16String(), 'Static UTF16')
   t.is(intoUtf8('Hello'), 'Hello')
+
+  // Edge-case lengths for the `String` / `Utf16String` / `Latin1String`
+  // conversion buffers: empty, one unit, non-BMP and long (> 1 KiB)
+  const suffix = ' + Rust 🦀 string!'
+  const longAscii = 'napi-rs '.repeat(512)
+  const longMixed = 'aé你🌳'.repeat(512)
+  for (const s of ['', 'a', '🌳', longAscii, longMixed]) {
+    t.is(concatStr(s), s + suffix)
+    t.is(concatUtf16(s), s + suffix)
+  }
+  for (const s of ['', 'a', 'ÿ', longAscii, 'æ¶½¾'.repeat(512)]) {
+    t.is(concatLatin1(s), s + suffix)
+  }
 })
 
 test('OsString / OsStr', (t) => {
