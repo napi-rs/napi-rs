@@ -81,6 +81,17 @@ export interface UserNapiConfig {
   runtimeStringEnum?: boolean
 
   /**
+   * Ship the built `.node` compressed in place as a single self-loading file
+   * (stub + zstd payload). The `--compress` / `--no-compress` flag overrides this.
+   */
+  compress?: boolean
+
+  /**
+   * zstd level for `compress` (1-22). By default, addons use adaptive levels; overridden by `--compress-level`.
+   */
+  compressLevel?: number
+
+  /**
    * dts header prepend to the generated dts file
    */
   dtsHeader?: string
@@ -289,6 +300,8 @@ export type NapiConfig = Required<
     | 'constEnum'
     | 'runtimeStringEnum'
     | 'rootPublisher'
+    | 'compress'
+    | 'compressLevel'
   > & {
     targets: Target[]
     packageJson: CommonPackageJsonFields

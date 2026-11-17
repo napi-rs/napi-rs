@@ -4,7 +4,10 @@ members = [
   "./crates/async-runtime",
   "./crates/backend",
   "./crates/build",
+  "./crates/napi-native-addon",
+  "./crates/napi-native-addon-stub",
   "./crates/macro",
+  "./crates/napi-compress",
   "./crates/napi",
   "./crates/sys",
   "./examples/napi",
@@ -36,6 +39,14 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
 [profile.release]
 lto = true
+
+# Size-tuned profile for the native-addon stub. Nightly builds also strip std.
+[profile.addon-min]
+inherits = "release"
+opt-level = "z"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
 
 [profile.wasi]
 inherits = "release"

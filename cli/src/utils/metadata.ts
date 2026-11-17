@@ -248,27 +248,30 @@ function stripFeatureArgs(args: string[]): string[] {
   return stripped
 }
 
-async function execCargoMetadata(invocation: {
-  command: string
-  args: string[]
-  cwd: string
-}) {
+async function execCargoMetadata(
+  invocation: {
+    command: string
+    args: string[]
+    cwd: string
+  },
+  retry = true,
+) {
   const childProcess = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     stdio: 'pipe',
   })
 
-  let stdout = ''
-  let stderr = ''
+  const stdoutChunks: Buffer[] = []
+  const stderrChunks: Buffer[] = []
   let status = 0
   let error: Error | null = null
 
   childProcess.stdout.on('data', (data) => {
-    stdout += data
+    stdoutChunks.push(Buffer.from(data))
   })
 
   childProcess.stderr.on('data', (data) => {
-    stderr += data
+    stderrChunks.push(Buffer.from(data))
   })
 
   childProcess.on('error', (err) => {
@@ -287,14 +290,20 @@ async function execCargoMetadata(invocation: {
   }
   if (status !== 0) {
     const simpleMessage = `cargo metadata exited with code ${status}`
+    const stderr = Buffer.concat(stderrChunks).toString('utf8')
     throw new Error(`${simpleMessage} and error message:\n\n${stderr}`, {
       cause: new Error(simpleMessage),
     })
   }
 
   try {
-    return JSON.parse(stdout) as CargoWorkspaceMetadata
+    return JSON.parse(
+      Buffer.concat(stdoutChunks).toString('utf8'),
+    ) as CargoWorkspaceMetadata
   } catch (e) {
+    // Cargo can truncate metadata while creating a new lockfile. Retrying reads
+    // the complete output from the lockfile it just created.
+    if (retry) return execCargoMetadata(invocation, false)
     throw new Error('Failed to parse cargo metadata JSON', { cause: e })
   }
 }

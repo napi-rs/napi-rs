@@ -1,0 +1,27 @@
+[package]
+name = "napi-native-addon-stub"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Self-loading trampoline that decodes a compressed native addon and forwards N-API registration."
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+# No napi/napi-derive: the stub forwards opaque (env, exports) and calls the real
+# addon's napi_register_module_v1 via dlsym — it never calls a napi API itself, so
+# it links against nothing from Node and needs no napi-build linker flags.
+[dependencies]
+napi-native-addon = { path = "../napi-native-addon" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_LibraryLoader",
+] }

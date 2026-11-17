@@ -216,26 +216,29 @@ function createCommonBinding(
   function requireTuple(tuple: string, identSize = 8) {
     const identLow = ' '.repeat(identSize - 2)
     const ident = ' '.repeat(identSize)
+    // A `--compress` build ships a self-loading `.node` (stub + payload), so the
+    // binding loads it with a plain require either way — the stub decodes itself.
+    const localLoad = `return require('./${localName}.${tuple}.node')`
+    const pkgLoad = `return require('${pkgName}-${tuple}')`
     const versionCheck = packageVersion
       ? `
 ${identLow}try {
-${ident}const binding = require('${pkgName}-${tuple}')
 ${ident}const bindingPackageVersion = require('${pkgName}-${tuple}/package.json').version
 ${ident}if (bindingPackageVersion !== '${packageVersion}' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
 ${ident}  throw new Error(\`Native binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
 ${ident}}
-${ident}return binding
+${ident}${pkgLoad}
 ${identLow}} catch (e) {
 ${ident}loadErrors.push(e)
 ${identLow}}`
       : `
 ${identLow}try {
-${ident}return require('${pkgName}-${tuple}')
+${ident}${pkgLoad}
 ${identLow}} catch (e) {
 ${ident}loadErrors.push(e)
 ${identLow}}`
     return `try {
-${ident}return require('./${localName}.${tuple}.node')
+${ident}${localLoad}
 ${identLow}} catch (e) {
 ${ident}loadErrors.push(e)
 ${identLow}}${versionCheck}`
