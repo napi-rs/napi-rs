@@ -1972,16 +1972,170 @@ mod fut_then_settle_tests {
   }
 }
 
-/// Shared future → Promise bridge behind [`execute_tokio_future`] and
-/// [`execute_tokio_future_with_finalize_callback`].
-///
-/// Routing:
-/// 1. a deferred duplicate/late registration error rejects the promise (loud misconfiguration),
-/// 2. a registered custom [`AsyncRuntime`] backend receives the work as an [`AsyncRuntimeTask`],
-/// 3. otherwise the built-in Tokio runtime is used (combined and `tokio_rt`-only builds); in a
-///    pure `async-runtime` build the promise rejects with a missing-backend error instead.
+/// The second half of a settle: runs on the JavaScript thread and converts the output a future
+/// produced into the value its promise resolves with.
 #[cfg(not(feature = "noop"))]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+type ErasedSettle = Box<dyn FnOnce(sys::napi_env) -> Result<sys::napi_value> + Send>;
+
+/// A future with its own type, its output type and its resolver erased.
+#[cfg(not(feature = "noop"))]
+type ErasedFuture = std::pin::Pin<Box<dyn Future<Output = Result<ErasedSettle>> + Send>>;
+
+/// Awaits `fut` and boxes the call of `resolver` on its output. This is the only part of the
+/// future → Promise bridge that is instantiated per future type.
+///
+/// [`execute_erased_future`] takes the result and is compiled once. That matters for compile
+/// times: the built-in Tokio path spawns two tasks per call, and Tokio instantiates its task
+/// machinery (cell, vtable, harness, one set per scheduler flavor) for every future type it is
+/// given. Spawning the caller's future type directly makes an addon pay that for each of its
+/// `async fn` exports.
+///
+/// The cost is two allocations per call: the boxed future and the boxed settle closure.
+///
+/// The erased future owns `fut` and `resolver`. It is the `fut` of [`fut_then_settle`], so both
+/// drop before the task's `JsDeferred` however the task ends.
+///
+/// `resolver` is not `Send`. It is called on the JavaScript thread only, and dropped uncalled
+/// wherever the future resolves to an error or is dropped, as it was before the erasure.
+#[cfg(not(feature = "noop"))]
+fn erase_future<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  fut: Fut,
+  resolver: Resolver,
+) -> ErasedFuture {
+  let sendable_resolver = SendableResolver::new(resolver);
+  Box::pin(async move {
+    match fut.await {
+      Ok(v) => Ok(Box::new(move |env| sendable_resolver.resolve(env, v)) as ErasedSettle),
+      Err(e) => Err(e.into()),
+    }
+  })
+}
+
+#[cfg(all(test, not(feature = "noop")))]
+mod erase_future_tests {
+  use std::{
+    sync::{Arc, Mutex},
+    task::{Context, Poll, Waker},
+  };
+
+  use super::*;
+
+  type Log = Arc<Mutex<Vec<&'static str>>>;
+
+  struct Record(&'static str, Log);
+
+  impl Drop for Record {
+    fn drop(&mut self) {
+      self.1.lock().unwrap().push(self.0);
+    }
+  }
+
+  /// Pending for ever, and records its drop.
+  struct PendingFut {
+    _record: Record,
+  }
+
+  impl Future for PendingFut {
+    type Output = Result<u32>;
+    fn poll(self: std::pin::Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+      Poll::Pending
+    }
+  }
+
+  /// A resolver that records its call and its drop.
+  fn resolver(log: &Log) -> impl FnOnce(sys::napi_env, u32) -> Result<sys::napi_value> + 'static {
+    let (log, record) = (log.clone(), Record("resolver dropped", log.clone()));
+    move |_env, v| {
+      let _record = record;
+      assert_eq!(v, 7);
+      log.lock().unwrap().push("resolver called");
+      Ok(std::ptr::null_mut())
+    }
+  }
+
+  fn poll(fut: &mut ErasedFuture) -> Poll<Result<ErasedSettle>> {
+    fut.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+  }
+
+  #[test]
+  fn resolver_runs_only_when_the_settle_is_called() {
+    let log = Log::default();
+    let mut fut = erase_future(async { Ok::<_, Error>(7) }, resolver(&log));
+    let Poll::Ready(Ok(settle)) = poll(&mut fut) else {
+      panic!("the future resolves on its first poll");
+    };
+    drop(fut);
+    assert!(log.lock().unwrap().is_empty());
+    assert!(settle(std::ptr::null_mut()).unwrap().is_null());
+    assert_eq!(
+      *log.lock().unwrap(),
+      ["resolver called", "resolver dropped"]
+    );
+  }
+
+  #[test]
+  fn uncalled_settle_drops_the_resolver() {
+    let log = Log::default();
+    let mut fut = erase_future(async { Ok::<_, Error>(7) }, resolver(&log));
+    let Poll::Ready(Ok(settle)) = poll(&mut fut) else {
+      panic!("the future resolves on its first poll");
+    };
+    drop(settle);
+    assert_eq!(*log.lock().unwrap(), ["resolver dropped"]);
+  }
+
+  #[test]
+  fn error_is_converted_and_drops_the_resolver() {
+    struct Boom;
+    impl From<Boom> for Error {
+      fn from(_: Boom) -> Self {
+        Error::new(crate::Status::InvalidArg, "boom")
+      }
+    }
+
+    let log = Log::default();
+    let mut fut = erase_future(async { Err::<u32, _>(Boom) }, resolver(&log));
+    let Poll::Ready(Err(error)) = poll(&mut fut) else {
+      panic!("the future fails on its first poll");
+    };
+    assert_eq!(error.status, crate::Status::InvalidArg);
+    assert_eq!(error.reason, "boom");
+    assert_eq!(*log.lock().unwrap(), ["resolver dropped"]);
+  }
+
+  #[test]
+  fn dropped_future_drops_the_resolver_uncalled() {
+    // Dropped before its first poll.
+    let log = Log::default();
+    let pending = PendingFut {
+      _record: Record("fut dropped", log.clone()),
+    };
+    drop(erase_future(pending, resolver(&log)));
+    assert_eq!(log.lock().unwrap().len(), 2);
+    assert!(!log.lock().unwrap().contains(&"resolver called"));
+
+    // Dropped while suspended on `fut`.
+    let log = Log::default();
+    let pending = PendingFut {
+      _record: Record("fut dropped", log.clone()),
+    };
+    let mut fut = erase_future(pending, resolver(&log));
+    assert!(poll(&mut fut).is_pending());
+    assert!(log.lock().unwrap().is_empty());
+    drop(fut);
+    assert_eq!(log.lock().unwrap().len(), 2);
+    assert!(!log.lock().unwrap().contains(&"resolver called"));
+  }
+}
+
+/// Shared future → Promise bridge behind [`execute_tokio_future`] and
+/// [`execute_tokio_future_with_finalize_callback`]: erases the future (see [`erase_future`]) and
+/// hands it to [`execute_erased_future`].
+#[cfg(not(feature = "noop"))]
 pub(crate) fn execute_future_impl<
   Data: 'static + Send,
   Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
@@ -1990,6 +2144,23 @@ pub(crate) fn execute_future_impl<
   env: sys::napi_env,
   fut: Fut,
   resolver: Resolver,
+  finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<(sys::napi_value, FinalizeCallback)> {
+  execute_erased_future(env, erase_future(fut, resolver), finalize_callback)
+}
+
+/// The non-generic body of [`execute_future_impl`].
+///
+/// Routing:
+/// 1. a deferred duplicate/late registration error rejects the promise (loud misconfiguration),
+/// 2. a registered custom [`AsyncRuntime`] backend receives the work as an [`AsyncRuntimeTask`],
+/// 3. otherwise the built-in Tokio runtime is used (combined and `tokio_rt`-only builds); in a
+///    pure `async-runtime` build the promise rejects with a missing-backend error instead.
+#[cfg(not(feature = "noop"))]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+fn execute_erased_future(
+  env: sys::napi_env,
+  fut: ErasedFuture,
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 ) -> Result<(sys::napi_value, FinalizeCallback)> {
   let env = Env::from_raw(env);
@@ -2051,16 +2222,13 @@ pub(crate) fn execute_future_impl<
   let deferred_for_panic = deferred.clone();
   #[cfg(all(feature = "tokio_rt", target_family = "wasm", not(tokio_unstable)))]
   let deferred_for_threadless = deferred.clone();
-  let sendable_resolver = SendableResolver::new(resolver);
 
   // `fut` drops before `deferred` however the task ends (see `fut_then_settle`).
   let inner = fut_then_settle(fut, deferred, move |output, deferred| match output {
-    Ok(v) => deferred.resolve(move |env| {
-      sendable_resolver
-        .resolve(env.raw(), v)
-        .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+    Ok(settle) => deferred.resolve(move |env| {
+      settle(env.raw()).map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
     }),
-    Err(e) => deferred.reject(e.into()),
+    Err(e) => deferred.reject(e),
   });
 
   #[cfg(feature = "async-runtime")]
