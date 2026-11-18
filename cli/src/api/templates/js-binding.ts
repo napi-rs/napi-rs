@@ -62,7 +62,9 @@ function createWasiFallbackChain(
         if (process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           const bindingPackageVersion = require('${specifier}/package.json').version
           if (bindingPackageVersion !== '${packageVersion}') {
-            throw new Error(\`WASI binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+            const mismatchError = new Error(\`WASI binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+            mismatchError.code = 'ERR_NAPI_RS_VERSION_MISMATCH'
+            throw mismatchError
           }
         }`
           : ''
@@ -222,7 +224,9 @@ ${identLow}try {
 ${ident}const binding = require('${pkgName}-${tuple}')
 ${ident}const bindingPackageVersion = require('${pkgName}-${tuple}/package.json').version
 ${ident}if (bindingPackageVersion !== '${packageVersion}' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-${ident}  throw new Error(\`Native binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+${ident}  const mismatchError = new Error(\`Native binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+${ident}  mismatchError.code = 'ERR_NAPI_RS_VERSION_MISMATCH'
+${ident}  throw mismatchError
 ${ident}}
 ${ident}return binding
 ${identLow}} catch (e) {
@@ -419,7 +423,7 @@ function requireNative() {
   }
 }
 
-function createLoadErrorChain(errors) {
+function createLoadErrorChain(errors, selectedFailure, selectedCode) {
   return errors.reduce((previous, current) => {
     let message
     try {
@@ -431,6 +435,15 @@ function createLoadErrorChain(errors) {
       message = 'Unknown error'
     }
     const error = new Error(message)
+    // Keep the platform error code (ERR_DLOPEN_DISABLED, MODULE_NOT_FOUND, ...)
+    // so callers can tell a missing package from an addon that failed to load.
+    try {
+      const code =
+        current === selectedFailure ? selectedCode : current && current.code
+      if (typeof code !== 'undefined') {
+        error.code = code
+      }
+    } catch {}
     error.cause = previous
     return error
   }, null)
@@ -505,14 +518,42 @@ ${createWasiFallbackChain(
 
 if (!nativeBinding) {
   if (loadErrors.length > 0) {
+    // A candidate that resolved and then failed to load (for example a .node
+    // file Node refuses to open) is not the npm optional-dependencies bug;
+    // report that failure instead.
+    let loadFailure = null
+    let loadFailureCode = null
+    for (let i = 0; i < loadErrors.length; i += 1) {
+      try {
+        const candidate = loadErrors[i]
+        const code = candidate && candidate.code
+        if (code && code !== 'MODULE_NOT_FOUND') {
+          loadFailure = candidate
+          loadFailureCode = code
+          break
+        }
+      } catch {}
+    }
+    let loadFailureMessage = null
+    if (loadFailure) {
+      try {
+        loadFailureMessage =
+          typeof loadFailure.message === 'string' ? loadFailure.message : String(loadFailure)
+      } catch {}
+    }
     const error = new Error(
-      \`Cannot find native binding. \` +
-        \`npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). \` +
-        'Please try \`npm i\` again after removing both package-lock.json and node_modules directory.',
+      loadFailure
+        ? 'Cannot load native binding. ' + (loadFailureMessage || 'Unknown error')
+        : \`Cannot find native binding. \` +
+          \`npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). \` +
+          'Please try \`npm i\` again after removing both package-lock.json and node_modules directory.',
     )
+    if (loadFailureCode) {
+      error.code = loadFailureCode
+    }
     // assign instead of the \`new Error(message, { cause })\` options form,
     // which Node < 16.9 silently ignores
-    error.cause = createLoadErrorChain(loadErrors)
+    error.cause = createLoadErrorChain(loadErrors, loadFailure, loadFailureCode)
     throw error
   }
   throw new Error(\`Failed to load native binding\`)
