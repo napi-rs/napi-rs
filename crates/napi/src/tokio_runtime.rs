@@ -1977,9 +1977,19 @@ mod fut_then_settle_tests {
 #[cfg(not(feature = "noop"))]
 type ErasedSettle = Box<dyn FnOnce(sys::napi_env) -> Result<sys::napi_value> + Send>;
 
+/// The resolver of a future that resolved to an error, uncalled. It travels next to the error so
+/// that the bridge drops it after it queued the rejection, as it did before the erasure: a
+/// resolver whose drop panics does not replace the error the promise rejects with.
+#[cfg(not(feature = "noop"))]
+type UnusedResolver = Box<dyn Send>;
+
+/// What an [`ErasedFuture`] resolves to.
+#[cfg(not(feature = "noop"))]
+type ErasedOutput = std::result::Result<ErasedSettle, (Error, UnusedResolver)>;
+
 /// A future with its own type, its output type and its resolver erased.
 #[cfg(not(feature = "noop"))]
-type ErasedFuture = std::pin::Pin<Box<dyn Future<Output = Result<ErasedSettle>> + Send>>;
+type ErasedFuture = std::pin::Pin<Box<dyn Future<Output = ErasedOutput> + Send>>;
 
 /// Awaits `fut` and boxes the call of `resolver` on its output. This is the only part of the
 /// future → Promise bridge that is instantiated per future type.
@@ -1990,13 +2000,22 @@ type ErasedFuture = std::pin::Pin<Box<dyn Future<Output = Result<ErasedSettle>> 
 /// given. Spawning the caller's future type directly makes an addon pay that for each of its
 /// `async fn` exports.
 ///
-/// The cost is two allocations per call: the boxed future and the boxed settle closure.
+/// The cost is two allocations per call: the boxed future, and the boxed settle closure or, on
+/// the error path, the boxed resolver.
 ///
-/// The erased future owns `fut` and `resolver`. It is the `fut` of [`fut_then_settle`], so both
-/// drop before the task's `JsDeferred` however the task ends.
+/// The erased future owns `fut` for its whole life, and `resolver` until it completes. It is the
+/// `fut` of [`fut_then_settle`], so `fut` drops before the task's `JsDeferred` however the task
+/// ends, and so does `resolver` when the task is dropped before it completes.
 ///
-/// `resolver` is not `Send`. It is called on the JavaScript thread only, and dropped uncalled
-/// wherever the future resolves to an error or is dropped, as it was before the erasure.
+/// A future that completes hands `resolver` over in its output, and from there its life is not
+/// tied to that `JsDeferred`:
+/// - on success it is inside the [`ErasedSettle`], which the `JsDeferred` queues for the
+///   JavaScript thread as part of its settle-time callback. It can outlive the `JsDeferred`.
+/// - on error it comes back uncalled as the [`UnusedResolver`], and the bridge drops it once the
+///   rejection is queued.
+///
+/// `resolver` is not `Send`. It is called on the JavaScript thread only, and dropped uncalled on
+/// the thread that drops the future or completes it with an error, as it was before the erasure.
 #[cfg(not(feature = "noop"))]
 fn erase_future<
   Data: 'static + Send,
@@ -2010,7 +2029,7 @@ fn erase_future<
   Box::pin(async move {
     match fut.await {
       Ok(v) => Ok(Box::new(move |env| sendable_resolver.resolve(env, v)) as ErasedSettle),
-      Err(e) => Err(e.into()),
+      Err(e) => Err((e.into(), Box::new(sendable_resolver) as UnusedResolver)),
     }
   })
 }
@@ -2057,7 +2076,7 @@ mod erase_future_tests {
     }
   }
 
-  fn poll(fut: &mut ErasedFuture) -> Poll<Result<ErasedSettle>> {
+  fn poll(fut: &mut ErasedFuture) -> Poll<ErasedOutput> {
     fut.as_mut().poll(&mut Context::from_waker(Waker::noop()))
   }
 
@@ -2089,7 +2108,7 @@ mod erase_future_tests {
   }
 
   #[test]
-  fn error_is_converted_and_drops_the_resolver() {
+  fn error_is_converted_and_carries_the_resolver_uncalled() {
     struct Boom;
     impl From<Boom> for Error {
       fn from(_: Boom) -> Self {
@@ -2099,11 +2118,15 @@ mod erase_future_tests {
 
     let log = Log::default();
     let mut fut = erase_future(async { Err::<u32, _>(Boom) }, resolver(&log));
-    let Poll::Ready(Err(error)) = poll(&mut fut) else {
+    let Poll::Ready(Err((error, unused_resolver))) = poll(&mut fut) else {
       panic!("the future fails on its first poll");
     };
+    drop(fut);
     assert_eq!(error.status, crate::Status::InvalidArg);
     assert_eq!(error.reason, "boom");
+    // Still alive: the bridge queues the rejection before it drops the resolver.
+    assert!(log.lock().unwrap().is_empty());
+    drop(unused_resolver);
     assert_eq!(*log.lock().unwrap(), ["resolver dropped"]);
   }
 
@@ -2228,7 +2251,11 @@ fn execute_erased_future(
     Ok(settle) => deferred.resolve(move |env| {
       settle(env.raw()).map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
     }),
-    Err(e) => deferred.reject(e),
+    Err((e, unused_resolver)) => {
+      deferred.reject(e);
+      // After the rejection is queued, so that a panic in its drop does not replace the error.
+      drop(unused_resolver);
+    }
   });
 
   #[cfg(feature = "async-runtime")]
