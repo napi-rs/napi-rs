@@ -136,16 +136,31 @@ test('the loader-owned hosts are per instance, not realm-global', async () => {
 
 test('accepts caller-selected memory pages', async () => {
   const pages = loader.WASM_MEMORY.initialPages + 32
-  const instance = await loader.createInstance(wasmModule, {
-    initialMemoryPages: pages,
-    maximumMemoryPages: loader.WASM_MEMORY.maximumPages,
+  // Record the size the loader asks for, so the check below does not depend
+  // on how much start-up grew the memory afterwards.
+  const requestedPages = []
+  const OriginalMemory = WebAssembly.Memory
+  WebAssembly.Memory = new Proxy(OriginalMemory, {
+    construct(target, args) {
+      requestedPages.push(args[0]?.initial)
+      return Reflect.construct(target, args)
+    },
   })
+  let instance
   try {
-    // A range, not equality: wasi-libc's malloc only uses the free space left
-    // in the module's own last page, then calls `memory.grow` on top of the
-    // current size. If start-up allocations do not fit there, the memory ends
-    // up a page bigger (it did with Rust 1.100). The default size is
-    // `pages - 32`, so the lower bound still proves the option was honoured.
+    instance = await loader.createInstance(wasmModule, {
+      initialMemoryPages: pages,
+      maximumMemoryPages: loader.WASM_MEMORY.maximumPages,
+    })
+  } finally {
+    WebAssembly.Memory = OriginalMemory
+  }
+  try {
+    assert.deepEqual(requestedPages, [pages])
+    // The live size is a range, not an exact value: wasi-libc's malloc only
+    // uses the free space left in the module's own last page, then calls
+    // `memory.grow` on top of the current size. If start-up allocations do
+    // not fit there, the memory ends up a page bigger (it did with Rust 1.100).
     assert.ok(instance.memoryBytes >= pages * 65536)
     assert.ok(instance.memoryBytes < (pages + 32) * 65536)
     assert.equal(await instance.exports.plus100(7), 107)
