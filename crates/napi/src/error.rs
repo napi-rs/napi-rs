@@ -1128,7 +1128,7 @@ fn owned_string_without_coercion(env: sys::napi_env, value: sys::napi_value) -> 
 
   // `+= 1` for the NUL terminator `napi_get_value_string_utf8` writes after the string bytes
   len += 1;
-  let mut bytes: Vec<u8> = vec![0; len];
+  let mut bytes: Vec<u8> = Vec::with_capacity(len);
 
   let mut written_byte_count = 0;
   let status = unsafe {
@@ -1145,7 +1145,10 @@ fn owned_string_without_coercion(env: sys::napi_env, value: sys::napi_value) -> 
     return None;
   }
 
-  bytes.truncate(written_byte_count);
+  debug_assert!(written_byte_count < len);
+  // SAFETY: `napi_get_value_string_utf8` initialized the first `written_byte_count` bytes,
+  // followed by a NUL terminator, so `written_byte_count < len`
+  unsafe { bytes.set_len(written_byte_count) };
 
   String::from_utf8(bytes).ok()
 }

@@ -96,7 +96,7 @@ impl<'env> JsString<'env> {
   pub fn into_utf8(self) -> Result<JsStringUtf8<'env>> {
     // `+ 1` for the NUL terminator `napi_get_value_string_utf8` writes after the string bytes
     let len = self.utf8_len()? + 1;
-    let mut bytes: Vec<u8> = vec![0; len];
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
 
     let mut written_byte_count = 0;
     check_status!(unsafe {
@@ -109,7 +109,10 @@ impl<'env> JsString<'env> {
       )
     })?;
 
-    bytes.truncate(written_byte_count);
+    debug_assert!(written_byte_count < len);
+    // SAFETY: `napi_get_value_string_utf8` initialized the first `written_byte_count` bytes,
+    // followed by a NUL terminator, so `written_byte_count < len`
+    unsafe { bytes.set_len(written_byte_count) };
 
     Ok(JsStringUtf8 {
       inner: self,
@@ -120,7 +123,7 @@ impl<'env> JsString<'env> {
   pub fn into_utf16(self) -> Result<JsStringUtf16<'env>> {
     // `+ 1` for the NUL terminator `napi_get_value_string_utf16` writes after the string data
     let len = self.utf16_len()? + 1;
-    let mut code_units: Vec<u16> = vec![0; len];
+    let mut code_units: Vec<u16> = Vec::with_capacity(len);
 
     let mut written_code_unit_count = 0usize;
     check_status!(unsafe {
@@ -133,6 +136,13 @@ impl<'env> JsString<'env> {
       )
     })?;
 
+    // Keep the NUL terminator in `code_units`: `JsStringUtf16::len` and `as_slice` include it,
+    // `as_str` strips it
+    debug_assert!(written_code_unit_count < len);
+    // SAFETY: `napi_get_value_string_utf16` initialized the first `written_code_unit_count`
+    // code units, followed by a NUL terminator, so `written_code_unit_count + 1 <= len`
+    unsafe { code_units.set_len(written_code_unit_count + 1) };
+
     Ok(JsStringUtf16 {
       inner: self,
       buf: unsafe { std::slice::from_raw_parts(code_units.as_ptr(), code_units.len()) },
@@ -143,7 +153,7 @@ impl<'env> JsString<'env> {
   pub fn into_latin1(self) -> Result<JsStringLatin1<'env>> {
     // `+ 1` for the NUL terminator `napi_get_value_string_latin1` writes after the string bytes
     let len = self.latin1_len()? + 1;
-    let mut bytes: Vec<u8> = vec![0; len];
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
 
     let mut written_byte_count = 0usize;
     check_status!(unsafe {
@@ -156,7 +166,10 @@ impl<'env> JsString<'env> {
       )
     })?;
 
-    bytes.truncate(written_byte_count);
+    debug_assert!(written_byte_count < len);
+    // SAFETY: `napi_get_value_string_latin1` initialized the first `written_byte_count` bytes,
+    // followed by a NUL terminator, so `written_byte_count < len`
+    unsafe { bytes.set_len(written_byte_count) };
 
     Ok(JsStringLatin1 {
       inner: self,

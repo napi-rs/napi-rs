@@ -61,7 +61,7 @@ impl FromNapiValue for String {
 
     // `+= 1` for the NUL terminator `napi_get_value_string_utf8` writes after the string bytes
     len += 1;
-    let mut bytes: Vec<u8> = vec![0; len];
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
 
     let mut written_byte_count = 0;
     check_status_and_type!(
@@ -79,7 +79,10 @@ impl FromNapiValue for String {
       "Failed to convert napi `{}` into rust type `String`"
     )?;
 
-    bytes.truncate(written_byte_count);
+    debug_assert!(written_byte_count < len);
+    // SAFETY: `napi_get_value_string_utf8` initialized the first `written_byte_count` bytes,
+    // followed by a NUL terminator, so `written_byte_count < len`
+    unsafe { bytes.set_len(written_byte_count) };
 
     // SAFETY: `napi_get_value_string_utf8` only writes valid UTF-8, and `bytes` holds the whole
     // string, so it does not end partway through a multi-byte character
@@ -154,7 +157,7 @@ impl FromNapiValue for Utf16String {
 
     // `+= 1` for the NUL terminator `napi_get_value_string_utf16` writes after the string data
     len += 1;
-    let mut code_units: Vec<u16> = vec![0; len];
+    let mut code_units: Vec<u16> = Vec::with_capacity(len);
 
     let mut written_code_unit_count = 0;
     check_status!(
@@ -170,7 +173,10 @@ impl FromNapiValue for Utf16String {
       "Failed to convert napi `utf16 string` into rust type `String`",
     )?;
 
-    code_units.truncate(written_code_unit_count);
+    debug_assert!(written_code_unit_count < len);
+    // SAFETY: `napi_get_value_string_utf16` initialized the first `written_code_unit_count`
+    // code units, followed by a NUL terminator, so `written_code_unit_count < len`
+    unsafe { code_units.set_len(written_code_unit_count) };
 
     Ok(Utf16String(code_units))
   }
@@ -242,7 +248,7 @@ impl FromNapiValue for Latin1String {
 
     // `+= 1` for the NUL terminator `napi_get_value_string_latin1` writes after the string bytes
     len += 1;
-    let mut bytes: Vec<u8> = vec![0; len];
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
 
     let mut written_byte_count = 0;
     check_status!(
@@ -258,7 +264,10 @@ impl FromNapiValue for Latin1String {
       "Failed to convert napi `latin1 string` into rust type `String`"
     )?;
 
-    bytes.truncate(written_byte_count);
+    debug_assert!(written_byte_count < len);
+    // SAFETY: `napi_get_value_string_latin1` initialized the first `written_byte_count` bytes,
+    // followed by a NUL terminator, so `written_byte_count < len`
+    unsafe { bytes.set_len(written_byte_count) };
 
     Ok(Latin1String(bytes))
   }
