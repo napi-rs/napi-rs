@@ -22,6 +22,9 @@ export default defineConfig({
     },
   ],
   test: {
+    // See `knownFlakyAtomicsWait` in browser/values.spec.ts.
+    onUnhandledError: (error) =>
+      error.message !== 'Atomics.wait cannot be called in this context',
     include: ['browser/**/*.{spec,test}.{js,jsx,ts,tsx}'],
     browser: {
       enabled: true,
