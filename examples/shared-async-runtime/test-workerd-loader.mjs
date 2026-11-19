@@ -141,7 +141,13 @@ test('accepts caller-selected memory pages', async () => {
     maximumMemoryPages: loader.WASM_MEMORY.maximumPages,
   })
   try {
-    assert.equal(instance.memoryBytes, pages * 65536)
+    // A range, not equality: wasi-libc's malloc only uses the free space left
+    // in the module's own last page, then calls `memory.grow` on top of the
+    // current size. If start-up allocations do not fit there, the memory ends
+    // up a page bigger (it did with Rust 1.100). The default size is
+    // `pages - 32`, so the lower bound still proves the option was honoured.
+    assert.ok(instance.memoryBytes >= pages * 65536)
+    assert.ok(instance.memoryBytes < (pages + 32) * 65536)
     assert.equal(await instance.exports.plus100(7), 107)
   } finally {
     await instance.dispose()
