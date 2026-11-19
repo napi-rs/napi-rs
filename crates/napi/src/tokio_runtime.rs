@@ -1979,9 +1979,10 @@ type ErasedSettle = Box<dyn FnOnce(sys::napi_env) -> Result<sys::napi_value> + S
 
 /// The resolver of a future that resolved to an error, uncalled. It travels next to the error so
 /// that the bridge drops it after it queued the rejection, as it did before the erasure: a
-/// resolver whose drop panics does not replace the error the promise rejects with.
+/// resolver whose drop panics does not replace the error the promise rejects with. `None` when the
+/// resolver needs no drop glue, avoiding both a heap allocation and a `dyn Send` vtable.
 #[cfg(not(feature = "noop"))]
-type UnusedResolver = Box<dyn Send>;
+type UnusedResolver = Option<Box<dyn Send>>;
 
 /// What an [`ErasedFuture`] resolves to.
 #[cfg(not(feature = "noop"))]
@@ -2000,8 +2001,8 @@ type ErasedFuture = std::pin::Pin<Box<dyn Future<Output = ErasedOutput> + Send>>
 /// given. Spawning the caller's future type directly makes an addon pay that for each of its
 /// `async fn` exports.
 ///
-/// The cost is two allocations per call: the boxed future, and the boxed settle closure or, on
-/// the error path, the boxed resolver.
+/// The cost is at most two allocations per call: the boxed future, and the boxed settle closure
+/// or, on the error path when the resolver needs drop glue, the boxed resolver.
 ///
 /// The erased future owns `fut` for its whole life, and `resolver` until it completes. It is the
 /// `fut` of [`fut_then_settle`], so `fut` drops before the task's `JsDeferred` however the task
@@ -2010,9 +2011,9 @@ type ErasedFuture = std::pin::Pin<Box<dyn Future<Output = ErasedOutput> + Send>>
 /// A future that completes hands `resolver` over in its output, and from there its life is not
 /// tied to that `JsDeferred`:
 /// - on success it is inside the [`ErasedSettle`], which the `JsDeferred` queues for the
-///   JavaScript thread as part of its settle-time callback. It can outlive the `JsDeferred`.
-/// - on error it comes back uncalled as the [`UnusedResolver`], and the bridge drops it once the
-///   rejection is queued.
+///   JavaScript thread as its resolve callback. It can outlive the `JsDeferred`.
+/// - on error it comes back uncalled as the [`UnusedResolver`] (when it needs drop glue), and the
+///   bridge drops it once the rejection is queued.
 ///
 /// `resolver` is not `Send`. It is called on the JavaScript thread only, and dropped uncalled on
 /// the thread that drops the future or completes it with an error, as it was before the erasure.
@@ -2029,7 +2030,14 @@ fn erase_future<
   Box::pin(async move {
     match fut.await {
       Ok(v) => Ok(Box::new(move |env| sendable_resolver.resolve(env, v)) as ErasedSettle),
-      Err(e) => Err((e.into(), Box::new(sendable_resolver) as UnusedResolver)),
+      Err(e) => {
+        let unused_resolver = if std::mem::needs_drop::<SendableResolver<Data, Resolver>>() {
+          Some(Box::new(sendable_resolver) as Box<dyn Send>)
+        } else {
+          None
+        };
+        Err((e.into(), unused_resolver))
+      }
     }
   })
 }
@@ -2037,6 +2045,7 @@ fn erase_future<
 #[cfg(all(test, not(feature = "noop")))]
 mod erase_future_tests {
   use std::{
+    rc::Rc,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
   };
@@ -2065,10 +2074,15 @@ mod erase_future_tests {
     }
   }
 
-  /// A resolver that records its call and its drop.
+  /// A `!Send` resolver that records its call and its drop.
   fn resolver(log: &Log) -> impl FnOnce(sys::napi_env, u32) -> Result<sys::napi_value> + 'static {
-    let (log, record) = (log.clone(), Record("resolver dropped", log.clone()));
+    let (log, record, not_send) = (
+      log.clone(),
+      Record("resolver dropped", log.clone()),
+      Rc::new(()),
+    );
     move |_env, v| {
+      let _not_send = not_send;
       let _record = record;
       assert_eq!(v, 7);
       log.lock().unwrap().push("resolver called");
@@ -2124,10 +2138,24 @@ mod erase_future_tests {
     drop(fut);
     assert_eq!(error.status, crate::Status::InvalidArg);
     assert_eq!(error.reason, "boom");
+    assert!(unused_resolver.is_some());
     // Still alive: the bridge queues the rejection before it drops the resolver.
     assert!(log.lock().unwrap().is_empty());
     drop(unused_resolver);
     assert_eq!(*log.lock().unwrap(), ["resolver dropped"]);
+
+    // A resolver that needs no drop glue skips boxing on the error path.
+    let dispose: Option<fn(Env) -> Result<()>> = None;
+    let mut fut = erase_future(async { Err::<u32, _>(Boom) }, move |_env, _v| {
+      let _ = dispose;
+      Ok(std::ptr::null_mut())
+    });
+    let Poll::Ready(Err((error, unused_resolver))) = poll(&mut fut) else {
+      panic!("the future fails on its first poll");
+    };
+    assert_eq!(error.status, crate::Status::InvalidArg);
+    assert_eq!(error.reason, "boom");
+    assert!(unused_resolver.is_none());
   }
 
   #[test]
@@ -2138,8 +2166,13 @@ mod erase_future_tests {
       _record: Record("fut dropped", log.clone()),
     };
     drop(erase_future(pending, resolver(&log)));
-    assert_eq!(log.lock().unwrap().len(), 2);
-    assert!(!log.lock().unwrap().contains(&"resolver called"));
+    {
+      let entries = log.lock().unwrap();
+      assert_eq!(entries.len(), 2);
+      assert!(entries.contains(&"fut dropped"));
+      assert!(entries.contains(&"resolver dropped"));
+      assert!(!entries.contains(&"resolver called"));
+    }
 
     // Dropped while suspended on `fut`.
     let log = Log::default();
@@ -2150,8 +2183,13 @@ mod erase_future_tests {
     assert!(poll(&mut fut).is_pending());
     assert!(log.lock().unwrap().is_empty());
     drop(fut);
-    assert_eq!(log.lock().unwrap().len(), 2);
-    assert!(!log.lock().unwrap().contains(&"resolver called"));
+    {
+      let entries = log.lock().unwrap();
+      assert_eq!(entries.len(), 2);
+      assert!(entries.contains(&"fut dropped"));
+      assert!(entries.contains(&"resolver dropped"));
+      assert!(!entries.contains(&"resolver called"));
+    }
   }
 }
 
@@ -2180,7 +2218,6 @@ pub(crate) fn execute_future_impl<
 /// 3. otherwise the built-in Tokio runtime is used (combined and `tokio_rt`-only builds); in a
 ///    pure `async-runtime` build the promise rejects with a missing-backend error instead.
 #[cfg(not(feature = "noop"))]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 fn execute_erased_future(
   env: sys::napi_env,
   fut: ErasedFuture,

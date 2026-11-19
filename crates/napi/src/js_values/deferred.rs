@@ -733,7 +733,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
   /// drop on the JavaScript thread rejects it too (a `current_thread` runtime shut down on the
   /// JavaScript thread drops its tasks there). One `Relaxed` store. Nothing on wasm, where a
   /// dropped deferred does nothing. Gated like its only caller, the Tokio spawn in
-  /// `execute_future_impl`.
+  /// `execute_erased_future`.
   #[cfg(all(
     not(feature = "noop"),
     feature = "tokio_rt",
