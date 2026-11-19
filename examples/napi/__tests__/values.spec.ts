@@ -2673,6 +2673,22 @@ test('capture ignores a post-load replacement of Reflect', (t) => {
   t.is(described, 'GenericFailure|still read|still walked')
 })
 
+test('capture reads lone surrogates without re-validating UTF-8', (t) => {
+  // `owned_string_without_coercion` trusts `napi_get_value_string_utf8` to write
+  // valid UTF-8 and skips re-validation. Lone surrogates are the input that
+  // would break that trust. V8 replaces each one with U+FFFD. emnapi instead
+  // folds it into the next code unit, so the WASI lane only checks the shape.
+  const fromMessage = describeCapturedValue(new Error('a\uD800b\uDC00'))
+  const fromPrimitive = describeCapturedValue('\uDC00z')
+  if (process.env.WASI_TEST) {
+    t.regex(fromMessage, /^GenericFailure\|a.+\|-$/u)
+    t.regex(fromPrimitive, /^GenericFailure\|.+\|-$/u)
+  } else {
+    t.is(fromMessage, 'GenericFailure|a�b�|-')
+    t.is(fromPrimitive, 'GenericFailure|�z|-')
+  }
+})
+
 Napi4Test(
   'a rejected promise settles JavaScript with the identical value',
   async (t) => {
