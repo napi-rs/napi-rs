@@ -10,6 +10,16 @@ pub struct Latin1MethodsResult {
   pub as_slice: Vec<u8>,
 }
 
+#[napi(object)]
+pub struct Utf8MethodsResult {
+  pub as_str: String,
+  pub length: u32,
+  pub is_empty: bool,
+  pub as_slice: Vec<u8>,
+  pub into_owned: String,
+  pub take: Vec<u8>,
+}
+
 #[napi]
 pub fn contains(source: String, target: String) -> bool {
   source.contains(&target)
@@ -63,6 +73,19 @@ pub fn return_c_string() -> RawCString {
 #[napi]
 pub fn into_utf8(s: JsString) -> Result<JsStringUtf8> {
   s.into_utf8()
+}
+
+#[napi]
+pub fn test_utf8_methods(s: JsString) -> Result<Utf8MethodsResult> {
+  let utf8 = s.into_utf8()?;
+  Ok(Utf8MethodsResult {
+    as_str: utf8.as_str()?.to_owned(),
+    length: utf8.len() as u32,
+    is_empty: utf8.is_empty(),
+    as_slice: utf8.as_slice().to_vec(),
+    into_owned: s.into_utf8()?.into_owned()?,
+    take: utf8.take(),
+  })
 }
 
 #[napi]

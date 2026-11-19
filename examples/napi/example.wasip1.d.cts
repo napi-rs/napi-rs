@@ -2228,6 +2228,8 @@ export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
 
+export declare function testUtf8Methods(s: string): Utf8MethodsResult
+
 export declare function testWorkers(amount: number, completeCallback: ((err: Error | null) => void)): void
 
 export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
@@ -2391,6 +2393,15 @@ export interface UseNullableStruct {
 export interface UtcDates {
   start: Date
   end?: Date
+}
+
+export interface Utf8MethodsResult {
+  asStr: string
+  length: number
+  isEmpty: boolean
+  asSlice: Array<number>
+  intoOwned: string
+  take: Array<number>
 }
 
 export declare function validateArray(arr: Array<number>): number
