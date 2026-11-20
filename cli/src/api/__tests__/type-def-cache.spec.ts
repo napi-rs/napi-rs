@@ -7,6 +7,7 @@ import type { CargoWorkspaceMetadata } from '../../utils/metadata.js'
 import {
   getCargoDependencyGraphFingerprint,
   getTypeDefCacheFolder,
+  normalizeWorkspacePackageId,
   toWorkspaceRelativePath,
 } from '../build.js'
 
@@ -264,5 +265,60 @@ test('package id normalization ignores sibling paths and non-path sources', (t) 
   t.not(
     withExternalDep('/src/project', gitA, registryManifest),
     withExternalDep('/worktrees/branch', gitB, registryManifest),
+  )
+})
+
+test('normalizeWorkspacePackageId strictly parses current and legacy path package ids', (t) => {
+  const root = '/src/my project (1)'
+  const rootUrl = pathToFileURL(root).href
+
+  // Current format (subdir & workspace root)
+  t.is(
+    normalizeWorkspacePackageId(
+      `path+${rootUrl}/crates/my%20addon#addon@0.1.0`,
+      root,
+    ),
+    'path+file://$WORKSPACE_ROOT/crates/my%20addon#addon@0.1.0',
+  )
+  t.is(
+    normalizeWorkspacePackageId(`path+${rootUrl}#addon@0.1.0`, root),
+    'path+file://$WORKSPACE_ROOT#addon@0.1.0',
+  )
+
+  // Legacy format (subdir, workspace root, prerelease/build semver)
+  t.is(
+    normalizeWorkspacePackageId(
+      `addon 0.1.0 (path+${rootUrl}/crates/addon)`,
+      root,
+    ),
+    'addon 0.1.0 (path+file://$WORKSPACE_ROOT/crates/addon)',
+  )
+  t.is(
+    normalizeWorkspacePackageId(
+      `addon 0.1.0-alpha.1+build.2 (path+${rootUrl})`,
+      root,
+    ),
+    'addon 0.1.0-alpha.1+build.2 (path+file://$WORKSPACE_ROOT)',
+  )
+
+  // Unrelated / malformed / non-path / outside-workspace IDs are left untouched
+  const unchanged = [
+    registryId,
+    `serde 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)`,
+    `git+${rootUrl}/vendor/ext#ext@0.1.0`,
+    `path+${pathToFileURL('/src/my project (1)-other/ext').href}#ext@0.1.0`,
+    `addon 0.1.0 (path+${rootUrl}) (extra)`,
+    `addon 0.1.0 (path+not a url)`,
+    `path+https://example.com/crates/addon#addon@0.1.0`,
+  ]
+  for (const id of unchanged) {
+    t.is(normalizeWorkspacePackageId(id, root), id)
+  }
+  t.is(
+    normalizeWorkspacePackageId(
+      `path+${rootUrl}/crates/addon#addon@0.1.0`,
+      undefined,
+    ),
+    `path+${rootUrl}/crates/addon#addon@0.1.0`,
   )
 })

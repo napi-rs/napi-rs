@@ -14,7 +14,7 @@ import {
   resolve,
   sep,
 } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 import * as colors from 'colorette'
 
@@ -275,12 +275,12 @@ type CargoConfigFingerprint = readonly [path: string, hash: string]
 // paths inside the workspace the same way. Paths outside it (registry and git
 // sources, `CARGO_HOME` config) are left absolute; they are shared by every
 // checkout anyway.
-export function toWorkspaceRelativePath(
+function relativeWithinWorkspace(
   path: string,
   workspaceRoot: string | undefined,
-): string {
+): string | undefined {
   if (!workspaceRoot) {
-    return path
+    return undefined
   }
   const relativePath = relative(workspaceRoot, path)
   if (
@@ -288,40 +288,109 @@ export function toWorkspaceRelativePath(
     relativePath === '..' ||
     relativePath.startsWith(`..${sep}`)
   ) {
-    return path
+    return undefined
   }
   return relativePath === '' ? '.' : relativePath.split(sep).join('/')
 }
 
-const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+export function toWorkspaceRelativePath(
+  path: string,
+  workspaceRoot: string | undefined,
+): string {
+  return relativeWithinWorkspace(path, workspaceRoot) ?? path
 }
 
-// Cargo package ids of path packages embed the absolute source URL, in both the
-// current (`path+file:///ws/crate#name@1.0.0`) and the legacy
-// (`name 1.0.0 (path+file:///ws/crate)`) formats.
-function workspacePackageIdNormalizer(
-  workspaceRoot: string | undefined,
-): (id: string) => string {
-  if (!workspaceRoot) {
-    return (id) => id
+const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
+
+interface ParsedPathPackageId {
+  prefix: string
+  rawUrl: string
+  suffix: string
+}
+
+// Parses Cargo path package IDs in both formats emitted by `cargo metadata`:
+// - current (`PkgIdSpec`): `path+file:///ws/crate#name@1.0.0`
+// - legacy (`Display`):    `name 1.0.0 (path+file:///ws/crate)`
+function parsePathPackageId(id: string): ParsedPathPackageId | undefined {
+  if (id.startsWith('path+')) {
+    const rawUrl = id.slice('path+'.length)
+    return rawUrl.length > 0 && !rawUrl.includes(' ')
+      ? { prefix: 'path+', rawUrl, suffix: '' }
+      : undefined
   }
-  const rootUrl = pathToFileURL(workspaceRoot).href.replace(/\/$/, '')
-  const pattern = new RegExp(
-    `path\\+${escapeRegExp(rootUrl)}(?=[/#?]|\\)$|$)`,
-    'g',
-  )
-  return (id) =>
-    id.replace(pattern, () => `path+file://${WORKSPACE_ROOT_PLACEHOLDER}`)
+  if (!id.endsWith(')')) {
+    return undefined
+  }
+  const firstSpace = id.indexOf(' ')
+  if (firstSpace <= 0) {
+    return undefined
+  }
+  const secondSpace = id.indexOf(' ', firstSpace + 1)
+  if (secondSpace <= firstSpace + 1) {
+    return undefined
+  }
+  const sourcePrefix = ' (path+'
+  if (!id.startsWith(sourcePrefix, secondSpace)) {
+    return undefined
+  }
+  const urlStart = secondSpace + sourcePrefix.length
+  const rawUrl = id.slice(urlStart, -1)
+  if (rawUrl.length === 0 || rawUrl.includes(' ')) {
+    return undefined
+  }
+  return {
+    prefix: id.slice(0, urlStart),
+    rawUrl,
+    suffix: ')',
+  }
+}
+
+export function normalizeWorkspacePackageId(
+  id: string,
+  workspaceRoot: string | undefined,
+): string {
+  if (!workspaceRoot) {
+    return id
+  }
+  const parsed = parsePathPackageId(id)
+  if (!parsed) {
+    return id
+  }
+  let url: URL
+  try {
+    url = new URL(parsed.rawUrl)
+  } catch {
+    return id
+  }
+  if (url.protocol !== 'file:') {
+    return id
+  }
+  const fileUrl = new URL(url.href)
+  fileUrl.search = ''
+  fileUrl.hash = ''
+  let packagePath: string
+  try {
+    packagePath = fileURLToPath(fileUrl)
+  } catch {
+    return id
+  }
+  const relativePath = relativeWithinWorkspace(packagePath, workspaceRoot)
+  if (relativePath === undefined) {
+    return id
+  }
+  const encodedSubpath =
+    relativePath === '.'
+      ? ''
+      : `/${relativePath.split('/').map(encodeURIComponent).join('/')}`
+  return `${parsed.prefix}file://${WORKSPACE_ROOT_PLACEHOLDER}${encodedSubpath}${url.search}${url.hash}${parsed.suffix}`
 }
 
 export function getCargoDependencyGraphFingerprint(
   metadata: CargoWorkspaceMetadata,
   rootPackageId: string,
 ): string {
-  const normalizeId = workspacePackageIdNormalizer(metadata.workspace_root)
+  const normalizeId = (id: string) =>
+    normalizeWorkspacePackageId(id, metadata.workspace_root)
   const packages = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]))
   const nodes = new Map(
     (metadata.resolve?.nodes ?? []).map((node) => [node.id, node]),
