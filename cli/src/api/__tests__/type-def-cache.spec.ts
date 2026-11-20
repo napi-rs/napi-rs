@@ -140,3 +140,129 @@ test('without a workspace root (watch mode), checkouts keep separate folders', (
     cacheFolder(worktree, 'crates/addon', false),
   )
 })
+
+test('workspace-root crates and special-character workspace paths normalize consistently', (t) => {
+  const rootCheckout = (root: string, legacyIds = false) => {
+    const rootUrl = pathToFileURL(root).href
+    const addonId = legacyIds
+      ? `addon 0.1.0 (path+${rootUrl})`
+      : `path+${rootUrl}#addon@0.1.0`
+    const metadata = {
+      version: 1,
+      workspace_root: root,
+      target_directory: '/shared/target',
+      workspace_members: [addonId],
+      packages: [
+        {
+          id: addonId,
+          name: 'addon',
+          manifest_path: join(root, 'Cargo.toml'),
+          dependencies: [],
+          features: {},
+        },
+      ],
+      resolve: {
+        root: null,
+        nodes: [{ id: addonId, deps: [], features: [] }],
+      },
+    } as unknown as CargoWorkspaceMetadata
+    return getTypeDefCacheFolder({
+      targetDir: '/shared/target',
+      crateName: 'addon',
+      manifestPath: join(root, 'Cargo.toml'),
+      workspaceRoot: root,
+      targetTriple: 'aarch64-apple-darwin',
+      profile: 'dev',
+      cargoDependencyGraph: getCargoDependencyGraphFingerprint(
+        metadata,
+        addonId,
+      ),
+    })
+  }
+
+  t.is(
+    rootCheckout('/src/my project (1)'),
+    rootCheckout('/worktrees/feature branch'),
+  )
+  t.is(
+    rootCheckout('/src/my project (1)', true),
+    rootCheckout('/worktrees/feature branch', true),
+  )
+})
+
+test('package id normalization ignores sibling paths and non-path sources', (t) => {
+  const withExternalDep = (
+    root: string,
+    depId: string,
+    depManifest: string,
+  ) => {
+    const rootUrl = pathToFileURL(root).href
+    const addonId = `path+${rootUrl}/crates/addon#addon@0.1.0`
+    const metadata = {
+      version: 1,
+      workspace_root: root,
+      target_directory: '/shared/target',
+      workspace_members: [addonId],
+      packages: [
+        {
+          id: addonId,
+          name: 'addon',
+          manifest_path: join(root, 'crates/addon/Cargo.toml'),
+          dependencies: [],
+          features: {},
+        },
+        {
+          id: depId,
+          name: 'ext',
+          manifest_path: depManifest,
+          dependencies: [],
+          features: {},
+        },
+      ],
+      resolve: {
+        root: null,
+        nodes: [
+          {
+            id: addonId,
+            deps: [
+              {
+                name: 'ext',
+                pkg: depId,
+                dep_kinds: [{ kind: null, target: null }],
+              },
+            ],
+            features: [],
+          },
+          { id: depId, deps: [], features: [] },
+        ],
+      },
+    } as unknown as CargoWorkspaceMetadata
+    return getCargoDependencyGraphFingerprint(metadata, addonId)
+  }
+
+  // A sibling directory whose name starts with `root + ")"` must not match the
+  // legacy `)` delimiter.
+  const siblingA = pathToFileURL('/src/project)other/ext').href
+  const siblingB = pathToFileURL('/worktrees/branch)other/ext').href
+  t.not(
+    withExternalDep(
+      '/src/project',
+      `path+${siblingA}#ext@0.1.0`,
+      '/src/project)other/ext/Cargo.toml',
+    ),
+    withExternalDep(
+      '/worktrees/branch',
+      `path+${siblingB}#ext@0.1.0`,
+      '/worktrees/branch)other/ext/Cargo.toml',
+    ),
+  )
+
+  // Non-path sources (e.g. git+file://) are left untouched even when they
+  // point under the workspace root.
+  const gitA = `git+${pathToFileURL('/src/project/vendor/ext').href}#ext@0.1.0`
+  const gitB = `git+${pathToFileURL('/worktrees/branch/vendor/ext').href}#ext@0.1.0`
+  t.not(
+    withExternalDep('/src/project', gitA, registryManifest),
+    withExternalDep('/worktrees/branch', gitB, registryManifest),
+  )
+})

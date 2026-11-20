@@ -309,8 +309,12 @@ function workspacePackageIdNormalizer(
     return (id) => id
   }
   const rootUrl = pathToFileURL(workspaceRoot).href.replace(/\/$/, '')
-  const pattern = new RegExp(`${escapeRegExp(rootUrl)}(?=[/#)?]|$)`, 'g')
-  return (id) => id.replace(pattern, `file://${WORKSPACE_ROOT_PLACEHOLDER}`)
+  const pattern = new RegExp(
+    `path\\+${escapeRegExp(rootUrl)}(?=[/#?]|\\)$|$)`,
+    'g',
+  )
+  return (id) =>
+    id.replace(pattern, () => `path+file://${WORKSPACE_ROOT_PLACEHOLDER}`)
 }
 
 export function getCargoDependencyGraphFingerprint(
@@ -1975,7 +1979,7 @@ class Builder {
     // post-build lock only and uses a per-checkout folder instead; a
     // `--no-dts-cache` folder is unique to this build and needs no lock.
     const sharedTypeDefFolder =
-      !watch && this.enableTypeDef && this.options.dtsCache !== false
+      !watch && this.enableTypeDef && Boolean(this.options.dtsCache)
         ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
         : undefined
     const runBuild = () => runCargo().then(() => this.postBuild())
@@ -1996,7 +2000,7 @@ class Builder {
           ).catch((error: unknown) => {
             if (!buildStarted && controller.signal.aborted) {
               throw new Error('Build aborted', {
-                cause: controller.signal.reason,
+                cause: error,
               })
             }
             throw error

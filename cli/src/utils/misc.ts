@@ -371,6 +371,7 @@ export async function withFileSystemReconciliation<T>(
   operation: () => Promise<T>,
   options?: FileSystemReconciliationOptions,
 ): Promise<T> {
+  options?.signal?.throwIfAborted()
   const localKey = resolve(path)
   const previous = reconciliationTails.get(localKey) ?? Promise.resolve()
   let release!: () => void
@@ -381,6 +382,7 @@ export async function withFileSystemReconciliation<T>(
   reconciliationTails.set(localKey, tail)
 
   const releaseCrossProcessLocks: Array<() => Promise<void>> = []
+  let previousSettled = false
   let lockAcquisitionDegraded = false
   let operationFailed = false
   let operationError: unknown
@@ -390,6 +392,7 @@ export async function withFileSystemReconciliation<T>(
       previous.catch(() => {}),
       options?.signal,
     )
+    previousSettled = true
     const identities = await resolveReconciliationLockIdentities(path)
     const injectedIdentityGetter = options?.getProcessExecutionIdentity
     const identityWaitTimeout =
@@ -401,10 +404,14 @@ export async function withFileSystemReconciliation<T>(
         injectedIdentityGetter === undefined
           ? resolveDefaultProcessExecutionIdentityForLocking(
               identityWaitTimeout,
+              options?.signal,
             )
           : resolveProcessExecutionIdentityForLocking(
               injectedIdentityGetter,
-              createReconciliationLockDeadline(identityWaitTimeout),
+              createReconciliationLockDeadline(
+                identityWaitTimeout,
+                options?.signal,
+              ),
             )
     const getProcessExecutionIdentity =
       injectedIdentityGetter ?? getCurrentProcessExecutionIdentity
@@ -452,8 +459,22 @@ export async function withFileSystemReconciliation<T>(
     }
   }
   release()
-  if (reconciliationTails.get(localKey) === tail) {
-    reconciliationTails.delete(localKey)
+  if (previousSettled) {
+    if (reconciliationTails.get(localKey) === tail) {
+      reconciliationTails.delete(localKey)
+    }
+  } else {
+    // Aborted while the predecessor was still pending: keep later callers
+    // ordered behind `previous` (critical on degraded hosts without lock
+    // files) and remove the entry only after `previous` settles.
+    if (reconciliationTails.get(localKey) === tail) {
+      reconciliationTails.set(localKey, previous)
+    }
+    void previous.finally(() => {
+      if (reconciliationTails.get(localKey) === previous) {
+        reconciliationTails.delete(localKey)
+      }
+    })
   }
 
   if (operationFailed) {
@@ -1867,10 +1888,10 @@ async function acquireReconciliationLock(
 ) {
   const { key } = identity
   acquisitionDeadline.signal?.throwIfAborted()
-  const [incarnation, identityResolution] = await Promise.all([
-    getProcessIncarnation(),
-    resolveExecutionIdentity(),
-  ])
+  const [incarnation, identityResolution] = await rejectOnReconciliationAbort(
+    Promise.all([getProcessIncarnation(), resolveExecutionIdentity()]),
+    acquisitionDeadline.signal,
+  )
   const lockPath = reconciliationLockPath(identity)
   await assertReconciliationAnchorUnchanged(identity)
   await assertReconciliationRequestedPathUnchanged(identity)
@@ -1896,6 +1917,7 @@ async function acquireReconciliationLock(
     // still respected fail-closed: never bypassed, and an error only if it
     // outlives the acquisition deadline.
     while (true) {
+      acquisitionDeadline.signal?.throwIfAborted()
       await waitForReconciliationReclaim(identity, acquisitionDeadline)
       const state = await inspectReconciliationLock(identity, lockPath)
       if (state === undefined) {
@@ -1907,7 +1929,10 @@ async function acquireReconciliationLock(
       // Re-probe with the raw getter every iteration: a transient probe
       // failure heals here, and the existing lock can then be evaluated and
       // reclaimed through the normal path instead of failing at the deadline.
-      const healedIdentity = await getProcessExecutionIdentity()
+      const healedIdentity = await rejectOnReconciliationAbort(
+        getProcessExecutionIdentity(),
+        acquisitionDeadline.signal,
+      )
       if (isCompleteProcessExecutionIdentity(healedIdentity)) {
         degradedProcessExecutionIdentityMemo = undefined
         executionIdentity = healedIdentity
@@ -2534,13 +2559,17 @@ async function tryReclaimStaleReconciliationLock(
 ) {
   const reclaimPath = reconciliationReclaimPath(identity)
   const token = randomUUID()
-  const [incarnation, identityResolution] = await Promise.all([
-    getProcessIncarnation(),
-    resolveProcessExecutionIdentityForLocking(
-      getProcessExecutionIdentity,
-      acquisitionDeadline,
-    ),
-  ])
+  acquisitionDeadline.signal?.throwIfAborted()
+  const [incarnation, identityResolution] = await rejectOnReconciliationAbort(
+    Promise.all([
+      getProcessIncarnation(),
+      resolveProcessExecutionIdentityForLocking(
+        getProcessExecutionIdentity,
+        acquisitionDeadline,
+      ),
+    ]),
+    acquisitionDeadline.signal,
+  )
   // Never publish a reclaim owner with incomplete identity; an unverifiable
   // reclaim owner could never be reclaimed itself. Reachable in practice only
   // when the current side already proved complete (state.stale requires it).
@@ -2704,6 +2733,7 @@ async function waitForUnverifiableReconciliationLock(
   expected: ReconciliationLockState,
   acquisitionDeadline: ReconciliationLockDeadline,
 ) {
+  acquisitionDeadline.signal?.throwIfAborted()
   const timeout = Math.min(
     reconciliationLockCleanupTimeout,
     Math.max(0, acquisitionDeadline.expiresAt - performance.now()),
@@ -2765,6 +2795,7 @@ async function waitForUnverifiableReconciliationReclaim(
   expected: ReconciliationReclaimState,
   acquisitionDeadline: ReconciliationLockDeadline,
 ) {
+  acquisitionDeadline.signal?.throwIfAborted()
   const reclaimPath = reconciliationReclaimPath(identity)
   const timeout = Math.min(
     reconciliationLockCleanupTimeout,
@@ -3667,15 +3698,20 @@ export async function resolveProcessExecutionIdentityForLocking(
   | { complete: false; identity: ProcessExecutionIdentity }
 > {
   while (true) {
-    const identity = await getIdentity()
+    waitBudget.signal?.throwIfAborted()
+    const identity = await rejectOnReconciliationAbort(
+      getIdentity(),
+      waitBudget.signal,
+    )
     if (isCompleteProcessExecutionIdentity(identity)) {
       return { complete: true, identity }
     }
     if (performance.now() >= waitBudget.expiresAt) {
       return { complete: false, identity }
     }
-    await delay(
+    await delayReconciliationPoll(
       Math.max(0, Math.min(20, waitBudget.expiresAt - performance.now())),
+      waitBudget.signal,
     )
   }
 }
@@ -3698,6 +3734,7 @@ let degradedProcessExecutionIdentityMemo: { decidedAt: number } | undefined
 
 async function resolveDefaultProcessExecutionIdentityForLocking(
   identityWaitTimeout: number,
+  signal?: AbortSignal,
 ): Promise<ProcessExecutionIdentityResolution> {
   const memo = degradedProcessExecutionIdentityMemo
   if (
@@ -3705,7 +3742,11 @@ async function resolveDefaultProcessExecutionIdentityForLocking(
     performance.now() - memo.decidedAt <
       degradedProcessExecutionIdentityMemoDuration
   ) {
-    const identity = await getCurrentProcessExecutionIdentity()
+    signal?.throwIfAborted()
+    const identity = await rejectOnReconciliationAbort(
+      getCurrentProcessExecutionIdentity(),
+      signal,
+    )
     if (isCompleteProcessExecutionIdentity(identity)) {
       degradedProcessExecutionIdentityMemo = undefined
       return { complete: true, identity }
@@ -3714,7 +3755,7 @@ async function resolveDefaultProcessExecutionIdentityForLocking(
   }
   const resolution = await resolveProcessExecutionIdentityForLocking(
     getCurrentProcessExecutionIdentity,
-    createReconciliationLockDeadline(identityWaitTimeout),
+    createReconciliationLockDeadline(identityWaitTimeout, signal),
   )
   degradedProcessExecutionIdentityMemo = resolution.complete
     ? undefined
@@ -4071,13 +4112,21 @@ function rejectOnReconciliationAbort<T>(
   return new Promise<T>((resolveTask, rejectTask) => {
     const onAbort = () => rejectTask(signal.reason)
     if (signal.aborted) {
+      task.catch(() => {})
       onAbort()
       return
     }
     signal.addEventListener('abort', onAbort, { once: true })
-    task
-      .then(resolveTask, rejectTask)
-      .finally(() => signal.removeEventListener('abort', onAbort))
+    task.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolveTask(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        rejectTask(error)
+      },
+    )
   })
 }
 

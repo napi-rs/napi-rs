@@ -746,20 +746,22 @@ test('aborting lock acquisition stops waiting and keeps no lock', async (t) => {
   // as a build in another process would. Its own spelling guard is free, so
   // it may hold that lock while it waits for the shared ones.
   let releaseHolder!: () => void
+  let resolveHolding!: () => void
   let holderLocks: string[] = []
-  const holding = new Promise<void>((resolveHolding) => {
-    void withFileSystemReconciliation(
-      join(realDir, 'holder'),
-      async () => {
-        holderLocks = await collectReconciliationLocks(t.context.tmpDir)
-        resolveHolding()
-        await new Promise<void>((resolveRelease) => {
-          releaseHolder = resolveRelease
-        })
-      },
-      { ...options, lockAcquisitionTimeout: 10_000 },
-    )
+  const holding = new Promise<void>((resolve) => {
+    resolveHolding = resolve
   })
+  const holder = withFileSystemReconciliation(
+    join(realDir, 'holder'),
+    async () => {
+      holderLocks = await collectReconciliationLocks(t.context.tmpDir)
+      resolveHolding()
+      await new Promise<void>((resolveRelease) => {
+        releaseHolder = resolveRelease
+      })
+    },
+    { ...options, lockAcquisitionTimeout: 10_000 },
+  )
   await holding
 
   const controller = new AbortController()
@@ -785,7 +787,7 @@ test('aborting lock acquisition stops waiting and keeps no lock', async (t) => {
   t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), holderLocks)
 
   releaseHolder()
-  await delay(50)
+  await holder
   t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
 })
 
@@ -853,5 +855,140 @@ test('aborting a waiter queued in the same process rejects at once', async (t) =
 
   releaseHolder()
   await holder
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('aborting a queued waiter preserves predecessor ordering even in degraded mode', async (t) => {
+  const anchor = join(t.context.tmpDir, 'pkg')
+  await mkdir(anchor)
+  const options = {
+    // Incomplete identity degrades to lock-free mode, so mutual exclusion
+    // between callers in this process depends entirely on the in-process queue.
+    getProcessExecutionIdentity: async () => incompleteIdentity,
+    getProcessIncarnation,
+    identityWaitTimeout: 0,
+    lockAcquisitionTimeout: 10_000,
+  }
+  const events: string[] = []
+  let releaseFirst!: () => void
+  let firstStarted!: () => void
+  const started = new Promise<void>((resolveStarted) => {
+    firstStarted = resolveStarted
+  })
+  const first = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      events.push('first:start')
+      firstStarted()
+      await new Promise<void>((resolveRelease) => {
+        releaseFirst = resolveRelease
+      })
+      events.push('first:end')
+    },
+    options,
+  )
+  await started
+
+  const controller = new AbortController()
+  const abortedWaiter = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      events.push('aborted:start')
+    },
+    { ...options, signal: controller.signal },
+  )
+  controller.abort()
+  await t.throwsAsync(abortedWaiter, { name: 'AbortError' })
+
+  const third = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      events.push('third:start')
+    },
+    options,
+  )
+  await delay(50)
+  t.deepEqual(events, ['first:start'])
+
+  releaseFirst()
+  await Promise.all([first, third])
+  t.deepEqual(events, ['first:start', 'first:end', 'third:start'])
+  t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
+})
+
+test('aborting during hanging identity or incarnation probes rejects at once', async (t) => {
+  const anchor = join(t.context.tmpDir, 'pkg')
+  await mkdir(anchor)
+
+  const identityController = new AbortController()
+  let identityOpRan = false
+  const identityReason = new Error('abort identity probe')
+  const waitingOnIdentity = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      identityOpRan = true
+    },
+    {
+      getProcessExecutionIdentity: () => new Promise(() => {}),
+      getProcessIncarnation,
+      signal: identityController.signal,
+    },
+  )
+  await delay(50)
+  const identityAbortAt = performance.now()
+  identityController.abort(identityReason)
+  t.is(await t.throwsAsync(waitingOnIdentity), identityReason)
+  t.true(performance.now() - identityAbortAt < 1_000)
+  t.false(identityOpRan)
+
+  const incarnationController = new AbortController()
+  let incarnationOpRan = false
+  const incarnationReason = new Error('abort incarnation probe')
+  const waitingOnIncarnation = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      incarnationOpRan = true
+    },
+    {
+      getProcessExecutionIdentity: async () => completeIdentity,
+      getProcessIncarnation: () => new Promise(() => {}),
+      signal: incarnationController.signal,
+    },
+  )
+  await delay(50)
+  const incarnationAbortAt = performance.now()
+  incarnationController.abort(incarnationReason)
+  t.is(await t.throwsAsync(waitingOnIncarnation), incarnationReason)
+  t.true(performance.now() - incarnationAbortAt < 1_000)
+  t.false(incarnationOpRan)
+
+  const retryController = new AbortController()
+  let probeReads = 0
+  let retryOpRan = false
+  const retryReason = new Error('abort identity retry loop')
+  const waitingOnRetry = withFileSystemReconciliation(
+    anchor,
+    async () => {
+      retryOpRan = true
+    },
+    {
+      getProcessExecutionIdentity: async () => {
+        probeReads += 1
+        return incompleteIdentity
+      },
+      getProcessIncarnation,
+      identityWaitTimeout: 10_000,
+      signal: retryController.signal,
+    },
+  )
+  await delay(50)
+  const retryAbortAt = performance.now()
+  retryController.abort(retryReason)
+  t.is(await t.throwsAsync(waitingOnRetry), retryReason)
+  t.true(performance.now() - retryAbortAt < 1_000)
+  t.false(retryOpRan)
+  const readsAtAbort = probeReads
+  await delay(80)
+  t.is(probeReads, readsAtAbort)
   t.deepEqual(await collectReconciliationLocks(t.context.tmpDir), [])
 })
