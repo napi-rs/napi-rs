@@ -558,6 +558,143 @@ test('collectRequestedFeatures collects features from options and cargoOptions b
   )
 })
 
+test('getNapiDeriveDependentCrates seeds root features from selected build, ignoring sibling workspace unification', (t) => {
+  const deriveId = 'registry+https://crates.io#napi-derive@3.0.0'
+  const addonId = 'path+file:///ws/addon#addon@0.1.0'
+  const docToolId = 'path+file:///ws/doc-tool#doc-tool@0.1.0'
+
+  // `doc-tool` depends on `addon` with `features = ["docs"]`, which enables
+  // `napi-derive/noop`. Workspace-wide `cargo metadata` therefore reports
+  // `docs` in `addon`'s resolve node even when building `addon` alone.
+  const metadata: CargoWorkspaceMetadata = {
+    packages: [
+      {
+        id: deriveId,
+        name: 'napi-derive',
+        version: '3.0.0',
+        manifest_path: '/cargo/napi-derive/Cargo.toml',
+        targets: [],
+        dependencies: [],
+        features: {
+          default: ['type-def'],
+          'type-def': [],
+          noop: [],
+        },
+      },
+      {
+        id: addonId,
+        name: 'addon',
+        version: '0.1.0',
+        manifest_path: '/ws/addon/Cargo.toml',
+        targets: [],
+        dependencies: [
+          {
+            name: 'napi-derive',
+            req: '^3.0.0',
+            kind: null,
+            rename: null,
+            optional: false,
+            uses_default_features: true,
+            features: [],
+            target: null,
+          },
+        ],
+        features: {
+          default: [],
+          docs: ['napi-derive/noop'],
+        },
+      },
+      {
+        id: docToolId,
+        name: 'doc-tool',
+        version: '0.1.0',
+        manifest_path: '/ws/doc-tool/Cargo.toml',
+        targets: [],
+        dependencies: [
+          {
+            name: 'addon',
+            req: '^0.1.0',
+            kind: null,
+            rename: null,
+            optional: false,
+            uses_default_features: true,
+            features: ['docs'],
+            target: null,
+          },
+        ],
+        features: {},
+      },
+    ],
+    workspace_members: [addonId, docToolId],
+    workspace_root: '/ws',
+    target_directory: '/ws/target',
+    metadata: null,
+    version: 1,
+    resolve: {
+      nodes: [
+        {
+          id: deriveId,
+          dependencies: [],
+          deps: [],
+          features: ['default', 'type-def', 'noop'],
+        },
+        {
+          id: addonId,
+          dependencies: [deriveId],
+          deps: [
+            {
+              name: 'napi_derive',
+              pkg: deriveId,
+              dep_kinds: [{ kind: null, target: null }],
+            },
+          ],
+          features: ['default', 'docs'],
+        },
+        {
+          id: docToolId,
+          dependencies: [addonId],
+          deps: [
+            {
+              name: 'addon',
+              pkg: addonId,
+              dep_kinds: [{ kind: null, target: null }],
+            },
+          ],
+          features: [],
+        },
+      ],
+    },
+  }
+
+  // Building `addon` with default features only must NOT inherit `docs` from `doc-tool`.
+  t.deepEqual(
+    getNapiDeriveDependentCrates(metadata, addonId, {
+      features: [],
+      allFeatures: false,
+      noDefaultFeatures: false,
+    }).map((c) => c.name),
+    ['addon'],
+  )
+
+  // Explicitly enabling `docs` (or `--all-features`) activates `noop` and disables typedefs.
+  t.deepEqual(
+    getNapiDeriveDependentCrates(metadata, addonId, {
+      features: ['docs'],
+      allFeatures: false,
+      noDefaultFeatures: false,
+    }),
+    [],
+  )
+  t.deepEqual(
+    getNapiDeriveDependentCrates(metadata, addonId, {
+      features: [],
+      allFeatures: true,
+      noDefaultFeatures: false,
+    }),
+    [],
+  )
+})
+
 test('createCargoMetadataInvocation stops parsing cargoOptions at --', (t) => {
   const invocation = createCargoMetadataInvocation('/ws/Cargo.toml', {
     cargoOptions: [

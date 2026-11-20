@@ -80,21 +80,31 @@ export interface CargoWorkspaceMetadata {
 // given, restrict to crates reachable from it via normal dependency edges so
 // unrelated workspace members are ignored. Fall back to declared dependencies
 // when the resolve graph is unavailable.
-export function collectRequestedFeatures(
-  features?: string[],
-  cargoOptions?: string[],
-): string[] {
-  const collected = (features ?? []).flatMap((feature) =>
+export interface FeatureSelection {
+  features?: string[]
+  allFeatures?: boolean
+  noDefaultFeatures?: boolean
+}
+
+export function collectFeatureSelection(options: {
+  features?: string[]
+  allFeatures?: boolean
+  noDefaultFeatures?: boolean
+  cargoOptions?: string[]
+}): Required<FeatureSelection> {
+  const collected = (options.features ?? []).flatMap((feature) =>
     feature.split(/[,\s]+/).filter(Boolean),
   )
-  const options = cargoOptions ?? []
-  for (let index = 0; index < options.length; index += 1) {
-    const option = options[index]
+  let allFeatures = options.allFeatures === true
+  let noDefaultFeatures = options.noDefaultFeatures === true
+  const cargoOptions = options.cargoOptions ?? []
+  for (let index = 0; index < cargoOptions.length; index += 1) {
+    const option = cargoOptions[index]
     if (option === '--') {
       break
     }
     if (option === '--features' || option === '-F') {
-      const value = options[index + 1]
+      const value = cargoOptions[index + 1]
       if (value !== undefined) {
         collected.push(...value.split(/[,\s]+/).filter(Boolean))
         index += 1
@@ -113,15 +123,30 @@ export function collectRequestedFeatures(
           .split(/[,\s]+/)
           .filter(Boolean),
       )
+    } else if (option === '--all-features') {
+      allFeatures = true
+    } else if (option === '--no-default-features') {
+      noDefaultFeatures = true
     }
   }
-  return [...new Set(collected)]
+  return {
+    features: [...new Set(collected)],
+    allFeatures,
+    noDefaultFeatures,
+  }
+}
+
+export function collectRequestedFeatures(
+  features?: string[],
+  cargoOptions?: string[],
+): string[] {
+  return collectFeatureSelection({ features, cargoOptions }).features
 }
 
 export function getNapiDeriveDependentCrates(
   metadata: CargoWorkspaceMetadata,
   rootPackageId?: string,
-  requestedFeatures?: string[],
+  featureSelection?: string[] | FeatureSelection,
 ): Crate[] {
   const resolveNodes = metadata.resolve?.nodes
   if (!resolveNodes) {
@@ -221,8 +246,45 @@ export function getNapiDeriveDependentCrates(
     return []
   }
 
+  const normalizedSelection: FeatureSelection | undefined = Array.isArray(
+    featureSelection,
+  )
+    ? { features: featureSelection }
+    : featureSelection
+  const requestedFeatures = normalizedSelection?.features ?? []
+  const rootPkg = packagesById.get(rootPackageId)
+  const initialRootFeatures = new Set<string>()
+  if (normalizedSelection && rootPkg?.features) {
+    if (normalizedSelection.allFeatures) {
+      for (const feature of Object.keys(rootPkg.features)) {
+        initialRootFeatures.add(feature)
+      }
+    } else if (
+      !normalizedSelection.noDefaultFeatures &&
+      'default' in rootPkg.features
+    ) {
+      initialRootFeatures.add('default')
+    }
+    for (const spec of requestedFeatures) {
+      if (!spec.includes('/')) {
+        if (spec in rootPkg.features) {
+          initialRootFeatures.add(spec)
+        }
+      } else if (spec.startsWith(`${rootPkg.name}/`)) {
+        const feat = spec.slice(rootPkg.name.length + 1)
+        if (feat in rootPkg.features) {
+          initialRootFeatures.add(feat)
+        }
+      }
+    }
+  } else {
+    for (const feature of rootNode.features) {
+      initialRootFeatures.add(feature)
+    }
+  }
+
   const activatedFeatures = new Map<string, Set<string>>([
-    [rootPackageId, new Set(rootNode.features)],
+    [rootPackageId, initialRootFeatures],
   ])
   const activeNormalDepsByPkg = new Map<string, Set<string>>()
 
@@ -234,7 +296,7 @@ export function getNapiDeriveDependentCrates(
     feat: string
     weak: boolean
   }> = []
-  for (const spec of requestedFeatures ?? []) {
+  for (const spec of requestedFeatures) {
     const slash = spec.indexOf('/')
     if (slash <= 0 || slash === spec.length - 1) {
       continue
@@ -471,12 +533,12 @@ export function createCargoMetadataInvocation(
     '--format-version',
     '1',
   ]
-  const features = collectRequestedFeatures(
-    options.features,
-    options.cargoOptions,
-  )
-  let allFeatures = options.allFeatures === true
-  let noDefaultFeatures = options.noDefaultFeatures === true
+  const { features, allFeatures, noDefaultFeatures } = collectFeatureSelection({
+    features: options.features,
+    allFeatures: options.allFeatures,
+    noDefaultFeatures: options.noDefaultFeatures,
+    cargoOptions: options.cargoOptions,
+  })
   const cargoOptions = options.cargoOptions ?? []
   for (let index = 0; index < cargoOptions.length; index += 1) {
     const option = cargoOptions[index]
@@ -495,10 +557,6 @@ export function createCargoMetadataInvocation(
       if (cargoOptions[index + 1] !== undefined) {
         index += 1
       }
-    } else if (option === '--all-features') {
-      allFeatures = true
-    } else if (option === '--no-default-features') {
-      noDefaultFeatures = true
     } else if (
       option === '--locked' ||
       option === '--offline' ||

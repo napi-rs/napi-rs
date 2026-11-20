@@ -28,7 +28,7 @@ import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
   cargoTargetTriple,
-  collectRequestedFeatures,
+  collectFeatureSelection,
   commitFileSystemTransaction,
   commonJsDeclarationBarrier,
   copyFileAtomic,
@@ -2176,7 +2176,12 @@ class Builder {
     this.napiDeriveDependentCrates = getNapiDeriveDependentCrates(
       metadata,
       crate.id,
-      collectRequestedFeatures(options.features, options.cargoOptions),
+      collectFeatureSelection({
+        features: options.features,
+        allFeatures: options.allFeatures,
+        noDefaultFeatures: options.noDefaultFeatures,
+        cargoOptions: options.cargoOptions,
+      }),
     )
     this.enableTypeDef =
       Boolean(this.cdyLibName) && this.napiDeriveDependentCrates.length > 0
