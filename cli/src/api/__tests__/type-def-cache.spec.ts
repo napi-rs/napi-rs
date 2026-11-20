@@ -1803,7 +1803,7 @@ posixSerial(
 posixSerial(
   '--bin build strips inherited NAPI_TYPE_DEF_TMP_FOLDER from child Cargo env',
   async (t) => {
-    const h = await setupFakeCargoHarness({ withBin: true })
+    const h = await setupFakeCargoHarness({ withBinTarget: true })
     const origInherited = process.env.NAPI_TYPE_DEF_TMP_FOLDER
     process.env.NAPI_TYPE_DEF_TMP_FOLDER = '/tmp/should-not-leak'
     try {
