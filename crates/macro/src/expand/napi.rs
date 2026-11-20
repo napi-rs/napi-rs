@@ -4,28 +4,10 @@ use napi_derive_backend::{BindgenResult, TryToTokens};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, Ordering};
 use syn::{Attribute, Item};
 
-/// a flag indicate whether or never at least one `napi` macro has been expanded.
-/// ```ignore
-/// if BUILT_FLAG
-///  .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-///  .is_ok() {
-///   // logic on first macro expansion
-/// }
-///
-/// ```
-static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
-
 pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
-  // logic on first macro expansion
-  if let Ok(built) = BUILT_FLAG.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-  {
-    if !built {
-      typedef::prepare_type_def_file();
-    }
-  }
+  typedef::prepare_type_def_file()?;
 
   let mut item = syn::parse2::<Item>(input)?;
   let opts: BindgenAttrs = syn::parse2(attr)?;
@@ -74,7 +56,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
           let napi = item.parse_napi(&mut tokens, &item_opts)?;
           item_opts.check_used()?;
           napi.try_to_tokens(&mut tokens)?;
-          typedef::output_type_def(&napi);
+          typedef::output_type_def(&napi)?;
         } else {
           item.to_tokens(&mut tokens);
         };
@@ -96,7 +78,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
     let napi = item.parse_napi(&mut tokens, &opts)?;
     opts.check_used()?;
     napi.try_to_tokens(&mut tokens)?;
-    typedef::output_type_def(&napi);
+    typedef::output_type_def(&napi)?;
     Ok(tokens)
   }
 }
