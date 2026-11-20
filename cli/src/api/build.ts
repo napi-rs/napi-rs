@@ -275,6 +275,30 @@ type CargoConfigFingerprint = readonly [path: string, hash: string]
 
 const FORCE_BUILD_TOKENS_FILE = '.napi-force-build.json'
 const FORCE_BUILD_INVALIDATED_FILE = '.napi-type-def-invalidated.json'
+const OBSERVED_EMITTED_CRATES_FILE = '.napi-observed-crates.json'
+
+async function readObservedEmittedCrates(
+  typeDefTmpFolder: string,
+): Promise<Set<string>> {
+  const filePath = join(typeDefTmpFolder, OBSERVED_EMITTED_CRATES_FILE)
+  try {
+    const raw = await readFileAsync(filePath, 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(
+      parsed.filter(
+        (entry): entry is string =>
+          typeof entry === 'string' &&
+          entry.length > 0 &&
+          !entry.startsWith('.'),
+      ),
+    )
+  } catch {
+    return new Set()
+  }
+}
 
 export function stripWindowsVerbatimPrefix(path: string): string {
   if (path.length >= 8 && path.slice(0, 8).toUpperCase() === '\\\\?\\UNC\\') {
@@ -2340,8 +2364,19 @@ class Builder {
         }
         const command =
           cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
+        const spawnEnv: NodeJS.ProcessEnv = {
+          ...process.env,
+          ...this.envs,
+          ...extraEnvs,
+        }
+        if (!this.enableTypeDef) {
+          // Do not let an inherited parent-shell `NAPI_TYPE_DEF_TMP_FOLDER`
+          // cause linked library crates to emit into an unrelated folder on
+          // `--bin` or type-def-disabled builds.
+          delete spawnEnv.NAPI_TYPE_DEF_TMP_FOLDER
+        }
         const buildProcess = spawn(command, this.args, {
-          env: { ...process.env, ...this.envs, ...extraEnvs },
+          env: spawnEnv,
           stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
           cwd: this.options.cwd,
           signal: controller.signal,
@@ -2454,6 +2489,15 @@ class Builder {
         : undefined
 
       try {
+        if (sharedTypeDefFolder && forceBuild?.invalidatedCrateNames.length) {
+          // Remove restored files for invalidated crates before invoking Cargo
+          // so that if an invalidated crate now expands zero `#[napi]` items,
+          // finalization creates an empty marker instead of keeping stale
+          // restored declarations. (Snapshot still holds them for rollback.)
+          for (const crateName of forceBuild.invalidatedCrateNames) {
+            await this.unlinkIfExists(join(sharedTypeDefFolder, crateName))
+          }
+        }
         await runCargo(forceBuild?.envs)
       } catch (error) {
         if (sharedTypeDefFolder && snapshot) {
@@ -2815,6 +2859,7 @@ class Builder {
     nextTokens: Record<string, string>
     shouldPersistTokens: boolean
     invalidatedFileExists: boolean
+    invalidatedCrateNames: string[]
   }> {
     const {
       tokens: existingTokens,
@@ -2833,6 +2878,7 @@ class Builder {
 
     const envs: Record<string, string> = {}
     const nextTokens: Record<string, string> = {}
+    const invalidatedCrateNames: string[] = []
 
     for (const crate of this.napiDeriveDependentCrates) {
       const envKey = forceBuildEnvKey(crate.name)
@@ -2841,6 +2887,9 @@ class Builder {
       )
       const storedToken = existingTokens[crate.name]
       const isInvalidated = invalidateAll || invalidatedCrates.has(crate.name)
+      if (isInvalidated) {
+        invalidatedCrateNames.push(crate.name)
+      }
 
       if (!typeDefFileExists || isInvalidated) {
         let token = randomUUID()
@@ -2868,7 +2917,13 @@ class Builder {
     const shouldPersistTokens =
       useDtsCache && tokensChanged && (nextKeys.length > 0 || tokenFileExists)
 
-    return { envs, nextTokens, shouldPersistTokens, invalidatedFileExists }
+    return {
+      envs,
+      nextTokens,
+      shouldPersistTokens,
+      invalidatedFileExists,
+      invalidatedCrateNames,
+    }
   }
 
   private async finalizeCachedTypeDefFolder(
@@ -2881,6 +2936,9 @@ class Builder {
     const expectedCrateNames = new Set(
       this.napiDeriveDependentCrates.map((crate) => crate.name),
     )
+    const observedExtraCrates =
+      await readObservedEmittedCrates(typeDefTmpFolder)
+    let observedChanged = false
     const entries = await readdirAsync(typeDefTmpFolder, {
       withFileTypes: true,
     })
@@ -2890,14 +2948,20 @@ class Builder {
         continue
       }
       if (!expectedCrateNames.has(entry.name)) {
-        // Never prune a file freshly emitted or modified by the Cargo run that
-        // just succeeded, even if our static dependency-graph analysis missed it.
+        // Never prune a file freshly emitted by Cargo or previously observed as
+        // emitted into this cache folder, so warm builds preserve declarations
+        // from crates not predicted statically while genuinely stale files are
+        // still removed.
         const filePath = join(typeDefTmpFolder, entry.name)
         const preRunContent = snapshot?.get(entry.name)
         const emittedThisRun =
           preRunContent === undefined ||
           !(await readFileAsync(filePath)).equals(preRunContent)
-        if (emittedThisRun) {
+        if (emittedThisRun || observedExtraCrates.has(entry.name)) {
+          if (!observedExtraCrates.has(entry.name)) {
+            observedExtraCrates.add(entry.name)
+            observedChanged = true
+          }
           existingFiles.add(entry.name)
           continue
         }
@@ -2911,6 +2975,14 @@ class Builder {
       if (!existingFiles.has(crateName)) {
         await writeFileAtomic(join(typeDefTmpFolder, crateName), '', 'utf8')
       }
+    }
+
+    if (observedChanged) {
+      await writeFileAtomic(
+        join(typeDefTmpFolder, OBSERVED_EMITTED_CRATES_FILE),
+        `${JSON.stringify([...observedExtraCrates].sort(compareCodeUnits), null, 2)}\n`,
+        'utf8',
+      )
     }
 
     if (shouldPersistTokens) {

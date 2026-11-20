@@ -384,13 +384,26 @@ export function getNapiDeriveDependentCrates(
             .filter((k) => k.kind === null)
             .map((k) => k.target),
         )
+        const targetLibName = (
+          targetPkg.targets?.find((t) =>
+            t.kind?.some(
+              (k) =>
+                k === 'lib' ||
+                k === 'rlib' ||
+                k === 'proc-macro' ||
+                k === 'dylib' ||
+                k === 'cdylib',
+            ),
+          )?.name ?? targetPkg.name
+        ).replace(/-/g, '_')
         const matchingDecls = (pkg.dependencies ?? []).filter(
           (d) =>
             d.name === targetPkg.name &&
             (d.kind === null || d.kind === undefined) &&
             (activeTargets.size === 0 || activeTargets.has(d.target)) &&
             (!resolveDep.name ||
-              (d.rename ?? d.name).replace(/-/g, '_') === resolveDep.name),
+              (d.rename ? d.rename.replace(/-/g, '_') : targetLibName) ===
+                resolveDep.name),
         )
 
         // Synthetic unit-test fixtures may omit `dependencies` entries while

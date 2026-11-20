@@ -834,9 +834,6 @@ writeFileSync(join(logDir, \`call-\${count}.json\`), JSON.stringify(record, null
 
 const folder = process.env.NAPI_TYPE_DEF_TMP_FOLDER
 if (mode.trapSigtermDelayMs) {
-  if (mode.readyFile) {
-    writeFileSync(mode.readyFile, 'ready')
-  }
   process.on('SIGTERM', () => {
     setTimeout(() => {
       if (folder && mode.writeOnSigterm) {
@@ -850,6 +847,9 @@ if (mode.trapSigtermDelayMs) {
       process.exit(0)
     }, mode.trapSigtermDelayMs)
   })
+  if (mode.readyFile) {
+    writeFileSync(mode.readyFile, 'ready')
+  }
   setInterval(() => {}, 1000)
 } else {
   if (folder && mode.writeFiles) {
@@ -922,13 +922,27 @@ if (mode.trapSigtermDelayMs) {
   }
 
   const origCargo = process.env.CARGO
+  const origTargetDir = process.env.CARGO_TARGET_DIR
+  const origBuildTargetDir = process.env.CARGO_BUILD_TARGET_DIR
   process.env.CARGO = fakeCargoSh
+  delete process.env.CARGO_TARGET_DIR
+  delete process.env.CARGO_BUILD_TARGET_DIR
 
   const cleanup = async () => {
     if (origCargo === undefined) {
       delete process.env.CARGO
     } else {
       process.env.CARGO = origCargo
+    }
+    if (origTargetDir === undefined) {
+      delete process.env.CARGO_TARGET_DIR
+    } else {
+      process.env.CARGO_TARGET_DIR = origTargetDir
+    }
+    if (origBuildTargetDir === undefined) {
+      delete process.env.CARGO_BUILD_TARGET_DIR
+    } else {
+      process.env.CARGO_BUILD_TARGET_DIR = origBuildTargetDir
     }
     await rm(root, { recursive: true, force: true })
   }
@@ -1688,13 +1702,14 @@ test('rollback persists invalidation before restoring snapshot files (fault-inje
 })
 
 posixSerial(
-  'finalizeCachedTypeDefFolder preserves declarations freshly emitted by Cargo even if not predicted statically',
+  'finalizeCachedTypeDefFolder preserves declarations freshly emitted by Cargo across cold and warm builds',
   async (t) => {
     const h = await setupFakeCargoHarness()
     try {
       const addonDef = `${JSON.stringify({ kind: 'fn', name: 'addonFn', def: 'function addonFn(): void' })}\n`
       const dynamicHelperDef = `${JSON.stringify({ kind: 'fn', name: 'helperExport', def: 'function helperExport(): void' })}\n`
 
+      // Build 1 (cold): Cargo emits dynamic_helper alongside fake_addon
       await h.setMode({
         writeFiles: {
           fake_addon: addonDef,
@@ -1709,15 +1724,113 @@ posixSerial(
         })
       ).task
 
-      const dts = await readFile(join(h.crateDir, 'dist', 'index.d.ts'), 'utf8')
+      let dts = await readFile(join(h.crateDir, 'dist', 'index.d.ts'), 'utf8')
       t.true(dts.includes('export declare function addonFn(): void'))
       t.true(dts.includes('export declare function helperExport(): void'))
-      const loader = await readFile(
-        join(h.crateDir, 'dist', 'index.js'),
-        'utf8',
-      )
+      let loader = await readFile(join(h.crateDir, 'dist', 'index.js'), 'utf8')
+      t.true(loader.includes('helperExport'))
+
+      // Build 2 (warm): Cargo reuses cached helper without rewriting dynamic_helper
+      await h.setMode({ writeFiles: {} })
+      await (
+        await buildProject({
+          cwd: h.crateDir,
+          outputDir: 'dist',
+          platform: true,
+        })
+      ).task
+
+      dts = await readFile(join(h.crateDir, 'dist', 'index.d.ts'), 'utf8')
+      t.true(dts.includes('export declare function addonFn(): void'))
+      t.true(dts.includes('export declare function helperExport(): void'))
+      loader = await readFile(join(h.crateDir, 'dist', 'index.js'), 'utf8')
       t.true(loader.includes('helperExport'))
     } finally {
+      await h.cleanup()
+    }
+  },
+)
+
+posixSerial(
+  'invalidated crate that removes its last #[napi] export publishes empty declarations instead of stale restored file',
+  async (t) => {
+    const h = await setupFakeCargoHarness({
+      transitiveHelper: true,
+      alsoDirectDerive: true,
+    })
+    try {
+      const helperV1 = `${JSON.stringify({ kind: 'fn', name: 'helperV1', def: 'function helperV1(): void' })}\n`
+      const addonDef = `${JSON.stringify({ kind: 'fn', name: 'addonFn', def: 'function addonFn(): void' })}\n`
+
+      // Build 1: helper emits helperV1
+      await h.setMode({
+        writeFiles: { helper_crate: helperV1, fake_addon: addonDef },
+      })
+      await (
+        await buildProject({ cwd: h.crateDir, outputDir: 'dist' })
+      ).task
+      const folder = (await h.readCalls())[0].env.NAPI_TYPE_DEF_TMP_FOLDER!
+
+      // Build 2: helper is modified, then addon fails -> rollback restores helperV1 + records invalidation
+      await h.setMode({
+        writeFiles: { helper_crate: '' },
+        exitCode: 101,
+      })
+      await t.throwsAsync(
+        (await buildProject({ cwd: h.crateDir, outputDir: 'dist' })).task,
+        { message: /Build failed with exit code 101/ },
+      )
+      t.is(await readFile(join(folder, 'helper_crate'), 'utf8'), helperV1)
+
+      // Build 3: helper now has 0 #[napi] attributes, so Cargo recompiles it
+      // without touching helper_crate. CLI must remove the restored file before
+      // Cargo runs and finalize it as a 0-byte marker.
+      await h.setMode({ writeFiles: {} })
+      await (
+        await buildProject({ cwd: h.crateDir, outputDir: 'dist' })
+      ).task
+
+      t.is((await stat(join(folder, 'helper_crate'))).size, 0)
+      const dts = await readFile(join(h.crateDir, 'dist', 'index.d.ts'), 'utf8')
+      t.true(dts.includes('export declare function addonFn(): void'))
+      t.false(dts.includes('helperV1'))
+    } finally {
+      await h.cleanup()
+    }
+  },
+)
+
+posixSerial(
+  '--bin build strips inherited NAPI_TYPE_DEF_TMP_FOLDER from child Cargo env',
+  async (t) => {
+    const h = await setupFakeCargoHarness({ withBin: true })
+    const origInherited = process.env.NAPI_TYPE_DEF_TMP_FOLDER
+    process.env.NAPI_TYPE_DEF_TMP_FOLDER = '/tmp/should-not-leak'
+    try {
+      await h.setMode({
+        artifactPath: join(
+          h.wsDir,
+          'target',
+          h.hostTarget.triple,
+          'debug',
+          'cli-tool',
+        ),
+      })
+      await (
+        await buildProject({
+          cwd: h.crateDir,
+          outputDir: 'dist',
+          bin: 'cli-tool',
+        })
+      ).task
+      const calls = await h.readCalls()
+      t.is(calls[0].env.NAPI_TYPE_DEF_TMP_FOLDER, undefined)
+    } finally {
+      if (origInherited === undefined) {
+        delete process.env.NAPI_TYPE_DEF_TMP_FOLDER
+      } else {
+        process.env.NAPI_TYPE_DEF_TMP_FOLDER = origInherited
+      }
       await h.cleanup()
     }
   },

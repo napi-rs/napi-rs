@@ -695,6 +695,168 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
   )
 })
 
+test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo library target name', (t) => {
+  const deriveId = 'registry+https://crates.io#napi-derive@3.0.0'
+  const helperId = 'path+file:///ws/helper-package#helper-package@0.1.0'
+  const addonId = 'path+file:///ws/addon#addon@0.1.0'
+  const siblingId = 'path+file:///ws/sibling#sibling@0.1.0'
+
+  // `helper-package` sets `[lib] name = "helper_impl"`, so Cargo reports
+  // `resolveDep.name === "helper_impl"`. `sibling` enables `helper-package/noop`
+  // which must NOT leak into `addon` when `addon` builds without it.
+  const metadata: CargoWorkspaceMetadata = {
+    packages: [
+      {
+        id: deriveId,
+        name: 'napi-derive',
+        version: '3.0.0',
+        manifest_path: '/cargo/napi-derive/Cargo.toml',
+        targets: [],
+        dependencies: [],
+        features: {
+          default: ['type-def'],
+          'type-def': [],
+          noop: [],
+        },
+      },
+      {
+        id: helperId,
+        name: 'helper-package',
+        version: '0.1.0',
+        manifest_path: '/ws/helper-package/Cargo.toml',
+        targets: [
+          {
+            kind: ['lib'],
+            crate_types: ['lib'],
+            name: 'helper_impl',
+            src_path: '/ws/helper-package/src/lib.rs',
+            edition: '2021',
+            doc: true,
+            doctest: true,
+            test: true,
+          },
+        ],
+        dependencies: [
+          {
+            name: 'napi-derive',
+            req: '^3.0.0',
+            kind: null,
+            rename: null,
+            optional: false,
+            uses_default_features: true,
+            features: [],
+            target: null,
+          },
+        ],
+        features: {
+          default: [],
+          noop: ['napi-derive/noop'],
+        },
+      },
+      {
+        id: addonId,
+        name: 'addon',
+        version: '0.1.0',
+        manifest_path: '/ws/addon/Cargo.toml',
+        targets: [],
+        dependencies: [
+          {
+            name: 'helper-package',
+            req: '^0.1.0',
+            kind: null,
+            rename: null,
+            optional: false,
+            uses_default_features: true,
+            features: [],
+            target: null,
+          },
+        ],
+        features: { default: [] },
+      },
+      {
+        id: siblingId,
+        name: 'sibling',
+        version: '0.1.0',
+        manifest_path: '/ws/sibling/Cargo.toml',
+        targets: [],
+        dependencies: [
+          {
+            name: 'helper-package',
+            req: '^0.1.0',
+            kind: null,
+            rename: null,
+            optional: false,
+            uses_default_features: true,
+            features: ['noop'],
+            target: null,
+          },
+        ],
+        features: {},
+      },
+    ],
+    workspace_members: [helperId, addonId, siblingId],
+    workspace_root: '/ws',
+    target_directory: '/ws/target',
+    metadata: null,
+    version: 1,
+    resolve: {
+      nodes: [
+        {
+          id: deriveId,
+          dependencies: [],
+          deps: [],
+          features: ['default', 'type-def', 'noop'],
+        },
+        {
+          id: helperId,
+          dependencies: [deriveId],
+          deps: [
+            {
+              name: 'napi_derive',
+              pkg: deriveId,
+              dep_kinds: [{ kind: null, target: null }],
+            },
+          ],
+          features: ['default', 'noop'],
+        },
+        {
+          id: addonId,
+          dependencies: [helperId],
+          deps: [
+            {
+              name: 'helper_impl',
+              pkg: helperId,
+              dep_kinds: [{ kind: null, target: null }],
+            },
+          ],
+          features: ['default'],
+        },
+        {
+          id: siblingId,
+          dependencies: [helperId],
+          deps: [
+            {
+              name: 'helper_impl',
+              pkg: helperId,
+              dep_kinds: [{ kind: null, target: null }],
+            },
+          ],
+          features: [],
+        },
+      ],
+    },
+  }
+
+  t.deepEqual(
+    getNapiDeriveDependentCrates(metadata, addonId, {
+      features: [],
+      allFeatures: false,
+      noDefaultFeatures: false,
+    }).map((c) => c.name),
+    ['helper-package'],
+  )
+})
+
 test('createCargoMetadataInvocation stops parsing cargoOptions at --', (t) => {
   const invocation = createCargoMetadataInvocation('/ws/Cargo.toml', {
     cargoOptions: [

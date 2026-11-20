@@ -71,10 +71,12 @@ fn init_type_def_file(file: &Path) -> Result<(), String> {
     }
   }
 
+  // Create the 0-byte marker with `append(true)` instead of `truncate(true)`
+  // so a concurrent compiler process sharing the same `CARGO_PKG_NAME` cannot
+  // have an already-appended line truncated if both passed `remove_file`.
   fs::OpenOptions::new()
-    .write(true)
     .create(true)
-    .truncate(true)
+    .append(true)
     .open(file)
     .map(|_| ())
     .map_err(|err| format!("Failed to create type def file {}: {err}", file.display()))
