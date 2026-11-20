@@ -15,16 +15,17 @@ independent = true
 
 [features]
 compat-mode = []
+# Kept as a no-op feature for strict 3.x semver compatibility; the `ctor` dependency is unused.
+ctor = []
 default = ["type-def", "strict"]
 full = ["type-def", "strict", "compat-mode"]
 noop = ["napi-derive-backend/noop"]
 strict = ["napi-derive-backend/strict"]
 tracing = ["napi-derive-backend/tracing"]
-type-def = ["napi-derive-backend/type-def", "ctor"]
+type-def = ["napi-derive-backend/type-def"]
 
 [dependencies]
 convert_case = "0.12"
-ctor = { version = "1.0.0", default-features = false, optional = true }
 napi-derive-backend = { version = "7.0.1", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"

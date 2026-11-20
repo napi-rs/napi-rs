@@ -173,6 +173,10 @@ export interface FileSystemReconciliationOptions {
   getProcessIncarnation?: () => Promise<string | null>
   identityWaitTimeout?: number
   lockAcquisitionTimeout?: number
+  // Aborting stops lock acquisition: polling ends, locks acquired so far are
+  // released, and the operation never runs. A running operation is not
+  // affected.
+  signal?: AbortSignal
 }
 
 interface ProcessOwnerState {
@@ -183,6 +187,7 @@ interface ProcessOwnerState {
 interface ReconciliationLockDeadline {
   expiresAt: number
   timeout: number
+  signal?: AbortSignal
 }
 
 interface ReconciliationLockIdentity {
@@ -366,6 +371,7 @@ export async function withFileSystemReconciliation<T>(
   operation: () => Promise<T>,
   options?: FileSystemReconciliationOptions,
 ): Promise<T> {
+  options?.signal?.throwIfAborted()
   const localKey = resolve(path)
   const previous = reconciliationTails.get(localKey) ?? Promise.resolve()
   let release!: () => void
@@ -376,12 +382,17 @@ export async function withFileSystemReconciliation<T>(
   reconciliationTails.set(localKey, tail)
 
   const releaseCrossProcessLocks: Array<() => Promise<void>> = []
+  let previousSettled = false
   let lockAcquisitionDegraded = false
   let operationFailed = false
   let operationError: unknown
   let result!: T
   try {
-    await previous.catch(() => {})
+    await rejectOnReconciliationAbort(
+      previous.catch(() => {}),
+      options?.signal,
+    )
+    previousSettled = true
     const identities = await resolveReconciliationLockIdentities(path)
     const injectedIdentityGetter = options?.getProcessExecutionIdentity
     const identityWaitTimeout =
@@ -393,10 +404,14 @@ export async function withFileSystemReconciliation<T>(
         injectedIdentityGetter === undefined
           ? resolveDefaultProcessExecutionIdentityForLocking(
               identityWaitTimeout,
+              options?.signal,
             )
           : resolveProcessExecutionIdentityForLocking(
               injectedIdentityGetter,
-              createReconciliationLockDeadline(identityWaitTimeout),
+              createReconciliationLockDeadline(
+                identityWaitTimeout,
+                options?.signal,
+              ),
             )
     const getProcessExecutionIdentity =
       injectedIdentityGetter ?? getCurrentProcessExecutionIdentity
@@ -404,6 +419,7 @@ export async function withFileSystemReconciliation<T>(
       options?.getProcessIncarnation ?? getCurrentProcessIncarnation
     const acquisitionDeadline = createReconciliationLockDeadline(
       options?.lockAcquisitionTimeout ?? reconciliationLockAcquisitionTimeout,
+      options?.signal,
     )
     for (const identity of identities) {
       const acquisition = await acquireReconciliationLock(
@@ -424,6 +440,7 @@ export async function withFileSystemReconciliation<T>(
       // next run whose identity probes succeed.
       await recoverFileSystemTransaction(identities[0].anchorPath)
     }
+    options?.signal?.throwIfAborted()
     const currentCapability = fileSystemReconciliationCapability.getStore()
     const roots = new Set(currentCapability?.roots)
     roots.add(fileSystemReconciliationCapabilityRoot(identities[0].anchorPath))
@@ -442,8 +459,22 @@ export async function withFileSystemReconciliation<T>(
     }
   }
   release()
-  if (reconciliationTails.get(localKey) === tail) {
-    reconciliationTails.delete(localKey)
+  if (previousSettled) {
+    if (reconciliationTails.get(localKey) === tail) {
+      reconciliationTails.delete(localKey)
+    }
+  } else {
+    // Aborted while the predecessor was still pending: keep later callers
+    // ordered behind `previous` (critical on degraded hosts without lock
+    // files) and remove the entry only after `previous` settles.
+    if (reconciliationTails.get(localKey) === tail) {
+      reconciliationTails.set(localKey, previous)
+    }
+    void previous.finally(() => {
+      if (reconciliationTails.get(localKey) === previous) {
+        reconciliationTails.delete(localKey)
+      }
+    })
   }
 
   if (operationFailed) {
@@ -1856,10 +1887,11 @@ async function acquireReconciliationLock(
   getProcessIncarnation: () => Promise<string | null>,
 ) {
   const { key } = identity
-  const [incarnation, identityResolution] = await Promise.all([
-    getProcessIncarnation(),
-    resolveExecutionIdentity(),
-  ])
+  acquisitionDeadline.signal?.throwIfAborted()
+  const [incarnation, identityResolution] = await rejectOnReconciliationAbort(
+    Promise.all([getProcessIncarnation(), resolveExecutionIdentity()]),
+    acquisitionDeadline.signal,
+  )
   const lockPath = reconciliationLockPath(identity)
   await assertReconciliationAnchorUnchanged(identity)
   await assertReconciliationRequestedPathUnchanged(identity)
@@ -1868,11 +1900,13 @@ async function acquireReconciliationLock(
     identity,
     lockPath,
     isReconciliationLockOwner,
+    acquisitionDeadline.signal,
   )
   await removeStaleReconciliationCandidates(
     identity,
     reconciliationReclaimPath(identity),
     isReconciliationReclaimOwner,
+    acquisitionDeadline.signal,
   )
 
   let executionIdentity = identityResolution.identity
@@ -1885,8 +1919,13 @@ async function acquireReconciliationLock(
     // still respected fail-closed: never bypassed, and an error only if it
     // outlives the acquisition deadline.
     while (true) {
+      acquisitionDeadline.signal?.throwIfAborted()
       await waitForReconciliationReclaim(identity, acquisitionDeadline)
-      const state = await inspectReconciliationLock(identity, lockPath)
+      const state = await inspectReconciliationLock(
+        identity,
+        lockPath,
+        acquisitionDeadline.signal,
+      )
       if (state === undefined) {
         debug.warn(
           `Skipping cross-process filesystem reconciliation lock for ${key}: the system did not provide a complete machine, boot-session, and process-namespace identity (missing: ${missingProcessExecutionIdentityComponents(executionIdentity)})`,
@@ -1896,7 +1935,10 @@ async function acquireReconciliationLock(
       // Re-probe with the raw getter every iteration: a transient probe
       // failure heals here, and the existing lock can then be evaluated and
       // reclaimed through the normal path instead of failing at the deadline.
-      const healedIdentity = await getProcessExecutionIdentity()
+      const healedIdentity = await rejectOnReconciliationAbort(
+        getProcessExecutionIdentity(),
+        acquisitionDeadline.signal,
+      )
       if (isCompleteProcessExecutionIdentity(healedIdentity)) {
         degradedProcessExecutionIdentityMemo = undefined
         executionIdentity = healedIdentity
@@ -1958,7 +2000,11 @@ async function acquireReconciliationLock(
       if (!(await reconciliationMetadataAlreadyExists(lockPath, error))) {
         throw error
       }
-      const state = await inspectReconciliationLock(identity, lockPath)
+      const state = await inspectReconciliationLock(
+        identity,
+        lockPath,
+        acquisitionDeadline.signal,
+      )
       if (state?.unverifiableReason) {
         await waitForUnverifiableReconciliationLock(
           identity,
@@ -2408,7 +2454,9 @@ async function reconciliationLockIsOwnedBy(
 async function inspectReconciliationLock(
   identity: ReconciliationLockIdentity,
   lockPath: string,
+  signal?: AbortSignal,
 ): Promise<ReconciliationLockState | undefined> {
+  signal?.throwIfAborted()
   await assertReconciliationLockRootUnchanged(identity)
   let metadata: Awaited<ReturnType<typeof readReconciliationMetadata>>
   try {
@@ -2442,7 +2490,7 @@ async function inspectReconciliationLock(
       'contains unrecognized lock state',
     )
   }
-  const ownerState = await processOwnerState(owner)
+  const ownerState = await processOwnerState(owner, signal)
   return {
     lockStats: metadata.stats,
     owner,
@@ -2523,13 +2571,17 @@ async function tryReclaimStaleReconciliationLock(
 ) {
   const reclaimPath = reconciliationReclaimPath(identity)
   const token = randomUUID()
-  const [incarnation, identityResolution] = await Promise.all([
-    getProcessIncarnation(),
-    resolveProcessExecutionIdentityForLocking(
-      getProcessExecutionIdentity,
-      acquisitionDeadline,
-    ),
-  ])
+  acquisitionDeadline.signal?.throwIfAborted()
+  const [incarnation, identityResolution] = await rejectOnReconciliationAbort(
+    Promise.all([
+      getProcessIncarnation(),
+      resolveProcessExecutionIdentityForLocking(
+        getProcessExecutionIdentity,
+        acquisitionDeadline,
+      ),
+    ]),
+    acquisitionDeadline.signal,
+  )
   // Never publish a reclaim owner with incomplete identity; an unverifiable
   // reclaim owner could never be reclaimed itself. Reachable in practice only
   // when the current side already proved complete (state.stale requires it).
@@ -2565,7 +2617,7 @@ async function tryReclaimStaleReconciliationLock(
     if (!(await reconciliationMetadataAlreadyExists(reclaimPath, error))) {
       throw error
     }
-    await removeStaleReconciliationReclaim(identity)
+    await removeStaleReconciliationReclaim(identity, acquisitionDeadline.signal)
     return false
   }
 
@@ -2580,7 +2632,11 @@ async function tryReclaimStaleReconciliationLock(
     ) {
       return false
     }
-    const currentState = await inspectReconciliationLock(identity, lockPath)
+    const currentState = await inspectReconciliationLock(
+      identity,
+      lockPath,
+      acquisitionDeadline.signal,
+    )
     if (
       !currentState?.owner ||
       !currentState.stale ||
@@ -2598,7 +2654,11 @@ async function tryReclaimStaleReconciliationLock(
     ) {
       return false
     }
-    const finalState = await inspectReconciliationLock(identity, lockPath)
+    const finalState = await inspectReconciliationLock(
+      identity,
+      lockPath,
+      acquisitionDeadline.signal,
+    )
     if (
       !finalState?.owner ||
       !finalState.stale ||
@@ -2693,6 +2753,7 @@ async function waitForUnverifiableReconciliationLock(
   expected: ReconciliationLockState,
   acquisitionDeadline: ReconciliationLockDeadline,
 ) {
+  acquisitionDeadline.signal?.throwIfAborted()
   const timeout = Math.min(
     reconciliationLockCleanupTimeout,
     Math.max(0, acquisitionDeadline.expiresAt - performance.now()),
@@ -2700,8 +2761,15 @@ async function waitForUnverifiableReconciliationLock(
   const expiresAt = performance.now() + timeout
   let current = expected
   while (performance.now() < expiresAt) {
-    await delay(Math.max(0, Math.min(20, expiresAt - performance.now())))
-    const observed = await inspectReconciliationLock(identity, lockPath)
+    await delayReconciliationPoll(
+      Math.max(0, Math.min(20, expiresAt - performance.now())),
+      acquisitionDeadline.signal,
+    )
+    const observed = await inspectReconciliationLock(
+      identity,
+      lockPath,
+      acquisitionDeadline.signal,
+    )
     if (
       !observed ||
       !reconciliationLockStatesMatch(expected, observed) ||
@@ -2730,7 +2798,10 @@ async function waitForReconciliationReclaim(
       identity.key,
     )
     await assertReconciliationLockRootUnchanged(identity)
-    const state = await inspectReconciliationReclaim(identity)
+    const state = await inspectReconciliationReclaim(
+      identity,
+      acquisitionDeadline.signal,
+    )
     if (state?.unverifiableReason) {
       await waitForUnverifiableReconciliationReclaim(
         identity,
@@ -2739,7 +2810,7 @@ async function waitForReconciliationReclaim(
       )
       continue
     }
-    await removeStaleReconciliationReclaim(identity)
+    await removeStaleReconciliationReclaim(identity, acquisitionDeadline.signal)
     if (await pathExistsAsync(reclaimPath)) {
       await delayReconciliationLockRetry(acquisitionDeadline, identity.key)
     }
@@ -2751,6 +2822,7 @@ async function waitForUnverifiableReconciliationReclaim(
   expected: ReconciliationReclaimState,
   acquisitionDeadline: ReconciliationLockDeadline,
 ) {
+  acquisitionDeadline.signal?.throwIfAborted()
   const reclaimPath = reconciliationReclaimPath(identity)
   const timeout = Math.min(
     reconciliationLockCleanupTimeout,
@@ -2759,8 +2831,14 @@ async function waitForUnverifiableReconciliationReclaim(
   const expiresAt = performance.now() + timeout
   let current = expected
   while (performance.now() < expiresAt) {
-    await delay(Math.max(0, Math.min(20, expiresAt - performance.now())))
-    const observed = await inspectReconciliationReclaim(identity)
+    await delayReconciliationPoll(
+      Math.max(0, Math.min(20, expiresAt - performance.now())),
+      acquisitionDeadline.signal,
+    )
+    const observed = await inspectReconciliationReclaim(
+      identity,
+      acquisitionDeadline.signal,
+    )
     if (
       !observed ||
       !statIdentitiesMatch(expected.reclaimStats, observed.reclaimStats) ||
@@ -2810,7 +2888,9 @@ async function reconciliationReclaimIsOwnedBy(
 
 async function inspectReconciliationReclaim(
   identity: ReconciliationLockIdentity,
+  signal?: AbortSignal,
 ): Promise<ReconciliationReclaimState | undefined> {
+  signal?.throwIfAborted()
   await assertReconciliationLockRootUnchanged(identity)
   const reclaimPath = reconciliationReclaimPath(identity)
   let metadata: Awaited<ReturnType<typeof readReconciliationMetadata>>
@@ -2845,7 +2925,7 @@ async function inspectReconciliationReclaim(
       'contains unrecognized reclaim state',
     )
   }
-  const ownerState = await processOwnerState(owner)
+  const ownerState = await processOwnerState(owner, signal)
   return {
     owner,
     ownerContent: metadata.content,
@@ -2856,9 +2936,10 @@ async function inspectReconciliationReclaim(
 
 async function removeStaleReconciliationReclaim(
   identity: ReconciliationLockIdentity,
+  signal?: AbortSignal,
 ) {
   const reclaimPath = reconciliationReclaimPath(identity)
-  const expectedState = await inspectReconciliationReclaim(identity)
+  const expectedState = await inspectReconciliationReclaim(identity, signal)
   if (expectedState?.unverifiableReason) {
     throw reconciliationOwnerCannotBeVerifiedError(
       reclaimPath,
@@ -2870,7 +2951,7 @@ async function removeStaleReconciliationReclaim(
     return false
   }
 
-  const currentState = await inspectReconciliationReclaim(identity)
+  const currentState = await inspectReconciliationReclaim(identity, signal)
   if (currentState?.unverifiableReason) {
     throw reconciliationOwnerCannotBeVerifiedError(
       reclaimPath,
@@ -2931,11 +3012,14 @@ async function removeStaleReconciliationCandidates(
     key: string,
     path: string,
   ) => owner is ReconciliationMetadataOwner,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted()
   await assertReconciliationLockRootUnchanged(identity)
   const prefix = `${basename(path, extname(path))}${reconciliationCandidateMarker}`
   const names = await readdir(identity.lockRootPath)
   for (const name of names) {
+    signal?.throwIfAborted()
     if (
       !name.startsWith(prefix) ||
       !name.endsWith(reconciliationMetadataExtension)
@@ -2958,6 +3042,7 @@ async function removeStaleReconciliationCandidates(
       path,
       candidatePath,
       isOwner,
+      signal,
     )
     if (!expectedState?.stale) {
       continue
@@ -2967,6 +3052,7 @@ async function removeStaleReconciliationCandidates(
       path,
       candidatePath,
       isOwner,
+      signal,
     )
     if (
       !currentState?.stale ||
@@ -2992,7 +3078,9 @@ async function inspectReconciliationCandidate(
     key: string,
     path: string,
   ) => owner is ReconciliationMetadataOwner,
+  signal?: AbortSignal,
 ): Promise<ReconciliationCandidateState | undefined> {
+  signal?.throwIfAborted()
   await assertReconciliationLockRootUnchanged(identity)
   let metadata: Awaited<ReturnType<typeof readReconciliationMetadata>>
   try {
@@ -3016,7 +3104,7 @@ async function inspectReconciliationCandidate(
   ) {
     return
   }
-  const ownerState = await processOwnerState(owner)
+  const ownerState = await processOwnerState(owner, signal)
   return {
     owner,
     ownerContent: metadata.content,
@@ -3400,6 +3488,7 @@ function processIncarnationFormat(incarnation: string) {
 // local PID guess that can destroy a live shared-volume owner's lock.
 async function processOwnerState(
   owner: ReconciliationMetadataOwner,
+  signal?: AbortSignal,
 ): Promise<ProcessOwnerState> {
   if (
     typeof owner.machine !== 'string' ||
@@ -3412,7 +3501,11 @@ async function processOwnerState(
         'the owner predates complete machine, boot-session, and process-namespace identity metadata',
     }
   }
-  const current = await getCurrentProcessExecutionIdentity()
+  signal?.throwIfAborted()
+  const current = await rejectOnReconciliationAbort(
+    getCurrentProcessExecutionIdentity(),
+    signal,
+  )
   if (
     current.machine === null ||
     current.boot === null ||
@@ -3459,9 +3552,10 @@ async function processOwnerState(
   if (expectedFormat === undefined) {
     return { stale: false }
   }
-  const observedIncarnation = await observeProcessIncarnation(
-    owner.pid,
-    owner.incarnation,
+  signal?.throwIfAborted()
+  const observedIncarnation = await rejectOnReconciliationAbort(
+    observeProcessIncarnation(owner.pid, owner.incarnation),
+    signal,
   )
   return {
     stale:
@@ -3650,15 +3744,20 @@ export async function resolveProcessExecutionIdentityForLocking(
   | { complete: false; identity: ProcessExecutionIdentity }
 > {
   while (true) {
-    const identity = await getIdentity()
+    waitBudget.signal?.throwIfAborted()
+    const identity = await rejectOnReconciliationAbort(
+      getIdentity(),
+      waitBudget.signal,
+    )
     if (isCompleteProcessExecutionIdentity(identity)) {
       return { complete: true, identity }
     }
     if (performance.now() >= waitBudget.expiresAt) {
       return { complete: false, identity }
     }
-    await delay(
+    await delayReconciliationPoll(
       Math.max(0, Math.min(20, waitBudget.expiresAt - performance.now())),
+      waitBudget.signal,
     )
   }
 }
@@ -3681,6 +3780,7 @@ let degradedProcessExecutionIdentityMemo: { decidedAt: number } | undefined
 
 async function resolveDefaultProcessExecutionIdentityForLocking(
   identityWaitTimeout: number,
+  signal?: AbortSignal,
 ): Promise<ProcessExecutionIdentityResolution> {
   const memo = degradedProcessExecutionIdentityMemo
   if (
@@ -3688,7 +3788,11 @@ async function resolveDefaultProcessExecutionIdentityForLocking(
     performance.now() - memo.decidedAt <
       degradedProcessExecutionIdentityMemoDuration
   ) {
-    const identity = await getCurrentProcessExecutionIdentity()
+    signal?.throwIfAborted()
+    const identity = await rejectOnReconciliationAbort(
+      getCurrentProcessExecutionIdentity(),
+      signal,
+    )
     if (isCompleteProcessExecutionIdentity(identity)) {
       degradedProcessExecutionIdentityMemo = undefined
       return { complete: true, identity }
@@ -3697,7 +3801,7 @@ async function resolveDefaultProcessExecutionIdentityForLocking(
   }
   const resolution = await resolveProcessExecutionIdentityForLocking(
     getCurrentProcessExecutionIdentity,
-    createReconciliationLockDeadline(identityWaitTimeout),
+    createReconciliationLockDeadline(identityWaitTimeout, signal),
   )
   degradedProcessExecutionIdentityMemo = resolution.complete
     ? undefined
@@ -3995,6 +4099,7 @@ function assertReconciliationLockAcquisitionTimeRemaining(
   acquisitionDeadline: ReconciliationLockDeadline,
   key: string,
 ) {
+  acquisitionDeadline.signal?.throwIfAborted()
   if (performance.now() < acquisitionDeadline.expiresAt) {
     return
   }
@@ -4010,21 +4115,65 @@ async function delayReconciliationLockRetry(
   key: string,
 ) {
   assertReconciliationLockAcquisitionTimeRemaining(acquisitionDeadline, key)
-  await delay(
+  await delayReconciliationPoll(
     Math.max(
       0,
       Math.min(20, acquisitionDeadline.expiresAt - performance.now()),
     ),
+    acquisitionDeadline.signal,
   )
+}
+
+// Waits between lock polls. An abort ends the wait and rejects with the
+// signal's reason, as every other abort check in acquisition does.
+async function delayReconciliationPoll(ms: number, signal?: AbortSignal) {
+  try {
+    await delay(ms, undefined, { signal })
+  } catch (error) {
+    signal?.throwIfAborted()
+    throw error
+  }
 }
 
 function createReconciliationLockDeadline(
   timeout: number,
+  signal?: AbortSignal,
 ): ReconciliationLockDeadline {
   return {
     expiresAt: performance.now() + timeout,
     timeout,
+    signal,
   }
+}
+
+// Settles with `task`, or rejects with the abort reason as soon as `signal`
+// aborts. `task` keeps running; callers only stop waiting for it.
+function rejectOnReconciliationAbort<T>(
+  task: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) {
+    return task
+  }
+  return new Promise<T>((resolveTask, rejectTask) => {
+    const onAbort = () => rejectTask(signal.reason)
+    if (signal.aborted) {
+      task.catch(() => {})
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    task.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolveTask(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        rejectTask(error)
+      },
+    )
+  })
 }
 
 function resolveTransactionPath(root: string, path: string) {
