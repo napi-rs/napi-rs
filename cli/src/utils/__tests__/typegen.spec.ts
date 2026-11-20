@@ -5,7 +5,11 @@ import { fileURLToPath } from 'url'
 
 import test from 'ava'
 
-import { correctStringIdent, processTypeDef } from '../typegen.js'
+import {
+  correctStringIdent,
+  processTypeDef,
+  processTypeDefs,
+} from '../typegen.js'
 
 async function processInlineTypeDef(
   lines: Array<Record<string, unknown>>,
@@ -210,4 +214,88 @@ external: Buffer
   t.true(formatted.includes('  mapped: { [Buffer in keyof T]: T[Buffer] }'))
   t.true(formatted.includes('  external: Buffer'))
   t.false(formatted.includes('\nmapped:'))
+})
+
+test('processTypeDefs returns empty string for 0-byte marker files', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-typegen-'))
+  const fileA = join(dir, 'crate_a')
+  const fileB = join(dir, 'crate_b')
+  await Promise.all([writeFile(fileA, ''), writeFile(fileB, '   \r\n\t\n')])
+  try {
+    const result = await processTypeDefs([fileA, fileB], true)
+    t.is(result.dts, '')
+    t.deepEqual(result.exports, [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('processTypeDefs filters empty file groups without stray blank lines', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-typegen-'))
+  const empty1 = join(dir, 'a_empty')
+  const real1 = join(dir, 'b_real')
+  const empty2 = join(dir, 'c_empty')
+  const real2 = join(dir, 'd_real')
+  await Promise.all([
+    writeFile(empty1, ''),
+    writeFile(
+      real1,
+      `${JSON.stringify({ kind: 'fn', name: 'alpha', def: 'function alpha(): void' })}\r\n\r\n   \t\r\n`,
+    ),
+    writeFile(empty2, ''),
+    writeFile(
+      real2,
+      `${JSON.stringify({ kind: 'fn', name: 'beta', def: 'function beta(): void' })}\n`,
+    ),
+  ])
+  try {
+    const result = await processTypeDefs([empty1, real1, empty2, real2], true)
+    t.is(
+      result.dts,
+      'export declare function alpha(): void\n\nexport declare function beta(): void\n',
+    )
+    t.deepEqual(result.exports, ['alpha', 'beta'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('readIntermediateTypeFile reports file and 1-based line number on corrupt or invalid JSONL', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'napi-typegen-'))
+  const corruptFile = join(dir, 'corrupt')
+  const invalidShapeFile = join(dir, 'invalid-shape')
+  await Promise.all([
+    writeFile(
+      corruptFile,
+      [
+        JSON.stringify({ kind: 'fn', name: 'ok', def: 'function ok(): void' }),
+        '   ',
+        '{not valid json',
+      ].join('\r\n'),
+    ),
+    writeFile(
+      invalidShapeFile,
+      ['', JSON.stringify({ kind: 'fn', name: 'missingDef' })].join('\n'),
+    ),
+  ])
+  try {
+    const parseErr = await t.throwsAsync(() =>
+      processTypeDef(corruptFile, true),
+    )
+    t.regex(
+      parseErr!.message,
+      new RegExp(`Failed to parse intermediate type definition at .*corrupt:3`),
+    )
+    t.truthy(parseErr!.cause)
+
+    const shapeErr = await t.throwsAsync(() =>
+      processTypeDef(invalidShapeFile, true),
+    )
+    t.regex(
+      shapeErr!.message,
+      /Invalid intermediate type definition at .*invalid-shape:2/,
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
