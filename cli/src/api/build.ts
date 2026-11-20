@@ -2981,7 +2981,10 @@ class Builder {
       }
     }
 
-    for (const crateName of expectedCrateNames) {
+    for (const crateName of new Set([
+      ...expectedCrateNames,
+      ...observedExtraCrates,
+    ])) {
       if (!existingFiles.has(crateName)) {
         await writeFileAtomic(join(typeDefTmpFolder, crateName), '', 'utf8')
       }
