@@ -14,6 +14,7 @@ import {
   resolve,
   sep,
 } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import * as colors from 'colorette'
 
@@ -265,10 +266,131 @@ export function checkAsyncRuntimeHostContract({
 
 type CargoConfigFingerprint = readonly [path: string, hash: string]
 
+// The type-def cache folder name feeds `NAPI_TYPE_DEF_TMP_FOLDER`, which
+// napi-build marks `rerun-if-env-changed`. Any absolute path baked into it
+// makes two checkouts of the same workspace (e.g. git worktrees) sharing a
+// `CARGO_TARGET_DIR` rerun the build script and recompile the addon on every
+// alternation, even though Cargo itself would reuse the artifacts: Cargo
+// fingerprints workspace packages by their workspace-relative path. Identify
+// paths inside the workspace the same way. Paths outside it (registry and git
+// sources, `CARGO_HOME` config) are left absolute; they are shared by every
+// checkout anyway.
+function relativeWithinWorkspace(
+  path: string,
+  workspaceRoot: string | undefined,
+): string | undefined {
+  if (!workspaceRoot) {
+    return undefined
+  }
+  const relativePath = relative(workspaceRoot, path)
+  if (
+    isAbsolute(relativePath) ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`)
+  ) {
+    return undefined
+  }
+  return relativePath === '' ? '.' : relativePath.split(sep).join('/')
+}
+
+export function toWorkspaceRelativePath(
+  path: string,
+  workspaceRoot: string | undefined,
+): string {
+  return relativeWithinWorkspace(path, workspaceRoot) ?? path
+}
+
+const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
+
+interface ParsedPathPackageId {
+  prefix: string
+  rawUrl: string
+  suffix: string
+}
+
+// Parses Cargo path package IDs in both formats emitted by `cargo metadata`:
+// - current (`PkgIdSpec`): `path+file:///ws/crate#name@1.0.0`
+// - legacy (`Display`):    `name 1.0.0 (path+file:///ws/crate)`
+function parsePathPackageId(id: string): ParsedPathPackageId | undefined {
+  if (id.startsWith('path+')) {
+    const rawUrl = id.slice('path+'.length)
+    return rawUrl.length > 0 && !rawUrl.includes(' ')
+      ? { prefix: 'path+', rawUrl, suffix: '' }
+      : undefined
+  }
+  if (!id.endsWith(')')) {
+    return undefined
+  }
+  const firstSpace = id.indexOf(' ')
+  if (firstSpace <= 0) {
+    return undefined
+  }
+  const secondSpace = id.indexOf(' ', firstSpace + 1)
+  if (secondSpace <= firstSpace + 1) {
+    return undefined
+  }
+  const sourcePrefix = ' (path+'
+  if (!id.startsWith(sourcePrefix, secondSpace)) {
+    return undefined
+  }
+  const urlStart = secondSpace + sourcePrefix.length
+  const rawUrl = id.slice(urlStart, -1)
+  if (rawUrl.length === 0 || rawUrl.includes(' ')) {
+    return undefined
+  }
+  return {
+    prefix: id.slice(0, urlStart),
+    rawUrl,
+    suffix: ')',
+  }
+}
+
+export function normalizeWorkspacePackageId(
+  id: string,
+  workspaceRoot: string | undefined,
+): string {
+  if (!workspaceRoot) {
+    return id
+  }
+  const parsed = parsePathPackageId(id)
+  if (!parsed) {
+    return id
+  }
+  let url: URL
+  try {
+    url = new URL(parsed.rawUrl)
+  } catch {
+    return id
+  }
+  if (url.protocol !== 'file:') {
+    return id
+  }
+  const fileUrl = new URL(url.href)
+  fileUrl.search = ''
+  fileUrl.hash = ''
+  let packagePath: string
+  try {
+    packagePath = fileURLToPath(fileUrl)
+  } catch {
+    return id
+  }
+  const relativePath = relativeWithinWorkspace(packagePath, workspaceRoot)
+  if (relativePath === undefined) {
+    return id
+  }
+  const encodedSubpath =
+    relativePath === '.'
+      ? ''
+      : `/${relativePath.split('/').map(encodeURIComponent).join('/')}`
+  return `${parsed.prefix}file://${WORKSPACE_ROOT_PLACEHOLDER}${encodedSubpath}${url.search}${url.hash}${parsed.suffix}`
+}
+
 export function getCargoDependencyGraphFingerprint(
   metadata: CargoWorkspaceMetadata,
   rootPackageId: string,
 ): string {
+  const normalizeId = (id: string) =>
+    normalizeWorkspacePackageId(id, metadata.workspace_root)
   const packages = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]))
   const nodes = new Map(
     (metadata.resolve?.nodes ?? []).map((node) => [node.id, node]),
@@ -289,7 +411,7 @@ export function getCargoDependencyGraphFingerprint(
     const dependencies = (node?.deps ?? [])
       .map((dependency) => ({
         name: dependency.name,
-        pkg: dependency.pkg,
+        pkg: normalizeId(dependency.pkg),
         kinds: dependency.dep_kinds
           .map(({ kind, target }) => ({ kind, target }))
           .sort(
@@ -301,13 +423,15 @@ export function getCargoDependencyGraphFingerprint(
       .sort((left, right) =>
         JSON.stringify(left).localeCompare(JSON.stringify(right)),
       )
-    for (const dependency of dependencies) {
+    for (const dependency of node?.deps ?? []) {
       pending.push(dependency.pkg)
     }
 
     graph.push({
-      id,
-      manifestPath: pkg?.manifest_path,
+      id: normalizeId(id),
+      manifestPath:
+        pkg?.manifest_path &&
+        toWorkspaceRelativePath(pkg.manifest_path, metadata.workspace_root),
       resolvedFeatures: [...(node?.features ?? [])].sort(),
       dependencies,
       declaredDependencies: (pkg?.dependencies ?? [])
@@ -340,6 +464,7 @@ export function getTypeDefCacheFolder(options: {
   targetDir: string
   crateName: string
   manifestPath: string
+  workspaceRoot?: string
   targetTriple: string
   profile: string
   features?: string[]
@@ -361,16 +486,22 @@ export function getTypeDefCacheFolder(options: {
   const rustFlags = Object.entries(options.rustFlags ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
-  const cargoConfig = [...(options.cargoConfig ?? [])].sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
+  const cargoConfig = (options.cargoConfig ?? [])
+    .map(
+      ([path, hash]) =>
+        [toWorkspaceRelativePath(path, options.workspaceRoot), hash] as const,
+    )
+    .sort(([left], [right]) => left.localeCompare(right))
   const cargoProfileEnv = Object.entries(options.cargoProfileEnv ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
   const identity = JSON.stringify({
-    version: 4,
+    version: 5,
     cliVersion: CLI_VERSION,
-    manifestPath: options.manifestPath,
+    manifestPath: toWorkspaceRelativePath(
+      options.manifestPath,
+      options.workspaceRoot,
+    ),
     cargoDependencyGraph: options.cargoDependencyGraph,
     targetTriple: options.targetTriple,
     profile: options.profile,
@@ -1853,54 +1984,97 @@ class Builder {
     const controller = new AbortController()
 
     const watch = this.options.watch
-    const buildTask = new Promise<void>((resolve, reject) => {
-      const cargoOverride = process.env.CARGO
-      if (
-        cargoOverride &&
-        (this.options.useCross || this.options.crossCompile)
-      ) {
-        const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
-        const requestedFlag = this.options.useCross
-          ? '`--use-cross`'
-          : '`--cross-compile` (`-x`)'
-        debug.warn(
-          `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
-        )
-      }
-      const command =
-        cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
-      const buildProcess = spawn(command, this.args, {
-        env: { ...process.env, ...this.envs },
-        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
-        cwd: this.options.cwd,
-        signal: controller.signal,
-      })
-
-      buildProcess.once('exit', (code) => {
-        if (code === 0) {
-          debug('%i', `Build crate ${this.crate.name} successfully!`)
-          resolve()
-        } else {
-          reject(new Error(`Build failed with exit code ${code}`))
+    const runCargo = () =>
+      new Promise<void>((resolve, reject) => {
+        const cargoOverride = process.env.CARGO
+        if (
+          cargoOverride &&
+          (this.options.useCross || this.options.crossCompile)
+        ) {
+          const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
+          const requestedFlag = this.options.useCross
+            ? '`--use-cross`'
+            : '`--cross-compile` (`-x`)'
+          debug.warn(
+            `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
+          )
         }
+        const command =
+          cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
+        const buildProcess = spawn(command, this.args, {
+          env: { ...process.env, ...this.envs },
+          stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
+          cwd: this.options.cwd,
+          signal: controller.signal,
+        })
+
+        buildProcess.once('exit', (code) => {
+          if (code === 0) {
+            debug('%i', `Build crate ${this.crate.name} successfully!`)
+            resolve()
+          } else {
+            reject(new Error(`Build failed with exit code ${code}`))
+          }
+        })
+
+        buildProcess.once('error', (e) => {
+          reject(
+            new Error(`Build failed with error: ${e.message}`, { cause: e }),
+          )
+        })
+
+        // watch mode only, they are piped through stderr
+        buildProcess.stderr?.on('data', (data) => {
+          const output = data.toString()
+          console.error(output)
+          if (/Finished\s(`dev`|`release`)/.test(output)) {
+            this.postBuild().catch(() => {})
+          }
+        })
       })
 
-      buildProcess.once('error', (e) => {
-        reject(new Error(`Build failed with error: ${e.message}`, { cause: e }))
-      })
-
-      // watch mode only, they are piped through stderr
-      buildProcess.stderr?.on('data', (data) => {
-        const output = data.toString()
-        console.error(output)
-        if (/Finished\s(`dev`|`release`)/.test(output)) {
-          this.postBuild().catch(() => {})
-        }
-      })
-    })
+    // The type-def cache folder is keyed on workspace-relative inputs, so
+    // checkouts of one workspace sharing a CARGO_TARGET_DIR (e.g. git
+    // worktrees) share it, along with Cargo's artifacts. Cargo's own lock
+    // ends when Cargo exits, and the post-build lock is per package
+    // directory, so without this another checkout's build could rewrite the
+    // intermediate type defs or the artifact between this Cargo run and the
+    // post-build that reads them. Hold a lock on the folder across both, and
+    // wait as long as Cargo would. `abort()` while waiting stops the wait,
+    // releases any lock taken so far and rejects without running Cargo; once
+    // the build has started, an abort is reported as it was without the lock
+    // (Cargo is killed, a finished post-build still publishes).
+    // Watch mode re-runs post-build for the whole session, so it keeps the
+    // post-build lock only and uses a per-checkout folder instead; a
+    // `--no-dts-cache` folder is unique to this build and needs no lock.
+    const sharedTypeDefFolder =
+      !watch && this.enableTypeDef && Boolean(this.options.dtsCache)
+        ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
+        : undefined
+    const runBuild = () => runCargo().then(() => this.postBuild())
+    let buildStarted = false
 
     return {
-      task: buildTask.then(() => this.postBuild()),
+      task: sharedTypeDefFolder
+        ? withFileSystemReconciliation(
+            sharedTypeDefFolder,
+            () => {
+              buildStarted = true
+              return runBuild()
+            },
+            {
+              lockAcquisitionTimeout: Number.POSITIVE_INFINITY,
+              signal: controller.signal,
+            },
+          ).catch((error: unknown) => {
+            if (!buildStarted && controller.signal.aborted) {
+              throw new Error('Build aborted', {
+                cause: error,
+              })
+            }
+            throw error
+          })
+        : runBuild(),
       abort: () => controller.abort(),
     }
   }
@@ -2434,6 +2608,12 @@ class Builder {
       targetDir: this.targetDir,
       crateName: this.crate.name,
       manifestPath: this.crate.manifest_path,
+      // Watch mode keeps writing intermediate type defs for the whole session
+      // without holding the shared-folder lock (see `exec()`), so it keeps a
+      // folder of its own per checkout instead of sharing one across them.
+      workspaceRoot: this.options.watch
+        ? undefined
+        : this.metadata.workspace_root,
       targetTriple: this.cargoTriple,
       profile:
         this.options.profile ?? (this.options.release ? 'release' : 'dev'),
