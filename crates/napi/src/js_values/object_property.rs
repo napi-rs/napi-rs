@@ -47,6 +47,18 @@ impl RetainedValue {
       ));
     }
 
+    #[cfg(not(feature = "noop"))]
+    let registration = match crate::bindgen_runtime::env_registration::env_state(env) {
+      crate::bindgen_runtime::env_registration::EnvState::Live(id) => Some(id),
+      crate::bindgen_runtime::env_registration::EnvState::Unregistered => None,
+      crate::bindgen_runtime::env_registration::EnvState::TornDown => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Cannot retain property value for a torn-down JavaScript environment",
+        ));
+      }
+    };
+
     let mut value_type = 0;
     check_status!(
       unsafe { sys::napi_typeof(env, value, &mut value_type) },
@@ -105,7 +117,7 @@ impl RetainedValue {
       env,
       owner_thread: std::thread::current().id(),
       #[cfg(not(feature = "noop"))]
-      registration: crate::bindgen_runtime::env_registration::registration_id(env),
+      registration,
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
       custom_gc: crate::bindgen_prelude::custom_gc_handle_for_env(env),
     })
@@ -128,12 +140,24 @@ impl RetainedValue {
       }
     }
     #[cfg(not(feature = "noop"))]
-    if let Some(id) = self.registration {
-      if !crate::bindgen_runtime::env_registration::is_registration_alive(id, env) {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "Property value belongs to a torn-down JavaScript environment",
-        ));
+    match self.registration {
+      Some(id) => {
+        if !crate::bindgen_runtime::env_registration::is_registration_alive(id, env) {
+          return Err(Error::new(
+            Status::InvalidArg,
+            "Property value belongs to a torn-down JavaScript environment",
+          ));
+        }
+      }
+      None => {
+        if crate::bindgen_runtime::env_registration::env_state(env)
+          == crate::bindgen_runtime::env_registration::EnvState::TornDown
+        {
+          return Err(Error::new(
+            Status::InvalidArg,
+            "Property value belongs to a torn-down JavaScript environment",
+          ));
+        }
       }
     }
 
@@ -199,9 +223,18 @@ impl Drop for RetainedValue {
     if self.owner_thread != std::thread::current().id() {
       return;
     }
-    if let Some(id) = self.registration {
-      if !crate::bindgen_runtime::env_registration::is_registration_alive(id, self.env) {
-        return;
+    match self.registration {
+      Some(id) => {
+        if !crate::bindgen_runtime::env_registration::is_registration_alive(id, self.env) {
+          return;
+        }
+      }
+      None => {
+        if crate::bindgen_runtime::env_registration::env_state(self.env)
+          == crate::bindgen_runtime::env_registration::EnvState::TornDown
+        {
+          return;
+        }
       }
     }
     release_retained_reference(self.env, self.raw);
@@ -682,6 +715,35 @@ mod tests {
       .err()
       .unwrap();
     assert_eq!(err.status, Status::InvalidArg);
+  }
+
+  #[cfg(not(feature = "noop"))]
+  #[test]
+  fn retained_value_rejects_torn_down_env_without_calling_napi() {
+    let fake_env = std::ptr::without_provenance_mut::<sys::napi_env__>(0x1000);
+    crate::bindgen_runtime::env_registration::test_helpers::mark_env_torn_down(fake_env);
+    let err = RetainedValue::new(fake_env, ptr::dangling_mut())
+      .err()
+      .unwrap();
+    assert_eq!(err.status, Status::InvalidArg);
+    assert!(err.reason.contains("torn-down"));
+
+    // A previously created unregistered value must also refuse `get` and skip
+    // N-API calls in `drop` once the env is marked torn down.
+    let stale = RetainedValue {
+      raw: ptr::dangling_mut(),
+      indirect: false,
+      env: fake_env,
+      owner_thread: std::thread::current().id(),
+      registration: None,
+      #[cfg(feature = "napi4")]
+      custom_gc: None,
+    };
+    let get_err = stale.get(fake_env).unwrap_err();
+    assert_eq!(get_err.status, Status::InvalidArg);
+    drop(stale);
+
+    crate::bindgen_runtime::env_registration::test_helpers::clear_env_torn_down(fake_env);
   }
 
   #[cfg(not(feature = "noop"))]
