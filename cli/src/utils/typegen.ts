@@ -640,8 +640,10 @@ function renderTypeDefs(
             return declaration
           }
         })
+        .filter(Boolean)
         .join('\n\n'),
     )
+    .filter(Boolean)
     .join('\n\n')
   const globalDeclarations = []
   if (hasIteratorClass) {
@@ -649,6 +651,9 @@ function renderTypeDefs(
   }
   if (hasAsyncIteratorClass) {
     globalDeclarations.push(asyncGeneratorDeclaration(asyncGeneratorHelperName))
+  }
+  if (!renderedDefs && globalDeclarations.length === 0) {
+    return ''
   }
   const dts =
     (globalDeclarations.length
@@ -2097,26 +2102,50 @@ function expandToDeclarationLine(
 
 async function readIntermediateTypeFile(file: string) {
   const content = await readFileAsync(file, 'utf8')
+  const defs: TypeDefLine[] = []
+  const lines = content.split('\n')
 
-  const defs = content
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      line = line.trim()
-      const parsed = JSON.parse(line) as TypeDefLine
-      if (parsed.js_doc) {
-        parsed.js_doc = parsed.js_doc.replace(/\\n/g, '\n')
-      }
-      if (parsed.def) {
-        parsed.def = decodeStructuralNewlines(parsed.def)
-      }
-      if (parsed.def_with_type_import_markers) {
-        parsed.def_with_type_import_markers = decodeStructuralNewlines(
-          parsed.def_with_type_import_markers,
-        )
-      }
-      return parsed
-    })
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim()
+    if (!line) {
+      continue
+    }
+    const lineNumber = index + 1
+    let parsedValue: unknown
+    try {
+      parsedValue = JSON.parse(line)
+    } catch (cause) {
+      throw new Error(
+        `Failed to parse intermediate type definition at ${file}:${lineNumber}`,
+        { cause },
+      )
+    }
+    if (
+      typeof parsedValue !== 'object' ||
+      parsedValue === null ||
+      Array.isArray(parsedValue) ||
+      typeof (parsedValue as Record<string, unknown>).kind !== 'string' ||
+      typeof (parsedValue as Record<string, unknown>).name !== 'string' ||
+      typeof (parsedValue as Record<string, unknown>).def !== 'string'
+    ) {
+      throw new Error(
+        `Invalid intermediate type definition at ${file}:${lineNumber}: expected JSON object with string fields \`kind\`, \`name\`, and \`def\``,
+      )
+    }
+    const parsed = parsedValue as TypeDefLine
+    if (parsed.js_doc) {
+      parsed.js_doc = parsed.js_doc.replace(/\\n/g, '\n')
+    }
+    if (parsed.def) {
+      parsed.def = decodeStructuralNewlines(parsed.def)
+    }
+    if (parsed.def_with_type_import_markers) {
+      parsed.def_with_type_import_markers = decodeStructuralNewlines(
+        parsed.def_with_type_import_markers,
+      )
+    }
+    defs.push(parsed)
+  }
 
   // move all `struct` def to the very top
   // and order the rest alphabetically.
