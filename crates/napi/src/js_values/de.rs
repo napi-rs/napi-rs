@@ -70,14 +70,26 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
       ValueType::BigInt => {
         let js_bigint = unsafe { BigInt::from_napi_value(self.0.env, self.0.value)? };
 
-        let BigInt { sign_bit, words } = &js_bigint;
-        let word_sized = words.len() < 2;
-
-        match (sign_bit, word_sized) {
-          (true, true) => visitor.visit_i64(js_bigint.get_i64().0),
-          (true, false) => visitor.visit_i128(js_bigint.get_i128().0),
-          (false, true) => visitor.visit_u64(js_bigint.get_u64().1),
-          (false, false) => visitor.visit_u128(js_bigint.get_u128().1),
+        if js_bigint.sign_bit {
+          if let (val, true) = js_bigint.get_i64() {
+            visitor.visit_i64(val)
+          } else if let (val, true) = js_bigint.get_i128() {
+            visitor.visit_i128(val)
+          } else {
+            Err(Error::new(
+              Status::InvalidArg,
+              "BigInt value is out of range for i128",
+            ))
+          }
+        } else if let (_, val, true) = js_bigint.get_u64() {
+          visitor.visit_u64(val)
+        } else if let (_, val, true) = js_bigint.get_u128() {
+          visitor.visit_u128(val)
+        } else {
+          Err(Error::new(
+            Status::InvalidArg,
+            "BigInt value is out of range for u128",
+          ))
         }
       }
       ValueType::External | ValueType::Function | ValueType::Symbol | ValueType::Unknown => {
@@ -196,6 +208,30 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
     }
   }
 
+  fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value>
+  where
+    V: Visitor<'x>,
+  {
+    if type_of!(self.0.env, self.0.value)? == ValueType::Number {
+      let js_number: f64 = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };
+      visitor.visit_f64(js_number)
+    } else {
+      self.deserialize_any(visitor)
+    }
+  }
+
+  fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
+  where
+    V: Visitor<'x>,
+  {
+    if type_of!(self.0.env, self.0.value)? == ValueType::Number {
+      let js_number: f64 = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };
+      visitor.visit_f64(js_number)
+    } else {
+      self.deserialize_any(visitor)
+    }
+  }
+
   fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
   where
     V: Visitor<'x>,
@@ -205,7 +241,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
 
   forward_to_deserialize_any! {
      <V: Visitor<'x>>
-      bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+      bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 char str string
       unit unit_struct seq tuple tuple_struct map struct identifier
       newtype_struct
   }

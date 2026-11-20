@@ -195,6 +195,9 @@ import {
   testSerdeBufferBytes,
   testSerdeNumberFromJs,
   testSerdeI64FromJs,
+  testSerdeI128FromJs,
+  testSerdeU128FromJs,
+  testSerdeJsonFromJs,
   getBigintJsonValue,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
@@ -1672,12 +1675,40 @@ test('serde-number-from-js-range', (t) => {
   t.is(testSerdeNumberFromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
   t.is(testSerdeNumberFromJs(-42), -42)
   t.is(testSerdeNumberFromJs(1.5), 1.5)
+  t.true(Object.is(testSerdeNumberFromJs(-0), -0))
+  t.true(Object.is(testSerdeNumberFromJs(0), 0))
   t.true(Number.isNaN(testSerdeNumberFromJs(NaN)))
   t.is(testSerdeNumberFromJs(Infinity), Infinity)
   t.is(testSerdeNumberFromJs(-Infinity), -Infinity)
 
+  // Verify deserialize_any dispatch for serde_json::Value
+  t.is(testSerdeJsonFromJs(0), '0')
+  t.is(testSerdeJsonFromJs(-0), '0')
+  t.is(testSerdeJsonFromJs(-42), '-42')
+  t.is(testSerdeJsonFromJs(-(2 ** 63)), '-9223372036854775808')
+  t.is(testSerdeJsonFromJs(2 ** 63 - 1024), '9223372036854774784')
+  for (const value of [
+    1e300,
+    -1e300,
+    2 ** 63,
+    -(2 ** 63) - 2048,
+    -1e19,
+    1e-20,
+    -1e-20,
+    Number.MIN_VALUE,
+    1.5,
+  ]) {
+    const serialized = testSerdeJsonFromJs(value)
+    t.regex(serialized, /[.eE]/)
+    t.is(JSON.parse(serialized), value)
+  }
+  t.is(testSerdeJsonFromJs(NaN), 'null')
+  t.is(testSerdeJsonFromJs(Infinity), 'null')
+  t.is(testSerdeJsonFromJs(-Infinity), 'null')
+
   // Verify in-range whole numbers dispatch to visit_i64
   t.is(testSerdeI64FromJs(0), 0)
+  t.is(testSerdeI64FromJs(-0), 0)
   t.is(testSerdeI64FromJs(-42), -42)
   t.is(testSerdeI64FromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
   t.is(testSerdeI64FromJs(2 ** 63 - 1024), 2 ** 63 - 1024)
@@ -1701,6 +1732,44 @@ test('serde-number-from-js-range', (t) => {
       message: /invalid type: floating point/,
     })
   }
+})
+
+test('serde-bigint-from-js-range', (t) => {
+  const i64Min = -(2n ** 63n)
+  const i128Min = -(2n ** 127n)
+  const i128Max = 2n ** 127n - 1n
+  const u64Max = 2n ** 64n - 1n
+  const u128Max = 2n ** 128n - 1n
+
+  // In-range negative 1-word BigInts visit_i64
+  t.is(testSerdeI64FromJs(0n), 0)
+  t.is(testSerdeI64FromJs(-42n), -42)
+  t.is(testSerdeI64FromJs(i64Min), -(2 ** 63))
+
+  // Negative 1-word BigInts below i64::MIN must route to visit_i128, not wrap positive
+  t.throws(() => testSerdeI64FromJs(i64Min - 1n))
+  t.is(testSerdeI128FromJs(i64Min), i64Min)
+  t.is(testSerdeI128FromJs(i64Min - 1n), i64Min - 1n)
+  t.is(testSerdeI128FromJs(-u64Max), -u64Max)
+  t.is(testSerdeI128FromJs(i128Min), i128Min)
+  t.is(testSerdeI128FromJs(i128Max), i128Max)
+  t.throws(() => testSerdeI128FromJs(i128Min - 1n), {
+    message: /out of range for i128/,
+  })
+  t.throws(() => testSerdeI128FromJs(-(2n ** 128n) - 2n ** 127n), {
+    message: /out of range for i128/,
+  })
+  t.throws(() => testSerdeI128FromJs(i128Max + 1n))
+
+  // Unsigned BigInt boundaries and overflow rejection
+  t.is(testSerdeU128FromJs(0n), 0n)
+  t.is(testSerdeU128FromJs(u64Max), u64Max)
+  t.is(testSerdeU128FromJs(u64Max + 1n), u64Max + 1n)
+  t.is(testSerdeU128FromJs(u128Max), u128Max)
+  t.throws(() => testSerdeU128FromJs(u128Max + 1n), {
+    message: /out of range for u128/,
+  })
+  t.throws(() => testSerdeU128FromJs(-1n))
 })
 
 test('serde-roundtrip-depth-limit', (t) => {

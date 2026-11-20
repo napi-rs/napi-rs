@@ -71,6 +71,22 @@ fn test_serde_i64_from_js(value: Unknown, env: Env) -> napi::Result<i64> {
 }
 
 #[napi]
+fn test_serde_i128_from_js(value: Unknown, env: Env) -> napi::Result<i128> {
+  env.from_js_value(value)
+}
+
+#[napi]
+fn test_serde_u128_from_js(value: Unknown, env: Env) -> napi::Result<u128> {
+  env.from_js_value(value)
+}
+
+#[napi]
+fn test_serde_json_from_js(value: Unknown, env: Env) -> napi::Result<String> {
+  let value: Value = env.from_js_value(value)?;
+  Ok(value.to_string())
+}
+
+#[napi]
 struct PackageJsonReader {
   i: Value,
 }
