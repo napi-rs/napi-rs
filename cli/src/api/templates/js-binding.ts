@@ -373,6 +373,12 @@ function requireNative() {
       } else {
         ${requireTuple('linux-x64-gnu', 10)}
       }
+    } else if (process.arch === 'ia32') {
+      if (isMusl()) {
+        ${requireTuple('linux-ia32-musl', 10)}
+      } else {
+        ${requireTuple('linux-ia32-gnu', 10)}
+      }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         ${requireTuple('linux-arm64-musl', 10)}
@@ -398,9 +404,17 @@ function requireNative() {
         ${requireTuple('linux-riscv64-gnu', 10)}
       }
     } else if (process.arch === 'ppc64') {
-      ${requireTuple('linux-ppc64-gnu')}
+      if (isMusl()) {
+        ${requireTuple('linux-ppc64-musl', 10)}
+      } else {
+        ${requireTuple('linux-ppc64-gnu', 10)}
+      }
     } else if (process.arch === 's390x') {
-      ${requireTuple('linux-s390x-gnu')}
+      if (isMusl()) {
+        ${requireTuple('linux-s390x-musl', 10)}
+      } else {
+        ${requireTuple('linux-s390x-gnu', 10)}
+      }
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on Linux: \${process.arch}\`))
     }
