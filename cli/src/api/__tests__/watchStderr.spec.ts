@@ -7,21 +7,21 @@ import { attachWatchStderr } from '../build.js'
 
 test('attachWatchStderr decodes multi-byte UTF-8 split across chunks', async (t) => {
   const stream = new PassThrough()
-  const lines: string[] = []
+  let output = ''
   let finishedCount = 0
 
   attachWatchStderr(
     stream,
-    (line) => {
-      lines.push(line)
+    (chunk) => {
+      output += chunk
     },
     () => {
       finishedCount += 1
     },
   )
 
-  const message = 'warning: compiling /tmp/日本/src/lib.rs'
-  const bytes = Buffer.from(`${message}\n`)
+  const message = 'warning: compiling /tmp/日本/src/lib.rs\n'
+  const bytes = Buffer.from(message)
   const split = bytes.indexOf(Buffer.from('日')) + 1
 
   const ended = new Promise<void>((resolve) => {
@@ -31,20 +31,41 @@ test('attachWatchStderr decodes multi-byte UTF-8 split across chunks', async (t)
   stream.end(bytes.subarray(split))
   await ended
 
-  t.deepEqual(lines, [message])
-  t.false(lines[0].includes('\uFFFD'))
+  t.is(output, message)
+  t.false(output.includes('\uFFFD'))
   t.is(finishedCount, 0)
 })
 
-test('attachWatchStderr detects Finished markers split across chunks and line endings', async (t) => {
+test('attachWatchStderr forwards partial output without waiting for a newline', (t) => {
   const stream = new PassThrough()
-  const lines: string[] = []
+  let output = ''
   let finishedCount = 0
 
   attachWatchStderr(
     stream,
-    (line) => {
-      lines.push(line)
+    (chunk) => {
+      output += chunk
+    },
+    () => {
+      finishedCount += 1
+    },
+  )
+
+  stream.write(Buffer.from('Continue build? '))
+  t.is(output, 'Continue build? ')
+  t.is(finishedCount, 0)
+  stream.end()
+})
+
+test('attachWatchStderr detects Finished markers split across chunks and line endings', async (t) => {
+  const stream = new PassThrough()
+  let output = ''
+  let finishedCount = 0
+
+  attachWatchStderr(
+    stream,
+    (chunk) => {
+      output += chunk
     },
     () => {
       finishedCount += 1
@@ -75,12 +96,13 @@ test('attachWatchStderr detects Finished markers split across chunks and line en
   stream.end(Buffer.from('    Finished `dev` profile [unoptimized] in 0.10s'))
   await ended
   t.is(finishedCount, 3)
-  t.deepEqual(lines, [
-    '   Compiling my-addon v0.1.0',
-    '    Finished `dev` profile [unoptimized + debuginfo] in 0.42s',
-    '    Finished `release` profile [optimized] in 1.23s',
-    '    Finished `dev` profile [unoptimized] in 0.10s',
-  ])
+  t.is(
+    output,
+    '   Compiling my-addon v0.1.0\n' +
+      '    Finished `dev` profile [unoptimized + debuginfo] in 0.42s\n' +
+      '    Finished `release` profile [optimized] in 1.23s\r\n' +
+      '    Finished `dev` profile [unoptimized] in 0.10s',
+  )
 })
 
 test('watch stderr forwarding survives a disconnected stderr reader', async (t) => {
@@ -98,7 +120,7 @@ import { attachWatchStderr, createWatchStderrWriter } from ${JSON.stringify(buil
 const stream = new PassThrough()
 const writer = createWatchStderrWriter()
 let finished = 0
-attachWatchStderr(stream, (line) => writer.writeLine(line), () => { finished += 1 })
+attachWatchStderr(stream, (chunk) => writer.write(chunk), () => { finished += 1 })
 process.stdout.write('READY\\n')
 process.stdin.once('data', () => {
   stream.write(Buffer.from('    Fini'))

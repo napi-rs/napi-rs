@@ -1695,7 +1695,7 @@ const WATCH_BUILD_FINISHED_RE = /Finished\s(`dev`|`release`)/
 export function createWatchStderrWriter(
   target: NodeJS.WritableStream = process.stderr,
 ): {
-  writeLine: (line: string) => void
+  write: (chunk: string) => void
   dispose: () => void
 } {
   let disconnected = false
@@ -1720,13 +1720,13 @@ export function createWatchStderrWriter(
   target.on('error', onError)
 
   return {
-    writeLine(line: string) {
+    write(chunk: string) {
       if (disconnected || target.destroyed || !target.writable) {
         return
       }
       pendingWrites += 1
       try {
-        target.write(`${line}\n`, (error) => {
+        target.write(chunk, (error) => {
           if (error) {
             onError(error as NodeJS.ErrnoException)
           }
@@ -1750,25 +1750,25 @@ export function createWatchStderrWriter(
 
 export function attachWatchStderr(
   stderr: NodeJS.ReadableStream,
-  onLine: (line: string) => void,
+  onOutput: (chunk: string) => void,
   onBuildFinished: () => void,
 ): void {
   stderr.setEncoding('utf8')
   let pendingLine = ''
 
-  const handleLine = (line: string) => {
-    onLine(line)
+  const checkLine = (line: string) => {
     if (WATCH_BUILD_FINISHED_RE.test(line)) {
       onBuildFinished()
     }
   }
 
   stderr.on('data', (chunk: string) => {
+    onOutput(chunk)
     pendingLine += chunk
     const lines = pendingLine.split(/\r?\n/)
     pendingLine = lines.pop() ?? ''
     for (const line of lines) {
-      handleLine(line)
+      checkLine(line)
     }
   })
 
@@ -1776,7 +1776,7 @@ export function attachWatchStderr(
     if (pendingLine.length > 0) {
       const trailing = pendingLine
       pendingLine = ''
-      handleLine(trailing)
+      checkLine(trailing)
     }
   })
 }
@@ -2518,8 +2518,8 @@ class Builder {
         if (buildProcess.stderr && watchStderrWriter) {
           attachWatchStderr(
             buildProcess.stderr,
-            (line) => {
-              watchStderrWriter.writeLine(line)
+            (output) => {
+              watchStderrWriter.write(output)
             },
             () => {
               const postBuildTask = this.postBuild().catch(() => {})
