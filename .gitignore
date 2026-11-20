@@ -169,3 +169,6 @@ bench.txt
 !.yarn/versions
 .vscode/
 .claude/
+# Generated compression assets staged for npm packing.
+cli/stubs/*.node
+cli/bin/napi-compress-*

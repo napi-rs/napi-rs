@@ -9,6 +9,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import ava, { type TestFn } from 'ava'
 
 import packageJson from '../package.json' with { type: 'json' }
+import { getSystemDefaultTarget } from '../src/utils/target.js'
 import { fileURLToPath } from 'node:url'
 
 const test = ava as TestFn<{
@@ -39,6 +40,12 @@ test.before(async (t) => {
   t.timeout(E2E_STEP_TIMEOUT)
   await execAsync(`yarn workspace @napi-rs/cli build`, {
     cwd: rootDir,
+  })
+  // Build the host stub so the packed CLI can compress-and-self-load below
+  // (`napi build --compress` resolves stubs/<host-triple>.node, and `files`
+  // ships stubs/). The plain stable build is enough here — only size differs.
+  await execAsync(`node build/stubs.mjs ${getSystemDefaultTarget().triple}`, {
+    cwd: join(rootDir, 'cli'),
   })
   await execAsync(`npm pack`, {
     cwd: join(rootDir, 'cli'),
@@ -89,6 +96,39 @@ test('should be able to build a project', async (t) => {
     },
   })
   t.truthy(existsSync(join(context, 'index.node')))
+})
+
+test('should build, compress in place, and self-load a real addon', async (t) => {
+  t.timeout(E2E_STEP_TIMEOUT)
+  const { context } = t.context
+  await writeCargoToml(context)
+  await writePackageJson(context, {})
+  const bin = join(context, 'node_modules', '.bin')
+  await execAsync(`${bin}/napi build --compress`, {
+    cwd: context,
+    env: {
+      ...process.env,
+      DEBUG: 'napi:*',
+    },
+  })
+
+  const nodePath = join(context, 'index.node')
+  t.true(existsSync(nodePath), 'compressed in place, same filename')
+
+  // The compressed payload is embedded in the self-loading native image.
+  const buf = await readFile(nodePath)
+  t.true(buf.includes(Buffer.from('NAPCSECT')), 'embedded payload is present')
+
+  // Load it in a fresh process and call the real addon's export: the stub
+  // trampoline must decompress the embedded addon, load it, and forward
+  // napi_register_module_v1 so `hello` is visible to the consumer.
+  const loader = join(context, 'load.cjs')
+  await writeFile(loader, `console.log(require('./index.node').hello())\n`)
+  const { code, stdout, stderr } = await execResult(`node ${loader}`, {
+    cwd: context,
+  })
+  t.is(code, 0, stderr)
+  t.is(stdout.trim(), 'Hello, world!', 'self-loaded the real addon end to end')
 })
 
 test('should exit non-zero when pipe command fails', async (t) => {

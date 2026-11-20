@@ -24,9 +24,11 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "bin",
     "dist",
     "docs",
     "src",
+    "stubs",
     "!__tests__"
   ],
   "keywords": [
@@ -114,6 +116,7 @@
   "scripts": {
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
     "build": "tsdown",
+    "prepack": "node build/producer.mjs",
     "test": "yarn run build && node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.js"
   },
   "ava": {

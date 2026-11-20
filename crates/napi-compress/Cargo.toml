@@ -1,0 +1,43 @@
+[package]
+name = "napi-compress"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Host build-time producer for compressed native-addon carriers."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "napi-compress"
+path = "src/main.rs"
+
+# The producer is a HOST build-time tool, NOT the shipped stub — so the heavy
+# deps live here and never reach napi-native-addon / napi-native-addon-stub (which stay dep-lean and
+# panic=abort). It shares ONLY the section ABI (`build_section_payload`) and the
+# cache key (`fnv1a64`) with napi-native-addon, so the wire format has one source of truth.
+[dependencies]
+napi-native-addon = { path = "../napi-native-addon" }
+goblin = { version = "0.9", default-features = false, features = [
+  "elf32",
+  "elf64",
+  "endian_fd",
+  "mach32",
+  "mach64",
+  "pe32",
+  "pe64",
+  "std",
+] }
+zstd = "0.13"
+
+# apple-codesign re-signs the injected Mach-O ad-hoc so the section stays covered
+# by the code signature (codesign -v clean + notarizable). macOS-only: it's the
+# only target whose loader enforces a code signature on dlopen.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-codesign = "0.29"
+
+# The round-trip integration test (a separate crate that drives the built binary)
+# uses the section ABI hash + the zstd decoder to verify the oracle directly.
+[dev-dependencies]
+napi-native-addon = { path = "../napi-native-addon" }
+zstd = "0.13"
