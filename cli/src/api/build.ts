@@ -1,6 +1,12 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs'
 import { mkdtemp as mkdtempAsync, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
@@ -14,6 +20,7 @@ import {
   resolve,
   sep,
 } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import * as colors from 'colorette'
 
@@ -21,6 +28,7 @@ import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
   cargoTargetTriple,
+  collectFeatureSelection,
   commitFileSystemTransaction,
   commonJsDeclarationBarrier,
   copyFileAtomic,
@@ -265,10 +273,273 @@ export function checkAsyncRuntimeHostContract({
 
 type CargoConfigFingerprint = readonly [path: string, hash: string]
 
+const FORCE_BUILD_TOKENS_FILE = '.napi-force-build.json'
+const FORCE_BUILD_INVALIDATED_FILE = '.napi-type-def-invalidated.json'
+const OBSERVED_EMITTED_CRATES_FILE = '.napi-observed-crates.json'
+
+async function readObservedEmittedCrates(
+  typeDefTmpFolder: string,
+): Promise<Set<string>> {
+  const filePath = join(typeDefTmpFolder, OBSERVED_EMITTED_CRATES_FILE)
+  try {
+    const raw = await readFileAsync(filePath, 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(
+      parsed.filter(
+        (entry): entry is string =>
+          typeof entry === 'string' &&
+          entry.length > 0 &&
+          !entry.startsWith('.'),
+      ),
+    )
+  } catch {
+    return new Set()
+  }
+}
+
+export function stripWindowsVerbatimPrefix(path: string): string {
+  if (path.length >= 8 && path.slice(0, 8).toUpperCase() === '\\\\?\\UNC\\') {
+    return `\\\\${path.slice(8)}`
+  }
+  if (
+    path.startsWith('\\\\?\\') &&
+    path.length >= 6 &&
+    ((path[4] >= 'A' && path[4] <= 'Z') ||
+      (path[4] >= 'a' && path[4] <= 'z')) &&
+    path[5] === ':'
+  ) {
+    return path.slice(4)
+  }
+  return path
+}
+
+export function compareCodeUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+export function resolveCargoTargetDir({
+  targetDir,
+  cargoOptions,
+  cwd,
+  metadataTargetDirectory,
+}: {
+  targetDir?: string
+  cargoOptions?: string[]
+  cwd: string
+  metadataTargetDirectory: string
+}): string {
+  let override = targetDir
+  const options = cargoOptions ?? []
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index]
+    if (option === '--') {
+      break
+    }
+    if (option === '--target-dir') {
+      const value = options[index + 1]
+      if (value !== undefined) {
+        override = value
+        index += 1
+      }
+    } else if (option.startsWith('--target-dir=')) {
+      override = option.slice('--target-dir='.length)
+    }
+  }
+  return override ? resolve(cwd, override) : metadataTargetDirectory
+}
+
+export function getArtifactLockDir({
+  targetDir,
+  cargoTriple,
+  profile,
+  srcName,
+}: {
+  targetDir: string
+  cargoTriple: string
+  profile: string
+  srcName: string
+}): string {
+  const hash = createHash('sha256')
+    .update(JSON.stringify({ cargoTriple, profile, srcName }))
+    .digest('hex')
+    .slice(0, 16)
+  return join(targetDir, 'napi-rs', '.artifact-locks', hash)
+}
+
+function canonicalizeNearestExistingPrefix(path: string): string {
+  let current = stripWindowsVerbatimPrefix(resolve(path))
+  const missingSegments: string[] = []
+  while (true) {
+    try {
+      return stripWindowsVerbatimPrefix(
+        join(realpathSync.native(current), ...missingSegments),
+      )
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        return stripWindowsVerbatimPrefix(join(current, ...missingSegments))
+      }
+      const parent = dirname(current)
+      if (parent === current) {
+        return stripWindowsVerbatimPrefix(join(current, ...missingSegments))
+      }
+      missingSegments.unshift(basename(current))
+      current = parent
+    }
+  }
+}
+
+function lexicalRelativeWithinWorkspace(
+  path: string,
+  workspaceRoot: string,
+): string | undefined {
+  const relativePath = relative(workspaceRoot, path)
+  if (
+    isAbsolute(relativePath) ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`)
+  ) {
+    return undefined
+  }
+  return relativePath === '' ? '.' : relativePath.split(sep).join('/')
+}
+
+// The type-def cache folder name feeds `NAPI_TYPE_DEF_TMP_FOLDER`, which
+// napi-build marks `rerun-if-env-changed`. Any absolute path baked into it
+// makes two checkouts of the same workspace (e.g. git worktrees) sharing a
+// `CARGO_TARGET_DIR` rerun the build script and recompile the addon on every
+// alternation, even though Cargo itself would reuse the artifacts: Cargo
+// fingerprints workspace packages by their workspace-relative path. Identify
+// paths inside the workspace the same way. Paths outside it (registry and git
+// sources, `CARGO_HOME` config) are left absolute; they are shared by every
+// checkout anyway.
+function relativeWithinWorkspace(
+  path: string,
+  workspaceRoot: string | undefined,
+): string | undefined {
+  if (!workspaceRoot) {
+    return undefined
+  }
+  const cleanPath = stripWindowsVerbatimPrefix(path)
+  const cleanWorkspaceRoot = stripWindowsVerbatimPrefix(workspaceRoot)
+  const lexical = lexicalRelativeWithinWorkspace(cleanPath, cleanWorkspaceRoot)
+  if (lexical !== undefined) {
+    return lexical
+  }
+  const canonicalPath = canonicalizeNearestExistingPrefix(cleanPath)
+  const canonicalWorkspaceRoot =
+    canonicalizeNearestExistingPrefix(cleanWorkspaceRoot)
+  return lexicalRelativeWithinWorkspace(canonicalPath, canonicalWorkspaceRoot)
+}
+
+export function toWorkspaceRelativePath(
+  path: string,
+  workspaceRoot: string | undefined,
+): string {
+  return relativeWithinWorkspace(path, workspaceRoot) ?? path
+}
+
+const WORKSPACE_ROOT_PLACEHOLDER = '$WORKSPACE_ROOT'
+
+interface ParsedPathPackageId {
+  prefix: string
+  rawUrl: string
+  suffix: string
+}
+
+// Parses Cargo path package IDs in both formats emitted by `cargo metadata`:
+// - current (`PkgIdSpec`): `path+file:///ws/crate#name@1.0.0`
+// - legacy (`Display`):    `name 1.0.0 (path+file:///ws/crate)`
+function parsePathPackageId(id: string): ParsedPathPackageId | undefined {
+  if (id.startsWith('path+')) {
+    const rawUrl = id.slice('path+'.length)
+    return rawUrl.length > 0 && !rawUrl.includes(' ')
+      ? { prefix: 'path+', rawUrl, suffix: '' }
+      : undefined
+  }
+  if (!id.endsWith(')')) {
+    return undefined
+  }
+  const firstSpace = id.indexOf(' ')
+  if (firstSpace <= 0) {
+    return undefined
+  }
+  const secondSpace = id.indexOf(' ', firstSpace + 1)
+  if (secondSpace <= firstSpace + 1) {
+    return undefined
+  }
+  const sourcePrefix = ' (path+'
+  if (!id.startsWith(sourcePrefix, secondSpace)) {
+    return undefined
+  }
+  const urlStart = secondSpace + sourcePrefix.length
+  const rawUrl = id.slice(urlStart, -1)
+  if (rawUrl.length === 0 || rawUrl.includes(' ')) {
+    return undefined
+  }
+  return {
+    prefix: id.slice(0, urlStart),
+    rawUrl,
+    suffix: ')',
+  }
+}
+
+export function normalizeWorkspacePackageId(
+  id: string,
+  workspaceRoot: string | undefined,
+): string {
+  if (!workspaceRoot) {
+    return id
+  }
+  const parsed = parsePathPackageId(id)
+  if (!parsed) {
+    return id
+  }
+  let url: URL
+  try {
+    url = new URL(parsed.rawUrl)
+  } catch {
+    return id
+  }
+  if (url.protocol !== 'file:') {
+    return id
+  }
+  const fileUrl = new URL(url.href)
+  fileUrl.search = ''
+  fileUrl.hash = ''
+  let packagePath: string
+  try {
+    packagePath = fileURLToPath(fileUrl)
+  } catch {
+    return id
+  }
+  const relativePath = relativeWithinWorkspace(packagePath, workspaceRoot)
+  if (relativePath === undefined) {
+    return id
+  }
+  const encodedSubpath =
+    relativePath === '.'
+      ? ''
+      : `/${relativePath.split('/').map(encodeURIComponent).join('/')}`
+  const normalizedHash =
+    parsed.prefix === 'path+' &&
+    url.hash.startsWith('#') &&
+    url.hash.length > 1 &&
+    !url.hash.includes('@')
+      ? `#${encodeURIComponent(basename(packagePath))}@${url.hash.slice(1)}`
+      : url.hash
+  return `${parsed.prefix}file://${WORKSPACE_ROOT_PLACEHOLDER}${encodedSubpath}${url.search}${normalizedHash}${parsed.suffix}`
+}
+
 export function getCargoDependencyGraphFingerprint(
   metadata: CargoWorkspaceMetadata,
   rootPackageId: string,
 ): string {
+  const normalizeId = (id: string) =>
+    normalizeWorkspacePackageId(id, metadata.workspace_root)
   const packages = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]))
   const nodes = new Map(
     (metadata.resolve?.nodes ?? []).map((node) => [node.id, node]),
@@ -289,26 +560,28 @@ export function getCargoDependencyGraphFingerprint(
     const dependencies = (node?.deps ?? [])
       .map((dependency) => ({
         name: dependency.name,
-        pkg: dependency.pkg,
+        pkg: normalizeId(dependency.pkg),
         kinds: dependency.dep_kinds
           .map(({ kind, target }) => ({ kind, target }))
           .sort(
             (left, right) =>
-              (left.kind ?? '').localeCompare(right.kind ?? '') ||
-              (left.target ?? '').localeCompare(right.target ?? ''),
+              compareCodeUnits(left.kind ?? '', right.kind ?? '') ||
+              compareCodeUnits(left.target ?? '', right.target ?? ''),
           ),
       }))
       .sort((left, right) =>
-        JSON.stringify(left).localeCompare(JSON.stringify(right)),
+        compareCodeUnits(JSON.stringify(left), JSON.stringify(right)),
       )
-    for (const dependency of dependencies) {
+    for (const dependency of node?.deps ?? []) {
       pending.push(dependency.pkg)
     }
 
     graph.push({
-      id,
-      manifestPath: pkg?.manifest_path,
-      resolvedFeatures: [...(node?.features ?? [])].sort(),
+      id: normalizeId(id),
+      manifestPath:
+        pkg?.manifest_path &&
+        toWorkspaceRelativePath(pkg.manifest_path, metadata.workspace_root),
+      resolvedFeatures: [...(node?.features ?? [])].sort(compareCodeUnits),
       dependencies,
       declaredDependencies: (pkg?.dependencies ?? [])
         .map((dependency) => ({
@@ -319,20 +592,23 @@ export function getCargoDependencyGraphFingerprint(
           rename: dependency.rename,
           optional: dependency.optional,
           usesDefaultFeatures: dependency.uses_default_features,
-          features: [...dependency.features].sort(),
+          features: [...dependency.features].sort(compareCodeUnits),
           target: dependency.target,
           registry: dependency.registry,
         }))
         .sort((left, right) =>
-          JSON.stringify(left).localeCompare(JSON.stringify(right)),
+          compareCodeUnits(JSON.stringify(left), JSON.stringify(right)),
         ),
       declaredFeatures: Object.entries(pkg?.features ?? {})
-        .map(([name, features]) => [name, [...features].sort()] as const)
-        .sort(([left], [right]) => left.localeCompare(right)),
+        .map(
+          ([name, features]) =>
+            [name, [...features].sort(compareCodeUnits)] as const,
+        )
+        .sort(([left], [right]) => compareCodeUnits(left, right)),
     })
   }
 
-  graph.sort((left, right) => left.id.localeCompare(right.id))
+  graph.sort((left, right) => compareCodeUnits(left.id, right.id))
   return createHash('sha256').update(JSON.stringify(graph)).digest('hex')
 }
 
@@ -340,6 +616,7 @@ export function getTypeDefCacheFolder(options: {
   targetDir: string
   crateName: string
   manifestPath: string
+  workspaceRoot?: string
   targetTriple: string
   profile: string
   features?: string[]
@@ -357,20 +634,26 @@ export function getTypeDefCacheFolder(options: {
         feature.split(/[,\s]+/).filter(Boolean),
       ),
     ),
-  ].sort()
+  ].sort(compareCodeUnits)
   const rustFlags = Object.entries(options.rustFlags ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-  const cargoConfig = [...(options.cargoConfig ?? [])].sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+  const cargoConfig = (options.cargoConfig ?? [])
+    .map(
+      ([path, hash]) =>
+        [toWorkspaceRelativePath(path, options.workspaceRoot), hash] as const,
+    )
+    .sort(([left], [right]) => compareCodeUnits(left, right))
   const cargoProfileEnv = Object.entries(options.cargoProfileEnv ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareCodeUnits(left, right))
   const identity = JSON.stringify({
-    version: 4,
+    version: 6,
     cliVersion: CLI_VERSION,
-    manifestPath: options.manifestPath,
+    manifestPath: toWorkspaceRelativePath(
+      options.manifestPath,
+      options.workspaceRoot,
+    ),
     cargoDependencyGraph: options.cargoDependencyGraph,
     targetTriple: options.targetTriple,
     profile: options.profile,
@@ -390,6 +673,186 @@ export function getTypeDefCacheFolder(options: {
     .substring(0, 16)
 
   return join(options.targetDir, 'napi-rs', `${options.crateName}-${hash}`)
+}
+
+function forceBuildEnvKey(crateName: string): string {
+  return `NAPI_FORCE_BUILD_${crateName.replace(/-/g, '_').toUpperCase()}`
+}
+
+async function readForceBuildTokens(typeDefTmpFolder: string): Promise<{
+  tokens: Record<string, string>
+  fileExists: boolean
+  corrupt: boolean
+}> {
+  const tokenPath = join(typeDefTmpFolder, FORCE_BUILD_TOKENS_FILE)
+  let raw: string
+  try {
+    raw = await readFileAsync(tokenPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { tokens: {}, fileExists: false, corrupt: false }
+    }
+    debug.warn(`Failed to read ${tokenPath}: ${(error as Error).message}`)
+    return { tokens: {}, fileExists: true, corrupt: true }
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return { tokens: {}, fileExists: true, corrupt: true }
+    }
+    const tokens: Record<string, string> = {}
+    let corrupt = false
+    for (const [key, value] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (typeof value === 'string' && value.length > 0) {
+        tokens[key] = value
+      } else {
+        corrupt = true
+      }
+    }
+    return { tokens, fileExists: true, corrupt }
+  } catch (error) {
+    debug.warn(`Failed to parse ${tokenPath}: ${(error as Error).message}`)
+    return { tokens: {}, fileExists: true, corrupt: true }
+  }
+}
+
+async function readInvalidatedTypeDefCrates(typeDefTmpFolder: string): Promise<{
+  crates: Set<string>
+  invalidateAll: boolean
+  fileExists: boolean
+}> {
+  const invalidatedPath = join(typeDefTmpFolder, FORCE_BUILD_INVALIDATED_FILE)
+  let raw: string
+  try {
+    raw = await readFileAsync(invalidatedPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { crates: new Set(), invalidateAll: false, fileExists: false }
+    }
+    debug.warn(`Failed to read ${invalidatedPath}: ${(error as Error).message}`)
+    return { crates: new Set(), invalidateAll: true, fileExists: true }
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      !Array.isArray(parsed) ||
+      parsed.some((entry) => typeof entry !== 'string' || entry.length === 0)
+    ) {
+      return { crates: new Set(), invalidateAll: true, fileExists: true }
+    }
+    return {
+      crates: new Set(parsed as string[]),
+      invalidateAll: false,
+      fileExists: true,
+    }
+  } catch (error) {
+    debug.warn(
+      `Failed to parse ${invalidatedPath}: ${(error as Error).message}`,
+    )
+    return { crates: new Set(), invalidateAll: true, fileExists: true }
+  }
+}
+
+async function recordInvalidatedTypeDefCrates(
+  typeDefTmpFolder: string,
+  crateNames: Iterable<string>,
+): Promise<void> {
+  const newNames = [...crateNames]
+  if (newNames.length === 0) {
+    return
+  }
+  const existing = await readInvalidatedTypeDefCrates(typeDefTmpFolder)
+  if (existing.invalidateAll) {
+    // Keep existing corrupt marker as-is; next build will force-rebuild all crates.
+    return
+  }
+  const merged = new Set([...existing.crates, ...newNames])
+  const ordered = [...merged].sort(compareCodeUnits)
+  await writeFileAtomic(
+    join(typeDefTmpFolder, FORCE_BUILD_INVALIDATED_FILE),
+    `${JSON.stringify(ordered, null, 2)}\n`,
+    'utf8',
+  )
+}
+
+export async function snapshotTypeDefFolder(
+  folder: string,
+): Promise<Map<string, Buffer>> {
+  const snapshot = new Map<string, Buffer>()
+  const entries = await readdirAsync(folder, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith('.')) {
+      continue
+    }
+    snapshot.set(entry.name, await readFileAsync(join(folder, entry.name)))
+  }
+  return snapshot
+}
+
+export async function restoreTypeDefFolder(
+  folder: string,
+  snapshot: Map<string, Buffer>,
+  extraInvalidatedCrates: Iterable<string> = [],
+  recordInvalidated: (
+    typeDefTmpFolder: string,
+    crateNames: Iterable<string>,
+  ) => Promise<void> = recordInvalidatedTypeDefCrates,
+): Promise<string[]> {
+  const currentEntries = await readdirAsync(folder, { withFileTypes: true })
+  const currentFiles = new Set<string>()
+  const untrackedToRemove: string[] = []
+  for (const entry of currentEntries) {
+    if (!entry.isFile() || entry.name.startsWith('.')) {
+      continue
+    }
+    currentFiles.add(entry.name)
+    if (!snapshot.has(entry.name)) {
+      untrackedToRemove.push(entry.name)
+    }
+  }
+
+  const toRestore: Array<[name: string, originalContent: Buffer]> = []
+  for (const [name, originalContent] of snapshot) {
+    const filePath = join(folder, name)
+    if (currentFiles.has(name)) {
+      const currentContent = await readFileAsync(filePath)
+      if (currentContent.equals(originalContent)) {
+        continue
+      }
+    }
+    toRestore.push([name, originalContent])
+  }
+
+  // Persist invalidation BEFORE restoring any snapshot file so an I/O error or
+  // crash between writes can never leave old declarations paired with a newer
+  // Cargo fingerprint without the invalidation marker already on disk.
+  const cratesToInvalidate = new Set<string>([
+    ...toRestore.map(([name]) => name),
+    ...extraInvalidatedCrates,
+  ])
+  if (cratesToInvalidate.size > 0) {
+    await recordInvalidated(folder, cratesToInvalidate)
+  }
+
+  for (const name of untrackedToRemove) {
+    try {
+      await unlinkAsync(join(folder, name))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+    }
+  }
+  for (const [name, originalContent] of toRestore) {
+    await writeFileAtomic(join(folder, name), originalContent)
+  }
+  return toRestore.map(([name]) => name)
 }
 
 /**
@@ -1152,19 +1615,34 @@ export async function buildProject(rawOptions: BuildOptions) {
   // toolchain downloads, ...), so the user always gets the validation error
   // rather than an unrelated failure from those steps.
   validateCrossCompileFlags(options)
+  let requestedTarget: Target | undefined
   if (options.useNapiCross) {
     // Check the host constraint before resolving the target: without an
     // explicit `--target` (or `CARGO_BUILD_TARGET`) the target resolution
     // spawns `rustc -vV`, and on an unsupported host without Rust on the
     // `PATH` that spawn failure would mask the actual validation error.
     validateNapiCrossHost()
-    validateNapiCrossSupport(resolveTarget(options.target).triple)
+    requestedTarget = resolveTarget(options.target)
+    validateNapiCrossSupport(requestedTarget.triple)
   }
 
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
-  const metadataTarget = options.target ?? process.env.CARGO_BUILD_TARGET
+  if (!existsSync(manifestPath)) {
+    throw new Error(`No crate found in manifest: ${manifestPath}`)
+  }
+  requestedTarget ??= resolveTarget(options.target)
+  // `parseTriple` canonicalizes legacy spellings (e.g. `wasm32-wasi` ->
+  // `wasm32-wasip1-threads`) the same way the build's own target resolution
+  // does. `--cross-compile` routes non-Windows targets through
+  // `cargo zigbuild`, which hands Cargo only the part before the first dot of
+  // `--target`; filter the resolve for that same spelling. Every other build
+  // mode gives Cargo the requested target verbatim.
+  const cargoTriple =
+    options.crossCompile && requestedTarget.platform !== 'win32'
+      ? cargoTargetTriple(requestedTarget.triple)
+      : requestedTarget.triple
   const metadata = await parseMetadata(manifestPath, {
     cwd: options.cwd,
     featurePackage: options.package,
@@ -1172,17 +1650,7 @@ export async function buildProject(rawOptions: BuildOptions) {
     allFeatures: options.allFeatures,
     noDefaultFeatures: options.noDefaultFeatures,
     cargoOptions: options.cargoOptions,
-    // `parseTriple` canonicalizes legacy spellings (e.g. `wasm32-wasi` ->
-    // `wasm32-wasip1-threads`) the same way the build's own target
-    // resolution does. `--cross-compile` runs `cargo zigbuild`, which hands
-    // Cargo only the part before the first dot of `--target`; filter the
-    // resolve for that same spelling. Other build modes give Cargo the
-    // requested target verbatim.
-    filterPlatform:
-      metadataTarget &&
-      (options.crossCompile
-        ? cargoTargetTriple(parseTriple(metadataTarget).triple)
-        : parseTriple(metadataTarget).triple),
+    filterPlatform: cargoTriple,
   })
 
   const crate = metadata.packages.find((p) => {
@@ -1204,7 +1672,7 @@ export async function buildProject(rawOptions: BuildOptions) {
     options.configPath ? resolvePath(options.configPath) : undefined,
   )
 
-  const builder = new Builder(metadata, crate, config, options)
+  const builder = new Builder(metadata, crate, config, options, requestedTarget)
 
   return builder.build()
 }
@@ -1677,8 +2145,10 @@ class Builder {
   private outputDir: string
   private readonly reconciliationRoot: string
   private readonly targetDir: string
+  private readonly napiDeriveDependentCrates: Crate[]
   private readonly enableTypeDef: boolean = false
   private readonly stagedOutputDestinations = new Map<string, string>()
+  private ephemeralTypeDefFolder: string | undefined
   private typeDefWithTypeImports: string | undefined
   /**
    * The `.d.ts` header this build rendered, so `writeWasiBindingForTarget` can
@@ -1692,8 +2162,9 @@ class Builder {
     private readonly crate: Crate,
     private readonly config: NapiConfig,
     private readonly options: ParsedBuildOptions,
+    requestedTarget?: Target,
   ) {
-    const requested = resolveTarget(options.target)
+    const requested = requestedTarget ?? resolveTarget(options.target)
     // `cargo zigbuild` is only the `-x` route for non-Windows targets —
     // win32 ones go to `cargo xwin` (or plain `cargo build` on a Windows
     // host), which forward `--target` verbatim — so only the zigbuild route
@@ -1720,17 +2191,26 @@ class Builder {
       this.options.cwd,
       this.options.packageJsonPath,
     )
-    this.targetDir =
-      options.targetDir ??
-      process.env.CARGO_BUILD_TARGET_DIR ??
-      metadata.target_directory
-    this.enableTypeDef = this.crate.dependencies.some(
-      (dep) =>
-        dep.name === 'napi-derive' &&
-        (dep.uses_default_features || dep.features.includes('type-def')),
+    this.targetDir = resolveCargoTargetDir({
+      targetDir: options.targetDir,
+      cargoOptions: options.cargoOptions,
+      cwd: this.options.cwd,
+      metadataTargetDirectory: metadata.target_directory,
+    })
+    this.napiDeriveDependentCrates = getNapiDeriveDependentCrates(
+      metadata,
+      crate.id,
+      collectFeatureSelection({
+        features: options.features,
+        allFeatures: options.allFeatures,
+        noDefaultFeatures: options.noDefaultFeatures,
+        cargoOptions: options.cargoOptions,
+      }),
     )
+    this.enableTypeDef =
+      Boolean(this.cdyLibName) && this.napiDeriveDependentCrates.length > 0
 
-    if (!this.enableTypeDef) {
+    if (Boolean(this.cdyLibName) && !this.enableTypeDef) {
       const requirementWarning =
         '`napi-derive` crate is not used or `type-def` feature is not enabled for `napi-derive` crate'
       debug.warn(
@@ -1792,13 +2272,18 @@ class Builder {
       }
     }
 
-    this.pickBinary()
-      .setPackage()
-      .setFeatures()
-      .setTarget()
-      .pickCrossToolchain()
-    await this.setEnvs()
-    return this.setBypassArgs().exec()
+    try {
+      this.pickBinary()
+        .setPackage()
+        .setFeatures()
+        .setTarget()
+        .pickCrossToolchain()
+      await this.setEnvs()
+      return this.setBypassArgs().exec()
+    } catch (error) {
+      await this.cleanupEphemeralTypeDefFolder()
+      throw error
+    }
   }
 
   private pickCrossToolchain() {
@@ -1853,54 +2338,246 @@ class Builder {
     const controller = new AbortController()
 
     const watch = this.options.watch
-    const buildTask = new Promise<void>((resolve, reject) => {
-      const cargoOverride = process.env.CARGO
-      if (
-        cargoOverride &&
-        (this.options.useCross || this.options.crossCompile)
-      ) {
-        const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
-        const requestedFlag = this.options.useCross
-          ? '`--use-cross`'
-          : '`--cross-compile` (`-x`)'
-        debug.warn(
-          `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
+    const watchPostBuilds = new Set<Promise<unknown>>()
+    const runCargo = (extraEnvs?: Record<string, string>) =>
+      new Promise<void>((resolve, reject) => {
+        const cargoOverride = process.env.CARGO
+        if (
+          cargoOverride &&
+          (this.options.useCross || this.options.crossCompile)
+        ) {
+          const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
+          const requestedFlag = this.options.useCross
+            ? '`--use-cross`'
+            : '`--cross-compile` (`-x`)'
+          debug.warn(
+            `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
+          )
+        }
+        if (controller.signal.aborted) {
+          reject(
+            new Error('Build failed with error: The operation was aborted', {
+              cause: controller.signal.reason,
+            }),
+          )
+          return
+        }
+        const command =
+          cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
+        const spawnEnv: NodeJS.ProcessEnv = {
+          ...process.env,
+          ...this.envs,
+          ...extraEnvs,
+        }
+        if (!this.enableTypeDef) {
+          // Do not let an inherited parent-shell `NAPI_TYPE_DEF_TMP_FOLDER`
+          // cause linked library crates to emit into an unrelated folder on
+          // `--bin` or type-def-disabled builds.
+          delete spawnEnv.NAPI_TYPE_DEF_TMP_FOLDER
+        }
+        const buildProcess = spawn(command, this.args, {
+          env: spawnEnv,
+          stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
+          cwd: this.options.cwd,
+          signal: controller.signal,
+        })
+
+        let processError: Error | undefined
+        buildProcess.once('close', (code) => {
+          if (processError) {
+            reject(
+              new Error(`Build failed with error: ${processError.message}`, {
+                cause: processError,
+              }),
+            )
+            return
+          }
+          if (code === 0) {
+            debug('%i', `Build crate ${this.crate.name} successfully!`)
+            resolve()
+          } else {
+            reject(new Error(`Build failed with exit code ${code}`))
+          }
+        })
+
+        buildProcess.once('error', (e) => {
+          // On abort, Node emits `AbortError` immediately after signalling the
+          // child — before Cargo (and its rustc subprocesses) has actually
+          // exited. Defer rejecting until `close` so locks stay held and
+          // rollback/cleanup never race with a dying writer.
+          if (
+            buildProcess.pid !== undefined &&
+            buildProcess.exitCode === null &&
+            buildProcess.signalCode === null
+          ) {
+            processError = e
+            return
+          }
+          reject(
+            new Error(`Build failed with error: ${e.message}`, { cause: e }),
+          )
+        })
+
+        // watch mode only, they are piped through stderr
+        buildProcess.stderr?.on('data', (data) => {
+          const output = data.toString()
+          console.error(output)
+          if (/Finished\s(`dev`|`release`)/.test(output)) {
+            const postBuildTask = this.postBuild().catch(() => {})
+            watchPostBuilds.add(postBuildTask)
+            void postBuildTask.finally(() => {
+              watchPostBuilds.delete(postBuildTask)
+            })
+          }
+        })
+      })
+
+    // The type-def cache folder is keyed on workspace-relative inputs, so
+    // checkouts of one workspace sharing a CARGO_TARGET_DIR (e.g. git
+    // worktrees) share it, along with Cargo's artifacts. Cargo's own lock
+    // ends when Cargo exits, and the post-build lock is per package
+    // directory, so without this another checkout's build could rewrite the
+    // artifact or the intermediate type defs between this Cargo run and the
+    // post-build that reads them. Hold locks in strict order:
+    //   artifactLockDir -> sharedTypeDefFolder -> Cargo .cargo-lock ->
+    //   reconciliationRoot -> transactionRoot
+    // `abort()` while waiting stops the wait, releases any lock taken so far
+    // and rejects without running Cargo; once the build has started, an abort
+    // is reported as it was without the lock (Cargo is killed, a finished
+    // post-build still publishes).
+    // Watch mode re-runs post-build for the whole session, so it keeps the
+    // post-build lock only and uses a per-checkout folder instead; a
+    // `--no-dts-cache` folder is unique to this build and needs no typedef
+    // folder lock (though it still serializes on `artifactLockDir`).
+    const [srcName] = this.getArtifactNames()
+    const artifactLockDir =
+      !watch && srcName
+        ? getArtifactLockDir({
+            targetDir: this.targetDir,
+            cargoTriple: this.cargoTriple,
+            profile: this.getArtifactProfile(),
+            srcName,
+          })
+        : undefined
+    const sharedTypeDefFolder =
+      !watch && this.enableTypeDef && Boolean(this.options.dtsCache)
+        ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
+        : undefined
+    const lockPaths = [artifactLockDir, sharedTypeDefFolder].filter(
+      (path): path is string => path !== undefined,
+    )
+
+    const runBuild = async () => {
+      const typeDefTmpFolder = this.enableTypeDef
+        ? this.envs.NAPI_TYPE_DEF_TMP_FOLDER
+        : undefined
+      const forceBuild = typeDefTmpFolder
+        ? await this.prepareForceBuildEnvs(
+            typeDefTmpFolder,
+            Boolean(this.options.dtsCache),
+          )
+        : undefined
+      if (forceBuild && Object.keys(forceBuild.envs).length > 0) {
+        debug('Set force-build envs: ')
+        Object.entries(forceBuild.envs).forEach(([k, v]) => {
+          debug('  %i', `${k}=${v}`)
+        })
+      }
+
+      const snapshot = sharedTypeDefFolder
+        ? await snapshotTypeDefFolder(sharedTypeDefFolder)
+        : undefined
+
+      try {
+        if (sharedTypeDefFolder && forceBuild?.invalidatedCrateNames.length) {
+          // Remove restored files for invalidated crates before invoking Cargo
+          // so that if an invalidated crate now expands zero `#[napi]` items,
+          // finalization creates an empty marker instead of keeping stale
+          // restored declarations. (Snapshot still holds them for rollback.)
+          for (const crateName of forceBuild.invalidatedCrateNames) {
+            await this.unlinkIfExists(join(sharedTypeDefFolder, crateName))
+          }
+        }
+        await runCargo(forceBuild?.envs)
+      } catch (error) {
+        if (sharedTypeDefFolder && snapshot) {
+          try {
+            // On abort, a `$CARGO` wrapper or Windows `TerminateProcess` may
+            // leave a dying compiler child still writing briefly after `close`;
+            // invalidate all expected crates ahead of rollback so the next
+            // build always rotates tokens and regenerates fresh declarations.
+            const extraInvalidated = controller.signal.aborted
+              ? this.napiDeriveDependentCrates.map((crate) => crate.name)
+              : []
+            await restoreTypeDefFolder(
+              sharedTypeDefFolder,
+              snapshot,
+              extraInvalidated,
+            )
+          } catch (restoreError) {
+            debug.warn(
+              `Failed to restore type-def cache folder ${sharedTypeDefFolder}: ${(restoreError as Error).message}`,
+            )
+          }
+        }
+        throw error
+      }
+
+      if (sharedTypeDefFolder) {
+        await this.finalizeCachedTypeDefFolder(
+          sharedTypeDefFolder,
+          snapshot,
+          forceBuild?.nextTokens ?? {},
+          forceBuild?.shouldPersistTokens ?? false,
+          forceBuild?.invalidatedFileExists ?? false,
         )
       }
-      const command =
-        cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
-      const buildProcess = spawn(command, this.args, {
-        env: { ...process.env, ...this.envs },
-        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
-        cwd: this.options.cwd,
-        signal: controller.signal,
-      })
 
-      buildProcess.once('exit', (code) => {
-        if (code === 0) {
-          debug('%i', `Build crate ${this.crate.name} successfully!`)
-          resolve()
-        } else {
-          reject(new Error(`Build failed with exit code ${code}`))
-        }
-      })
+      return this.postBuild()
+    }
 
-      buildProcess.once('error', (e) => {
-        reject(new Error(`Build failed with error: ${e.message}`, { cause: e }))
-      })
+    let buildStarted = false
+    const lockOptions = {
+      lockAcquisitionTimeout: Number.POSITIVE_INFINITY,
+      signal: controller.signal,
+    }
+    const acquireLocks = async (index: number): Promise<Output[]> => {
+      if (index === lockPaths.length) {
+        buildStarted = true
+        return runBuild()
+      }
+      const lockPath = lockPaths[index]
+      if (lockPath === artifactLockDir) {
+        controller.signal.throwIfAborted()
+        await mkdirAsync(artifactLockDir, { recursive: true })
+      }
+      return withFileSystemReconciliation(
+        lockPath,
+        () => acquireLocks(index + 1),
+        lockOptions,
+      )
+    }
 
-      // watch mode only, they are piped through stderr
-      buildProcess.stderr?.on('data', (data) => {
-        const output = data.toString()
-        console.error(output)
-        if (/Finished\s(`dev`|`release`)/.test(output)) {
-          this.postBuild().catch(() => {})
-        }
-      })
+    const task = (
+      lockPaths.length > 0
+        ? acquireLocks(0).catch((error: unknown) => {
+            if (!buildStarted && controller.signal.aborted) {
+              throw new Error('Build aborted', {
+                cause: error,
+              })
+            }
+            throw error
+          })
+        : runBuild()
+    ).finally(async () => {
+      while (watchPostBuilds.size > 0) {
+        await Promise.allSettled(watchPostBuilds)
+      }
+      await this.cleanupEphemeralTypeDefFolder()
     })
 
     return {
-      task: buildTask.then(() => this.postBuild()),
+      task,
       abort: () => controller.abort(),
     }
   }
@@ -2130,7 +2807,6 @@ class Builder {
     if (this.enableTypeDef) {
       this.envs.NAPI_TYPE_DEF_TMP_FOLDER =
         await this.generateIntermediateTypeDefFolder(rustflags)
-      this.setForceBuildEnvs(this.envs.NAPI_TYPE_DEF_TMP_FOLDER)
     }
 
     if (rustflags.length) {
@@ -2171,14 +2847,187 @@ class Builder {
     return this
   }
 
-  private setForceBuildEnvs(typeDefTmpFolder: string) {
-    // dynamically check all napi-rs deps and set `NAPI_FORCE_BUILD_{uppercase(snake_case(name))} = timestamp`
-    getNapiDeriveDependentCrates(this.metadata).forEach((crate) => {
-      if (!existsSync(join(typeDefTmpFolder, crate.name))) {
-        this.envs[
-          `NAPI_FORCE_BUILD_${crate.name.replace(/-/g, '_').toUpperCase()}`
-        ] = Date.now().toString()
+  private getArtifactProfile() {
+    return this.options.profile ?? (this.options.release ? 'release' : 'debug')
+  }
+
+  private async prepareForceBuildEnvs(
+    typeDefTmpFolder: string,
+    useDtsCache: boolean,
+  ): Promise<{
+    envs: Record<string, string>
+    nextTokens: Record<string, string>
+    shouldPersistTokens: boolean
+    invalidatedFileExists: boolean
+    invalidatedCrateNames: string[]
+  }> {
+    const {
+      tokens: existingTokens,
+      fileExists: tokenFileExists,
+      corrupt,
+    } = useDtsCache
+      ? await readForceBuildTokens(typeDefTmpFolder)
+      : { tokens: {}, fileExists: false, corrupt: false }
+    const {
+      crates: invalidatedCrates,
+      invalidateAll,
+      fileExists: invalidatedFileExists,
+    } = useDtsCache
+      ? await readInvalidatedTypeDefCrates(typeDefTmpFolder)
+      : { crates: new Set<string>(), invalidateAll: false, fileExists: false }
+    const observedExtraCrates = useDtsCache
+      ? await readObservedEmittedCrates(typeDefTmpFolder)
+      : new Set<string>()
+
+    const trackedCrateNames = new Set<string>(
+      this.napiDeriveDependentCrates.map((crate) => crate.name),
+    )
+    for (const crateName of observedExtraCrates) {
+      trackedCrateNames.add(crateName)
+    }
+
+    const envs: Record<string, string> = {}
+    const nextTokens: Record<string, string> = {}
+    const invalidatedCrateNames: string[] = []
+
+    for (const crateName of trackedCrateNames) {
+      const envKey = forceBuildEnvKey(crateName)
+      const typeDefFileExists = await fileExists(
+        join(typeDefTmpFolder, crateName),
+      )
+      const storedToken = existingTokens[crateName]
+      const isInvalidated = invalidateAll || invalidatedCrates.has(crateName)
+      if (isInvalidated) {
+        invalidatedCrateNames.push(crateName)
       }
+
+      if (!typeDefFileExists || isInvalidated) {
+        let token = randomUUID()
+        while (token === storedToken || token === process.env[envKey]) {
+          token = randomUUID()
+        }
+        envs[envKey] = token
+        nextTokens[crateName] = token
+      } else if (process.env[envKey] !== undefined) {
+        if (storedToken !== undefined) {
+          nextTokens[crateName] = storedToken
+        }
+      } else if (storedToken !== undefined) {
+        envs[envKey] = storedToken
+        nextTokens[crateName] = storedToken
+      }
+    }
+
+    const existingKeys = Object.keys(existingTokens)
+    const nextKeys = Object.keys(nextTokens)
+    const tokensChanged =
+      corrupt ||
+      existingKeys.length !== nextKeys.length ||
+      nextKeys.some((key) => existingTokens[key] !== nextTokens[key])
+    const shouldPersistTokens =
+      useDtsCache && tokensChanged && (nextKeys.length > 0 || tokenFileExists)
+
+    return {
+      envs,
+      nextTokens,
+      shouldPersistTokens,
+      invalidatedFileExists,
+      invalidatedCrateNames,
+    }
+  }
+
+  private async finalizeCachedTypeDefFolder(
+    typeDefTmpFolder: string,
+    snapshot: Map<string, Buffer> | undefined,
+    nextTokens: Record<string, string>,
+    shouldPersistTokens: boolean,
+    invalidatedFileExists: boolean,
+  ) {
+    const expectedCrateNames = new Set(
+      this.napiDeriveDependentCrates.map((crate) => crate.name),
+    )
+    const observedExtraCrates =
+      await readObservedEmittedCrates(typeDefTmpFolder)
+    let observedChanged = false
+    const entries = await readdirAsync(typeDefTmpFolder, {
+      withFileTypes: true,
+    })
+    const existingFiles = new Set<string>()
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.name.startsWith('.')) {
+        continue
+      }
+      if (!expectedCrateNames.has(entry.name)) {
+        // Never prune a file freshly emitted by Cargo or previously observed as
+        // emitted into this cache folder, so warm builds preserve declarations
+        // from crates not predicted statically while genuinely stale files are
+        // still removed.
+        const filePath = join(typeDefTmpFolder, entry.name)
+        const preRunContent = snapshot?.get(entry.name)
+        const emittedThisRun =
+          preRunContent === undefined ||
+          !(await readFileAsync(filePath)).equals(preRunContent)
+        if (emittedThisRun || observedExtraCrates.has(entry.name)) {
+          if (!observedExtraCrates.has(entry.name)) {
+            observedExtraCrates.add(entry.name)
+            observedChanged = true
+          }
+          existingFiles.add(entry.name)
+          continue
+        }
+        await this.unlinkIfExists(filePath)
+      } else {
+        existingFiles.add(entry.name)
+      }
+    }
+
+    for (const crateName of new Set([
+      ...expectedCrateNames,
+      ...observedExtraCrates,
+    ])) {
+      if (!existingFiles.has(crateName)) {
+        await writeFileAtomic(join(typeDefTmpFolder, crateName), '', 'utf8')
+      }
+    }
+
+    if (observedChanged) {
+      await writeFileAtomic(
+        join(typeDefTmpFolder, OBSERVED_EMITTED_CRATES_FILE),
+        `${JSON.stringify([...observedExtraCrates].sort(compareCodeUnits), null, 2)}\n`,
+        'utf8',
+      )
+    }
+
+    if (shouldPersistTokens) {
+      const orderedTokens = Object.fromEntries(
+        Object.entries(nextTokens).sort(([left], [right]) =>
+          compareCodeUnits(left, right),
+        ),
+      )
+      await writeFileAtomic(
+        join(typeDefTmpFolder, FORCE_BUILD_TOKENS_FILE),
+        `${JSON.stringify(orderedTokens, null, 2)}\n`,
+        'utf8',
+      )
+    }
+
+    if (invalidatedFileExists) {
+      await this.unlinkIfExists(
+        join(typeDefTmpFolder, FORCE_BUILD_INVALIDATED_FILE),
+      )
+    }
+  }
+
+  private async cleanupEphemeralTypeDefFolder() {
+    const dir = this.ephemeralTypeDefFolder
+    if (!dir) {
+      return
+    }
+    this.ephemeralTypeDefFolder = undefined
+    await rm(dir, { force: true, recursive: true }).catch((error) => {
+      debug.warn(
+        `Failed to remove ephemeral type-def folder ${dir}: ${(error as Error).message}`,
+      )
     })
   }
 
@@ -2434,6 +3283,12 @@ class Builder {
       targetDir: this.targetDir,
       crateName: this.crate.name,
       manifestPath: this.crate.manifest_path,
+      // Watch mode keeps writing intermediate type defs for the whole session
+      // without holding the shared-folder lock (see `exec()`), so it keeps a
+      // folder of its own per checkout instead of sharing one across them.
+      workspaceRoot: this.options.watch
+        ? undefined
+        : this.metadata.workspace_root,
       targetTriple: this.cargoTriple,
       profile:
         this.options.profile ?? (this.options.release ? 'release' : 'dev'),
@@ -2462,6 +3317,7 @@ class Builder {
     if (!this.options.dtsCache) {
       await mkdirAsync(dirname(folder), { recursive: true })
       folder = await mkdtempAsync(`${folder}-`)
+      this.ephemeralTypeDefFolder = folder
     } else {
       await mkdirAsync(folder, { recursive: true })
     }
@@ -2473,7 +3329,7 @@ class Builder {
     const configPaths = new Set<string>()
     const addConfigIfPresent = (path: string) => {
       if (existsSync(path) && statSync(path).isFile()) {
-        configPaths.add(path)
+        configPaths.add(canonicalizeNearestExistingPrefix(path))
       }
     }
     const addConfigDirectory = (directory: string) => {
@@ -2481,7 +3337,7 @@ class Builder {
       addConfigIfPresent(join(directory, 'config'))
     }
 
-    let currentDirectory = resolve(this.options.cwd)
+    let currentDirectory = canonicalizeNearestExistingPrefix(this.options.cwd)
     while (true) {
       addConfigDirectory(join(currentDirectory, '.cargo'))
       const parentDirectory = dirname(currentDirectory)
@@ -2500,6 +3356,9 @@ class Builder {
     const cargoOptions = this.options.cargoOptions ?? []
     for (let index = 0; index < cargoOptions.length; index++) {
       const option = cargoOptions[index]
+      if (option === '--') {
+        break
+      }
       if (option === '--config') {
         const value = cargoOptions[index + 1]
         if (value) {
@@ -2514,7 +3373,7 @@ class Builder {
     }
 
     return [...configPaths]
-      .sort()
+      .sort(compareCodeUnits)
       .map((path) => [
         path,
         createHash('sha256').update(readFileSync(path)).digest('hex'),
@@ -2626,8 +3485,7 @@ class Builder {
       return
     }
 
-    const profile =
-      this.options.profile ?? (this.options.release ? 'release' : 'debug')
+    const profile = this.getArtifactProfile()
     // Under `cargo zigbuild` the artifact lives under the part of
     // `--target` before the first dot (`this.cargoTriple`), since the suffix
     // only pins zig's libc/ABI version.
@@ -3496,15 +4354,14 @@ export async function generateTypeDef(
   }
 
   const files = await readdirAsync(options.typeDefDir, { withFileTypes: true })
+  const typeDefFiles = files
+    .filter((file) => file.isFile() && !file.name.startsWith('.'))
+    .sort((a, b) => compareCodeUnits(a.name, b.name))
 
-  if (!files.length) {
+  if (!typeDefFiles.length) {
     debug('No type def files found. Skip generating dts file.')
     return bindingTargetOnlyTypeDef()
   }
-
-  const typeDefFiles = files
-    .filter((file) => file.isFile())
-    .sort((a, b) => a.name.localeCompare(b.name))
 
   const constEnum = options.constEnum ?? true
   const runtimeStringEnum = options.runtimeStringEnum ?? false
@@ -3520,6 +4377,11 @@ export async function generateTypeDef(
     runtimeStringEnum,
     header,
   )
+
+  if (!processedTypeDefs.dts.trim()) {
+    debug('No type defs emitted. Skip generating dts file.')
+    return bindingTargetOnlyTypeDef()
+  }
 
   dts = processedTypeDefs.dts
   exports = processedTypeDefs.exports

@@ -1,0 +1,20 @@
+error: napi module cannot be nested under another napi module
+ --> tests/build_error_tests/nested_mod.rs:5:3
+  |
+5 | /   #[napi]
+6 | |   mod inner {}
+  | |______________^
+
+error: napi module cannot be nested under another napi module
+  --> tests/build_error_tests/nested_mod.rs:11:3
+   |
+11 | /   #[napi_derive::napi]
+12 | |   mod inner {}
+   | |______________^
+
+error: napi module cannot be nested under another napi module
+  --> tests/build_error_tests/nested_mod.rs:17:3
+   |
+17 | /   #[::napi_derive::napi]
+18 | |   mod inner {}
+   | |______________^

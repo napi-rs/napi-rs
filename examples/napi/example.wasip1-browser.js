@@ -1881,6 +1881,7 @@ export const testLatin1Methods = __napiModule.exports.testLatin1Methods;
 export const testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision;
 export const testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes;
 export const testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip;
+export const testUtf8Methods = __napiModule.exports.testUtf8Methods;
 export const testWorkers = __napiModule.exports.testWorkers;
 export const threadsafeFunctionBuildThrowErrorWithStatus =
   __napiModule.exports.threadsafeFunctionBuildThrowErrorWithStatus;

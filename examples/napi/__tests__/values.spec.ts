@@ -45,6 +45,7 @@ import {
   createStaticLatin1String,
   createStaticUtf16String,
   testLatin1Methods,
+  testUtf8Methods,
   roundtripStr,
   appendToOsString,
   joinPath,
@@ -408,6 +409,46 @@ test('string', (t) => {
   t.is(createStaticLatin1String(), 'Static Latin1 string')
   t.is(createStaticUtf16String(), 'Static UTF16')
   t.is(intoUtf8('Hello'), 'Hello')
+
+  // Edge-case lengths for the `String` / `Utf16String` / `Latin1String`
+  // conversion buffers: empty, one unit, non-BMP and long (> 1 KiB)
+  const suffix = ' + Rust 🦀 string!'
+  const longAscii = 'napi-rs '.repeat(512)
+  const longMixed = 'aé你🌳'.repeat(512)
+  for (const s of ['', 'a', '🌳', longAscii, longMixed]) {
+    t.is(concatStr(s), s + suffix)
+    t.is(concatUtf16(s), s + suffix)
+  }
+  for (const s of ['', 'a', 'ÿ', longAscii, 'æ¶½¾'.repeat(512)]) {
+    t.is(concatLatin1(s), s + suffix)
+  }
+})
+
+test('JsStringUtf8 methods', (t) => {
+  for (const input of [
+    '',
+    'Hello',
+    'JavaScript 🌳 你好 napi',
+    'what up?!\u0000after the NULL',
+  ]) {
+    const bytes = Array.from(Buffer.from(input))
+    t.deepEqual(testUtf8Methods(input), {
+      asStr: input,
+      length: bytes.length,
+      isEmpty: bytes.length === 0,
+      asSlice: bytes,
+      intoOwned: input,
+      take: bytes,
+    })
+  }
+
+  // A lone surrogate has no UTF-8 encoding. V8 writes U+FFFD, emnapi merges it
+  // with the next code unit, so only check that all accessors agree.
+  const lone = testUtf8Methods('a\uD800b')
+  t.is(lone.intoOwned, lone.asStr)
+  t.deepEqual(lone.take, lone.asSlice)
+  t.is(lone.length, lone.asSlice.length)
+  t.is(Buffer.from(lone.asSlice).toString('utf8'), lone.asStr)
 })
 
 test('OsString / OsStr', (t) => {
@@ -2671,6 +2712,22 @@ test('capture ignores a post-load replacement of Reflect', (t) => {
     Object.defineProperty(globalThis, 'Reflect', realDescriptor)
   }
   t.is(described, 'GenericFailure|still read|still walked')
+})
+
+test('capture reads lone surrogates without re-validating UTF-8', (t) => {
+  // `owned_string_without_coercion` trusts `napi_get_value_string_utf8` to write
+  // valid UTF-8 and skips re-validation. Lone surrogates are the input that
+  // would break that trust. V8 replaces each one with U+FFFD. emnapi instead
+  // folds it into the next code unit, so the WASI lane only checks the shape.
+  const fromMessage = describeCapturedValue(new Error('a\uD800b\uDC00'))
+  const fromPrimitive = describeCapturedValue('\uDC00z')
+  if (process.env.WASI_TEST) {
+    t.regex(fromMessage, /^GenericFailure\|a.+\|-$/u)
+    t.regex(fromPrimitive, /^GenericFailure\|.+\|-$/u)
+  } else {
+    t.is(fromMessage, 'GenericFailure|a�b�|-')
+    t.is(fromPrimitive, 'GenericFailure|�z|-')
+  }
 })
 
 Napi4Test(
