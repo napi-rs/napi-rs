@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { PassThrough } from 'node:stream'
-import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
 
@@ -85,36 +84,48 @@ test('attachWatchStderr detects Finished markers split across chunks and line en
 })
 
 test('watch stderr forwarding survives a disconnected stderr reader', async (t) => {
-  const buildModulePath = fileURLToPath(new URL('../build.ts', import.meta.url))
+  const buildModuleUrl = new URL('../build.ts', import.meta.url).href
   const child = spawn(
     process.execPath,
     [
       '--import',
       '@oxc-node/core/register',
+      '--input-type=module',
       '-e',
       `
-const { PassThrough } = require('node:stream')
-const { attachWatchStderr } = require(${JSON.stringify(buildModulePath)})
+import { PassThrough } from 'node:stream'
+import { attachWatchStderr, createWatchStderrWriter } from ${JSON.stringify(buildModuleUrl)}
 const stream = new PassThrough()
+const writer = createWatchStderrWriter()
 let finished = 0
-attachWatchStderr(stream, (line) => console.error(line), () => { finished += 1 })
-setTimeout(() => {
+attachWatchStderr(stream, (line) => writer.writeLine(line), () => { finished += 1 })
+process.stdout.write('READY\\n')
+process.stdin.once('data', () => {
   stream.write(Buffer.from('    Fini'))
   stream.end(Buffer.from('shed \`dev\` profile [unoptimized] in 0.10s\\n'))
-  setTimeout(() => {
-    process.stdout.write(String(finished))
-  }, 50)
-}, 50)
+  stream.once('end', () => {
+    writer.dispose()
+    setTimeout(() => {
+      process.stdout.write(String(finished))
+      process.exit(0)
+    }, 50)
+  })
+})
 `,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    { stdio: ['pipe', 'pipe', 'pipe'] },
   )
 
-  child.stderr.destroy()
   let stdout = ''
+  let ready = false
   child.stdout.setEncoding('utf8')
   child.stdout.on('data', (chunk: string) => {
     stdout += chunk
+    if (!ready && stdout.includes('READY\n')) {
+      ready = true
+      child.stderr.destroy()
+      child.stdin.end('go\n')
+    }
   })
   const exitCode = await new Promise<number | null>((resolve, reject) => {
     child.once('error', reject)
@@ -122,5 +133,5 @@ setTimeout(() => {
   })
 
   t.is(exitCode, 0)
-  t.is(stdout, '1')
+  t.is(stdout, 'READY\n1')
 })

@@ -1692,6 +1692,62 @@ function resolveTarget(targetOption?: string): Target {
 
 const WATCH_BUILD_FINISHED_RE = /Finished\s(`dev`|`release`)/
 
+export function createWatchStderrWriter(
+  target: NodeJS.WritableStream = process.stderr,
+): {
+  writeLine: (line: string) => void
+  dispose: () => void
+} {
+  let disconnected = false
+  let disposed = false
+  let pendingWrites = 0
+
+  const detachIfDone = () => {
+    if (disposed && pendingWrites === 0) {
+      target.off('error', onError)
+    }
+  }
+
+  const onError = (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE' || error.code === 'ERR_STREAM_DESTROYED') {
+      disconnected = true
+      return
+    }
+    if (target.listenerCount('error') === 1) {
+      throw error
+    }
+  }
+  target.on('error', onError)
+
+  return {
+    writeLine(line: string) {
+      if (disconnected || target.destroyed || !target.writable) {
+        return
+      }
+      pendingWrites += 1
+      try {
+        target.write(`${line}\n`, (error) => {
+          if (error) {
+            onError(error as NodeJS.ErrnoException)
+          }
+          pendingWrites -= 1
+          // Defer detach past the nextTick queue so any async `error` event
+          // queued by `Writable` after the write callback is still handled.
+          setImmediate(detachIfDone).unref()
+        })
+      } catch (error) {
+        pendingWrites -= 1
+        onError(error as NodeJS.ErrnoException)
+        setImmediate(detachIfDone).unref()
+      }
+    },
+    dispose() {
+      disposed = true
+      setImmediate(detachIfDone).unref()
+    },
+  }
+}
+
 export function attachWatchStderr(
   stderr: NodeJS.ReadableStream,
   onLine: (line: string) => void,
@@ -2418,7 +2474,11 @@ class Builder {
         })
 
         let processError: Error | undefined
+        const watchStderrWriter = buildProcess.stderr
+          ? createWatchStderrWriter()
+          : undefined
         buildProcess.once('close', (code) => {
+          watchStderrWriter?.dispose()
           if (processError) {
             reject(
               new Error(`Build failed with error: ${processError.message}`, {
@@ -2448,17 +2508,18 @@ class Builder {
             processError = e
             return
           }
+          watchStderrWriter?.dispose()
           reject(
             new Error(`Build failed with error: ${e.message}`, { cause: e }),
           )
         })
 
         // watch mode only, they are piped through stderr
-        if (buildProcess.stderr) {
+        if (buildProcess.stderr && watchStderrWriter) {
           attachWatchStderr(
             buildProcess.stderr,
             (line) => {
-              console.error(line)
+              watchStderrWriter.writeLine(line)
             },
             () => {
               const postBuildTask = this.postBuild().catch(() => {})
