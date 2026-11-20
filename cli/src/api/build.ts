@@ -1690,6 +1690,41 @@ function resolveTarget(targetOption?: string): Target {
       : getSystemDefaultTarget()
 }
 
+const WATCH_BUILD_FINISHED_RE = /Finished\s(`dev`|`release`)/
+
+export function attachWatchStderr(
+  stderr: NodeJS.ReadableStream,
+  onLine: (line: string) => void,
+  onBuildFinished: () => void,
+): void {
+  stderr.setEncoding('utf8')
+  let pendingLine = ''
+
+  const handleLine = (line: string) => {
+    onLine(line)
+    if (WATCH_BUILD_FINISHED_RE.test(line)) {
+      onBuildFinished()
+    }
+  }
+
+  stderr.on('data', (chunk: string) => {
+    pendingLine += chunk
+    const lines = pendingLine.split(/\r?\n/)
+    pendingLine = lines.pop() ?? ''
+    for (const line of lines) {
+      handleLine(line)
+    }
+  })
+
+  stderr.on('end', () => {
+    if (pendingLine.length > 0) {
+      const trailing = pendingLine
+      pendingLine = ''
+      handleLine(trailing)
+    }
+  })
+}
+
 /**
  * Validate the combination of the cross-compilation related flags.
  *
@@ -2419,17 +2454,21 @@ class Builder {
         })
 
         // watch mode only, they are piped through stderr
-        buildProcess.stderr?.on('data', (data) => {
-          const output = data.toString()
-          console.error(output)
-          if (/Finished\s(`dev`|`release`)/.test(output)) {
-            const postBuildTask = this.postBuild().catch(() => {})
-            watchPostBuilds.add(postBuildTask)
-            void postBuildTask.finally(() => {
-              watchPostBuilds.delete(postBuildTask)
-            })
-          }
-        })
+        if (buildProcess.stderr) {
+          attachWatchStderr(
+            buildProcess.stderr,
+            (line) => {
+              console.error(line)
+            },
+            () => {
+              const postBuildTask = this.postBuild().catch(() => {})
+              watchPostBuilds.add(postBuildTask)
+              void postBuildTask.finally(() => {
+                watchPostBuilds.delete(postBuildTask)
+              })
+            },
+          )
+        }
       })
 
     // The type-def cache folder is keyed on workspace-relative inputs, so
