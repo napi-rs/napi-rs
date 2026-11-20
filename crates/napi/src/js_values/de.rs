@@ -32,6 +32,8 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
       }
       ValueType::Number => {
         let js_number: f64 = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };
+        // `i64::MAX as f64` rounds up to `2^63` (outside `i64`), while `i64::MIN as f64`
+        // (`-2^63`) is exact, so the half-open range covers every `f64` integer that fits in `i64`.
         if js_number.trunc() == js_number
           && ((i64::MIN as f64)..(i64::MAX as f64)).contains(&js_number)
         {

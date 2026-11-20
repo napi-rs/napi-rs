@@ -2226,6 +2226,10 @@ export declare function testSerdeBigNumberPrecision(number: string): any
 
 export declare function testSerdeBufferBytes(obj: object): bigint
 
+export declare function testSerdeI64FromJs(value: unknown): number
+
+export declare function testSerdeNumberFromJs(value: unknown): number
+
 export declare function testSerdeRoundtrip(data: any): any
 
 export declare function testUtf8Methods(s: string): Utf8MethodsResult

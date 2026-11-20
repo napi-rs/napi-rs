@@ -194,6 +194,7 @@ import {
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
   testSerdeNumberFromJs,
+  testSerdeI64FromJs,
   getBigintJsonValue,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
@@ -1661,12 +1662,45 @@ test('serde-number-from-js-range', (t) => {
   t.is(testSerdeNumberFromJs(1e300), 1e300)
   t.is(testSerdeNumberFromJs(-1e300), -1e300)
   t.is(testSerdeNumberFromJs(2 ** 63), 2 ** 63)
+  t.is(testSerdeNumberFromJs(2 ** 63 - 1024), 2 ** 63 - 1024)
   t.is(testSerdeNumberFromJs(-1e19), -1e19)
   t.is(testSerdeNumberFromJs(1e-20), 1e-20)
+  t.is(testSerdeNumberFromJs(-1e-20), -1e-20)
+  t.is(testSerdeNumberFromJs(Number.MIN_VALUE), Number.MIN_VALUE)
   t.is(testSerdeNumberFromJs(-(2 ** 63)), -(2 ** 63))
+  t.is(testSerdeNumberFromJs(-(2 ** 63) - 2048), -(2 ** 63) - 2048)
   t.is(testSerdeNumberFromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
   t.is(testSerdeNumberFromJs(-42), -42)
   t.is(testSerdeNumberFromJs(1.5), 1.5)
+  t.true(Number.isNaN(testSerdeNumberFromJs(NaN)))
+  t.is(testSerdeNumberFromJs(Infinity), Infinity)
+  t.is(testSerdeNumberFromJs(-Infinity), -Infinity)
+
+  // Verify in-range whole numbers dispatch to visit_i64
+  t.is(testSerdeI64FromJs(0), 0)
+  t.is(testSerdeI64FromJs(-42), -42)
+  t.is(testSerdeI64FromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+  t.is(testSerdeI64FromJs(2 ** 63 - 1024), 2 ** 63 - 1024)
+  t.is(testSerdeI64FromJs(-(2 ** 63)), -(2 ** 63))
+
+  // Verify out-of-range, fractional, and non-finite numbers dispatch to visit_f64
+  for (const value of [
+    2 ** 63,
+    -(2 ** 63) - 2048,
+    1e300,
+    -1e300,
+    1e-20,
+    -1e-20,
+    Number.MIN_VALUE,
+    1.5,
+    NaN,
+    Infinity,
+    -Infinity,
+  ]) {
+    t.throws(() => testSerdeI64FromJs(value), {
+      message: /invalid type: floating point/,
+    })
+  }
 })
 
 test('serde-roundtrip-depth-limit', (t) => {

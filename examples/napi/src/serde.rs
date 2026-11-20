@@ -66,6 +66,11 @@ fn test_serde_number_from_js(value: Unknown, env: Env) -> napi::Result<f64> {
 }
 
 #[napi]
+fn test_serde_i64_from_js(value: Unknown, env: Env) -> napi::Result<i64> {
+  env.from_js_value(value)
+}
+
+#[napi]
 struct PackageJsonReader {
   i: Value,
 }

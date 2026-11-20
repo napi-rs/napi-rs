@@ -1367,6 +1367,7 @@ module.exports.testEscapedQuotesInComments = nativeBinding.testEscapedQuotesInCo
 module.exports.testLatin1Methods = nativeBinding.testLatin1Methods
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
+module.exports.testSerdeI64FromJs = nativeBinding.testSerdeI64FromJs
 module.exports.testSerdeNumberFromJs = nativeBinding.testSerdeNumberFromJs
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
 module.exports.testUtf8Methods = nativeBinding.testUtf8Methods
