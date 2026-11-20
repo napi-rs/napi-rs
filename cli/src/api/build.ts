@@ -2875,20 +2875,30 @@ class Builder {
     } = useDtsCache
       ? await readInvalidatedTypeDefCrates(typeDefTmpFolder)
       : { crates: new Set<string>(), invalidateAll: false, fileExists: false }
+    const observedExtraCrates = useDtsCache
+      ? await readObservedEmittedCrates(typeDefTmpFolder)
+      : new Set<string>()
+
+    const trackedCrateNames = new Set<string>(
+      this.napiDeriveDependentCrates.map((crate) => crate.name),
+    )
+    for (const crateName of observedExtraCrates) {
+      trackedCrateNames.add(crateName)
+    }
 
     const envs: Record<string, string> = {}
     const nextTokens: Record<string, string> = {}
     const invalidatedCrateNames: string[] = []
 
-    for (const crate of this.napiDeriveDependentCrates) {
-      const envKey = forceBuildEnvKey(crate.name)
+    for (const crateName of trackedCrateNames) {
+      const envKey = forceBuildEnvKey(crateName)
       const typeDefFileExists = await fileExists(
-        join(typeDefTmpFolder, crate.name),
+        join(typeDefTmpFolder, crateName),
       )
-      const storedToken = existingTokens[crate.name]
-      const isInvalidated = invalidateAll || invalidatedCrates.has(crate.name)
+      const storedToken = existingTokens[crateName]
+      const isInvalidated = invalidateAll || invalidatedCrates.has(crateName)
       if (isInvalidated) {
-        invalidatedCrateNames.push(crate.name)
+        invalidatedCrateNames.push(crateName)
       }
 
       if (!typeDefFileExists || isInvalidated) {
@@ -2897,14 +2907,14 @@ class Builder {
           token = randomUUID()
         }
         envs[envKey] = token
-        nextTokens[crate.name] = token
+        nextTokens[crateName] = token
       } else if (process.env[envKey] !== undefined) {
         if (storedToken !== undefined) {
-          nextTokens[crate.name] = storedToken
+          nextTokens[crateName] = storedToken
         }
       } else if (storedToken !== undefined) {
         envs[envKey] = storedToken
-        nextTokens[crate.name] = storedToken
+        nextTokens[crateName] = storedToken
       }
     }
 

@@ -13,7 +13,9 @@ export type CrateTargetKind =
   | 'bench'
   | 'lib'
   | 'rlib'
+  | 'dylib'
   | 'cdylib'
+  | 'proc-macro'
   | 'custom-build'
 
 export interface CrateTarget {

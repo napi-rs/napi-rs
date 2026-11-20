@@ -571,7 +571,9 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
       {
         id: deriveId,
         name: 'napi-derive',
+        src_path: '/cargo/napi-derive/src/lib.rs',
         version: '3.0.0',
+        edition: '2021',
         manifest_path: '/cargo/napi-derive/Cargo.toml',
         targets: [],
         dependencies: [],
@@ -584,12 +586,15 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
       {
         id: addonId,
         name: 'addon',
+        src_path: '/ws/addon/src/lib.rs',
         version: '0.1.0',
+        edition: '2021',
         manifest_path: '/ws/addon/Cargo.toml',
         targets: [],
         dependencies: [
           {
             name: 'napi-derive',
+            source: 'registry+https://crates.io',
             req: '^3.0.0',
             kind: null,
             rename: null,
@@ -597,6 +602,7 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
             uses_default_features: true,
             features: [],
             target: null,
+            registry: null,
           },
         ],
         features: {
@@ -607,12 +613,15 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
       {
         id: docToolId,
         name: 'doc-tool',
+        src_path: '/ws/doc-tool/src/lib.rs',
         version: '0.1.0',
+        edition: '2021',
         manifest_path: '/ws/doc-tool/Cargo.toml',
         targets: [],
         dependencies: [
           {
             name: 'addon',
+            source: null,
             req: '^0.1.0',
             kind: null,
             rename: null,
@@ -620,6 +629,7 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
             uses_default_features: true,
             features: ['docs'],
             target: null,
+            registry: null,
           },
         ],
         features: {},
@@ -628,9 +638,9 @@ test('getNapiDeriveDependentCrates seeds root features from selected build, igno
     workspace_members: [addonId, docToolId],
     workspace_root: '/ws',
     target_directory: '/ws/target',
-    metadata: null,
     version: 1,
     resolve: {
+      root: null,
       nodes: [
         {
           id: deriveId,
@@ -709,7 +719,9 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
       {
         id: deriveId,
         name: 'napi-derive',
+        src_path: '/cargo/napi-derive/src/lib.rs',
         version: '3.0.0',
+        edition: '2021',
         manifest_path: '/cargo/napi-derive/Cargo.toml',
         targets: [],
         dependencies: [],
@@ -722,23 +734,21 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
       {
         id: helperId,
         name: 'helper-package',
+        src_path: '/ws/helper-package/src/lib.rs',
         version: '0.1.0',
+        edition: '2021',
         manifest_path: '/ws/helper-package/Cargo.toml',
         targets: [
           {
             kind: ['lib'],
             crate_types: ['lib'],
             name: 'helper_impl',
-            src_path: '/ws/helper-package/src/lib.rs',
-            edition: '2021',
-            doc: true,
-            doctest: true,
-            test: true,
           },
         ],
         dependencies: [
           {
             name: 'napi-derive',
+            source: 'registry+https://crates.io',
             req: '^3.0.0',
             kind: null,
             rename: null,
@@ -746,6 +756,7 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
             uses_default_features: true,
             features: [],
             target: null,
+            registry: null,
           },
         ],
         features: {
@@ -756,12 +767,15 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
       {
         id: addonId,
         name: 'addon',
+        src_path: '/ws/addon/src/lib.rs',
         version: '0.1.0',
+        edition: '2021',
         manifest_path: '/ws/addon/Cargo.toml',
         targets: [],
         dependencies: [
           {
             name: 'helper-package',
+            source: null,
             req: '^0.1.0',
             kind: null,
             rename: null,
@@ -769,6 +783,7 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
             uses_default_features: true,
             features: [],
             target: null,
+            registry: null,
           },
         ],
         features: { default: [] },
@@ -776,12 +791,15 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
       {
         id: siblingId,
         name: 'sibling',
+        src_path: '/ws/sibling/src/lib.rs',
         version: '0.1.0',
+        edition: '2021',
         manifest_path: '/ws/sibling/Cargo.toml',
         targets: [],
         dependencies: [
           {
             name: 'helper-package',
+            source: null,
             req: '^0.1.0',
             kind: null,
             rename: null,
@@ -789,6 +807,7 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
             uses_default_features: true,
             features: ['noop'],
             target: null,
+            registry: null,
           },
         ],
         features: {},
@@ -797,9 +816,9 @@ test('getNapiDeriveDependentCrates matches unrenamed dependencies by Cargo libra
     workspace_members: [helperId, addonId, siblingId],
     workspace_root: '/ws',
     target_directory: '/ws/target',
-    metadata: null,
     version: 1,
     resolve: {
+      root: null,
       nodes: [
         {
           id: deriveId,
