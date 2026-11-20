@@ -737,6 +737,15 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+/** Applies the stashed property list to `target` after churning handle slots. */
+export declare function applyStashedProperties(target: object): void
+
+/**
+ * Applies the stashed single `Property` after allocating 64 fresh strings in
+ * this callback to overwrite reused V8 handle slots.
+ */
+export declare function applyStashedPropertyValue(target: object): void
+
 export declare function argRefCounters(): ArgRefCounters
 
 export interface ArgRefCounters {
@@ -1079,6 +1088,12 @@ export declare function churnGlobalHandles(value: unknown, count: number): void
 export declare function classRefsDeletedAtTeardown(): number
 
 export declare function cleanupReentrantBorrowOrderTestTargets(): number
+
+/**
+ * Clears the stashed properties on the current thread so their retained
+ * `napi_ref`s are released while the environment is live.
+ */
+export declare function clearStashedProperties(): void
 
 /**
  * Open the gate: every task currently waiting — and any queued behind it —
@@ -2122,6 +2137,12 @@ export declare function returnUndefinedIfInvalid(input: boolean): boolean
 
 export declare function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>
 
+/**
+ * Clones the stashed single `Property` and reuses it across two objects
+ * (`define_properties`) and two classes (`Env::define_class`).
+ */
+export declare function reuseStashedPropertyOnObjectsAndClasses(): [Record<string, unknown>, Record<string, unknown>, new () => Record<string, unknown>, new () => Record<string, unknown>]
+
 export declare function roundtripStr(s: string): string
 
 export interface Rule {
@@ -2171,6 +2192,39 @@ export declare function stashBufferInThreadLocal(buf: Buffer): void
  * release must no-op (leak), not use-after-free.
  */
 export declare function stashErrorInThreadLocal(value: unknown): void
+
+/**
+ * Stashes properties (primitive value, object value, string key, symbol key)
+ * in a `thread_local!` that is intentionally left populated until worker or
+ * process exit to verify teardown safety.
+ */
+export declare function stashPropertiesUntilExit(obj: unknown, sym: unknown): void
+
+/**
+ * Stashes `Property` descriptors using `with_name` for string and symbol keys,
+ * plus runtime key replacement (`with_name` -> `with_utf8_name` and vice versa).
+ */
+export declare function stashPropertiesWithNames(strKey: unknown, symKey: unknown, strVal: unknown, symVal: unknown): void
+
+/**
+ * Stashes `Property` descriptors built with `with_napi_value` covering all
+ * primitive types as well as objects, functions, and symbols.
+ */
+export declare function stashPropertiesWithNapiValues(obj: unknown, func: unknown, sym: unknown): void
+
+/**
+ * Exact #3697 repro: stashes a `Property` built with `with_value` across
+ * HandleScope boundaries.
+ */
+export declare function stashPropertyValue(secret: unknown): void
+
+/**
+ * Triggers a pending JS exception before `with_value`, stashes the resulting
+ * `Property`, and returns `Err(PendingException)` so JS catches the exception.
+ * Later applying the stashed `Property` must not replay a stale
+ * `PendingException` status after the exception has been cleared.
+ */
+export declare function stashPropertyValueDuringPendingException(secret: unknown): void
 
 export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
 

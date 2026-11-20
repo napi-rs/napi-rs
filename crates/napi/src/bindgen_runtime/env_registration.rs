@@ -620,6 +620,42 @@ pub(crate) fn set_custom_gc(
     .unwrap_or(Ok(()))
 }
 
+/// The id of `env`'s newest live registration record.
+///
+/// `None` when `env` has no live record (never registered, already torn down).
+#[cfg(not(feature = "noop"))]
+pub(crate) fn registration_id(env: sys::napi_env) -> Option<RegistrationId> {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let registrations = registrations.try_borrow().ok()?;
+      registrations
+        .iter()
+        .rev()
+        .find(|registration| registration.env == env)
+        .map(|registration| registration.id)
+    })
+    .ok()
+    .flatten()
+}
+
+/// Whether registration `id` is still live for `env` on the current thread.
+///
+/// Returns `false` once `env`'s teardown hook or finalizer has removed the
+/// record, or when called from another thread or during TLS teardown.
+#[cfg(not(feature = "noop"))]
+pub(crate) fn is_registration_alive(id: RegistrationId, env: sys::napi_env) -> bool {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(registrations) = registrations.try_borrow() else {
+        return false;
+      };
+      registrations
+        .iter()
+        .any(|registration| registration.id == id && registration.env == env)
+    })
+    .unwrap_or(false)
+}
+
 /// The custom-GC handle of `env`, from its newest live record.
 ///
 /// `None` when `env` has no live record (never registered, already torn down)

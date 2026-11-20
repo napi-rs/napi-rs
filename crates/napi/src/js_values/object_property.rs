@@ -1,15 +1,212 @@
 use std::convert::From;
-use std::ffi::c_void;
-use std::ffi::CString;
+use std::ffi::{c_void, CStr, CString};
 use std::ptr;
-#[cfg(feature = "napi5")]
 use std::rc::Rc;
+use std::thread::ThreadId;
 
 use bitflags::bitflags;
 
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::{FromNapiValue, This};
-use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, JsValue, Result};
+use crate::{
+  bindgen_runtime::ToNapiValue, check_status, sys, Callback, Env, Error, JsValue, Result, Status,
+};
+
+/// Property key of the private holder object used to retain a JS value that
+/// `napi_create_reference` cannot reference directly (primitives, or values
+/// rejected with `napi_invalid_arg` before Node-API 10).
+const PROPERTY_VALUE_KEY: &CStr = c"[[PropertyValue]]";
+
+/// Owns a thread-affine `napi_ref` keeping a JS value (or property key) alive
+/// across `HandleScope` boundaries for as long as any [`Property`] clone holds it.
+struct RetainedValue {
+  raw: sys::napi_ref,
+  // `true` when `raw` references a private holder object carrying the retained
+  // value under `PROPERTY_VALUE_KEY` instead of the value itself.
+  indirect: bool,
+  env: sys::napi_env,
+  owner_thread: ThreadId,
+  #[cfg(not(feature = "noop"))]
+  registration: Option<crate::bindgen_runtime::env_registration::RegistrationId>,
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc: Option<std::sync::Arc<crate::bindgen_prelude::CustomGcHandle>>,
+}
+
+impl RetainedValue {
+  fn new(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
+    if env.is_null() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Cannot retain property value with null napi_env",
+      ));
+    }
+    if value.is_null() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Cannot retain null napi_value on Property",
+      ));
+    }
+
+    let mut value_type = 0;
+    check_status!(
+      unsafe { sys::napi_typeof(env, value, &mut value_type) },
+      "Failed to inspect JS value type for Property"
+    )?;
+
+    let mut raw = ptr::null_mut();
+    let can_ref_directly = matches!(
+      value_type,
+      sys::ValueType::napi_object | sys::ValueType::napi_function | sys::ValueType::napi_symbol
+    );
+
+    let indirect = if can_ref_directly {
+      let status = unsafe { sys::napi_create_reference(env, value, 1, &mut raw) };
+      if status == sys::Status::napi_ok {
+        false
+      } else if status == sys::Status::napi_invalid_arg {
+        true
+      } else {
+        check_status!(status, "Failed to retain JS value for Property")?;
+        unreachable!()
+      }
+    } else {
+      true
+    };
+
+    if indirect {
+      let mut holder = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_create_object(env, &mut holder) },
+        "Failed to create holder object for Property value"
+      )?;
+      let descriptor = sys::napi_property_descriptor {
+        utf8name: PROPERTY_VALUE_KEY.as_ptr().cast(),
+        name: ptr::null_mut(),
+        method: None,
+        getter: None,
+        setter: None,
+        value,
+        attributes: sys::PropertyAttributes::default,
+        data: ptr::null_mut(),
+      };
+      check_status!(
+        unsafe { sys::napi_define_properties(env, holder, 1, &descriptor) },
+        "Failed to store value on Property holder object"
+      )?;
+      check_status!(
+        unsafe { sys::napi_create_reference(env, holder, 1, &mut raw) },
+        "Failed to retain Property holder object"
+      )?;
+    }
+
+    Ok(Self {
+      raw,
+      indirect,
+      env,
+      owner_thread: std::thread::current().id(),
+      #[cfg(not(feature = "noop"))]
+      registration: crate::bindgen_runtime::env_registration::registration_id(env),
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      custom_gc: crate::bindgen_prelude::custom_gc_handle_for_env(env),
+    })
+  }
+
+  fn get(&self, env: sys::napi_env) -> Result<sys::napi_value> {
+    if self.env != env || self.owner_thread != std::thread::current().id() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Property value belongs to a different JavaScript environment or thread",
+      ));
+    }
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = &self.custom_gc {
+      if !crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Property value belongs to a torn-down JavaScript environment",
+        ));
+      }
+    }
+    #[cfg(not(feature = "noop"))]
+    if let Some(id) = self.registration {
+      if !crate::bindgen_runtime::env_registration::is_registration_alive(id, env) {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Property value belongs to a torn-down JavaScript environment",
+        ));
+      }
+    }
+
+    let mut result = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, self.raw, &mut result) },
+      "Failed to resolve retained Property value"
+    )?;
+    if result.is_null() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Retained Property value is no longer alive",
+      ));
+    }
+    if self.indirect {
+      check_status!(
+        unsafe {
+          sys::napi_get_named_property(env, result, PROPERTY_VALUE_KEY.as_ptr().cast(), &mut result)
+        },
+        "Failed to unwrap retained Property value"
+      )?;
+    }
+    Ok(result)
+  }
+}
+
+/// Releases a retained property `napi_ref` on the owning JS thread: unref to 0,
+/// then delete. Called exactly once, from `RetainedValue::drop`.
+#[cfg(not(feature = "noop"))]
+fn release_retained_reference(env: sys::napi_env, reference: sys::napi_ref) {
+  let mut ref_count = 0;
+  let status = unsafe { sys::napi_reference_unref(env, reference, &mut ref_count) };
+  if status != sys::Status::napi_ok {
+    eprintln!(
+      "unref property value reference failed: {}",
+      Status::from(status)
+    );
+    return;
+  }
+  if ref_count == 0 {
+    let status = unsafe { sys::napi_delete_reference(env, reference) };
+    if status != sys::Status::napi_ok {
+      eprintln!(
+        "delete property value reference failed: {}",
+        Status::from(status)
+      );
+    }
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for RetainedValue {
+  fn drop(&mut self) {
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = self.custom_gc.take() {
+      let env = self.env;
+      let raw = self.raw;
+      crate::bindgen_prelude::CustomGcHandle::release_ref(&handle, raw, || {
+        release_retained_reference(env, raw)
+      });
+      return;
+    }
+    if self.owner_thread != std::thread::current().id() {
+      return;
+    }
+    if let Some(id) = self.registration {
+      if !crate::bindgen_runtime::env_registration::is_registration_alive(id, self.env) {
+        return;
+      }
+    }
+    release_retained_reference(self.env, self.raw);
+  }
+}
 
 #[cfg(feature = "napi5")]
 #[derive(Copy, Clone)]
@@ -58,27 +255,38 @@ pub(crate) struct PropertyClosuresData {
   _owners: [Option<Rc<OwnedClosure>>; 2],
 }
 
-/// A symbol key, resolved in the current environment when the property is
+/// A property key, resolved in the current environment when the property is
 /// defined.
 #[derive(Clone)]
-enum SymbolKey {
+enum PropertyKey {
+  Utf8(CString),
   /// A `Symbol.for` registry key.
   #[cfg(feature = "napi9")]
-  For(String),
+  SymbolFor(String),
   /// The name of a well-known symbol, such as `iterator` for `Symbol.iterator`.
-  WellKnown(&'static str),
+  WellKnownSymbol(&'static str),
+  /// A retained JS value (string or symbol) passed via [`Property::with_name`].
+  Value(Rc<RetainedValue>),
+}
+
+/// A property value passed via [`Property::with_value`] or
+/// [`Property::with_napi_value`].
+#[derive(Clone)]
+enum PropertyValue {
+  Retained(Rc<RetainedValue>),
+  /// Retaining the value failed in [`Property::with_value`] (which is
+  /// infallible); surfaced when the property is materialized in [`Property::raw`].
+  Err(Status, String),
 }
 
 #[derive(Clone)]
 pub struct Property {
-  utf8_name: Option<CString>,
-  symbol: Option<SymbolKey>,
-  name: sys::napi_value,
+  key: Option<PropertyKey>,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
   method: sys::napi_callback,
   attrs: PropertyAttributes,
-  value: sys::napi_value,
+  value: Option<PropertyValue>,
   data: *mut c_void,
   pub(crate) is_ctor: bool,
   #[cfg(feature = "napi5")]
@@ -92,14 +300,12 @@ pub struct Property {
 impl Default for Property {
   fn default() -> Self {
     Property {
-      utf8_name: Default::default(),
-      symbol: None,
-      name: ptr::null_mut(),
+      key: None,
       getter: Default::default(),
       setter: Default::default(),
       method: Default::default(),
       attrs: Default::default(),
-      value: ptr::null_mut(),
+      value: None,
       data: ptr::null_mut(),
       is_ctor: Default::default(),
       #[cfg(feature = "napi5")]
@@ -142,9 +348,7 @@ impl Property {
 
   /// Replaces any key set earlier on this `Property`.
   pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
-    self.utf8_name = Some(CString::new(name)?);
-    self.name = ptr::null_mut();
-    self.symbol = None;
+    self.key = Some(PropertyKey::Utf8(CString::new(name)?));
     Ok(self)
   }
 
@@ -157,9 +361,7 @@ impl Property {
   #[cfg(feature = "napi9")]
   #[doc(hidden)]
   pub fn with_symbol_name(mut self, name: &str) -> Self {
-    self.utf8_name = None;
-    self.name = ptr::null_mut();
-    self.symbol = Some(SymbolKey::For(name.to_owned()));
+    self.key = Some(PropertyKey::SymbolFor(name.to_owned()));
     self
   }
 
@@ -172,17 +374,15 @@ impl Property {
   /// covered by semver.
   #[doc(hidden)]
   pub fn with_well_known_symbol(mut self, name: &'static str) -> Self {
-    self.utf8_name = None;
-    self.name = ptr::null_mut();
-    self.symbol = Some(SymbolKey::WellKnown(name));
+    self.key = Some(PropertyKey::WellKnownSymbol(name));
     self
   }
 
   /// Replaces any key set earlier on this `Property`.
   pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
-    self.name = unsafe { T::to_napi_value(env.0, name)? };
-    self.utf8_name = None;
-    self.symbol = None;
+    let raw = unsafe { T::to_napi_value(env.0, name)? };
+    let retained = RetainedValue::new(env.0, raw)?;
+    self.key = Some(PropertyKey::Value(Rc::new(retained)));
     Ok(self)
   }
 
@@ -253,12 +453,18 @@ impl Property {
   }
 
   pub fn with_value<'env, T: JsValue<'env>>(mut self, value: &T) -> Self {
-    self.value = T::raw(value);
+    let val = T::value(value);
+    self.value = Some(match RetainedValue::new(val.env, val.value) {
+      Ok(retained) => PropertyValue::Retained(Rc::new(retained)),
+      Err(err) => PropertyValue::Err(err.status, err.reason),
+    });
     self
   }
 
   pub fn with_napi_value<T: ToNapiValue>(mut self, env: &Env, value: T) -> Result<Self> {
-    self.value = unsafe { T::to_napi_value(env.0, value)? };
+    let raw = unsafe { T::to_napi_value(env.0, value)? };
+    let retained = RetainedValue::new(env.0, raw)?;
+    self.value = Some(PropertyValue::Retained(Rc::new(retained)));
     Ok(self)
   }
 
@@ -273,6 +479,11 @@ impl Property {
     self.getter_owner.is_some() || self.setter_owner.is_some()
   }
 
+  #[cfg(not(feature = "noop"))]
+  pub(crate) fn has_js_value(&self) -> bool {
+    matches!(self.key, Some(PropertyKey::Value(_))) || self.value.is_some()
+  }
+
   #[cfg(feature = "napi5")]
   pub(crate) fn has_closure_data(&self) -> bool {
     self.data.is_null()
@@ -280,14 +491,15 @@ impl Property {
   }
 
   pub(crate) fn raw(&self, env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
-    // Only the symbol key is shared across environments, never a napi_value.
-    // The lookup runs before this property's closure data is allocated.
-    let name = match &self.symbol {
-      None => self.name,
+    // Resolve both the key and value before allocating closure data, so an
+    // error here never leaks a boxed `PropertyClosuresData`.
+    let (utf8name, name) = match &self.key {
+      None => (ptr::null(), ptr::null_mut()),
+      Some(PropertyKey::Utf8(name)) => (name.as_ptr(), ptr::null_mut()),
       #[cfg(feature = "napi9")]
-      Some(SymbolKey::For(symbol_name)) => {
+      Some(PropertyKey::SymbolFor(symbol_name)) => {
         let mut symbol = ptr::null_mut();
-        crate::check_status!(unsafe {
+        check_status!(unsafe {
           sys::node_api_symbol_for(
             env,
             symbol_name.as_ptr().cast(),
@@ -295,10 +507,28 @@ impl Property {
             &mut symbol,
           )
         })?;
-        symbol
+        (ptr::null(), symbol)
       }
-      Some(SymbolKey::WellKnown(name)) => well_known_symbol(env, name)?,
+      Some(PropertyKey::WellKnownSymbol(name)) => (ptr::null(), well_known_symbol(env, name)?),
+      Some(PropertyKey::Value(retained)) => (ptr::null(), retained.get(env)?),
     };
+
+    let value = match &self.value {
+      None => ptr::null_mut(),
+      Some(PropertyValue::Retained(retained)) => retained.get(env)?,
+      Some(PropertyValue::Err(status, reason)) => {
+        let mut status = *status;
+        if status == Status::PendingException {
+          let mut is_pending = false;
+          let check = unsafe { sys::napi_is_exception_pending(env, &mut is_pending) };
+          if check != sys::Status::napi_ok || !is_pending {
+            status = Status::GenericFailure;
+          }
+        }
+        return Err(Error::new(status, reason.clone()));
+      }
+    };
+
     #[cfg(feature = "napi5")]
     let data = if !self.data.is_null() {
       self.data
@@ -315,15 +545,12 @@ impl Property {
     };
 
     Ok(sys::napi_property_descriptor {
-      utf8name: match self.utf8_name {
-        Some(ref name) => name.as_ptr(),
-        None => ptr::null(),
-      },
+      utf8name,
       name,
       method: self.method,
       getter: self.getter,
       setter: self.setter,
-      value: self.value,
+      value,
       attributes: self.attrs.into(),
       #[cfg(not(feature = "napi5"))]
       data: self.data,
@@ -408,20 +635,9 @@ macro_rules! symbol_for_property {
 mod tests {
   use super::*;
 
-  // Name conversion is stubbed so the builder can be tested without a JS
-  // environment. The opaque value is only compared, never dereferenced.
-  struct TestName;
-
-  impl ToNapiValue for TestName {
-    unsafe fn to_napi_value(_env: sys::napi_env, _value: Self) -> Result<sys::napi_value> {
-      Ok(ptr::dangling_mut())
-    }
-  }
-
-  fn old_keys(env: &Env) -> [Property; 4] {
+  fn old_keys() -> [Property; 3] {
     [
       Property::new().with_utf8_name("old").unwrap(),
-      Property::new().with_name(env, TestName).unwrap(),
       Property::new().with_symbol_name("old"),
       Property::new().with_well_known_symbol("dispose"),
     ]
@@ -429,49 +645,43 @@ mod tests {
 
   #[test]
   fn utf8_name_replaces_other_names() {
-    let env = Env::from_raw(ptr::null_mut());
-    for property in old_keys(&env) {
+    for property in old_keys() {
       let property = property.with_utf8_name("new").unwrap();
-      assert_eq!(property.utf8_name.as_ref().unwrap().as_bytes(), b"new");
-      assert!(property.symbol.is_none());
-      assert!(property.name.is_null());
-    }
-  }
-
-  #[test]
-  fn value_name_replaces_other_names() {
-    let env = Env::from_raw(ptr::null_mut());
-    for property in old_keys(&env) {
-      let property = property.with_name(&env, TestName).unwrap();
-      assert!(property.utf8_name.is_none());
-      assert!(property.symbol.is_none());
-      assert_eq!(property.name, ptr::dangling_mut());
+      assert!(matches!(
+        &property.key,
+        Some(PropertyKey::Utf8(name)) if name.as_bytes() == b"new"
+      ));
     }
   }
 
   #[test]
   fn symbol_name_replaces_other_names() {
-    let env = Env::from_raw(ptr::null_mut());
-    for property in old_keys(&env) {
+    for property in old_keys() {
       let property = property.with_symbol_name("new");
-      assert!(matches!(&property.symbol, Some(SymbolKey::For(name)) if name == "new"));
-      assert!(property.utf8_name.is_none());
-      assert!(property.name.is_null());
+      assert!(matches!(
+        &property.key,
+        Some(PropertyKey::SymbolFor(name)) if name == "new"
+      ));
     }
   }
 
   #[test]
   fn well_known_symbol_replaces_other_names() {
-    let env = Env::from_raw(ptr::null_mut());
-    for property in old_keys(&env) {
+    for property in old_keys() {
       let property = property.with_well_known_symbol("iterator");
       assert!(matches!(
-        property.symbol,
-        Some(SymbolKey::WellKnown("iterator"))
+        property.key,
+        Some(PropertyKey::WellKnownSymbol("iterator"))
       ));
-      assert!(property.utf8_name.is_none());
-      assert!(property.name.is_null());
     }
+  }
+
+  #[test]
+  fn retained_value_rejects_null_env() {
+    let err = RetainedValue::new(ptr::null_mut(), ptr::dangling_mut())
+      .err()
+      .unwrap();
+    assert_eq!(err.status, Status::InvalidArg);
   }
 
   #[cfg(not(feature = "noop"))]
@@ -487,6 +697,25 @@ mod tests {
       std::any::TypeId::of::<ClosureClass>(),
       None,
       "ClosureClass",
+      vec![property],
+      false,
+    );
+  }
+
+  #[cfg(not(feature = "noop"))]
+  #[test]
+  #[should_panic(expected = "register_class does not accept properties with JS values or names")]
+  fn register_class_rejects_js_value_properties() {
+    struct ValueClass;
+    let property = Property {
+      key: Some(PropertyKey::Utf8(CString::new("value").unwrap())),
+      value: Some(PropertyValue::Err(Status::InvalidArg, "dummy".to_owned())),
+      ..Default::default()
+    };
+    crate::bindgen_runtime::register_class(
+      std::any::TypeId::of::<ValueClass>(),
+      None,
+      "ValueClass",
       vec![property],
       false,
     );

@@ -130,6 +130,7 @@ mod nullable;
 mod number;
 mod object;
 mod promise;
+mod property_retention;
 mod reference;
 mod scope;
 mod serde;
