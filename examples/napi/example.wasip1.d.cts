@@ -2226,7 +2226,19 @@ export declare function testSerdeBigNumberPrecision(number: string): any
 
 export declare function testSerdeBufferBytes(obj: object): bigint
 
+export declare function testSerdeI128FromJs(value: unknown): bigint
+
+export declare function testSerdeI64FromJs(value: unknown): number
+
+export declare function testSerdeJsonFromJs(value: unknown): string
+
+export declare function testSerdeNumberFromJs(value: unknown): number
+
 export declare function testSerdeRoundtrip(data: any): any
+
+export declare function testSerdeU128FromJs(value: unknown): bigint
+
+export declare function testUtf8Methods(s: string): Utf8MethodsResult
 
 export declare function testWorkers(amount: number, completeCallback: ((err: Error | null) => void)): void
 
@@ -2391,6 +2403,15 @@ export interface UseNullableStruct {
 export interface UtcDates {
   start: Date
   end?: Date
+}
+
+export interface Utf8MethodsResult {
+  asStr: string
+  length: number
+  isEmpty: boolean
+  asSlice: Array<number>
+  intoOwned: string
+  take: Array<number>
 }
 
 export declare function validateArray(arr: Array<number>): number

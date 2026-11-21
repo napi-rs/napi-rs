@@ -33,6 +33,36 @@ fn wasi_threads_cfg_lines(target: &str) -> Vec<&'static str> {
   lines
 }
 
+/// Configuration options for [`setup_with`].
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SetupOptions {
+  wasi_stack_size: Option<u32>,
+}
+
+impl SetupOptions {
+  /// Creates a new `SetupOptions` with all options set to their defaults.
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Sets the WASI `-zstack-size` linker argument in bytes.
+  ///
+  /// The value must be a non-zero 16-byte multiple (as required by `wasm-ld`).
+  /// `-zstack-size` sizes only the main thread's linear-memory shadow stack.
+  ///
+  /// Effective precedence (highest to lowest):
+  /// 1. `NAPI_WASI_STACK_SIZE` environment variable (non-empty; an empty string `""` is
+  ///    treated as unset)
+  /// 2. `napi.wasm.stackSizeBytes` in `package.json` (forwarded by `@napi-rs/cli` as
+  ///    `NAPI_WASI_STACK_SIZE` when the environment variable is unset or empty)
+  /// 3. `SetupOptions::wasi_stack_size(...)` in `build.rs`
+  /// 4. Default: `64_000_000` bytes (~61.04 MiB)
+  pub fn wasi_stack_size(mut self, bytes: u32) -> Self {
+    self.wasi_stack_size = Some(bytes);
+    self
+  }
+}
+
 /// Configure the build of a `napi-rs` addon crate.
 ///
 /// Call it from the addon's `build.rs`. Besides the per-platform link
@@ -64,7 +94,30 @@ fn wasi_threads_cfg_lines(target: &str) -> Vec<&'static str> {
 /// needs the distinction needs its own build script. Absence must therefore be
 /// the conservative branch — a plain `cargo build` compiles the
 /// `not(napi_wasi_threads)` side, and that side has to stay correct.
+///
+/// To customize build options such as the WASI stack size, use [`setup_with`].
 pub fn setup() {
+  setup_with(SetupOptions::default());
+}
+
+/// Configure the build of a `napi-rs` addon crate with explicit [`SetupOptions`].
+///
+/// See [`setup`] for details on the build-script directives emitted.
+///
+/// For WASI builds, `-zstack-size` is resolved in the following priority order
+/// (highest to lowest):
+/// 1. `NAPI_WASI_STACK_SIZE` environment variable (non-empty; an empty string `""` is
+///    treated as unset)
+/// 2. `napi.wasm.stackSizeBytes` in `package.json` (forwarded by `@napi-rs/cli` as
+///    `NAPI_WASI_STACK_SIZE` when the environment variable is unset or empty)
+/// 3. `SetupOptions::wasi_stack_size(...)` in `build.rs`
+/// 4. Default: `64_000_000` bytes (~61.04 MiB)
+pub fn setup_with(options: SetupOptions) {
+  if let Some(bytes) = options.wasi_stack_size {
+    wasi::validate_stack_size(bytes, "SetupOptions::wasi_stack_size")
+      .unwrap_or_else(|error| panic!("{error}"));
+  }
+
   for line in wasi_threads_cfg_lines(&env::var("TARGET").unwrap_or_default()) {
     println!("{line}");
   }
@@ -92,7 +145,7 @@ pub fn setup() {
   match target_os.as_str() {
     "android" => if android::setup().is_ok() {},
     "wasi" => {
-      wasi::setup();
+      wasi::setup(options.wasi_stack_size);
     }
     "macos" => {
       // Keep the dynamic lookup behavior on macOS to avoid breaking changes.
@@ -156,5 +209,28 @@ mod tests {
         "cargo::rustc-check-cfg=cfg(napi_wasi_no_heap_sync)",
       ]
     );
+  }
+
+  #[test]
+  fn setup_options_defaults_and_builder() {
+    let default_options = SetupOptions::default();
+    assert_eq!(SetupOptions::new(), default_options);
+    assert_eq!(default_options.wasi_stack_size, None);
+
+    let configured = SetupOptions::new().wasi_stack_size(8_388_608);
+    assert_eq!(configured.wasi_stack_size, Some(8_388_608));
+    assert_eq!(configured.clone(), configured);
+  }
+
+  #[test]
+  #[should_panic(expected = "SetupOptions::wasi_stack_size must be greater than 0 bytes")]
+  fn setup_with_rejects_zero_wasi_stack_size_before_target_dispatch() {
+    setup_with(SetupOptions::new().wasi_stack_size(0));
+  }
+
+  #[test]
+  #[should_panic(expected = "SetupOptions::wasi_stack_size must be a 16-byte multiple")]
+  fn setup_with_rejects_unaligned_wasi_stack_size_before_target_dispatch() {
+    setup_with(SetupOptions::new().wasi_stack_size(17));
   }
 }

@@ -23,6 +23,8 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[cfg(not(feature = "noop"))]
+use std::collections::HashSet;
 #[cfg(all(
   not(feature = "noop"),
   any(feature = "napi3", not(target_family = "wasm"))
@@ -144,6 +146,26 @@ thread_local! {
   // ever touched on their env's own thread (registration, the cleanup hook, and
   // lookups from calls into that env all run there).
   static ENV_REGISTRATIONS: RefCell<Vec<EnvRegistration>> = const { RefCell::new(Vec::new()) };
+  // Env pointers whose registration record on this thread has already been torn
+  // down. Cleared for `env` if a new registration starts at the same address,
+  // so lookups can tell a torn-down registered env apart from an env that never
+  // registered with napi-rs.
+  #[cfg(not(feature = "noop"))]
+  static TORN_DOWN_ENVS: RefCell<HashSet<usize, FxBuildHasher>> = const { RefCell::new(HashSet::with_hasher(FxBuildHasher)) };
+}
+
+/// Lifecycle state of a `napi_env` on the current thread.
+#[cfg(not(feature = "noop"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EnvState {
+  /// The env has a live registration record on this thread.
+  Live(RegistrationId),
+  /// A registration for this env already ran teardown on this thread, or this
+  /// thread's TLS is tearing down.
+  TornDown,
+  /// No registration for this env has been seen on this thread (for example, a
+  /// custom embedder that does not run `napi-rs` module registration).
+  Unregistered,
 }
 
 /// Starts a registration of this addon into `env`: sets up what will tear the
@@ -225,6 +247,14 @@ pub(crate) fn begin(env: sys::napi_env) -> Option<RegistrationId> {
     ENV_REGISTRATIONS
       .try_with(|registrations| {
         let mut registrations = registrations.try_borrow_mut().ok()?;
+        let _ = TORN_DOWN_ENVS.try_with(|torn_down| {
+          if let Ok(mut torn_down) = torn_down.try_borrow_mut() {
+            for old in registrations.iter() {
+              torn_down.insert(old.env as usize);
+            }
+            torn_down.remove(&(env as usize));
+          }
+        });
         // Dropped without deleting anything: they belong to envs this instance no
         // longer serves, and dropping them keeps a reused env address from
         // matching a stale record.
@@ -266,7 +296,8 @@ fn new_registration(id: RegistrationId, env: sys::napi_env) -> EnvRegistration {
   any(feature = "napi3", not(target_family = "wasm"))
 ))]
 fn push_registration(registration: EnvRegistration) -> bool {
-  ENV_REGISTRATIONS
+  let env = registration.env as usize;
+  let pushed = ENV_REGISTRATIONS
     .try_with(|registrations| {
       let Ok(mut registrations) = registrations.try_borrow_mut() else {
         return false;
@@ -274,7 +305,15 @@ fn push_registration(registration: EnvRegistration) -> bool {
       registrations.push(registration);
       true
     })
-    .unwrap_or(false)
+    .unwrap_or(false);
+  if pushed {
+    let _ = TORN_DOWN_ENVS.try_with(|torn_down| {
+      if let Ok(mut torn_down) = torn_down.try_borrow_mut() {
+        torn_down.remove(&env);
+      }
+    });
+  }
+  pushed
 }
 
 /// Env cleanup hook added by [`begin`]. `arg` is the registration id.
@@ -315,7 +354,7 @@ unsafe extern "C" fn env_registration_finalize(
   any(feature = "napi3", not(target_family = "wasm"))
 ))]
 fn take_registration(id: RegistrationId) -> Option<EnvRegistration> {
-  ENV_REGISTRATIONS
+  let removed = ENV_REGISTRATIONS
     .try_with(|registrations| {
       let mut registrations = registrations.try_borrow_mut().ok()?;
       let position = registrations
@@ -325,7 +364,13 @@ fn take_registration(id: RegistrationId) -> Option<EnvRegistration> {
       Some(registrations.remove(position))
     })
     .ok()
-    .flatten()
+    .flatten()?;
+  let _ = TORN_DOWN_ENVS.try_with(|torn_down| {
+    if let Ok(mut torn_down) = torn_down.try_borrow_mut() {
+      torn_down.insert(removed.env as usize);
+    }
+  });
+  Some(removed)
 }
 
 /// Deletes every reference a record held. The record must already be out of
@@ -620,6 +665,60 @@ pub(crate) fn set_custom_gc(
     .unwrap_or(Ok(()))
 }
 
+/// Inspects the registration state of `env` on the current thread.
+///
+/// Separates a live registered env (`Live`), an env whose registration has
+/// already torn down on this thread or whose thread TLS is exiting (`TornDown`),
+/// and an env that never registered with `napi-rs` on this thread (`Unregistered`).
+#[cfg(not(feature = "noop"))]
+pub(crate) fn env_state(env: sys::napi_env) -> EnvState {
+  let live = match ENV_REGISTRATIONS.try_with(|registrations| {
+    let Ok(registrations) = registrations.try_borrow() else {
+      return None;
+    };
+    Some(
+      registrations
+        .iter()
+        .rev()
+        .find(|registration| registration.env == env)
+        .map(|registration| registration.id),
+    )
+  }) {
+    Ok(Some(Some(id))) => return EnvState::Live(id),
+    Ok(Some(None)) => false,
+    // TLS is tearing down or re-entrantly borrowed: never assume live/unregistered.
+    Ok(None) | Err(_) => return EnvState::TornDown,
+  };
+  debug_assert!(!live);
+  match TORN_DOWN_ENVS.try_with(|torn_down| {
+    let Ok(torn_down) = torn_down.try_borrow() else {
+      return true;
+    };
+    torn_down.contains(&(env as usize))
+  }) {
+    Ok(true) | Err(_) => EnvState::TornDown,
+    Ok(false) => EnvState::Unregistered,
+  }
+}
+
+/// Whether registration `id` is still live for `env` on the current thread.
+///
+/// Returns `false` once `env`'s teardown hook or finalizer has removed the
+/// record, or when called from another thread or during TLS teardown.
+#[cfg(not(feature = "noop"))]
+pub(crate) fn is_registration_alive(id: RegistrationId, env: sys::napi_env) -> bool {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(registrations) = registrations.try_borrow() else {
+        return false;
+      };
+      registrations
+        .iter()
+        .any(|registration| registration.id == id && registration.env == env)
+    })
+    .unwrap_or(false)
+}
+
 /// The custom-GC handle of `env`, from its newest live record.
 ///
 /// `None` when `env` has no live record (never registered, already torn down)
@@ -742,4 +841,21 @@ pub fn env_teardown_custom_gc_released() -> usize {
 #[doc(hidden)]
 pub fn env_teardown_class_refs_deleted() -> usize {
   CLASS_REFS_DELETED.load(Ordering::Relaxed)
+}
+
+#[cfg(all(test, not(feature = "noop")))]
+pub(crate) mod test_helpers {
+  use super::*;
+
+  pub(crate) fn mark_env_torn_down(env: sys::napi_env) {
+    TORN_DOWN_ENVS.with(|torn_down| {
+      torn_down.borrow_mut().insert(env as usize);
+    });
+  }
+
+  pub(crate) fn clear_env_torn_down(env: sys::napi_env) {
+    TORN_DOWN_ENVS.with(|torn_down| {
+      torn_down.borrow_mut().remove(&(env as usize));
+    });
+  }
 }

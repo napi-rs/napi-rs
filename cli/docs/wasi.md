@@ -549,21 +549,49 @@ the deferred `./workerd` loader. The two flavors want different floors:
     "wasm": {
       "initialMemory": 16384,
       "threadlessInitialMemory": 1027,
-      "maximumMemory": 65536
+      "maximumMemory": 65536,
+      "stackSizeBytes": 16777216
     }
   }
 }
 ```
 
-Without the key the threadless loaders keep following `napi.wasm.initialMemory`,
-so nothing changes for an existing project.
+Without `threadlessInitialMemory` the threadless loaders keep following
+`napi.wasm.initialMemory`, so nothing changes for an existing project.
 
-Both values must be integers in `1..=65536` pages — memory32 tops out at 4 GiB,
-which is also the `--max-memory` the WASI link uses — and neither may exceed
-`napi.wasm.maximumMemory`. `napi build` fails the WASI target otherwise. An
-`initial` _below_ the module's own `env.memory` minimum is **not** caught by the
-CLI: it surfaces as a `LinkError` at instantiation, so re-measure whenever the
-addon's static data or stack size grows.
+`napi.wasm.stackSizeBytes` configures the linear-memory shadow stack size
+(`-zstack-size`) in **bytes** (not 64 KiB pages). It must be a positive
+16-byte-aligned integer below 4 GiB (`4294967296` bytes) and defaults to
+`64000000` bytes (~61.04 MiB, set by `napi-build`). It sizes only the main
+thread's stack; worker threads on `wasm32-wasip1-threads` allocate their stacks
+on the heap via `malloc`. Using `napi.wasm.stackSizeBytes` requires
+`napi-build >= 2.7.0`.
+
+You can also configure the WASI stack size from the environment via
+`NAPI_WASI_STACK_SIZE` (an empty string `""` is treated as unset), or directly
+in `build.rs` for Rust-first setups using
+`napi_build::setup_with(napi_build::SetupOptions::new().wasi_stack_size(...))`.
+The full setting priority order (highest to lowest) is:
+
+1. `NAPI_WASI_STACK_SIZE` environment variable (non-empty; empty string `""` is
+   treated as unset)
+2. `napi.wasm.stackSizeBytes` in `package.json` (forwarded by `@napi-rs/cli` as
+   `NAPI_WASI_STACK_SIZE` when the env var is unset or empty)
+3. `napi_build::SetupOptions::wasi_stack_size(...)` in `build.rs`
+4. Default: `64_000_000` bytes
+
+Both `initialMemory` and `threadlessInitialMemory` must be integers in
+`1..=65536` pages — memory32 tops out at 4 GiB, which is also the `--max-memory`
+the WASI link uses — and neither may exceed `napi.wasm.maximumMemory`.
+`napi build` fails the WASI target otherwise. After linking, `napi build` also
+inspects the built `.wasm` binary to check the selected WASI flavor's effective
+explicit initial memory (`initialMemory`, or `threadlessInitialMemory` on
+`wasm32-wasip1`) and any explicitly configured `maximumMemory` against the
+module's `env.memory` minimum (and verifies the module's `__stack_pointer` when
+`stackSizeBytes` or `NAPI_WASI_STACK_SIZE` is set). Untouched template defaults
+(such as the deferred `./workerd` loader's 1,024-page default) are not rejected
+at build time and still surface as a `LinkError` at instantiation, so re-measure
+whenever the addon's static data or stack size grows.
 
 Threaded browser loaders always pre-create a pool of wasi-threads workers at
 module initialization, sized as `asyncWorkPoolSize + hardwareConcurrency`
