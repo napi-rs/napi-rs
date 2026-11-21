@@ -1328,7 +1328,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // are `Send`, dropping it later on a non-JS thread would fall through to a direct
   // `napi_reference_unref(env, ..)` on the WRONG thread — the cross-isolate
   // use-after-free this change exists to prevent. `create_custom_gc` only needs a
-  // valid `env` (it creates a dummy function + the per-env TSFN and never reads
+  // valid `env` (it creates the per-env TSFN with no JS callback and never reads
   // `exports`), so running it this early is safe. It must also run BEFORE
   // `env_registration::begin` below, so the record's cleanup hook (added later)
   // runs before Node's own cleanup for the TSFN (added by its creation).
@@ -1748,24 +1748,13 @@ pub(crate) unsafe extern "C" fn noop(
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 fn create_custom_gc(env: sys::napi_env) -> Option<std::sync::Arc<CustomGcHandle>> {
   // Per-env custom-GC TSFN (#3357): created for EVERY env. It is `napi_unref`'d so it never pins
-  // the event loop (worker terminate/exit cannot hang). Its initial thread count of 1 is released
-  // by the registration record's cleanup hook; Node then closes it at env teardown and calls
-  // `custom_gc_handle_finalize`.
-  let mut custom_gc_fn = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"custom_gc".as_ptr(),
-        9,
-        Some(empty),
-        ptr::null_mut(),
-        &mut custom_gc_fn,
-      )
-    },
-    "Create Custom GC Function in napi_register_module_v1 failed"
-  );
+  // the event loop (worker terminate/exit cannot hang), and passes null for `func` because
+  // `custom_gc` never invokes a JS callback — avoiding an unused JS function allocation and
+  // strong root per load on modern runtimes (Node >= 10.17 / >= 12.6, Bun, Deno, emnapi).
+  // Early Node-API 4 hosts (Node 10.6–10.16, 12.0–12.5) reject a null `func` with
+  // `napi_invalid_arg`, so we fall back to a dummy JS function only on that error. Its initial
+  // thread count of 1 is released by the registration record's cleanup hook; Node then closes it
+  // at env teardown and calls `custom_gc_handle_finalize`.
   let mut async_resource_name = ptr::null_mut();
   check_status_or_throw!(
     env,
@@ -1775,10 +1764,10 @@ fn create_custom_gc(env: sys::napi_env) -> Option<std::sync::Arc<CustomGcHandle>
   let handle = std::sync::Arc::new(CustomGcHandle::new());
   let weak_ptr = std::sync::Arc::downgrade(&handle).into_raw();
   let mut custom_gc_tsfn = ptr::null_mut();
-  let status = unsafe {
+  let mut status = unsafe {
     sys::napi_create_threadsafe_function(
       env,
-      custom_gc_fn,
+      ptr::null_mut(),
       ptr::null_mut(),
       async_resource_name,
       0,
@@ -1790,6 +1779,42 @@ fn create_custom_gc(env: sys::napi_env) -> Option<std::sync::Arc<CustomGcHandle>
       &mut custom_gc_tsfn,
     )
   };
+  if status == sys::Status::napi_invalid_arg {
+    let mut is_pending = false;
+    if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } == sys::Status::napi_ok
+      && !is_pending
+    {
+      let mut custom_gc_fn = ptr::null_mut();
+      if unsafe {
+        sys::napi_create_function(
+          env,
+          c"custom_gc".as_ptr(),
+          9,
+          Some(empty),
+          ptr::null_mut(),
+          &mut custom_gc_fn,
+        )
+      } == sys::Status::napi_ok
+      {
+        custom_gc_tsfn = ptr::null_mut();
+        status = unsafe {
+          sys::napi_create_threadsafe_function(
+            env,
+            custom_gc_fn,
+            ptr::null_mut(),
+            async_resource_name,
+            0,
+            1,
+            weak_ptr.cast_mut().cast(),
+            Some(custom_gc_handle_finalize),
+            ptr::null_mut(),
+            Some(custom_gc),
+            &mut custom_gc_tsfn,
+          )
+        };
+      }
+    }
+  }
   if status != sys::Status::napi_ok || custom_gc_tsfn.is_null() {
     // reclaim the leaked weak count before bailing
     drop(unsafe { std::sync::Weak::from_raw(weak_ptr) });
@@ -1906,8 +1931,7 @@ unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-#[allow(unused)]
-unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
+unsafe extern "C" fn empty(_env: sys::napi_env, _info: sys::napi_callback_info) -> sys::napi_value {
   ptr::null_mut()
 }
 
