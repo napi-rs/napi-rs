@@ -28,9 +28,6 @@ type NativeBorrowMap = HashMap<usize, NativeBorrowState, FxBuildHasher>;
 
 const NATIVE_BORROW_SHARDS: usize = 64;
 
-/// One lock per shard so callbacks on different threads (worker_threads) don't
-/// serialize on a single process-wide mutex. Aligned to keep shards on separate cache
-/// lines.
 #[repr(align(128))]
 struct NativeBorrowShard(Mutex<NativeBorrowMap>);
 
