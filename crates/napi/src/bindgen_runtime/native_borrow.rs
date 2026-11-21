@@ -27,8 +27,6 @@ static NATIVE_BORROWS: LazyLock<Mutex<HashMap<usize, NativeBorrowState>>> =
 
 type SharedStorage = Arc<Mutex<NativeBorrowStorage>>;
 
-/// An entry of the conversion stack. A collecting scope allocates its storage only when
-/// the first borrow is registered, so callbacks that borrow nothing never allocate.
 enum ScopeEntry {
   Barrier,
   Collecting(Option<SharedStorage>),
@@ -38,8 +36,46 @@ thread_local! {
   static NATIVE_BORROW_SCOPES: RefCell<Vec<ScopeEntry>> = const { RefCell::new(Vec::new()) };
   static DEFERRED_NATIVE_BORROW_SCOPES: RefCell<Vec<FinishedNativeBorrowScope>> =
     const { RefCell::new(Vec::new()) };
-  /// Deferred scopes below this index belong to callbacks outside the innermost barrier.
   static DEFERRED_NATIVE_BORROW_FLOOR: Cell<usize> = const { Cell::new(0) };
+  static NATIVE_BORROW_STORAGE_POOL: RefCell<Vec<SharedStorage>> =
+    const { RefCell::new(Vec::new()) };
+}
+
+const NATIVE_BORROW_STORAGE_POOL_SIZE: usize = 8;
+
+fn new_storage() -> SharedStorage {
+  NATIVE_BORROW_STORAGE_POOL
+    .try_with(|pool| pool.borrow_mut().pop())
+    .ok()
+    .flatten()
+    .unwrap_or_default()
+}
+
+fn recycle_storage(mut storage: SharedStorage) {
+  let Some(inner) = Arc::get_mut(&mut storage) else {
+    return;
+  };
+  let inner = inner
+    .get_mut()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  if !inner.guards.is_empty() || !inner.roots.is_empty() || inner.open_leases != 0 {
+    return;
+  }
+  inner.borrowed_values.clear();
+  inner.root_values = false;
+  inner.owner_thread = None;
+  inner.closed = false;
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  {
+    inner.custom_gc = None;
+  }
+  let _ = NATIVE_BORROW_STORAGE_POOL.try_with(|pool| {
+    if let Ok(mut pool) = pool.try_borrow_mut() {
+      if pool.len() < NATIVE_BORROW_STORAGE_POOL_SIZE {
+        pool.push(storage);
+      }
+    }
+  });
 }
 
 #[derive(Default)]
@@ -372,10 +408,8 @@ pub struct NativeBorrowScope {
   // conversion: the storage must outlive the callback frame and stay put whichever
   // handle moves. The `Mutex` serializes the lease counter against scope close and
   // release-vs-release across threads; it is never held across a napi call that can
-  // reenter this storage. While collecting, the storage lives in this scope's TLS entry
-  // and is allocated by the first registered borrow; `finish` moves it here.
+  // reenter this storage.
   storage: Option<SharedStorage>,
-  // Index of this scope's entry in the TLS conversion stack.
   depth: usize,
   collecting: bool,
   // `!Send` while collecting; `finish_sendable` is the only way to move the scope's
@@ -407,7 +441,6 @@ impl NativeBorrowScope {
   }
 
   unsafe fn new_inner(root_values: bool) -> Self {
-    // Async scopes root eagerly, so they need their storage up front.
     let storage = root_values.then(|| {
       Arc::new(Mutex::new(NativeBorrowStorage {
         root_values,
@@ -428,10 +461,9 @@ impl NativeBorrowScope {
     }
   }
 
-  /// The storage of this collecting scope, allocated on first use.
   fn collecting_storage(&self) -> SharedStorage {
     NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().get_mut(self.depth) {
-      Some(ScopeEntry::Collecting(storage)) => storage.get_or_insert_with(Default::default).clone(),
+      Some(ScopeEntry::Collecting(storage)) => storage.get_or_insert_with(new_storage).clone(),
       _ => panic!("native borrow scope is not on the conversion stack"),
     })
   }
@@ -550,7 +582,6 @@ impl NativeBorrowScope {
 /// rather than unref-ing through a possibly-dead env from a foreign thread.
 #[doc(hidden)]
 pub struct FinishedNativeBorrowScope {
-  // `None` until a borrow is registered or a lease is claimed.
   storage: Option<SharedStorage>,
 }
 
@@ -585,8 +616,9 @@ impl FinishedNativeBorrowScope {
 
 impl Drop for FinishedNativeBorrowScope {
   fn drop(&mut self) {
-    if let Some(storage) = &self.storage {
-      close_scope(storage, None);
+    if let Some(storage) = self.storage.take() {
+      close_scope(&storage, None);
+      recycle_storage(storage);
     }
   }
 }
@@ -660,7 +692,6 @@ impl Drop for NativeBorrowLease {
 /// releases in place; with leases, the last one out performs the release.
 #[doc(hidden)]
 pub struct DeferredNativeBorrowScopeGuard {
-  // Index of the deferred scope in the TLS stack.
   depth: usize,
   env: sys::napi_env,
 }
@@ -714,7 +745,7 @@ pub(crate) fn claim_deferred_native_borrow_lease() -> Result<Option<NativeBorrow
     if scopes.len() > floor {
       scopes
         .last_mut()
-        .map(|scope| scope.storage.get_or_insert_with(Default::default).clone())
+        .map(|scope| scope.storage.get_or_insert_with(new_storage).clone())
     } else {
       None
     }
@@ -969,12 +1000,9 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
   Ok(())
 }
 
-/// The storage of the innermost collecting scope, allocated on first use.
 fn current_native_borrow_scope() -> Result<SharedStorage> {
   NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().last_mut() {
-    Some(ScopeEntry::Collecting(storage)) => {
-      Ok(storage.get_or_insert_with(Default::default).clone())
-    }
+    Some(ScopeEntry::Collecting(storage)) => Ok(storage.get_or_insert_with(new_storage).clone()),
     _ => Err(missing_native_borrow_scope_error()),
   })
 }
