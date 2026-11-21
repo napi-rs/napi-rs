@@ -20,6 +20,13 @@
 //! module twice into the same env. A record is always removed before its env is
 //! freed, so a new env that reuses a freed env's address can never match a stale
 //! record.
+//!
+//! Because multiple envs can legitimately be live at once on the same OS thread,
+//! registering a new env never tears down earlier records on that thread. Each
+//! record keeps its strong `napi_ref`s alive until the host tears down its env
+//! and runs the cleanup hook (or external finalizer below Node-API 3); a host
+//! that retires a realm on a reused thread without tearing down its `napi_env`
+//! must release or weaken those refs itself.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -359,7 +366,7 @@ fn take_registration(id: RegistrationId) -> Option<EnvRegistration> {
       let mut registrations = registrations.try_borrow_mut().ok()?;
       let position = registrations
         .iter()
-        .position(|registration| registration.id == id)?;
+        .rposition(|registration| registration.id == id)?;
       // `remove`, not `swap_remove`: the newest-last order must be kept.
       Some(registrations.remove(position))
     })
@@ -454,6 +461,7 @@ pub(crate) fn set_reflect_intrinsics(id: RegistrationId, reference: sys::napi_re
       };
       match registrations
         .iter_mut()
+        .rev()
         .find(|registration| registration.id == id)
       {
         Some(registration) if registration.reflect_intrinsics.is_none() => {
@@ -560,6 +568,7 @@ fn move_promise_settle(id: RegistrationId, from: PromiseSettle, to: PromiseSettl
       };
       match registrations
         .iter_mut()
+        .rev()
         .find(|registration| registration.id == id)
       {
         Some(registration) if registration.promise_settle == from => {
@@ -621,6 +630,7 @@ pub(crate) fn set_classes(
       };
       match registrations
         .iter_mut()
+        .rev()
         .find(|registration| registration.id == id)
       {
         Some(registration) if registration.classes.is_empty() => {
@@ -651,6 +661,7 @@ pub(crate) fn set_custom_gc(
       };
       match registrations
         .iter_mut()
+        .rev()
         .find(|registration| registration.id == id)
       {
         Some(registration) if registration.custom_gc.is_none() => {
@@ -714,6 +725,7 @@ pub(crate) fn is_registration_alive(id: RegistrationId, env: sys::napi_env) -> b
       };
       registrations
         .iter()
+        .rev()
         .any(|registration| registration.id == id && registration.env == env)
     })
     .unwrap_or(false)
@@ -749,7 +761,7 @@ pub(crate) fn holds_custom_gc(handle: &Arc<CustomGcHandle>) -> bool {
       let Ok(registrations) = registrations.try_borrow() else {
         return false;
       };
-      registrations.iter().any(|registration| {
+      registrations.iter().rev().any(|registration| {
         registration
           .custom_gc
           .as_ref()
