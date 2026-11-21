@@ -584,12 +584,13 @@ Both `initialMemory` and `threadlessInitialMemory` must be integers in
 `1..=65536` pages — memory32 tops out at 4 GiB, which is also the `--max-memory`
 the WASI link uses — and neither may exceed `napi.wasm.maximumMemory`.
 `napi build` fails the WASI target otherwise. After linking, `napi build` also
-inspects the built `.wasm` binary to check any explicitly configured
-`initialMemory`, `threadlessInitialMemory`, or `maximumMemory` against the
+inspects the built `.wasm` binary to check the selected WASI flavor's effective
+explicit initial memory (`initialMemory`, or `threadlessInitialMemory` on
+`wasm32-wasip1`) and any explicitly configured `maximumMemory` against the
 module's `env.memory` minimum (and verifies the module's `__stack_pointer` when
-`stackSizeBytes` or `NAPI_WASI_STACK_SIZE` is set). Untouched template defaults (such as the
-deferred `./workerd` loader's 1,024-page default) are not rejected at build
-time and still surface as a `LinkError` at instantiation, so re-measure
+`stackSizeBytes` or `NAPI_WASI_STACK_SIZE` is set). Untouched template defaults
+(such as the deferred `./workerd` loader's 1,024-page default) are not rejected
+at build time and still surface as a `LinkError` at instantiation, so re-measure
 whenever the addon's static data or stack size grows.
 
 Threaded browser loaders always pre-create a pool of wasi-threads workers at

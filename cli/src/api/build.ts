@@ -4636,16 +4636,20 @@ export async function verifyWasiReactor(
       info.stackPointer !== options.expectedStackSizeBytes
     ) {
       throw new Error(
-        `WASI artifact ${wasmPath} has stack pointer ${info.stackPointer} bytes, but ${source} requested ${options.expectedStackSizeBytes} bytes. Upgrade \`napi-build\` to >= 2.7.0 or remove manual \`-zstack-size\` link arguments from build.rs.`,
+        `WASI artifact ${wasmPath} has stack pointer ${info.stackPointer} bytes, but ${source} requested ${options.expectedStackSizeBytes} bytes. Upgrade \`napi-build\` to >= 2.7.0, or check for a conflicting Cargo \`[env]\` override or manual \`-zstack-size\` link argument in build.rs.`,
       )
-    } else if (
-      info.stackPointer === undefined &&
-      info.memoryMinPages !== undefined &&
-      info.memoryMinPages <
-        Math.ceil(options.expectedStackSizeBytes / WASM32_PAGE_BYTES)
-    ) {
-      throw new Error(
-        `WASI artifact ${wasmPath} imports env.memory with minimum ${info.memoryMinPages} pages, which is smaller than ${source} (${options.expectedStackSizeBytes} bytes). Upgrade \`napi-build\` to >= 2.7.0.`,
+    } else if (info.stackPointer === undefined) {
+      if (
+        info.memoryMinPages !== undefined &&
+        info.memoryMinPages <
+          Math.ceil(options.expectedStackSizeBytes / WASM32_PAGE_BYTES)
+      ) {
+        throw new Error(
+          `WASI artifact ${wasmPath} imports env.memory with minimum ${info.memoryMinPages} pages, which is smaller than ${source} (${options.expectedStackSizeBytes} bytes). Upgrade \`napi-build\` to >= 2.7.0.`,
+        )
+      }
+      debug.warn(
+        `WASI artifact ${wasmPath} has no readable __stack_pointer global; could not independently verify ${source} (${options.expectedStackSizeBytes} bytes).`,
       )
     }
   }
