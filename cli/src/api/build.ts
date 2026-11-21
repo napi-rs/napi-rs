@@ -1137,6 +1137,9 @@ export function createWasiDeferredBindingTypeDef(
 
 /** memory32 tops out at 4 GiB, which is also `--max-memory` in `crates/build/src/wasi.rs`. */
 const WASM32_MAX_MEMORY_PAGES = 65536
+const WASM32_PAGE_BYTES = 65536
+const WASM32_MAX_MEMORY_BYTES = WASM32_MAX_MEMORY_PAGES * WASM32_PAGE_BYTES
+const WASM_STACK_ALIGNMENT = 16
 
 function validateWasmMemoryPages(
   value: number | undefined,
@@ -1155,6 +1158,29 @@ function validateWasmMemoryPages(
     )
   }
   return value
+}
+
+function validateWasmStackSizeBytes(value: number, key: string): number {
+  if (
+    !Number.isInteger(value) ||
+    value < WASM_STACK_ALIGNMENT ||
+    value >= WASM32_MAX_MEMORY_BYTES ||
+    value % WASM_STACK_ALIGNMENT !== 0
+  ) {
+    throw new Error(
+      `${key} must be a positive ${WASM_STACK_ALIGNMENT}-byte-aligned integer below ${WASM32_MAX_MEMORY_BYTES} bytes; received ${value}`,
+    )
+  }
+  return value
+}
+
+export type WasiStackSizeSource =
+  | 'napi.wasm.stackSizeBytes'
+  | 'NAPI_WASI_STACK_SIZE'
+
+export interface ResolvedWasmStackSize {
+  stackSizeBytes?: number
+  source?: WasiStackSizeSource
 }
 
 export interface ResolvedWasmMemory {
@@ -1210,6 +1236,79 @@ export function resolveWasmMemory(
       ? initialMemory
       : (threadlessInitialMemory ?? initialMemory),
     maximumMemory,
+  }
+}
+
+export function resolveWasmStackSize(
+  wasm: NapiConfig['wasm'],
+  hasThreads: boolean,
+  envStackSize?: string,
+): ResolvedWasmStackSize {
+  const configStackSize =
+    wasm?.stackSizeBytes !== undefined
+      ? validateWasmStackSizeBytes(
+          wasm.stackSizeBytes,
+          'napi.wasm.stackSizeBytes',
+        )
+      : undefined
+
+  let parsedEnv: number | undefined
+  if (envStackSize !== undefined && envStackSize !== '') {
+    if (!/^\d+$/.test(envStackSize)) {
+      throw new Error(
+        `NAPI_WASI_STACK_SIZE must be a positive ${WASM_STACK_ALIGNMENT}-byte-aligned integer below ${WASM32_MAX_MEMORY_BYTES} bytes; received ${JSON.stringify(envStackSize)}`,
+      )
+    }
+    parsedEnv = validateWasmStackSizeBytes(
+      Number(envStackSize),
+      'NAPI_WASI_STACK_SIZE',
+    )
+  }
+
+  const stackSizeBytes = parsedEnv ?? configStackSize
+  const source: WasiStackSizeSource | undefined =
+    parsedEnv !== undefined
+      ? 'NAPI_WASI_STACK_SIZE'
+      : configStackSize !== undefined
+        ? 'napi.wasm.stackSizeBytes'
+        : undefined
+
+  const { initialMemory, maximumMemory } = resolveWasmMemory(wasm, hasThreads)
+
+  if (stackSizeBytes !== undefined && source !== undefined) {
+    const maxPages = maximumMemory ?? WASM32_MAX_MEMORY_PAGES
+    if (stackSizeBytes >= maxPages * WASM32_PAGE_BYTES) {
+      throw new Error(
+        `${source} (${stackSizeBytes} bytes) must be smaller than napi.wasm.maximumMemory (${maxPages} pages = ${maxPages * WASM32_PAGE_BYTES} bytes)`,
+      )
+    }
+
+    const minStackPages = Math.ceil(stackSizeBytes / WASM32_PAGE_BYTES)
+    if (source === 'napi.wasm.stackSizeBytes') {
+      for (const [initialKey, initialPages] of [
+        ['napi.wasm.initialMemory', wasm?.initialMemory],
+        ['napi.wasm.threadlessInitialMemory', wasm?.threadlessInitialMemory],
+      ] as const) {
+        if (initialPages !== undefined && minStackPages > initialPages) {
+          throw new Error(
+            `${initialKey} (${initialPages} pages = ${initialPages * WASM32_PAGE_BYTES} bytes) is smaller than ${source} (${stackSizeBytes} bytes, requires at least ${minStackPages} pages)`,
+          )
+        }
+      }
+    } else if (initialMemory !== undefined && minStackPages > initialMemory) {
+      const initialKey =
+        hasThreads || wasm?.threadlessInitialMemory === undefined
+          ? 'napi.wasm.initialMemory'
+          : 'napi.wasm.threadlessInitialMemory'
+      throw new Error(
+        `${initialKey} (${initialMemory} pages = ${initialMemory * WASM32_PAGE_BYTES} bytes) is smaller than ${source} (${stackSizeBytes} bytes, requires at least ${minStackPages} pages)`,
+      )
+    }
+  }
+
+  return {
+    stackSizeBytes,
+    source,
   }
 }
 
@@ -2241,6 +2340,7 @@ class Builder {
   private readonly stagedOutputDestinations = new Map<string, string>()
   private ephemeralTypeDefFolder: string | undefined
   private typeDefWithTypeImports: string | undefined
+  private resolvedWasmStackSize: ResolvedWasmStackSize | undefined
   /**
    * The `.d.ts` header this build rendered, so `writeWasiBindingForTarget` can
    * tell a `__napiBindingTarget` declaration the header owns from one typegen
@@ -3174,6 +3274,17 @@ class Builder {
 
   private setWasiEnv() {
     const hasThreads = wasiTargetHasThreads(this.target)
+    this.resolvedWasmStackSize = resolveWasmStackSize(
+      this.config.wasm,
+      hasThreads,
+      process.env.NAPI_WASI_STACK_SIZE,
+    )
+    if (this.config.wasm?.stackSizeBytes !== undefined) {
+      this.setEnvIfNotExists(
+        'NAPI_WASI_STACK_SIZE',
+        String(this.config.wasm.stackSizeBytes),
+      )
+    }
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapiLibDir = join(require.resolve('emnapi'), '..', 'lib')
     const emnapiVersion = require('emnapi/package.json').version
@@ -3641,7 +3752,27 @@ class Builder {
           artifactReplaced = true
         }
         if (this.target.platform === 'wasi') {
-          await verifyWasiReactor(dest)
+          const hasThreads = wasiTargetHasThreads(this.target)
+          const resolvedStack =
+            this.resolvedWasmStackSize ??
+            resolveWasmStackSize(
+              this.config.wasm,
+              hasThreads,
+              process.env.NAPI_WASI_STACK_SIZE,
+            )
+          const resolvedMemory = resolveWasmMemory(this.config.wasm, hasThreads)
+          const initialMemorySource =
+            !hasThreads &&
+            this.config.wasm?.threadlessInitialMemory !== undefined
+              ? 'napi.wasm.threadlessInitialMemory'
+              : 'napi.wasm.initialMemory'
+          await verifyWasiReactor(dest, {
+            expectedStackSizeBytes: resolvedStack.stackSizeBytes,
+            stackSizeSource: resolvedStack.source,
+            initialMemoryPages: resolvedMemory.initialMemory,
+            initialMemorySource,
+            maximumMemoryPages: resolvedMemory.maximumMemory,
+          })
         }
       } else {
         await copyFileAtomic(src, dest)
@@ -4184,7 +4315,286 @@ export = binding
   }
 }
 
-export async function verifyWasiReactor(wasmPath: string): Promise<void> {
+export interface WasiBinaryMemoryInfo {
+  memoryMinPages?: number
+  stackPointer?: number
+  importsStackPointer: boolean
+}
+
+function readBoundedU32(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): { value: number; nextOffset: number } | undefined {
+  let value = 0
+  let shift = 0
+  let offset = start
+  while (offset < end && shift <= 28) {
+    const byte = bytes[offset++]
+    value += (byte & 0x7f) * 2 ** shift
+    if ((byte & 0x80) === 0) {
+      if (shift === 28 && (byte & 0x70) !== 0) {
+        return undefined
+      }
+      return { value, nextOffset: offset }
+    }
+    shift += 7
+  }
+  return undefined
+}
+
+function skipBoundedU64(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): number | undefined {
+  let offset = start
+  for (let i = 0; i < 10 && offset < end; i++) {
+    const byte = bytes[offset++]
+    if ((byte & 0x80) === 0) {
+      return offset
+    }
+  }
+  return undefined
+}
+
+function readBoundedI32(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): { value: number; nextOffset: number } | undefined {
+  let value = 0
+  let shift = 0
+  let offset = start
+  while (offset < end && shift <= 28) {
+    const byte = bytes[offset++]
+    value |= (byte & 0x7f) << shift
+    if ((byte & 0x80) === 0) {
+      if (shift === 28) {
+        const signBit = (byte & 0x08) !== 0
+        const upperBits = byte & 0x70
+        if (signBit ? upperBits !== 0x70 : upperBits !== 0x00) {
+          return undefined
+        }
+      } else if ((byte & 0x40) !== 0) {
+        value |= ~0 << (shift + 7)
+      }
+      return { value: value | 0, nextOffset: offset }
+    }
+    shift += 7
+  }
+  return undefined
+}
+
+function readBoundedUtf8(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): { value: string; nextOffset: number } | undefined {
+  const len = readBoundedU32(bytes, start, end)
+  if (!len) {
+    return undefined
+  }
+  const strEnd = len.nextOffset + len.value
+  if (strEnd > end) {
+    return undefined
+  }
+  return {
+    value: Buffer.from(bytes.subarray(len.nextOffset, strEnd)).toString('utf8'),
+    nextOffset: strEnd,
+  }
+}
+
+function skipBoundedLimits(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): number | undefined {
+  if (start >= end) {
+    return undefined
+  }
+  const flags = bytes[start]
+  let pos = start + 1
+  const is64 = (flags & 0x04) !== 0
+  if (is64) {
+    const afterMin = skipBoundedU64(bytes, pos, end)
+    if (afterMin === undefined) {
+      return undefined
+    }
+    pos = afterMin
+    if ((flags & 0x01) !== 0) {
+      return skipBoundedU64(bytes, pos, end)
+    }
+    return pos
+  }
+  const min = readBoundedU32(bytes, pos, end)
+  if (!min) {
+    return undefined
+  }
+  pos = min.nextOffset
+  if ((flags & 0x01) !== 0) {
+    const max = readBoundedU32(bytes, pos, end)
+    if (!max) {
+      return undefined
+    }
+    pos = max.nextOffset
+  }
+  return pos
+}
+
+export function inspectWasiBinaryMemory(
+  bytes: Uint8Array,
+): WasiBinaryMemoryInfo {
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x00 ||
+    bytes[1] !== 0x61 ||
+    bytes[2] !== 0x73 ||
+    bytes[3] !== 0x6d ||
+    bytes[4] !== 0x01 ||
+    bytes[5] !== 0x00 ||
+    bytes[6] !== 0x00 ||
+    bytes[7] !== 0x00
+  ) {
+    return {
+      memoryMinPages: undefined,
+      stackPointer: undefined,
+      importsStackPointer: false,
+    }
+  }
+
+  let offset = 8
+  let importsStackPointer = false
+  let memoryMinPages: number | undefined
+  let stackPointer: number | undefined
+
+  while (offset < bytes.length) {
+    const sectionId = bytes[offset++]
+    const sectionSize = readBoundedU32(bytes, offset, bytes.length)
+    if (!sectionSize) {
+      break
+    }
+    const sectionStart = sectionSize.nextOffset
+    const sectionEnd = sectionStart + sectionSize.value
+    if (sectionEnd > bytes.length) {
+      break
+    }
+
+    if (sectionId === 2) {
+      // Import section
+      const count = readBoundedU32(bytes, sectionStart, sectionEnd)
+      if (count) {
+        let pos = count.nextOffset
+        for (let i = 0; i < count.value; i++) {
+          const mod = readBoundedUtf8(bytes, pos, sectionEnd)
+          if (!mod) break
+          const field = readBoundedUtf8(bytes, mod.nextOffset, sectionEnd)
+          if (!field) break
+          pos = field.nextOffset
+          if (pos >= sectionEnd) break
+          const kind = bytes[pos++]
+          if (kind === 0) {
+            const typeIdx = readBoundedU32(bytes, pos, sectionEnd)
+            if (!typeIdx) break
+            pos = typeIdx.nextOffset
+          } else if (kind === 1) {
+            if (pos >= sectionEnd) break
+            pos += 1
+            const nextPos = skipBoundedLimits(bytes, pos, sectionEnd)
+            if (nextPos === undefined) break
+            pos = nextPos
+          } else if (kind === 2) {
+            if (pos >= sectionEnd) break
+            const flags = bytes[pos++]
+            if ((flags & 0x04) !== 0) {
+              const afterMin = skipBoundedU64(bytes, pos, sectionEnd)
+              if (afterMin === undefined) break
+              pos = afterMin
+              if ((flags & 0x01) !== 0) {
+                const afterMax = skipBoundedU64(bytes, pos, sectionEnd)
+                if (afterMax === undefined) break
+                pos = afterMax
+              }
+            } else {
+              const min = readBoundedU32(bytes, pos, sectionEnd)
+              if (!min) break
+              pos = min.nextOffset
+              if (mod.value === 'env' && field.value === 'memory') {
+                memoryMinPages = min.value
+              }
+              if ((flags & 0x01) !== 0) {
+                const max = readBoundedU32(bytes, pos, sectionEnd)
+                if (!max) break
+                pos = max.nextOffset
+              }
+            }
+          } else if (kind === 3) {
+            if (pos + 2 > sectionEnd) break
+            if (mod.value === 'env' && field.value === '__stack_pointer') {
+              importsStackPointer = true
+            }
+            pos += 2
+          } else if (kind === 4) {
+            if (pos >= sectionEnd) break
+            pos += 1
+            const typeIdx = readBoundedU32(bytes, pos, sectionEnd)
+            if (!typeIdx) break
+            pos = typeIdx.nextOffset
+          } else {
+            break
+          }
+        }
+      }
+    } else if (sectionId === 6) {
+      // Global section (defined globals only; wasm-ld places `__stack_pointer`
+      // at entry 0 unless `env.__stack_pointer` is imported).
+      if (!importsStackPointer) {
+        const count = readBoundedU32(bytes, sectionStart, sectionEnd)
+        if (count && count.value >= 1) {
+          let pos = count.nextOffset
+          if (pos + 3 <= sectionEnd) {
+            const valType = bytes[pos++]
+            const mut = bytes[pos++]
+            const opcode = bytes[pos++]
+            if (valType === 0x7f && mut === 0x01 && opcode === 0x41) {
+              const initVal = readBoundedI32(bytes, pos, sectionEnd)
+              if (
+                initVal &&
+                initVal.nextOffset < sectionEnd &&
+                bytes[initVal.nextOffset] === 0x0b
+              ) {
+                stackPointer = initVal.value >>> 0
+              }
+            }
+          }
+        }
+      }
+    }
+
+    offset = sectionEnd
+  }
+
+  return {
+    memoryMinPages,
+    stackPointer,
+    importsStackPointer,
+  }
+}
+
+export interface VerifyWasiReactorOptions {
+  expectedStackSizeBytes?: number
+  stackSizeSource?: WasiStackSizeSource
+  initialMemoryPages?: number
+  initialMemorySource?:
+    | 'napi.wasm.initialMemory'
+    | 'napi.wasm.threadlessInitialMemory'
+  maximumMemoryPages?: number
+}
+
+export async function verifyWasiReactor(
+  wasmPath: string,
+  options?: VerifyWasiReactorOptions,
+): Promise<void> {
   const bytes = await readFileAsync(wasmPath)
   let module: WebAssembly.Module
   try {
@@ -4201,6 +4611,67 @@ export async function verifyWasiReactor(wasmPath: string): Promise<void> {
   ) {
     throw new Error(
       `WASI artifact ${wasmPath} does not export _initialize. Ensure napi-build can locate crt1-reactor.o for the selected Rust target.`,
+    )
+  }
+
+  if (
+    options?.expectedStackSizeBytes === undefined &&
+    options?.initialMemoryPages === undefined &&
+    options?.maximumMemoryPages === undefined
+  ) {
+    return
+  }
+
+  const info = inspectWasiBinaryMemory(bytes)
+
+  if (options.expectedStackSizeBytes !== undefined) {
+    const source = options.stackSizeSource ?? 'napi.wasm.stackSizeBytes'
+    if (info.importsStackPointer) {
+      throw new Error(
+        `WASI artifact ${wasmPath} imports env.__stack_pointer, so ${source} (${options.expectedStackSizeBytes} bytes) cannot be verified against the module's stack pointer.`,
+      )
+    }
+    if (
+      info.stackPointer !== undefined &&
+      info.stackPointer !== options.expectedStackSizeBytes
+    ) {
+      throw new Error(
+        `WASI artifact ${wasmPath} has stack pointer ${info.stackPointer} bytes, but ${source} requested ${options.expectedStackSizeBytes} bytes. Upgrade \`napi-build\` to >= 2.7.0, or check for a conflicting Cargo \`[env]\` override or manual \`-zstack-size\` link argument in build.rs.`,
+      )
+    } else if (info.stackPointer === undefined) {
+      if (
+        info.memoryMinPages !== undefined &&
+        info.memoryMinPages <
+          Math.ceil(options.expectedStackSizeBytes / WASM32_PAGE_BYTES)
+      ) {
+        throw new Error(
+          `WASI artifact ${wasmPath} imports env.memory with minimum ${info.memoryMinPages} pages, which is smaller than ${source} (${options.expectedStackSizeBytes} bytes). Upgrade \`napi-build\` to >= 2.7.0.`,
+        )
+      }
+      debug.warn(
+        `WASI artifact ${wasmPath} has no readable __stack_pointer global; could not independently verify ${source} (${options.expectedStackSizeBytes} bytes).`,
+      )
+    }
+  }
+
+  if (
+    options.maximumMemoryPages !== undefined &&
+    info.memoryMinPages !== undefined &&
+    info.memoryMinPages > options.maximumMemoryPages
+  ) {
+    throw new Error(
+      `WASI artifact ${wasmPath}'s env.memory minimum (${info.memoryMinPages} pages) exceeds napi.wasm.maximumMemory (${options.maximumMemoryPages} pages). Increase napi.wasm.maximumMemory to at least ${info.memoryMinPages} pages, or lower napi.wasm.stackSizeBytes.`,
+    )
+  }
+
+  if (
+    options.initialMemoryPages !== undefined &&
+    info.memoryMinPages !== undefined &&
+    options.initialMemoryPages < info.memoryMinPages
+  ) {
+    const memKey = options.initialMemorySource ?? 'napi.wasm.initialMemory'
+    throw new Error(
+      `${memKey} (${options.initialMemoryPages} pages) is below WASI artifact ${wasmPath}'s env.memory minimum (${info.memoryMinPages} pages). Increase ${memKey} to at least ${info.memoryMinPages} pages, or lower napi.wasm.stackSizeBytes.`,
     )
   }
 }

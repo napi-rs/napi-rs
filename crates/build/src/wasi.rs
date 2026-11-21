@@ -316,7 +316,52 @@ fn heap_sync_link_lines(exports_object: &Path) -> Vec<String> {
     .collect()
 }
 
-pub fn setup() {
+pub(crate) const DEFAULT_WASI_STACK_SIZE: u32 = 64_000_000;
+pub(crate) const WASI_STACK_ALIGNMENT: u32 = 16;
+pub(crate) const WASI_STACK_SIZE_ENV: &str = "NAPI_WASI_STACK_SIZE";
+
+pub(crate) fn validate_stack_size(bytes: u32, source: &str) -> Result<u32, String> {
+  if bytes == 0 {
+    return Err(format!("{source} must be greater than 0 bytes"));
+  }
+  if !bytes.is_multiple_of(WASI_STACK_ALIGNMENT) {
+    return Err(format!(
+      "{source} must be a 16-byte multiple (wasm-ld requires 16-byte stack alignment); received {bytes}"
+    ));
+  }
+  Ok(bytes)
+}
+
+fn resolve_stack_size(env_value: Option<&OsStr>, configured: Option<u32>) -> Result<u32, String> {
+  if let Some(raw) = env_value {
+    if !raw.is_empty() {
+      let Some(s) = raw.to_str() else {
+        return Err(format!(
+          "{WASI_STACK_SIZE_ENV} must be valid UTF-8 and a non-zero 16-byte multiple in bytes; received {raw:?}"
+        ));
+      };
+      if !s.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!(
+          "{WASI_STACK_SIZE_ENV} must be a base-10 unsigned 32-bit integer in bytes (ASCII digits only); received {s:?}"
+        ));
+      }
+      let parsed = s.parse::<u32>().map_err(|err| {
+        format!(
+          "{WASI_STACK_SIZE_ENV} must fit in an unsigned 32-bit integer (<= {}); received {s:?} ({err})",
+          u32::MAX
+        )
+      })?;
+      return validate_stack_size(parsed, WASI_STACK_SIZE_ENV);
+    }
+  }
+
+  match configured {
+    Some(bytes) => validate_stack_size(bytes, "SetupOptions::wasi_stack_size"),
+    None => Ok(DEFAULT_WASI_STACK_SIZE),
+  }
+}
+
+pub fn setup(configured_stack_size: Option<u32>) {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
   let has_threads = matches!(
@@ -326,9 +371,15 @@ pub fn setup() {
 
   println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");
+  println!("cargo:rerun-if-env-changed={WASI_STACK_SIZE_ENV}");
   println!("cargo:rerun-if-env-changed=RUSTC");
   println!("cargo:rerun-if-env-changed=TARGET");
   println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
+  let stack_size = resolve_stack_size(
+    env::var_os(WASI_STACK_SIZE_ENV).as_deref(),
+    configured_stack_size,
+  )
+  .unwrap_or_else(|error| panic!("{error}"));
   println!("cargo:rustc-link-search={link_dir}");
   let emnapi_library = emnapi_link_library(has_threads);
   let emnapi_archive = Path::new(&link_dir).join(format!("lib{emnapi_library}.a"));
@@ -404,9 +455,10 @@ pub fn setup() {
   println!("cargo:rustc-link-arg=--import-memory");
   println!("cargo:rustc-link-arg=--import-undefined");
   println!("cargo:rustc-link-arg=--max-memory=4294967296");
-  // lld only allocates 1MiB for the WebAssembly stack.
-  // 64000000 bytes = 64MiB
-  println!("cargo:rustc-link-arg=-zstack-size=64000000");
+  // `rustc`/`lld` defaults to 1 MiB for the WebAssembly linear-memory shadow stack.
+  // `napi-build` defaults to 64_000_000 bytes (~61.04 MiB) for byte-identical backwards
+  // compatibility. `-zstack-size` sizes only the main thread's linear-memory stack.
+  println!("cargo:rustc-link-arg=-zstack-size={stack_size}");
   println!("cargo:rustc-link-arg=--no-check-features");
 
   let rustc = env::var_os("RUSTC").expect("RUSTC must be set by Cargo");
@@ -852,6 +904,108 @@ mod tests {
         "{export} calls an undefined symbol"
       );
       assert_eq!(imported_functions[index as usize], ("env", export));
+    }
+  }
+
+  #[test]
+  fn resolves_default_wasi_stack_size() {
+    assert_eq!(resolve_stack_size(None, None), Ok(DEFAULT_WASI_STACK_SIZE));
+    assert_eq!(DEFAULT_WASI_STACK_SIZE, 64_000_000);
+  }
+
+  #[test]
+  fn treats_empty_env_as_unset_and_falls_back() {
+    assert_eq!(
+      resolve_stack_size(Some(OsStr::new("")), None),
+      Ok(DEFAULT_WASI_STACK_SIZE)
+    );
+    assert_eq!(
+      resolve_stack_size(Some(OsStr::new("")), Some(8_388_608)),
+      Ok(8_388_608)
+    );
+  }
+
+  #[test]
+  fn env_var_overrides_setup_options() {
+    assert_eq!(
+      resolve_stack_size(Some(OsStr::new("65536")), Some(8_388_608)),
+      Ok(65_536)
+    );
+  }
+
+  #[test]
+  fn accepts_valid_stack_sizes() {
+    for bytes in [16u32, 65_536, 8_388_608, 64_000_000, u32::MAX - 15] {
+      let as_str = bytes.to_string();
+      assert_eq!(
+        resolve_stack_size(Some(OsStr::new(&as_str)), None),
+        Ok(bytes),
+        "env value {as_str}"
+      );
+      assert_eq!(
+        resolve_stack_size(None, Some(bytes)),
+        Ok(bytes),
+        "configured value {bytes}"
+      );
+    }
+  }
+
+  #[test]
+  fn rejects_invalid_env_stack_sizes() {
+    for invalid in [
+      "0",
+      "1",
+      "15",
+      "17",
+      "-16",
+      "+16",
+      " 16",
+      "16 ",
+      "0x800000",
+      "4294967296",
+      "abc",
+    ] {
+      let err = resolve_stack_size(Some(OsStr::new(invalid)), Some(8_388_608))
+        .expect_err(&format!("expected error for env value {invalid:?}"));
+      assert!(
+        err.contains(WASI_STACK_SIZE_ENV),
+        "error {err:?} should mention {WASI_STACK_SIZE_ENV}"
+      );
+    }
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn rejects_non_utf8_env_stack_size() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let raw = OsString::from_vec(vec![0xff, 0xfe]);
+    let err = resolve_stack_size(Some(raw.as_os_str()), Some(8_388_608))
+      .expect_err("expected error for non-UTF-8 env value");
+    assert!(
+      err.contains(WASI_STACK_SIZE_ENV),
+      "error {err:?} should mention {WASI_STACK_SIZE_ENV}"
+    );
+  }
+
+  #[test]
+  fn rejects_invalid_setup_option_stack_sizes() {
+    for invalid in [0u32, 1, 15, 17] {
+      let err = resolve_stack_size(None, Some(invalid))
+        .expect_err(&format!("expected error for configured value {invalid}"));
+      assert!(
+        err.contains("SetupOptions::wasi_stack_size"),
+        "error {err:?} should mention SetupOptions::wasi_stack_size"
+      );
+
+      let err_with_empty_env = resolve_stack_size(Some(OsStr::new("")), Some(invalid)).expect_err(
+        &format!("expected error for configured value {invalid} with empty env"),
+      );
+      assert!(
+        err_with_empty_env.contains("SetupOptions::wasi_stack_size"),
+        "error {err_with_empty_env:?} should mention SetupOptions::wasi_stack_size"
+      );
     }
   }
 }
