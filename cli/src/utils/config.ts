@@ -127,6 +127,29 @@ export interface UserNapiConfig {
     maximumMemory?: number
 
     /**
+     * Linear-memory shadow stack size (`-zstack-size`) in **bytes** (unlike
+     * `initialMemory`, `threadlessInitialMemory`, and `maximumMemory`, which
+     * are measured in 64 KiB WebAssembly pages).
+     *
+     * Must be a positive 16-byte-aligned integer below 4 GiB (`4294967296`
+     * bytes). Sizes only the main thread's stack; worker threads on
+     * `wasm32-wasip1-threads` allocate their stacks on the heap via `malloc`.
+     *
+     * Forwarded to `napi-build` via `NAPI_WASI_STACK_SIZE` (requires
+     * `napi-build >= 2.7.0`). Full setting priority order (highest to lowest):
+     * 1. `NAPI_WASI_STACK_SIZE` environment variable (non-empty; an empty
+     *    string `""` is treated as unset)
+     * 2. `napi.wasm.stackSizeBytes` in `package.json` (forwarded by
+     *    `@napi-rs/cli` as `NAPI_WASI_STACK_SIZE` when the env var is unset
+     *    or empty)
+     * 3. `napi_build::SetupOptions::wasi_stack_size(...)` in `build.rs`
+     * 4. Default: `64_000_000` bytes (~61.04 MiB, set by `napi-build`)
+     *
+     * @default 64000000
+     */
+    stackSizeBytes?: number
+
+    /**
      * Whether the generated WASI packages are declared as
      * `optionalDependencies` of the root package.
      *
