@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.7.1...napi-derive-v3.7.2) - 2026-11-21
+
+### Fixed
+
+- *(macro)* preserve namespaces for qualified napi attributes ([#3701](https://github.com/napi-rs/napi-rs/pull/3701))
+- *(cli,macro,napi)* harden type-def cache keying, locking, rollback, and emission ([#3725](https://github.com/napi-rs/napi-rs/pull/3725))
+
 ## [3.7.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.7.0...napi-derive-v3.7.1) - 2026-11-11
 
 ### Other
