@@ -24,9 +24,12 @@
 //! Because multiple envs can legitimately be live at once on the same OS thread,
 //! registering a new env never tears down earlier records on that thread. Each
 //! record keeps its strong `napi_ref`s alive until the host tears down its env
-//! and runs the cleanup hook (or external finalizer below Node-API 3); a host
-//! that retires a realm on a reused thread without tearing down its `napi_env`
-//! must release or weaken those refs itself.
+//! and runs the cleanup hook (or, on native targets below Node-API 3, the
+//! external finalizer); a host that retires a realm on a reused thread without
+//! tearing down its `napi_env` must release or weaken those refs itself.
+//! (On wasm below Node-API 3, teardown cannot be observed, so [`begin`] installs
+//! neither a hook nor a finalizer and instead clears earlier records without
+//! deleting their references; see [`begin`].)
 
 use std::cell::RefCell;
 use std::collections::HashMap;
