@@ -427,6 +427,17 @@ test('string', (t) => {
   for (const s of ['', 'a', 'ÿ', longAscii, 'æ¶½¾'.repeat(512)]) {
     t.is(concatLatin1(s), s + suffix)
   }
+  for (const s of [
+    '©' + longAscii,
+    longAscii + 'ÿ',
+    'æ¶½¾'.repeat(512),
+    '©'.repeat(40),
+    longAscii + '你',
+    '🌳' + longAscii,
+    longMixed,
+  ]) {
+    t.is(roundtripStr(s), s)
+  }
 })
 
 test('JsStringUtf8 methods', (t) => {

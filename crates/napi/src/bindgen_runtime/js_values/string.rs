@@ -17,18 +17,82 @@ impl TypeName for String {
 
 impl ValidateNapiValue for String {}
 
+const SMALL_STRING_LEN: usize = 64;
+
+#[inline]
+fn ascii_len(bytes: &[u8]) -> usize {
+  const HIGH_BITS: u128 = u128::from_ne_bytes([0x80; 16]);
+  let mut len = 0;
+  for chunk in bytes.as_chunks::<16>().0 {
+    if u128::from_ne_bytes(*chunk) & HIGH_BITS != 0 {
+      break;
+    }
+    len += 16;
+  }
+  len
+    + bytes[len..]
+      .iter()
+      .take_while(|byte| byte.is_ascii())
+      .count()
+}
+
+#[inline]
+fn fits_latin1(bytes: &[u8]) -> bool {
+  let (chunks, rest) = bytes.as_chunks::<32>();
+  chunks
+    .iter()
+    .all(|chunk| chunk.iter().fold(0, |max, &byte| max.max(byte)) < 0xC4)
+    && rest.iter().all(|&byte| byte < 0xC4)
+}
+
+pub(crate) unsafe fn create_js_string(
+  env: sys::napi_env,
+  val: &str,
+  result: *mut sys::napi_value,
+) -> sys::napi_status {
+  let bytes = val.as_bytes();
+  let mut pos = ascii_len(bytes);
+  if pos == bytes.len() {
+    return unsafe {
+      sys::napi_create_string_latin1(env, bytes.as_ptr().cast(), bytes.len() as isize, result)
+    };
+  }
+  if bytes.len() <= SMALL_STRING_LEN {
+    return unsafe {
+      sys::napi_create_string_utf8(env, bytes.as_ptr().cast(), bytes.len() as isize, result)
+    };
+  }
+  if fits_latin1(&bytes[pos..]) {
+    let mut latin1 = Vec::with_capacity(bytes.len());
+    latin1.extend_from_slice(&bytes[..pos]);
+    while pos < bytes.len() {
+      latin1.push(((bytes[pos] & 0x1F) << 6) | (bytes[pos + 1] & 0x3F));
+      pos += 2;
+      let run = ascii_len(&bytes[pos..]);
+      latin1.extend_from_slice(&bytes[pos..pos + run]);
+      pos += run;
+    }
+    return unsafe {
+      sys::napi_create_string_latin1(env, latin1.as_ptr().cast(), latin1.len() as isize, result)
+    };
+  }
+  let mut utf16 = Vec::with_capacity(bytes.len());
+  utf16.extend(bytes[..pos].iter().map(|&byte| u16::from(byte)));
+  while pos < bytes.len() {
+    let ch = unsafe { val.get_unchecked(pos..) }.chars().next().unwrap();
+    let mut units = [0; 2];
+    utf16.extend_from_slice(ch.encode_utf16(&mut units));
+    pos += ch.len_utf8();
+    let run = ascii_len(&bytes[pos..]);
+    utf16.extend(bytes[pos..pos + run].iter().map(|&byte| u16::from(byte)));
+    pos += run;
+  }
+  unsafe { sys::napi_create_string_utf16(env, utf16.as_ptr(), utf16.len() as isize, result) }
+}
+
 impl ToNapiValue for &String {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let mut ptr = ptr::null_mut();
-
-    check_status!(
-      unsafe {
-        sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, &mut ptr)
-      },
-      "Failed to convert rust `String` into napi `string`"
-    )?;
-
-    Ok(ptr)
+    unsafe { ToNapiValue::to_napi_value(env, val.as_str()) }
   }
 }
 
@@ -95,9 +159,7 @@ impl ToNapiValue for &str {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe {
-        sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, &mut ptr)
-      },
+      unsafe { create_js_string(env, val, &mut ptr) },
       "Failed to convert rust `&str` into napi `string`"
     )?;
 

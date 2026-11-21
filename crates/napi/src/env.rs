@@ -184,13 +184,18 @@ impl Env {
 
   /// This API creates a new JavaScript string from a Rust type that can be converted to a `&str`
   pub fn create_string<S: AsRef<str>>(&self, s: S) -> Result<JsString<'_>> {
-    let s = s.as_ref();
-    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
+    let mut raw_value = ptr::null_mut();
+    check_status!(unsafe {
+      crate::bindgen_runtime::create_js_string(self.0, s.as_ref(), &mut raw_value)
+    })?;
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   /// This API creates a new JavaScript string from a Rust `String`
   pub fn create_string_from_std<'env>(&self, s: String) -> Result<JsString<'env>> {
-    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
+    let mut raw_value = ptr::null_mut();
+    check_status!(unsafe { crate::bindgen_runtime::create_js_string(self.0, &s, &mut raw_value) })?;
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   /// This API is used for C ffi scenario.
