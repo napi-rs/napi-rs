@@ -2,12 +2,14 @@ use std::{
   cell::{Cell, RefCell},
   collections::HashMap,
   ptr,
-  sync::{Arc, LazyLock, Mutex, MutexGuard},
+  sync::{Arc, Mutex, MutexGuard},
   thread::{self, ThreadId},
 };
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_runtime::module_register::{custom_gc_handle_for_env, CustomGcHandle};
+use rustc_hash::FxBuildHasher;
+
 use crate::{sys, Error, Result, Status};
 
 #[derive(Clone, Copy)]
@@ -22,8 +24,27 @@ struct NativeBorrowState {
   exclusive: bool,
 }
 
-static NATIVE_BORROWS: LazyLock<Mutex<HashMap<usize, NativeBorrowState>>> =
-  LazyLock::new(|| Mutex::new(HashMap::new()));
+type NativeBorrowMap = HashMap<usize, NativeBorrowState, FxBuildHasher>;
+
+const NATIVE_BORROW_SHARDS: usize = 64;
+
+/// One lock per shard so callbacks on different threads (worker_threads) don't
+/// serialize on a single process-wide mutex. Aligned to keep shards on separate cache
+/// lines.
+#[repr(align(128))]
+struct NativeBorrowShard(Mutex<NativeBorrowMap>);
+
+static NATIVE_BORROWS: [NativeBorrowShard; NATIVE_BORROW_SHARDS] =
+  [const { NativeBorrowShard(Mutex::new(HashMap::with_hasher(FxBuildHasher))) };
+    NATIVE_BORROW_SHARDS];
+
+fn native_borrows(key: usize) -> MutexGuard<'static, NativeBorrowMap> {
+  let shard = (key >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (usize::BITS - 6);
+  NATIVE_BORROWS[shard]
+    .0
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 type SharedStorage = Arc<Mutex<NativeBorrowStorage>>;
 
@@ -881,9 +902,7 @@ impl NativeBorrowGuard {
       ));
     }
     let key = value as usize;
-    let mut borrows = NATIVE_BORROWS
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut borrows = native_borrows(key);
     let state = borrows.entry(key).or_default();
     let conflict = match kind {
       NativeBorrowKind::Shared => state.exclusive,
@@ -911,9 +930,7 @@ impl NativeBorrowGuard {
 
 impl Drop for NativeBorrowGuard {
   fn drop(&mut self) {
-    let mut borrows = NATIVE_BORROWS
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut borrows = native_borrows(self.key);
     let state = borrows
       .get_mut(&self.key)
       .expect("native borrow guard must have a registered state");
