@@ -74,11 +74,11 @@ where
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
-    let keys = Object::keys(&obj)?;
-    let mut map: HashMap<K, V, S> = HashMap::with_capacity_and_hasher(keys.len(), S::default());
-    for key in keys.into_iter() {
-      if let Some(val) = obj.get(&key)? {
-        map.insert(K::from(key), val);
+    let (names, len) = obj.property_names_raw()?;
+    let mut map: HashMap<K, V, S> = HashMap::with_capacity_and_hasher(len as usize, S::default());
+    for index in 0..len {
+      if let Some((key, val)) = obj.property_at(names, index)? {
+        map.insert(K::from(key), unsafe { V::from_napi_value(env, val)? });
       }
     }
 
@@ -154,9 +154,10 @@ where
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let mut map = BTreeMap::default();
-    for key in Object::keys(&obj)?.into_iter() {
-      if let Some(val) = obj.get(&key)? {
-        map.insert(K::from(key), val);
+    let (names, len) = obj.property_names_raw()?;
+    for index in 0..len {
+      if let Some((key, val)) = obj.property_at(names, index)? {
+        map.insert(K::from(key), unsafe { V::from_napi_value(env, val)? });
       }
     }
 
@@ -238,9 +239,10 @@ where
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let mut map = IndexMap::default();
-    for key in Object::keys(&obj)?.into_iter() {
-      if let Some(val) = obj.get(&key)? {
-        map.insert(K::from(key), val);
+    let (names, len) = obj.property_names_raw()?;
+    for index in 0..len {
+      if let Some((key, val)) = obj.property_at(names, index)? {
+        map.insert(K::from(key), unsafe { V::from_napi_value(env, val)? });
       }
     }
 
