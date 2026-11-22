@@ -17,13 +17,36 @@ impl TypeName for String {
 
 impl ValidateNapiValue for String {}
 
+/// Strings up to this many bytes go to `napi_create_string_utf8` unless they are pure ASCII: the
+/// engine decodes them faster than a separate transcoding pass plus a heap allocation.
+#[cfg(not(target_family = "wasm"))]
 const SMALL_STRING_LEN: usize = 64;
 
+/// Length of the ASCII prefix of `bytes`.
+#[cfg(not(target_family = "wasm"))]
 #[inline]
 fn ascii_len(bytes: &[u8]) -> usize {
   const HIGH_BITS: u128 = u128::from_ne_bytes([0x80; 16]);
   let mut len = 0;
-  for chunk in bytes.as_chunks::<16>().0 {
+  // Runs between non-ASCII chars are usually short, so check 16 bytes at a time first. The
+  // per-byte loop inside the chunk is cheaper than computing the exact position, because its
+  // branches are predicted.
+  for chunk in bytes.as_chunks::<16>().0.iter().take(4) {
+    if u128::from_ne_bytes(*chunk) & HIGH_BITS != 0 {
+      return len + chunk.iter().take_while(|byte| byte.is_ascii()).count();
+    }
+    len += 16;
+  }
+  // A long run: OR-folding 64 bytes at a time vectorizes and skips ASCII about twice as fast
+  if len == 64 {
+    for block in bytes[len..].as_chunks::<64>().0 {
+      if block.iter().fold(0, |acc, &byte| acc | byte) >= 0x80 {
+        break;
+      }
+      len += 64;
+    }
+  }
+  for chunk in bytes[len..].as_chunks::<16>().0 {
     if u128::from_ne_bytes(*chunk) & HIGH_BITS != 0 {
       break;
     }
@@ -36,6 +59,7 @@ fn ascii_len(bytes: &[u8]) -> usize {
       .count()
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[inline]
 fn fits_latin1(bytes: &[u8]) -> bool {
   let (chunks, rest) = bytes.as_chunks::<32>();
@@ -45,6 +69,9 @@ fn fits_latin1(bytes: &[u8]) -> bool {
     && rest.iter().all(|&byte| byte < 0xC4)
 }
 
+/// Create a JavaScript string from `val`, picking the cheapest Node-API constructor for its
+/// content.
+#[cfg(not(target_family = "wasm"))]
 pub(crate) unsafe fn create_js_string(
   env: sys::napi_env,
   val: &str,
@@ -76,6 +103,15 @@ pub(crate) unsafe fn create_js_string(
       sys::napi_create_string_latin1(env, latin1.as_ptr().cast(), latin1.len() as isize, result)
     };
   }
+  // The engine's UTF-8 decoder copies an ASCII prefix fast and decodes only the rest slowly.
+  // Widening the prefix to UTF-16 here, and having the engine copy it again, costs more once it
+  // is over 4/5 of the string (measured break-even: 80-90% from 1 KiB up; below that both ways
+  // are within a few ns). Latin-1 needs no such cut-off: the engine copies it as is.
+  if pos > bytes.len() / 5 * 4 {
+    return unsafe {
+      sys::napi_create_string_utf8(env, bytes.as_ptr().cast(), bytes.len() as isize, result)
+    };
+  }
   let mut utf16 = Vec::with_capacity(bytes.len());
   utf16.extend(bytes[..pos].iter().map(|&byte| u16::from(byte)));
   while pos < bytes.len() {
@@ -90,9 +126,31 @@ pub(crate) unsafe fn create_js_string(
   unsafe { sys::napi_create_string_utf16(env, utf16.as_ptr(), utf16.len() as isize, result) }
 }
 
+/// Create a JavaScript string from `val`.
+///
+/// emnapi's `napi_create_string_latin1` stops at the first NUL byte even when a length is given,
+/// and it builds the string one byte at a time, so on wasm every string goes through
+/// `napi_create_string_utf8`, which decodes with a single `TextDecoder` call.
+#[cfg(target_family = "wasm")]
+#[inline]
+pub(crate) unsafe fn create_js_string(
+  env: sys::napi_env,
+  val: &str,
+  result: *mut sys::napi_value,
+) -> sys::napi_status {
+  unsafe { sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, result) }
+}
+
 impl ToNapiValue for &String {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    unsafe { ToNapiValue::to_napi_value(env, val.as_str()) }
+    let mut ptr = ptr::null_mut();
+
+    check_status!(
+      unsafe { create_js_string(env, val, &mut ptr) },
+      "Failed to convert rust `String` into napi `string`"
+    )?;
+
+    Ok(ptr)
   }
 }
 
