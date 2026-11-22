@@ -59,7 +59,9 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
   /// # Safety
   ///
   /// The returned value may be moved to other threads, but it must be resolved and dropped on
-  /// the JavaScript thread, and so must anything the resolver captures.
+  /// the JavaScript thread. Whatever the resolver captures that is not `Send` must stay confined
+  /// to the JavaScript thread together with all of its aliases: for example, no other thread may
+  /// hold a clone of a captured `Rc`.
   pub unsafe fn new_unchecked(inner: R) -> Self {
     Self {
       inner,
