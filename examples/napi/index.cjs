@@ -1161,6 +1161,7 @@ module.exports.CustomNumEnum = nativeBinding.CustomNumEnum
 module.exports.customStatusCode = nativeBinding.customStatusCode
 module.exports.CustomStringEnum = nativeBinding.CustomStringEnum
 module.exports.dateToNumber = nativeBinding.dateToNumber
+module.exports.deep = nativeBinding.deep
 module.exports.DEFAULT_COST = nativeBinding.DEFAULT_COST
 module.exports.deferredDropCounters = nativeBinding.deferredDropCounters
 module.exports.defineClass = nativeBinding.defineClass

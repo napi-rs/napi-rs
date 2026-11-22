@@ -1664,6 +1664,7 @@ export const CustomNumEnum = __napiModule.exports.CustomNumEnum;
 export const customStatusCode = __napiModule.exports.customStatusCode;
 export const CustomStringEnum = __napiModule.exports.CustomStringEnum;
 export const dateToNumber = __napiModule.exports.dateToNumber;
+export const deep = __napiModule.exports.deep;
 export const DEFAULT_COST = __napiModule.exports.DEFAULT_COST;
 export const deferredDropCounters = __napiModule.exports.deferredDropCounters;
 export const defineClass = __napiModule.exports.defineClass;

@@ -2,11 +2,16 @@ use std::collections::HashMap;
 use std::vec::Vec;
 use std::{cell::RefCell, iter};
 
-use super::{add_alias, format_js_property_name, ty_to_ts_type, ToTypeDef, TypeDef};
+use super::{
+  add_alias, format_js_property_name, ts_type_or_infer, ty_to_ts_type, with_type_refs, ToTypeDef,
+  TypeDef, TypeRefs,
+};
 use crate::{typegen::JSDoc, util::to_case, NapiImpl, NapiStruct, NapiStructField, NapiStructKind};
 
 thread_local! {
-  pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
+  /// A `Task`'s output type text, plus the `#[napi]` type references it holds
+  /// so a function returning `AsyncTask<T>` records them too.
+  pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, (String, TypeRefs)>> = Default::default();
   pub(crate) static CLASS_STRUCTS: RefCell<HashMap<String, ClassStructRef>> = Default::default();
 }
 
@@ -82,6 +87,7 @@ impl ToTypeDef for NapiStruct {
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
       js_doc,
+      type_refs: Default::default(),
     })
   }
 }
@@ -90,16 +96,20 @@ impl ToTypeDef for NapiImpl {
   fn to_type_def(&self) -> Option<TypeDef> {
     if let Some(output_type) = &self.task_output_type {
       TASK_STRUCTS.with(|t| {
-        let (resolved_type, is_optional) = ty_to_ts_type(output_type, false, true, false);
+        let ((resolved_type, is_optional), type_refs) =
+          with_type_refs(|| ty_to_ts_type(output_type, false, true, false));
         t.borrow_mut().insert(
           self.name.to_string(),
-          if resolved_type == "undefined" {
-            "void".to_owned()
-          } else if is_optional {
-            format!("{resolved_type} | null")
-          } else {
-            resolved_type
-          },
+          (
+            if resolved_type == "undefined" {
+              "void".to_owned()
+            } else if is_optional {
+              format!("{resolved_type} | null")
+            } else {
+              resolved_type
+            },
+            type_refs,
+          ),
         );
       });
     }
@@ -130,6 +140,7 @@ impl ToTypeDef for NapiImpl {
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        type_refs: Default::default(),
       })
     } else if let Some(output_type) = &self.async_iterator_yield_type {
       let yield_type = ty_to_ts_type(output_type, false, true, false).0;
@@ -165,6 +176,7 @@ impl ToTypeDef for NapiImpl {
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        type_refs: Default::default(),
       })
     } else {
       Some(TypeDef {
@@ -190,6 +202,7 @@ impl ToTypeDef for NapiImpl {
           .join("\n"),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+        type_refs: Default::default(),
       })
     }
   }
@@ -213,8 +226,9 @@ impl NapiStruct {
       field_str.push_str("readonly ")
     }
 
-    let (ty, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
-    let ty = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(ty);
+    let (ty, is_optional) = ts_type_or_infer(f.ts_type.as_deref(), || {
+      ty_to_ts_type(&f.ty, false, true, false)
+    });
     let js_name = format_js_property_name(&f.js_name);
 
     let gen_arg = |name: &str| match is_optional {

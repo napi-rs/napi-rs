@@ -257,6 +257,8 @@ pub struct NapiMod {
 pub struct NapiType {
   pub name: Ident,
   pub js_name: String,
+  /// The alias's type parameter names (`T` of `type List<T> = Vec<T>`).
+  pub type_params: Vec<String>,
   pub value: Type,
   pub register_name: Ident,
   pub skip_typescript: bool,

@@ -1403,6 +1403,9 @@ export interface DatesWithTimeZone {
 
 export declare function dateToNumber(input: Date): number
 
+/** `deep` is also the root of the `deep.*` namespaces, which are set on this function. */
+export declare function deep(): string
+
 /** This is a const */
 export declare const DEFAULT_COST: number
 
@@ -2628,6 +2631,31 @@ export declare function withoutAbortController(a: number, b: number): Promise<nu
 
 export declare function xxh64Alias(input: import("buffer").Buffer): bigint
 
+export declare namespace deep.left {
+  export function deepLeft(): string
+  /**
+   * Uses `DeepRight` before it is declared, from another namespace: the d.ts
+   * must name it `deep.right.DeepRight`.
+   */
+  export function deepLeftToRight(value: number): deep.right.DeepRight
+}
+
+export declare namespace deep.left.inner {
+  export const DEEP_DEPTH: number
+}
+
+export declare namespace deep.right {
+  export class DeepRight {
+    constructor(value: number)
+    value(): number
+  }
+}
+
+export declare namespace deep.right.DeepRight {
+  /** Set on the `DeepRight` class, next to its statics. */
+  export function describe(): string
+}
+
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number
   export function xxh3Xxh64Alias(input: import("buffer").Buffer): bigint
@@ -2645,6 +2673,10 @@ export declare namespace xxh3 {
   /** xxh128 function */
   export function xxh128(input: import("buffer").Buffer): bigint
   export function xxh3_64(input: import("buffer").Buffer): bigint
+}
+
+export declare namespace xxh3.nested {
+  export function xxh3NestedPlus(a: number, b: number): number
 }
 
 export declare class ComplexClass {

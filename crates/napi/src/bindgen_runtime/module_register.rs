@@ -1,7 +1,5 @@
 use std::cell::RefCell;
 #[cfg(not(feature = "noop"))]
-use std::collections::HashSet;
-#[cfg(not(feature = "noop"))]
 use std::ffi::CStr;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use std::mem::MaybeUninit;
@@ -19,10 +17,15 @@ use std::{any::TypeId, collections::HashMap};
 #[cfg(not(feature = "noop"))]
 use rustc_hash::FxBuildHasher;
 
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "napi4", feature = "node_version_detect")
+))]
+use crate::check_status_or_throw;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use crate::NodeVersion;
 #[cfg(not(feature = "noop"))]
-use crate::{check_status, check_status_or_throw, Error, JsError, Status};
+use crate::{check_status, Error, JsError, Status};
 use crate::{sys, Property, Result};
 
 // #[napi] fn
@@ -1400,7 +1403,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   // Registration keys are compile-time strings. Avoid `RandomState` so WASI module
   // registration does not request randomness during workerd global initialization.
-  let mut exports_objects: HashSet<String, FxBuildHasher> = HashSet::with_hasher(FxBuildHasher);
+  let mut namespaces = Namespaces::default();
 
   if registration.is_some() {
     let mut register_callback = MODULE_REGISTER_CALLBACK
@@ -1425,57 +1428,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
       )
       .iter()
       .for_each(|(js_mod, items)| {
-        let mut exports_js_mod = ptr::null_mut();
-        if let Some(js_mod_str) = js_mod {
-          let mod_name_c_str =
-            unsafe { CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes()) };
-          if exports_objects.contains(*js_mod_str) {
-            check_status_or_throw!(
-              env,
-              unsafe {
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                )
-              },
-              "Get mod {} from exports failed",
-              js_mod_str,
-            );
-          } else {
-            check_status_or_throw!(
-              env,
-              unsafe { sys::napi_create_object(env, &mut exports_js_mod) },
-              "Create export JavaScript Object [{}] failed",
-              js_mod_str
-            );
-            check_status_or_throw!(
-              env,
-              unsafe {
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod)
-              },
-              "Set exports Object [{}] into exports object failed",
-              js_mod_str
-            );
-            exports_objects.insert(js_mod_str.to_string());
-          }
-        }
         for (name, callback) in items {
           unsafe {
-            let js_name = CStr::from_bytes_with_nul_unchecked(name.as_bytes());
-            if let Err(e) = callback(env).and_then(|v| {
-              let exported_object = if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              };
-              check_status!(
-                sys::napi_set_named_property(env, exported_object, js_name.as_ptr(), v),
-                "Failed to register export `{}`",
-                name,
-              )
-            }) {
+            if let Err(e) = callback(env)
+              .and_then(|v| namespaces.export(env, exports, *js_mod, name, v, "export"))
+            {
               JsError::from(e).throw_into(env)
             }
           }
@@ -1498,9 +1455,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // removed the record from the lookups.
   let classes_registered = registration.is_some_and(|registration| {
     let mut ctor_refs = Vec::new();
-    if let Err(error) =
-      unsafe { register_classes(env, exports, &mut exports_objects, &mut ctor_refs) }
-    {
+    if let Err(error) = unsafe { register_classes(env, exports, &mut namespaces, &mut ctor_refs) } {
       for (_, ctor_ref) in ctor_refs {
         unsafe { sys::napi_delete_reference(env, ctor_ref) };
       }
@@ -1535,7 +1490,19 @@ pub unsafe extern "C" fn napi_register_module_v1(
     }
   });
 
-  if classes_registered {
+  // Namespaces go on after every top-level export and class, so a namespace merges into the
+  // value exported under its name instead of replacing it, whatever the registration order.
+  // Skipped when the classes failed: that path has already thrown, and the load fails.
+  let namespaces_attached = classes_registered
+    && match unsafe { namespaces.attach(env, exports) } {
+      Ok(()) => true,
+      Err(error) => {
+        unsafe { JsError::from(error).throw_into(env) };
+        false
+      }
+    };
+
+  if namespaces_attached {
     let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
       .read()
       .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
@@ -1602,7 +1569,256 @@ pub unsafe extern "C" fn napi_register_module_v1(
   exports
 }
 
-/// Defines every registered class and sets it on `exports` (or its `js_mod` object).
+/// The namespaced exports of one load, kept until every top-level export and class exists.
+#[cfg(not(feature = "noop"))]
+#[derive(Default)]
+struct Namespaces {
+  /// The members of each namespace by path (`"a.b"`, no trailing NUL), in registration order.
+  /// Member names keep their trailing NUL.
+  members: HashMap<&'static str, Vec<(&'static str, sys::napi_value)>, FxBuildHasher>,
+}
+
+#[cfg(not(feature = "noop"))]
+impl Namespaces {
+  /// Sets a top-level export (`js_mod` is `None`) on `exports` now, or keeps a namespaced one
+  /// for [`Namespaces::attach`]. `name` ends with a NUL.
+  unsafe fn export(
+    &mut self,
+    env: sys::napi_env,
+    exports: sys::napi_value,
+    js_mod: Option<&'static str>,
+    name: &'static str,
+    value: sys::napi_value,
+    kind: &str,
+  ) -> Result<()> {
+    if let Some(js_mod) = js_mod {
+      self
+        .members
+        .entry(strip_nul(js_mod))
+        .or_default()
+        .push((name, value));
+      return Ok(());
+    }
+    let js_name = unsafe { CStr::from_bytes_with_nul_unchecked(name.as_bytes()) };
+    check_status!(
+      unsafe { sys::napi_set_named_property(env, exports, js_name.as_ptr(), value) },
+      "Failed to register {} `{}`",
+      kind,
+      strip_nul(name),
+    )
+  }
+
+  /// Puts every namespace on `exports`, parents before children, and then its members.
+  ///
+  /// When the path of a namespace already holds a function or an object as an own property
+  /// (a `#[napi]` function, a class, an enum or another namespace), the namespace merges into
+  /// that value, the way TypeScript merges `function f` with `namespace f`. The generated d.ts
+  /// already declares both. These fail the load instead of dropping or replacing a value:
+  /// - the path holds a primitive, such as a `const` (TypeScript rejects it too, TS2451);
+  /// - the value is a function and the namespace or a member would replace one of its own
+  ///   properties, such as a class static or `prototype` (TS2300).
+  ///
+  /// In a plain object (a namespace or an enum), a member replaces an own property of the
+  /// same name, as a set did before. So a second load into the same `module.exports` works.
+  unsafe fn attach(&self, env: sys::napi_env, exports: sys::napi_value) -> Result<()> {
+    let paths = namespace_paths(self.members.keys().copied())?;
+    // Each namespace's object, and whether it is a function (a `#[napi]` function or a class).
+    let mut objects: HashMap<&str, (sys::napi_value, bool), FxBuildHasher> =
+      HashMap::with_capacity_and_hasher(paths.len(), FxBuildHasher);
+    for path in paths {
+      let (parent, name) = match path.rsplit_once('.') {
+        // The parent is shallower, so it is already in `objects`.
+        Some((parent_path, name)) => {
+          let (parent, parent_is_function) = objects[parent_path];
+          let key = unsafe { property_key(env, name) }?;
+          // Under a function, only a member of the parent namespace can hold this namespace.
+          // Any other own property (a class static, `prototype`, `name`) belongs to the class.
+          if parent_is_function
+            && !self.is_member(parent_path, name)
+            && unsafe { has_own(env, parent, key, path) }?
+          {
+            return Err(Error::new(
+              Status::InvalidArg,
+              format!(
+                "Cannot export namespace `{path}`: `{parent_path}` already has a property `{name}`"
+              ),
+            ));
+          }
+          (parent, name)
+        }
+        None => (exports, path),
+      };
+      let key = unsafe { property_key(env, name) }?;
+      let mut value_type = sys::ValueType::napi_object;
+      let object = if unsafe { has_own(env, parent, key, path) }? {
+        let mut value = ptr::null_mut();
+        check_status!(
+          unsafe { sys::napi_get_property(env, parent, key, &mut value) },
+          "Failed to read export `{}`",
+          path
+        )?;
+        check_status!(
+          unsafe { sys::napi_typeof(env, value, &mut value_type) },
+          "Failed to read export `{}`",
+          path
+        )?;
+        if value_type != sys::ValueType::napi_object && value_type != sys::ValueType::napi_function
+        {
+          return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+              "Cannot export namespace `{path}`: `{path}` already holds a value that is not a function or an object"
+            ),
+          ));
+        }
+        value
+      } else {
+        let mut object = ptr::null_mut();
+        check_status!(
+          unsafe { sys::napi_create_object(env, &mut object) },
+          "Create export JavaScript Object [{}] failed",
+          path
+        )?;
+        unsafe { define_property(env, parent, ptr::null(), key, object, path) }?;
+        object
+      };
+      let is_function = value_type == sys::ValueType::napi_function;
+      objects.insert(path, (object, is_function));
+
+      let members = self.members.get(path).map_or(&[][..], Vec::as_slice);
+      for (i, &(member, value)) in members.iter().enumerate() {
+        let full_name = format!("{path}.{}", strip_nul(member));
+        // A member must not replace a property of a function, such as a class static or
+        // `prototype` (TypeScript rejects it too, TS2300). A repeat of a member replaces the
+        // earlier one, as it always did.
+        if is_function && !members[..i].iter().any(|(earlier, _)| *earlier == member) {
+          let member_key = unsafe { property_key(env, strip_nul(member)) }?;
+          if unsafe { has_own(env, object, member_key, &full_name) }? {
+            return Err(Error::new(
+              Status::InvalidArg,
+              format!(
+                "Cannot export `{full_name}`: `{path}` already has a property `{}`",
+                strip_nul(member)
+              ),
+            ));
+          }
+        }
+        let utf8name = unsafe { CStr::from_bytes_with_nul_unchecked(member.as_bytes()) };
+        unsafe {
+          define_property(
+            env,
+            object,
+            utf8name.as_ptr(),
+            ptr::null_mut(),
+            value,
+            &full_name,
+          )
+        }?;
+      }
+    }
+    Ok(())
+  }
+
+  fn is_member(&self, path: &str, name: &str) -> bool {
+    self
+      .members
+      .get(path)
+      .is_some_and(|members| members.iter().any(|(member, _)| strip_nul(member) == name))
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+unsafe fn has_own(
+  env: sys::napi_env,
+  object: sys::napi_value,
+  key: sys::napi_value,
+  path: &str,
+) -> Result<bool> {
+  let mut has = false;
+  check_status!(
+    unsafe { sys::napi_has_own_property(env, object, key, &mut has) },
+    "Failed to read export `{}`",
+    path
+  )?;
+  Ok(has)
+}
+
+/// Every namespace path in `paths` and all of its parents, parents first. Within one depth the
+/// paths are in name order, so the first error is the same on every load.
+#[cfg(not(feature = "noop"))]
+fn namespace_paths<'a>(paths: impl IntoIterator<Item = &'a str>) -> Result<Vec<&'a str>> {
+  let mut all = Vec::new();
+  for mut path in paths {
+    loop {
+      all.push(path);
+      match path.rsplit_once('.') {
+        Some((parent, _)) => path = parent,
+        None => break,
+      }
+    }
+  }
+  all.sort_unstable_by_key(|path| (path.matches('.').count(), *path));
+  all.dedup();
+  if let Some(path) = all.iter().find(|path| path.contains('\0')) {
+    return Err(Error::new(
+      Status::InvalidArg,
+      format!("Namespace `{}` contains a NUL byte", path.escape_debug()),
+    ));
+  }
+  Ok(all)
+}
+
+#[cfg(not(feature = "noop"))]
+fn strip_nul(name: &'static str) -> &'static str {
+  name.strip_suffix('\0').unwrap_or(name)
+}
+
+#[cfg(not(feature = "noop"))]
+unsafe fn property_key(env: sys::napi_env, name: &str) -> Result<sys::napi_value> {
+  let mut key = ptr::null_mut();
+  check_status!(
+    unsafe {
+      sys::napi_create_string_utf8(env, name.as_ptr().cast(), name.len() as isize, &mut key)
+    },
+    "Failed to create the property key `{}`",
+    name
+  )?;
+  Ok(key)
+}
+
+/// Defines a writable, enumerable and configurable data property, as a set would make. A set
+/// would also run an inherited setter, such as `Function.prototype.caller` on a merged
+/// function, which drops the value. The name is `utf8name` when it is not null, else `key`.
+#[cfg(not(feature = "noop"))]
+unsafe fn define_property(
+  env: sys::napi_env,
+  object: sys::napi_value,
+  utf8name: *const std::ffi::c_char,
+  key: sys::napi_value,
+  value: sys::napi_value,
+  path: &str,
+) -> Result<()> {
+  let descriptor = sys::napi_property_descriptor {
+    utf8name,
+    name: key,
+    method: None,
+    getter: None,
+    setter: None,
+    value,
+    attributes: sys::PropertyAttributes::writable
+      | sys::PropertyAttributes::enumerable
+      | sys::PropertyAttributes::configurable,
+    data: ptr::null_mut(),
+  };
+  check_status!(
+    unsafe { sys::napi_define_properties(env, object, 1, &descriptor) },
+    "Failed to register export `{}`",
+    path
+  )
+}
+
+/// Defines every registered class and sets it on `exports`, or adds it to the members of
+/// its `js_mod` namespace for `Namespaces::attach`.
 ///
 /// Stops at the first failure and returns it without throwing. Every constructor
 /// reference made before that point is in `ctor_refs`, so the caller can delete them.
@@ -1610,43 +1826,15 @@ pub unsafe extern "C" fn napi_register_module_v1(
 unsafe fn register_classes(
   env: sys::napi_env,
   exports: sys::napi_value,
-  exports_objects: &mut HashSet<String, FxBuildHasher>,
+  namespaces: &mut Namespaces,
   ctor_refs: &mut Vec<(&'static str, sys::napi_ref)>,
 ) -> Result<()> {
   MODULE_CLASS_PROPERTIES.borrow(|inner| {
     for js_mods in inner.values() {
       for (js_mod, class_registration) in js_mods {
-        let mut exports_js_mod = ptr::null_mut();
         unsafe {
           let js_name = class_registration.js_name;
           let props = &class_registration.props;
-          if let Some(js_mod_str) = js_mod {
-            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-            if exports_objects.contains(*js_mod_str) {
-              check_status!(
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                ),
-                "Get mod {} from exports failed",
-                js_mod_str,
-              )?;
-            } else {
-              check_status!(
-                sys::napi_create_object(env, &mut exports_js_mod),
-                "Create export JavaScript Object [{}] failed",
-                js_mod_str
-              )?;
-              check_status!(
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
-                "Set exports Object [{}] into exports object failed",
-                js_mod_str
-              )?;
-              exports_objects.insert(js_mod_str.to_string());
-            }
-          }
           let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
 
           let ctor = ctor
@@ -1704,20 +1892,9 @@ unsafe fn register_classes(
 
           ctor_refs.push((js_name, ctor_ref));
 
-          check_status!(
-            sys::napi_set_named_property(
-              env,
-              if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              },
-              js_class_name.as_ptr(),
-              class_ptr
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          )?;
+          // A namespaced class reaches `exports` only in `Namespaces::attach`, so it is
+          // never left on `exports` when a later class fails.
+          namespaces.export(env, exports, *js_mod, js_name, class_ptr, "class")?;
         }
       }
     }
@@ -2129,3 +2306,28 @@ fn retain_current_module() {
   ))
 ))]
 fn retain_current_module() {}
+
+#[cfg(all(test, not(feature = "noop")))]
+mod namespace_tests {
+  use super::namespace_paths;
+
+  #[test]
+  fn parents_come_first_in_name_order() {
+    assert_eq!(
+      namespace_paths(["a.b.c", "x", "a.d", "a"]).unwrap(),
+      ["a", "x", "a.b", "a.d", "a.b.c"]
+    );
+  }
+
+  #[test]
+  fn empty_segments_are_kept() {
+    assert_eq!(namespace_paths([".lead"]).unwrap(), ["", ".lead"]);
+    assert_eq!(namespace_paths(["m..n"]).unwrap(), ["m", "m.", "m..n"]);
+  }
+
+  #[test]
+  fn a_nul_byte_names_the_namespace() {
+    let error = namespace_paths(["ok", "nul\0x.y"]).unwrap_err();
+    assert_eq!(error.reason, "Namespace `nul\\0x` contains a NUL byte");
+  }
+}
