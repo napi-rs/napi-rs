@@ -36,7 +36,10 @@ static NATIVE_BORROWS: [NativeBorrowShard; NATIVE_BORROW_SHARDS] =
     NATIVE_BORROW_SHARDS];
 
 fn native_borrows(key: usize) -> MutexGuard<'static, NativeBorrowMap> {
-  let shard = (key >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (usize::BITS - 6);
+  // Hash in u64 so the 64-bit constant also fits on 32-bit targets; the shard
+  // index is below `NATIVE_BORROW_SHARDS`, so the cast back cannot truncate.
+  let shard = (((key as u64) >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    >> (u64::BITS - NATIVE_BORROW_SHARDS.trailing_zeros())) as usize;
   NATIVE_BORROWS[shard]
     .0
     .lock()
