@@ -7,6 +7,8 @@ import {
   Fib4,
   AsyncFib,
   DelayedCounter,
+  FailingAsyncGenerator,
+  FailingGenerator,
   SleepOverlapProbe,
   AsyncDataSource,
   shutdownRuntime,
@@ -416,4 +418,169 @@ test('async generators should run concurrently', async (t) => {
     concurrentProbe.maxInFlight >= 2,
     `Expected the two counters' sleeps to overlap, but at most ${concurrentProbe.maxInFlight} was pending at once`,
   )
+})
+
+test('sync generator argument and yield conversion errors throw bounded JS errors without advancing', (t) => {
+  const fib = new Fib()
+  t.deepEqual(fib.next(), { value: 1, done: false })
+  t.deepEqual(fib.next(), { value: 1, done: false })
+
+  const nextErr = t.throws(() =>
+    fib.next('bad' as never),
+  ) as NodeJS.ErrnoException
+  t.is(nextErr.code, 'NumberExpected')
+  t.is(
+    nextErr.message,
+    'Failed to convert napi value String into rust type `i32`',
+  )
+  // Failed next() argument conversion must not call Generator::next(None).
+  t.deepEqual(fib.next(), { value: 2, done: false })
+
+  const gen = new FailingGenerator()
+  const reasonErr = t.throws(() => gen.next('reason')) as NodeJS.ErrnoException
+  t.is(reasonErr.code, 'InvalidArg')
+  t.is(reasonErr.message, 'exact-error-reason')
+  t.is(gen.nextCalls, 0)
+
+  // Empty reason (`Error::from_status`) previously passed Rust's 0x1 dangling pointer to strlen.
+  const emptyErr = t.throws(() => gen.next('empty')) as NodeJS.ErrnoException
+  t.is(emptyErr.code, 'InvalidArg')
+  t.is(emptyErr.message, '')
+  t.is(gen.nextCalls, 0)
+
+  // Embedded NUL bytes must be preserved with explicit length (no C-string truncation/over-read).
+  const nulErr = t.throws(() => gen.next('nul')) as NodeJS.ErrnoException
+  t.is(nulErr.code, 'InvalidArg')
+  t.is(nulErr.message, 'before\0after')
+  t.is(nulErr.message.length, 12)
+  t.is(gen.nextCalls, 0)
+
+  // Yield ToNapiValue failure in next() and throw() (`set_generator_value`).
+  const yieldEmptyErr = t.throws(() =>
+    gen.next('yield-empty'),
+  ) as NodeJS.ErrnoException
+  t.is(yieldEmptyErr.code, 'GenericFailure')
+  t.is(yieldEmptyErr.message, '')
+  t.is(gen.nextCalls, 1)
+
+  const yieldNulErr = t.throws(() =>
+    gen.next('yield-nul'),
+  ) as NodeJS.ErrnoException
+  t.is(yieldNulErr.code, 'GenericFailure')
+  t.is(yieldNulErr.message, 'yield\0error')
+  t.is(gen.nextCalls, 2)
+
+  const throwYieldNulErr = t.throws(() =>
+    gen.throw('yield-nul'),
+  ) as NodeJS.ErrnoException
+  t.is(throwYieldNulErr.code, 'GenericFailure')
+  t.is(throwYieldNulErr.message, 'yield\0error')
+
+  // Return argument conversion failure must throw cleanly and not call complete().
+  const returnEmptyErr = t.throws(() =>
+    gen.return('empty'),
+  ) as NodeJS.ErrnoException
+  t.is(returnEmptyErr.code, 'InvalidArg')
+  t.is(returnEmptyErr.message, '')
+  t.is(gen.returnCalls, 0)
+
+  const returnNulErr = t.throws(() =>
+    gen.return('nul'),
+  ) as NodeJS.ErrnoException
+  t.is(returnNulErr.code, 'InvalidArg')
+  t.is(returnNulErr.message, 'before\0after')
+  t.is(gen.returnCalls, 0)
+
+  // Non-object `this` fails cleanly instead of falling through check_status_or_throw!.
+  const detachedNext = gen.next
+  t.throws(() => detachedNext.call(undefined as never))
+  t.is(gen.nextCalls, 2)
+
+  // Pending exception thrown inside catch() must preserve exception identity AND
+  // mark the generator closed so subsequent next() calls do not invoke next().
+  const pendingGen = new FailingGenerator()
+  const pendingErr = t.throws(() =>
+    pendingGen.throw('pending'),
+  ) as NodeJS.ErrnoException
+  t.is(pendingErr.code, 'PendingCatchCode')
+  t.is(pendingErr.message, 'pending-catch-error')
+  t.deepEqual(pendingGen.next(), { done: true })
+  t.is(pendingGen.nextCalls, 0)
+})
+
+test('async generator argument conversion errors throw bounded JS errors without advancing', async (t) => {
+  if (typeof AsyncFib === 'undefined') {
+    t.pass(
+      'AsyncFib is not available (tokio_rt feature not enabled), skipping test',
+    )
+    return
+  }
+
+  const fib = new AsyncFib()
+  const iter = fib[Symbol.asyncIterator]()
+  t.deepEqual(await iter.next(), { value: 1, done: false })
+  t.deepEqual(await iter.next(), { value: 1, done: false })
+
+  const nextErr = t.throws(() =>
+    iter.next('bad' as never),
+  ) as NodeJS.ErrnoException
+  t.is(nextErr.code, 'NumberExpected')
+  t.is(
+    nextErr.message,
+    'Failed to convert napi value String into rust type `i32`',
+  )
+  // Failed next() argument conversion must not call AsyncGenerator::next(None).
+  t.deepEqual(await iter.next(), { value: 2, done: false })
+
+  const counter = new DelayedCounter(2, 5)
+  const counterIter = counter[Symbol.asyncIterator]()
+  const returnTypeErr = t.throws(() =>
+    counterIter.return(123 as never),
+  ) as NodeJS.ErrnoException
+  t.is(returnTypeErr.code, 'StringExpected')
+  t.is(
+    returnTypeErr.message,
+    'Failed to convert JavaScript value `Number 123 ` into rust type `String`',
+  )
+
+  const failing = new FailingAsyncGenerator()
+  const failingIter = failing[Symbol.asyncIterator]()
+
+  const emptyNextErr = t.throws(() =>
+    failingIter.next('empty'),
+  ) as NodeJS.ErrnoException
+  t.is(emptyNextErr.code, 'InvalidArg')
+  t.is(emptyNextErr.message, '')
+  t.is(failing.nextCalls, 0)
+
+  const nulNextErr = t.throws(() =>
+    failingIter.next('nul'),
+  ) as NodeJS.ErrnoException
+  t.is(nulNextErr.code, 'InvalidArg')
+  t.is(nulNextErr.message, 'before\0after')
+  t.is(nulNextErr.message.length, 12)
+  t.is(failing.nextCalls, 0)
+
+  const emptyReturnErr = t.throws(() =>
+    failingIter.return('empty'),
+  ) as NodeJS.ErrnoException
+  t.is(emptyReturnErr.code, 'InvalidArg')
+  t.is(emptyReturnErr.message, '')
+  t.is(failing.returnCalls, 0)
+
+  const nulReturnErr = t.throws(() =>
+    failingIter.return('nul'),
+  ) as NodeJS.ErrnoException
+  t.is(nulReturnErr.code, 'InvalidArg')
+  t.is(nulReturnErr.message, 'before\0after')
+  t.is(failing.returnCalls, 0)
+
+  // Valid next() still works cleanly after conversion failures.
+  t.deepEqual(await failingIter.next('ok'), { value: 1, done: false })
+  t.is(failing.nextCalls, 1)
+  t.deepEqual(await failingIter.return('ok'), {
+    value: undefined,
+    done: true,
+  })
+  t.is(failing.returnCalls, 1)
 })

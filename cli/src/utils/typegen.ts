@@ -70,6 +70,12 @@ interface TypeDefLine {
   js_doc?: string
   js_mod?: string
   type_imports?: TypeImport[]
+  /** `#[napi]` types `def` names by their path from the module root. */
+  root_refs?: string[]
+  /** Rust names of `#[napi]` types napi-derive had not seen yet. */
+  unresolved_refs?: string[]
+  /** Names spelled in the hand-written `ts_*` text `def` holds. */
+  ts_override_names?: string[]
 }
 
 export interface TypeImport {
@@ -506,13 +512,17 @@ export async function processTypeDefs(
     reservedDeclarationText,
   )
   const typeImports = collectTypeImports(typeDefsWithUniqueMarkers.flat())
-  const dtsWithTypeImportMarkers = renderTypeDefs(
-    typeDefsWithUniqueMarkers.map((defs) =>
-      preprocessTypeDef(preserveTypeImportMarkers(defs)),
+  const dtsWithTypeImportMarkers = resolveNapiTypeReferences(
+    renderTypeDefs(
+      typeDefsWithUniqueMarkers.map((defs) =>
+        preprocessTypeDef(preserveTypeImportMarkers(defs)),
+      ),
+      constEnum,
+      runtimeStringEnum,
+      exports,
+      reservedDeclarationText,
     ),
-    constEnum,
-    runtimeStringEnum,
-    exports,
+    typeDefs.flat(),
     reservedDeclarationText,
   )
   const dts = rewriteTypeImportReferences(
@@ -524,7 +534,10 @@ export async function processTypeDefs(
   return {
     dts,
     dtsWithTypeImportMarkers,
-    exports,
+    // One runtime export can come from several defs: `fn deep` and `namespace deep.left`
+    // are both `deep`, and so are `deep.left` and `deep.right`. The ESM loaders declare
+    // each name once (`const { deep } = ...`), and a repeat is a SyntaxError.
+    exports: [...new Set(exports)],
     typeImports,
   }
 }
@@ -540,12 +553,27 @@ function renderTypeDefs(
   for (const groupedDefs of groupedTypeDefs) {
     for (const [namespace, namespaceDefs] of groupedDefs) {
       if (namespace !== TOP_LEVEL_NAMESPACE) {
-        if (namespace === 'globalThis') {
+        // `a.b` is exported as the `a` object, so `a` is the top-level name.
+        const segments = namespace.split('.')
+        // napi-derive rejects these at compile time; an older one still writes them, and
+        // they make a d.ts and loaders that do not parse, or set a prototype.
+        if (segments.some((segment) => segment === '')) {
+          throw new Error(
+            `The namespace \`${namespace}\` is empty or has an empty segment`,
+          )
+        }
+        if (segments.includes('__proto__')) {
+          throw new Error(
+            `The namespace \`${namespace}\` must not use \`__proto__\` as a name`,
+          )
+        }
+        const [exportName] = segments
+        if (exportName === 'globalThis') {
           throw new Error(
             'The export name `globalThis` is reserved by NAPI-RS type generation',
           )
         }
-        topLevelExportNames.add(namespace)
+        topLevelExportNames.add(exportName)
       }
       for (const def of namespaceDefs) {
         if (def.name === 'globalThis' || def.original_name === 'globalThis') {
@@ -622,7 +650,7 @@ function renderTypeDefs(
               })
               .join('\n\n')
           } else {
-            exports.push(namespace)
+            exports.push(namespace.split('.')[0])
             let declaration = ''
             declaration += `export declare namespace ${namespace} {\n`
             for (const def of defs) {
@@ -662,6 +690,406 @@ function renderTypeDefs(
     renderedDefs +
     '\n'
   return dts
+}
+
+const NAMED_TYPE_KINDS = new Set<string>([
+  TypeDefKind.Struct,
+  TypeDefKind.Interface,
+  TypeDefKind.Enum,
+  TypeDefKind.StringEnum,
+  TypeDefKind.Type,
+])
+const ROOT_ALIAS_BASE = '__NapiRsRoot_'
+
+/**
+ * Make the `#[napi]` type references napi-derive recorded resolve to the
+ * types it meant, wherever they sit in the rendered declarations.
+ *
+ * napi-derive writes a reference to another `#[napi]` type as its path from
+ * the module root (`b.Config`, or `Config` for a top-level type), but it
+ * cannot see two things only the full file shows:
+ *
+ * - Inside a namespace, TypeScript looks the first segment up in the
+ *   enclosing namespaces first: inside `namespace a.b`, `b.Config` is
+ *   `a.b.Config`, and inside `namespace a`, `Config` is `a.Config` when that
+ *   exists. Such a reference is rewritten through a top-level alias
+ *   (`import __NapiRsRoot_b = b`, or `type __NapiRsRoot_Config = Config`
+ *   for a bare type), which nothing in a namespace shadows.
+ * - A type declared later in the crate than its first use is written by its
+ *   Rust name, unqualified. When that name does not resolve where it is
+ *   written, it is rewritten to the type's JS path, provided exactly one
+ *   `#[napi]` type has that Rust name. When it is also the type's root path,
+ *   it gets the shadowing check above.
+ *
+ * Only references napi-derive recorded are touched (see `root_refs` and
+ * `unresolved_refs`), and only inside the declaration whose definition
+ * recorded them, so `ts_type` text elsewhere is left as written. Within one
+ * declaration (a function, or a class with all its methods) a recorded
+ * reference spelled like a name of its hand-written `ts_*` text (see
+ * `ts_override_names`) is left as written where that name resolves, since
+ * the two cannot be told apart there. A reference to a type whose Rust name
+ * two `#[napi]` types share is left as written too: napi-derive may have
+ * named the wrong one.
+ *
+ * `reservedDeclarationText` (the `--dts-header`) is parsed in front of the
+ * declarations, so a name it declares counts as resolved.
+ */
+function resolveNapiTypeReferences(
+  source: string,
+  defs: TypeDefLine[],
+  reservedDeclarationText: string,
+): string {
+  const typePaths = new Map<string, string | null>()
+  const rustNames = new Map<string, string>()
+  for (const def of defs) {
+    if (def.original_name && NAMED_TYPE_KINDS.has(def.kind)) {
+      const name = declarationName(def.name)
+      const path = def.js_mod ? `${def.js_mod}.${name}` : name
+      const known = typePaths.get(def.original_name)
+      // Two types of one Rust name (in different Rust modules or crates) are
+      // ambiguous.
+      typePaths.set(
+        def.original_name,
+        known === undefined || known === path ? path : null,
+      )
+      rustNames.set(path, def.original_name)
+    }
+  }
+  // Keyed by the rendered declaration that holds the definition's text: its
+  // namespace and name. A class and its `impl` blocks share one.
+  const keyOf = (def: TypeDefLine) =>
+    declarationKey(def.js_mod ?? TOP_LEVEL_NAMESPACE, declarationName(def.name))
+  const overridesByDeclaration = new Map<string, Set<string>>()
+  for (const def of defs) {
+    if (def.ts_override_names?.length) {
+      const key = keyOf(def)
+      const names = overridesByDeclaration.get(key) ?? new Set<string>()
+      def.ts_override_names.forEach((name) => names.add(name))
+      overridesByDeclaration.set(key, names)
+    }
+  }
+  const refsByDeclaration = new Map<
+    string,
+    {
+      root: Set<string>
+      unresolved: Map<string, string>
+      overrides: Set<string>
+    }
+  >()
+  for (const def of defs) {
+    const key = keyOf(def)
+    // Hand-written text spelling the same name may mean another type.
+    const overrides = overridesByDeclaration.get(key) ?? new Set<string>()
+    const refs = refsByDeclaration.get(key) ?? {
+      root: new Set<string>(),
+      unresolved: new Map<string, string>(),
+      overrides,
+    }
+    for (const ref of def.js_mod ? (def.root_refs ?? []) : []) {
+      const rustName = rustNames.get(ref)
+      if (
+        !overrides.has(ref) &&
+        (rustName === undefined || typePaths.get(rustName) !== null)
+      ) {
+        refs.root.add(ref)
+      }
+    }
+    for (const ref of def.unresolved_refs ?? []) {
+      const path = typePaths.get(ref)
+      // A top-level reference to a top-level type of the same JS name already
+      // reads right.
+      if (path && (path !== ref || def.js_mod)) {
+        refs.unresolved.set(ref, path)
+      }
+    }
+    if (refs.root.size || refs.unresolved.size) {
+      refsByDeclaration.set(key, refs)
+    }
+  }
+  if (refsByDeclaration.size === 0) {
+    return source
+  }
+
+  const typeScript = loadTypeScript()
+  let prefix = reservedDeclarationText ? `${reservedDeclarationText}\n` : ''
+  let sourceFile = parseDeclarationFile(prefix + source)
+  let program = programOverDeclarationSource(sourceFile, prefix + source)
+  if (prefix && program.getSyntacticDiagnostics(sourceFile).length > 0) {
+    // A header that does not parse still leaves the declarations to fix.
+    prefix = ''
+    sourceFile = parseDeclarationFile(source)
+    program = programOverDeclarationSource(sourceFile, source)
+  }
+  if (program.getSyntacticDiagnostics(sourceFile).length > 0) {
+    return source
+  }
+  const checker = program.getTypeChecker()
+  const aliases = new Map<
+    string,
+    {
+      name: string
+      target: string
+      isNamespace: boolean
+      typeParameters:
+        | import('typescript').NodeArray<
+            import('typescript').TypeParameterDeclaration
+          >
+        | undefined
+    }
+  >()
+  let identifiers: Set<string> | undefined
+  const typeParametersOf = (target: import('typescript').Symbol) =>
+    target.declarations
+      ?.map((declaration) =>
+        typeScript.isTypeAliasDeclaration(declaration) ||
+        typeScript.isInterfaceDeclaration(declaration) ||
+        typeScript.isClassDeclaration(declaration)
+          ? declaration.typeParameters
+          : undefined,
+      )
+      .find((parameters) => parameters?.length)
+  const aliasFor = (
+    name: string,
+    isNamespace: boolean,
+    target: import('typescript').Symbol,
+  ) => {
+    const key = `${isNamespace}\0${name}`
+    let alias = aliases.get(key)
+    if (!alias) {
+      identifiers ??= collectIdentifiers(typeScript, sourceFile)
+      let aliasName = `${ROOT_ALIAS_BASE}${name}`
+      for (
+        let suffix = 1;
+        identifiers.has(aliasName) ||
+        reservedDeclarationText.includes(aliasName);
+        suffix += 1
+      ) {
+        aliasName = `${ROOT_ALIAS_BASE}${name}_${suffix}`
+      }
+      identifiers.add(aliasName)
+      alias = {
+        name: aliasName,
+        target: name,
+        isNamespace,
+        typeParameters: isNamespace ? undefined : typeParametersOf(target),
+      }
+      aliases.set(key, alias)
+    }
+    return alias.name
+  }
+
+  const replacements: Array<{
+    end: number
+    replacement: string
+    start: number
+  }> = []
+  const resolveReference = (
+    reference: import('typescript').TypeReferenceNode,
+    key: string | undefined,
+  ) => {
+    const refs = key === undefined ? undefined : refsByDeclaration.get(key)
+    if (!refs) {
+      return
+    }
+    const entityName = reference.typeName
+    const text = entityNameText(typeScript, entityName)
+    let path = refs.root.has(text) ? text : undefined
+    const unresolvedPath = refs.unresolved.get(text)
+    // A name that hand-written text of this declaration spells is left as
+    // written: it may mean a type this checker cannot see (a DOM `Request`
+    // under `noLib`). Otherwise a Rust name that does not resolve where it is
+    // written is rewritten, and one that is also the type's root path gets
+    // the shadowing check below. Any other Rust name that already resolves (to
+    // the `export type JsName = Name` a renamed class gets, or to a
+    // same-namespace type) is left as it is.
+    if (
+      unresolvedPath !== undefined &&
+      !refs.overrides.has(text) &&
+      (unresolvedPath === text ||
+        checker.resolveName(
+          text,
+          entityName,
+          typeScript.SymbolFlags.Type,
+          false,
+        ) === undefined)
+    ) {
+      path = unresolvedPath
+    }
+    if (path === undefined) {
+      return
+    }
+    const [first, ...rest] = path.split('.')
+    const meaning = rest.length
+      ? typeScript.SymbolFlags.Namespace
+      : typeScript.SymbolFlags.Type
+    const fromRoot = checker.resolveName(first, sourceFile, meaning, false)
+    if (fromRoot === undefined) {
+      return
+    }
+    let replacement = path
+    if (checker.resolveName(first, entityName, meaning, false) !== fromRoot) {
+      // An alias of a type whose parameters it cannot see (an import in the
+      // header) would not take the reference's type arguments.
+      // Nor can an alias copy a type parameter named like its target
+      // (`type Wrap<Wrap> = ...`): the copy would hide the target.
+      const typeParameters = rest.length
+        ? undefined
+        : typeParametersOf(fromRoot)
+      if (
+        (!rest.length && reference.typeArguments?.length && !typeParameters) ||
+        typeParameters?.some((parameter) => parameter.name.text === first)
+      ) {
+        return
+      }
+      replacement = [aliasFor(first, rest.length > 0, fromRoot), ...rest].join(
+        '.',
+      )
+    }
+    if (replacement !== text) {
+      replacements.push({
+        start: entityName.getStart(sourceFile) - prefix.length,
+        end: entityName.end - prefix.length,
+        replacement,
+      })
+    }
+  }
+  const visit = (node: Node, namespace: string, key: string | undefined) => {
+    if (typeScript.isModuleDeclaration(node)) {
+      if (
+        typeScript.isIdentifier(node.name) &&
+        (node.flags & typeScript.NodeFlags.GlobalAugmentation) === 0 &&
+        node.body
+      ) {
+        const name =
+          namespace === TOP_LEVEL_NAMESPACE
+            ? node.name.text
+            : `${namespace}.${node.name.text}`
+        visit(node.body, name, undefined)
+      }
+      return
+    }
+    if (typeScript.isSourceFile(node) || typeScript.isModuleBlock(node)) {
+      for (const statement of node.statements) {
+        if (statement.getStart(sourceFile) >= prefix.length) {
+          const name = statementName(typeScript, statement)
+          visit(
+            statement,
+            namespace,
+            name === undefined ? undefined : declarationKey(namespace, name),
+          )
+        }
+      }
+      return
+    }
+    if (typeScript.isTypeReferenceNode(node)) {
+      resolveReference(node, key)
+      node.typeArguments?.forEach((argument) => visit(argument, namespace, key))
+      return
+    }
+    typeScript.forEachChild(node, (child) => visit(child, namespace, key))
+  }
+  visit(sourceFile, TOP_LEVEL_NAMESPACE, undefined)
+
+  if (replacements.length === 0) {
+    return source
+  }
+  // `source` from `start` to `end`, with the replacements inside it applied.
+  const rewrite = (start: number, end: number) => {
+    let text = source.slice(start, end)
+    for (const replacement of replacements
+      .filter((r) => r.start >= start && r.end <= end)
+      .sort((a, b) => b.start - a.start)) {
+      text =
+        text.slice(0, replacement.start - start) +
+        replacement.replacement +
+        text.slice(replacement.end - start)
+    }
+    return text
+  }
+  const declarations = [...aliases.values()]
+    .map(({ name, target, isNamespace, typeParameters }) => {
+      if (isNamespace) {
+        return `import ${name} = ${target}`
+      }
+      // A generic type keeps its type parameters: `type A<T> = Wrap<T>`,
+      // their defaults as rewritten on the type itself, so that they still
+      // name the same types at the top level.
+      const parameters = typeParameters
+        ? `<${typeParameters
+            .map((parameter) => {
+              const start = parameter.getStart(sourceFile)
+              return start < prefix.length
+                ? parameter.getText(sourceFile)
+                : rewrite(start - prefix.length, parameter.end - prefix.length)
+            })
+            .join(', ')}>`
+        : ''
+      const argumentList = typeParameters
+        ? `<${typeParameters.map((parameter) => parameter.name.text).join(', ')}>`
+        : ''
+      return `type ${name}${parameters} = ${target}${argumentList}`
+    })
+    .sort()
+  const rewritten = rewrite(0, source.length)
+  return declarations.length
+    ? `${rewritten.trimEnd()}\n\n${declarations.join('\n')}\n`
+    : rewritten
+}
+
+/** A definition's declaration name, without the type parameters a generic `#[napi] type` carries in its `name`. */
+function declarationName(name: string): string {
+  return name.split('<')[0].trim()
+}
+
+function declarationKey(namespace: string, name: string): string {
+  return `${namespace}\0${name}`
+}
+
+/** The name a top-level or namespace-member statement declares, if any. */
+function statementName(
+  typeScript: TypeScriptModule,
+  statement: Statement,
+): string | undefined {
+  if (
+    typeScript.isFunctionDeclaration(statement) ||
+    typeScript.isClassDeclaration(statement) ||
+    typeScript.isInterfaceDeclaration(statement) ||
+    typeScript.isTypeAliasDeclaration(statement) ||
+    typeScript.isEnumDeclaration(statement)
+  ) {
+    return statement.name?.text
+  }
+  if (typeScript.isVariableStatement(statement)) {
+    const [declaration] = statement.declarationList.declarations
+    return declaration && typeScript.isIdentifier(declaration.name)
+      ? declaration.name.text
+      : undefined
+  }
+  return undefined
+}
+
+function entityNameText(
+  typeScript: TypeScriptModule,
+  entityName: EntityName,
+): string {
+  return typeScript.isIdentifier(entityName)
+    ? entityName.text
+    : `${entityNameText(typeScript, entityName.left)}.${entityName.right.text}`
+}
+
+function collectIdentifiers(
+  typeScript: TypeScriptModule,
+  sourceFile: SourceFile,
+): Set<string> {
+  const identifiers = new Set<string>()
+  const visit = (node: Node) => {
+    if (typeScript.isIdentifier(node)) {
+      identifiers.add(node.text)
+    }
+    typeScript.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return identifiers
 }
 
 function makeTypeImportMarkersUnique(
@@ -1282,14 +1710,7 @@ function createCollisionSafeIdentifier(
   sourceFile: SourceFile,
   baseName: string,
 ): string {
-  const identifiers = new Set<string>()
-  const visit = (node: import('typescript').Node) => {
-    if (typeScript.isIdentifier(node)) {
-      identifiers.add(node.text)
-    }
-    typeScript.forEachChild(node, visit)
-  }
-  visit(sourceFile)
+  const identifiers = collectIdentifiers(typeScript, sourceFile)
 
   let identifier = baseName
   let suffix = 1

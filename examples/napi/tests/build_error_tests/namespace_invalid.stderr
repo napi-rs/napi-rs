@@ -1,0 +1,53 @@
+error: namespace must not be empty
+ --> tests/build_error_tests/namespace_invalid.rs:3:20
+  |
+3 | #[napi(namespace = "")]
+  |                    ^^
+
+error: namespace `a..b` has an empty segment; write the parts separated by single dots, as in `a.b`
+ --> tests/build_error_tests/namespace_invalid.rs:6:20
+  |
+6 | #[napi(namespace = "a..b")]
+  |                    ^^^^^^
+
+error: namespace `a\0b` must not contain a control or line terminator character, found U+0000
+ --> tests/build_error_tests/namespace_invalid.rs:9:20
+  |
+9 | #[napi(namespace = "a\0b")]
+  |                    ^^^^^^
+
+error: namespace `a\u{2028}b` must not contain a control or line terminator character, found U+2028
+  --> tests/build_error_tests/namespace_invalid.rs:12:20
+   |
+12 | #[napi(namespace = "a\u{2028}b")]
+   |                    ^^^^^^^^^^^^
+
+error: namespace `x.__proto__` must not use `__proto__` as a name
+  --> tests/build_error_tests/namespace_invalid.rs:15:20
+   |
+15 | #[napi(namespace = "x.__proto__")]
+   |                    ^^^^^^^^^^^^^
+
+error: namespace `__proto__` must not use `__proto__` as a name
+  --> tests/build_error_tests/namespace_invalid.rs:18:20
+   |
+18 | #[napi(namespace = "__proto__")]
+   |                    ^^^^^^^^^^^
+
+error: namespace `x.a-b`: `a-b` is not a JavaScript identifier; each part of a dotted namespace must be one
+  --> tests/build_error_tests/namespace_invalid.rs:26:20
+   |
+26 | #[napi(namespace = "x.a-b")]
+   |                    ^^^^^^^
+
+error: namespace `default.x`: `default` is reserved and cannot be the first part of a dotted namespace, which is exported under that name
+  --> tests/build_error_tests/namespace_invalid.rs:29:20
+   |
+29 | #[napi(namespace = "default.x")]
+   |                    ^^^^^^^^^^^
+
+error: namespace `m.` has an empty segment; write the parts separated by single dots, as in `a.b`
+  --> tests/build_error_tests/namespace_invalid.rs:32:18
+   |
+32 | #[napi(js_name = "m.")]
+   |                  ^^^^

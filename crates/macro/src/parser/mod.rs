@@ -1935,15 +1935,15 @@ impl ConvertToAST for syn::ItemConst {
 
 impl ConvertToAST for syn::ItemType {
   fn convert_to_ast(&mut self, opts: &BindgenAttrs) -> BindgenResult<Napi> {
+    let type_params = self
+      .generics
+      .type_params()
+      .map(|param| param.ident.to_string())
+      .collect::<Vec<String>>();
     let js_name = match opts.js_name() {
       Some((name, _)) => name.to_string(),
       _ => {
-        let types = self
-          .generics
-          .type_params()
-          .map(|param| param.ident.to_string())
-          .collect::<Vec<String>>()
-          .join(", ");
+        let types = type_params.join(", ");
 
         if !types.is_empty() {
           format!("{}<{}>", self.ident, types)
@@ -1958,6 +1958,7 @@ impl ConvertToAST for syn::ItemType {
         item: NapiItem::Type(NapiType {
           name: self.ident.clone(),
           js_name,
+          type_params,
           value: *self.ty.clone(),
           js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
           comments: extract_doc_comments(&self.attrs),

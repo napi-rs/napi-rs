@@ -369,3 +369,185 @@ impl AsyncDataSource {
     }
   }
 }
+
+#[napi]
+pub type FallibleGeneratorArg = String;
+
+#[napi]
+pub type FallibleGeneratorYield = u32;
+
+mod fallible_generator_types {
+  use napi::bindgen_prelude::*;
+
+  /// Helper conversion type for testing generator error paths with empty reason
+  /// (`Error::from_status`, whose `String::new().as_ptr()` is dangling `0x1`)
+  /// and interior NUL bytes.
+  pub enum FallibleGeneratorArg {
+    Ok(String),
+  }
+
+  impl FromNapiValue for FallibleGeneratorArg {
+    unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+      let mode = unsafe { String::from_napi_value(env, napi_val)? };
+      match mode.as_str() {
+        "empty" => Err(Error::from_status(Status::InvalidArg)),
+        "nul" => Err(Error::new(Status::InvalidArg, "before\0after".to_owned())),
+        "reason" => Err(Error::new(
+          Status::InvalidArg,
+          "exact-error-reason".to_owned(),
+        )),
+        _ => Ok(Self::Ok(mode)),
+      }
+    }
+  }
+
+  pub enum FallibleGeneratorYield {
+    Ok(u32),
+    EmptyErr,
+    NulErr,
+  }
+
+  impl ToNapiValue for FallibleGeneratorYield {
+    unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+      match val {
+        Self::Ok(n) => unsafe { u32::to_napi_value(env, n) },
+        Self::EmptyErr => Err(Error::from_status(Status::GenericFailure)),
+        Self::NulErr => Err(Error::new(
+          Status::GenericFailure,
+          "yield\0error".to_owned(),
+        )),
+      }
+    }
+  }
+}
+
+#[napi(iterator)]
+pub struct FailingGenerator {
+  next_calls: u32,
+  return_calls: u32,
+}
+
+#[napi]
+#[allow(clippy::new_without_default)]
+impl FailingGenerator {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self {
+      next_calls: 0,
+      return_calls: 0,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn next_calls(&self) -> u32 {
+    self.next_calls
+  }
+
+  #[napi(getter)]
+  pub fn return_calls(&self) -> u32 {
+    self.return_calls
+  }
+}
+
+#[napi]
+impl Generator for FailingGenerator {
+  type Yield = fallible_generator_types::FallibleGeneratorYield;
+  type Next = fallible_generator_types::FallibleGeneratorArg;
+  type Return = fallible_generator_types::FallibleGeneratorArg;
+
+  fn next(&mut self, value: Option<Self::Next>) -> Option<Self::Yield> {
+    self.next_calls += 1;
+    match value {
+      Some(fallible_generator_types::FallibleGeneratorArg::Ok(mode)) if mode == "yield-empty" => {
+        Some(fallible_generator_types::FallibleGeneratorYield::EmptyErr)
+      }
+      Some(fallible_generator_types::FallibleGeneratorArg::Ok(mode)) if mode == "yield-nul" => {
+        Some(fallible_generator_types::FallibleGeneratorYield::NulErr)
+      }
+      _ => Some(fallible_generator_types::FallibleGeneratorYield::Ok(
+        self.next_calls,
+      )),
+    }
+  }
+
+  fn complete(&mut self, _value: Option<Self::Return>) -> Option<Self::Yield> {
+    self.return_calls += 1;
+    None
+  }
+
+  fn catch<'env>(
+    &'env mut self,
+    env: Env,
+    value: Unknown<'env>,
+  ) -> std::result::Result<Option<Self::Yield>, Unknown<'env>> {
+    if let Ok(mode) = value.coerce_to_string().and_then(|s| s.into_utf8()) {
+      if mode.as_str().ok() == Some("yield-nul") {
+        return Ok(Some(
+          fallible_generator_types::FallibleGeneratorYield::NulErr,
+        ));
+      }
+      if mode.as_str().ok() == Some("yield-empty") {
+        return Ok(Some(
+          fallible_generator_types::FallibleGeneratorYield::EmptyErr,
+        ));
+      }
+      if mode.as_str().ok() == Some("pending") {
+        let _ = env.throw_error("pending-catch-error", Some("PendingCatchCode"));
+        return Err(value);
+      }
+    }
+    Err(value)
+  }
+}
+
+#[napi(async_iterator)]
+pub struct FailingAsyncGenerator {
+  next_calls: u32,
+  return_calls: u32,
+}
+
+#[napi]
+#[allow(clippy::new_without_default)]
+impl FailingAsyncGenerator {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self {
+      next_calls: 0,
+      return_calls: 0,
+    }
+  }
+
+  #[napi(getter)]
+  pub fn next_calls(&self) -> u32 {
+    self.next_calls
+  }
+
+  #[napi(getter)]
+  pub fn return_calls(&self) -> u32 {
+    self.return_calls
+  }
+}
+
+#[napi]
+impl AsyncGenerator for FailingAsyncGenerator {
+  type Yield = u32;
+  type Next = fallible_generator_types::FallibleGeneratorArg;
+  type Return = fallible_generator_types::FallibleGeneratorArg;
+
+  fn next(
+    &mut self,
+    _value: Option<Self::Next>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    self.next_calls += 1;
+    let count = self.next_calls;
+    async move { Ok(Some(count)) }
+  }
+
+  fn complete(
+    &mut self,
+    _value: Option<Self::Return>,
+  ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
+    self.return_calls += 1;
+    async move { Ok(None) }
+  }
+}

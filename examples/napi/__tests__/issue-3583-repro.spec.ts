@@ -5,6 +5,9 @@ import {
   blockBorrowGate,
   borrowGateWaiters,
   closeBorrowGate,
+  createExternal,
+  createExternalString,
+  mutateExternal,
   nestedZeroArgTask,
   openBorrowGate,
   REENTRY_GATE,
@@ -17,6 +20,9 @@ import {
   readBorrowedCacheVec,
   readBorrowedCacheWithReentry,
   readBorrowedCacheWithSignal,
+  readBorrowedExternalAsyncFn,
+  readBorrowedExternalTask,
+  readOptionalExternalAsyncFn,
   shutdownRuntime,
   waitForBorrowGateWaiters,
 } from '../index.cjs'
@@ -606,5 +612,111 @@ poolTest(
         await nested
       }
     }
+  },
+)
+
+poolTest(
+  'borrowed &External<T> stays rooted across GC and rejects concurrent &mut during AsyncTask',
+  async (t) => {
+    const gc = await getGc()
+    if (!gc) {
+      t.pass('GC not exposed (run with --expose-gc), skipping test')
+      return
+    }
+
+    const gate = 41
+    openBorrowGate(gate)
+    const finalized = new Set<number>()
+    const registry = new FinalizationRegistry<number>((held) => {
+      finalized.add(held)
+    })
+
+    const heldExt = createExternal(123)
+    const guardedPromise = readBorrowedExternalTask(heldExt, gate)
+    const gcPromise = (() => {
+      const ext = createExternal(456)
+      registry.register(ext, 41)
+      return readBorrowedExternalTask(ext, gate)
+    })()
+
+    try {
+      await waitForWaiters(gate, 2)
+      // Concurrent &mut borrow must fail while the AsyncTask holds &External<u32>.
+      t.throws(() => mutateExternal(heldExt, 999), {
+        code: 'InvalidArg',
+        message:
+          /The same native value cannot be borrowed mutably while another borrow is active/,
+      })
+
+      await collect(gc)
+      t.false(
+        finalized.has(41),
+        'External<T> wrapper was collected while AsyncTask still borrowed it',
+      )
+    } finally {
+      closeBorrowGate(gate)
+    }
+
+    t.is(await guardedPromise, 123)
+    t.is(await gcPromise, 456)
+    // Borrow released after settlement.
+    mutateExternal(heldExt, 999)
+    await collect(gc)
+    t.true(
+      finalized.has(41),
+      'External<T> wrapper was not collected after AsyncTask settled',
+    )
+  },
+)
+
+poolTest(
+  'borrowed &External<T> and Option<&External<T>> stay rooted and guarded in async fn',
+  async (t) => {
+    const gc = await getGc()
+    if (!gc) {
+      t.pass('GC not exposed (run with --expose-gc), skipping test')
+      return
+    }
+
+    const gate = 42
+    openBorrowGate(gate)
+    const finalized = new Set<number>()
+    const registry = new FinalizationRegistry<number>((held) => {
+      finalized.add(held)
+    })
+
+    const heldExt = createExternal(77)
+    const directPromise = readBorrowedExternalAsyncFn(heldExt, gate)
+    const optionalPromise = (() => {
+      const ext = createExternalString('rooted-optional-external')
+      registry.register(ext, 42)
+      return readOptionalExternalAsyncFn(ext, gate)
+    })()
+
+    try {
+      await waitForWaiters(gate, 2)
+      t.throws(() => mutateExternal(heldExt, 88), {
+        code: 'InvalidArg',
+        message:
+          /The same native value cannot be borrowed mutably while another borrow is active/,
+      })
+
+      await collect(gc)
+      t.false(
+        finalized.has(42),
+        'Option<&External<String>> was collected while async fn was pending',
+      )
+    } finally {
+      closeBorrowGate(gate)
+    }
+
+    t.is(await directPromise, 77)
+    t.is(await optionalPromise, 'rooted-optional-external')
+    mutateExternal(heldExt, 88)
+    await collect(gc)
+    t.true(
+      finalized.has(42),
+      'Option<&External<String>> was not collected after async fn settled',
+    )
   },
 )

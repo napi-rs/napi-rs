@@ -339,6 +339,38 @@ export declare class EagerReleaseHolder {
 }
 
 /**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class FailingAsyncGenerator {
+  constructor()
+  get nextCalls(): number
+  get returnCalls(): number
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<FailingAsyncGenerator, number, FallibleGeneratorArg, FallibleGeneratorArg>
+}
+
+/**
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ */
+export declare class FailingGenerator {
+  constructor()
+  get nextCalls(): number
+  get returnCalls(): number
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [FallibleGeneratorArg]): globalThis.IteratorResult<FallibleGeneratorYield, FallibleGeneratorArg | undefined>
+  return(...[value]: [] | [FallibleGeneratorArg]): globalThis.IteratorResult<FallibleGeneratorYield, FallibleGeneratorArg | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<FallibleGeneratorYield, FallibleGeneratorArg | undefined>
+}
+
+export interface FailingGenerator extends globalThis.Omit<globalThis.IteratorObject<FallibleGeneratorYield, FallibleGeneratorArg | undefined, FallibleGeneratorArg>, 'next' | 'return' | 'throw'> {}
+
+/**
  * This type implements JavaScript's iterable iterator protocol.
  * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
@@ -692,6 +724,8 @@ export interface A {
 
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
+export declare function acceptPromiseExternal(p: Promise<ExternalObject<number>>): Promise<number>
+
 export declare function acceptSlice(fixture: Uint8Array): bigint
 
 export declare function acceptStream(stream: ReadableStream<Uint8Array>): Promise<Buffer>
@@ -723,6 +757,26 @@ export interface AliasedStruct {
   a: ALIAS
   b: number
 }
+
+export declare function aliasEitherMutExternal(a: ExternalObject<number> | number, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefAndMut(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefAndRef(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefPair(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasMutMutExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasMutRefExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasOptionalMutExternal(a?: ExternalObject<number> | undefined | null, b?: ExternalObject<number> | undefined | null): number
+
+export declare function aliasRefMutExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasRefRefExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasVecMutExternal(items: Array<ExternalObject<number>>): number
 
 export interface AllOptionalObject {
   name?: string
@@ -1173,11 +1227,15 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
 
+export declare function createClosureReadingExternal(): (arg: unknown) => number
+
 /**
  * Makes a deferred, then fails before the promise is handed out: the early `?` drops the
  * deferred unsettled. Throws, and must not leave a rejection behind.
  */
 export declare function createDeferredThenFail(): void
+
+export declare function createDuplicateExternalRef(size: number): number
 
 export declare function createErrorFromRetainedValue(value: unknown): object
 
@@ -1350,6 +1408,9 @@ export interface DatesWithTimeZone {
 }
 
 export declare function dateToNumber(input: Date): number
+
+/** `deep` is also the root of the `deep.*` namespaces, which are set on this function. */
+export declare function deep(): string
 
 /** This is a const */
 export declare const DEFAULT_COST: number
@@ -1531,6 +1592,8 @@ export declare function enumToI32(e: CustomNumEnum): number
 
 export declare function errorMessageContainsNullByte(msg: string): void
 
+export declare function escapeExternalFromObject(obj: object): number
+
 export declare function esmResolve(next: () => Promise<undefined>): Promise<undefined>
 
 export declare function extendsJavascriptError(errorClass: any): void
@@ -1542,6 +1605,10 @@ export type ExternalLinterLoadPluginCb2 = ((arg: string) => PluginLoadResult)
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
+
+export type FallibleGeneratorArg = string
+
+export type FallibleGeneratorYield = number
 
 export declare function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>
 
@@ -2033,6 +2100,10 @@ export declare function readBorrowedCacheWithReentry(cache: BorrowedCache, cb: (
  */
 export declare function readBorrowedCacheWithSignal(cache: BorrowedCache, gate: number, signal: AbortSignal): Promise<number>
 
+export declare function readBorrowedExternalAsyncFn(ext: ExternalObject<number>, gate: number): Promise<number>
+
+export declare function readBorrowedExternalTask(ext: ExternalObject<number>, gate: number): Promise<number>
+
 /**
  * What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
  * that cancel resolved, or holds the error message when it failed.
@@ -2067,6 +2138,8 @@ export declare function readFile(callback: (arg0: Error | undefined, arg1?: stri
 
 export declare function readFileAsync(path: string): Promise<Buffer>
 
+export declare function readOptionalExternalAsyncFn(ext: ExternalObject<string> | undefined | null, gate: number): Promise<string | null>
+
 export declare function readPackageJson(): PackageJson
 
 /**
@@ -2094,6 +2167,12 @@ export declare function receiveObjectWithClassField(object: ObjectFieldClassInst
 export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
+
+export declare function reenterDuringExternalArgConversion(items: Array<number>, ext: ExternalObject<number>): number
+
+export declare function reenterExternalCallback(ext: ExternalObject<number>, cb: () => void): number
+
+export declare function reenterMutExternalCallback(ext: ExternalObject<number>, cb: () => void): number
 
 /**
  * Fixed gate for the zero-argument nested callback: it takes no arguments, so the
@@ -2390,6 +2469,8 @@ export declare function tsfnCallWithCallback(tsfn: ((err: Error | null) => strin
 
 export declare function tsfnInEither(pet: Pet): void
 
+export declare function tsfnReturnExternal(func: ((err: Error | null, arg: number) => ExternalObject<number>)): Promise<number>
+
 export declare function tsfnReturnPromise(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
 export declare function tsfnReturnPromiseTimeout(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
@@ -2563,6 +2644,31 @@ export declare function withoutAbortController(a: number, b: number): Promise<nu
 
 export declare function xxh64Alias(input: Buffer): bigint
 
+export declare namespace deep.left {
+  export function deepLeft(): string
+  /**
+   * Uses `DeepRight` before it is declared, from another namespace: the d.ts
+   * must name it `deep.right.DeepRight`.
+   */
+  export function deepLeftToRight(value: number): deep.right.DeepRight
+}
+
+export declare namespace deep.left.inner {
+  export const DEEP_DEPTH: number
+}
+
+export declare namespace deep.right {
+  export class DeepRight {
+    constructor(value: number)
+    value(): number
+  }
+}
+
+export declare namespace deep.right.DeepRight {
+  /** Set on the `DeepRight` class, next to its statics. */
+  export function describe(): string
+}
+
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number
   export function xxh3Xxh64Alias(input: Buffer): bigint
@@ -2580,6 +2686,10 @@ export declare namespace xxh3 {
   /** xxh128 function */
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
+}
+
+export declare namespace xxh3.nested {
+  export function xxh3NestedPlus(a: number, b: number): number
 }
 
 export declare class ComplexClass {
