@@ -992,8 +992,11 @@ fn handle_type_path(
     let rust_ty = ident.to_string();
     let args = process_generic_arguments(arguments, &rust_ty);
 
-    // Handle special type cases
-    if rust_ty == "Result" && is_return_ty {
+    // A type parameter in scope (`type List<Item> = Vec<Item>`) is written as
+    // itself, never as a `#[napi]` type of the same Rust name.
+    if path.segments.len() == 1 && arguments.is_none() && is_type_param(&rust_ty) {
+      Some((rust_ty.clone(), false))
+    } else if rust_ty == "Result" && is_return_ty {
       Some(args.first().unwrap().to_owned())
     } else if rust_ty == "Option" {
       handle_option_type(&args, is_struct_field, is_return_ty)
@@ -1594,12 +1597,25 @@ mod tests {
     // own parameter, not a `#[napi]` type `Item` declared before or after it.
     add_alias("TpSeen".to_owned(), "TpSeen".to_owned(), None);
     add_alias("TpOther".to_owned(), "Other".to_owned(), None);
+    // Registered under other JS names, so a substitution would show.
+    add_alias(
+      "TpRenamed".to_owned(),
+      "JsRenamed".to_owned(),
+      Some("models"),
+    );
     crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
       classes.borrow_mut().insert(
         "TpClass".to_owned(),
         crate::typegen::r#struct::ClassStructRef {
           js_name: "TpClass".to_owned(),
           js_mod: None,
+        },
+      );
+      classes.borrow_mut().insert(
+        "TpMoved".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "Moved".to_owned(),
+          js_mod: Some("models".to_owned()),
         },
       );
     });
@@ -1628,6 +1644,28 @@ mod tests {
       }
     );
 
+    // A parameter named like a `#[napi]` type with another JS name or
+    // namespace stays bare, not `models.JsRenamed` / `models.Moved`.
+    let shadowing = crate::Napi {
+      item: crate::NapiItem::Type(crate::NapiType {
+        name: syn::Ident::new("TpShadow", proc_macro2::Span::call_site()),
+        js_name: "TpShadow".to_owned(),
+        type_params: vec!["TpRenamed".to_owned(), "TpMoved".to_owned()],
+        value: syn::parse_str("(Vec<TpRenamed>, Option<TpMoved>)").expect("type must parse"),
+        register_name: syn::Ident::new("TpShadow", proc_macro2::Span::call_site()),
+        skip_typescript: false,
+        js_mod: Some("ns".to_owned()),
+        comments: vec![],
+      }),
+    }
+    .to_type_def()
+    .expect("type def");
+    assert_eq!(
+      shadowing.def,
+      "[Array<TpRenamed>, TpMoved | undefined | null]"
+    );
+    assert_eq!(shadowing.type_refs, TypeRefs::default());
+
     // Without the parameters in scope, the same names are references.
     let type_def = napi_type(&[]).to_type_def().expect("type def");
     assert_eq!(
@@ -1644,8 +1682,14 @@ mod tests {
       aliases.remove("TpSeen");
       aliases.remove("TpOther");
       aliases.remove("TpList");
+      aliases.remove("TpRenamed");
+      aliases.remove("TpShadow");
     });
-    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| classes.borrow_mut().remove("TpClass"));
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      let mut classes = classes.borrow_mut();
+      classes.remove("TpClass");
+      classes.remove("TpMoved");
+    });
   }
 
   #[test]

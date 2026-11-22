@@ -895,16 +895,17 @@ function resolveNapiTypeReferences(
     const text = entityNameText(typeScript, entityName)
     let path = refs.root.has(text) ? text : undefined
     const unresolvedPath = refs.unresolved.get(text)
-    // A Rust name that does not resolve where it is written is rewritten,
-    // even when hand-written text spells it too: as written it names nothing.
-    // A Rust name that is also the type's root path gets the shadowing check
-    // below, unless hand-written text spells it (and may mean what it
-    // resolves to). Any other Rust name that already resolves (to the
-    // `export type JsName = Name` a renamed class gets, or to a same-namespace
-    // type) is left as it is.
+    // A name that hand-written text of this declaration spells is left as
+    // written: it may mean a type this checker cannot see (a DOM `Request`
+    // under `noLib`). Otherwise a Rust name that does not resolve where it is
+    // written is rewritten, and one that is also the type's root path gets
+    // the shadowing check below. Any other Rust name that already resolves (to
+    // the `export type JsName = Name` a renamed class gets, or to a
+    // same-namespace type) is left as it is.
     if (
       unresolvedPath !== undefined &&
-      ((unresolvedPath === text && !refs.overrides.has(text)) ||
+      !refs.overrides.has(text) &&
+      (unresolvedPath === text ||
         checker.resolveName(
           text,
           entityName,
@@ -929,10 +930,14 @@ function resolveNapiTypeReferences(
     if (checker.resolveName(first, entityName, meaning, false) !== fromRoot) {
       // An alias of a type whose parameters it cannot see (an import in the
       // header) would not take the reference's type arguments.
+      // Nor can an alias copy a type parameter named like its target
+      // (`type Wrap<Wrap> = ...`): the copy would hide the target.
+      const typeParameters = rest.length
+        ? undefined
+        : typeParametersOf(fromRoot)
       if (
-        !rest.length &&
-        reference.typeArguments?.length &&
-        !typeParametersOf(fromRoot)
+        (!rest.length && reference.typeArguments?.length && !typeParameters) ||
+        typeParameters?.some((parameter) => parameter.name.text === first)
       ) {
         return
       }

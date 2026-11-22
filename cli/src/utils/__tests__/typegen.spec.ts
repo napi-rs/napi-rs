@@ -498,48 +498,61 @@ test("a later type's Rust name that already resolves to another type is left as 
   t.false(dts.includes('__NapiRsRoot'))
 })
 
-test("hand-written text spelling a later type's Rust name that resolves nowhere gets its JS path", async (t) => {
-  // napi-rs/napi-rs#3476 review: `#[napi(ts_args_type = "o: Options")]` next
-  // to a return of the later `opts::Options`. Where `Options` names nothing,
-  // the text is an error as written; where it resolves, it is left.
+test("hand-written text spelling a later type's Rust name is left as written even where it resolves nowhere", async (t) => {
+  // napi-rs/napi-rs#3735 review: `#[napi(ts_args_type = "req: Request")]` may
+  // mean a type this checker cannot see (DOM `Request` under `noLib`), so the
+  // whole declaration keeps that spelling, as before cross-namespace fixes.
   const { dts } = await processInlineTypeDef([
     {
-      kind: 'interface',
-      name: 'Options',
-      original_name: 'Api2Options',
-      def: 'y: number',
-      js_mod: 'api2',
-    },
-    {
       kind: 'fn',
-      name: 'configure',
-      def: 'function configure(o: Options): Options',
+      name: 'handle',
+      def: 'function handle(req: Request): Request',
       js_mod: 'api',
-      unresolved_refs: ['Options'],
-      ts_override_names: ['o', 'Options'],
-    },
-    {
-      kind: 'fn',
-      name: 'configure',
-      def: 'function configure(o: Options): Options',
-      js_mod: 'api2',
-      unresolved_refs: ['Options'],
-      ts_override_names: ['o', 'Options'],
+      unresolved_refs: ['Request'],
+      ts_override_names: ['req', 'Request'],
     },
     {
       kind: 'interface',
-      name: 'Options',
-      original_name: 'Options',
+      name: 'Request',
+      original_name: 'Request',
       def: 'x: number',
-      js_mod: 'opts',
+      js_mod: 'models',
     },
   ])
   t.true(
     dts.includes(
-      'export declare namespace api {\n  export function configure(o: opts.Options): opts.Options\n',
+      'export declare namespace api {\n  export function handle(req: Request): Request\n',
     ),
   )
-  t.true(dts.includes('  export function configure(o: Options): Options\n'))
+  t.false(dts.includes('models.Request): '))
+})
+
+test('a root alias is not made when a type parameter has the name of its target', async (t) => {
+  // `#[napi] type Wrap<Wrap> = ...`: a copied `<Wrap>` would hide the target.
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'type',
+      name: 'Wrap<Wrap>',
+      original_name: 'Wrap',
+      def: '[Wrap]',
+    },
+    {
+      kind: 'interface',
+      name: 'Wrap',
+      original_name: 'SWrap',
+      def: 'v: number',
+      js_mod: 's',
+    },
+    {
+      kind: 'fn',
+      name: 'useWrap',
+      def: 'function useWrap(v: Wrap<number>): number',
+      js_mod: 's',
+      root_refs: ['Wrap'],
+    },
+  ])
+  t.true(dts.includes('export function useWrap(v: Wrap<number>): number'))
+  t.false(dts.includes('__NapiRsRoot_Wrap'))
 })
 
 test("hand-written text spelling a later top-level type's Rust name that resolves where it is used is left as written", async (t) => {
